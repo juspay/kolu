@@ -11,17 +11,17 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit",
-    "test:unit": "vitest run"
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@pierre/diffs": "^1.1.19",
     "kolu-common": "workspace:*",
     "kolu-transcript-core": "workspace:*",
+    "marked": "^18.0.2",
     "ts-pattern": "^5.9.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
-    "typescript": "^5.8.0",
-    "vitest": "^4.1.2"
+    "typescript": "^5.8.0"
   }
 }

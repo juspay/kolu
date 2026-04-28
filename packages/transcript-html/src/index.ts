@@ -18,7 +18,16 @@ import {
   type Transcript,
   type TranscriptEvent,
 } from "kolu-transcript-core";
+import { Marked, type Tokens } from "marked";
 import { match } from "ts-pattern";
+
+import {
+  buildPierreBootstrap,
+  renderCodeBlock,
+  renderEdit,
+  renderPatch,
+  renderWrite,
+} from "./pierre.ts";
 
 const AGENT_LABEL: Record<Transcript["agentKind"], string> = {
   "claude-code": "Claude Code",
@@ -50,297 +59,100 @@ const THEME_DOCK_ICON =
 const KOLU_LOGO =
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="18" height="18" aria-hidden="true"><rect x="1" y="26" width="30" height="5" rx="1.2" fill="#ef4444"/><rect x="4" y="20" width="25" height="5" rx="1.2" fill="#f59e0b"/><rect x="8" y="14" width="20" height="5" rx="1.2" fill="#22c55e"/><rect x="12" y="8" width="15" height="5" rx="1.2" fill="#3b82f6"/><rect x="16" y="2" width="10" height="5" rx="1.2" fill="#a855f7"/></svg>';
 
-/** Apply inline markdown formatting (bold, italic, inline code, links)
- *  to a string that has already been HTML-escaped. Order matters:
- *  inline code first so its content isn't mangled by emphasis, links
- *  next so their text content can carry emphasis. */
-function applyInline(s: string): string {
-  return s
-    .replace(/`([^`\n]+)`/g, "<code>$1</code>")
-    .replace(
-      /\[([^\]\n]+)\]\(([^)\n\s]+)\)/g,
-      '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>',
-    )
-    .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>")
-    .replace(/\*([^*\n]+)\*/g, "<em>$1</em>");
+/** Markdown engine: `marked` for parsing + a custom renderer that
+ *  emits the document's existing `.md-*` class hooks (so the
+ *  hand-tuned prose CSS in `STYLE` keeps working) and routes fenced
+ *  code blocks through Pierre via `walkTokens`.
+ *
+ *  Marked's async mode lets `walkTokens` be async — we mutate the
+ *  fenced-code token to carry a `pierreHtml` field, and the
+ *  synchronous `code` renderer just returns that field verbatim.
+ *  This is the canonical async-renderer pattern in marked v18; the
+ *  alternative (returning a Promise from a renderer) is not
+ *  supported.
+ *
+ *  Headings shift down by two so a single `#` in agent prose becomes
+ *  `h3` — `h1`/`h2` are reserved for the document chrome
+ *  (transcript title + sectioning). */
+
+interface PierreCodeToken extends Tokens.Code {
+  pierreHtml?: string;
 }
 
-interface ListMarker {
-  match: RegExp;
-  tag: "ul" | "ol";
-  cls: string;
-}
-
-/** Detect the start of a markdown list at this line. The capture group
- *  is the inline content after the marker, ready for `applyInline`. */
-function detectListMarker(line: string): ListMarker | null {
-  if (/^\s*[-*+]\s+/.test(line)) {
-    return {
-      match: /^\s*[-*+]\s+(.*)$/,
-      tag: "ul",
-      cls: "md-list",
-    };
-  }
-  if (/^\s*\d+\.\s+/.test(line)) {
-    return {
-      match: /^\s*\d+\.\s+(.*)$/,
-      tag: "ol",
-      cls: "md-list md-list--ordered",
-    };
-  }
-  return null;
-}
-
-/** Render the buffered content of a single list item. Blank entries in
- *  `buf` mark paragraph breaks within the item; one paragraph collapses
- *  to inline content (no wrapper), multiple paragraphs each get a
- *  `<p>`. */
-/** Parse a GitHub-flavored markdown table starting at `lines[start]`.
- *  A table is a header row (a `|`-delimited line) followed immediately
- *  by a separator row (cells of `---`, `:---`, `:---:`, `---:`). Returns
- *  null when the two-line shape isn't present. Cell content is escaped
- *  HTML (the caller has already escaped) and runs through inline
- *  formatting. */
-function parseTable(
-  lines: string[],
-  start: number,
-): { html: string; next: number } | null {
-  const header = lines[start] ?? "";
-  const sep = lines[start + 1] ?? "";
-  if (!isTableLine(header) || !isTableSeparator(sep)) return null;
-  const aligns = parseTableAlignments(sep);
-  const headerCells = splitTableCells(header);
-  const bodyRows: string[][] = [];
-  let i = start + 2;
-  while (i < lines.length && isTableLine(lines[i] ?? "")) {
-    bodyRows.push(splitTableCells(lines[i] ?? ""));
-    i++;
-  }
-  const align = (idx: number): string => {
-    const a = aligns[idx];
-    return a ? ` style="text-align:${a}"` : "";
-  };
-  const headHtml = headerCells
-    .map((c, idx) => `<th${align(idx)}>${applyInline(c)}</th>`)
-    .join("");
-  const bodyHtml = bodyRows
-    .map(
-      (row) =>
-        `<tr>${row.map((c, idx) => `<td${align(idx)}>${applyInline(c)}</td>`).join("")}</tr>`,
-    )
-    .join("");
-  return {
-    html: `<div class="md-table-wrap"><table class="md-table"><thead><tr>${headHtml}</tr></thead><tbody>${bodyHtml}</tbody></table></div>`,
-    next: i,
-  };
-}
-
-function isTableLine(line: string): boolean {
-  const trimmed = line.trim();
-  return trimmed.startsWith("|") && trimmed.includes("|", 1);
-}
-
-function isTableSeparator(line: string): boolean {
-  const trimmed = line.trim();
-  if (
-    !trimmed.startsWith("|") &&
-    !trimmed.startsWith(":") &&
-    !trimmed.startsWith("-")
-  )
-    return false;
-  // Each cell is `:?-{3,}:?` (with surrounding whitespace).
-  return /^\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(trimmed);
-}
-
-function parseTableAlignments(
-  sep: string,
-): Array<"left" | "right" | "center" | null> {
-  return splitTableCells(sep).map((cell) => {
-    const t = cell.trim();
-    const left = t.startsWith(":");
-    const right = t.endsWith(":");
-    if (left && right) return "center";
-    if (right) return "right";
-    if (left) return "left";
-    return null;
-  });
-}
-
-function splitTableCells(line: string): string[] {
-  const trimmed = line.trim().replace(/^\|/, "").replace(/\|$/, "");
-  return trimmed.split("|").map((c) => c.trim());
-}
-
-function renderListItem(buf: string[]): string {
-  const paras: string[][] = [[]];
-  for (const ln of buf) {
-    if (ln === "") paras.push([]);
-    else (paras[paras.length - 1] ?? []).push(ln);
-  }
-  const nonEmpty = paras.filter((p) => p.length > 0);
-  if (nonEmpty.length <= 1) {
-    return applyInline((nonEmpty[0] ?? []).join(" "));
-  }
-  return nonEmpty.map((p) => `<p>${applyInline(p.join(" "))}</p>`).join("");
-}
-
-/** Render a markdown subset to HTML. Headings (h1–h3), fenced code,
- *  ordered/unordered lists, blockquotes, horizontal rules, and inline
- *  formatting. Operates on already-escaped text — `<` is `&lt;` and
- *  `>` is `&gt;`, so block detection looks for the escaped forms.
- *  Anything not matched falls through as plain paragraph text. */
-export function renderMarkdown(text: string): string {
-  const escaped = escapeHtml(text);
-  const lines = escaped.split("\n");
-  const out: string[] = [];
-  let para: string[] = [];
-  const flushPara = () => {
-    if (para.length === 0) return;
-    out.push(`<p>${applyInline(para.join(" "))}</p>`);
-    para = [];
-  };
-  let i = 0;
-  while (i < lines.length) {
-    const line = lines[i] ?? "";
-
-    // Fenced code block — preserve content verbatim.
-    const fence = /^```(\w*)\s*$/.exec(line);
-    if (fence) {
-      flushPara();
-      const lang = fence[1] ?? "";
-      i++;
-      const buf: string[] = [];
-      while (i < lines.length && !/^```\s*$/.test(lines[i] ?? "")) {
-        buf.push(lines[i] ?? "");
-        i++;
-      }
-      i++; // closing fence
-      const langAttr = lang ? ` data-lang="${lang}"` : "";
-      out.push(
-        `<pre class="md-code"${langAttr}><code>${buf.join("\n")}</code></pre>`,
-      );
-      continue;
+const md = new Marked({
+  gfm: true,
+  async: true,
+  walkTokens: async (token) => {
+    if (token.type === "code") {
+      const t = token as PierreCodeToken;
+      t.pierreHtml = await renderCodeBlock(t.text, t.lang);
     }
+  },
+  renderer: {
+    code(token) {
+      const t = token as PierreCodeToken;
+      if (typeof t.pierreHtml === "string") return t.pierreHtml;
+      // Fallback only fires if walkTokens was bypassed — keep it safe.
+      return `<pre class="md-code"><code>${escapeHtml(t.text)}</code></pre>`;
+    },
+    heading(token) {
+      const text = this.parser.parseInline(token.tokens);
+      const level = Math.min(token.depth + 2, 6);
+      return `<h${level} class="md-h">${text}</h${level}>`;
+    },
+    list(token) {
+      const tag = token.ordered ? "ol" : "ul";
+      const cls = token.ordered ? "md-list md-list--ordered" : "md-list";
+      const start =
+        token.ordered && token.start !== 1 ? ` start="${token.start}"` : "";
+      const body = token.items.map((item) => this.listitem(item)).join("");
+      return `<${tag} class="${cls}"${start}>${body}</${tag}>`;
+    },
+    blockquote(token) {
+      const body = this.parser.parse(token.tokens);
+      return `<blockquote class="md-quote">${body}</blockquote>`;
+    },
+    hr() {
+      return `<hr class="md-hr" />`;
+    },
+    table(token) {
+      const align = (idx: number): string => {
+        const a = token.align[idx];
+        return a ? ` style="text-align:${a}"` : "";
+      };
+      const head = token.header
+        .map(
+          (cell, idx) =>
+            `<th${align(idx)}>${this.parser.parseInline(cell.tokens)}</th>`,
+        )
+        .join("");
+      const body = token.rows
+        .map(
+          (row) =>
+            `<tr>${row
+              .map(
+                (cell, idx) =>
+                  `<td${align(idx)}>${this.parser.parseInline(cell.tokens)}</td>`,
+              )
+              .join("")}</tr>`,
+        )
+        .join("");
+      return `<div class="md-table-wrap"><table class="md-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
+    },
+    link(token) {
+      const text = this.parser.parseInline(token.tokens);
+      const titleAttr = token.title
+        ? ` title="${escapeHtml(token.title)}"`
+        : "";
+      return `<a href="${escapeHtml(token.href)}"${titleAttr} target="_blank" rel="noopener noreferrer">${text}</a>`;
+    },
+  },
+});
 
-    // Headings — level + 2 so a single `#` becomes h3 (h1/h2 are reserved
-    // for the document chrome).
-    const heading = /^(#{1,3})\s+(.+)$/.exec(line);
-    if (heading) {
-      flushPara();
-      const level = (heading[1] ?? "").length + 2;
-      out.push(
-        `<h${level} class="md-h">${applyInline(heading[2] ?? "")}</h${level}>`,
-      );
-      i++;
-      continue;
-    }
-
-    // GFM table — header row + separator row, then any number of body
-    // rows. Detected before the horizontal-rule branch since a separator
-    // line in isolation would otherwise look like an `---` rule.
-    {
-      const table = parseTable(lines, i);
-      if (table) {
-        flushPara();
-        out.push(table.html);
-        i = table.next;
-        continue;
-      }
-    }
-
-    // Horizontal rule.
-    if (/^-{3,}\s*$/.test(line) || /^\*{3,}\s*$/.test(line)) {
-      flushPara();
-      out.push(`<hr class="md-hr" />`);
-      i++;
-      continue;
-    }
-
-    // Blockquote — `>` was escaped to `&gt;`.
-    if (line.startsWith("&gt; ") || line === "&gt;") {
-      flushPara();
-      const buf: string[] = [];
-      while (
-        i < lines.length &&
-        ((lines[i] ?? "").startsWith("&gt; ") || lines[i] === "&gt;")
-      ) {
-        buf.push((lines[i] ?? "").replace(/^&gt;\s?/, ""));
-        i++;
-      }
-      out.push(
-        `<blockquote class="md-quote">${applyInline(buf.join(" "))}</blockquote>`,
-      );
-      continue;
-    }
-
-    // Bullet / ordered list. Each item absorbs subsequent indented
-    // continuation lines (and blank lines between them) so multi-
-    // paragraph items render as one cohesive `<li>` instead of breaking
-    // into separate `<ul>` blocks at every blank line.
-    {
-      const bulletKind = detectListMarker(line);
-      if (bulletKind) {
-        flushPara();
-        const items: string[] = [];
-        while (i < lines.length) {
-          const cur = lines[i] ?? "";
-          const m = bulletKind.match.exec(cur);
-          if (!m) break;
-          const buf: string[] = [m[1] ?? ""];
-          i++;
-          // Pull in continuation lines: indented (≥1 space) lines, plus
-          // blank lines whose next non-blank is also indented. Stops at
-          // the next bullet marker or any non-indented non-blank line.
-          while (i < lines.length) {
-            const peek = lines[i] ?? "";
-            if (detectListMarker(peek)) break;
-            if (peek.trim() === "") {
-              let j = i + 1;
-              while (j < lines.length && (lines[j] ?? "").trim() === "") j++;
-              if (j >= lines.length) break;
-              const next = lines[j] ?? "";
-              if (detectListMarker(next)) {
-                // Blank lines between sibling bullets — skip past them
-                // so the outer loop picks up the next bullet.
-                i = j;
-                break;
-              }
-              if (/^\s+\S/.test(next)) {
-                buf.push("");
-                i = j;
-                continue;
-              }
-              break;
-            }
-            if (/^\s+\S/.test(peek)) {
-              buf.push(peek.replace(/^\s+/, ""));
-              i++;
-              continue;
-            }
-            break;
-          }
-          items.push(`<li>${renderListItem(buf)}</li>`);
-        }
-        out.push(
-          `<${bulletKind.tag} class="${bulletKind.cls}">${items.join("")}</${bulletKind.tag}>`,
-        );
-        continue;
-      }
-    }
-
-    // Blank line breaks paragraphs.
-    if (line.trim() === "") {
-      flushPara();
-      i++;
-      continue;
-    }
-
-    // Default — accumulate into the current paragraph.
-    para.push(line);
-    i++;
-  }
-  flushPara();
-  return out.join("\n");
+/** Render a markdown string to HTML through marked + Pierre code
+ *  blocks. Async because Pierre's SSR is async. */
+async function renderMarkdown(text: string): Promise<string> {
+  return await md.parse(text);
 }
 
 /** Truncate a string to `max` chars with an ellipsis, leaving short
@@ -390,155 +202,50 @@ function toolSummary(input: ToolInput): string | null {
   }
 }
 
-/** Render an Edit-style diff (one old chunk → one new chunk) at line
- *  granularity. Strips common leading/trailing lines so the change is
- *  obvious; everything in between is rendered as `-` removed and `+`
- *  added. Naive but adequate for the small chunks Edit tools carry. */
-function renderEditDiff(
-  filePath: string,
-  oldText: string,
-  newText: string,
-): string {
-  const oldLines = oldText.split("\n");
-  const newLines = newText.split("\n");
-  let head = 0;
-  while (
-    head < oldLines.length &&
-    head < newLines.length &&
-    oldLines[head] === newLines[head]
-  )
-    head++;
-  let tailOld = oldLines.length;
-  let tailNew = newLines.length;
-  while (
-    tailOld > head &&
-    tailNew > head &&
-    oldLines[tailOld - 1] === newLines[tailNew - 1]
-  ) {
-    tailOld--;
-    tailNew--;
-  }
-  const ctx: string[] = [];
-  if (head > 0)
-    ctx.push(
-      `<span class="diff-line diff-ctx">  ${escapeHtml(oldLines[head - 1] ?? "")}</span>`,
-    );
-  for (let i = head; i < tailOld; i++) {
-    ctx.push(
-      `<span class="diff-line diff-del">- ${escapeHtml(oldLines[i] ?? "")}</span>`,
-    );
-  }
-  for (let i = head; i < tailNew; i++) {
-    ctx.push(
-      `<span class="diff-line diff-add">+ ${escapeHtml(newLines[i] ?? "")}</span>`,
-    );
-  }
-  if (tailOld < oldLines.length) {
-    ctx.push(
-      `<span class="diff-line diff-ctx">  ${escapeHtml(oldLines[tailOld] ?? "")}</span>`,
-    );
-  }
-  // Concatenate without newlines: each span is `display:block`, so a
-  // literal newline inside the surrounding `<pre>` would double-space
-  // every row.
-  return wrapDiffCollapsible(
-    `<div class="diff-file">${escapeHtml(filePath)}</div>`,
-    ctx.join(""),
-    ctx.length,
-  );
-}
+/** Threshold above which a prose message renders collapsed by default
+ *  with a "Show all N lines" toggle. Picked so a typical reply renders
+ *  fully but a giant slash-command body or essay-length answer doesn't
+ *  dominate the page. Code-bearing surfaces (edits, writes, patches)
+ *  are owned by Pierre now and use Pierre's own viewport controls. */
+const MSG_COLLAPSE_THRESHOLD = 20;
 
-/** Render a Write tool call: a brand-new file with all content as
- *  added lines. */
-function renderWriteDiff(filePath: string, content: string): string {
-  const lines = content.split("\n");
-  const body = lines
-    .map((l) => `<span class="diff-line diff-add">+ ${escapeHtml(l)}</span>`)
-    .join("");
-  return wrapDiffCollapsible(
-    `<div class="diff-file">${escapeHtml(filePath)} <span class="diff-tag">new</span></div>`,
-    body,
-    lines.length,
-  );
-}
-
-/** Render a Codex `apply_patch` payload (already in unified-diff-ish
- *  form) by line-coloring `+`/`-`/`***`. */
-function renderApplyPatch(patch: string): string {
-  const lines = patch.split("\n");
-  const body = lines
-    .map((l) => {
-      const cls = l.startsWith("+")
-        ? "diff-add"
-        : l.startsWith("-")
-          ? "diff-del"
-          : l.startsWith("***") || l.startsWith("@@")
-            ? "diff-hunk"
-            : "diff-ctx";
-      return `<span class="diff-line ${cls}">${escapeHtml(l)}</span>`;
-    })
-    .join("");
-  return wrapDiffCollapsible("", body, lines.length);
-}
-
-/** Threshold above which a body renders collapsed by default with a
- *  "Show all N lines" toggle. Picked so a typical Edit (a handful of
- *  lines) renders fully, but a Write of a 200-line file collapses to
- *  a previewable height. The same threshold applies to user/assistant
- *  prose so a giant slash-command body or essay-length reply doesn't
- *  dominate the page. */
-const DIFF_COLLAPSE_THRESHOLD = 20;
-
-/** Wrap a diff body in chrome and, if it exceeds the line threshold,
- *  mark it collapsed with a clickable expand toggle. The inline
- *  `<script>` at the end of the document wires the button. */
-function wrapDiffCollapsible(
-  fileHeader: string,
-  body: string,
-  lineCount: number,
-): string {
-  if (lineCount <= DIFF_COLLAPSE_THRESHOLD) {
-    return `<div class="diff">${fileHeader}<pre class="diff-body">${body}</pre></div>`;
-  }
-  return `<div class="diff is-collapsed" data-line-count="${lineCount}">${fileHeader}<pre class="diff-body">${body}</pre><button type="button" class="diff-toggle" aria-expanded="false"><span data-toggle-label>Show all ${lineCount} lines</span></button></div>`;
-}
-
-/** Wrap a rendered message body (user pre, assistant markdown, etc.) so
- *  long content collapses to a scannable preview with a "Show all N
- *  lines" toggle. Counts source-text newlines — for markdown this is a
+/** Wrap a rendered message body (user pre, assistant markdown) so long
+ *  content collapses to a scannable preview with a "Show all N lines"
+ *  toggle. Counts source-text newlines — for markdown this is a
  *  reasonable proxy for rendered height since paragraphs/lists already
  *  carry their separating blank lines in source. Below threshold the
  *  body is returned unwrapped so short messages don't grow chrome. */
 function wrapMessageCollapsible(body: string, sourceText: string): string {
   const lineCount = sourceText.split("\n").length;
-  if (lineCount <= DIFF_COLLAPSE_THRESHOLD) return body;
+  if (lineCount <= MSG_COLLAPSE_THRESHOLD) return body;
   return `<div class="msg-collapsible is-collapsed" data-line-count="${lineCount}">${body}<button type="button" class="msg-toggle" aria-expanded="false"><span data-toggle-label>Show all ${lineCount} lines</span></button></div>`;
 }
 
-/** Render the inputs of an edit-class tool call (kind: edit | write |
- *  patch). The other kinds fall through the renderer's tool_call branch
- *  to a collapsed-row layout. */
-function renderEditToolHtml(input: ToolInput): string {
-  if (input.kind === "edit") {
-    return input.edits
-      .map((e) => renderEditDiff(input.filePath, e.oldText, e.newText))
-      .join("");
-  }
-  if (input.kind === "write")
-    return renderWriteDiff(input.filePath, input.content);
-  if (input.kind === "patch") return renderApplyPatch(input.text);
-  // Non-edit kinds shouldn't reach here — caller dispatches on
-  // isEditClass first. Fall through to a JSON dump as a safety net.
-  return `<pre class="card-text card-text--code">${escapeHtml(prettyJson(input))}</pre>`;
-}
-
-/** Edit-class kinds render inline as diffs and stay visible even when
- *  the global "Hide tools" toggle is on — the diff IS the conversation
- *  content, not an exec-output side-channel. */
+/** Edit-class kinds (edit | write | patch) render inline as Pierre
+ *  diffs and stay visible even when "Hide tools" is on — the diff IS
+ *  the conversation content, not an exec-output side-channel. */
 function isEditClass(input: ToolInput): boolean {
   return (
     input.kind === "edit" || input.kind === "write" || input.kind === "patch"
   );
+}
+
+/** Render the inputs of an edit-class tool call (edit | write | patch)
+ *  through Pierre's SSR adapters. Each chunk comes back as a
+ *  prerendered `<diffs-container>` with shiki-tokenized lines. */
+async function renderEditToolHtml(input: ToolInput): Promise<string> {
+  if (input.kind === "edit") {
+    const chunks = await Promise.all(
+      input.edits.map((e) => renderEdit(input.filePath, e.oldText, e.newText)),
+    );
+    return chunks.join("");
+  }
+  if (input.kind === "write")
+    return await renderWrite(input.filePath, input.content);
+  if (input.kind === "patch") return await renderPatch(input.text);
+  // Non-edit kinds shouldn't reach here — caller dispatches on
+  // isEditClass first. Fall through to a JSON dump as a safety net.
+  return `<pre class="card-text card-text--code">${escapeHtml(prettyJson(input))}</pre>`;
 }
 
 /** JSON-stringify with a 2-space indent. Falls back to the empty string
@@ -581,11 +288,11 @@ function formatTokens(n: number): string {
   }
 }
 
-function renderEvent(
+async function renderEvent(
   event: TranscriptEvent,
   index: number,
   subtaskDepth: number,
-): string {
+): Promise<string> {
   const ts = formatTimestamp(event.ts);
   const tsHtml = ts ? `<time class="ts">${escapeHtml(ts)}</time>` : "";
   // Inline custom property the CSS picks up for left-padding. Set only
@@ -594,8 +301,8 @@ function renderEvent(
   // child subagent reads visually inside its parent.
   const depthAttr =
     subtaskDepth > 0 ? ` style="--subtask-depth: ${subtaskDepth}"` : "";
-  return match(event)
-    .with({ kind: "user" }, (e) => {
+  return await match(event)
+    .with({ kind: "user" }, async (e) => {
       return `<section class="event event--user" data-role="user" data-prompt-index="${index}"${depthAttr}>
   <div class="gutter">
     <span class="gutter-icon" aria-label="User">${USER_ICON}</span>
@@ -610,10 +317,11 @@ function renderEvent(
   </div>
 </section>`;
     })
-    .with({ kind: "assistant" }, (e) => {
+    .with({ kind: "assistant" }, async (e) => {
       const model = e.model
         ? `<span class="card-model">${escapeHtml(e.model)}</span>`
         : "";
+      const body = await renderMarkdown(e.text);
       return `<section class="event event--assistant"${depthAttr}>
   <div class="gutter">
     <span class="gutter-icon" aria-label="Assistant">${ASSISTANT_ICON}</span>
@@ -624,11 +332,12 @@ function renderEvent(
       ${model}
       ${tsHtml}
     </header>
-    ${wrapMessageCollapsible(`<div class="card-text card-text--assistant md">${renderMarkdown(e.text)}</div>`, e.text)}
+    ${wrapMessageCollapsible(`<div class="card-text card-text--assistant md">${body}</div>`, e.text)}
   </div>
 </section>`;
     })
-    .with({ kind: "reasoning" }, (e) => {
+    .with({ kind: "reasoning" }, async (e) => {
+      const body = await renderMarkdown(e.text);
       return `<section class="event event--reasoning"${depthAttr}>
   <div class="gutter">
     <span class="gutter-icon" aria-label="Reasoning">${REASONING_ICON}</span>
@@ -636,16 +345,17 @@ function renderEvent(
   <div class="card">
     <details>
       <summary><span class="card-role">Reasoning</span>${tsHtml}</summary>
-      <div class="card-text card-text--reasoning md">${renderMarkdown(e.text)}</div>
+      <div class="card-text card-text--reasoning md">${body}</div>
     </details>
   </div>
 </section>`;
     })
-    .with({ kind: "tool_call" }, (e) => {
-      // Edit-class kinds (edit/write/patch) render inline as diffs and
-      // stay visible even when "Hide tools" is on — the diff IS the
-      // conversation content, not exec output.
+    .with({ kind: "tool_call" }, async (e) => {
+      // Edit-class kinds (edit/write/patch) render inline as Pierre
+      // diffs and stay visible even when "Hide tools" is on — the diff
+      // IS the conversation content, not exec output.
       if (isEditClass(e.inputs)) {
+        const body = await renderEditToolHtml(e.inputs);
         return `<section class="event event--edit" data-call-id="${escapeHtml(e.id ?? "")}"${depthAttr}>
   <div class="gutter">
     <span class="gutter-icon" aria-label="Edit">${TOOL_ICON}</span>
@@ -656,7 +366,7 @@ function renderEvent(
       <span class="tool-name">${escapeHtml(e.toolName)}</span>
       ${tsHtml}
     </header>
-    ${renderEditToolHtml(e.inputs)}
+    ${body}
   </div>
 </section>`;
       }
@@ -682,7 +392,7 @@ function renderEvent(
   </div>
 </section>`;
     })
-    .with({ kind: "tool_result" }, (e) => {
+    .with({ kind: "tool_result" }, async (e) => {
       const output = prettyJson(e.output);
       const errCls = e.isError ? " event--error" : "";
       const errLabel = e.isError ? " (error)" : "";
@@ -701,7 +411,7 @@ function renderEvent(
   </div>
 </section>`;
     })
-    .with({ kind: "subtask_start" }, (e) => {
+    .with({ kind: "subtask_start" }, async (e) => {
       const agentLabel = e.agentName
         ? `<span class="subtask-agent">@${escapeHtml(e.agentName)}</span>`
         : "";
@@ -720,7 +430,7 @@ function renderEvent(
   <span class="subtask-rule"></span>
 </div>`;
     })
-    .with({ kind: "subtask_end" }, () => {
+    .with({ kind: "subtask_end" }, async () => {
       return `<div class="subtask-boundary subtask-boundary--end"${depthAttr}>
   <span class="subtask-rule"></span>
   <span class="subtask-label subtask-label--end">End subtask</span>
@@ -755,6 +465,7 @@ function countEvents(events: TranscriptEvent[]): {
  *  family rather than seven primaries.  */
 const STYLE = `
   :root {
+    color-scheme: dark;
     --bg: #0F0E0B;
     --bg-elev: #16140F;
     --bg-sunk: #0A0907;
@@ -772,6 +483,7 @@ const STYLE = `
   }
   @media (prefers-color-scheme: light) {
     :root {
+      color-scheme: light;
       --bg: #FBF7EE;
       --bg-elev: #F2EBD9;
       --bg-sunk: #F6F0E0;
@@ -789,6 +501,7 @@ const STYLE = `
     }
   }
   :root[data-theme="dark"] {
+    color-scheme: dark;
     --bg: #0F0E0B;
     --bg-elev: #16140F;
     --bg-sunk: #0A0907;
@@ -805,6 +518,7 @@ const STYLE = `
     --error: #DC6260;
   }
   :root[data-theme="light"] {
+    color-scheme: light;
     --bg: #FBF7EE;
     --bg-elev: #F2EBD9;
     --bg-sunk: #F6F0E0;
@@ -819,6 +533,14 @@ const STYLE = `
     --reasoning: #5B6A78;
     --tool: #8E6418;
     --error: #9B2828;
+  }
+  /* Pierre's :host sets color-scheme: light dark inside its shadow,
+   * which makes light-dark() resolve to the system preference. We
+   * override with !important from the host side so the document's
+   * theme choice (above) wins, and Pierre's tokens flip with the
+   * dock toggle. */
+  diffs-container[data-pierre] {
+    color-scheme: inherit !important;
   }
 
   * { box-sizing: border-box; }
@@ -837,30 +559,22 @@ const STYLE = `
   a { color: var(--accent); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px; }
   a:hover { text-decoration-thickness: 2px; }
 
-  /* Thin themed scrollbars in any horizontally-scrollable code/diff
-     viewport. Replaces Chrome's chunky default that visually
-     dominated the Edit cards. */
-  .diff-body, .md-code, .card-text--code, pre.text {
+  /* Thin themed scrollbars in any horizontally-scrollable card-text /
+   * pre viewport. Replaces Chrome's chunky default. Pierre owns the
+   * scrollbar styling inside its shadow DOM. */
+  .card-text--code, pre.text {
     scrollbar-width: thin;
     scrollbar-color: var(--rule-strong) transparent;
   }
-  .diff-body::-webkit-scrollbar,
-  .md-code::-webkit-scrollbar,
   .card-text--code::-webkit-scrollbar,
   pre.text::-webkit-scrollbar { height: 6px; width: 6px; }
-  .diff-body::-webkit-scrollbar-track,
-  .md-code::-webkit-scrollbar-track,
   .card-text--code::-webkit-scrollbar-track,
   pre.text::-webkit-scrollbar-track { background: transparent; }
-  .diff-body::-webkit-scrollbar-thumb,
-  .md-code::-webkit-scrollbar-thumb,
   .card-text--code::-webkit-scrollbar-thumb,
   pre.text::-webkit-scrollbar-thumb {
     background: var(--rule-strong);
     border-radius: 3px;
   }
-  .diff-body::-webkit-scrollbar-thumb:hover,
-  .md-code::-webkit-scrollbar-thumb:hover,
   .card-text--code::-webkit-scrollbar-thumb:hover,
   pre.text::-webkit-scrollbar-thumb:hover { background: var(--ink-3); }
 
@@ -1208,20 +922,17 @@ const STYLE = `
     letter-spacing: 0;
   }
   .md .md-table tbody tr:last-child td { border-bottom: none; }
-  .md .md-code {
-    font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
-    font-size: 0.78125rem;
-    line-height: 1.45;
-    background: var(--bg-sunk);
+  /* Pierre owns fenced code blocks — the diffs-container's shadow
+   * root carries shiki tokens, gutters, and scrolling. We only set
+   * spacing here so Pierre's surface blends with the parchment
+   * palette. */
+  .md diffs-container[data-pierre] {
+    display: block;
+    margin: 0.25rem 0 0.375rem 0;
     border: 1px solid var(--rule);
-    border-radius: 5px;
-    padding: 0.5rem 0.625rem;
-    margin: 0 0 0.125rem 0;
-    color: var(--ink);
-    overflow-x: auto;
-    white-space: pre;
+    border-radius: 4px;
+    overflow: hidden;
   }
-  .md .md-code code { background: none; border: none; padding: 0; font-size: inherit; }
   /* Tighten the assistant card line-height — counters the visual
      "airy paragraphs" feel even when block margins are minimal. */
   .card-text--assistant.md { line-height: 1.5; }
@@ -1248,73 +959,28 @@ const STYLE = `
    * without flattening inline code, bold, links, etc. */
   .event--reasoning .card-text.md p { font-style: italic; }
 
-  /* Edit events: agent file changes, visible by default with a real
-     diff view. The dock toggle can hide them. Distinct from tool calls
-     (which stay hidden by their own toggle). */
+  /* Edit events: agent file changes rendered through Pierre's SSR.
+   * Visible by default; the dock toggle can hide them. Distinct from
+   * tool calls (which stay hidden by their own toggle). */
   body[data-hide-edits="true"] .event--edit { display: none; }
   .event--edit .gutter-icon { color: var(--accent); border-color: var(--accent); }
   .event--edit .card-role { color: var(--accent); letter-spacing: 0.16em; }
   .event--edit .tool-name { font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace; font-size: 0.71875rem; color: var(--ink-3); }
-  .diff {
+  /* diffs-container is Pierre's web-component host; the shadow root
+   * carries the rendered chunk. We only style the host's outer frame
+   * so it sits inside the event card cleanly. */
+  diffs-container[data-pierre] {
+    display: block;
     margin-top: 0.25rem;
     border: 1px solid var(--rule);
-    border-radius: 5px;
+    border-radius: 4px;
     overflow: hidden;
     background: var(--bg-sunk);
   }
-  .diff + .diff { margin-top: 0.5rem; }
-  .diff-file {
-    font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
-    font-size: 0.75rem;
-    color: var(--ink-2);
-    background: var(--bg-elev);
-    border-bottom: 1px solid var(--rule);
-    padding: 0.25rem 0.625rem;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
+  diffs-container[data-pierre] + diffs-container[data-pierre] {
+    margin-top: 0.5rem;
   }
-  .diff-tag {
-    font-family: ui-sans-serif, system-ui, sans-serif;
-    font-size: 0.625rem;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    color: var(--accent);
-    border: 1px solid var(--accent);
-    border-radius: 3px;
-    padding: 0 0.3125rem;
-  }
-  .diff-body {
-    margin: 0;
-    padding: 0.375rem 0;
-    font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
-    font-size: 0.75rem;
-    line-height: 1.5;
-    color: var(--ink);
-    overflow-x: auto;
-    white-space: pre;
-  }
-  .diff-line {
-    display: block;
-    padding: 0 0.625rem;
-  }
-  .diff-line.diff-add {
-    color: var(--assistant);
-    background: color-mix(in srgb, var(--assistant) 10%, transparent);
-  }
-  .diff-line.diff-del {
-    color: var(--error);
-    background: color-mix(in srgb, var(--error) 10%, transparent);
-  }
-  .diff-line.diff-ctx { color: var(--ink-3); }
-  .diff-line.diff-hunk { color: var(--reasoning); font-weight: 600; }
-  .diff.is-collapsed .diff-body {
-    max-height: 16rem;
-    overflow: hidden;
-    -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 2.5rem), transparent);
-    mask-image: linear-gradient(to bottom, black calc(100% - 2.5rem), transparent);
-  }
-  .diff-toggle,
+
   .msg-toggle {
     appearance: none;
     -webkit-appearance: none;
@@ -1331,7 +997,6 @@ const STYLE = `
     cursor: pointer;
     transition: color 0.12s ease, background 0.12s ease;
   }
-  .diff-toggle:hover,
   .msg-toggle:hover { color: var(--accent); background: var(--bg-sunk); }
 
   /* Long prose messages collapse to a scannable preview. The first
@@ -1732,10 +1397,10 @@ const SCRIPT = `
     });
   });
 
-  // --- Long-content expand toggle (diffs + prose messages) ---
-  document.querySelectorAll('.diff-toggle, .msg-toggle').forEach((btn) => {
+  // --- Long-prose expand toggle ---
+  document.querySelectorAll('.msg-toggle').forEach((btn) => {
     btn.addEventListener('click', () => {
-      const wrap = btn.closest('.diff, .msg-collapsible');
+      const wrap = btn.closest('.msg-collapsible');
       if (!wrap) return;
       const lineCount = wrap.dataset.lineCount;
       const collapsed = wrap.classList.toggle('is-collapsed');
@@ -1874,7 +1539,9 @@ function renderByline(
 }
 
 /** Convert a Transcript to a self-contained HTML document. */
-export function transcriptToHtml(transcript: Transcript): string {
+export async function transcriptToHtml(
+  transcript: Transcript,
+): Promise<string> {
   // Rewrite absolute in-cwd paths to ./relative form before render, so
   // long paths read as `./src/foo.ts` instead of
   // `/home/srid/code/kolu/.worktrees/damn-booth/packages/foo/src/foo.ts`.
@@ -1885,19 +1552,24 @@ export function transcriptToHtml(transcript: Transcript): string {
   // (deeper) level — that way the start divider is visually inside the
   // parent's indent. `subtask_end` renders at its current depth, then
   // decrements, so the matching boundary aligns with its start.
+  // Depth tracking is sequential, but the per-event render tasks can
+  // run in parallel via Promise.all once each event's depth is known.
+  const depths: number[] = [];
   let depth = 0;
-  const renderedEvents: string[] = [];
-  for (const [i, e] of prepared.events.entries()) {
+  for (const e of prepared.events) {
     if (e.kind === "subtask_start") {
       depth += 1;
-      renderedEvents.push(renderEvent(e, i, depth));
+      depths.push(depth);
     } else if (e.kind === "subtask_end") {
-      renderedEvents.push(renderEvent(e, i, depth));
+      depths.push(depth);
       if (depth > 0) depth -= 1;
     } else {
-      renderedEvents.push(renderEvent(e, i, depth));
+      depths.push(depth);
     }
   }
+  const renderedEvents = await Promise.all(
+    prepared.events.map((e, i) => renderEvent(e, i, depths[i] ?? 0)),
+  );
   const eventsHtml =
     prepared.events.length === 0
       ? '<div class="empty">No conversation events found.</div>'
@@ -1905,6 +1577,7 @@ export function transcriptToHtml(transcript: Transcript): string {
   const titleText = deriveDisplayTitle(prepared);
   const eyebrow = renderEyebrow(prepared);
   const byline = renderByline(prepared, counts);
+  const pierreBootstrap = buildPierreBootstrap();
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -1965,6 +1638,7 @@ ${eventsHtml}
     <button type="button" data-nav="next" title="Next prompt (j)" aria-label="Next prompt">↓</button>
   </div>
 </aside>
+<script>${pierreBootstrap}</script>
 <script>${SCRIPT}</script>
 </body>
 </html>

@@ -258,7 +258,7 @@ export const appRouter = t.router({
             message: `Transcript not found for ${agent.kind} session ${agent.sessionId}`,
           });
         }
-        const html = transcriptToHtml(transcript);
+        const html = await transcriptToHtml(transcript);
         const safeId = agent.sessionId.replace(/[^a-zA-Z0-9_-]/g, "");
         const filename = `kolu-${agent.kind}-${safeId.slice(0, 12)}.html`;
         return { html, filename };
