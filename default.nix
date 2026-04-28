@@ -26,6 +26,7 @@ let
       ./packages/memorable-names
       ./packages/server
       ./packages/client
+      ./packages/transcript-html
       # pnpm.patchedDependencies entries — read by pnpm during install and
       # applied to the upstream tarball. Currently:
       #   - node-pty@1.1.0.patch: adds a foregroundPid accessor wrapping
