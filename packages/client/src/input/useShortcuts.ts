@@ -1,33 +1,10 @@
-/** Global keyboard shortcuts — single capture-phase listener dispatching to handlers. */
+/** Global keyboard shortcuts — single capture-phase listener that dispatches
+ *  through the unified action registry in `./actions.ts`. */
 
 import { makeEventListener } from "@solid-primitives/event-listener";
-import type { TerminalId, TerminalMetadata } from "kolu-common";
-import { nonEmpty } from "nonempty";
-import type { Accessor, Setter } from "solid-js";
-import { isPlatformModifier, matchesKeybind, SHORTCUTS } from "./keyboard";
-
-interface ShortcutDeps {
-  terminalIds: Accessor<TerminalId[]>;
-  activeId: Accessor<TerminalId | null>;
-  setActiveId: Setter<TerminalId | null>;
-  /** Terminal IDs in most-recently-used order; used for Alt+Tab / Ctrl+Tab cycling. */
-  mruOrder: Accessor<TerminalId[]>;
-  handleCreate: (cwd?: string) => void;
-  handleCreateSubTerminal: (parentId: TerminalId, cwd?: string) => void;
-  openNewTerminalMenu: () => void;
-  activeMeta: Accessor<TerminalMetadata | null>;
-  setPaletteOpen: Setter<boolean>;
-  setShortcutsHelpOpen: Setter<boolean>;
-  setSearchOpen: Setter<boolean>;
-  /** Toggle sub-panel: creates first split if none exist, otherwise toggles visibility. */
-  toggleSubPanel: (parentId: TerminalId) => void;
-  cycleSubTab: (parentId: TerminalId, direction: 1 | -1) => void;
-  handleShuffleTheme: () => void;
-  handleScreenshotTerminal: () => void;
-  toggleRightPanel: () => void;
-  canvasCenterActive: () => void;
-  toggleRecordingPause: () => void;
-}
+import type { TerminalId } from "kolu-common";
+import { ACTIONS, type ActionContext } from "./actions";
+import { matchesKeybind } from "./keyboard";
 
 /** MRU cycling state — a frozen snapshot is taken on the first Tab press while
  *  the modifier (Alt or Ctrl) is held, and the cursor advances through that
@@ -39,7 +16,7 @@ interface MruCycleState {
 }
 
 /** Wire up all global keyboard shortcuts. Call once from the app root. */
-export function useShortcuts(deps: ShortcutDeps) {
+export function useShortcuts(ctx: ActionContext) {
   let cycle: MruCycleState | null = null;
 
   function resetCycle() {
@@ -49,8 +26,8 @@ export function useShortcuts(deps: ShortcutDeps) {
   function advanceCycle(direction: 1 | -1) {
     if (cycle === null) {
       // First press: snapshot current MRU, include active id at head if missing.
-      const live = deps.mruOrder();
-      const active = deps.activeId();
+      const live = ctx.mruOrder();
+      const active = ctx.activeId();
       const snap =
         active && !live.includes(active) ? [active, ...live] : live.slice();
       if (snap.length < 2) return; // nothing to cycle between
@@ -59,14 +36,14 @@ export function useShortcuts(deps: ShortcutDeps) {
     const n = cycle.snapshot.length;
     cycle.cursor = (cycle.cursor + direction + n) % n;
     const target = cycle.snapshot[cycle.cursor];
-    if (target) deps.setActiveId(target);
+    if (target) ctx.setActiveId(target);
   }
 
   makeEventListener(
     window,
     "keydown",
     (e: KeyboardEvent) => {
-      const handled = dispatch(e, deps, advanceCycle);
+      const handled = dispatch(e, ctx, advanceCycle);
       if (handled) {
         e.preventDefault();
         e.stopPropagation();
@@ -84,122 +61,29 @@ export function useShortcuts(deps: ShortcutDeps) {
 /** Try to handle the event. Returns true if a shortcut matched. */
 function dispatch(
   e: KeyboardEvent,
-  deps: ShortcutDeps,
+  ctx: ActionContext,
   advanceCycle: (direction: 1 | -1) => void,
 ): boolean {
-  // Mod+1-9: switch to terminal by position
-  const digit = parseInt(e.key, 10);
-  if (isPlatformModifier(e) && !e.shiftKey && digit >= 1 && digit <= 9) {
-    const ids = deps.terminalIds();
-    const target = ids[digit - 1];
-    if (target !== undefined) deps.setActiveId(target);
-    return true;
-  }
-
-  if (matchesKeybind(e, SHORTCUTS.newTerminalMenu.keybind)) {
-    deps.openNewTerminalMenu();
-    return true;
-  }
-
-  if (
-    matchesKeybind(e, SHORTCUTS.createTerminal.keybind) ||
-    matchesKeybind(e, SHORTCUTS.createTerminalAlt.keybind)
-  ) {
-    deps.handleCreate(deps.activeMeta()?.cwd ?? undefined);
-    return true;
-  }
-
-  // Alt+Tab / Ctrl+Tab: cycle through terminals in MRU order, committing on
-  // modifier release. Alt+Tab covers macOS Chrome, which intercepts Ctrl+Tab.
+  // Alt+Tab / Ctrl+Tab: stateful MRU cycling, committed on modifier release.
+  // Alt+Tab covers macOS Chrome, which intercepts Ctrl+Tab. Must come before
+  // the registry loop so Ctrl+Tab doesn't fall through to cycleTerminalMru
+  // (which has no handler — it's display-only and dispatched here).
   if (e.key === "Tab" && (e.altKey || e.ctrlKey)) {
     advanceCycle(e.shiftKey ? -1 : 1);
     return true;
   }
 
-  if (matchesKeybind(e, SHORTCUTS.nextTerminal.keybind)) {
-    cycleTerminal(deps, 1);
-    return true;
-  }
-
-  if (matchesKeybind(e, SHORTCUTS.prevTerminal.keybind)) {
-    cycleTerminal(deps, -1);
-    return true;
-  }
-
-  if (matchesKeybind(e, SHORTCUTS.commandPalette.keybind)) {
-    deps.setPaletteOpen((v) => !v);
-    return true;
-  }
-
-  if (matchesKeybind(e, SHORTCUTS.shortcutsHelp.keybind)) {
-    deps.setShortcutsHelpOpen((v) => !v);
-    return true;
-  }
-
-  if (matchesKeybind(e, SHORTCUTS.findInTerminal.keybind)) {
-    deps.setSearchOpen((v) => !v);
-    return true;
-  }
-
-  if (matchesKeybind(e, SHORTCUTS.createSubTerminal.keybind)) {
-    const id = deps.activeId();
-    if (id)
-      deps.handleCreateSubTerminal(id, deps.activeMeta()?.cwd ?? undefined);
-    return true;
-  }
-
-  if (matchesKeybind(e, SHORTCUTS.toggleSubPanel.keybind)) {
-    const id = deps.activeId();
-    if (id) deps.toggleSubPanel(id);
-    return true;
-  }
-
-  if (matchesKeybind(e, SHORTCUTS.nextSubTab.keybind)) {
-    const id = deps.activeId();
-    if (id) deps.cycleSubTab(id, 1);
-    return true;
-  }
-
-  if (matchesKeybind(e, SHORTCUTS.prevSubTab.keybind)) {
-    const id = deps.activeId();
-    if (id) deps.cycleSubTab(id, -1);
-    return true;
-  }
-
-  if (matchesKeybind(e, SHORTCUTS.shuffleTheme.keybind)) {
-    deps.handleShuffleTheme();
-    return true;
-  }
-
-  if (matchesKeybind(e, SHORTCUTS.screenshotTerminal.keybind)) {
-    deps.handleScreenshotTerminal();
-    return true;
-  }
-
-  if (matchesKeybind(e, SHORTCUTS.toggleRightPanel.keybind)) {
-    deps.toggleRightPanel();
-    return true;
-  }
-
-  if (matchesKeybind(e, SHORTCUTS.canvasCenterActive.keybind)) {
-    deps.canvasCenterActive();
-    return true;
-  }
-
-  if (matchesKeybind(e, SHORTCUTS.toggleRecordingPause.keybind)) {
-    deps.toggleRecordingPause();
-    return true;
+  // Generic dispatch over the action registry.
+  for (const action of Object.values(ACTIONS)) {
+    if (!action.handler) continue;
+    if (
+      matchesKeybind(e, action.keybind) ||
+      (action.altKeybind !== undefined && matchesKeybind(e, action.altKeybind))
+    ) {
+      action.handler(ctx);
+      return true;
+    }
   }
 
   return false;
-}
-
-function cycleTerminal(deps: ShortcutDeps, direction: 1 | -1) {
-  const ids = nonEmpty(deps.terminalIds());
-  if (!ids) return;
-  const current = ids.indexOf(deps.activeId() as TerminalId);
-  const next = (current + direction + ids.length) % ids.length;
-  // Tuple positional `ids[0]` is statically `TerminalId`; `?? ids[0]` is
-  // a typed fallback the math never actually triggers.
-  deps.setActiveId(ids[next] ?? ids[0]);
 }

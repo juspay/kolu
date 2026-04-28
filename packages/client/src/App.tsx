@@ -33,6 +33,7 @@ import { createCommands } from "./commands";
 import DiagnosticInfo from "./DiagnosticInfo";
 import EmptyState from "./EmptyState";
 import { exportScrollbackAsPdf } from "./exportScrollbackAsPdf";
+import type { ActionContext } from "./input/actions";
 import { useShortcuts } from "./input/useShortcuts";
 import MobileKeyBar from "./MobileKeyBar";
 import MobileTileView from "./MobileTileView";
@@ -166,16 +167,19 @@ const App: Component = () => {
     if (tile) canvasViewport.centerOnTile(tile);
   }
 
-  useShortcuts({
+  // Shared between the keyboard dispatcher and the command palette so a single
+  // wiring keeps both surfaces in sync. Palette-only deps (theme management,
+  // dialog setters, debug, etc.) are added below in the createCommands call.
+  const actionContext: ActionContext = {
     terminalIds: store.terminalIds,
     activeId: store.activeId,
     setActiveId: store.setActiveId,
     mruOrder: store.mruOrder,
+    activeMeta: store.activeMeta,
     handleCreate: (cwd?: string) => void crud.handleCreate(cwd),
     handleCreateSubTerminal: (parentId, cwd) =>
       void crud.handleCreateSubTerminal(parentId, cwd),
     openNewTerminalMenu: () => openPaletteGroup("New terminal"),
-    activeMeta: store.activeMeta,
     setPaletteOpen,
     setShortcutsHelpOpen,
     setSearchOpen,
@@ -191,7 +195,9 @@ const App: Component = () => {
     toggleRightPanel: rightPanel.togglePanel,
     canvasCenterActive: handleCanvasCenterActive,
     toggleRecordingPause: () => useRecorder().togglePause(),
-  });
+  };
+
+  useShortcuts(actionContext);
 
   function openPalette() {
     setPaletteInitialGroup(undefined);
@@ -235,23 +241,13 @@ const App: Component = () => {
   }
 
   const commands = createCommands({
-    terminalIds: store.terminalIds,
-    activeId: store.activeId,
-    setActiveId: store.setActiveId,
-    activeMeta: store.activeMeta,
-    handleCreate: (cwd) => void crud.handleCreate(cwd),
-    handleCreateSubTerminal: (parentId, cwd) =>
-      void crud.handleCreateSubTerminal(parentId, cwd),
+    ...actionContext,
     handleCopyTerminalText: () => void crud.handleCopyTerminalText(),
     handleRunInActiveTerminal: (cmd) => crud.handleRunInActiveTerminal(cmd),
     handleExportScrollbackAsPdf,
-    handleScreenshotTerminal: () => handleScreenshotTerminal(),
-    toggleSubPanel: handleToggleSubPanel,
     committedThemeName,
     setPreviewThemeName,
     handleSetTheme,
-    handleShuffleTheme,
-    setShortcutsHelpOpen,
     setAboutOpen,
     setDiagnosticInfoOpen,
     handleCreateWorktree: (repoPath, initialCommand) =>
@@ -262,8 +258,6 @@ const App: Component = () => {
     },
     handleCloseAll: () => void crud.handleCloseAll(),
     simulateAlert: alerts.simulateAlert,
-    toggleRightPanel: rightPanel.togglePanel,
-    canvasCenterActive: handleCanvasCenterActive,
     isMobile,
   });
 
