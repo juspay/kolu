@@ -13,13 +13,12 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { match } from "ts-pattern";
 import { encodeProjectPath, PROJECTS_DIR } from "kolu-claude-code";
 import { findSessionByDirectory as findCodexSession } from "kolu-codex";
-import {
-  findSessionByDirectory as findOpenCodeSession,
-  openDb as openOpenCodeDb,
-} from "kolu-opencode";
+import { openDb as openOpenCodeDb } from "kolu-opencode";
 import type { AgentInfo } from "kolu-common";
+import { log } from "../log.ts";
 import type { TerminalProcess } from "../terminal-registry.ts";
 
 interface TranscriptMessage {
@@ -50,14 +49,13 @@ export function exportAgentTranscript(entry: TerminalProcess): string {
 }
 
 function readTranscript(agent: AgentInfo, cwd: string): TranscriptMessage[] {
-  switch (agent.kind) {
-    case "claude-code":
-      return readClaudeCodeTranscript(agent.sessionId, cwd);
-    case "opencode":
-      return readOpenCodeTranscript(agent.sessionId, cwd);
-    case "codex":
-      return readCodexTranscript(cwd);
-  }
+  return match(agent)
+    .with({ kind: "claude-code" }, (a) =>
+      readClaudeCodeTranscript(a.sessionId, cwd),
+    )
+    .with({ kind: "opencode" }, (a) => readOpenCodeTranscript(a.sessionId, cwd))
+    .with({ kind: "codex" }, () => readCodexTranscript(cwd))
+    .exhaustive();
 }
 
 function readClaudeCodeTranscript(
@@ -75,10 +73,6 @@ function readClaudeCodeTranscript(
   }
 
   const messages: TranscriptMessage[] = [];
-  const pendingToolResults = new Map<
-    string,
-    { name: string; output: string }
-  >();
 
   for (const line of raw.split("\n")) {
     if (!line.trim()) continue;
@@ -107,20 +101,12 @@ function readClaudeCodeTranscript(
           const b = block as Record<string, unknown>;
           if (b.type === "text" && typeof b.text === "string") {
             parts.push({ kind: "text", content: b.text });
-          } else if (
-            b.type === "tool_result" &&
-            typeof b.tool_use_id === "string"
-          ) {
+          } else if (b.type === "tool_result") {
             const output =
               typeof b.content === "string"
                 ? b.content
                 : JSON.stringify(b.content, null, 2);
-            const pending = pendingToolResults.get(b.tool_use_id);
-            if (pending) {
-              pending.output = output;
-            } else {
-              parts.push({ kind: "tool_result", output });
-            }
+            parts.push({ kind: "tool_result", output });
           }
         }
       }
@@ -147,10 +133,6 @@ function readClaudeCodeTranscript(
                 ? JSON.stringify(b.input, null, 2)
                 : String(b.input ?? "");
             parts.push({ kind: "tool_use", name: b.name, input });
-            pendingToolResults.set(b.id, {
-              name: b.name,
-              output: "",
-            });
           }
         }
       }
@@ -160,32 +142,16 @@ function readClaudeCodeTranscript(
     }
   }
 
-  for (const msg of messages) {
-    for (const part of msg.parts) {
-      if (part.kind === "tool_result" && !part.output) {
-        for (const [, pending] of pendingToolResults) {
-          if (pending.output) {
-            part.output = pending.output;
-            break;
-          }
-        }
-      }
-    }
-  }
-
   return messages;
 }
 
 function readOpenCodeTranscript(
   sessionId: string,
-  cwd: string,
+  _cwd: string,
 ): TranscriptMessage[] {
   const db = openOpenCodeDb();
   if (!db) return [];
   try {
-    const session = findOpenCodeSession(cwd);
-    if (!session) return [];
-
     const rows = db
       .prepare(
         "SELECT id, data, time_created FROM message WHERE session_id = ? ORDER BY time_created ASC",
@@ -268,8 +234,8 @@ function extractOpenCodeParts(
         }
       }
     }
-  } catch {
-    // part table may not exist or have unexpected schema
+  } catch (err) {
+    log.debug({ err, messageId }, "opencode part query failed or table absent");
   }
 
   if (parts.length === 0) {
