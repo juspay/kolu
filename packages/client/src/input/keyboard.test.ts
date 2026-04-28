@@ -3,12 +3,8 @@ import { describe, expect, it, vi } from "vitest";
 // Mock the platform module before importing keyboard
 vi.mock("./platform", () => ({ isMac: false }));
 
-import {
-  formatKeybind,
-  type Keybind,
-  matchesAnyShortcut,
-  matchesKeybind,
-} from "./keyboard";
+import { matchesAnyShortcut } from "./actions";
+import { formatKeybind, type Keybind, matchesKeybind } from "./keyboard";
 
 function makeEvent(overrides: Partial<KeyboardEvent> = {}): KeyboardEvent {
   return {
@@ -122,9 +118,9 @@ describe("formatKeybind (non-mac)", () => {
 
 describe("matchesAnyShortcut", () => {
   it("matches Alt+Tab", () => {
-    expect(matchesAnyShortcut(makeEvent({ altKey: true, key: "Tab" }))).toBe(
-      true,
-    );
+    expect(
+      matchesAnyShortcut(makeEvent({ altKey: true, key: "Tab", code: "Tab" })),
+    ).toBe(true);
   });
 
   it("matches Ctrl+T (create terminal)", () => {

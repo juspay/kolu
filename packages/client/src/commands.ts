@@ -1,11 +1,11 @@
 /** Command palette registry — declarative list of all app-level actions. */
 
-import type { RecentAgent, TerminalId, TerminalMetadata } from "kolu-common";
+import type { RecentAgent } from "kolu-common";
 import type { Accessor } from "solid-js";
 import { batch, createMemo } from "solid-js";
 import { availableThemes } from "terminal-themes";
 import type { PaletteCommand, PaletteItem } from "./CommandPalette";
-import { SHORTCUTS } from "./input/keyboard";
+import { type ActionContext, actionPaletteCommand } from "./input/actions";
 import { client } from "./rpc/rpc";
 import { useActivityFeed } from "./settings/useActivityFeed";
 
@@ -36,34 +36,22 @@ function agentItemsWithPlainShell(
   ];
 }
 
-export interface CommandDeps {
-  terminalIds: Accessor<TerminalId[]>;
-  activeId: Accessor<TerminalId | null>;
-  setActiveId: (id: TerminalId) => void;
-  activeMeta: Accessor<TerminalMetadata | null>;
-  handleCreate: (cwd?: string) => void;
-  handleCreateSubTerminal: (parentId: TerminalId, cwd?: string) => void;
+/** Palette-only dependencies — anything `ActionContext` doesn't already
+ *  provide for the keyboard dispatcher. */
+export interface CommandDeps extends ActionContext {
   handleCopyTerminalText: () => void;
   handleRunInActiveTerminal: (command: string) => void;
   handleExportScrollbackAsPdf: () => void;
   handleExportSessionAsHtml: () => void;
-  handleScreenshotTerminal: () => void;
-  /** Toggle sub-panel: creates first split if none exist, otherwise toggles visibility. */
-  toggleSubPanel: (parentId: TerminalId) => void;
   // Theme
   committedThemeName: Accessor<string>;
   setPreviewThemeName: (name: string | undefined) => void;
   handleSetTheme: (name: string) => void;
-  handleShuffleTheme: () => void;
   // Dialogs
-  setShortcutsHelpOpen: (open: boolean) => void;
   setAboutOpen: (open: boolean) => void;
   setDiagnosticInfoOpen: (open: boolean) => void;
-  // Right panel
-  toggleRightPanel: () => void;
   // Canvas — desktop only (always active there); hidden on mobile where
   // the canvas isn't mounted at all.
-  canvasCenterActive: () => void;
   isMobile: () => boolean;
   // Worktree
   handleCreateWorktree: (repoPath: string, initialCommand?: string) => void;
@@ -132,23 +120,8 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
             name: "Close terminal",
             onSelect: () => deps.handleClose(),
           },
-          {
-            name: "Toggle terminal split",
-            keybind: SHORTCUTS.toggleSubPanel.keybind,
-            onSelect: () => {
-              const id = deps.activeId();
-              if (id !== null) deps.toggleSubPanel(id);
-            },
-          },
-          {
-            name: "Split terminal",
-            keybind: SHORTCUTS.createSubTerminal.keybind,
-            onSelect: () => {
-              const id = deps.activeId();
-              if (id !== null)
-                deps.handleCreateSubTerminal(id, deps.activeMeta()?.cwd);
-            },
-          },
+          actionPaletteCommand("toggleSubPanel", deps),
+          actionPaletteCommand("createSubTerminal", deps),
           {
             name: "Copy terminal text",
             onSelect: () => deps.handleCopyTerminalText(),
@@ -167,26 +140,12 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
                 },
               ]
             : []),
-          {
-            name: "Screenshot terminal",
-            keybind: SHORTCUTS.screenshotTerminal.keybind,
-            onSelect: () => deps.handleScreenshotTerminal(),
-          },
+          actionPaletteCommand("screenshotTerminal", deps),
         ]
       : []),
-    {
-      name: "Toggle inspector panel",
-      keybind: SHORTCUTS.toggleRightPanel.keybind,
-      onSelect: () => deps.toggleRightPanel(),
-    },
+    actionPaletteCommand("toggleRightPanel", deps),
     ...(!deps.isMobile()
-      ? [
-          {
-            name: "Center on active tile",
-            keybind: SHORTCUTS.canvasCenterActive.keybind,
-            onSelect: () => deps.canvasCenterActive(),
-          },
-        ]
+      ? [actionPaletteCommand("canvasCenterActive", deps)]
       : []),
     ...(deps.terminalIds().length > 0
       ? [
@@ -194,13 +153,13 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
             name: "Switch terminal",
             children: () =>
               deps.terminalIds().map((id, i) => ({
-                name: `Switch to terminal ${i + 1}`,
-                keybind:
-                  i < 9
-                    ? SHORTCUTS[
-                        `switchTo${(i + 1) as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9}`
-                      ].keybind
-                    : undefined,
+                ...(i < 9
+                  ? actionPaletteCommand(
+                      `switchTo${(i + 1) as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9}`,
+                      deps,
+                      { name: `Switch to terminal ${i + 1}` },
+                    )
+                  : { name: `Switch to terminal ${i + 1}` }),
                 onSelect: () => deps.setActiveId(id),
               })),
           },
@@ -224,20 +183,13 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
     },
     ...(deps.activeId() !== null
       ? [
-          {
-            name: "Shuffle theme",
+          actionPaletteCommand("shuffleTheme", deps, {
             description:
               "Pick a theme whose background is perceptually distinct from every live terminal",
-            keybind: SHORTCUTS.shuffleTheme.keybind,
-            onSelect: () => deps.handleShuffleTheme(),
-          },
+          }),
         ]
       : []),
-    {
-      name: "Keyboard shortcuts",
-      keybind: SHORTCUTS.shortcutsHelp.keybind,
-      onSelect: () => deps.setShortcutsHelpOpen(true),
-    },
+    actionPaletteCommand("shortcutsHelp", deps, { name: "Keyboard shortcuts" }),
     {
       name: "About kolu",
       onSelect: () => deps.setAboutOpen(true),

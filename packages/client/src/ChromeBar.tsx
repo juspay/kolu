@@ -21,7 +21,8 @@
 
 import { type Component, createSignal, type JSX } from "solid-js";
 import { useViewPosture } from "./canvas/useViewPosture";
-import { formatKeybind, SHORTCUTS } from "./input/keyboard";
+import { ACTIONS } from "./input/actions";
+import { formatKeybind } from "./input/keyboard";
 import RecordButton from "./recorder/RecordButton";
 import { useRightPanel } from "./right-panel/useRightPanel";
 import type { WsStatus } from "./rpc/rpc";
@@ -117,7 +118,7 @@ const ChromeBar: Component<{
       <div class="flex items-center gap-2 shrink-0">
         <RecordButton />
         <Tip
-          label={`Toggle inspector (${formatKeybind(SHORTCUTS.toggleRightPanel.keybind)})`}
+          label={`Toggle inspector (${formatKeybind(ACTIONS.toggleRightPanel.keybind)})`}
         >
           <button
             type="button"
@@ -160,7 +161,7 @@ const ChromeBar: Component<{
             class="pointer-events-auto h-7 flex items-center gap-1.5 px-2 text-xs text-fg-2 hover:text-fg bg-surface-2 hover:bg-surface-3 rounded-lg border border-edge transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
             onClick={() => props.onOpenPalette()}
           >
-            <Kbd>{formatKeybind(SHORTCUTS.commandPalette.keybind)}</Kbd>
+            <Kbd>{formatKeybind(ACTIONS.commandPalette.keybind)}</Kbd>
           </button>
         </Tip>
       </div>

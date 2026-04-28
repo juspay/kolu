@@ -15,7 +15,8 @@
 import type { TerminalId } from "kolu-common";
 import { type Component, createSignal, For, Show } from "solid-js";
 import { type PillRepoGroup, repoColor } from "./canvas/pillTreeOrder";
-import { formatKeybind, SHORTCUTS } from "./input/keyboard";
+import { ACTIONS } from "./input/actions";
+import { formatKeybind } from "./input/keyboard";
 import { useRightPanel } from "./right-panel/useRightPanel";
 import type { WsStatus } from "./rpc/rpc";
 import SettingsPopover from "./settings/SettingsPopover";
@@ -140,7 +141,7 @@ const MobileChromeSheet: Component<{
             props.onClose();
           }}
         >
-          <Kbd>{formatKeybind(SHORTCUTS.commandPalette.keybind)}</Kbd>
+          <Kbd>{formatKeybind(ACTIONS.commandPalette.keybind)}</Kbd>
           <span>Palette</span>
         </button>
         <div>

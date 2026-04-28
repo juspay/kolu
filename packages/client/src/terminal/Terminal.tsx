@@ -33,7 +33,7 @@ import "@xterm/xterm/css/xterm.css";
 import type { TerminalId } from "kolu-common";
 import { DEFAULT_SCROLLBACK } from "kolu-common/config";
 import { FONT_FAMILY } from "terminal-themes";
-import { matchesAnyShortcut } from "../input/keyboard";
+import { matchesAnyShortcut } from "../input/actions";
 import { createZoom } from "../input/zoom";
 import { refitOnTabVisible } from "../refitOnTabVisible";
 import { client, stream } from "../rpc/rpc";
