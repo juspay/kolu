@@ -354,6 +354,12 @@ describe("transcriptToHtml", () => {
     // Truncated to 12 chars in the renderer.
     expect(html).toContain("ses_child987");
     expect(html).toContain("End subtask");
+    // Click affordance: the start divider is a button that toggles
+    // collapse. The disclosure marker rotates via CSS.
+    expect(html).toMatch(/subtask-boundary--start[^"]*"\s+role="button"/);
+    expect(html).toContain('aria-expanded="true"');
+    expect(html).toContain('data-collapsed="false"');
+    expect(html).toContain("subtask-disclosure");
   });
 
   it("renders apply_patch payloads as a colored unified diff", () => {

@@ -116,6 +116,22 @@ function extractTaskChildSessionId(part: PartData): string | null {
   return null;
 }
 
+/** When inlining a subagent's child session into the parent transcript,
+ *  drop the leading `user` event. That event is the parent agent's
+ *  dispatch prompt — OpenCode writes it as `role: "user"` because from
+ *  the subagent's POV its caller is the user. Without stripping it, the
+ *  export visually attributes the dispatch text to the human, which is
+ *  wrong. The dispatch is already represented by the `subtask_start`
+ *  divider (agent name + short description) and the `task` tool call's
+ *  input (full prompt, visible when the Tools toggle is on). Subsequent
+ *  user events in the child session — if any — would come from later
+ *  task_id resumption dispatches and stay as-is. Exported for testing. */
+export function stripDispatchPrompt(
+  childEvents: TranscriptEvent[],
+): TranscriptEvent[] {
+  return childEvents[0]?.kind === "user" ? childEvents.slice(1) : childEvents;
+}
+
 /** Build transcript events from a single message's part rows. Exported
  *  for unit testing. The `inlineSubtask` callback lets the caller
  *  resolve task-tool calls into nested events; passing `undefined`
@@ -241,6 +257,7 @@ function loadSessionEvents(
     const childDisplay = fetchSessionDisplay(db, childSessionId);
     const agentName = childDisplay.title?.match(/@(\w+) subagent/)?.[1] ?? null;
     const childEvents = loadSessionEvents(db, childSessionId, visited);
+    const trimmed = stripDispatchPrompt(childEvents);
     return [
       {
         kind: "subtask_start",
@@ -249,7 +266,7 @@ function loadSessionEvents(
         sessionId: childSessionId,
         ts,
       },
-      ...childEvents,
+      ...trimmed,
       { kind: "subtask_end", ts },
     ];
   };

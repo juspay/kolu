@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { eventsFromMessageParts } from "./transcript.ts";
+import { eventsFromMessageParts, stripDispatchPrompt } from "./transcript.ts";
 
 describe("eventsFromMessageParts", () => {
   it("returns [] for empty parts", () => {
@@ -241,5 +241,32 @@ describe("eventsFromMessageParts", () => {
         { type: "patch" },
       ]),
     ).toEqual([]);
+  });
+});
+
+describe("stripDispatchPrompt", () => {
+  it("drops a leading user event so subagent dispatches don't masquerade as human prompts", () => {
+    // The bug: when @explore is invoked via the task tool, OpenCode
+    // writes the dispatch prompt into the child session as role:"user".
+    // The export was attributing the parent agent's prompt to the human
+    // because we recursed and rendered that user event verbatim.
+    const events = stripDispatchPrompt([
+      { kind: "user", text: "the parent agent's dispatch prompt", ts: 1 },
+      { kind: "reasoning", text: "thinking", ts: 2 },
+      { kind: "assistant", text: "Done.", model: null, ts: 3 },
+    ]);
+    expect(events.map((e) => e.kind)).toEqual(["reasoning", "assistant"]);
+  });
+
+  it("returns events unchanged when the leading event is not a user event", () => {
+    const events = stripDispatchPrompt([
+      { kind: "assistant", text: "hi", model: null, ts: 1 },
+      { kind: "user", text: "follow-up", ts: 2 },
+    ]);
+    expect(events.map((e) => e.kind)).toEqual(["assistant", "user"]);
+  });
+
+  it("returns [] for empty input", () => {
+    expect(stripDispatchPrompt([])).toEqual([]);
   });
 });

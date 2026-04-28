@@ -697,9 +697,15 @@ function renderEvent(event: TranscriptEvent, index: number): string {
       const idLabel = e.sessionId
         ? `<span class="subtask-id">${escapeHtml(e.sessionId.slice(0, 12))}</span>`
         : "";
-      return `<div class="subtask-boundary subtask-boundary--start">
+      // Clickable: toggles collapse for the inlined child events (the
+      // siblings up to the matching subtask-boundary--end) via the
+      // inline JS at the bottom of the document.
+      return `<div class="subtask-boundary subtask-boundary--start" role="button" tabindex="0" aria-expanded="true" data-collapsed="false" title="Click to collapse this subtask">
   <span class="subtask-rule"></span>
-  <span class="subtask-label">Subtask${agentLabel ? " " : ""}${agentLabel}: ${escapeHtml(e.description)}${idLabel ? " " : ""}${idLabel}</span>
+  <span class="subtask-label">
+    <span class="subtask-disclosure" aria-hidden="true">▼</span>
+    Subtask${agentLabel ? " " : ""}${agentLabel}: ${escapeHtml(e.description)}${idLabel ? " " : ""}${idLabel}
+  </span>
   <span class="subtask-rule"></span>
 </div>`;
     })
@@ -1337,6 +1343,34 @@ const STYLE = `
     white-space: nowrap;
   }
   .subtask-label--end { color: var(--ink-3); }
+  .subtask-boundary--start {
+    cursor: pointer;
+    user-select: none;
+    transition: color 0.12s ease;
+  }
+  .subtask-boundary--start:hover .subtask-label,
+  .subtask-boundary--start:focus-visible .subtask-label {
+    color: var(--accent);
+  }
+  .subtask-boundary--start:focus-visible {
+    outline: 1px dashed var(--accent);
+    outline-offset: 2px;
+  }
+  .subtask-disclosure {
+    display: inline-block;
+    font-size: 0.625rem;
+    color: var(--ink-3);
+    margin-right: 0.375rem;
+    transition: transform 0.15s ease;
+  }
+  .subtask-boundary--start[data-collapsed="true"] .subtask-disclosure {
+    transform: rotate(-90deg);
+  }
+  /* When a subtask is collapsed, hide every inlined child event up to
+   * (and including) its matching end divider. The JS handler tags them
+   * with the is-subtask-hidden class based on sibling traversal that
+   * respects nested subtasks. */
+  .is-subtask-hidden { display: none !important; }
   .subtask-agent {
     color: var(--accent);
     font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
@@ -1627,6 +1661,41 @@ const SCRIPT = `
     const nextHide = document.body.dataset.hideEdits !== 'true';
     localStorage.setItem('kolu-export-hide-edits', nextHide ? '1' : '0');
     applyEdits(nextHide);
+  });
+
+  // --- Subtask collapse (click the start divider to fold the child events) ---
+  function toggleSubtask(start) {
+    const collapsed = start.dataset.collapsed === 'true';
+    const nextCollapsed = !collapsed;
+    start.dataset.collapsed = String(nextCollapsed);
+    start.setAttribute('aria-expanded', String(!nextCollapsed));
+    // Walk forward siblings until the matching end divider, respecting
+    // nested subtasks by depth counting.
+    let depth = 0;
+    let node = start.nextElementSibling;
+    while (node) {
+      const isStart = node.classList?.contains('subtask-boundary--start');
+      const isEnd = node.classList?.contains('subtask-boundary--end');
+      if (isStart) depth++;
+      if (isEnd) {
+        if (depth === 0) {
+          node.classList.toggle('is-subtask-hidden', nextCollapsed);
+          break;
+        }
+        depth--;
+      }
+      node.classList.toggle('is-subtask-hidden', nextCollapsed);
+      node = node.nextElementSibling;
+    }
+  }
+  document.querySelectorAll('.subtask-boundary--start').forEach((el) => {
+    el.addEventListener('click', () => toggleSubtask(el));
+    el.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        toggleSubtask(el);
+      }
+    });
   });
 
   // --- Long-content expand toggle (diffs + prose messages) ---
