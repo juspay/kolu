@@ -10,6 +10,7 @@ kolu_pid=""
 
 cleanup() {
   if [[ -n "$kolu_pid" ]] && kill -0 "$kolu_pid" 2>/dev/null; then
+    # The process may exit between the liveness check and cleanup commands.
     kill "$kolu_pid" 2>/dev/null || true
     wait "$kolu_pid" 2>/dev/null || true
   fi
