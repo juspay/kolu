@@ -67,12 +67,16 @@ echo "kolu listening at $addr (pid=$pid)"
 # Health check via Node's built-in fetch (no curl in dev shell). Asserts only
 # HTTP 200 — the response body is an implementation detail of index.ts:143
 # that the smoke shouldn't couple to.
-node -e '
+if ! node -e '
   const [url, timeoutMs] = [process.argv[1] + "/api/health", Number(process.argv[2])];
   fetch(url, { signal: AbortSignal.timeout(timeoutMs) })
     .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); })
     .catch(e => { console.error(e.message || e); process.exit(1); });
-' "$addr" "$HEALTH_TIMEOUT_MS"
+' "$addr" "$HEALTH_TIMEOUT_MS"; then
+    echo "/api/health request failed" >&2
+    cat "$log" >&2
+    exit 1
+fi
 echo "/api/health returned 200"
 
 # Graceful shutdown: SIGTERM, expect exit 0.
