@@ -39,6 +39,8 @@ A proposal is about **what** and **why**, not **how**. Implementation details ar
 
 **Why this exists.** Writing code stopped being scarce; *agreeing to maintain it* is what's scarce. A proposal lets us debate scope, naming, defaults, and edge cases without arguing over a half-implemented diff. It also keeps your contribution permanent: when the proposal merges, your authorship is preserved in `git log` even if someone else writes the implementation later.
 
+**A well-thought-out proposal is itself a substantial contribution.** Taking a fuzzy idea and turning it into something concrete enough that people can agree (or disagree) with — *clarifying the ambiguity is half the work*. Once that work is done, the implementation often falls out almost mechanically. A merged proposal under your authorship is a meaningful contribution to kolu in its own right; you don't have to write the code to have contributed something real. Some of the most valuable things you can send us are proposals you have no intention of implementing yourself.
+
 **Feature PRs that skip the proposal step will be closed with a pointer back here.** This isn't personal. It's the only way to keep the project's surface area honest. If you're unsure whether your change needs a proposal, write a draft proposal — it's a few minutes of work and saves everyone the back-and-forth on a feature PR that ends up rejected.
 
 ## Using AI to draft a proposal

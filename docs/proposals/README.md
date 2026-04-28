@@ -4,6 +4,8 @@ This directory holds **proposals** — short documents describing changes to kol
 
 A proposal is about **what** to build and **why**, not **how**. Implementation details are optional and can be filled in (or ignored) by whoever writes the code later.
 
+**A well-fleshed-out proposal is a complete contribution.** Clarifying a vague request into a concrete, debatable document is the hard, valuable part — once a proposal merges, the implementation tends to fall out almost mechanically. Proposals authored by people who never write the code are welcome and valued.
+
 See [`CONTRIBUTING.md`](../../CONTRIBUTING.md) for when a proposal is required vs. when a direct PR is fine.
 
 ## How it works
