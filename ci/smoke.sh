@@ -72,7 +72,7 @@ echo "/api/health returned 'kolu'"
 kill -TERM "$pid"
 ec=0
 wait "$pid" || ec=$?
-pid=""
+pid=""  # disarm cleanup trap — we've already waited
 if [[ $ec -ne 0 ]]; then
     echo "kolu exited with code $ec after SIGTERM" >&2
     cat "$log" >&2
