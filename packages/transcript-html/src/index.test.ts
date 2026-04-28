@@ -1,6 +1,6 @@
 import type { Transcript } from "kolu-common";
 import { describe, expect, it } from "vitest";
-import { renderMarkdown, transcriptToHtml } from "./transcriptHtml.ts";
+import { renderMarkdown, transcriptToHtml } from "./index.ts";
 
 function makeTranscript(overrides: Partial<Transcript> = {}): Transcript {
   return {

@@ -23,7 +23,7 @@ import {
 } from "kolu-git";
 import { loadOpenCodeTranscript } from "kolu-opencode";
 import { match } from "ts-pattern";
-import { transcriptToHtml } from "./transcriptHtml.ts";
+import { transcriptToHtml } from "kolu-transcript-html";
 import { getActivityFeed, setActivityForTest } from "./activity.ts";
 import { saveClipboardImage } from "./clipboard.ts";
 import { serverHostname, serverProcessId } from "./hostname.ts";
