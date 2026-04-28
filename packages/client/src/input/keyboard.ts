@@ -28,7 +28,13 @@ export interface Keybind {
   mod?: boolean;
   /** Always the physical Ctrl key, regardless of platform. Use for shortcuts where Cmd is captured by macOS (e.g. Cmd+`). */
   ctrl?: boolean;
+  /** Physical Alt/Option key. Used for chords macOS Chrome intercepts (e.g. Alt+Tab as an alternate to Ctrl+Tab). */
+  alt?: boolean;
   shift?: boolean;
+  /** Match whether shift is pressed or not. Used by stateful actions
+   *  (e.g. MRU cycling) where shift modulates direction rather than
+   *  participating in the chord identity. */
+  shiftOptional?: boolean;
 }
 
 /** Check if a KeyboardEvent matches a keybind definition. */
@@ -36,15 +42,22 @@ export function matchesKeybind(e: KeyboardEvent, kb: Keybind): boolean {
   // Prefer physical key code when specified (Shift changes e.key but not e.code)
   const keyMatch = kb.code ? e.code === kb.code : e.key === kb.key;
   if (!keyMatch) return false;
+  if (kb.alt) {
+    if (!e.altKey) return false;
+  } else if (e.altKey) {
+    return false;
+  }
   if (kb.ctrl) {
     // ctrl: always the physical Ctrl key
     if (!e.ctrlKey) return false;
   } else {
     if (kb.mod && !isPlatformModifier(e)) return false;
-    if (!kb.mod && isPlatformModifier(e)) return false;
+    if (!kb.mod && !kb.alt && isPlatformModifier(e)) return false;
   }
-  if (kb.shift && !e.shiftKey) return false;
-  if (!kb.shift && e.shiftKey) return false;
+  if (!kb.shiftOptional) {
+    if (kb.shift && !e.shiftKey) return false;
+    if (!kb.shift && e.shiftKey) return false;
+  }
   return true;
 }
 
@@ -53,6 +66,7 @@ export function formatKeybind(kb: Keybind): string {
   const parts: string[] = [];
   if (kb.ctrl) parts.push(isMac ? "⌃" : "Ctrl");
   else if (kb.mod) parts.push(isMac ? "⌘" : "Ctrl");
+  if (kb.alt) parts.push(isMac ? "⌥" : "Alt");
   if (kb.shift) parts.push(isMac ? "⇧" : "Shift");
   const displayKey = kb.key.length === 1 ? kb.key.toUpperCase() : kb.key;
   parts.push(displayKey);

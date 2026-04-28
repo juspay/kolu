@@ -3,7 +3,13 @@
 
 import { makeEventListener } from "@solid-primitives/event-listener";
 import type { TerminalId } from "kolu-common";
-import { ACTIONS, type ActionContext } from "./actions";
+import {
+  ACTIONS,
+  type ActionContext,
+  type ActionId,
+  type AppAction,
+  isDispatchable,
+} from "./actions";
 import { matchesKeybind } from "./keyboard";
 
 /** MRU cycling state — a frozen snapshot is taken on the first Tab press while
@@ -13,6 +19,13 @@ import { matchesKeybind } from "./keyboard";
 interface MruCycleState {
   snapshot: TerminalId[];
   cursor: number;
+}
+
+/** Match the event against an action's primary or alt keybind. */
+function actionMatches(action: AppAction, e: KeyboardEvent): boolean {
+  if (matchesKeybind(e, action.keybind)) return true;
+  if (action.altKeybind && matchesKeybind(e, action.altKeybind)) return true;
+  return false;
 }
 
 /** Wire up all global keyboard shortcuts. Call once from the app root. */
@@ -64,26 +77,27 @@ function dispatch(
   ctx: ActionContext,
   advanceCycle: (direction: 1 | -1) => void,
 ): boolean {
-  // Alt+Tab / Ctrl+Tab: stateful MRU cycling, committed on modifier release.
-  // Alt+Tab covers macOS Chrome, which intercepts Ctrl+Tab. Must come before
-  // the registry loop so Ctrl+Tab doesn't fall through to cycleTerminalMru
-  // (which has no handler — it's display-only and dispatched here).
-  if (e.key === "Tab" && (e.altKey || e.ctrlKey)) {
-    advanceCycle(e.shiftKey ? -1 : 1);
-    return true;
-  }
+  for (const [id, action] of Object.entries(ACTIONS) as [
+    ActionId,
+    AppAction,
+  ][]) {
+    if (!actionMatches(action, e)) continue;
 
-  // Generic dispatch over the action registry.
-  for (const action of Object.values(ACTIONS)) {
-    if (!action.handler) continue;
-    if (
-      matchesKeybind(e, action.keybind) ||
-      (action.altKeybind !== undefined && matchesKeybind(e, action.altKeybind))
-    ) {
+    // cycleTerminalMru is stateful — the closure-bound snapshot/cursor pattern
+    // can't fit the registry's plain `(ctx) => void` handler shape, so it's
+    // the one display-only action the dispatcher consults by id.
+    if (id === "cycleTerminalMru") {
+      advanceCycle(e.shiftKey ? -1 : 1);
+      return true;
+    }
+
+    if (isDispatchable(action)) {
       action.handler(ctx);
       return true;
     }
-  }
 
+    // Display-only (zoom*) — don't claim the event; the per-terminal
+    // `createZoom` listener owns the dispatch.
+  }
   return false;
 }

@@ -118,9 +118,9 @@ describe("formatKeybind (non-mac)", () => {
 
 describe("matchesAnyShortcut", () => {
   it("matches Alt+Tab", () => {
-    expect(matchesAnyShortcut(makeEvent({ altKey: true, key: "Tab" }))).toBe(
-      true,
-    );
+    expect(
+      matchesAnyShortcut(makeEvent({ altKey: true, key: "Tab", code: "Tab" })),
+    ).toBe(true);
   });
 
   it("matches Ctrl+T (create terminal)", () => {

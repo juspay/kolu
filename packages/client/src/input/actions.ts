@@ -40,17 +40,33 @@ export interface ActionContext {
   toggleRecordingPause: () => void;
 }
 
-export interface AppAction {
+interface AppActionBase {
   label: string;
   keybind: Keybind;
   /** Optional alternate keybind that triggers the same handler (e.g. Cmd+Enter for "New terminal"). */
   altKeybind?: Keybind;
-  /** Handler invoked by the keyboard dispatcher and by palette entries derived
-   *  via `actionPaletteCommand`. Absent for entries whose dispatch is
-   *  inherently stateful or owned by another listener (e.g. `cycleTerminalMru`
-   *  is committed on modifier keyup; `zoom*` is handled per-terminal in
-   *  `createZoom`). The entry remains registered for help/palette display. */
-  handler?: (ctx: ActionContext) => void;
+}
+
+/** An action whose dispatch flows through the registry's generic loop —
+ *  every palette-callable action, the position-switch group, and every
+ *  toggle/open chord. */
+export type DispatchableAction = AppActionBase & {
+  handler: (ctx: ActionContext) => void;
+};
+
+/** An action that's registered only for help/palette/passthrough display.
+ *  Dispatch lives elsewhere because it needs state the registry can't
+ *  carry: `cycleTerminalMru` snapshots MRU order in a closure inside
+ *  `useShortcuts` and commits on modifier keyup; `zoom*` is owned by the
+ *  per-terminal `createZoom` listener. They still appear in
+ *  `matchesAnyShortcut` so xterm doesn't consume their chords. */
+export type DisplayOnlyAction = AppActionBase;
+
+export type AppAction = DispatchableAction | DisplayOnlyAction;
+
+/** Type guard: does this action carry a registry-dispatched handler? */
+export function isDispatchable(a: AppAction): a is DispatchableAction {
+  return "handler" in a;
 }
 
 /** Cycle to the next/previous terminal by position. */
@@ -79,9 +95,9 @@ const switchToActions = Object.fromEntries(
         const target = ctx.terminalIds()[i - 1];
         if (target !== undefined) ctx.setActiveId(target);
       },
-    } satisfies AppAction,
+    } satisfies DispatchableAction,
   ]),
-) as { [K in SwitchId]: AppAction };
+) as { [K in SwitchId]: DispatchableAction };
 
 // `_ACTIONS` keeps each entry's literal shape so `keyof typeof _ACTIONS`
 // produces the precise `ActionId` union. `ACTIONS` re-types it through
@@ -113,8 +129,11 @@ const _ACTIONS = {
   },
   cycleTerminalMru: {
     label: "Cycle terminals by most recent use",
-    keybind: { key: "Tab", code: "Tab", ctrl: true },
-    // Dispatched by the stateful Alt+Tab/Ctrl+Tab cycle in useShortcuts.
+    // shiftOptional: shift modulates direction (forward/back) rather than
+    // selecting a different chord. alt covers macOS Chrome, which captures
+    // Ctrl+Tab. Dispatch is stateful (snapshot/cursor in useShortcuts).
+    keybind: { key: "Tab", code: "Tab", ctrl: true, shiftOptional: true },
+    altKeybind: { key: "Tab", code: "Tab", alt: true, shiftOptional: true },
   },
   commandPalette: {
     label: "Command palette",
@@ -213,9 +232,6 @@ export const ACTIONS: Record<ActionId, AppAction> = _ACTIONS;
  * instead of being consumed by the terminal.
  */
 export function matchesAnyShortcut(e: KeyboardEvent): boolean {
-  // Alt+Tab is not a registry keybind (Ctrl+Tab is, via cycleTerminalMru) but
-  // it triggers the same MRU cycle and must not leak to the terminal.
-  if (e.altKey && e.key === "Tab") return true;
   for (const a of Object.values(ACTIONS)) {
     if (matchesKeybind(e, a.keybind)) return true;
     if (a.altKeybind !== undefined && matchesKeybind(e, a.altKeybind))
@@ -224,21 +240,28 @@ export function matchesAnyShortcut(e: KeyboardEvent): boolean {
   return false;
 }
 
+/** Action ids whose registry entry is a `DispatchableAction` — i.e. has a
+ *  handler that the keyboard dispatcher and palette can both invoke. */
+export type DispatchableId = {
+  [K in ActionId]: (typeof _ACTIONS)[K] extends DispatchableAction ? K : never;
+}[ActionId];
+
 /**
  * Build a palette command from a registered action — same label, same keybind,
- * same handler. Lets palette code reference an action by id and inherit its
- * metadata, instead of restating label/keybind/handler at the call site.
+ * same handler. The id is constrained to `DispatchableId` so palette callers
+ * can't accidentally mount a display-only action (which would render a
+ * clickable entry that silently does nothing).
  */
 export function actionPaletteCommand(
-  id: ActionId,
+  id: DispatchableId,
   ctx: ActionContext,
   overrides: Partial<Pick<PaletteCommand, "name" | "description">> = {},
 ): PaletteCommand {
-  const a = ACTIONS[id];
+  const a = ACTIONS[id] as DispatchableAction;
   return {
     name: overrides.name ?? a.label,
     description: overrides.description,
     keybind: a.keybind,
-    onSelect: () => a.handler?.(ctx),
+    onSelect: () => a.handler(ctx),
   };
 }
