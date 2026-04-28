@@ -54,6 +54,7 @@ describe("eventsFromMessageParts", () => {
         id: "call_1",
         toolName: "glob",
         inputs: { pattern: "**/*.ts" },
+        isEditTool: false,
         ts: 3000,
       },
       {

@@ -31,6 +31,18 @@ interface AssistantContentBlock {
   is_error?: boolean;
 }
 
+/** Claude Code tool names whose payload IS a file edit (as opposed to
+ *  exec output, file reads, web fetches, etc.). The renderer uses this
+ *  to decide whether to render the call as an inline diff (visible by
+ *  default) or as a collapsed tool call (hidden under the Tools toggle).
+ *  Per-vendor because each agent has its own tool registry. */
+const CLAUDE_EDIT_TOOL_NAMES = new Set([
+  "Edit",
+  "MultiEdit",
+  "Write",
+  "NotebookEdit",
+]);
+
 interface JsonlEntry {
   type?: string;
   timestamp?: string;
@@ -96,6 +108,7 @@ function eventsFromEntry(entry: JsonlEntry): TranscriptEvent[] {
           id: block.id ?? null,
           toolName: block.name,
           inputs: block.input,
+          isEditTool: CLAUDE_EDIT_TOOL_NAMES.has(block.name),
           ts,
         });
       }

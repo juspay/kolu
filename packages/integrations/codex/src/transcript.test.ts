@@ -72,6 +72,7 @@ describe("parseCodexRollout", () => {
         id: "call_1",
         toolName: "exec_command",
         inputs: { cmd: "ls" },
+        isEditTool: false,
         ts: null,
       },
     ]);

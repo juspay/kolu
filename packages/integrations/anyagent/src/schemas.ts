@@ -73,12 +73,18 @@ export const TranscriptEventSchema = z.discriminatedUnion("kind", [
     ts: z.number().nullable(),
   }),
   /** A tool invocation. `id` correlates with a later `tool_result` when
-   *  the storage carries one; null for vendors that don't expose ids. */
+   *  the storage carries one; null for vendors that don't expose ids.
+   *  `isEditTool` is set by each loader based on its own knowledge of
+   *  which vendor tool names produce file edits — the renderer keys on
+   *  this boolean rather than maintaining its own vendor-string registry,
+   *  so the dispatch (visible inline diff vs. collapsed JSON) stays a
+   *  property of the IR. */
   z.object({
     kind: z.literal("tool_call"),
     id: z.string().nullable(),
     toolName: z.string(),
     inputs: z.unknown(),
+    isEditTool: z.boolean(),
     ts: z.number().nullable(),
   }),
   /** Result of a previous tool call. `output` is `unknown` so vendors can

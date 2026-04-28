@@ -59,6 +59,12 @@ interface MessageMeta {
   time?: { created?: number; completed?: number };
 }
 
+/** OpenCode tool names whose payload IS a file edit. Audited from
+ *  real session DBs (lowercased, unlike Claude Code's PascalCase
+ *  registry). The renderer reads `isEditTool` off the tool_call event
+ *  rather than maintaining its own vendor-string registry. */
+const OPENCODE_EDIT_TOOL_NAMES = new Set(["edit", "write", "apply_patch"]);
+
 /** Defensive cap on the parent-id walk. OpenCode shouldn't produce
  *  cycles (each child is created with `parentID = current`), but a
  *  bounded walk + visited-set keeps a corrupt row from looping
@@ -175,6 +181,7 @@ export function eventsFromMessageParts(
         id,
         toolName: p.tool,
         inputs: p.state?.input,
+        isEditTool: OPENCODE_EDIT_TOOL_NAMES.has(p.tool),
         ts: messageTs,
       });
       if (p.state?.status === "completed" || p.state?.status === "error") {

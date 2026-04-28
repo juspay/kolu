@@ -337,20 +337,6 @@ export function renderMarkdown(text: string): string {
   return out.join("\n");
 }
 
-/** Tools whose payload is the agent's actual file change. These render
- *  inline as a diff (not collapsed under "Tools hidden") because the
- *  diff IS the conversation content — the agent's edits ARE the work
- *  being reviewed. Names cover Claude Code (Edit/MultiEdit/Write/
- *  NotebookEdit) and Codex (apply_patch). OpenCode emits its tools
- *  under different names not yet covered. */
-const EDIT_TOOL_NAMES = new Set([
-  "Edit",
-  "MultiEdit",
-  "Write",
-  "NotebookEdit",
-  "apply_patch",
-]);
-
 function isObj(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
@@ -629,8 +615,10 @@ function renderEvent(event: TranscriptEvent, index: number): string {
     .with({ kind: "tool_call" }, (e) => {
       // Edit-class tools render inline as diffs and stay visible even
       // when the global "Hide tools" toggle is on — the diff IS the
-      // conversation content, not an exec-output side-channel.
-      if (EDIT_TOOL_NAMES.has(e.toolName)) {
+      // conversation content, not an exec-output side-channel. Each
+      // per-agent loader sets `isEditTool` based on its own knowledge
+      // of which tool names produce file edits.
+      if (e.isEditTool) {
         return `<section class="event event--edit" data-call-id="${escapeHtml(e.id ?? "")}">
   <div class="gutter">
     <span class="gutter-icon" aria-label="Edit">${TOOL_ICON}</span>

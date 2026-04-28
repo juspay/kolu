@@ -79,6 +79,7 @@ describe("transcriptToHtml", () => {
             id: "t1",
             toolName: "Read",
             inputs: { path: "/x" },
+            isEditTool: false,
             ts: null,
           },
         ],
@@ -275,6 +276,7 @@ describe("transcriptToHtml", () => {
               old_string: "const x = 1;",
               new_string: "const x = 2;",
             },
+            isEditTool: true,
             ts: null,
           },
         ],
@@ -372,6 +374,7 @@ describe("transcriptToHtml", () => {
             toolName: "apply_patch",
             inputs:
               "*** Begin Patch\n*** Add File: a.txt\n+hello\n+world\n*** End Patch",
+            isEditTool: true,
             ts: null,
           },
         ],

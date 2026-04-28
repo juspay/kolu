@@ -49,6 +49,12 @@ interface RolloutLine {
 /** Parse a JSON string but fall back to the raw string when invalid —
  *  Codex's tool arguments are always JSON-encoded, but we don't want a
  *  parse error to drop content silently. */
+/** Codex tool names whose payload IS a file edit. Today the only such
+ *  tool is `apply_patch` (the unified-diff-style patch tool); reads,
+ *  shell exec, and web fetches go through other names. The renderer
+ *  keys on the `isEditTool` boolean we set here, not on the name. */
+const CODEX_EDIT_TOOL_NAMES = new Set(["apply_patch"]);
+
 function tryParseJson(raw: string | undefined): unknown {
   if (raw === undefined) return undefined;
   try {
@@ -109,6 +115,7 @@ function eventFromLine(entry: RolloutLine): TranscriptEvent | null {
         id: entry.payload.call_id ?? null,
         toolName: entry.payload.name,
         inputs: tryParseJson(rawInputs),
+        isEditTool: CODEX_EDIT_TOOL_NAMES.has(entry.payload.name),
         ts,
       };
     }
