@@ -1,9 +1,11 @@
 ---
 title: Title in Title Case
-number: NNNN
-status: draft
+number: NNNN # sequential four-digit, matches this file's NNNN- prefix
+status: draft # draft | accepted | implemented | superseded | rejected
 author: your-github-handle
 created: YYYY-MM-DD
+# When status becomes "implemented", add: implemented-in: <PR number>
+# When status becomes "superseded", add: superseded-by: <proposal number>
 ---
 
 # NNNN — Title in Title Case

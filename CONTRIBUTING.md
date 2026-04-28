@@ -1,58 +1,42 @@
 # Contributing to kolu
 
-Thank you for considering a contribution. These guidelines exist because, in 2026, *anyone* — maintainers included — can ask a coding agent for a 500-line PR in an afternoon. That makes the bottleneck no longer "who will write the code" but **"who has agreed to maintain this feature forever."** The rules below keep the conversation about *what* to build separate from the conversation about *how* to build it.
+In 2026, anyone can ask a coding agent for a 500-line PR in an afternoon. The bottleneck isn't *who writes the code* — it's *who agrees to maintain the feature*. So we keep the conversation about **what to build** separate from the conversation about **how to build it**.
 
 ## TL;DR
 
 - **Trivial fix?** Open a PR directly.
-- **New user-facing feature, behavior change, or anything reasonable people might disagree about?** Open a *proposal* first — see [`docs/proposals/`](./docs/proposals/).
+- **New user-facing feature, behavior change, or anything reasonable people might disagree about?** Open a *proposal* first.
 
-## Two paths
+## 1. Trivial PRs — open directly
 
-### 1. Trivial PR — open directly
+No proposal needed for: bug fixes that restore obvious behavior, build/packaging/CI fixes, doc typos, behavior-preserving refactors, or tests for existing behavior.
 
-Open a PR straight away when the change is one of:
+## 2. Proposals — what and why, not how
 
-- Bug fix that restores documented or obvious behavior
-- Build, packaging, or CI fix (Nix, GitHub Actions, dependency bumps)
-- Documentation typo, clarification, or example
-- Refactor with no behavioral change
-- Test added for existing behavior
+Anything user-facing — new shortcuts, settings, UI, defaults, persisted data, or new runtime dependencies — needs a merged proposal before any implementation PR.
 
-Trivial PRs are reviewed on their merits. No proposal needed.
+A proposal is a short markdown file in [`docs/proposals/`](./docs/proposals/). Copy [`0000-template.md`](./docs/proposals/0000-template.md) to `NNNN-your-slug.md`, fill it in, and open a PR adding only that file. Discuss on the PR; once accepted, it merges and *anyone* — including a maintainer running `/do` — can write the implementation in a follow-up. The merged proposal is a frozen historical record; only status edits are allowed afterward.
 
-### 2. Proposal-first — discuss before coding
+Implementation details are optional. The template has an "Implementation notes" slot for hints; skip it if you don't have an opinion. The implementer figures out the *how*.
 
-For anything else — especially anything that adds, removes, or changes a user-visible feature — **open a proposal PR first**, not a feature PR.
+### Proposal + prototype is the strongest form
 
-This includes (but is not limited to):
+A working prototype turns *"I have an opinion about a feature"* into *"look, here's what it could feel like."* Drop HTML mockups, UI screenshots, SVGs, or screen recordings into a sibling directory `docs/proposals/<your-slug>/` and link them from the proposal markdown — reviewers can then interact with the idea instead of reverse-engineering it from prose. The combination is far more compelling than either alone.
 
-- New keyboard shortcuts, settings, commands, or palette entries
-- New persisted data shape, schema, or storage location
-- New UI surface (panels, dialogs, tiles, modals, indicators)
-- Changes to the default behavior of an existing feature
-- New library dependencies that ship in the user-facing build
+### Drafts welcome
 
-A proposal is a short markdown file in [`docs/proposals/`](./docs/proposals/) describing what should change and why. The proposal PR is where we agree on **what to build**; once it merges, anyone — the original proposer, a different contributor, or a maintainer running `/do` — can implement the actual code in a follow-up PR.
+Open the PR as a GitHub *draft* if you're still brainstorming or have open questions you want directional feedback on. Mark it ready for review when the questions narrow.
 
-A proposal is about **what** and **why**, not **how**. Implementation details are optional — the template has an "Implementation notes" section for hints if you have any, but skip it otherwise. The implementer figures out the *how*.
+### Why proposals matter
 
-**Why this exists.** Writing code stopped being scarce; *agreeing to maintain it* is what's scarce. A proposal lets us debate scope, naming, defaults, and edge cases without arguing over a half-implemented diff. It also keeps your contribution permanent: when the proposal merges, your authorship is preserved in `git log` even if someone else writes the implementation later.
+A merged proposal under your authorship is a substantial contribution in its own right — clarifying a vague idea into a concrete, debatable document is half the work, and the implementation usually follows mechanically. **Proposals from people who never write the code are welcome and valued.**
 
-**A well-thought-out proposal is itself a substantial contribution.** Taking a fuzzy idea and turning it into something concrete enough that people can agree (or disagree) with — *clarifying the ambiguity is half the work*. Once that work is done, the implementation often falls out almost mechanically. A merged proposal under your authorship is a meaningful contribution to kolu in its own right; you don't have to write the code to have contributed something real. Some of the most valuable things you can send us are proposals you have no intention of implementing yourself.
+**Feature PRs that skip the proposal step will be closed with a pointer back here.** It's the only way to keep the project's surface area honest.
 
-**Half-formed is fine — open a draft PR.** Proposals don't need to arrive polished. If you're still figuring out the shape, have open questions, or want to brainstorm before committing to a position, open the proposal as a *draft* PR and say so in the body. Reviewers will give directional feedback rather than line-by-line nits until you mark it ready for review. The "Open questions" section in the template is there for exactly this.
+## Using AI
 
-**Attach prototypes if they help.** A static HTML mockup, an SVG or PNG of the intended UI, a short screen recording — anything visual that's easier to *show* than to describe. Drop the assets in a sibling directory `docs/proposals/<your-slug>/` and link them from your proposal markdown. A working HTML mockup is often the fastest way to settle a UI debate; if you've already prototyped it, ship the prototype as part of the proposal.
+Coding agents are great at fleshing out a proposal — motivation, alternatives, edge cases, open questions. **Use them.** What we don't want is an AI-drafted *implementation* of a feature nobody has agreed to ship.
 
-**Feature PRs that skip the proposal step will be closed with a pointer back here.** This isn't personal. It's the only way to keep the project's surface area honest. If you're unsure whether your change needs a proposal, write a draft proposal — it's a few minutes of work and saves everyone the back-and-forth on a feature PR that ends up rejected.
+## Implementer notes
 
-## Using AI to draft a proposal
-
-Coding agents are great at fleshing out a proposal — motivation, alternatives, edge cases, open questions. **Use them.** An AI-drafted *proposal* is exactly what we want. What we don't want is an AI-drafted *implementation* of a feature nobody has agreed to ship.
-
-The template at [`docs/proposals/0000-template.md`](./docs/proposals/0000-template.md) is structured so an agent can fill it in from your prompt plus its reading of the codebase.
-
-## Project workflow notes
-
-For implementer-side conventions (`/do`, `/test`, `/ci` skills, formatter, etc.), see `.agency/do.md`.
+For `/do`, `/test`, `/ci`, formatter, and other implementer-side conventions, see `.agency/do.md`.
