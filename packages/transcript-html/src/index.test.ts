@@ -391,6 +391,71 @@ describe("transcriptToHtml", () => {
     expect(html).toContain('class="msg-toggle"');
   });
 
+  it("indents nested subtasks via --subtask-depth so the inner block reads visually inside its parent", () => {
+    // OpenCode's task tool can recursively spawn subagents — a child
+    // subtask inside a parent subtask. The IR carries this as
+    // start/start/end/end. Each event's left-pad uses an inline
+    // --subtask-depth set per nesting level.
+    const html = transcriptToHtml(
+      makeTranscript({
+        events: [
+          { kind: "user", text: "go", ts: null },
+          {
+            kind: "subtask_start",
+            description: "outer",
+            agentName: "lowy",
+            sessionId: null,
+            ts: null,
+          },
+          { kind: "assistant", text: "outer reply", model: null, ts: null },
+          {
+            kind: "subtask_start",
+            description: "inner",
+            agentName: "explore",
+            sessionId: null,
+            ts: null,
+          },
+          { kind: "assistant", text: "inner reply", model: null, ts: null },
+          { kind: "subtask_end", ts: null },
+          { kind: "subtask_end", ts: null },
+          { kind: "assistant", text: "wrap", model: null, ts: null },
+        ],
+      }),
+    );
+    // Top-level events carry no --subtask-depth.
+    expect(html).toContain('data-role="user" data-prompt-index="0">');
+    // The outer subtask_start renders at depth 1.
+    expect(html).toMatch(
+      /subtask-boundary--start[^>]*style="--subtask-depth: 1"/,
+    );
+    // Events inside the outer subtask render at depth 1 too.
+    expect(html).toMatch(
+      /event--assistant"[^>]*style="--subtask-depth: 1">[^<]*<div class="gutter">[\s\S]*?outer reply/,
+    );
+    // The inner subtask_start renders at depth 2.
+    expect(html).toMatch(
+      /subtask-boundary--start[^>]*style="--subtask-depth: 2"/,
+    );
+    // Events inside the inner subtask render at depth 2.
+    expect(html).toContain('--subtask-depth: 2"');
+    // Inner end at depth 2, outer end at depth 1.
+    const ends = html.match(
+      /subtask-boundary--end"[^>]*style="--subtask-depth: (\d+)"/g,
+    );
+    expect(ends?.length).toBe(2);
+    expect(ends?.[0]).toContain('"--subtask-depth: 2"'); // inner end first
+    expect(ends?.[1]).toContain('"--subtask-depth: 1"'); // outer end after
+    // After both subtasks close, the trailing assistant is back at depth 0.
+    expect(html).toMatch(
+      /event--assistant">[^<]*<div class="gutter">[\s\S]*?wrap/,
+    );
+    // CSS rule that reads the custom property.
+    expect(html).toContain("--subtask-depth");
+    expect(html).toContain(
+      "padding-left: calc(var(--subtask-depth, 0) * 1.25rem)",
+    );
+  });
+
   it("renders subtask_start and subtask_end as visible boundary dividers", () => {
     const html = transcriptToHtml(
       makeTranscript({

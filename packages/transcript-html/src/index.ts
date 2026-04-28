@@ -581,12 +581,22 @@ function formatTokens(n: number): string {
   }
 }
 
-function renderEvent(event: TranscriptEvent, index: number): string {
+function renderEvent(
+  event: TranscriptEvent,
+  index: number,
+  subtaskDepth: number,
+): string {
   const ts = formatTimestamp(event.ts);
   const tsHtml = ts ? `<time class="ts">${escapeHtml(ts)}</time>` : "";
+  // Inline custom property the CSS picks up for left-padding. Set only
+  // when nested so depth-0 markup stays clean. Reddit-style: each level
+  // shifts the whole event right by one indent step, so a subagent's
+  // child subagent reads visually inside its parent.
+  const depthAttr =
+    subtaskDepth > 0 ? ` style="--subtask-depth: ${subtaskDepth}"` : "";
   return match(event)
     .with({ kind: "user" }, (e) => {
-      return `<section class="event event--user" data-role="user" data-prompt-index="${index}">
+      return `<section class="event event--user" data-role="user" data-prompt-index="${index}"${depthAttr}>
   <div class="gutter">
     <span class="gutter-icon" aria-label="User">${USER_ICON}</span>
     <span class="gutter-num"></span>
@@ -604,7 +614,7 @@ function renderEvent(event: TranscriptEvent, index: number): string {
       const model = e.model
         ? `<span class="card-model">${escapeHtml(e.model)}</span>`
         : "";
-      return `<section class="event event--assistant">
+      return `<section class="event event--assistant"${depthAttr}>
   <div class="gutter">
     <span class="gutter-icon" aria-label="Assistant">${ASSISTANT_ICON}</span>
   </div>
@@ -619,7 +629,7 @@ function renderEvent(event: TranscriptEvent, index: number): string {
 </section>`;
     })
     .with({ kind: "reasoning" }, (e) => {
-      return `<section class="event event--reasoning">
+      return `<section class="event event--reasoning"${depthAttr}>
   <div class="gutter">
     <span class="gutter-icon" aria-label="Reasoning">${REASONING_ICON}</span>
   </div>
@@ -636,7 +646,7 @@ function renderEvent(event: TranscriptEvent, index: number): string {
       // stay visible even when "Hide tools" is on — the diff IS the
       // conversation content, not exec output.
       if (isEditClass(e.inputs)) {
-        return `<section class="event event--edit" data-call-id="${escapeHtml(e.id ?? "")}">
+        return `<section class="event event--edit" data-call-id="${escapeHtml(e.id ?? "")}"${depthAttr}>
   <div class="gutter">
     <span class="gutter-icon" aria-label="Edit">${TOOL_ICON}</span>
   </div>
@@ -655,7 +665,7 @@ function renderEvent(event: TranscriptEvent, index: number): string {
       const summaryHtml = summary
         ? `<span class="tool-summary">${escapeHtml(summary)}</span>`
         : "";
-      return `<section class="event event--tool event--tool-call" data-call-id="${escapeHtml(e.id ?? "")}">
+      return `<section class="event event--tool event--tool-call" data-call-id="${escapeHtml(e.id ?? "")}"${depthAttr}>
   <div class="gutter">
     <span class="gutter-icon" aria-label="Tool call">${TOOL_ICON}</span>
   </div>
@@ -676,7 +686,7 @@ function renderEvent(event: TranscriptEvent, index: number): string {
       const output = prettyJson(e.output);
       const errCls = e.isError ? " event--error" : "";
       const errLabel = e.isError ? " (error)" : "";
-      return `<section class="event event--tool event--tool-result${errCls}" data-call-id="${escapeHtml(e.id ?? "")}">
+      return `<section class="event event--tool event--tool-result${errCls}" data-call-id="${escapeHtml(e.id ?? "")}"${depthAttr}>
   <div class="gutter">
     <span class="gutter-icon" aria-label="Tool result">${TOOL_ICON}</span>
   </div>
@@ -701,7 +711,7 @@ function renderEvent(event: TranscriptEvent, index: number): string {
       // Clickable: toggles collapse for the inlined child events (the
       // siblings up to the matching subtask-boundary--end) via the
       // inline JS at the bottom of the document.
-      return `<div class="subtask-boundary subtask-boundary--start" role="button" tabindex="0" aria-expanded="true" data-collapsed="false" title="Click to collapse this subtask">
+      return `<div class="subtask-boundary subtask-boundary--start" role="button" tabindex="0" aria-expanded="true" data-collapsed="false" title="Click to collapse this subtask"${depthAttr}>
   <span class="subtask-rule"></span>
   <span class="subtask-label">
     <span class="subtask-disclosure" aria-hidden="true">▼</span>
@@ -711,7 +721,7 @@ function renderEvent(event: TranscriptEvent, index: number): string {
 </div>`;
     })
     .with({ kind: "subtask_end" }, () => {
-      return `<div class="subtask-boundary subtask-boundary--end">
+      return `<div class="subtask-boundary subtask-boundary--end"${depthAttr}>
   <span class="subtask-rule"></span>
   <span class="subtask-label subtask-label--end">End subtask</span>
   <span class="subtask-rule"></span>
@@ -1004,6 +1014,16 @@ const STYLE = `
   }
   @media (min-width: 768px) {
     .event { grid-template-columns: 2.75rem 1fr; gap: 0.875rem; }
+  }
+  /* Nested-subtask indent: events between a subtask_start and its
+   * subtask_end (and the boundaries themselves) carry an inline
+   * --subtask-depth. Reddit-comment style: each level shifts right by
+   * one indent step + draws a subtle vertical guide. */
+  .event[style*="--subtask-depth"],
+  .subtask-boundary[style*="--subtask-depth"] {
+    padding-left: calc(var(--subtask-depth, 0) * 1.25rem);
+    border-left: 2px solid var(--rule);
+    margin-left: 0.25rem;
   }
   .gutter {
     display: flex;
@@ -1860,10 +1880,28 @@ export function transcriptToHtml(transcript: Transcript): string {
   // `/home/srid/code/kolu/.worktrees/damn-booth/packages/foo/src/foo.ts`.
   const prepared = relativizeTranscript(transcript);
   const counts = countEvents(prepared.events);
+  // Track subtask nesting depth so each event renders with the right
+  // left-pad. `subtask_start` increments depth and renders at the new
+  // (deeper) level — that way the start divider is visually inside the
+  // parent's indent. `subtask_end` renders at its current depth, then
+  // decrements, so the matching boundary aligns with its start.
+  let depth = 0;
+  const renderedEvents: string[] = [];
+  for (const [i, e] of prepared.events.entries()) {
+    if (e.kind === "subtask_start") {
+      depth += 1;
+      renderedEvents.push(renderEvent(e, i, depth));
+    } else if (e.kind === "subtask_end") {
+      renderedEvents.push(renderEvent(e, i, depth));
+      if (depth > 0) depth -= 1;
+    } else {
+      renderedEvents.push(renderEvent(e, i, depth));
+    }
+  }
   const eventsHtml =
     prepared.events.length === 0
       ? '<div class="empty">No conversation events found.</div>'
-      : prepared.events.map((e, i) => renderEvent(e, i)).join("\n");
+      : renderedEvents.join("\n");
   const titleText = deriveDisplayTitle(prepared);
   const eyebrow = renderEyebrow(prepared);
   const byline = renderByline(prepared, counts);
