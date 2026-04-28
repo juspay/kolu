@@ -10,6 +10,7 @@
  *  serializing there would produce unstyled HTML. */
 
 import {
+  escapeHtml,
   type TerminalId,
   type TerminalMetadata,
   terminalKey,
@@ -88,12 +89,4 @@ export function exportScrollbackAsPdf(
   } else {
     print();
   }
-}
-
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
 }

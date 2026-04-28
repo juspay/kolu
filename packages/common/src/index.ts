@@ -463,6 +463,9 @@ export {
 // --- Path helpers ---
 export { cwdBasename, shortenCwd } from "./path";
 
+// --- HTML helpers ---
+export { escapeHtml } from "./html";
+
 // --- Transcript export ---
 export {
   ExportTranscriptHtmlInputSchema,

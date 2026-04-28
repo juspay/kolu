@@ -11,7 +11,7 @@
  *  prompt navigation. Tool calls collapse by default (the dock toggle
  *  reveals them). All interactivity is inline JS; no external assets. */
 
-import type { Transcript, TranscriptEvent } from "kolu-common";
+import { escapeHtml, type Transcript, type TranscriptEvent } from "kolu-common";
 import { match } from "ts-pattern";
 
 const AGENT_LABEL: Record<Transcript["agentKind"], string> = {
@@ -43,15 +43,6 @@ const THEME_DOCK_ICON =
  *  self-contained and offline-safe. */
 const KOLU_LOGO =
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="18" height="18" aria-hidden="true"><rect x="1" y="26" width="30" height="5" rx="1.2" fill="#ef4444"/><rect x="4" y="20" width="25" height="5" rx="1.2" fill="#f59e0b"/><rect x="8" y="14" width="20" height="5" rx="1.2" fill="#22c55e"/><rect x="12" y="8" width="15" height="5" rx="1.2" fill="#3b82f6"/><rect x="16" y="2" width="10" height="5" rx="1.2" fill="#a855f7"/></svg>';
-
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
 
 /** Apply inline markdown formatting (bold, italic, inline code, links)
  *  to a string that has already been HTML-escaped. Order matters:
