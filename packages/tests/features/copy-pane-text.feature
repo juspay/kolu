@@ -8,7 +8,7 @@ Feature: Copy terminal text
     When I run "echo palette-copy-test"
     And the screen state should contain "palette-copy-test"
     And I open the command palette
-    And I type "Copy terminal" in the palette
+    And I type "Copy text" in the palette
     And I press Enter
     Then a toast should appear with text "Copied terminal text to clipboard"
     And there should be no page errors
@@ -21,7 +21,7 @@ Feature: Copy terminal text
     And I run "echo split-unique-text" in the sub-terminal
     And the sub-terminal screen should contain "split-unique-text"
     And I open the command palette
-    And I type "Copy terminal" in the palette
+    And I type "Copy text" in the palette
     And I press Enter
     Then a toast should appear with text "Copied terminal text to clipboard"
     And the clipboard should contain "split-unique-text"
