@@ -417,26 +417,6 @@ export const TerminalIcon: Component<{ class?: string }> = (props) => (
   </svg>
 );
 
-/** Minimap toggle: grid/map icon. */
-export const MinimapIcon: Component<{ class?: string }> = (props) => (
-  <svg
-    class={props.class ?? "w-4 h-4"}
-    fill="none"
-    stroke="currentColor"
-    stroke-width="2"
-    stroke-linecap="round"
-    stroke-linejoin="round"
-    viewBox="0 0 24 24"
-    aria-hidden="true"
-  >
-    {/* 2×2 grid — spatial overview metaphor */}
-    <rect x="3" y="3" width="8" height="8" rx="1" />
-    <rect x="13" y="3" width="8" height="8" rx="1" />
-    <rect x="3" y="13" width="8" height="8" rx="1" />
-    <rect x="13" y="13" width="8" height="8" rx="1" />
-  </svg>
-);
-
 export const FileBrowseIcon: Component<{ class?: string }> = (props) => (
   <svg
     class={props.class ?? "w-3.5 h-3.5"}
