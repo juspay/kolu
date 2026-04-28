@@ -14,7 +14,7 @@ import type { TerminalId } from "kolu-common";
 import { type Component, createMemo, For, Show } from "solid-js";
 import { match, P } from "ts-pattern";
 import { useTerminalStore } from "../terminal/useTerminalStore";
-import { MinimapIcon, PlusIcon } from "../ui/Icons";
+import { PlusIcon } from "../ui/Icons";
 import {
   type PillBranch,
   type PillRepoGroup,
@@ -84,17 +84,6 @@ const PillTree: Component<{
           "opacity-50": posture.maximized(),
         }}
       >
-        <Show when={posture.maximized()}>
-          <button
-            type="button"
-            data-testid="pill-tree-exit-maximize"
-            class="pointer-events-auto flex items-center justify-center w-6 h-6 rounded-lg shrink-0 cursor-pointer text-fg-2 hover:text-fg hover:bg-surface-2/80 transition-colors"
-            onClick={posture.toggle}
-            title="Show all on canvas"
-          >
-            <MinimapIcon class="w-3.5 h-3.5" />
-          </button>
-        </Show>
         {/* "+" button — opens the new-terminal palette group (recent
          *  cwds + worktree create flow). Sits before the repo groups
          *  so it stays in a stable position regardless of how many

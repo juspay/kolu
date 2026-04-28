@@ -9,6 +9,7 @@ overrides:
   picomatch: ^4.0.4
   yaml: ^2.8.3
   defu: ^6.1.5
+  postcss: ^8.5.10
   '@anthropic-ai/sdk': ^0.81.0
   '@xterm/xterm': github:juspay/xterm.js#fix/kolu-xterm-fixes-built
   '@xterm/addon-webgl': github:juspay/xterm.js#fix/kolu-xterm-fixes-built&path:/addons/addon-webgl
@@ -3553,8 +3554,8 @@ packages:
     resolution: {integrity: sha512-/+5VFTchJDoVj3bhoqi6UeymcD00DAwb1nJwamzPvHEszJ4FpF6SNNbUbOS8yI56qHzdV8eK0qEfOSiodkTdxg==}
     engines: {node: '>= 0.4'}
 
-  postcss@8.5.8:
-    resolution: {integrity: sha512-OW/rX8O/jXnm82Ey1k44pObPtdblfiuWnrd8X7GJ7emImCOstunGbXUpp7HdBrFQX6rJzn3sPT397Wp5aCwCHg==}
+  postcss@8.5.10:
+    resolution: {integrity: sha512-pMMHxBOZKFU6HgAZ4eyGnwXF/EvPGGqUr0MnZ5+99485wwW41kW91A4LOGxSHhgugZmSChL5AlElNdwlNgcnLQ==}
     engines: {node: ^10 || ^12 || >=14}
 
   preact-render-to-string@6.6.5:
@@ -7571,7 +7572,7 @@ snapshots:
 
   possible-typed-array-names@1.1.0: {}
 
-  postcss@8.5.8:
+  postcss@8.5.10:
     dependencies:
       nanoid: 3.3.11
       picocolors: 1.1.1
@@ -8344,7 +8345,7 @@ snapshots:
       esbuild: 0.25.12
       fdir: 6.5.0(picomatch@4.0.4)
       picomatch: 4.0.4
-      postcss: 8.5.8
+      postcss: 8.5.10
       rollup: 4.60.1
       tinyglobby: 0.2.15
     optionalDependencies:

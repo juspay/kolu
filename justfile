@@ -96,6 +96,10 @@ test-quick *args: install
         ./node_modules/@cucumber/cucumber/bin/cucumber-js \
         --profile ui {{ args }}
 
+# Boot the packaged Kolu and verify /api/health — production-like runtime smoke
+smoke:
+    {{ nix_shell }} bash ci/smoke.sh
+
 # Remove all gitignored files (node_modules, build artifacts, etc.)
 clean:
     git clean -fdX
