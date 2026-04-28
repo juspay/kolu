@@ -184,6 +184,62 @@
         color: var(--text-faint);
       }
 
+      .url-bar {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 6px 14px;
+        background: #0a0c10;
+        border-bottom: 1px solid var(--border-soft);
+        font-family: var(--mono);
+        font-size: 12px;
+        color: var(--text-dim);
+      }
+      .url-bar .nav {
+        display: inline-flex;
+        gap: 4px;
+        color: var(--text-faint);
+      }
+      .url-bar .nav span {
+        cursor: pointer;
+      }
+      .url-bar .nav span.active {
+        color: var(--text);
+      }
+      .url-bar .lock {
+        font-size: 10px;
+        color: var(--green);
+      }
+      .url-bar .url {
+        flex: 1;
+        color: var(--text);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .url-bar .url .host {
+        color: var(--text-faint);
+      }
+      .url-bar .url .path {
+        color: var(--accent);
+      }
+
+      .updated-chip {
+        display: inline-block;
+        margin-top: 6px;
+        padding: 1px 7px;
+        font-family: var(--mono);
+        font-size: 10.5px;
+        color: var(--text-faint);
+        background: var(--bg);
+        border: 1px solid var(--border-soft);
+        border-radius: 3px;
+      }
+      .card .meta + .updated-chip,
+      .card .desc + .updated-chip {
+        margin-top: 8px;
+      }
+
       /* Split layout: kanban + on-disk panel ------------------------------- */
       .split-body {
         display: grid;
@@ -898,6 +954,12 @@
             <span class="keys">⌘K</span>
           </div>
 
+          <div class="url-bar">
+            <span class="nav"><span>←</span><span class="active">→</span></span>
+            <span class="lock">🔒</span>
+            <span class="url"><span class="host">kolu.local</span><span class="path">/projects/7f3e1d2a-9b04-42c1-bc83-5e3d10d0b4a1</span></span>
+          </div>
+
           <div class="split-body">
             <div class="split-pane">
               <div class="lanes">
@@ -911,6 +973,7 @@
                     <button class="card-x" title="Delete">×</button>
                     <div class="title">Refactor session module</div>
                     <div class="desc">Splits the auth and session storage modules.</div>
+                    <span class="updated-chip">@{2026-04-19}</span>
                   </div>
                   <div class="card">
                     <button class="card-x" title="Delete">×</button>
@@ -919,6 +982,7 @@
                       <span class="term-tag">term-1</span>
                       <span class="term-tag">term-2</span>
                     </div>
+                    <span class="updated-chip">@{2026-04-20}</span>
                   </div>
                   <div class="card collapsed">
                     <button class="card-x" title="Delete">×</button>
@@ -935,6 +999,7 @@
                       <span class="term-tag">term-4</span>
                     </div>
                     <span class="card-chevron">▸ show more</span>
+                    <span class="updated-chip">@{2026-04-23}</span>
                   </div>
                   <div class="lane-add">add task…</div>
                 </div>
@@ -952,6 +1017,7 @@
                     <div class="meta">
                       <span class="term-tag">term-3</span>
                     </div>
+                    <span class="updated-chip">@{2026-04-22}</span>
                   </div>
                   <div class="lane-add">add task…</div>
                 </div>
@@ -967,8 +1033,9 @@
                     <button class="card-x" title="Delete">×</button>
                     <div class="title" style="display: flex; align-items: center">
                       Set up dev env
-                      <span class="check">✓ 2d ago</span>
+                      <span class="check">✓</span>
                     </div>
+                    <span class="updated-chip">@{2026-04-25}</span>
                   </div>
                   <div class="lane-add">add task…</div>
                 </div>
@@ -988,16 +1055,16 @@ projectId: 7f3e...
 
 <span class="heading">## Todo</span>
 
-<span class="checkbox">- [ ]</span> Refactor session module <span class="blockid">&lt;!-- ^def456 --&gt;</span>
+<span class="checkbox">- [ ]</span> Refactor session module <span class="blockid">&lt;!-- ^def456 --&gt;</span> <span class="timestamp">@{2026-04-19}</span>
   Splits the auth and session storage modules.
-<span class="checkbox">- [ ]</span> Fix login bug <span class="blockid">&lt;!-- ^abc123 --&gt;</span>
-<span class="checkbox">- [ ]</span> Investigate dropped frames in scrollback <span class="blockid">&lt;!-- ^mno345 --&gt;</span>
+<span class="checkbox">- [ ]</span> Fix login bug <span class="blockid">&lt;!-- ^abc123 --&gt;</span> <span class="timestamp">@{2026-04-20}</span>
+<span class="checkbox">- [ ]</span> Investigate dropped frames in scrollback <span class="blockid">&lt;!-- ^mno345 --&gt;</span> <span class="timestamp">@{2026-04-23}</span>
   Long description spanning several lines about the WebGL texture atlas
   growing unbounded in long-running terminals, with reproduction steps…
 
 <span class="heading">## Doing</span>
 
-<span class="checkbox">- [ ]</span> Learn CRDTs <span class="blockid">&lt;!-- ^ghi789 --&gt;</span>
+<span class="checkbox">- [ ]</span> Learn CRDTs <span class="blockid">&lt;!-- ^ghi789 --&gt;</span> <span class="timestamp">@{2026-04-22}</span>
   Read paper; prototype a tiny LWW register; write up.
 
 <span class="heading">## Done</span>
@@ -1010,15 +1077,18 @@ projectId: 7f3e...
         </div>
 
         <div class="legend">
-          <strong>What's shown (left, proposed):</strong> Lanes are user-named. The
-          <code>**Complete**</code> badge marks a lane as carrying the <code>complete</code> role; tasks
-          landing there get a completion timestamp. Term-pills under cards are linked terminals; clicking one
-          navigates to <code>/</code> (workspace) and focuses that terminal — browser back returns here.
-          Each card carries a small <code>×</code> in the top-right (visible on hover) that opens a
-          delete-confirm modal. The third Todo card has a long description and starts collapsed with a
-          <code>▸ show more</code> chevron — clicking the chevron expands the card; the state is
-          session-only and not persisted. The <code>+ add task…</code> at the bottom of each lane is one of
-          the two creation affordances (see view 04).
+          <strong>What's shown (left, proposed):</strong> The URL bar shows the route the board lives at —
+          <code>/projects/&lt;projectId&gt;</code>. Lanes are user-named. The <code>**Complete**</code> badge
+          marks a lane as carrying the <code>complete</code> role; tasks living there are *currently
+          completed*. Each card carries an <code>@{YYYY-MM-DD}</code> chip — that's the task's
+          <code>updatedAt</code>, bumped on lane move or inline edit (not on drag-to-reorder within the same
+          lane). Term-pills under cards are linked terminals; clicking one navigates to <code>/</code>
+          (workspace) and focuses that terminal — browser back returns here. Each card carries a small
+          <code>×</code> in the top-right (visible on hover) that opens a delete-confirm modal. The third
+          Todo card has a long description and starts collapsed with a <code>▸ show more</code> chevron —
+          clicking the chevron expands the card; the state is session-only and not persisted. The
+          <code>+ add task…</code> at the bottom of each lane is one of the two creation affordances (see
+          view 04).
         </div>
         <div class="legend explanation">
           <strong>What's shown (right, explanation only):</strong> The raw markdown that produces the board
@@ -1043,6 +1113,12 @@ projectId: 7f3e...
             <div class="crumbs">
               <span class="active">Tasks · all projects</span>
             </div>
+          </div>
+
+          <div class="url-bar">
+            <span class="nav"><span>←</span><span class="active">→</span></span>
+            <span class="lock">🔒</span>
+            <span class="url"><span class="host">kolu.local</span><span class="path">/tasks</span></span>
           </div>
 
           <div class="table-body">
@@ -1124,6 +1200,12 @@ projectId: 7f3e...
             <span class="keys">⌘K</span>
           </div>
 
+          <div class="url-bar">
+            <span class="nav"><span class="active">←</span><span>→</span></span>
+            <span class="lock">🔒</span>
+            <span class="url"><span class="host">kolu.local</span><span class="path">/</span></span>
+          </div>
+
           <div class="canvas-body">
             <div class="term-tile focused">
               <div class="term-head">
@@ -1181,6 +1263,12 @@ projectId: 7f3e...
             <div class="crumbs">
               <span class="active">creating a task</span>
             </div>
+          </div>
+
+          <div class="url-bar">
+            <span class="nav"><span class="active">←</span><span>→</span></span>
+            <span class="lock">🔒</span>
+            <span class="url"><span class="host">kolu.local</span><span class="path">/projects/7f3e1d2a-9b04-42c1-bc83-5e3d10d0b4a1</span></span>
           </div>
 
           <div class="creation-body">

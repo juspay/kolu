@@ -49,10 +49,11 @@ Project
 
 ### Navigation
 
-Two top-level routes:
+Three top-level routes:
 
 - `/` — the workspace (terminal canvas, exactly as today).
 - `/projects/<projectId>` — that project's kanban board.
+- `/tasks` — the cross-project view (time-ordered table over every task in every project; see [Cross-project view](#cross-project-view)).
 
 Browser back/forward and bookmarkable URLs come for free. Project navigation lives entirely in the URL — there is no `preferences.activeProject`. Right-panel state (Inspector vs. Code, collapsed/expanded) stays in preferences as today; that's pane-level chrome state, orthogonal to which project the user is looking at.
 
@@ -103,21 +104,29 @@ type Task = {
   projectId: string;      // mandatory; floating tasks live under the synthetic "No Project"
   name: string;           // user-typed
   description?: string;   // user-typed; freeform markdown
-  createdAt: number;
-  updatedAt: number;
-  completedAt?: number;   // set on first entry into a `**Complete**` lane; immutable once set
+  updatedAt: number;      // last meaningful interaction (see below)
 };
 ```
 
-Notably **absent**: a `status` field. The lane a task lives in *is* its status. Carrying `status` on the task object would be a denormalization of lane membership and would require two writes for every state change. Status is computed at read time from "which lane currently contains this task."
+Notably **absent**:
 
-`completedAt` semantics: **first-completion, immutable**. Set once when a task first lands in a lane flagged as completion. Moving it back out does not clear it. Moving back in does not update it. Re-opening a "completed" task is a separate concept that this proposal deliberately does not model.
+- A `status` field. The lane a task lives in *is* its status. Carrying `status` on the task object would denormalize lane membership and require two writes for every state change. Status is computed at read time from "which lane currently contains this task."
+- A `createdAt` field. Once a task has moved between lanes a few times, "when did this first exist" is no longer recoverable from the markdown — and we'd rather not pretend otherwise. For a personal kanban, "when did I last interact with this" is the question that matters; "when did I first jot it down" is not.
+- A `completedAt` field. Completion is purely a derived fact: *if the task's current lane has the `complete` role, the task is done at `updatedAt`; otherwise it isn't done.* Moving a task back out of Done and re-completing it re-stamps `updatedAt` — the original completion date is not preserved. See [Out of scope](#out-of-scope) for the deliberate trade.
+
+`updatedAt` semantics: **last meaningful interaction**. Bumped to `now` whenever:
+
+- The task moves between lanes (drag-to-different-lane).
+- The title is edited inline.
+- The description is edited inline.
+
+**Not** bumped on drag-to-reorder *within the same lane* — reordering is presentation, not content. The user expects "this task was last touched yesterday" to mean *the task's content or location changed*, not *I dragged it up two slots in the same column.*
 
 ### Lanes
 
 User-defined per project. A lane is just a heading in the project's markdown file; the lane name is whatever the user typed. Two projects can both have lanes named "Done", or one called "🔥 fires" and another "Reading" — the system imposes no vocabulary.
 
-A lane can carry a `complete` *role* (zero or one role today; the schema leaves room for more — see Out of scope). A lane with the `complete` role is treated as the "done" column: tasks landing there get a `completedAt` timestamp.
+A lane can carry a `complete` *role* (zero or one role today; the schema leaves room for more — see Out of scope). A lane with the `complete` role is treated as the "done" column: tasks living there are *currently completed* (with their completion time being the same `updatedAt` annotation every other lane carries).
 
 ### The project board (per project)
 
@@ -195,19 +204,19 @@ projectId: 7f3e...
 
 ## Todo
 
-- [ ] Fix login bug <!-- ^abc123 -->
-- [ ] Refactor session module <!-- ^def456 -->
+- [ ] Fix login bug <!-- ^abc123 --> @{2026-04-20}
+- [ ] Refactor session module <!-- ^def456 --> @{2026-04-19}
   Splits the auth and session storage modules.
 
 ## Doing
 
-- [ ] Learn CRDTs <!-- ^ghi789 -->
+- [ ] Learn CRDTs <!-- ^ghi789 --> @{2026-04-22}
 
 ## Done
 
 **Complete**
 
-- [x] Set up dev env <!-- ^jkl012 --> @{2026-04-20}
+- [x] Set up dev env <!-- ^jkl012 --> @{2026-04-25}
 ```
 
 Conventions:
@@ -216,7 +225,7 @@ Conventions:
 - `**Complete**` immediately under a heading flags the lane with the `complete` role (matches obsidian-kanban exactly).
 - `- [ ]` / `- [x]` items are tasks. Checkbox state is decorative; lane membership is canonical.
 - `<!-- ^id -->` HTML comments hold task block-ids. Hidden in rendered markdown so users don't accidentally clobber them while editing.
-- `@{2026-04-20}` is a completion timestamp annotation written by Kolu when a task enters a `complete` lane.
+- `@{YYYY-MM-DD}` on each task line is the task's `updatedAt` — the date of its last meaningful interaction (see [Tasks](#tasks) for what counts). Kolu writes this on every task, in every lane (not just `complete`-role lanes). Hand-edits in another editor that delete the annotation are auto-healed on the next Kolu save.
 
 The file is **plain markdown**. Kolu is the primary editor, but users can hand-edit in any tool. Kolu watches for filesystem changes and reparses on update. Last-write-wins conflict resolution; reasonable for a personal-use feature.
 
@@ -229,12 +238,12 @@ Both populations are real today. The default covers (1); the implementation shou
 
 ## Prototype
 
-See [`./0001-task-management/mockup.html`](./0001-task-management/mockup.html) — open in a browser. Five views:
+See [`./0001-task-management/mockup.html`](./0001-task-management/mockup.html) — open in a browser. Each frame's chrome carries a faux URL bar showing the route it lives at. Five views:
 
-1. **Per-project board** — lanes, cards (with ✕ delete on hover, ▸ collapse chevron on long descriptions), terminal pills, completion check.
+1. **Per-project board** at `/projects/<id>` — lanes, cards (with `@{YYYY-MM-DD}` chip, ✕ delete on hover, ▸ collapse chevron on long descriptions), terminal pills, completion check.
 2. **What's on disk** *(explanation only)* — the raw markdown that produces view 1, rendered side-by-side. Not a proposed Kolu surface; included to make the file format concrete.
-3. **Cross-project view** — time-ordered table.
-4. **Terminal canvas with task tags** — existing canvas; one new title-bar affordance.
+3. **Cross-project view** at `/tasks` — time-ordered table.
+4. **Terminal canvas with task tags** at `/` — existing canvas; one new title-bar affordance.
 5. **Creation UI** *(proposed)* — per-lane inline `+ add` and the command-palette `New task` modal.
 
 ## Implementation notes
@@ -248,6 +257,7 @@ Optional pointers, not prescriptions:
 - **Task card is a layout shell, not a god-component.** Each affordance (drag, inline-edit-title, inline-edit-description, terminal-pill nav, delete ✕) should isolate into its own hook or sub-component (`useDragTaskCard`, `<EditableTitle>`, `<EditableDescription>`, `<TaskCardDeleteConfirm>`, etc.). The card itself orchestrates layout; behavior lives in the parts.
 - **Create and edit are separate modals.** `CreateProjectModal` / `EditProjectModal` (and the same shape for tasks) share a stateless `<ProjectForm>` / `<TaskForm>` for field rendering, but each modal owns its own validation, side-effect, and lifecycle semantics. Avoid a single `<ProjectModal isEdit={...}>` that branches internally.
 - **Card expand/collapse state is session-only.** Hold it in a per-board UI-state hook (e.g. `useProjectBoardUIState()`) keyed by task id; never persist to markdown or preferences. The default value is computed from the description length.
+- **Schema and migrations.** Parsed boards are validated through Zod schemas — `TaskSchema`, `LaneSchema`, `BoardSchema` — that mirror the discipline of the existing `PersistedStateSchema` at `packages/server/src/state.ts:34-39`. The `kolu-board: v1` frontmatter is the canonical version handle for the on-disk format; bumping to `v2` means writing a `migrateBoardFromV1ToV2` function that runs on parse, same migration-ladder pattern as `state.json`. The exact home for the schema files (client package vs. `kolu-common`) is left to the implementer — `PersistedStateSchema` lives where its data is owned, and these schemas should follow the same rule.
 
 ## Alternatives considered
 
@@ -266,6 +276,8 @@ Optional pointers, not prescriptions:
 - **Single `ProjectModal` (or `TaskModal`) handling create + edit via an `isEdit` flag.** Rejected — create and edit have different validation rules (name-uniqueness across all vs. all-but-self), different side-effects (rename-triggers-board-move), and will diverge further. Two modals sharing a stateless field component avoids the internal branching.
 - **Persisting card expand/collapse state.** Rejected — markdown placement causes layout twitches on hand-edit; preferences placement creates an unbounded `Record<TaskId, boolean>` that leaks entries for deleted tasks. Session-only state with a "long descriptions start collapsed" heuristic answers the user need without storing anything.
 - **Right-click context menu replacing the card affordances.** Rejected — kolu has no right-click context menu pattern today (the pill tree is read-only, terminal tiles use direct-click affordances). Inline-edit on click is well-precedented (Notion, Obsidian, Linear) and keeps the kanban interaction model close to obsidian-kanban's.
+- **Stored `createdAt` and `completedAt` fields on `Task`.** Rejected. `createdAt` isn't recoverable from the markdown after a few lane moves — the file is canonical, and we'd be lying about the precision if we stored a value the source couldn't back up. `completedAt` is a derivation from `(task, currentLane)` — *if the lane has the `complete` role, `updatedAt` is the completion time; otherwise it's not done.* Storing it as an independent field invites drift between the lane and the field, and "first-completion-immutable" semantics cost us the honesty that re-completing a task re-stamps the date. Single timestamp; lane-membership encodes the rest.
+- **Hidden `c=` / `u=` / `d=` timestamps inside the block-id comment.** Considered — would have stored all three timestamps invisibly per task. Rejected once the single-`updatedAt` model landed, since two of the three storage slots had nothing to fill them with. The visible `@{YYYY-MM-DD}` annotation on each task line is the simpler outcome.
 
 ## Open questions
 
@@ -286,3 +298,5 @@ These are deliberate exclusions:
 - **Persisting card expand/collapse state.** Heuristic (description length) determines the default; the user's toggle lives in session memory only. Reload is a clean slate by design.
 - **Project deletion from inside Kolu.** Archive (via `archived: true`) is the in-app affordance. Permanent deletion is a manual filesystem operation under `~/.config/kolu/projects/`. Adding an in-app delete affordance with confirmation flows is a separate proposal.
 - **Drag-to-trash zone for task deletion.** Considered, deferred. It's discoverable on mobile but eats real estate on the small fullscreen viewport. The card-corner ✕ works on both desktop and mobile; revisit drag-to-trash if usage data shows people prefer dragging.
+- **First-completion-immutable timestamps and cycle-time analytics.** Moving a task out of Done and back in re-stamps `updatedAt`; the original completion date is not preserved. "How long did task X take?" / "what's our average cycle time?" / "completed-on history" are project-management questions and stay out of scope. The deliberate trade is honesty in the schema: storing a timestamp we'd silently overwrite would lie to users about what the field means.
+- **Per-task version field.** The on-disk format carries `kolu-board: vN` once at the top of the file; individual tasks have no version of their own. Adding optional fields later is handled by the migration ladder, not by per-record versioning.
