@@ -18,15 +18,11 @@ What does the user see, type, click, or otherwise interact with? Include keybind
 
 If this changes an existing feature, describe both the **current** and **proposed** behavior side by side.
 
-## Detailed design
+## Implementation notes (optional)
 
-How is this implemented, at the level of "what files / modules / data shapes change"? Don't write code — describe the shape of the change in prose. An implementer should be able to read this and know roughly where to start.
+Skip this section if you don't have an opinion on the *how* — that's the implementer's job. Fill it in only if you have hints worth recording: a tricky data migration, a non-obvious file or module that needs to change, a known interaction with an existing feature.
 
-Cover, where applicable:
-
-- Data model changes (new fields, persistence migration, defaults)
-- New abstractions (modules, components, services) and what they encapsulate
-- Interaction with existing features that might be affected
+Don't write code here. Prose, not pseudocode.
 
 ## Alternatives considered
 

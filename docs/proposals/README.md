@@ -1,6 +1,8 @@
 # Proposals
 
-This directory holds **proposals** — short specs for changes to kolu's user-visible behavior, agreed upon *before* implementation begins. The pattern is borrowed from [Rust RFCs](https://github.com/rust-lang/rfcs), [Python PEPs](https://peps.python.org/), and [React RFCs](https://github.com/reactjs/rfcs).
+This directory holds **proposals** — short documents describing changes to kolu's user-visible behavior, agreed upon *before* implementation begins. The pattern is borrowed from [Rust RFCs](https://github.com/rust-lang/rfcs), [Python PEPs](https://peps.python.org/), and [React RFCs](https://github.com/reactjs/rfcs).
+
+A proposal is about **what** to build and **why**, not **how**. Implementation details are optional and can be filled in (or ignored) by whoever writes the code later.
 
 See [`CONTRIBUTING.md`](../../CONTRIBUTING.md) for when a proposal is required vs. when a direct PR is fine.
 
