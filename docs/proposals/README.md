@@ -20,21 +20,33 @@ Once a proposal merges, **don't edit it** to track implementation drift. The cod
 
 The only allowed post-merge edits:
 
-- Updating the `Status:` line (e.g. `accepted` → `implemented in #N`).
+- Updating the `status:` frontmatter field (e.g. `accepted` → `implemented`, with the corresponding PR number in `implemented-in`).
 - Fixing a typo that doesn't change meaning.
 
-If the design needs to change after merge, write a *new* proposal that supersedes the old one, and link them in both directions.
+If the design needs to change after merge, write a *new* proposal that supersedes the old one, and link them in both directions via the `superseded-by` and `supersedes` fields.
 
-## Status
+## Frontmatter
 
-Every proposal carries a `Status:` line at the top:
+Every proposal opens with YAML frontmatter:
 
-| Status | Meaning |
+```yaml
+---
+title: Per-terminal light/dark theme slots
+number: 0001
+status: draft
+author: your-github-handle
+created: 2026-04-27
+---
+```
+
+`status` is one of:
+
+| Value | Meaning |
 |---|---|
 | `draft` | Under discussion in its PR |
 | `accepted` | Merged, awaiting implementation |
-| `implemented in #N` | Done — see PR `#N` for the code |
-| `superseded by #M` | Replaced by proposal #M |
+| `implemented` | Done — set `implemented-in: <PR number>` alongside |
+| `superseded` | Replaced — set `superseded-by: <proposal number>` alongside |
 | `rejected` | Proposal PR closed without merge |
 
 ## Numbering

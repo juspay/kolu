@@ -1,8 +1,12 @@
-# NNNN — Title in Title Case
+---
+title: Title in Title Case
+number: NNNN
+status: draft
+author: your-github-handle
+created: YYYY-MM-DD
+---
 
-Status: draft
-Author: <your name or GitHub handle>
-Created: YYYY-MM-DD
+# NNNN — Title in Title Case
 
 ## Summary
 
