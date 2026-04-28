@@ -122,7 +122,102 @@ export function parseClaudeCodeJsonl(content: string): TranscriptEvent[] {
     }
     events.push(...eventsFromEntry(entry));
   }
-  return events;
+  return inlineAgentSubtasks(events);
+}
+
+interface AgentCallMeta {
+  description: string;
+  agentName: string | null;
+  ts: number | null;
+}
+
+/** Claude Code's `Agent` tool dispatches a sub-agent that runs in an
+ *  ephemeral process. Unlike OpenCode (where the child session's full
+ *  activity is persisted and we recurse into it), Claude only writes
+ *  the dispatch (`tool_use` input) and the final reply text
+ *  (`tool_result` content) into the JSONL — the subagent's reasoning
+ *  and tool calls are not kept. Replacing the tool_call/tool_result
+ *  pair with a `subtask_start` / assistant / `subtask_end` triple makes
+ *  subagent dispatches visible by default (rather than hidden behind
+ *  the Tools toggle as a generic tool call), at the cost of dropping
+ *  the full prompt text — only the short description survives, which
+ *  is consistent with how OpenCode subtask boundaries label
+ *  in-flight/incomplete dispatches. */
+function inlineAgentSubtasks(events: TranscriptEvent[]): TranscriptEvent[] {
+  const agentCalls = new Map<string, AgentCallMeta>();
+  for (const e of events) {
+    if (e.kind === "tool_call" && e.toolName === "Agent" && e.id) {
+      agentCalls.set(e.id, extractAgentMeta(e.inputs, e.ts));
+    }
+  }
+  if (agentCalls.size === 0) return events;
+  const out: TranscriptEvent[] = [];
+  for (const e of events) {
+    if (e.kind === "tool_call" && e.toolName === "Agent" && e.id) {
+      // Suppress — replaced by the subtask block emitted around the
+      // matching tool_result below.
+      continue;
+    }
+    if (e.kind === "tool_result" && e.id && agentCalls.has(e.id)) {
+      const meta = agentCalls.get(e.id);
+      if (!meta) continue;
+      const replyText = extractAgentReplyText(e.output);
+      out.push({
+        kind: "subtask_start",
+        description: meta.description,
+        agentName: meta.agentName,
+        sessionId: null,
+        ts: meta.ts,
+      });
+      if (replyText.length > 0) {
+        out.push({
+          kind: "assistant",
+          text: replyText,
+          model: null,
+          ts: e.ts,
+        });
+      }
+      out.push({ kind: "subtask_end", ts: e.ts });
+      continue;
+    }
+    out.push(e);
+  }
+  return out;
+}
+
+function extractAgentMeta(inputs: unknown, ts: number | null): AgentCallMeta {
+  if (typeof inputs !== "object" || inputs === null) {
+    return { description: "Subagent", agentName: null, ts };
+  }
+  const obj = inputs as Record<string, unknown>;
+  const description =
+    typeof obj.description === "string" && obj.description.length > 0
+      ? obj.description
+      : "Subagent";
+  const agentName =
+    typeof obj.subagent_type === "string" ? obj.subagent_type : null;
+  return { description, agentName, ts };
+}
+
+/** Pull the reply text out of an Agent tool_result. Claude serializes
+ *  it as either a plain string or `[{type: "text", text}, ...]`. */
+function extractAgentReplyText(output: unknown): string {
+  if (typeof output === "string") return output;
+  if (Array.isArray(output)) {
+    const parts: string[] = [];
+    for (const block of output) {
+      if (
+        typeof block === "object" &&
+        block !== null &&
+        (block as { type?: unknown }).type === "text" &&
+        typeof (block as { text?: unknown }).text === "string"
+      ) {
+        parts.push((block as { text: string }).text);
+      }
+    }
+    return parts.join("\n");
+  }
+  return "";
 }
 
 export interface LoadClaudeCodeTranscriptInput {
