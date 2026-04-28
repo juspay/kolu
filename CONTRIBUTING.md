@@ -51,9 +51,20 @@ Coding agents are great at fleshing out a proposal — motivation, alternatives,
 
 The template at [`docs/proposals/0000-template.md`](./docs/proposals/0000-template.md) is structured so an agent can fill it in from your prompt plus its reading of the codebase.
 
-## Commits
+## PR titles
 
-This repo uses [Conventional Commits](https://www.conventionalcommits.org/): `feat:`, `fix:`, `docs:`, `chore:`, `refactor:`, `test:`. Tidy up messy commit history before requesting review.
+PRs are squash-merged, so your **PR title** becomes the commit on `master`. Use [Conventional Commits](https://www.conventionalcommits.org/) format:
+
+```
+feat: short description of a new feature
+fix: short description of a bug fix
+docs: …
+chore: …
+refactor: …
+test: …
+```
+
+Branch commits don't need to follow any convention — they're flattened on merge.
 
 ## Project workflow notes
 
