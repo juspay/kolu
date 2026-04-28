@@ -364,6 +364,76 @@ describe("transcriptToHtml", () => {
     expect(html).toContain("subtask-disclosure");
   });
 
+  it("renders OpenCode's camelCase edit-tool inputs as a diff", () => {
+    // OpenCode's `edit` tool uses {filePath, oldString, newString}
+    // (camelCase), distinct from Claude Code's snake_case shape. The
+    // renderer probes by input shape with multi-key field lookup so
+    // both render as the same diff view.
+    const html = transcriptToHtml(
+      makeTranscript({
+        events: [
+          {
+            kind: "tool_call",
+            id: "oce1",
+            toolName: "edit",
+            inputs: {
+              filePath: "/tmp/file.ts",
+              oldString: "const x = 1;",
+              newString: "const x = 2;",
+            },
+            isEditTool: true,
+            ts: null,
+          },
+        ],
+      }),
+    );
+    expect(html).toContain('class="event event--edit"');
+    expect(html).toContain("/tmp/file.ts");
+    expect(html).toContain("diff-del");
+    expect(html).toContain("diff-add");
+  });
+
+  it("renders OpenCode's camelCase write-tool inputs as a whole-file diff", () => {
+    const html = transcriptToHtml(
+      makeTranscript({
+        events: [
+          {
+            kind: "tool_call",
+            id: "ocw1",
+            toolName: "write",
+            inputs: {
+              filePath: "/tmp/new.ts",
+              content: "line1\nline2\n",
+            },
+            isEditTool: true,
+            ts: null,
+          },
+        ],
+      }),
+    );
+    expect(html).toContain('class="event event--edit"');
+    expect(html).toContain("/tmp/new.ts");
+    expect(html).toContain("diff-add");
+  });
+
+  it("renders reasoning text through the markdown pipeline", () => {
+    const html = transcriptToHtml(
+      makeTranscript({
+        events: [
+          {
+            kind: "reasoning",
+            text: "Let me think.\n\n1. **bold** point\n2. `code` point",
+            ts: null,
+          },
+        ],
+      }),
+    );
+    expect(html).toContain('class="card-text card-text--reasoning md"');
+    expect(html).toContain("<strong>bold</strong>");
+    expect(html).toContain("<code>code</code>");
+    expect(html).toContain('class="md-list md-list--ordered"');
+  });
+
   it("renders apply_patch payloads as a colored unified diff", () => {
     const html = transcriptToHtml(
       makeTranscript({

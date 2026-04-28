@@ -341,9 +341,17 @@ function isObj(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
-function strField(o: Record<string, unknown>, k: string): string {
-  const v = o[k];
-  return typeof v === "string" ? v : "";
+/** Look up a string field under any of the given names — returns the
+ *  first match, or "" if none. Lets the renderer probe both Claude's
+ *  snake_case (`old_string`) and OpenCode's camelCase (`oldString`)
+ *  edit-tool input shapes from one call site without committing to
+ *  either spelling. */
+function pickStr(o: Record<string, unknown>, ...names: string[]): string {
+  for (const n of names) {
+    const v = o[n];
+    if (typeof v === "string") return v;
+  }
+  return "";
 }
 
 /** Render an Edit-style diff (one old chunk → one new chunk) at line
@@ -471,52 +479,57 @@ function wrapMessageCollapsible(body: string, sourceText: string): string {
   return `<div class="msg-collapsible is-collapsed" data-line-count="${lineCount}">${body}<button type="button" class="msg-toggle" aria-expanded="false"><span data-toggle-label>Show all ${lineCount} lines</span></button></div>`;
 }
 
-/** Dispatch on toolName for the well-known edit tools; fall through to
- *  pretty JSON for everything else. Operates on the IR's `unknown`
- *  inputs without leaking vendor specifics into the renderer's
- *  signature — the helper just probes structurally. */
-function renderToolInputsHtml(toolName: string, inputs: unknown): string {
-  if (toolName === "apply_patch" && typeof inputs === "string") {
+/** Render the inputs of a tool call. For edit-class tools (the loader
+ *  has set `isEditTool: true`) we probe the input shape — not the tool
+ *  name — to extract the diff payload, accepting both Claude's
+ *  snake_case and OpenCode's camelCase field spellings. Anything else
+ *  falls through to a pretty-JSON dump. */
+function renderToolInputsHtml(inputs: unknown): string {
+  // Patch-style: a raw string carrying unified-diff markup
+  // (Codex's apply_patch passes its payload as a plain string).
+  if (typeof inputs === "string") {
     return renderApplyPatch(inputs);
   }
   if (isObj(inputs)) {
-    if (toolName === "Edit") {
+    // MultiEdit-style: an array of {old, new} edits against one file.
+    const edits = inputs.edits;
+    if (Array.isArray(edits)) {
+      const filePath = pickStr(inputs, "file_path", "filePath");
+      return edits
+        .map((edit) =>
+          isObj(edit)
+            ? renderEditDiff(
+                filePath,
+                pickStr(edit, "old_string", "oldString"),
+                pickStr(edit, "new_string", "newString"),
+              )
+            : "",
+        )
+        .filter(Boolean)
+        .join("");
+    }
+    // NotebookEdit-style: distinct path field + old/new source.
+    const notebookPath = pickStr(inputs, "notebook_path", "notebookPath");
+    if (notebookPath.length > 0) {
       return renderEditDiff(
-        strField(inputs, "file_path"),
-        strField(inputs, "old_string"),
-        strField(inputs, "new_string"),
+        notebookPath,
+        pickStr(inputs, "old_source", "oldSource"),
+        pickStr(inputs, "new_source", "newSource"),
       );
     }
-    if (toolName === "Write") {
-      return renderWriteDiff(
-        strField(inputs, "file_path"),
-        strField(inputs, "content"),
-      );
+    // Edit-style: file path + old/new strings (Claude's `file_path` /
+    // `old_string` / `new_string`, OpenCode's `filePath` / `oldString`
+    // / `newString`).
+    const filePath = pickStr(inputs, "file_path", "filePath");
+    const oldStr = pickStr(inputs, "old_string", "oldString");
+    const newStr = pickStr(inputs, "new_string", "newString");
+    if (filePath.length > 0 && (oldStr.length > 0 || newStr.length > 0)) {
+      return renderEditDiff(filePath, oldStr, newStr);
     }
-    if (toolName === "NotebookEdit") {
-      return renderEditDiff(
-        strField(inputs, "notebook_path"),
-        strField(inputs, "old_source"),
-        strField(inputs, "new_source"),
-      );
-    }
-    if (toolName === "MultiEdit") {
-      const filePath = strField(inputs, "file_path");
-      const edits = inputs.edits;
-      if (Array.isArray(edits)) {
-        return edits
-          .map((e) =>
-            isObj(e)
-              ? renderEditDiff(
-                  filePath,
-                  strField(e, "old_string"),
-                  strField(e, "new_string"),
-                )
-              : "",
-          )
-          .filter(Boolean)
-          .join("");
-      }
+    // Write-style (whole-file create): file path + content (no old).
+    const content = pickStr(inputs, "content");
+    if (filePath.length > 0 && content.length > 0) {
+      return renderWriteDiff(filePath, content);
     }
   }
   return `<pre class="card-text card-text--code">${escapeHtml(prettyJson(inputs))}</pre>`;
@@ -607,7 +620,7 @@ function renderEvent(event: TranscriptEvent, index: number): string {
   <div class="card">
     <details>
       <summary><span class="card-role">Reasoning</span>${tsHtml}</summary>
-      <pre class="card-text">${escapeHtml(e.text)}</pre>
+      <div class="card-text card-text--reasoning md">${renderMarkdown(e.text)}</div>
     </details>
   </div>
 </section>`;
@@ -629,7 +642,7 @@ function renderEvent(event: TranscriptEvent, index: number): string {
       <span class="tool-name">${escapeHtml(e.toolName)}</span>
       ${tsHtml}
     </header>
-    ${renderToolInputsHtml(e.toolName, e.inputs)}
+    ${renderToolInputsHtml(e.inputs)}
   </div>
 </section>`;
       }
@@ -1197,11 +1210,14 @@ const STYLE = `
     border-radius: 4px;
     padding: 0.625rem 0.75rem;
     margin: 0.5rem 0 0 0;
-    white-space: pre-wrap;
-    word-break: break-word;
     line-height: 1.55;
-    font-style: italic;
   }
+  /* Reasoning is rendered through the markdown pipeline, so the
+   * container shouldn't force italic onto everything — emphasis is
+   * the markdown's own em job. Keep a muted, slightly italic tone in
+   * paragraphs only so the chain-of-thought reads as commentary
+   * without flattening inline code, bold, links, etc. */
+  .event--reasoning .card-text.md p { font-style: italic; }
 
   /* Edit events: agent file changes, visible by default with a real
      diff view. The dock toggle can hide them. Distinct from tool calls
