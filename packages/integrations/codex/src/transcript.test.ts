@@ -192,4 +192,10 @@ describe("normalizeCodexToolInput", () => {
       normalizeCodexToolInput("skill", { skill: "lowy", args: "evaluate" }),
     ).toEqual({ kind: "skill", name: "lowy", args: "evaluate" });
   });
+
+  it("decodes web_search into kind:web_search", () => {
+    expect(
+      normalizeCodexToolInput("web_search", { query: "anything" }),
+    ).toEqual({ kind: "web_search", query: "anything" });
+  });
 });

@@ -153,6 +153,9 @@ export function normalizeOpenCodeToolInput(
     case "webfetch":
     case "fetch":
       return { kind: "fetch", url: str("url") };
+    case "websearch":
+    case "web_search":
+      return { kind: "web_search", query: str("query") };
     case "skill":
     case "Skill": {
       // Mirror Claude Code's Skill payload shape (`{ skill, args }`)

@@ -198,6 +198,14 @@ export function normalizeClaudeToolInput(
       };
     case "WebFetch":
       return { kind: "fetch", url: str("url") };
+    case "WebSearch":
+      return { kind: "web_search", query: str("query") };
+    case "PowerShell":
+      // PowerShell shares Bash's shape (`{ command }`). Surfacing it as
+      // `kind: "bash"` lets the renderer show the command line directly
+      // — the dock's hide-tools toggle, the role label, and the
+      // command-summary all just work.
+      return { kind: "bash", command: str("command") };
     case "Skill": {
       // Claude Code's Skill tool carries `{ skill: "name", args: "…" }`.
       // Some skill invocations have no args (the slash-command form).

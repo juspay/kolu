@@ -79,6 +79,8 @@ function toolSummary(input: ToolInput): string | null {
         : input.pattern || null;
     case "fetch":
       return input.url || null;
+    case "web_search":
+      return input.query ? compactText(input.query, 80) : null;
     case "skill":
       return input.args ? compactText(input.args, 80) : null;
     case "unknown":
@@ -109,6 +111,8 @@ function roleLabelForToolCall(input: ToolInput): string {
       return "Grep";
     case "fetch":
       return "Fetch";
+    case "web_search":
+      return "Search";
     case "skill":
       return "Skill";
     case "unknown":

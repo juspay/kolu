@@ -75,10 +75,18 @@ export const ToolInputSchema = z.discriminatedUnion("kind", [
     pattern: z.string(),
     path: z.string().nullable(),
   }),
-  /** Web fetch. */
+  /** Web fetch — pull a specific URL. */
   z.object({
     kind: z.literal("fetch"),
     url: z.string(),
+  }),
+  /** Web search — distinct from `fetch` because the input is a query
+   *  string, not a URL. Claude Code's `WebSearch` and equivalent
+   *  vendor tools land here so the renderer can show the query
+   *  prominently instead of dumping JSON. */
+  z.object({
+    kind: z.literal("web_search"),
+    query: z.string(),
   }),
   /** Skill / slash-command invocation (Claude Code's `Skill` tool,
    *  OpenCode's `skill`, or whatever each vendor calls "invoke a

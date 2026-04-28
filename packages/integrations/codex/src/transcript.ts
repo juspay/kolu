@@ -210,6 +210,9 @@ export function normalizeCodexToolInput(
     case "web_fetch":
     case "fetch":
       return { kind: "fetch", url: str("url") };
+    case "web_search":
+    case "websearch":
+      return { kind: "web_search", query: str("query") };
     case "skill":
     case "Skill": {
       // Codex doesn't ship Skills today, but if a future release lands

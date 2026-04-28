@@ -321,6 +321,15 @@ describe("normalizeOpenCodeToolInput", () => {
       args: null,
     });
   });
+
+  it("decodes web_search / websearch into kind:web_search", () => {
+    expect(
+      normalizeOpenCodeToolInput("websearch", { query: "anything" }),
+    ).toEqual({ kind: "web_search", query: "anything" });
+    expect(
+      normalizeOpenCodeToolInput("web_search", { query: "anything" }),
+    ).toEqual({ kind: "web_search", query: "anything" });
+  });
 });
 
 describe("stripDispatchPrompt", () => {

@@ -333,4 +333,20 @@ describe("normalizeClaudeToolInput", () => {
       args: null,
     });
   });
+
+  it("decodes WebSearch into kind:web_search", () => {
+    expect(
+      normalizeClaudeToolInput("WebSearch", {
+        query: "claude code tools reference",
+      }),
+    ).toEqual({ kind: "web_search", query: "claude code tools reference" });
+  });
+
+  it("decodes PowerShell into kind:bash (same shape, same intent)", () => {
+    expect(
+      normalizeClaudeToolInput("PowerShell", {
+        command: "Get-Process | Sort-Object CPU",
+      }),
+    ).toEqual({ kind: "bash", command: "Get-Process | Sort-Object CPU" });
+  });
 });
