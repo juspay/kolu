@@ -40,7 +40,9 @@ addr=""
 ticks=$(awk "BEGIN { print int($LISTEN_TIMEOUT_SEC / $POLL_INTERVAL_SEC) }")
 for _ in $(seq 1 "$ticks"); do
     if grep -q "kolu listening" "$log" 2>/dev/null; then
-        addr=$(grep -oE '"address":"http[^"]*"' "$log" | head -1 | sed -E 's/^"address":"(.*)"$/\1/')
+        # `|| true` keeps an empty match from tripping pipefail+set-e silently;
+        # the [[ -z "$addr" ]] check below produces a clear diagnostic.
+        addr=$(grep -oE '"address":"http[^"]*"' "$log" | head -1 | sed -E 's/^"address":"(.*)"$/\1/' || true)
         break
     fi
     if ! kill -0 "$pid" 2>/dev/null; then
@@ -52,7 +54,11 @@ for _ in $(seq 1 "$ticks"); do
 done
 
 if [[ -z "$addr" ]]; then
-    echo "kolu did not log a listen address within ${LISTEN_TIMEOUT_SEC}s" >&2
+    if grep -q "kolu listening" "$log" 2>/dev/null; then
+        echo "kolu logged 'listening' but no address could be parsed from the line" >&2
+    else
+        echo "kolu did not log a listen address within ${LISTEN_TIMEOUT_SEC}s" >&2
+    fi
     cat "$log" >&2
     exit 1
 fi
