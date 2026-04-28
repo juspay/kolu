@@ -47,6 +47,21 @@ Project
            └── Terminals (optionally tagged with taskId)
 ```
 
+### Navigation
+
+Two top-level routes:
+
+- `/` — the workspace (terminal canvas, exactly as today).
+- `/projects/<projectId>` — that project's kanban board.
+
+Browser back/forward and bookmarkable URLs come for free. Project navigation lives entirely in the URL — there is no `preferences.activeProject`. Right-panel state (Inspector vs. Code, collapsed/expanded) stays in preferences as today; that's pane-level chrome state, orthogonal to which project the user is looking at.
+
+Project addressing uses the existing `Project.id` (UUID) directly: `/projects/7f3e1d2a-…`. There is no separate URL-friendly slug field — a project rename only changes the displayed name, the URL stays stable, no bookmarks break.
+
+Mobile swipe navigation (per [#622](https://github.com/juspay/kolu/issues/622)) is preserved as a *gesture layer* that calls `navigate()` rather than a parallel navigation stack. Swipe-left, swipe-right, browser back/forward all push and pop the same route history. One stack, one source of truth.
+
+Switching projects from inside the workspace: command palette → `Projects` group → list of curated projects → selection navigates to `/projects/<id>`.
+
 ### Projects
 
 A user-curated, named, optionally path-bound container.
@@ -63,6 +78,20 @@ type Project = {
 `repoPath` is **optional**. Most projects have a path (a real repo on disk); some don't (topic-only projects like *"Learn CRDTs"*, or the synthetic "No Project" container described below). Kolu's `strict` TypeScript enforces a null branch at every consumer that needs the path — terminal-cwd seeding, git operations, file browser — so the absence is type-checked, not silently ignored.
 
 A reserved synthetic project — displayed as **"No Project"** — exists to hold *floating* tasks (tasks the user created without picking a project). It is identified by a single reserved UUID constant kept in code, not by its display name and not by `repoPath` being absent. A user who creates a real project and names it "No Project" does not collide with the synthetic one — identity is structural, not textual.
+
+### Project lifecycle: creating, editing, archiving
+
+**Create.** Command palette → `New project` → opens `CreateProjectModal`:
+
+- *Name* (required, text input).
+- *Repo path* (optional, text input). Pre-filled from the active terminal's `cwd` if any. Autocompletes from `recentRepos`. Leave blank for a topic-only project (e.g. *"Learn CRDTs"*).
+- `[Create]` → adds the project, navigates to `/projects/<id>`.
+
+**Edit.** Command palette → `Edit project` → pick from list → opens `EditProjectModal` pre-filled with the existing values. Same field set, different semantics around side-effects (renaming may trigger a board-file move when the path-resolution layer is aware of `name`). Create and edit are kept as **separate modal components** sharing only a stateless `<ProjectForm>` for the field layout — so their validation rules, side-effects, and future divergence don't tangle.
+
+**Archive.** Command palette → `Archive project`. Sets `archived: true` on the project record. Archived projects are hidden from the default `Projects` list but reachable via `Show archived projects`. The synthetic "No Project" cannot be archived.
+
+**Delete.** Out of scope for this proposal. If the user wants to permanently remove a project, they delete the project's directory under `~/.config/kolu/projects/` manually. Archive is the only in-app affordance.
 
 ### Tasks
 
@@ -90,25 +119,50 @@ User-defined per project. A lane is just a heading in the project's markdown fil
 
 A lane can carry a `complete` *role* (zero or one role today; the schema leaves room for more — see Out of scope). A lane with the `complete` role is treated as the "done" column: tasks landing there get a `completedAt` timestamp.
 
-### Creating a task
-
-There is **one underlying operation** — `createTask(input)` — invoked through two affordances:
-
-- **Per-lane "+ add task"** — an inline input at the bottom of each lane on the project board. Project and lane are inferred from context; the user types only a title. Fast path for "drop a thought into the right column."
-- **Command palette → "New task"** — a modal asking project, lane, title, description. Lane defaults to the project's first lane; project defaults to the last-active project (or "No Project"). Slower, more deliberate path; works from anywhere, including with no project open.
-
-Both affordances pre-fill different subsets of the same input shape. They share the write path. There is no `createTaskInline` and `createTaskModal` — only `createTask`.
-
 ### The project board (per project)
 
-The primary view for working *inside* a project. Lanes laid out left-to-right; tasks shown as cards within. Cards expose:
+The primary view for working *inside* a project. Lanes laid out left-to-right; tasks shown as cards within. A card displays:
 
-- Title
-- Optional description preview
-- Linked terminal pills (if any terminals are tagged to this task)
-- A check + completion timestamp when the lane carries the `complete` role
+- Title.
+- Description preview (collapsed past ~3 lines — see [Card interactions](#card-interactions)).
+- Linked terminal pills (if any terminals are tagged to this task).
+- A check + completion timestamp when the lane carries the `complete` role.
 
-Cards are dragged between lanes to change status; the `+ add task` affordance lives at the bottom of each lane.
+The `+ add task` affordance lives at the bottom of each lane.
+
+### Card interactions
+
+A task card is a self-sufficient surface — there is no detail view, modal-on-click, or drawer. Everything important about a task is visible on the card; everything you can do *to* a task is done from the card directly. Five distinct affordances:
+
+| Surface | Action |
+|---|---|
+| Click + hold + drag the card body | Move the task between lanes |
+| Click on the title text | Enter inline edit (text input replaces the title) |
+| Click on the description text | Enter inline edit (textarea) |
+| Click a terminal pill on the card | Navigate to `/` and focus that terminal |
+| Click ✕ in the top-right corner | Open `DeleteTaskConfirm` modal → confirm to delete |
+
+Click on empty card area is a no-op. Inline edit commits on Enter (title) or blur (both); Escape cancels.
+
+**Long descriptions: collapse-by-heuristic.** When a task's description exceeds ~3 lines, the card starts collapsed with a `▸` chevron exposing only the title and meta. Click the chevron to expand to `▾` and reveal the description. The expand/collapse state is **session-only** — not persisted to markdown, not stored in preferences. On reload or project switch, every card returns to its heuristic default. Markdown stays free of UI chrome; preferences don't grow an unbounded `Record<TaskId, boolean>`.
+
+Terminal-pill click is the path the proposal owes a word about: clicking a pill navigates to `/` (workspace) and focuses the corresponding terminal. The browser back-button returns the user to the project board. This works because navigation is route-driven (see [Navigation](#navigation)) — no separate "go back to where I was" affordance needs to exist.
+
+### Task lifecycle: creating, editing, deleting
+
+**Create.** One underlying operation — `createTask(input)` — invoked through two affordances:
+
+- **Per-lane "+ add task"** — an inline input at the bottom of each lane. Project and lane are inferred from context; the user types only a title. Fast path for *"drop a thought into the right column."*
+- **Command palette → `New task`** — opens `CreateTaskModal` asking project, lane, title, description. Lane defaults to the project's first lane; project defaults to the last-active project (or "No Project"). Slower, more deliberate path; works from anywhere, including with no project open.
+
+Both affordances pre-fill different subsets of the same input shape and share the write path. There is no `createTaskInline` and `createTaskModal` — only `createTask`.
+
+**Edit.** Two paths:
+
+- **Inline** — click the title or description on the card (see [Card interactions](#card-interactions)). The card stays in place; the field becomes editable. Primary path.
+- **Command palette → `Edit task`** — list → pick → opens `EditTaskModal` pre-filled with current values. Useful when the card isn't visible (cross-project view, or you forgot which project a task lives in).
+
+**Delete.** Click ✕ on the card → `DeleteTaskConfirm` modal (mirrors kolu's existing `CloseConfirm` pattern at `packages/client/src/CloseConfirm.tsx:61-69` for risky actions). The palette has no `Delete task` command — `Cmd+K` has no notion of *"this task right here"*, only the card does. Deletion is anchored to the card surface, not the palette.
 
 ### Cross-project view
 
@@ -190,6 +244,10 @@ Optional pointers, not prescriptions:
 - Block-IDs (`^abc123`) are kolu-managed and must be invisible to the user — store them in HTML comments so hand-edits don't clobber them.
 - The path-resolution layer that maps `(projectId) → board.md path` should be small and replaceable. The default implementation returns `~/.config/kolu/projects/<id>/board.md`; a future per-project `boardPath` override (for git-versioned boards) plugs into the same seam.
 - The synthetic "No Project" container is identified by a single reserved UUID constant. Display rendering substitutes the label "No Project"; storage and code paths treat it like any other project.
+- **Routing.** Adopting a SolidJS-compatible router (`@solidjs/router` or similar) is a structural prerequisite. Today kolu has no router (`packages/client/src/App.tsx` is mode-less per [#622](https://github.com/juspay/kolu/issues/622)) — this proposal explicitly revisits that stance. The implementer should treat routing as a workspace-wide change, not a feature-local one.
+- **Task card is a layout shell, not a god-component.** Each affordance (drag, inline-edit-title, inline-edit-description, terminal-pill nav, delete ✕) should isolate into its own hook or sub-component (`useDragTaskCard`, `<EditableTitle>`, `<EditableDescription>`, `<TaskCardDeleteConfirm>`, etc.). The card itself orchestrates layout; behavior lives in the parts.
+- **Create and edit are separate modals.** `CreateProjectModal` / `EditProjectModal` (and the same shape for tasks) share a stateless `<ProjectForm>` / `<TaskForm>` for field rendering, but each modal owns its own validation, side-effect, and lifecycle semantics. Avoid a single `<ProjectModal isEdit={...}>` that branches internally.
+- **Card expand/collapse state is session-only.** Hold it in a per-board UI-state hook (e.g. `useProjectBoardUIState()`) keyed by task id; never persist to markdown or preferences. The default value is computed from the description length.
 
 ## Alternatives considered
 
@@ -202,6 +260,12 @@ Optional pointers, not prescriptions:
 - **`Project` and `recentRepos` unified into one store.** Rejected — auto-MRU and user curation have different change rates and serve different purposes (*"where was I?"* vs *"what am I working on?"*). They stay parallel.
 - **`Board` as a domain entity** distinct from `Project`. Rejected — every project has exactly one board. "Board" was a phantom concept; the project *is* its board.
 - **Persistent JSON index alongside the markdown.** Rejected — same data in two stores invites drift. The in-memory parsed representation is enough; the markdown file is canonical.
+- **URL-friendly `slug` field on `Project` (e.g. `/projects/kolu`).** Rejected — slug-collisions force fallback to UUID, meaning UUID was always the identity and slug was a display label wearing identity clothes. Three failure modes vanish at once: rename-breaks-bookmarks, URL-drifts-from-name, slug-collision-fallback. URLs use `Project.id` directly; the display name lives in the page title and breadcrumb separately.
+- **Project navigation tracked in `preferences.activeProject`.** Rejected — the URL is the only canonical answer to "which project am I on." A second store invites drift on reload, deep-link, and palette-driven selection. Preferences keeps orthogonal pane-chrome state (right-panel collapse, tab); navigation lives in the route.
+- **Card detail view (modal/page/drawer opened on click).** Rejected — the card itself shows everything important, and inline edit covers field changes. Adding a detail view duplicates information already on the card and invents a new presentation pattern kolu doesn't have today.
+- **Single `ProjectModal` (or `TaskModal`) handling create + edit via an `isEdit` flag.** Rejected — create and edit have different validation rules (name-uniqueness across all vs. all-but-self), different side-effects (rename-triggers-board-move), and will diverge further. Two modals sharing a stateless field component avoids the internal branching.
+- **Persisting card expand/collapse state.** Rejected — markdown placement causes layout twitches on hand-edit; preferences placement creates an unbounded `Record<TaskId, boolean>` that leaks entries for deleted tasks. Session-only state with a "long descriptions start collapsed" heuristic answers the user need without storing anything.
+- **Right-click context menu replacing the card affordances.** Rejected — kolu has no right-click context menu pattern today (the pill tree is read-only, terminal tiles use direct-click affordances). Inline-edit on click is well-precedented (Notion, Obsidian, Linear) and keeps the kanban interaction model close to obsidian-kanban's.
 
 ## Open questions
 
@@ -219,3 +283,6 @@ These are deliberate exclusions:
 - **Programmatic mutation surface for user-invoked clients.** A way for the user to mutate tasks from outside the Kolu UI — via an MCP server, a CLI, an agent tool, a plugin host, or some other shape — is anticipated as a future addition. The form, trust model, and auth design are all undecided. Out of scope for this proposal; deserves its own.
 - **Replacing `recentRepos`.** That auto-MRU stays untouched. A user opening a recent repo without ever creating a Project for it should keep working exactly as today.
 - **Board format interop with non-Obsidian tools** beyond what falls out of mirroring obsidian-kanban's syntax. No adapters, no bidirectional sync to other task systems.
+- **Persisting card expand/collapse state.** Heuristic (description length) determines the default; the user's toggle lives in session memory only. Reload is a clean slate by design.
+- **Project deletion from inside Kolu.** Archive (via `archived: true`) is the in-app affordance. Permanent deletion is a manual filesystem operation under `~/.config/kolu/projects/`. Adding an in-app delete affordance with confirmation flows is a separate proposal.
+- **Drag-to-trash zone for task deletion.** Considered, deferred. It's discoverable on mobile but eats real estate on the small fullscreen viewport. The card-corner ✕ works on both desktop and mobile; revisit drag-to-trash if usage data shows people prefer dragging.
