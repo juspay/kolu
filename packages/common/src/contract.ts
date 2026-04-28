@@ -124,4 +124,9 @@ export const contract = oc.router({
     // Reset saved session (test-only: seed/clear between scenarios)
     test__set: oc.input(SavedSessionSchema.nullable()).output(z.void()),
   },
+  agent: {
+    /** Export the active agent session's transcript as a self-contained HTML
+     *  document. Returns the complete HTML string ready for download. */
+    exportTranscript: oc.input(TerminalAttachInputSchema).output(z.string()),
+  },
 });

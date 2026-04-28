@@ -18,6 +18,7 @@ import {
   worktreeRemove,
 } from "kolu-git";
 import { getActivityFeed, setActivityForTest } from "./activity.ts";
+import { exportAgentTranscript } from "./meta/agent-export.ts";
 import { saveClipboardImage } from "./clipboard.ts";
 import { serverHostname, serverProcessId } from "./hostname.ts";
 import { log } from "./log.ts";
@@ -300,6 +301,12 @@ export const appRouter = t.router({
     }),
     test__set: t.session.test__set.handler(async ({ input }) => {
       setSavedSession(input);
+    }),
+  },
+  agent: {
+    exportTranscript: t.agent.exportTranscript.handler(async ({ input }) => {
+      const entry = requireTerminal(input.id);
+      return exportAgentTranscript(entry);
     }),
   },
 });

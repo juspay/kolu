@@ -46,6 +46,7 @@ export interface CommandDeps {
   handleCopyTerminalText: () => void;
   handleRunInActiveTerminal: (command: string) => void;
   handleExportScrollbackAsPdf: () => void;
+  handleExportAgentTranscript: () => void;
   handleScreenshotTerminal: () => void;
   /** Toggle sub-panel: creates first split if none exist, otherwise toggles visibility. */
   toggleSubPanel: (parentId: TerminalId) => void;
@@ -156,6 +157,15 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
             name: "Export scrollback as PDF",
             onSelect: () => deps.handleExportScrollbackAsPdf(),
           },
+          ...(deps.activeMeta()?.agent
+            ? [
+                {
+                  name: "Export agent transcript",
+                  description: "Save the agent conversation as HTML",
+                  onSelect: () => deps.handleExportAgentTranscript(),
+                },
+              ]
+            : []),
           {
             name: "Screenshot terminal",
             keybind: SHORTCUTS.screenshotTerminal.keybind,
