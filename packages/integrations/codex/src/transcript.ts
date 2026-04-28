@@ -177,7 +177,7 @@ export function normalizeCodexToolInput(
         text: (parsed as { patch: string }).patch,
       };
     }
-    return { kind: "opaque", toolName, raw: parsed };
+    return { kind: "unknown", toolName, raw: parsed };
   }
 
   const o =
@@ -210,8 +210,20 @@ export function normalizeCodexToolInput(
     case "web_fetch":
     case "fetch":
       return { kind: "fetch", url: str("url") };
+    case "skill":
+    case "Skill": {
+      // Codex doesn't ship Skills today, but if a future release lands
+      // a Skill-shaped tool, we want it to round-trip through the
+      // typed union rather than silently degrade to `unknown`.
+      const argsField = typeof o.args === "string" ? (o.args as string) : null;
+      return {
+        kind: "skill",
+        name: str("skill") || str("name"),
+        args: argsField && argsField.length > 0 ? argsField : null,
+      };
+    }
     default:
-      return { kind: "opaque", toolName, raw: parsed };
+      return { kind: "unknown", toolName, raw: parsed };
   }
 }
 

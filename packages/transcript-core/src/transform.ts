@@ -87,7 +87,9 @@ function transformToolInput(input: ToolInput, fn: StringTransform): ToolInput {
       };
     case "fetch":
       return input; // url stays absolute
-    case "opaque":
+    case "skill":
+      return input;
+    case "unknown":
       return input;
   }
 }

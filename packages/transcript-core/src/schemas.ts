@@ -20,7 +20,7 @@ export type AgentKindLiteral = (typeof AGENT_KINDS)[number];
  *  Each loader is responsible for mapping its vendor's tool-name +
  *  arguments shape into one of these kinds (Claude's Edit + OpenCode's
  *  edit + Codex's apply_patch all collapse into `edit` / `write` /
- *  `patch` here). Anything not recognised falls through to `opaque`.
+ *  `patch` here). Anything not recognised falls through to `unknown`.
  *
  *  Why a typed union instead of `unknown`: the renderer was doing shape
  *  probing (`pickStr(o, "file_path", "filePath")`) — interpreting
@@ -80,12 +80,22 @@ export const ToolInputSchema = z.discriminatedUnion("kind", [
     kind: z.literal("fetch"),
     url: z.string(),
   }),
-  /** Anything else — vendor-specific tools, new tools we haven't yet
-   *  modelled. Renderer pretty-prints the raw payload as JSON. The
-   *  `toolName` is repeated here so the opaque branch is self-describing
-   *  (the parent tool_call event also carries it). */
+  /** Skill / slash-command invocation (Claude Code's `Skill` tool,
+   *  OpenCode's `skill`, or whatever each vendor calls "invoke a
+   *  packaged capability by name"). `args` is the raw argument string
+   *  the agent passed; null when the skill takes no args. */
   z.object({
-    kind: z.literal("opaque"),
+    kind: z.literal("skill"),
+    name: z.string(),
+    args: z.string().nullable(),
+  }),
+  /** Tools we haven't modelled. The renderer surfaces these honestly
+   *  as "Unknown" so the reader isn't lied to — it's not a Bash or a
+   *  Read or anything else we recognise. The `toolName` is repeated
+   *  here so the unknown branch is self-describing (the parent
+   *  `tool_call` event also carries it). */
+  z.object({
+    kind: z.literal("unknown"),
     toolName: z.string(),
     raw: z.unknown(),
   }),

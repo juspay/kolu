@@ -133,7 +133,7 @@ export function normalizeOpenCodeToolInput(
       if (typeof o.patch === "string") {
         return { kind: "patch", text: o.patch };
       }
-      return { kind: "opaque", toolName, raw };
+      return { kind: "unknown", toolName, raw };
     case "read":
       return { kind: "read", filePath: str("filePath") };
     case "bash":
@@ -153,8 +153,21 @@ export function normalizeOpenCodeToolInput(
     case "webfetch":
     case "fetch":
       return { kind: "fetch", url: str("url") };
+    case "skill":
+    case "Skill": {
+      // Mirror Claude Code's Skill payload shape (`{ skill, args }`)
+      // and accept either casing OpenCode might land on. If a future
+      // OpenCode release uses a different field, we'll learn about it
+      // when this branch starts producing empty names.
+      const argsField = typeof o.args === "string" ? (o.args as string) : null;
+      return {
+        kind: "skill",
+        name: str("skill") || str("name"),
+        args: argsField && argsField.length > 0 ? argsField : null,
+      };
+    }
     default:
-      return { kind: "opaque", toolName, raw };
+      return { kind: "unknown", toolName, raw };
   }
 }
 
@@ -249,7 +262,7 @@ export function eventsFromMessageParts(
       if (p.tool === "task" && inlineSubtask) {
         const childId = extractTaskChildSessionId(p);
         if (childId) {
-          // The `task` tool falls through normalize as `opaque` (we
+          // The `task` tool falls through normalize as `unknown` (we
           // don't model dispatch shapes); pull description out of the
           // raw input.
           const rawInput = p.state?.input;

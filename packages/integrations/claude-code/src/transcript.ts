@@ -7,8 +7,9 @@
  *
  *  Tool inputs are decoded into the typed `ToolInput` union at parse
  *  time (claude's `Edit` → `{kind:"edit"}`, `Bash` → `{kind:"bash"}`,
- *  etc.). Anything not modelled becomes `{kind:"opaque"}` and the
- *  renderer dumps the raw payload as JSON. Tool outputs stay `unknown` —
+ *  etc.). Anything not modelled becomes `{kind:"unknown"}` and the
+ *  renderer surfaces it honestly as "Unknown" instead of pretending
+ *  it's a recognised tool. Tool outputs stay `unknown` (the type) —
  *  vendors emit too many shapes to model usefully. */
 
 import fs from "node:fs";
@@ -130,7 +131,7 @@ export function parseClaudeCodeJsonl(content: string): TranscriptEvent[] {
 }
 
 /** Map a Claude Code tool name + raw input object onto the typed
- *  `ToolInput` union. Anything we don't recognise becomes `opaque`,
+ *  `ToolInput` union. Anything we don't recognise becomes `unknown`,
  *  carrying the raw payload through unchanged. Exported for testing. */
 export function normalizeClaudeToolInput(
   toolName: string,
@@ -197,8 +198,18 @@ export function normalizeClaudeToolInput(
       };
     case "WebFetch":
       return { kind: "fetch", url: str("url") };
+    case "Skill": {
+      // Claude Code's Skill tool carries `{ skill: "name", args: "…" }`.
+      // Some skill invocations have no args (the slash-command form).
+      const argsField = typeof o.args === "string" ? (o.args as string) : null;
+      return {
+        kind: "skill",
+        name: str("skill"),
+        args: argsField && argsField.length > 0 ? argsField : null,
+      };
+    }
     default:
-      return { kind: "opaque", toolName, raw };
+      return { kind: "unknown", toolName, raw };
   }
 }
 
@@ -224,9 +235,9 @@ function inlineAgentSubtasks(events: TranscriptEvent[]): TranscriptEvent[] {
   const agentCalls = new Map<string, AgentCallMeta>();
   for (const e of events) {
     if (e.kind === "tool_call" && e.toolName === "Agent" && e.id) {
-      // Agent inputs go through normalizeClaudeToolInput as `opaque`;
+      // Agent inputs go through normalizeClaudeToolInput as `unknown`;
       // pull description / subagent_type back out of the raw payload.
-      const raw = e.inputs.kind === "opaque" ? e.inputs.raw : null;
+      const raw = e.inputs.kind === "unknown" ? e.inputs.raw : null;
       agentCalls.set(e.id, extractAgentMeta(raw, e.ts));
     }
   }

@@ -829,9 +829,19 @@ diffs-container[data-pierre] + diffs-container[data-pierre] {
   margin-left: 0.375rem;
 }
 
-/* Tool events: bronze accent, hidden by default. */
-body[data-hide-tools="true"] .event--tool {
+/* Tool events: bronze accent, hidden by default. Skills opt out of
+ * the hide rule — they read as user-facing directives, not the
+ * mechanical exec/read/grep noise the dock toggle is meant to mute. */
+body[data-hide-tools="true"] .event--tool:not(.event--skill) {
   display: none;
+}
+.event--skill .gutter-icon,
+.event--skill details summary .card-role {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.event--skill .tool-name {
+  color: var(--accent);
 }
 body[data-hide-reasoning="true"] .event--reasoning {
   display: none;

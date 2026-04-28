@@ -179,11 +179,17 @@ describe("normalizeCodexToolInput", () => {
     ).toEqual({ kind: "fetch", url: "https://x.example" });
   });
 
-  it("falls through to opaque for unknown tools", () => {
+  it("falls through to unknown for tools we don't model", () => {
     expect(normalizeCodexToolInput("vendor_tool", { foo: 1 })).toEqual({
-      kind: "opaque",
+      kind: "unknown",
       toolName: "vendor_tool",
       raw: { foo: 1 },
     });
+  });
+
+  it("normalizes Skill invocations", () => {
+    expect(
+      normalizeCodexToolInput("skill", { skill: "lowy", args: "evaluate" }),
+    ).toEqual({ kind: "skill", name: "lowy", args: "evaluate" });
   });
 });

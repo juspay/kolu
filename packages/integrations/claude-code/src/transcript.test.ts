@@ -304,12 +304,33 @@ describe("normalizeClaudeToolInput", () => {
     });
   });
 
-  it("falls through to opaque for unknown tools", () => {
+  it("falls through to unknown for tools we don't model", () => {
     const raw = { weird: "shape" };
     expect(normalizeClaudeToolInput("VendorThing", raw)).toEqual({
-      kind: "opaque",
+      kind: "unknown",
       toolName: "VendorThing",
       raw,
+    });
+  });
+
+  it("normalizes Skill invocations (with args)", () => {
+    expect(
+      normalizeClaudeToolInput("Skill", {
+        skill: "lowy",
+        args: "evaluate this proposal",
+      }),
+    ).toEqual({
+      kind: "skill",
+      name: "lowy",
+      args: "evaluate this proposal",
+    });
+  });
+
+  it("normalizes Skill invocations without args (slash-command form)", () => {
+    expect(normalizeClaudeToolInput("Skill", { skill: "ci" })).toEqual({
+      kind: "skill",
+      name: "ci",
+      args: null,
     });
   });
 });

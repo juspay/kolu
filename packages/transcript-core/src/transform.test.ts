@@ -186,7 +186,7 @@ describe("transformStrings", () => {
     expect(out.events[2]).toMatchObject({ text: "./bar.ts is the file" });
   });
 
-  it("leaves opaque tool inputs alone", () => {
+  it("leaves unknown tool inputs alone", () => {
     const t = transcriptWith({
       cwd: "/proj",
       events: [
@@ -195,7 +195,7 @@ describe("transformStrings", () => {
           id: "1",
           toolName: "VendorThing",
           inputs: {
-            kind: "opaque",
+            kind: "unknown",
             toolName: "VendorThing",
             raw: { weird_field: "/proj/x.ts" },
           },
@@ -207,7 +207,7 @@ describe("transformStrings", () => {
     if (!fn) throw new Error("expected transform");
     const out = transformStrings(t, fn);
     if (out.events[0]?.kind !== "tool_call") throw new Error("kind");
-    if (out.events[0].inputs.kind !== "opaque") throw new Error("input kind");
+    if (out.events[0].inputs.kind !== "unknown") throw new Error("input kind");
     expect(out.events[0].inputs.raw).toEqual({ weird_field: "/proj/x.ts" });
   });
 });

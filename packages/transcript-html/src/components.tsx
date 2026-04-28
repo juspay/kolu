@@ -79,8 +79,40 @@ function toolSummary(input: ToolInput): string | null {
         : input.pattern || null;
     case "fetch":
       return input.url || null;
-    case "opaque":
+    case "skill":
+      return input.args ? compactText(input.args, 80) : null;
+    case "unknown":
       return null;
+  }
+}
+
+/** The role label shown in an event card's header. We pick from the
+ *  typed `inputs.kind` so the document tells the truth: if the
+ *  loader recognised the tool we say what kind it is; if not we say
+ *  "Unknown" — never a fake "Tool call" that pretends an opaque
+ *  payload is something we understand. */
+function roleLabelForToolCall(input: ToolInput): string {
+  switch (input.kind) {
+    case "edit":
+      return "Edit";
+    case "write":
+      return "Write";
+    case "patch":
+      return "Patch";
+    case "read":
+      return "Read";
+    case "bash":
+      return "Run";
+    case "glob":
+      return "Glob";
+    case "grep":
+      return "Grep";
+    case "fetch":
+      return "Fetch";
+    case "skill":
+      return "Skill";
+    case "unknown":
+      return "Unknown";
   }
 }
 
@@ -276,24 +308,67 @@ const EditEvent = (props: {
   </section>
 );
 
+/** Skill / slash-command card. Distinct from the generic tool-call
+ *  branch because its body is the args text (a string), not a JSON
+ *  payload — a skill reads more like a directive than an API call. */
+const SkillEvent = (props: {
+  id: string | null;
+  ts: number | null;
+  depth: number;
+  inputs: Extract<ToolInput, { kind: "skill" }>;
+}) => {
+  const { name, args } = props.inputs;
+  return (
+    <section
+      class="event event--tool event--skill"
+      data-call-id={props.id ?? ""}
+      style={depthStyle(props.depth)}
+    >
+      <div class="gutter">
+        <Icon class="gutter-icon" label="Skill" svg={TOOL_ICON} />
+      </div>
+      <div class="card">
+        {args ? (
+          <details>
+            <summary>
+              <span class="card-role">Skill</span>
+              <span class="tool-name">{name}</span>
+              <span class="tool-summary">{compactText(args, 80)}</span>
+              <Ts ts={props.ts} />
+            </summary>
+            <pre class="card-text card-text--code">{args}</pre>
+          </details>
+        ) : (
+          <header class="card-head">
+            <span class="card-role">Skill</span>
+            <span class="tool-name">{name}</span>
+            <Ts ts={props.ts} />
+          </header>
+        )}
+      </div>
+    </section>
+  );
+};
+
 const ToolCallEvent = (props: {
   event: Extract<TranscriptEvent, { kind: "tool_call" }>;
   depth: number;
 }) => {
   const summary = toolSummary(props.event.inputs);
+  const role = roleLabelForToolCall(props.event.inputs);
   return (
     <section
-      class="event event--tool event--tool-call"
+      class={`event event--tool event--tool-call event--tool-${props.event.inputs.kind}`}
       data-call-id={props.event.id ?? ""}
       style={depthStyle(props.depth)}
     >
       <div class="gutter">
-        <Icon class="gutter-icon" label="Tool call" svg={TOOL_ICON} />
+        <Icon class="gutter-icon" label={role} svg={TOOL_ICON} />
       </div>
       <div class="card">
         <details>
           <summary>
-            <span class="card-role">Tool call</span>
+            <span class="card-role">{role}</span>
             <span class="tool-name">{props.event.toolName}</span>
             {summary && <span class="tool-summary">{summary}</span>}
             <Ts ts={props.event.ts} />
@@ -400,11 +475,15 @@ const Event = (props: { rendered: RenderedEvent }) => {
     case "reasoning":
       return <ReasoningEvent event={e} depth={depth} bodyHtml={bodyHtml} />;
     case "tool_call":
-      return isEditClass(e.inputs) ? (
-        <EditEvent event={e} depth={depth} bodyHtml={bodyHtml} />
-      ) : (
-        <ToolCallEvent event={e} depth={depth} />
-      );
+      if (isEditClass(e.inputs)) {
+        return <EditEvent event={e} depth={depth} bodyHtml={bodyHtml} />;
+      }
+      if (e.inputs.kind === "skill") {
+        return (
+          <SkillEvent id={e.id} ts={e.ts} depth={depth} inputs={e.inputs} />
+        );
+      }
+      return <ToolCallEvent event={e} depth={depth} />;
     case "tool_result":
       return <ToolResultEvent event={e} depth={depth} />;
     case "subtask_start":

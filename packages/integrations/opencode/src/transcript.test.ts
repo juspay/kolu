@@ -299,12 +299,26 @@ describe("normalizeOpenCodeToolInput", () => {
     ).toEqual({ kind: "grep", pattern: "TODO", path: "/x" });
   });
 
-  it("falls through to opaque for unknown tools", () => {
+  it("falls through to unknown for tools we don't model", () => {
     const raw = { foo: 1 };
     expect(normalizeOpenCodeToolInput("vendor_thing", raw)).toEqual({
-      kind: "opaque",
+      kind: "unknown",
       toolName: "vendor_thing",
       raw,
+    });
+  });
+
+  it("normalizes Skill invocations", () => {
+    expect(
+      normalizeOpenCodeToolInput("skill", {
+        skill: "lowy",
+        args: "evaluate",
+      }),
+    ).toEqual({ kind: "skill", name: "lowy", args: "evaluate" });
+    expect(normalizeOpenCodeToolInput("skill", { skill: "ci" })).toEqual({
+      kind: "skill",
+      name: "ci",
+      args: null,
     });
   });
 });
