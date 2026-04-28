@@ -26,6 +26,7 @@ let
       ./packages/memorable-names
       ./packages/server
       ./packages/client
+      ./packages/transcript-core
       ./packages/transcript-html
       # pnpm.patchedDependencies entries — read by pnpm during install and
       # applied to the upstream tarball. Currently:
