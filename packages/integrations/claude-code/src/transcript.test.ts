@@ -349,4 +349,140 @@ describe("normalizeClaudeToolInput", () => {
       }),
     ).toEqual({ kind: "bash", command: "Get-Process | Sort-Object CPU" });
   });
+
+  it("decodes the full Task family into kind:task with op-discriminated summaries", () => {
+    expect(
+      normalizeClaudeToolInput("TaskCreate", {
+        subject: "evidence",
+        description: "Capture PR evidence if configured",
+      }),
+    ).toEqual({ kind: "task", op: "create", summary: "evidence" });
+    expect(
+      normalizeClaudeToolInput("TaskUpdate", {
+        taskId: "5",
+        status: "in_progress",
+      }),
+    ).toEqual({ kind: "task", op: "update", summary: "5" });
+    expect(normalizeClaudeToolInput("TaskGet", { taskId: "7" })).toEqual({
+      kind: "task",
+      op: "get",
+      summary: "7",
+    });
+    expect(normalizeClaudeToolInput("TaskList", {})).toEqual({
+      kind: "task",
+      op: "list",
+      summary: null,
+    });
+    expect(normalizeClaudeToolInput("TaskOutput", { taskId: "9" })).toEqual({
+      kind: "task",
+      op: "output",
+      summary: "9",
+    });
+    expect(normalizeClaudeToolInput("TaskStop", { taskId: "11" })).toEqual({
+      kind: "task",
+      op: "stop",
+      summary: "11",
+    });
+    expect(
+      normalizeClaudeToolInput("TodoWrite", {
+        todos: [{ id: 1 }, { id: 2 }, { id: 3 }],
+      }),
+    ).toEqual({ kind: "task", op: "write", summary: "3 todos" });
+  });
+
+  it("decodes AskUserQuestion into kind:ask", () => {
+    expect(
+      normalizeClaudeToolInput("AskUserQuestion", {
+        question: "Which database?",
+      }),
+    ).toEqual({ kind: "ask", question: "Which database?" });
+  });
+
+  it("decodes plan-mode transitions into kind:plan_mode", () => {
+    expect(
+      normalizeClaudeToolInput("EnterPlanMode", { plan: "step 1\nstep 2" }),
+    ).toEqual({ kind: "plan_mode", op: "enter", plan: "step 1\nstep 2" });
+    expect(normalizeClaudeToolInput("ExitPlanMode", {})).toEqual({
+      kind: "plan_mode",
+      op: "exit",
+      plan: null,
+    });
+  });
+
+  it("decodes worktree transitions into kind:worktree", () => {
+    expect(
+      normalizeClaudeToolInput("EnterWorktree", { path: "/feat/x" }),
+    ).toEqual({ kind: "worktree", op: "enter", path: "/feat/x" });
+    expect(normalizeClaudeToolInput("ExitWorktree", {})).toEqual({
+      kind: "worktree",
+      op: "exit",
+      path: null,
+    });
+  });
+
+  it("decodes Cron tools into kind:cron", () => {
+    expect(
+      normalizeClaudeToolInput("CronCreate", {
+        when: "*/5 * * * *",
+        prompt: "check CI",
+      }),
+    ).toEqual({ kind: "cron", op: "create", summary: "check CI" });
+    expect(normalizeClaudeToolInput("CronDelete", { id: "c-1" })).toEqual({
+      kind: "cron",
+      op: "delete",
+      summary: "c-1",
+    });
+    expect(normalizeClaudeToolInput("CronList", {})).toEqual({
+      kind: "cron",
+      op: "list",
+      summary: null,
+    });
+  });
+
+  it("decodes Monitor into kind:monitor", () => {
+    expect(
+      normalizeClaudeToolInput("Monitor", { command: "tail -f log" }),
+    ).toEqual({ kind: "monitor", command: "tail -f log" });
+  });
+
+  it("decodes MCP resource tools into kind:mcp_resource", () => {
+    expect(normalizeClaudeToolInput("ListMcpResourcesTool", {})).toEqual({
+      kind: "mcp_resource",
+      op: "list",
+      uri: null,
+    });
+    expect(
+      normalizeClaudeToolInput("ReadMcpResourceTool", {
+        uri: "mcp://server/x",
+      }),
+    ).toEqual({ kind: "mcp_resource", op: "read", uri: "mcp://server/x" });
+  });
+
+  it("decodes SendMessage into kind:send_message", () => {
+    expect(
+      normalizeClaudeToolInput("SendMessage", {
+        to: "agent-7",
+        content: "ping",
+      }),
+    ).toEqual({ kind: "send_message", to: "agent-7", content: "ping" });
+  });
+
+  it("decodes Team tools into kind:team", () => {
+    expect(
+      normalizeClaudeToolInput("TeamCreate", {
+        teammates: [{ name: "a" }, { name: "b" }],
+      }),
+    ).toEqual({ kind: "team", op: "create", summary: "2 teammates" });
+    expect(normalizeClaudeToolInput("TeamDelete", { teamId: "t-3" })).toEqual({
+      kind: "team",
+      op: "delete",
+      summary: "t-3",
+    });
+  });
+
+  it("decodes ToolSearch into kind:tool_search", () => {
+    expect(
+      normalizeClaudeToolInput("ToolSearch", { query: "screenshot" }),
+    ).toEqual({ kind: "tool_search", query: "screenshot" });
+  });
 });

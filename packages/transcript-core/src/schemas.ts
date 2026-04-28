@@ -97,6 +97,100 @@ export const ToolInputSchema = z.discriminatedUnion("kind", [
     name: z.string(),
     args: z.string().nullable(),
   }),
+  /** Session task-list operation (Claude Code's `TaskCreate`,
+   *  `TaskUpdate`, `TaskGet`, `TaskList`, `TaskOutput`, `TaskStop`,
+   *  `TodoWrite`). `op` discriminates the operation; `summary` is a
+   *  one-line label — the new task's subject for `create`, the task
+   *  id (or new subject) for `update / get / output / stop`, the
+   *  todo count for `write`, null for `list`. */
+  z.object({
+    kind: z.literal("task"),
+    op: z.enum([
+      "create",
+      "update",
+      "get",
+      "list",
+      "output",
+      "stop",
+      "delete",
+      "write",
+    ]),
+    summary: z.string().nullable(),
+  }),
+  /** Multiple-choice user question (Claude Code's
+   *  `AskUserQuestion`). The renderer shows the question prominently
+   *  so the reader sees the friction point in the conversation. */
+  z.object({
+    kind: z.literal("ask"),
+    question: z.string(),
+  }),
+  /** Plan-mode transitions (`EnterPlanMode`, `ExitPlanMode`). `op`
+   *  discriminates; `plan` carries the proposed plan body when the
+   *  agent is presenting one for approval. */
+  z.object({
+    kind: z.literal("plan_mode"),
+    op: z.enum(["enter", "exit"]),
+    plan: z.string().nullable(),
+  }),
+  /** Worktree session transitions (`EnterWorktree`, `ExitWorktree`).
+   *  `path` is the worktree the agent is creating or entering, null
+   *  when not specified or on exit. */
+  z.object({
+    kind: z.literal("worktree"),
+    op: z.enum(["enter", "exit"]),
+    path: z.string().nullable(),
+  }),
+  /** Scheduled-task operations (`CronCreate`, `CronDelete`,
+   *  `CronList`). `summary` is the schedule + prompt for `create`,
+   *  the cron id for `delete`, null for `list`. */
+  z.object({
+    kind: z.literal("cron"),
+    op: z.enum(["create", "delete", "list"]),
+    summary: z.string().nullable(),
+  }),
+  /** Long-running watcher (`Monitor`) — Claude runs a command in the
+   *  background and reacts to each output line. `command` is the
+   *  shell command being watched. */
+  z.object({
+    kind: z.literal("monitor"),
+    command: z.string(),
+  }),
+  /** Code-intelligence query (`LSP`). `op` is the LSP operation
+   *  (definition / references / hover / etc.); `summary` is the
+   *  symbol or location it's targeting. */
+  z.object({
+    kind: z.literal("lsp"),
+    op: z.string(),
+    summary: z.string().nullable(),
+  }),
+  /** MCP resource access (`ListMcpResourcesTool`,
+   *  `ReadMcpResourceTool`). `uri` is the resource URI for read,
+   *  null for list. */
+  z.object({
+    kind: z.literal("mcp_resource"),
+    op: z.enum(["list", "read"]),
+    uri: z.string().nullable(),
+  }),
+  /** Agent-team messaging (`SendMessage`). `to` is the recipient
+   *  agent id; `content` is the message body the parent agent sent. */
+  z.object({
+    kind: z.literal("send_message"),
+    to: z.string(),
+    content: z.string(),
+  }),
+  /** Agent-team lifecycle (`TeamCreate`, `TeamDelete`). `summary`
+   *  is the teammate list for `create`, the team id for `delete`. */
+  z.object({
+    kind: z.literal("team"),
+    op: z.enum(["create", "delete"]),
+    summary: z.string().nullable(),
+  }),
+  /** Deferred-tool discovery (`ToolSearch`). `query` is the search
+   *  string the agent is using to load a deferred tool. */
+  z.object({
+    kind: z.literal("tool_search"),
+    query: z.string(),
+  }),
   /** Tools we haven't modelled. The renderer surfaces these honestly
    *  as "Unknown" so the reader isn't lied to — it's not a Bash or a
    *  Read or anything else we recognise. The `toolName` is repeated

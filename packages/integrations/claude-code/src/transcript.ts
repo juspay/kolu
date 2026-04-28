@@ -216,6 +216,83 @@ export function normalizeClaudeToolInput(
         args: argsField && argsField.length > 0 ? argsField : null,
       };
     }
+    // Session task list (TaskCreate/Get/List/Update/Output/Stop +
+    // TodoWrite). Each tool is its own switch case so the type
+    // narrowing on `op` is exhaustive.
+    case "TaskCreate":
+      return { kind: "task", op: "create", summary: str("subject") || null };
+    case "TaskUpdate":
+      return {
+        kind: "task",
+        op: "update",
+        summary: str("subject") || str("taskId") || null,
+      };
+    case "TaskGet":
+      return { kind: "task", op: "get", summary: str("taskId") || null };
+    case "TaskList":
+      return { kind: "task", op: "list", summary: null };
+    case "TaskOutput":
+      return { kind: "task", op: "output", summary: str("taskId") || null };
+    case "TaskStop":
+      return { kind: "task", op: "stop", summary: str("taskId") || null };
+    case "TodoWrite": {
+      const todos = Array.isArray(o.todos) ? o.todos.length : 0;
+      return {
+        kind: "task",
+        op: "write",
+        summary: todos > 0 ? `${todos} todos` : null,
+      };
+    }
+    case "AskUserQuestion":
+      return { kind: "ask", question: str("question") };
+    case "EnterPlanMode":
+      return { kind: "plan_mode", op: "enter", plan: str("plan") || null };
+    case "ExitPlanMode":
+      return { kind: "plan_mode", op: "exit", plan: str("plan") || null };
+    case "EnterWorktree":
+      return { kind: "worktree", op: "enter", path: str("path") || null };
+    case "ExitWorktree":
+      return { kind: "worktree", op: "exit", path: null };
+    case "CronCreate": {
+      // Cron payload carries `{ when, prompt }`; the prompt is the
+      // most useful summary line.
+      const summary = str("prompt") || str("when") || null;
+      return { kind: "cron", op: "create", summary };
+    }
+    case "CronDelete":
+      return { kind: "cron", op: "delete", summary: str("id") || null };
+    case "CronList":
+      return { kind: "cron", op: "list", summary: null };
+    case "Monitor":
+      return { kind: "monitor", command: str("command") };
+    case "LSP":
+      return {
+        kind: "lsp",
+        op: str("operation") || str("op") || "query",
+        summary: str("symbol") || str("query") || null,
+      };
+    case "ListMcpResourcesTool":
+      return { kind: "mcp_resource", op: "list", uri: null };
+    case "ReadMcpResourceTool":
+      return { kind: "mcp_resource", op: "read", uri: str("uri") || null };
+    case "SendMessage":
+      return {
+        kind: "send_message",
+        to: str("to") || str("agentId"),
+        content: str("content") || str("message"),
+      };
+    case "TeamCreate": {
+      const teammates = Array.isArray(o.teammates) ? o.teammates.length : 0;
+      return {
+        kind: "team",
+        op: "create",
+        summary: teammates > 0 ? `${teammates} teammates` : null,
+      };
+    }
+    case "TeamDelete":
+      return { kind: "team", op: "delete", summary: str("teamId") || null };
+    case "ToolSearch":
+      return { kind: "tool_search", query: str("query") };
     default:
       return { kind: "unknown", toolName, raw };
   }

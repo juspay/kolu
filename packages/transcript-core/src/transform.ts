@@ -48,7 +48,7 @@ export function makeRelativizer(cwd: string | null): StringTransform | null {
  *  text, so the transform is doing string-content matching, not field
  *  identification.
  *
- *  Opaque inputs are unchanged: by construction, those are vendor
+ *  Unknown inputs are unchanged: by construction, those are vendor
  *  shapes we haven't modelled, so the renderer dumps them as JSON. */
 function transformToolInput(input: ToolInput, fn: StringTransform): ToolInput {
   switch (input.kind) {
@@ -90,6 +90,28 @@ function transformToolInput(input: ToolInput, fn: StringTransform): ToolInput {
     case "web_search":
       return input;
     case "skill":
+      return input;
+    case "task":
+      return input;
+    case "ask":
+      return input;
+    case "plan_mode":
+      return input;
+    case "worktree":
+      return input.path ? { ...input, path: fn(input.path) } : input;
+    case "cron":
+      return input;
+    case "monitor":
+      return input;
+    case "lsp":
+      return input;
+    case "mcp_resource":
+      return input;
+    case "send_message":
+      return input;
+    case "team":
+      return input;
+    case "tool_search":
       return input;
     case "unknown":
       return input;

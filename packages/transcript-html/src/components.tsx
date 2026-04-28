@@ -83,6 +83,40 @@ function toolSummary(input: ToolInput): string | null {
       return input.query ? compactText(input.query, 80) : null;
     case "skill":
       return input.args ? compactText(input.args, 80) : null;
+    case "task":
+      return input.summary
+        ? `${input.op} — ${compactText(input.summary, 70)}`
+        : input.op;
+    case "ask":
+      return input.question ? compactText(input.question, 80) : null;
+    case "plan_mode":
+      return input.plan
+        ? `${input.op} — ${compactText(input.plan, 70)}`
+        : input.op;
+    case "worktree":
+      return input.path ? `${input.op} — ${input.path}` : input.op;
+    case "cron":
+      return input.summary
+        ? `${input.op} — ${compactText(input.summary, 70)}`
+        : input.op;
+    case "monitor":
+      return input.command ? compactText(input.command, 80) : null;
+    case "lsp":
+      return input.summary
+        ? `${input.op} — ${compactText(input.summary, 70)}`
+        : input.op;
+    case "mcp_resource":
+      return input.uri ? `${input.op} — ${input.uri}` : input.op;
+    case "send_message":
+      return input.content
+        ? `→ ${input.to}: ${compactText(input.content, 60)}`
+        : `→ ${input.to}`;
+    case "team":
+      return input.summary
+        ? `${input.op} — ${compactText(input.summary, 70)}`
+        : input.op;
+    case "tool_search":
+      return input.query ? compactText(input.query, 80) : null;
     case "unknown":
       return null;
   }
@@ -115,6 +149,28 @@ function roleLabelForToolCall(input: ToolInput): string {
       return "Search";
     case "skill":
       return "Skill";
+    case "task":
+      return "Task";
+    case "ask":
+      return "Ask";
+    case "plan_mode":
+      return "Plan";
+    case "worktree":
+      return "Worktree";
+    case "cron":
+      return "Cron";
+    case "monitor":
+      return "Monitor";
+    case "lsp":
+      return "LSP";
+    case "mcp_resource":
+      return "MCP";
+    case "send_message":
+      return "Message";
+    case "team":
+      return "Team";
+    case "tool_search":
+      return "ToolSearch";
     case "unknown":
       return "Unknown";
   }
