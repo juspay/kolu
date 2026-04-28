@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-04-28T00:18:45.231979+00:00'
+generated_at: '2026-04-28T17:41:52.153122+00:00'
 apm_version: 0.10.0
 dependencies:
 - repo_url: anthropics/skills
@@ -37,7 +37,7 @@ dependencies:
   content_hash: sha256:67ff7ce606ad0378af382ad6cb84d9853bf70ec52d6fe40ed6b6f82ecd2c48c3
 - repo_url: srid/agency
   host: github.com
-  resolved_commit: 40c2406d8f277be7b885487f262d133d3b2fb5b5
+  resolved_commit: d2aff43ee57f78448f9f91b74a17245d55ffbaff
   resolved_ref: master
   package_type: apm_package
   deployed_files:
@@ -50,8 +50,6 @@ dependencies:
   - .agents/skills/lowy
   - .agents/skills/ralph
   - .agents/skills/talk
-  - .claude/agents/hickey.md
-  - .claude/agents/lowy.md
   - .claude/hooks/agency/scripts/do-stop-guard.sh
   - .claude/rules/apm-sources.md
   - .claude/skills/code-police
@@ -63,11 +61,7 @@ dependencies:
   - .claude/skills/lowy
   - .claude/skills/ralph
   - .claude/skills/talk
-  - .codex/agents/hickey.toml
-  - .codex/agents/lowy.toml
   - .codex/hooks/agency/scripts/do-stop-guard.sh
-  - .opencode/agents/hickey.md
-  - .opencode/agents/lowy.md
   - .opencode/skills/code-police
   - .opencode/skills/do
   - .opencode/skills/elegance
@@ -78,16 +72,10 @@ dependencies:
   - .opencode/skills/ralph
   - .opencode/skills/talk
   deployed_file_hashes:
-    .claude/agents/hickey.md: sha256:edde9b0d3b27b947b7372f662b2e8652d136e0bb9af7924892b00450a1e586bc
-    .claude/agents/lowy.md: sha256:a1c8e5ba115439bcfa0d7e331f96e71b2d690ff2e5fb9b824bb5f588eb43ac75
     .claude/hooks/agency/scripts/do-stop-guard.sh: sha256:cb033f86c15ffd3d09d8e4b74a61f55a70def4cc4131cc013b7368a2d23f3f33
     .claude/rules/apm-sources.md: sha256:90626875e2a63e5658f0b5e77524c9c4f949f4ce890bd1f1ce9a2663d4fc8ea7
-    .codex/agents/hickey.toml: sha256:f508bacedcac2916cf1e29a11f2ac161483ffc2acf182c8f1c00c26d14073c00
-    .codex/agents/lowy.toml: sha256:c57b72c43687ef255a4490f65984fe556325cb9847a5626e43c2a7addea049e4
     .codex/hooks/agency/scripts/do-stop-guard.sh: sha256:cb033f86c15ffd3d09d8e4b74a61f55a70def4cc4131cc013b7368a2d23f3f33
-    .opencode/agents/hickey.md: sha256:edde9b0d3b27b947b7372f662b2e8652d136e0bb9af7924892b00450a1e586bc
-    .opencode/agents/lowy.md: sha256:a1c8e5ba115439bcfa0d7e331f96e71b2d690ff2e5fb9b824bb5f588eb43ac75
-  content_hash: sha256:e0101fb7b864a1d0c50f5db623fa9bd0028dc0325efdff6ce1599f109a5c7970
+  content_hash: sha256:8f51974951cdca99300b72d75590d91382d0e4952a5a16cee93a85d4e3cbc038
 mcp_servers:
 - chrome-devtools
 mcp_configs:
