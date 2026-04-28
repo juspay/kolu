@@ -61,7 +61,8 @@ export interface CommandDeps {
   // Right panel
   toggleRightPanel: () => void;
   // Canvas — desktop only (always active there); hidden on mobile where
-  // the canvas isn't mounted at all.
+  // the canvas isn't mounted at all. Palette-only — the chord that used to
+  // fire it (Mod+Shift+C) is now bound to "Copy text".
   canvasCenterActive: () => void;
   isMobile: () => boolean;
   // Worktree
