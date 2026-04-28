@@ -18,6 +18,9 @@ log="$tmp/kolu.log"
 pid=""
 
 cleanup() {
+    # Best-effort teardown on EXIT — `|| true` because the trap can race with
+    # the process's own exit, and we don't want a stale-PID kill to mask the
+    # real error that triggered the trap.
     if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
         kill -TERM "$pid" 2>/dev/null || true
         wait "$pid" 2>/dev/null || true
