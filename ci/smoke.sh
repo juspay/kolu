@@ -53,20 +53,16 @@ if [[ -z "$addr" ]]; then
 fi
 echo "kolu listening at $addr (pid=$pid)"
 
-# Health check via Node's built-in fetch (no curl in dev shell).
-resp=$(node -e '
+# Health check via Node's built-in fetch (no curl in dev shell). Asserts only
+# HTTP 200 — the response body is an implementation detail of index.ts:143
+# that the smoke shouldn't couple to.
+node -e '
   const url = process.argv[1] + "/api/health";
   fetch(url, { signal: AbortSignal.timeout(5000) })
-    .then(r => r.ok ? r.text() : Promise.reject(new Error(`HTTP ${r.status}`)))
-    .then(t => process.stdout.write(t))
+    .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); })
     .catch(e => { console.error(e.message || e); process.exit(1); });
-' "$addr")
-if [[ "$resp" != "kolu" ]]; then
-    echo "unexpected /api/health response: ${resp:-<empty>}" >&2
-    cat "$log" >&2
-    exit 1
-fi
-echo "/api/health returned 'kolu'"
+' "$addr"
+echo "/api/health returned 200"
 
 # Graceful shutdown: SIGTERM, expect exit 0.
 kill -TERM "$pid"
