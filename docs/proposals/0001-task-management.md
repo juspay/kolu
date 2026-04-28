@@ -231,7 +231,7 @@ Both populations are real today. The default covers (1); the implementation shou
 
 See [`./0001-task-management/mockup.html`](./0001-task-management/mockup.html) — open in a browser. Five views:
 
-1. **Per-project board** — lanes, cards, terminal pills, completion check.
+1. **Per-project board** — lanes, cards (with ✕ delete on hover, ▸ collapse chevron on long descriptions), terminal pills, completion check.
 2. **What's on disk** *(explanation only)* — the raw markdown that produces view 1, rendered side-by-side. Not a proposed Kolu surface; included to make the file format concrete.
 3. **Cross-project view** — time-ordered table.
 4. **Terminal canvas with task tags** — existing canvas; one new title-bar affordance.

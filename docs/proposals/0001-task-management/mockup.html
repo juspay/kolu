@@ -311,13 +311,65 @@
         background: var(--surface-2);
         border: 1px solid var(--border-soft);
         border-radius: 6px;
-        padding: 10px 12px;
+        padding: 10px 28px 10px 12px;
         margin-bottom: 10px;
         cursor: grab;
         transition: border-color 120ms;
+        position: relative;
       }
       .card:hover {
         border-color: var(--border);
+      }
+      .card:hover .card-x {
+        opacity: 1;
+      }
+
+      .card-x {
+        position: absolute;
+        top: 5px;
+        right: 6px;
+        width: 18px;
+        height: 18px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: transparent;
+        border: none;
+        color: var(--text-faint);
+        font-size: 13px;
+        line-height: 1;
+        cursor: pointer;
+        border-radius: 3px;
+        opacity: 0.55;
+        transition: color 100ms, background 100ms, opacity 100ms;
+      }
+      .card-x:hover {
+        color: var(--red);
+        background: var(--bg);
+        opacity: 1;
+      }
+
+      .card-chevron {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        margin-top: 8px;
+        padding: 3px 8px;
+        font-family: var(--mono);
+        font-size: 11.5px;
+        color: var(--text-faint);
+        background: var(--bg);
+        border: 1px solid var(--border-soft);
+        border-radius: 3px;
+        cursor: pointer;
+      }
+      .card-chevron:hover {
+        color: var(--text);
+        border-color: var(--border);
+      }
+      .card.collapsed .desc,
+      .card.collapsed .meta {
+        display: none;
       }
 
       .card .title {
@@ -853,18 +905,36 @@
                 <div class="lane">
                   <div class="lane-head">
                     <span class="name">Todo</span>
-                    <span class="count">2</span>
+                    <span class="count">3</span>
                   </div>
                   <div class="card">
+                    <button class="card-x" title="Delete">×</button>
                     <div class="title">Refactor session module</div>
                     <div class="desc">Splits the auth and session storage modules.</div>
                   </div>
                   <div class="card">
+                    <button class="card-x" title="Delete">×</button>
                     <div class="title">Fix login bug</div>
                     <div class="meta">
                       <span class="term-tag">term-1</span>
                       <span class="term-tag">term-2</span>
                     </div>
+                  </div>
+                  <div class="card collapsed">
+                    <button class="card-x" title="Delete">×</button>
+                    <div class="title">Investigate dropped frames in scrollback</div>
+                    <div class="desc">
+                      Long description spanning several lines about the WebGL
+                      texture atlas growing unbounded in long-running terminals,
+                      with reproduction steps, the suspected cause inside
+                      xterm.js's renderer, the diagnostic dialog's GPU memory
+                      reading, and the workaround the user is currently relying
+                      on. Rendered only when expanded.
+                    </div>
+                    <div class="meta">
+                      <span class="term-tag">term-4</span>
+                    </div>
+                    <span class="card-chevron">▸ show more</span>
                   </div>
                   <div class="lane-add">add task…</div>
                 </div>
@@ -876,6 +946,7 @@
                     <span class="count">1</span>
                   </div>
                   <div class="card">
+                    <button class="card-x" title="Delete">×</button>
                     <div class="title">Learn CRDTs</div>
                     <div class="desc">Read paper; prototype a tiny LWW register; write up.</div>
                     <div class="meta">
@@ -893,6 +964,7 @@
                     <span class="complete-flag">**Complete**</span>
                   </div>
                   <div class="card complete">
+                    <button class="card-x" title="Delete">×</button>
                     <div class="title" style="display: flex; align-items: center">
                       Set up dev env
                       <span class="check">✓ 2d ago</span>
@@ -919,6 +991,9 @@ projectId: 7f3e...
 <span class="checkbox">- [ ]</span> Refactor session module <span class="blockid">&lt;!-- ^def456 --&gt;</span>
   Splits the auth and session storage modules.
 <span class="checkbox">- [ ]</span> Fix login bug <span class="blockid">&lt;!-- ^abc123 --&gt;</span>
+<span class="checkbox">- [ ]</span> Investigate dropped frames in scrollback <span class="blockid">&lt;!-- ^mno345 --&gt;</span>
+  Long description spanning several lines about the WebGL texture atlas
+  growing unbounded in long-running terminals, with reproduction steps…
 
 <span class="heading">## Doing</span>
 
@@ -938,9 +1013,12 @@ projectId: 7f3e...
           <strong>What's shown (left, proposed):</strong> Lanes are user-named. The
           <code>**Complete**</code> badge marks a lane as carrying the <code>complete</code> role; tasks
           landing there get a completion timestamp. Term-pills under cards are linked terminals; clicking one
-          focuses that terminal on the canvas. The
-          <code>+ add task…</code> at the bottom of each lane is one of the two creation affordances (see
-          view 04).
+          navigates to <code>/</code> (workspace) and focuses that terminal — browser back returns here.
+          Each card carries a small <code>×</code> in the top-right (visible on hover) that opens a
+          delete-confirm modal. The third Todo card has a long description and starts collapsed with a
+          <code>▸ show more</code> chevron — clicking the chevron expands the card; the state is
+          session-only and not persisted. The <code>+ add task…</code> at the bottom of each lane is one of
+          the two creation affordances (see view 04).
         </div>
         <div class="legend explanation">
           <strong>What's shown (right, explanation only):</strong> The raw markdown that produces the board
@@ -1119,9 +1197,11 @@ projectId: 7f3e...
                   <span class="count">2</span>
                 </div>
                 <div class="card">
+                  <button class="card-x" title="Delete">×</button>
                   <div class="title">Refactor session module</div>
                 </div>
                 <div class="card">
+                  <button class="card-x" title="Delete">×</button>
                   <div class="title">Fix login bug</div>
                 </div>
                 <div class="lane-add active">
