@@ -1,6 +1,12 @@
 ---
 name: pierre
-description: Use Pierre Computer Company's `@pierre/trees` (path-first file tree) and `@pierre/diffs` (shiki-based diff renderer) in Kolu. Pierre ships Preact/vanilla cores with optional React wrappers — Kolu consumes the vanilla classes and wraps them in thin SolidJS components. Trigger when: wiring up a file tree, rendering unified diffs, replacing `@git-diff-view`, or any mention of `@pierre/trees` / `@pierre/diffs` / "pierre library".
+description: >-
+  Use Pierre Computer Company's `@pierre/trees` (path-first file tree) and
+  `@pierre/diffs` (shiki-based diff renderer) in Kolu. Pierre ships
+  Preact/vanilla cores with optional React wrappers — Kolu consumes the vanilla
+  classes and wraps them in thin SolidJS components. Trigger when: wiring up a
+  file tree, rendering unified diffs, replacing `@git-diff-view`, or any mention
+  of `@pierre/trees` / `@pierre/diffs` / "pierre library".
 ---
 
 # @pierre/trees + @pierre/diffs integration
