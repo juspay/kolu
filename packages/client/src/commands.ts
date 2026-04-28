@@ -61,8 +61,7 @@ export interface CommandDeps {
   // Right panel
   toggleRightPanel: () => void;
   // Canvas — desktop only (always active there); hidden on mobile where
-  // the canvas isn't mounted at all. Palette-only: no keybind in
-  // ShortcutDeps by design.
+  // the canvas isn't mounted at all.
   canvasCenterActive: () => void;
   isMobile: () => boolean;
   // Worktree
@@ -174,6 +173,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
       ? [
           {
             name: "Center on active tile",
+            keybind: SHORTCUTS.canvasCenterActive.keybind,
             onSelect: () => deps.canvasCenterActive(),
           },
         ]

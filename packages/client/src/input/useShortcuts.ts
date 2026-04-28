@@ -26,6 +26,7 @@ interface ShortcutDeps {
   handleScreenshotTerminal: () => void;
   toggleRightPanel: () => void;
   handleCopyTerminalText: () => void;
+  canvasCenterActive: () => void;
   toggleRecordingPause: () => void;
 }
 
@@ -183,6 +184,11 @@ function dispatch(
 
   if (matchesKeybind(e, SHORTCUTS.copyText.keybind)) {
     deps.handleCopyTerminalText();
+    return true;
+  }
+
+  if (matchesKeybind(e, SHORTCUTS.canvasCenterActive.keybind)) {
+    deps.canvasCenterActive();
     return true;
   }
 

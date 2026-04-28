@@ -190,6 +190,7 @@ const App: Component = () => {
     handleScreenshotTerminal: () => handleScreenshotTerminal(),
     toggleRightPanel: rightPanel.togglePanel,
     handleCopyTerminalText: () => void crud.handleCopyTerminalText(),
+    canvasCenterActive: handleCanvasCenterActive,
     toggleRecordingPause: () => useRecorder().togglePause(),
   });
 

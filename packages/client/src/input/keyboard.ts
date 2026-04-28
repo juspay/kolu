@@ -146,6 +146,10 @@ export const SHORTCUTS = {
     keybind: { key: "C", code: "KeyC", mod: true, shift: true },
     label: "Copy text",
   },
+  canvasCenterActive: {
+    keybind: { key: "0", code: "Digit0", mod: true, shift: true },
+    label: "Center on active tile",
+  },
   toggleRecordingPause: {
     keybind: { key: ".", code: "Period", mod: true, shift: true },
     label: "Pause / resume recording",
