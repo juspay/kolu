@@ -12,14 +12,14 @@
 
 import fs from "node:fs";
 import type { DatabaseSync } from "node:sqlite";
+import { type Logger, withDb as sharedWithDb } from "anyagent";
 import {
-  type Logger,
+  type Fetcher,
   parseIsoTimestamp,
+  type ToolInput,
   type Transcript,
   type TranscriptEvent,
-  type TranscriptPr,
-  withDb as sharedWithDb,
-} from "anyagent";
+} from "kolu-transcript-core";
 import { openDb } from "./core.ts";
 
 interface RolloutLine {
@@ -49,12 +49,6 @@ interface RolloutLine {
 /** Parse a JSON string but fall back to the raw string when invalid —
  *  Codex's tool arguments are always JSON-encoded, but we don't want a
  *  parse error to drop content silently. */
-/** Codex tool names whose payload IS a file edit. Today the only such
- *  tool is `apply_patch` (the unified-diff-style patch tool); reads,
- *  shell exec, and web fetches go through other names. The renderer
- *  keys on the `isEditTool` boolean we set here, not on the name. */
-const CODEX_EDIT_TOOL_NAMES = new Set(["apply_patch"]);
-
 function tryParseJson(raw: string | undefined): unknown {
   if (raw === undefined) return undefined;
   try {
@@ -114,8 +108,10 @@ function eventFromLine(entry: RolloutLine): TranscriptEvent | null {
         kind: "tool_call",
         id: entry.payload.call_id ?? null,
         toolName: entry.payload.name,
-        inputs: tryParseJson(rawInputs),
-        isEditTool: CODEX_EDIT_TOOL_NAMES.has(entry.payload.name),
+        inputs: normalizeCodexToolInput(
+          entry.payload.name,
+          tryParseJson(rawInputs),
+        ),
         ts,
       };
     }
@@ -160,6 +156,65 @@ export function parseCodexRollout(content: string): TranscriptEvent[] {
   return events;
 }
 
+/** Map a Codex tool name + parsed arguments onto the typed `ToolInput`
+ *  union. `apply_patch` is a `custom_tool_call` whose argument is the
+ *  patch text (not JSON); other tools carry JSON-encoded structured
+ *  arguments. Exported for testing. */
+export function normalizeCodexToolInput(
+  toolName: string,
+  parsed: unknown,
+): ToolInput {
+  // apply_patch's payload is the patch text itself.
+  if (toolName === "apply_patch") {
+    if (typeof parsed === "string") return { kind: "patch", text: parsed };
+    if (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      typeof (parsed as Record<string, unknown>).patch === "string"
+    ) {
+      return {
+        kind: "patch",
+        text: (parsed as { patch: string }).patch,
+      };
+    }
+    return { kind: "opaque", toolName, raw: parsed };
+  }
+
+  const o =
+    typeof parsed === "object" && parsed !== null
+      ? (parsed as Record<string, unknown>)
+      : {};
+  const str = (k: string): string =>
+    typeof o[k] === "string" ? (o[k] as string) : "";
+
+  switch (toolName) {
+    case "exec_command":
+    case "shell": {
+      // Codex's exec_command historically used `cmd` (a string command);
+      // newer versions use `command` (often an array of argv). Accept
+      // both, joining argv with spaces for display.
+      if (Array.isArray(o.command)) {
+        return {
+          kind: "bash",
+          command: o.command
+            .map((p) => (typeof p === "string" ? p : ""))
+            .filter((p) => p.length > 0)
+            .join(" "),
+        };
+      }
+      const cmd = str("command") || str("cmd");
+      return { kind: "bash", command: cmd };
+    }
+    case "read_file":
+      return { kind: "read", filePath: str("path") || str("file_path") };
+    case "web_fetch":
+    case "fetch":
+      return { kind: "fetch", url: str("url") };
+    default:
+      return { kind: "opaque", toolName, raw: parsed };
+  }
+}
+
 function withDb<T>(
   fn: (db: DatabaseSync) => T,
   errorMsg: string,
@@ -167,17 +222,6 @@ function withDb<T>(
   log?: Logger,
 ): T | null {
   return sharedWithDb<DatabaseSync, T>(openDb, fn, errorMsg, errorCtx, log);
-}
-
-export interface LoadCodexTranscriptInput {
-  /** Codex thread id (uuid v7). */
-  sessionId: string;
-  title: string | null;
-  repoName: string | null;
-  cwd: string | null;
-  model: string | null;
-  contextTokens: number | null;
-  pr: TranscriptPr | null;
 }
 
 /** Look up the rollout path for a thread and return null if the thread
@@ -199,14 +243,11 @@ function findRolloutPath(sessionId: string, log?: Logger): string | null {
 /** Read the rollout JSONL for a Codex session and normalize to the
  *  unified IR. Returns null if the rollout path can't be resolved or the
  *  DB is unavailable; throws if the file exists in DB but not on disk. */
-export function loadCodexTranscript(
-  input: LoadCodexTranscriptInput,
-  log?: Logger,
-): Transcript | null {
+export const loadCodexTranscript: Fetcher = (input, log) => {
   const rolloutPath = findRolloutPath(input.sessionId, log);
   if (!rolloutPath) return null;
   const raw = fs.readFileSync(rolloutPath, "utf8");
-  return {
+  const transcript: Transcript = {
     agentKind: "codex",
     sessionId: input.sessionId,
     title: input.title,
@@ -218,4 +259,5 @@ export function loadCodexTranscript(
     exportedAt: Date.now(),
     events: parseCodexRollout(raw),
   };
-}
+  return transcript;
+};

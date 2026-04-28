@@ -44,8 +44,4 @@ export { subscribeCodexDb } from "./wal-watcher.ts";
 
 export { codexProvider } from "./agent-provider.ts";
 
-export {
-  type LoadCodexTranscriptInput,
-  loadCodexTranscript,
-  parseCodexRollout,
-} from "./transcript.ts";
+export { loadCodexTranscript, parseCodexRollout } from "./transcript.ts";

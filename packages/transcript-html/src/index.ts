@@ -11,7 +11,13 @@
  *  prompt navigation. Tool calls collapse by default (the dock toggle
  *  reveals them). All interactivity is inline JS; no external assets. */
 
-import { escapeHtml, type Transcript, type TranscriptEvent } from "kolu-common";
+import { escapeHtml } from "kolu-common";
+import {
+  relativizeTranscript,
+  type ToolInput,
+  type Transcript,
+  type TranscriptEvent,
+} from "kolu-transcript-core";
 import { match } from "ts-pattern";
 
 const AGENT_LABEL: Record<Transcript["agentKind"], string> = {
@@ -337,21 +343,51 @@ export function renderMarkdown(text: string): string {
   return out.join("\n");
 }
 
-function isObj(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
+/** Truncate a string to `max` chars with an ellipsis, leaving short
+ *  strings unchanged. Whitespace-collapsed first so a multi-line command
+ *  doesn't dump line breaks into the summary line. */
+function compactText(s: string, max: number): string {
+  const collapsed = s.replace(/\s+/g, " ").trim();
+  return collapsed.length > max ? `${collapsed.slice(0, max)}…` : collapsed;
 }
 
-/** Look up a string field under any of the given names — returns the
- *  first match, or "" if none. Lets the renderer probe both Claude's
- *  snake_case (`old_string`) and OpenCode's camelCase (`oldString`)
- *  edit-tool input shapes from one call site without committing to
- *  either spelling. */
-function pickStr(o: Record<string, unknown>, ...names: string[]): string {
-  for (const n of names) {
-    const v = o[n];
-    if (typeof v === "string") return v;
+/** Shorten an absolute path to its last two segments
+ *  (`/a/b/c/d.ts` → `…/c/d.ts`). Already-relative paths
+ *  (`./src/foo.ts`, `../bar`) pass through — `relativizeTranscript`
+ *  rewrites in-cwd paths upstream, so most file paths arrive here as
+ *  `./...`. */
+function shortenPath(p: string): string {
+  if (p.startsWith("./") || p.startsWith("../") || !p.includes("/")) return p;
+  const parts = p.split("/").filter(Boolean);
+  if (parts.length <= 2) return p;
+  return `…/${parts.slice(-2).join("/")}`;
+}
+
+/** One-line label for a collapsed tool_call, derived from the typed
+ *  input. Returns null when there's nothing useful to show — caller
+ *  falls back to just the tool name. */
+function toolSummary(input: ToolInput): string | null {
+  switch (input.kind) {
+    case "edit":
+    case "write":
+    case "read":
+      return shortenPath(input.filePath);
+    case "patch": {
+      const firstLine = input.text.split("\n").find((l) => l.trim().length > 0);
+      return firstLine ? compactText(firstLine, 80) : null;
+    }
+    case "bash":
+      return input.command ? compactText(input.command, 80) : null;
+    case "glob":
+    case "grep":
+      return input.path
+        ? `${input.pattern} in ${shortenPath(input.path)}`
+        : input.pattern || null;
+    case "fetch":
+      return input.url || null;
+    case "opaque":
+      return null;
   }
-  return "";
 }
 
 /** Render an Edit-style diff (one old chunk → one new chunk) at line
@@ -479,60 +515,30 @@ function wrapMessageCollapsible(body: string, sourceText: string): string {
   return `<div class="msg-collapsible is-collapsed" data-line-count="${lineCount}">${body}<button type="button" class="msg-toggle" aria-expanded="false"><span data-toggle-label>Show all ${lineCount} lines</span></button></div>`;
 }
 
-/** Render the inputs of a tool call. For edit-class tools (the loader
- *  has set `isEditTool: true`) we probe the input shape — not the tool
- *  name — to extract the diff payload, accepting both Claude's
- *  snake_case and OpenCode's camelCase field spellings. Anything else
- *  falls through to a pretty-JSON dump. */
-function renderToolInputsHtml(inputs: unknown): string {
-  // Patch-style: a raw string carrying unified-diff markup
-  // (Codex's apply_patch passes its payload as a plain string).
-  if (typeof inputs === "string") {
-    return renderApplyPatch(inputs);
+/** Render the inputs of an edit-class tool call (kind: edit | write |
+ *  patch). The other kinds fall through the renderer's tool_call branch
+ *  to a collapsed-row layout. */
+function renderEditToolHtml(input: ToolInput): string {
+  if (input.kind === "edit") {
+    return input.edits
+      .map((e) => renderEditDiff(input.filePath, e.oldText, e.newText))
+      .join("");
   }
-  if (isObj(inputs)) {
-    // MultiEdit-style: an array of {old, new} edits against one file.
-    const edits = inputs.edits;
-    if (Array.isArray(edits)) {
-      const filePath = pickStr(inputs, "file_path", "filePath");
-      return edits
-        .map((edit) =>
-          isObj(edit)
-            ? renderEditDiff(
-                filePath,
-                pickStr(edit, "old_string", "oldString"),
-                pickStr(edit, "new_string", "newString"),
-              )
-            : "",
-        )
-        .filter(Boolean)
-        .join("");
-    }
-    // NotebookEdit-style: distinct path field + old/new source.
-    const notebookPath = pickStr(inputs, "notebook_path", "notebookPath");
-    if (notebookPath.length > 0) {
-      return renderEditDiff(
-        notebookPath,
-        pickStr(inputs, "old_source", "oldSource"),
-        pickStr(inputs, "new_source", "newSource"),
-      );
-    }
-    // Edit-style: file path + old/new strings (Claude's `file_path` /
-    // `old_string` / `new_string`, OpenCode's `filePath` / `oldString`
-    // / `newString`).
-    const filePath = pickStr(inputs, "file_path", "filePath");
-    const oldStr = pickStr(inputs, "old_string", "oldString");
-    const newStr = pickStr(inputs, "new_string", "newString");
-    if (filePath.length > 0 && (oldStr.length > 0 || newStr.length > 0)) {
-      return renderEditDiff(filePath, oldStr, newStr);
-    }
-    // Write-style (whole-file create): file path + content (no old).
-    const content = pickStr(inputs, "content");
-    if (filePath.length > 0 && content.length > 0) {
-      return renderWriteDiff(filePath, content);
-    }
-  }
-  return `<pre class="card-text card-text--code">${escapeHtml(prettyJson(inputs))}</pre>`;
+  if (input.kind === "write")
+    return renderWriteDiff(input.filePath, input.content);
+  if (input.kind === "patch") return renderApplyPatch(input.text);
+  // Non-edit kinds shouldn't reach here — caller dispatches on
+  // isEditClass first. Fall through to a JSON dump as a safety net.
+  return `<pre class="card-text card-text--code">${escapeHtml(prettyJson(input))}</pre>`;
+}
+
+/** Edit-class kinds render inline as diffs and stay visible even when
+ *  the global "Hide tools" toggle is on — the diff IS the conversation
+ *  content, not an exec-output side-channel. */
+function isEditClass(input: ToolInput): boolean {
+  return (
+    input.kind === "edit" || input.kind === "write" || input.kind === "patch"
+  );
 }
 
 /** JSON-stringify with a 2-space indent. Falls back to the empty string
@@ -626,12 +632,10 @@ function renderEvent(event: TranscriptEvent, index: number): string {
 </section>`;
     })
     .with({ kind: "tool_call" }, (e) => {
-      // Edit-class tools render inline as diffs and stay visible even
-      // when the global "Hide tools" toggle is on — the diff IS the
-      // conversation content, not an exec-output side-channel. Each
-      // per-agent loader sets `isEditTool` based on its own knowledge
-      // of which tool names produce file edits.
-      if (e.isEditTool) {
+      // Edit-class kinds (edit/write/patch) render inline as diffs and
+      // stay visible even when "Hide tools" is on — the diff IS the
+      // conversation content, not exec output.
+      if (isEditClass(e.inputs)) {
         return `<section class="event event--edit" data-call-id="${escapeHtml(e.id ?? "")}">
   <div class="gutter">
     <span class="gutter-icon" aria-label="Edit">${TOOL_ICON}</span>
@@ -642,11 +646,15 @@ function renderEvent(event: TranscriptEvent, index: number): string {
       <span class="tool-name">${escapeHtml(e.toolName)}</span>
       ${tsHtml}
     </header>
-    ${renderToolInputsHtml(e.inputs)}
+    ${renderEditToolHtml(e.inputs)}
   </div>
 </section>`;
       }
       const inputs = prettyJson(e.inputs);
+      const summary = toolSummary(e.inputs);
+      const summaryHtml = summary
+        ? `<span class="tool-summary">${escapeHtml(summary)}</span>`
+        : "";
       return `<section class="event event--tool event--tool-call" data-call-id="${escapeHtml(e.id ?? "")}">
   <div class="gutter">
     <span class="gutter-icon" aria-label="Tool call">${TOOL_ICON}</span>
@@ -656,6 +664,7 @@ function renderEvent(event: TranscriptEvent, index: number): string {
       <summary>
         <span class="card-role">Tool call</span>
         <span class="tool-name">${escapeHtml(e.toolName)}</span>
+        ${summaryHtml}
         ${tsHtml}
       </summary>
       <pre class="card-text card-text--code">${escapeHtml(inputs)}</pre>
@@ -1391,6 +1400,16 @@ const STYLE = `
     font-size: 0.75rem;
     color: var(--tool);
   }
+  .event--tool .tool-summary {
+    font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
+    font-size: 0.71875rem;
+    color: var(--ink-3);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+    flex: 1 1 auto;
+  }
   .event--tool.event--error .gutter-icon { color: var(--error); border-color: var(--error); }
   .event--tool.event--error details summary .card-role { color: var(--error); }
   .event--tool .card-text--code {
@@ -1836,14 +1855,18 @@ function renderByline(
 
 /** Convert a Transcript to a self-contained HTML document. */
 export function transcriptToHtml(transcript: Transcript): string {
-  const counts = countEvents(transcript.events);
+  // Rewrite absolute in-cwd paths to ./relative form before render, so
+  // long paths read as `./src/foo.ts` instead of
+  // `/home/srid/code/kolu/.worktrees/damn-booth/packages/foo/src/foo.ts`.
+  const prepared = relativizeTranscript(transcript);
+  const counts = countEvents(prepared.events);
   const eventsHtml =
-    transcript.events.length === 0
+    prepared.events.length === 0
       ? '<div class="empty">No conversation events found.</div>'
-      : transcript.events.map((e, i) => renderEvent(e, i)).join("\n");
-  const titleText = deriveDisplayTitle(transcript);
-  const eyebrow = renderEyebrow(transcript);
-  const byline = renderByline(transcript, counts);
+      : prepared.events.map((e, i) => renderEvent(e, i)).join("\n");
+  const titleText = deriveDisplayTitle(prepared);
+  const eyebrow = renderEyebrow(prepared);
+  const byline = renderByline(prepared, counts);
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -1860,7 +1883,7 @@ export function transcriptToHtml(transcript: Transcript): string {
       <span class="brand-name">kolu</span>
     </a>
     ${eyebrow}
-    ${renderRichTitle(transcript, titleText)}
+    ${renderRichTitle(prepared, titleText)}
     <div class="byline">${byline}</div>
     <hr class="rule" />
   </header>

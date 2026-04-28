@@ -52,7 +52,6 @@ export {
 export { claudeCodeProvider } from "./agent-provider.ts";
 
 export {
-  type LoadClaudeCodeTranscriptInput,
   loadClaudeCodeTranscript,
   parseClaudeCodeJsonl,
 } from "./transcript.ts";

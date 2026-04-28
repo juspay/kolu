@@ -5,17 +5,21 @@
  *  it reads the whole file once and normalizes every line to the unified
  *  `TranscriptEvent` IR.
  *
- *  No vendor leakage: tool inputs/outputs are carried as `unknown`. The
- *  renderer JSON-stringifies them at display time. */
+ *  Tool inputs are decoded into the typed `ToolInput` union at parse
+ *  time (claude's `Edit` → `{kind:"edit"}`, `Bash` → `{kind:"bash"}`,
+ *  etc.). Anything not modelled becomes `{kind:"opaque"}` and the
+ *  renderer dumps the raw payload as JSON. Tool outputs stay `unknown` —
+ *  vendors emit too many shapes to model usefully. */
 
 import fs from "node:fs";
 import path from "node:path";
 import {
+  type Fetcher,
   parseIsoTimestamp,
+  type ToolInput,
   type Transcript,
   type TranscriptEvent,
-  type TranscriptPr,
-} from "anyagent";
+} from "kolu-transcript-core";
 import { encodeProjectPath, PROJECTS_DIR } from "./core.ts";
 
 interface AssistantContentBlock {
@@ -30,18 +34,6 @@ interface AssistantContentBlock {
   content?: unknown;
   is_error?: boolean;
 }
-
-/** Claude Code tool names whose payload IS a file edit (as opposed to
- *  exec output, file reads, web fetches, etc.). The renderer uses this
- *  to decide whether to render the call as an inline diff (visible by
- *  default) or as a collapsed tool call (hidden under the Tools toggle).
- *  Per-vendor because each agent has its own tool registry. */
-const CLAUDE_EDIT_TOOL_NAMES = new Set([
-  "Edit",
-  "MultiEdit",
-  "Write",
-  "NotebookEdit",
-]);
 
 interface JsonlEntry {
   type?: string;
@@ -107,8 +99,7 @@ function eventsFromEntry(entry: JsonlEntry): TranscriptEvent[] {
           kind: "tool_call",
           id: block.id ?? null,
           toolName: block.name,
-          inputs: block.input,
-          isEditTool: CLAUDE_EDIT_TOOL_NAMES.has(block.name),
+          inputs: normalizeClaudeToolInput(block.name, block.input),
           ts,
         });
       }
@@ -138,6 +129,79 @@ export function parseClaudeCodeJsonl(content: string): TranscriptEvent[] {
   return inlineAgentSubtasks(events);
 }
 
+/** Map a Claude Code tool name + raw input object onto the typed
+ *  `ToolInput` union. Anything we don't recognise becomes `opaque`,
+ *  carrying the raw payload through unchanged. Exported for testing. */
+export function normalizeClaudeToolInput(
+  toolName: string,
+  raw: unknown,
+): ToolInput {
+  const o = (typeof raw === "object" && raw !== null ? raw : {}) as Record<
+    string,
+    unknown
+  >;
+  const str = (k: string): string =>
+    typeof o[k] === "string" ? (o[k] as string) : "";
+
+  switch (toolName) {
+    case "Edit":
+      return {
+        kind: "edit",
+        filePath: str("file_path"),
+        edits: [{ oldText: str("old_string"), newText: str("new_string") }],
+      };
+    case "MultiEdit": {
+      const edits = Array.isArray(o.edits) ? (o.edits as unknown[]) : [];
+      return {
+        kind: "edit",
+        filePath: str("file_path"),
+        edits: edits.map((e) => {
+          const eo = (typeof e === "object" && e !== null ? e : {}) as Record<
+            string,
+            unknown
+          >;
+          return {
+            oldText: typeof eo.old_string === "string" ? eo.old_string : "",
+            newText: typeof eo.new_string === "string" ? eo.new_string : "",
+          };
+        }),
+      };
+    }
+    case "Write":
+      return {
+        kind: "write",
+        filePath: str("file_path"),
+        content: str("content"),
+      };
+    case "NotebookEdit":
+      return {
+        kind: "edit",
+        filePath: str("notebook_path"),
+        edits: [{ oldText: str("old_source"), newText: str("new_source") }],
+      };
+    case "Read":
+      return { kind: "read", filePath: str("file_path") };
+    case "Bash":
+      return { kind: "bash", command: str("command") };
+    case "Glob":
+      return {
+        kind: "glob",
+        pattern: str("pattern"),
+        path: typeof o.path === "string" ? (o.path as string) : null,
+      };
+    case "Grep":
+      return {
+        kind: "grep",
+        pattern: str("pattern"),
+        path: typeof o.path === "string" ? (o.path as string) : null,
+      };
+    case "WebFetch":
+      return { kind: "fetch", url: str("url") };
+    default:
+      return { kind: "opaque", toolName, raw };
+  }
+}
+
 interface AgentCallMeta {
   description: string;
   agentName: string | null;
@@ -160,7 +224,10 @@ function inlineAgentSubtasks(events: TranscriptEvent[]): TranscriptEvent[] {
   const agentCalls = new Map<string, AgentCallMeta>();
   for (const e of events) {
     if (e.kind === "tool_call" && e.toolName === "Agent" && e.id) {
-      agentCalls.set(e.id, extractAgentMeta(e.inputs, e.ts));
+      // Agent inputs go through normalizeClaudeToolInput as `opaque`;
+      // pull description / subagent_type back out of the raw payload.
+      const raw = e.inputs.kind === "opaque" ? e.inputs.raw : null;
+      agentCalls.set(e.id, extractAgentMeta(raw, e.ts));
     }
   }
   if (agentCalls.size === 0) return events;
@@ -233,25 +300,18 @@ function extractAgentReplyText(output: unknown): string {
   return "";
 }
 
-export interface LoadClaudeCodeTranscriptInput {
-  sessionId: string;
-  cwd: string;
-  title: string | null;
-  repoName: string | null;
-  model: string | null;
-  contextTokens: number | null;
-  pr: TranscriptPr | null;
-}
-
 /** Read the JSONL transcript for a Claude Code session and normalize it
- *  to the unified IR. Returns null when the transcript file doesn't
- *  exist yet (Claude creates it lazily on the first user↔assistant
- *  exchange, so a brand-new session has no JSONL). Mirrors the
- *  `Transcript | null` shape returned by the OpenCode and Codex loaders
- *  so the router's "no transcript" branch is uniform across vendors. */
-export function loadClaudeCodeTranscript(
-  input: LoadClaudeCodeTranscriptInput,
-): Transcript | null {
+ *  to the unified IR. Returns null when:
+ *    - cwd is missing (Claude encodes the projects-dir path from cwd, so
+ *      we can't locate the JSONL without one)
+ *    - the transcript file doesn't exist yet (Claude creates it lazily
+ *      on the first user↔assistant exchange, so a brand-new session has
+ *      no JSONL)
+ *  Mirrors the `Transcript | null` shape returned by the OpenCode and
+ *  Codex loaders so the router's "no transcript" branch is uniform
+ *  across vendors. */
+export const loadClaudeCodeTranscript: Fetcher = (input) => {
+  if (!input.cwd) return null;
   const file = path.join(
     PROJECTS_DIR,
     encodeProjectPath(input.cwd),
@@ -264,7 +324,7 @@ export function loadClaudeCodeTranscript(
     if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
     throw err;
   }
-  return {
+  const transcript: Transcript = {
     agentKind: "claude-code",
     sessionId: input.sessionId,
     title: input.title,
@@ -276,4 +336,5 @@ export function loadClaudeCodeTranscript(
     exportedAt: Date.now(),
     events: parseClaudeCodeJsonl(raw),
   };
-}
+  return transcript;
+};

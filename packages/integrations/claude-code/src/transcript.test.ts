@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { parseClaudeCodeJsonl } from "./transcript.ts";
+import {
+  normalizeClaudeToolInput,
+  parseClaudeCodeJsonl,
+} from "./transcript.ts";
 
 describe("parseClaudeCodeJsonl", () => {
   it("returns [] for an empty transcript", () => {
@@ -27,7 +30,12 @@ describe("parseClaudeCodeJsonl", () => {
         content: [
           { type: "thinking", thinking: "let me think" },
           { type: "text", text: "Here is my reply." },
-          { type: "tool_use", id: "tu_1", name: "Read", input: { path: "/x" } },
+          {
+            type: "tool_use",
+            id: "tu_1",
+            name: "Read",
+            input: { file_path: "/x" },
+          },
         ],
       },
     });
@@ -46,7 +54,7 @@ describe("parseClaudeCodeJsonl", () => {
       kind: "tool_call",
       id: "tu_1",
       toolName: "Read",
-      inputs: { path: "/x" },
+      inputs: { kind: "read", filePath: "/x" },
     });
   });
 
@@ -214,11 +222,94 @@ describe("parseClaudeCodeJsonl", () => {
       message: {
         role: "assistant",
         content: [
-          { type: "tool_use", id: "tu_r", name: "Read", input: { path: "/x" } },
+          {
+            type: "tool_use",
+            id: "tu_r",
+            name: "Read",
+            input: { file_path: "/x" },
+          },
         ],
       },
     });
     const events = parseClaudeCodeJsonl(line);
     expect(events.map((e) => e.kind)).toEqual(["tool_call"]);
+  });
+});
+
+describe("normalizeClaudeToolInput", () => {
+  it("decodes Edit into kind:edit with one hunk", () => {
+    expect(
+      normalizeClaudeToolInput("Edit", {
+        file_path: "/x.ts",
+        old_string: "a",
+        new_string: "b",
+      }),
+    ).toEqual({
+      kind: "edit",
+      filePath: "/x.ts",
+      edits: [{ oldText: "a", newText: "b" }],
+    });
+  });
+
+  it("decodes MultiEdit into kind:edit with multiple hunks", () => {
+    expect(
+      normalizeClaudeToolInput("MultiEdit", {
+        file_path: "/x.ts",
+        edits: [
+          { old_string: "a", new_string: "b" },
+          { old_string: "c", new_string: "d" },
+        ],
+      }),
+    ).toEqual({
+      kind: "edit",
+      filePath: "/x.ts",
+      edits: [
+        { oldText: "a", newText: "b" },
+        { oldText: "c", newText: "d" },
+      ],
+    });
+  });
+
+  it("decodes Write into kind:write", () => {
+    expect(
+      normalizeClaudeToolInput("Write", {
+        file_path: "/new.ts",
+        content: "hello",
+      }),
+    ).toEqual({ kind: "write", filePath: "/new.ts", content: "hello" });
+  });
+
+  it("decodes Bash into kind:bash", () => {
+    expect(normalizeClaudeToolInput("Bash", { command: "ls -la" })).toEqual({
+      kind: "bash",
+      command: "ls -la",
+    });
+  });
+
+  it("decodes Read into kind:read", () => {
+    expect(normalizeClaudeToolInput("Read", { file_path: "/x" })).toEqual({
+      kind: "read",
+      filePath: "/x",
+    });
+  });
+
+  it("decodes Glob with optional path", () => {
+    expect(
+      normalizeClaudeToolInput("Glob", { pattern: "**/*.ts", path: "/proj" }),
+    ).toEqual({ kind: "glob", pattern: "**/*.ts", path: "/proj" });
+    expect(normalizeClaudeToolInput("Glob", { pattern: "*.md" })).toEqual({
+      kind: "glob",
+      pattern: "*.md",
+      path: null,
+    });
+  });
+
+  it("falls through to opaque for unknown tools", () => {
+    const raw = { weird: "shape" };
+    expect(normalizeClaudeToolInput("VendorThing", raw)).toEqual({
+      kind: "opaque",
+      toolName: "VendorThing",
+      raw,
+    });
   });
 });

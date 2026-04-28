@@ -27,13 +27,13 @@
  *  emitted by the loader's recursion, not pulled from the DB. */
 
 import type { DatabaseSync } from "node:sqlite";
+import { type Logger, withDb as sharedWithDb } from "anyagent";
 import {
-  type Logger,
+  type Fetcher,
+  type ToolInput,
   type Transcript,
   type TranscriptEvent,
-  type TranscriptPr,
-  withDb as sharedWithDb,
-} from "anyagent";
+} from "kolu-transcript-core";
 import { openDb } from "./core.ts";
 
 interface PartData {
@@ -58,12 +58,6 @@ interface MessageMeta {
   providerID?: string;
   time?: { created?: number; completed?: number };
 }
-
-/** OpenCode tool names whose payload IS a file edit. Audited from
- *  real session DBs (lowercased, unlike Claude Code's PascalCase
- *  registry). The renderer reads `isEditTool` off the tool_call event
- *  rather than maintaining its own vendor-string registry. */
-const OPENCODE_EDIT_TOOL_NAMES = new Set(["edit", "write", "apply_patch"]);
 
 /** Defensive cap on the parent-id walk. OpenCode shouldn't produce
  *  cycles (each child is created with `parentID = current`), but a
@@ -102,6 +96,66 @@ function fetchSessionDisplay(
     title: row?.title ?? null,
     directory: row?.directory ?? null,
   };
+}
+
+/** Map an OpenCode tool name + raw input object onto the typed
+ *  `ToolInput` union. OpenCode uses camelCase (`filePath`, `oldString`)
+ *  vs Claude's snake_case — that's the entire reason this normalizer
+ *  exists per-vendor. Exported for testing. */
+export function normalizeOpenCodeToolInput(
+  toolName: string,
+  raw: unknown,
+): ToolInput {
+  const o = (typeof raw === "object" && raw !== null ? raw : {}) as Record<
+    string,
+    unknown
+  >;
+  const str = (k: string): string =>
+    typeof o[k] === "string" ? (o[k] as string) : "";
+
+  switch (toolName) {
+    case "edit":
+      return {
+        kind: "edit",
+        filePath: str("filePath"),
+        edits: [{ oldText: str("oldString"), newText: str("newString") }],
+      };
+    case "write":
+      return {
+        kind: "write",
+        filePath: str("filePath"),
+        content: str("content"),
+      };
+    case "apply_patch":
+      // OpenCode's apply_patch carries either the patch text or a
+      // structured `{patch}` payload, depending on the tool variant.
+      if (typeof raw === "string") return { kind: "patch", text: raw };
+      if (typeof o.patch === "string") {
+        return { kind: "patch", text: o.patch };
+      }
+      return { kind: "opaque", toolName, raw };
+    case "read":
+      return { kind: "read", filePath: str("filePath") };
+    case "bash":
+      return { kind: "bash", command: str("command") };
+    case "glob":
+      return {
+        kind: "glob",
+        pattern: str("pattern"),
+        path: typeof o.path === "string" ? (o.path as string) : null,
+      };
+    case "grep":
+      return {
+        kind: "grep",
+        pattern: str("pattern"),
+        path: typeof o.path === "string" ? (o.path as string) : null,
+      };
+    case "webfetch":
+    case "fetch":
+      return { kind: "fetch", url: str("url") };
+    default:
+      return { kind: "opaque", toolName, raw };
+  }
 }
 
 /** Pull the child session id out of a task-tool's output. The task tool
@@ -180,8 +234,7 @@ export function eventsFromMessageParts(
         kind: "tool_call",
         id,
         toolName: p.tool,
-        inputs: p.state?.input,
-        isEditTool: OPENCODE_EDIT_TOOL_NAMES.has(p.tool),
+        inputs: normalizeOpenCodeToolInput(p.tool, p.state?.input),
         ts: messageTs,
       });
       if (p.state?.status === "completed" || p.state?.status === "error") {
@@ -196,13 +249,17 @@ export function eventsFromMessageParts(
       if (p.tool === "task" && inlineSubtask) {
         const childId = extractTaskChildSessionId(p);
         if (childId) {
+          // The `task` tool falls through normalize as `opaque` (we
+          // don't model dispatch shapes); pull description out of the
+          // raw input.
+          const rawInput = p.state?.input;
           const description =
-            (typeof p.state?.input === "object" &&
-            p.state.input !== null &&
-            "description" in p.state.input &&
-            typeof (p.state.input as { description: unknown }).description ===
+            (typeof rawInput === "object" &&
+            rawInput !== null &&
+            "description" in rawInput &&
+            typeof (rawInput as { description: unknown }).description ===
               "string"
-              ? ((p.state.input as { description: string }).description ?? "")
+              ? ((rawInput as { description: string }).description ?? "")
               : "") || "Subtask";
           out.push(...inlineSubtask(childId, description, messageTs));
         }
@@ -328,25 +385,12 @@ function loadSessionEvents(
   return events;
 }
 
-export interface LoadOpenCodeTranscriptInput {
-  sessionId: string;
-  title: string | null;
-  repoName: string | null;
-  cwd: string | null;
-  model: string | null;
-  contextTokens: number | null;
-  pr: TranscriptPr | null;
-}
-
 /** Read all messages + parts for a session and emit a unified Transcript.
  *  Walks `parent_id` to the root first so subagent-invocation child
  *  sessions expand to the user's full conversation, then recursively
  *  inlines any `task` tool's child session activity. Returns null if the
  *  DB is unavailable; throws if the session id is unknown. */
-export function loadOpenCodeTranscript(
-  input: LoadOpenCodeTranscriptInput,
-  log?: Logger,
-): Transcript | null {
+export const loadOpenCodeTranscript: Fetcher = (input, log) => {
   return withDb(
     (db) => {
       const rootId = walkToRoot(db, input.sessionId);
@@ -357,8 +401,8 @@ export function loadOpenCodeTranscript(
       // described the (possibly child) session the user clicked on.
       const rootDisplay =
         rootId === input.sessionId ? null : fetchSessionDisplay(db, rootId);
-      return {
-        agentKind: "opencode" as const,
+      const transcript: Transcript = {
+        agentKind: "opencode",
         sessionId: rootId,
         title: rootDisplay?.title ?? input.title,
         repoName: input.repoName,
@@ -369,9 +413,10 @@ export function loadOpenCodeTranscript(
         exportedAt: Date.now(),
         events,
       };
+      return transcript;
     },
     "opencode transcript load failed",
     { sessionId: input.sessionId },
     log,
   );
-}
+};

@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "kolu-common": "workspace:*",
+    "kolu-transcript-core": "workspace:*",
     "ts-pattern": "^5.9.0"
   },
   "devDependencies": {

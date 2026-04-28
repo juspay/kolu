@@ -78,8 +78,7 @@ describe("transcriptToHtml", () => {
             kind: "tool_call",
             id: "t1",
             toolName: "Read",
-            inputs: { path: "/x" },
-            isEditTool: false,
+            inputs: { kind: "read", filePath: "/x" },
             ts: null,
           },
         ],
@@ -87,7 +86,68 @@ describe("transcriptToHtml", () => {
     );
     expect(html).toContain("<details>");
     expect(html).toContain("Read");
-    expect(html).toContain("&quot;path&quot;");
+  });
+
+  it("shows a one-line tool summary in the collapsed row", () => {
+    // Renderer dispatches on inputs.kind: glob → pattern; bash →
+    // command; read → shortened path. The vendor-specific tool name
+    // (Glob / exec_command / Read) is just the label.
+    const html = transcriptToHtml(
+      makeTranscript({
+        cwd: null,
+        events: [
+          {
+            kind: "tool_call",
+            id: "g1",
+            toolName: "Glob",
+            inputs: { kind: "glob", pattern: "**/*.ts", path: null },
+            ts: null,
+          },
+          {
+            kind: "tool_call",
+            id: "b1",
+            toolName: "exec_command",
+            inputs: { kind: "bash", command: "ls -la" },
+            ts: null,
+          },
+          {
+            kind: "tool_call",
+            id: "r1",
+            toolName: "Read",
+            inputs: { kind: "read", filePath: "/a/b/c/d.ts" },
+            ts: null,
+          },
+        ],
+      }),
+    );
+    expect(html).toContain('class="tool-summary">**/*.ts</span>');
+    expect(html).toContain('class="tool-summary">ls -la</span>');
+    expect(html).toContain('class="tool-summary">…/c/d.ts</span>');
+  });
+
+  it("relativizes absolute paths against the transcript's cwd", () => {
+    // relativizeTranscript runs inside transcriptToHtml: any path
+    // strictly inside cwd becomes `./...`. Saves the reader from staring
+    // at /home/srid/code/kolu/.worktrees/damn-booth/... over and over.
+    const html = transcriptToHtml(
+      makeTranscript({
+        cwd: "/home/srid/proj",
+        events: [
+          {
+            kind: "tool_call",
+            id: "r1",
+            toolName: "Read",
+            inputs: {
+              kind: "read",
+              filePath: "/home/srid/proj/src/foo.ts",
+            },
+            ts: null,
+          },
+        ],
+      }),
+    );
+    expect(html).toContain("./src/foo.ts");
+    expect(html).not.toContain("/home/srid/proj/src/foo.ts");
   });
 
   it("falls back to the session id when title is null and there are no events", () => {
@@ -272,11 +332,10 @@ describe("transcriptToHtml", () => {
             id: "e1",
             toolName: "Edit",
             inputs: {
-              file_path: "/tmp/file.ts",
-              old_string: "const x = 1;",
-              new_string: "const x = 2;",
+              kind: "edit",
+              filePath: "/tmp/file.ts",
+              edits: [{ oldText: "const x = 1;", newText: "const x = 2;" }],
             },
-            isEditTool: true,
             ts: null,
           },
         ],
@@ -364,11 +423,10 @@ describe("transcriptToHtml", () => {
     expect(html).toContain("subtask-disclosure");
   });
 
-  it("renders OpenCode's camelCase edit-tool inputs as a diff", () => {
-    // OpenCode's `edit` tool uses {filePath, oldString, newString}
-    // (camelCase), distinct from Claude Code's snake_case shape. The
-    // renderer probes by input shape with multi-key field lookup so
-    // both render as the same diff view.
+  it("renders OpenCode's edit-tool inputs as a diff", () => {
+    // OpenCode emits `edit` with camelCase fields; the loader normalizes
+    // it to {kind:"edit", filePath, edits: [...]} — same typed shape as
+    // Claude Code. Renderer dispatches on kind, no shape probing.
     const html = transcriptToHtml(
       makeTranscript({
         events: [
@@ -377,11 +435,10 @@ describe("transcriptToHtml", () => {
             id: "oce1",
             toolName: "edit",
             inputs: {
+              kind: "edit",
               filePath: "/tmp/file.ts",
-              oldString: "const x = 1;",
-              newString: "const x = 2;",
+              edits: [{ oldText: "const x = 1;", newText: "const x = 2;" }],
             },
-            isEditTool: true,
             ts: null,
           },
         ],
@@ -393,7 +450,7 @@ describe("transcriptToHtml", () => {
     expect(html).toContain("diff-add");
   });
 
-  it("renders OpenCode's camelCase write-tool inputs as a whole-file diff", () => {
+  it("renders write-tool inputs as a whole-file diff", () => {
     const html = transcriptToHtml(
       makeTranscript({
         events: [
@@ -402,10 +459,10 @@ describe("transcriptToHtml", () => {
             id: "ocw1",
             toolName: "write",
             inputs: {
+              kind: "write",
               filePath: "/tmp/new.ts",
               content: "line1\nline2\n",
             },
-            isEditTool: true,
             ts: null,
           },
         ],
@@ -442,9 +499,10 @@ describe("transcriptToHtml", () => {
             kind: "tool_call",
             id: "p1",
             toolName: "apply_patch",
-            inputs:
-              "*** Begin Patch\n*** Add File: a.txt\n+hello\n+world\n*** End Patch",
-            isEditTool: true,
+            inputs: {
+              kind: "patch",
+              text: "*** Begin Patch\n*** Add File: a.txt\n+hello\n+world\n*** End Patch",
+            },
             ts: null,
           },
         ],

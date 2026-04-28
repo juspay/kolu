@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { eventsFromMessageParts, stripDispatchPrompt } from "./transcript.ts";
+import {
+  eventsFromMessageParts,
+  normalizeOpenCodeToolInput,
+  stripDispatchPrompt,
+} from "./transcript.ts";
 
 describe("eventsFromMessageParts", () => {
   it("returns [] for empty parts", () => {
@@ -53,8 +57,7 @@ describe("eventsFromMessageParts", () => {
         kind: "tool_call",
         id: "call_1",
         toolName: "glob",
-        inputs: { pattern: "**/*.ts" },
-        isEditTool: false,
+        inputs: { kind: "glob", pattern: "**/*.ts", path: null },
         ts: 3000,
       },
       {
@@ -73,7 +76,7 @@ describe("eventsFromMessageParts", () => {
         type: "tool",
         callID: "call_2",
         tool: "edit",
-        state: { status: "running", input: { path: "/x" } },
+        state: { status: "running", input: { filePath: "/x" } },
       },
     ]);
     expect(events).toHaveLength(1);
@@ -242,6 +245,67 @@ describe("eventsFromMessageParts", () => {
         { type: "patch" },
       ]),
     ).toEqual([]);
+  });
+});
+
+describe("normalizeOpenCodeToolInput", () => {
+  it("decodes edit (camelCase) into kind:edit", () => {
+    expect(
+      normalizeOpenCodeToolInput("edit", {
+        filePath: "/x.ts",
+        oldString: "a",
+        newString: "b",
+      }),
+    ).toEqual({
+      kind: "edit",
+      filePath: "/x.ts",
+      edits: [{ oldText: "a", newText: "b" }],
+    });
+  });
+
+  it("decodes write (camelCase) into kind:write", () => {
+    expect(
+      normalizeOpenCodeToolInput("write", {
+        filePath: "/y.ts",
+        content: "hi",
+      }),
+    ).toEqual({ kind: "write", filePath: "/y.ts", content: "hi" });
+  });
+
+  it("decodes apply_patch from a string", () => {
+    expect(
+      normalizeOpenCodeToolInput("apply_patch", "*** Begin Patch"),
+    ).toEqual({ kind: "patch", text: "*** Begin Patch" });
+  });
+
+  it("decodes apply_patch from {patch}", () => {
+    expect(
+      normalizeOpenCodeToolInput("apply_patch", { patch: "diff" }),
+    ).toEqual({ kind: "patch", text: "diff" });
+  });
+
+  it("decodes bash, glob, grep", () => {
+    expect(normalizeOpenCodeToolInput("bash", { command: "ls" })).toEqual({
+      kind: "bash",
+      command: "ls",
+    });
+    expect(normalizeOpenCodeToolInput("glob", { pattern: "**/*.ts" })).toEqual({
+      kind: "glob",
+      pattern: "**/*.ts",
+      path: null,
+    });
+    expect(
+      normalizeOpenCodeToolInput("grep", { pattern: "TODO", path: "/x" }),
+    ).toEqual({ kind: "grep", pattern: "TODO", path: "/x" });
+  });
+
+  it("falls through to opaque for unknown tools", () => {
+    const raw = { foo: 1 };
+    expect(normalizeOpenCodeToolInput("vendor_thing", raw)).toEqual({
+      kind: "opaque",
+      toolName: "vendor_thing",
+      raw,
+    });
   });
 });
 

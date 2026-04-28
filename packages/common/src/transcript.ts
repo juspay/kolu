@@ -1,10 +1,9 @@
 /** RPC contract schemas for the "Export agent session as HTML" feature.
  *
  *  The unified transcript IR (`Transcript`, `TranscriptEvent`) lives in
- *  `anyagent/schemas` so per-agent loaders can produce it without
- *  importing back through this package (which would be a cycle —
- *  kolu-common already imports from each `kolu-<agent>/schemas`). The
- *  RPC input/output schemas stay here, where the contract itself does. */
+ *  `kolu-transcript-core` so per-agent loaders and renderers share one
+ *  source of truth. kolu-common re-exports it for consumer convenience
+ *  (the client and server both already import from kolu-common). */
 
 import { z } from "zod";
 
@@ -15,7 +14,7 @@ export {
   type TranscriptPr,
   TranscriptPrSchema,
   TranscriptSchema,
-} from "anyagent/schemas";
+} from "kolu-transcript-core";
 
 export const ExportTranscriptHtmlInputSchema = z.object({
   id: z.string().uuid(),

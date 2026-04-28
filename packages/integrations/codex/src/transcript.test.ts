@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseCodexRollout } from "./transcript.ts";
+import { normalizeCodexToolInput, parseCodexRollout } from "./transcript.ts";
 
 function lines(...objs: unknown[]): string {
   return `${objs.map((o) => JSON.stringify(o)).join("\n")}\n`;
@@ -71,14 +71,13 @@ describe("parseCodexRollout", () => {
         kind: "tool_call",
         id: "call_1",
         toolName: "exec_command",
-        inputs: { cmd: "ls" },
-        isEditTool: false,
+        inputs: { kind: "bash", command: "ls" },
         ts: null,
       },
     ]);
   });
 
-  it("falls back to the raw string when arguments aren't JSON", () => {
+  it("decodes apply_patch's raw string into kind:patch", () => {
     const content = lines({
       type: "response_item",
       payload: {
@@ -92,7 +91,7 @@ describe("parseCodexRollout", () => {
     expect(out[0]).toMatchObject({
       kind: "tool_call",
       toolName: "apply_patch",
-      inputs: "*** Begin Patch\n…",
+      inputs: { kind: "patch", text: "*** Begin Patch\n…" },
     });
   });
 
@@ -137,5 +136,54 @@ describe("parseCodexRollout", () => {
       payload: { type: "user_message", message: "Hi" },
     })}\n{\n`;
     expect(parseCodexRollout(content)).toHaveLength(1);
+  });
+});
+
+describe("normalizeCodexToolInput", () => {
+  it("decodes exec_command (cmd string) into kind:bash", () => {
+    expect(normalizeCodexToolInput("exec_command", { cmd: "ls" })).toEqual({
+      kind: "bash",
+      command: "ls",
+    });
+  });
+
+  it("decodes exec_command (command array) into kind:bash with joined argv", () => {
+    expect(
+      normalizeCodexToolInput("exec_command", { command: ["ls", "-la"] }),
+    ).toEqual({ kind: "bash", command: "ls -la" });
+  });
+
+  it("decodes apply_patch from a raw string", () => {
+    expect(normalizeCodexToolInput("apply_patch", "*** Begin Patch")).toEqual({
+      kind: "patch",
+      text: "*** Begin Patch",
+    });
+  });
+
+  it("decodes apply_patch from an object with patch field", () => {
+    expect(
+      normalizeCodexToolInput("apply_patch", { patch: "diff text" }),
+    ).toEqual({ kind: "patch", text: "diff text" });
+  });
+
+  it("decodes read_file into kind:read", () => {
+    expect(normalizeCodexToolInput("read_file", { path: "/x" })).toEqual({
+      kind: "read",
+      filePath: "/x",
+    });
+  });
+
+  it("decodes web_fetch into kind:fetch", () => {
+    expect(
+      normalizeCodexToolInput("web_fetch", { url: "https://x.example" }),
+    ).toEqual({ kind: "fetch", url: "https://x.example" });
+  });
+
+  it("falls through to opaque for unknown tools", () => {
+    expect(normalizeCodexToolInput("vendor_tool", { foo: 1 })).toEqual({
+      kind: "opaque",
+      toolName: "vendor_tool",
+      raw: { foo: 1 },
+    });
   });
 });
