@@ -1,7 +1,7 @@
 ---
 name: talk
 description: Enter talk mode — conversation and research, no repo changes
-argument-hint: "[--no-laconic] [--review-model=<opus|sonnet|haiku>] <topic or question>"
+argument-hint: "[--no-laconic] <topic or question>"
 ---
 
 # Probe (Talk Mode)
@@ -70,13 +70,11 @@ If you're about to emit "probably", "almost certainly", "I suspect", "my #1 susp
 
 ## Auto-Lowy
 
-Any time the conversation produces a concrete code plan, diff proposal, or design sketch that could be implemented, **invoke the `lowy` sub-agent on that proposal before presenting your final recommendation** — do not wait for the user to ask. Fold its findings into the recommendation (flag boundaries that track functionality instead of volatility, flag where a seam would cleanly encapsulate an axis of change) rather than dumping raw sub-agent output on top. Use `Agent(subagent_type="lowy")`, not the `Skill` tool — the sub-agent runs in an isolated context and keeps the main turn lean.
+Any time the conversation produces a concrete code plan, diff proposal, or design sketch that could be implemented, **invoke the `lowy` skill on that proposal before presenting your final recommendation** — do not wait for the user to ask. Fold its findings into the recommendation (flag boundaries that track functionality instead of volatility, flag where a seam would cleanly encapsulate an axis of change) rather than dumping raw subagent output on top. Use the `Skill` tool (`skill: "lowy"`); the skill declares `context: fork` so it runs in an isolated subagent and keeps the main turn lean.
 
 Hickey's complecting critique deliberately does **not** run here. It needs a concrete diff to bite — running it on a sketch tends to surface generic concerns rather than the specific interleavings that matter. `do` runs hickey post-implement on the real diff. Talk mode sticks with Lowy because volatility-based decomposition is the design-level lens that's useful while the design is still a sketch.
 
 Skip the Lowy pass only when the turn is pure Q&A with no proposed change (e.g. "how does X work?"). When in doubt, run it.
-
-**Model override.** If `ARGUMENTS` contains `--review-model=<model>` (accept `opus`, `sonnet`, or `haiku`; strip the flag before treating the rest as the topic), pass `model: "<model>"` in the `Agent(subagent_type="lowy")` call. This overrides the `model: sonnet` in `lowy`'s agent frontmatter via the `Agent` tool's built-in `model` parameter. Without the flag, omit `model` so the default (sonnet) applies. Reject unknown values with a one-line error instead of silently falling back — a typo shouldn't quietly erase a budget decision.
 
 ## Laconic mode (default)
 
