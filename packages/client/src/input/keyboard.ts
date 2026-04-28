@@ -142,9 +142,9 @@ export const SHORTCUTS = {
     keybind: { key: "b", code: "KeyB", mod: true },
     label: "Toggle inspector panel",
   },
-  canvasCenterActive: {
+  copyText: {
     keybind: { key: "C", code: "KeyC", mod: true, shift: true },
-    label: "Center on active tile",
+    label: "Copy text",
   },
   toggleRecordingPause: {
     keybind: { key: ".", code: "Period", mod: true, shift: true },

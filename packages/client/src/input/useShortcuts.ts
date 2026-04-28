@@ -25,7 +25,7 @@ interface ShortcutDeps {
   handleShuffleTheme: () => void;
   handleScreenshotTerminal: () => void;
   toggleRightPanel: () => void;
-  canvasCenterActive: () => void;
+  handleCopyTerminalText: () => void;
   toggleRecordingPause: () => void;
 }
 
@@ -181,8 +181,8 @@ function dispatch(
     return true;
   }
 
-  if (matchesKeybind(e, SHORTCUTS.canvasCenterActive.keybind)) {
-    deps.canvasCenterActive();
+  if (matchesKeybind(e, SHORTCUTS.copyText.keybind)) {
+    deps.handleCopyTerminalText();
     return true;
   }
 

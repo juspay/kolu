@@ -31,7 +31,7 @@ const DISPLAY_SHORTCUTS: DisplayEntry[] = [
   SHORTCUTS.nextSubTab,
   SHORTCUTS.prevSubTab,
   SHORTCUTS.toggleRightPanel,
-  SHORTCUTS.canvasCenterActive,
+  SHORTCUTS.copyText,
   SHORTCUTS.shortcutsHelp,
 ];
 

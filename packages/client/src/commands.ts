@@ -149,7 +149,8 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
             },
           },
           {
-            name: "Copy terminal text",
+            name: "Copy text",
+            keybind: SHORTCUTS.copyText.keybind,
             onSelect: () => deps.handleCopyTerminalText(),
           },
           {
@@ -172,7 +173,6 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
       ? [
           {
             name: "Center on active tile",
-            keybind: SHORTCUTS.canvasCenterActive.keybind,
             onSelect: () => deps.canvasCenterActive(),
           },
         ]
