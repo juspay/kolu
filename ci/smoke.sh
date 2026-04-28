@@ -7,6 +7,10 @@
 
 set -euo pipefail
 
+readonly LISTEN_TIMEOUT_SEC=10
+readonly POLL_INTERVAL_SEC=0.1
+readonly HEALTH_TIMEOUT_MS=5000
+
 KOLU=$(nix build .#default --no-link --print-out-paths)/bin/kolu
 
 tmp=$(mktemp -d)
@@ -28,12 +32,13 @@ trap cleanup EXIT
 env -i HOME="$tmp" "$KOLU" --host 127.0.0.1 --port 0 >"$log" 2>&1 &
 pid=$!
 
-# Wait up to 10s for the "kolu listening" event in the log, then extract the
-# address from that line. The message text is the semantic anchor — it's what
-# the server logs from the listen callback (packages/server/src/index.ts:204)
-# and is stable across pino transports (pino-pretty and JSON both preserve it).
+# Wait for the "kolu listening" event in the log, then extract the address
+# from that line. The message text is the semantic anchor — it's what the
+# server logs from the listen callback (packages/server/src/index.ts:204) and
+# is stable across pino transports (pino-pretty and JSON both preserve it).
 addr=""
-for _ in $(seq 1 100); do
+ticks=$(awk "BEGIN { print int($LISTEN_TIMEOUT_SEC / $POLL_INTERVAL_SEC) }")
+for _ in $(seq 1 "$ticks"); do
     if grep -q "kolu listening" "$log" 2>/dev/null; then
         addr=$(grep -oE '"address":"http[^"]*"' "$log" | head -1 | sed -E 's/^"address":"(.*)"$/\1/')
         break
@@ -43,11 +48,11 @@ for _ in $(seq 1 100); do
         cat "$log" >&2
         exit 1
     fi
-    sleep 0.1
+    sleep "$POLL_INTERVAL_SEC"
 done
 
 if [[ -z "$addr" ]]; then
-    echo "kolu did not log a listen address within 10s" >&2
+    echo "kolu did not log a listen address within ${LISTEN_TIMEOUT_SEC}s" >&2
     cat "$log" >&2
     exit 1
 fi
@@ -57,11 +62,11 @@ echo "kolu listening at $addr (pid=$pid)"
 # HTTP 200 — the response body is an implementation detail of index.ts:143
 # that the smoke shouldn't couple to.
 node -e '
-  const url = process.argv[1] + "/api/health";
-  fetch(url, { signal: AbortSignal.timeout(5000) })
+  const [url, timeoutMs] = [process.argv[1] + "/api/health", Number(process.argv[2])];
+  fetch(url, { signal: AbortSignal.timeout(timeoutMs) })
     .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); })
     .catch(e => { console.error(e.message || e); process.exit(1); });
-' "$addr"
+' "$addr" "$HEALTH_TIMEOUT_MS"
 echo "/api/health returned 200"
 
 # Graceful shutdown: SIGTERM, expect exit 0.
