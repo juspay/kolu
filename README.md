@@ -271,6 +271,10 @@ just dev        # run server + client with hot reload
 just test       # e2e tests (full nix build)
 ```
 
+## Contributing
+
+Bug fixes, build/CI fixes, doc tweaks, and behavior-preserving refactors are welcome as direct PRs. **New user-facing features need a merged proposal under [`docs/proposals/`](docs/proposals/) first** — see [`CONTRIBUTING.md`](CONTRIBUTING.md) for the full split and the proposal template.
+
 ## CI
 
 `just ci` builds all flake outputs on x86_64-linux and aarch64-darwin in parallel, runs e2e tests, and posts GitHub commit statuses. See [`ci/`](ci/) for details and reuse instructions.
