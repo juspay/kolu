@@ -59,6 +59,7 @@ try {
   const body = await response.text();
   process.exit(response.ok && body === "kolu" ? 0 : 1);
 } catch {
+  // The server may not be accepting connections yet; the outer loop retries.
   process.exit(1);
 }
 NODE
