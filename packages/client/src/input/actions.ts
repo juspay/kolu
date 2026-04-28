@@ -1,7 +1,8 @@
 /**
  * Unified action registry — single source of truth for keyboard shortcuts,
- * the help overlay, and shared palette command metadata. Each entry binds an
- * id to its label, keybind, handler, and surface flags.
+ * the help overlay, and shared palette command metadata. The registry key is
+ * the action's id; each entry carries label, keybind, optional altKeybind,
+ * and optional handler.
  *
  * Adding or rebinding a global action touches this one file. The dispatcher
  * in `useShortcuts.ts` loops over `ACTIONS`; `ShortcutsHelp.tsx` walks
@@ -40,7 +41,6 @@ export interface ActionContext {
 }
 
 export interface AppAction {
-  id: string;
   label: string;
   keybind: Keybind;
   /** Optional alternate keybind that triggers the same handler (e.g. Cmd+Enter for "New terminal"). */
@@ -73,7 +73,6 @@ const switchToActions = Object.fromEntries(
   SWITCH_KEYS.map((i) => [
     `switchTo${i}`,
     {
-      id: `switchTo${i}`,
       label: `Switch to terminal ${i}`,
       keybind: { key: String(i), mod: true },
       handler: (ctx) => {
@@ -92,72 +91,60 @@ const switchToActions = Object.fromEntries(
 const _ACTIONS = {
   ...switchToActions,
   createTerminal: {
-    id: "createTerminal",
     label: "New terminal",
     keybind: { key: "t", mod: true },
     altKeybind: { key: "Enter", mod: true },
     handler: (ctx) => ctx.handleCreate(ctx.activeMeta()?.cwd ?? undefined),
   },
   newTerminalMenu: {
-    id: "newTerminalMenu",
     label: "New terminal menu",
     keybind: { key: "Enter", mod: true, shift: true },
     handler: (ctx) => ctx.openNewTerminalMenu(),
   },
   nextTerminal: {
-    id: "nextTerminal",
     label: "Next terminal",
     keybind: { key: "]", code: "BracketRight", mod: true, shift: true },
     handler: (ctx) => cycleTerminalByPosition(ctx, 1),
   },
   prevTerminal: {
-    id: "prevTerminal",
     label: "Previous terminal",
     keybind: { key: "[", code: "BracketLeft", mod: true, shift: true },
     handler: (ctx) => cycleTerminalByPosition(ctx, -1),
   },
   cycleTerminalMru: {
-    id: "cycleTerminalMru",
     label: "Cycle terminals by most recent use",
     keybind: { key: "Tab", code: "Tab", ctrl: true },
     // Dispatched by the stateful Alt+Tab/Ctrl+Tab cycle in useShortcuts.
   },
   commandPalette: {
-    id: "commandPalette",
     label: "Command palette",
     keybind: { key: "k", mod: true },
     handler: (ctx) => ctx.setPaletteOpen((v) => !v),
   },
   shortcutsHelp: {
-    id: "shortcutsHelp",
     label: "Shortcuts help",
     keybind: { key: "/", mod: true },
     handler: (ctx) => ctx.setShortcutsHelpOpen((v) => !v),
   },
   findInTerminal: {
-    id: "findInTerminal",
     label: "Find in terminal",
     keybind: { key: "f", mod: true },
     handler: (ctx) => ctx.setSearchOpen((v) => !v),
   },
   zoomIn: {
-    id: "zoomIn",
     label: "Zoom in",
     keybind: { key: "+", mod: true },
     // Dispatched by per-terminal createZoom listener.
   },
   zoomOut: {
-    id: "zoomOut",
     label: "Zoom out",
     keybind: { key: "-", mod: true },
   },
   zoomReset: {
-    id: "zoomReset",
     label: "Reset zoom",
     keybind: { key: "0", mod: true },
   },
   toggleSubPanel: {
-    id: "toggleSubPanel",
     label: "Toggle terminal split",
     keybind: { key: "`", code: "Backquote", ctrl: true },
     handler: (ctx) => {
@@ -166,7 +153,6 @@ const _ACTIONS = {
     },
   },
   createSubTerminal: {
-    id: "createSubTerminal",
     label: "Split terminal",
     keybind: { key: "`", code: "Backquote", ctrl: true, shift: true },
     handler: (ctx) => {
@@ -176,7 +162,6 @@ const _ACTIONS = {
     },
   },
   nextSubTab: {
-    id: "nextSubTab",
     label: "Next split tab",
     keybind: { key: "PageDown", code: "PageDown", ctrl: true },
     handler: (ctx) => {
@@ -185,7 +170,6 @@ const _ACTIONS = {
     },
   },
   prevSubTab: {
-    id: "prevSubTab",
     label: "Previous split tab",
     keybind: { key: "PageUp", code: "PageUp", ctrl: true },
     handler: (ctx) => {
@@ -194,31 +178,26 @@ const _ACTIONS = {
     },
   },
   shuffleTheme: {
-    id: "shuffleTheme",
     label: "Shuffle theme",
     keybind: { key: "j", mod: true },
     handler: (ctx) => ctx.handleShuffleTheme(),
   },
   screenshotTerminal: {
-    id: "screenshotTerminal",
     label: "Screenshot terminal",
     keybind: { key: "S", code: "KeyS", mod: true, shift: true },
     handler: (ctx) => ctx.handleScreenshotTerminal(),
   },
   toggleRightPanel: {
-    id: "toggleRightPanel",
     label: "Toggle inspector panel",
     keybind: { key: "b", code: "KeyB", mod: true },
     handler: (ctx) => ctx.toggleRightPanel(),
   },
   canvasCenterActive: {
-    id: "canvasCenterActive",
     label: "Center on active tile",
     keybind: { key: "C", code: "KeyC", mod: true, shift: true },
     handler: (ctx) => ctx.canvasCenterActive(),
   },
   toggleRecordingPause: {
-    id: "toggleRecordingPause",
     label: "Pause / resume recording",
     keybind: { key: ".", code: "Period", mod: true, shift: true },
     handler: (ctx) => ctx.toggleRecordingPause(),
