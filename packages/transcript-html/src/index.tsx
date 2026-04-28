@@ -30,8 +30,8 @@ import { renderToString } from "preact-render-to-string";
 import {
   computeDepths,
   countEvents,
-  deriveDisplayTitle,
   Document,
+  deriveDisplayTitle,
   isEditClass,
   type RenderedEvent,
 } from "./components.tsx";

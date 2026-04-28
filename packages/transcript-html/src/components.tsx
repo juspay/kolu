@@ -144,18 +144,24 @@ function depthStyle(depth: number): JSX.CSSProperties | undefined {
  *  Preact's SSR requires `dangerouslySetInnerHTML` to land on a real
  *  element rather than a fragment. */
 const Html = (props: { html: string }) => (
-  // biome-ignore lint/security/noDangerouslySetInnerHtml: pre-rendered by marked / Pierre, both escape input themselves.
   <div dangerouslySetInnerHTML={{ __html: props.html }} />
 );
 
-const Icon = (props: { svg: string; class?: string; label?: string }) => (
-  <span
-    class={props.class}
-    aria-label={props.label}
-    // biome-ignore lint/security/noDangerouslySetInnerHtml: SVGs are constants in this file.
-    dangerouslySetInnerHTML={{ __html: props.svg }}
-  />
-);
+const Icon = (props: { svg: string; class?: string; label?: string }) =>
+  props.label !== undefined ? (
+    <span
+      class={props.class}
+      role="img"
+      aria-label={props.label}
+      dangerouslySetInnerHTML={{ __html: props.svg }}
+    />
+  ) : (
+    <span
+      class={props.class}
+      aria-hidden="true"
+      dangerouslySetInnerHTML={{ __html: props.svg }}
+    />
+  );
 
 /** A pre-resolved event ready to be turned into JSX. Async pieces
  *  (markdown via marked, code surfaces via Pierre) are computed by
@@ -333,10 +339,9 @@ const SubtaskStart = (props: {
   event: Extract<TranscriptEvent, { kind: "subtask_start" }>;
   depth: number;
 }) => (
-  <div
+  <button
+    type="button"
     class="subtask-boundary subtask-boundary--start"
-    role="button"
-    tabindex={0}
     aria-expanded="true"
     data-collapsed="false"
     title="Click to collapse this subtask"
@@ -359,7 +364,7 @@ const SubtaskStart = (props: {
       )}
     </span>
     <span class="subtask-rule" />
-  </div>
+  </button>
 );
 
 const SubtaskEnd = (props: { depth: number }) => (

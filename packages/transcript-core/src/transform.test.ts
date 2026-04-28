@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
+import type { Transcript } from "./schemas.ts";
 import {
   makeRelativizer,
   relativizeTranscript,
   transformStrings,
 } from "./transform.ts";
-import type { Transcript } from "./schemas.ts";
 
 function transcriptWith(overrides: Partial<Transcript>): Transcript {
   return {

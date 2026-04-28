@@ -1,4 +1,4 @@
-(function () {
+(() => {
   // --- Prompt navigation ---
   const prompts = Array.from(
     document.querySelectorAll('section.event--user[data-role="user"]'),
@@ -10,7 +10,9 @@
   let cur = -1;
 
   function highlight(idx) {
-    prompts.forEach((p, i) => p.classList.toggle("is-current", i === idx));
+    prompts.forEach((p, i) => {
+      p.classList.toggle("is-current", i === idx);
+    });
     if (posEl)
       posEl.textContent = idx >= 0 ? String(idx + 1).padStart(2, "0") : "–";
   }
@@ -150,7 +152,7 @@
       const label = btn.querySelector("[data-toggle-label]");
       if (label)
         label.textContent = collapsed
-          ? "Show all " + lineCount + " lines"
+          ? `Show all ${lineCount} lines`
           : "Collapse";
     });
   });

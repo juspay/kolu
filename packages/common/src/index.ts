@@ -449,6 +449,11 @@ export type Preferences = z.infer<typeof PreferencesSchema>;
 export type PreferencesPatch = z.infer<typeof PreferencesPatchSchema>;
 export type ActivityFeed = z.infer<typeof ActivityFeedSchema>;
 
+// --- HTML helpers ---
+export { escapeHtml } from "./html";
+
+// --- Path helpers ---
+export { cwdBasename, shortenCwd } from "./path";
 // --- Terminal identity keys ---
 // Canonical `(group, label)` projection + collision-suffix computation.
 // Extracted into its own module so the schema grab-bag here stays scoped
@@ -460,18 +465,12 @@ export {
   terminalKey,
 } from "./terminalKey";
 
-// --- Path helpers ---
-export { cwdBasename, shortenCwd } from "./path";
-
-// --- HTML helpers ---
-export { escapeHtml } from "./html";
-
 // --- Transcript export ---
 export {
-  ExportTranscriptHtmlInputSchema,
-  ExportTranscriptHtmlOutputSchema,
   type ExportTranscriptHtmlInput,
+  ExportTranscriptHtmlInputSchema,
   type ExportTranscriptHtmlOutput,
+  ExportTranscriptHtmlOutputSchema,
   type Transcript,
   type TranscriptEvent,
   TranscriptEventSchema,

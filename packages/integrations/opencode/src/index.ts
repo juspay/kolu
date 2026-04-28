@@ -15,16 +15,9 @@
  * agent-provider cycle (#710).
  */
 
-export { OPENCODE_DB_PATH, OPENCODE_DB_WAL_PATH } from "./config.ts";
-
 export type { Logger } from "anyagent";
-
-export {
-  type OpenCodeInfo,
-  OpenCodeInfoSchema,
-  type TaskProgress,
-  TaskProgressSchema,
-} from "./schemas.ts";
+export { opencodeProvider } from "./agent-provider.ts";
+export { OPENCODE_DB_PATH, OPENCODE_DB_WAL_PATH } from "./config.ts";
 
 export {
   type DerivedState,
@@ -34,22 +27,23 @@ export {
   getSessionTaskProgress,
   getSessionTitle,
   hasRunningTools,
-  openDb,
   type OpenCodeSession,
+  openDb,
   type ParsedMessageState,
   parseMessageState,
 } from "./core.ts";
-
+export {
+  type OpenCodeInfo,
+  OpenCodeInfoSchema,
+  type TaskProgress,
+  TaskProgressSchema,
+} from "./schemas.ts";
 export {
   createOpenCodeWatcher,
   type OpenCodeWatcher,
 } from "./session-watcher.ts";
-
-export { subscribeOpenCodeDb } from "./wal-watcher.ts";
-
-export { opencodeProvider } from "./agent-provider.ts";
-
 export {
   eventsFromMessageParts,
   loadOpenCodeTranscript,
 } from "./transcript.ts";
+export { subscribeOpenCodeDb } from "./wal-watcher.ts";

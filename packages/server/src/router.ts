@@ -8,10 +8,9 @@ import { implement, ORPCError } from "@orpc/server";
 
 import { loadClaudeCodeTranscript } from "kolu-claude-code";
 import { loadCodexTranscript } from "kolu-codex";
+import type { Transcript, TranscriptPr } from "kolu-common";
 import { contract } from "kolu-common/contract";
 import { TerminalNotFoundError } from "kolu-common/errors";
-import type { Transcript, TranscriptPr } from "kolu-common";
-import { prValue } from "kolu-github/schemas";
 import {
   type GitResult,
   getDiff,
@@ -21,9 +20,10 @@ import {
   worktreeCreate,
   worktreeRemove,
 } from "kolu-git";
+import { prValue } from "kolu-github/schemas";
 import { loadOpenCodeTranscript } from "kolu-opencode";
-import { match } from "ts-pattern";
 import { transcriptToHtml } from "kolu-transcript-html";
+import { match } from "ts-pattern";
 import { getActivityFeed, setActivityForTest } from "./activity.ts";
 import { saveClipboardImage } from "./clipboard.ts";
 import { serverHostname, serverProcessId } from "./hostname.ts";

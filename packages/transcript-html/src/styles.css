@@ -777,8 +777,19 @@ diffs-container[data-pierre] + diffs-container[data-pierre] {
   color: var(--ink-3);
 }
 .subtask-boundary--start {
+  /* Reset the default button chrome — the boundary is rendered as
+   * a `<button>` for a11y (keyboard focusable, clickable, screen
+   * reader–friendly) but visually it's a divider with a label. */
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  border: 0;
+  font: inherit;
+  color: inherit;
+  text-align: inherit;
   cursor: pointer;
   user-select: none;
+  width: 100%;
   transition: color 0.12s ease;
 }
 .subtask-boundary--start:hover .subtask-label,

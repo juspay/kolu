@@ -28,11 +28,11 @@
 
 import type { DatabaseSync } from "node:sqlite";
 import { type Logger, withDb as sharedWithDb } from "anyagent";
-import {
-  type Fetcher,
-  type ToolInput,
-  type Transcript,
-  type TranscriptEvent,
+import type {
+  Fetcher,
+  ToolInput,
+  Transcript,
+  TranscriptEvent,
 } from "kolu-transcript-core";
 import { openDb } from "./core.ts";
 

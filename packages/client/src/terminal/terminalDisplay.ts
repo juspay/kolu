@@ -5,10 +5,10 @@
 
 import {
   computeTerminalKeys,
-  terminalKey,
   type TerminalId,
   type TerminalKey,
   type TerminalMetadata,
+  terminalKey,
 } from "kolu-common";
 
 export type TerminalDisplayInfo = {

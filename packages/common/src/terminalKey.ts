@@ -8,8 +8,8 @@
  *  in sync is to make them the same projection.
  */
 
-import { cwdBasename, shortenCwd } from "./path";
 import type { GitInfo, TerminalId } from "./index";
+import { cwdBasename, shortenCwd } from "./path";
 
 /** `(group, label)` plus an optional `suffix` for ids that collide on
  *  `(group, label)` within the live set.

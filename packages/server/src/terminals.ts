@@ -32,8 +32,8 @@ import {
   getTerminal,
   listTerminals,
   registerTerminal,
-  terminalEntries,
   type TerminalProcess,
+  terminalEntries,
   unregisterTerminal,
 } from "./terminal-registry.ts";
 
@@ -43,8 +43,8 @@ export {
   countActiveClaudeSessions,
   getTerminal,
   listTerminals,
-  terminalCount,
   type TerminalProcess,
+  terminalCount,
 } from "./terminal-registry.ts";
 
 /** Build a session snapshot from current terminal state.

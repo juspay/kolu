@@ -25,8 +25,8 @@ import fs from "node:fs";
 import { type AgentProvider, matchesAgent } from "anyagent";
 import {
   readSessionFile,
-  type SessionFile,
   SESSIONS_DIR,
+  type SessionFile,
   subscribeSessionsDir,
 } from "./core.ts";
 import type { ClaudeCodeInfo } from "./schemas.ts";
