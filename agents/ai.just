@@ -30,7 +30,7 @@ apm: apm-install apm-compile
 # Advance locked APM dependencies to latest refs (all, or specific packages)
 apm-update *packages:
     {{ apm_cmd }} deps update {{ packages }}
-    {{ just_executable() }} apm
+    {{ just_executable() }} ai apm
 
 # Audit APM packages for security issues (Unicode, lockfile consistency)
 apm-audit:
