@@ -22,6 +22,16 @@ What does the user see, type, click, or otherwise interact with? Include keybind
 
 If this changes an existing feature, describe both the **current** and **proposed** behavior side by side.
 
+## Prototype (optional)
+
+Mockups, HTML prototypes, flow diagrams, screen recordings — anything that's easier to show than describe. Commit assets to `docs/proposals/<your-slug>/` and link them here:
+
+- ![mockup](./<your-slug>/mockup.png)
+- [HTML prototype](./<your-slug>/prototype.html) — clone and open in a browser
+- [Hosted preview](https://codesandbox.io/...) (optional)
+
+Skip this section if a prose description of "User-facing behavior" is enough.
+
 ## Implementation notes (optional)
 
 Skip this section if you don't have an opinion on the *how* — that's the implementer's job. Fill it in only if you have hints worth recording: a tricky data migration, a non-obvious file or module that needs to change, a known interaction with an existing feature.

@@ -54,3 +54,20 @@ created: 2026-04-27
 ## Numbering
 
 Sequential, four-digit, starting at `0001`. `0000-template.md` is the template and is not a real proposal — pick the next free number when you draft.
+
+## Prototypes and assets
+
+If your proposal benefits from visuals — UI mockups, HTML prototypes, flow diagrams, screen recordings — put them in a sibling directory matching your proposal slug, then link them from the proposal markdown via relative paths:
+
+```
+docs/proposals/0042-some-feature.md
+docs/proposals/0042-some-feature/
+├── mockup-light.png
+├── mockup-dark.png
+├── prototype.html
+└── flow.svg
+```
+
+PNG and SVG render inline on GitHub. HTML/JS prototypes don't render live from the repo — for those, either ask reviewers to clone and open the file, or paste a hosted-preview link (CodeSandbox, StackBlitz, a gist) into the proposal alongside the committed source.
+
+A working prototype is often the fastest way to resolve a UI debate. Ship one if you have it.

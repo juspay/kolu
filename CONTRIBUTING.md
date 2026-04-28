@@ -41,6 +41,8 @@ A proposal is about **what** and **why**, not **how**. Implementation details ar
 
 **A well-thought-out proposal is itself a substantial contribution.** Taking a fuzzy idea and turning it into something concrete enough that people can agree (or disagree) with — *clarifying the ambiguity is half the work*. Once that work is done, the implementation often falls out almost mechanically. A merged proposal under your authorship is a meaningful contribution to kolu in its own right; you don't have to write the code to have contributed something real. Some of the most valuable things you can send us are proposals you have no intention of implementing yourself.
 
+**Attach prototypes if they help.** A static HTML mockup, an SVG or PNG of the intended UI, a short screen recording — anything visual that's easier to *show* than to describe. Drop the assets in a sibling directory `docs/proposals/<your-slug>/` and link them from your proposal markdown. A working HTML mockup is often the fastest way to settle a UI debate; if you've already prototyped it, ship the prototype as part of the proposal.
+
 **Feature PRs that skip the proposal step will be closed with a pointer back here.** This isn't personal. It's the only way to keep the project's surface area honest. If you're unsure whether your change needs a proposal, write a draft proposal — it's a few minutes of work and saves everyone the back-and-forth on a feature PR that ends up rejected.
 
 ## Using AI to draft a proposal
