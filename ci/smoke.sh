@@ -28,13 +28,14 @@ trap cleanup EXIT
 env -i HOME="$tmp" "$KOLU" --host 127.0.0.1 --port 0 >"$log" 2>&1 &
 pid=$!
 
-# Wait up to 10s for the listening line. The log is pino-pretty (the production
-# default — kolu doesn't set NODE_ENV=production), so match the address field
-# directly rather than the JSON `msg` key. Bail early if the process dies.
-found=0
+# Wait up to 10s for the address to appear in the log, extracting it as we go.
+# The log is pino-pretty (the production default — kolu doesn't set
+# NODE_ENV=production), so match the address field directly rather than the
+# JSON `msg` key. Bail early if the process dies.
+addr=""
 for _ in $(seq 1 100); do
     if grep -q '"address":"http' "$log" 2>/dev/null; then
-        found=1
+        addr=$(grep -oE '"address":"http[^"]*"' "$log" | head -1 | sed -E 's/^"address":"(.*)"$/\1/')
         break
     fi
     if ! kill -0 "$pid" 2>/dev/null; then
@@ -45,13 +46,11 @@ for _ in $(seq 1 100); do
     sleep 0.1
 done
 
-if [[ $found -eq 0 ]]; then
+if [[ -z "$addr" ]]; then
     echo "kolu did not log a listen address within 10s" >&2
     cat "$log" >&2
     exit 1
 fi
-
-addr=$(grep -oE '"address":"http[^"]*"' "$log" | head -1 | sed -E 's/^"address":"(.*)"$/\1/')
 echo "kolu listening at $addr (pid=$pid)"
 
 # Health check via Node's built-in fetch (no curl in dev shell).
