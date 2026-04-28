@@ -5,7 +5,7 @@
  * `session:changed` channel so the client's `session.get` live query stays
  * current. The autosave loop is driven by the `terminals:dirty` control-flow
  * channel (distinct from the `session:changed` *content* channel) — every
- * terminal/meta mutation fires `terminals:dirty`, this module debounces and
+ * terminal/meta mutation fires `terminals:dirty`, this module throttles and
  * then persists.
  */
 
@@ -57,7 +57,19 @@ export function setSavedSession(session: SavedSession | null): void {
 
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
 
-/** Wire up debounced session save from terminal change events. Called once at startup. */
+/** Wire up throttled session save from terminal change events. Called once at startup.
+ *
+ *  Leading-edge throttle: the first dirty event in a quiet period schedules
+ *  a save 500ms later; subsequent events during that window are absorbed
+ *  into the same upcoming snapshot (because `snapshot()` runs inside the
+ *  callback, not at schedule time). A trailing-edge debounce — the obvious
+ *  alternative — starves under bursty inputs: the Claude transcript
+ *  watcher fires every 150ms while an agent is streaming, which would
+ *  reset the timer indefinitely and the save would never fire.
+ *
+ *  Assumes `saveSession` is synchronous (it is — `writeSession` does sync
+ *  `store.set` + sync publish). If anyone makes it async, add an in-flight
+ *  guard so a new schedule can't race an unfinished write. */
 export function initSessionAutoSave(
   snapshot: () => {
     terminals: SavedTerminal[];
@@ -67,8 +79,11 @@ export function initSessionAutoSave(
   void (async () => {
     try {
       for await (const _ of publisher.subscribe("terminals:dirty")) {
-        if (saveTimer) clearTimeout(saveTimer);
-        saveTimer = setTimeout(() => saveSession(snapshot()), 500);
+        if (saveTimer) continue;
+        saveTimer = setTimeout(() => {
+          saveTimer = undefined;
+          saveSession(snapshot());
+        }, 500);
       }
     } catch (err) {
       log.error({ err }, "session auto-save subscription failed");
