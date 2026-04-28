@@ -34,10 +34,10 @@ _linux:
 # Runs post-nix steps in parallel. Within the same just process, their
 # `: nix` deps are already satisfied, so nix is not rebuilt.
 [parallel]
-_linux-fanout: home-manager e2e
+_linux-fanout: home-manager e2e smoke
 
 [parallel]
-_darwin-fanout: e2e
+_darwin-fanout: e2e smoke
 
 _darwin:
     CI_SYSTEM=aarch64-darwin just ci::nix ci::_darwin-fanout || true
@@ -71,6 +71,12 @@ typecheck:
 
 e2e: nix
     just ci::_run e2e just test
+
+# Boot the packaged Kolu and verify /api/health — runtime smoke that catches
+# packaging regressions where `nix build` passes but the binary crashes at
+# boot (e.g. missing workspace dep — see #761).
+smoke: nix
+    just ci::_run smoke just smoke
 
 # Run vitest unit tests (server + client)
 unit:

@@ -277,7 +277,7 @@ Bug fixes, build/CI fixes, doc tweaks, and behavior-preserving refactors are wel
 
 ## CI
 
-`just ci` builds all flake outputs on x86_64-linux and aarch64-darwin in parallel, runs e2e tests, and posts GitHub commit statuses. See [`ci/`](ci/) for details and reuse instructions.
+`just ci` builds all flake outputs on x86_64-linux and aarch64-darwin in parallel, runs e2e tests, boots the packaged binary against `/api/health` as a runtime smoke, and posts GitHub commit statuses. See [`ci/`](ci/) for details and reuse instructions.
 
 ```sh
 just ci              # full CI run
