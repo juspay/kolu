@@ -96,22 +96,22 @@ async function* repoEventStream(
 ): AsyncIterable<void> {
   let dirty = false;
   let resolve: (() => void) | null = null;
-  const unsub = install(() => {
-    dirty = true;
-    if (resolve) {
-      const r = resolve;
-      resolve = null;
-      r();
-    }
-  });
-  const wake = () => {
+  // Drain the pending wake promise so the loop's `await` returns. Both
+  // the upstream event callback and the abort signal need this exact
+  // sequence; factoring it out keeps a future log/error addition from
+  // landing in only one path.
+  const drainResolve = (): void => {
     if (resolve) {
       const r = resolve;
       resolve = null;
       r();
     }
   };
-  signal?.addEventListener("abort", wake);
+  const unsub = install(() => {
+    dirty = true;
+    drainResolve();
+  });
+  signal?.addEventListener("abort", drainResolve);
   try {
     while (signal?.aborted !== true) {
       if (dirty) {
@@ -124,7 +124,7 @@ async function* repoEventStream(
       });
     }
   } finally {
-    signal?.removeEventListener("abort", wake);
+    signal?.removeEventListener("abort", drainResolve);
     unsub();
   }
 }
