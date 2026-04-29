@@ -15,6 +15,18 @@ import type { GitInfo } from "./schemas.ts";
 
 const DEBOUNCE_MS = 150;
 
+/** Global registry of shared HEAD watchers keyed by absolute gitDir.
+ *  Mirrors the refcounted singleton pattern from createWalSubscription to
+ *  collapse N watchers on the same git dir to one fs.watch handle.
+ *  The cost per git operation scales with file watcher count, not terminal count. */
+interface HeadWatcherEntry {
+  watcher: fs.FSWatcher;
+  listeners: Set<() => void>;
+  timer: ReturnType<typeof setTimeout> | undefined;
+}
+
+const sharedHeadWatchers = new Map<string, HeadWatcherEntry>();
+
 /** Fast check: does a .git entry exist in this directory? (stat, not a git subprocess) */
 export function hasGitDir(cwd: string): boolean {
   try {
@@ -117,6 +129,10 @@ export async function resolveGitInfo(
 /**
  * Watch .git/HEAD for changes (branch switches, checkout, etc.).
  * Returns a cleanup function. Returns a no-op for non-git directories.
+ *
+ * Internally shares one `fs.watch` per git directory across all callers,
+ * collapsing N terminal subscriptions to the same repo into one handle.
+ * The debounce timer is also shared: all listeners fire after the same delay.
  */
 export function watchGitHead(
   cwd: string,
@@ -136,25 +152,57 @@ export function watchGitHead(
     return () => {};
   }
 
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  let watcher: fs.FSWatcher | undefined;
-  try {
-    watcher = fs.watch(gitDir, (_, filename) => {
-      if (filename !== "HEAD") return;
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(onChange, DEBOUNCE_MS);
-    });
-  } catch (e) {
-    log?.debug(
-      { err: e instanceof Error ? e.message : String(e), gitDir },
-      "git: failed to watch git dir",
-    );
-    return () => {};
+  // Join an existing watcher or install a new one for this gitDir.
+  let entry = sharedHeadWatchers.get(gitDir);
+  if (!entry) {
+    const listeners = new Set<() => void>();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    let watcher: fs.FSWatcher | undefined;
+    try {
+      watcher = fs.watch(gitDir, (_, filename) => {
+        if (filename !== "HEAD") return;
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(() => {
+          // Snapshot before iteration so a listener that subscribes or
+          // unsubscribes synchronously can't skip a peer for this event.
+          for (const cb of [...listeners]) {
+            try {
+              cb();
+            } catch (err) {
+              // Fault isolation: one failing listener doesn't break others.
+              log?.error(
+                { err, gitDir },
+                "git: listener threw in watchGitHead",
+              );
+            }
+          }
+        }, DEBOUNCE_MS);
+      });
+    } catch (e) {
+      log?.debug(
+        { err: e instanceof Error ? e.message : String(e), gitDir },
+        "git: failed to watch git dir",
+      );
+      return () => {};
+    }
+
+    entry = { watcher, listeners, timer };
+    sharedHeadWatchers.set(gitDir, entry);
   }
 
+  entry.listeners.add(onChange);
+
   return () => {
-    if (timer) clearTimeout(timer);
-    watcher?.close();
+    if (!entry) return;
+    entry.listeners.delete(onChange);
+    if (entry.listeners.size === 0) {
+      // Capture timer from closure before clearing entry reference
+      const activeTimer = entry.timer;
+      if (activeTimer) clearTimeout(activeTimer);
+      entry.watcher.close();
+      sharedHeadWatchers.delete(gitDir);
+    }
   };
 }
 
