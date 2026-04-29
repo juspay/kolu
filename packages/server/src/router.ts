@@ -113,7 +113,16 @@ async function* streamSnapshots<T>(
     let next: T;
     try {
       next = await read();
-    } catch {
+    } catch (e) {
+      // Transient git errors shouldn't tear down the long-lived
+      // subscription — the upstream debounce will tick again and the
+      // next read may succeed. Log loud enough that a *persistent*
+      // failure is visible to operators (a stuck stream silently
+      // returning stale state is the worse failure mode).
+      log.error(
+        { err: e instanceof Error ? e.message : String(e) },
+        "stream snapshot read failed",
+      );
       continue;
     }
     if (isEqual(last, next)) continue;
