@@ -34,11 +34,16 @@ interface WatchTarget {
   filenames: Set<string>;
 }
 
+interface WatcherIdentity {
+  gitDir: string;
+  commonGitDir: string;
+}
+
 /** Module-scope registry: one entry per resolved gitDir/commonGitDir pair. */
 const sharedGitMetadataWatchers = new Map<string, SharedGitMetadataWatcher>();
 
 function installSharedGitMetadataWatcher(
-  key: string,
+  identity: WatcherIdentity,
   targets: WatchTarget[],
   onLast: () => void,
   log?: Logger,
@@ -58,7 +63,7 @@ function installSharedGitMetadataWatcher(
           cb();
         } catch (e) {
           log?.error(
-            { err: e instanceof Error ? e.message : String(e), key },
+            { err: e instanceof Error ? e.message : String(e), ...identity },
             "git: metadata listener threw",
           );
         }
@@ -79,12 +84,12 @@ function installSharedGitMetadataWatcher(
   } catch (e) {
     for (const watcher of watchers) watcher.close();
     log?.error(
-      { err: e instanceof Error ? e.message : String(e), key },
+      { err: e instanceof Error ? e.message : String(e), ...identity },
       "git: failed to watch metadata",
     );
     return null;
   }
-  log?.info({ key }, "git: metadata watcher installed");
+  log?.info(identity, "git: metadata watcher installed");
 
   return {
     subscribe(onChange) {
@@ -101,7 +106,7 @@ function installSharedGitMetadataWatcher(
           if (timer) clearTimeout(timer);
           for (const watcher of watchers) watcher.close();
           onLast();
-          log?.info({ key }, "git: metadata watcher retired");
+          log?.info(identity, "git: metadata watcher retired");
         }
       };
     },
@@ -156,7 +161,7 @@ export function watchGitMetadata(
       targets.push({ dir: commonGitDir, filenames: new Set(["config"]) });
     }
     const fresh = installSharedGitMetadataWatcher(
-      key,
+      { gitDir, commonGitDir },
       targets,
       () => sharedGitMetadataWatchers.delete(key),
       log,
