@@ -13,8 +13,6 @@ import { err, type GitResult, ok } from "./errors.ts";
 import { watchGitHead } from "./head-watcher.ts";
 import type { GitInfo } from "./schemas.ts";
 
-export { watchGitHead } from "./head-watcher.ts";
-
 /** Fast check: does a .git entry exist in this directory? (stat, not a git subprocess) */
 export function hasGitDir(cwd: string): boolean {
   try {

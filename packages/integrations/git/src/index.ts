@@ -9,13 +9,14 @@ export { randomName } from "memorable-names";
 export { listAll, readFile } from "./browse.ts";
 // Error types
 export { err, type GitError, type GitResult, ok } from "./errors.ts";
+// HEAD watcher (refcounted shared singleton)
+export { watchGitHead } from "./head-watcher.ts";
 // Repository resolution
 export {
   gitInfoEqual,
   hasGitDir,
   resolveGitInfo,
   subscribeGitInfo,
-  watchGitHead,
 } from "./resolve.ts";
 
 // Diff review
