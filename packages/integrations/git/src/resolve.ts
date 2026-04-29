@@ -15,6 +15,18 @@ import type { GitInfo } from "./schemas.ts";
 
 const DEBOUNCE_MS = 150;
 
+interface GitHeadListener {
+  onChange: () => void;
+  log?: Logger;
+}
+
+interface SharedGitHeadWatcher {
+  cleanup: () => void;
+  listeners: Set<GitHeadListener>;
+}
+
+const sharedHeadWatchers = new Map<string, SharedGitHeadWatcher>();
+
 /** Fast check: does a .git entry exist in this directory? (stat, not a git subprocess) */
 export function hasGitDir(cwd: string): boolean {
   try {
@@ -123,6 +135,32 @@ export function watchGitHead(
   onChange: () => void,
   log?: Logger,
 ): () => void {
+  const gitDir = resolveGitDir(cwd, log);
+  if (!gitDir) return () => {};
+
+  let entry = sharedHeadWatchers.get(gitDir);
+  if (!entry) {
+    const installed = installGitHeadWatcher(gitDir, log);
+    if (!installed) return () => {};
+    entry = installed;
+    sharedHeadWatchers.set(gitDir, entry);
+  }
+
+  const listener: GitHeadListener = { onChange, log };
+  entry.listeners.add(listener);
+
+  return () => {
+    const current = sharedHeadWatchers.get(gitDir);
+    if (!current) return;
+    current.listeners.delete(listener);
+    if (current.listeners.size === 0) {
+      current.cleanup();
+      sharedHeadWatchers.delete(gitDir);
+    }
+  };
+}
+
+function resolveGitDir(cwd: string, log?: Logger): string | null {
   let gitDir: string;
   try {
     const result = execSync("git rev-parse --git-dir", {
@@ -133,28 +171,61 @@ export function watchGitHead(
     gitDir = path.resolve(cwd, result.trim());
   } catch {
     // Expected in non-git directories — watchGitHead is called speculatively.
-    return () => {};
+    return null;
   }
+  try {
+    return fs.realpathSync(gitDir);
+  } catch (e) {
+    log?.debug(
+      { err: e instanceof Error ? e.message : String(e), gitDir },
+      "git: failed to resolve git dir",
+    );
+    return null;
+  }
+}
 
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  let watcher: fs.FSWatcher | undefined;
+function installGitHeadWatcher(
+  gitDir: string,
+  log?: Logger,
+): SharedGitHeadWatcher | null {
+  const listeners = new Set<GitHeadListener>();
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let watcher: fs.FSWatcher;
   try {
     watcher = fs.watch(gitDir, (_, filename) => {
       if (filename !== "HEAD") return;
       if (timer) clearTimeout(timer);
-      timer = setTimeout(onChange, DEBOUNCE_MS);
+      timer = setTimeout(() => {
+        timer = null;
+        for (const listener of [...listeners]) {
+          try {
+            listener.onChange();
+          } catch (err) {
+            listener.log?.error(
+              { err: err instanceof Error ? err.message : String(err), gitDir },
+              "git: HEAD listener failed",
+            );
+          }
+        }
+      }, DEBOUNCE_MS);
     });
   } catch (e) {
     log?.debug(
       { err: e instanceof Error ? e.message : String(e), gitDir },
       "git: failed to watch git dir",
     );
-    return () => {};
+    return null;
   }
 
-  return () => {
-    if (timer) clearTimeout(timer);
-    watcher?.close();
+  return {
+    listeners,
+    cleanup: () => {
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      watcher.close();
+    },
   };
 }
 

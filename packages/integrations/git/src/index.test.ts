@@ -19,6 +19,7 @@ import {
   parseNameStatus,
   resolveGitInfo,
   resolveUnder,
+  watchGitHead,
   worktreeCreate,
 } from "./index.ts";
 
@@ -301,6 +302,89 @@ describe("gitInfoEqual", () => {
     { field: "isWorktree", value: true },
   ] as const)("ignores $field differences", ({ field, value }) => {
     expect(gitInfoEqual(info, { ...info, [field]: value })).toBe(true);
+  });
+});
+
+// --- watchGitHead ---
+
+describe("watchGitHead", () => {
+  let tmpDir: string;
+
+  async function initRepo(name: string) {
+    const dir = path.join(tmpDir, name);
+    fs.mkdirSync(dir, { recursive: true });
+    const git = simpleGit(dir);
+    await git.init();
+    await git.checkoutLocalBranch("main");
+    fs.writeFileSync(path.join(dir, "file.txt"), "hello");
+    await git.add(".");
+    await git.commit("initial");
+    return { dir };
+  }
+
+  beforeAll(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "git-head-watch-test-"));
+  });
+
+  afterAll(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("shares one debounced fs.watch per git dir", async () => {
+    const { dir } = await initRepo("shared-repo");
+    const subdir = path.join(dir, "nested");
+    fs.mkdirSync(subdir);
+
+    vi.useFakeTimers();
+    const callbacks: Array<(event: string, filename: string) => void> = [];
+    const close = vi.fn();
+    const watchSpy = vi.spyOn(fs, "watch").mockImplementation(((
+      _target,
+      optionsOrListener,
+      maybeListener,
+    ) => {
+      const listener =
+        typeof optionsOrListener === "function"
+          ? optionsOrListener
+          : maybeListener;
+      if (typeof listener === "function") {
+        callbacks.push(listener as (event: string, filename: string) => void);
+      }
+      return { close } as unknown as fs.FSWatcher;
+    }) as typeof fs.watch);
+
+    const first = vi.fn();
+    const second = vi.fn();
+    const stopFirst = watchGitHead(dir, first);
+    const stopSecond = watchGitHead(subdir, second);
+
+    expect(watchSpy).toHaveBeenCalledTimes(1);
+
+    callbacks[0]?.("change", "HEAD");
+    await vi.advanceTimersByTimeAsync(150);
+    expect(first).toHaveBeenCalledTimes(1);
+    expect(second).toHaveBeenCalledTimes(1);
+
+    stopFirst();
+    expect(close).not.toHaveBeenCalled();
+
+    callbacks[0]?.("change", "HEAD");
+    await vi.advanceTimersByTimeAsync(150);
+    expect(first).toHaveBeenCalledTimes(1);
+    expect(second).toHaveBeenCalledTimes(2);
+
+    stopSecond();
+    expect(close).toHaveBeenCalledTimes(1);
+
+    const stopThird = watchGitHead(dir, vi.fn());
+    expect(watchSpy).toHaveBeenCalledTimes(2);
+    stopThird();
+    expect(close).toHaveBeenCalledTimes(2);
   });
 });
 
