@@ -53,6 +53,11 @@ apm-sync: apm-audit
     # mirror the worktree into scratch while excluding runtime/generated trees.
     # `apm install` rewrites apm.lock.yaml's `generated_at` on every run, which
     # is fine here because the scratch copy is disposable.
+    # Anchor `/CLAUDE.md` with a leading slash so only the project-root
+    # generated file is stripped — `apm_modules/<dep>/CLAUDE.md` is a
+    # shipped file inside vendored dependencies, and dropping it makes
+    # `apm install` re-verify against an incomplete tree and fail with a
+    # spurious content-hash mismatch.
     rsync -a \
         --exclude='.git/' \
         --exclude='node_modules/' \
@@ -62,7 +67,7 @@ apm-sync: apm-audit
         --exclude='.codex/' \
         --exclude='.agents/' \
         --exclude='.opencode/' \
-        --exclude='CLAUDE.md' \
+        --exclude='/CLAUDE.md' \
         "$PWD/" "$scratch/"
     # Mirror the runtime folders that drive target detection for install.
     # Compile is explicit so we only emit `AGENTS.md` for Codex/OpenCode.
