@@ -127,28 +127,7 @@ export function parseClaudeCodeJsonl(content: string): TranscriptEvent[] {
     }
     events.push(...eventsFromEntry(entry));
   }
-  return inlineAgentSubtasks(stripSkillContextInjections(events));
-}
-
-/** Claude Code injects the loaded SKILL.md body as a synthetic
- *  `role: "user"` message immediately after each `Skill` tool_use,
- *  so the model has the skill text in context. Rendering it in the
- *  transcript reads as if the human typed the skill body — they
- *  didn't. The Skill card itself already names the skill that ran;
- *  dropping the injection keeps the conversation honest about what
- *  the human actually said. The injected text is identifiable by
- *  its literal prefix ("Base directory for this skill: …"), which
- *  Claude Code synthesises before the SKILL.md content. */
-function stripSkillContextInjections(
-  events: TranscriptEvent[],
-): TranscriptEvent[] {
-  return events.filter(
-    (e) =>
-      !(
-        e.kind === "user" &&
-        e.text.startsWith("Base directory for this skill: ")
-      ),
-  );
+  return inlineAgentSubtasks(events);
 }
 
 /** Map a Claude Code tool name + raw input object onto the typed
