@@ -350,6 +350,40 @@ export function normalizeCodexToolInput(
         args: argsField && argsField.length > 0 ? argsField : null,
       };
     }
+    case "update_plan": {
+      // Codex's TODO/plan tool. Payload is `{ plan: [{ step, status }] }`.
+      const plan = Array.isArray(o.plan) ? o.plan : [];
+      return {
+        kind: "task",
+        op: "write",
+        summary: plan.length > 0 ? `${plan.length} steps` : null,
+      };
+    }
+    case "spawn_agent": {
+      // Codex subagent dispatch. `agent_type` is the recipient's
+      // role/preset; `message` is the directive prompt. Surfacing
+      // through `send_message` lets the renderer show
+      // "Message → explorer: Task: research…" inline.
+      return {
+        kind: "send_message",
+        to: str("agent_type") || str("agent"),
+        content: str("message") || str("prompt"),
+      };
+    }
+    case "send_input": {
+      // Send keystrokes / a follow-up message to an existing subagent.
+      // Same shape conceptually as Claude Code's `SendMessage`.
+      return {
+        kind: "send_message",
+        to: str("target") || str("agentId"),
+        content: str("message") || str("content"),
+      };
+    }
+    case "view_image":
+      // Codex's image-viewing tool — semantically equivalent to a
+      // `read` against a binary file. The renderer's "Read · …/path"
+      // summary is exactly the right shape.
+      return { kind: "read", filePath: str("path") || str("file_path") };
     default:
       return { kind: "unknown", toolName, raw: parsed };
   }

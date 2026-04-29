@@ -241,6 +241,58 @@ describe("normalizeCodexToolInput", () => {
     expect(out.text).toBe(diff);
   });
 
+  it("decodes update_plan into kind:task with op:write", () => {
+    expect(
+      normalizeCodexToolInput("update_plan", {
+        plan: [
+          { step: "research", status: "pending" },
+          { step: "implement", status: "pending" },
+          { step: "ship", status: "pending" },
+        ],
+      }),
+    ).toEqual({ kind: "task", op: "write", summary: "3 steps" });
+    expect(normalizeCodexToolInput("update_plan", { plan: [] })).toEqual({
+      kind: "task",
+      op: "write",
+      summary: null,
+    });
+  });
+
+  it("decodes spawn_agent into kind:send_message", () => {
+    expect(
+      normalizeCodexToolInput("spawn_agent", {
+        agent_type: "explorer",
+        message: "Task: research X",
+      }),
+    ).toEqual({
+      kind: "send_message",
+      to: "explorer",
+      content: "Task: research X",
+    });
+  });
+
+  it("decodes send_input into kind:send_message", () => {
+    expect(
+      normalizeCodexToolInput("send_input", {
+        target: "019dcc54-…",
+        message: "Need concise output",
+      }),
+    ).toEqual({
+      kind: "send_message",
+      to: "019dcc54-…",
+      content: "Need concise output",
+    });
+  });
+
+  it("decodes view_image into kind:read", () => {
+    expect(
+      normalizeCodexToolInput("view_image", {
+        path: "/x/screenshot.png",
+        detail: "original",
+      }),
+    ).toEqual({ kind: "read", filePath: "/x/screenshot.png" });
+  });
+
   it("handles *** Move to: by emitting the destination path", () => {
     const envelope = [
       "*** Begin Patch",
