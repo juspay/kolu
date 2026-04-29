@@ -22,7 +22,8 @@ const DEBOUNCE_MS = 150;
 interface HeadWatcherEntry {
   watcher: fs.FSWatcher;
   listeners: Set<() => void>;
-  timer: ReturnType<typeof setTimeout> | undefined;
+  /** Cleanup function that clears any pending debounce timer and closes watcher. */
+  cleanup: () => void;
 }
 
 const sharedHeadWatchers = new Map<string, HeadWatcherEntry>();
@@ -187,7 +188,12 @@ export function watchGitHead(
       return () => {};
     }
 
-    entry = { watcher, listeners, timer };
+    const cleanup = (): void => {
+      if (timer) clearTimeout(timer);
+      watcher?.close();
+    };
+
+    entry = { watcher, listeners, cleanup };
     sharedHeadWatchers.set(gitDir, entry);
   }
 
@@ -197,10 +203,7 @@ export function watchGitHead(
     if (!entry) return;
     entry.listeners.delete(onChange);
     if (entry.listeners.size === 0) {
-      // Capture timer from closure before clearing entry reference
-      const activeTimer = entry.timer;
-      if (activeTimer) clearTimeout(activeTimer);
-      entry.watcher.close();
+      entry.cleanup();
       sharedHeadWatchers.delete(gitDir);
     }
   };
