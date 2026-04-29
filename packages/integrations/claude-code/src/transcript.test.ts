@@ -234,6 +234,49 @@ describe("parseClaudeCodeJsonl", () => {
     const events = parseClaudeCodeJsonl(line);
     expect(events.map((e) => e.kind)).toEqual(["tool_call"]);
   });
+
+  it("strips synthetic user turns that load Skill bodies into context", () => {
+    // Claude Code injects the SKILL.md content as a `role: "user"`
+    // message right after the Skill tool_use. It's not human-typed —
+    // dropping it keeps the rendered conversation honest.
+    const lines = [
+      JSON.stringify({
+        type: "assistant",
+        message: {
+          role: "assistant",
+          content: [
+            {
+              type: "tool_use",
+              id: "tu_skill",
+              name: "Skill",
+              input: { skill: "forge-pr" },
+            },
+          ],
+        },
+      }),
+      JSON.stringify({
+        type: "user",
+        message: {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: "Base directory for this skill: ./.claude/skills/forge-pr\n\n# Forge PR Writing\n\n…",
+            },
+          ],
+        },
+      }),
+      JSON.stringify({
+        type: "assistant",
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "Drafting PR…" }],
+        },
+      }),
+    ].join("\n");
+    const events = parseClaudeCodeJsonl(lines);
+    expect(events.map((e) => e.kind)).toEqual(["tool_call", "assistant"]);
+  });
 });
 
 describe("normalizeClaudeToolInput", () => {
