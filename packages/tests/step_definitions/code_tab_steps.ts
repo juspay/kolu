@@ -31,30 +31,14 @@ function dirRow(path: string): string {
   return `${TREE} [data-item-path="${path}/"][data-item-type="folder"]:not([data-file-tree-sticky-row])`;
 }
 
-/** Wait for a changed file to appear, refreshing periodically. The Code tab
- *  hits git via RPC; on a freshly-created repo the watcher hasn't fired yet
- *  and the first list comes back empty. The refresh button forces a re-fetch. */
+/** Wait for a changed file to appear. The Code tab subscribes to a live
+ *  filesystem watcher; saves and `git add` reflect within the upstream
+ *  150ms debounce + the round-trip. POLL_TIMEOUT covers slow runners and
+ *  the parcel-watcher initial walk on first subscribe. */
 async function waitForChangedFile(world: KoluWorld, path: string) {
-  const item = world.page.locator(fileRow(path));
-  const refresh = world.page.locator('[data-testid="diff-refresh"]');
-  const deadline = Date.now() + POLL_TIMEOUT;
-  let nextRefresh = Date.now();
-
-  while (Date.now() < deadline) {
-    // Best-effort polling — `isVisible` can throw if the page navigates
-    // between locator resolutions, and the refresh button can race with
-    // re-renders; a thrown probe just falls through to the next tick.
-    if (await item.isVisible().catch(() => false)) return;
-
-    if (Date.now() >= nextRefresh && (await refresh.isVisible())) {
-      await refresh.click().catch(() => undefined);
-      nextRefresh = Date.now() + 1000;
-    }
-
-    await world.page.waitForTimeout(100);
-  }
-
-  await item.waitFor({ state: "visible", timeout: 1 });
+  await world.page
+    .locator(fileRow(path))
+    .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
 }
 
 // ── Actions ──
@@ -65,16 +49,6 @@ When("I click the Code tab", async function (this: KoluWorld) {
   await tab.click();
   await this.waitForFrame();
 });
-
-When(
-  "I click the refresh button in the Code tab",
-  async function (this: KoluWorld) {
-    const btn = this.page.locator('[data-testid="diff-refresh"]');
-    await btn.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    await btn.click();
-    await this.waitForFrame();
-  },
-);
 
 When(
   "I click the changed file {string} in the Code tab",
