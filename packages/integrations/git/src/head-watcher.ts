@@ -20,12 +20,13 @@ import type { Logger } from "anyagent";
 
 const DEBOUNCE_MS = 150;
 
-/** Refcounted shared watcher for one resolved gitDir. The `fs.watch` handle
- *  and debounce timer are closure-private inside `installSharedHeadWatcher`;
- *  only the listener set and a teardown callback are surfaced. */
+/** External surface of one shared watcher: a `subscribe` method that adds a
+ *  listener and returns its own unsubscribe. The listener Set, watcher
+ *  handle, and debounce timer are all closure-private — registry lifecycle
+ *  and dispatch policy can evolve independently because callers can only
+ *  reach what `subscribe` exposes. */
 interface SharedHeadWatcher {
-  listeners: Set<() => void>;
-  cleanup: () => void;
+  subscribe(onChange: () => void): () => void;
 }
 
 /** Module-scope registry: one entry per resolved gitDir. */
@@ -33,6 +34,7 @@ const sharedHeadWatchers = new Map<string, SharedHeadWatcher>();
 
 function installSharedHeadWatcher(
   gitDir: string,
+  onLast: () => void,
   log?: Logger,
 ): SharedHeadWatcher | null {
   const listeners = new Set<() => void>();
@@ -68,10 +70,22 @@ function installSharedHeadWatcher(
   }
 
   return {
-    listeners,
-    cleanup() {
-      if (timer) clearTimeout(timer);
-      watcher.close();
+    subscribe(onChange) {
+      listeners.add(onChange);
+      return () => {
+        // `Set.delete` returns false if `onChange` was already removed,
+        // which keeps the unsubscribe idempotent: a double-call from the
+        // same caller can't double-tear-down. A later subscribe under the
+        // same gitDir installs a fresh singleton; this closure stays bound
+        // to the old one, so it can't accidentally tear that fresh entry
+        // down.
+        if (!listeners.delete(onChange)) return;
+        if (listeners.size === 0) {
+          if (timer) clearTimeout(timer);
+          watcher.close();
+          onLast();
+        }
+      };
     },
   };
 }
@@ -104,26 +118,16 @@ export function watchGitHead(
 
   let entry = sharedHeadWatchers.get(gitDir);
   if (!entry) {
-    const fresh = installSharedHeadWatcher(gitDir, log);
+    const fresh = installSharedHeadWatcher(
+      gitDir,
+      () => sharedHeadWatchers.delete(gitDir),
+      log,
+    );
     if (!fresh) return () => {};
     sharedHeadWatchers.set(gitDir, fresh);
     entry = fresh;
   }
-  const handle = entry;
-  handle.listeners.add(onChange);
-
-  return () => {
-    // `Set.delete` returns false if `onChange` was already removed, which
-    // keeps the unsubscribe idempotent: a double-call from the same caller
-    // can't double-tear-down. A later subscribe under the same gitDir gets
-    // a fresh entry; this closure's `handle` stays bound to the old one,
-    // so it can't accidentally tear that fresh entry down.
-    if (!handle.listeners.delete(onChange)) return;
-    if (handle.listeners.size === 0) {
-      handle.cleanup();
-      sharedHeadWatchers.delete(gitDir);
-    }
-  };
+  return entry.subscribe(onChange);
 }
 
 /** Test-only inspector — number of distinct gitDirs with active shared
