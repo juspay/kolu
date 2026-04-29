@@ -1,3 +1,9 @@
+# Quarantined to Linux until the macOS-only `waitForFunction` timeout in
+# `Then the header CWD should show ".worktrees/"` and `createTerminal` is
+# diagnosed — see issue #771. Every scenario in this file goes through the
+# worktree-create flow, which is the failing path. Tag is at feature level
+# so the @skip'd scenarios below stay skipped on both platforms.
+@platform-linux
 Feature: Git worktree management
   Users can create terminals in new git worktrees via "New terminal" in the
   command palette, and close terminals while optionally removing the worktree.

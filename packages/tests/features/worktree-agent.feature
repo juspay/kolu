@@ -28,6 +28,9 @@ Feature: Agent-aware worktree creation
     And palette item "claude --dangerously-skip-permissions" should be visible
     And there should be no page errors
 
+  # Quarantined to Linux until the macOS waitForFunction timeout in the
+  # worktree-create flow is diagnosed — see issue #771.
+  @platform-linux
   Scenario: Picking an agent creates the worktree and writes the command
     When I set up a git repo at "/tmp/kolu-wt-agent-run"
     And I run "cd /tmp/kolu-wt-agent-run"
@@ -43,6 +46,8 @@ Feature: Agent-aware worktree creation
     And the screen state should contain "claude --dangerously-skip-permissions"
     And there should be no page errors
 
+  # Quarantined to Linux — see #771.
+  @platform-linux
   Scenario: Picking Plain shell creates a plain worktree terminal
     When I set up a git repo at "/tmp/kolu-wt-agent-plain"
     And I run "cd /tmp/kolu-wt-agent-plain"

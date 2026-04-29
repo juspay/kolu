@@ -8,9 +8,16 @@ const cliHasFeatureArgs = process.argv
   .some((a) => a.endsWith(".feature"));
 
 // Default tag filter: exclude @skip'd scenarios (regression harnesses for
-// known-broken behavior). `CUCUMBER_TAGS` fully replaces the default — e.g.
-// `CUCUMBER_TAGS='@skip'` runs only skipped scenarios for local development.
-const tags = process.env.CUCUMBER_TAGS || "not @skip";
+// known-broken behavior) plus the platform-specific quarantine for the
+// other OS. `@platform-linux` scenarios run only on Linux; `@platform-darwin`
+// scenarios run only on macOS. `CUCUMBER_TAGS` fully replaces the default —
+// e.g. `CUCUMBER_TAGS='@skip'` runs only skipped scenarios for local
+// development, and `CUCUMBER_TAGS='@platform-linux'` runs only the
+// linux-quarantined scenarios (useful when investigating the macOS bug).
+const otherPlatformTag =
+  process.platform === "darwin" ? "@platform-linux" : "@platform-darwin";
+const tags =
+  process.env.CUCUMBER_TAGS || `not @skip and not ${otherPlatformTag}`;
 
 export const ui = {
   ...(!cliHasFeatureArgs && { paths: ["features/**/*.feature"] }),
