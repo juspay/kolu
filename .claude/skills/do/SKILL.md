@@ -1,6 +1,6 @@
 ---
 name: do
-description: Do a task end-to-end — implement, PR, CI loop, ship
+description: Do a task end-to-end — implement, PR, CI loop, ship. ONLY invoke when the user explicitly types `/do` or `$do`; never auto-select from a natural-language request, even one that sounds like an end-to-end task.
 argument-hint: "<issue-url | prompt> [--review] [--no-git] [--minimal] [--from <step>] [--review-model=<opus|sonnet|haiku>]"
 ---
 
@@ -59,6 +59,8 @@ Drive Claude Code's native todo UI via the `TaskCreate` tool so the user sees a 
 ```
 sync, research, branch, implement, check, docs, fmt, commit, hickey+lowy, police, test, create-pr, ci, evidence, done
 ```
+
+**Emit all `TaskCreate` calls as parallel `tool_use` blocks in a single assistant turn** — one model round-trip, not one per task. The seeded steps have no `addBlocks` / `addBlockedBy` dependencies, so there is nothing to serialize on. Sequential seeding (15 round-trips before any real work) is a regression: it adds latency to every `/do` invocation and clutters the transcript with 15 wrapper turns of "Task #N created successfully" before `sync` even starts.
 
 **Under `--minimal`, omit the four steps the flag skips** (`docs`, `hickey+lowy`, `police`, `evidence`) from the seeded list — the user explicitly opted out of them, so they shouldn't clutter the human-facing checklist. The seeded list becomes 11 items in `--minimal` runs. (Run-inherent skips like `--no-git` and forge skips stay in the list — see the Skipped steps rule below.)
 

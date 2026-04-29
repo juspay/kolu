@@ -3,6 +3,7 @@ version: 1.0.0
 description: Terminal multiplexer with AI-native development workflow
 type: hybrid
 target: [claude, codex, opencode]
+includes: auto
 
 # Generated AGENTS.md files are runtime outputs, not source inputs. Excluding
 # them keeps distributed compilation from treating stale generated files as
