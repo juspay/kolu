@@ -3,6 +3,11 @@
  *  `node:sqlite`, `better-sqlite3`, or any handle with a `close()`
  *  method; the helpers themselves don't import a SQLite driver. */
 
+export {
+  createDebounceWatcher,
+  type DebounceWatcher,
+  type DebounceWatcherConfig,
+} from "./debounce-watcher.ts";
 export { type Closable, withDb } from "./with-db.ts";
 export {
   createWalSubscription,
