@@ -76,7 +76,6 @@ apm-sync: apm-audit
     # placement is file-layout sensitive, so omitting checked-in files that
     # are present during local `just ai::apm` can produce a false sync diff.
     [[ ! -e .claude/launch.json ]] || cp .claude/launch.json "$scratch/.claude/launch.json"
-    [[ ! -e .codex/config.toml ]] || cp .codex/config.toml "$scratch/.codex/config.toml"
     (cd "$scratch" && {{ apm_cmd }} install >/dev/null)
     (cd "$scratch" && {{ apm_cmd }} compile --target codex,opencode >/dev/null)
     # Exclude files that apm doesn't manage: launch.json is user-owned,
@@ -93,11 +92,7 @@ apm-sync: apm-audit
         echo "ERROR: .claude/ out of sync with sources — run: just ai::apm" >&2
         exit 1
     fi
-    # `.codex/config.toml` is currently a checked-in manual fallback for
-    # project-local Codex MCP until microsoft/apm#803 lands; current APM
-    # does not emit it in the scratch tree yet.
     if ! diff -r \
-        -x config.toml \
         .codex "$scratch/.codex"; then
         echo "ERROR: .codex/ out of sync with sources — run: just ai::apm" >&2
         exit 1
