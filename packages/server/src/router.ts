@@ -12,9 +12,13 @@ import type { Transcript, TranscriptPr } from "kolu-common";
 import { contract } from "kolu-common/contract";
 import { TerminalNotFoundError } from "kolu-common/errors";
 import {
+  fsListAllOutputEqual,
+  fsReadFileOutputEqual,
   type GitResult,
   getDiff,
   getStatus,
+  gitDiffOutputEqual,
+  gitStatusOutputEqual,
   listAll,
   readFile,
   subscribeFileChange,
@@ -90,6 +94,34 @@ function unwrapGit<T>(result: GitResult<T>): T {
  *  picks it up on the next loop iteration). This complements the upstream
  *  primitive's own debounce — bursts that arrive during snapshot
  *  computation don't queue up extra yields. */
+/** Snapshot-then-deltas loop: yield an initial read, then re-read on every
+ *  event tick from `install` and yield only when `isEqual(last, next)` is
+ *  false. The initial read's exception propagates to the client (first
+ *  frame); subsequent read failures silently retry on the next tick — a
+ *  transient git error shouldn't tear down a long-lived subscription.
+ *  The equality predicate is passed in so it lives at the call site,
+ *  visible to reviewers, alongside the schema it covers. */
+async function* streamSnapshots<T>(
+  read: () => Promise<T>,
+  isEqual: (a: T, b: T) => boolean,
+  install: (onEvent: () => void) => () => void,
+  signal: AbortSignal | undefined,
+): AsyncIterable<T> {
+  let last: T = await read();
+  yield last;
+  for await (const _ of repoEventStream(install, signal)) {
+    let next: T;
+    try {
+      next = await read();
+    } catch {
+      continue;
+    }
+    if (isEqual(last, next)) continue;
+    last = next;
+    yield last;
+  }
+}
+
 async function* repoEventStream(
   install: (onEvent: () => void) => () => void,
   signal: AbortSignal | undefined,
@@ -362,53 +394,32 @@ export const appRouter = t.router({
       input,
       signal,
     }) {
-      let last = unwrapGit(await getStatus(input.repoPath, input.mode, log));
-      yield last;
-      for await (const _ of repoEventStream(
+      yield* streamSnapshots(
+        async () => unwrapGit(await getStatus(input.repoPath, input.mode, log)),
+        gitStatusOutputEqual,
         (cb) => subscribeRepoChange(input.repoPath, cb, log),
         signal,
-      )) {
-        const next = await getStatus(input.repoPath, input.mode, log);
-        if (!next.ok) continue;
-        const a = JSON.stringify(last);
-        const b = JSON.stringify(next.value);
-        if (a === b) continue;
-        last = next.value;
-        yield last;
-      }
+      );
     }),
     onDiffChange: t.git.onDiffChange.handler(async function* ({
       input,
       signal,
     }) {
-      let last = unwrapGit(
-        await getDiff(
-          input.repoPath,
-          input.filePath,
-          input.mode,
-          log,
-          input.oldPath,
-        ),
-      );
-      yield last;
-      for await (const _ of repoEventStream(
+      yield* streamSnapshots(
+        async () =>
+          unwrapGit(
+            await getDiff(
+              input.repoPath,
+              input.filePath,
+              input.mode,
+              log,
+              input.oldPath,
+            ),
+          ),
+        gitDiffOutputEqual,
         (cb) => subscribeRepoChange(input.repoPath, cb, log),
         signal,
-      )) {
-        const next = await getDiff(
-          input.repoPath,
-          input.filePath,
-          input.mode,
-          log,
-          input.oldPath,
-        );
-        if (!next.ok) continue;
-        const a = JSON.stringify(last);
-        const b = JSON.stringify(next.value);
-        if (a === b) continue;
-        last = next.value;
-        yield last;
-      }
+      );
     }),
   },
   fs: {
@@ -416,45 +427,24 @@ export const appRouter = t.router({
       input,
       signal,
     }) {
-      let last = { paths: unwrapGit(await listAll(input.repoPath, log)) };
-      yield last;
-      for await (const _ of repoEventStream(
+      yield* streamSnapshots(
+        async () => ({ paths: unwrapGit(await listAll(input.repoPath, log)) }),
+        fsListAllOutputEqual,
         (cb) => subscribeRepoChange(input.repoPath, cb, log),
         signal,
-      )) {
-        const next = await listAll(input.repoPath, log);
-        if (!next.ok) continue;
-        if (
-          last.paths.length === next.value.length &&
-          last.paths.every((p, i) => p === next.value[i])
-        ) {
-          continue;
-        }
-        last = { paths: next.value };
-        yield last;
-      }
+      );
     }),
     onReadFileChange: t.fs.onReadFileChange.handler(async function* ({
       input,
       signal,
     }) {
-      let last = unwrapGit(await readFile(input.repoPath, input.filePath, log));
-      yield last;
-      for await (const _ of repoEventStream(
+      yield* streamSnapshots(
+        async () =>
+          unwrapGit(await readFile(input.repoPath, input.filePath, log)),
+        fsReadFileOutputEqual,
         (cb) => subscribeFileChange(input.repoPath, input.filePath, cb, log),
         signal,
-      )) {
-        const next = await readFile(input.repoPath, input.filePath, log);
-        if (!next.ok) continue;
-        if (
-          last.content === next.value.content &&
-          last.truncated === next.value.truncated
-        ) {
-          continue;
-        }
-        last = next.value;
-        yield last;
-      }
+      );
     }),
   },
   preferences: {

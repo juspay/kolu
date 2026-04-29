@@ -7,6 +7,13 @@
 export { randomName } from "memorable-names";
 // File tree browsing
 export { listAll, readFile } from "./browse.ts";
+// Equality predicates for streamed snapshot dedup
+export {
+  fsListAllOutputEqual,
+  fsReadFileOutputEqual,
+  gitDiffOutputEqual,
+  gitStatusOutputEqual,
+} from "./equals.ts";
 // Error types
 export { err, type GitError, type GitResult, ok } from "./errors.ts";
 // HEAD watcher (refcounted shared singleton)
