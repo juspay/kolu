@@ -20,8 +20,10 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { parsePatchFiles } from "@pierre/diffs";
 import {
   preloadFile,
+  preloadFileDiff,
   preloadMultiFileDiff,
   preloadPatchDiff,
 } from "@pierre/diffs/ssr";
@@ -105,14 +107,39 @@ export async function renderWrite(
   return wrapInContainer(result.prerenderedHTML);
 }
 
-/** Render a Codex `apply_patch` payload — already in unified-diff
- *  shape — directly through Pierre's patch parser. */
+/** Render a unified-diff patch payload (Codex `apply_patch`,
+ *  OpenCode's patch-shaped tools). Codex emits patches that touch
+ *  multiple files in a single tool call, but Pierre's
+ *  `preloadPatchDiff` is single-file only — calling it on a
+ *  multi-file patch throws "FileDiff: Provided patch must contain
+ *  exactly 1 file diff" inside `getSingularPatch`. We parse the
+ *  whole payload with `parsePatchFiles` (which handles multi-file)
+ *  and emit one `<diffs-container>` per file diff so each shows
+ *  its own header + hunks. Single-file patches still flow through
+ *  this path unchanged — the loop runs once. */
 export async function renderPatch(patch: string): Promise<string> {
-  const result = await preloadPatchDiff({
-    patch,
-    options: { diffStyle: "unified", themeType: "system" },
-  });
-  return wrapInContainer(result.prerenderedHTML);
+  const parsed = parsePatchFiles(patch);
+  const fileDiffs = parsed.flatMap((p) => p.files);
+  if (fileDiffs.length === 0) {
+    // Patch was unparseable or empty — fall back to Pierre's
+    // single-file path so we at least get its native error UI
+    // rather than silently rendering nothing.
+    const result = await preloadPatchDiff({
+      patch,
+      options: { diffStyle: "unified", themeType: "system" },
+    });
+    return wrapInContainer(result.prerenderedHTML);
+  }
+  const chunks = await Promise.all(
+    fileDiffs.map(async (fileDiff) => {
+      const result = await preloadFileDiff({
+        fileDiff,
+        options: { diffStyle: "unified", themeType: "system" },
+      });
+      return wrapInContainer(result.prerenderedHTML);
+    }),
+  );
+  return chunks.join("");
 }
 
 /** Render a markdown fenced code block. Pierre infers language from
