@@ -11,6 +11,7 @@
  * switch). Same dir+filename pattern as `head-watcher.ts`.
  */
 
+import fs from "node:fs";
 import path from "node:path";
 import { resolveGitDir } from "./git-dir.ts";
 import { createDirFilenameWatcher } from "./shared-dir-filename-watcher.ts";
@@ -18,7 +19,15 @@ import { createDirFilenameWatcher } from "./shared-dir-filename-watcher.ts";
 const reflogWatcher = createDirFilenameWatcher({
   resolveDir: (cwd) => {
     const gitDir = resolveGitDir(cwd);
-    return gitDir === null ? null : path.join(gitDir, "logs");
+    if (gitDir === null) return null;
+    const logsDir = path.join(gitDir, "logs");
+    // A fresh `git init` with no commits has no `.git/logs/` yet — treat
+    // that as "axis-not-watchable-here" silently. The first commit creates
+    // the dir but won't trigger this watcher (we already returned no-op
+    // for the original subscribe). Other axes catch the first-commit case
+    // (HEAD content change, index update); a reflog-only event before
+    // any commit isn't a thing.
+    return fs.existsSync(logsDir) ? logsDir : null;
   },
   filename: "HEAD",
   debounceMs: 150,
