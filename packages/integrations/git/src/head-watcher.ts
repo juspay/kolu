@@ -53,7 +53,7 @@ function installSharedHeadWatcher(
           try {
             cb();
           } catch (e) {
-            log?.debug(
+            log?.error(
               { err: e instanceof Error ? e.message : String(e), gitDir },
               "git: head listener threw",
             );
@@ -62,7 +62,7 @@ function installSharedHeadWatcher(
       }, DEBOUNCE_MS);
     });
   } catch (e) {
-    log?.debug(
+    log?.error(
       { err: e instanceof Error ? e.message : String(e), gitDir },
       "git: failed to watch git dir",
     );
