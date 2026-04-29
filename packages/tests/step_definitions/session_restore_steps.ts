@@ -6,6 +6,7 @@ import {
   type KoluWorld,
   PILL_TREE_ENTRY_SELECTOR,
   POLL_TIMEOUT,
+  scale,
 } from "../support/world.ts";
 
 /** Post the saved-session payload to the server. Used both at scenario
@@ -65,7 +66,7 @@ Then(
     //   3. Wait for the card with the remaining budget.
     await this.page
       .locator('[data-testid="empty-state"]')
-      .waitFor({ state: "visible", timeout: 15000 });
+      .waitFor({ state: "visible", timeout: scale(15000) });
     const card = this.page.locator('[data-testid="session-restore"]');
     // Fast path: card already visible (happy-hydration run). `.catch(() => false)`
     // because Playwright's isVisible() can throw on transient DOM states during
@@ -76,7 +77,7 @@ Then(
     } else if (this.savedSessionTerminalCount !== undefined) {
       await postSavedSession(this.page, this.savedSessionTerminalCount);
     }
-    await card.waitFor({ state: "visible", timeout: 10000 });
+    await card.waitFor({ state: "visible", timeout: scale(10000) });
   },
 );
 
@@ -102,7 +103,7 @@ When("I click the restore button", async function (this: KoluWorld) {
   await this.page.waitForFunction(
     (sel) => document.querySelectorAll(sel).length > 0,
     PILL_TREE_ENTRY_SELECTOR,
-    { timeout: 20000 },
+    { timeout: scale(20000) },
   );
 });
 
@@ -114,7 +115,7 @@ Then(
       ({ selector, count }) =>
         document.querySelectorAll(selector).length === count,
       { selector: PILL_TREE_ENTRY_SELECTOR, count: expected },
-      { timeout: 15000 },
+      { timeout: scale(15000) },
     );
     const actual = await entries.count();
     assert.strictEqual(

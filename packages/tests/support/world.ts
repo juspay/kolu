@@ -15,27 +15,37 @@ import type { Browser, BrowserContext, Locator, Page } from "playwright";
 // them without `(window as any)` / `(this as any)` casts.
 import "kolu-common/test-hooks";
 
-// macOS CI (aarch64-darwin) consistently spends 2-3× as long inside
-// pty-spawn + shell-rc init compared to Linux — the sandbox `lstat` chain
-// through `/private/var/folders` plus a slower fork(2) puts the entire
-// "press Cmd+Enter, see new data-terminal-id" path well past the 20s
-// threshold. The seven worktree-create scenarios in #771 lived past
-// that cliff; bumping to 40s recovered three of them, the remaining
-// four need 60s of headroom. 60s on darwin vs 20s on Linux is a 3×
-// ratio — generous, but defensible: there is no recent regression to
-// hide (the failure has been stable across 12+ commits per #771), and
-// Linux keeps its tight feedback loop. The worktreeCreate-side fork
-// tax is amortized separately by parallelizing the fetch + ls-remote
-// pair (see worktree.ts).
-const isDarwin = process.platform === "darwin";
+/**
+ * Per-platform timeout multiplier. Linux is the baseline (1×).
+ *
+ * Why darwin scales: macOS CI (currently a low-spec Mac mini) spends
+ * 2–3× as long inside pty-spawn + shell-rc init as Linux — the sandbox
+ * `lstat` chain through `/private/var/folders` plus a slower fork(2)
+ * puts the entire "press Cmd+Enter, see new data-terminal-id" path
+ * well past the Linux 20s threshold. The seven worktree-create
+ * scenarios in #771 lived past that cliff at 1×; 2× recovered three
+ * of them; 3× clears all seven with headroom.
+ *
+ * **One-knob tuning**: when migrating to a faster darwin runner, lower
+ * this multiplier. Every timeout in `support/` and `step_definitions/`
+ * that goes through `scale()` (or one of the constants exported below)
+ * updates automatically. The worktreeCreate-side fork tax is amortized
+ * separately by parallelizing fetch + ls-remote (see worktree.ts).
+ */
+export const PLATFORM_SCALE = process.platform === "darwin" ? 3 : 1;
 
-setDefaultTimeout(isDarwin ? 90_000 : 30_000);
+/** Multiply a Linux-baseline duration by `PLATFORM_SCALE`. Use anywhere
+ *  a hard-coded ms literal is needed — keeps the platform delta in one
+ *  place instead of scattering `* PLATFORM_SCALE` across step files. */
+export const scale = (ms: number): number => ms * PLATFORM_SCALE;
 
-const READY_TIMEOUT = isDarwin ? 60_000 : 20_000;
+setDefaultTimeout(scale(30_000));
+
+const READY_TIMEOUT = scale(20_000);
 /** Shared timeout for element polling (waitFor / waitForFunction).
- *  60s on darwin, 20s elsewhere — see the comment on isDarwin above. */
-export const POLL_TIMEOUT = isDarwin ? 60_000 : 20_000;
-export const MOD_KEY = isDarwin ? "Meta" : "Control";
+ *  Scaled by `PLATFORM_SCALE` — 20s on Linux, 60s on darwin. */
+export const POLL_TIMEOUT = scale(20_000);
+export const MOD_KEY = process.platform === "darwin" ? "Meta" : "Control";
 
 /** Locator for the app's settled state: either a visible terminal screen or the empty state tip. */
 const SETTLED_SELECTOR =
