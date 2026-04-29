@@ -83,17 +83,6 @@ function unwrapGit<T>(result: GitResult<T>): T {
   throw new ORPCError(status, { message });
 }
 
-/** Convert a callback-based "something changed" subscription into an
- *  AsyncIterable<void> that yields once per debounced tick. The streaming
- *  endpoints below subscribe to `subscribeRepoChange` /
- *  `subscribeFileChange` through this adapter so the per-tick re-read +
- *  dedup loop can be written as a plain `for await`.
- *
- *  Coalescing semantics: events that fire while the consumer is mid-yield
- *  collapse into one wakeup (the `dirty` flag flips to true; the consumer
- *  picks it up on the next loop iteration). This complements the upstream
- *  primitive's own debounce — bursts that arrive during snapshot
- *  computation don't queue up extra yields. */
 /** Snapshot-then-deltas loop: yield an initial read, then re-read on every
  *  event tick from `install` and yield only when `isEqual(last, next)` is
  *  false. The initial read's exception propagates to the client (first
@@ -131,6 +120,17 @@ async function* streamSnapshots<T>(
   }
 }
 
+/** Convert a callback-based "something changed" subscription into an
+ *  AsyncIterable<void> that yields once per debounced tick. The streaming
+ *  endpoints subscribe to `subscribeRepoChange` / `subscribeFileChange`
+ *  through this adapter so the per-tick re-read + dedup loop can be
+ *  written as a plain `for await`.
+ *
+ *  Coalescing semantics: events that fire while the consumer is mid-yield
+ *  collapse into one wakeup (the `dirty` flag flips to true; the consumer
+ *  picks it up on the next loop iteration). This complements the upstream
+ *  primitive's own debounce — bursts that arrive during snapshot
+ *  computation don't queue up extra yields. */
 async function* repoEventStream(
   install: (onEvent: () => void) => () => void,
   signal: AbortSignal | undefined,

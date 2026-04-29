@@ -1,13 +1,6 @@
 /**
  * Generic refcounted shared `fs.watch` watcher keyed by directory.
  *
- * Builds the same shape as the existing `head-watcher.ts` pattern: one
- * `fs.watch(dir)` handle per resolved dir, a debounce timer, and a Set of
- * listeners that fan out per tick. Filename matching is configurable so
- * different watchers can target different files inside the same parent
- * (e.g. `gitDir/HEAD` vs `gitDir/index`) without duplicating the install /
- * teardown / refcount machinery.
- *
  * The directory is the watch target, not the file: most editors and git
  * itself rewrite files via temp+rename, which destroys an `fs.watch` handle
  * pointed at the original file. A parent-directory watcher catches the

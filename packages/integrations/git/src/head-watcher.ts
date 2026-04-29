@@ -22,14 +22,6 @@ const headWatcher = createDirFilenameWatcher({
   logLabel: "git: head",
 });
 
-/**
- * Watch .git/HEAD for changes (branch switches, checkout, etc.).
- * Returns a cleanup function. Returns a no-op for non-git directories.
- *
- * N callers watching the same `gitDir` share a single `fs.watch` handle
- * and a single debounce timer. Cost per HEAD event is O(listeners)
- * regardless of how many terminals subscribed.
- */
 export const watchGitHead = headWatcher.watch;
 
 /** Test-only inspector — number of distinct gitDirs with active shared
