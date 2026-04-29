@@ -77,6 +77,9 @@ export function createReactiveSubscription<I, T>(
       const controller = new AbortController();
       onCleanup(() => controller.abort());
 
+      // Reconcile-or-assign branch is the same shape as
+      // `createSubscription`'s `updateValue` — keep in sync if either
+      // changes its store-write strategy.
       void (async () => {
         try {
           const iterable = await factory(input, controller.signal);
