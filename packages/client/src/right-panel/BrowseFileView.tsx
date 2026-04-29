@@ -6,6 +6,7 @@
  *  avoids stomping scroll position on no-op ticks. */
 
 import { type Component, Match, Show, Switch } from "solid-js";
+import { toast } from "solid-sonner";
 import { createReactiveSubscription } from "../rpc/createReactiveSubscription";
 import { stream } from "../rpc/rpc";
 import PierreFileView from "../ui/PierreFileView";
@@ -21,6 +22,9 @@ const BrowseFileView: Component<BrowseFileViewProps> = (props) => {
     () => ({ repoPath: props.repoPath, filePath: props.filePath }),
     (input, signal) =>
       stream.fsReadFile(input.repoPath, input.filePath, signal),
+    {
+      onError: (err) => toast.error(`File content stream: ${err.message}`),
+    },
   );
 
   return (

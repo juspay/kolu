@@ -24,6 +24,7 @@ import {
   Show,
   Switch,
 } from "solid-js";
+import { toast } from "solid-sonner";
 import { createReactiveSubscription } from "../rpc/createReactiveSubscription";
 import { stream } from "../rpc/rpc";
 import { useColorScheme } from "../settings/useColorScheme";
@@ -74,6 +75,9 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
       return p && m ? { repoPath: p, mode: m } : null;
     },
     (input, signal) => stream.gitStatus(input.repoPath, input.mode, signal),
+    {
+      onError: (err) => toast.error(`Git status stream: ${err.message}`),
+    },
   );
 
   const allPaths = createReactiveSubscription(
@@ -82,6 +86,9 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
       return p && view() === "browse" ? { repoPath: p } : null;
     },
     (input, signal) => stream.fsListAll(input.repoPath, signal),
+    {
+      onError: (err) => toast.error(`File list stream: ${err.message}`),
+    },
   );
 
   const diff = createReactiveSubscription(
@@ -94,6 +101,9 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
       return { repoPath: p, filePath: s, mode: m, oldPath: file?.oldPath };
     },
     (input, signal) => stream.gitDiff(input, signal),
+    {
+      onError: (err) => toast.error(`Git diff stream: ${err.message}`),
+    },
   );
 
   // Reset selection when the repo or view changes so a stale path doesn't
