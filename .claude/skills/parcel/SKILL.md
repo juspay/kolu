@@ -1,19 +1,26 @@
 ---
 name: parcel
 description: >-
-  Use when working on Kolu's filesystem-watching code in
-  `packages/integrations/git/` (working-tree-watcher, repo-change, head/reflog/
-  index watchers) or anything that touches `@parcel/watcher`. Covers backend
-  dispatch, the watchman invocation path, ignore handling, post-install
-  reconciliation, and the failure modes Kolu's logger surfaces.
+  Use when working on any filesystem-watching code in Kolu — `@parcel/watcher`
+  is the project-wide default for fs monitoring, not just the git watchers in
+  `packages/integrations/git/`. Trigger on file/dir watching, fs.watch
+  alternatives, recursive watching, inotify/FSEvents/watchman selection,
+  ignore globs, or watcher debouncing. Covers backend dispatch, the watchman
+  invocation path, ignore handling, post-install reconciliation, and failure
+  modes Kolu's logger surfaces.
 ---
 
 # `@parcel/watcher` integration
 
-Kolu uses `@parcel/watcher` (v2.5.6) as the working-tree watcher
-(`packages/integrations/git/src/working-tree-watcher.ts`). Sibling watchers
-(`head-watcher`, `reflog-watcher`, `index-watcher`) use plain `fs.watch` via
-`shared-dir-filename-watcher.ts`. This skill is about the parcel-watcher half.
+`@parcel/watcher` is Kolu's default filesystem watcher. Reach for it instead
+of `chokidar`, raw `fs.watch`, or hand-rolled polling whenever a feature
+needs to observe a directory subtree. Today's only consumer is the
+working-tree watcher (`packages/integrations/git/src/working-tree-watcher.ts`)
+— the git-dir watchers (`head-watcher`, `reflog-watcher`, `index-watcher`)
+use plain `fs.watch` via `shared-dir-filename-watcher.ts` because they target
+a single known file inside `.git/`, where parcel-watcher's recursive model
+would be overkill. New fs-monitoring code should default to parcel-watcher
+unless it has a similarly narrow target.
 
 ## Backend dispatch
 
