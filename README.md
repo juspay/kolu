@@ -160,6 +160,16 @@ Record the Kolu tab — whole canvas or a single maximized terminal — with mic
 - **Webcam PiP overlay** — when enabled, a circular mirrored `<video>` pins to the bottom-right above maximized tiles but below the chrome bar, and is baked into the recording by the tab-capture stream (no offscreen compositing)
 - **Browser picker collapses** — `getDisplayMedia({ preferCurrentTab: true, selfBrowserSurface: "include" })` turns the multi-surface picker into a single "Share this tab" confirmation
 
+### Transcript export
+
+Command-palette entry "Export agent session as HTML" (visible only when the active terminal has an agent session) saves the current Claude Code, OpenCode, or Codex transcript as a single self-contained `.html` file — no external assets, no server upload, opens in any browser offline.
+
+- **Vendor-neutral IR** — each integration loader normalizes its session storage (Claude's JSONL, OpenCode's SQLite, Codex's rollout) into the same `TranscriptEvent` union in `kolu-transcript-core`. The renderer dispatches on `event.kind`, never on the agent — adding a new vendor's quirky tool name is a loader-side change with zero renderer churn
+- **Typed `ToolInput` union** — every Claude Code built-in tool ([34 entries](https://code.claude.com/docs/en/tools-reference): Edit/Bash/Skill/TaskCreate/WebSearch/PowerShell/…) and every OpenCode built-in tool ([13 entries](https://opencode.ai/docs/tools/): edit/bash/todowrite/lsp/question/…) maps to a kind the renderer can specialise on. Anything we haven't modelled lands honestly in `kind: "unknown"` with the original `toolName` preserved — the document never lies about what a tool was
+- **Code surfaces through Pierre** — `Edit`, `Write`, fenced markdown code, and Codex `apply_patch` all flow through [`@pierre/diffs`](https://www.npmjs.com/package/@pierre/diffs)'s SSR. Each chunk hydrates into a `<diffs-container>` custom element; a tiny inlined bootstrap shares Pierre's ~43KB core stylesheet across every chunk via `adoptedStyleSheets` so the per-event payload stays small
+- **Warm-parchment editorial layout** — serif prose, mono code, role-tinted gutters, sticky dock for hide-tools / hide-reasoning / theme cycle, `j`/`k` to step between prompts, Reddit-style indent for nested subtask blocks
+- **Theme follows the toggle** — manual dark/light flip flows through to Pierre's shiki tokens via `color-scheme: inherit !important` on `<diffs-container>`, so the whole document (chrome + code) flips together instead of Pierre staying in the system-preferred mode
+
 ## Architecture
 
 pnpm monorepo:
@@ -175,6 +185,8 @@ pnpm monorepo:
 | `packages/integrations/opencode/`    | OpenCode detection — reads OpenCode's SQLite database via Node's built-in `node:sqlite`; exports an `opencodeProvider` `AgentProvider`                                |
 | `packages/integrations/git/`         | Pure git operations — `simple-git` wrapper: repo resolution, worktree lifecycle, diff review, path security; schemas re-exported by `kolu-common`                     |
 | `packages/integrations/github/`      | GitHub PR schemas + pure helpers (`deriveCheckStatus`, `classifyGhError`, `prResultEqual`); server wraps with `gh pr view` spawn via `KOLU_GH_BIN`                    |
+| `packages/transcript-core/`          | Vendor-neutral transcript IR (`Transcript`, `TranscriptEvent`, typed `ToolInput` union) + structural transforms; per-agent loaders normalize into this shape          |
+| `packages/transcript-html/`          | Static-export renderer — `marked` for prose, [`@pierre/diffs`](https://www.npmjs.com/package/@pierre/diffs) SSR for shiki-tokenized code/diffs, [Preact](https://preactjs.com/) JSX for chrome; emits one self-contained `.html` |
 | `packages/terminal-themes/`          | Terminal color scheme catalog + perceptual-distance picker — themes checked-in as JSON                                                                                |
 | `packages/memorable-names/`          | ADJ-NOUN random name generator — word lists checked-in as JSON                                                                                                        |
 
