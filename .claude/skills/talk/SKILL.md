@@ -1,7 +1,7 @@
 ---
 name: talk
 description: Enter talk mode — conversation and research, no repo changes
-argument-hint: "[--no-laconic] <topic or question>"
+argument-hint: "[--no-laconic] [--review-model=<opus|sonnet|haiku>] <topic or question>"
 ---
 
 # Probe (Talk Mode)
@@ -14,7 +14,7 @@ You are now in **talk mode**. Have a conversation with the user — discuss idea
 - **Do NOT run destructive repo commands.** No `git commit`, `git push`, `git add`, `git rm`, or anything else that mutates the current repo.
 - You MAY read files (`Read`, `Glob`, `Grep`), run read-only shell commands (`git log`, `git diff`, `ls`), search the web, and use Explore subagents — anything that helps you give better answers.
 - You MAY create temporary scratch files outside the repo when needed for research. Cloning an external repository into `/tmp/<name>` to inspect the exact upstream/library source is allowed. Keep that scratch work ephemeral and do not treat it as a place to make user-requested code changes.
-- You MAY use `AskUserQuestion` when the user's intent is genuinely ambiguous. You MAY NOT use it to ask permission to research something ("want me to check X?", "should I look at Y?") — if you're tempted to ask, just do the research and report back. Asking to research is the single most common way talk mode fails.
+- You MAY use `AskUserQuestion` when the user's intent is genuinely ambiguous, or to collaborate on a design decision (e.g. proposing a phase split — see below). You MAY NOT use it to ask permission to research something ("want me to check X?", "should I look at Y?") — if you're tempted to ask, just do the research and report back. Asking to research is the single most common way talk mode fails.
 - **Talk mode ends when the user invokes an action skill** (e.g., `do`). Until then, stay in talk mode.
 
 ## Research before answering — MANDATORY
@@ -68,13 +68,25 @@ If you're about to emit "probably", "almost certainly", "I suspect", "my #1 susp
 - Be direct, opinionated, and concise.
 - If the user asks you to implement something, remind them to use `do` when ready and discuss the approach instead — but **only after** you've done the research that would make the discussion grounded.
 
+## Phased delivery for feature work
+
+For **user-visible feature work** large enough that an unphased PR would be painful for a human to review, propose splitting the implementation into phases where each phase is independently useful when merged — any prefix of phases is itself a shippable improvement. If phase 1 alone wouldn't deliver real value to the user, the split is wrong.
+
+The trigger is reviewer pain, not abstract complexity: a 30-line feature that touches one file ships unphased even if it's "non-trivial" to design; a 600-line feature that touches eight files needs a phase split even if each piece is mechanically simple.
+
+This applies only to user-visible feature work. Refactors, internal scaffolding, and bug fixes don't get phased — they ride along with the user-facing slice that needs them, or land as a single change.
+
+Use `AskUserQuestion` to collaborate on the cut: propose your split, surface the trade-offs of each phase boundary (what does phase 1 alone give the user? what does deferring phase 3 cost?), and let the user adjust before they invoke `do`.
+
 ## Auto-Lowy
 
-Any time the conversation produces a concrete code plan, diff proposal, or design sketch that could be implemented, **invoke the `lowy` skill on that proposal before presenting your final recommendation** — do not wait for the user to ask. Fold its findings into the recommendation (flag boundaries that track functionality instead of volatility, flag where a seam would cleanly encapsulate an axis of change) rather than dumping raw subagent output on top. Use the `Skill` tool (`skill: "lowy"`); the skill declares `context: fork` so it runs in an isolated subagent and keeps the main turn lean.
+Any time the conversation produces a concrete code plan, diff proposal, or design sketch that could be implemented, **invoke the `lowy` sub-agent on that proposal before presenting your final recommendation** — do not wait for the user to ask. Fold its findings into the recommendation (flag boundaries that track functionality instead of volatility, flag where a seam would cleanly encapsulate an axis of change) rather than dumping raw sub-agent output on top. Use `Agent(subagent_type="lowy")`, not the `Skill` tool — the sub-agent runs in an isolated context and keeps the main turn lean.
 
 Hickey's complecting critique deliberately does **not** run here. It needs a concrete diff to bite — running it on a sketch tends to surface generic concerns rather than the specific interleavings that matter. `do` runs hickey post-implement on the real diff. Talk mode sticks with Lowy because volatility-based decomposition is the design-level lens that's useful while the design is still a sketch.
 
 Skip the Lowy pass only when the turn is pure Q&A with no proposed change (e.g. "how does X work?"). When in doubt, run it.
+
+**Model override.** If `ARGUMENTS` contains `--review-model=<model>` (accept `opus`, `sonnet`, or `haiku`; strip the flag before treating the rest as the topic), pass `model: "<model>"` in the `Agent(subagent_type="lowy")` call. This overrides the `model: sonnet` in `lowy`'s agent frontmatter via the `Agent` tool's built-in `model` parameter. Without the flag, omit `model` so the default (sonnet) applies. Reject unknown values with a one-line error instead of silently falling back — a typo shouldn't quietly erase a budget decision.
 
 ## Laconic mode (default)
 
