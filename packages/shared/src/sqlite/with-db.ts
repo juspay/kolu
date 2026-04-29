@@ -22,7 +22,7 @@
  *     not use this wrapper for that query.
  */
 
-import type { Logger } from "./index.ts";
+import type { Logger } from "../log.ts";
 
 /** Minimal shape a DB handle must satisfy to be managed by `withDb`. */
 export interface Closable {

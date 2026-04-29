@@ -198,6 +198,9 @@ importers:
 
   packages/integrations/anyagent:
     dependencies:
+      kolu-shared:
+        specifier: workspace:*
+        version: link:../../shared
       nonempty:
         specifier: workspace:*
         version: link:../../nonempty
@@ -226,6 +229,9 @@ importers:
       anyagent:
         specifier: workspace:*
         version: link:../anyagent
+      kolu-shared:
+        specifier: workspace:*
+        version: link:../../shared
       kolu-transcript-core:
         specifier: workspace:*
         version: link:../../transcript-core
@@ -251,6 +257,9 @@ importers:
       anyagent:
         specifier: workspace:*
         version: link:../anyagent
+      kolu-shared:
+        specifier: workspace:*
+        version: link:../../shared
       kolu-transcript-core:
         specifier: workspace:*
         version: link:../../transcript-core
@@ -273,9 +282,9 @@ importers:
 
   packages/integrations/git:
     dependencies:
-      anyagent:
+      kolu-shared:
         specifier: workspace:*
-        version: link:../anyagent
+        version: link:../../shared
       memorable-names:
         specifier: workspace:*
         version: link:../../memorable-names
@@ -298,9 +307,9 @@ importers:
 
   packages/integrations/github:
     dependencies:
-      anyagent:
+      kolu-shared:
         specifier: workspace:*
-        version: link:../anyagent
+        version: link:../../shared
       ts-pattern:
         specifier: ^5.9.0
         version: 5.9.0
@@ -323,6 +332,9 @@ importers:
       anyagent:
         specifier: workspace:*
         version: link:../anyagent
+      kolu-shared:
+        specifier: workspace:*
+        version: link:../../shared
       kolu-transcript-core:
         specifier: workspace:*
         version: link:../../transcript-core
@@ -424,6 +436,9 @@ importers:
       kolu-opencode:
         specifier: workspace:*
         version: link:../integrations/opencode
+      kolu-shared:
+        specifier: workspace:*
+        version: link:../shared
       kolu-transcript-html:
         specifier: workspace:*
         version: link:../transcript-html
@@ -464,6 +479,15 @@ importers:
       vitest:
         specifier: ^4.1.2
         version: 4.1.2(@types/node@22.19.15)(vite@6.4.2(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3))
+
+  packages/shared:
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.15
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
 
   packages/terminal-themes:
     dependencies:

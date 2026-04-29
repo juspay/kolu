@@ -30,7 +30,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import type { Logger } from "./index.ts";
+import type { Logger } from "../log.ts";
 
 /** Per-listener record tracked in the singleton's Set. */
 interface WalListener {
@@ -108,6 +108,10 @@ export function createWalSubscription(
         log,
       );
       sharedWalWatcher = { cleanup, listeners };
+      log?.info(
+        { walPath: config.walPath },
+        `${config.label}: wal watcher installed`,
+      );
     }
     const listener: WalListener = { cb: onChange, onError };
     sharedWalWatcher.listeners.add(listener);
@@ -117,6 +121,10 @@ export function createWalSubscription(
       if (sharedWalWatcher.listeners.size === 0) {
         sharedWalWatcher.cleanup();
         sharedWalWatcher = null;
+        log?.info(
+          { walPath: config.walPath },
+          `${config.label}: wal watcher retired`,
+        );
       }
     };
   }

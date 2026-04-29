@@ -12,7 +12,8 @@
 
 import fs from "node:fs";
 import type { DatabaseSync } from "node:sqlite";
-import { type Logger, withDb as sharedWithDb } from "anyagent";
+import type { Logger } from "kolu-shared";
+import { withDb as sharedWithDb } from "kolu-shared/sqlite";
 import {
   type Fetcher,
   parseIsoTimestamp,

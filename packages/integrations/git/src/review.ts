@@ -20,7 +20,7 @@
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import type { Logger } from "anyagent";
+import type { Logger } from "kolu-shared";
 import { simpleGit } from "simple-git";
 import { err, type GitResult, ok } from "./errors.ts";
 import { resolveUnder } from "./safe-path.ts";

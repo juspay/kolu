@@ -5,7 +5,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import type { Logger } from "anyagent";
+import type { Logger } from "kolu-shared";
 import { randomName } from "memorable-names";
 import { simpleGit } from "simple-git";
 import { err, type GitResult, ok } from "./errors.ts";

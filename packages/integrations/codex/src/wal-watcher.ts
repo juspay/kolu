@@ -4,7 +4,7 @@
  * fallback, and promote-on-appearance dance all live upstream.
  */
 
-import { createWalSubscription } from "anyagent";
+import { createWalSubscription } from "kolu-shared/sqlite";
 import { CODEX_DB_PATH, CODEX_DB_WAL_PATH } from "./config.ts";
 
 const { subscribe: subscribeCodexDb } = createWalSubscription({

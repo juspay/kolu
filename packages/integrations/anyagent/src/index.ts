@@ -1,7 +1,11 @@
-/** Shared schemas, types, and utilities used by multiple integration packages.
- *  Lives here (not in kolu-common) to avoid circular dependencies:
- *  kolu-common imports from integration packages for their agent schemas,
- *  so integration packages can't import back from kolu-common. */
+/** Agent contracts shared across integration packages.
+ *
+ *  Owns: AgentProvider contract, terminal-state matching, agent CLI
+ *  parsing, and the cross-integration TaskProgress schema.
+ *
+ *  Generic utilities (Logger, file/DB helpers, WAL subscription factory)
+ *  live in `kolu-shared` — agent integrations and `kolu-git` import them
+ *  from there. This package is for code that has agent-specific concerns. */
 
 export { parseAgentCommand, resumeAgentCommand } from "./agent-cli.ts";
 
@@ -13,15 +17,4 @@ export {
   agentInfoEqual,
   matchesAgent,
 } from "./agent-provider.ts";
-export {
-  type Logger,
-  type TaskProgress,
-  TaskProgressSchema,
-} from "./schemas.ts";
-export { readTailLines, type TailReadConfig } from "./tail-lines.ts";
-export {
-  createWalSubscription,
-  type WalSubscription,
-  type WalSubscriptionConfig,
-} from "./wal-subscription.ts";
-export { type Closable, withDb } from "./with-db.ts";
+export { type TaskProgress, TaskProgressSchema } from "./schemas.ts";

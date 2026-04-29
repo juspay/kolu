@@ -19,8 +19,9 @@
 
 import fs from "node:fs";
 import type { DatabaseSync } from "node:sqlite";
-import type { Logger } from "anyagent";
-import { agentInfoEqual, readTailLines } from "anyagent";
+import type { Logger } from "kolu-shared";
+import { agentInfoEqual } from "anyagent";
+import { readTailLines } from "kolu-shared";
 import {
   type CodexSession,
   getThreadMetadata,
@@ -172,6 +173,7 @@ export function createCodexWatcher(
     (err) => log?.error({ err, session: session.id }, "wal listener threw"),
     log,
   );
+  log?.info({ session: session.id }, "codex: session watcher installed");
   refresh();
 
   return {
@@ -184,6 +186,7 @@ export function createCodexWatcher(
       }
       unsubscribe();
       db?.close();
+      log?.info({ session: session.id }, "codex: session watcher retired");
     },
   };
 }

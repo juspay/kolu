@@ -93,6 +93,46 @@ Bad: `const text = await page.evaluate(() => navigator.clipboard.readText()); as
 Good: `await page.waitForFunction((exp) => navigator.clipboard.readText().then(t => t.includes(exp)), expected, { timeout: POLL_TIMEOUT });`
 _Rationale_: A bare `page.evaluate()` + `assert` is a race condition — the async operation (clipboard write, SolidJS reactivity flush, DOM update) may not have completed by the time the read fires. This passes on fast machines (x86_64-linux) and fails on slower ones (aarch64-darwin). The fix was applied in commit `36c82cd` for command palette tests; this rule prevents the pattern from recurring.
 
+### watcher-lifecycle-logs
+
+Every long-lived `fs.watch` (or analogous subscription — refcounted singleton, DB WAL watcher, per-session JSONL tail) must emit `info`-level logs at install and retire, formatted exactly:
+
+```
+"<integration>: <subject> watcher installed"
+"<integration>: <subject> watcher retired"
+```
+
+Pass the watch target (`gitDir`, `dir`, `path`, `walPath`, `session`, etc.) in the **structured fields** object — not in the message string. The message owns the label; the fields own the identity.
+
+Examples in tree (mirror these):
+
+| Site | Label | Fields |
+| --- | --- | --- |
+| `git/head-watcher.ts` | `git: head` | `{ gitDir }` |
+| `anyagent/wal-subscription.ts` | `<config.label>: wal` | `{ walPath }` |
+| `claude-code/core.ts` `tryWatchDir` | `claude-code: dir` | `{ dir }` |
+| `claude-code/session-watcher.ts` | `claude-code: transcript` | `{ path, session }` |
+| `codex/session-watcher.ts` | `codex: session` | `{ session }` |
+| `opencode/session-watcher.ts` | `opencode: session` | `{ session }` |
+
+_Why_: operators correlating watcher counts in long-running processes need a single grep pattern (`grep "watcher \(installed\|retired\)"`) that catches every site. Format drift — different verbs, different prefix punctuation, label-in-fields-instead-of-message — silently breaks the correlation tool.
+
+_What this rule is NOT_: a generic "log every lifecycle event" mandate. PTY spawn/exit, agent session match/end, and other lifecycle pairs use their own verbs and stay as ordinary `log.info({...}, "X started")` calls. This rule fires only when adding a long-lived `fs.watch` or analogous resource subscription.
+
+_Bad_:
+
+```ts
+log.info({ dir, kind: "claude-code" }, "watcher installed: dir");
+log.info({}, `claude-code dir watcher started at ${dir}`);
+```
+
+_Good_:
+
+```ts
+log?.info({ dir }, "claude-code: dir watcher installed");
+log?.info({ dir }, "claude-code: dir watcher retired");
+```
+
 ### icons-in-registry
 
 All SVG icons must be defined as named exports in `packages/client/src/ui/Icons.tsx`. Never inline SVG markup in component files.

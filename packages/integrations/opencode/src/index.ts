@@ -15,7 +15,7 @@
  * agent-provider cycle (#710).
  */
 
-export type { Logger } from "anyagent";
+export type { Logger } from "kolu-shared";
 export { opencodeProvider } from "./agent-provider.ts";
 export { OPENCODE_DB_PATH, OPENCODE_DB_WAL_PATH } from "./config.ts";
 

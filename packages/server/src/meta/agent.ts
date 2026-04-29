@@ -16,8 +16,8 @@ import type {
   AgentProvider,
   AgentTerminalState,
   AgentWatcher,
-  Logger,
 } from "anyagent";
+import type { Logger } from "kolu-shared";
 import type { AgentInfo } from "kolu-common";
 import { log } from "../log.ts";
 import { subscribeForTerminal } from "../publisher.ts";

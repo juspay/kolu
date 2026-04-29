@@ -16,7 +16,7 @@
 import { execSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import type { Logger } from "anyagent";
+import type { Logger } from "kolu-shared";
 
 const DEBOUNCE_MS = 150;
 

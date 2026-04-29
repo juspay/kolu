@@ -27,7 +27,8 @@
  *  emitted by the loader's recursion, not pulled from the DB. */
 
 import type { DatabaseSync } from "node:sqlite";
-import { type Logger, withDb as sharedWithDb } from "anyagent";
+import type { Logger } from "kolu-shared";
+import { withDb as sharedWithDb } from "kolu-shared/sqlite";
 import type {
   Fetcher,
   ToolInput,
