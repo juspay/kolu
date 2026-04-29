@@ -19,12 +19,26 @@ export type GitHubPrContext =
   | { kind: "absent"; repoRoot: string; branch: string }
   | { kind: "lookup"; repoRoot: string; branch: string; remoteUrl: string };
 
+function gitRemoteHost(remoteUrl: string): string | null {
+  try {
+    return new URL(remoteUrl).hostname.toLowerCase();
+  } catch {
+    const scpLike = /^(?:[^@/\s]+@)?([^:/\s]+):[^/\s].+$/.exec(remoteUrl);
+    return scpLike?.[1]?.toLowerCase() ?? null;
+  }
+}
+
+function isGitHubRemoteUrl(remoteUrl: string): boolean {
+  const host = gitRemoteHost(remoteUrl);
+  return host === "github.com" || host === "ssh.github.com";
+}
+
 export function githubPrContextFromGitState(
   state: GitHubPrGitState,
 ): GitHubPrContext {
   if (state.kind === "none") return { kind: "none" };
   const { repoRoot, branch, remoteUrl } = state;
-  return remoteUrl
+  return remoteUrl && isGitHubRemoteUrl(remoteUrl)
     ? { kind: "lookup", repoRoot, branch, remoteUrl }
     : { kind: "absent", repoRoot, branch };
 }

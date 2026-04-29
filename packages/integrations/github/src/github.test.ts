@@ -161,7 +161,7 @@ describe("GitHub PR git context", () => {
     ).toEqual({ kind: "absent", repoRoot: "/repo", branch: "main" });
   });
 
-  it("maps repos with remotes to lookup", () => {
+  it("maps repos with GitHub scp remotes to lookup", () => {
     expect(
       githubPrContextFromGitState({
         kind: "repo",
@@ -175,6 +175,33 @@ describe("GitHub PR git context", () => {
       branch: "main",
       remoteUrl: "git@github.com:juspay/kolu.git",
     });
+  });
+
+  it("maps repos with GitHub URL remotes to lookup", () => {
+    expect(
+      githubPrContextFromGitState({
+        kind: "repo",
+        repoRoot: "/repo",
+        branch: "main",
+        remoteUrl: "https://github.com/juspay/kolu.git",
+      }),
+    ).toEqual({
+      kind: "lookup",
+      repoRoot: "/repo",
+      branch: "main",
+      remoteUrl: "https://github.com/juspay/kolu.git",
+    });
+  });
+
+  it("maps repos with non-GitHub remotes to absent", () => {
+    expect(
+      githubPrContextFromGitState({
+        kind: "repo",
+        repoRoot: "/repo",
+        branch: "main",
+        remoteUrl: "https://gitlab.com/juspay/kolu.git",
+      }),
+    ).toEqual({ kind: "absent", repoRoot: "/repo", branch: "main" });
   });
 
   it("compares lookup contexts by repo, branch, and remote", () => {
