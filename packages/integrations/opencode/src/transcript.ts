@@ -295,9 +295,8 @@ export function eventsFromMessageParts(
       if (p.tool === "task" && inlineSubtask) {
         const childId = extractTaskChildSessionId(p);
         if (childId) {
-          // The `task` tool falls through normalize as `unknown` (we
-          // don't model dispatch shapes); pull description out of the
-          // raw input.
+          // We don't model `task` dispatch shapes in the IR, so the
+          // description comes from the raw input here.
           const rawInput = p.state?.input;
           const description =
             (typeof rawInput === "object" &&

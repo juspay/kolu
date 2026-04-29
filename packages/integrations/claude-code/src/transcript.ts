@@ -216,9 +216,6 @@ export function normalizeClaudeToolInput(
         args: argsField && argsField.length > 0 ? argsField : null,
       };
     }
-    // Session task list (TaskCreate/Get/List/Update/Output/Stop +
-    // TodoWrite). Each tool is its own switch case so the type
-    // narrowing on `op` is exhaustive.
     case "TaskCreate":
       return { kind: "task", op: "create", summary: str("subject") || null };
     case "TaskUpdate":

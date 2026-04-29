@@ -26,6 +26,7 @@ import {
   preloadFileDiff,
   preloadMultiFileDiff,
 } from "@pierre/diffs/ssr";
+import { escapeHtml } from "kolu-common";
 
 /** Read Pierre's compiled `style.js` module and pull out the core CSS
  *  string literal. The file shape is `var style_default = "...";
@@ -118,7 +119,7 @@ export async function renderPatch(patch: string): Promise<string> {
   const parsed = parsePatchFiles(patch);
   const fileDiffs = parsed.flatMap((p) => p.files);
   if (fileDiffs.length === 0) {
-    return `<pre class="card-text card-text--code">${escapeForPre(patch)}</pre>`;
+    return `<pre class="card-text card-text--code">${escapeHtml(patch)}</pre>`;
   }
   const chunks = await Promise.all(
     fileDiffs.map(async (fileDiff) => {
@@ -130,10 +131,6 @@ export async function renderPatch(patch: string): Promise<string> {
     }),
   );
   return chunks.join("");
-}
-
-function escapeForPre(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 /** Render a markdown fenced code block. Pierre infers language from
