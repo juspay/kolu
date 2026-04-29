@@ -108,6 +108,10 @@ export function createWalSubscription(
         log,
       );
       sharedWalWatcher = { cleanup, listeners };
+      log?.info(
+        { walPath: config.walPath, label: config.label },
+        `${config.label}: wal watcher installed`,
+      );
     }
     const listener: WalListener = { cb: onChange, onError };
     sharedWalWatcher.listeners.add(listener);
@@ -117,6 +121,10 @@ export function createWalSubscription(
       if (sharedWalWatcher.listeners.size === 0) {
         sharedWalWatcher.cleanup();
         sharedWalWatcher = null;
+        log?.info(
+          { walPath: config.walPath, label: config.label },
+          `${config.label}: wal watcher retired`,
+        );
       }
     };
   }

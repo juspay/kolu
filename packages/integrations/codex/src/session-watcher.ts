@@ -172,6 +172,7 @@ export function createCodexWatcher(
     (err) => log?.error({ err, session: session.id }, "wal listener threw"),
     log,
   );
+  log?.info({ session: session.id }, "codex: session watcher installed");
   refresh();
 
   return {
@@ -184,6 +185,7 @@ export function createCodexWatcher(
       }
       unsubscribe();
       db?.close();
+      log?.info({ session: session.id }, "codex: session watcher retired");
     },
   };
 }

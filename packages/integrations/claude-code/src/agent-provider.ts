@@ -52,8 +52,8 @@ export const claudeCodeProvider: AgentProvider<SessionFile, ClaudeCodeInfo> = {
     isPresent(state) {
       return matchesAgent(state, "claude") || fs.existsSync(SESSIONS_DIR);
     },
-    install(onChange, onError) {
-      subscribeSessionsDir(onChange, onError);
+    install(onChange, onError, log) {
+      subscribeSessionsDir(onChange, onError, log);
     },
   },
 };

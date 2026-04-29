@@ -24,7 +24,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { getSessionInfo } from "@anthropic-ai/claude-agent-sdk";
-import { readTailLines } from "anyagent";
+import { type Logger, readTailLines } from "anyagent";
 import { match } from "ts-pattern";
 import type { ClaudeCodeInfo, TaskProgress } from "./schemas.ts";
 
@@ -380,15 +380,23 @@ export function deriveTaskProgress(
  * if watch failed. ENOENT (directory doesn't exist yet) is expected and
  * silent; other errors (EACCES, EMFILE, etc.) surface at debug so they're
  * discoverable without spamming the log.
+ *
+ * Mirrors `git: head watcher installed/retired` lifecycle logging so an
+ * operator can correlate watcher count against the events that opened
+ * each one.
  */
 export function tryWatchDir(
   dir: string,
   onChange: () => void,
-  log?: { debug: (obj: Record<string, unknown>, msg: string) => void },
+  log?: Logger,
 ): (() => void) | null {
   try {
     const w = fs.watch(dir, () => onChange());
-    return () => w.close();
+    log?.info({ dir }, "claude-code: dir watcher installed");
+    return () => {
+      w.close();
+      log?.info({ dir }, "claude-code: dir watcher retired");
+    };
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
       log?.debug({ err, dir }, "fs.watch failed");
@@ -409,30 +417,36 @@ export function tryWatchDir(
 export function watchOrWaitForDir(
   dir: string,
   onChange: () => void,
-  log?: { debug: (obj: Record<string, unknown>, msg: string) => void },
+  log?: Logger,
 ): () => void {
   const direct = tryWatchDir(dir, onChange, log);
   if (direct) return direct;
 
   let child: (() => void) | null = null;
   let parentWatcher: fs.FSWatcher | null = null;
+  const parent = path.dirname(dir);
   try {
-    parentWatcher = fs.watch(path.dirname(dir), () => {
+    parentWatcher = fs.watch(parent, () => {
       if (child) return;
       const attached = tryWatchDir(dir, onChange, log);
       if (!attached) return;
       child = attached;
       parentWatcher?.close();
       parentWatcher = null;
+      log?.info({ dir, parent }, "claude-code: parent-dir watcher retired");
       // Kick — dir may already contain files (race: created between our
       // first attempt and the parent event).
       onChange();
     });
+    log?.info({ dir, parent }, "claude-code: parent-dir watcher installed");
   } catch (err) {
     log?.debug({ err, dir }, "fs.watch parent fallback failed");
   }
   return () => {
-    parentWatcher?.close();
+    if (parentWatcher) {
+      parentWatcher.close();
+      log?.info({ dir, parent }, "claude-code: parent-dir watcher retired");
+    }
     child?.();
   };
 }
@@ -479,20 +493,25 @@ let sharedSessionsDir: {
 export function subscribeSessionsDir(
   onChange: () => void,
   onError: (err: unknown) => void,
+  log?: Logger,
 ): () => void {
   if (!sharedSessionsDir) {
     const listeners = new Set<SessionsDirListener>();
-    const cleanup = watchOrWaitForDir(SESSIONS_DIR, () => {
-      // Snapshot before iteration so a listener that subscribes or
-      // unsubscribes synchronously can't skip a peer for this event.
-      for (const l of [...listeners]) {
-        try {
-          l.cb();
-        } catch (err) {
-          l.onError(err);
+    const cleanup = watchOrWaitForDir(
+      SESSIONS_DIR,
+      () => {
+        // Snapshot before iteration so a listener that subscribes or
+        // unsubscribes synchronously can't skip a peer for this event.
+        for (const l of [...listeners]) {
+          try {
+            l.cb();
+          } catch (err) {
+            l.onError(err);
+          }
         }
-      }
-    });
+      },
+      log,
+    );
     sharedSessionsDir = { cleanup, listeners };
   }
   const listener: SessionsDirListener = { cb: onChange, onError };

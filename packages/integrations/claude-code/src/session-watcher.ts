@@ -116,7 +116,13 @@ export function createSessionWatcher(
     match(transcriptWatching)
       .with({ kind: "none" }, () => {})
       .with({ kind: "waiting" }, ({ dirWatcher }) => dirWatcher())
-      .with({ kind: "watching" }, ({ fileWatcher }) => fileWatcher.close())
+      .with({ kind: "watching" }, ({ path, fileWatcher }) => {
+        fileWatcher.close();
+        plog.info(
+          { path, session: session.sessionId },
+          "claude-code: transcript watcher retired",
+        );
+      })
       .exhaustive();
     transcriptWatching = { kind: "none" };
   }
@@ -139,6 +145,10 @@ export function createSessionWatcher(
     try {
       const fileWatcher = fs.watch(tp, () => scheduleTranscriptCheck());
       transcriptWatching = { kind: "watching", path: tp, fileWatcher };
+      plog.info(
+        { path: tp, session: session.sessionId },
+        "claude-code: transcript watcher installed",
+      );
     } catch (err) {
       plog.error({ err, path: tp }, "failed to watch transcript");
       transcriptWatching = { kind: "none" };
@@ -158,8 +168,10 @@ export function createSessionWatcher(
       "transcript not found yet (JSONL created after first message)",
     );
     const projectDir = `${PROJECTS_DIR}/${encodeProjectPath(session.cwd)}`;
-    const dirWatcher = watchOrWaitForDir(projectDir, () =>
-      onProjectDirChanged(),
+    const dirWatcher = watchOrWaitForDir(
+      projectDir,
+      () => onProjectDirChanged(),
+      plog,
     );
     transcriptWatching = { kind: "waiting", dirWatcher };
   }

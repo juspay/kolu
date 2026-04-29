@@ -140,6 +140,7 @@ export function createOpenCodeWatcher(
     (err) => log?.error({ err, session: session.id }, "wal listener threw"),
     log,
   );
+  log?.info({ session: session.id }, "opencode: session watcher installed");
   refresh();
 
   return {
@@ -152,6 +153,7 @@ export function createOpenCodeWatcher(
       }
       unsubscribe();
       db?.close();
+      log?.info({ session: session.id }, "opencode: session watcher retired");
     },
   };
 }
