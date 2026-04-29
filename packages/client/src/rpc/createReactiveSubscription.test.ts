@@ -185,7 +185,7 @@ describe("createReactiveSubscription", () => {
           const afterYield = readSub(sub);
 
           resolve({ before, afterChange, afterYield });
-          streams.forEach((s) => s.close());
+          for (const s of streams.values()) s.close();
           dispose();
         });
       });
@@ -227,7 +227,7 @@ describe("createReactiveSubscription", () => {
             const after = sub.pending();
 
             resolve({ mid, after });
-            streams.forEach((s) => s.close());
+            for (const s of streams.values()) s.close();
             dispose();
           });
         },
@@ -266,7 +266,7 @@ describe("createReactiveSubscription", () => {
           await flush();
 
           resolve(sub());
-          streams.forEach((s) => s.close());
+          for (const s of streams.values()) s.close();
           dispose();
         });
       });
