@@ -39,6 +39,13 @@ interface WatcherIdentity {
   commonGitDir: string;
 }
 
+function watcherFields(identity: WatcherIdentity): Record<string, unknown> {
+  return {
+    gitDir: identity.gitDir,
+    commonGitDir: identity.commonGitDir,
+  };
+}
+
 /** Module-scope registry: one entry per resolved gitDir/commonGitDir pair. */
 const sharedGitMetadataWatchers = new Map<string, SharedGitMetadataWatcher>();
 
@@ -63,7 +70,10 @@ function installSharedGitMetadataWatcher(
           cb();
         } catch (e) {
           log?.error(
-            { err: e instanceof Error ? e.message : String(e), ...identity },
+            {
+              err: e instanceof Error ? e.message : String(e),
+              ...watcherFields(identity),
+            },
             "git: metadata listener threw",
           );
         }
@@ -84,12 +94,15 @@ function installSharedGitMetadataWatcher(
   } catch (e) {
     for (const watcher of watchers) watcher.close();
     log?.error(
-      { err: e instanceof Error ? e.message : String(e), ...identity },
+      {
+        err: e instanceof Error ? e.message : String(e),
+        ...watcherFields(identity),
+      },
       "git: failed to watch metadata",
     );
     return null;
   }
-  log?.info(identity, "git: metadata watcher installed");
+  log?.info(watcherFields(identity), "git: metadata watcher installed");
 
   return {
     subscribe(onChange) {
@@ -106,7 +119,7 @@ function installSharedGitMetadataWatcher(
           if (timer) clearTimeout(timer);
           for (const watcher of watchers) watcher.close();
           onLast();
-          log?.info(identity, "git: metadata watcher retired");
+          log?.info(watcherFields(identity), "git: metadata watcher retired");
         }
       };
     },
