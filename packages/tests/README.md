@@ -30,7 +30,7 @@ just test
 
 Scenarios tagged `@skip` are excluded by default (regression harnesses for known-broken behavior). Run them with `CUCUMBER_TAGS='@skip' just test-quick features/foo.feature`.
 
-Scenarios tagged `@platform-linux` run only on Linux; `@platform-darwin` run only on macOS. `cucumber.js` reads `process.platform` and excludes the other platform's tag. Use this for scenarios that consistently fail on one OS until the underlying bottleneck is diagnosed — the worktree e2e suite is currently `@platform-linux` per [#771](https://github.com/juspay/kolu/issues/771). Run a quarantined scenario on its non-default platform with `CUCUMBER_TAGS='@platform-linux'` (which fully replaces the default filter, so it includes them everywhere).
+Scenarios tagged `@platform-linux` run only on Linux; `@platform-darwin` run only on macOS. `cucumber.js` reads `process.platform` and excludes the other platform's tag. Use this for scenarios that consistently fail on one OS until the underlying bottleneck is diagnosed — the worktree e2e suite is currently `@platform-linux` per [#771](https://github.com/juspay/kolu/issues/771). Run a quarantined scenario on its non-default platform with `CUCUMBER_TAGS='@platform-linux and not @skip' just test-quick features/worktree.feature` — `CUCUMBER_TAGS` fully replaces the default filter, so the `not @skip` part has to be repeated explicitly when you don't want regression-harness scenarios mixed in.
 
 Set `HEADLESS=false` to see the browser:
 
