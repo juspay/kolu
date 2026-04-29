@@ -22,6 +22,7 @@ let
       ./packages/common
       ./packages/integrations
       ./packages/nonempty
+      ./packages/shared
       ./packages/terminal-themes
       ./packages/memorable-names
       ./packages/server
