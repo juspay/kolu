@@ -185,14 +185,55 @@ Feature: Code tab (review + browse)
     Then the clipboard should contain "file-b.txt:1"
     And the clipboard should not contain "file-a.txt"
 
-  # ── Live updates: known coverage gap ──
-  # The Code view subscribes to a server-side watcher that observes four
-  # axes (HEAD, reflog, index, working tree) and pushes snapshot updates
-  # when any of them changes. The live behavior was verified by hand and
-  # in a standalone @parcel/watcher reproducer; an in-cucumber assertion
-  # is missing because parcel-watcher events are not delivered to the
-  # spawned-via-tsx test server in this harness, even though they fire
-  # correctly from the same parcel binary in a direct `node` reproducer
-  # against the same /tmp paths. Running watchman in the dev shell
-  # (shell.nix) is in place so parcel-watcher uses the daemon backend in
-  # real usage, bypassing per-process inotify entirely.
+  # ── Live updates: filesystem changes propagate without manual refresh ──
+  # The Code view subscribes to a watcher that observes four axes (HEAD,
+  # reflog, index, working tree) and pushes snapshot updates when any of
+  # them changes. Each scenario opens the tab in one state, mutates the
+  # filesystem from the shell, and asserts the new state appears with no
+  # click and no refresh button (it's gone).
+  #
+  # The post-tab `I click the terminal canvas` is required: clicking the
+  # right-panel tab moves focus off the terminal, so subsequent keystrokes
+  # would land in the panel instead of the PTY.
+
+  Scenario: A new file save shows up in the changed-file list
+    When I run "git init /tmp/kolu-live-save && cd /tmp/kolu-live-save"
+    And I run "git commit --allow-empty -m init"
+    And I click the Code tab
+    Then the Code tab should show the empty-changes message
+    When I click the terminal canvas
+    And I run "printf 'fresh\n' > new.txt"
+    Then the Code tab should list a changed file "new.txt"
+
+  Scenario: A commit removes the file from the changed-file list
+    When I run "git init /tmp/kolu-live-commit && cd /tmp/kolu-live-commit"
+    And I run "git commit --allow-empty -m init"
+    And I run "printf 'pending\n' > pending.txt"
+    And I click the Code tab
+    Then the Code tab should list a changed file "pending.txt"
+    When I click the terminal canvas
+    And I run "git add pending.txt && git commit -m 'land pending'"
+    Then the Code tab should not list a changed file "pending.txt"
+
+  Scenario: Editing a file updates the diff view live
+    When I run "git init /tmp/kolu-live-diff && cd /tmp/kolu-live-diff"
+    And I run "git commit --allow-empty -m init"
+    And I run "printf 'before\n' > note.txt"
+    And I click the Code tab
+    And I click the changed file "note.txt" in the Code tab
+    Then the diff view should contain "before"
+    When I click the terminal canvas
+    And I run "printf 'after\n' > note.txt"
+    Then the diff view should contain "after"
+
+  Scenario: Editing a file updates browse-mode content live
+    When I run "git init /tmp/kolu-live-browse && cd /tmp/kolu-live-browse"
+    And I run "printf 'first version\n' > letters.txt"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    And I click the file "letters.txt" in the file browser
+    Then the file content should contain "first version"
+    When I click the terminal canvas
+    And I run "printf 'second version\n' > letters.txt"
+    Then the file content should contain "second version"
