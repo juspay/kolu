@@ -3,7 +3,7 @@
  *  Uses `git ls-files` to enumerate tracked + untracked-but-not-ignored
  *  paths, then removes tracked paths deleted from the worktree. This avoids
  *  listing `node_modules/`, `.git/`, build artifacts, etc., while keeping the
- *  browse tree aligned with files that can actually be opened. */
+ *  browse tree aligned with files present in the working tree. */
 
 import { execFile } from "node:child_process";
 import { readFile as fsReadFile } from "node:fs/promises";
@@ -14,7 +14,7 @@ import { resolveUnder } from "./safe-path.ts";
 
 const execFileAsync = promisify(execFile);
 
-/** Flat list of every readable repo-relative path (tracked +
+/** Flat list of every present repo-relative path (tracked +
  *  untracked-but-not-ignored, excluding tracked files deleted from the
  *  worktree).
  *
