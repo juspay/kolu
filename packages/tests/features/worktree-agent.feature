@@ -14,6 +14,10 @@ Feature: Agent-aware worktree creation
     When I press the toggle inspector shortcut
     Then the right panel should be visible
 
+  # No @platform-linux tag — this scenario stops at palette visibility and
+  # never triggers worktree creation, so the macOS bottleneck (#771) doesn't
+  # apply. The next two scenarios go through the worktree-create flow and
+  # are tagged.
   Scenario: Agent sub-palette appears under a recent repo when agents exist
     # `claude` is not installed in the test env, but the preexec hook
     # fires BEFORE execution — the OSC 633;E mark is emitted regardless
