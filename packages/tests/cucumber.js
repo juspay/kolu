@@ -14,10 +14,10 @@ const cliHasFeatureArgs = process.argv
 // e.g. `CUCUMBER_TAGS='@skip'` runs only skipped scenarios for local
 // development, and `CUCUMBER_TAGS='@platform-linux'` runs only the
 // linux-quarantined scenarios (useful when investigating the macOS bug).
-const otherPlatformTag =
+const excludedPlatformTag =
   process.platform === "darwin" ? "@platform-linux" : "@platform-darwin";
 const tags =
-  process.env.CUCUMBER_TAGS || `not @skip and not ${otherPlatformTag}`;
+  process.env.CUCUMBER_TAGS || `not @skip and not ${excludedPlatformTag}`;
 
 export const ui = {
   ...(!cliHasFeatureArgs && { paths: ["features/**/*.feature"] }),
