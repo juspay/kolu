@@ -5,7 +5,15 @@
  *  and the channel publisher. See top comment in `schemas.ts` for the
  *  neutral-vs-gh-specific layout rationale. */
 
-export { classifyGhError, deriveCheckStatus, prResultEqual } from "./github.ts";
+export {
+  classifyGhError,
+  deriveCheckStatus,
+  githubPrContextEqual,
+  githubPrContextFromGitState,
+  prResultEqual,
+  type GitHubPrContext,
+  type GitHubPrGitState,
+} from "./github.ts";
 export {
   type GitHubPrWatcher,
   resolveGitHubPr,

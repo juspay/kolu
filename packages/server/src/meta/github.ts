@@ -52,9 +52,14 @@ export function startGitHubPrProvider(
   const abort = new AbortController();
   subscribeForTerminal("git", terminalId, abort.signal, (git) => {
     watcher.setGit(
-      git?.repoRoot ?? null,
-      git?.branch ?? null,
-      git?.remoteUrl ?? null,
+      git
+        ? {
+            kind: "repo",
+            repoRoot: git.repoRoot,
+            branch: git.branch,
+            remoteUrl: git.remoteUrl,
+          }
+        : { kind: "none" },
     );
   });
 

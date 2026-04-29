@@ -19,7 +19,7 @@ GitHub PR resolution — Zod schemas, gh-error classifier, CI-status deriver. Pu
 The server's `meta/github.ts` is a thin adapter around `subscribeGitHubPr`:
 
 1. Calls `subscribeGitHubPr(onChange, log)` — the integration owns the `gh pr view` spawn, branch-change dedup, pending-on-branch-change emission, the 30s polling loop, and failure classification/logging.
-2. On each terminal's `git:` channel emit, calls `watcher.setGit(repoRoot, branch, remoteUrl)` — the integration handles dedup internally and treats null-remote repos as PR-absent without invoking `gh`.
+2. On each terminal's `git:` channel emit, calls `watcher.setGit({ kind: "repo", repoRoot, branch, remoteUrl })` — the integration handles context dedup internally and treats null-remote repos as PR-absent without invoking `gh`.
 3. On `onChange`, publishes the resolved `PrResult` into terminal metadata via `updateServerMetadata`.
 
 `KOLU_GH_BIN` is pinned by Nix in `nix/env.nix` and read lazily by `resolve.ts` (first call, not at module load — so browser bundles that reach through `kolu-common/pr` don't blow up on `process.env` access).

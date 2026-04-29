@@ -7,7 +7,15 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { Logger } from "kolu-shared";
-import { classifyGhError, deriveCheckStatus, prResultEqual } from "./github.ts";
+import {
+  classifyGhError,
+  deriveCheckStatus,
+  githubPrContextEqual,
+  githubPrContextFromGitState,
+  prResultEqual,
+  type GitHubPrContext,
+  type GitHubPrGitState,
+} from "./github.ts";
 import { GitHubPrStateSchema, type PrResult } from "./schemas.ts";
 
 const execFileAsync = promisify(execFile);
@@ -106,16 +114,12 @@ function logGhResolveFailure(
 
 /** Watcher handle returned by `subscribeGitHubPr`. */
 export interface GitHubPrWatcher {
-  /** Feed the latest git state. Repo+branch+remote dedup happens internally; a
+  /** Feed the latest git state. Context dedup happens internally; a
    *  real change triggers a synchronous `{ kind: "pending" }` emit followed
    *  by an async resolve that emits the result. A null remote means the repo
    *  has no PR-capable remote, so it emits `{ kind: "absent" }` without
-   *  invoking gh. Pass `null`s when the terminal leaves a repo. */
-  setGit: (
-    repoRoot: string | null,
-    branch: string | null,
-    remoteUrl: string | null,
-  ) => void;
+   *  invoking gh. Pass `{ kind: "none" }` when the terminal leaves a repo. */
+  setGit: (state: GitHubPrGitState) => void;
   /** Cancel the poll timer and stop accepting updates. */
   stop: () => void;
 }
@@ -137,9 +141,7 @@ export function subscribeGitHubPr(
   onChange: (pr: PrResult) => void,
   log?: Logger,
 ): GitHubPrWatcher {
-  let lastBranch: string | null = null;
-  let lastRepoRoot: string | null = null;
-  let lastRemoteUrl: string | null = null;
+  let lastContext: GitHubPrContext = { kind: "none" };
   let lastPr: PrResult = { kind: "pending" };
   let stopped = false;
 
@@ -149,45 +151,36 @@ export function subscribeGitHubPr(
     onChange(pr);
   }
 
-  async function fetchAndEmit(repoRoot: string): Promise<void> {
-    const pr = await resolveGitHubPr(repoRoot, log);
-    emit(pr);
+  async function fetchAndEmit(
+    context: Extract<GitHubPrContext, { kind: "lookup" }>,
+  ): Promise<void> {
+    const pr = await resolveGitHubPr(context.repoRoot, log);
+    if (githubPrContextEqual(context, lastContext)) emit(pr);
   }
 
-  function setGit(
-    repoRoot: string | null,
-    branch: string | null,
-    remoteUrl: string | null,
-  ): void {
-    if (
-      branch === lastBranch &&
-      repoRoot === lastRepoRoot &&
-      remoteUrl === lastRemoteUrl
-    ) {
-      return;
-    }
+  function setGit(state: GitHubPrGitState): void {
+    const nextContext = githubPrContextFromGitState(state);
+    if (githubPrContextEqual(nextContext, lastContext)) return;
     log?.debug(
-      { from: lastBranch, to: branch, remote: remoteUrl },
+      { from: lastContext, to: nextContext },
       "git context changed, re-resolving",
     );
-    lastBranch = branch;
-    lastRepoRoot = repoRoot;
-    lastRemoteUrl = remoteUrl;
-    // Emit pending so stale PR info doesn't linger while resolve is in
-    // flight. If we already last-emitted pending, dedup inside `emit`
-    // makes this a no-op.
-    emit({ kind: "pending" });
-    if (branch && repoRoot && remoteUrl) {
-      void fetchAndEmit(repoRoot);
-    } else if (branch && repoRoot && remoteUrl === null) {
+    lastContext = nextContext;
+    if (nextContext.kind === "lookup") {
+      // Emit pending so stale PR info doesn't linger while resolve is in
+      // flight. If we already last-emitted pending, dedup inside `emit`
+      // makes this a no-op.
+      emit({ kind: "pending" });
+      void fetchAndEmit(nextContext);
+    } else {
       emit({ kind: "absent" });
     }
   }
 
   const pollTimer = setInterval(() => {
-    if (lastBranch && lastRepoRoot && lastRemoteUrl) {
-      log?.debug({ branch: lastBranch }, "poll tick");
-      void fetchAndEmit(lastRepoRoot);
+    if (lastContext.kind === "lookup") {
+      log?.debug({ branch: lastContext.branch }, "poll tick");
+      void fetchAndEmit(lastContext);
     }
   }, POLL_INTERVAL_MS);
 
@@ -196,7 +189,7 @@ export function subscribeGitHubPr(
     stop: () => {
       stopped = true;
       clearInterval(pollTimer);
-      log?.debug({ branch: lastBranch }, "stopped");
+      log?.debug({ context: lastContext }, "stopped");
     },
   };
 }

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { classifyGhError, deriveCheckStatus, prResultEqual } from "./github.ts";
+import {
+  classifyGhError,
+  deriveCheckStatus,
+  githubPrContextEqual,
+  githubPrContextFromGitState,
+  prResultEqual,
+} from "./github.ts";
 import type { GitHubPrInfo, PrResult } from "./schemas.ts";
 
 describe("deriveCheckStatus", () => {
@@ -134,6 +140,76 @@ describe("prResultEqual", () => {
     };
     expect(prResultEqual(a, b)).toBe(true);
     expect(prResultEqual(a, c)).toBe(false);
+  });
+});
+
+describe("GitHub PR git context", () => {
+  it("maps no repo to none", () => {
+    expect(githubPrContextFromGitState({ kind: "none" })).toEqual({
+      kind: "none",
+    });
+  });
+
+  it("maps repos without remotes to absent", () => {
+    expect(
+      githubPrContextFromGitState({
+        kind: "repo",
+        repoRoot: "/repo",
+        branch: "main",
+        remoteUrl: null,
+      }),
+    ).toEqual({ kind: "absent", repoRoot: "/repo", branch: "main" });
+  });
+
+  it("maps repos with remotes to lookup", () => {
+    expect(
+      githubPrContextFromGitState({
+        kind: "repo",
+        repoRoot: "/repo",
+        branch: "main",
+        remoteUrl: "git@github.com:juspay/kolu.git",
+      }),
+    ).toEqual({
+      kind: "lookup",
+      repoRoot: "/repo",
+      branch: "main",
+      remoteUrl: "git@github.com:juspay/kolu.git",
+    });
+  });
+
+  it("compares lookup contexts by repo, branch, and remote", () => {
+    expect(
+      githubPrContextEqual(
+        {
+          kind: "lookup",
+          repoRoot: "/repo",
+          branch: "main",
+          remoteUrl: "git@github.com:juspay/kolu.git",
+        },
+        {
+          kind: "lookup",
+          repoRoot: "/repo",
+          branch: "main",
+          remoteUrl: "git@github.com:juspay/kolu.git",
+        },
+      ),
+    ).toBe(true);
+    expect(
+      githubPrContextEqual(
+        {
+          kind: "lookup",
+          repoRoot: "/repo",
+          branch: "main",
+          remoteUrl: "git@github.com:juspay/kolu.git",
+        },
+        {
+          kind: "lookup",
+          repoRoot: "/repo",
+          branch: "main",
+          remoteUrl: "https://github.com/juspay/kolu.git",
+        },
+      ),
+    ).toBe(false);
   });
 });
 

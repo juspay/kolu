@@ -5,6 +5,49 @@
 import { match, P } from "ts-pattern";
 import type { GitHubPrInfo, PrResult, PrUnavailableSource } from "./schemas.ts";
 
+export type GitHubPrGitState =
+  | { kind: "none" }
+  | {
+      kind: "repo";
+      repoRoot: string;
+      branch: string;
+      remoteUrl: string | null;
+    };
+
+export type GitHubPrContext =
+  | { kind: "none" }
+  | { kind: "absent"; repoRoot: string; branch: string }
+  | { kind: "lookup"; repoRoot: string; branch: string; remoteUrl: string };
+
+export function githubPrContextFromGitState(
+  state: GitHubPrGitState,
+): GitHubPrContext {
+  if (state.kind === "none") return { kind: "none" };
+  const { repoRoot, branch, remoteUrl } = state;
+  return remoteUrl
+    ? { kind: "lookup", repoRoot, branch, remoteUrl }
+    : { kind: "absent", repoRoot, branch };
+}
+
+export function githubPrContextEqual(
+  a: GitHubPrContext,
+  b: GitHubPrContext,
+): boolean {
+  if (a.kind !== b.kind) return false;
+  if (a.kind === "none" && b.kind === "none") return true;
+  if (a.kind === "absent" && b.kind === "absent") {
+    return a.repoRoot === b.repoRoot && a.branch === b.branch;
+  }
+  if (a.kind === "lookup" && b.kind === "lookup") {
+    return (
+      a.repoRoot === b.repoRoot &&
+      a.branch === b.branch &&
+      a.remoteUrl === b.remoteUrl
+    );
+  }
+  return false;
+}
+
 /**
  * Derive combined check status from GitHub's statusCheckRollup entries.
  *
