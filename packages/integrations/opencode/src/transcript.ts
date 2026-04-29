@@ -169,6 +169,36 @@ export function normalizeOpenCodeToolInput(
         args: argsField && argsField.length > 0 ? argsField : null,
       };
     }
+    case "todowrite": {
+      // OpenCode's todowrite carries `{ todos: TodoItem[] }`.
+      const todos = Array.isArray(o.todos) ? o.todos.length : 0;
+      return {
+        kind: "task",
+        op: "write",
+        summary: todos > 0 ? `${todos} todos` : null,
+      };
+    }
+    case "question": {
+      // OpenCode's question carries `{ questions: Prompt[] }`. Each
+      // Prompt has a text field; we surface the first question's text
+      // so the renderer's "Ask · …" summary actually shows what was
+      // asked rather than dumping JSON.
+      const questions = Array.isArray(o.questions) ? o.questions : [];
+      const first = questions[0] as Record<string, unknown> | undefined;
+      const text =
+        typeof first?.text === "string"
+          ? (first.text as string)
+          : typeof first?.question === "string"
+            ? (first.question as string)
+            : "";
+      return { kind: "ask", question: text };
+    }
+    case "lsp":
+      return {
+        kind: "lsp",
+        op: str("operation") || "query",
+        summary: str("filePath") || null,
+      };
     default:
       return { kind: "unknown", toolName, raw };
   }

@@ -330,6 +330,36 @@ describe("normalizeOpenCodeToolInput", () => {
       normalizeOpenCodeToolInput("web_search", { query: "anything" }),
     ).toEqual({ kind: "web_search", query: "anything" });
   });
+
+  it("decodes todowrite into kind:task with op:write", () => {
+    expect(
+      normalizeOpenCodeToolInput("todowrite", {
+        todos: [{ id: 1 }, { id: 2 }],
+      }),
+    ).toEqual({ kind: "task", op: "write", summary: "2 todos" });
+    expect(normalizeOpenCodeToolInput("todowrite", { todos: [] })).toEqual({
+      kind: "task",
+      op: "write",
+      summary: null,
+    });
+  });
+
+  it("decodes question into kind:ask with the first question's text", () => {
+    expect(
+      normalizeOpenCodeToolInput("question", {
+        questions: [{ text: "Which DB?" }, { text: "Which framework?" }],
+      }),
+    ).toEqual({ kind: "ask", question: "Which DB?" });
+  });
+
+  it("decodes lsp into kind:lsp with op + filePath summary", () => {
+    expect(
+      normalizeOpenCodeToolInput("lsp", {
+        operation: "definition",
+        filePath: "/x/foo.ts",
+      }),
+    ).toEqual({ kind: "lsp", op: "definition", summary: "/x/foo.ts" });
+  });
 });
 
 describe("stripDispatchPrompt", () => {
