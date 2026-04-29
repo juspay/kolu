@@ -16,8 +16,8 @@ import type { GitInfo } from "./schemas.ts";
 const DEBOUNCE_MS = 150;
 
 interface GitHeadListener {
-  onChange: () => void;
-  log?: Logger;
+  cb: () => void;
+  onError: (err: unknown) => void;
 }
 
 interface SharedGitHeadWatcher {
@@ -133,6 +133,7 @@ export async function resolveGitInfo(
 export function watchGitHead(
   cwd: string,
   onChange: () => void,
+  onError: (err: unknown) => void,
   log?: Logger,
 ): () => void {
   const gitDir = resolveGitDir(cwd, log);
@@ -146,7 +147,7 @@ export function watchGitHead(
     sharedHeadWatchers.set(gitDir, entry);
   }
 
-  const listener: GitHeadListener = { onChange, log };
+  const listener: GitHeadListener = { cb: onChange, onError };
   entry.listeners.add(listener);
 
   return () => {
@@ -199,12 +200,9 @@ function installGitHeadWatcher(
         timer = null;
         for (const listener of [...listeners]) {
           try {
-            listener.onChange();
+            listener.cb();
           } catch (err) {
-            listener.log?.error(
-              { err: err instanceof Error ? err.message : String(err), gitDir },
-              "git: HEAD listener failed",
-            );
+            listener.onError(err);
           }
         }
       }, DEBOUNCE_MS);
@@ -263,10 +261,22 @@ export function subscribeGitInfo(
 ): { setCwd(next: string): void; stop(): void } {
   let currentCwd = initialCwd;
   let currentInfo: GitInfo | null = null;
-  let stopHead = watchGitHead(currentCwd, handleHeadChange, log);
+  let stopHead = watchGitHead(
+    currentCwd,
+    handleHeadChange,
+    handleHeadError,
+    log,
+  );
 
   function handleHeadChange(): void {
     void resolve();
+  }
+
+  function handleHeadError(error: unknown): void {
+    log?.error(
+      { err: error instanceof Error ? error.message : String(error) },
+      "git: HEAD listener failed",
+    );
   }
 
   async function resolve(): Promise<void> {
@@ -283,7 +293,12 @@ export function subscribeGitInfo(
     // restart it so branch switches in the newly-appeared repo propagate.
     if (currentInfo === null && next !== null) {
       stopHead();
-      stopHead = watchGitHead(currentCwd, handleHeadChange, log);
+      stopHead = watchGitHead(
+        currentCwd,
+        handleHeadChange,
+        handleHeadError,
+        log,
+      );
     }
     currentInfo = next;
     onChange(next);
@@ -307,7 +322,7 @@ export function subscribeGitInfo(
       }
       currentCwd = next;
       stopHead();
-      stopHead = watchGitHead(next, handleHeadChange, log);
+      stopHead = watchGitHead(next, handleHeadChange, handleHeadError, log);
       void resolve();
     },
     stop(): void {

@@ -360,8 +360,9 @@ describe("watchGitHead", () => {
 
     const first = vi.fn();
     const second = vi.fn();
-    const stopFirst = watchGitHead(dir, first);
-    const stopSecond = watchGitHead(subdir, second);
+    const onError = vi.fn();
+    const stopFirst = watchGitHead(dir, first, onError);
+    const stopSecond = watchGitHead(subdir, second, onError);
 
     expect(watchSpy).toHaveBeenCalledTimes(1);
 
@@ -381,7 +382,7 @@ describe("watchGitHead", () => {
     stopSecond();
     expect(close).toHaveBeenCalledTimes(1);
 
-    const stopThird = watchGitHead(dir, vi.fn());
+    const stopThird = watchGitHead(dir, vi.fn(), onError);
     expect(watchSpy).toHaveBeenCalledTimes(2);
     stopThird();
     expect(close).toHaveBeenCalledTimes(2);
