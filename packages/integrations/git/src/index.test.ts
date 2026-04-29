@@ -22,7 +22,7 @@ import {
   watchGitHead,
   worktreeCreate,
 } from "./index.ts";
-import { _sharedHeadWatcherCount } from "./resolve.ts";
+import { _sharedHeadWatcherCount } from "./head-watcher.ts";
 
 // Mock randomName to return a predictable value
 vi.mock("memorable-names", () => ({
