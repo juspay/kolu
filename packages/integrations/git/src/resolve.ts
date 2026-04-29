@@ -194,7 +194,7 @@ function installGitHeadWatcher(
   let watcher: fs.FSWatcher;
   try {
     watcher = fs.watch(gitDir, (_, filename) => {
-      if (filename !== "HEAD") return;
+      if (!isHeadChange(filename)) return;
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => {
         timer = null;
@@ -225,6 +225,12 @@ function installGitHeadWatcher(
       watcher.close();
     },
   };
+}
+
+function isHeadChange(filename: string | Buffer | null): boolean {
+  // Node may omit the filename for directory watches; fall back to re-resolving
+  // rather than missing a branch switch on those platforms.
+  return filename === null || filename.toString() === "HEAD";
 }
 
 /** Compare two GitInfo values for equality. */

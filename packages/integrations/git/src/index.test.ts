@@ -341,7 +341,8 @@ describe("watchGitHead", () => {
     fs.mkdirSync(subdir);
 
     vi.useFakeTimers();
-    const callbacks: Array<(event: string, filename: string) => void> = [];
+    const callbacks: Array<(event: string, filename: string | null) => void> =
+      [];
     const close = vi.fn();
     const watchSpy = vi.spyOn(fs, "watch").mockImplementation(((
       _target,
@@ -353,7 +354,9 @@ describe("watchGitHead", () => {
           ? optionsOrListener
           : maybeListener;
       if (typeof listener === "function") {
-        callbacks.push(listener as (event: string, filename: string) => void);
+        callbacks.push(
+          listener as (event: string, filename: string | null) => void,
+        );
       }
       return { close } as unknown as fs.FSWatcher;
     }) as typeof fs.watch);
@@ -378,6 +381,11 @@ describe("watchGitHead", () => {
     await vi.advanceTimersByTimeAsync(150);
     expect(first).toHaveBeenCalledTimes(1);
     expect(second).toHaveBeenCalledTimes(2);
+
+    callbacks[0]?.("change", null);
+    await vi.advanceTimersByTimeAsync(150);
+    expect(first).toHaveBeenCalledTimes(1);
+    expect(second).toHaveBeenCalledTimes(3);
 
     stopSecond();
     expect(close).toHaveBeenCalledTimes(1);
