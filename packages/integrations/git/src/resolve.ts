@@ -49,7 +49,7 @@ async function resolveRemoteUrl(
   try {
     return await readRemoteUrl(git);
   } catch (e) {
-    log?.debug(
+    log?.warn(
       { err: e instanceof Error ? e.message : String(e), cwd },
       "git: remote url unavailable",
     );
