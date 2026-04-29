@@ -19,6 +19,7 @@ import {
   parseNameStatus,
   resolveGitInfo,
   resolveUnder,
+  subscribeGitInfo,
   watchGitHead,
   worktreeCreate,
 } from "./index.ts";
@@ -752,5 +753,179 @@ describe("watchGitHead", () => {
     stopA();
     stopB();
     expect(_sharedHeadWatcherCount()).toBe(0);
+  });
+});
+
+// --- subscribeGitInfo: watcher lifecycle invariants (#748 regression) ---
+
+describe("subscribeGitInfo watcher churn", () => {
+  let tmpDir: string;
+
+  /** Create a git repo with one commit. */
+  async function initRepo(name: string) {
+    const dir = path.join(tmpDir, name);
+    fs.mkdirSync(dir, { recursive: true });
+    const git = simpleGit(dir);
+    await git.init();
+    await git.checkoutLocalBranch("main");
+    fs.writeFileSync(path.join(dir, "file.txt"), "hello");
+    await git.add(".");
+    await git.commit("initial");
+    return { dir, git };
+  }
+
+  /** Wait until `predicate` returns true or `timeout` elapses. */
+  async function waitFor(
+    predicate: () => boolean,
+    timeout = 2000,
+  ): Promise<void> {
+    const deadline = Date.now() + timeout;
+    while (Date.now() < deadline) {
+      if (predicate()) return;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    throw new Error(
+      `waitFor: predicate did not become true within ${timeout}ms`,
+    );
+  }
+
+  beforeAll(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-git-sub-test-"));
+  });
+
+  afterAll(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  afterEach(() => {
+    expect(_sharedHeadWatcherCount()).toBe(0);
+  });
+
+  /** Tracks watcher install/retire log lines as a vitest-friendly counter. */
+  function makeLog() {
+    let installs = 0;
+    let retires = 0;
+    const log = {
+      info(_obj: unknown, msg: string) {
+        if (msg === "git: head watcher installed") installs++;
+        if (msg === "git: head watcher retired") retires++;
+      },
+      debug() {},
+      warn() {},
+      error() {},
+    };
+    return {
+      log,
+      get installs() {
+        return installs;
+      },
+      get retires() {
+        return retires;
+      },
+    };
+  }
+
+  // The lifecycle log surfaced this on real cwd transitions: setCwd to a
+  // git repo installed the watcher synchronously, then the async resolve
+  // saw `currentInfo === null` and tore down + re-installed at the same
+  // gitDir. Two install events and a wasted retire per cd into a repo.
+  it("setCwd into a git repo installs the watcher exactly once", async () => {
+    const nonGitDir = path.join(tmpDir, "not-a-repo");
+    fs.mkdirSync(nonGitDir, { recursive: true });
+    const { dir: repoDir } = await initRepo("cd-target");
+
+    const counter = makeLog();
+    const updates: (GitInfo | null)[] = [];
+    const sub = subscribeGitInfo(
+      nonGitDir,
+      (info) => {
+        updates.push(info);
+      },
+      counter.log,
+    );
+
+    sub.setCwd(repoDir);
+
+    // First update is the GitInfo for repoDir. The initial null→null
+    // resolve is deduped via gitInfoEqual and never reaches onChange.
+    await waitFor(() => updates.length >= 1);
+    expect(updates[0]?.repoRoot).toBe(fs.realpathSync(repoDir));
+
+    sub.stop();
+
+    // The bug: 2 installs + 1 retire on a single cd into a repo, plus
+    // 1 retire on stop. The fix: 1 install on cd into the repo,
+    // 1 retire on stop. (No watcher on the initial non-git dir.)
+    expect(counter.installs).toBe(1);
+    expect(counter.retires).toBe(1);
+  });
+
+  it("git init in the current cwd installs the watcher exactly once", async () => {
+    const dir = path.join(tmpDir, "git-init-dir");
+    fs.mkdirSync(dir, { recursive: true });
+
+    const counter = makeLog();
+    const updates: (GitInfo | null)[] = [];
+    const sub = subscribeGitInfo(
+      dir,
+      (info) => {
+        updates.push(info);
+      },
+      counter.log,
+    );
+
+    // Initial subscribe on a non-git dir installs no watcher.
+    expect(counter.installs).toBe(0);
+
+    // Simulate `git init` in the same cwd.
+    const git = simpleGit(dir);
+    await git.init();
+    await git.checkoutLocalBranch("main");
+    fs.writeFileSync(path.join(dir, "f.txt"), "x");
+    await git.add(".");
+    await git.commit("initial");
+
+    // Same-cwd setCwd must trigger the install (this is the only path
+    // that does — there's no fs.watch on the parent dir to signal the
+    // .git appearing).
+    sub.setCwd(dir);
+
+    await waitFor(() => updates.length >= 1);
+    expect(updates[0]?.repoRoot).toBe(fs.realpathSync(dir));
+
+    sub.stop();
+
+    expect(counter.installs).toBe(1);
+    expect(counter.retires).toBe(1);
+  });
+
+  it("setCwd between two distinct git repos: 1 install + 1 retire per transition", async () => {
+    const a = await initRepo("transition-a");
+    const b = await initRepo("transition-b");
+
+    const counter = makeLog();
+    const updates: (GitInfo | null)[] = [];
+    const sub = subscribeGitInfo(
+      a.dir,
+      (info) => {
+        updates.push(info);
+      },
+      counter.log,
+    );
+
+    // Initial subscribe installed on a's gitDir synchronously.
+    expect(counter.installs).toBe(1);
+
+    // Wait for the initial GitInfo to publish before swapping.
+    await waitFor(() => updates.length >= 1);
+
+    sub.setCwd(b.dir);
+    await waitFor(() => updates.length >= 2);
+
+    sub.stop();
+
+    // Initial install on a + retire on transition + install on b + retire on stop.
+    expect(counter.installs).toBe(2);
+    expect(counter.retires).toBe(2);
   });
 });

@@ -162,12 +162,6 @@ export function subscribeGitInfo(
       );
     }
     if (gitInfoEqual(next, currentInfo)) return;
-    // null → non-null: the HEAD watcher started as a no-op (missing `.git`);
-    // restart it so branch switches in the newly-appeared repo propagate.
-    if (currentInfo === null && next !== null) {
-      stopHead();
-      stopHead = watchGitHead(currentCwd, handleHeadChange, log);
-    }
     currentInfo = next;
     onChange(next);
   }
@@ -180,10 +174,12 @@ export function subscribeGitInfo(
       if (next === currentCwd) {
         // Same cwd — only act if the repo state might have changed from
         // outside. Today that's exactly one case: we thought this dir wasn't
-        // a repo and `.git` has since appeared (e.g. `git init`). The HEAD
-        // watcher was a no-op, so there's no other signal that would trigger
-        // a re-resolve on its own.
+        // a repo and `.git` has since appeared (e.g. `git init`). The
+        // existing `stopHead` is a no-op (install failed for a non-git dir),
+        // so re-install here so the new repo's HEAD changes propagate.
         if (currentInfo === null && hasGitDir(next)) {
+          stopHead();
+          stopHead = watchGitHead(next, handleHeadChange, log);
           void resolve();
         }
         return;
