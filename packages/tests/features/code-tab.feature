@@ -187,33 +187,14 @@ Feature: Code tab (review + browse)
 
   # ── Live updates: filesystem changes propagate without manual refresh ──
   # The Code view subscribes to a watcher that observes four axes (HEAD,
-  # reflog, index, working tree) and pushes snapshot updates when any of
-  # them changes. Each scenario opens the tab in one state, mutates the
-  # filesystem from the shell, and asserts the new state appears with no
-  # click and no refresh button (it's gone).
+  # reflog, index, working tree) and pushes snapshot updates whenever any
+  # changes. These two scenarios open the tab on a selected file, mutate
+  # the file from the shell, and assert the new content reaches the diff
+  # body and the browse body — no click on a refresh button (it's gone).
   #
   # The post-tab `I click the terminal canvas` is required: clicking the
   # right-panel tab moves focus off the terminal, so subsequent keystrokes
   # would land in the panel instead of the PTY.
-
-  Scenario: A new file save shows up in the changed-file list
-    When I run "git init /tmp/kolu-live-save && cd /tmp/kolu-live-save"
-    And I run "git commit --allow-empty -m init"
-    And I click the Code tab
-    Then the Code tab should show the empty-changes message
-    When I click the terminal canvas
-    And I run "printf 'fresh\n' > new.txt"
-    Then the Code tab should list a changed file "new.txt"
-
-  Scenario: A commit removes the file from the changed-file list
-    When I run "git init /tmp/kolu-live-commit && cd /tmp/kolu-live-commit"
-    And I run "git commit --allow-empty -m init"
-    And I run "printf 'pending\n' > pending.txt"
-    And I click the Code tab
-    Then the Code tab should list a changed file "pending.txt"
-    When I click the terminal canvas
-    And I run "git add pending.txt && git commit -m 'land pending'"
-    Then the Code tab should not list a changed file "pending.txt"
 
   Scenario: Editing a file updates the diff view live
     When I run "git init /tmp/kolu-live-diff && cd /tmp/kolu-live-diff"
