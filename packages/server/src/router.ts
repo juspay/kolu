@@ -17,6 +17,8 @@ import {
   getStatus,
   listAll,
   readFile,
+  subscribeFileChange,
+  subscribeRepoChange,
   worktreeCreate,
   worktreeRemove,
 } from "kolu-git";
@@ -75,6 +77,56 @@ function unwrapGit<T>(result: GitResult<T>): T {
           ? e.message
           : `Git operation failed: ${e.code}`;
   throw new ORPCError(status, { message });
+}
+
+/** Convert a callback-based "something changed" subscription into an
+ *  AsyncIterable<void> that yields once per debounced tick. The streaming
+ *  endpoints below subscribe to `subscribeRepoChange` /
+ *  `subscribeFileChange` through this adapter so the per-tick re-read +
+ *  dedup loop can be written as a plain `for await`.
+ *
+ *  Coalescing semantics: events that fire while the consumer is mid-yield
+ *  collapse into one wakeup (the `dirty` flag flips to true; the consumer
+ *  picks it up on the next loop iteration). This complements the upstream
+ *  primitive's own debounce — bursts that arrive during snapshot
+ *  computation don't queue up extra yields. */
+async function* repoEventStream(
+  install: (onEvent: () => void) => () => void,
+  signal: AbortSignal | undefined,
+): AsyncIterable<void> {
+  let dirty = false;
+  let resolve: (() => void) | null = null;
+  const unsub = install(() => {
+    dirty = true;
+    if (resolve) {
+      const r = resolve;
+      resolve = null;
+      r();
+    }
+  });
+  const wake = () => {
+    if (resolve) {
+      const r = resolve;
+      resolve = null;
+      r();
+    }
+  };
+  signal?.addEventListener("abort", wake);
+  try {
+    while (signal?.aborted !== true) {
+      if (dirty) {
+        dirty = false;
+        yield;
+        continue;
+      }
+      await new Promise<void>((r) => {
+        resolve = r;
+      });
+    }
+  } finally {
+    signal?.removeEventListener("abort", wake);
+    unsub();
+  }
 }
 
 export const appRouter = t.router({
@@ -306,11 +358,30 @@ export const appRouter = t.router({
       log.info({ worktree: input.worktreePath }, "worktree remove");
       unwrapGit(await worktreeRemove(input.worktreePath, log));
     }),
-    status: t.git.status.handler(async ({ input }) => {
-      return unwrapGit(await getStatus(input.repoPath, input.mode, log));
+    onStatusChange: t.git.onStatusChange.handler(async function* ({
+      input,
+      signal,
+    }) {
+      let last = unwrapGit(await getStatus(input.repoPath, input.mode, log));
+      yield last;
+      for await (const _ of repoEventStream(
+        (cb) => subscribeRepoChange(input.repoPath, cb, log),
+        signal,
+      )) {
+        const next = await getStatus(input.repoPath, input.mode, log);
+        if (!next.ok) continue;
+        const a = JSON.stringify(last);
+        const b = JSON.stringify(next.value);
+        if (a === b) continue;
+        last = next.value;
+        yield last;
+      }
     }),
-    diff: t.git.diff.handler(async ({ input }) => {
-      return unwrapGit(
+    onDiffChange: t.git.onDiffChange.handler(async function* ({
+      input,
+      signal,
+    }) {
+      let last = unwrapGit(
         await getDiff(
           input.repoPath,
           input.filePath,
@@ -319,15 +390,72 @@ export const appRouter = t.router({
           input.oldPath,
         ),
       );
+      yield last;
+      for await (const _ of repoEventStream(
+        (cb) => subscribeRepoChange(input.repoPath, cb, log),
+        signal,
+      )) {
+        const next = await getDiff(
+          input.repoPath,
+          input.filePath,
+          input.mode,
+          log,
+          input.oldPath,
+        );
+        if (!next.ok) continue;
+        const a = JSON.stringify(last);
+        const b = JSON.stringify(next.value);
+        if (a === b) continue;
+        last = next.value;
+        yield last;
+      }
     }),
   },
   fs: {
-    listAll: t.fs.listAll.handler(async ({ input }) => ({
-      paths: unwrapGit(await listAll(input.repoPath, log)),
-    })),
-    readFile: t.fs.readFile.handler(async ({ input }) =>
-      unwrapGit(await readFile(input.repoPath, input.filePath, log)),
-    ),
+    onListAllChange: t.fs.onListAllChange.handler(async function* ({
+      input,
+      signal,
+    }) {
+      let last = { paths: unwrapGit(await listAll(input.repoPath, log)) };
+      yield last;
+      for await (const _ of repoEventStream(
+        (cb) => subscribeRepoChange(input.repoPath, cb, log),
+        signal,
+      )) {
+        const next = await listAll(input.repoPath, log);
+        if (!next.ok) continue;
+        if (
+          last.paths.length === next.value.length &&
+          last.paths.every((p, i) => p === next.value[i])
+        ) {
+          continue;
+        }
+        last = { paths: next.value };
+        yield last;
+      }
+    }),
+    onReadFileChange: t.fs.onReadFileChange.handler(async function* ({
+      input,
+      signal,
+    }) {
+      let last = unwrapGit(await readFile(input.repoPath, input.filePath, log));
+      yield last;
+      for await (const _ of repoEventStream(
+        (cb) => subscribeFileChange(input.repoPath, input.filePath, cb, log),
+        signal,
+      )) {
+        const next = await readFile(input.repoPath, input.filePath, log);
+        if (!next.ok) continue;
+        if (
+          last.content === next.value.content &&
+          last.truncated === next.value.truncated
+        ) {
+          continue;
+        }
+        last = next.value;
+        yield last;
+      }
+    }),
   },
   preferences: {
     get: t.preferences.get.handler(async function* ({ signal }) {

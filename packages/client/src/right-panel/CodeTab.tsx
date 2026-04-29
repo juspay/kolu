@@ -18,14 +18,14 @@ import {
   type Component,
   createEffect,
   createMemo,
-  createResource,
   createSignal,
   Match,
   on,
   Show,
   Switch,
 } from "solid-js";
-import { client } from "../rpc/rpc";
+import { createReactiveSubscription } from "../rpc/createReactiveSubscription";
+import { stream } from "../rpc/rpc";
 import { useColorScheme } from "../settings/useColorScheme";
 import { FileDiffIcon, GitBranchIcon } from "../ui/Icons";
 import PierreDiffView from "../ui/PierreDiffView";
@@ -67,24 +67,24 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
   const diffMode = (): GitDiffMode | undefined =>
     view() === "browse" ? undefined : (view() as GitDiffMode);
 
-  const [status, { refetch: refetchStatus }] = createResource(
+  const status = createReactiveSubscription(
     () => {
       const p = repoPath();
       const m = diffMode();
       return p && m ? { repoPath: p, mode: m } : null;
     },
-    (input) => client.git.status(input),
+    (input, signal) => stream.gitStatus(input.repoPath, input.mode, signal),
   );
 
-  const [allPaths, { refetch: refetchAll }] = createResource(
+  const allPaths = createReactiveSubscription(
     () => {
       const p = repoPath();
       return p && view() === "browse" ? { repoPath: p } : null;
     },
-    (input) => client.fs.listAll(input).then((r) => r.paths),
+    (input, signal) => stream.fsListAll(input.repoPath, signal),
   );
 
-  const [diff, { refetch: refetchDiff }] = createResource(
+  const diff = createReactiveSubscription(
     () => {
       const p = repoPath();
       const s = selectedPath();
@@ -93,7 +93,7 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
       const file = status()?.files.find((f) => f.path === s);
       return { repoPath: p, filePath: s, mode: m, oldPath: file?.oldPath };
     },
-    (input) => client.git.diff(input),
+    (input, signal) => stream.gitDiff(input, signal),
   );
 
   // Reset selection when the repo or view changes so a stale path doesn't
@@ -102,17 +102,8 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
     on([repoPath, view], () => setSelectedPath(null), { defer: true }),
   );
 
-  const handleRefresh = () => {
-    if (isDiffView()) {
-      void refetchStatus();
-      if (selectedPath()) void refetchDiff();
-    } else {
-      void refetchAll();
-    }
-  };
-
   const treePaths = createMemo(() => {
-    if (view() === "browse") return allPaths() ?? [];
+    if (view() === "browse") return allPaths()?.paths ?? [];
     return status()?.files.map((f) => f.path) ?? [];
   });
   const treeGitStatus = createMemo(() => {
@@ -126,7 +117,7 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
   };
 
   const treeError = (): Error | undefined =>
-    (isDiffView() ? status.error : allPaths.error) as Error | undefined;
+    isDiffView() ? status.error() : allPaths.error();
   const treeReady = () => (isDiffView() ? status() : allPaths());
   const branchTooltip = () =>
     `Changes vs ${status()?.base?.ref ?? "branch base"}`;
@@ -201,15 +192,6 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
             </button>
           </div>
           <div class="flex-1" />
-          <button
-            type="button"
-            onClick={handleRefresh}
-            class="text-fg-3/40 hover:text-fg-2 cursor-pointer px-1 shrink-0 transition-colors"
-            aria-label="Refresh"
-            data-testid="diff-refresh"
-          >
-            ↻
-          </button>
         </div>
 
         <div
@@ -282,10 +264,12 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
                       <div class="px-2 py-1 text-fg-3/50">Loading diff…</div>
                     }
                   >
-                    <Match when={diff.error}>
-                      <div class="px-2 py-1 text-danger">
-                        Error: {(diff.error as Error).message}
-                      </div>
+                    <Match when={diff.error()}>
+                      {(err) => (
+                        <div class="px-2 py-1 text-danger">
+                          Error: {err().message}
+                        </div>
+                      )}
                     </Match>
                     <Match when={renamedDiff()}>
                       {(rename) => (

@@ -12,7 +12,12 @@ import {
 } from "@orpc/client/plugins";
 import { RPCLink } from "@orpc/client/websocket";
 import type { ContractRouterClient } from "@orpc/contract";
-import type { TerminalId } from "kolu-common";
+import type {
+  GitDiffMode,
+  GitDiffOutput,
+  GitStatusOutput,
+  TerminalId,
+} from "kolu-common";
 import type { contract } from "kolu-common/contract";
 import { WebSocket as PartySocket } from "partysocket";
 import { createMemo, createSignal } from "solid-js";
@@ -91,6 +96,36 @@ export const stream = {
         signal: opts.signal,
         context: { ...STREAM_RETRY, onRetry: opts.onRetry },
       },
+    ),
+  /** Live changed-files list for the Code-view's Local/Branch modes. */
+  gitStatus: (
+    repoPath: string,
+    mode: GitDiffMode,
+    signal?: AbortSignal,
+  ): Promise<AsyncIterable<GitStatusOutput>> =>
+    client.git.onStatusChange(
+      { repoPath, mode },
+      { signal, context: STREAM_RETRY },
+    ),
+  /** Live unified diff for the selected file. */
+  gitDiff: (
+    input: {
+      repoPath: string;
+      filePath: string;
+      mode: GitDiffMode;
+      oldPath?: string;
+    },
+    signal?: AbortSignal,
+  ): Promise<AsyncIterable<GitDiffOutput>> =>
+    client.git.onDiffChange(input, { signal, context: STREAM_RETRY }),
+  /** Live repo-relative path list for the Code-view's All mode. */
+  fsListAll: (repoPath: string, signal?: AbortSignal) =>
+    client.fs.onListAllChange({ repoPath }, { signal, context: STREAM_RETRY }),
+  /** Live UTF-8 content for the Code-view's All-mode body. */
+  fsReadFile: (repoPath: string, filePath: string, signal?: AbortSignal) =>
+    client.fs.onReadFileChange(
+      { repoPath, filePath },
+      { signal, context: STREAM_RETRY },
     ),
 };
 

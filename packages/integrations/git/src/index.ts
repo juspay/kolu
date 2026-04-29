@@ -11,6 +11,12 @@ export { listAll, readFile } from "./browse.ts";
 export { err, type GitError, type GitResult, ok } from "./errors.ts";
 // HEAD watcher (refcounted shared singleton)
 export { watchGitHead } from "./head-watcher.ts";
+// Index watcher (refcounted shared singleton, axis 3)
+export { watchGitIndex } from "./index-watcher.ts";
+// Reflog watcher (refcounted shared singleton, axis 2)
+export { watchGitReflog } from "./reflog-watcher.ts";
+// Composed primitives for the live Code-view streaming endpoints
+export { subscribeFileChange, subscribeRepoChange } from "./repo-change.ts";
 // Repository resolution
 export {
   gitInfoEqual,
@@ -50,6 +56,8 @@ export {
   WorktreeCreateOutputSchema,
   WorktreeRemoveInputSchema,
 } from "./schemas.ts";
+// Working-tree watcher (axis 4, parcel-watcher backed)
+export { watchWorkingTree } from "./working-tree-watcher.ts";
 // Worktree operations
 export {
   detectDefaultBranch,

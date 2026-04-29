@@ -92,21 +92,33 @@ export const contract = oc.router({
       .input(WorktreeCreateInputSchema)
       .output(WorktreeCreateOutputSchema),
     worktreeRemove: oc.input(WorktreeRemoveInputSchema).output(z.void()),
-    /** List files changed for the given mode: `local` = vs HEAD
-     *  (working tree + staged + untracked); `branch` = vs merge-base
-     *  with `origin/<defaultBranch>` (what this branch will ship). */
-    status: oc.input(GitStatusInputSchema).output(GitStatusOutputSchema),
-    /** Raw unified diff for `@pierre/diffs`'s `parsePatchFiles`. Base
-     *  depends on mode — HEAD in local mode, merge-base with
-     *  `origin/<defaultBranch>` in branch mode. */
-    diff: oc.input(GitDiffInputSchema).output(GitDiffOutputSchema),
+    /** Stream changed-files list for the given mode (`local` = vs HEAD;
+     *  `branch` = vs merge-base with `origin/<defaultBranch>`). Yields
+     *  current state immediately, then a fresh full snapshot every time
+     *  the underlying repo state changes (HEAD, reflog, index, working
+     *  tree). Server dedups against the last yielded value. */
+    onStatusChange: oc
+      .input(GitStatusInputSchema)
+      .output(eventIterator(GitStatusOutputSchema)),
+    /** Stream unified diff for one file. Yields current diff, then a fresh
+     *  full snapshot whenever the repo state changes. Server dedups. */
+    onDiffChange: oc
+      .input(GitDiffInputSchema)
+      .output(eventIterator(GitDiffOutputSchema)),
   },
   fs: {
-    /** Flat list of every repo-relative path (tracked + untracked-but-not-ignored).
-     *  One-shot snapshot for path-first tree UIs like `@pierre/trees`. */
-    listAll: oc.input(FsListAllInputSchema).output(FsListAllOutputSchema),
-    /** Read a file's UTF-8 content, path-traversal guarded. */
-    readFile: oc.input(FsReadFileInputSchema).output(FsReadFileOutputSchema),
+    /** Stream the flat repo-relative path list (tracked + untracked-but-
+     *  not-ignored). Yields current list, then a fresh full snapshot on
+     *  every repo state change. Drives the Code-view's All-mode tree. */
+    onListAllChange: oc
+      .input(FsListAllInputSchema)
+      .output(eventIterator(FsListAllOutputSchema)),
+    /** Stream a file's UTF-8 content. Yields current content, then a
+     *  fresh full snapshot whenever the file or HEAD changes. Path-
+     *  traversal guarded. Drives the Code-view's All-mode body. */
+    onReadFileChange: oc
+      .input(FsReadFileInputSchema)
+      .output(eventIterator(FsReadFileOutputSchema)),
   },
   preferences: {
     // Stream user preferences. Yields current value immediately, then on each change.

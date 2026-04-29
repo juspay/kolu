@@ -9,6 +9,7 @@
   },
   "pnpm": {
     "onlyBuiltDependencies": [
+      "@parcel/watcher",
       "esbuild",
       "node-pty"
     ],
