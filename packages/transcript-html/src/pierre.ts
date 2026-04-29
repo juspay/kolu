@@ -25,7 +25,6 @@ import {
   preloadFile,
   preloadFileDiff,
   preloadMultiFileDiff,
-  preloadPatchDiff,
 } from "@pierre/diffs/ssr";
 
 /** Read Pierre's compiled `style.js` module and pull out the core CSS
@@ -107,28 +106,19 @@ export async function renderWrite(
   return wrapInContainer(result.prerenderedHTML);
 }
 
-/** Render a unified-diff patch payload (Codex `apply_patch`,
- *  OpenCode's patch-shaped tools). Codex emits patches that touch
- *  multiple files in a single tool call, but Pierre's
- *  `preloadPatchDiff` is single-file only — calling it on a
- *  multi-file patch throws "FileDiff: Provided patch must contain
- *  exactly 1 file diff" inside `getSingularPatch`. We parse the
- *  whole payload with `parsePatchFiles` (which handles multi-file)
- *  and emit one `<diffs-container>` per file diff so each shows
- *  its own header + hunks. Single-file patches still flow through
- *  this path unchanged — the loop runs once. */
+/** Render a unified-diff patch payload — `kind: "patch"` carries
+ *  standard `git diff` text by the time it reaches the renderer (the
+ *  Codex loader normalizes its `*** Begin Patch` envelope to unified
+ *  diff at the IR boundary). Pierre's `parsePatchFiles` handles
+ *  multi-file payloads; we emit one `<diffs-container>` per file
+ *  via `preloadFileDiff`. If parsing fails, we fall back to an
+ *  escaped `<pre>` so the whole export doesn't crash on a malformed
+ *  payload. */
 export async function renderPatch(patch: string): Promise<string> {
   const parsed = parsePatchFiles(patch);
   const fileDiffs = parsed.flatMap((p) => p.files);
   if (fileDiffs.length === 0) {
-    // Patch was unparseable or empty — fall back to Pierre's
-    // single-file path so we at least get its native error UI
-    // rather than silently rendering nothing.
-    const result = await preloadPatchDiff({
-      patch,
-      options: { diffStyle: "unified", themeType: "system" },
-    });
-    return wrapInContainer(result.prerenderedHTML);
+    return `<pre class="card-text card-text--code">${escapeForPre(patch)}</pre>`;
   }
   const chunks = await Promise.all(
     fileDiffs.map(async (fileDiff) => {
@@ -140,6 +130,10 @@ export async function renderPatch(patch: string): Promise<string> {
     }),
   );
   return chunks.join("");
+}
+
+function escapeForPre(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 /** Render a markdown fenced code block. Pierre infers language from

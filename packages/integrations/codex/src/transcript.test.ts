@@ -77,22 +77,21 @@ describe("parseCodexRollout", () => {
     ]);
   });
 
-  it("decodes apply_patch's raw string into kind:patch", () => {
+  it("decodes apply_patch's raw string into kind:patch (unified-diff text)", () => {
     const content = lines({
       type: "response_item",
       payload: {
         type: "custom_tool_call",
         name: "apply_patch",
-        input: "*** Begin Patch\n…",
+        input: "*** Begin Patch\n*** Add File: foo\n+x\n*** End Patch\n",
         call_id: "call_2",
       },
     });
     const out = parseCodexRollout(content);
-    expect(out[0]).toMatchObject({
-      kind: "tool_call",
-      toolName: "apply_patch",
-      inputs: { kind: "patch", text: "*** Begin Patch\n…" },
-    });
+    if (out[0]?.kind !== "tool_call") throw new Error("expected tool_call");
+    if (out[0].inputs.kind !== "patch") throw new Error("expected patch");
+    expect(out[0].inputs.text).toContain("diff --git a/foo b/foo");
+    expect(out[0].inputs.text).not.toContain("*** Begin Patch");
   });
 
   it("emits tool_result from function_call_output", () => {
@@ -153,11 +152,13 @@ describe("normalizeCodexToolInput", () => {
     ).toEqual({ kind: "bash", command: "ls -la" });
   });
 
-  it("decodes apply_patch from a raw string", () => {
-    expect(normalizeCodexToolInput("apply_patch", "*** Begin Patch")).toEqual({
-      kind: "patch",
-      text: "*** Begin Patch",
-    });
+  it("decodes apply_patch from a raw envelope into unified-diff text", () => {
+    const out = normalizeCodexToolInput(
+      "apply_patch",
+      "*** Begin Patch\n*** Add File: x\n+y\n*** End Patch\n",
+    );
+    if (out.kind !== "patch") throw new Error("expected kind:patch");
+    expect(out.text).toContain("diff --git a/x b/x");
   });
 
   it("decodes apply_patch from an object with patch field", () => {
@@ -197,5 +198,62 @@ describe("normalizeCodexToolInput", () => {
     expect(
       normalizeCodexToolInput("web_search", { query: "anything" }),
     ).toEqual({ kind: "web_search", query: "anything" });
+  });
+
+  it("converts Codex's *** Begin Patch envelope into unified diff", () => {
+    const envelope = [
+      "*** Begin Patch",
+      "*** Add File: foo.ts",
+      "+const a = 1;",
+      "+const b = 2;",
+      "*** Update File: bar.ts",
+      "@@",
+      " context line",
+      "-old line",
+      "+new line",
+      "*** Delete File: baz.ts",
+      "-dead line",
+      "*** End Patch",
+    ].join("\n");
+    const out = normalizeCodexToolInput("apply_patch", envelope);
+    if (out.kind !== "patch") throw new Error("expected kind:patch");
+    // Every file lands as its own `diff --git` block — multi-file
+    // payloads round-trip through Pierre's `parsePatchFiles`.
+    expect(out.text).toContain("diff --git a/foo.ts b/foo.ts");
+    expect(out.text).toContain("new file mode 100644");
+    expect(out.text).toContain("@@ -0,0 +1,2 @@");
+    expect(out.text).toContain("diff --git a/bar.ts b/bar.ts");
+    expect(out.text).toContain(" context line");
+    expect(out.text).toContain("-old line");
+    expect(out.text).toContain("+new line");
+    expect(out.text).toContain("diff --git a/baz.ts b/baz.ts");
+    expect(out.text).toContain("deleted file mode 100644");
+    // The original envelope markers don't leak through.
+    expect(out.text).not.toContain("*** Begin Patch");
+    expect(out.text).not.toContain("*** Add File:");
+  });
+
+  it("passes through plain unified-diff payloads unchanged", () => {
+    const diff =
+      "diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-old\n+new\n";
+    const out = normalizeCodexToolInput("apply_patch", diff);
+    if (out.kind !== "patch") throw new Error("expected kind:patch");
+    expect(out.text).toBe(diff);
+  });
+
+  it("handles *** Move to: by emitting the destination path", () => {
+    const envelope = [
+      "*** Begin Patch",
+      "*** Update File: old/path.ts",
+      "*** Move to: new/path.ts",
+      "@@",
+      "-x",
+      "+y",
+      "*** End Patch",
+    ].join("\n");
+    const out = normalizeCodexToolInput("apply_patch", envelope);
+    if (out.kind !== "patch") throw new Error("expected kind:patch");
+    expect(out.text).toContain("diff --git a/new/path.ts b/new/path.ts");
+    expect(out.text).not.toContain("old/path.ts");
   });
 });

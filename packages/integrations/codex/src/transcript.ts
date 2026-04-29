@@ -156,6 +156,129 @@ export function parseCodexRollout(content: string): TranscriptEvent[] {
   return events;
 }
 
+/** Convert Codex's `*** Begin Patch` envelope to standard unified
+ *  diff. Codex emits OpenAI's bespoke wire format with `*** Add File`,
+ *  `*** Update File`, `*** Delete File`, optional `*** Move to`, and
+ *  bare `@@` markers between hunks (no line numbers). We translate it
+ *  to git-style unified diff so the typed-IR contract stays simple
+ *  (`kind: "patch"` always carries unified-diff text) and the renderer
+ *  needs no Codex-specific knowledge.
+ *
+ *  Hunk-line numbers in the synthesized output are conservative
+ *  placeholders (`@@ -1,N +1,M @@` for every hunk) — Codex's envelope
+ *  doesn't carry real line numbers, and the diff parsers Pierre uses
+ *  treat them as display-only. Add/Delete files use the standard
+ *  `@@ -0,0 +1,N @@` / `@@ -1,N +0,0 @@` shape so renderers detect
+ *  the new/deleted state.
+ *
+ *  Input that doesn't start with `*** Begin Patch` is returned
+ *  unchanged — older Codex revisions emit unified diff directly. */
+export function codexEnvelopeToUnifiedDiff(text: string): string {
+  if (!/^\s*\*\*\* Begin Patch\b/.test(text)) return text;
+  const lines = text.split("\n");
+  const out: string[] = [];
+  const isMarker = (l: string | undefined): boolean =>
+    l !== undefined && l.startsWith("*** ");
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i] ?? "";
+    if (line === "*** Begin Patch" || line === "*** End Patch") {
+      i++;
+      continue;
+    }
+    const add = /^\*\*\* Add File: (.+)$/.exec(line);
+    if (add) {
+      const filePath = (add[1] ?? "").trim();
+      i++;
+      const newLines: string[] = [];
+      while (i < lines.length && !isMarker(lines[i])) {
+        const l = lines[i] ?? "";
+        if (l.startsWith("+")) newLines.push(l.slice(1));
+        i++;
+      }
+      out.push(`diff --git a/${filePath} b/${filePath}`);
+      out.push("new file mode 100644");
+      out.push("--- /dev/null");
+      out.push(`+++ b/${filePath}`);
+      out.push(`@@ -0,0 +1,${newLines.length} @@`);
+      for (const nl of newLines) out.push(`+${nl}`);
+      continue;
+    }
+    const del = /^\*\*\* Delete File: (.+)$/.exec(line);
+    if (del) {
+      const filePath = (del[1] ?? "").trim();
+      i++;
+      const oldLines: string[] = [];
+      while (i < lines.length && !isMarker(lines[i])) {
+        const l = lines[i] ?? "";
+        if (l.startsWith("-")) oldLines.push(l.slice(1));
+        i++;
+      }
+      out.push(`diff --git a/${filePath} b/${filePath}`);
+      out.push("deleted file mode 100644");
+      out.push(`--- a/${filePath}`);
+      out.push("+++ /dev/null");
+      out.push(`@@ -1,${oldLines.length} +0,0 @@`);
+      for (const ol of oldLines) out.push(`-${ol}`);
+      continue;
+    }
+    const upd = /^\*\*\* Update File: (.+)$/.exec(line);
+    if (upd) {
+      const sourcePath = (upd[1] ?? "").trim();
+      i++;
+      let filePath = sourcePath;
+      if (i < lines.length) {
+        const move = /^\*\*\* Move to: (.+)$/.exec(lines[i] ?? "");
+        if (move) {
+          filePath = (move[1] ?? "").trim();
+          i++;
+        }
+      }
+      out.push(`diff --git a/${filePath} b/${filePath}`);
+      out.push(`--- a/${filePath}`);
+      out.push(`+++ b/${filePath}`);
+      let hunk: string[] = [];
+      const flushHunk = () => {
+        if (hunk.length === 0) return;
+        let oldCount = 0;
+        let newCount = 0;
+        for (const l of hunk) {
+          if (l.startsWith("+")) newCount++;
+          else if (l.startsWith("-")) oldCount++;
+          else {
+            oldCount++;
+            newCount++;
+          }
+        }
+        out.push(`@@ -1,${oldCount} +1,${newCount} @@`);
+        for (const l of hunk) out.push(l);
+        hunk = [];
+      };
+      while (i < lines.length && !isMarker(lines[i])) {
+        const l = lines[i] ?? "";
+        if (l.startsWith("@@")) {
+          flushHunk();
+        } else if (
+          l.startsWith("+") ||
+          l.startsWith("-") ||
+          l.startsWith(" ")
+        ) {
+          hunk.push(l);
+        } else {
+          // Bare line (no prefix) — treat as context.
+          hunk.push(` ${l}`);
+        }
+        i++;
+      }
+      flushHunk();
+      continue;
+    }
+    // Unknown marker / stray line — skip.
+    i++;
+  }
+  return out.join("\n");
+}
+
 /** Map a Codex tool name + parsed arguments onto the typed `ToolInput`
  *  union. `apply_patch` is a `custom_tool_call` whose argument is the
  *  patch text (not JSON); other tools carry JSON-encoded structured
@@ -164,20 +287,22 @@ export function normalizeCodexToolInput(
   toolName: string,
   parsed: unknown,
 ): ToolInput {
-  // apply_patch's payload is the patch text itself.
+  // apply_patch's payload is the patch text itself. Codex emits
+  // OpenAI's `*** Begin Patch / *** Update File / *** Add File`
+  // envelope, not standard unified diff — convert it here so the
+  // IR's `kind: "patch"` always carries unified-diff text and the
+  // renderer doesn't need to know about Codex's wire format.
   if (toolName === "apply_patch") {
-    if (typeof parsed === "string") return { kind: "patch", text: parsed };
-    if (
-      typeof parsed === "object" &&
-      parsed !== null &&
-      typeof (parsed as Record<string, unknown>).patch === "string"
-    ) {
-      return {
-        kind: "patch",
-        text: (parsed as { patch: string }).patch,
-      };
-    }
-    return { kind: "unknown", toolName, raw: parsed };
+    const raw =
+      typeof parsed === "string"
+        ? parsed
+        : typeof parsed === "object" &&
+            parsed !== null &&
+            typeof (parsed as Record<string, unknown>).patch === "string"
+          ? (parsed as { patch: string }).patch
+          : null;
+    if (raw === null) return { kind: "unknown", toolName, raw: parsed };
+    return { kind: "patch", text: codexEnvelopeToUnifiedDiff(raw) };
   }
 
   const o =
