@@ -18,20 +18,23 @@ import "kolu-common/test-hooks";
 // macOS CI (aarch64-darwin) consistently spends 2-3× as long inside
 // pty-spawn + shell-rc init compared to Linux — the sandbox `lstat` chain
 // through `/private/var/folders` plus a slower fork(2) puts the entire
-// "press Cmd+Enter, see new data-terminal-id" path right at the 20s
-// threshold. The seven worktree-create scenarios in #771 lived just past
-// the cliff. Doubling the budget on darwin absorbs the platform variance
-// without giving up the tight feedback loop on Linux. The
-// worktreeCreate-side fork tax is amortized separately by parallelizing
-// the fetch + ls-remote pair (see worktree.ts).
+// "press Cmd+Enter, see new data-terminal-id" path well past the 20s
+// threshold. The seven worktree-create scenarios in #771 lived past
+// that cliff; bumping to 40s recovered three of them, the remaining
+// four need 60s of headroom. 60s on darwin vs 20s on Linux is a 3×
+// ratio — generous, but defensible: there is no recent regression to
+// hide (the failure has been stable across 12+ commits per #771), and
+// Linux keeps its tight feedback loop. The worktreeCreate-side fork
+// tax is amortized separately by parallelizing the fetch + ls-remote
+// pair (see worktree.ts).
 const isDarwin = process.platform === "darwin";
 
-setDefaultTimeout(isDarwin ? 60_000 : 30_000);
+setDefaultTimeout(isDarwin ? 90_000 : 30_000);
 
-const READY_TIMEOUT = isDarwin ? 40_000 : 20_000;
+const READY_TIMEOUT = isDarwin ? 60_000 : 20_000;
 /** Shared timeout for element polling (waitFor / waitForFunction).
- *  40s on darwin, 20s elsewhere — see the comment on isDarwin above. */
-export const POLL_TIMEOUT = isDarwin ? 40_000 : 20_000;
+ *  60s on darwin, 20s elsewhere — see the comment on isDarwin above. */
+export const POLL_TIMEOUT = isDarwin ? 60_000 : 20_000;
 export const MOD_KEY = isDarwin ? "Meta" : "Control";
 
 /** Locator for the app's settled state: either a visible terminal screen or the empty state tip. */
