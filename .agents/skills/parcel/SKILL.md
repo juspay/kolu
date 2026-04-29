@@ -1,13 +1,14 @@
 ---
 name: parcel
 description: >-
-  Use when working on any filesystem-watching code in Kolu — `@parcel/watcher`
-  is the project-wide default for fs monitoring, not just the git watchers in
-  `packages/integrations/git/`. Trigger on file/dir watching, fs.watch
-  alternatives, recursive watching, inotify/FSEvents/watchman selection,
-  ignore globs, or watcher debouncing. Covers backend dispatch, the watchman
-  invocation path, ignore handling, post-install reconciliation, and failure
-  modes Kolu's logger surfaces.
+  Kolu's project-wide default for filesystem monitoring is `@parcel/watcher`.
+  Reach for this skill when adding or modifying any code that watches files
+  or directories — recursive subtree watching, single-file observation,
+  fs.watch alternatives, chokidar replacement, inotify/FSEvents/watchman
+  backend selection, ignore globs, watcher debouncing, or refcounted shared
+  subscriptions. Covers backend dispatch, the watchman invocation path,
+  ignore handling, post-install reconciliation, and the failure modes Kolu's
+  logger surfaces.
 ---
 
 # `@parcel/watcher` integration
