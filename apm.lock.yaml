@@ -1,6 +1,6 @@
 lockfile_version: '1'
-generated_at: '2026-04-29T11:21:38.716996+00:00'
-apm_version: 0.10.0
+generated_at: '2026-04-29T21:28:51.062895+00:00'
+apm_version: 0.11.0
 dependencies:
 - repo_url: anthropics/skills
   host: github.com
@@ -37,7 +37,7 @@ dependencies:
   content_hash: sha256:67ff7ce606ad0378af382ad6cb84d9853bf70ec52d6fe40ed6b6f82ecd2c48c3
 - repo_url: srid/agency
   host: github.com
-  resolved_commit: d87139a440599089c274817328c23b3f7ca555b1
+  resolved_commit: 133c7a606624714983eaa4f4905d3c6cd2febbc1
   resolved_ref: master
   package_type: apm_package
   deployed_files:
@@ -105,6 +105,7 @@ mcp_configs:
 local_deployed_files:
 - .agents/skills/ci
 - .agents/skills/hk
+- .agents/skills/parcel
 - .agents/skills/perf-diagnose
 - .agents/skills/pierre
 - .agents/skills/test
@@ -121,12 +122,14 @@ local_deployed_files:
 - .claude/rules/toast-conventions.md
 - .claude/skills/ci
 - .claude/skills/hk
+- .claude/skills/parcel
 - .claude/skills/perf-diagnose
 - .claude/skills/pierre
 - .claude/skills/test
 - .opencode/commands/whatchanged.md
 - .opencode/skills/ci
 - .opencode/skills/hk
+- .opencode/skills/parcel
 - .opencode/skills/perf-diagnose
 - .opencode/skills/pierre
 - .opencode/skills/test
