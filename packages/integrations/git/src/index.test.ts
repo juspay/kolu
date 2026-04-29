@@ -19,8 +19,10 @@ import {
   parseNameStatus,
   resolveGitInfo,
   resolveUnder,
+  watchGitHead,
   worktreeCreate,
 } from "./index.ts";
+import { _sharedHeadWatcherCount } from "./resolve.ts";
 
 // Mock randomName to return a predictable value
 vi.mock("memorable-names", () => ({
@@ -577,5 +579,178 @@ describe("worktreeCreate", () => {
     expect(worktreeHead).toBe(latestCommit);
 
     await cloneGit.raw(["worktree", "remove", result.value.path, "--force"]);
+  });
+});
+
+// --- watchGitHead: shared refcounted watcher (#748) ---
+
+describe("watchGitHead", () => {
+  let tmpDir: string;
+
+  /** Create a git repo with one commit and return its path + .git absolute path. */
+  async function initRepo(name: string) {
+    const dir = path.join(tmpDir, name);
+    fs.mkdirSync(dir, { recursive: true });
+    const git = simpleGit(dir);
+    await git.init();
+    await git.checkoutLocalBranch("main");
+    fs.writeFileSync(path.join(dir, "file.txt"), "hello");
+    await git.add(".");
+    await git.commit("initial");
+    return { dir, git, gitDir: path.join(dir, ".git") };
+  }
+
+  /** Wait until `predicate` returns true or `timeout` elapses. Polls so we
+   *  pick up real fs.watch events rather than guessing at a fixed sleep. */
+  async function waitFor(
+    predicate: () => boolean,
+    timeout = 2000,
+  ): Promise<void> {
+    const deadline = Date.now() + timeout;
+    while (Date.now() < deadline) {
+      if (predicate()) return;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    throw new Error(
+      `waitFor: predicate did not become true within ${timeout}ms`,
+    );
+  }
+
+  beforeAll(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-git-watch-test-"));
+  });
+
+  afterAll(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  afterEach(() => {
+    // Defensive: any test that leaks a subscription would skew the count
+    // for the next test. The Map is module-scope, so leaks are sticky.
+    expect(_sharedHeadWatcherCount()).toBe(0);
+  });
+
+  it("returns a no-op for non-git directories", () => {
+    const dir = path.join(tmpDir, "no-git");
+    fs.mkdirSync(dir, { recursive: true });
+    const stop = watchGitHead(dir, () => {});
+    expect(_sharedHeadWatcherCount()).toBe(0);
+    stop(); // must not throw
+  });
+
+  it("two subscribers in the same repo share one fs.watch entry", async () => {
+    const { dir } = await initRepo("shared-one-repo");
+    const stop1 = watchGitHead(dir, () => {});
+    const stop2 = watchGitHead(dir, () => {});
+    expect(_sharedHeadWatcherCount()).toBe(1);
+    stop1();
+    expect(_sharedHeadWatcherCount()).toBe(1);
+    stop2();
+    expect(_sharedHeadWatcherCount()).toBe(0);
+  });
+
+  it("two subscribers from different cwds in the same repo also share", async () => {
+    // Issue scope: terminals open in different subdirs of the same repo
+    // must dedupe to one watcher.
+    const { dir } = await initRepo("shared-subdir-repo");
+    const sub = path.join(dir, "src", "deep");
+    fs.mkdirSync(sub, { recursive: true });
+
+    const stop1 = watchGitHead(dir, () => {});
+    const stop2 = watchGitHead(sub, () => {});
+    expect(_sharedHeadWatcherCount()).toBe(1);
+    stop1();
+    stop2();
+    expect(_sharedHeadWatcherCount()).toBe(0);
+  });
+
+  it("different repos get independent shared watchers", async () => {
+    const a = await initRepo("repo-a");
+    const b = await initRepo("repo-b");
+    const stopA = watchGitHead(a.dir, () => {});
+    const stopB = watchGitHead(b.dir, () => {});
+    expect(_sharedHeadWatcherCount()).toBe(2);
+    stopA();
+    stopB();
+    expect(_sharedHeadWatcherCount()).toBe(0);
+  });
+
+  it("a fresh subscribe after teardown installs a new watcher", async () => {
+    const { dir } = await initRepo("rebuild-repo");
+    const stop1 = watchGitHead(dir, () => {});
+    expect(_sharedHeadWatcherCount()).toBe(1);
+    stop1();
+    expect(_sharedHeadWatcherCount()).toBe(0);
+    const stop2 = watchGitHead(dir, () => {});
+    expect(_sharedHeadWatcherCount()).toBe(1);
+    stop2();
+    expect(_sharedHeadWatcherCount()).toBe(0);
+  });
+
+  it("double-cleanup from the same subscriber is a safe no-op", async () => {
+    const { dir } = await initRepo("idempotent-repo");
+    const stop1 = watchGitHead(dir, () => {});
+    const stop2 = watchGitHead(dir, () => {});
+    stop1();
+    stop1(); // must not double-tear-down or affect stop2's subscription
+    expect(_sharedHeadWatcherCount()).toBe(1);
+    stop2();
+    expect(_sharedHeadWatcherCount()).toBe(0);
+  });
+
+  it("a HEAD change fans out to every subscriber on the shared watcher", async () => {
+    const { dir, git, gitDir } = await initRepo("dispatch-repo");
+    let aFires = 0;
+    let bFires = 0;
+    const stopA = watchGitHead(dir, () => {
+      aFires++;
+    });
+    const stopB = watchGitHead(dir, () => {
+      bFires++;
+    });
+    expect(_sharedHeadWatcherCount()).toBe(1);
+
+    // Branch switch rewrites .git/HEAD, which is what we're watching.
+    await git.checkoutLocalBranch("feature");
+
+    // Re-touch HEAD until both listeners fire — fs.watch (inotify on Linux,
+    // FSEvents on darwin) is best-effort and a single edit can occasionally
+    // be missed under load.
+    await waitFor(() => aFires > 0 && bFires > 0, 3000).catch(async () => {
+      const head = path.join(gitDir, "HEAD");
+      const content = fs.readFileSync(head);
+      fs.writeFileSync(head, content);
+      await waitFor(() => aFires > 0 && bFires > 0, 2000);
+    });
+
+    expect(aFires).toBeGreaterThan(0);
+    expect(bFires).toBeGreaterThan(0);
+
+    stopA();
+    stopB();
+    expect(_sharedHeadWatcherCount()).toBe(0);
+  });
+
+  it("a listener that throws does not block its peers", async () => {
+    const { dir, git, gitDir } = await initRepo("fault-isolation-repo");
+    let bFires = 0;
+    const stopA = watchGitHead(dir, () => {
+      throw new Error("boom");
+    });
+    const stopB = watchGitHead(dir, () => {
+      bFires++;
+    });
+
+    await git.checkoutLocalBranch("feature");
+    await waitFor(() => bFires > 0, 3000).catch(async () => {
+      const head = path.join(gitDir, "HEAD");
+      fs.writeFileSync(head, fs.readFileSync(head));
+      await waitFor(() => bFires > 0, 2000);
+    });
+
+    expect(bFires).toBeGreaterThan(0);
+    stopA();
+    stopB();
+    expect(_sharedHeadWatcherCount()).toBe(0);
   });
 });

@@ -114,9 +114,74 @@ export async function resolveGitInfo(
   }
 }
 
+/** Refcounted shared watcher for one resolved gitDir. The `fs.watch` handle
+ *  and debounce timer are closure-private inside `installSharedHeadWatcher`;
+ *  only the listener set and a teardown callback are surfaced. */
+interface SharedHeadWatcher {
+  listeners: Set<() => void>;
+  cleanup: () => void;
+}
+
+/** Module-scope registry: one entry per resolved gitDir. N terminals in the
+ *  same repo collapse to one `fs.watch` + one debounce timer that fans out
+ *  to all listeners. First subscriber installs; last unsubscribe tears down
+ *  and removes the map entry, so a fresh subscribe after teardown installs
+ *  a new watcher cleanly. */
+const sharedHeadWatchers = new Map<string, SharedHeadWatcher>();
+
+function installSharedHeadWatcher(
+  gitDir: string,
+  log?: Logger,
+): SharedHeadWatcher | null {
+  const listeners = new Set<() => void>();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  let watcher: fs.FSWatcher;
+  try {
+    watcher = fs.watch(gitDir, (_, filename) => {
+      if (filename !== "HEAD") return;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        timer = undefined;
+        // Snapshot before iteration so a listener that unsubscribes
+        // synchronously can't skip a peer for this event.
+        for (const cb of [...listeners]) {
+          try {
+            cb();
+          } catch (e) {
+            log?.debug(
+              { err: e instanceof Error ? e.message : String(e), gitDir },
+              "git: head listener threw",
+            );
+          }
+        }
+      }, DEBOUNCE_MS);
+    });
+  } catch (e) {
+    log?.debug(
+      { err: e instanceof Error ? e.message : String(e), gitDir },
+      "git: failed to watch git dir",
+    );
+    return null;
+  }
+
+  return {
+    listeners,
+    cleanup() {
+      if (timer) clearTimeout(timer);
+      watcher.close();
+    },
+  };
+}
+
 /**
  * Watch .git/HEAD for changes (branch switches, checkout, etc.).
  * Returns a cleanup function. Returns a no-op for non-git directories.
+ *
+ * N callers watching the same `gitDir` share a single `fs.watch` handle and
+ * a single debounce timer via a refcounted module-scope registry. First
+ * caller installs; last unsubscribe tears down. Cost per HEAD event is
+ * O(listeners) regardless of how many terminals subscribed.
  */
 export function watchGitHead(
   cwd: string,
@@ -136,26 +201,35 @@ export function watchGitHead(
     return () => {};
   }
 
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  let watcher: fs.FSWatcher | undefined;
-  try {
-    watcher = fs.watch(gitDir, (_, filename) => {
-      if (filename !== "HEAD") return;
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(onChange, DEBOUNCE_MS);
-    });
-  } catch (e) {
-    log?.debug(
-      { err: e instanceof Error ? e.message : String(e), gitDir },
-      "git: failed to watch git dir",
-    );
-    return () => {};
+  let entry = sharedHeadWatchers.get(gitDir);
+  if (!entry) {
+    const fresh = installSharedHeadWatcher(gitDir, log);
+    if (!fresh) return () => {};
+    sharedHeadWatchers.set(gitDir, fresh);
+    entry = fresh;
   }
+  const handle = entry;
+  handle.listeners.add(onChange);
 
   return () => {
-    if (timer) clearTimeout(timer);
-    watcher?.close();
+    // `Set.delete` returns false if `onChange` was already removed, which
+    // keeps the unsubscribe idempotent: a double-call from the same caller
+    // can't double-tear-down. A later subscribe under the same gitDir gets
+    // a fresh entry; this closure's `handle` stays bound to the old one,
+    // so it can't accidentally tear that fresh entry down.
+    if (!handle.listeners.delete(onChange)) return;
+    if (handle.listeners.size === 0) {
+      handle.cleanup();
+      sharedHeadWatchers.delete(gitDir);
+    }
   };
+}
+
+/** Test-only inspector — number of distinct gitDirs with active shared
+ *  watchers. Used by unit tests to assert the singleton invariant without
+ *  spying on `fs.watch`. */
+export function _sharedHeadWatcherCount(): number {
+  return sharedHeadWatchers.size;
 }
 
 /** Compare two GitInfo values for equality. */
