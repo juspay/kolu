@@ -13,7 +13,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { resolveGitDir } from "./git-dir.ts";
+import { resolveGitDir, WATCHER_DEBOUNCE_MS } from "./git-dir.ts";
 import { createDirFilenameWatcher } from "./shared-dir-filename-watcher.ts";
 
 const reflogWatcher = createDirFilenameWatcher({
@@ -30,7 +30,7 @@ const reflogWatcher = createDirFilenameWatcher({
     return fs.existsSync(logsDir) ? logsDir : null;
   },
   filename: "HEAD",
-  debounceMs: 150,
+  debounceMs: WATCHER_DEBOUNCE_MS,
   logLabel: "git: reflog",
 });
 

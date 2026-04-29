@@ -1,17 +1,20 @@
-/** Resolve a cwd to its `.git` directory (the path `git rev-parse --git-dir`
- *  reports), or `null` if the cwd isn't inside a git working tree. Used by
- *  the three git-dir-internal watchers (`watchGitHead`, `watchGitReflog`,
- *  `watchGitIndex`) so they share one lookup contract.
+/** Shared constants and helpers for the live Code-view watcher layer.
  *
- *  Returns an absolute path. For a regular repo this is `<repoRoot>/.git`;
- *  for worktrees it points back at the main repo's `.git` (which is where
- *  `HEAD`, `index`, and `logs/` actually live).
+ *  `resolveGitDir` is the gitDir lookup the three git-dir watchers
+ *  (`watchGitHead`, `watchGitReflog`, `watchGitIndex`) share. For a
+ *  regular repo it returns `<repoRoot>/.git`; for worktrees it points at
+ *  the main repo's `.git` (where `HEAD`, `index`, and `logs/` actually
+ *  live). Synchronous because watchers install once at subscribe time.
  *
- *  Synchronous on purpose — these watchers install once at subscribe time
- *  and the lookup is cheap. */
+ *  `WATCHER_DEBOUNCE_MS` is the trailing-edge debounce window every
+ *  watcher and composed primitive in this layer uses. Tuned for editor
+ *  save bursts and inotify multi-fire patterns; co-located here so a
+ *  retune touches one constant. */
 
 import { execSync } from "node:child_process";
 import path from "node:path";
+
+export const WATCHER_DEBOUNCE_MS = 150;
 
 export function resolveGitDir(cwd: string): string | null {
   try {

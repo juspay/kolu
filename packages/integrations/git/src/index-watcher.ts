@@ -12,13 +12,13 @@
  * abstraction uniform across axes.
  */
 
-import { resolveGitDir } from "./git-dir.ts";
+import { resolveGitDir, WATCHER_DEBOUNCE_MS } from "./git-dir.ts";
 import { createDirFilenameWatcher } from "./shared-dir-filename-watcher.ts";
 
 const indexWatcher = createDirFilenameWatcher({
   resolveDir: resolveGitDir,
   filename: "index",
-  debounceMs: 150,
+  debounceMs: WATCHER_DEBOUNCE_MS,
   logLabel: "git: index",
 });
 

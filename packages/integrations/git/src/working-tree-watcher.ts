@@ -38,8 +38,7 @@ import {
   subscribe as parcelSubscribe,
 } from "@parcel/watcher";
 import type { Logger } from "kolu-shared";
-
-const DEBOUNCE_MS = 150;
+import { WATCHER_DEBOUNCE_MS } from "./git-dir.ts";
 
 /** Hard-coded ignore list. Globs are matched against paths relative to the
  *  watched repo root by parcel-watcher's picomatch integration. The leading
@@ -145,7 +144,7 @@ function installSharedWorkingTreeWatcher(
             );
           }
         }
-      }, DEBOUNCE_MS);
+      }, WATCHER_DEBOUNCE_MS);
     },
     { ignore: IGNORE_GLOBS },
   )
