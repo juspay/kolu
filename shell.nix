@@ -30,6 +30,13 @@ pkgs.mkShell {
     pnpm
     tsx
     nixpkgs-fmt
+    # Watchman daemon — `@parcel/watcher` auto-detects it and routes
+    # working-tree subscriptions through one shared system process,
+    # bypassing the per-process inotify watch budget on Linux. Pinned
+    # alongside `gh` for the same reason: the server depends on its
+    # availability at runtime, so we ship it via the dev shell instead
+    # of expecting the user to install it.
+    watchman
     # `uv` provides `uvx`, used by agents/ai.just to run APM from
     # git+https without a global install (see ci::apm-sync).
     uv

@@ -184,3 +184,15 @@ Feature: Code tab (review + browse)
     When I click the context menu item "Copy file-b.txt:1"
     Then the clipboard should contain "file-b.txt:1"
     And the clipboard should not contain "file-a.txt"
+
+  # ── Live updates: known coverage gap ──
+  # The Code view subscribes to a server-side watcher that observes four
+  # axes (HEAD, reflog, index, working tree) and pushes snapshot updates
+  # when any of them changes. The live behavior was verified by hand and
+  # in a standalone @parcel/watcher reproducer; an in-cucumber assertion
+  # is missing because parcel-watcher events are not delivered to the
+  # spawned-via-tsx test server in this harness, even though they fire
+  # correctly from the same parcel binary in a direct `node` reproducer
+  # against the same /tmp paths. Running watchman in the dev shell
+  # (shell.nix) is in place so parcel-watcher uses the daemon backend in
+  # real usage, bypassing per-process inotify entirely.

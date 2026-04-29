@@ -97,11 +97,33 @@ function installSharedWorkingTreeWatcher(
   let subscription: AsyncSubscription | null = null;
   let cancelled = false;
 
-  // Async install. Until the promise resolves, listeners can attach but no
-  // events fire. The window is small (parcel does its initial readdir
-  // walk); events during the gap are missed, which is acceptable for our
-  // "snapshot on subscribe + live updates" model — the streaming endpoint
-  // yields a fresh snapshot before subscribing here.
+  /** Fire all current listeners after a debounce. Both real events and the
+   *  post-install reconciliation share this dispatch path. */
+  const scheduleFire = (): void => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = undefined;
+      const fired = [...pending];
+      pending.clear();
+      for (const listener of fired) {
+        try {
+          listener.onChange();
+        } catch (e) {
+          log?.error(
+            { err: e instanceof Error ? e.message : String(e), repoRoot },
+            "git: working-tree listener threw",
+          );
+        }
+      }
+    }, WATCHER_DEBOUNCE_MS);
+  };
+
+  // Async install. Filesystem mutations between this call and parcel's
+  // resolve are invisible to parcel — the streaming endpoint already
+  // yielded its initial snapshot before this subscribe ran, so any change
+  // landing in that window leaves the client with a stale view that no
+  // future event will correct on its own. Fire a synthetic tick once
+  // parcel is ready so consumers re-read state and reconcile.
   parcelSubscribe(
     repoRoot,
     (err, events) => {
@@ -129,22 +151,7 @@ function installSharedWorkingTreeWatcher(
 
       // Trailing-edge debounce — a burst of events fires the listeners
       // exactly once, after the burst settles. Reset on every new batch.
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(() => {
-        timer = undefined;
-        const fired = [...pending];
-        pending.clear();
-        for (const listener of fired) {
-          try {
-            listener.onChange();
-          } catch (e) {
-            log?.error(
-              { err: e instanceof Error ? e.message : String(e), repoRoot },
-              "git: working-tree listener threw",
-            );
-          }
-        }
-      }, WATCHER_DEBOUNCE_MS);
+      scheduleFire();
     },
     { ignore: IGNORE_GLOBS },
   )
@@ -160,6 +167,16 @@ function installSharedWorkingTreeWatcher(
       }
       subscription = sub;
       log?.info({ repoRoot }, "git: working-tree watcher installed");
+
+      // Reconcile any mutations that landed in the install window —
+      // parcel didn't see them, but the listener's own re-read will. Add
+      // every current listener to `pending` (the filter doesn't matter
+      // here; reconciliation is a "re-derive your state" signal, not a
+      // path-specific event) and schedule one debounced fire.
+      if (listeners.size > 0) {
+        for (const listener of listeners) pending.add(listener);
+        scheduleFire();
+      }
     })
     .catch((e: Error) => {
       log?.error(
