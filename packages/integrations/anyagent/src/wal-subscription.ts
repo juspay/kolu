@@ -111,7 +111,6 @@ export function createWalSubscription(
       sharedWalWatcher = { cleanup, listeners };
       logWatcherInstalled(log, `${config.label}: wal`, {
         walPath: config.walPath,
-        label: config.label,
       });
     }
     const listener: WalListener = { cb: onChange, onError };
@@ -124,7 +123,6 @@ export function createWalSubscription(
         sharedWalWatcher = null;
         logWatcherRetired(log, `${config.label}: wal`, {
           walPath: config.walPath,
-          label: config.label,
         });
       }
     };
