@@ -68,6 +68,7 @@ function installSharedHeadWatcher(
     );
     return null;
   }
+  log?.info({ gitDir }, "git: head watcher installed");
 
   return {
     subscribe(onChange) {
@@ -84,6 +85,7 @@ function installSharedHeadWatcher(
           if (timer) clearTimeout(timer);
           watcher.close();
           onLast();
+          log?.info({ gitDir }, "git: head watcher retired");
         }
       };
     },
