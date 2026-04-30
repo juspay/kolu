@@ -6,6 +6,8 @@
  */
 
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   OSC2_PRECMD_BASH,
@@ -13,6 +15,7 @@ import {
   OSC2_PREEXEC_BASH_GUARD,
   OSC2_PREEXEC_FN,
   OSC7_FN,
+  osc7Init,
 } from "./shell.ts";
 
 /** Run a script in a clean bash subshell and return stdout. */
@@ -258,6 +261,27 @@ function execFileSyncBoth(script: string): string {
     return "";
   }
 }
+
+describe("osc7Init zsh wrapper", () => {
+  it("sources ~/.zshenv (regression: ZDOTDIR override hides it from zsh)", () => {
+    // Without this line, any user env defined in ~/.zshenv (PATH, etc.) is
+    // lost in PTY shells when kolu's parent process has a stripped env —
+    // notably under macOS launchd. zsh's auto-lookup of ~/.zshenv goes
+    // through ZDOTDIR, which we override, so the wrapper must replay it.
+    const init = osc7Init({
+      shell: "/bin/zsh",
+      home: "/home/testuser",
+      terminalId: "test-zshenv-source",
+    });
+    try {
+      const rcPath = join(init.env.ZDOTDIR as string, ".zshrc");
+      const rc = readFileSync(rcPath, "utf8");
+      expect(rc).toContain('source "/home/testuser/.zshenv"');
+    } finally {
+      init.cleanup();
+    }
+  });
+});
 
 describe("OSC2_PRECMD_ZSH", () => {
   it("emits OSC 2 with compact zsh prompt path", () => {
