@@ -14,7 +14,7 @@
  *  a new data source) localized to a single module instead of split
  *  across the picker and the host. */
 
-import { makeEventListener } from "@solid-primitives/event-listener";
+import { createEventListener } from "@solid-primitives/event-listener";
 import type { CodeTabView } from "kolu-common";
 import { type Component, createMemo, createSignal, For, Show } from "solid-js";
 import { Dynamic, Portal } from "solid-js/web";
@@ -59,16 +59,17 @@ const CodeFilterBar: Component<{
     setPos({ top: r.bottom + 6, left });
   };
 
-  // Close on outside click — ignore clicks on the trigger itself so the
-  // toggle button drives open/close cleanly.
-  makeEventListener(document, "mousedown", (e) => {
-    if (!open()) return;
+  // Document listeners exist only while the popover is open — passing
+  // `undefined` as the target detaches them. Outside-click ignores the
+  // trigger so the chip toggle drives open/close cleanly.
+  const popoverTarget = () => (open() ? document : undefined);
+  createEventListener(popoverTarget, "mousedown", (e) => {
     const t = e.target as Node;
     if (panelRef?.contains(t) || triggerRef?.contains(t)) return;
     setOpen(false);
   });
-  makeEventListener(document, "keydown", (e) => {
-    if (open() && e.key === "Escape") setOpen(false);
+  createEventListener(popoverTarget, "keydown", (e) => {
+    if (e.key === "Escape") setOpen(false);
   });
 
   const select = (v: CodeTabView) => {
@@ -87,10 +88,7 @@ const CodeFilterBar: Component<{
       <button
         ref={triggerRef}
         type="button"
-        onClick={() => {
-          updatePos();
-          setOpen(!open());
-        }}
+        onClick={() => setOpen(!open())}
         class="flex items-center gap-1.5 px-2 h-5 rounded text-[10px] font-mono cursor-pointer transition-colors bg-surface-2/40 hover:bg-surface-2/80 text-fg-2 hover:text-fg data-[active=true]:bg-surface-0 data-[active=true]:text-fg data-[active=true]:shadow-sm"
         data-testid="diff-filter-chip"
         data-active={open()}
