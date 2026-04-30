@@ -12,6 +12,7 @@ import { loadCodexTranscript } from "kolu-codex";
 import type { Transcript, TranscriptPr } from "kolu-common";
 import {
   activityFeedCell,
+  applyPreferencesPatch,
   fsListAllStream,
   fsReadFileStream,
   gitDiffStream,
@@ -51,7 +52,6 @@ import {
 import { saveClipboardImage } from "./clipboard.ts";
 import { serverHostname, serverProcessId } from "./hostname.ts";
 import { log } from "./log.ts";
-import { applyPreferencesPatch } from "./preferences.ts";
 import { subscribeForTerminal_ } from "./publisher.ts";
 import { getSavedSession } from "./session.ts";
 import {

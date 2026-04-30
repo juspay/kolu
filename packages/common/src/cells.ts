@@ -23,6 +23,8 @@ import {
   GitDiffOutputSchema,
   GitStatusInputSchema,
   GitStatusOutputSchema,
+  type Preferences,
+  type PreferencesPatch,
   PreferencesSchema,
   type SavedSession,
   SavedSessionSchema,
@@ -127,3 +129,25 @@ export const fsReadFileStream = stream({
   inputSchema: FsReadFileInputSchema,
   outputSchema: FsReadFileOutputSchema,
 });
+
+// ── Patch helpers ──────────────────────────────────────────────────────
+
+/** Pure merge of a `PreferencesPatch` into the current preferences.
+ *  `rightPanel` is deep-merged so callers can patch a single nested field
+ *  without supplying the rest of the object. Lives next to `preferencesCell`
+ *  so the descriptor and its merge shape are read together; both server
+ *  (cellHandlers patch) and client (mergeIntoStore via reconcile) reach
+ *  the same logic. */
+export function applyPreferencesPatch(
+  current: Preferences,
+  patch: PreferencesPatch,
+): Preferences {
+  const { rightPanel: rpPatch, ...rest } = patch;
+  return {
+    ...current,
+    ...rest,
+    ...(rpPatch !== undefined && {
+      rightPanel: { ...current.rightPanel, ...rpPatch },
+    }),
+  };
+}
