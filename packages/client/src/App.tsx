@@ -200,7 +200,6 @@ const App: Component = () => {
     handleShuffleTheme,
     handleScreenshotTerminal: () => handleScreenshotTerminal(),
     toggleRightPanel: rightPanel.togglePanel,
-    canvasCenterActive: handleCanvasCenterActive,
     toggleRecordingPause: () => useRecorder().togglePause(),
   };
 
@@ -267,6 +266,7 @@ const App: Component = () => {
     handleCloseAll: () => void crud.handleCloseAll(),
     simulateAlert: alerts.simulateAlert,
     isMobile,
+    canvasCenterActive: handleCanvasCenterActive,
   });
 
   // Reset state on close and return focus to terminal

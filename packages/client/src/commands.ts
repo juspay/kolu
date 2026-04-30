@@ -53,6 +53,7 @@ export interface CommandDeps extends ActionContext {
   // Canvas — desktop only (always active there); hidden on mobile where
   // the canvas isn't mounted at all.
   isMobile: () => boolean;
+  canvasCenterActive: () => void;
   // Worktree
   handleCreateWorktree: (repoPath: string, initialCommand?: string) => void;
   handleClose: () => void;

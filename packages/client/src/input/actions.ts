@@ -36,7 +36,6 @@ export interface ActionContext {
   handleShuffleTheme: () => void;
   handleScreenshotTerminal: () => void;
   toggleRightPanel: () => void;
-  canvasCenterActive: () => void;
   toggleRecordingPause: () => void;
 }
 
