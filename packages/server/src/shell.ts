@@ -216,6 +216,10 @@ export function osc7Init(opts: {
     writeFileSync(
       join(zdotdir, ".zshrc"),
       [
+        // ZDOTDIR override (below) suppresses zsh's auto-lookup of ~/.zshenv;
+        // replay it so home-manager's hm-session-vars.sh (PATH) loads under
+        // macOS launchd, which hands kolu a near-empty parent env.
+        `[ -f "${home}/.zshenv" ] && source "${home}/.zshenv"`,
         `[ -f /etc/zprofile ] && source /etc/zprofile`,
         `[ -f "${home}/.zprofile" ] && source "${home}/.zprofile"`,
         `[ -f "${home}/.zshrc" ] && ZDOTDIR="${home}" source "${home}/.zshrc"`,
