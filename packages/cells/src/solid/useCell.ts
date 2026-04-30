@@ -156,7 +156,12 @@ function useCellLocal<Name extends string, T extends object, P>(
   }
 
   return {
-    value: () => (initialized ? (store as T) : undefined),
+    // Always read the seeded store — `options.initial` is visible to
+    // consumers before the first server yield (matching the existing
+    // usePreferences pattern: instant UI from defaults, reconcile in
+    // place when the server arrives). The `initialized` flag is only
+    // load-bearing inside `createEffect` to gate echo absorption.
+    value: () => store as T,
     pending: sub.pending,
     error: sub.error,
     set: async (next) => {
