@@ -25,7 +25,6 @@ const HELP_ORDER: readonly { id: ActionId; label?: string }[] = [
   { id: "nextSubTab" },
   { id: "prevSubTab" },
   { id: "toggleRightPanel" },
-  { id: "canvasCenterActive" },
   { id: "shortcutsHelp" },
 ];
 

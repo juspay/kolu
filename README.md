@@ -55,7 +55,7 @@ The desktop workspace is mode-less — every terminal renders as a draggable, re
 - **Floating pill tree** — a two-level overlay (repo → branches) sits at the top of the canvas, ghosted at rest and behind any tile that overlaps it; hover pops it to full opacity. Branches sort by **canvas x-position**, so the tree reads left-to-right exactly as the tiles sit. Click a branch pill to pan and center its tile
 - **Pill border encodes state** — each pill's border doubles as identity (repo color) and live status: a conic-gradient sweep while the agent is `thinking`/`tool_use`, a breathing pulse while `waiting`, a static ring when the terminal is just active, and an inset glow when the active tile also has a working agent
 - **Identity-collision suffix** — when two terminals share the same repo+branch (or cwd, for non-git), the server assigns each a stable 4-char id suffix (`#a3f2`) so the pill tree and tile chrome can disambiguate them at a glance
-- **Keyboard navigation** — <kbd>Cmd/Ctrl+Shift+2</kbd> centers on the active tile
+- **Canvas navigation** — the command palette can center the active tile when panning has moved it out of view
 - **Per-tile theming** — title bars and pill swatches derive their colors from each terminal's theme for guaranteed contrast
 - **Mobile** — the canvas, pan/zoom, and the floating pill tree are all disabled; the active tile fills the viewport and swipe-left/right cycles between terminals in pill-tree order. A pull-down chrome sheet at the top reveals the same logo + pill list + controls as a touch-sized drawer
 

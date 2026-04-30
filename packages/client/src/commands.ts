@@ -145,7 +145,12 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
       : []),
     actionPaletteCommand("toggleRightPanel", deps),
     ...(!deps.isMobile()
-      ? [actionPaletteCommand("canvasCenterActive", deps)]
+      ? [
+          {
+            name: "Center on active tile",
+            onSelect: () => deps.canvasCenterActive(),
+          },
+        ]
       : []),
     ...(deps.terminalIds().length > 0
       ? [

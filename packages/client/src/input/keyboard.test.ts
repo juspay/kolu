@@ -129,6 +129,19 @@ describe("matchesAnyShortcut", () => {
     );
   });
 
+  it("does not match Ctrl/Cmd+Shift+C", () => {
+    expect(
+      matchesAnyShortcut(
+        makeEvent({ key: "C", code: "KeyC", ctrlKey: true, shiftKey: true }),
+      ),
+    ).toBe(false);
+    expect(
+      matchesAnyShortcut(
+        makeEvent({ key: "C", code: "KeyC", metaKey: true, shiftKey: true }),
+      ),
+    ).toBe(false);
+  });
+
   it("does not match random key", () => {
     expect(matchesAnyShortcut(makeEvent({ key: "z" }))).toBe(false);
   });
