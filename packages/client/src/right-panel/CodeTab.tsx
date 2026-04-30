@@ -128,6 +128,8 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
     return status()?.files.map((f) => f.path) ?? [];
   });
 
+  // Track membership rather than the treePaths array identity: browse paths
+  // come from a reconciled store array whose contents can change in place.
   createEffect(
     on(
       () => {
