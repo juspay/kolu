@@ -14,7 +14,13 @@
  * tree layout/virtualization; `@pierre/diffs` owns diff parsing and
  * shiki highlighting. This component is just data flow + chrome. */
 
+import { useStream } from "@kolu/cells/solid";
 import type { CodeTabView, GitDiffMode, TerminalMetadata } from "kolu-common";
+import {
+  fsListAllStream,
+  gitDiffStream,
+  gitStatusStream,
+} from "kolu-common/cells";
 import {
   type Component,
   createEffect,
@@ -26,7 +32,6 @@ import {
   Switch,
 } from "solid-js";
 import { toast } from "solid-sonner";
-import { createReactiveSubscription } from "../rpc/createReactiveSubscription";
 import { stream } from "../rpc/rpc";
 import { useColorScheme } from "../settings/useColorScheme";
 import { FileBrowseIcon, FileDiffIcon, GitBranchIcon } from "../ui/Icons";
@@ -69,7 +74,8 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
   // mode switch so a stale needle doesn't hide the wrong file set.
   const [searchQuery, setSearchQuery] = createSignal("");
 
-  const status = createReactiveSubscription(
+  const status = useStream(
+    gitStatusStream,
     () => {
       const p = repoPath();
       const m = diffMode();
@@ -81,7 +87,8 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
     },
   );
 
-  const allPaths = createReactiveSubscription(
+  const allPaths = useStream(
+    fsListAllStream,
     () => {
       const p = repoPath();
       return p && view() === "browse" ? { repoPath: p } : null;
@@ -92,7 +99,8 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
     },
   );
 
-  const diff = createReactiveSubscription(
+  const diff = useStream(
+    gitDiffStream,
     () => {
       const p = repoPath();
       const s = selectedPath();
