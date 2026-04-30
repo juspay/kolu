@@ -233,14 +233,23 @@ export async function* pollOnEvent<T>(opts: {
 }
 
 /** Convert a callback-based "something changed" subscription into an
- *  AsyncIterable<void> that yields once per debounced tick. Bursts that
- *  fire while the consumer is mid-yield collapse into one wakeup. */
+ *  AsyncIterable<void> that yields once per debounced tick.
+ *
+ *  Coalescing semantics: events that fire while the consumer is mid-yield
+ *  collapse into one wakeup (the `dirty` flag flips to true; the consumer
+ *  picks it up on the next loop iteration). This complements any upstream
+ *  primitive's own debounce — bursts that arrive during snapshot
+ *  computation don't queue up extra yields. */
 async function* repoEventStream(
   install: (onEvent: () => void) => () => void,
   signal: AbortSignal | undefined,
 ): AsyncIterable<void> {
   let dirty = false;
   let resolve: (() => void) | null = null;
+  // Drain the pending wake promise so the loop's `await` returns. Both
+  // the upstream event callback and the abort signal need this exact
+  // sequence; factoring it out keeps a future log/error addition from
+  // landing in only one path.
   const drainResolve = (): void => {
     if (resolve) {
       const r = resolve;

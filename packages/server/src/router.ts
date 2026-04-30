@@ -81,6 +81,9 @@ const preferencesHandlers = cellHandlers(preferencesCell, {
   store: preferencesStore,
   bus: cellBus.preferences,
   patch: applyPreferencesPatch,
+  // Log only patched keys — values may carry user-identifying state
+  // (themes, file paths in rightPanel.tab) that have no business in
+  // operator logs. Same shape as the pre-framework inline log.info.
   onMutate: (patch) =>
     log.info(
       {
@@ -119,6 +122,11 @@ const gitStatusHandlers = streamHandlers(gitStatusStream, {
       isEqual: gitStatusOutputEqual,
       install: (cb) => subscribeRepoChange(input.repoPath, cb, log),
       signal,
+      // Transient git errors shouldn't tear down the long-lived
+      // subscription — the upstream debounce will tick again and the
+      // next read may succeed. Log loud enough that a *persistent*
+      // failure is visible to operators (a stuck stream silently
+      // returning stale state is the worse failure mode).
       onReadError: (e) => {
         log.error(
           { err: e instanceof Error ? e.message : String(e) },
@@ -144,6 +152,11 @@ const gitDiffHandlers = streamHandlers(gitDiffStream, {
       isEqual: gitDiffOutputEqual,
       install: (cb) => subscribeRepoChange(input.repoPath, cb, log),
       signal,
+      // Transient git errors shouldn't tear down the long-lived
+      // subscription — the upstream debounce will tick again and the
+      // next read may succeed. Log loud enough that a *persistent*
+      // failure is visible to operators (a stuck stream silently
+      // returning stale state is the worse failure mode).
       onReadError: (e) => {
         log.error(
           { err: e instanceof Error ? e.message : String(e) },
@@ -162,6 +175,11 @@ const fsListAllHandlers = streamHandlers(fsListAllStream, {
       isEqual: fsListAllOutputEqual,
       install: (cb) => subscribeRepoChange(input.repoPath, cb, log),
       signal,
+      // Transient git errors shouldn't tear down the long-lived
+      // subscription — the upstream debounce will tick again and the
+      // next read may succeed. Log loud enough that a *persistent*
+      // failure is visible to operators (a stuck stream silently
+      // returning stale state is the worse failure mode).
       onReadError: (e) => {
         log.error(
           { err: e instanceof Error ? e.message : String(e) },
@@ -180,6 +198,11 @@ const fsReadFileHandlers = streamHandlers(fsReadFileStream, {
       install: (cb) =>
         subscribeFileChange(input.repoPath, input.filePath, cb, log),
       signal,
+      // Transient git errors shouldn't tear down the long-lived
+      // subscription — the upstream debounce will tick again and the
+      // next read may succeed. Log loud enough that a *persistent*
+      // failure is visible to operators (a stuck stream silently
+      // returning stale state is the worse failure mode).
       onReadError: (e) => {
         log.error(
           { err: e instanceof Error ? e.message : String(e) },
