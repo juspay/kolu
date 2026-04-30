@@ -99,7 +99,8 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
       const m = diffMode();
       if (!p || !s || !m) return null;
       const file = status()?.files.find((f) => f.path === s);
-      return { repoPath: p, filePath: s, mode: m, oldPath: file?.oldPath };
+      if (!file) return null;
+      return { repoPath: p, filePath: s, mode: m, oldPath: file.oldPath };
     },
     (input, signal) => stream.gitDiff(input, signal),
     {
@@ -126,6 +127,20 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
     if (view() === "browse") return allPaths()?.paths ?? [];
     return status()?.files.map((f) => f.path) ?? [];
   });
+
+  createEffect(
+    on(
+      () => {
+        const s = selectedPath();
+        return [s, s ? treePaths().includes(s) : true] as const;
+      },
+      ([path, pathExists]) => {
+        if (path && !pathExists) setSelectedPath(null);
+      },
+      { defer: true },
+    ),
+  );
+
   const treeGitStatus = createMemo(() => {
     const s = status();
     return s ? toGitStatusEntries(s.files) : undefined;

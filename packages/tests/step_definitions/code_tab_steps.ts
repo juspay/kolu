@@ -300,6 +300,28 @@ Then(
   },
 );
 
+Then(
+  "the file browser should not show a file {string}",
+  async function (this: KoluWorld, path: string) {
+    const item = this.page.locator(fileRow(path));
+    await item.waitFor({ state: "detached", timeout: POLL_TIMEOUT });
+  },
+);
+
+Then(
+  "the Code tab content should show the select hint {string}",
+  async function (this: KoluWorld, expected: string) {
+    await this.page.waitForFunction(
+      (text) => {
+        const content = document.querySelector('[data-testid="diff-content"]');
+        return content?.textContent?.includes(text) ?? false;
+      },
+      expected,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
 // Pierre's File / FileDiff renderers mount highlighted code inside a
 // shadow root. `Element.textContent` does NOT cross shadow boundaries,
 // so we walk the tree (including each `shadowRoot`) and stitch the text.
