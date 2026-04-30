@@ -29,7 +29,7 @@ import { toast } from "solid-sonner";
 import { createReactiveSubscription } from "../rpc/createReactiveSubscription";
 import { stream } from "../rpc/rpc";
 import { useColorScheme } from "../settings/useColorScheme";
-import { FileDiffIcon, GitBranchIcon } from "../ui/Icons";
+import { FileBrowseIcon, FileDiffIcon, GitBranchIcon } from "../ui/Icons";
 import PierreDiffView from "../ui/PierreDiffView";
 import PierreFileTree, { toGitStatusEntries } from "../ui/PierreFileTree";
 import BrowseFileView from "./BrowseFileView";
@@ -143,31 +143,34 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
   // Mode catalog — owns the list of views, their labels, hints, and
   // test IDs. Adding a new mode (e.g. "stash") happens here, plus the
   // data-source switch above. CodeFilterBar is purely a presenter.
-  const modeOptions = createMemo<ModeOption[]>(() => [
-    {
-      view: "browse",
-      label: "All files",
-      hint: "Browse the whole repo",
-      testId: "diff-mode-browse",
-      iconKind: "file",
-    },
-    {
-      view: "local",
-      group: "Git",
-      label: "Local",
-      hint: "Working tree vs HEAD",
-      testId: "diff-mode-local",
-      iconKind: "git",
-    },
-    {
-      view: "branch",
-      group: "Git",
-      label: "Branch",
-      hint: branchRef() ? `vs ${branchRef()}` : "Working tree vs branch base",
-      testId: "diff-mode-branch",
-      iconKind: "git",
-    },
-  ]);
+  const modeOptions = createMemo<ModeOption[]>(() => {
+    const ref = branchRef();
+    return [
+      {
+        view: "browse",
+        label: "All files",
+        hint: "Browse the whole repo",
+        testId: "diff-mode-browse",
+        icon: FileBrowseIcon,
+      },
+      {
+        view: "local",
+        group: "Git",
+        label: "Local",
+        hint: "Working tree vs HEAD",
+        testId: "diff-mode-local",
+        icon: GitBranchIcon,
+      },
+      {
+        view: "branch",
+        group: "Git",
+        label: "Branch",
+        hint: ref ? `vs ${ref}` : "Working tree vs branch base",
+        testId: "diff-mode-branch",
+        icon: GitBranchIcon,
+      },
+    ];
+  });
 
   /** Diff value narrowed to "this is a pure-rename" (no hunks, both old +
    *  new file names present and different). Returning the full diff so the

@@ -17,14 +17,8 @@
 import { makeEventListener } from "@solid-primitives/event-listener";
 import type { CodeTabView } from "kolu-common";
 import { type Component, createMemo, createSignal, For, Show } from "solid-js";
-import { Portal } from "solid-js/web";
-import {
-  ChevronDownIcon,
-  CloseIcon,
-  FileBrowseIcon,
-  GitBranchIcon,
-  SearchIcon,
-} from "../ui/Icons";
+import { Dynamic, Portal } from "solid-js/web";
+import { ChevronDownIcon, CloseIcon, SearchIcon } from "../ui/Icons";
 
 export type ModeOption = {
   view: CodeTabView;
@@ -34,10 +28,9 @@ export type ModeOption = {
   label: string;
   hint: string;
   testId: string;
-  /** When `true`, renders the git-branch icon in the chip; otherwise the
-   *  file-browse icon. Drives the chip's leading glyph without leaking
-   *  view-string knowledge into this component. */
-  iconKind?: "git" | "file";
+  /** Leading glyph for the chip. Host owns icon registry so the picker
+   *  doesn't import every possible icon. */
+  icon: Component<{ class?: string }>;
 };
 
 const CodeFilterBar: Component<{
@@ -88,7 +81,6 @@ const CodeFilterBar: Component<{
   );
   const chipLabel = (m: ModeOption) =>
     m.group ? `${m.group}: ${m.label}` : m.label;
-  const activeIsGit = () => activeMode()?.iconKind === "git";
 
   return (
     <div class="flex items-center h-7 px-1.5 bg-surface-1/30 border-b border-edge shrink-0 gap-2">
@@ -106,17 +98,14 @@ const CodeFilterBar: Component<{
         aria-haspopup="menu"
         title="Change view"
       >
-        <Show
-          when={activeIsGit()}
-          fallback={<FileBrowseIcon class="w-3 h-3 opacity-70" />}
-        >
-          <GitBranchIcon class="w-3 h-3 opacity-70" />
+        <Show when={activeMode()}>
+          {(m) => (
+            <>
+              <Dynamic component={m().icon} class="w-3 h-3 opacity-70" />
+              <span>{chipLabel(m())}</span>
+            </>
+          )}
         </Show>
-        <span>
-          <Show when={activeMode()} fallback={props.view}>
-            {(m) => chipLabel(m())}
-          </Show>
-        </span>
         <ChevronDownIcon
           class={`w-3 h-3 opacity-50 transition-transform ${
             open() ? "rotate-180" : ""
