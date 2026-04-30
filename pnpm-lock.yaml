@@ -50,8 +50,8 @@ importers:
         specifier: ^1.13.13
         version: 1.13.13
       '@pierre/diffs':
-        specifier: ^1.1.19
-        version: 1.1.19(react@19.2.5)
+        specifier: ^1.1.20
+        version: 1.1.20(react@19.2.5)
       '@pierre/trees':
         specifier: ^1.0.0-beta.3
         version: 1.0.0-beta.3(react@19.2.5)
@@ -548,8 +548,8 @@ importers:
   packages/transcript-html:
     dependencies:
       '@pierre/diffs':
-        specifier: ^1.1.19
-        version: 1.1.19(react@19.2.5)
+        specifier: ^1.1.20
+        version: 1.1.20(react@19.2.5)
       kolu-common:
         specifier: workspace:*
         version: link:../common
@@ -1918,8 +1918,8 @@ packages:
     resolution: {integrity: sha512-C2Xj8FZ0uHWeCXXqX5B4/gVFQmtSkiuOolzAgutjTfseNOHT3pUjljDZsTSxXFGgio54bCzVFqmEOUrIVk8RDA==}
     engines: {node: '>=20.0.0'}
 
-  '@pierre/diffs@1.1.19':
-    resolution: {integrity: sha512-eYyDW69heXd7i9zdkWogGYosHzoYF2dstV6uDcmnQAf72uRChs3hrpf/7ym/ayTiwD8a+TQ7oZ5vNNb0tstJvA==}
+  '@pierre/diffs@1.1.20':
+    resolution: {integrity: sha512-lLi+3sLCm3QDd5/aLO9pw+WbF6UzhrkWm2oTZ5WZJTGemOyUNRJ4DDhcEKmVusu4C4bXx9Nssh6fF+wQcapb5w==}
     peerDependencies:
       react: ^18.3.1 || ^19.0.0
       react-dom: ^18.3.1 || ^19.0.0
@@ -6033,7 +6033,7 @@ snapshots:
       tslib: 2.8.1
       tsyringe: 4.10.0
 
-  '@pierre/diffs@1.1.19(react@19.2.5)':
+  '@pierre/diffs@1.1.20(react@19.2.5)':
     dependencies:
       '@pierre/theme': 0.0.28
       '@shikijs/transformers': 3.23.0
