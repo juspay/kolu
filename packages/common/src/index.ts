@@ -67,7 +67,7 @@ export {
 
 // --- Zod schemas ---
 
-const TerminalIdSchema = z.string().uuid();
+export const TerminalIdSchema = z.string().uuid();
 
 // --- GitHub PR context ---
 // Owned by kolu-github (mirrors the kolu-git re-export pattern above). The

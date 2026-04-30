@@ -9,20 +9,48 @@
  * See `@kolu/cells` for the framework's primitive definitions.
  */
 
-import { cell } from "@kolu/cells";
+import { cell, collection, stream } from "@kolu/cells";
+import { z } from "zod";
+import { DEFAULT_PREFERENCES } from "./config";
 import {
-  ActivityFeedSchema,
   type ActivityFeed,
-  SavedSessionSchema,
+  ActivityFeedSchema,
+  FsListAllInputSchema,
+  FsListAllOutputSchema,
+  FsReadFileInputSchema,
+  FsReadFileOutputSchema,
+  GitDiffInputSchema,
+  GitDiffOutputSchema,
+  GitStatusInputSchema,
+  GitStatusOutputSchema,
+  PreferencesSchema,
   type SavedSession,
+  SavedSessionSchema,
+  TerminalIdSchema,
+  TerminalInfoSchema,
+  TerminalMetadataSchema,
 } from "./index";
+
+// ── Cells ──────────────────────────────────────────────────────────────
+
+/** User preferences — instant-UI flag store.
+ *
+ *  Intended authority: `"local"` — the client store is canonical after init.
+ *  Server pushes seed the local store on first yield; subsequent server
+ *  echoes are ignored to avoid stomping a just-made client write whose
+ *  RPC hasn't round-tripped. See `usePreferences.ts` for the load-bearing
+ *  rationale (#561 / #577). */
+export const preferencesCell = cell({
+  name: "preferences",
+  schema: PreferencesSchema,
+  default: DEFAULT_PREFERENCES,
+});
 
 /** Server-derived activity feed (recent repos + recent agents).
  *  Read-only on the client; the server is the sole writer.
  *
- *  Intended authority: `"server"` — the client never mutates this cell.
- *  Passing `authority: "local"` to `useCell(activityFeedCell, …)` would
- *  silently ignore server pushes after init, which is wrong. */
+ *  Intended authority: `"server"` — `useCell(activityFeedCell, { authority: "local" })`
+ *  would silently ignore server pushes after init, which is wrong. */
 export const activityFeedCell = cell({
   name: "activityFeed",
   schema: ActivityFeedSchema,
@@ -39,4 +67,63 @@ export const savedSessionCell = cell({
   name: "savedSession",
   schema: SavedSessionSchema.nullable(),
   default: null as SavedSession | null,
+});
+
+/** Live list of terminals — server-driven on create/kill.
+ *
+ *  Intended authority: `"server"`. The server's `terminal-list` channel
+ *  drives the client; client mutations go via the dedicated `terminal.create`
+ *  / `terminal.kill` procedures, not via cell.set. */
+export const terminalListCell = cell({
+  name: "terminalList",
+  schema: z.array(TerminalInfoSchema),
+  default: [] as z.infer<typeof TerminalInfoSchema>[],
+});
+
+// ── Collections ────────────────────────────────────────────────────────
+
+/** Per-terminal metadata (cwd, git, PR, agent status). Each terminal has
+ *  its own observable subscription; clients watching one terminal don't
+ *  re-render when an unrelated terminal's metadata changes.
+ *
+ *  Mutation comes from server-side providers (cwd watcher, git watcher,
+ *  agent watchers) writing to the publisher channel — clients don't
+ *  call `update()` on this collection directly. */
+export const terminalMetadataCollection = collection({
+  name: "terminalMetadata",
+  keySchema: TerminalIdSchema,
+  schema: TerminalMetadataSchema,
+});
+
+// ── Streams ────────────────────────────────────────────────────────────
+
+/** Live changed-files list for the Code-view's Local/Branch modes.
+ *  Yields current state immediately, then a fresh full snapshot every time
+ *  the underlying repo state changes. */
+export const gitStatusStream = stream({
+  name: "gitStatus",
+  inputSchema: GitStatusInputSchema,
+  outputSchema: GitStatusOutputSchema,
+});
+
+/** Live unified diff for one file. Yields current diff, then a fresh
+ *  full snapshot whenever the repo state changes. */
+export const gitDiffStream = stream({
+  name: "gitDiff",
+  inputSchema: GitDiffInputSchema,
+  outputSchema: GitDiffOutputSchema,
+});
+
+/** Live repo-relative path list (tracked + untracked-but-not-ignored). */
+export const fsListAllStream = stream({
+  name: "fsListAll",
+  inputSchema: FsListAllInputSchema,
+  outputSchema: FsListAllOutputSchema,
+});
+
+/** Live UTF-8 content for a single file in the Code-view's All-mode body. */
+export const fsReadFileStream = stream({
+  name: "fsReadFile",
+  inputSchema: FsReadFileInputSchema,
+  outputSchema: FsReadFileOutputSchema,
 });
