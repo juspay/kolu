@@ -88,6 +88,7 @@ const CodeFilterBar: Component<{
   );
   const chipLabel = (m: ModeOption) =>
     m.group ? `${m.group}: ${m.label}` : m.label;
+  const activeIsGit = () => activeMode()?.iconKind === "git";
 
   return (
     <div class="flex items-center h-7 px-1.5 bg-surface-1/30 border-b border-edge shrink-0 gap-2">
@@ -106,12 +107,16 @@ const CodeFilterBar: Component<{
         title="Change view"
       >
         <Show
-          when={activeMode()?.iconKind === "git"}
+          when={activeIsGit()}
           fallback={<FileBrowseIcon class="w-3 h-3 opacity-70" />}
         >
           <GitBranchIcon class="w-3 h-3 opacity-70" />
         </Show>
-        <span>{activeMode() ? chipLabel(activeMode()!) : props.view}</span>
+        <span>
+          <Show when={activeMode()} fallback={props.view}>
+            {(m) => chipLabel(m())}
+          </Show>
+        </span>
         <ChevronDownIcon
           class={`w-3 h-3 opacity-50 transition-transform ${
             open() ? "rotate-180" : ""
