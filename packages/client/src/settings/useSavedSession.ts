@@ -7,26 +7,27 @@
  * saw session changes piggybacked on unrelated state events; now every
  * session-content write publishes on its own dedicated channel so the
  * `useSessionRestore` reactive recovery path stays fresh.
+ *
+ * Implemented via `useCell` from `@kolu/cells/solid` (server-authority mode).
  */
 
+import { useCell } from "@kolu/cells/solid";
 import type { SavedSession } from "kolu-common";
-import { createRoot } from "solid-js";
+import { savedSessionCell } from "kolu-common/cells";
 import { toast } from "solid-sonner";
-import { createSubscription } from "../rpc/createSubscription";
 import { stream } from "../rpc/rpc";
 
-const sub = createRoot(() =>
-  createSubscription(() => stream.session(), {
-    onError: (err) =>
-      toast.error(`Saved-session subscription error: ${err.message}`),
-  }),
-);
+const cell = useCell(savedSessionCell, {
+  source: () => stream.session(),
+  onError: (err) =>
+    toast.error(`Saved-session subscription error: ${err.message}`),
+});
 
 export function useSavedSession() {
   return {
-    sub,
+    sub: cell.sub,
     /** The persisted saved-session, or null when none exists or the
      *  subscription hasn't yielded yet. */
-    savedSession: (): SavedSession | null => sub() ?? null,
+    savedSession: (): SavedSession | null => cell.value() ?? null,
   } as const;
 }

@@ -13,6 +13,7 @@
   "dependencies": {
     "@hono/node-server": "^1.19.13",
     "@hono/node-ws": "^1.1.0",
+    "@kolu/cells": "workspace:*",
     "@orpc/client": "^1.13.13",
     "@orpc/contract": "^1.13.13",
     "@orpc/experimental-pino": "^1.13.13",

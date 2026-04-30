@@ -15,6 +15,7 @@
     "@corvu/drawer": "^0.2.2",
     "@corvu/resizable": "^0.2.5",
     "@corvu/tooltip": "^0.2.2",
+    "@kolu/cells": "workspace:*",
     "@orpc/client": "^1.13.13",
     "@pierre/diffs": "^1.1.20",
     "@pierre/trees": "^1.0.0-beta.3",

@@ -176,7 +176,8 @@ pnpm monorepo:
 
 | Package                              | Stack                                                                                                                                                                 |
 | ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `packages/common/`                   | [oRPC](https://orpc.dev/) contract + [Zod](https://zod.dev/) schemas                                                                                                  |
+| `packages/common/`                   | [oRPC](https://orpc.dev/) contract + [Zod](https://zod.dev/) schemas + cell descriptors                                                                               |
+| `packages/cells/`                    | Reactive state framework — typed `Cell<T>`, `Collection<K,T>`, `Stream<I,T>` over oRPC streams; SolidJS hooks (`useCell`, `useCollection`, `useStream`)               |
 | `packages/server/`                   | [Hono](https://hono.dev/) + [node-pty](https://github.com/microsoft/node-pty) + [@xterm/headless](https://www.npmjs.com/package/@xterm/headless)                      |
 | `packages/client/`                   | [SolidJS](https://www.solidjs.com/) + [xterm.js](https://xtermjs.org/) + [Tailwind CSS v4](https://tailwindcss.com/)                                                  |
 | `packages/integrations/claude-code/` | Claude Code detection — JSONL transcript tailing + Claude Agent SDK; exports a `claudeCodeProvider` `AgentProvider`                                                   |

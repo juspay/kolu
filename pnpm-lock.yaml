@@ -29,6 +29,37 @@ importers:
         specifier: ^2.4.13
         version: 2.4.13
 
+  packages/cells:
+    dependencies:
+      '@orpc/client':
+        specifier: ^1.13.13
+        version: 1.13.13
+      '@orpc/contract':
+        specifier: ^1.13.13
+        version: 1.13.13
+      '@orpc/experimental-publisher':
+        specifier: ^1.13.13
+        version: 1.13.13
+      '@orpc/server':
+        specifier: ^1.13.13
+        version: 1.13.13(ws@8.19.0)
+      conf:
+        specifier: ^15.1.0
+        version: 15.1.0
+      solid-js:
+        specifier: ^1.9.0
+        version: 1.9.11
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.15
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+
   packages/client:
     dependencies:
       '@corvu/dialog':
@@ -43,6 +74,9 @@ importers:
       '@corvu/tooltip':
         specifier: ^0.2.2
         version: 0.2.2(solid-js@1.9.11)
+      '@kolu/cells':
+        specifier: workspace:*
+        version: link:../cells
       '@orpc/client':
         specifier: ^1.13.13
         version: 1.13.13
@@ -158,6 +192,9 @@ importers:
 
   packages/common:
     dependencies:
+      '@kolu/cells':
+        specifier: workspace:*
+        version: link:../cells
       '@orpc/contract':
         specifier: ^1.13.13
         version: 1.13.13
@@ -385,6 +422,9 @@ importers:
       '@hono/node-ws':
         specifier: ^1.1.0
         version: 1.3.0(@hono/node-server@1.19.13(hono@4.12.14))(hono@4.12.14)
+      '@kolu/cells':
+        specifier: workspace:*
+        version: link:../cells
       '@orpc/client':
         specifier: ^1.13.13
         version: 1.13.13

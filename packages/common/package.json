@@ -9,6 +9,7 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
+    "./cells": "./src/cells.ts",
     "./contract": "./src/contract.ts",
     "./errors": "./src/errors.ts",
     "./config": "./src/config.ts",
@@ -23,6 +24,7 @@
     "typescript": "^5.8.0"
   },
   "dependencies": {
+    "@kolu/cells": "workspace:*",
     "@orpc/contract": "^1.13.13",
     "kolu-claude-code": "workspace:*",
     "kolu-codex": "workspace:*",
