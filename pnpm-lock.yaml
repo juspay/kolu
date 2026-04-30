@@ -10,7 +10,7 @@ overrides:
   yaml: ^2.8.3
   defu: ^6.1.5
   postcss: ^8.5.10
-  '@anthropic-ai/sdk': ^0.81.0
+  '@anthropic-ai/sdk': ^0.91.1
   '@xterm/xterm': github:juspay/xterm.js#fix/kolu-xterm-fixes-built
   '@xterm/addon-webgl': github:juspay/xterm.js#fix/kolu-xterm-fixes-built&path:/addons/addon-webgl
 
@@ -584,8 +584,8 @@ packages:
     peerDependencies:
       zod: ^4.0.0
 
-  '@anthropic-ai/sdk@0.81.0':
-    resolution: {integrity: sha512-D4K5PvEV6wPiRtVlVsJHIUhHAmOZ6IT/I9rKlTf84gR7GyyAurPJK7z9BOf/AZqC5d1DhYQGJNKRmV+q8dGhgw==}
+  '@anthropic-ai/sdk@0.91.1':
+    resolution: {integrity: sha512-LAmu761tSN9r66ixvmciswUj/ZC+1Q4iAfpedTfSVLeswRwnY3n2Nb6Tsk+cLPP28aLOPWeMgIuTuCcMC6W/iw==}
     hasBin: true
     peerDependencies:
       zod: ^3.25.0 || ^4.0.0
@@ -4597,7 +4597,7 @@ snapshots:
 
   '@anthropic-ai/claude-agent-sdk@0.2.96(zod@4.3.6)':
     dependencies:
-      '@anthropic-ai/sdk': 0.81.0(zod@4.3.6)
+      '@anthropic-ai/sdk': 0.91.1(zod@4.3.6)
       '@modelcontextprotocol/sdk': 1.29.0(zod@4.3.6)
       zod: 4.3.6
     optionalDependencies:
@@ -4614,7 +4614,7 @@ snapshots:
       - '@cfworker/json-schema'
       - supports-color
 
-  '@anthropic-ai/sdk@0.81.0(zod@4.3.6)':
+  '@anthropic-ai/sdk@0.91.1(zod@4.3.6)':
     dependencies:
       json-schema-to-ts: 3.1.1
     optionalDependencies:

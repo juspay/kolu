@@ -19,7 +19,7 @@
       "yaml": "^2.8.3",
       "defu": "^6.1.5",
       "postcss": "^8.5.10",
-      "@anthropic-ai/sdk": "^0.81.0",
+      "@anthropic-ai/sdk": "^0.91.1",
       "@xterm/xterm": "github:juspay/xterm.js#fix/kolu-xterm-fixes-built",
       "@xterm/addon-webgl": "github:juspay/xterm.js#fix/kolu-xterm-fixes-built&path:/addons/addon-webgl"
     },
