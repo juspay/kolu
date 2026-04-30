@@ -11,12 +11,11 @@
 import fs from "node:fs";
 import {
   type ActivityFeed,
-  ActivityFeedSchema,
   type RecentAgent,
   type RecentRepo,
 } from "kolu-common";
+import { cellBus } from "./cells.ts";
 import { log } from "./log.ts";
-import { publishSystem } from "./publisher.ts";
 import { store } from "./state.ts";
 
 const MAX_RECENT_REPOS = 20;
@@ -83,7 +82,7 @@ export function trackRecentRepo(repoRoot: string, repoName: string): void {
     MAX_RECENT_REPOS,
   );
   store.set("recentRepos", next);
-  publishSystem("activity:changed", getActivityFeed());
+  cellBus.activityFeed.publish(getActivityFeed());
 }
 
 /** Upsert a normalized agent command into the recent agents MRU.
@@ -101,18 +100,5 @@ export function trackRecentAgent(command: string): void {
   );
   store.set("recentAgents", next);
   log.info({ command, total: next.length }, "recent agent tracked");
-  publishSystem("activity:changed", getActivityFeed());
-}
-
-/** Test-only: replace both feeds wholesale. Used by e2e hooks to reset
- *  state between scenarios. Validates so fixture errors surface clearly. */
-export function setActivityForTest(feed: ActivityFeed): void {
-  const result = ActivityFeedSchema.safeParse(feed);
-  if (!result.success) {
-    log.error({ issues: result.error.issues }, "test activity feed invalid");
-    throw new Error("Invalid activity feed in test__set");
-  }
-  store.set("recentRepos", result.data.recentRepos);
-  store.set("recentAgents", result.data.recentAgents);
-  publishSystem("activity:changed", result.data);
+  cellBus.activityFeed.publish(getActivityFeed());
 }

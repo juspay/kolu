@@ -4,12 +4,22 @@
  * Streaming handlers subscribe to publisher channels over WebSocket.
  * Terminal CRUD (create, kill, etc.) is request-response; list and metadata are live streams.
  */
-import { pollOnEvent } from "@kolu/cells/server";
+import { cellHandlers, pollOnEvent, streamHandlers } from "@kolu/cells/server";
 import { implement, ORPCError } from "@orpc/server";
 
 import { loadClaudeCodeTranscript } from "kolu-claude-code";
 import { loadCodexTranscript } from "kolu-codex";
 import type { Transcript, TranscriptPr } from "kolu-common";
+import {
+  activityFeedCell,
+  fsListAllStream,
+  fsReadFileStream,
+  gitDiffStream,
+  gitStatusStream,
+  preferencesCell,
+  savedSessionCell,
+  terminalListCell,
+} from "kolu-common/cells";
 import { contract } from "kolu-common/contract";
 import { TerminalNotFoundError } from "kolu-common/errors";
 import {
@@ -31,17 +41,19 @@ import { prValue } from "kolu-github/schemas";
 import { loadOpenCodeTranscript } from "kolu-opencode";
 import { transcriptToHtml } from "kolu-transcript-html";
 import { match } from "ts-pattern";
-import { getActivityFeed, setActivityForTest } from "./activity.ts";
+import { getActivityFeed } from "./activity.ts";
+import {
+  activityFeedStore,
+  cellBus,
+  preferencesStore,
+  savedSessionStore,
+} from "./cells.ts";
 import { saveClipboardImage } from "./clipboard.ts";
 import { serverHostname, serverProcessId } from "./hostname.ts";
 import { log } from "./log.ts";
-import {
-  getPreferences,
-  setPreferencesForTest,
-  updatePreferences,
-} from "./preferences.ts";
-import { subscribeForTerminal_, subscribeSystem_ } from "./publisher.ts";
-import { getSavedSession, setSavedSession } from "./session.ts";
+import { applyPreferencesPatch } from "./preferences.ts";
+import { subscribeForTerminal_ } from "./publisher.ts";
+import { getSavedSession } from "./session.ts";
 import {
   createTerminal,
   getTerminal,
@@ -57,6 +69,125 @@ import {
 } from "./terminals.ts";
 
 const t = implement(contract);
+
+// ── Cell / Stream handler wiring (framework: @kolu/cells/server) ───────
+// Each block produces the snapshot+deltas + mutate handlers that plug
+// into the contract's typed router. Domain modules (preferences.ts,
+// activity.ts, session.ts, terminals.ts) remain the source of truth
+// for *what* the data is; the framework owns *how* it's delivered and
+// *how* mutations propagate (validate → persist → publish to bus).
+
+const preferencesHandlers = cellHandlers(preferencesCell, {
+  store: preferencesStore,
+  bus: cellBus.preferences,
+  patch: applyPreferencesPatch,
+  onMutate: (patch) =>
+    log.info(
+      {
+        keys: Object.keys(patch),
+        rightPanel: patch.rightPanel
+          ? Object.keys(patch.rightPanel)
+          : undefined,
+      },
+      "preferences update",
+    ),
+});
+
+const activityHandlers = cellHandlers(activityFeedCell, {
+  store: activityFeedStore,
+  bus: cellBus.activityFeed,
+});
+
+const sessionHandlers = cellHandlers(savedSessionCell, {
+  // Reads through getSavedSession to keep the "empty terminals = null"
+  // legacy normalization at one site (session.ts owns that invariant).
+  store: { get: () => getSavedSession(), set: savedSessionStore.set },
+  bus: cellBus.savedSession,
+});
+
+const terminalListHandlers = cellHandlers(terminalListCell, {
+  // Live list — no persistence; the registry is the source of truth.
+  store: { get: () => listTerminals(), set: () => {} },
+  bus: cellBus.terminalList,
+});
+
+const gitStatusHandlers = streamHandlers(gitStatusStream, {
+  source: (input, signal) =>
+    pollOnEvent({
+      read: async () =>
+        unwrapGit(await getStatus(input.repoPath, input.mode, log)),
+      isEqual: gitStatusOutputEqual,
+      install: (cb) => subscribeRepoChange(input.repoPath, cb, log),
+      signal,
+      onReadError: (e) => {
+        log.error(
+          { err: e instanceof Error ? e.message : String(e) },
+          "stream snapshot read failed",
+        );
+      },
+    }),
+});
+
+const gitDiffHandlers = streamHandlers(gitDiffStream, {
+  source: (input, signal) =>
+    pollOnEvent({
+      read: async () =>
+        unwrapGit(
+          await getDiff(
+            input.repoPath,
+            input.filePath,
+            input.mode,
+            log,
+            input.oldPath,
+          ),
+        ),
+      isEqual: gitDiffOutputEqual,
+      install: (cb) => subscribeRepoChange(input.repoPath, cb, log),
+      signal,
+      onReadError: (e) => {
+        log.error(
+          { err: e instanceof Error ? e.message : String(e) },
+          "stream snapshot read failed",
+        );
+      },
+    }),
+});
+
+const fsListAllHandlers = streamHandlers(fsListAllStream, {
+  source: (input, signal) =>
+    pollOnEvent({
+      read: async () => ({
+        paths: unwrapGit(await listAll(input.repoPath, log)),
+      }),
+      isEqual: fsListAllOutputEqual,
+      install: (cb) => subscribeRepoChange(input.repoPath, cb, log),
+      signal,
+      onReadError: (e) => {
+        log.error(
+          { err: e instanceof Error ? e.message : String(e) },
+          "stream snapshot read failed",
+        );
+      },
+    }),
+});
+
+const fsReadFileHandlers = streamHandlers(fsReadFileStream, {
+  source: (input, signal) =>
+    pollOnEvent({
+      read: async () =>
+        unwrapGit(await readFile(input.repoPath, input.filePath, log)),
+      isEqual: fsReadFileOutputEqual,
+      install: (cb) =>
+        subscribeFileChange(input.repoPath, input.filePath, cb, log),
+      signal,
+      onReadError: (e) => {
+        log.error(
+          { err: e instanceof Error ? e.message : String(e) },
+          "stream snapshot read failed",
+        );
+      },
+    }),
+});
 
 /** Get terminal or throw — shared by all per-terminal handlers. */
 function requireTerminal(id: string): TerminalProcess {
@@ -84,29 +215,6 @@ function unwrapGit<T>(result: GitResult<T>): T {
   throw new ORPCError(status, { message });
 }
 
-/** Helper: wrap `pollOnEvent` from `@kolu/cells/server` with Kolu's logger
- *  for the read-error case so a persistent failure is visible to operators
- *  (a stuck stream silently returning stale state is the worse failure mode). */
-function streamSnapshots<T>(
-  read: () => Promise<T>,
-  isEqual: (a: T, b: T) => boolean,
-  install: (onEvent: () => void) => () => void,
-  signal: AbortSignal | undefined,
-): AsyncIterable<T> {
-  return pollOnEvent({
-    read,
-    isEqual,
-    install,
-    signal,
-    onReadError: (e) => {
-      log.error(
-        { err: e instanceof Error ? e.message : String(e) },
-        "stream snapshot read failed",
-      );
-    },
-  });
-}
-
 export const appRouter = t.router({
   server: {
     info: t.server.info.handler(async () => ({
@@ -122,12 +230,7 @@ export const appRouter = t.router({
         subPanel: input.subPanel,
       }),
     ),
-    list: t.terminal.list.handler(async function* ({ signal }) {
-      yield listTerminals();
-      for await (const list of subscribeSystem_("terminal-list", signal)) {
-        yield list;
-      }
-    }),
+    list: t.terminal.list.handler(terminalListHandlers.get),
 
     resize: t.terminal.resize.handler(async ({ input }) => {
       requireTerminal(input.id).handle.resize(input.cols, input.rows);
@@ -336,110 +439,24 @@ export const appRouter = t.router({
       log.info({ worktree: input.worktreePath }, "worktree remove");
       unwrapGit(await worktreeRemove(input.worktreePath, log));
     }),
-    onStatusChange: t.git.onStatusChange.handler(async function* ({
-      input,
-      signal,
-    }) {
-      yield* streamSnapshots(
-        async () => unwrapGit(await getStatus(input.repoPath, input.mode, log)),
-        gitStatusOutputEqual,
-        (cb) => subscribeRepoChange(input.repoPath, cb, log),
-        signal,
-      );
-    }),
-    onDiffChange: t.git.onDiffChange.handler(async function* ({
-      input,
-      signal,
-    }) {
-      yield* streamSnapshots(
-        async () =>
-          unwrapGit(
-            await getDiff(
-              input.repoPath,
-              input.filePath,
-              input.mode,
-              log,
-              input.oldPath,
-            ),
-          ),
-        gitDiffOutputEqual,
-        (cb) => subscribeRepoChange(input.repoPath, cb, log),
-        signal,
-      );
-    }),
+    onStatusChange: t.git.onStatusChange.handler(gitStatusHandlers.get),
+    onDiffChange: t.git.onDiffChange.handler(gitDiffHandlers.get),
   },
   fs: {
-    onListAllChange: t.fs.onListAllChange.handler(async function* ({
-      input,
-      signal,
-    }) {
-      yield* streamSnapshots(
-        async () => ({ paths: unwrapGit(await listAll(input.repoPath, log)) }),
-        fsListAllOutputEqual,
-        (cb) => subscribeRepoChange(input.repoPath, cb, log),
-        signal,
-      );
-    }),
-    onReadFileChange: t.fs.onReadFileChange.handler(async function* ({
-      input,
-      signal,
-    }) {
-      yield* streamSnapshots(
-        async () =>
-          unwrapGit(await readFile(input.repoPath, input.filePath, log)),
-        fsReadFileOutputEqual,
-        (cb) => subscribeFileChange(input.repoPath, input.filePath, cb, log),
-        signal,
-      );
-    }),
+    onListAllChange: t.fs.onListAllChange.handler(fsListAllHandlers.get),
+    onReadFileChange: t.fs.onReadFileChange.handler(fsReadFileHandlers.get),
   },
   preferences: {
-    get: t.preferences.get.handler(async function* ({ signal }) {
-      yield getPreferences();
-      for await (const prefs of subscribeSystem_(
-        "preferences:changed",
-        signal,
-      )) {
-        yield prefs;
-      }
-    }),
-    update: t.preferences.update.handler(async ({ input }) => {
-      // Log only patched keys — values may carry user-identifying state.
-      log.info(
-        {
-          keys: Object.keys(input),
-          rightPanel: input.rightPanel
-            ? Object.keys(input.rightPanel)
-            : undefined,
-        },
-        "preferences update",
-      );
-      updatePreferences(input);
-    }),
-    test__set: t.preferences.test__set.handler(async ({ input }) => {
-      setPreferencesForTest(input);
-    }),
+    get: t.preferences.get.handler(preferencesHandlers.get),
+    update: t.preferences.update.handler(preferencesHandlers.patch),
+    test__set: t.preferences.test__set.handler(preferencesHandlers.test__set),
   },
   activity: {
-    get: t.activity.get.handler(async function* ({ signal }) {
-      yield getActivityFeed();
-      for await (const feed of subscribeSystem_("activity:changed", signal)) {
-        yield feed;
-      }
-    }),
-    test__set: t.activity.test__set.handler(async ({ input }) => {
-      setActivityForTest(input);
-    }),
+    get: t.activity.get.handler(activityHandlers.get),
+    test__set: t.activity.test__set.handler(activityHandlers.test__set),
   },
   session: {
-    get: t.session.get.handler(async function* ({ signal }) {
-      yield getSavedSession();
-      for await (const session of subscribeSystem_("session:changed", signal)) {
-        yield session;
-      }
-    }),
-    test__set: t.session.test__set.handler(async ({ input }) => {
-      setSavedSession(input);
-    }),
+    get: t.session.get.handler(sessionHandlers.get),
+    test__set: t.session.test__set.handler(sessionHandlers.test__set),
   },
 });

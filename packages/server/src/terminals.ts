@@ -17,6 +17,7 @@ import type {
   TerminalId,
   TerminalInfo,
 } from "kolu-common";
+import { cellBus } from "./cells.ts";
 import { cleanupClipboardDir } from "./clipboard.ts";
 import { log } from "./log.ts";
 import {
