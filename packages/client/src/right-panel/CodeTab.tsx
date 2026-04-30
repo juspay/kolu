@@ -6,13 +6,13 @@
  *   - Branch: working tree vs `merge-base(origin/<default>)` — same, with a
  *     branch base. Forge-agnostic "what this branch will ship".
  *
- * Mode + filename filtering live side-by-side in `CodeFilterBar`: a chip +
- * popover picks the mode, a free-text input drives Pierre's tree filter
- * via `searchQuery`. Pierre's built-in header search is disabled so the
- * caller-rendered input is the single source of filter state. Pierre's
- * `@pierre/trees` owns the tree layout/virtualization; `@pierre/diffs`
- * owns diff parsing and shiki highlighting. This component is just data
- * flow + chrome. */
+ * The toolbar combines two independent filter axes — mode picker
+ * (`ModeChipPicker`) and filename input (`FileSearchInput`) — in one
+ * row. Pierre's built-in tree-header search is disabled so the
+ * `FileSearchInput` is the single source of filter state, forwarded
+ * via `PierreFileTree.searchQuery`. Pierre's `@pierre/trees` owns the
+ * tree layout/virtualization; `@pierre/diffs` owns diff parsing and
+ * shiki highlighting. This component is just data flow + chrome. */
 
 import type { CodeTabView, GitDiffMode, TerminalMetadata } from "kolu-common";
 import {
@@ -33,7 +33,8 @@ import { FileBrowseIcon, FileDiffIcon, GitBranchIcon } from "../ui/Icons";
 import PierreDiffView from "../ui/PierreDiffView";
 import PierreFileTree, { toGitStatusEntries } from "../ui/PierreFileTree";
 import BrowseFileView from "./BrowseFileView";
-import CodeFilterBar, { type ModeOption } from "./CodeFilterBar";
+import FileSearchInput from "./FileSearchInput";
+import ModeChipPicker, { type ModeOption } from "./ModeChipPicker";
 import { useRightPanel } from "./useRightPanel";
 
 const EMPTY_STATE: Record<GitDiffMode, string> = {
@@ -142,7 +143,7 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
 
   // Mode catalog — owns the list of views, their labels, hints, and
   // test IDs. Adding a new mode (e.g. "stash") happens here, plus the
-  // data-source switch above. CodeFilterBar is purely a presenter.
+  // data-source switch above. ModeChipPicker is purely a presenter.
   const modeOptions = createMemo<ModeOption[]>(() => {
     const ref = branchRef();
     return [
@@ -203,13 +204,14 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
         class="flex flex-col h-full min-h-0 text-[11px]"
         data-testid="diff-tab"
       >
-        <CodeFilterBar
-          view={view()}
-          onViewChange={setView}
-          searchQuery={searchQuery()}
-          onSearchChange={setSearchQuery}
-          modes={modeOptions()}
-        />
+        <div class="flex items-center h-7 px-1.5 bg-surface-1/30 border-b border-edge shrink-0 gap-2">
+          <ModeChipPicker
+            view={view()}
+            onViewChange={setView}
+            modes={modeOptions()}
+          />
+          <FileSearchInput value={searchQuery()} onChange={setSearchQuery} />
+        </div>
 
         <div
           class="shrink-0 h-[35%] min-h-0 border-b border-edge"

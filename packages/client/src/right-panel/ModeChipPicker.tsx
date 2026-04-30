@@ -1,24 +1,22 @@
-/** Filter chrome for the Code tab — a single horizontal strip combining
- *  the mode picker (chip + popover) and a free-text search input that
- *  drives Pierre's tree filter externally.
+/** Compact chip + popover mode picker. The chip displays the active
+ *  `ModeOption`'s icon and label; clicking opens a Portal'd popover with
+ *  the full set of options grouped by their optional `group` field.
  *
- *  Visual register intentionally avoids a tab/segmented-control look:
- *  one chip element holds the current mode label, a popover reveals the
- *  full set of options with their semantic hints. The search input
- *  shares the bar so file-set narrowing and file-name filtering live in
- *  one place — the only filter chrome the user has to scan.
+ *  The picker is purely presentational — mode metadata (label, hint,
+ *  testId, icon, group) is passed in by the host. Group dividers are
+ *  inferred at render time when consecutive options have different
+ *  `group` values.
  *
- *  Mode metadata is *not* defined in this file — the host (CodeTab)
- *  owns the list of `ModeOption`s and passes them in. That keeps
- *  mode-identity volatility (adding a new view, changing a hint, wiring
- *  a new data source) localized to a single module instead of split
- *  across the picker and the host. */
+ *  Popover positioning is hand-rolled (Portal + viewport clamp +
+ *  outside-click + Escape). The same scaffold is duplicated across
+ *  Settings/Record/PrUnavailable popovers in this codebase — extraction
+ *  is tracked in #795. */
 
 import { createEventListener } from "@solid-primitives/event-listener";
 import type { CodeTabView } from "kolu-common";
 import { type Component, createMemo, createSignal, For, Show } from "solid-js";
 import { Dynamic, Portal } from "solid-js/web";
-import { ChevronDownIcon, CloseIcon, SearchIcon } from "../ui/Icons";
+import { ChevronDownIcon } from "../ui/Icons";
 
 export type ModeOption = {
   view: CodeTabView;
@@ -33,11 +31,9 @@ export type ModeOption = {
   icon: Component<{ class?: string }>;
 };
 
-const CodeFilterBar: Component<{
+const ModeChipPicker: Component<{
   view: CodeTabView;
   onViewChange: (v: CodeTabView) => void;
-  searchQuery: string;
-  onSearchChange: (q: string) => void;
   modes: readonly ModeOption[];
 }> = (props) => {
   const [open, setOpen] = createSignal(false);
@@ -84,7 +80,7 @@ const CodeFilterBar: Component<{
     m.group ? `${m.group}: ${m.label}` : m.label;
 
   return (
-    <div class="flex items-center h-7 px-1.5 bg-surface-1/30 border-b border-edge shrink-0 gap-2">
+    <>
       <button
         ref={triggerRef}
         type="button"
@@ -111,31 +107,6 @@ const CodeFilterBar: Component<{
           }`}
         />
       </button>
-
-      <label class="flex items-center gap-1.5 flex-1 min-w-0 text-[10px] font-mono text-fg-3 focus-within:text-fg-2">
-        <SearchIcon class="w-3 h-3 opacity-50 shrink-0" />
-        <input
-          type="text"
-          value={props.searchQuery}
-          onInput={(e) => props.onSearchChange(e.currentTarget.value)}
-          placeholder="filter files…"
-          class="flex-1 min-w-0 bg-transparent outline-none border-0 placeholder:text-fg-3/40 text-fg"
-          data-testid="diff-filter-search"
-          spellcheck={false}
-          autocomplete="off"
-        />
-        <Show when={props.searchQuery.length > 0}>
-          <button
-            type="button"
-            onClick={() => props.onSearchChange("")}
-            title="Clear filter"
-            class="shrink-0 text-fg-3 hover:text-fg cursor-pointer p-0.5 -mr-0.5"
-            data-testid="diff-filter-clear"
-          >
-            <CloseIcon class="w-3 h-3" />
-          </button>
-        </Show>
-      </label>
 
       <Show when={open()}>
         <Portal>
@@ -188,8 +159,8 @@ const CodeFilterBar: Component<{
           </div>
         </Portal>
       </Show>
-    </div>
+    </>
   );
 };
 
-export default CodeFilterBar;
+export default ModeChipPicker;
