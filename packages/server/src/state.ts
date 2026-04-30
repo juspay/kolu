@@ -18,11 +18,11 @@
 
 import Conf from "conf";
 import {
+  type ActivityFeed,
+  ActivityFeedSchema,
   type GitInfo,
   type Preferences,
   PreferencesSchema,
-  RecentAgentSchema,
-  RecentRepoSchema,
   SavedSessionSchema,
 } from "kolu-common";
 import { DEFAULT_PREFERENCES } from "kolu-common/config";
@@ -86,8 +86,7 @@ export function migrateLegacyTerminal_1_18_0(
  *  the per-domain shapes (Preferences / ActivityFeed / SavedSession), not
  *  this aggregate. Adding a new domain key requires a migration entry below. */
 const PersistedStateSchema = z.object({
-  recentRepos: z.array(RecentRepoSchema),
-  recentAgents: z.array(RecentAgentSchema),
+  activityFeed: ActivityFeedSchema,
   session: SavedSessionSchema.nullable(),
   preferences: PreferencesSchema,
 });
@@ -99,7 +98,7 @@ type PersistedState = z.infer<typeof PersistedStateSchema>;
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.18.0";
+const SCHEMA_VERSION = "1.19.0";
 
 // Callers must pass an explicit directory via KOLU_STATE_DIR. A bare launch
 // with no env would silently clobber whatever happens to live at conf's
@@ -122,8 +121,7 @@ export const store = new Conf<PersistedState>({
   cwd: stateDir,
   projectVersion: SCHEMA_VERSION,
   defaults: {
-    recentRepos: [],
-    recentAgents: [],
+    activityFeed: { recentRepos: [], recentAgents: [] } satisfies ActivityFeed,
     session: null,
     preferences: DEFAULT_PREFERENCES,
   },
@@ -174,9 +172,16 @@ export const store = new Conf<PersistedState>({
       } as unknown as Preferences);
     },
     // recentAgents added — seed as empty array for existing state files.
+    // The `recentAgents` key was a top-level slot until 1.19.0 collapsed
+    // it into `activityFeed.recentAgents`; the cast keeps this historical
+    // migration valid against the post-1.19 schema.
     "1.5.0": (store: Conf<PersistedState>) => {
-      if (!store.has("recentAgents")) {
-        store.set("recentAgents", []);
+      const untyped = store as unknown as {
+        has: (key: string) => boolean;
+        set: (key: string, value: unknown) => void;
+      };
+      if (!untyped.has("recentAgents")) {
+        untyped.set("recentAgents", []);
       }
     },
     // rightPanelCollapsed + rightPanelSize added — old preference blobs lack these fields.
@@ -363,16 +368,38 @@ export const store = new Conf<PersistedState>({
         terminals: terminals as typeof session.terminals,
       });
     },
+    // recentRepos + recentAgents — two top-level keys carrying one logical
+    // ActivityFeed cell — collapse into a single `activityFeed` key. The
+    // framework's `cellHandlers` treats activityFeed as one atomic value;
+    // the legacy two-key split was a leak of disk-shape into the cell
+    // adapter. Strip the old keys after writing the new one so the
+    // PersistedStateSchema's `.strict()` (or future-stricter) reads don't
+    // see the orphans.
+    "1.19.0": (store: Conf<PersistedState>) => {
+      const raw = store.store as unknown as Record<string, unknown>;
+      const recentRepos = (raw.recentRepos ??
+        []) as ActivityFeed["recentRepos"];
+      const recentAgents = (raw.recentAgents ??
+        []) as ActivityFeed["recentAgents"];
+      store.set("activityFeed", { recentRepos, recentAgents });
+      // Strip the legacy keys (no longer in PersistedStateSchema) — the
+      // double-cast is needed because Conf's typed `delete` rejects keys
+      // outside the current schema.
+      const untyped = store as unknown as {
+        delete: (key: string) => void;
+      };
+      untyped.delete("recentRepos");
+      untyped.delete("recentAgents");
+    },
   },
 });
 
 // Early validation so corrupt state shows up in journalctl immediately at
 // startup, not only when the first client connects. Validates the aggregate
-// on-disk shape — the per-domain getters in preferences.ts / activity.ts /
-// session.ts trust the validated store thereafter.
+// on-disk shape — the per-domain getters in activity.ts / session.ts trust
+// the validated store thereafter.
 const result = PersistedStateSchema.safeParse({
-  recentRepos: store.get("recentRepos"),
-  recentAgents: store.get("recentAgents"),
+  activityFeed: store.get("activityFeed"),
   session: store.get("session"),
   preferences: store.get("preferences"),
 });

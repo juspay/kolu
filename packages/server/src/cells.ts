@@ -15,6 +15,7 @@
 import {
   type ChannelBus,
   type CellStore,
+  confStore,
   publisherChannel,
 } from "@kolu/cells/server";
 import type {
@@ -45,29 +46,19 @@ export const cellBus = {
 // ── Conf-backed stores (one per persisted cell) ────────────────────────
 
 /** Read/write `preferences` slot of the shared Conf store. */
-export const preferencesStore: CellStore<Preferences> = {
-  get: () => store.get("preferences"),
-  set: (v) => store.set("preferences", v),
-};
+export const preferencesStore: CellStore<Preferences> = confStore<Preferences>(
+  store,
+  "preferences",
+);
 
-/** Read/write the `activityFeed` shape (recentRepos + recentAgents) by
- *  composing the two top-level keys the legacy schema separates them into.
- *  The framework treats it as one cell; on disk it's two keys. */
-export const activityFeedStore: CellStore<ActivityFeed> = {
-  get: () => ({
-    recentRepos: store.get("recentRepos"),
-    recentAgents: store.get("recentAgents"),
-  }),
-  set: (feed) => {
-    store.set("recentRepos", feed.recentRepos);
-    store.set("recentAgents", feed.recentAgents);
-  },
-};
+/** Read/write `activityFeed` slot. One cell, one Conf key — the legacy
+ *  two-key split (`recentRepos` + `recentAgents`) was collapsed in the
+ *  1.19.0 migration so the cell concept and the disk shape now agree. */
+export const activityFeedStore: CellStore<ActivityFeed> =
+  confStore<ActivityFeed>(store, "activityFeed");
 
 /** Read/write `session` slot. The cell's `null` represents "no saved
  *  session" — same on-disk convention as today (`session: null` vs an
  *  object with a `terminals` array). */
-export const savedSessionStore: CellStore<SavedSession | null> = {
-  get: () => store.get("session"),
-  set: (v) => store.set("session", v),
-};
+export const savedSessionStore: CellStore<SavedSession | null> =
+  confStore<SavedSession | null>(store, "session");

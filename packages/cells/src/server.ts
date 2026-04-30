@@ -296,16 +296,17 @@ export function inMemoryStore<T>(initial: T): CellStore<T> {
 /** CellStore backed by a `conf`-style key-value store. Reads/writes one
  *  top-level key on the underlying store; the rest of the on-disk shape
  *  is owned by the consumer (so multiple cells can share one Conf with
- *  one migration ladder). */
-export function confStore<T, Schema extends Record<string, unknown>>(
-  conf: {
-    get: (key: keyof Schema) => T;
-    set: (key: keyof Schema, v: T) => void;
-  },
-  key: keyof Schema,
+ *  one migration ladder).
+ *
+ *  Pass `T` explicitly: `confStore<Preferences>(store, "preferences")`.
+ *  The Conf type's overloaded `get` doesn't flow through generic
+ *  inference, so the cell value type is supplied at the call site. */
+export function confStore<T>(
+  conf: { get(key: string): unknown; set(key: string, value: T): void },
+  key: string,
 ): CellStore<T> {
   return {
-    get: () => conf.get(key),
+    get: () => conf.get(key) as T,
     set: (v) => conf.set(key, v),
   };
 }

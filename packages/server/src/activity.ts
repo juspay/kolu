@@ -53,15 +53,17 @@ function upsertMru<T>(
  *  longer exist on disk and back-writes the trimmed list so subsequent
  *  reads don't re-stat. */
 function getRecentRepos(): RecentRepo[] {
-  const repos = store.get("recentRepos");
-  const live = repos.filter((r) => existsOnDisk(r.repoRoot));
-  if (live.length < repos.length) store.set("recentRepos", live);
+  const feed = store.get("activityFeed");
+  const live = feed.recentRepos.filter((r) => existsOnDisk(r.repoRoot));
+  if (live.length < feed.recentRepos.length) {
+    store.set("activityFeed", { ...feed, recentRepos: live });
+  }
   return live;
 }
 
 /** Get recent agents, most-recently-seen first. */
 function getRecentAgents(): RecentAgent[] {
-  return store.get("recentAgents");
+  return store.get("activityFeed").recentAgents;
 }
 
 /** Get the full activity feed snapshot. */
@@ -74,14 +76,15 @@ export function getActivityFeed(): ActivityFeed {
 
 /** Upsert a repo into the recent repos list and publish. */
 export function trackRecentRepo(repoRoot: string, repoName: string): void {
+  const feed = store.get("activityFeed");
   const next = upsertMru(
-    store.get("recentRepos"),
+    feed.recentRepos,
     { repoRoot, repoName, lastSeen: Date.now() },
     (r) => r.repoRoot,
     (r) => r.lastSeen,
     MAX_RECENT_REPOS,
   );
-  store.set("recentRepos", next);
+  store.set("activityFeed", { ...feed, recentRepos: next });
   cellBus.activityFeed.publish(getActivityFeed());
 }
 
@@ -91,14 +94,15 @@ export function trackRecentRepo(repoRoot: string, repoName: string): void {
  *  binary. The `command` string is the normalized form produced by
  *  `parseAgentCommand` — raw prompt text has already been stripped. */
 export function trackRecentAgent(command: string): void {
+  const feed = store.get("activityFeed");
   const next = upsertMru(
-    store.get("recentAgents"),
+    feed.recentAgents,
     { command, lastSeen: Date.now() },
     (a) => a.command,
     (a) => a.lastSeen,
     MAX_RECENT_AGENTS,
   );
-  store.set("recentAgents", next);
+  store.set("activityFeed", { ...feed, recentAgents: next });
   log.info({ command, total: next.length }, "recent agent tracked");
   cellBus.activityFeed.publish(getActivityFeed());
 }
