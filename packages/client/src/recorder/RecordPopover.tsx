@@ -2,16 +2,10 @@
  *  meter, webcam preview, "Start recording" commit button. Appears when
  *  the chrome-bar record button is clicked from idle. */
 
-import { makeEventListener } from "@solid-primitives/event-listener";
-import {
-  type Component,
-  createEffect,
-  createSignal,
-  For,
-  Show,
-} from "solid-js";
+import { type Component, createEffect, For, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import Toggle from "../ui/Toggle";
+import { useAnchoredPopover } from "../ui/useAnchoredPopover";
 import LevelMeter from "./LevelMeter";
 import { useRecorder } from "./useRecorder";
 
@@ -47,45 +41,19 @@ const RecordPopover: Component<{
   const recorder = useRecorder();
   const open = () => recorder.phase() === "setup";
 
-  let panelRef: HTMLDivElement | undefined;
   let webcamVideoRef: HTMLVideoElement | undefined;
-  const [pos, setPos] = createSignal({ top: 0, right: 0 });
 
-  const updatePos = () => {
-    if (!props.triggerRef) return;
-    const rect = props.triggerRef.getBoundingClientRect();
-    setPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
-  };
-
-  // Reposition whenever the popover opens OR the trigger element
-  // reference changes. With signal-backed trigger ref from RecordButton,
-  // remounts of the idle button (after record↔idle cycles) flow through
-  // here so the popover doesn't end up anchored to a detached element.
-  createEffect(() => {
-    if (open() && props.triggerRef) updatePos();
+  const { panelRef, panelStyle } = useAnchoredPopover({
+    triggerRef: () => props.triggerRef,
+    open,
+    onDismiss: () => recorder.cancelSetup(),
+    anchor: "bottom-end",
   });
 
   // Keep the preview `<video>` in sync with the webcam stream signal.
   createEffect(() => {
     const s = recorder.webcamStream();
     if (webcamVideoRef) webcamVideoRef.srcObject = s;
-  });
-
-  // Click outside → cancel setup. Ignore clicks on the trigger itself
-  // so toggling-via-trigger doesn't double-dispatch.
-  makeEventListener(document, "mousedown", (e) => {
-    if (!open()) return;
-    if (
-      panelRef &&
-      !panelRef.contains(e.target as Node) &&
-      !props.triggerRef?.contains(e.target as Node)
-    ) {
-      recorder.cancelSetup();
-    }
-  });
-
-  makeEventListener(document, "keydown", (e) => {
-    if (open() && e.key === "Escape") recorder.cancelSetup();
   });
 
   const showMicSelector = () => recorder.micDevices().length > 1;
@@ -101,15 +69,11 @@ const RecordPopover: Component<{
     <Show when={open()}>
       <Portal>
         <div
-          ref={(el) => {
-            panelRef = el;
-            updatePos();
-          }}
+          ref={panelRef}
           data-testid="record-popover"
           class="fixed z-50 bg-surface-1 border border-edge rounded-2xl shadow-2xl shadow-black/50 p-3 min-w-[280px] space-y-3"
           style={{
-            top: `${pos().top}px`,
-            right: `${pos().right}px`,
+            ...panelStyle(),
             "background-color": "var(--color-surface-1)",
           }}
         >

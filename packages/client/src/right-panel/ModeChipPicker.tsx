@@ -7,16 +7,15 @@
  *  inferred at render time when consecutive options have different
  *  `group` values.
  *
- *  Popover positioning is hand-rolled (Portal + viewport clamp +
- *  outside-click + Escape). The same scaffold is duplicated across
- *  Settings/Record/PrUnavailable popovers in this codebase — extraction
- *  is tracked in #795. */
+ *  Popover positioning, outside-click, and Escape come from
+ *  `useAnchoredPopover` — same scaffold is shared with the
+ *  Settings/Record/PrUnavailable popovers. */
 
-import { createEventListener } from "@solid-primitives/event-listener";
 import type { CodeTabView } from "kolu-common";
 import { type Component, createMemo, createSignal, For, Show } from "solid-js";
 import { Dynamic, Portal } from "solid-js/web";
 import { ChevronDownIcon } from "../ui/Icons";
+import { useAnchoredPopover } from "../ui/useAnchoredPopover";
 
 export type ModeOption = {
   view: CodeTabView;
@@ -37,35 +36,15 @@ const ModeChipPicker: Component<{
   modes: readonly ModeOption[];
 }> = (props) => {
   const [open, setOpen] = createSignal(false);
-  let triggerRef: HTMLButtonElement | undefined;
-  let panelRef: HTMLDivElement | undefined;
-  const [pos, setPos] = createSignal({ top: 0, left: 0 });
+  let triggerEl: HTMLButtonElement | undefined;
 
-  // Popover panel min-width — kept in sync with the `min-w-[240px]`
-  // class on the panel below. Used for viewport clamping so the popover
-  // doesn't slip off the right edge when the trigger is near it.
-  const PANEL_MIN_WIDTH = 240;
-  const VIEWPORT_PAD = 8;
-
-  const updatePos = () => {
-    if (!triggerRef) return;
-    const r = triggerRef.getBoundingClientRect();
-    const maxLeft = window.innerWidth - PANEL_MIN_WIDTH - VIEWPORT_PAD;
-    const left = Math.max(VIEWPORT_PAD, Math.min(r.left, maxLeft));
-    setPos({ top: r.bottom + 6, left });
-  };
-
-  // Document listeners exist only while the popover is open — passing
-  // `undefined` as the target detaches them. Outside-click ignores the
-  // trigger so the chip toggle drives open/close cleanly.
-  const popoverTarget = () => (open() ? document : undefined);
-  createEventListener(popoverTarget, "mousedown", (e) => {
-    const t = e.target as Node;
-    if (panelRef?.contains(t) || triggerRef?.contains(t)) return;
-    setOpen(false);
-  });
-  createEventListener(popoverTarget, "keydown", (e) => {
-    if (e.key === "Escape") setOpen(false);
+  const { panelRef, panelStyle } = useAnchoredPopover({
+    triggerRef: () => triggerEl,
+    open,
+    onDismiss: () => setOpen(false),
+    anchor: "bottom-start",
+    panelMinWidth: 240,
+    offset: 6,
   });
 
   const select = (v: CodeTabView) => {
@@ -82,7 +61,7 @@ const ModeChipPicker: Component<{
   return (
     <>
       <button
-        ref={triggerRef}
+        ref={triggerEl}
         type="button"
         onClick={() => setOpen(!open())}
         class="flex items-center gap-1.5 px-2 h-5 rounded text-[10px] font-mono cursor-pointer transition-colors bg-surface-2/40 hover:bg-surface-2/80 text-fg-2 hover:text-fg data-[active=true]:bg-surface-0 data-[active=true]:text-fg data-[active=true]:shadow-sm"
@@ -111,12 +90,9 @@ const ModeChipPicker: Component<{
       <Show when={open()}>
         <Portal>
           <div
-            ref={(el) => {
-              panelRef = el;
-              updatePos();
-            }}
+            ref={panelRef}
             class="fixed z-50 bg-surface-1 border border-edge rounded-md shadow-2xl shadow-black/40 py-1 min-w-[240px] text-[11px] font-mono"
-            style={{ top: `${pos().top}px`, left: `${pos().left}px` }}
+            style={panelStyle()}
             role="menu"
             data-testid="diff-filter-popover"
           >

@@ -1,14 +1,14 @@
 /** Settings popover — reads and writes preferences via usePreferences directly.
  *  Only needs open/close state and trigger ref from the parent. */
 
-import { makeEventListener } from "@solid-primitives/event-listener";
 import type { Preferences } from "kolu-common";
-import { type Component, createSignal, Show } from "solid-js";
+import { type Component, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import SegmentedControl, {
   type SegmentedControlOption,
 } from "../ui/SegmentedControl";
 import Toggle from "../ui/Toggle";
+import { useAnchoredPopover } from "../ui/useAnchoredPopover";
 import SettingRow, { type Hint } from "./SettingRow";
 import { type ColorScheme, useColorScheme } from "./useColorScheme";
 import { usePreferences } from "./usePreferences";
@@ -57,48 +57,22 @@ const SettingsPopover: Component<{
   const { preferences, updatePreferences } = usePreferences();
   const { colorScheme, setColorScheme } = useColorScheme();
 
-  let panelRef: HTMLDivElement | undefined;
-  const [pos, setPos] = createSignal({ top: 0, right: 0 });
-
-  // Recompute position each time popover opens
-  const updatePos = () => {
-    if (!props.triggerRef) return;
-    const rect = props.triggerRef.getBoundingClientRect();
-    setPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
-  };
-
-  // Close on click outside (ignore clicks on the trigger itself)
-  makeEventListener(document, "mousedown", (e) => {
-    if (
-      props.open &&
-      panelRef &&
-      !panelRef.contains(e.target as Node) &&
-      !props.triggerRef?.contains(e.target as Node)
-    ) {
-      props.onOpenChange(false);
-    }
-  });
-
-  // Close on Escape
-  makeEventListener(document, "keydown", (e) => {
-    if (props.open && e.key === "Escape") {
-      props.onOpenChange(false);
-    }
+  const { panelRef, panelStyle } = useAnchoredPopover({
+    triggerRef: () => props.triggerRef,
+    open: () => props.open,
+    onDismiss: () => props.onOpenChange(false),
+    anchor: "bottom-end",
   });
 
   return (
     <Show when={props.open}>
       <Portal>
         <div
-          ref={(el) => {
-            panelRef = el;
-            updatePos();
-          }}
+          ref={panelRef}
           data-testid="settings-popover"
           class="fixed z-50 bg-surface-1 border border-edge rounded-2xl shadow-2xl shadow-black/50 p-4 min-w-[280px] space-y-4"
           style={{
-            top: `${pos().top}px`,
-            right: `${pos().right}px`,
+            ...panelStyle(),
             "background-color": "var(--color-surface-1)",
           }}
         >
