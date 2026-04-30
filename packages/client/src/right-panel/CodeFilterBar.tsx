@@ -52,10 +52,18 @@ const CodeFilterBar: Component<{
   let panelRef: HTMLDivElement | undefined;
   const [pos, setPos] = createSignal({ top: 0, left: 0 });
 
+  // Popover panel min-width — kept in sync with the `min-w-[240px]`
+  // class on the panel below. Used for viewport clamping so the popover
+  // doesn't slip off the right edge when the trigger is near it.
+  const PANEL_MIN_WIDTH = 240;
+  const VIEWPORT_PAD = 8;
+
   const updatePos = () => {
     if (!triggerRef) return;
     const r = triggerRef.getBoundingClientRect();
-    setPos({ top: r.bottom + 6, left: r.left });
+    const maxLeft = window.innerWidth - PANEL_MIN_WIDTH - VIEWPORT_PAD;
+    const left = Math.max(VIEWPORT_PAD, Math.min(r.left, maxLeft));
+    setPos({ top: r.bottom + 6, left });
   };
 
   // Close on outside click — ignore clicks on the trigger itself so the
