@@ -165,25 +165,16 @@ const CodeFilterBar: Component<{
                     onClick={() => select(opt.view)}
                     role="menuitemradio"
                     aria-checked={props.view === opt.view}
-                    class="w-full flex items-center gap-2.5 px-2.5 py-1.5 text-left hover:bg-surface-2/60 cursor-pointer"
+                    class="group w-full flex items-center gap-2.5 px-2.5 py-1.5 text-left hover:bg-surface-2/60 cursor-pointer"
                     data-testid={opt.testId}
                     data-active={props.view === opt.view}
                   >
                     <span
-                      class="w-1.5 h-1.5 rounded-full shrink-0 transition-colors"
-                      classList={{
-                        "bg-accent": props.view === opt.view,
-                        "bg-edge-bright": props.view !== opt.view,
-                      }}
+                      class="w-1.5 h-1.5 rounded-full shrink-0 transition-colors bg-edge-bright group-data-[active=true]:bg-accent"
                       aria-hidden="true"
                     />
                     <div class="flex flex-col items-start min-w-0 gap-0.5">
-                      <span
-                        classList={{
-                          "text-fg": props.view === opt.view,
-                          "text-fg-2": props.view !== opt.view,
-                        }}
-                      >
+                      <span class="text-fg-2 group-data-[active=true]:text-fg">
                         <Show when={opt.group}>
                           <span class="text-fg-3">{opt.group}: </span>
                         </Show>
