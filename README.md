@@ -297,9 +297,9 @@ just ci::protect     # set branch protection
 just ci::_summary    # check current status
 ```
 
-## Deployment (NixOS + home-manager)
+## Deployment (home-manager)
 
-A home-manager module runs kolu as a systemd user service:
+A home-manager module runs kolu as a systemd user service on Linux and as a launchd LaunchAgent on macOS:
 
 ```nix
 {
@@ -313,7 +313,7 @@ A home-manager module runs kolu as a systemd user service:
 }
 ```
 
-See [`nix/home/example/`](nix/home/example/) for a full configuration with a VM test.
+See [`nix/home/example/`](nix/home/example/) for a full configuration — a NixOS VM test exercises the systemd path on Linux, and a standalone home-manager activation build exercises the launchd path on Darwin.
 
 ### Diagnosing memory leaks
 
