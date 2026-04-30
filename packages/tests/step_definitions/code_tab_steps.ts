@@ -63,9 +63,14 @@ When(
 When(
   "I click the Code tab mode {string}",
   async function (this: KoluWorld, mode: string) {
-    const btn = this.page.locator(`[data-testid="diff-mode-${mode}"]`);
-    await btn.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    await btn.click();
+    // The mode picker is a chip + popover: open the chip, then pick
+    // the option. The chip closes itself after a selection.
+    const chip = this.page.locator(`[data-testid="diff-filter-chip"]`);
+    await chip.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await chip.click();
+    const opt = this.page.locator(`[data-testid="diff-mode-${mode}"]`);
+    await opt.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await opt.click();
     await this.waitForFrame();
   },
 );
@@ -245,10 +250,13 @@ Then(
 Then(
   "the Code tab mode should be {string}",
   async function (this: KoluWorld, mode: string) {
-    const btn = this.page.locator(
-      `[data-testid="diff-mode-${mode}"][data-active="true"]`,
+    // The chip carries `data-mode` reflecting the current view, so the
+    // assertion doesn't need to open the popover (where the per-mode
+    // testids live).
+    const chip = this.page.locator(
+      `[data-testid="diff-filter-chip"][data-mode="${mode}"]`,
     );
-    await btn.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await chip.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },
 );
 

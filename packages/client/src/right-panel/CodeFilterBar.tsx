@@ -92,6 +92,7 @@ const CodeFilterBar: Component<{
         class="flex items-center gap-1.5 px-2 h-5 rounded text-[10px] font-mono cursor-pointer transition-colors bg-surface-2/40 hover:bg-surface-2/80 text-fg-2 hover:text-fg data-[active=true]:bg-surface-0 data-[active=true]:text-fg data-[active=true]:shadow-sm"
         data-testid="diff-filter-chip"
         data-active={open()}
+        data-mode={props.view}
         aria-expanded={open()}
         aria-haspopup="menu"
         title="Change view"
