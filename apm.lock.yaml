@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-04-29T21:56:01.081901+00:00'
+generated_at: '2026-04-30T00:10:17.844100+00:00'
 apm_version: 0.11.0
 dependencies:
 - repo_url: anthropics/skills
@@ -87,7 +87,7 @@ dependencies:
     .codex/hooks/agency/scripts/do-stop-guard.sh: sha256:cb033f86c15ffd3d09d8e4b74a61f55a70def4cc4131cc013b7368a2d23f3f33
     .opencode/agents/hickey.md: sha256:edde9b0d3b27b947b7372f662b2e8652d136e0bb9af7924892b00450a1e586bc
     .opencode/agents/lowy.md: sha256:a1c8e5ba115439bcfa0d7e331f96e71b2d690ff2e5fb9b824bb5f588eb43ac75
-  content_hash: sha256:10015c9a03d6d705f0c826c8b0867295650206b21583c72aad22ee3da82b55e5
+  content_hash: sha256:acc88f797bd541518d9f16bede5c71c47feb4e5a571f3756eb2b3b21b0f742d3
 mcp_servers:
 - chrome-devtools
 mcp_configs:
