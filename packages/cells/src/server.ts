@@ -329,7 +329,12 @@ export function confStore<T, Schema extends Record<string, unknown>>(
  *  on the same tick. Without that delay, a list-update publish racing
  *  a per-terminal exit publish can deliver the list message first and
  *  the client's `removeAndAutoSwitch` sees an already-truncated list,
- *  picking the wrong active terminal (or null). */
+ *  picking the wrong active terminal (or null).
+ *
+ *  Regression-pinned by Kolu's `kill.feature` "Natural PTY exit removes
+ *  terminal" e2e scenario: removing the wrapper makes that test time out
+ *  on the canvas-visible step. Any future "optimization" that flattens
+ *  this layer must keep that test green. */
 export function publisherChannel<T>(
   publisher: {
     publish: (channel: string, payload: T) => Promise<void> | void;
