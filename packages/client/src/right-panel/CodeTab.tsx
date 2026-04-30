@@ -6,10 +6,12 @@
  *   - Branch: working tree vs `merge-base(origin/<default>)` — same, with a
  *     branch base. Forge-agnostic "what this branch will ship".
  *
- * The mode trio is structured as a nested segmented control: All sits
- * apart from the Local/Branch pair because Local and Branch are siblings
- * (both filter to changed files; only the diff base differs), while All
- * is the unfiltered base view. Pierre's `@pierre/trees` owns the tree
+ * The mode trio is surfaced as a two-level toggle: a primary `{All, Git}`
+ * picker chooses between the unfiltered fs-listing view and the git-diff
+ * view; when Git is active, a sub-toggle picks the diff base
+ * `{Local, Branch}`. `lastGitMode` remembers which diff base to restore
+ * when the user toggles All → Git, so the secondary choice survives the
+ * round-trip. Pierre's `@pierre/trees` owns the tree
  * layout/search/virtualization; `@pierre/diffs` owns diff parsing and
  * shiki highlighting. This component is just data flow + chrome. */
 
@@ -67,6 +69,16 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
   const isDiffView = () => view() !== "browse";
   const diffMode = (): GitDiffMode | undefined =>
     view() === "browse" ? undefined : (view() as GitDiffMode);
+
+  // Remember which diff base the user last chose so toggling All → Git
+  // restores it instead of always landing on "local".
+  const [lastGitMode, setLastGitMode] = createSignal<GitDiffMode>(
+    diffMode() ?? "local",
+  );
+  createEffect(() => {
+    const m = diffMode();
+    if (m) setLastGitMode(m);
+  });
 
   const status = createReactiveSubscription(
     () => {
@@ -164,7 +176,7 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
         data-testid="diff-tab"
       >
         <div class="flex items-center h-7 px-1.5 bg-surface-1/30 border-b border-edge shrink-0 gap-1.5">
-          <div class="flex items-center bg-surface-2/40 rounded p-0.5">
+          <div class="flex items-center bg-surface-2/40 rounded p-0.5 gap-0.5">
             <button
               type="button"
               onClick={() => setView("browse")}
@@ -176,31 +188,44 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
             >
               All
             </button>
-          </div>
-          <div class="flex items-center bg-surface-2/40 rounded p-0.5 gap-0.5">
             <button
               type="button"
-              onClick={() => setView("local")}
-              title="Changes vs HEAD"
+              onClick={() => setView(lastGitMode())}
+              title="Git changes"
               class={PILL_BUTTON_CLASS}
-              data-testid="diff-mode-local"
-              data-active={view() === "local"}
-              aria-pressed={view() === "local"}
+              data-testid="diff-mode-git"
+              data-active={isDiffView()}
+              aria-pressed={isDiffView()}
             >
-              Local
-            </button>
-            <button
-              type="button"
-              onClick={() => setView("branch")}
-              title={branchTooltip()}
-              class={PILL_BUTTON_CLASS}
-              data-testid="diff-mode-branch"
-              data-active={view() === "branch"}
-              aria-pressed={view() === "branch"}
-            >
-              Branch
+              Git
             </button>
           </div>
+          <Show when={isDiffView()}>
+            <div class="flex items-center bg-surface-2/40 rounded p-0.5 gap-0.5">
+              <button
+                type="button"
+                onClick={() => setView("local")}
+                title="Changes vs HEAD"
+                class={PILL_BUTTON_CLASS}
+                data-testid="diff-mode-local"
+                data-active={view() === "local"}
+                aria-pressed={view() === "local"}
+              >
+                Local
+              </button>
+              <button
+                type="button"
+                onClick={() => setView("branch")}
+                title={branchTooltip()}
+                class={PILL_BUTTON_CLASS}
+                data-testid="diff-mode-branch"
+                data-active={view() === "branch"}
+                aria-pressed={view() === "branch"}
+              >
+                Branch
+              </button>
+            </div>
+          </Show>
           <div class="flex-1" />
         </div>
 
