@@ -22,8 +22,9 @@ import {
   on,
   onCleanup,
 } from "solid-js";
-import { createStore, reconcile } from "solid-js/store";
+import { createStore } from "solid-js/store";
 import type { Subscription } from "./createSubscription";
+import { writeWrappedValue } from "./writeValue";
 
 export interface ReactiveSubscriptionOptions {
   onError?: (err: Error) => void;
@@ -54,22 +55,12 @@ export function createReactiveSubscription<I, T>(
       const controller = new AbortController();
       onCleanup(() => controller.abort());
 
-      // Reconcile-or-assign branch is the same shape as
-      // `createSubscription`'s `updateValue` — keep in sync if either
-      // changes its store-write strategy.
       void (async () => {
         try {
           const iterable = await factory(input, controller.signal);
           for await (const item of iterable) {
             if (controller.signal.aborted) break;
-            if (item !== null && typeof item === "object") {
-              setStore(
-                "v",
-                reconcile(item as Record<string, unknown>) as unknown as T,
-              );
-            } else {
-              setStore("v", item as T);
-            }
+            writeWrappedValue(setStore, item);
             if (pending()) setPending(false);
             if (error()) setError(undefined);
           }

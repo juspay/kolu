@@ -14,7 +14,8 @@ import {
   on,
   onCleanup,
 } from "solid-js";
-import { createStore, reconcile } from "solid-js/store";
+import { createStore } from "solid-js/store";
+import { writeWrappedValue } from "./writeValue";
 
 /**
  * A SolidJS Accessor backed by a server stream.
@@ -88,20 +89,8 @@ export function createSubscription<T, R = T>(
   const [error, setError] = createSignal<Error | undefined>();
   const [pending, setPending] = createSignal(true);
 
-  // Use reconcile for objects/arrays (fine-grained updates),
-  // plain assignment for primitives.
   function updateValue(next: T | R): void {
-    if (next !== null && typeof next === "object") {
-      setStore(
-        "v",
-        reconcile(next as Record<string, unknown>) as unknown as
-          | T
-          | R
-          | undefined,
-      );
-    } else {
-      setStore("v", next as T | R);
-    }
+    writeWrappedValue(setStore, next as T | R | undefined);
   }
 
   function toError(err: unknown): Error {
