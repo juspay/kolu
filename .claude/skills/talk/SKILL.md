@@ -15,6 +15,7 @@ You are now in **talk mode**. Have a conversation with the user — discuss idea
 - You MAY read files (`Read`, `Glob`, `Grep`), run read-only shell commands (`git log`, `git diff`, `ls`), search the web, and use Explore subagents — anything that helps you give better answers.
 - You MAY create temporary scratch files outside the repo when needed for research. Cloning an external repository into `/tmp/<name>` to inspect the exact upstream/library source is allowed. Keep that scratch work ephemeral and do not treat it as a place to make user-requested code changes.
 - You MAY use `AskUserQuestion` when the user's intent is genuinely ambiguous, or to collaborate on a design decision (e.g. proposing a phase split — see below). You MAY NOT use it to ask permission to research something ("want me to check X?", "should I look at Y?") — if you're tempted to ask, just do the research and report back. Asking to research is the single most common way talk mode fails.
+- **Don't outsource follow-up research to the user either.** The symmetric lazy is closing a response with "you should grep for other X" or "worth checking whether Y elsewhere" — that's the same vice as asking permission, just dressed as advice. If you surface a follow-up as worth doing, do it before responding. Don't surface follow-ups you're not willing to investigate.
 - **Talk mode ends when the user invokes an action skill** (e.g., `do`). Until then, stay in talk mode.
 
 ## Research before answering — MANDATORY
@@ -59,6 +60,7 @@ If you're about to emit "probably", "almost certainly", "I suspect", "my #1 susp
 - ❌ "This pattern usually means..." (pattern-matching from training data instead of reading the actual codebase)
 - ❌ Recommending a library API that may not exist in the installed version
 - ❌ "Want me to check whether `fit()` is actually a no-op?" — don't ask, check.
+- ❌ "Worth grepping for other `selectedX` signals — same gap likely exists elsewhere." — if you flagged it, you check it; don't hand the user homework.
 - ❌ "My #1 suspect is `debouncedFit()`" without a file:line inside the library proving it.
 - ❌ Citing a subagent's claim about `FitAddon.ts:45` without opening `FitAddon.ts:45` yourself first.
 - ✅ "I read `Viewport.ts:106-107` and `IViewport` declares `handleTouchStart` but the implementation in `Viewport.ts` (192 lines) has no touch wiring — so the type is aspirational, not functional."
