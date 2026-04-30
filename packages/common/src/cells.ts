@@ -18,7 +18,11 @@ import {
 } from "./index";
 
 /** Server-derived activity feed (recent repos + recent agents).
- *  Read-only on the client; the server is the sole writer. */
+ *  Read-only on the client; the server is the sole writer.
+ *
+ *  Intended authority: `"server"` — the client never mutates this cell.
+ *  Passing `authority: "local"` to `useCell(activityFeedCell, …)` would
+ *  silently ignore server pushes after init, which is wrong. */
 export const activityFeedCell = cell({
   name: "activityFeed",
   schema: ActivityFeedSchema,
@@ -27,7 +31,10 @@ export const activityFeedCell = cell({
 
 /** Last persisted snapshot of terminals + active id, or null when no
  *  session is saved. Read-only on the client; the server's debounced
- *  autosave loop owns writes. */
+ *  autosave loop owns writes.
+ *
+ *  Intended authority: `"server"` — `useCell(savedSessionCell, { authority: "local" })`
+ *  would isolate the client from the server's autosave updates. */
 export const savedSessionCell = cell({
   name: "savedSession",
   schema: SavedSessionSchema.nullable(),
