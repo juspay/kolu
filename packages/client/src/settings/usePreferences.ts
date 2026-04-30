@@ -19,72 +19,69 @@
  * server, but subsequent server echoes are intentionally ignored. After
  * #577 preferences ride their own dedicated channel, so unrelated events
  * (activity feed, session) can no longer trigger a stomp at all.
+ *
+ * Implemented via `useCell` from `@kolu/cells/solid` with `authority: "local"`.
+ * The framework primitive captures the entire pattern (initial-seed-only +
+ * ignore-echoes + optimistic local apply); the discriminated-union
+ * `rightPanel.tab` reconcile is expressed via `mergeIntoStore`, the framework's
+ * escape hatch for nested mutations that `applyPatch` + reconcile can't
+ * handle cleanly (a 3-arg path-form `setStore` is required to deep-replace
+ * the tab variant without leaving stale fields from the old variant).
  */
 
+import { useCell } from "@kolu/cells/solid";
 import type { Preferences, PreferencesPatch } from "kolu-common";
+import { preferencesCell } from "kolu-common/cells";
 import { DEFAULT_PREFERENCES } from "kolu-common/config";
-import { createEffect, createRoot, on } from "solid-js";
-import { createStore, reconcile } from "solid-js/store";
+import { reconcile } from "solid-js/store";
 import { toast } from "solid-sonner";
-import { createSubscription } from "../rpc/createSubscription";
 import { client, stream } from "../rpc/rpc";
 
-const [prefs, setPrefs] = createStore<Preferences>(DEFAULT_PREFERENCES);
-let initialized = false;
-
-// createRoot detaches the subscription + init effect from any transient
-// caller's reactive owner so they live for the app's lifetime.
-const sub = createRoot(() => {
-  const s = createSubscription(() => stream.preferences(), {
-    onError: (err) =>
-      toast.error(`Preferences subscription error: ${err.message}`),
-  });
-  createEffect(
-    on(
-      () => s(),
-      (serverPrefs) => {
-        if (serverPrefs && !initialized) {
-          initialized = true;
-          setPrefs(reconcile(serverPrefs));
-        }
-      },
-    ),
-  );
-  return s;
+const cell = useCell(preferencesCell, {
+  authority: "local",
+  initial: DEFAULT_PREFERENCES,
+  source: () => stream.preferences(),
+  mutate: async (patch: PreferencesPatch) => {
+    try {
+      await client.preferences.update(patch);
+    } catch (err) {
+      if (err instanceof Error) {
+        toast.error(`Failed to save preferences: ${err.message}`);
+      } else {
+        toast.error("Failed to save preferences");
+      }
+    }
+  },
+  // The 3-arg path form `setStore("rightPanel", "tab", reconcile(tab))` is
+  // load-bearing: the 2-arg merge form leaves stale fields from the old
+  // variant when `tab` switches between `kind: "inspector"` and
+  // `kind: "code"`, and the inspector branch's nested fields (mode) don't
+  // trigger fine-grained reactivity on readers like `tab.mode`. `reconcile`
+  // both replaces wholesale and fires proper reactivity.
+  mergeIntoStore: (setStore, patch: PreferencesPatch) => {
+    const { rightPanel: rpPatch, ...rest } = patch;
+    if (Object.keys(rest).length > 0) setStore(rest);
+    if (rpPatch) {
+      const { tab, ...rpRest } = rpPatch;
+      if (Object.keys(rpRest).length > 0) {
+        setStore("rightPanel", rpRest as Partial<Preferences["rightPanel"]>);
+      }
+      if (tab !== undefined) setStore("rightPanel", "tab", reconcile(tab));
+    }
+  },
+  onError: (err) =>
+    toast.error(`Preferences subscription error: ${err.message}`),
 });
 
-/** Update one or more preferences. Applied to the local store synchronously
- *  (for instant UI response), then persisted to the server. The server's
- *  echo is ignored — see the module comment for why. */
-function updatePreferences(patch: PreferencesPatch) {
-  const { rightPanel: rpPatch, ...rest } = patch;
-  if (Object.keys(rest).length > 0) setPrefs(rest);
-  if (rpPatch) {
-    const { tab, ...rpRest } = rpPatch;
-    // Scalar fields of rightPanel (collapsed, size) go through the
-    // normal merge — any path form works for primitives.
-    if (Object.keys(rpRest).length > 0) {
-      setPrefs("rightPanel", rpRest as Partial<Preferences["rightPanel"]>);
-    }
-    // `tab` is a discriminated-union object. The 3-arg path form deep-merges
-    // an object value (leaving stale fields from the old variant), and the
-    // 2-arg merge form doesn't trigger fine-grained reactivity on nested
-    // readers like `tab.mode` — verified empirically. `reconcile` both
-    // REPLACES wholesale and fires proper reactivity.
-    if (tab !== undefined) setPrefs("rightPanel", "tab", reconcile(tab));
-  }
-  void client.preferences
-    .update(patch)
-    .catch((err: Error) =>
-      toast.error(`Failed to save preferences: ${err.message}`),
-    );
+function updatePreferences(patch: PreferencesPatch): void {
+  void cell.patch(patch);
 }
 
 export function usePreferences() {
   return {
-    sub,
+    sub: cell.sub,
     /** Local-store accessor — authoritative after the first server yield. */
-    preferences: (): Preferences => prefs,
+    preferences: (): Preferences => cell.value() ?? DEFAULT_PREFERENCES,
     updatePreferences,
   } as const;
 }
