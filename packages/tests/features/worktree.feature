@@ -27,6 +27,7 @@ Feature: Git worktree management
     And I select "New terminal" in the palette
     And I select "kolu-wt-remove" in the palette
     Then the header CWD should show ".worktrees/"
+    And the pill tree should show a worktree indicator
     Given I note the pill tree entry count
     When I open the command palette
     And I select "Close terminal" in the palette
@@ -43,6 +44,7 @@ Feature: Git worktree management
     And I select "New terminal" in the palette
     And I select "kolu-wt-cancel" in the palette
     Then the header CWD should show ".worktrees/"
+    And the pill tree should show a worktree indicator
     Given I note the pill tree entry count
     When I open the command palette
     And I select "Close terminal" in the palette
@@ -59,6 +61,7 @@ Feature: Git worktree management
     And I select "New terminal" in the palette
     And I select "kolu-wt-close-only" in the palette
     Then the header CWD should show ".worktrees/"
+    And the pill tree should show a worktree indicator
     Given I note the pill tree entry count
     When I open the command palette
     And I select "Close terminal" in the palette

@@ -12,6 +12,7 @@
  *  retune touches one constant. */
 
 import { execSync } from "node:child_process";
+import fs from "node:fs";
 import path from "node:path";
 
 export const WATCHER_DEBOUNCE_MS = 150;
@@ -23,7 +24,13 @@ export function resolveGitDir(cwd: string): string | null {
       encoding: "utf-8",
       stdio: ["pipe", "pipe", "pipe"],
     });
-    return path.resolve(cwd, result.trim());
+    // Canonicalize: macOS `/tmp` symlinks to `/private/tmp`, and `git
+    // rev-parse --git-dir` reports a relative path from the repo root but
+    // a realpath-resolved absolute path from a subdir. Without realpath
+    // here, two subscribers reaching the same .git via different paths
+    // would key the shared-watcher registry under two strings and fail
+    // to dedupe.
+    return fs.realpathSync(path.resolve(cwd, result.trim()));
   } catch {
     return null;
   }

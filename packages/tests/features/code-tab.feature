@@ -218,3 +218,28 @@ Feature: Code tab (review + browse)
     When I click the terminal canvas
     And I run "printf 'second version\n' > letters.txt"
     Then the file content should contain "second version"
+
+  Scenario: Committing the selected local diff clears the stale content pane
+    When I run "rm -rf /tmp/kolu-clear-selected-local && git init /tmp/kolu-clear-selected-local && cd /tmp/kolu-clear-selected-local"
+    And I run "git commit --allow-empty -m init"
+    And I run "printf 'before\n' > note.txt"
+    And I click the Code tab
+    And I click the changed file "note.txt" in the Code tab
+    Then the diff view should contain "before"
+    When I click the terminal canvas
+    And I run "git add note.txt && git commit -m 'save note'"
+    Then the Code tab should show the empty-changes message
+    And the Code tab content should show the select hint "Select a file to view its diff"
+
+  Scenario: Deleting the selected browse file clears the stale content pane
+    When I run "rm -rf /tmp/kolu-clear-selected-browse && git init /tmp/kolu-clear-selected-browse && cd /tmp/kolu-clear-selected-browse"
+    And I run "git commit --allow-empty -m init"
+    And I run "printf 'old content\n' > obsolete.txt"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    And I click the file "obsolete.txt" in the file browser
+    Then the file content should contain "old content"
+    When I click the terminal canvas
+    And I run "rm obsolete.txt"
+    Then the file browser should not show a file "obsolete.txt"
+    And the Code tab content should show the select hint "Select a file to view its content"

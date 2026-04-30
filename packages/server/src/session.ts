@@ -14,6 +14,10 @@ import { log } from "./log.ts";
 import { publisher, publishSystem } from "./publisher.ts";
 import { store } from "./state.ts";
 
+/** Pending autosave timer — declared at module top so `setSavedSession`
+ *  can cancel it (see comment on that function for the race). */
+let saveTimer: ReturnType<typeof setTimeout> | undefined;
+
 /** Write the session blob (or clear it) and publish to subscribers. */
 function writeSession(next: SavedSession | null): void {
   store.set("session", next);
@@ -48,14 +52,26 @@ export function clearSavedSession(): void {
   writeSession(null);
 }
 
-/** Set the saved session directly (used by test harness and session tests). */
+/** Set the saved session directly (used by test harness and session tests).
+ *
+ *  Also cancels any pending autosave timer so a stale `terminals:dirty`
+ *  event scheduled before this call cannot fire after it and clobber the
+ *  manually-set session with an empty-snapshot null. The race surfaces in
+ *  e2e: the test scenario's Before hook drains terminals, then posts a
+ *  fresh saved session, then loads the page; in between, a lingering
+ *  provider event from a previous scenario's drained terminal fires
+ *  `terminals:dirty`, the autosave callback runs 500ms later with an empty
+ *  terminal snapshot, and `saveSession([])` rewrites the session to null —
+ *  the restore card disappears mid-scenario. */
 export function setSavedSession(session: SavedSession | null): void {
+  if (saveTimer) {
+    clearTimeout(saveTimer);
+    saveTimer = undefined;
+  }
   writeSession(session);
 }
 
 // --- Auto-save: terminal lifecycle → session persistence (decoupled via publisher) ---
-
-let saveTimer: ReturnType<typeof setTimeout> | undefined;
 
 /** Wire up throttled session save from terminal change events. Called once at startup.
  *
