@@ -76,8 +76,8 @@ apm-sync: apm-audit
     # placement is file-layout sensitive, so omitting checked-in files that
     # are present during local `just ai::apm` can produce a false sync diff.
     [[ ! -e .claude/launch.json ]] || cp .claude/launch.json "$scratch/.claude/launch.json"
-    (cd "$scratch" && {{ apm_cmd }} install >/dev/null)
-    (cd "$scratch" && {{ apm_cmd }} compile --target codex,opencode >/dev/null)
+    (cd "$scratch" && {{ apm_cmd }} install)
+    (cd "$scratch" && {{ apm_cmd }} compile --target codex,opencode)
     # Exclude files that apm doesn't manage: launch.json is user-owned,
     # and `.claude/*` entries in .gitignore are runtime state written by
     # Claude Code itself (worktree bookkeeping, local settings, session
