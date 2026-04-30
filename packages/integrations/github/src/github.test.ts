@@ -174,6 +174,15 @@ describe("classifyGhError", () => {
     ).toEqual({ kind: "absent" });
   });
 
+  it("classifies gh's 'no git remotes found' as absent", () => {
+    expect(
+      classifyGhError({
+        code: 1,
+        stderr: "no git remotes found\n",
+      }),
+    ).toEqual({ kind: "absent" });
+  });
+
   it.each([
     { input: new Error("JSON parse boom"), label: "Error instance" },
     { input: "raw string", label: "raw string" },

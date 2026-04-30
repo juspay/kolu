@@ -116,6 +116,11 @@ export function classifyGhError(err: unknown): PrResult {
   if (stderr.includes("no pull requests found")) {
     return { kind: "absent" };
   }
+  // A repo with no remote can't have a PR — same UI outcome as "no PR on
+  // this branch" (silent), not a warning the user needs to act on.
+  if (stderr.includes("no git remotes found")) {
+    return { kind: "absent" };
+  }
   return ghUnavailable("unknown");
 }
 
