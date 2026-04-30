@@ -33,7 +33,7 @@ import { FileDiffIcon, GitBranchIcon } from "../ui/Icons";
 import PierreDiffView from "../ui/PierreDiffView";
 import PierreFileTree, { toGitStatusEntries } from "../ui/PierreFileTree";
 import BrowseFileView from "./BrowseFileView";
-import CodeFilterBar from "./CodeFilterBar";
+import CodeFilterBar, { type ModeOption } from "./CodeFilterBar";
 import { useRightPanel } from "./useRightPanel";
 
 const EMPTY_STATE: Record<GitDiffMode, string> = {
@@ -140,6 +140,35 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
   const treeReady = () => (isDiffView() ? status() : allPaths());
   const branchRef = (): string | null => status()?.base?.ref ?? null;
 
+  // Mode catalog — owns the list of views, their labels, hints, and
+  // test IDs. Adding a new mode (e.g. "stash") happens here, plus the
+  // data-source switch above. CodeFilterBar is purely a presenter.
+  const modeOptions = createMemo<ModeOption[]>(() => [
+    {
+      view: "browse",
+      label: "All files",
+      hint: "Browse the whole repo",
+      testId: "diff-mode-browse",
+      iconKind: "file",
+    },
+    {
+      view: "local",
+      group: "Git",
+      label: "Local",
+      hint: "Working tree vs HEAD",
+      testId: "diff-mode-local",
+      iconKind: "git",
+    },
+    {
+      view: "branch",
+      group: "Git",
+      label: "Branch",
+      hint: branchRef() ? `vs ${branchRef()}` : "Working tree vs branch base",
+      testId: "diff-mode-branch",
+      iconKind: "git",
+    },
+  ]);
+
   /** Diff value narrowed to "this is a pure-rename" (no hunks, both old +
    *  new file names present and different). Returning the full diff so the
    *  rendering Match can read its names without re-narrowing. */
@@ -176,7 +205,7 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
           onViewChange={setView}
           searchQuery={searchQuery()}
           onSearchChange={setSearchQuery}
-          branchRef={branchRef()}
+          modes={modeOptions()}
         />
 
         <div

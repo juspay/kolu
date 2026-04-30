@@ -6,11 +6,17 @@
  *  one chip element holds the current mode label, a popover reveals the
  *  full set of options with their semantic hints. The search input
  *  shares the bar so file-set narrowing and file-name filtering live in
- *  one place — the only filter chrome the user has to scan. */
+ *  one place — the only filter chrome the user has to scan.
+ *
+ *  Mode metadata is *not* defined in this file — the host (CodeTab)
+ *  owns the list of `ModeOption`s and passes them in. That keeps
+ *  mode-identity volatility (adding a new view, changing a hint, wiring
+ *  a new data source) localized to a single module instead of split
+ *  across the picker and the host. */
 
 import { makeEventListener } from "@solid-primitives/event-listener";
 import type { CodeTabView } from "kolu-common";
-import { type Component, createSignal, For, Show } from "solid-js";
+import { type Component, createMemo, createSignal, For, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import {
   ChevronDownIcon,
@@ -20,41 +26,18 @@ import {
   SearchIcon,
 } from "../ui/Icons";
 
-type ModeOption = {
+export type ModeOption = {
   view: CodeTabView;
-  group?: "Git";
+  /** Optional grouping label rendered as a `<group>:` prefix in the chip
+   *  and popover (e.g. `Git: Local`). */
+  group?: string;
   label: string;
   hint: string;
   testId: string;
-};
-
-const OPTIONS: readonly ModeOption[] = [
-  {
-    view: "browse",
-    label: "All files",
-    hint: "Browse the whole repo",
-    testId: "diff-mode-browse",
-  },
-  {
-    view: "local",
-    group: "Git",
-    label: "Local",
-    hint: "Working tree vs HEAD",
-    testId: "diff-mode-local",
-  },
-  {
-    view: "branch",
-    group: "Git",
-    label: "Branch",
-    hint: "Working tree vs branch base",
-    testId: "diff-mode-branch",
-  },
-];
-
-const VIEW_CHIP_LABEL: Record<CodeTabView, string> = {
-  browse: "All files",
-  local: "Git: Local",
-  branch: "Git: Branch",
+  /** When `true`, renders the git-branch icon in the chip; otherwise the
+   *  file-browse icon. Drives the chip's leading glyph without leaking
+   *  view-string knowledge into this component. */
+  iconKind?: "git" | "file";
 };
 
 const CodeFilterBar: Component<{
@@ -62,9 +45,7 @@ const CodeFilterBar: Component<{
   onViewChange: (v: CodeTabView) => void;
   searchQuery: string;
   onSearchChange: (q: string) => void;
-  /** When known, replaces the generic "Branch" hint in the popover with
-   *  `vs <ref>` (e.g. "vs origin/master"). */
-  branchRef?: string | null;
+  modes: readonly ModeOption[];
 }> = (props) => {
   const [open, setOpen] = createSignal(false);
   let triggerRef: HTMLButtonElement | undefined;
@@ -94,10 +75,11 @@ const CodeFilterBar: Component<{
     setOpen(false);
   };
 
-  const optionHint = (opt: ModeOption) =>
-    opt.view === "branch" && props.branchRef
-      ? `vs ${props.branchRef}`
-      : opt.hint;
+  const activeMode = createMemo(() =>
+    props.modes.find((m) => m.view === props.view),
+  );
+  const chipLabel = (m: ModeOption) =>
+    m.group ? `${m.group}: ${m.label}` : m.label;
 
   return (
     <div class="flex items-center h-7 px-1.5 bg-surface-1/30 border-b border-edge shrink-0 gap-2">
@@ -116,12 +98,12 @@ const CodeFilterBar: Component<{
         title="Change view"
       >
         <Show
-          when={props.view !== "browse"}
+          when={activeMode()?.iconKind === "git"}
           fallback={<FileBrowseIcon class="w-3 h-3 opacity-70" />}
         >
           <GitBranchIcon class="w-3 h-3 opacity-70" />
         </Show>
-        <span>{VIEW_CHIP_LABEL[props.view]}</span>
+        <span>{activeMode() ? chipLabel(activeMode()!) : props.view}</span>
         <ChevronDownIcon
           class={`w-3 h-3 opacity-50 transition-transform ${
             open() ? "rotate-180" : ""
@@ -166,10 +148,14 @@ const CodeFilterBar: Component<{
             role="menu"
             data-testid="diff-filter-popover"
           >
-            <For each={OPTIONS}>
+            <For each={props.modes}>
               {(opt, idx) => (
                 <>
-                  <Show when={idx() === 1}>
+                  <Show
+                    when={
+                      idx() > 0 && opt.group !== props.modes[idx() - 1]?.group
+                    }
+                  >
                     <div class="my-1 border-t border-edge/60" />
                   </Show>
                   <button
@@ -201,9 +187,7 @@ const CodeFilterBar: Component<{
                         </Show>
                         {opt.label}
                       </span>
-                      <span class="text-fg-3 text-[10px]">
-                        {optionHint(opt)}
-                      </span>
+                      <span class="text-fg-3 text-[10px]">{opt.hint}</span>
                     </div>
                   </button>
                 </>
