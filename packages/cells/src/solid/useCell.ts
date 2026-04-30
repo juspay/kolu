@@ -46,7 +46,14 @@ export interface UseCellLocalOptions<T extends object, P = T> {
   applyPatch?: (current: T, patch: P) => T;
   /** Escape hatch for non-shallow merges (discriminated-union nested fields).
    *  Receives Solid's `setStore` directly so callers can do nested path-form
-   *  writes that `applyPatch` + reconcile can't express cleanly. */
+   *  writes that `applyPatch` + reconcile can't express cleanly.
+   *
+   *  When using this, document at the call site (1) why `applyPatch` is
+   *  insufficient and (2) the specific nested mutation required. The hatch
+   *  couples the caller to Solid's store mutation API across the framework
+   *  boundary, so the cost should be visible to future readers. The
+   *  preferences `rightPanel.tab` discriminated-union reconcile is the
+   *  canonical example. */
   mergeIntoStore?: (setStore: SetStoreFunction<T>, patch: P) => void;
   onError?: (err: Error) => void;
 }
@@ -109,6 +116,11 @@ function useCellLocal<Name extends string, T extends object, P>(
   options: UseCellLocalOptions<T, P>,
 ): UseCellResult<T, P> {
   const [store, setStore] = createStore<T>(options.initial);
+  // Mutable guard: once any server value arrives, seed the local store
+  // from it and never overwrite again. Server echoes after init must not
+  // stomp local mutations whose RPC hasn't round-tripped — the local
+  // store is authoritative thereafter. A reactive signal would fire
+  // unnecessary effects for a one-time transition.
   let initialized = false;
 
   const sub = createRoot(() => {
