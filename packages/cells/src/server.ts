@@ -315,7 +315,21 @@ export function confStore<T, Schema extends Record<string, unknown>>(
 /** Build a `ChannelBus<T>` from an `@orpc/experimental-publisher`-style
  *  publisher. The publisher's untyped string-channel API is hidden
  *  behind a typed bus so each cell has one named channel and consumers
- *  can't typo. */
+ *  can't typo.
+ *
+ *  Wraps the underlying iterator with `iterateUntilAborted` for two
+ *  reasons. First (correctness): oRPC's WebSocket adapter calls
+ *  `peer.close()` when the socket closes, which `AbortController.abort()`s
+ *  every in-flight stream's signal — the publisher iterator then rejects
+ *  pending pulls with `signal.reason`. Letting that propagate produces a
+ *  full DOMException stack on every disconnect; swallowing the
+ *  signal-shaped error keeps the cleanup quiet. Second (ordering): the
+ *  extra generator layer adds one microtask of delay per yielded event,
+ *  which preserves cross-channel ordering when multiple publishes fire
+ *  on the same tick. Without that delay, a list-update publish racing
+ *  a per-terminal exit publish can deliver the list message first and
+ *  the client's `removeAndAutoSwitch` sees an already-truncated list,
+ *  picking the wrong active terminal (or null). */
 export function publisherChannel<T>(
   publisher: {
     publish: (channel: string, payload: T) => Promise<void> | void;
@@ -330,6 +344,22 @@ export function publisherChannel<T>(
     publish: (value) => {
       void publisher.publish(channelName, value);
     },
-    subscribe: (signal) => publisher.subscribe(channelName, { signal }),
+    subscribe: (signal) =>
+      iterateUntilAborted(publisher.subscribe(channelName, { signal }), signal),
   };
+}
+
+/** Iterate `source` and yield each item, ending cleanly if the iterator
+ *  rejects with the signal's abort reason. Adds one microtask of delay
+ *  per yield (see `publisherChannel`'s comment for why that matters). */
+async function* iterateUntilAborted<T>(
+  source: AsyncIterable<T>,
+  signal: AbortSignal | undefined,
+): AsyncGenerator<T> {
+  try {
+    for await (const item of source) yield item;
+  } catch (err) {
+    if (signal?.aborted && err === signal.reason) return;
+    throw err;
+  }
 }
