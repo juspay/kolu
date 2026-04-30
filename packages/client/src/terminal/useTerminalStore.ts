@@ -1,8 +1,9 @@
 /** Terminal store — composes view state and metadata modules.
- *  Server-derived state streams via createSubscription.
- *  Client view state (activeId, attention, mruOrder) lives in local signals.
+ *  Server-derived state streams through `@kolu/cells/solid`'s `useCell` /
+ *  `useCollection` hooks; client view state (activeId, attention, mruOrder)
+ *  lives in local signals.
  *
- *  The terminal list is a live subscription — the server pushes updates on
+ *  The terminal list is a live cell — the server pushes updates on
  *  create/kill. No manual client-side bookkeeping needed.
  *
  *  Singleton (cached + createRoot): every consumer (PillTree, ChromeBar,
@@ -10,27 +11,29 @@
  *  derivations like `getDisplayInfo` and `getMetadata` flow without
  *  prop-drilling lookup functions through layout components. */
 
+import { useCell } from "@kolu/cells/solid";
+import { terminalListCell } from "kolu-common/cells";
 import { createRoot } from "solid-js";
 import { toast } from "solid-sonner";
-import { createSubscription } from "../rpc/createSubscription";
 import { stream } from "../rpc/rpc";
 import { useViewState } from "../useViewState";
 import { useTerminalMetadata } from "./useTerminalMetadata";
 
 function init() {
-  const listSub = createSubscription(() => stream.terminalList(), {
+  const list = useCell(terminalListCell, {
+    source: () => stream.terminalList(),
     onError: (err) => toast.error(`Terminal list error: ${err.message}`),
   });
 
   const view = useViewState();
   const metadata = useTerminalMetadata({
-    listSub,
+    listSub: list.sub,
     activeId: view.activeId,
   });
 
   return {
-    // Live terminal list from server
-    listSub,
+    // Live terminal list from server (Subscription<TerminalInfo[]> via the cell)
+    listSub: list.sub,
     // View state
     ...view,
     // Server metadata + activity + derived ordering
