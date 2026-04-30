@@ -19,7 +19,6 @@ import type { TerminalId, TerminalInfo, TerminalMetadata } from "kolu-common";
 import { terminalMetadataCollection } from "kolu-common/cells";
 import { type Accessor, createMemo } from "solid-js";
 import { toast } from "solid-sonner";
-import type { Subscription } from "../rpc/createSubscription";
 import { stream } from "../rpc/rpc";
 import {
   buildTerminalDisplayInfos,
@@ -27,11 +26,11 @@ import {
 } from "./terminalDisplay";
 
 export function useTerminalMetadata(deps: {
-  listSub: Subscription<TerminalInfo[]>;
+  list: Accessor<TerminalInfo[] | undefined>;
   activeId: Accessor<TerminalId | null>;
 }) {
   const meta = useCollection(terminalMetadataCollection, {
-    keys: () => deps.listSub()?.map((t) => t.id) ?? [],
+    keys: () => deps.list()?.map((t) => t.id) ?? [],
     valueSource: (id) => stream.metadata(id),
     onError: (err) => toast.error(`Metadata error: ${err.message}`),
   });
@@ -39,7 +38,7 @@ export function useTerminalMetadata(deps: {
   function getMetadata(id: TerminalId): TerminalMetadata | undefined {
     // Prefer live subscription value; fall back to list-embedded metadata
     // so terminals appear in the sidebar immediately (before metadata sub connects).
-    return meta.byKey(id)?.() ?? deps.listSub()?.find((t) => t.id === id)?.meta;
+    return meta.byKey(id)?.() ?? deps.list()?.find((t) => t.id === id)?.meta;
   }
 
   // --- Order: server Map insertion order, filtered by parent relationship ---

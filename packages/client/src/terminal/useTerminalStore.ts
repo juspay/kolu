@@ -27,7 +27,7 @@ function init() {
 
   const view = useViewState();
   const metadata = useTerminalMetadata({
-    listSub: list.sub,
+    list: list.value,
     activeId: view.activeId,
   });
 
