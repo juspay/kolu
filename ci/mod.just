@@ -37,7 +37,7 @@ _linux:
 _linux-fanout: home-manager e2e smoke
 
 [parallel]
-_darwin-fanout: e2e smoke
+_darwin-fanout: home-manager e2e smoke
 
 _darwin:
     CI_SYSTEM=aarch64-darwin just ci::nix ci::_darwin-fanout || true

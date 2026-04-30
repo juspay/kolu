@@ -1,6 +1,32 @@
 { config, lib, pkgs, ... }:
 let
   cfg = config.services.kolu;
+
+  # Three-state TLS: explicit cert+key pair, auto-signed self-signed, or off.
+  # The certFile/keyFile pairing is enforced by an assertion below.
+  tlsArgs =
+    if cfg.tls.certFile != null then
+      [ "--tls-cert" (toString cfg.tls.certFile) "--tls-key" (toString cfg.tls.keyFile) ]
+    else if cfg.tls.enable then
+      [ "--tls" ]
+    else
+      [ ];
+
+  args = [
+    (lib.getExe cfg.package)
+    "--host"
+    cfg.host
+    "--port"
+    (toString cfg.port)
+  ]
+  ++ tlsArgs
+  ++ lib.optionals cfg.verbose [ "--verbose" ];
+
+  # Shared by both supervisors. systemd wants `[ "KEY=val" ]`; launchd wants
+  # the attrset as a plist dict — converted at each call site.
+  envAttrs = lib.optionalAttrs (cfg.diagnostics.dir != null) {
+    KOLU_DIAG_DIR = cfg.diagnostics.dir;
+  };
 in
 {
   options.services.kolu = {
@@ -65,28 +91,36 @@ in
       }
     ];
 
-    systemd.user.services.kolu = {
-      Unit = {
-        Description = "kolu web terminal multiplexer";
-        After = [ "network.target" ];
+    systemd.user.services = lib.mkIf pkgs.stdenv.hostPlatform.isLinux {
+      kolu = {
+        Unit = {
+          Description = "kolu web terminal multiplexer";
+          After = [ "network.target" ];
+        };
+        Service = {
+          ExecStart = toString args;
+          Restart = "on-failure";
+        } // lib.optionalAttrs (envAttrs != { }) {
+          Environment = lib.mapAttrsToList (k: v: "${k}=${v}") envAttrs;
+        };
+        Install = {
+          WantedBy = [ "default.target" ];
+        };
       };
-      Service = {
-        ExecStart = toString ([
-          (lib.getExe cfg.package)
-          "--host"
-          cfg.host
-          "--port"
-          (toString cfg.port)
-        ]
-        ++ lib.optionals (cfg.tls.certFile != null) [ "--tls-cert" (toString cfg.tls.certFile) "--tls-key" (toString cfg.tls.keyFile) ]
-        ++ lib.optionals (cfg.tls.certFile == null && cfg.tls.enable) [ "--tls" ]
-        ++ lib.optionals cfg.verbose [ "--verbose" ]);
-        Restart = "on-failure";
-      } // lib.optionalAttrs (cfg.diagnostics.dir != null) {
-        Environment = [ "KOLU_DIAG_DIR=${cfg.diagnostics.dir}" ];
-      };
-      Install = {
-        WantedBy = [ "default.target" ];
+    };
+
+    # home-manager activation reloads the LaunchAgent only when the plist
+    # bytes change, which means args/env changes drop active terminal sessions.
+    launchd.agents = lib.mkIf pkgs.stdenv.hostPlatform.isDarwin {
+      kolu = {
+        enable = true;
+        config = {
+          ProgramArguments = args;
+          RunAtLoad = true;
+          KeepAlive.SuccessfulExit = false;
+        } // lib.optionalAttrs (envAttrs != { }) {
+          EnvironmentVariables = envAttrs;
+        };
       };
     };
   };
