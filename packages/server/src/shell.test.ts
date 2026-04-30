@@ -6,7 +6,8 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
@@ -15,7 +16,7 @@ import {
   OSC2_PREEXEC_BASH_GUARD,
   OSC2_PREEXEC_FN,
   OSC7_FN,
-  osc7Init,
+  prepareShellInit,
 } from "./shell.ts";
 
 /** Run a script in a clean bash subshell and return stdout. */
@@ -262,23 +263,36 @@ function execFileSyncBoth(script: string): string {
   }
 }
 
-describe("osc7Init zsh wrapper", () => {
-  it("sources ~/.zshenv (regression: ZDOTDIR override hides it from zsh)", () => {
-    // Without this line, any user env defined in ~/.zshenv (PATH, etc.) is
-    // lost in PTY shells when kolu's parent process has a stripped env —
-    // notably under macOS launchd. zsh's auto-lookup of ~/.zshenv goes
-    // through ZDOTDIR, which we override, so the wrapper must replay it.
-    const init = osc7Init({
-      shell: "/bin/zsh",
-      home: "/home/testuser",
-      terminalId: "test-zshenv-source",
-    });
+describe("prepareShellInit zsh wrapper", () => {
+  // Behavioral regression for #800: spawn zsh against the wrapper rcfile
+  // with a fake ~/.zshenv that exports a marker, then verify the marker
+  // survives. Stronger than a string-match on the generated rcfile —
+  // catches the case where the source line is present but unreachable
+  // (broken `if`, wrong path, accidentally inside a function, etc.).
+  it("loads user env from ~/.zshenv (regression: missing under macOS launchd)", () => {
+    const fakeHome = mkdtempSync(join(tmpdir(), "kolu-shell-"));
     try {
-      const rcPath = join(init.env.ZDOTDIR as string, ".zshrc");
-      const rc = readFileSync(rcPath, "utf8");
-      expect(rc).toContain('source "/home/testuser/.zshenv"');
+      writeFileSync(
+        join(fakeHome, ".zshenv"),
+        "export KOLU_TEST_MARKER=loaded\n",
+      );
+      const init = prepareShellInit({
+        shell: "/bin/zsh",
+        home: fakeHome,
+        terminalId: `test-zshenv-${process.pid}`,
+      });
+      try {
+        const rcPath = join(init.env.ZDOTDIR as string, ".zshrc");
+        const out = runZsh(
+          `source ${rcPath} >/dev/null 2>&1; printf '%s' "$KOLU_TEST_MARKER"`,
+        );
+        if (out === null) return; // zsh unavailable — skip
+        expect(out).toBe("loaded");
+      } finally {
+        init.cleanup();
+      }
     } finally {
-      init.cleanup();
+      rmSync(fakeHome, { recursive: true, force: true });
     }
   });
 });
