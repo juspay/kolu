@@ -50,8 +50,15 @@ export type PierreFileTreeProps = {
   gitStatus?: GitStatusEntry[];
   selectedPath?: string | null;
   onSelect?: (path: string | null) => void;
-  /** Enable the search affordance inside the tree header. */
+  /** Enable Pierre's built-in header search affordance. Default `true`.
+   *  Set to `false` when the host renders its own search input and drives
+   *  the tree externally via `searchQuery`. */
   search?: boolean;
+  /** External search query — when provided, forwarded to Pierre's
+   *  `setSearch()` on every change. Useful when search lives in the
+   *  caller's chrome (e.g. a sibling toolbar) rather than the tree
+   *  header. Pass empty string to clear. */
+  searchQuery?: string;
   /** Initial folder expansion — captured at construction and **not
    *  reactive**. Pierre takes this once in the `FileTree` constructor;
    *  later prop changes are silently ignored. Re-mount the component
@@ -183,6 +190,17 @@ const PierreFileTree: Component<PierreFileTreeProps> = (props) => {
     on(
       () => props.gitStatus,
       (g) => tree?.setGitStatus(g),
+      { defer: true },
+    ),
+  );
+
+  // Forward external search query into Pierre's filter session so a
+  // host-rendered search input can drive the tree without Pierre's
+  // built-in header. `null` clears the filter; "" is treated the same.
+  createEffect(
+    on(
+      () => props.searchQuery,
+      (q) => tree?.setSearch(q && q.length > 0 ? q : null),
       { defer: true },
     ),
   );

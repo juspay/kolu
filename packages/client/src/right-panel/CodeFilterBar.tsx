@@ -1,0 +1,219 @@
+/** Filter chrome for the Code tab — a single horizontal strip combining
+ *  the mode picker (chip + popover) and a free-text search input that
+ *  drives Pierre's tree filter externally.
+ *
+ *  Visual register intentionally avoids a tab/segmented-control look:
+ *  one chip element holds the current mode label, a popover reveals the
+ *  full set of options with their semantic hints. The search input
+ *  shares the bar so file-set narrowing and file-name filtering live in
+ *  one place — the only filter chrome the user has to scan. */
+
+import { makeEventListener } from "@solid-primitives/event-listener";
+import type { CodeTabView } from "kolu-common";
+import { type Component, createSignal, For, Show } from "solid-js";
+import { Portal } from "solid-js/web";
+import {
+  ChevronDownIcon,
+  CloseIcon,
+  FileBrowseIcon,
+  GitBranchIcon,
+  SearchIcon,
+} from "../ui/Icons";
+
+type ModeOption = {
+  view: CodeTabView;
+  group?: "Git";
+  label: string;
+  hint: string;
+  testId: string;
+};
+
+const OPTIONS: readonly ModeOption[] = [
+  {
+    view: "browse",
+    label: "All files",
+    hint: "Browse the whole repo",
+    testId: "diff-mode-browse",
+  },
+  {
+    view: "local",
+    group: "Git",
+    label: "Local",
+    hint: "Working tree vs HEAD",
+    testId: "diff-mode-local",
+  },
+  {
+    view: "branch",
+    group: "Git",
+    label: "Branch",
+    hint: "Working tree vs branch base",
+    testId: "diff-mode-branch",
+  },
+];
+
+const VIEW_CHIP_LABEL: Record<CodeTabView, string> = {
+  browse: "All files",
+  local: "Git: Local",
+  branch: "Git: Branch",
+};
+
+const CodeFilterBar: Component<{
+  view: CodeTabView;
+  onViewChange: (v: CodeTabView) => void;
+  searchQuery: string;
+  onSearchChange: (q: string) => void;
+  /** When known, replaces the generic "Branch" hint in the popover with
+   *  `vs <ref>` (e.g. "vs origin/master"). */
+  branchRef?: string | null;
+}> = (props) => {
+  const [open, setOpen] = createSignal(false);
+  let triggerRef: HTMLButtonElement | undefined;
+  let panelRef: HTMLDivElement | undefined;
+  const [pos, setPos] = createSignal({ top: 0, left: 0 });
+
+  const updatePos = () => {
+    if (!triggerRef) return;
+    const r = triggerRef.getBoundingClientRect();
+    setPos({ top: r.bottom + 6, left: r.left });
+  };
+
+  // Close on outside click — ignore clicks on the trigger itself so the
+  // toggle button drives open/close cleanly.
+  makeEventListener(document, "mousedown", (e) => {
+    if (!open()) return;
+    const t = e.target as Node;
+    if (panelRef?.contains(t) || triggerRef?.contains(t)) return;
+    setOpen(false);
+  });
+  makeEventListener(document, "keydown", (e) => {
+    if (open() && e.key === "Escape") setOpen(false);
+  });
+
+  const select = (v: CodeTabView) => {
+    props.onViewChange(v);
+    setOpen(false);
+  };
+
+  const optionHint = (opt: ModeOption) =>
+    opt.view === "branch" && props.branchRef
+      ? `vs ${props.branchRef}`
+      : opt.hint;
+
+  return (
+    <div class="flex items-center h-7 px-1.5 bg-surface-1/30 border-b border-edge shrink-0 gap-2">
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={() => {
+          updatePos();
+          setOpen(!open());
+        }}
+        class="flex items-center gap-1.5 px-2 h-5 rounded text-[10px] font-mono cursor-pointer transition-colors bg-surface-2/40 hover:bg-surface-2/80 text-fg-2 hover:text-fg data-[active=true]:bg-surface-0 data-[active=true]:text-fg data-[active=true]:shadow-sm"
+        data-testid="diff-filter-chip"
+        data-active={open()}
+        aria-expanded={open()}
+        aria-haspopup="menu"
+        title="Change view"
+      >
+        <Show
+          when={props.view !== "browse"}
+          fallback={<FileBrowseIcon class="w-3 h-3 opacity-70" />}
+        >
+          <GitBranchIcon class="w-3 h-3 opacity-70" />
+        </Show>
+        <span>{VIEW_CHIP_LABEL[props.view]}</span>
+        <ChevronDownIcon
+          class={`w-3 h-3 opacity-50 transition-transform ${
+            open() ? "rotate-180" : ""
+          }`}
+        />
+      </button>
+
+      <label class="flex items-center gap-1.5 flex-1 min-w-0 text-[10px] font-mono text-fg-3 focus-within:text-fg-2">
+        <SearchIcon class="w-3 h-3 opacity-50 shrink-0" />
+        <input
+          type="text"
+          value={props.searchQuery}
+          onInput={(e) => props.onSearchChange(e.currentTarget.value)}
+          placeholder="filter files…"
+          class="flex-1 min-w-0 bg-transparent outline-none border-0 placeholder:text-fg-3/40 text-fg"
+          data-testid="diff-filter-search"
+          spellcheck={false}
+          autocomplete="off"
+        />
+        <Show when={props.searchQuery.length > 0}>
+          <button
+            type="button"
+            onClick={() => props.onSearchChange("")}
+            title="Clear filter"
+            class="shrink-0 text-fg-3 hover:text-fg cursor-pointer p-0.5 -mr-0.5"
+            data-testid="diff-filter-clear"
+          >
+            <CloseIcon class="w-3 h-3" />
+          </button>
+        </Show>
+      </label>
+
+      <Show when={open()}>
+        <Portal>
+          <div
+            ref={(el) => {
+              panelRef = el;
+              updatePos();
+            }}
+            class="fixed z-50 bg-surface-1 border border-edge rounded-md shadow-2xl shadow-black/40 py-1 min-w-[240px] text-[11px] font-mono"
+            style={{ top: `${pos().top}px`, left: `${pos().left}px` }}
+            role="menu"
+            data-testid="diff-filter-popover"
+          >
+            <For each={OPTIONS}>
+              {(opt, idx) => (
+                <>
+                  <Show when={idx() === 1}>
+                    <div class="my-1 border-t border-edge/60" />
+                  </Show>
+                  <button
+                    type="button"
+                    onClick={() => select(opt.view)}
+                    role="menuitemradio"
+                    aria-checked={props.view === opt.view}
+                    class="w-full flex items-center gap-2.5 px-2.5 py-1.5 text-left hover:bg-surface-2/60 cursor-pointer"
+                    data-testid={opt.testId}
+                    data-active={props.view === opt.view}
+                  >
+                    <span
+                      class="w-1.5 h-1.5 rounded-full shrink-0 transition-colors"
+                      classList={{
+                        "bg-accent": props.view === opt.view,
+                        "bg-edge-bright": props.view !== opt.view,
+                      }}
+                      aria-hidden="true"
+                    />
+                    <div class="flex flex-col items-start min-w-0 gap-0.5">
+                      <span
+                        classList={{
+                          "text-fg": props.view === opt.view,
+                          "text-fg-2": props.view !== opt.view,
+                        }}
+                      >
+                        <Show when={opt.group}>
+                          <span class="text-fg-3">{opt.group}: </span>
+                        </Show>
+                        {opt.label}
+                      </span>
+                      <span class="text-fg-3 text-[10px]">
+                        {optionHint(opt)}
+                      </span>
+                    </div>
+                  </button>
+                </>
+              )}
+            </For>
+          </div>
+        </Portal>
+      </Show>
+    </div>
+  );
+};
+
+export default CodeFilterBar;
