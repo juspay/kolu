@@ -144,6 +144,7 @@ Detects [OpenCode](https://github.com/anomalyco/opencode) sessions and shows the
 - Live preview while browsing themes in the palette
 - Shuffle theme — new terminals (and the active one on <kbd>⌘J</kbd>) get a background perceptually distinct from every other open terminal (toggleable; on by default)
 - Dark / light / system UI theme
+- Installed PWA chrome color derives from the server hostname, so app windows from different machines are easier to distinguish
 
 ### Clipboard
 

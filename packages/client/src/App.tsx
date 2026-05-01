@@ -6,8 +6,8 @@
  *  bar via `canvas/TileTitleActions`. The header is intentionally minimal. */
 
 import Dialog from "@corvu/dialog";
-import { Title } from "@solidjs/meta";
-import type { TerminalId } from "kolu-common";
+import { Meta, Title } from "@solidjs/meta";
+import type { ServerIdentity, TerminalId } from "kolu-common";
 import {
   type Component,
   createEffect,
@@ -97,18 +97,16 @@ const App: Component = () => {
   );
   const orderedIds = createMemo(() => flatPillOrder(pillGroups()));
 
-  // Fetch hostname from server; used in document title and header
-  const [hostname, setHostname] = createSignal<string>();
+  // Fetch server identity for document title, watermark, and PWA chrome color.
+  const [identity, setIdentity] = createSignal<ServerIdentity>();
   void client.server
     .info()
-    .then((info) => setHostname(info.hostname))
-    .catch(() => {
-      // Server info is cosmetic (document title) — safe to ignore on failure
+    .then((info) => setIdentity(info.identity))
+    .catch((err) => {
+      // Server info is cosmetic — safe to ignore on failure.
+      console.warn("Server info fetch failed:", err);
     });
-  const appTitle = () => {
-    const h = hostname();
-    return h ? `kolu@${h}` : "kolu";
-  };
+  const appTitle = () => identity()?.name ?? "kolu";
 
   // Palette state
   const [paletteOpen, setPaletteOpen] = createSignal(false);
@@ -345,6 +343,9 @@ const App: Component = () => {
       }}
     >
       <Title>{appTitle()}</Title>
+      <Show when={identity()?.themeColor}>
+        {(themeColor) => <Meta name="theme-color" content={themeColor()} />}
+      </Show>
       <TransportOverlay />
       <WebcamOverlay />
       <Toaster

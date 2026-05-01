@@ -52,6 +52,7 @@ import { saveClipboardImage } from "./clipboard.ts";
 import { serverHostname, serverProcessId } from "./hostname.ts";
 import { log } from "./log.ts";
 import { terminalChannels } from "./publisher.ts";
+import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import { getSavedSession } from "./session.ts";
 import {
   createTerminal,
@@ -240,7 +241,7 @@ function unwrapGit<T>(result: GitResult<T>): T {
 export const appRouter = t.router({
   server: {
     info: t.server.info.handler(async () => ({
-      hostname: serverHostname,
+      identity: pwaIdentityForHostname(serverHostname),
       processId: serverProcessId,
     })),
   },

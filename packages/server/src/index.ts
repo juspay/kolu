@@ -16,6 +16,7 @@ import { startDiagnostics } from "./diagnostics.ts";
 import { serverHostname } from "./hostname.ts";
 import { ensureKoluRoot, shutdownCleanup } from "./koluRoot.ts";
 import { log } from "./log.ts";
+import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import { appRouter } from "./router.ts";
 import { initSessionAutoSave } from "./session.ts";
 import { configureNixShellEnv } from "./shell.ts";
@@ -62,6 +63,8 @@ const argv = cli({
   },
   strictFlags: true,
 });
+
+const PWA_BACKGROUND_COLOR = "#0c0c0e";
 
 configureNixShellEnv(argv.flags.allowNixShellWithEnvWhitelist);
 ensureKoluRoot();
@@ -143,17 +146,16 @@ process.on("unhandledRejection", (reason) => {
 app.get("/api/health", (c) => c.text("kolu"));
 
 // --- Dynamic PWA manifest (includes hostname) ---
-// theme_color must match <meta name="theme-color"> in client/index.html
 app.get("/manifest.webmanifest", (c) => {
-  const name = `kolu@${serverHostname}`;
+  const identity = pwaIdentityForHostname(serverHostname);
   return c.json(
     {
-      name,
-      short_name: name,
+      name: identity.name,
+      short_name: identity.name,
       start_url: "/",
       display: "standalone",
-      background_color: "#292c33",
-      theme_color: "#292c33",
+      background_color: PWA_BACKGROUND_COLOR,
+      theme_color: identity.themeColor,
       icons: [
         { src: "/icon-192.png", sizes: "192x192", type: "image/png" },
         { src: "/icon-512.png", sizes: "512x512", type: "image/png" },
