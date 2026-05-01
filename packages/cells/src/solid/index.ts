@@ -24,10 +24,10 @@ export { useStream } from "./useStream";
 // Client-side transport primitives — re-exported so consumers can import
 // everything they need from `@kolu/cells/solid`. The pure-transport
 // definitions live in `@kolu/cells/client` for non-Solid consumers.
+// `STREAM_RETRY` and `ClientRetryPluginContext` are internal — hooks
+// thread the context, consumers never see it.
 export {
-  type ClientRetryPluginContext,
   createCellsClient,
-  STREAM_RETRY,
   streamCall,
   type StreamingProcedure,
 } from "../client";

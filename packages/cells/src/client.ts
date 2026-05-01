@@ -24,12 +24,12 @@ import {
 import { RPCLink } from "@orpc/client/websocket";
 import type { AnyContractRouter, ContractRouterClient } from "@orpc/contract";
 
-export type { ClientRetryPluginContext };
-
 /** Retry context applied to every framework-driven streaming call.
  *  Transport errors retry forever (next iterator yields a fresh
  *  snapshot — see Cell/Collection/Stream invariants); application
- *  errors propagate so consumers can surface them. */
+ *  errors propagate so consumers can surface them. Internal —
+ *  consumers thread it via the hooks (`useCell` etc.) or `streamCall`,
+ *  never directly. */
 export const STREAM_RETRY: ClientRetryPluginContext = {
   retry: Number.POSITIVE_INFINITY,
   retryDelay: (o) => o.lastEventRetry ?? 1000,
