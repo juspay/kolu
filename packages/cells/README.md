@@ -4,11 +4,11 @@ Typed reactive state cells for SolidJS clients backed by an oRPC streaming serve
 
 Three primitives cover the majority of typed reactive state pushed from a server to a Solid client:
 
-| Primitive | The question it answers | Cardinality | Persistable | Mutable from client |
-|-----------|------------------------|-------------|-------------|---------------------|
-| `Cell<T>` | "What's the current X?" | One singleton | Optional | Yes |
-| `Collection<K,T>` | "What's the current X for each key K?" | Many, keyed | Optional | Yes |
-| `Stream<I,T>` | "What's the live output for input I?" | One per input combo | Never | No (read-only) |
+| Primitive | The question it answers | Cardinality | Live updates from server | Persistable | Mutable from client |
+|-----------|-------------------------|-------------|--------------------------|-------------|---------------------|
+| `Cell<T>` | "What's the current X?" | One singleton | Yes (push on change) | Optional | Yes |
+| `Collection<K,T>` | "What's the current X for each key K?" | Many, keyed | Yes (per-key push) | Optional | Yes |
+| `Stream<I,T>` | "What's the live output for input I?" | One per input combo | Yes (push on derived-state change) | Never | No (read-only) |
 
 Anything genuinely outside these shapes — bidirectional binary streams, lifecycle events, commands, queries — stays as raw oRPC.
 
