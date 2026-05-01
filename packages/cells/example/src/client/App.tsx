@@ -2,19 +2,18 @@
  * Single-page demo of all four `@kolu/cells` primitives — wired via the
  * surface client bundle.
  *
- *   - `cells.cells.prefs.use(...)`           → editor preferences (font, theme)
- *   - `cells.collections.notes.use(...)`     → notes sidebar
- *   - `cells.streams.search.use(...)`        → live search in the sidebar
- *   - `cells.events.autosave.use(...)`       → "Saved" flash next to the title
+ *   - `app.cells.prefs.use(...)`           → editor preferences (font, theme)
+ *   - `app.collections.notes.use(...)`     → notes sidebar
+ *   - `app.streams.search.use(...)`        → live search in the sidebar
+ *   - `app.events.autosave.use(...)`       → "Saved" flash next to the title
  *
  * The bound `.use()` hooks pre-fill `source` / `mutate` / `valueSource` /
  * `keyToInput` — only domain policy (authority, initial value, applyPatch,
  * onError) lives at the call site. Imperative procedures stay accessible
- * via `cells.rpc.<ns>.<verb>(...)`.
+ * via `app.rpc.<ns>.<verb>(...)`.
  */
 
 import { createSubscription, streamCall } from "@kolu/cells/solid";
-import { DEFAULT_PREFS, type Note, type NoteId } from "../common/schemas";
 import {
   createEffect,
   createMemo,
@@ -23,12 +22,13 @@ import {
   For,
   Show,
 } from "solid-js";
-import { cells, client } from "./cells";
+import { DEFAULT_PREFS, type Note, type NoteId } from "../common/schemas";
+import { app } from "./wire";
 
 export default function App() {
   // ── 1. Cell: editor preferences ─────────────────────────────────────
   // applyPatch comes from `surface.cells.prefs.patch` on the spec.
-  const prefs = cells.cells.prefs.use({
+  const prefs = app.cells.prefs.use({
     authority: "local",
     initial: DEFAULT_PREFS,
   });
@@ -44,12 +44,12 @@ export default function App() {
   // every key to a per-key value subscription.
   const keysSub = createRoot(() =>
     createSubscription<NoteId[]>(() =>
-      streamCall(client.notes.keys, undefined),
+      streamCall(app.rpc.notes.keys, undefined),
     ),
   );
   const keys = createMemo<NoteId[]>(() => keysSub() ?? []);
 
-  const notes = cells.collections.notes.use({
+  const notes = app.collections.notes.use({
     keys,
     onError: (err) => console.error("note subscription failed", err),
   });
@@ -59,7 +59,7 @@ export default function App() {
   const searchInput = createMemo(() =>
     searchQuery().trim() ? { query: searchQuery() } : null,
   );
-  const search = cells.streams.search.use(searchInput, {
+  const search = app.streams.search.use(searchInput, {
     onError: (err) => console.error("search stream failed", err),
   });
 
@@ -67,7 +67,7 @@ export default function App() {
   const [selectedId, setSelectedId] = createSignal<NoteId | null>(null);
   const [flashVisible, setFlashVisible] = createSignal(false);
   let flashTimer: ReturnType<typeof setTimeout> | undefined;
-  cells.events.autosave.use(
+  app.events.autosave.use(
     selectedId,
     () => {
       setFlashVisible(true);
@@ -77,9 +77,9 @@ export default function App() {
     { onError: (err) => console.error("autosave subscription failed", err) },
   );
 
-  // ── Mutations (bundle.rpc) ──────────────────────────────────────────
+  // ── Mutations (app.rpc) ─────────────────────────────────────────────
   const handleCreate = async () => {
-    const note = await client.notes.create({ title: "Untitled" });
+    const note = await app.rpc.notes.create({ title: "Untitled" });
     setSelectedId(note.id);
   };
 
@@ -95,12 +95,12 @@ export default function App() {
     const current = selectedNote();
     if (!current) return;
     const next: Note = { ...current, [field]: value, updatedAt: Date.now() };
-    await client.notes.update({ key: current.id, value: next });
+    await app.rpc.notes.update({ key: current.id, value: next });
   };
 
   const handleDelete = async (id: NoteId): Promise<void> => {
     if (selectedId() === id) setSelectedId(null);
-    await client.notes.delete({ key: id });
+    await app.rpc.notes.delete({ key: id });
   };
 
   // Filter sidebar by search results. When no query, show all.

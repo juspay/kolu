@@ -20,7 +20,7 @@ import {
   fsListAllStream,
   gitDiffStream,
   gitStatusStream,
-} from "kolu-common/cells";
+} from "kolu-common/surface";
 import {
   type Component,
   createEffect,
@@ -32,7 +32,7 @@ import {
   Switch,
 } from "solid-js";
 import { toast } from "solid-sonner";
-import { client } from "../cells";
+import { client } from "../wire";
 import { useColorScheme } from "../settings/useColorScheme";
 import { FileBrowseIcon, FileDiffIcon, GitBranchIcon } from "../ui/Icons";
 import PierreDiffView from "../ui/PierreDiffView";

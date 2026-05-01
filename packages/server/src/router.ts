@@ -26,7 +26,7 @@ import {
   savedSessionCell,
   terminalExitEvent,
   terminalListCell,
-} from "kolu-common/cells";
+} from "kolu-common/surface";
 import { contract } from "kolu-common/contract";
 import { TerminalNotFoundError } from "kolu-common/errors";
 import {

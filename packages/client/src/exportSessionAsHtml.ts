@@ -14,7 +14,7 @@
 
 import type { TerminalId } from "kolu-common";
 import { toast } from "solid-sonner";
-import { client } from "./cells";
+import { client } from "./wire";
 
 export async function exportSessionAsHtml(id: TerminalId): Promise<void> {
   const loadingId = toast.loading("Exporting session…");

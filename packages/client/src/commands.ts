@@ -6,7 +6,7 @@ import { batch, createMemo } from "solid-js";
 import { availableThemes } from "terminal-themes";
 import type { PaletteCommand, PaletteItem } from "./CommandPalette";
 import { type ActionContext, actionPaletteCommand } from "./input/actions";
-import { client } from "./cells";
+import { client } from "./wire";
 import { useActivityFeed } from "./settings/useActivityFeed";
 
 /** PaletteItems listing each recent agent command. Used by the Debug →

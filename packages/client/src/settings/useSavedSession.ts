@@ -13,9 +13,9 @@
 
 import { useCell } from "@kolu/cells/solid";
 import type { SavedSession } from "kolu-common";
-import { savedSessionCell } from "kolu-common/cells";
+import { savedSessionCell } from "kolu-common/surface";
 import { toast } from "solid-sonner";
-import { client } from "../cells";
+import { client } from "../wire";
 
 const cell = useCell(savedSessionCell, {
   source: client.session.get,

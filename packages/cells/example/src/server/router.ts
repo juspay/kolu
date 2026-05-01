@@ -1,7 +1,7 @@
 /**
  * oRPC router built from `surface.implement` — one declarative call wires
  * every cell, collection, stream, event, and imperative procedure declared
- * in `common/cells.ts`.
+ * in `common/surface.ts`.
  *
  * The surface owns publish channels for cells and collections (channel
  * names derived from the surface key). Consumer-supplied `upsert`/`remove`
@@ -16,7 +16,7 @@ import {
   pollOnEvent,
   publisherChannel,
 } from "@kolu/cells/server";
-import { surface } from "../common/cells";
+import { surface } from "../common/surface";
 import {
   allNotes,
   autosaveChannel,

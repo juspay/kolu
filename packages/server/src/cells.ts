@@ -1,6 +1,6 @@
 /**
  * Server-side cell wiring: typed publisher channels + Conf-backed stores
- * for every cell/collection declared in `kolu-common/cells`. Domain
+ * for every cell/collection declared in `kolu-common/surface`. Domain
  * modules (`preferences.ts`, `activity.ts`, `session.ts`, `terminals.ts`)
  * import `cellBus.<name>.publish` to broadcast mutations; the router
  * imports the same busses + stores when wiring `cellHandlers` /

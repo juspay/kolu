@@ -10,7 +10,7 @@ import type {
 } from "kolu-common";
 import { toast } from "solid-sonner";
 import { availableThemes, pickTheme, resolveThemeBgs } from "terminal-themes";
-import { client } from "../cells";
+import { client } from "../wire";
 import { CONTEXTUAL_TIPS } from "../settings/tips";
 import { usePreferences } from "../settings/usePreferences";
 import { useTips } from "../settings/useTips";

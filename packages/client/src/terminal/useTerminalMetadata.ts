@@ -16,10 +16,10 @@
 
 import { useCollection } from "@kolu/cells/solid";
 import type { TerminalId, TerminalInfo, TerminalMetadata } from "kolu-common";
-import { terminalMetadataCollection } from "kolu-common/cells";
+import { terminalMetadataCollection } from "kolu-common/surface";
 import { type Accessor, createMemo } from "solid-js";
 import { toast } from "solid-sonner";
-import { client } from "../cells";
+import { client } from "../wire";
 import {
   buildTerminalDisplayInfos,
   type TerminalDisplayInfo,

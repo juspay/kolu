@@ -6,7 +6,7 @@ A minimal in-memory notes app demonstrating all four `@kolu/cells` primitives en
 
 | Primitive | Descriptor | Server handler | Client hook | What it backs |
 |---|---|---|---|---|
-| **Cell** | `prefsCell` (`src/common/cells.ts`) | `cellHandlers` (`src/server/router.ts`) | `useCell(prefsCell, …)` (`src/client/App.tsx`) | Editor preferences (font size, theme, autosave toggle). Demonstrates `authority: "local"` instant-UI mutation + `applyPatch` partial updates. |
+| **Cell** | `prefsCell` (`src/common/surface.ts`) | `cellHandlers` (`src/server/router.ts`) | `useCell(prefsCell, …)` (`src/client/App.tsx`) | Editor preferences (font size, theme, autosave toggle). Demonstrates `authority: "local"` instant-UI mutation + `applyPatch` partial updates. |
 | **Collection** | `notesCollection` | `collectionHandlers` | `useCollection(notesCollection, …)` | Notes keyed by id. Per-key `mapArray`-driven reactive lifecycle — adding / removing notes only re-renders affected sidebar entries. |
 | **Stream** | `searchStream` | `streamHandlers` (poll-on-event source) | `useStream(searchStream, () => input(), client.search.get)` | Full-text search results, parameterized by query. Re-runs on every notes-set change so results stay live as you type and as notes change. |
 | **Event** | `autosaveEvent` | `eventHandlers` | `useEvent(autosaveEvent, () => selectedId(), …, handler)` | "Saved" flash on the active note. Handler-based — no current value, no snapshot on (re-)subscribe. |

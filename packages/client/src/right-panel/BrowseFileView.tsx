@@ -6,10 +6,10 @@
  *  avoids stomping scroll position on no-op ticks. */
 
 import { useStream } from "@kolu/cells/solid";
-import { fsReadFileStream } from "kolu-common/cells";
+import { fsReadFileStream } from "kolu-common/surface";
 import { type Component, Match, Show, Switch } from "solid-js";
 import { toast } from "solid-sonner";
-import { client } from "../cells";
+import { client } from "../wire";
 import PierreFileView from "../ui/PierreFileView";
 
 export type BrowseFileViewProps = {

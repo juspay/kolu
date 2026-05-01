@@ -57,7 +57,7 @@ The library is intentionally non-magical: it does **not** auto-derive an oRPC co
 
 ```
                   ┌─────────────────────────┐
-                  │ kolu-common/cells.ts    │   Descriptors live here.
+                  │ kolu-common/surface.ts    │   Descriptors live here.
                   │   cell, collection,     │   Pure data: name, schemas,
                   │   stream descriptors    │   defaults. No runtime behavior.
                   └─────────────────────────┘
@@ -82,7 +82,7 @@ A singleton typed value. The server owns the canonical state; clients subscribe 
 ### Define
 
 ```ts
-// packages/common/src/cells.ts
+// packages/common/src/surface.ts
 import { cell } from "@kolu/cells";
 import { z } from "zod";
 
@@ -107,7 +107,7 @@ export const preferences = cell({
 ```ts
 // packages/server/src/router.ts
 import { cellHandlers, confStore, publisherChannel } from "@kolu/cells/server";
-import { preferences } from "kolu-common/cells";
+import { preferences } from "kolu-common/surface";
 
 const handlers = cellHandlers(preferences, {
   store: confStore<Preferences>(conf, "preferences"),
@@ -133,7 +133,7 @@ The framework guarantees snapshot-then-deltas on `get` (yields `store.get()` fir
 The framework owns the typed-client construction so consumers never reach into framework internals. Build it once at app start:
 
 ```ts
-// packages/client/src/cells.ts (kolu)
+// packages/client/src/wire.ts (kolu)
 import { createCellsClient } from "@kolu/cells/solid";
 import type { contract } from "kolu-common/contract";
 
@@ -148,7 +148,7 @@ export const client = createCellsClient<typeof contract>({ websocket: ws });
 ```ts
 // packages/client/src/settings/usePreferences.ts
 import { useCell } from "@kolu/cells/solid";
-import { preferences } from "kolu-common/cells";
+import { preferences } from "kolu-common/surface";
 import { client } from "../cells";
 
 export function usePreferences() {
@@ -389,7 +389,7 @@ _The shared property of the "raw" rows: there's no temporal sequence of values f
 `defineSurface({...})` declares the whole reactive surface of an app at one site. The example (`packages/cells/example/`) ships a working surface end-to-end — start there for a runnable reference.
 
 ```ts
-// common/cells.ts
+// common/surface.ts
 import { defineSurface } from "@kolu/cells/define";
 import { z } from "zod";
 
@@ -455,7 +455,7 @@ The surface derives publish channel names: cells use `"<key>:changed"`, collecti
 ### Client
 
 ```ts
-// client/cells.ts
+// client/wire.ts
 import { surfaceClient } from "@kolu/cells/solid";
 import type { ContractRouterClient } from "@orpc/contract";
 import type { ClientRetryPluginContext } from "@orpc/client/plugins";

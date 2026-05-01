@@ -9,7 +9,7 @@ import type {
 } from "kolu-common";
 import { createEffect, createSignal } from "solid-js";
 import { toast } from "solid-sonner";
-import { client } from "../cells";
+import { client } from "../wire";
 import { lifecycle } from "../rpc/rpc";
 import { useSavedSession } from "../settings/useSavedSession";
 import { useSubPanel } from "./useSubPanel";

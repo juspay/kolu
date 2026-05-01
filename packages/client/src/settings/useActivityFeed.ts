@@ -13,10 +13,10 @@
  */
 
 import { useCell } from "@kolu/cells/solid";
-import { activityFeedCell } from "kolu-common/cells";
+import { activityFeedCell } from "kolu-common/surface";
 import type { RecentAgent, RecentRepo } from "kolu-common";
 import { toast } from "solid-sonner";
-import { client } from "../cells";
+import { client } from "../wire";
 
 const cell = useCell(activityFeedCell, {
   source: client.activity.get,

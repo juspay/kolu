@@ -46,7 +46,6 @@ let nextId = 1;
 export const newNoteId = (): string => `n${nextId++}`;
 
 export const allNotes = (): Map<string, Note> => notes;
-export const getNote = (id: string): Note | undefined => notes.get(id);
 export const upsertNote = (id: string, value: Note): void => {
   notes.set(id, value);
 };

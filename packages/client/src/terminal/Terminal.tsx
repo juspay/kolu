@@ -37,7 +37,7 @@ import { matchesAnyShortcut } from "../input/actions";
 import { createZoom } from "../input/zoom";
 import { refitOnTabVisible } from "../refitOnTabVisible";
 import { streamCall } from "@kolu/cells/solid";
-import { client } from "../cells";
+import { client } from "../wire";
 import { isExpectedCleanupError } from "../rpc/streamCleanup";
 import { createScrollLock } from "../scrollLock";
 import { usePreferences } from "../settings/usePreferences";

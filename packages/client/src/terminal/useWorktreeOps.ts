@@ -2,7 +2,7 @@
 
 import type { TerminalId } from "kolu-common";
 import { toast } from "solid-sonner";
-import { client } from "../cells";
+import { client } from "../wire";
 import type { TerminalStore } from "./useTerminalStore";
 
 export function useWorktreeOps(deps: {

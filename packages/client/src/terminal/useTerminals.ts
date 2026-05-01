@@ -11,10 +11,10 @@
 
 import { useEvent } from "@kolu/cells/solid";
 import type { TerminalId } from "kolu-common";
-import { terminalExitEvent } from "kolu-common/cells";
+import { terminalExitEvent } from "kolu-common/surface";
 import { createRoot } from "solid-js";
 import { toast } from "solid-sonner";
-import { client } from "../cells";
+import { client } from "../wire";
 import { isExpectedCleanupError } from "../rpc/streamCleanup";
 import { useSessionRestore } from "./useSessionRestore";
 import { useTerminalAlerts } from "./useTerminalAlerts";

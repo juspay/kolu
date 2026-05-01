@@ -12,10 +12,10 @@
  *  prop-drilling lookup functions through layout components. */
 
 import { useCell } from "@kolu/cells/solid";
-import { terminalListCell } from "kolu-common/cells";
+import { terminalListCell } from "kolu-common/surface";
 import { createRoot } from "solid-js";
 import { toast } from "solid-sonner";
-import { client } from "../cells";
+import { client } from "../wire";
 import { useViewState } from "../useViewState";
 import { useTerminalMetadata } from "./useTerminalMetadata";
 

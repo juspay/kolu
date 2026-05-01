@@ -4,7 +4,7 @@
 import type { TerminalId } from "kolu-common";
 import { nonEmpty } from "nonempty";
 import { createStore, produce } from "solid-js/store";
-import { client } from "../cells";
+import { client } from "../wire";
 
 interface SubPanelState {
   collapsed: boolean;

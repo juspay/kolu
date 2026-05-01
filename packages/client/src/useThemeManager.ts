@@ -16,7 +16,7 @@ import {
   pickTheme,
   resolveThemeBgs,
 } from "terminal-themes";
-import { client } from "./cells";
+import { client } from "./wire";
 import { useTerminalStore } from "./terminal/useTerminalStore";
 
 function init() {

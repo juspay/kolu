@@ -9,7 +9,7 @@
 
 import type { TerminalId } from "kolu-common";
 import { type Component, For, Show } from "solid-js";
-import { client } from "./cells";
+import { client } from "./wire";
 import { isTouch } from "./useMobile";
 
 interface Key {

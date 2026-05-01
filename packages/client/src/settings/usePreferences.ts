@@ -31,11 +31,11 @@
 
 import { useCell } from "@kolu/cells/solid";
 import type { Preferences, PreferencesPatch } from "kolu-common";
-import { preferencesCell } from "kolu-common/cells";
+import { preferencesCell } from "kolu-common/surface";
 import { DEFAULT_PREFERENCES } from "kolu-common/config";
 import { reconcile } from "solid-js/store";
 import { toast } from "solid-sonner";
-import { client } from "../cells";
+import { client } from "../wire";
 
 const cell = useCell(preferencesCell, {
   authority: "local",
