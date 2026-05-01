@@ -101,8 +101,9 @@ const App: Component = () => {
   void client.server
     .info()
     .then((info) => setIdentity(info.identity))
-    .catch(() => {
+    .catch((err) => {
       // Server info is cosmetic — safe to ignore on failure.
+      console.warn("Server info fetch failed:", err);
     });
   const appTitle = () => identity()?.name ?? "kolu";
 
