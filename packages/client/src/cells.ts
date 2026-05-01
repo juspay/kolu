@@ -1,25 +1,7 @@
 /**
- * Transport setup: a single WebSocket connection (auto-reconnecting via
- * partysocket) feeding `@kolu/cells/solid`'s `createCellsClient` to
- * produce the typed oRPC client. The framework owns retry plugin
- * installation and `STREAM_RETRY` context threading; this file just
- * constructs the wire and re-exports the bound `client`.
- *
- * App code:
- *
- *   - For Cell/Collection/Stream descriptors → `useCell` /
- *     `useCollection` / `useStream` from `@kolu/cells/solid`. Hooks
- *     accept procedure refs (e.g. `client.preferences.get`) and thread
- *     `STREAM_RETRY` internally.
- *   - For raw streaming RPCs (terminal `attach`, lifecycle `onExit`) →
- *     `streamCall(client.X.Y, input, { signal, onRetry? })`. Same retry
- *     context, escape hatch for shapes outside the three primitives.
- *   - For mutations and one-shot queries → call `client.X.Y(input)`
- *     directly. The retry plugin's default `retry: 0` fails them fast.
- *
- * Lifecycle observation (transport status, server identity, the
- * `server.info()` probe distinguishing reconnect vs restart) lives in
- * `./rpc/rpc` — it reads this `ws` + `client`.
+ * One PartySocket connection feeding `createCellsClient` to produce the
+ * typed oRPC `client` for the whole app. Lifecycle observation
+ * (transport status, server identity) lives in `./rpc/rpc`.
  */
 
 import { createCellsClient } from "@kolu/cells/solid";

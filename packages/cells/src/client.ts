@@ -1,19 +1,8 @@
 /**
- * Client-side transport primitives — protocol-aware glue between an oRPC
- * link and the framework's hooks.
- *
- * The framework owns the streaming retry contract on the wire: every
- * `Cell.get` / `Collection.get` / `Stream.get` call rides infinite retry
- * with snapshot-then-deltas semantics, so a transport drop transparently
- * re-subscribes and the next yield is a fresh full snapshot. Threading
- * that context manually at every call site is the cultural rule that the
- * framework exists to delete; consumers feed `client.X.get` to a hook and
- * the retry plumbing happens inside.
- *
- * This module is intentionally thin — `streamCall` for raw streaming
- * RPCs that don't fit a descriptor (bidirectional binary streams,
- * lifecycle events), `createCellsClient` for the one-time link
- * construction. Solid-specific hooks live in `./solid`.
+ * Client-side transport primitives. `createCellsClient` builds a typed
+ * oRPC client with `ClientRetryPlugin` installed; `streamCall` is the
+ * one-shot escape hatch for raw streaming RPCs that don't fit a
+ * Cell/Collection/Stream descriptor. Solid-specific hooks live in `./solid`.
  */
 
 import { createORPCClient, ORPCError } from "@orpc/client";
