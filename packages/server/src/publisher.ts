@@ -43,9 +43,13 @@ export const publisherSize = (): number => publisher.size;
 export const terminalChannels = {
   /** Raw PTY output bytes — high frequency, drives xterm.js. */
   data: (id: string) => publisherChannel<string>(publisher, `data:${id}`),
-  /** All server-derived terminal state — client-facing aggregated channel. */
+  /** All server-derived terminal state — client-facing aggregated channel.
+   *  Channel name matches `surface.terminalMetadata`'s default per-key name
+   *  (`<surface-key>:<key>`) so the matrix's `collectionHandlers` and the
+   *  domain providers (cwd / git / agent watchers) share one publisher
+   *  channel. */
   metadata: (id: string) =>
-    publisherChannel<TerminalMetadata>(publisher, `metadata:${id}`),
+    publisherChannel<TerminalMetadata>(publisher, `terminalMetadata:${id}`),
   /** CWD changed (OSC 7 from PTY) — feeds the git provider. */
   cwd: (id: string) => publisherChannel<string>(publisher, `cwd:${id}`),
   /** Terminal title changed (OSC 0/2 from PTY) — feeds the process provider. */
