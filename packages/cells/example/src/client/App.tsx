@@ -1,30 +1,23 @@
 /**
- * Single-page demo of all four `@kolu/cells` primitives.
+ * Single-page demo of all four `@kolu/cells` primitives — wired via the
+ * matrix client bundle.
  *
- *   - `useCell(prefsCell, …)`           → editor preferences (font, theme)
- *   - `useCollection(notesCollection, …)` → notes sidebar
- *   - `useStream(searchStream, …)`      → live search in the sidebar header
- *   - `useEvent(autosaveEvent, …)`      → "Saved" flash next to the title
+ *   - `cells.cells.prefs.use(...)`           → editor preferences (font, theme)
+ *   - `cells.collections.notes.use(...)`     → notes sidebar
+ *   - `cells.streams.search.use(...)`        → live search in the sidebar
+ *   - `cells.events.autosave.use(...)`       → "Saved" flash next to the title
  *
- * The UI is intentionally plain — the framework isn't a UI library, the
- * value is in how little wiring each primitive needs at the call site.
+ * The bound `.use()` hooks pre-fill `source` / `mutate` / `valueSource` /
+ * `keyToInput` — only domain policy (authority, initial value, applyPatch,
+ * onError) lives at the call site. Imperative procedures stay accessible
+ * via `cells.rpc.<ns>.<verb>(...)`.
  */
 
 import {
   createSubscription,
   streamCall,
-  useCell,
-  useCollection,
-  useEvent,
-  useStream,
 } from "@kolu/cells/solid";
-import {
-  applyPrefsPatch,
-  autosaveEvent,
-  notesCollection,
-  prefsCell,
-  searchStream,
-} from "../common/cells";
+import { applyPrefsPatch } from "../common/cells";
 import { DEFAULT_PREFS, type Note, type NoteId } from "../common/schemas";
 import {
   createEffect,
@@ -34,13 +27,11 @@ import {
   For,
   Show,
 } from "solid-js";
-import { client } from "./cells";
+import { cells, client } from "./cells";
 
 export default function App() {
   // ── 1. Cell: editor preferences ─────────────────────────────────────
-  const prefs = useCell(prefsCell, {
-    source: client.prefs.get,
-    mutate: client.prefs.patch,
+  const prefs = cells.cells.prefs.use({
     authority: "local",
     initial: DEFAULT_PREFS,
     applyPatch: applyPrefsPatch,
@@ -53,15 +44,8 @@ export default function App() {
   });
 
   // ── 2. Collection: notes keyed by id ────────────────────────────────
-  // The framework pairs `keys` (server-broadcast key set) with per-key
-  // value subscriptions managed via SolidJS's `mapArray` — adding /
-  // removing notes only re-renders the affected sidebar entries.
-  //
-  // `useCollection` takes the `keys` accessor as caller-provided so the
-  // source can be anything reactive (a Cell, a derived signal, or — as
-  // here — a `createSubscription` wrapping the collection's `keys`
-  // streaming procedure). `streamCall` threads `STREAM_RETRY` context
-  // so the subscription transparently re-establishes on reconnect.
+  // Keys come from a streaming subscription; the bound `.use()` hands
+  // every key to a per-key value subscription.
   const keysSub = createRoot(() =>
     createSubscription<NoteId[]>(() =>
       streamCall(client.notes.keys, undefined),
@@ -69,37 +53,26 @@ export default function App() {
   );
   const keys = createMemo<NoteId[]>(() => keysSub() ?? []);
 
-  const notes = useCollection(notesCollection, {
+  const notes = cells.collections.notes.use({
     keys,
-    valueSource: client.notes.get,
-    keyToInput: (key: NoteId) => ({ key }),
     onError: (err) => console.error("note subscription failed", err),
   });
 
   // ── 3. Stream: search ───────────────────────────────────────────────
-  // Reactive input — the search box drives the Stream. When it clears,
-  // we pass `null` to pause the subscription (no wasted server work for
-  // an empty query).
   const [searchQuery, setSearchQuery] = createSignal("");
   const searchInput = createMemo(() =>
     searchQuery().trim() ? { query: searchQuery() } : null,
   );
-  const search = useStream(searchStream, searchInput, client.search.get, {
+  const search = cells.streams.search.use(searchInput, {
     onError: (err) => console.error("search stream failed", err),
   });
 
   // ── 4. Event: autosave toast ────────────────────────────────────────
-  // Per-note flash — handler fires once each time the server completes
-  // an autosave debounce, no current value to render. The handler
-  // closure is bound to the active note id; useEvent re-subscribes when
-  // `selectedId` changes.
   const [selectedId, setSelectedId] = createSignal<NoteId | null>(null);
   const [flashVisible, setFlashVisible] = createSignal(false);
   let flashTimer: ReturnType<typeof setTimeout> | undefined;
-  useEvent(
-    autosaveEvent,
+  cells.events.autosave.use(
     selectedId,
-    client.autosave.get,
     () => {
       setFlashVisible(true);
       if (flashTimer) clearTimeout(flashTimer);
@@ -108,7 +81,7 @@ export default function App() {
     { onError: (err) => console.error("autosave subscription failed", err) },
   );
 
-  // ── Mutations (raw oRPC) ────────────────────────────────────────────
+  // ── Mutations (bundle.rpc) ──────────────────────────────────────────
   const handleCreate = async () => {
     const note = await client.notes.create({ title: "Untitled" });
     setSelectedId(note.id);

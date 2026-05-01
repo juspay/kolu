@@ -21,6 +21,15 @@ export {
 } from "./useCollection";
 export { useStream } from "./useStream";
 export { useEvent, type UseEventOptions } from "./useEvent";
+export {
+  matrixClient,
+  type BoundCell,
+  type BoundCellOptions,
+  type BoundCollection,
+  type BoundEvent,
+  type BoundStream,
+  type MatrixClientBundle,
+} from "./matrixClient";
 
 // Client-side transport primitives — re-exported so consumers can import
 // everything they need from `@kolu/cells/solid`. The pure-transport
