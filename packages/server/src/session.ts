@@ -12,7 +12,7 @@
 import type { SavedSession, SavedTerminal } from "kolu-common";
 import { cellBus } from "./cells.ts";
 import { log } from "./log.ts";
-import { publisher } from "./publisher.ts";
+import { terminalsDirtyChannel } from "./publisher.ts";
 import { store } from "./state.ts";
 
 /** Pending autosave timer — declared at module top so `setSavedSession`
@@ -95,7 +95,7 @@ export function initSessionAutoSave(
 ): void {
   void (async () => {
     try {
-      for await (const _ of publisher.subscribe("terminals:dirty")) {
+      for await (const _ of terminalsDirtyChannel.subscribe(undefined)) {
         if (saveTimer) continue;
         saveTimer = setTimeout(() => {
           saveTimer = undefined;

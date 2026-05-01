@@ -15,10 +15,10 @@ import { useCell } from "@kolu/cells/solid";
 import type { SavedSession } from "kolu-common";
 import { savedSessionCell } from "kolu-common/cells";
 import { toast } from "solid-sonner";
-import { stream } from "../rpc/rpc";
+import { client } from "../cells";
 
 const cell = useCell(savedSessionCell, {
-  source: () => stream.session(),
+  source: client.session.get,
   onError: (err) =>
     toast.error(`Saved-session subscription error: ${err.message}`),
 });

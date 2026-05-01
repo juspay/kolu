@@ -19,28 +19,37 @@
  * preference flip introduces a single-frame lag while the round-trip
  * completes. Local authority requires T to be an object/array shape so
  * Solid's createStore can reconcile field-level changes.
+ *
+ * `source` and `mutate` are typed oRPC procedure refs (e.g.
+ * `client.preferences.get` / `client.preferences.update`). The hook
+ * threads `STREAM_RETRY` context onto `source` internally; mutations
+ * fail fast (no retry) per the plugin default.
  */
 
 import { type Accessor, createEffect, createRoot, on } from "solid-js";
 import { createStore, reconcile, type SetStoreFunction } from "solid-js/store";
+import { STREAM_RETRY, type StreamingProcedure } from "../client";
 import type { Cell } from "../index";
 import { createSubscription, type Subscription } from "./createSubscription";
 
 export type Authority = "server" | "local";
 
+/** A unary procedure ref (mutation/query — non-streaming). */
+export type UnaryProcedure<I, O> = (input: I) => Promise<O>;
+
 export interface UseCellServerOptions<T, P = T> {
-  source: () => Promise<AsyncIterable<T>>;
+  source: StreamingProcedure<undefined, T>;
   authority?: "server";
-  mutate?: (patch: P) => Promise<void> | void;
+  mutate?: UnaryProcedure<P, unknown> | ((patch: P) => Promise<void> | void);
   onError?: (err: Error) => void;
 }
 
 export interface UseCellLocalOptions<T extends object, P = T> {
-  source: () => Promise<AsyncIterable<T>>;
+  source: StreamingProcedure<undefined, T>;
   authority: "local";
   /** Default value for the local store; used until the first server yield. */
   initial: T;
-  mutate: (patch: P) => Promise<void> | void;
+  mutate: UnaryProcedure<P, unknown> | ((patch: P) => Promise<void> | void);
   /** Pure merge: returns the next value. Used when the patch shape `P`
    *  differs from `T` (otherwise `set` semantics suffice). */
   applyPatch?: (current: T, patch: P) => T;
@@ -84,12 +93,21 @@ export function useCell<Name extends string, T, P = T>(
   return useCellServer(cell, options as UseCellServerOptions<T, P>);
 }
 
+/** Wrap a streaming procedure ref into the thunk shape `createSubscription`
+ *  expects, threading `STREAM_RETRY` context so transport drops re-subscribe
+ *  transparently. */
+function streamingThunk<T>(
+  source: StreamingProcedure<undefined, T>,
+): () => Promise<AsyncIterable<T>> {
+  return () => source(undefined, { context: STREAM_RETRY });
+}
+
 function useCellServer<Name extends string, T, P>(
   _cell: Cell<Name, T>,
   options: UseCellServerOptions<T, P>,
 ): UseCellResult<T, P> {
   const sub = createRoot(() =>
-    createSubscription(options.source, {
+    createSubscription(streamingThunk(options.source), {
       onError: options.onError,
     }),
   );
@@ -124,7 +142,7 @@ function useCellLocal<Name extends string, T extends object, P>(
   let initialized = false;
 
   const sub = createRoot(() => {
-    const s = createSubscription(options.source, {
+    const s = createSubscription(streamingThunk(options.source), {
       onError: options.onError,
     });
     createEffect(

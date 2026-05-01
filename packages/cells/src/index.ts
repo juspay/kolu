@@ -22,6 +22,17 @@
 
 import type { ZodType } from "zod";
 
+/** A singleton typed cell. `name` is load-bearing in two roles:
+ *
+ *   1. The contract router key the framework's hooks dispatch against
+ *      via `client.<name>.get` (Solid hooks accept the procedure ref
+ *      explicitly, so this is a discipline rather than runtime magic).
+ *   2. The publisher channel name on the server (`publisherChannel(p,
+ *      name)`), so cells share one logical identity end-to-end.
+ *
+ *  When 1 and 2 ever need to diverge (e.g. a cell whose contract path
+ *  is nested under a router prefix), add a separate `channelName` field
+ *  here. Today they coincide. */
 export interface Cell<Name extends string, T> {
   readonly kind: "cell";
   readonly name: Name;

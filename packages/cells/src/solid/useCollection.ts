@@ -10,9 +10,16 @@
  * subscription's `onCleanup` fires, the AbortController aborts, and the
  * server stream tears down. No manual Map / version signals / abort plumbing
  * required at the call site.
+ *
+ * `valueSource` is a typed oRPC procedure ref (e.g.
+ * `client.terminal.onMetadataChange`) plus a `keyToInput` adapter — the
+ * input shape per key varies by procedure (some take `{ id }`, some take
+ * `{ key }`, some take the raw key) and the framework can't guess. The
+ * hook threads `STREAM_RETRY` context internally.
  */
 
 import { type Accessor, createMemo, mapArray } from "solid-js";
+import { STREAM_RETRY, type StreamingProcedure } from "../client";
 import type { Collection } from "../index";
 import {
   createSubscription,
@@ -20,12 +27,17 @@ import {
   type SubscriptionOptions,
 } from "./createSubscription";
 
-export interface UseCollectionOptions<K, T> {
+export interface UseCollectionOptions<K, T, I = K> {
   /** Reactive accessor for the live key set. The caller owns the subscription
    *  (or computation) that produces this — useCollection just observes it. */
   keys: Accessor<K[]>;
-  /** Source factory for one key's value stream. */
-  valueSource: (key: K) => Promise<AsyncIterable<T>>;
+  /** Typed streaming procedure ref for one key's value stream. Hook
+   *  threads `STREAM_RETRY` context per call. */
+  valueSource: StreamingProcedure<I, T>;
+  /** Adapter from key to procedure input shape. Required when input
+   *  isn't the key itself (the common case — most procedures take
+   *  `{ id: key }` or similar). */
+  keyToInput?: (key: K) => I;
   /** Called when any per-key subscription errors. */
   onError?: SubscriptionOptions<unknown>["onError"];
 }
@@ -39,19 +51,21 @@ export interface UseCollectionResult<K, T> {
   byKey: (key: K) => Subscription<T> | undefined;
 }
 
-export function useCollection<Name extends string, K, T>(
+export function useCollection<Name extends string, K, T, I = K>(
   _coll: Collection<Name, K, T>,
-  options: UseCollectionOptions<K, T>,
+  options: UseCollectionOptions<K, T, I>,
 ): UseCollectionResult<K, T> {
   const keys = createMemo<K[]>(() => options.keys());
+  const toInput = options.keyToInput ?? ((k: K) => k as unknown as I);
 
   // mapArray creates a reactive owner per key. When a key leaves, its
   // owner is disposed → the per-key sub's onCleanup → AbortController abort
   // → server stream closes. No manual teardown.
   const perKey = mapArray(keys, (key) => {
-    const sub = createSubscription(() => options.valueSource(key), {
-      onError: options.onError,
-    });
+    const sub = createSubscription(
+      () => options.valueSource(toInput(key), { context: STREAM_RETRY }),
+      { onError: options.onError },
+    );
     return { key, sub };
   });
 

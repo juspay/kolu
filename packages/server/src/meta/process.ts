@@ -10,7 +10,7 @@
 
 import path from "node:path";
 import { log } from "../log.ts";
-import { subscribeForTerminal } from "../publisher.ts";
+import { terminalChannels } from "../publisher.ts";
 import type { TerminalProcess } from "../terminal-registry.ts";
 import { updateServerMetadata } from "./state.ts";
 
@@ -51,9 +51,19 @@ export function startProcessProvider(
 
   // Subscribe to title changes — fired by OSC 2 preexec hook
   const abort = new AbortController();
-  subscribeForTerminal("title", terminalId, abort.signal, (title) =>
-    update(title),
-  );
+  void (async () => {
+    try {
+      for await (const title of terminalChannels
+        .title(terminalId)
+        .subscribe(abort.signal)) {
+        update(title);
+      }
+    } catch (err) {
+      if (!abort.signal.aborted) {
+        plog.error({ err }, "publisher subscription failed");
+      }
+    }
+  })();
 
   return () => {
     abort.abort();

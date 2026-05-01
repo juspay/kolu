@@ -19,7 +19,7 @@ import type { TerminalId, TerminalInfo, TerminalMetadata } from "kolu-common";
 import { terminalMetadataCollection } from "kolu-common/cells";
 import { type Accessor, createMemo } from "solid-js";
 import { toast } from "solid-sonner";
-import { stream } from "../rpc/rpc";
+import { client } from "../cells";
 import {
   buildTerminalDisplayInfos,
   type TerminalDisplayInfo,
@@ -31,7 +31,8 @@ export function useTerminalMetadata(deps: {
 }) {
   const meta = useCollection(terminalMetadataCollection, {
     keys: () => deps.list()?.map((t) => t.id) ?? [],
-    valueSource: (id) => stream.metadata(id),
+    valueSource: client.terminal.onMetadataChange,
+    keyToInput: (id) => ({ id }),
     onError: (err) => toast.error(`Metadata error: ${err.message}`),
   });
 

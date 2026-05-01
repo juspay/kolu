@@ -13,7 +13,6 @@
  */
 
 import {
-  type ChannelBus,
   type CellStore,
   confStore,
   publisherChannel,

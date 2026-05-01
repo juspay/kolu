@@ -36,7 +36,8 @@ import { FONT_FAMILY } from "terminal-themes";
 import { matchesAnyShortcut } from "../input/actions";
 import { createZoom } from "../input/zoom";
 import { refitOnTabVisible } from "../refitOnTabVisible";
-import { client, stream } from "../rpc/rpc";
+import { streamCall } from "@kolu/cells/solid";
+import { client } from "../cells";
 import { isExpectedCleanupError } from "../rpc/streamCleanup";
 import { createScrollLock } from "../scrollLock";
 import { usePreferences } from "../settings/usePreferences";
@@ -574,13 +575,17 @@ const Terminal: Component<{
           // (a fresh screenState snapshot) — otherwise it double-paints.
           consumeStream(
             () =>
-              stream.attach(props.terminalId, {
-                signal,
-                onRetry: () => {
-                  terminal?.reset();
-                  scrollLock.reset();
+              streamCall(
+                client.terminal.attach,
+                { id: props.terminalId },
+                {
+                  signal,
+                  onRetry: () => {
+                    terminal?.reset();
+                    scrollLock.reset();
+                  },
                 },
-              }),
+              ),
             (data) => {
               if (terminal) scrollLock.writeData(terminal, data);
             },

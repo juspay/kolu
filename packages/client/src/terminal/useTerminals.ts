@@ -9,9 +9,10 @@
  *  New features should go in the appropriate module (or a new one),
  *  not back into this composition root. See #221, #242. */
 
+import { streamCall } from "@kolu/cells/solid";
 import type { TerminalId } from "kolu-common";
 import { toast } from "solid-sonner";
-import { stream } from "../rpc/rpc";
+import { client } from "../cells";
 import { isExpectedCleanupError } from "../rpc/streamCleanup";
 import { useSessionRestore } from "./useSessionRestore";
 import { useTerminalAlerts } from "./useTerminalAlerts";
@@ -46,7 +47,7 @@ export function useTerminals() {
     // discard explicit for noFloatingPromises.
     void (async () => {
       try {
-        const iter = await stream.exit(id);
+        const iter = await streamCall(client.terminal.onExit, { id });
         for await (const code of iter) {
           const label = store.terminalLabel(id);
           if (code === 0) {

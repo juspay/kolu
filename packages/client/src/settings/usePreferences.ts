@@ -35,12 +35,12 @@ import { preferencesCell } from "kolu-common/cells";
 import { DEFAULT_PREFERENCES } from "kolu-common/config";
 import { reconcile } from "solid-js/store";
 import { toast } from "solid-sonner";
-import { client, stream } from "../rpc/rpc";
+import { client } from "../cells";
 
 const cell = useCell(preferencesCell, {
   authority: "local",
   initial: DEFAULT_PREFERENCES,
-  source: () => stream.preferences(),
+  source: client.preferences.get,
   mutate: async (patch: PreferencesPatch) => {
     try {
       await client.preferences.update(patch);

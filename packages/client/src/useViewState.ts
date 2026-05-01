@@ -9,7 +9,7 @@ import { makePersisted } from "@solid-primitives/storage";
 import type { TerminalId } from "kolu-common";
 import { createEffect, createSignal, on } from "solid-js";
 import { createStore, produce, reconcile } from "solid-js/store";
-import { client } from "./rpc/rpc";
+import { client } from "./cells";
 
 type TerminalAttention = "unread" | "badge-only";
 

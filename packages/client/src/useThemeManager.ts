@@ -16,7 +16,7 @@ import {
   pickTheme,
   resolveThemeBgs,
 } from "terminal-themes";
-import { client } from "./rpc/rpc";
+import { client } from "./cells";
 import { useTerminalStore } from "./terminal/useTerminalStore";
 
 function init() {

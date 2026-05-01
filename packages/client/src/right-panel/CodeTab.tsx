@@ -32,7 +32,7 @@ import {
   Switch,
 } from "solid-js";
 import { toast } from "solid-sonner";
-import { stream } from "../rpc/rpc";
+import { client } from "../cells";
 import { useColorScheme } from "../settings/useColorScheme";
 import { FileBrowseIcon, FileDiffIcon, GitBranchIcon } from "../ui/Icons";
 import PierreDiffView from "../ui/PierreDiffView";
@@ -81,7 +81,7 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
       const m = diffMode();
       return p && m ? { repoPath: p, mode: m } : null;
     },
-    (input, signal) => stream.gitStatus(input.repoPath, input.mode, signal),
+    client.git.onStatusChange,
     {
       onError: (err) => toast.error(`Git status stream: ${err.message}`),
     },
@@ -93,7 +93,7 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
       const p = repoPath();
       return p && view() === "browse" ? { repoPath: p } : null;
     },
-    (input, signal) => stream.fsListAll(input.repoPath, signal),
+    client.fs.onListAllChange,
     {
       onError: (err) => toast.error(`File list stream: ${err.message}`),
     },
@@ -110,7 +110,7 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
       if (!file) return null;
       return { repoPath: p, filePath: s, mode: m, oldPath: file.oldPath };
     },
-    (input, signal) => stream.gitDiff(input, signal),
+    client.git.onDiffChange,
     {
       onError: (err) => toast.error(`Git diff stream: ${err.message}`),
     },

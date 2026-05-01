@@ -9,6 +9,7 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
+    "./client": "./src/client.ts",
     "./server": "./src/server.ts",
     "./solid": "./src/solid/index.ts"
   },
@@ -22,6 +23,8 @@
     "vitest": "^4.1.2"
   },
   "dependencies": {
+    "@orpc/client": "^1.13.13",
+    "@orpc/contract": "^1.13.13",
     "solid-js": "^1.9.0",
     "zod": "^4.3.6"
   }

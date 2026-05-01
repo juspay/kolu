@@ -27,7 +27,7 @@ import {
   updateServerMetadata,
 } from "./meta/index.ts";
 import { spawnPty } from "./pty.ts";
-import { publishForTerminal, publishSystem } from "./publisher.ts";
+import { terminalChannels, terminalsDirtyChannel } from "./publisher.ts";
 import {
   drainTerminals,
   getTerminal,
@@ -76,13 +76,13 @@ export function snapshotSession(): {
 
 /** Notify that terminal state changed (triggers debounced session auto-save). */
 function emitChanged(): void {
-  publishSystem("terminals:dirty", {});
+  terminalsDirtyChannel.publish({});
 }
 
 /** Notify that terminal membership changed (create/kill).
  *  Drives the live terminal.list stream to clients. */
 function emitListChanged(): void {
-  publishSystem("terminal-list", listTerminals());
+  cellBus.terminalList.publish(listTerminals());
 }
 
 /** Create a new terminal, spawn a PTY process. `initial` seeds
@@ -103,7 +103,7 @@ export function createTerminal(
     id,
     {
       onData: (data) => {
-        publishForTerminal("data", id, data);
+        terminalChannels.data(id).publish(data);
       },
       // On natural exit: notify clients, then remove from server state
       onExit: (exitCode) => {
@@ -113,7 +113,7 @@ export function createTerminal(
           entry.stopProviders();
           cleanupClipboardDir(id);
         }
-        publishForTerminal("exit", id, exitCode);
+        terminalChannels.exit(id).publish(exitCode);
         // Only save session on natural exit (entry still in map).
         // killAllTerminals clears the map first, so entry is gone — skip.
         const wasNaturalExit = unregisterTerminal(id);
@@ -124,13 +124,13 @@ export function createTerminal(
       },
       // PTY callback (OSC 0/2): notify process provider that title changed
       onTitleChange: (title) => {
-        publishForTerminal("title", id, title);
+        terminalChannels.title(id).publish(title);
       },
       // PTY callback (OSC 633;E): raw preexec command line. Agent parsing,
       // the per-terminal stash, and the recent-agents MRU all live in
       // `meta/agent-command.ts`, fed via this channel.
       onCommandRun: (raw) => {
-        publishForTerminal("commandRun", id, raw);
+        terminalChannels.commandRun(id).publish(raw);
       },
       // PTY callback (OSC 7): update metadata CWD, notify providers via cwd channel
       onCwd: (newCwd) => {
@@ -139,7 +139,7 @@ export function createTerminal(
           updateServerMetadata(entry, id, (m) => {
             m.cwd = newCwd;
           });
-          publishForTerminal("cwd", id, newCwd);
+          terminalChannels.cwd(id).publish(newCwd);
         }
       },
     },

@@ -47,10 +47,13 @@ The library is intentionally non-magical: it does **not** auto-derive an oRPC co
                           │ imports      │ imports
                           ▼              ▼
        ┌─────────────────────┐   ┌─────────────────────┐
-       │ server: cellGetStream│   │ client: useCell,    │
-       │ collectionGetStream, │   │ useCollection,      │
-       │ streamGetStream,     │   │ useStream           │
-       │ pollOnEvent          │   │ (Solid hooks)       │
+       │ server:              │   │ client:              │
+       │   cellHandlers,      │   │   createCellsClient, │
+       │   collectionHandlers,│   │   useCell,           │
+       │   streamHandlers,    │   │   useCollection,     │
+       │   pollOnEvent,       │   │   useStream,         │
+       │   confStore /        │   │   streamCall         │
+       │   publisherChannel   │   │   (Solid hooks)      │
        └─────────────────────┘   └─────────────────────┘
 ```
 
@@ -81,30 +84,46 @@ export const preferences = cell({
 
 ### Server-side handler
 
-The framework provides snapshot-then-deltas as a one-line generator. Wire your domain logic + a publisher channel:
+`cellHandlers` returns the four handler bodies a typed cell needs (`get`, `set`, `patch`, `test__set`). Persistence and pub/sub plug in via `CellStore<T>` and `ChannelBus<T>` interfaces — adapters for `conf` (`confStore`) and `@orpc/experimental-publisher` (`publisherChannel`) ship with the framework.
 
 ```ts
 // packages/server/src/router.ts
-import { cellGetStream } from "@kolu/cells/server";
+import { cellHandlers, confStore, publisherChannel } from "@kolu/cells/server";
 import { preferences } from "kolu-common/cells";
 
-const t = implement(contract);
+const handlers = cellHandlers(preferences, {
+  store: confStore<Preferences>(conf, "preferences"),
+  bus: publisherChannel<Preferences>(publisher, "preferences:changed"),
+  patch: applyPreferencesPatch,  // (current, patch) => next
+});
 
+const t = implement(contract);
 export const appRouter = t.router({
   preferences: {
-    get: t.preferences.get.handler(async function* ({ signal }) {
-      yield* cellGetStream(preferences, getPreferences, prefsBus, signal);
-    }),
-    set: t.preferences.set.handler(async ({ input }) => updatePreferences(input)),
-    test__set: t.preferences.test__set.handler(async ({ input }) => {
-      setPreferencesForTest(input);
-    }),
+    get: t.preferences.get.handler(handlers.get),
+    update: t.preferences.update.handler(handlers.patch),
+    test__set: t.preferences.test__set.handler(handlers.test__set),
   },
   // ...
 });
 ```
 
-The cell's persistence (Conf, sqlite, custom) and pub/sub (in-memory MemoryPublisher, Redis, anything implementing `ChannelBus<T>`) stay under your control — the framework only owns the wire-protocol shape.
+The framework guarantees snapshot-then-deltas on `get` (yields `store.get()` first, then every value pushed to `bus`); `set`/`patch` validate, persist, and broadcast on the same bus. Swap in any `CellStore` (sqlite, redis, in-memory via `inMemoryStore(default)`) or `ChannelBus` (Redis pub/sub, NATS, etc.) without touching the handler logic.
+
+### Client setup
+
+The framework owns the typed-client construction so consumers never reach into framework internals. Build it once at app start:
+
+```ts
+// packages/client/src/cells.ts (kolu)
+import { createCellsClient } from "@kolu/cells/solid";
+import type { contract } from "kolu-common/contract";
+
+const ws = new WebSocket(`wss://${host}/rpc/ws`);
+export const { client } = createCellsClient<typeof contract>({ websocket: ws });
+```
+
+`createCellsClient` installs `ClientRetryPlugin` and returns the typed oRPC client. Hooks accept procedure refs (e.g. `client.preferences.get`) and thread `STREAM_RETRY` retry context internally — there's no `stream` namespace to maintain. For raw streaming RPCs that don't fit a Cell/Collection/Stream descriptor (terminal `attach`, lifecycle `onExit`), use `streamCall(procedure, input, opts)` — same retry context, escape hatch for non-descriptor shapes.
 
 ### Client-side hook
 
@@ -112,12 +131,12 @@ The cell's persistence (Conf, sqlite, custom) and pub/sub (in-memory MemoryPubli
 // packages/client/src/settings/usePreferences.ts
 import { useCell } from "@kolu/cells/solid";
 import { preferences } from "kolu-common/cells";
-import { client, stream } from "../rpc/rpc";
+import { client } from "../cells";
 
 export function usePreferences() {
   return useCell(preferences, {
-    source: () => stream.preferences(),
-    mutate: (patch) => client.preferences.update(patch),
+    source: client.preferences.get,
+    mutate: client.preferences.update,
     authority: "local",       // optimistic local apply; ignore server echoes after init
     initial: DEFAULT_PREFERENCES,
     applyPatch: (current, p) => deepMergePrefs(current, p),
@@ -175,14 +194,17 @@ export const terminalMetadata = collection({
 
 ```ts
 const meta = useCollection(terminalMetadata, {
-  keysSource: () => stream.terminalIds(),
-  valueSource: (id) => stream.terminalMetadata(id),
+  keys: () => terminalIds(),  // caller-provided live key set (any reactive accessor)
+  valueSource: client.terminal.onMetadataChange,
+  keyToInput: (id) => ({ id }),  // adapt key shape to the procedure's input shape
 });
 
 meta.keys();          // Accessor<TerminalId[]>
 meta.byKey(id);       // Subscription<TerminalMetadata> | undefined
 meta.byKey(id)?.();   // current value or undefined
 ```
+
+`keyToInput` is required when the procedure's input shape isn't the bare key — most contracts wrap it (`{ id }`, `{ key }`, etc.). When input is the key itself, omit it.
 
 Per-key subscriptions are managed via `mapArray` so SolidJS handles lifecycle: when a key leaves the live set, its reactive owner is disposed, the per-key subscription's `onCleanup` fires, the AbortController aborts, and the server stream tears down. No manual Map / version signals / abort plumbing required at the call site.
 
@@ -229,7 +251,7 @@ The initial read's exception propagates to the client (first frame); subsequent 
 const status = useStream(
   gitStatus,
   () => repoPath() ? { repoPath: repoPath(), mode: mode() } : null,
-  (input, signal) => stream.gitStatus(input.repoPath, input.mode, signal),
+  client.git.onStatusChange,
 );
 
 status();          // current GitStatusOutput | undefined
@@ -243,13 +265,13 @@ When the input changes, the previous subscription tears down and a fresh one sta
 
 Three categories don't fit any of the three primitives — keep them as plain oRPC procedures:
 
-| Pattern | Why it doesn't fit |
-|---------|-------------------|
-| Bidirectional binary streams (e.g. terminal `attach`) | Subscribe-before-yield ordering, custom retry hooks (e.g. xterm buffer reset). Not state — a protocol. |
-| Lifecycle events (e.g. terminal `onExit`) | Single-yield-then-close, not continuous state. |
-| Commands and queries (`create`, `kill`, `worktreeCreate`, `info`) | Request/response. No subscription dimension. |
+| Pattern | Why it doesn't fit | How to consume |
+|---------|--------------------|----------------|
+| Bidirectional binary streams (e.g. terminal `attach`) | Subscribe-before-yield ordering, custom retry hooks (e.g. xterm buffer reset). Not state — a protocol. | `streamCall(client.terminal.attach, { id }, { signal, onRetry })` |
+| Lifecycle events (e.g. terminal `onExit`) | Single-yield-then-close, not continuous state. | `streamCall(client.terminal.onExit, { id })` |
+| Commands and queries (`create`, `kill`, `worktreeCreate`, `info`) | Request/response. No subscription dimension. | `client.terminal.create(...)` directly |
 
-The framework's job is to remove boilerplate from the *common* shapes, not subsume every RPC.
+`streamCall` applies `STREAM_RETRY` context (and merges in an optional `onRetry` callback) so transport drops re-subscribe transparently — same retry semantics as the descriptor-driven hooks, escape hatch for non-descriptor shapes.
 
 ## API reference
 
@@ -264,28 +286,37 @@ stream({ name, inputSchema, outputSchema }): Stream<Name, I, T>
 ### Server (`@kolu/cells/server`)
 
 ```ts
-cellGetStream(cell, read, bus, signal): AsyncGenerator<T>
-collectionKeysStream(coll, readKeys, bus, signal): AsyncGenerator<K[]>
-collectionGetStream(coll, key, read, bus, signal): AsyncGenerator<T>
-streamGetStream(stream, input, source, signal): AsyncGenerator<T>
+cellHandlers(cell, { store, bus, patch?, onMutate? }): { get, set, patch, test__set }
+collectionHandlers(coll, { readAll, readOne?, upsert, remove, perKeyBus, keysBus }):
+  { keys, get, update, delete, test__set }
+streamHandlers(stream, { source }): { get }
 
 pollOnEvent({ read, isEqual, install, signal, onReadError? }): AsyncIterable<T>
 
-interface ChannelBus<T> { publish(v: T): void; subscribe(signal): AsyncIterable<T> }
+// Storage + bus adapters
+inMemoryStore<T>(initial): CellStore<T>
+confStore<T>(conf, key): CellStore<T>
+publisherChannel<T>(publisher, channelName): ChannelBus<T>
+
+interface CellStore<T> { get(): T; set(v: T): void }
+interface ChannelBus<T> { publish(v: T): void; subscribe(signal?): AsyncIterable<T> }
 ```
 
 ### Solid client (`@kolu/cells/solid`)
 
 ```ts
 useCell(cell, { source, mutate?, authority?, applyPatch?, mergeIntoStore?, initial?, onError? })
-useCollection(collection, { keysSource, valueSource, onError? })
-useStream(stream, inputFn, factory, { onError? }?)
+useCollection(collection, { keys, valueSource, keyToInput?, onError? })
+useStream(stream, inputFn, source, { onError? }?)
+
+streamCall(procedure, input, { signal?, onRetry? }?): Promise<AsyncIterable<O>>
+createCellsClient<C>({ websocket }): { client: ContractRouterClient<C, ...> }
 
 createSubscription(source, options?): Subscription<T>           // leaf primitive
 createReactiveSubscription(inputFn, factory, options?): Subscription<T>
 ```
 
-The leaf primitives `createSubscription` / `createReactiveSubscription` are exposed for advanced consumers that need direct AsyncIterable→Accessor lifting outside the cell/collection/stream taxonomy.
+`source` / `valueSource` accept typed oRPC procedure refs directly (e.g. `client.preferences.get`); the hook threads `STREAM_RETRY` retry context internally. The leaf primitives `createSubscription` / `createReactiveSubscription` are exposed for advanced consumers that need direct AsyncIterable→Accessor lifting outside the cell/collection/stream taxonomy.
 
 ## Design notes
 

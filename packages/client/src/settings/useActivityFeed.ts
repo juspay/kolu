@@ -16,10 +16,10 @@ import { useCell } from "@kolu/cells/solid";
 import { activityFeedCell } from "kolu-common/cells";
 import type { RecentAgent, RecentRepo } from "kolu-common";
 import { toast } from "solid-sonner";
-import { stream } from "../rpc/rpc";
+import { client } from "../cells";
 
 const cell = useCell(activityFeedCell, {
-  source: () => stream.activityFeed(),
+  source: client.activity.get,
   onError: (err) =>
     toast.error(`Activity feed subscription error: ${err.message}`),
 });

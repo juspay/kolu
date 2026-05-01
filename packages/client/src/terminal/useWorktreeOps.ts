@@ -2,7 +2,7 @@
 
 import type { TerminalId } from "kolu-common";
 import { toast } from "solid-sonner";
-import { client } from "../rpc/rpc";
+import { client } from "../cells";
 import type { TerminalStore } from "./useTerminalStore";
 
 export function useWorktreeOps(deps: {

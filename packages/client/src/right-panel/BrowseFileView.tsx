@@ -9,7 +9,7 @@ import { useStream } from "@kolu/cells/solid";
 import { fsReadFileStream } from "kolu-common/cells";
 import { type Component, Match, Show, Switch } from "solid-js";
 import { toast } from "solid-sonner";
-import { stream } from "../rpc/rpc";
+import { client } from "../cells";
 import PierreFileView from "../ui/PierreFileView";
 
 export type BrowseFileViewProps = {
@@ -22,8 +22,7 @@ const BrowseFileView: Component<BrowseFileViewProps> = (props) => {
   const fileContent = useStream(
     fsReadFileStream,
     () => ({ repoPath: props.repoPath, filePath: props.filePath }),
-    (input, signal) =>
-      stream.fsReadFile(input.repoPath, input.filePath, signal),
+    client.fs.onReadFileChange,
     {
       onError: (err) => toast.error(`File content stream: ${err.message}`),
     },

@@ -15,13 +15,13 @@ import { useCell } from "@kolu/cells/solid";
 import { terminalListCell } from "kolu-common/cells";
 import { createRoot } from "solid-js";
 import { toast } from "solid-sonner";
-import { stream } from "../rpc/rpc";
+import { client } from "../cells";
 import { useViewState } from "../useViewState";
 import { useTerminalMetadata } from "./useTerminalMetadata";
 
 function init() {
   const list = useCell(terminalListCell, {
-    source: () => stream.terminalList(),
+    source: client.terminal.list,
     onError: (err) => toast.error(`Terminal list error: ${err.message}`),
   });
 

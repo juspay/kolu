@@ -42,7 +42,6 @@ import { prValue } from "kolu-github/schemas";
 import { loadOpenCodeTranscript } from "kolu-opencode";
 import { transcriptToHtml } from "kolu-transcript-html";
 import { match } from "ts-pattern";
-import { getActivityFeed } from "./activity.ts";
 import {
   activityFeedStore,
   cellBus,
@@ -52,7 +51,7 @@ import {
 import { saveClipboardImage } from "./clipboard.ts";
 import { serverHostname, serverProcessId } from "./hostname.ts";
 import { log } from "./log.ts";
-import { subscribeForTerminal_ } from "./publisher.ts";
+import { terminalChannels } from "./publisher.ts";
 import { getSavedSession } from "./session.ts";
 import {
   createTerminal,
@@ -298,7 +297,7 @@ export const appRouter = t.router({
 
       // Subscribe FIRST, then serialize — any output between these two
       // steps is queued inside the publisher, not lost.
-      const live = subscribeForTerminal_("data", input.id, signal);
+      const live = terminalChannels.data(input.id).subscribe(signal);
 
       const screenState = entry.handle.getScreenState();
       if (screenState) yield screenState;
@@ -427,22 +426,18 @@ export const appRouter = t.router({
     }) {
       const entry = requireTerminal(input.id);
       yield { ...entry.info.meta };
-      for await (const meta of subscribeForTerminal_(
-        "metadata",
-        input.id,
-        signal,
-      )) {
+      for await (const meta of terminalChannels
+        .metadata(input.id)
+        .subscribe(signal)) {
         yield meta;
       }
     }),
 
     onExit: t.terminal.onExit.handler(async function* ({ input, signal }) {
       requireTerminal(input.id);
-      for await (const exitCode of subscribeForTerminal_(
-        "exit",
-        input.id,
-        signal,
-      )) {
+      for await (const exitCode of terminalChannels
+        .exit(input.id)
+        .subscribe(signal)) {
         yield exitCode;
         return;
       }

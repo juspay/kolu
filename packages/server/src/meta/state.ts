@@ -21,7 +21,7 @@ import type {
 } from "kolu-common";
 import { prUnavailableReason, prValue } from "kolu-common";
 import { log } from "../log.ts";
-import { publishForTerminal, publishSystem } from "../publisher.ts";
+import { terminalChannels, terminalsDirtyChannel } from "../publisher.ts";
 import type { TerminalProcess } from "../terminal-registry.ts";
 
 /** Create initial metadata state for a new terminal. */
@@ -59,8 +59,8 @@ function publishMetadata(entry: TerminalProcess, terminalId: string): void {
     },
     "metadata publish",
   );
-  publishForTerminal("metadata", terminalId, { ...m });
-  publishSystem("terminals:dirty", {});
+  terminalChannels.metadata(terminalId).publish({ ...m });
+  terminalsDirtyChannel.publish({});
 }
 
 /** Atomically mutate server-derived metadata (cwd, git, pr, agent,
