@@ -1,27 +1,27 @@
 /**
- * `defineMatrix` — declarative app-wide reactive surface.
+ * `defineSurface` — declarative app-wide reactive surface.
  *
  * One spec value declares every Cell, Collection, Stream, and Event the app
  * exposes, plus an escape hatch for imperative oRPC procedures that don't
- * fit a descriptor shape. From this spec the matrix derives:
+ * fit a descriptor shape. From this spec the surface derives:
  *
- *   - `matrix.contract`: a typed `oc.router({...})` ready for
- *     `implement(matrix.contract)` (server) and
- *     `createCellsClient<typeof matrix.contract>(...)` (client).
- *   - `matrix.descriptors`: the underlying Cell/Collection/Stream/Event
- *     values keyed by matrix path. The manual primitives still work — the
+ *   - `surface.contract`: a typed `oc.router({...})` ready for
+ *     `implement(surface.contract)` (server) and
+ *     `createCellsClient<typeof surface.contract>(...)` (client).
+ *   - `surface.descriptors`: the underlying Cell/Collection/Stream/Event
+ *     values keyed by surface path. The manual primitives still work — the
  *     descriptor handles let consumers fall back to `cellHandlers` etc.
- *     when an entry needs to break out of the matrix defaults.
+ *     when an entry needs to break out of the surface defaults.
  *
  * Phase A delivers `.contract` + `.descriptors`. Phase B adds `.implement`
  * for server-side dep wiring; Phase C adds `.client` for client-side bound
  * hooks. Each phase is independently usable.
  *
- * Compose with raw oRPC: when an RPC has wire-level concerns the matrix
+ * Compose with raw oRPC: when an RPC has wire-level concerns the surface
  * can't model (custom `onRetry`, binary framing, subscribe-before-yield),
  * keep it in a sibling `oc.router({...})` and merge:
  *
- *     const fullContract = oc.router({ ...matrix.contract, ...rawContract });
+ *     const fullContract = oc.router({ ...surface.contract, ...rawContract });
  */
 
 import { type AnyContractRouter, eventIterator, oc } from "@orpc/contract";
@@ -31,13 +31,13 @@ import { cell, collection, event, stream } from "./index";
 
 // ── Spec types ─────────────────────────────────────────────────────────
 
-/** Subset of cell verbs the matrix exposes on the wire. Default is
+/** Subset of cell verbs the surface exposes on the wire. Default is
  *  `["get", "patch"]` when `patchSchema` is set, else `["get", "set"]`.
  *  `test__set` is opt-in (production contracts shouldn't leak the test
  *  reset procedure). */
 export type CellVerb = "get" | "set" | "patch" | "test__set";
 
-/** Subset of collection verbs the matrix exposes. Default
+/** Subset of collection verbs the surface exposes. Default
  *  `["keys", "get", "update", "delete"]`. `test__set` is opt-in. */
 export type CollectionVerb = "keys" | "get" | "update" | "delete" | "test__set";
 
@@ -45,19 +45,33 @@ export interface CellSpec<T = unknown, P = T> {
   schema: ZodType<T>;
   default: T;
   /** When set, `patch` becomes the canonical mutation verb and `set` is
-   *  suppressed unless explicitly listed in `expose`. The matching
-   *  `applyPatch` deps go to `matrix.implement` (Phase B). */
+   *  suppressed unless explicitly listed in `expose`. */
   patchSchema?: ZodType<P>;
+  /** Pure merge `(current, patch) => next`. When `patchSchema` is set,
+   *  the framework needs this to apply partial updates. Used by **both**
+   *  sides:
+   *
+   *    - `implementSurface` plugs it into `cellHandlers`' patch path so
+   *      server-side mutations apply it before persist+publish.
+   *    - `surfaceClient` plugs it into `useCell`'s `applyPatch` so
+   *      authority-`local` cells apply patches optimistically with the
+   *      same merge function the server uses.
+   *
+   *  Declared once on the spec so server and client can't drift. The
+   *  consumer can override per-side via `implementSurface`'s deps or
+   *  `useCell`'s `applyPatch` when a side legitimately needs a different
+   *  merge (rare). */
+  patch?: (current: T, patch: P) => T;
   expose?: readonly CellVerb[];
   /** Override the auto-derived publish channel name. Default is
-   *  `"<key>:changed"` (e.g. matrix key `"prefs"` → `"prefs:changed"`).
-   *  Use this when migrating off hand-named channels — renaming a matrix
+   *  `"<key>:changed"` (e.g. surface key `"prefs"` → `"prefs:changed"`).
+   *  Use this when migrating off hand-named channels — renaming a surface
    *  key would otherwise silently rename the channel and break consumers
    *  with persisted subscriptions. Phase B/D concern. */
   channelName?: string;
   /** Override the store key passed to persistence adapters. Default is
-   *  the matrix key. Use this to keep `confStore("activityFeed")` working
-   *  after renaming the matrix key. Phase B/D concern. */
+   *  the surface key. Use this to keep `confStore("activityFeed")` working
+   *  after renaming the surface key. Phase B/D concern. */
   storeKey?: string;
 }
 
@@ -90,7 +104,7 @@ export interface ProcedureSpec<I = unknown, O = unknown> {
   output?: ZodType<O>;
 }
 
-export interface MatrixSpec {
+export interface SurfaceSpec {
   cells?: Record<string, CellSpec<any, any>>;
   collections?: Record<string, CollectionSpec<any, any>>;
   streams?: Record<string, StreamSpec<any, any>>;
@@ -111,10 +125,10 @@ const DEFAULT_COLLECTION_VERBS = ["keys", "get", "update", "delete"] as const;
 // ── Per-primitive contract derivation ──────────────────────────────────
 
 // Internal: returns a record of `oc` builders. Caller spreads into a
-// namespace under `oc.router({...})`. Typing is loose — the matrix
+// namespace under `oc.router({...})`. Typing is loose — the surface
 // module hands the literal to `oc.router(...)` which re-types it
 // precisely from the runtime shape, and consumers use `typeof
-// matrix.contract` for end-to-end inference.
+// surface.contract` for end-to-end inference.
 
 function cellContractEntries<T, P>(
   spec: CellSpec<T, P>,
@@ -133,7 +147,7 @@ function cellContractEntries<T, P>(
     } else if (v === "patch") {
       if (!spec.patchSchema) {
         throw new Error(
-          "cells matrix: cell exposes 'patch' but has no patchSchema",
+          "cells surface: cell exposes 'patch' but has no patchSchema",
         );
       }
       entries.patch = oc.input(spec.patchSchema).output(z.void());
@@ -189,12 +203,12 @@ function procedureContractEntry<I, O>(spec: ProcedureSpec<I, O>): unknown {
   return oc.input(input).output(output);
 }
 
-// ── Matrix value ────────────────────────────────────────────────────────
+// ── Surface value ────────────────────────────────────────────────────────
 
-/** Descriptor handles produced by the matrix, keyed by matrix path. The
+/** Descriptor handles produced by the surface, keyed by surface path. The
  *  manual primitives (`cellHandlers`, `useCell`, etc.) still accept these
- *  values directly — the matrix is opt-in, not exclusive. */
-export interface MatrixDescriptors<S extends MatrixSpec> {
+ *  values directly — the surface is opt-in, not exclusive. */
+export interface SurfaceDescriptors<S extends SurfaceSpec> {
   cells: {
     [K in keyof S["cells"] & string]: S["cells"][K] extends CellSpec<
       infer T,
@@ -237,14 +251,14 @@ type EmptyObj = NonNullable<unknown>;
 /** Precise per-namespace contract shape derived from the spec. Each
  *  primitive's verb set is a mapped type over the spec's schemas — the
  *  result feeds into oRPC's existing `implement(...)` and
- *  `createCellsClient<typeof matrix.contract>` machinery, so consumers
+ *  `createCellsClient<typeof surface.contract>` machinery, so consumers
  *  get end-to-end typed handlers and clients without hand-listing the
  *  router.
  *
  *  The runtime build uses `Object.entries` loops (which lose keys at the
- *  type level), so we cast at the boundary inside `defineMatrix`. The
+ *  type level), so we cast at the boundary inside `defineSurface`. The
  *  cast is intentional and the runtime shape matches this type exactly. */
-export type MatrixContractFor<S extends MatrixSpec> = MergeContract<
+export type SurfaceContractFor<S extends SurfaceSpec> = MergeContract<
   S["cells"] extends Record<string, CellSpec<any, any>>
     ? { [K in keyof S["cells"] & string]: CellContract<S["cells"][K]> }
     : EmptyObj,
@@ -344,7 +358,7 @@ type MergeContract<
 // ── Strongly-typed builder helpers (used for type derivation only) ─────
 
 // These exist primarily so `ReturnType<typeof buildX<...>>` gives the
-// matrix contract its precise shape. The `defineMatrix` runtime calls
+// surface contract its precise shape. The `defineSurface` runtime calls
 // the loose `*ContractEntries` helpers above and casts at the boundary.
 
 function buildCellWithPatch<T, P>(opts: {
@@ -413,24 +427,26 @@ function buildProcedureNoIO() {
   return oc.input(z.void()).output(z.void());
 }
 
-export interface Matrix<S extends MatrixSpec = MatrixSpec> {
-  readonly contract: MatrixContractFor<S>;
+export interface Surface<S extends SurfaceSpec = SurfaceSpec> {
+  readonly contract: SurfaceContractFor<S>;
   readonly spec: S;
-  readonly descriptors: MatrixDescriptors<S>;
+  readonly descriptors: SurfaceDescriptors<S>;
 }
 
-/** Build a matrix from a spec. The returned `.contract` is ready to feed
- *  into `implement(...)` (server) and `createCellsClient<typeof matrix.contract>(...)`
- *  (client). For wire-level concerns the matrix can't model (custom
+/** Build a surface from a spec. The returned `.contract` is ready to feed
+ *  into `implement(...)` (server) and `createCellsClient<typeof surface.contract>(...)`
+ *  (client). For wire-level concerns the surface can't model (custom
  *  `onRetry`, binary framing), keep the procedure in a sibling
  *  `oc.router({...})` and merge namespaces:
  *
  *      export const contract = oc.router({
- *        ...matrix.contract,
+ *        ...surface.contract,
  *        terminal: rawTerminalContract,
  *      });
  */
-export function defineMatrix<const S extends MatrixSpec>(spec: S): Matrix<S> {
+export function defineSurface<const S extends SurfaceSpec>(
+  spec: S,
+): Surface<S> {
   // Collect contract entries by namespace, merging typed primitives with
   // imperative procedures sharing a namespace.
   const namespaces: Record<string, Record<string, unknown>> = {};
@@ -497,8 +513,8 @@ export function defineMatrix<const S extends MatrixSpec>(spec: S): Matrix<S> {
   return {
     contract: oc.router(
       namespaces as unknown as AnyContractRouter,
-    ) as unknown as MatrixContractFor<S>,
+    ) as unknown as SurfaceContractFor<S>,
     spec,
-    descriptors: descriptors as unknown as MatrixDescriptors<S>,
+    descriptors: descriptors as unknown as SurfaceDescriptors<S>,
   };
 }

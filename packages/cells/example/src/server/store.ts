@@ -14,6 +14,8 @@ import { publisherChannel } from "@kolu/cells/server";
 import { MemoryPublisher } from "@orpc/experimental-publisher/memory";
 import { DEFAULT_PREFS, type EditorPrefs, type Note } from "../common/schemas";
 
+// ── Publisher ─────────────────────────────────────────────────────────
+
 // `MemoryPublisher`'s `Record<string, object>` generic is too strict for
 // our primitive payloads (we publish `string` keys arrays etc.). Real
 // type safety lives on the typed channels below.
@@ -52,24 +54,15 @@ export const removeNote = (id: string): void => {
   notes.delete(id);
 };
 
-// ── Typed publisher channels ──────────────────────────────────────────
-/** Cell-level: published when prefs change. */
-export const prefsChannel = publisherChannel<EditorPrefs>(
-  publisher,
-  "prefs:changed",
-);
-
-/** Collection-level: keys-set changes (note added or removed). */
-export const noteKeysChannel = publisherChannel<string[]>(
-  publisher,
-  "notes:keys",
-);
-
-/** Collection-level: per-note value changes. */
-export const noteChannel = (id: string) =>
-  publisherChannel<Note>(publisher, `note:${id}`);
-
-/** Event-level: per-note autosave notifications. */
+// ── Domain-owned channel ──────────────────────────────────────────────
+/** Per-note autosave channel — written by `scheduleAutosave` (router.ts),
+ *  read as the source for the `autosave` event. The surface doesn't own
+ *  event channels; this one is domain-managed and shared between the
+ *  publish (debounce timer) and subscribe (event source) paths.
+ *
+ *  Cell + collection channels are surface-derived: `implementSurface`
+ *  computes `"prefs:changed"`, `"notes:keys"`, and `"notes:<id>"` from
+ *  the surface keys and wires them internally — no exports needed here. */
 export const autosaveChannel = (id: string) =>
   publisherChannel<{ noteId: string; noteTitle: string; savedAt: number }>(
     publisher,

@@ -26,8 +26,8 @@ import type {
   CellSpec,
   CollectionSpec,
   EventSpec,
-  Matrix,
-  MatrixSpec,
+  Surface,
+  SurfaceSpec,
   ProcedureSpec,
   StreamSpec,
 } from "./define";
@@ -420,10 +420,10 @@ async function* iterateUntilAborted<T>(
   }
 }
 
-// ── implementMatrix — server-side dep wiring for a Matrix ─────────────
+// ── implementSurface — server-side dep wiring for a Surface ─────────────
 
-/** Per-cell implementation deps. The matrix owns the publish channel
- *  (derived from the matrix key, overridable via `spec.cells[K].channelName`);
+/** Per-cell implementation deps. The surface owns the publish channel
+ *  (derived from the surface key, overridable via `spec.cells[K].channelName`);
  *  the consumer supplies persistence + (when patchSchema is set) the patch
  *  merge fn. */
 export type CellImplDeps<S extends CellSpec<unknown, unknown>> = S extends {
@@ -432,7 +432,10 @@ export type CellImplDeps<S extends CellSpec<unknown, unknown>> = S extends {
 }
   ? {
       store: CellStore<T>;
-      patch: (current: T, p: P) => T;
+      /** Pure merge for partial mutations. Optional here when the cell's
+       *  spec already declares `patch` (the spec wins; the framework
+       *  errors at boot if neither is supplied). */
+      patch?: (current: T, p: P) => T;
       onMutate?: (patch: P, current: T) => void;
     }
   : S extends { schema: ZodType<infer T> }
@@ -442,10 +445,10 @@ export type CellImplDeps<S extends CellSpec<unknown, unknown>> = S extends {
       }
     : never;
 
-/** Per-collection implementation deps. The matrix owns both buses
- *  (derived from the matrix key, overridable via `spec.collections[K].channelNames`)
+/** Per-collection implementation deps. The surface owns both buses
+ *  (derived from the surface key, overridable via `spec.collections[K].channelNames`)
  *  and wraps `upsert`/`remove` so every persisted change publishes through
- *  the matrix's channels — the consumer's upsert/remove are persistence-only.
+ *  the surface's channels — the consumer's upsert/remove are persistence-only.
  *  Side-effects (`scheduleAutosave`, etc.) belong inside the consumer's
  *  upsert/remove fns or in the imperative procedure that triggered the call. */
 export type CollectionImplDeps<S extends CollectionSpec<unknown, unknown>> =
@@ -467,10 +470,10 @@ export type StreamImplDeps<S extends StreamSpec<unknown, unknown>> = S extends {
     }
   : never;
 
-/** Per-event implementation deps. The matrix does NOT own event channels by
+/** Per-event implementation deps. The surface does NOT own event channels by
  *  default — events often have domain-specific sources (`terminalChannels.exit`,
- *  etc.) the matrix can't model. Consumers provide their own source; if they
- *  want a matrix-owned channel they wire it via `deps.channel` themselves. */
+ *  etc.) the surface can't model. Consumers provide their own source; if they
+ *  want a surface-owned channel they wire it via `deps.channel` themselves. */
 export type EventImplDeps<S extends EventSpec<unknown, unknown>> = S extends {
   inputSchema: ZodType<infer I>;
   outputSchema: ZodType<infer T>;
@@ -482,7 +485,7 @@ export type EventImplDeps<S extends EventSpec<unknown, unknown>> = S extends {
 
 // ── Procedure ctx ──────────────────────────────────────────────────────
 
-/** Per-cell procedure ctx — get/set/patch via the matrix's wrapped helpers
+/** Per-cell procedure ctx — get/set/patch via the surface's wrapped helpers
  *  so imperative procedures publish through the same channel as the wire
  *  handlers. Bypassing this and writing directly to the consumer's store
  *  silently skips the publish; don't. */
@@ -507,7 +510,7 @@ type CollectionCtxFor<S> = S extends {
     }
   : never;
 
-export type ProcedureCtx<S extends MatrixSpec> = {
+export type ProcedureCtx<S extends SurfaceSpec> = {
   cells: {
     [K in keyof S["cells"] & string]: CellCtxFor<NonNullable<S["cells"]>[K]>;
   };
@@ -519,7 +522,7 @@ export type ProcedureCtx<S extends MatrixSpec> = {
 };
 
 /** Handler for an imperative procedure. Receives `ctx` exposing the
- *  matrix's cell/collection mutation helpers so cross-descriptor publishes
+ *  surface's cell/collection mutation helpers so cross-descriptor publishes
  *  (e.g. `notes.create` writing to the `notes` collection) go through the
  *  same channels the wire handlers do. */
 export type ProcedureImpl<
@@ -537,10 +540,10 @@ export type ProcedureImpl<
       ? (opts: { ctx: Ctx; signal?: AbortSignal }) => Promise<O> | O
       : (opts: { ctx: Ctx; signal?: AbortSignal }) => Promise<void> | void;
 
-// ── ImplementMatrixDeps ────────────────────────────────────────────────
+// ── ImplementSurfaceDeps ────────────────────────────────────────────────
 
-export interface ImplementMatrixDeps<S extends MatrixSpec> {
-  /** Channel factory. The framework computes channel names from matrix
+export interface ImplementSurfaceDeps<S extends SurfaceSpec> {
+  /** Channel factory. The framework computes channel names from surface
    *  keys (e.g. `"prefs:changed"`, `"notes:keys"`, `"notes:n1"`) and
    *  passes them into this fn — the consumer plugs in their underlying
    *  publisher (`publisherChannel(publisher, name)` for the `@orpc/experimental-publisher`
@@ -575,39 +578,39 @@ export interface ImplementMatrixDeps<S extends MatrixSpec> {
   };
 }
 
-/** Build the full server router from a matrix + dep wiring. Replaces the
+/** Build the full server router from a surface + dep wiring. Replaces the
  *  hand-listed `t.X.<verb>.handler(handlers.<verb>)` plumbing for every
  *  cell, collection, stream, event, and imperative procedure declared in
- *  the matrix.
+ *  the surface.
  *
- *  Channel naming is matrix-driven: cells use `"<key>:changed"`,
+ *  Channel naming is surface-driven: cells use `"<key>:changed"`,
  *  collections use `"<key>:keys"` + `"<key>:" + String(key)`. Override
  *  via `spec.<kind>[K].channelName(s)` when migrating off hand-named
- *  channels (renaming a matrix key would otherwise silently rename the
+ *  channels (renaming a surface key would otherwise silently rename the
  *  channel and break consumers with persisted subscriptions).
  *
  *  Compose with raw oRPC handlers: spread the result alongside hand-
- *  written `t.X.handler(...)` blocks for procedures the matrix can't
+ *  written `t.X.handler(...)` blocks for procedures the surface can't
  *  model (custom `onRetry`, binary framing, subscribe-before-yield):
  *
- *      const matrixRouter = implementMatrix(matrix, deps);
+ *      const matrixRouter = implementSurface(surface, deps);
  *      const t = implement(fullContract);
  *      export const appRouter = t.router({
  *        ...matrixRouter,
  *        terminal: t.terminal.handler(...),
  *      });
  */
-export function implementMatrix<const S extends MatrixSpec>(
-  matrix: Matrix<S>,
-  deps: ImplementMatrixDeps<S>,
+export function implementSurface<const S extends SurfaceSpec>(
+  surface: Surface<S>,
+  deps: ImplementSurfaceDeps<S>,
 ) {
   // oRPC's typed implement(contract) chain is too dynamic for our walk
   // (we walk the spec at runtime to wire each entry); cast the whole
-  // builder + result to `any` and rely on the matrix's spec types for
+  // builder + result to `any` and rely on the surface's spec types for
   // call-site safety.
   // biome-ignore lint/suspicious/noExplicitAny: see comment above
-  const t = implement(matrix.contract as any) as any;
-  const spec = matrix.spec;
+  const t = implement(surface.contract as any) as any;
+  const spec = surface.spec;
 
   const cellsCtx: Record<string, unknown> = {};
   const collectionsCtx: Record<string, unknown> = {};
@@ -627,15 +630,24 @@ export function implementMatrix<const S extends MatrixSpec>(
         }
       | undefined;
     if (!cellDeps) {
-      throw new Error(`implementMatrix: missing deps for cell "${key}"`);
+      throw new Error(`implementSurface: missing deps for cell "${key}"`);
+    }
+    // Spec-declared `patch` wins; deps may override (rare). Cells with
+    // `patchSchema` need one or the other — error loudly if both are
+    // missing rather than silently accepting full-replacement semantics.
+    const patchFn = cellSpec.patch ?? cellDeps.patch;
+    if (cellSpec.patchSchema && !patchFn) {
+      throw new Error(
+        `implementSurface: cell "${key}" has patchSchema but no patch fn (declare on spec or pass via deps)`,
+      );
     }
     const handlers = cellHandlers(
       // biome-ignore lint/suspicious/noExplicitAny: see top of fn
-      (matrix.descriptors.cells as any)[key] as Cell<string, unknown>,
+      (surface.descriptors.cells as any)[key] as Cell<string, unknown>,
       {
         store: cellDeps.store,
         bus,
-        patch: cellDeps.patch,
+        patch: patchFn,
         onMutate: cellDeps.onMutate,
       },
     );
@@ -646,10 +658,10 @@ export function implementMatrix<const S extends MatrixSpec>(
         cellDeps.store.set(v);
         bus.publish(v);
       },
-      ...(cellDeps.patch
+      ...(patchFn
         ? {
             patch: (p: unknown) => {
-              const next = cellDeps.patch?.(cellDeps.store.get(), p);
+              const next = patchFn(cellDeps.store.get(), p);
               cellDeps.store.set(next);
               bus.publish(next);
             },
@@ -689,12 +701,12 @@ export function implementMatrix<const S extends MatrixSpec>(
         }
       | undefined;
     if (!collDeps) {
-      throw new Error(`implementMatrix: missing deps for collection "${key}"`);
+      throw new Error(`implementSurface: missing deps for collection "${key}"`);
     }
     const keysBus = deps.channel<unknown[]>(keysName);
     const perKeyBus = (k: unknown) => deps.channel<unknown>(perKeyName(k));
 
-    // Matrix-owned publish: every upsert/remove broadcasts the new key set
+    // Surface-owned publish: every upsert/remove broadcasts the new key set
     // (and, on upsert, the new per-key value) through the framework's
     // channels. Consumers' upsert/remove stay persistence-only.
     const wrappedUpsert = (k: unknown, v: unknown) => {
@@ -716,7 +728,7 @@ export function implementMatrix<const S extends MatrixSpec>(
 
     const handlers = collectionHandlers(
       // biome-ignore lint/suspicious/noExplicitAny: see top of fn
-      (matrix.descriptors.collections as any)[key] as Collection<
+      (surface.descriptors.collections as any)[key] as Collection<
         string,
         unknown,
         unknown
@@ -756,11 +768,11 @@ export function implementMatrix<const S extends MatrixSpec>(
         }
       | undefined;
     if (!streamDeps) {
-      throw new Error(`implementMatrix: missing deps for stream "${key}"`);
+      throw new Error(`implementSurface: missing deps for stream "${key}"`);
     }
     const handlers = streamHandlers(
       // biome-ignore lint/suspicious/noExplicitAny: see top of fn
-      (matrix.descriptors.streams as any)[key] as Stream<
+      (surface.descriptors.streams as any)[key] as Stream<
         string,
         unknown,
         unknown
@@ -786,11 +798,11 @@ export function implementMatrix<const S extends MatrixSpec>(
         }
       | undefined;
     if (!eventDeps) {
-      throw new Error(`implementMatrix: missing deps for event "${key}"`);
+      throw new Error(`implementSurface: missing deps for event "${key}"`);
     }
     const handlers = eventHandlers(
       // biome-ignore lint/suspicious/noExplicitAny: see top of fn
-      (matrix.descriptors.events as any)[key] as Event<
+      (surface.descriptors.events as any)[key] as Event<
         string,
         unknown,
         unknown
@@ -816,7 +828,7 @@ export function implementMatrix<const S extends MatrixSpec>(
       const handler = procDeps?.[verb];
       if (!handler) {
         throw new Error(
-          `implementMatrix: missing handler for procedure "${ns}.${verb}"`,
+          `implementSurface: missing handler for procedure "${ns}.${verb}"`,
         );
       }
       // biome-ignore lint/suspicious/noExplicitAny: see top of fn

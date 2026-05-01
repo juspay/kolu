@@ -1,22 +1,20 @@
 /**
- * App-wide reactive surface, declared once via `defineMatrix`.
+ * App-wide reactive surface, declared once via `defineSurface`.
  *
- *   - `matrix.contract` is the generated oRPC router (replaces the old
- *     hand-listed `contract.ts`).
- *   - `matrix.descriptors.{cells,collections,streams,events}` exposes the
+ *   - `surface.contract` is the generated oRPC router.
+ *   - `surface.descriptors.{cells,collections,streams,events}` exposes the
  *     underlying primitives for callers that want to stay manual (the
- *     matrix is opt-in, not exclusive).
+ *     surface is opt-in, not exclusive).
  *
- * The `applyPrefsPatch` helper sits next to the matrix so the patch shape
- * lives one read away from the descriptor.
+ * `prefs.patch` lives on the spec (shallow merge) so server and client
+ * apply patches via the same function — no `applyPrefsPatch` helper
+ * imported in two places.
  */
 
-import { defineMatrix } from "@kolu/cells/define";
+import { defineSurface } from "@kolu/cells/define";
 import {
   AutosaveEventSchema,
   DEFAULT_PREFS,
-  type EditorPrefs,
-  type EditorPrefsPatch,
   EditorPrefsPatchSchema,
   EditorPrefsSchema,
   NoteCreateInputSchema,
@@ -26,12 +24,13 @@ import {
   SearchResultSchema,
 } from "./schemas";
 
-export const matrix = defineMatrix({
+export const surface = defineSurface({
   cells: {
     prefs: {
       schema: EditorPrefsSchema,
       default: DEFAULT_PREFS,
       patchSchema: EditorPrefsPatchSchema,
+      patch: (current, patch) => ({ ...current, ...patch }),
     },
   },
   collections: {
@@ -57,22 +56,3 @@ export const matrix = defineMatrix({
     },
   },
 });
-
-/** Re-exported descriptor handles. The example's hooks/handlers still use
- *  these directly in Phase A; Phases B/C move them onto matrix.implement
- *  / matrix.client. */
-export const { prefs: prefsCell } = matrix.descriptors.cells;
-export const { notes: notesCollection } = matrix.descriptors.collections;
-export const { search: searchStream } = matrix.descriptors.streams;
-export const { autosave: autosaveEvent } = matrix.descriptors.events;
-
-/** Pure merge of a partial preferences patch into the current prefs.
- *  Used by both server (`cellHandlers.patch`) and client
- *  (`useCell({ applyPatch })`) so the merge shape is one canonical
- *  function. */
-export function applyPrefsPatch(
-  current: EditorPrefs,
-  patch: EditorPrefsPatch,
-): EditorPrefs {
-  return { ...current, ...patch };
-}

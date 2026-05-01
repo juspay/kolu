@@ -1,6 +1,6 @@
 /**
  * Single-page demo of all four `@kolu/cells` primitives — wired via the
- * matrix client bundle.
+ * surface client bundle.
  *
  *   - `cells.cells.prefs.use(...)`           → editor preferences (font, theme)
  *   - `cells.collections.notes.use(...)`     → notes sidebar
@@ -14,7 +14,6 @@
  */
 
 import { createSubscription, streamCall } from "@kolu/cells/solid";
-import { applyPrefsPatch } from "../common/cells";
 import { DEFAULT_PREFS, type Note, type NoteId } from "../common/schemas";
 import {
   createEffect,
@@ -28,10 +27,10 @@ import { cells, client } from "./cells";
 
 export default function App() {
   // ── 1. Cell: editor preferences ─────────────────────────────────────
+  // applyPatch comes from `surface.cells.prefs.patch` on the spec.
   const prefs = cells.cells.prefs.use({
     authority: "local",
     initial: DEFAULT_PREFS,
-    applyPatch: applyPrefsPatch,
   });
 
   // Mirror the theme onto `<html data-theme>` so Tailwind's `dark:`

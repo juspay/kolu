@@ -1,7 +1,7 @@
 /**
- * `matrixClient` — client-side bundle generated from a matrix.
+ * `surfaceClient` — client-side bundle generated from a surface.
  *
- * Walks `matrix.descriptors` once and pre-binds each Cell/Collection/Stream/Event
+ * Walks `surface.descriptors` once and pre-binds each Cell/Collection/Stream/Event
  * to its typed oRPC procedure refs, exposing a `.use(policy)` hook per
  * primitive that drops `source` / `mutate` / `valueSource` / `keyToInput`
  * from the per-call args. Imperative procedures stay accessible via
@@ -18,9 +18,9 @@ import type {
   CellSpec,
   CollectionSpec,
   EventSpec,
-  Matrix,
-  MatrixContractFor,
-  MatrixSpec,
+  Surface,
+  SurfaceContractFor,
+  SurfaceSpec,
   StreamSpec,
 } from "../define";
 import type { ReactiveSubscriptionOptions } from "./createReactiveSubscription";
@@ -33,7 +33,7 @@ import { useStream } from "./useStream";
 // ── Bound-primitive option shapes ──────────────────────────────────────
 
 /** Cell `.use()` options — same shape as `UseCellOptions` minus the
- *  `source` and `mutate` refs (the matrix supplies them). The
+ *  `source` and `mutate` refs (the surface supplies them). The
  *  authority/initial/applyPatch discriminator is preserved verbatim. */
 export type BoundCellOptions<T, P = T> = T extends object
   ?
@@ -76,9 +76,9 @@ export interface BoundEvent<I, T> {
   ): void;
 }
 
-// ── Bundle type — mapped over the matrix spec ──────────────────────────
+// ── Bundle type — mapped over the surface spec ──────────────────────────
 
-type BoundCellsFor<S extends MatrixSpec> = {
+type BoundCellsFor<S extends SurfaceSpec> = {
   [K in keyof S["cells"] & string]: NonNullable<S["cells"]>[K] extends CellSpec<
     infer T,
     infer P
@@ -87,7 +87,7 @@ type BoundCellsFor<S extends MatrixSpec> = {
     : never;
 };
 
-type BoundCollectionsFor<S extends MatrixSpec> = {
+type BoundCollectionsFor<S extends SurfaceSpec> = {
   [K in keyof S["collections"] & string]: NonNullable<
     S["collections"]
   >[K] extends CollectionSpec<infer K2, infer T>
@@ -95,7 +95,7 @@ type BoundCollectionsFor<S extends MatrixSpec> = {
     : never;
 };
 
-type BoundStreamsFor<S extends MatrixSpec> = {
+type BoundStreamsFor<S extends SurfaceSpec> = {
   [K in keyof S["streams"] & string]: NonNullable<
     S["streams"]
   >[K] extends StreamSpec<infer I, infer T>
@@ -103,7 +103,7 @@ type BoundStreamsFor<S extends MatrixSpec> = {
     : never;
 };
 
-type BoundEventsFor<S extends MatrixSpec> = {
+type BoundEventsFor<S extends SurfaceSpec> = {
   [K in keyof S["events"] & string]: NonNullable<
     S["events"]
   >[K] extends EventSpec<infer I, infer T>
@@ -111,16 +111,16 @@ type BoundEventsFor<S extends MatrixSpec> = {
     : never;
 };
 
-export interface MatrixClientBundle<S extends MatrixSpec, Rpc = unknown> {
+export interface SurfaceClientBundle<S extends SurfaceSpec, Rpc = unknown> {
   /** The typed oRPC client. Use this for imperative procedures
    *  (`bundle.rpc.notes.create(...)`) and for any verb the bound `.use()`
    *  shape can't model.
    *
    *  Typing note: `Rpc` is supplied at the call site rather than computed
    *  from `S` because TS's union-resolution budget can't expand both
-   *  `MatrixContractFor<S>` and oRPC's `ContractRouterClient<...>` mapped
+   *  `SurfaceContractFor<S>` and oRPC's `ContractRouterClient<...>` mapped
    *  types in the same evaluation pass — the call site narrows it cheaply
-   *  via `typeof matrix.contract`. See `matrixClient`'s defaulted generic. */
+   *  via `typeof surface.contract`. See `surfaceClient`'s defaulted generic. */
   readonly rpc: Rpc;
   readonly cells: BoundCellsFor<S>;
   readonly collections: BoundCollectionsFor<S>;
@@ -130,23 +130,23 @@ export interface MatrixClientBundle<S extends MatrixSpec, Rpc = unknown> {
 
 // ── Builder ────────────────────────────────────────────────────────────
 
-/** Build the client-side bundle for a matrix. Walks the spec once and
+/** Build the client-side bundle for a surface. Walks the spec once and
  *  pre-binds each primitive to its oRPC procedure refs, producing
  *  `.use(policy)` hooks that drop the wire-identity args from the per-call
  *  signature. */
-export function matrixClient<const S extends MatrixSpec, Rpc = unknown>(
-  matrix: Matrix<S>,
+export function surfaceClient<const S extends SurfaceSpec, Rpc = unknown>(
+  surface: Surface<S>,
   opts: { websocket: WebSocket },
-): MatrixClientBundle<S, Rpc> {
+): SurfaceClientBundle<S, Rpc> {
   // Narrow `Rpc` at the call site: e.g.
-  //   matrixClient<typeof matrix.spec, ContractRouterClient<typeof matrix.contract, …>>(…)
+  //   surfaceClient<typeof surface.spec, ContractRouterClient<typeof surface.contract, …>>(…)
   // Defaulting to `unknown` keeps the bundle's generic from triggering the
   // mapped-type union explosion that breaks `ReturnType<typeof createCellsClient<…>>`
   // when used as a default. Consumers typically reach for `bundle.rpc` only
   // for imperative procedures and get away with a one-line cast.
   // biome-ignore lint/suspicious/noExplicitAny: see comment on `Rpc` generic
   const rpc = createCellsClient<any>(opts) as Rpc;
-  const spec = matrix.spec;
+  const spec = surface.spec;
 
   const cells: Record<string, BoundCell<unknown, unknown>> = {};
   for (const [key, rawSpec] of Object.entries(spec.cells ?? {})) {
@@ -155,14 +155,28 @@ export function matrixClient<const S extends MatrixSpec, Rpc = unknown>(
     const ns = (rpc as any)[key];
     const source: StreamingProcedure<undefined, unknown> = ns.get;
     const mutate = cellSpec.patchSchema ? ns.patch : ns.set;
+    // Spec-declared `patch` doubles as the default `applyPatch` for
+    // authority-`local` cells, so server and client merge with the same
+    // function without the consumer importing it twice.
+    const specPatch = cellSpec.patch;
     cells[key] = {
-      use: (boundOpts) =>
-        useCell(
+      use: (boundOpts) => {
+        // biome-ignore lint/suspicious/noExplicitAny: BoundCellOptions union is structurally the same as UseCellOptions sans source/mutate
+        const merged: any = { ...(boundOpts ?? {}), source, mutate };
+        if (
+          specPatch &&
+          merged.authority === "local" &&
+          merged.applyPatch === undefined &&
+          merged.mergeIntoStore === undefined
+        ) {
+          merged.applyPatch = specPatch;
+        }
+        return useCell(
           // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only at runtime
-          (matrix.descriptors.cells as any)[key],
-          // biome-ignore lint/suspicious/noExplicitAny: BoundCellOptions union is structurally the same as UseCellOptions sans source/mutate
-          { ...(boundOpts ?? {}), source, mutate } as any,
-        ),
+          (surface.descriptors.cells as any)[key],
+          merged,
+        );
+      },
     };
   }
 
@@ -174,7 +188,7 @@ export function matrixClient<const S extends MatrixSpec, Rpc = unknown>(
       use: ({ keys, onError }) =>
         useCollection(
           // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only
-          (matrix.descriptors.collections as any)[key],
+          (surface.descriptors.collections as any)[key],
           {
             keys,
             valueSource: ns.get,
@@ -193,7 +207,7 @@ export function matrixClient<const S extends MatrixSpec, Rpc = unknown>(
       use: (inputFn, streamOpts) =>
         useStream(
           // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only
-          (matrix.descriptors.streams as any)[key],
+          (surface.descriptors.streams as any)[key],
           inputFn,
           ns.get,
           streamOpts,
@@ -209,7 +223,7 @@ export function matrixClient<const S extends MatrixSpec, Rpc = unknown>(
       use: (inputFn, handler, eventOpts) =>
         useEvent(
           // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only
-          (matrix.descriptors.events as any)[key],
+          (surface.descriptors.events as any)[key],
           inputFn,
           ns.get,
           handler,

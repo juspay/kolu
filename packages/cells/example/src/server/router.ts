@@ -1,22 +1,22 @@
 /**
- * oRPC router built from `matrix.implement` — one declarative call wires
+ * oRPC router built from `surface.implement` — one declarative call wires
  * every cell, collection, stream, event, and imperative procedure declared
  * in `common/cells.ts`.
  *
- * The matrix owns publish channels for cells and collections (channel
- * names derived from the matrix key). Consumer-supplied `upsert`/`remove`
+ * The surface owns publish channels for cells and collections (channel
+ * names derived from the surface key). Consumer-supplied `upsert`/`remove`
  * stay persistence-only; the framework wraps them so every change
- * broadcasts through the matrix's channels. Imperative procedures get a
+ * broadcasts through the surface's channels. Imperative procedures get a
  * typed `ctx` (`ctx.collections.notes.upsert(...)`) so cross-descriptor
  * publishes route through the same channels.
  */
 
 import {
-  implementMatrix,
+  implementSurface,
   pollOnEvent,
   publisherChannel,
 } from "@kolu/cells/server";
-import { applyPrefsPatch, matrix } from "../common/cells";
+import { surface } from "../common/cells";
 import {
   allNotes,
   autosaveChannel,
@@ -29,13 +29,14 @@ import {
   upsertNote,
 } from "./store";
 
-export const appRouter = implementMatrix(matrix, {
+export const appRouter = implementSurface(surface, {
   channel: <T>(name: string) => publisherChannel<T>(publisher, name),
 
   cells: {
     prefs: {
+      // patch fn comes from `surface.cells.prefs.patch` on the spec —
+      // server and client share one merge function, no duplicate import.
       store: { get: getPrefs, set: setPrefs },
-      patch: applyPrefsPatch,
     },
   },
 
@@ -75,7 +76,7 @@ export const appRouter = implementMatrix(matrix, {
   events: {
     autosave: {
       // Per-note channel: each note id has its own subscribe stream.
-      // Channel managed in store.ts (not matrix-derived) so the publish
+      // Channel managed in store.ts (not surface-derived) so the publish
       // path inside scheduleAutosave can write to the same instance.
       source: (id, signal) => autosaveChannel(id).subscribe(signal),
     },
@@ -83,7 +84,7 @@ export const appRouter = implementMatrix(matrix, {
 
   procedures: {
     notes: {
-      // Imperative create — server assigns the id; the matrix's wrapped
+      // Imperative create — server assigns the id; the surface's wrapped
       // upsert publishes through the framework's note channels.
       create: async ({ input, ctx }) => {
         const id = newNoteId();
@@ -109,9 +110,9 @@ function readAll(): Map<
   return allNotes();
 }
 
-/** Convert the matrix's keys-channel into a callback-style subscription
+/** Convert the surface's keys-channel into a callback-style subscription
  *  for `pollOnEvent.install`. Subscribes via the publisher directly so the
- *  `notes:keys` channel matches what `implementMatrix` emits. */
+ *  `notes:keys` channel matches what `implementSurface` emits. */
 function subscribeForCallback(cb: () => void): () => void {
   const ctrl = new AbortController();
   void (async () => {
@@ -134,7 +135,7 @@ function subscribeForCallback(cb: () => void): () => void {
 
 /** Debounced autosave fire — coalesces rapid edits into one event.
  *  Publishes to `autosaveChannel` (managed in store.ts), which the
- *  matrix's `events.autosave.source` subscribes to. */
+ *  surface's `events.autosave.source` subscribes to. */
 const pendingAutosaves = new Map<string, ReturnType<typeof setTimeout>>();
 function scheduleAutosave(note: { id: string; title: string }): void {
   const existing = pendingAutosaves.get(note.id);

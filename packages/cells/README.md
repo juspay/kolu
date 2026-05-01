@@ -39,21 +39,21 @@ This is a workspace-private package. Wire it into both server and client package
 
 **Manual** — hand-list each primitive (`cell({...})`, `collection({...})`, `stream({...})`, `event({...})`), hand-list the oRPC contract that talks to them, hand-wire the server's handlers, hand-pass `source`/`mutate` refs to `useCell`/`useCollection`/etc. Maximum flexibility; substantial plumbing per descriptor.
 
-**Matrix** (`@kolu/cells/define`) — one `defineMatrix({...})` declaration covers every Cell, Collection, Stream, Event, and imperative procedure the app exposes. From it the framework derives:
+**Surface** (`@kolu/cells/define`) — one `defineSurface({...})` declaration covers every Cell, Collection, Stream, Event, and imperative procedure the app exposes. From it the framework derives:
 
-- `matrix.contract` — replaces the hand-written `oc.router({...})` literal.
-- `implementMatrix(matrix, deps)` — replaces the per-verb `t.X.<verb>.handler(handlers.<verb>)` plumbing (server-side).
-- `matrixClient(matrix, transport)` — replaces hand-passed `source`/`mutate`/`valueSource`/`keyToInput` at every hook call site (client-side).
+- `surface.contract` — replaces the hand-written `oc.router({...})` literal.
+- `implementSurface(surface, deps)` — replaces the per-verb `t.X.<verb>.handler(handlers.<verb>)` plumbing (server-side).
+- `surfaceClient(surface, transport)` — replaces hand-passed `source`/`mutate`/`valueSource`/`keyToInput` at every hook call site (client-side).
 
-The matrix is opt-in. Reach for it when you're standing up a new app surface or writing a self-contained module; stay manual when an existing wire shape doesn't match the matrix's verb-naming defaults (currently `get`/`patch`/`set`/`test__set` for cells, `keys`/`get`/`update`/`delete`/`test__set` for collections — see the example for the full set). The two approaches compose: spread `matrix.contract` alongside a sibling `oc.router({...})` of raw procedures, and similarly for `implementMatrix`'s output.
+The surface is opt-in. Reach for it when you're standing up a new app surface or writing a self-contained module; stay manual when an existing wire shape doesn't match the surface's verb-naming defaults (currently `get`/`patch`/`set`/`test__set` for cells, `keys`/`get`/`update`/`delete`/`test__set` for collections — see the example for the full set). The two approaches compose: spread `surface.contract` alongside a sibling `oc.router({...})` of raw procedures, and similarly for `implementSurface`'s output.
 
-See `## Matrix` below and `packages/cells/example/` for a full end-to-end demo.
+See `## Surface` below and `packages/cells/example/` for a full end-to-end demo.
 
 ## Architecture
 
 The library is intentionally non-magical: it does **not** auto-derive an oRPC contract via runtime reflection. TypeScript needs the contract literal at compile time for the typed client to work end-to-end. Consumers hand-list contract entries in their own `oc.router({...})` and pass the matching descriptor to the framework's helpers.
 
-(For matrix-driven consumers, `matrix.contract` *is* a literal at compile time — it's built statically from the spec by `defineMatrix`. The contract is still hand-listed; the matrix just reads each entry once instead of you typing it twice.)
+(For surface-driven consumers, `surface.contract` *is* a literal at compile time — it's built statically from the spec by `defineSurface`. The contract is still hand-listed; the surface just reads each entry once instead of you typing it twice.)
 
 ```
                   ┌─────────────────────────┐
@@ -384,18 +384,25 @@ Shapes that don't fit a descriptor stay as plain oRPC procedures.
 
 _The shared property of the "raw" rows: there's no temporal sequence of values for a given identity that the client cares to subscribe to. The framework is for typed reactive state pushed from server to client (Cell/Collection/Stream) plus typed point-in-time fires (Event); everything else stays raw._
 
-## Matrix
+## Surface
 
-`defineMatrix({...})` declares the whole reactive surface of an app at one site. The example (`packages/cells/example/`) ships a working matrix end-to-end — start there for a runnable reference.
+`defineSurface({...})` declares the whole reactive surface of an app at one site. The example (`packages/cells/example/`) ships a working surface end-to-end — start there for a runnable reference.
 
 ```ts
 // common/cells.ts
-import { defineMatrix } from "@kolu/cells/define";
+import { defineSurface } from "@kolu/cells/define";
 import { z } from "zod";
 
-export const matrix = defineMatrix({
+export const surface = defineSurface({
   cells: {
-    prefs: { schema: PrefsSchema, default: DEFAULT_PREFS, patchSchema: PrefsPatchSchema },
+    prefs: {
+      schema: PrefsSchema,
+      default: DEFAULT_PREFS,
+      patchSchema: PrefsPatchSchema,
+      // `patch` lives on the spec so server and client apply patches via
+      // the same merge fn — no helper imported in two places.
+      patch: (current, p) => ({ ...current, ...p }),
+    },
   },
   collections: {
     notes: { keySchema: z.string(), schema: NoteSchema },
@@ -412,24 +419,26 @@ export const matrix = defineMatrix({
   },
 });
 
-export const contract = matrix.contract;  // ready for `implement(...)` and `createCellsClient<typeof contract>(...)`
+// Use `surface.contract` at server (`implement(surface.contract)`) and
+// client (`createCellsClient<typeof surface.contract>(...)`) — no
+// separate `contract.ts` re-export needed.
 ```
 
 ### Server
 
 ```ts
 // server/router.ts
-import { implementMatrix, publisherChannel } from "@kolu/cells/server";
+import { implementSurface, publisherChannel } from "@kolu/cells/server";
 
-export const appRouter = implementMatrix(matrix, {
+export const appRouter = implementSurface(surface, {
   channel: <T>(name: string) => publisherChannel<T>(publisher, name),
-  cells:       { prefs: { store, patch: applyPrefsPatch } },
-  collections: { notes: { readAll, upsert, remove } },  // persistence-only; matrix wraps publish
+  cells:       { prefs: { store, patch: patch } },
+  collections: { notes: { readAll, upsert, remove } },  // persistence-only; surface wraps publish
   streams:     { search: { source } },
   events:      { autosave: { source } },
   procedures:  {
     notes: {
-      // ctx exposes matrix-wrapped helpers; cross-descriptor publishes
+      // ctx exposes surface-wrapped helpers; cross-descriptor publishes
       // route through the same channels the wire handlers do.
       create: async ({ input, ctx }) => {
         const note = { id: nextId(), ...input };
@@ -441,20 +450,20 @@ export const appRouter = implementMatrix(matrix, {
 });
 ```
 
-The matrix derives publish channel names: cells use `"<key>:changed"`, collections use `"<key>:keys"` + `"<key>:" + String(key)`. Override via `spec.cells[K].channelName` / `spec.collections[K].channelNames` when migrating off hand-named channels — renaming a matrix key would otherwise silently rename the channel and break consumers with persisted subscriptions.
+The surface derives publish channel names: cells use `"<key>:changed"`, collections use `"<key>:keys"` + `"<key>:" + String(key)`. Override via `spec.cells[K].channelName` / `spec.collections[K].channelNames` when migrating off hand-named channels — renaming a surface key would otherwise silently rename the channel and break consumers with persisted subscriptions.
 
 ### Client
 
 ```ts
 // client/cells.ts
-import { matrixClient } from "@kolu/cells/solid";
+import { surfaceClient } from "@kolu/cells/solid";
 import type { ContractRouterClient } from "@orpc/contract";
 import type { ClientRetryPluginContext } from "@orpc/client/plugins";
 
-export const cells = matrixClient<
-  typeof matrix.spec,
+export const cells = surfaceClient<
+  typeof surface.spec,
   ContractRouterClient<typeof contract, ClientRetryPluginContext>
->(matrix, { websocket });
+>(surface, { websocket });
 
 // In components:
 const prefs = cells.cells.prefs.use({ authority: "local", initial: DEFAULT_PREFS, applyPatch });
@@ -468,16 +477,16 @@ await cells.rpc.notes.create({ title: "Untitled" });
 
 ### Composing with raw oRPC
 
-For RPCs the matrix can't model — bidirectional binary streams (`terminal.attach`), custom `onRetry` hooks, or any wire shape outside the cell/collection/stream/event taxonomy — keep them in a sibling `oc.router({...})` and merge:
+For RPCs the surface can't model — bidirectional binary streams (`terminal.attach`), custom `onRetry` hooks, or any wire shape outside the cell/collection/stream/event taxonomy — keep them in a sibling `oc.router({...})` and merge:
 
 ```ts
 export const contract = oc.router({
-  ...matrix.contract,
+  ...surface.contract,
   terminal: rawTerminalContract,  // hand-written for terminal.attach + friends
 });
 ```
 
-On the server, `implementMatrix(matrix, deps)` returns a router-shape value; spread it alongside hand-written handlers in the same `t.router({...})` block. This is the path Kolu itself will take when its existing wire shape (`preferences.update`, `terminal.list`, `git.onStatusChange`, …) is folded onto the matrix — the matrix's verb-naming defaults don't match Kolu's existing wire, so adoption requires either matrix extensions (per-entry verb overrides) or reshaping Kolu's wire. Tracked as a follow-up.
+On the server, `implementSurface(surface, deps)` returns a router-shape value; spread it alongside hand-written handlers in the same `t.router({...})` block. This is the path Kolu itself will take when its existing wire shape (`preferences.update`, `terminal.list`, `git.onStatusChange`, …) is folded onto the surface — the surface's verb-naming defaults don't match Kolu's existing wire, so adoption requires either surface extensions (per-entry verb overrides) or reshaping Kolu's wire. Tracked as a follow-up.
 
 ## API reference
 
@@ -490,20 +499,20 @@ stream({ name, inputSchema, outputSchema }): Stream<Name, I, T>
 event({ name, inputSchema, outputSchema }): Event<Name, I, T>
 ```
 
-### Matrix (`@kolu/cells/define`)
+### Surface (`@kolu/cells/define`)
 
 ```ts
-defineMatrix(spec): Matrix<S>
+defineSurface(spec): Surface<S>
   // spec.cells / .collections / .streams / .events / .procedures
-  // matrix.contract — typed oc.router built from the spec
-  // matrix.descriptors — underlying primitives keyed by matrix path
-  // matrix.spec — passed-in spec for reflection
+  // surface.contract — typed oc.router built from the spec
+  // surface.descriptors — underlying primitives keyed by surface path
+  // surface.spec — passed-in spec for reflection
 ```
 
 ### Server (`@kolu/cells/server`)
 
 ```ts
-implementMatrix(matrix, { channel, cells, collections, streams, events, procedures })
+implementSurface(surface, { channel, cells, collections, streams, events, procedures })
   // → oc.router-shape value with all handlers wired
 
 cellHandlers(cell, { store, bus, patch?, onMutate? }): { get, set, patch, test__set }
@@ -526,7 +535,7 @@ interface ChannelBus<T> { publish(v: T): void; subscribe(signal?): AsyncIterable
 ### Solid client (`@kolu/cells/solid`)
 
 ```ts
-matrixClient<S, Rpc>(matrix, { websocket }): MatrixClientBundle<S, Rpc>
+surfaceClient<S, Rpc>(surface, { websocket }): SurfaceClientBundle<S, Rpc>
   // bundle.cells.<K>.use(policy)              ← drops source/mutate
   // bundle.collections.<K>.use({ keys, ... }) ← drops valueSource/keyToInput
   // bundle.streams.<K>.use(inputFn, opts?)
