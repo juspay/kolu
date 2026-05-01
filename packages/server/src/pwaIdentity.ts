@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { ServerIdentity } from "kolu-common";
 
 const THEME_COLORS = [
@@ -26,16 +27,10 @@ export function pwaIdentityForHostname(hostname: string): ServerIdentity {
 
 function themeColorForHostname(hostname: string): string {
   const seed = hostname.toLowerCase();
-  return (
-    THEME_COLORS[hashHostname(seed) % THEME_COLORS.length] ?? THEME_COLORS[0]
-  );
+  return THEME_COLORS[paletteIndex(seed)] ?? THEME_COLORS[0];
 }
 
-function hashHostname(hostname: string): number {
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < hostname.length; i++) {
-    hash ^= hostname.charCodeAt(i);
-    hash = Math.imul(hash, 0x01000193);
-  }
-  return hash >>> 0;
+function paletteIndex(hostname: string): number {
+  const digest = createHash("sha256").update(hostname).digest();
+  return digest.readUInt32BE(0) % THEME_COLORS.length;
 }
