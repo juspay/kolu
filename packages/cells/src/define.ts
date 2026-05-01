@@ -106,12 +106,7 @@ export interface MatrixSpec {
 
 const DEFAULT_CELL_VERBS_WITH_PATCH = ["get", "patch"] as const;
 const DEFAULT_CELL_VERBS_WITHOUT_PATCH = ["get", "set"] as const;
-const DEFAULT_COLLECTION_VERBS = [
-  "keys",
-  "get",
-  "update",
-  "delete",
-] as const;
+const DEFAULT_COLLECTION_VERBS = ["keys", "get", "update", "delete"] as const;
 
 // ── Per-primitive contract derivation ──────────────────────────────────
 
@@ -188,9 +183,7 @@ function eventContractEntries<I, T>(
   };
 }
 
-function procedureContractEntry<I, O>(
-  spec: ProcedureSpec<I, O>,
-): unknown {
+function procedureContractEntry<I, O>(spec: ProcedureSpec<I, O>): unknown {
   const input = spec.input ?? z.void();
   const output = spec.output ?? z.void();
   return oc.input(input).output(output);
@@ -211,10 +204,8 @@ export interface MatrixDescriptors<S extends MatrixSpec> {
       : never;
   };
   collections: {
-    [K in keyof S["collections"] & string]: S["collections"][K] extends CollectionSpec<
-      infer K2,
-      infer T
-    >
+    [K in keyof S["collections"] &
+      string]: S["collections"][K] extends CollectionSpec<infer K2, infer T>
       ? Collection<K, K2, T>
       : never;
   };
@@ -259,8 +250,9 @@ export type MatrixContractFor<S extends MatrixSpec> = MergeContract<
     : EmptyObj,
   S["collections"] extends Record<string, CollectionSpec<any, any>>
     ? {
-        [K in keyof S["collections"] &
-          string]: CollectionContract<S["collections"][K]>;
+        [K in keyof S["collections"] & string]: CollectionContract<
+          S["collections"][K]
+        >;
       }
     : EmptyObj,
   S["streams"] extends Record<string, StreamSpec<any, any>>
@@ -405,10 +397,7 @@ function buildEvent<I, T>(opts: {
   };
 }
 
-function buildProcedure<I, O>(opts: {
-  input: ZodType<I>;
-  output: ZodType<O>;
-}) {
+function buildProcedure<I, O>(opts: { input: ZodType<I>; output: ZodType<O> }) {
   return oc.input(opts.input).output(opts.output);
 }
 

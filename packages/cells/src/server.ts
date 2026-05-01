@@ -463,10 +463,7 @@ export type StreamImplDeps<S extends StreamSpec<unknown, unknown>> = S extends {
   outputSchema: ZodType<infer T>;
 }
   ? {
-      source: (
-        input: I,
-        signal: AbortSignal | undefined,
-      ) => AsyncIterable<T>;
+      source: (input: I, signal: AbortSignal | undefined) => AsyncIterable<T>;
     }
   : never;
 
@@ -479,10 +476,7 @@ export type EventImplDeps<S extends EventSpec<unknown, unknown>> = S extends {
   outputSchema: ZodType<infer T>;
 }
   ? {
-      source: (
-        input: I,
-        signal: AbortSignal | undefined,
-      ) => AsyncIterable<T>;
+      source: (input: I, signal: AbortSignal | undefined) => AsyncIterable<T>;
     }
   : never;
 
@@ -515,9 +509,7 @@ type CollectionCtxFor<S> = S extends {
 
 export type ProcedureCtx<S extends MatrixSpec> = {
   cells: {
-    [K in keyof S["cells"] & string]: CellCtxFor<
-      NonNullable<S["cells"]>[K]
-    >;
+    [K in keyof S["cells"] & string]: CellCtxFor<NonNullable<S["cells"]>[K]>;
   };
   collections: {
     [K in keyof S["collections"] & string]: CollectionCtxFor<
@@ -556,9 +548,7 @@ export interface ImplementMatrixDeps<S extends MatrixSpec> {
   channel: <T>(name: string) => ChannelBus<T>;
 
   cells?: {
-    [K in keyof S["cells"] & string]: CellImplDeps<
-      NonNullable<S["cells"]>[K]
-    >;
+    [K in keyof S["cells"] & string]: CellImplDeps<NonNullable<S["cells"]>[K]>;
   };
   collections?: {
     [K in keyof S["collections"] & string]: CollectionImplDeps<
@@ -630,7 +620,11 @@ export function implementMatrix<const S extends MatrixSpec>(
     const bus = deps.channel<unknown>(channelName);
     // biome-ignore lint/suspicious/noExplicitAny: see top of fn
     const cellDeps = (deps.cells as any)?.[key] as
-      | { store: CellStore<unknown>; patch?: (c: unknown, p: unknown) => unknown; onMutate?: (p: unknown, c: unknown) => void }
+      | {
+          store: CellStore<unknown>;
+          patch?: (c: unknown, p: unknown) => unknown;
+          onMutate?: (p: unknown, c: unknown) => void;
+        }
       | undefined;
     if (!cellDeps) {
       throw new Error(`implementMatrix: missing deps for cell "${key}"`);
@@ -684,8 +678,7 @@ export function implementMatrix<const S extends MatrixSpec>(
     const collSpec = rawSpec as CollectionSpec<unknown, unknown>;
     const keysName = collSpec.channelNames?.keys ?? `${key}:keys`;
     const perKeyName =
-      collSpec.channelNames?.perKey ??
-      ((k: unknown) => `${key}:${String(k)}`);
+      collSpec.channelNames?.perKey ?? ((k: unknown) => `${key}:${String(k)}`);
     // biome-ignore lint/suspicious/noExplicitAny: see top of fn
     const collDeps = (deps.collections as any)?.[key] as
       | {
@@ -696,13 +689,10 @@ export function implementMatrix<const S extends MatrixSpec>(
         }
       | undefined;
     if (!collDeps) {
-      throw new Error(
-        `implementMatrix: missing deps for collection "${key}"`,
-      );
+      throw new Error(`implementMatrix: missing deps for collection "${key}"`);
     }
     const keysBus = deps.channel<unknown[]>(keysName);
-    const perKeyBus = (k: unknown) =>
-      deps.channel<unknown>(perKeyName(k));
+    const perKeyBus = (k: unknown) => deps.channel<unknown>(perKeyName(k));
 
     // Matrix-owned publish: every upsert/remove broadcasts the new key set
     // (and, on upsert, the new per-key value) through the framework's
@@ -721,8 +711,7 @@ export function implementMatrix<const S extends MatrixSpec>(
       upsert: wrappedUpsert,
       remove: wrappedRemove,
       readAll: collDeps.readAll,
-      readOne:
-        collDeps.readOne ?? ((k: unknown) => collDeps.readAll().get(k)),
+      readOne: collDeps.readOne ?? ((k: unknown) => collDeps.readAll().get(k)),
     };
 
     const handlers = collectionHandlers(
@@ -743,8 +732,7 @@ export function implementMatrix<const S extends MatrixSpec>(
     );
 
     const verbs =
-      collSpec.expose ??
-      (["keys", "get", "update", "delete"] as const);
+      collSpec.expose ?? (["keys", "get", "update", "delete"] as const);
     const ns: Record<string, unknown> = {};
     for (const v of verbs) {
       // biome-ignore lint/suspicious/noExplicitAny: see top of fn

@@ -102,12 +102,10 @@ export const appRouter = implementMatrix(matrix, {
 
 // ── Helpers (search-tick subscription, autosave debounce) ──────────────
 
-function readAll(): Map<string, ReturnType<typeof allNotes> extends Map<
-  infer _K,
-  infer V
->
-  ? V
-  : never> {
+function readAll(): Map<
+  string,
+  ReturnType<typeof allNotes> extends Map<infer _K, infer V> ? V : never
+> {
   return allNotes();
 }
 

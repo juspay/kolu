@@ -13,10 +13,7 @@
  */
 
 import type { ZodType } from "zod";
-import {
-  createCellsClient,
-  type StreamingProcedure,
-} from "../client";
+import { createCellsClient, type StreamingProcedure } from "../client";
 import type {
   CellSpec,
   CollectionSpec,
@@ -27,10 +24,7 @@ import type {
   StreamSpec,
 } from "../define";
 import type { ReactiveSubscriptionOptions } from "./createReactiveSubscription";
-import type {
-  Subscription,
-  SubscriptionOptions,
-} from "./createSubscription";
+import type { Subscription, SubscriptionOptions } from "./createSubscription";
 import { useCell, type UseCellResult } from "./useCell";
 import { useCollection, type UseCollectionResult } from "./useCollection";
 import { useEvent, type UseEventOptions } from "./useEvent";
@@ -85,9 +79,10 @@ export interface BoundEvent<I, T> {
 // ── Bundle type — mapped over the matrix spec ──────────────────────────
 
 type BoundCellsFor<S extends MatrixSpec> = {
-  [K in keyof S["cells"] & string]: NonNullable<
-    S["cells"]
-  >[K] extends CellSpec<infer T, infer P>
+  [K in keyof S["cells"] & string]: NonNullable<S["cells"]>[K] extends CellSpec<
+    infer T,
+    infer P
+  >
     ? BoundCell<T, P>
     : never;
 };

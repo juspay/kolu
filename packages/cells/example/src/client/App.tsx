@@ -13,10 +13,7 @@
  * via `cells.rpc.<ns>.<verb>(...)`.
  */
 
-import {
-  createSubscription,
-  streamCall,
-} from "@kolu/cells/solid";
+import { createSubscription, streamCall } from "@kolu/cells/solid";
 import { applyPrefsPatch } from "../common/cells";
 import { DEFAULT_PREFS, type Note, type NoteId } from "../common/schemas";
 import {
