@@ -261,17 +261,48 @@ status.error();    // last subscription error
 
 When the input changes, the previous subscription tears down and a fresh one starts; value resets to `undefined` between input change and first yield.
 
-## What stays raw oRPC
+## How Kolu uses this framework
 
-Three categories don't fit any of the three primitives — keep them as plain oRPC procedures:
+Concrete inventory — what every server-pushed reactive surface in Kolu maps to today.
 
-| Pattern | Why it doesn't fit | How to consume |
-|---------|--------------------|----------------|
-| Bidirectional binary streams (e.g. terminal `attach`) | Subscribe-before-yield ordering, custom retry hooks (e.g. xterm buffer reset). Not state — a protocol. | `streamCall(client.terminal.attach, { id }, { signal, onRetry })` |
-| Lifecycle events (e.g. terminal `onExit`) | Single-yield-then-close, not continuous state. | `streamCall(client.terminal.onExit, { id })` |
-| Commands and queries (`create`, `kill`, `worktreeCreate`, `info`) | Request/response. No subscription dimension. | `client.terminal.create(...)` directly |
+### Cells
 
-`streamCall` applies `STREAM_RETRY` context (and merges in an optional `onRetry` callback) so transport drops re-subscribe transparently — same retry semantics as the descriptor-driven hooks, escape hatch for non-descriptor shapes.
+| Descriptor | Backs | Authority | Mutation | Persistence |
+|---|---|---|---|---|
+| `preferencesCell` | User preferences (theme, scrollLock, sound, rightPanel state, …) | `local` (instant UI) | `client.preferences.update(patch)` | `confStore("preferences")` |
+| `terminalListCell` | Live terminal list — drives the pill tree, canvas tile set, mobile swipe order | `server` | _server-only_ (via `terminal.create` / `kill` mutations) | `inMemoryStore` (registry is canonical) |
+| `activityFeedCell` | Recent repos cd'd into + recent agent CLIs spotted via OSC 633;E | `server` | _server-only_ (via `trackRecentRepo` / `trackRecentAgent`) | `confStore("activityFeed")` |
+| `savedSessionCell` | Last-persisted snapshot of terminals + active id (drives session restore) | `server` | _server-only_ (debounced autosave on `terminals:dirty`) | `confStore("session")` |
+
+### Collections
+
+| Descriptor | Backs | Mutation |
+|---|---|---|
+| `terminalMetadataCollection` | Per-terminal metadata (cwd, git, PR, agent state, foreground process) — each terminal's tile chrome and inspector reads its own key | _server-only_ (providers under `meta/*.ts` write via `updateServerMetadata`) |
+
+### Streams
+
+| Descriptor | Backs |
+|---|---|
+| `gitStatusStream` | Code-view's Local/Branch mode file list (changed files) |
+| `gitDiffStream` | Code-view's unified diff for the selected file |
+| `fsListAllStream` | Code-view's All mode tree (full repo path list) |
+| `fsReadFileStream` | Code-view's All mode body (file content) |
+
+### Raw oRPC (everything else)
+
+Shapes that don't fit a Cell/Collection/Stream descriptor stay as plain oRPC procedures.
+
+| Pattern | Procedures | How to consume |
+|---|---|---|
+| **Bidirectional binary stream** — subscribe-before-yield ordering, custom `onRetry` (xterm buffer reset before re-subscribe's first frame) | `terminal.attach` | `streamCall(client.terminal.attach, { id }, { signal, onRetry })` |
+| **Lifecycle event** — single-yield-then-close, not continuous state | `terminal.onExit` | `streamCall(client.terminal.onExit, { id })` |
+| **One-shot queries** — request/response, no subscription dimension | `server.info`, `terminal.screenState`, `terminal.screenText`, `terminal.exportTranscriptHtml` | `await client.X.Y(input)` |
+| **Mutations** — request/response writes | `terminal.create` / `kill` / `killAll` / `resize` / `sendInput` / `setTheme` / `setCanvasLayout` / `setSubPanel` / `setActive` / `setParent` / `pasteImage`, `git.worktreeCreate` / `worktreeRemove`, `preferences.update` | `await client.X.Y(input)` (the retry plugin's `retry: 0` default fails them fast) |
+
+`streamCall` applies the same `STREAM_RETRY` context the descriptor hooks thread (and merges in an optional `onRetry` callback) so transport drops re-subscribe transparently — escape hatch for non-descriptor shapes, same retry semantics.
+
+_The shared property of the "raw" rows: there's no temporal sequence of values for a given identity that the client cares to subscribe to. The framework is for typed reactive state pushed from server to client; everything else stays raw._
 
 ## API reference
 
