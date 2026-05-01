@@ -28,7 +28,17 @@ export const setPrefs = (next: EditorPrefs): void => {
 };
 
 // ── Keyed state: notes ────────────────────────────────────────────────
-const notes = new Map<string, Note>();
+const notes = new Map<string, Note>([
+  [
+    "welcome",
+    {
+      id: "welcome",
+      title: "Welcome",
+      body: "Edit me, create new notes with + New, or search above.",
+      updatedAt: 0,
+    },
+  ],
+]);
 
 let nextId = 1;
 export const newNoteId = (): string => `n${nextId++}`;
