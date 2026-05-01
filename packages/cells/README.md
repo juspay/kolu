@@ -120,7 +120,7 @@ import { createCellsClient } from "@kolu/cells/solid";
 import type { contract } from "kolu-common/contract";
 
 const ws = new WebSocket(`wss://${host}/rpc/ws`);
-export const { client } = createCellsClient<typeof contract>({ websocket: ws });
+export const client = createCellsClient<typeof contract>({ websocket: ws });
 ```
 
 `createCellsClient` installs `ClientRetryPlugin` and returns the typed oRPC client. Hooks accept procedure refs (e.g. `client.preferences.get`) and thread `STREAM_RETRY` retry context internally — there's no `stream` namespace to maintain. For raw streaming RPCs that don't fit a Cell/Collection/Stream descriptor (terminal `attach`, lifecycle `onExit`), use `streamCall(procedure, input, opts)` — same retry context, escape hatch for non-descriptor shapes.
@@ -310,7 +310,7 @@ useCollection(collection, { keys, valueSource, keyToInput?, onError? })
 useStream(stream, inputFn, source, { onError? }?)
 
 streamCall(procedure, input, { signal?, onRetry? }?): Promise<AsyncIterable<O>>
-createCellsClient<C>({ websocket }): { client: ContractRouterClient<C, ...> }
+createCellsClient<C>({ websocket }): ContractRouterClient<C, ...>
 
 createSubscription(source, options?): Subscription<T>           // leaf primitive
 createReactiveSubscription(inputFn, factory, options?): Subscription<T>

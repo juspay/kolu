@@ -37,6 +37,6 @@ export const ws = new PartySocket(wsUrl);
 (window as Window & { __koluWs?: PartySocket }).__koluWs = ws;
 
 // PartySocket is API-compatible with WebSocket but the types don't overlap.
-export const { client } = createCellsClient<typeof contract>({
+export const client = createCellsClient<typeof contract>({
   websocket: ws as unknown as WebSocket,
 });

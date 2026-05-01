@@ -69,7 +69,7 @@ export function streamCall<I, O>(
 }
 
 /** Build a typed oRPC client wired to a WebSocket transport with
- *  `ClientRetryPlugin` installed. Consumers feed the returned `client`
+ *  `ClientRetryPlugin` installed. Consumers feed the returned client
  *  to `useCell` / `useCollection` / `useStream` for streaming, and use
  *  it directly for one-shot mutations and queries (those don't go
  *  through retry — the plugin's default `retry: 0` fails them fast).
@@ -78,7 +78,7 @@ export function streamCall<I, O>(
  *  fully typed end-to-end:
  *
  *  ```ts
- *  const { client } = createCellsClient<typeof contract>({ websocket: ws });
+ *  const client = createCellsClient<typeof contract>({ websocket: ws });
  *  ```
  *
  *  The websocket is passed through unchanged — partysocket and other
@@ -87,13 +87,12 @@ export function streamCall<I, O>(
  *  policy is orthogonal to retry). */
 export function createCellsClient<C extends AnyContractRouter>(opts: {
   websocket: WebSocket;
-}): { client: ContractRouterClient<C, ClientRetryPluginContext> } {
+}): ContractRouterClient<C, ClientRetryPluginContext> {
   const link = new RPCLink<ClientRetryPluginContext>({
     websocket: opts.websocket,
     plugins: [new ClientRetryPlugin()],
   });
-  return {
-    client:
-      createORPCClient<ContractRouterClient<C, ClientRetryPluginContext>>(link),
-  };
+  return createORPCClient<ContractRouterClient<C, ClientRetryPluginContext>>(
+    link,
+  );
 }
