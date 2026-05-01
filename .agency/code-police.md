@@ -26,12 +26,21 @@ Bad: `unwrap(arr[i], "out of bounds")` — type system can't see the throw
 Good: `arr[i] ?? arr[0]` on `NonEmpty<T>` — positional `arr[0]` is statically `T`, fallback is typed
 _Rationale_: Every "untyped throw" wrapper is an escape hatch the compiler can't reason about. The fix is structural — make the data model carry the invariant — not packaging the same assertion behind a nicer name.
 
-### catch-must-surface-error
+### toast-must-include-error-message
 
 When catching an error to show a toast, always include `err.message` in the toast text.
 Bad: `.catch(() => toast.error("Failed to set theme"))`
 Good: `.catch((err: Error) => toast.error(\`Failed to set theme: ${err.message}\`))`
 _Rationale_: Generic error toasts hide the server's actual error message, making debugging impossible. The server returns specific error details via oRPC — surface them.
+
+### caught-error-must-not-collapse-to-empty
+
+When a `try`/`catch` converts a thrown error into a "no data" return value (`undefined`, `null`, `[]`, `""`), the failure must be **distinguishable to the user from a legitimate empty result**. `console.warn` / `console.error` does not count — DevTools is not a user surface. Surface via toast, an error signal the caller renders, a `Result<T, E>` return, or an error boundary.
+
+Bad: `try { return parse(raw); } catch (e) { console.warn(e); return undefined; }` — caller can't tell malformed-input from no-input
+Good: `try { return ok(parse(raw)); } catch (e) { return err({ message: e.message }); }` — caller decides how to render the error
+
+_Rationale_: A silent fallback to empty state means a malformed input renders identically to a missing one. The bug stays invisible until someone notices and instruments DevTools — by which point the data path has been wrong for weeks. This rule covers the gap `toast-must-include-error-message` leaves: that one is about *how* to format a toast you've already decided to show; this one is about whether the failure surfaces at all.
 
 ### styling-tailwind-only
 
