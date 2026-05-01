@@ -56,6 +56,10 @@ server:
 client:
     cd packages/client && {{ nix_shell }} pnpm dev
 
+# Run the @kolu/cells framework example (notes app — all 4 primitives)
+cells-example: install
+    {{ nix_shell }} pnpm --filter @kolu/cells-example dev
+
 # Run unit tests (vitest) across server and client packages
 test-unit: install
     {{ nix_shell }} pnpm test:unit

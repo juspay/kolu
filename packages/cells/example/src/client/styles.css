@@ -1,0 +1,10 @@
+/* biome-ignore-all parse: tailwind v4 directives are valid (`@import` plus
+ * `@custom-variant`) but biome's CSS parser is conservative about
+ * vendor-extended at-rules even with `tailwindDirectives` on. */
+
+@import "tailwindcss";
+
+/* Drive Tailwind's `dark:` variants from a class on <html data-theme>
+ * so the theme Cell can toggle the whole document. The `useCell`
+ * effect mirrors `prefs.value()?.theme` to the attribute. */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
