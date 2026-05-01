@@ -21,7 +21,7 @@
 
 import { subscribeGitHubPr } from "kolu-github";
 import { log } from "../log.ts";
-import { terminalChannels } from "../publisher.ts";
+import { consumeChannel, terminalChannels } from "../publisher.ts";
 import type { TerminalProcess } from "../terminal-registry.ts";
 import { updateServerMetadata } from "./state.ts";
 
@@ -50,19 +50,12 @@ export function startGitHubPrProvider(
   }, plog);
 
   const abort = new AbortController();
-  void (async () => {
-    try {
-      for await (const git of terminalChannels
-        .git(terminalId)
-        .subscribe(abort.signal)) {
-        watcher.setGit(git?.repoRoot ?? null, git?.branch ?? null);
-      }
-    } catch (err) {
-      if (!abort.signal.aborted) {
-        plog.error({ err }, "publisher subscription failed");
-      }
-    }
-  })();
+  consumeChannel(
+    terminalChannels.git(terminalId),
+    abort.signal,
+    (git) => watcher.setGit(git?.repoRoot ?? null, git?.branch ?? null),
+    (err) => plog.error({ err }, "publisher subscription failed"),
+  );
 
   return () => {
     abort.abort();

@@ -17,7 +17,7 @@
  *  convention this file uses for the per-terminal axis.
  */
 
-import { publisherChannel } from "@kolu/cells/server";
+import { type ChannelBus, publisherChannel } from "@kolu/cells/server";
 import { MemoryPublisher } from "@orpc/experimental-publisher/memory";
 import type { GitInfo, TerminalMetadata } from "kolu-common";
 
@@ -68,3 +68,25 @@ export const terminalsDirtyChannel = publisherChannel<Record<string, never>>(
   publisher,
   "terminals:dirty",
 );
+
+/** Spawn a fire-and-forget consumer that iterates `channel` until `signal`
+ *  aborts, dispatches each value to `onEvent`, and routes uncaught errors
+ *  to `onError` — but only when the signal isn't already aborted, since
+ *  the publisher's iterator rejects with `signal.reason` on clean
+ *  shutdown (suppressing those keeps the log free of expected
+ *  end-of-life noise). The five providers in `meta/*.ts` all consume a
+ *  per-terminal channel this way. */
+export function consumeChannel<T>(
+  channel: ChannelBus<T>,
+  signal: AbortSignal,
+  onEvent: (value: T) => void,
+  onError: (err: unknown) => void,
+): void {
+  void (async () => {
+    try {
+      for await (const value of channel.subscribe(signal)) onEvent(value);
+    } catch (err) {
+      if (!signal.aborted) onError(err);
+    }
+  })();
+}

@@ -28,7 +28,7 @@ import { parseAgentCommand } from "anyagent";
 import type { TerminalId } from "kolu-common";
 import { trackRecentAgent } from "../activity.ts";
 import { log } from "../log.ts";
-import { terminalChannels } from "../publisher.ts";
+import { consumeChannel, terminalChannels } from "../publisher.ts";
 import { getTerminal } from "../terminal-registry.ts";
 import { updateServerMetadata } from "./state.ts";
 
@@ -50,35 +50,31 @@ export function getLastAgentCommandName(terminalId: TerminalId): string | null {
 export function startAgentCommandTracker(terminalId: TerminalId): () => void {
   currentAgent.set(terminalId, null);
   const abort = new AbortController();
-  void (async () => {
-    try {
-      for await (const raw of terminalChannels
-        .commandRun(terminalId)
-        .subscribe(abort.signal)) {
-        const normalized = parseAgentCommand(raw);
-        currentAgent.set(terminalId, normalized?.split(" ")[0] ?? null);
-        if (normalized) {
-          const entry = getTerminal(terminalId);
-          // Gate on actual value change — otherwise re-invoking the same
-          // agent (`claude --model sonnet` twice in a row) would refire
-          // the metadata publish + session auto-save on every command.
-          if (entry && entry.info.meta.lastAgentCommand !== normalized) {
-            updateServerMetadata(entry, terminalId, (m) => {
-              m.lastAgentCommand = normalized;
-            });
-          }
-          trackRecentAgent(normalized);
+  consumeChannel(
+    terminalChannels.commandRun(terminalId),
+    abort.signal,
+    (raw) => {
+      const normalized = parseAgentCommand(raw);
+      currentAgent.set(terminalId, normalized?.split(" ")[0] ?? null);
+      if (normalized) {
+        const entry = getTerminal(terminalId);
+        // Gate on actual value change — otherwise re-invoking the same
+        // agent (`claude --model sonnet` twice in a row) would refire
+        // the metadata publish + session auto-save on every command.
+        if (entry && entry.info.meta.lastAgentCommand !== normalized) {
+          updateServerMetadata(entry, terminalId, (m) => {
+            m.lastAgentCommand = normalized;
+          });
         }
+        trackRecentAgent(normalized);
       }
-    } catch (err) {
-      if (!abort.signal.aborted) {
-        log.error(
-          { err, terminal: terminalId, channel: "commandRun" },
-          "publisher subscription failed",
-        );
-      }
-    }
-  })();
+    },
+    (err) =>
+      log.error(
+        { err, terminal: terminalId, channel: "commandRun" },
+        "publisher subscription failed",
+      ),
+  );
   return () => {
     abort.abort();
     currentAgent.delete(terminalId);
