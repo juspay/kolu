@@ -1,34 +1,23 @@
 /**
- * oRPC router: implements the contract with terminal lifecycle and I/O handlers.
+ * oRPC router: implements the contract.
  *
- * Streaming handlers subscribe to publisher channels over WebSocket.
- * Terminal CRUD (create, kill, etc.) is request-response; list and metadata are live streams.
+ * The typed reactive layer (cells/collections/streams/events) goes through
+ * `implementSurface(surface, deps)`; raw oRPC procedures (terminal lifecycle,
+ * attach, git mutations, server info) stay hand-listed and spread alongside.
  */
 import {
-  cellHandlers,
-  eventHandlers,
+  implementSurface,
   pollOnEvent,
-  streamHandlers,
+  publisherChannel,
 } from "@kolu/cells/server";
 import { implement, ORPCError } from "@orpc/server";
 
 import { loadClaudeCodeTranscript } from "kolu-claude-code";
 import { loadCodexTranscript } from "kolu-codex";
 import type { Transcript, TranscriptPr } from "kolu-common";
-import {
-  activityFeedCell,
-  applyPreferencesPatch,
-  fsListAllStream,
-  fsReadFileStream,
-  gitDiffStream,
-  gitStatusStream,
-  preferencesCell,
-  savedSessionCell,
-  terminalExitEvent,
-  terminalListCell,
-} from "kolu-common/surface";
 import { contract } from "kolu-common/contract";
 import { TerminalNotFoundError } from "kolu-common/errors";
+import { surface } from "kolu-common/surface";
 import {
   fsListAllOutputEqual,
   fsReadFileOutputEqual,
@@ -50,14 +39,13 @@ import { transcriptToHtml } from "kolu-transcript-html";
 import { match } from "ts-pattern";
 import {
   activityFeedStore,
-  cellBus,
   preferencesStore,
   savedSessionStore,
 } from "./cells.ts";
 import { saveClipboardImage } from "./clipboard.ts";
 import { serverHostname, serverProcessId } from "./hostname.ts";
 import { log } from "./log.ts";
-import { terminalChannels } from "./publisher.ts";
+import { publisher, terminalChannels } from "./publisher.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import { getSavedSession } from "./session.ts";
 import {
@@ -76,171 +64,12 @@ import {
 
 const t = implement(contract);
 
-// ── Cell / Stream handler wiring (framework: @kolu/cells/server) ───────
-// Each block produces the snapshot+deltas + mutate handlers that plug
-// into the contract's typed router. Domain modules (preferences.ts,
-// activity.ts, session.ts, terminals.ts) remain the source of truth
-// for *what* the data is; the framework owns *how* it's delivered and
-// *how* mutations propagate (validate → persist → publish to bus).
-
-const preferencesHandlers = cellHandlers(preferencesCell, {
-  store: preferencesStore,
-  bus: cellBus.preferences,
-  patch: applyPreferencesPatch,
-  // Log only patched keys — values may carry user-identifying state
-  // (themes, file paths in rightPanel.tab) that have no business in
-  // operator logs. Same shape as the pre-framework inline log.info.
-  onMutate: (patch) =>
-    log.info(
-      {
-        keys: Object.keys(patch),
-        rightPanel: patch.rightPanel
-          ? Object.keys(patch.rightPanel)
-          : undefined,
-      },
-      "preferences update",
-    ),
-});
-
-const activityHandlers = cellHandlers(activityFeedCell, {
-  store: activityFeedStore,
-  bus: cellBus.activityFeed,
-});
-
-const sessionHandlers = cellHandlers(savedSessionCell, {
-  // Reads through getSavedSession to keep the "empty terminals = null"
-  // legacy normalization at one site (session.ts owns that invariant).
-  store: { get: () => getSavedSession(), set: savedSessionStore.set },
-  bus: cellBus.savedSession,
-});
-
-const terminalListHandlers = cellHandlers(terminalListCell, {
-  // Live list — no persistence; the registry is the source of truth.
-  store: { get: () => listTerminals(), set: () => {} },
-  bus: cellBus.terminalList,
-});
-
-const gitStatusHandlers = streamHandlers(gitStatusStream, {
-  source: (input, signal) =>
-    pollOnEvent({
-      read: async () =>
-        unwrapGit(await getStatus(input.repoPath, input.mode, log)),
-      isEqual: gitStatusOutputEqual,
-      install: (cb) => subscribeRepoChange(input.repoPath, cb, log),
-      signal,
-      // Transient git errors shouldn't tear down the long-lived
-      // subscription — the upstream debounce will tick again and the
-      // next read may succeed. Log loud enough that a *persistent*
-      // failure is visible to operators (a stuck stream silently
-      // returning stale state is the worse failure mode).
-      onReadError: (e) => {
-        log.error(
-          { err: e instanceof Error ? e.message : String(e) },
-          "stream snapshot read failed",
-        );
-      },
-    }),
-});
-
-const gitDiffHandlers = streamHandlers(gitDiffStream, {
-  source: (input, signal) =>
-    pollOnEvent({
-      read: async () =>
-        unwrapGit(
-          await getDiff(
-            input.repoPath,
-            input.filePath,
-            input.mode,
-            log,
-            input.oldPath,
-          ),
-        ),
-      isEqual: gitDiffOutputEqual,
-      install: (cb) => subscribeRepoChange(input.repoPath, cb, log),
-      signal,
-      // Transient git errors shouldn't tear down the long-lived
-      // subscription — the upstream debounce will tick again and the
-      // next read may succeed. Log loud enough that a *persistent*
-      // failure is visible to operators (a stuck stream silently
-      // returning stale state is the worse failure mode).
-      onReadError: (e) => {
-        log.error(
-          { err: e instanceof Error ? e.message : String(e) },
-          "stream snapshot read failed",
-        );
-      },
-    }),
-});
-
-const fsListAllHandlers = streamHandlers(fsListAllStream, {
-  source: (input, signal) =>
-    pollOnEvent({
-      read: async () => ({
-        paths: unwrapGit(await listAll(input.repoPath, log)),
-      }),
-      isEqual: fsListAllOutputEqual,
-      install: (cb) => subscribeRepoChange(input.repoPath, cb, log),
-      signal,
-      // Transient git errors shouldn't tear down the long-lived
-      // subscription — the upstream debounce will tick again and the
-      // next read may succeed. Log loud enough that a *persistent*
-      // failure is visible to operators (a stuck stream silently
-      // returning stale state is the worse failure mode).
-      onReadError: (e) => {
-        log.error(
-          { err: e instanceof Error ? e.message : String(e) },
-          "stream snapshot read failed",
-        );
-      },
-    }),
-});
-
-const fsReadFileHandlers = streamHandlers(fsReadFileStream, {
-  source: (input, signal) =>
-    pollOnEvent({
-      read: async () =>
-        unwrapGit(await readFile(input.repoPath, input.filePath, log)),
-      isEqual: fsReadFileOutputEqual,
-      install: (cb) =>
-        subscribeFileChange(input.repoPath, input.filePath, cb, log),
-      signal,
-      // Transient git errors shouldn't tear down the long-lived
-      // subscription — the upstream debounce will tick again and the
-      // next read may succeed. Log loud enough that a *persistent*
-      // failure is visible to operators (a stuck stream silently
-      // returning stale state is the worse failure mode).
-      onReadError: (e) => {
-        log.error(
-          { err: e instanceof Error ? e.message : String(e) },
-          "stream snapshot read failed",
-        );
-      },
-    }),
-});
-
 /** Get terminal or throw — shared by all per-terminal handlers. */
 function requireTerminal(id: string): TerminalProcess {
   const entry = getTerminal(id);
   if (!entry) throw new TerminalNotFoundError(id);
   return entry;
 }
-
-const terminalExitHandlers = eventHandlers(terminalExitEvent, {
-  // Single-yield-then-close: validate the terminal exists at subscribe
-  // time (TerminalNotFoundError propagates as an ORPCError, not retried
-  // by STREAM_RETRY's `shouldRetry`), then forward the first exit-channel
-  // yield and return — the iterator naturally completes after one
-  // occurrence.
-  source: async function* (input, signal) {
-    requireTerminal(input.id);
-    for await (const exitCode of terminalChannels
-      .exit(input.id)
-      .subscribe(signal)) {
-      yield exitCode;
-      return;
-    }
-  },
-});
 
 /** Unwrap a GitResult or throw an ORPCError for the client. */
 function unwrapGit<T>(result: GitResult<T>): T {
@@ -261,7 +90,165 @@ function unwrapGit<T>(result: GitResult<T>): T {
   throw new ORPCError(status, { message });
 }
 
+// ── Surface (typed reactive layer) ─────────────────────────────────────
+//
+// One declarative call wires every cell, collection, stream, and event.
+// The `channel` factory hands the surface the same publisher domain
+// modules (preferences.ts, activity.ts, session.ts, terminals.ts) write
+// through, so direct publishes and surface-driven reads share channels.
+
+const surfaceRouter = implementSurface(surface, {
+  channel: <T>(name: string) => publisherChannel<T>(publisher, name),
+
+  cells: {
+    preferences: {
+      store: preferencesStore,
+      onMutate: (patch) =>
+        // Log only patched keys — values may carry user-identifying state
+        // (themes, file paths in rightPanel.tab) that have no business in
+        // operator logs.
+        log.info(
+          {
+            keys: Object.keys(patch),
+            rightPanel: patch.rightPanel
+              ? Object.keys(patch.rightPanel)
+              : undefined,
+          },
+          "preferences update",
+        ),
+    },
+    activityFeed: { store: activityFeedStore },
+    session: {
+      // Reads through getSavedSession to keep the "empty terminals = null"
+      // legacy normalization at one site (session.ts owns that invariant).
+      store: { get: () => getSavedSession(), set: savedSessionStore.set },
+    },
+    terminalList: {
+      // Live list — no persistence; the registry is the source of truth.
+      store: { get: () => listTerminals(), set: () => {} },
+    },
+  },
+
+  collections: {
+    terminalMetadata: {
+      readAll: () => {
+        const map = new Map<string, ReturnType<typeof terminalMeta>>();
+        for (const info of listTerminals()) {
+          map.set(info.id, terminalMeta(info.id));
+        }
+        return map;
+      },
+      readOne: (key) => {
+        const term = getTerminal(key);
+        return term ? term.info.meta : undefined;
+      },
+      // Per-terminal metadata writes happen via domain providers
+      // (`updateServerMetadata`); the surface never receives client-driven
+      // upserts. Stub these so the framework's wiring is satisfied.
+      upsert: () => {},
+      remove: () => {},
+    },
+  },
+
+  streams: {
+    gitStatus: {
+      source: (input, signal) =>
+        pollOnEvent({
+          read: async () =>
+            unwrapGit(await getStatus(input.repoPath, input.mode, log)),
+          isEqual: gitStatusOutputEqual,
+          install: (cb) => subscribeRepoChange(input.repoPath, cb, log),
+          signal,
+          onReadError: (e) => logStreamReadError(e),
+        }),
+    },
+    gitDiff: {
+      source: (input, signal) =>
+        pollOnEvent({
+          read: async () =>
+            unwrapGit(
+              await getDiff(
+                input.repoPath,
+                input.filePath,
+                input.mode,
+                log,
+                input.oldPath,
+              ),
+            ),
+          isEqual: gitDiffOutputEqual,
+          install: (cb) => subscribeRepoChange(input.repoPath, cb, log),
+          signal,
+          onReadError: (e) => logStreamReadError(e),
+        }),
+    },
+    fsListAll: {
+      source: (input, signal) =>
+        pollOnEvent({
+          read: async () => ({
+            paths: unwrapGit(await listAll(input.repoPath, log)),
+          }),
+          isEqual: fsListAllOutputEqual,
+          install: (cb) => subscribeRepoChange(input.repoPath, cb, log),
+          signal,
+          onReadError: (e) => logStreamReadError(e),
+        }),
+    },
+    fsReadFile: {
+      source: (input, signal) =>
+        pollOnEvent({
+          read: async () =>
+            unwrapGit(await readFile(input.repoPath, input.filePath, log)),
+          isEqual: fsReadFileOutputEqual,
+          install: (cb) =>
+            subscribeFileChange(input.repoPath, input.filePath, cb, log),
+          signal,
+          onReadError: (e) => logStreamReadError(e),
+        }),
+    },
+  },
+
+  events: {
+    terminalExit: {
+      // Single-yield-then-close: validate the terminal exists at subscribe
+      // time (TerminalNotFoundError propagates as an ORPCError, not retried
+      // by STREAM_RETRY's `shouldRetry`), then forward the first exit-channel
+      // yield and return.
+      source: async function* (input, signal) {
+        requireTerminal(input.id);
+        for await (const exitCode of terminalChannels
+          .exit(input.id)
+          .subscribe(signal)) {
+          yield exitCode;
+          return;
+        }
+      },
+    },
+  },
+});
+
+/** Stream snapshot reads can transiently fail (git index lock, etc.); a
+ *  persistent failure should be visible to operators (a stuck stream
+ *  silently returning stale state is the worse failure mode). */
+function logStreamReadError(e: unknown): void {
+  log.error(
+    { err: e instanceof Error ? e.message : String(e) },
+    "stream snapshot read failed",
+  );
+}
+
+/** Read the metadata for a terminal — used by `surface.terminalMetadata.readAll`. */
+function terminalMeta(id: string) {
+  const term = getTerminal(id);
+  if (!term) {
+    throw new TerminalNotFoundError(id);
+  }
+  return term.info.meta;
+}
+
+// ── Raw oRPC handlers (non-surface RPCs) ───────────────────────────────
+
 export const appRouter = t.router({
+  ...surfaceRouter,
   server: {
     info: t.server.info.handler(async () => ({
       identity: pwaIdentityForHostname(serverHostname),
@@ -276,7 +263,6 @@ export const appRouter = t.router({
         subPanel: input.subPanel,
       }),
     ),
-    list: t.terminal.list.handler(terminalListHandlers.get),
 
     resize: t.terminal.resize.handler(async ({ input }) => {
       requireTerminal(input.id).handle.resize(input.cols, input.rows);
@@ -443,21 +429,6 @@ export const appRouter = t.router({
         return { html, filename };
       },
     ),
-
-    onMetadataChange: t.terminal.onMetadataChange.handler(async function* ({
-      input,
-      signal,
-    }) {
-      const entry = requireTerminal(input.id);
-      yield { ...entry.info.meta };
-      for await (const meta of terminalChannels
-        .metadata(input.id)
-        .subscribe(signal)) {
-        yield meta;
-      }
-    }),
-
-    onExit: t.terminal.onExit.handler(terminalExitHandlers.get),
   },
   git: {
     worktreeCreate: t.git.worktreeCreate.handler(async ({ input }) => {
@@ -473,24 +444,5 @@ export const appRouter = t.router({
       log.info({ worktree: input.worktreePath }, "worktree remove");
       unwrapGit(await worktreeRemove(input.worktreePath, log));
     }),
-    onStatusChange: t.git.onStatusChange.handler(gitStatusHandlers.get),
-    onDiffChange: t.git.onDiffChange.handler(gitDiffHandlers.get),
-  },
-  fs: {
-    onListAllChange: t.fs.onListAllChange.handler(fsListAllHandlers.get),
-    onReadFileChange: t.fs.onReadFileChange.handler(fsReadFileHandlers.get),
-  },
-  preferences: {
-    get: t.preferences.get.handler(preferencesHandlers.get),
-    update: t.preferences.update.handler(preferencesHandlers.patch),
-    test__set: t.preferences.test__set.handler(preferencesHandlers.test__set),
-  },
-  activity: {
-    get: t.activity.get.handler(activityHandlers.get),
-    test__set: t.activity.test__set.handler(activityHandlers.test__set),
-  },
-  session: {
-    get: t.session.get.handler(sessionHandlers.get),
-    test__set: t.session.test__set.handler(sessionHandlers.test__set),
   },
 });

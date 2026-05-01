@@ -152,7 +152,7 @@ export function surfaceClient<const S extends SurfaceSpec, Rpc = unknown>(
   for (const [key, rawSpec] of Object.entries(spec.cells ?? {})) {
     const cellSpec = rawSpec as CellSpec<unknown, unknown>;
     // biome-ignore lint/suspicious/noExplicitAny: walk-by-string of the typed client
-    const ns = (rpc as any)[key];
+    const ns = (rpc as any).surface[key];
     const source: StreamingProcedure<undefined, unknown> = ns.get;
     const mutate = cellSpec.patchSchema ? ns.patch : ns.set;
     // Spec-declared `patch` doubles as the default `applyPatch` for
@@ -183,7 +183,7 @@ export function surfaceClient<const S extends SurfaceSpec, Rpc = unknown>(
   const collections: Record<string, BoundCollection<unknown, unknown>> = {};
   for (const [key] of Object.entries(spec.collections ?? {})) {
     // biome-ignore lint/suspicious/noExplicitAny: walk-by-string
-    const ns = (rpc as any)[key];
+    const ns = (rpc as any).surface[key];
     collections[key] = {
       use: ({ keys, onError }) =>
         useCollection(
@@ -202,7 +202,7 @@ export function surfaceClient<const S extends SurfaceSpec, Rpc = unknown>(
   const streams: Record<string, BoundStream<unknown, unknown>> = {};
   for (const [key] of Object.entries(spec.streams ?? {})) {
     // biome-ignore lint/suspicious/noExplicitAny: walk-by-string
-    const ns = (rpc as any)[key];
+    const ns = (rpc as any).surface[key];
     streams[key] = {
       use: (inputFn, streamOpts) =>
         useStream(
@@ -218,7 +218,7 @@ export function surfaceClient<const S extends SurfaceSpec, Rpc = unknown>(
   const events: Record<string, BoundEvent<unknown, unknown>> = {};
   for (const [key] of Object.entries(spec.events ?? {})) {
     // biome-ignore lint/suspicious/noExplicitAny: walk-by-string
-    const ns = (rpc as any)[key];
+    const ns = (rpc as any).surface[key];
     events[key] = {
       use: (inputFn, handler, eventOpts) =>
         useEvent(

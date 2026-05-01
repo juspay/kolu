@@ -14,12 +14,10 @@
  *  terminal leaves the list. No manual Map, AbortController, or version
  *  signals needed at this call site. */
 
-import { useCollection } from "@kolu/cells/solid";
 import type { TerminalId, TerminalInfo, TerminalMetadata } from "kolu-common";
-import { terminalMetadataCollection } from "kolu-common/surface";
 import { type Accessor, createMemo } from "solid-js";
 import { toast } from "solid-sonner";
-import { client } from "../wire";
+import { app } from "../wire";
 import {
   buildTerminalDisplayInfos,
   type TerminalDisplayInfo,
@@ -29,10 +27,8 @@ export function useTerminalMetadata(deps: {
   list: Accessor<TerminalInfo[] | undefined>;
   activeId: Accessor<TerminalId | null>;
 }) {
-  const meta = useCollection(terminalMetadataCollection, {
+  const meta = app.collections.terminalMetadata.use({
     keys: () => deps.list()?.map((t) => t.id) ?? [],
-    valueSource: client.terminal.onMetadataChange,
-    keyToInput: (id) => ({ id }),
     onError: (err) => toast.error(`Metadata error: ${err.message}`),
   });
 

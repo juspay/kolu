@@ -1,27 +1,31 @@
 /**
  * `defineSurface` — declarative app-wide reactive surface.
  *
- * One spec value declares every Cell, Collection, Stream, and Event the app
- * exposes, plus an escape hatch for imperative oRPC procedures that don't
- * fit a descriptor shape. From this spec the surface derives:
+ * One spec value declares every Cell, Collection, Stream, Event, and
+ * imperative procedure the app's typed reactive layer exposes. From the
+ * spec the surface derives:
  *
- *   - `surface.contract`: a typed `oc.router({...})` ready for
- *     `implement(surface.contract)` (server) and
- *     `createCellsClient<typeof surface.contract>(...)` (client).
+ *   - `surface.contract`: a typed `oc.router({ surface: { … } })`. Every
+ *     entry lives under a single top-level `surface` namespace so the
+ *     surface composes cleanly with hand-written raw oRPC for procedures
+ *     that don't fit a primitive — host contracts spread
+ *     `{ ...surface.contract, terminal: rawTerminalRouter, … }` without
+ *     namespace collisions.
  *   - `surface.descriptors`: the underlying Cell/Collection/Stream/Event
- *     values keyed by surface path. The manual primitives still work — the
- *     descriptor handles let consumers fall back to `cellHandlers` etc.
- *     when an entry needs to break out of the surface defaults.
+ *     values, keyed by surface path. Available as an escape hatch — the
+ *     manual primitives (`cellHandlers` etc.) still accept these.
  *
- * Phase A delivers `.contract` + `.descriptors`. Phase B adds `.implement`
- * for server-side dep wiring; Phase C adds `.client` for client-side bound
- * hooks. Each phase is independently usable.
+ * The framework owns publish channel naming: cells use `"<key>:changed"`,
+ * collections use `"<key>:keys"` and `"<key>:" + String(k)`, events use
+ * `"<key>:" + String(input)`. There are no per-entry overrides — if you
+ * need a different on-disk persistence key (e.g. to land an existing
+ * `Conf` store), use the consumer's `Conf` migration ladder, not a
+ * framework override.
  *
- * Compose with raw oRPC: when an RPC has wire-level concerns the surface
- * can't model (custom `onRetry`, binary framing, subscribe-before-yield),
- * keep it in a sibling `oc.router({...})` and merge:
- *
- *     const fullContract = oc.router({ ...surface.contract, ...rawContract });
+ * Compose with raw oRPC: `oc.router({ ...surface.contract, terminal:
+ * rawTerminal, git: rawGit })`. Same on the server: `implementSurface`
+ * returns a router fragment for the surface entries; spread alongside
+ * `t.terminal.handler(...)` etc.
  */
 
 import { type AnyContractRouter, eventIterator, oc } from "@orpc/contract";
@@ -63,25 +67,12 @@ export interface CellSpec<T = unknown, P = T> {
    *  merge (rare). */
   patch?: (current: T, patch: P) => T;
   expose?: readonly CellVerb[];
-  /** Override the auto-derived publish channel name. Default is
-   *  `"<key>:changed"` (e.g. surface key `"prefs"` → `"prefs:changed"`).
-   *  Use this when migrating off hand-named channels — renaming a surface
-   *  key would otherwise silently rename the channel and break consumers
-   *  with persisted subscriptions. Phase B/D concern. */
-  channelName?: string;
-  /** Override the store key passed to persistence adapters. Default is
-   *  the surface key. Use this to keep `confStore("activityFeed")` working
-   *  after renaming the surface key. Phase B/D concern. */
-  storeKey?: string;
 }
 
 export interface CollectionSpec<K = unknown, T = unknown> {
   keySchema: ZodType<K>;
   schema: ZodType<T>;
   expose?: readonly CollectionVerb[];
-  /** Override channel name fns. Defaults: `keys = "<key>:keys"`,
-   *  `perKey(k) = "<key>:" + String(k)`. Phase B concern. */
-  channelNames?: { keys?: string; perKey?: (k: K) => string };
 }
 
 export interface StreamSpec<I = unknown, T = unknown> {
@@ -92,9 +83,6 @@ export interface StreamSpec<I = unknown, T = unknown> {
 export interface EventSpec<I = unknown, T = unknown> {
   inputSchema: ZodType<I>;
   outputSchema: ZodType<T>;
-  /** Override the auto-derived per-input channel name. Default
-   *  `(i) => "<key>:" + String(i)`. Phase B concern. */
-  channelName?: (i: I) => string;
 }
 
 export interface ProcedureSpec<I = unknown, O = unknown> {
@@ -109,10 +97,14 @@ export interface SurfaceSpec {
   collections?: Record<string, CollectionSpec<any, any>>;
   streams?: Record<string, StreamSpec<any, any>>;
   events?: Record<string, EventSpec<any, any>>;
-  /** Imperative escape hatch — non-descriptor RPC. Outer key is the
-   *  namespace (typically the parent collection/cell name); inner key is
-   *  the verb. Merged into the existing namespace so e.g. `notes.create`
-   *  lives alongside `notes.{keys,get,update,delete}`. */
+  /** Imperative escape hatch — non-descriptor RPCs that should still
+   *  travel through the surface. Inner key is the verb. Lives under the
+   *  same `<surface-key>.<verb>` namespace as the typed primitives, so
+   *  `procedures.notes.create` ends up at `surface.notes.create` on the
+   *  wire — alongside `surface.notes.{keys,get,update,delete}` from the
+   *  matching `collections.notes` entry. RPCs that don't fit a primitive
+   *  *or* a request/response procedure (bidirectional binary streams,
+   *  custom retry plumbing) stay outside the surface as raw oRPC. */
   procedures?: Record<string, Record<string, ProcedureSpec<any, any>>>;
 }
 
@@ -125,9 +117,9 @@ const DEFAULT_COLLECTION_VERBS = ["keys", "get", "update", "delete"] as const;
 // ── Per-primitive contract derivation ──────────────────────────────────
 
 // Internal: returns a record of `oc` builders. Caller spreads into a
-// namespace under `oc.router({...})`. Typing is loose — the surface
-// module hands the literal to `oc.router(...)` which re-types it
-// precisely from the runtime shape, and consumers use `typeof
+// namespace under `oc.router({ surface: {...} })`. Typing is loose —
+// `defineSurface` hands the literal to `oc.router(...)` which re-types
+// it precisely from the runtime shape; consumers use `typeof
 // surface.contract` for end-to-end inference.
 
 function cellContractEntries<T, P>(
@@ -203,62 +195,17 @@ function procedureContractEntry<I, O>(spec: ProcedureSpec<I, O>): unknown {
   return oc.input(input).output(output);
 }
 
-// ── Surface value ────────────────────────────────────────────────────────
+// ── Mapped types for `surface.contract` ────────────────────────────────
 
-/** Descriptor handles produced by the surface, keyed by surface path. The
- *  manual primitives (`cellHandlers`, `useCell`, etc.) still accept these
- *  values directly — the surface is opt-in, not exclusive. */
-export interface SurfaceDescriptors<S extends SurfaceSpec> {
-  cells: {
-    [K in keyof S["cells"] & string]: S["cells"][K] extends CellSpec<
-      infer T,
-      infer _P
-    >
-      ? Cell<K, T>
-      : never;
-  };
-  collections: {
-    [K in keyof S["collections"] &
-      string]: S["collections"][K] extends CollectionSpec<infer K2, infer T>
-      ? Collection<K, K2, T>
-      : never;
-  };
-  streams: {
-    [K in keyof S["streams"] & string]: S["streams"][K] extends StreamSpec<
-      infer I,
-      infer T
-    >
-      ? Stream<K, I, T>
-      : never;
-  };
-  events: {
-    [K in keyof S["events"] & string]: S["events"][K] extends EventSpec<
-      infer I,
-      infer T
-    >
-      ? Event<K, I, T>
-      : never;
-  };
-}
-
-// `{}` (not `Record<string, never>`) — index-signature `never` collapses
-// the merged property's value to `never` and oRPC's router-builder type
-// checks reject `Lazy<never>` (`packages/cells-example` showed the issue
-// before this fix). Empty object intersects cleanly with concrete record
-// types.
 type EmptyObj = NonNullable<unknown>;
 
-/** Precise per-namespace contract shape derived from the spec. Each
- *  primitive's verb set is a mapped type over the spec's schemas — the
- *  result feeds into oRPC's existing `implement(...)` and
- *  `createCellsClient<typeof surface.contract>` machinery, so consumers
- *  get end-to-end typed handlers and clients without hand-listing the
- *  router.
- *
- *  The runtime build uses `Object.entries` loops (which lose keys at the
- *  type level), so we cast at the boundary inside `defineSurface`. The
- *  cast is intentional and the runtime shape matches this type exactly. */
-export type SurfaceContractFor<S extends SurfaceSpec> = MergeContract<
+/** Wire shape for `defineSurface(spec).contract`: every entry lives
+ *  under one `surface` namespace. */
+export type SurfaceContractFor<S extends SurfaceSpec> = {
+  surface: SurfaceInnerContract<S>;
+};
+
+type SurfaceInnerContract<S extends SurfaceSpec> = MergeContract<
   S["cells"] extends Record<string, CellSpec<any, any>>
     ? { [K in keyof S["cells"] & string]: CellContract<S["cells"][K]> }
     : EmptyObj,
@@ -293,8 +240,6 @@ export type SurfaceContractFor<S extends SurfaceSpec> = MergeContract<
     : EmptyObj
 >;
 
-// Per-primitive contract shapes, computed via ReturnType against the
-// internal helper functions whose generics flow schema types through.
 type CellContract<S extends CellSpec<any, any>> = S extends {
   schema: ZodType<infer T>;
   patchSchema: ZodType<infer P>;
@@ -336,9 +281,6 @@ type ProcedureContract<S extends ProcedureSpec<any, any>> = S extends {
       ? ReturnType<typeof buildProcedureNoInput<O>>
       : ReturnType<typeof buildProcedureNoIO>;
 
-// Merge five namespace records into one — last-key-wins semantics, with
-// per-namespace verb-record union when the same key appears in multiple
-// blocks (e.g. `notes` as both a collection and a procedure namespace).
 type MergeContract<
   A extends Record<string, unknown>,
   B extends Record<string, unknown>,
@@ -356,10 +298,6 @@ type MergeContract<
 };
 
 // ── Strongly-typed builder helpers (used for type derivation only) ─────
-
-// These exist primarily so `ReturnType<typeof buildX<...>>` gives the
-// surface contract its precise shape. The `defineSurface` runtime calls
-// the loose `*ContractEntries` helpers above and casts at the boundary.
 
 function buildCellWithPatch<T, P>(opts: {
   schema: ZodType<T>;
@@ -427,51 +365,98 @@ function buildProcedureNoIO() {
   return oc.input(z.void()).output(z.void());
 }
 
+// ── Surface value ──────────────────────────────────────────────────────
+
+/** Descriptor handles produced by the surface, keyed by surface path. */
+export interface SurfaceDescriptors<S extends SurfaceSpec> {
+  cells: {
+    [K in keyof S["cells"] & string]: S["cells"][K] extends CellSpec<
+      infer T,
+      infer _P
+    >
+      ? Cell<K, T>
+      : never;
+  };
+  collections: {
+    [K in keyof S["collections"] &
+      string]: S["collections"][K] extends CollectionSpec<infer K2, infer T>
+      ? Collection<K, K2, T>
+      : never;
+  };
+  streams: {
+    [K in keyof S["streams"] & string]: S["streams"][K] extends StreamSpec<
+      infer I,
+      infer T
+    >
+      ? Stream<K, I, T>
+      : never;
+  };
+  events: {
+    [K in keyof S["events"] & string]: S["events"][K] extends EventSpec<
+      infer I,
+      infer T
+    >
+      ? Event<K, I, T>
+      : never;
+  };
+}
+
 export interface Surface<S extends SurfaceSpec = SurfaceSpec> {
   readonly contract: SurfaceContractFor<S>;
   readonly spec: S;
   readonly descriptors: SurfaceDescriptors<S>;
 }
 
-/** Build a surface from a spec. The returned `.contract` is ready to feed
- *  into `implement(...)` (server) and `createCellsClient<typeof surface.contract>(...)`
- *  (client). For wire-level concerns the surface can't model (custom
- *  `onRetry`, binary framing), keep the procedure in a sibling
- *  `oc.router({...})` and merge namespaces:
+/** Build a surface from a spec. The returned `.contract` lives under a
+ *  top-level `surface` namespace; spread alongside hand-listed raw
+ *  `oc.router({...})` blocks at the host contract:
  *
  *      export const contract = oc.router({
  *        ...surface.contract,
- *        terminal: rawTerminalContract,
+ *        terminal: rawTerminalRouter,
+ *        git: rawGitRouter,
  *      });
- */
+ *
+ *  Consumers feed the result to `implement(contract)` (server) and
+ *  `createCellsClient<typeof contract>(...)` (client). */
 export function defineSurface<const S extends SurfaceSpec>(
   spec: S,
 ): Surface<S> {
-  // Collect contract entries by namespace, merging typed primitives with
-  // imperative procedures sharing a namespace.
-  const namespaces: Record<string, Record<string, unknown>> = {};
-  const merge = (key: string, entries: Record<string, unknown>): void => {
-    namespaces[key] = { ...(namespaces[key] ?? {}), ...entries };
+  // Collect verb-records by surface key, merging cell/collection/stream/event
+  // and procedure contributions to the same key. Throw on duplicate
+  // (key, verb) claims so collisions surface at boot, not at request time.
+  const inner: Record<string, Record<string, unknown>> = {};
+  const claim = (key: string, entries: Record<string, unknown>): void => {
+    const existing = inner[key] ?? {};
+    for (const verb of Object.keys(entries)) {
+      if (verb in existing) {
+        throw new Error(
+          `defineSurface: duplicate verb "${verb}" claimed at "${key}". ` +
+            `Multiple primitives or procedures resolve to the same wire path.`,
+        );
+      }
+    }
+    inner[key] = { ...existing, ...entries };
   };
 
   for (const [key, s] of Object.entries(spec.cells ?? {})) {
-    merge(key, cellContractEntries(s));
+    claim(key, cellContractEntries(s));
   }
   for (const [key, s] of Object.entries(spec.collections ?? {})) {
-    merge(key, collectionContractEntries(s));
+    claim(key, collectionContractEntries(s));
   }
   for (const [key, s] of Object.entries(spec.streams ?? {})) {
-    merge(key, streamContractEntries(s));
+    claim(key, streamContractEntries(s));
   }
   for (const [key, s] of Object.entries(spec.events ?? {})) {
-    merge(key, eventContractEntries(s));
+    claim(key, eventContractEntries(s));
   }
   for (const [ns, procs] of Object.entries(spec.procedures ?? {})) {
     const procEntries: Record<string, unknown> = {};
     for (const [verb, ps] of Object.entries(procs)) {
       procEntries[verb] = procedureContractEntry(ps);
     }
-    merge(ns, procEntries);
+    claim(ns, procEntries);
   }
 
   // Descriptor handles for the manual escape hatch.
@@ -510,10 +495,14 @@ export function defineSurface<const S extends SurfaceSpec>(
     });
   }
 
+  // Wrap under the top-level `surface` namespace so consumers can spread
+  // alongside raw `oc.router({...})` blocks without colliding on host
+  // namespace keys. Ungrouped: a surface entry named "terminal" would
+  // collide with a host's hand-written `terminal: { create, attach, ... }`.
   return {
-    contract: oc.router(
-      namespaces as unknown as AnyContractRouter,
-    ) as unknown as SurfaceContractFor<S>,
+    contract: oc.router({
+      surface: inner,
+    } as unknown as AnyContractRouter) as unknown as SurfaceContractFor<S>,
     spec,
     descriptors: descriptors as unknown as SurfaceDescriptors<S>,
   };

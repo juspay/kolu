@@ -9,13 +9,11 @@
  *  New features should go in the appropriate module (or a new one),
  *  not back into this composition root. See #221, #242. */
 
-import { useEvent } from "@kolu/cells/solid";
 import type { TerminalId } from "kolu-common";
-import { terminalExitEvent } from "kolu-common/surface";
 import { createRoot } from "solid-js";
 import { toast } from "solid-sonner";
-import { client } from "../wire";
 import { isExpectedCleanupError } from "../rpc/streamCleanup";
+import { app } from "../wire";
 import { useSessionRestore } from "./useSessionRestore";
 import { useTerminalAlerts } from "./useTerminalAlerts";
 import { useTerminalCrud } from "./useTerminalCrud";
@@ -52,10 +50,8 @@ export function useTerminals() {
    *  so correctness is preserved even if the toast is lost. */
   function subscribeExit(id: TerminalId) {
     createRoot(() => {
-      useEvent(
-        terminalExitEvent,
+      app.events.terminalExit.use(
         () => ({ id }),
-        client.terminal.onExit,
         (code) => {
           const label = store.terminalLabel(id);
           if (code === 0) {

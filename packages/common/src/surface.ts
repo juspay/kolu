@@ -1,15 +1,17 @@
 /**
- * Shared cell/collection/stream descriptors.
+ * Kolu's typed reactive surface — every Cell, Collection, Stream, and Event
+ * the app exposes, declared in one `defineSurface(...)` call.
  *
- * Descriptors are pure data: name + Zod schemas + defaults. They live in
- * kolu-common so both server and client can import them — server wires
- * handlers and persistence; client wires Solid hooks. The descriptors
- * have no runtime behavior and add no bundle weight on the client.
+ * The surface produces the `surface.*` portion of the contract. Raw oRPC
+ * (`terminal.create/kill/attach/...`, `git.worktreeCreate/...`,
+ * `server.info`) lives in `contract.ts` alongside, composed via spread.
  *
- * See `@kolu/cells` for the framework's primitive definitions.
+ * Cell names align with persisted `Conf` keys so `confStore("preferences")`
+ * / `confStore("activityFeed")` / `confStore("session")` continue working
+ * without a migration ladder.
  */
 
-import { cell, collection, event, stream } from "@kolu/cells";
+import { defineSurface } from "@kolu/cells/define";
 import { z } from "zod";
 import { DEFAULT_PREFERENCES } from "./config";
 import {
@@ -25,6 +27,7 @@ import {
   GitStatusOutputSchema,
   type Preferences,
   type PreferencesPatch,
+  PreferencesPatchSchema,
   PreferencesSchema,
   type SavedSession,
   SavedSessionSchema,
@@ -35,124 +38,12 @@ import {
   TerminalOnExitOutputSchema,
 } from "./index";
 
-// ── Cells ──────────────────────────────────────────────────────────────
-
-/** User preferences — instant-UI flag store.
- *
- *  Intended authority: `"local"` — the client store is canonical after init.
- *  Server pushes seed the local store on first yield; subsequent server
- *  echoes are ignored to avoid stomping a just-made client write whose
- *  RPC hasn't round-tripped. See `usePreferences.ts` for the load-bearing
- *  rationale (#561 / #577). */
-export const preferencesCell = cell({
-  name: "preferences",
-  schema: PreferencesSchema,
-  default: DEFAULT_PREFERENCES,
-});
-
-/** Server-derived activity feed (recent repos + recent agents).
- *  Read-only on the client; the server is the sole writer.
- *
- *  Intended authority: `"server"` — `useCell(activityFeedCell, { authority: "local" })`
- *  would silently ignore server pushes after init, which is wrong. */
-export const activityFeedCell = cell({
-  name: "activityFeed",
-  schema: ActivityFeedSchema,
-  default: { recentRepos: [], recentAgents: [] } satisfies ActivityFeed,
-});
-
-/** Last persisted snapshot of terminals + active id, or null when no
- *  session is saved. Read-only on the client; the server's debounced
- *  autosave loop owns writes.
- *
- *  Intended authority: `"server"` — `useCell(savedSessionCell, { authority: "local" })`
- *  would isolate the client from the server's autosave updates. */
-export const savedSessionCell = cell({
-  name: "savedSession",
-  schema: SavedSessionSchema.nullable(),
-  default: null as SavedSession | null,
-});
-
-/** Live list of terminals — server-driven on create/kill.
- *
- *  Intended authority: `"server"`. The server's `terminal-list` channel
- *  drives the client; client mutations go via the dedicated `terminal.create`
- *  / `terminal.kill` procedures, not via cell.set. */
-export const terminalListCell = cell({
-  name: "terminalList",
-  schema: z.array(TerminalInfoSchema),
-  default: [] as z.infer<typeof TerminalInfoSchema>[],
-});
-
-// ── Collections ────────────────────────────────────────────────────────
-
-/** Per-terminal metadata (cwd, git, PR, agent status). Each terminal has
- *  its own observable subscription; clients watching one terminal don't
- *  re-render when an unrelated terminal's metadata changes.
- *
- *  Mutation comes from server-side providers (cwd watcher, git watcher,
- *  agent watchers) writing to the publisher channel — clients don't
- *  call `update()` on this collection directly. */
-export const terminalMetadataCollection = collection({
-  name: "terminalMetadata",
-  keySchema: TerminalIdSchema,
-  schema: TerminalMetadataSchema,
-});
-
-// ── Streams ────────────────────────────────────────────────────────────
-
-/** Live changed-files list for the Code-view's Local/Branch modes.
- *  Yields current state immediately, then a fresh full snapshot every time
- *  the underlying repo state changes. */
-export const gitStatusStream = stream({
-  name: "gitStatus",
-  inputSchema: GitStatusInputSchema,
-  outputSchema: GitStatusOutputSchema,
-});
-
-/** Live unified diff for one file. Yields current diff, then a fresh
- *  full snapshot whenever the repo state changes. */
-export const gitDiffStream = stream({
-  name: "gitDiff",
-  inputSchema: GitDiffInputSchema,
-  outputSchema: GitDiffOutputSchema,
-});
-
-/** Live repo-relative path list (tracked + untracked-but-not-ignored). */
-export const fsListAllStream = stream({
-  name: "fsListAll",
-  inputSchema: FsListAllInputSchema,
-  outputSchema: FsListAllOutputSchema,
-});
-
-/** Live UTF-8 content for a single file in the Code-view's All-mode body. */
-export const fsReadFileStream = stream({
-  name: "fsReadFile",
-  inputSchema: FsReadFileInputSchema,
-  outputSchema: FsReadFileOutputSchema,
-});
-
-// ── Events ─────────────────────────────────────────────────────────────
-
-/** Terminal process exited — fires once per terminal lifetime with the
- *  exit code. Drives the exit toast and the active-terminal auto-switch
- *  in `useTerminals`. The list cell already removes the terminal from
- *  state when the server publishes the new list; this event carries the
- *  *code* and the *causal moment* the list cell can't. */
-export const terminalExitEvent = event({
-  name: "terminalExit",
-  inputSchema: TerminalAttachInputSchema,
-  outputSchema: TerminalOnExitOutputSchema,
-});
-
-// ── Patch helpers ──────────────────────────────────────────────────────
-
 /** Pure merge of a `PreferencesPatch` into the current preferences.
  *  `rightPanel` is deep-merged so callers can patch a single nested field
- *  without supplying the rest of the object. Lives next to `preferencesCell`
- *  so the descriptor and its merge shape are read together; both server
- *  (cellHandlers patch) and client (mergeIntoStore via reconcile) reach
- *  the same logic. */
+ *  without supplying the rest of the object. Lives on the surface spec
+ *  (`cells.preferences.patch`) so server (`implementSurface`) and client
+ *  (`surfaceClient`'s default `applyPatch`) reach the same logic without
+ *  a duplicate import. */
 export function applyPreferencesPatch(
   current: Preferences,
   patch: PreferencesPatch,
@@ -166,3 +57,108 @@ export function applyPreferencesPatch(
     }),
   };
 }
+
+export const surface = defineSurface({
+  cells: {
+    /** User preferences — local-authority on the client; server-canonical
+     *  on disk. The client's `mergeIntoStore` for the `rightPanel.tab`
+     *  discriminated-union case is supplied at the `.use()` call site
+     *  (see `client/wire.ts`); the spec's `patch` covers server-side. */
+    preferences: {
+      schema: PreferencesSchema,
+      default: DEFAULT_PREFERENCES,
+      patchSchema: PreferencesPatchSchema,
+      patch: applyPreferencesPatch,
+      // `test__set` exposed for e2e fixtures.
+      expose: ["get", "patch", "test__set"],
+    },
+
+    /** Server-derived activity feed (recent repos + recent agents).
+     *  Read-only on the client; the server is the sole writer via
+     *  `trackRecentRepo` / `trackRecentAgent`. */
+    activityFeed: {
+      schema: ActivityFeedSchema,
+      default: { recentRepos: [], recentAgents: [] } satisfies ActivityFeed,
+      expose: ["get", "test__set"],
+    },
+
+    /** Last persisted snapshot of terminals + active id, or null when no
+     *  session is saved. Read-only on the client; the server's debounced
+     *  autosave loop owns writes. */
+    session: {
+      schema: SavedSessionSchema.nullable(),
+      default: null as SavedSession | null,
+      expose: ["get", "test__set"],
+    },
+
+    /** Live list of terminals — server-driven on create/kill. Mutations
+     *  go through dedicated procedures (`terminal.create`/`kill`/`killAll`)
+     *  in the raw oRPC namespace, not via cell.set. */
+    terminalList: {
+      schema: z.array(TerminalInfoSchema),
+      default: [] as z.infer<typeof TerminalInfoSchema>[],
+      expose: ["get"],
+    },
+  },
+  collections: {
+    /** Per-terminal metadata (cwd, git, PR, agent status). Each terminal
+     *  is independently observable; mutations come from server-side
+     *  providers writing through the publisher channel — clients don't
+     *  call `update` on this collection directly. */
+    terminalMetadata: {
+      keySchema: TerminalIdSchema,
+      schema: TerminalMetadataSchema,
+      // Only the streaming reads are exposed; writes are server-internal.
+      expose: ["keys", "get"],
+    },
+  },
+  streams: {
+    /** Live changed-files list for the Code-view's Local/Branch modes. */
+    gitStatus: {
+      inputSchema: GitStatusInputSchema,
+      outputSchema: GitStatusOutputSchema,
+    },
+    /** Live unified diff for one file. */
+    gitDiff: {
+      inputSchema: GitDiffInputSchema,
+      outputSchema: GitDiffOutputSchema,
+    },
+    /** Live repo-relative path list (tracked + untracked-but-not-ignored). */
+    fsListAll: {
+      inputSchema: FsListAllInputSchema,
+      outputSchema: FsListAllOutputSchema,
+    },
+    /** Live UTF-8 content for a single file in the Code-view's All-mode body. */
+    fsReadFile: {
+      inputSchema: FsReadFileInputSchema,
+      outputSchema: FsReadFileOutputSchema,
+    },
+  },
+  events: {
+    /** Terminal process exited — fires once per terminal lifetime with the
+     *  exit code. Drives the exit toast and the active-terminal auto-switch
+     *  in `useTerminals`. */
+    terminalExit: {
+      inputSchema: TerminalAttachInputSchema,
+      outputSchema: TerminalOnExitOutputSchema,
+    },
+  },
+});
+
+// ── Back-compat re-exports ─────────────────────────────────────────────
+//
+// Until every consumer is migrated to `app.cells.X.use(...)` etc. via the
+// surface client bundle, the manual descriptors stay accessible by name.
+// New code should reach for the bound primitives in `client/wire.ts`.
+
+export const preferencesCell = surface.descriptors.cells.preferences;
+export const activityFeedCell = surface.descriptors.cells.activityFeed;
+export const savedSessionCell = surface.descriptors.cells.session;
+export const terminalListCell = surface.descriptors.cells.terminalList;
+export const terminalMetadataCollection =
+  surface.descriptors.collections.terminalMetadata;
+export const gitStatusStream = surface.descriptors.streams.gitStatus;
+export const gitDiffStream = surface.descriptors.streams.gitDiff;
+export const fsListAllStream = surface.descriptors.streams.fsListAll;
+export const fsReadFileStream = surface.descriptors.streams.fsReadFile;
+export const terminalExitEvent = surface.descriptors.events.terminalExit;

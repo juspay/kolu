@@ -4,13 +4,11 @@
  *  Defaults to collapsed with the Inspector tab active. */
 
 import type { CodeTabView, RightPanelTab } from "kolu-common";
-import { usePreferences } from "../settings/usePreferences";
+import { preferences, updatePreferences } from "../wire";
 
 const MIN_PANEL_SIZE = 0.05;
 
 export function useRightPanel() {
-  const { preferences, updatePreferences } = usePreferences();
-
   const rp = () => preferences().rightPanel;
 
   return {

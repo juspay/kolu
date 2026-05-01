@@ -8,32 +8,21 @@ import { type Accessor, createEffect } from "solid-js";
 import { toast } from "solid-sonner";
 import { isMobile } from "../useMobile";
 import { AMBIENT_TIPS, type Tip, type TipId } from "./tips";
-import { usePreferences } from "./usePreferences";
+import { preferences, updatePreferences } from "../wire";
 
 const isPWA = window.matchMedia("(display-mode: standalone)").matches;
 const ambientPool = AMBIENT_TIPS.filter(
   (t) => !(isPWA && t.id === "amb-pwa-install"),
 );
 
-// Module-level references, set on first useTips() call.
-let _prefs: ReturnType<typeof usePreferences>;
-let _initialized = false;
-
-function ensureInit() {
-  if (_initialized) return;
-  _initialized = true;
-  _prefs = usePreferences();
-}
-
 function seen(): Set<TipId> {
-  ensureInit();
-  return new Set(_prefs.preferences().seenTips);
+  return new Set(preferences().seenTips);
 }
 
 function markSeen(id: TipId) {
   const s = seen();
   s.add(id);
-  _prefs.updatePreferences({ seenTips: [...s] });
+  updatePreferences({ seenTips: [...s] });
 }
 
 const TIP_PREFIX = "\u{1F4A1} ";
@@ -60,7 +49,7 @@ function randomAmbientTip(): string {
 /** Show a random tip as a toast (for startup). Respects the startup-tips setting. */
 function showStartupTip() {
   if (isMobile()) return;
-  if (!_prefs.preferences().startupTips) return;
+  if (!preferences().startupTips) return;
   const text = randomAmbientTip();
   toast(TIP_PREFIX + text, {
     duration: 4000,
@@ -84,13 +73,11 @@ function initTipTriggers(deps: { terminalIds: Accessor<TerminalId[]> }) {
 }
 
 export function useTips() {
-  ensureInit();
   return {
     showTipOnce,
     randomAmbientTip,
     initTipTriggers,
-    startupTips: () => _prefs.preferences().startupTips,
-    setStartupTips: (on: boolean) =>
-      _prefs.updatePreferences({ startupTips: on }),
+    startupTips: () => preferences().startupTips,
+    setStartupTips: (on: boolean) => updatePreferences({ startupTips: on }),
   } as const;
 }

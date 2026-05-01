@@ -7,7 +7,7 @@ import { availableThemes } from "terminal-themes";
 import type { PaletteCommand, PaletteItem } from "./CommandPalette";
 import { type ActionContext, actionPaletteCommand } from "./input/actions";
 import { client } from "./wire";
-import { useActivityFeed } from "./settings/useActivityFeed";
+import { recentRepos, recentAgents } from "./wire";
 
 /** PaletteItems listing each recent agent command. Used by the Debug →
  *  "Recent agents" entry (phase 1 prefill flow). */
@@ -63,8 +63,6 @@ export interface CommandDeps extends ActionContext {
 }
 
 export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
-  const { recentRepos, recentAgents } = useActivityFeed();
-
   return createMemo((): PaletteCommand[] => [
     {
       name: "New terminal",

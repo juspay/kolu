@@ -11,7 +11,7 @@ import Toggle from "../ui/Toggle";
 import { useAnchoredPopover } from "../ui/useAnchoredPopover";
 import SettingRow, { type Hint } from "./SettingRow";
 import { type ColorScheme, useColorScheme } from "./useColorScheme";
-import { usePreferences } from "./usePreferences";
+import { preferences, updatePreferences } from "../wire";
 
 const SCHEME_OPTIONS: readonly SegmentedControlOption<ColorScheme>[] = [
   { value: "light", label: "Light" },
@@ -54,7 +54,6 @@ const SettingsPopover: Component<{
   onOpenChange: (open: boolean) => void;
   triggerRef?: HTMLElement;
 }> = (props) => {
-  const { preferences, updatePreferences } = usePreferences();
   const { colorScheme, setColorScheme } = useColorScheme();
 
   const { panelRef, panelStyle } = useAnchoredPopover({

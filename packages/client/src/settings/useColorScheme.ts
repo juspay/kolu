@@ -11,7 +11,7 @@
 import { usePrefersDark } from "@solid-primitives/media";
 import type { ColorScheme } from "kolu-common";
 import { createEffect, createMemo } from "solid-js";
-import { usePreferences } from "./usePreferences";
+import { preferences, updatePreferences } from "../wire";
 
 export type { ColorScheme };
 
@@ -21,7 +21,6 @@ export type { ColorScheme };
 let sharedIsDark: (() => boolean) | null = null;
 
 export function useColorScheme() {
-  const { preferences, updatePreferences } = usePreferences();
   const colorScheme = () => preferences().colorScheme;
   const setColorScheme = (scheme: ColorScheme) =>
     updatePreferences({ colorScheme: scheme });

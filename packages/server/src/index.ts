@@ -109,7 +109,10 @@ const rpcPlugins = [
 ];
 
 // --- oRPC HTTP handler (non-streaming calls) ---
-const rpcHandler = new RPCHandler(appRouter, { plugins: rpcPlugins });
+// biome-ignore lint/suspicious/noExplicitAny: appRouter mixes implementSurface's
+// Lazy<Router> spread with hand-listed namespaces; oRPC's RPCHandler input
+// type doesn't accept that union. The runtime shape is a valid router.
+const rpcHandler = new RPCHandler(appRouter as any, { plugins: rpcPlugins });
 app.use("/rpc/*", async (c, next) => {
   const { matched, response } = await rpcHandler.handle(c.req.raw, {
     prefix: "/rpc",
@@ -211,7 +214,10 @@ const server = serve(
 
 // --- oRPC WebSocket handler (streaming) ---
 const wss = new WebSocketServer({ noServer: true });
-const wsRpcHandler = new WsRPCHandler(appRouter, { plugins: rpcPlugins });
+// biome-ignore lint/suspicious/noExplicitAny: see RPCHandler comment above
+const wsRpcHandler = new WsRPCHandler(appRouter as any, {
+  plugins: rpcPlugins,
+});
 
 let nextConnId = 0;
 wss.on("connection", (ws) => {

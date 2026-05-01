@@ -14,13 +14,7 @@
  * tree layout/virtualization; `@pierre/diffs` owns diff parsing and
  * shiki highlighting. This component is just data flow + chrome. */
 
-import { useStream } from "@kolu/cells/solid";
 import type { CodeTabView, GitDiffMode, TerminalMetadata } from "kolu-common";
-import {
-  fsListAllStream,
-  gitDiffStream,
-  gitStatusStream,
-} from "kolu-common/surface";
 import {
   type Component,
   createEffect,
@@ -32,8 +26,8 @@ import {
   Switch,
 } from "solid-js";
 import { toast } from "solid-sonner";
-import { client } from "../wire";
 import { useColorScheme } from "../settings/useColorScheme";
+import { app } from "../wire";
 import { FileBrowseIcon, FileDiffIcon, GitBranchIcon } from "../ui/Icons";
 import PierreDiffView from "../ui/PierreDiffView";
 import PierreFileTree, { toGitStatusEntries } from "../ui/PierreFileTree";
@@ -74,33 +68,28 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
   // mode switch so a stale needle doesn't hide the wrong file set.
   const [searchQuery, setSearchQuery] = createSignal("");
 
-  const status = useStream(
-    gitStatusStream,
+  const status = app.streams.gitStatus.use(
     () => {
       const p = repoPath();
       const m = diffMode();
       return p && m ? { repoPath: p, mode: m } : null;
     },
-    client.git.onStatusChange,
     {
       onError: (err) => toast.error(`Git status stream: ${err.message}`),
     },
   );
 
-  const allPaths = useStream(
-    fsListAllStream,
+  const allPaths = app.streams.fsListAll.use(
     () => {
       const p = repoPath();
       return p && view() === "browse" ? { repoPath: p } : null;
     },
-    client.fs.onListAllChange,
     {
       onError: (err) => toast.error(`File list stream: ${err.message}`),
     },
   );
 
-  const diff = useStream(
-    gitDiffStream,
+  const diff = app.streams.gitDiff.use(
     () => {
       const p = repoPath();
       const s = selectedPath();
@@ -110,7 +99,6 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
       if (!file) return null;
       return { repoPath: p, filePath: s, mode: m, oldPath: file.oldPath };
     },
-    client.git.onDiffChange,
     {
       onError: (err) => toast.error(`Git diff stream: ${err.message}`),
     },

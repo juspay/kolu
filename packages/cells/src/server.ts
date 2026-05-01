@@ -619,8 +619,7 @@ export function implementSurface<const S extends SurfaceSpec>(
   // ── Cells ────────────────────────────────────────────────────────────
   for (const [key, rawSpec] of Object.entries(spec.cells ?? {})) {
     const cellSpec = rawSpec as CellSpec<unknown, unknown>;
-    const channelName = cellSpec.channelName ?? `${key}:changed`;
-    const bus = deps.channel<unknown>(channelName);
+    const bus = deps.channel<unknown>(`${key}:changed`);
     // biome-ignore lint/suspicious/noExplicitAny: see top of fn
     const cellDeps = (deps.cells as any)?.[key] as
       | {
@@ -680,7 +679,7 @@ export function implementSurface<const S extends SurfaceSpec>(
       const h = (handlers as any)[v];
       if (h === undefined) continue;
       // biome-ignore lint/suspicious/noExplicitAny: see top of fn
-      ns[v] = (t as any)[key][v].handler(h);
+      ns[v] = (t as any).surface[key][v].handler(h);
     }
     namespaces[key] = { ...(namespaces[key] ?? {}), ...ns };
   }
@@ -688,9 +687,6 @@ export function implementSurface<const S extends SurfaceSpec>(
   // ── Collections ──────────────────────────────────────────────────────
   for (const [key, rawSpec] of Object.entries(spec.collections ?? {})) {
     const collSpec = rawSpec as CollectionSpec<unknown, unknown>;
-    const keysName = collSpec.channelNames?.keys ?? `${key}:keys`;
-    const perKeyName =
-      collSpec.channelNames?.perKey ?? ((k: unknown) => `${key}:${String(k)}`);
     // biome-ignore lint/suspicious/noExplicitAny: see top of fn
     const collDeps = (deps.collections as any)?.[key] as
       | {
@@ -703,8 +699,9 @@ export function implementSurface<const S extends SurfaceSpec>(
     if (!collDeps) {
       throw new Error(`implementSurface: missing deps for collection "${key}"`);
     }
-    const keysBus = deps.channel<unknown[]>(keysName);
-    const perKeyBus = (k: unknown) => deps.channel<unknown>(perKeyName(k));
+    const keysBus = deps.channel<unknown[]>(`${key}:keys`);
+    const perKeyBus = (k: unknown) =>
+      deps.channel<unknown>(`${key}:${String(k)}`);
 
     // Surface-owned publish: every upsert/remove broadcasts the new key set
     // (and, on upsert, the new per-key value) through the framework's
@@ -751,7 +748,7 @@ export function implementSurface<const S extends SurfaceSpec>(
       const h = (handlers as any)[v];
       if (h === undefined) continue;
       // biome-ignore lint/suspicious/noExplicitAny: see top of fn
-      ns[v] = (t as any)[key][v].handler(h);
+      ns[v] = (t as any).surface[key][v].handler(h);
     }
     namespaces[key] = { ...(namespaces[key] ?? {}), ...ns };
   }
@@ -782,7 +779,7 @@ export function implementSurface<const S extends SurfaceSpec>(
     namespaces[key] = {
       ...(namespaces[key] ?? {}),
       // biome-ignore lint/suspicious/noExplicitAny: see top of fn
-      get: (t as any)[key].get.handler(handlers.get),
+      get: (t as any).surface[key].get.handler(handlers.get),
     };
   }
 
@@ -812,7 +809,7 @@ export function implementSurface<const S extends SurfaceSpec>(
     namespaces[key] = {
       ...(namespaces[key] ?? {}),
       // biome-ignore lint/suspicious/noExplicitAny: see top of fn
-      get: (t as any)[key].get.handler(handlers.get),
+      get: (t as any).surface[key].get.handler(handlers.get),
     };
   }
 
@@ -832,12 +829,20 @@ export function implementSurface<const S extends SurfaceSpec>(
         );
       }
       // biome-ignore lint/suspicious/noExplicitAny: see top of fn
-      namespaces[ns][verb] = (t as any)[ns][verb].handler(
+      namespaces[ns][verb] = (t as any).surface[ns][verb].handler(
         // biome-ignore lint/suspicious/noExplicitAny: see top of fn
         (opts: any) => handler({ ...opts, ctx }),
       );
     }
   }
 
-  return t.router(namespaces);
+  // Wrap each leaf via `t.router(...)` so the returned fragment has a
+  // shape oRPC's router and `RPCHandler` accept. The fragment lives under
+  // a top-level `surface` key matching the contract; consumers typically
+  // spread it alongside hand-listed raw namespaces:
+  //
+  //   t.router({ ...implementSurface(s, deps), terminal: { create: ... } })
+  //
+  // biome-ignore lint/suspicious/noExplicitAny: see top of fn
+  return { surface: t.router(namespaces) } as any;
 }

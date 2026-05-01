@@ -5,12 +5,10 @@
  *  the snapshot via `reconcile` (inside `useStream`'s underlying primitive)
  *  avoids stomping scroll position on no-op ticks. */
 
-import { useStream } from "@kolu/cells/solid";
-import { fsReadFileStream } from "kolu-common/surface";
 import { type Component, Match, Show, Switch } from "solid-js";
 import { toast } from "solid-sonner";
-import { client } from "../wire";
 import PierreFileView from "../ui/PierreFileView";
+import { app } from "../wire";
 
 export type BrowseFileViewProps = {
   repoPath: string;
@@ -19,10 +17,8 @@ export type BrowseFileViewProps = {
 };
 
 const BrowseFileView: Component<BrowseFileViewProps> = (props) => {
-  const fileContent = useStream(
-    fsReadFileStream,
+  const fileContent = app.streams.fsReadFile.use(
     () => ({ repoPath: props.repoPath, filePath: props.filePath }),
-    client.fs.onReadFileChange,
     {
       onError: (err) => toast.error(`File content stream: ${err.message}`),
     },

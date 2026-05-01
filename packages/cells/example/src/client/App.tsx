@@ -44,7 +44,7 @@ export default function App() {
   // every key to a per-key value subscription.
   const keysSub = createRoot(() =>
     createSubscription<NoteId[]>(() =>
-      streamCall(app.rpc.notes.keys, undefined),
+      streamCall(app.rpc.surface.notes.keys, undefined),
     ),
   );
   const keys = createMemo<NoteId[]>(() => keysSub() ?? []);
@@ -79,7 +79,7 @@ export default function App() {
 
   // ── Mutations (app.rpc) ─────────────────────────────────────────────
   const handleCreate = async () => {
-    const note = await app.rpc.notes.create({ title: "Untitled" });
+    const note = await app.rpc.surface.notes.create({ title: "Untitled" });
     setSelectedId(note.id);
   };
 
@@ -95,12 +95,12 @@ export default function App() {
     const current = selectedNote();
     if (!current) return;
     const next: Note = { ...current, [field]: value, updatedAt: Date.now() };
-    await app.rpc.notes.update({ key: current.id, value: next });
+    await app.rpc.surface.notes.update({ key: current.id, value: next });
   };
 
   const handleDelete = async (id: NoteId): Promise<void> => {
     if (selectedId() === id) setSelectedId(null);
-    await app.rpc.notes.delete({ key: id });
+    await app.rpc.surface.notes.delete({ key: id });
   };
 
   // Filter sidebar by search results. When no query, show all.

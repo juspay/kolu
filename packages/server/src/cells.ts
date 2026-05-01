@@ -28,18 +28,29 @@ import { store } from "./state.ts";
 
 // ── Publisher channels (one per cell) ──────────────────────────────────
 
+// Channel names follow `implementSurface`'s default naming convention
+// (`<surface-key>:changed`) so domain modules' direct publishes land on
+// the exact same publisher channel the surface's `cellHandlers` subscribes
+// to. Two `publisherChannel(publisher, name)` calls with the same name
+// share the underlying channel.
 export const cellBus = {
-  /** User preferences changed — drives the live `preferences.get` query. */
+  /** User preferences changed — drives `surface.preferences.get`. */
   preferences: publisherChannel<Preferences>(publisher, "preferences:changed"),
-  /** Activity feed changed (recent repos / agents) — drives `activity.get`. */
-  activityFeed: publisherChannel<ActivityFeed>(publisher, "activity:changed"),
-  /** Saved-session blob changed — drives `session.get`. */
+  /** Activity feed changed — drives `surface.activityFeed.get`. */
+  activityFeed: publisherChannel<ActivityFeed>(
+    publisher,
+    "activityFeed:changed",
+  ),
+  /** Saved-session blob changed — drives `surface.session.get`. */
   savedSession: publisherChannel<SavedSession | null>(
     publisher,
     "session:changed",
   ),
-  /** Terminal list changed (create/kill) — drives `terminal.list`. */
-  terminalList: publisherChannel<TerminalInfo[]>(publisher, "terminal-list"),
+  /** Terminal list changed (create/kill) — drives `surface.terminalList.get`. */
+  terminalList: publisherChannel<TerminalInfo[]>(
+    publisher,
+    "terminalList:changed",
+  ),
 } as const;
 
 // ── Conf-backed stores (one per persisted cell) ────────────────────────

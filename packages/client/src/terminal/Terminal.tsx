@@ -40,7 +40,7 @@ import { streamCall } from "@kolu/cells/solid";
 import { client } from "../wire";
 import { isExpectedCleanupError } from "../rpc/streamCleanup";
 import { createScrollLock } from "../scrollLock";
-import { usePreferences } from "../settings/usePreferences";
+import { preferences, updatePreferences } from "../wire";
 import { isTouch } from "../useMobile";
 import ScrollToBottom from "./ScrollToBottom";
 import SearchBar from "./SearchBar";
@@ -155,7 +155,6 @@ const Terminal: Component<{
   let terminal: XTerm | null = null;
   let fitAddon: FitAddon | null = null;
   const [searchAddon, setSearchAddon] = createSignal<SearchAddon | null>(null);
-  const { preferences } = usePreferences();
   const scrollLock = createScrollLock(() => preferences().scrollLock);
   let fitRaf = 0;
 

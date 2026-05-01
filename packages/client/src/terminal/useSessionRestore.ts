@@ -9,9 +9,12 @@ import type {
 } from "kolu-common";
 import { createEffect, createSignal } from "solid-js";
 import { toast } from "solid-sonner";
-import { client } from "../wire";
 import { lifecycle } from "../rpc/rpc";
-import { useSavedSession } from "../settings/useSavedSession";
+import {
+  client,
+  savedSession as serverSavedSession,
+  savedSessionSub,
+} from "../wire";
 import { useSubPanel } from "./useSubPanel";
 import type { TerminalStore } from "./useTerminalStore";
 
@@ -29,7 +32,6 @@ export function useSessionRestore(deps: {
 }) {
   const { store } = deps;
   const subPanel = useSubPanel();
-  const serverSaved = useSavedSession();
 
   const [savedSession, setSavedSession] = createSignal<SavedSession | null>(
     null,
@@ -39,12 +41,12 @@ export function useSessionRestore(deps: {
   let hydrated = false;
   createEffect(() => {
     const existing = store.listSub();
-    const fromServer = serverSaved.savedSession();
+    const fromServer = serverSavedSession();
     // Gate on the subscription having yielded at least once — `sub.pending()`
     // flips false after the first yield (which may be the initial `null`
     // snapshot when no session is saved). Without this gate we'd hydrate
     // with a null before the server snapshot arrives and miss a restore prompt.
-    if (existing === undefined || serverSaved.sub.pending()) return;
+    if (existing === undefined || savedSessionSub.pending()) return;
     if (hydrated) return;
     hydrated = true;
     if (existing.length === 0) {
@@ -124,7 +126,7 @@ export function useSessionRestore(deps: {
   // the authoritative rescue UI and the restore button shouldn't compete.
   createEffect(() => {
     if (lifecycle().kind === "restarted") return;
-    const fromServer = serverSaved.savedSession();
+    const fromServer = serverSavedSession();
     if (store.terminalIds().length === 0 && hydrated) {
       setSavedSession(fromServer);
     }
