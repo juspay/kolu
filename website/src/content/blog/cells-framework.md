@@ -99,18 +99,20 @@ What survived was just the additive finding: **add `Event<I,T>` as a fourth prim
 
 The implementation hit one nasty bug. `eventHandlers`'s natural shape — `for await (const v of source) yield v` — silently drops the value for single-yield-then-return sources. oRPC's wire delivers an "iterator complete" frame the moment the wrapper's `for await` loops back to read source's `next()`, and that frame races the yielded value's delivery on the consumer side. The consumer's first iteration sees `done: true`, the value is dropped, and the kill.feature regression fires. Fix: forward `deps.source` directly as the handler iterator instead of wrapping. The framework's `eventHandlers` body is now one expression. Pinned in a doc-comment with a citation to the e2e scenario.
 
-## Turn 5: a runnable example
+## Turn 5: a runnable example, mostly for me
 
 The framework had a thorough README with a side-by-side "How Kolu uses this" inventory, plus a `## Comparison with Reflex-FRP` section laying out what we took (vocabulary, snapshot+deltas-as-Incremental, Stream input-parameterization) and what we didn't (`Behavior`, `MonadQuery`'s `Group`/`crop`/`SelectedCount` cross-network machinery, monadic Dynamic composition, one-primitive-fits-all). Kolu is single-client per session — Reflex's plumbing for `100 clients × shared subscriptions` doesn't pay back its weight at this scale.
 
-But a reader of the framework still couldn't see it run without reading Kolu's source. So I asked for a minimal example that demonstrated all four primitives in one place. The candidate was a notes app:
+The actual reason I asked for the example wasn't reader-facing. **It was so I'd have a smaller surface to review against when iterating on the framework itself.** Kolu has 12 stream consumers across canvas chrome, terminal lifecycle, agent providers, code-tab views, session restore. When I want to ask _"would `useCell` feel right with the mutation arg restructured this way?"_, scrolling through Kolu to see the answer is exhausting — a hundred-file diff per design tweak. A 500-LOC example with one of each primitive is a tractable substrate. The framework's API decisions are visible end-to-end without the domain noise.
+
+The candidate was a notes app:
 
 - `prefsCell` — editor preferences (font size, theme). `authority: "local"` instant-UI mutation, `applyPatch` for partial updates.
 - `notesCollection` — notes keyed by id. Sidebar list with per-key reactive lifecycle.
 - `searchStream` — full-text search parameterized by query string. `pollOnEvent`-driven re-derivation when notes change.
 - `autosaveEvent` — "Saved" flash beside the active note title. Handler-based, no current value.
 
-It came together in ~500 LOC across server + client + common, single-file `App.tsx` so every hook is visible end-to-end. Hono + WebSocket + Vite + Tailwind v4. Self-contained, no Kolu-internal imports.
+It came together in ~500 LOC across server + client + common, single-file `App.tsx` so every hook is visible end-to-end. Hono + WebSocket + Vite + Tailwind v4. Self-contained, no Kolu-internal imports — that property matters: when the example imports something from Kolu, the example becomes Kolu, and the substrate is no longer smaller. The discipline is "if a future framework change ripples into this example, the change has to land on this example *first* before I touch Kolu."
 
 I forgot to add the example to CI — caught me in the next turn. Fixed: `ci::cells-example-build` step that runs `pnpm --filter @kolu/cells-example build:client` to validate the example's Tailwind config + JSX + production bundle compile through. Fifteen CI contexts now (was fourteen).
 
