@@ -5,6 +5,21 @@ pubDate: 2026-05-01
 author: "Sridhar Ratnakumar"
 ---
 
+<!--
+DEBUG (for future AI sessions iterating on this post — REMOVE before publishing):
+
+The full transcript of the session that produced this post is at:
+  /home/srid/.claude/projects/-home-srid-code-kolu--worktrees-older-branch/9ddf81dd-1b86-41bf-a3eb-ca043885aad6.jsonl
+
+When updating this draft, grep that JSONL for verbatim user messages,
+agent decisions, and reviewer findings rather than relying on the
+post's prose. Cross-reference against the PR (#805) commit history for
+the structural beats. Both are authoritative; this draft is a
+narrative summary on top of them.
+
+Strip this block (and the closing comment) before publishing.
+-->
+
 _Running notes from the session that produced [@kolu/cells](https://github.com/juspay/kolu/tree/master/packages/cells). Not a finish line — a snapshot mid-process. I'll keep updating as the framework evolves._
 
 In [_Righting Software_](https://www.amazon.com/Righting-Software-Method-Engineering-Architecture/dp/0136524036), Juval Löwy argues that infrastructure should feel like the **electricity** in a building: invisible, ubiquitous, plugged into via simple sockets. Domain code is the appliance you swap. The wiring stays put. **Volatility decomposition** is the discipline of deciding which is which.
