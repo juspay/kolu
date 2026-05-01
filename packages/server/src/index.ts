@@ -64,6 +64,8 @@ const argv = cli({
   strictFlags: true,
 });
 
+const PWA_BACKGROUND_COLOR = "#0c0c0e";
+
 configureNixShellEnv(argv.flags.allowNixShellWithEnvWhitelist);
 ensureKoluRoot();
 initSessionAutoSave(snapshotSession);
@@ -149,10 +151,10 @@ app.get("/manifest.webmanifest", (c) => {
   return c.json(
     {
       name: identity.name,
-      short_name: identity.shortName,
+      short_name: identity.name,
       start_url: "/",
       display: "standalone",
-      background_color: identity.backgroundColor,
+      background_color: PWA_BACKGROUND_COLOR,
       theme_color: identity.themeColor,
       icons: [
         { src: "/icon-192.png", sizes: "192x192", type: "image/png" },

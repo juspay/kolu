@@ -306,9 +306,7 @@ export const TerminalSetParentInputSchema = z.object({
 export const ServerIdentitySchema = z.object({
   hostname: z.string(),
   name: z.string(),
-  shortName: z.string(),
   themeColor: z.string(),
-  backgroundColor: z.string(),
 });
 export type ServerIdentity = z.infer<typeof ServerIdentitySchema>;
 

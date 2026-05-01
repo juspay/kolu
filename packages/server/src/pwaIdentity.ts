@@ -1,6 +1,5 @@
 import type { ServerIdentity } from "kolu-common";
 
-const BACKGROUND_COLOR = "#0c0c0e";
 const THEME_COLORS = [
   "#0f766e",
   "#1d4ed8",
@@ -21,9 +20,7 @@ export function pwaIdentityForHostname(hostname: string): ServerIdentity {
   return {
     hostname,
     name,
-    shortName: name,
     themeColor: themeColorForHostname(hostname),
-    backgroundColor: BACKGROUND_COLOR,
   };
 }
 
