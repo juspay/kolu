@@ -10,6 +10,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./client": "./src/client.ts",
+    "./define": "./src/define.ts",
     "./server": "./src/server.ts",
     "./solid": "./src/solid/index.ts"
   },

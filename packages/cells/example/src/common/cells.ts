@@ -1,52 +1,70 @@
 /**
- * The four descriptors — one of each primitive.
+ * App-wide reactive surface, declared once via `defineMatrix`.
  *
- * Pure data. Server imports them to wire handlers; client imports them
- * to wire hooks. The `applyPrefsPatch` helper sits next to `prefsCell`
- * so the descriptor and its merge shape are read together (matches
- * Kolu's `applyPreferencesPatch` pattern).
+ *   - `matrix.contract` is the generated oRPC router (replaces the old
+ *     hand-listed `contract.ts`).
+ *   - `matrix.descriptors.{cells,collections,streams,events}` exposes the
+ *     underlying primitives for callers that want to stay manual (the
+ *     matrix is opt-in, not exclusive).
+ *
+ * The `applyPrefsPatch` helper sits next to the matrix so the patch shape
+ * lives one read away from the descriptor.
  */
 
-import { cell, collection, event, stream } from "@kolu/cells";
+import { defineMatrix } from "@kolu/cells/define";
 import {
   AutosaveEventSchema,
   DEFAULT_PREFS,
   type EditorPrefs,
   type EditorPrefsPatch,
+  EditorPrefsPatchSchema,
   EditorPrefsSchema,
+  NoteCreateInputSchema,
   NoteIdSchema,
   NoteSchema,
   SearchInputSchema,
   SearchResultSchema,
 } from "./schemas";
 
-/** Cell — editor preferences (singleton, persistable, mutable). */
-export const prefsCell = cell({
-  name: "prefs",
-  schema: EditorPrefsSchema,
-  default: DEFAULT_PREFS,
+export const matrix = defineMatrix({
+  cells: {
+    prefs: {
+      schema: EditorPrefsSchema,
+      default: DEFAULT_PREFS,
+      patchSchema: EditorPrefsPatchSchema,
+    },
+  },
+  collections: {
+    notes: { keySchema: NoteIdSchema, schema: NoteSchema },
+  },
+  streams: {
+    search: {
+      inputSchema: SearchInputSchema,
+      outputSchema: SearchResultSchema,
+    },
+  },
+  events: {
+    autosave: {
+      inputSchema: NoteIdSchema,
+      outputSchema: AutosaveEventSchema,
+    },
+  },
+  // Imperative escape hatch: notes.create assigns the id server-side, so
+  // it doesn't fit the collection's `update`-with-key shape.
+  procedures: {
+    notes: {
+      create: { input: NoteCreateInputSchema, output: NoteSchema },
+    },
+  },
 });
 
-/** Collection — notes keyed by id (each independently observable). */
-export const notesCollection = collection({
-  name: "notes",
-  keySchema: NoteIdSchema,
-  schema: NoteSchema,
-});
-
-/** Stream — search results parameterized by query string. */
-export const searchStream = stream({
-  name: "search",
-  inputSchema: SearchInputSchema,
-  outputSchema: SearchResultSchema,
-});
-
-/** Event — autosave notification (point-in-time fire, no current value). */
-export const autosaveEvent = event({
-  name: "autosave",
-  inputSchema: NoteIdSchema,
-  outputSchema: AutosaveEventSchema,
-});
+/** Re-exported descriptor handles. The example's hooks/handlers still use
+ *  these directly in Phase A; Phases B/C move them onto matrix.implement
+ *  / matrix.client. */
+export const { prefs: prefsCell } = matrix.descriptors.cells;
+export const { notes: notesCollection } = matrix.descriptors.collections;
+export const { search: searchStream } = matrix.descriptors.streams;
+export const { autosave: autosaveEvent } = matrix.descriptors.events;
 
 /** Pure merge of a partial preferences patch into the current prefs.
  *  Used by both server (`cellHandlers.patch`) and client
