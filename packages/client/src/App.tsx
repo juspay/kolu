@@ -7,7 +7,7 @@
 
 import Dialog from "@corvu/dialog";
 import { Title } from "@solidjs/meta";
-import type { TerminalId } from "kolu-common";
+import type { ServerIdentity, TerminalId } from "kolu-common";
 import {
   type Component,
   createEffect,
@@ -96,18 +96,28 @@ const App: Component = () => {
   );
   const orderedIds = createMemo(() => flatPillOrder(pillGroups()));
 
-  // Fetch hostname from server; used in document title and header
-  const [hostname, setHostname] = createSignal<string>();
+  // Fetch server identity for document title, watermark, and PWA chrome color.
+  const [identity, setIdentity] = createSignal<ServerIdentity>();
   void client.server
     .info()
-    .then((info) => setHostname(info.hostname))
+    .then((info) => setIdentity(info.identity))
     .catch(() => {
-      // Server info is cosmetic (document title) — safe to ignore on failure
+      // Server info is cosmetic — safe to ignore on failure.
     });
-  const appTitle = () => {
-    const h = hostname();
-    return h ? `kolu@${h}` : "kolu";
-  };
+  createEffect(() => {
+    const color = identity()?.themeColor;
+    if (!color) return;
+    let meta = document.querySelector<HTMLMetaElement>(
+      'meta[name="theme-color"]',
+    );
+    if (!meta) {
+      meta = document.createElement("meta");
+      meta.name = "theme-color";
+      document.head.append(meta);
+    }
+    meta.content = color;
+  });
+  const appTitle = () => identity()?.name ?? "kolu";
 
   // Palette state
   const [paletteOpen, setPaletteOpen] = createSignal(false);

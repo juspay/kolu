@@ -303,8 +303,17 @@ export const TerminalSetParentInputSchema = z.object({
   parentId: TerminalIdSchema.nullable(),
 });
 
-export const ServerInfoSchema = z.object({
+export const ServerIdentitySchema = z.object({
   hostname: z.string(),
+  name: z.string(),
+  shortName: z.string(),
+  themeColor: z.string(),
+  backgroundColor: z.string(),
+});
+export type ServerIdentity = z.infer<typeof ServerIdentitySchema>;
+
+export const ServerInfoSchema = z.object({
+  identity: ServerIdentitySchema,
   /** Unique ID for this server process — changes on restart. */
   processId: z.string().uuid(),
 });

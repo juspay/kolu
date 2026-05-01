@@ -39,6 +39,7 @@ import {
   setPreferencesForTest,
   updatePreferences,
 } from "./preferences.ts";
+import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import { subscribeForTerminal_, subscribeSystem_ } from "./publisher.ts";
 import { getSavedSession, setSavedSession } from "./session.ts";
 import {
@@ -173,7 +174,7 @@ async function* repoEventStream(
 export const appRouter = t.router({
   server: {
     info: t.server.info.handler(async () => ({
-      hostname: serverHostname,
+      identity: pwaIdentityForHostname(serverHostname),
       processId: serverProcessId,
     })),
   },
