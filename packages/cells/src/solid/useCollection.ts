@@ -27,17 +27,19 @@ import {
   type SubscriptionOptions,
 } from "./createSubscription";
 
-export interface UseCollectionOptions<K, T, I = K> {
+export interface UseCollectionOptions<K, T, I> {
   /** Reactive accessor for the live key set. The caller owns the subscription
    *  (or computation) that produces this — useCollection just observes it. */
   keys: Accessor<K[]>;
   /** Typed streaming procedure ref for one key's value stream. Hook
    *  threads `STREAM_RETRY` context per call. */
   valueSource: StreamingProcedure<I, T>;
-  /** Adapter from key to procedure input shape. Required when input
-   *  isn't the key itself (the common case — most procedures take
-   *  `{ id: key }` or similar). */
-  keyToInput?: (key: K) => I;
+  /** Adapter from key to procedure input shape. Always required (even
+   *  when `I = K`) — without it the framework would have to silently cast
+   *  the key to whatever shape the procedure expects, which crashes the
+   *  procedure at runtime when the shapes differ. Identity callers
+   *  spell out `(k) => k`. */
+  keyToInput: (key: K) => I;
   /** Called when any per-key subscription errors. */
   onError?: SubscriptionOptions<unknown>["onError"];
 }
@@ -51,19 +53,19 @@ export interface UseCollectionResult<K, T> {
   byKey: (key: K) => Subscription<T> | undefined;
 }
 
-export function useCollection<Name extends string, K, T, I = K>(
+export function useCollection<Name extends string, K, T, I>(
   _coll: Collection<Name, K, T>,
   options: UseCollectionOptions<K, T, I>,
 ): UseCollectionResult<K, T> {
   const keys = createMemo<K[]>(() => options.keys());
-  const toInput = options.keyToInput ?? ((k: K) => k as unknown as I);
 
   // mapArray creates a reactive owner per key. When a key leaves, its
   // owner is disposed → the per-key sub's onCleanup → AbortController abort
   // → server stream closes. No manual teardown.
   const perKey = mapArray(keys, (key) => {
     const sub = createSubscription(
-      () => options.valueSource(toInput(key), { context: STREAM_RETRY }),
+      () =>
+        options.valueSource(options.keyToInput(key), { context: STREAM_RETRY }),
       { onError: options.onError },
     );
     return { key, sub };
