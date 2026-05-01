@@ -6,7 +6,7 @@
  *  bar via `canvas/TileTitleActions`. The header is intentionally minimal. */
 
 import Dialog from "@corvu/dialog";
-import { Title } from "@solidjs/meta";
+import { Meta, Title } from "@solidjs/meta";
 import type { ServerIdentity, TerminalId } from "kolu-common";
 import {
   type Component,
@@ -104,19 +104,6 @@ const App: Component = () => {
     .catch(() => {
       // Server info is cosmetic — safe to ignore on failure.
     });
-  createEffect(() => {
-    const color = identity()?.themeColor;
-    if (!color) return;
-    let meta = document.querySelector<HTMLMetaElement>(
-      'meta[name="theme-color"]',
-    );
-    if (!meta) {
-      meta = document.createElement("meta");
-      meta.name = "theme-color";
-      document.head.append(meta);
-    }
-    meta.content = color;
-  });
   const appTitle = () => identity()?.name ?? "kolu";
 
   // Palette state
@@ -354,6 +341,9 @@ const App: Component = () => {
       }}
     >
       <Title>{appTitle()}</Title>
+      <Show when={identity()?.themeColor}>
+        {(themeColor) => <Meta name="theme-color" content={themeColor()} />}
+      </Show>
       <TransportOverlay />
       <WebcamOverlay />
       <Toaster
