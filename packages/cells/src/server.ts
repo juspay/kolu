@@ -20,7 +20,7 @@
  * framework; consumers can supply their own.
  */
 
-import type { Cell, Collection, Stream } from "./index";
+import type { Cell, Collection, Event, Stream } from "./index";
 
 // ── Persistence + pub/sub interfaces ───────────────────────────────────
 
@@ -194,6 +194,45 @@ export function streamHandlers<Name extends string, I, T>(
     get: async function* ({ input, signal }) {
       for await (const v of deps.source(input, signal)) yield v;
     },
+  };
+}
+
+// ── Event handlers ─────────────────────────────────────────────────────
+
+export interface EventHandlerDeps<I, T> {
+  /** Occurrence source. Yields zero or more occurrences; **no snapshot
+   *  obligation** — the framework explicitly does not require the first
+   *  yield to be a current-state snapshot, distinguishing Event from
+   *  Stream. A late subscriber misses past occurrences; that's the
+   *  contract. */
+  source: (input: I, signal: AbortSignal | undefined) => AsyncIterable<T>;
+}
+
+export interface EventHandlers<I, T> {
+  get: (opts: { input: I; signal?: AbortSignal }) => AsyncGenerator<T>;
+}
+
+/** Wire the server side of an `Event<I,T>`. Wire shape matches `streamHandlers`
+ *  (oRPC iterator yielding `T`); the contract difference is that the source
+ *  may yield zero items and need not start with a snapshot. The split from
+ *  `streamHandlers` exists so authors can't accidentally wire an event
+ *  source — which has no snapshot — to a stream handler that promises
+ *  snapshot-then-deltas.
+ *
+ *  Implementation note: we forward `deps.source(input, signal)` directly
+ *  as the handler's iterator rather than wrapping it in another
+ *  `for await of source: yield v` generator. The extra wrap layer would
+ *  put oRPC's wire one async tick behind a single-yield-then-return
+ *  source — the wire's "iterator complete" frame races the yielded
+ *  value's delivery, the consumer's first iteration sees `done: true`,
+ *  and the yielded value is dropped. Pinned by `kill.feature` "Natural
+ *  PTY exit removes terminal". */
+export function eventHandlers<Name extends string, I, T>(
+  _event: Event<Name, I, T>,
+  deps: EventHandlerDeps<I, T>,
+): EventHandlers<I, T> {
+  return {
+    get: ({ input, signal }) => deps.source(input, signal) as AsyncGenerator<T>,
   };
 }
 

@@ -2,23 +2,25 @@
 
 Typed reactive state cells for SolidJS clients backed by an oRPC streaming server.
 
-Three primitives cover the majority of typed reactive state pushed from a server to a Solid client:
+Four primitives cover the majority of typed server-to-client signal a Solid client consumes:
 
-| Primitive | The question it answers | Cardinality | Live updates from server | Persistable | Mutable from client |
-|-----------|-------------------------|-------------|--------------------------|-------------|---------------------|
-| `Cell<T>` | "What's the current X?" | One singleton | Yes (push on change) | Optional | Yes |
-| `Collection<K,T>` | "What's the current X for each key K?" | Many, keyed | Yes (per-key push) | Optional | Yes |
-| `Stream<I,T>` | "What's the live output for input I?" | One per input combo | Yes (push on derived-state change) | Never | No (read-only) |
+| Primitive | The question it answers | Cardinality | What the server sends | Persistable | Mutable from client | Has current value |
+|-----------|-------------------------|-------------|------------------------|-------------|---------------------|-------------------|
+| `Cell<T>` | "What's the current X?" | One singleton | Snapshot then deltas (push on change) | Optional | Yes | Yes |
+| `Collection<K,T>` | "What's the current X for each key K?" | Many, keyed | Per-key snapshot then deltas | Optional | Yes | Yes (per key) |
+| `Stream<I,T>` | "What's the live output for input I?" | One per input combo | Snapshot then deltas (push on derived-state change) | Never | No (read-only) | Yes |
+| `Event<I,T>` | "Has X happened yet?" | Occurrences over time | Zero or more occurrences (no snapshot) | Never | No (read-only) | **No** — handler-based |
 
-Anything genuinely outside these shapes — bidirectional binary streams, lifecycle events, commands, queries — stays as raw oRPC.
+The first three (Cell, Collection, Stream) are *state* — there's a current value the consumer renders. `Event` is *occurrence* — a handler fires per yield, no current value to read. Anything genuinely outside these shapes — bidirectional binary streams, commands, queries — stays as raw oRPC.
 
-## Why three primitives, not one
+## Why four primitives, not one
 
 Each captures a structurally distinct shape that bites at runtime if collapsed:
 
 - **Cell vs Collection** — folding many keyed values into a single `Cell<Map<K,V>>` makes every subscriber re-render when any key changes. Independent peers should be observable independently.
 - **Cell/Collection vs Stream** — Streams are computed views over external state (the file system, git, network) the server doesn't own. Caching them as Cells means the framework would have to invalidate state it doesn't manage.
 - **Cell vs Stream** — Cells are identities over time (same logical entity, value evolves). Streams are functions being re-evaluated. The semantic difference shows up in mutation: you can `set` a Cell; you can't `set` a Stream's output without becoming the cache.
+- **Stream vs Event** — Streams have a current value that's rendered (every consumer reads `sub()`); the wire promises a fresh snapshot on every (re-)subscribe. Events are point-in-time fires consumed via handler — no current value, no snapshot obligation, late subscribers miss past occurrences. Modelling `terminal.onExit` as a `Stream<{id}, ExitCode>` would force the consumer to render an iterator that yields once and closes — the wire shape would lie about cardinality.
 
 ## Install
 
@@ -261,6 +263,63 @@ status.error();    // last subscription error
 
 When the input changes, the previous subscription tears down and a fresh one starts; value resets to `undefined` between input change and first yield.
 
+## Event
+
+A point-in-time channel: occurrences flow from server to client, the consumer registers a handler, no current value to render. Distinct from `Stream<I,T>` because the framework guarantees no snapshot on (re-)subscribe — late subscribers miss past occurrences by design. Lifecycle notifications (terminal exit, session expiry, one-shot completions) fit this shape.
+
+### Define
+
+```ts
+import { event } from "@kolu/cells";
+
+export const terminalExitEvent = event({
+  name: "terminalExit",
+  inputSchema: z.object({ id: TerminalIdSchema }),
+  outputSchema: z.number(),  // exit code
+});
+```
+
+### Server-side handler
+
+`eventHandlers` produces the `get` body for the contract entry. The framework explicitly does **not** require the source to yield a snapshot — sources may yield zero, one, or many occurrences before the iterator closes:
+
+```ts
+import { eventHandlers } from "@kolu/cells/server";
+
+const exitHandlers = eventHandlers(terminalExitEvent, {
+  source: async function* (input, signal) {
+    requireTerminal(input.id);
+    for await (const code of terminalChannels.exit(input.id).subscribe(signal)) {
+      yield code;
+      return;  // single-yield-then-close
+    }
+  },
+});
+
+t.terminal.onExit.handler(exitHandlers.get);
+```
+
+The split from `streamHandlers` exists so authors can't accidentally wire an event source — which has no snapshot — to a stream handler that promises snapshot-then-deltas.
+
+### Client-side hook
+
+```ts
+useEvent(
+  terminalExitEvent,
+  () => ({ id: terminalId }),
+  client.terminal.onExit,
+  (exitCode) => {
+    toast.warning(`Terminal exited with ${exitCode}`);
+    removeAndAutoSwitch(terminalId);
+  },
+  { onError: (err) => console.error("Exit stream error:", err) },
+);
+```
+
+`useEvent` returns nothing — there's no `Subscription<T>` because there's no current value to access. Cleanup is signal-driven: by default the subscription dies when the reactive owner disposes (component unmount or `createRoot` dispose); pass `options.signal` for explicit lifecycle control.
+
+When the input accessor returns `null` the subscription is paused; when it changes, the previous subscription tears down and a fresh one starts.
+
 ## How Kolu uses this framework
 
 Concrete inventory — what every server-pushed reactive surface in Kolu maps to today.
@@ -289,20 +348,25 @@ Concrete inventory — what every server-pushed reactive surface in Kolu maps to
 | `fsListAllStream` | Code-view's All mode tree (full repo path list) |
 | `fsReadFileStream` | Code-view's All mode body (file content) |
 
+### Events
+
+| Descriptor | Backs |
+|---|---|
+| `terminalExitEvent` | Per-terminal one-shot exit notification — drives the exit toast and the active-terminal auto-switch in `useTerminals` |
+
 ### Raw oRPC (everything else)
 
-Shapes that don't fit a Cell/Collection/Stream descriptor stay as plain oRPC procedures.
+Shapes that don't fit a descriptor stay as plain oRPC procedures.
 
 | Pattern | Procedures | How to consume |
 |---|---|---|
 | **Bidirectional binary stream** — subscribe-before-yield ordering, custom `onRetry` (xterm buffer reset before re-subscribe's first frame) | `terminal.attach` | `streamCall(client.terminal.attach, { id }, { signal, onRetry })` |
-| **Lifecycle event** — single-yield-then-close, not continuous state | `terminal.onExit` | `streamCall(client.terminal.onExit, { id })` |
 | **One-shot queries** — request/response, no subscription dimension | `server.info`, `terminal.screenState`, `terminal.screenText`, `terminal.exportTranscriptHtml` | `await client.X.Y(input)` |
 | **Mutations** — request/response writes | `terminal.create` / `kill` / `killAll` / `resize` / `sendInput` / `setTheme` / `setCanvasLayout` / `setSubPanel` / `setActive` / `setParent` / `pasteImage`, `git.worktreeCreate` / `worktreeRemove`, `preferences.update` | `await client.X.Y(input)` (the retry plugin's `retry: 0` default fails them fast) |
 
 `streamCall` applies the same `STREAM_RETRY` context the descriptor hooks thread (and merges in an optional `onRetry` callback) so transport drops re-subscribe transparently — escape hatch for non-descriptor shapes, same retry semantics.
 
-_The shared property of the "raw" rows: there's no temporal sequence of values for a given identity that the client cares to subscribe to. The framework is for typed reactive state pushed from server to client; everything else stays raw._
+_The shared property of the "raw" rows: there's no temporal sequence of values for a given identity that the client cares to subscribe to. The framework is for typed reactive state pushed from server to client (Cell/Collection/Stream) plus typed point-in-time fires (Event); everything else stays raw._
 
 ## API reference
 
@@ -312,6 +376,7 @@ _The shared property of the "raw" rows: there's no temporal sequence of values f
 cell({ name, schema, default }): Cell<Name, T>
 collection({ name, keySchema, schema }): Collection<Name, K, T>
 stream({ name, inputSchema, outputSchema }): Stream<Name, I, T>
+event({ name, inputSchema, outputSchema }): Event<Name, I, T>
 ```
 
 ### Server (`@kolu/cells/server`)
@@ -321,6 +386,7 @@ cellHandlers(cell, { store, bus, patch?, onMutate? }): { get, set, patch, test__
 collectionHandlers(coll, { readAll, readOne?, upsert, remove, perKeyBus, keysBus }):
   { keys, get, update, delete, test__set }
 streamHandlers(stream, { source }): { get }
+eventHandlers(event, { source }): { get }
 
 pollOnEvent({ read, isEqual, install, signal, onReadError? }): AsyncIterable<T>
 
@@ -339,6 +405,7 @@ interface ChannelBus<T> { publish(v: T): void; subscribe(signal?): AsyncIterable
 useCell(cell, { source, mutate?, authority?, applyPatch?, mergeIntoStore?, initial?, onError? })
 useCollection(collection, { keys, valueSource, keyToInput?, onError? })
 useStream(stream, inputFn, source, { onError? }?)
+useEvent(event, inputFn, source, handler, { onError?, signal? }?): void
 
 streamCall(procedure, input, { signal?, onRetry? }?): Promise<AsyncIterable<O>>
 createCellsClient<C>({ websocket }): ContractRouterClient<C, ...>
@@ -348,6 +415,34 @@ createReactiveSubscription(inputFn, factory, options?): Subscription<T>
 ```
 
 `source` / `valueSource` accept typed oRPC procedure refs directly (e.g. `client.preferences.get`); the hook threads `STREAM_RETRY` retry context internally. The leaf primitives `createSubscription` / `createReactiveSubscription` are exposed for advanced consumers that need direct AsyncIterable→Accessor lifting outside the cell/collection/stream taxonomy.
+
+## Comparison with Reflex-FRP
+
+The framework's vocabulary takes inspiration from Haskell's [reflex-frp](https://github.com/reflex-frp/reflex), specifically `Reflex.Class.Behavior`, `Event`, `Dynamic`, and `Incremental`. The core mappings:
+
+| Reflex | `@kolu/cells` | Notes |
+|---|---|---|
+| `Dynamic t a` (with no input) | `Cell<T>` | Same shape: a value over time. Cell's wire is `Incremental t (Replace a)` — every push is a full replacement. |
+| `Dynamic t a` (parameterized by input) | `Stream<I,T>` | Reflex models input-dependent dynamics by composing — `Dynamic t I → Dynamic t a` via `joinDyn` / `bind`. We model it as a single primitive because the parameterization is a wire-protocol concern (subscribe with input I) rather than a composition concern. |
+| `Incremental t (PatchMap K T)` | `Collection<K,T>` | Same shape: a map snapshot plus per-key add/remove/update patches. `mapArray`-driven per-key reactivity is the equivalent of Reflex's `selectIncremental`. |
+| `Event t a` | `Event<I,T>` | Same shape: occurrences without a current value. We parameterize by input I (the subscriber declares interest in occurrences for some entity) where Reflex composes `Event t I → Event t a`. |
+| `Behavior t a` | _(none)_ | Pull-only sample-on-demand is rare in our UI path. We use functions instead. |
+
+### What we took
+
+- **The vocabulary.** Naming `Cell` / `Collection` / `Stream` / `Event` borrows from Reflex's lattice: state with current value (Dynamic / Incremental) vs occurrence-without-value (Event). The `Stream` vs `Event` split in particular is the Reflex distinction between "the iterator yields a current snapshot on (re-)subscribe" and "the iterator yields occurrences with no snapshot obligation," translated into oRPC wire shape.
+- **Snapshot+deltas as the wire equivalent of `Incremental`.** Reflex's `Incremental t p` is "a Dynamic with patches instead of full replacements." The framework's snapshot-then-deltas wire protocol is the same idea — a fresh snapshot replaces stale state on reconnect, deltas roll forward thereafter. Server-side helpers enforce the snapshot-first invariant in code.
+- **`Stream<I,T>` as input-parameterized state.** Reflex consumers think of subscriptions as "a Dynamic that depends on a Dynamic input" (composed via `joinDyn`). `useStream(descriptor, () => input(), source)` is the same idea wired to a wire boundary: the input accessor changing tears down the old subscription and starts a fresh one.
+
+### What we didn't take
+
+- **`Behavior` (pull-only sampling).** Reflex's `Behavior t a` is a function `t -> a` you sample without subscribing. In a Solid client we have closures and `createMemo`; nothing the framework ships needs to model "value at time `t`" as a separate concept. Skipped.
+- **`MonadQuery`'s `Group q` / `crop` / `SelectedCount` machinery.** Reflex's cross-network story (used in Obelisk / Focus) is: clients maintain a `Dynamic t Query` of their declarations of interest; the server aggregates clients' queries via a `Group q` instance, runs unified data-source subscriptions, and `crop`s results back per client. This pays off when the cost of "100 clients each watching the same key" is real. Kolu is single-client per session — refcounting, server-side dedup, and `crop` projections solve a problem we don't have. The cost (every value type implementing `Group` / `Commutative` / `Query` / `Monoid`-on-`QueryResult`) would be plumbing without payback. Skipped.
+- **Reflex's monadic frame semantics.** Reflex orchestrates frame coherence (every Event firing in a frame is consistent with every Behavior sampled in the same frame). We rely on Solid's reactive scheduler for frame coherence on the client; the wire's snapshot-then-deltas invariant is what's load-bearing on the server. Not modelled.
+- **`Dynamic`'s monadic API (`bind` / `joinDyn` / `holdDyn`).** Reflex composes `Dynamic`s into bigger `Dynamic`s monadically. We expose Solid's primitives (`createMemo`, `on`, `derive`) for that — the framework's job stops at the wire boundary.
+- **One-primitive-fits-all (`Dynamic` over everything).** Reflex's `Dynamic` is general enough to encode singletons, keyed maps, parameterized views — all by varying the type parameter. We chose to keep four primitives because the type-level distinctions (`Stream` is read-only and never persisted; `Event` has no current value to render; `Cell.default` is one canonical seed shared across consumers) encode domain invariants the type system enforces. Collapsing to a single primitive would move those invariants from compile-time enforcement to runtime convention.
+
+The principle: the framework adopts reflex-FRP's *vocabulary* and *snapshot+deltas-as-Incremental* framing. It doesn't adopt the cross-network query machinery, the pull-side `Behavior`, or the monadic Dynamic composition — those pay off in problems Kolu doesn't have, at a plumbing cost Kolu would have to carry.
 
 ## Design notes
 

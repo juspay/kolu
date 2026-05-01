@@ -9,7 +9,7 @@
  * See `@kolu/cells` for the framework's primitive definitions.
  */
 
-import { cell, collection, stream } from "@kolu/cells";
+import { cell, collection, event, stream } from "@kolu/cells";
 import { z } from "zod";
 import { DEFAULT_PREFERENCES } from "./config";
 import {
@@ -28,9 +28,11 @@ import {
   PreferencesSchema,
   type SavedSession,
   SavedSessionSchema,
+  TerminalAttachInputSchema,
   TerminalIdSchema,
   TerminalInfoSchema,
   TerminalMetadataSchema,
+  TerminalOnExitOutputSchema,
 } from "./index";
 
 // ── Cells ──────────────────────────────────────────────────────────────
@@ -128,6 +130,19 @@ export const fsReadFileStream = stream({
   name: "fsReadFile",
   inputSchema: FsReadFileInputSchema,
   outputSchema: FsReadFileOutputSchema,
+});
+
+// ── Events ─────────────────────────────────────────────────────────────
+
+/** Terminal process exited — fires once per terminal lifetime with the
+ *  exit code. Drives the exit toast and the active-terminal auto-switch
+ *  in `useTerminals`. The list cell already removes the terminal from
+ *  state when the server publishes the new list; this event carries the
+ *  *code* and the *causal moment* the list cell can't. */
+export const terminalExitEvent = event({
+  name: "terminalExit",
+  inputSchema: TerminalAttachInputSchema,
+  outputSchema: TerminalOnExitOutputSchema,
 });
 
 // ── Patch helpers ──────────────────────────────────────────────────────

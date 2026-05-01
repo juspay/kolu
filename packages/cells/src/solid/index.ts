@@ -20,6 +20,7 @@ export {
   type UseCollectionResult,
 } from "./useCollection";
 export { useStream } from "./useStream";
+export { useEvent, type UseEventOptions } from "./useEvent";
 
 // Client-side transport primitives — re-exported so consumers can import
 // everything they need from `@kolu/cells/solid`. The pure-transport

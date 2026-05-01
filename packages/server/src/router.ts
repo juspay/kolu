@@ -4,7 +4,12 @@
  * Streaming handlers subscribe to publisher channels over WebSocket.
  * Terminal CRUD (create, kill, etc.) is request-response; list and metadata are live streams.
  */
-import { cellHandlers, pollOnEvent, streamHandlers } from "@kolu/cells/server";
+import {
+  cellHandlers,
+  eventHandlers,
+  pollOnEvent,
+  streamHandlers,
+} from "@kolu/cells/server";
 import { implement, ORPCError } from "@orpc/server";
 
 import { loadClaudeCodeTranscript } from "kolu-claude-code";
@@ -19,6 +24,7 @@ import {
   gitStatusStream,
   preferencesCell,
   savedSessionCell,
+  terminalExitEvent,
   terminalListCell,
 } from "kolu-common/cells";
 import { contract } from "kolu-common/contract";
@@ -218,6 +224,23 @@ function requireTerminal(id: string): TerminalProcess {
   if (!entry) throw new TerminalNotFoundError(id);
   return entry;
 }
+
+const terminalExitHandlers = eventHandlers(terminalExitEvent, {
+  // Single-yield-then-close: validate the terminal exists at subscribe
+  // time (TerminalNotFoundError propagates as an ORPCError, not retried
+  // by STREAM_RETRY's `shouldRetry`), then forward the first exit-channel
+  // yield and return — the iterator naturally completes after one
+  // occurrence.
+  source: async function* (input, signal) {
+    requireTerminal(input.id);
+    for await (const exitCode of terminalChannels
+      .exit(input.id)
+      .subscribe(signal)) {
+      yield exitCode;
+      return;
+    }
+  },
+});
 
 /** Unwrap a GitResult or throw an ORPCError for the client. */
 function unwrapGit<T>(result: GitResult<T>): T {
@@ -434,15 +457,7 @@ export const appRouter = t.router({
       }
     }),
 
-    onExit: t.terminal.onExit.handler(async function* ({ input, signal }) {
-      requireTerminal(input.id);
-      for await (const exitCode of terminalChannels
-        .exit(input.id)
-        .subscribe(signal)) {
-        yield exitCode;
-        return;
-      }
-    }),
+    onExit: t.terminal.onExit.handler(terminalExitHandlers.get),
   },
   git: {
     worktreeCreate: t.git.worktreeCreate.handler(async ({ input }) => {
