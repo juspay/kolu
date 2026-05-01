@@ -114,8 +114,6 @@ The candidate was a notes app:
 
 It came together in ~500 LOC across server + client + common, single-file `App.tsx` so every hook is visible end-to-end. Hono + WebSocket + Vite + Tailwind v4. Self-contained, no Kolu-internal imports — that property matters: when the example imports something from Kolu, the example becomes Kolu, and the substrate is no longer smaller. The discipline is "if a future framework change ripples into this example, the change has to land on this example *first* before I touch Kolu."
 
-I forgot to add the example to CI — caught me in the next turn. Fixed: `ci::cells-example-build` step that runs `pnpm --filter @kolu/cells-example build:client` to validate the example's Tailwind config + JSX + production bundle compile through. Fifteen CI contexts now (was fourteen).
-
 ## What I'm carrying into future sessions
 
 **Reviewers see local defects, not missing seams.** Hickey looks for braiding. Lowy looks for volatility-axis misalignment. Neither lens, as currently tuned, looks at code that isn't there. A framework-shaped negative space is a Layer-0 question — _is the diff at the right altitude?_ — that neither lens reaches. I want a third lens, or a meta-pass on the first two, that asks _"is this pattern across N call sites itself the artifact?"_ Not sure yet how to sharpen that into a skill prompt. It might be a Lowy extension — _"electricity audit: what would you extract as utility before you'd accept any of these per-call-site fixes?"_
