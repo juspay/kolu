@@ -20,6 +20,17 @@
  * framework; consumers can supply their own.
  */
 
+import { implement } from "@orpc/server";
+import type { ZodType } from "zod";
+import type {
+  CellSpec,
+  CollectionSpec,
+  EventSpec,
+  Matrix,
+  MatrixSpec,
+  ProcedureSpec,
+  StreamSpec,
+} from "./define";
 import type { Cell, Collection, Event, Stream } from "./index";
 
 // ── Persistence + pub/sub interfaces ───────────────────────────────────
@@ -407,4 +418,426 @@ async function* iterateUntilAborted<T>(
     if (signal?.aborted && err === signal.reason) return;
     throw err;
   }
+}
+
+// ── implementMatrix — server-side dep wiring for a Matrix ─────────────
+
+/** Per-cell implementation deps. The matrix owns the publish channel
+ *  (derived from the matrix key, overridable via `spec.cells[K].channelName`);
+ *  the consumer supplies persistence + (when patchSchema is set) the patch
+ *  merge fn. */
+export type CellImplDeps<S extends CellSpec<unknown, unknown>> = S extends {
+  schema: ZodType<infer T>;
+  patchSchema: ZodType<infer P>;
+}
+  ? {
+      store: CellStore<T>;
+      patch: (current: T, p: P) => T;
+      onMutate?: (patch: P, current: T) => void;
+    }
+  : S extends { schema: ZodType<infer T> }
+    ? {
+        store: CellStore<T>;
+        onMutate?: (next: T, current: T) => void;
+      }
+    : never;
+
+/** Per-collection implementation deps. The matrix owns both buses
+ *  (derived from the matrix key, overridable via `spec.collections[K].channelNames`)
+ *  and wraps `upsert`/`remove` so every persisted change publishes through
+ *  the matrix's channels — the consumer's upsert/remove are persistence-only.
+ *  Side-effects (`scheduleAutosave`, etc.) belong inside the consumer's
+ *  upsert/remove fns or in the imperative procedure that triggered the call. */
+export type CollectionImplDeps<S extends CollectionSpec<unknown, unknown>> =
+  S extends { keySchema: ZodType<infer K>; schema: ZodType<infer T> }
+    ? {
+        readAll: () => Map<K, T>;
+        readOne?: (key: K) => T | undefined;
+        upsert: (key: K, value: T) => void;
+        remove: (key: K) => void;
+      }
+    : never;
+
+export type StreamImplDeps<S extends StreamSpec<unknown, unknown>> = S extends {
+  inputSchema: ZodType<infer I>;
+  outputSchema: ZodType<infer T>;
+}
+  ? {
+      source: (
+        input: I,
+        signal: AbortSignal | undefined,
+      ) => AsyncIterable<T>;
+    }
+  : never;
+
+/** Per-event implementation deps. The matrix does NOT own event channels by
+ *  default — events often have domain-specific sources (`terminalChannels.exit`,
+ *  etc.) the matrix can't model. Consumers provide their own source; if they
+ *  want a matrix-owned channel they wire it via `deps.channel` themselves. */
+export type EventImplDeps<S extends EventSpec<unknown, unknown>> = S extends {
+  inputSchema: ZodType<infer I>;
+  outputSchema: ZodType<infer T>;
+}
+  ? {
+      source: (
+        input: I,
+        signal: AbortSignal | undefined,
+      ) => AsyncIterable<T>;
+    }
+  : never;
+
+// ── Procedure ctx ──────────────────────────────────────────────────────
+
+/** Per-cell procedure ctx — get/set/patch via the matrix's wrapped helpers
+ *  so imperative procedures publish through the same channel as the wire
+ *  handlers. Bypassing this and writing directly to the consumer's store
+ *  silently skips the publish; don't. */
+type CellCtxFor<S> = S extends {
+  schema: ZodType<infer T>;
+  patchSchema: ZodType<infer P>;
+}
+  ? { get: () => T; set: (v: T) => void; patch: (p: P) => void }
+  : S extends { schema: ZodType<infer T> }
+    ? { get: () => T; set: (v: T) => void }
+    : never;
+
+type CollectionCtxFor<S> = S extends {
+  keySchema: ZodType<infer K>;
+  schema: ZodType<infer T>;
+}
+  ? {
+      upsert: (k: K, v: T) => void;
+      remove: (k: K) => void;
+      readAll: () => Map<K, T>;
+      readOne: (k: K) => T | undefined;
+    }
+  : never;
+
+export type ProcedureCtx<S extends MatrixSpec> = {
+  cells: {
+    [K in keyof S["cells"] & string]: CellCtxFor<
+      NonNullable<S["cells"]>[K]
+    >;
+  };
+  collections: {
+    [K in keyof S["collections"] & string]: CollectionCtxFor<
+      NonNullable<S["collections"]>[K]
+    >;
+  };
+};
+
+/** Handler for an imperative procedure. Receives `ctx` exposing the
+ *  matrix's cell/collection mutation helpers so cross-descriptor publishes
+ *  (e.g. `notes.create` writing to the `notes` collection) go through the
+ *  same channels the wire handlers do. */
+export type ProcedureImpl<
+  S extends ProcedureSpec<unknown, unknown>,
+  Ctx,
+> = S extends { input: ZodType<infer I>; output: ZodType<infer O> }
+  ? (opts: { input: I; ctx: Ctx; signal?: AbortSignal }) => Promise<O> | O
+  : S extends { input: ZodType<infer I> }
+    ? (opts: {
+        input: I;
+        ctx: Ctx;
+        signal?: AbortSignal;
+      }) => Promise<void> | void
+    : S extends { output: ZodType<infer O> }
+      ? (opts: { ctx: Ctx; signal?: AbortSignal }) => Promise<O> | O
+      : (opts: { ctx: Ctx; signal?: AbortSignal }) => Promise<void> | void;
+
+// ── ImplementMatrixDeps ────────────────────────────────────────────────
+
+export interface ImplementMatrixDeps<S extends MatrixSpec> {
+  /** Channel factory. The framework computes channel names from matrix
+   *  keys (e.g. `"prefs:changed"`, `"notes:keys"`, `"notes:n1"`) and
+   *  passes them into this fn — the consumer plugs in their underlying
+   *  publisher (`publisherChannel(publisher, name)` for the `@orpc/experimental-publisher`
+   *  adapter). */
+  channel: <T>(name: string) => ChannelBus<T>;
+
+  cells?: {
+    [K in keyof S["cells"] & string]: CellImplDeps<
+      NonNullable<S["cells"]>[K]
+    >;
+  };
+  collections?: {
+    [K in keyof S["collections"] & string]: CollectionImplDeps<
+      NonNullable<S["collections"]>[K]
+    >;
+  };
+  streams?: {
+    [K in keyof S["streams"] & string]: StreamImplDeps<
+      NonNullable<S["streams"]>[K]
+    >;
+  };
+  events?: {
+    [K in keyof S["events"] & string]: EventImplDeps<
+      NonNullable<S["events"]>[K]
+    >;
+  };
+  procedures?: {
+    [K in keyof S["procedures"] & string]: {
+      [V in keyof NonNullable<S["procedures"]>[K] & string]: ProcedureImpl<
+        NonNullable<S["procedures"]>[K][V],
+        ProcedureCtx<S>
+      >;
+    };
+  };
+}
+
+/** Build the full server router from a matrix + dep wiring. Replaces the
+ *  hand-listed `t.X.<verb>.handler(handlers.<verb>)` plumbing for every
+ *  cell, collection, stream, event, and imperative procedure declared in
+ *  the matrix.
+ *
+ *  Channel naming is matrix-driven: cells use `"<key>:changed"`,
+ *  collections use `"<key>:keys"` + `"<key>:" + String(key)`. Override
+ *  via `spec.<kind>[K].channelName(s)` when migrating off hand-named
+ *  channels (renaming a matrix key would otherwise silently rename the
+ *  channel and break consumers with persisted subscriptions).
+ *
+ *  Compose with raw oRPC handlers: spread the result alongside hand-
+ *  written `t.X.handler(...)` blocks for procedures the matrix can't
+ *  model (custom `onRetry`, binary framing, subscribe-before-yield):
+ *
+ *      const matrixRouter = implementMatrix(matrix, deps);
+ *      const t = implement(fullContract);
+ *      export const appRouter = t.router({
+ *        ...matrixRouter,
+ *        terminal: t.terminal.handler(...),
+ *      });
+ */
+export function implementMatrix<const S extends MatrixSpec>(
+  matrix: Matrix<S>,
+  deps: ImplementMatrixDeps<S>,
+) {
+  // oRPC's typed implement(contract) chain is too dynamic for our walk
+  // (we walk the spec at runtime to wire each entry); cast the whole
+  // builder + result to `any` and rely on the matrix's spec types for
+  // call-site safety.
+  // biome-ignore lint/suspicious/noExplicitAny: see comment above
+  const t = implement(matrix.contract as any) as any;
+  const spec = matrix.spec;
+
+  const cellsCtx: Record<string, unknown> = {};
+  const collectionsCtx: Record<string, unknown> = {};
+  const namespaces: Record<string, Record<string, unknown>> = {};
+
+  // ── Cells ────────────────────────────────────────────────────────────
+  for (const [key, rawSpec] of Object.entries(spec.cells ?? {})) {
+    const cellSpec = rawSpec as CellSpec<unknown, unknown>;
+    const channelName = cellSpec.channelName ?? `${key}:changed`;
+    const bus = deps.channel<unknown>(channelName);
+    // biome-ignore lint/suspicious/noExplicitAny: see top of fn
+    const cellDeps = (deps.cells as any)?.[key] as
+      | { store: CellStore<unknown>; patch?: (c: unknown, p: unknown) => unknown; onMutate?: (p: unknown, c: unknown) => void }
+      | undefined;
+    if (!cellDeps) {
+      throw new Error(`implementMatrix: missing deps for cell "${key}"`);
+    }
+    const handlers = cellHandlers(
+      // biome-ignore lint/suspicious/noExplicitAny: see top of fn
+      (matrix.descriptors.cells as any)[key] as Cell<string, unknown>,
+      {
+        store: cellDeps.store,
+        bus,
+        patch: cellDeps.patch,
+        onMutate: cellDeps.onMutate,
+      },
+    );
+
+    cellsCtx[key] = {
+      get: () => cellDeps.store.get(),
+      set: (v: unknown) => {
+        cellDeps.store.set(v);
+        bus.publish(v);
+      },
+      ...(cellDeps.patch
+        ? {
+            patch: (p: unknown) => {
+              const next = cellDeps.patch?.(cellDeps.store.get(), p);
+              cellDeps.store.set(next);
+              bus.publish(next);
+            },
+          }
+        : {}),
+    };
+
+    const verbs =
+      cellSpec.expose ??
+      (cellSpec.patchSchema
+        ? (["get", "patch"] as const)
+        : (["get", "set"] as const));
+    const ns: Record<string, unknown> = {};
+    for (const v of verbs) {
+      // biome-ignore lint/suspicious/noExplicitAny: see top of fn
+      const h = (handlers as any)[v];
+      if (h === undefined) continue;
+      // biome-ignore lint/suspicious/noExplicitAny: see top of fn
+      ns[v] = (t as any)[key][v].handler(h);
+    }
+    namespaces[key] = { ...(namespaces[key] ?? {}), ...ns };
+  }
+
+  // ── Collections ──────────────────────────────────────────────────────
+  for (const [key, rawSpec] of Object.entries(spec.collections ?? {})) {
+    const collSpec = rawSpec as CollectionSpec<unknown, unknown>;
+    const keysName = collSpec.channelNames?.keys ?? `${key}:keys`;
+    const perKeyName =
+      collSpec.channelNames?.perKey ??
+      ((k: unknown) => `${key}:${String(k)}`);
+    // biome-ignore lint/suspicious/noExplicitAny: see top of fn
+    const collDeps = (deps.collections as any)?.[key] as
+      | {
+          readAll: () => Map<unknown, unknown>;
+          readOne?: (k: unknown) => unknown;
+          upsert: (k: unknown, v: unknown) => void;
+          remove: (k: unknown) => void;
+        }
+      | undefined;
+    if (!collDeps) {
+      throw new Error(
+        `implementMatrix: missing deps for collection "${key}"`,
+      );
+    }
+    const keysBus = deps.channel<unknown[]>(keysName);
+    const perKeyBus = (k: unknown) =>
+      deps.channel<unknown>(perKeyName(k));
+
+    // Matrix-owned publish: every upsert/remove broadcasts the new key set
+    // (and, on upsert, the new per-key value) through the framework's
+    // channels. Consumers' upsert/remove stay persistence-only.
+    const wrappedUpsert = (k: unknown, v: unknown) => {
+      collDeps.upsert(k, v);
+      keysBus.publish(Array.from(collDeps.readAll().keys()));
+      perKeyBus(k).publish(v);
+    };
+    const wrappedRemove = (k: unknown) => {
+      collDeps.remove(k);
+      keysBus.publish(Array.from(collDeps.readAll().keys()));
+    };
+
+    collectionsCtx[key] = {
+      upsert: wrappedUpsert,
+      remove: wrappedRemove,
+      readAll: collDeps.readAll,
+      readOne:
+        collDeps.readOne ?? ((k: unknown) => collDeps.readAll().get(k)),
+    };
+
+    const handlers = collectionHandlers(
+      // biome-ignore lint/suspicious/noExplicitAny: see top of fn
+      (matrix.descriptors.collections as any)[key] as Collection<
+        string,
+        unknown,
+        unknown
+      >,
+      {
+        readAll: collDeps.readAll,
+        readOne: collDeps.readOne,
+        upsert: wrappedUpsert,
+        remove: wrappedRemove,
+        perKeyBus: perKeyBus as (k: unknown) => ChannelBus<unknown>,
+        keysBus: keysBus as ChannelBus<unknown[]>,
+      },
+    );
+
+    const verbs =
+      collSpec.expose ??
+      (["keys", "get", "update", "delete"] as const);
+    const ns: Record<string, unknown> = {};
+    for (const v of verbs) {
+      // biome-ignore lint/suspicious/noExplicitAny: see top of fn
+      const h = (handlers as any)[v];
+      if (h === undefined) continue;
+      // biome-ignore lint/suspicious/noExplicitAny: see top of fn
+      ns[v] = (t as any)[key][v].handler(h);
+    }
+    namespaces[key] = { ...(namespaces[key] ?? {}), ...ns };
+  }
+
+  // ── Streams ──────────────────────────────────────────────────────────
+  for (const [key] of Object.entries(spec.streams ?? {})) {
+    // biome-ignore lint/suspicious/noExplicitAny: see top of fn
+    const streamDeps = (deps.streams as any)?.[key] as
+      | {
+          source: (
+            i: unknown,
+            s: AbortSignal | undefined,
+          ) => AsyncIterable<unknown>;
+        }
+      | undefined;
+    if (!streamDeps) {
+      throw new Error(`implementMatrix: missing deps for stream "${key}"`);
+    }
+    const handlers = streamHandlers(
+      // biome-ignore lint/suspicious/noExplicitAny: see top of fn
+      (matrix.descriptors.streams as any)[key] as Stream<
+        string,
+        unknown,
+        unknown
+      >,
+      { source: streamDeps.source },
+    );
+    namespaces[key] = {
+      ...(namespaces[key] ?? {}),
+      // biome-ignore lint/suspicious/noExplicitAny: see top of fn
+      get: (t as any)[key].get.handler(handlers.get),
+    };
+  }
+
+  // ── Events ───────────────────────────────────────────────────────────
+  for (const [key] of Object.entries(spec.events ?? {})) {
+    // biome-ignore lint/suspicious/noExplicitAny: see top of fn
+    const eventDeps = (deps.events as any)?.[key] as
+      | {
+          source: (
+            i: unknown,
+            s: AbortSignal | undefined,
+          ) => AsyncIterable<unknown>;
+        }
+      | undefined;
+    if (!eventDeps) {
+      throw new Error(`implementMatrix: missing deps for event "${key}"`);
+    }
+    const handlers = eventHandlers(
+      // biome-ignore lint/suspicious/noExplicitAny: see top of fn
+      (matrix.descriptors.events as any)[key] as Event<
+        string,
+        unknown,
+        unknown
+      >,
+      { source: eventDeps.source },
+    );
+    namespaces[key] = {
+      ...(namespaces[key] ?? {}),
+      // biome-ignore lint/suspicious/noExplicitAny: see top of fn
+      get: (t as any)[key].get.handler(handlers.get),
+    };
+  }
+
+  // ── Procedures ───────────────────────────────────────────────────────
+  const ctx = { cells: cellsCtx, collections: collectionsCtx };
+  for (const [ns, procs] of Object.entries(spec.procedures ?? {})) {
+    namespaces[ns] = namespaces[ns] ?? {};
+    // biome-ignore lint/suspicious/noExplicitAny: see top of fn
+    const procDeps = (deps.procedures as any)?.[ns] as
+      | Record<string, (opts: unknown) => unknown>
+      | undefined;
+    for (const verb of Object.keys(procs)) {
+      const handler = procDeps?.[verb];
+      if (!handler) {
+        throw new Error(
+          `implementMatrix: missing handler for procedure "${ns}.${verb}"`,
+        );
+      }
+      // biome-ignore lint/suspicious/noExplicitAny: see top of fn
+      namespaces[ns][verb] = (t as any)[ns][verb].handler(
+        // biome-ignore lint/suspicious/noExplicitAny: see top of fn
+        (opts: any) => handler({ ...opts, ctx }),
+      );
+    }
+  }
+
+  return t.router(namespaces);
 }

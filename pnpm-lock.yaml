@@ -37,6 +37,9 @@ importers:
       '@orpc/contract':
         specifier: ^1.13.13
         version: 1.13.13
+      '@orpc/server':
+        specifier: ^1.13.13
+        version: 1.13.13(ws@8.19.0)
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11

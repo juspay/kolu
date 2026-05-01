@@ -1,124 +1,142 @@
 /**
- * oRPC router — wires the contract entries to framework handlers.
+ * oRPC router built from `matrix.implement` — one declarative call wires
+ * every cell, collection, stream, event, and imperative procedure declared
+ * in `common/cells.ts`.
  *
- * One handler builder per primitive:
- *   - prefsCell        → cellHandlers
- *   - notesCollection  → collectionHandlers
- *   - searchStream     → streamHandlers (poll-on-event source)
- *   - autosaveEvent    → eventHandlers
- *
- * Plus the imperative `notes.create` mutation (cell descriptors don't
- * cover ID assignment), and a debounced autosave loop that fires the
- * Event whenever a note is updated.
+ * The matrix owns publish channels for cells and collections (channel
+ * names derived from the matrix key). Consumer-supplied `upsert`/`remove`
+ * stay persistence-only; the framework wraps them so every change
+ * broadcasts through the matrix's channels. Imperative procedures get a
+ * typed `ctx` (`ctx.collections.notes.upsert(...)`) so cross-descriptor
+ * publishes route through the same channels.
  */
 
 import {
-  cellHandlers,
-  collectionHandlers,
-  eventHandlers,
+  implementMatrix,
   pollOnEvent,
-  streamHandlers,
+  publisherChannel,
 } from "@kolu/cells/server";
-import { implement } from "@orpc/server";
-import {
-  applyPrefsPatch,
-  autosaveEvent,
-  notesCollection,
-  prefsCell,
-  searchStream,
-} from "../common/cells";
-import { contract } from "../common/contract";
+import { applyPrefsPatch, matrix } from "../common/cells";
 import {
   allNotes,
   autosaveChannel,
   getPrefs,
   newNoteId,
-  noteChannel,
-  noteKeysChannel,
-  prefsChannel,
+  publisher,
   removeNote,
   searchNotes,
   setPrefs,
   upsertNote,
 } from "./store";
 
-const t = implement(contract);
+export const appRouter = implementMatrix(matrix, {
+  channel: <T>(name: string) => publisherChannel<T>(publisher, name),
 
-// ── Cell ──────────────────────────────────────────────────────────────
-const prefsHandlers = cellHandlers(prefsCell, {
-  store: { get: getPrefs, set: setPrefs },
-  bus: prefsChannel,
-  patch: applyPrefsPatch,
-});
-
-// ── Collection ────────────────────────────────────────────────────────
-const notesHandlers = collectionHandlers(notesCollection, {
-  readAll: () => allNotes(),
-  upsert: (key, value) => {
-    upsertNote(key, value);
-    noteKeysChannel.publish(Array.from(allNotes().keys()));
-    noteChannel(key).publish(value);
-    scheduleAutosave(value);
+  cells: {
+    prefs: {
+      store: { get: getPrefs, set: setPrefs },
+      patch: applyPrefsPatch,
+    },
   },
-  remove: (key) => {
-    removeNote(key);
-    noteKeysChannel.publish(Array.from(allNotes().keys()));
+
+  collections: {
+    notes: {
+      readAll,
+      upsert: (key, value) => {
+        upsertNote(key, value);
+        scheduleAutosave(value);
+      },
+      remove: removeNote,
+    },
   },
-  perKeyBus: noteChannel,
-  keysBus: noteKeysChannel,
+
+  streams: {
+    search: {
+      source: (input, signal) =>
+        pollOnEvent({
+          // Re-run the search whenever the notes set changes (good enough
+          // for the example — a real index would notify selectively
+          // per-note). The Stream's first yield is the initial result;
+          // subsequent yields fire only when matches actually differ.
+          read: async () => ({
+            matches: searchNotes(input.query),
+            query: input.query,
+          }),
+          isEqual: (a, b) =>
+            a.query === b.query &&
+            a.matches.length === b.matches.length &&
+            a.matches.every((id, i) => id === b.matches[i]),
+          install: (cb) => subscribeForCallback(cb),
+          signal,
+        }),
+    },
+  },
+
+  events: {
+    autosave: {
+      // Per-note channel: each note id has its own subscribe stream.
+      // Channel managed in store.ts (not matrix-derived) so the publish
+      // path inside scheduleAutosave can write to the same instance.
+      source: (id, signal) => autosaveChannel(id).subscribe(signal),
+    },
+  },
+
+  procedures: {
+    notes: {
+      // Imperative create — server assigns the id; the matrix's wrapped
+      // upsert publishes through the framework's note channels.
+      create: async ({ input, ctx }) => {
+        const id = newNoteId();
+        const note = {
+          id,
+          title: input.title,
+          body: "",
+          updatedAt: Date.now(),
+        };
+        ctx.collections.notes.upsert(id, note);
+        return note;
+      },
+    },
+  },
 });
 
-// ── Stream ────────────────────────────────────────────────────────────
-const searchHandlers = streamHandlers(searchStream, {
-  source: (input, signal) =>
-    pollOnEvent({
-      // Re-run the search whenever the notes set changes (good enough for
-      // the example — a real index would notify selectively per-note).
-      // The Stream's first yield is the initial result; subsequent yields
-      // fire only when the matches list actually differs.
-      read: async () => ({
-        matches: searchNotes(input.query),
-        query: input.query,
-      }),
-      isEqual: (a, b) =>
-        a.query === b.query &&
-        a.matches.length === b.matches.length &&
-        a.matches.every((id, i) => id === b.matches[i]),
-      install: (cb) => subscribeForCallback(noteKeysChannel.subscribe, cb),
-      signal,
-    }),
-});
+// ── Helpers (search-tick subscription, autosave debounce) ──────────────
 
-// ── Event ─────────────────────────────────────────────────────────────
-const autosaveHandlers = eventHandlers(autosaveEvent, {
-  // No snapshot: the per-note autosave channel just forwards each
-  // debounced "saved" notification. Late subscribers miss past saves.
-  source: (id, signal) => autosaveChannel(id).subscribe(signal),
-});
+function readAll(): Map<string, ReturnType<typeof allNotes> extends Map<
+  infer _K,
+  infer V
+>
+  ? V
+  : never> {
+  return allNotes();
+}
 
-// ── Helpers ───────────────────────────────────────────────────────────
-
-/** Convert a `(signal) => AsyncIterable<T>` into a callback-style
- *  subscription suitable for `pollOnEvent.install`. */
-function subscribeForCallback<T>(
-  subscribe: (signal: AbortSignal | undefined) => AsyncIterable<T>,
-  cb: () => void,
-): () => void {
+/** Convert the matrix's keys-channel into a callback-style subscription
+ *  for `pollOnEvent.install`. Subscribes via the publisher directly so the
+ *  `notes:keys` channel matches what `implementMatrix` emits. */
+function subscribeForCallback(cb: () => void): () => void {
   const ctrl = new AbortController();
   void (async () => {
     try {
-      for await (const _ of subscribe(ctrl.signal)) {
+      const sub = publisherChannel<unknown>(
+        // biome-ignore lint/suspicious/noExplicitAny: matches publisher generic at use site
+        publisher as any,
+        "notes:keys",
+      ).subscribe(ctrl.signal);
+      for await (const _ of sub) {
         if (ctrl.signal.aborted) break;
         cb();
       }
     } catch {
-      // Expected on abort; nothing else can fail in our subscribe path.
+      // Expected on abort.
     }
   })();
   return () => ctrl.abort();
 }
 
-/** Debounced autosave fire — coalesces rapid edits into one event. */
+/** Debounced autosave fire — coalesces rapid edits into one event.
+ *  Publishes to `autosaveChannel` (managed in store.ts), which the
+ *  matrix's `events.autosave.source` subscribes to. */
 const pendingAutosaves = new Map<string, ReturnType<typeof setTimeout>>();
 function scheduleAutosave(note: { id: string; title: string }): void {
   const existing = pendingAutosaves.get(note.id);
@@ -135,36 +153,3 @@ function scheduleAutosave(note: { id: string; title: string }): void {
     }, 500),
   );
 }
-
-// ── Router ────────────────────────────────────────────────────────────
-export const appRouter = t.router({
-  prefs: {
-    get: t.prefs.get.handler(prefsHandlers.get),
-    patch: t.prefs.patch.handler(prefsHandlers.patch),
-  },
-  notes: {
-    keys: t.notes.keys.handler(notesHandlers.keys),
-    get: t.notes.get.handler(notesHandlers.get),
-    update: t.notes.update.handler(notesHandlers.update),
-    delete: t.notes.delete.handler(notesHandlers.delete),
-    create: t.notes.create.handler(async ({ input }) => {
-      const id = newNoteId();
-      const note = {
-        id,
-        title: input.title,
-        body: "",
-        updatedAt: Date.now(),
-      };
-      upsertNote(id, note);
-      noteKeysChannel.publish(Array.from(allNotes().keys()));
-      noteChannel(id).publish(note);
-      return note;
-    }),
-  },
-  search: {
-    get: t.search.get.handler(searchHandlers.get),
-  },
-  autosave: {
-    get: t.autosave.get.handler(autosaveHandlers.get),
-  },
-});
