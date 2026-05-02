@@ -55,13 +55,14 @@ in
       dir = lib.mkOption {
         type = lib.types.nullOr lib.types.str;
         default = null;
-        example = "%h/.kolu/diag";
+        example = lib.literalExpression ''"''${config.home.homeDirectory}/.kolu/diag"'';
         description = ''
           Enable memory/heap diagnostics. Value is the base directory under
           which kolu writes per-invocation subdirs containing heap snapshots
           (via --heapsnapshot-near-heap-limit + --heapsnapshot-signal=SIGUSR2)
           and periodic stats logs. `null` disables diagnostics entirely with
-          zero overhead. See the PR for the intended workflow.
+          zero overhead. Must be an absolute path — systemd `%h` specifiers
+          are not expanded here and would not work on launchd anyway.
         '';
       };
     };
@@ -117,7 +118,13 @@ in
         config = {
           ProgramArguments = args;
           RunAtLoad = true;
-          KeepAlive.SuccessfulExit = false;
+          # Match systemd's `Restart = "on-failure"`: restart on non-zero exit
+          # AND on crash signals (SIGSEGV, SIGILL, …). `SuccessfulExit` alone
+          # only covers clean exits with non-zero status.
+          KeepAlive = {
+            SuccessfulExit = false;
+            Crashed = true;
+          };
           # launchd drops stdout/stderr by default; keep service crashes visible.
           StandardOutPath = "${config.home.homeDirectory}/Library/Logs/kolu.out.log";
           StandardErrorPath = "${config.home.homeDirectory}/Library/Logs/kolu.err.log";
