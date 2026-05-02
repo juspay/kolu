@@ -32,8 +32,8 @@ export {
 } from "./surfaceClient";
 
 // Client-side transport primitives — re-exported so consumers can import
-// everything they need from `@kolu/cells/solid`. The pure-transport
-// definitions live in `@kolu/cells/client` for non-Solid consumers.
+// everything they need from `@kolu/surface/solid`. The pure-transport
+// definitions live in `@kolu/surface/client` for non-Solid consumers.
 // `STREAM_RETRY` and `ClientRetryPluginContext` are internal — hooks
 // thread the context, consumers never see it.
 export {

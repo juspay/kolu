@@ -15,7 +15,7 @@ import {
   implementSurface,
   pollOnEvent,
   publisherChannel,
-} from "@kolu/cells/server";
+} from "@kolu/surface/server";
 import { surface } from "../common/surface";
 import {
   allNotes,

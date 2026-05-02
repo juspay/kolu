@@ -1,6 +1,6 @@
-# @kolu/cells-example
+# @kolu/surface-example
 
-A minimal in-memory notes app demonstrating all four `@kolu/cells` primitives end-to-end. Read it as the runnable companion to [`../README.md`](../README.md) — every primitive declaration, server handler, and client hook has one obvious place.
+A minimal in-memory notes app demonstrating all four `@kolu/surface` primitives end-to-end. Read it as the runnable companion to [`../README.md`](../README.md) — every primitive declaration, server handler, and client hook has one obvious place.
 
 ## What's where
 
@@ -24,7 +24,7 @@ This enters the Nix devshell, installs deps if needed, and starts the server (po
 For an explicit invocation outside `just`:
 
 ```sh
-nix develop -c pnpm --filter @kolu/cells-example dev
+nix develop -c pnpm --filter @kolu/surface-example dev
 ```
 
 The example is self-contained: in-memory note store, no persistence between restarts. Stop and restart to reset the dataset.
@@ -36,7 +36,7 @@ The example uses ad-hoc closures for state (in `src/server/store.ts`) — the cl
 ```ts
 // src/server/store.ts (after swap)
 import Conf from "conf";
-import { confStore } from "@kolu/cells/server";
+import { confStore } from "@kolu/surface/server";
 
 const conf = new Conf<{ prefs: EditorPrefs }>({ projectName: "cells-example" });
 
@@ -58,7 +58,7 @@ Wire format is identical; only the storage adapter changes. Same swap works for 
 ## Layout
 
 ```
-packages/cells/example/
+packages/surface/example/
 ├── README.md
 ├── package.json
 ├── tsconfig.json
@@ -80,4 +80,4 @@ packages/cells/example/
         └── styles.css       # Tailwind import + dark variant
 ```
 
-The example deliberately doesn't use Conf, doesn't ship a Nix flake of its own, and doesn't import any kolu-internal package. Everything it needs is in `@kolu/cells/{*}` plus the standard oRPC + Hono + Vite stack.
+The example deliberately doesn't use Conf, doesn't ship a Nix flake of its own, and doesn't import any kolu-internal package. Everything it needs is in `@kolu/surface/{*}` plus the standard oRPC + Hono + Vite stack.

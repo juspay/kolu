@@ -1,5 +1,5 @@
 /**
- * Single-page demo of all four `@kolu/cells` primitives — wired via the
+ * Single-page demo of all four `@kolu/surface` primitives — wired via the
  * surface client bundle.
  *
  *   - `app.cells.prefs.use(...)`           → editor preferences (font, theme)
@@ -13,7 +13,7 @@
  * via `app.rpc.<ns>.<verb>(...)`.
  */
 
-import { createSubscription, streamCall } from "@kolu/cells/solid";
+import { createSubscription, streamCall } from "@kolu/surface/solid";
 import {
   createEffect,
   createMemo,
@@ -121,7 +121,7 @@ export default function App() {
         <header class="p-3 border-b border-zinc-200 dark:border-zinc-800 space-y-2">
           <div class="flex items-center justify-between">
             <h1 class="font-semibold text-sm tracking-tight">
-              @kolu/cells example
+              @kolu/surface example
             </h1>
             <button
               type="button"

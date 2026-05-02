@@ -56,9 +56,9 @@ server:
 client:
     cd packages/client && {{ nix_shell }} pnpm dev
 
-# Run the @kolu/cells framework example (notes app — all 4 primitives)
-cells-example: install
-    {{ nix_shell }} pnpm --filter @kolu/cells-example dev
+# Run the @kolu/surface framework example (notes app — all 4 primitives)
+surface-example: install
+    {{ nix_shell }} pnpm --filter @kolu/surface-example dev
 
 # Run unit tests (vitest) across server and client packages
 test-unit: install

@@ -11,7 +11,7 @@
  * imported in two places.
  */
 
-import { defineSurface } from "@kolu/cells/define";
+import { defineSurface } from "@kolu/surface/define";
 import {
   AutosaveEventSchema,
   DEFAULT_PREFS,

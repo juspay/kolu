@@ -23,7 +23,7 @@ Invoke the `/ci` skill. It runs `just ci` via the Monitor tool and cross-checks 
 Keep these docs in sync:
 
 - **`README.md`** (top-level) — user-facing changes, architecture prose, transport-resilience description.
-- **`packages/cells/README.md`** — the `@kolu/cells` framework reference. The "How Kolu uses this framework" section is a concrete inventory of every cell, collection, and stream descriptor plus the raw-oRPC procedures that stay outside the framework. Update it whenever a new descriptor lands or whenever a contract entry's classification changes (added mutation, retired stream, …).
+- **`packages/surface/README.md`** — the `@kolu/surface` framework reference. The "How Kolu uses this framework" section is a concrete inventory of every cell, collection, and stream descriptor plus the raw-oRPC procedures that stay outside the framework. Update it whenever a new descriptor lands or whenever a contract entry's classification changes (added mutation, retired stream, …).
 
 ## PR evidence
 

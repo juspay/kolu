@@ -29,101 +29,6 @@ importers:
         specifier: ^2.4.13
         version: 2.4.13
 
-  packages/cells:
-    dependencies:
-      '@orpc/client':
-        specifier: ^1.13.13
-        version: 1.13.13
-      '@orpc/contract':
-        specifier: ^1.13.13
-        version: 1.13.13
-      '@orpc/server':
-        specifier: ^1.13.13
-        version: 1.13.13(ws@8.19.0)
-      solid-js:
-        specifier: ^1.9.0
-        version: 1.9.11
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
-    devDependencies:
-      '@types/node':
-        specifier: ^22.0.0
-        version: 22.19.15
-      typescript:
-        specifier: ^5.8.0
-        version: 5.9.3
-      vitest:
-        specifier: ^4.1.2
-        version: 4.1.2(@types/node@22.19.15)(vite@6.4.2(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3))
-
-  packages/cells/example:
-    dependencies:
-      '@hono/node-server':
-        specifier: ^1.19.13
-        version: 1.19.13(hono@4.12.14)
-      '@hono/node-ws':
-        specifier: ^1.1.0
-        version: 1.3.0(@hono/node-server@1.19.13(hono@4.12.14))(hono@4.12.14)
-      '@kolu/cells':
-        specifier: workspace:*
-        version: link:..
-      '@orpc/client':
-        specifier: ^1.13.13
-        version: 1.13.13
-      '@orpc/contract':
-        specifier: ^1.13.13
-        version: 1.13.13
-      '@orpc/experimental-publisher':
-        specifier: ^1.13.13
-        version: 1.13.13
-      '@orpc/server':
-        specifier: ^1.13.13
-        version: 1.13.13(ws@8.19.0)
-      hono:
-        specifier: ^4.12.14
-        version: 4.12.14
-      partysocket:
-        specifier: ^1.1.16
-        version: 1.1.16(react@19.2.5)
-      solid-js:
-        specifier: ^1.9.0
-        version: 1.9.11
-      ws:
-        specifier: ^8.19.0
-        version: 8.19.0
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
-    devDependencies:
-      '@tailwindcss/vite':
-        specifier: ^4.1.0
-        version: 4.2.2(vite@6.4.2(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3))
-      '@types/node':
-        specifier: ^22.0.0
-        version: 22.19.15
-      '@types/ws':
-        specifier: ^8.18.1
-        version: 8.18.1
-      concurrently:
-        specifier: ^9.1.0
-        version: 9.2.1
-      tailwindcss:
-        specifier: ^4.1.0
-        version: 4.2.2
-      tsx:
-        specifier: ^4.19.0
-        version: 4.21.0
-      typescript:
-        specifier: ^5.8.0
-        version: 5.9.3
-      vite:
-        specifier: ^6.4.2
-        version: 6.4.2(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3)
-      vite-plugin-solid:
-        specifier: ^2.11.0
-        version: 2.11.11(solid-js@1.9.11)(vite@6.4.2(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3))
-
   packages/client:
     dependencies:
       '@corvu/dialog':
@@ -138,9 +43,9 @@ importers:
       '@corvu/tooltip':
         specifier: ^0.2.2
         version: 0.2.2(solid-js@1.9.11)
-      '@kolu/cells':
+      '@kolu/surface':
         specifier: workspace:*
-        version: link:../cells
+        version: link:../surface
       '@orpc/client':
         specifier: ^1.13.13
         version: 1.13.13
@@ -256,9 +161,9 @@ importers:
 
   packages/common:
     dependencies:
-      '@kolu/cells':
+      '@kolu/surface':
         specifier: workspace:*
-        version: link:../cells
+        version: link:../surface
       '@orpc/contract':
         specifier: ^1.13.13
         version: 1.13.13
@@ -486,9 +391,9 @@ importers:
       '@hono/node-ws':
         specifier: ^1.1.0
         version: 1.3.0(@hono/node-server@1.19.13(hono@4.12.14))(hono@4.12.14)
-      '@kolu/cells':
+      '@kolu/surface':
         specifier: workspace:*
-        version: link:../cells
+        version: link:../surface
       '@orpc/client':
         specifier: ^1.13.13
         version: 1.13.13
@@ -595,6 +500,101 @@ importers:
       typescript:
         specifier: ^5.8.0
         version: 5.9.3
+
+  packages/surface:
+    dependencies:
+      '@orpc/client':
+        specifier: ^1.13.13
+        version: 1.13.13
+      '@orpc/contract':
+        specifier: ^1.13.13
+        version: 1.13.13
+      '@orpc/server':
+        specifier: ^1.13.13
+        version: 1.13.13(ws@8.19.0)
+      solid-js:
+        specifier: ^1.9.0
+        version: 1.9.11
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.15
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.2
+        version: 4.1.2(@types/node@22.19.15)(vite@6.4.2(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3))
+
+  packages/surface/example:
+    dependencies:
+      '@hono/node-server':
+        specifier: ^1.19.13
+        version: 1.19.13(hono@4.12.14)
+      '@hono/node-ws':
+        specifier: ^1.1.0
+        version: 1.3.0(@hono/node-server@1.19.13(hono@4.12.14))(hono@4.12.14)
+      '@kolu/surface':
+        specifier: workspace:*
+        version: link:..
+      '@orpc/client':
+        specifier: ^1.13.13
+        version: 1.13.13
+      '@orpc/contract':
+        specifier: ^1.13.13
+        version: 1.13.13
+      '@orpc/experimental-publisher':
+        specifier: ^1.13.13
+        version: 1.13.13
+      '@orpc/server':
+        specifier: ^1.13.13
+        version: 1.13.13(ws@8.19.0)
+      hono:
+        specifier: ^4.12.14
+        version: 4.12.14
+      partysocket:
+        specifier: ^1.1.16
+        version: 1.1.16(react@19.2.5)
+      solid-js:
+        specifier: ^1.9.0
+        version: 1.9.11
+      ws:
+        specifier: ^8.19.0
+        version: 8.19.0
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@tailwindcss/vite':
+        specifier: ^4.1.0
+        version: 4.2.2(vite@6.4.2(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3))
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.15
+      '@types/ws':
+        specifier: ^8.18.1
+        version: 8.18.1
+      concurrently:
+        specifier: ^9.1.0
+        version: 9.2.1
+      tailwindcss:
+        specifier: ^4.1.0
+        version: 4.2.2
+      tsx:
+        specifier: ^4.19.0
+        version: 4.21.0
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+      vite:
+        specifier: ^6.4.2
+        version: 6.4.2(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3)
+      vite-plugin-solid:
+        specifier: ^2.11.0
+        version: 2.11.11(solid-js@1.9.11)(vite@6.4.2(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3))
 
   packages/terminal-themes:
     dependencies:

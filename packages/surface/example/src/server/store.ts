@@ -6,11 +6,11 @@
  * singleton.
  *
  * Swap to disk-backed persistence by replacing `inMemoryStore` calls
- * in `router.ts` with `confStore` (see `@kolu/cells/server`) — wire
+ * in `router.ts` with `confStore` (see `@kolu/surface/server`) — wire
  * format is identical, only the storage adapter changes.
  */
 
-import { publisherChannel } from "@kolu/cells/server";
+import { publisherChannel } from "@kolu/surface/server";
 import { MemoryPublisher } from "@orpc/experimental-publisher/memory";
 import { DEFAULT_PREFS, type EditorPrefs, type Note } from "../common/schemas";
 

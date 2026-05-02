@@ -19,7 +19,7 @@ let
       ./pnpm-workspace.yaml
       ./pnpm-lock.yaml
       ./tsconfig.base.json
-      ./packages/cells
+      ./packages/surface
       ./packages/common
       ./packages/integrations
       ./packages/nonempty

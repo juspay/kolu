@@ -1,5 +1,5 @@
 /**
- * @kolu/cells/server — server-side bindings for the typed reactive surface.
+ * @kolu/surface/server — server-side bindings for the typed reactive surface.
  *
  * Headline API: `implementSurface(surface, deps)` walks a `Surface` (from
  * `defineSurface`) and produces both a router fragment and a typed

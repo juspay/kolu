@@ -36,7 +36,7 @@ import { FONT_FAMILY } from "terminal-themes";
 import { matchesAnyShortcut } from "../input/actions";
 import { createZoom } from "../input/zoom";
 import { refitOnTabVisible } from "../refitOnTabVisible";
-import { streamCall } from "@kolu/cells/solid";
+import { streamCall } from "@kolu/surface/solid";
 import { client } from "../wire";
 import { isExpectedCleanupError } from "../rpc/streamCleanup";
 import { createScrollLock } from "../scrollLock";

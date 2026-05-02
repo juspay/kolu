@@ -28,7 +28,7 @@ import {
   implementSurface,
   pollOnEvent,
   publisherChannel,
-} from "@kolu/cells/server";
+} from "@kolu/surface/server";
 import { ORPCError, implement } from "@orpc/server";
 import type { ActivityFeed, Preferences, SavedSession } from "kolu-common";
 import { contract } from "kolu-common/contract";

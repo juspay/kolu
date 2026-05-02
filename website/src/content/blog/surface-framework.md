@@ -20,11 +20,11 @@ narrative summary on top of them.
 Strip this block (and the closing comment) before publishing.
 -->
 
-_Running notes from the session that produced [@kolu/cells](https://github.com/juspay/kolu/tree/master/packages/cells). Not a finish line — a snapshot mid-process. I'll keep updating as the framework evolves._
+_Running notes from the session that produced [@kolu/surface](https://github.com/juspay/kolu/tree/master/packages/surface). Not a finish line — a snapshot mid-process. I'll keep updating as the framework evolves._
 
 In [_Righting Software_](https://www.amazon.com/Righting-Software-Method-Engineering-Architecture/dp/0136524036), Juval Löwy argues that infrastructure should feel like the **electricity** in a building: invisible, ubiquitous, plugged into via simple sockets. Domain code is the appliance you swap. The wiring stays put. **Volatility decomposition** is the discipline of deciding which is which.
 
-This post is a session log. Across five conversational turns, a handful of `createSubscription` calls in Kolu's client + a parallel set of hand-rolled `yield X; for await ev of subscribeSystem_(...) yield ev` loops in Kolu's server became `@kolu/cells` — a four-primitive end-to-end framework that owns the entire snapshot+deltas wire protocol on both sides. Domain modules in Kolu shrank by ~190 lines net and stopped knowing about retry contexts, publisher channels, or oRPC plumbing.
+This post is a session log. Across five conversational turns, a handful of `createSubscription` calls in Kolu's client + a parallel set of hand-rolled `yield X; for await ev of subscribeSystem_(...) yield ev` loops in Kolu's server became `@kolu/surface` — a four-primitive end-to-end framework that owns the entire snapshot+deltas wire protocol on both sides. Domain modules in Kolu shrank by ~190 lines net and stopped knowing about retry contexts, publisher channels, or oRPC plumbing.
 
 A few things surprised me about how it went. **The reviewers didn't see the framework.** I had to ask for it. Then once I had asked, the model designed three primitives — but missed two important shapes that I had to pull out one turn at a time. By the end of the session there were four primitives plus a runnable example, and a clearer sense of where the [hickey](https://github.com/srid/agency/blob/master/skills/hickey/SKILL.md) and [lowy](https://github.com/srid/agency/blob/master/skills/lowy/SKILL.md) reviewer agents are doing their best work — and where they're blind.
 
@@ -80,7 +80,7 @@ This is the turn that changed how I think about the framework.
 
 I asked the model to research [reflex-frp](https://github.com/reflex-frp/reflex) — the Haskell FRP library — and explain how its types map to what we'd built. The map came back almost too cleanly:
 
-| Reflex | `@kolu/cells` |
+| Reflex | `@kolu/surface` |
 |---|---|
 | `Dynamic t a` (no input) | `Cell<T>` |
 | `Dynamic t a` (per-input) | `Stream<I,T>` |

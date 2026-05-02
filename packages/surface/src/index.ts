@@ -1,5 +1,5 @@
 /**
- * @kolu/cells — descriptor primitives.
+ * @kolu/surface — descriptor primitives.
  *
  * Four concepts cover the majority of typed reactive state pushed from a
  * server to a Solid client over a streaming RPC:

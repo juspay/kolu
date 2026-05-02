@@ -66,7 +66,7 @@ const server = serve(
   (info) => {
     const where = `http://${info.address}:${info.port}`;
     // eslint-disable-next-line no-console
-    console.log(`@kolu/cells-example listening on ${where}`);
+    console.log(`@kolu/surface-example listening on ${where}`);
     if (!DIST_DIR) {
       // eslint-disable-next-line no-console
       console.log(

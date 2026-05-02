@@ -17,7 +17,7 @@
 
 import type { ClientRetryPluginContext } from "@orpc/client/plugins";
 import type { ContractRouterClient } from "@orpc/contract";
-import { surfaceClient } from "@kolu/cells/solid";
+import { surfaceClient } from "@kolu/surface/solid";
 import type {
   Preferences,
   PreferencesPatch,

@@ -9,7 +9,7 @@
  *  client-side sort, no per-terminal ordering field.
  *
  *  Per-terminal subscriptions are managed by `useCollection` from
- *  `@kolu/cells/solid` — the framework's `mapArray`-backed lifecycle
+ *  `@kolu/surface/solid` — the framework's `mapArray`-backed lifecycle
  *  creates a reactive owner per terminal ID and disposes it when the
  *  terminal leaves the list. No manual Map, AbortController, or version
  *  signals needed at this call site. */

@@ -1,4 +1,4 @@
-# @kolu/cells
+# @kolu/surface
 
 Typed reactive state cells for SolidJS clients backed by an oRPC streaming server.
 
@@ -30,7 +30,7 @@ This is a workspace-private package. Wire it into both server and client package
 // packages/server/package.json + packages/client/package.json
 {
   "dependencies": {
-    "@kolu/cells": "workspace:*"
+    "@kolu/surface": "workspace:*"
   }
 }
 ```
@@ -39,7 +39,7 @@ This is a workspace-private package. Wire it into both server and client package
 
 **Manual** — hand-list each primitive (`cell({...})`, `collection({...})`, `stream({...})`, `event({...})`), hand-list the oRPC contract that talks to them, hand-wire the server's handlers, hand-pass `source`/`mutate` refs to `useCell`/`useCollection`/etc. Maximum flexibility; substantial plumbing per descriptor.
 
-**Surface** (`@kolu/cells/define`) — one `defineSurface({...})` declaration covers every Cell, Collection, Stream, Event, and imperative procedure the app exposes. From it the framework derives:
+**Surface** (`@kolu/surface/define`) — one `defineSurface({...})` declaration covers every Cell, Collection, Stream, Event, and imperative procedure the app exposes. From it the framework derives:
 
 - `surface.contract` — replaces the hand-written `oc.router({...})` literal.
 - `implementSurface(surface, deps)` — replaces the per-verb `t.X.<verb>.handler(handlers.<verb>)` plumbing (server-side).
@@ -47,7 +47,7 @@ This is a workspace-private package. Wire it into both server and client package
 
 The surface is opt-in. Reach for it when you're standing up a new app surface or writing a self-contained module; stay manual when an existing wire shape doesn't match the surface's verb-naming defaults (currently `get`/`patch`/`set`/`test__set` for cells, `keys`/`get`/`update`/`delete`/`test__set` for collections — see the example for the full set). The two approaches compose: spread `surface.contract` alongside a sibling `oc.router({...})` of raw procedures, and similarly for `implementSurface`'s output.
 
-See `## Surface` below and `packages/cells/example/` for a full end-to-end demo.
+See `## Surface` below and `packages/surface/example/` for a full end-to-end demo.
 
 ## Architecture
 
@@ -83,7 +83,7 @@ A singleton typed value. The server owns the canonical state; clients subscribe 
 
 ```ts
 // packages/common/src/surface.ts
-import { cell } from "@kolu/cells";
+import { cell } from "@kolu/surface";
 import { z } from "zod";
 
 export const PreferencesSchema = z.object({
@@ -106,7 +106,7 @@ export const preferences = cell({
 
 ```ts
 // packages/server/src/router.ts
-import { cellHandlers, confStore, publisherChannel } from "@kolu/cells/server";
+import { cellHandlers, confStore, publisherChannel } from "@kolu/surface/server";
 import { preferences } from "kolu-common/surface";
 
 const handlers = cellHandlers(preferences, {
@@ -134,7 +134,7 @@ The framework owns the typed-client construction so consumers never reach into f
 
 ```ts
 // packages/client/src/wire.ts (kolu)
-import { createCellsClient } from "@kolu/cells/solid";
+import { createCellsClient } from "@kolu/surface/solid";
 import type { contract } from "kolu-common/contract";
 
 const ws = new WebSocket(`wss://${host}/rpc/ws`);
@@ -147,7 +147,7 @@ export const client = createCellsClient<typeof contract>({ websocket: ws });
 
 ```ts
 // packages/client/src/settings/usePreferences.ts
-import { useCell } from "@kolu/cells/solid";
+import { useCell } from "@kolu/surface/solid";
 import { preferences } from "kolu-common/surface";
 import { client } from "../cells";
 
@@ -199,7 +199,7 @@ A keyed dictionary of typed values. Each key is independently observable; the li
 ### Define
 
 ```ts
-import { collection } from "@kolu/cells";
+import { collection } from "@kolu/surface";
 
 export const terminalMetadata = collection({
   name: "terminalMetadata",
@@ -233,7 +233,7 @@ A derived view computed on demand from a reactive input. Snapshot-then-deltas, n
 ### Define
 
 ```ts
-import { stream } from "@kolu/cells";
+import { stream } from "@kolu/surface";
 
 export const gitStatus = stream({
   name: "gitStatus",
@@ -247,7 +247,7 @@ export const gitStatus = stream({
 For streams that watch external state (git, fs), the framework provides `pollOnEvent` — a snapshot-then-deltas helper that reads on each event tick and yields only when the value changed:
 
 ```ts
-import { pollOnEvent } from "@kolu/cells/server";
+import { pollOnEvent } from "@kolu/surface/server";
 
 git: {
   onStatusChange: t.git.onStatusChange.handler(async function* ({ input, signal }) {
@@ -286,7 +286,7 @@ A point-in-time channel: occurrences flow from server to client, the consumer re
 ### Define
 
 ```ts
-import { event } from "@kolu/cells";
+import { event } from "@kolu/surface";
 
 export const terminalExitEvent = event({
   name: "terminalExit",
@@ -300,7 +300,7 @@ export const terminalExitEvent = event({
 `eventHandlers` produces the `get` body for the contract entry. The framework explicitly does **not** require the source to yield a snapshot — sources may yield zero, one, or many occurrences before the iterator closes:
 
 ```ts
-import { eventHandlers } from "@kolu/cells/server";
+import { eventHandlers } from "@kolu/surface/server";
 
 const exitHandlers = eventHandlers(terminalExitEvent, {
   source: async function* (input, signal) {
@@ -386,11 +386,11 @@ _The shared property of the "raw" rows: there's no temporal sequence of values f
 
 ## Surface
 
-`defineSurface({...})` declares the whole reactive surface of an app at one site. The example (`packages/cells/example/`) ships a working surface end-to-end — start there for a runnable reference.
+`defineSurface({...})` declares the whole reactive surface of an app at one site. The example (`packages/surface/example/`) ships a working surface end-to-end — start there for a runnable reference.
 
 ```ts
 // common/surface.ts
-import { defineSurface } from "@kolu/cells/define";
+import { defineSurface } from "@kolu/surface/define";
 import { z } from "zod";
 
 export const surface = defineSurface({
@@ -428,7 +428,7 @@ export const surface = defineSurface({
 
 ```ts
 // server/router.ts
-import { implementSurface, publisherChannel } from "@kolu/cells/server";
+import { implementSurface, publisherChannel } from "@kolu/surface/server";
 
 export const appRouter = implementSurface(surface, {
   channel: <T>(name: string) => publisherChannel<T>(publisher, name),
@@ -456,7 +456,7 @@ The surface derives publish channel names and they are not configurable: cells u
 
 ```ts
 // client/wire.ts
-import { surfaceClient } from "@kolu/cells/solid";
+import { surfaceClient } from "@kolu/surface/solid";
 import type { ContractRouterClient } from "@orpc/contract";
 import type { ClientRetryPluginContext } from "@orpc/client/plugins";
 
@@ -491,7 +491,7 @@ On the server, `implementSurface(surface, deps)` returns `{ router, ctx }`; spre
 
 ## API reference
 
-### Descriptors (`@kolu/cells`)
+### Descriptors (`@kolu/surface`)
 
 ```ts
 cell({ name, schema, default }): Cell<Name, T>
@@ -500,7 +500,7 @@ stream({ name, inputSchema, outputSchema }): Stream<Name, I, T>
 event({ name, inputSchema, outputSchema }): Event<Name, I, T>
 ```
 
-### Surface (`@kolu/cells/define`)
+### Surface (`@kolu/surface/define`)
 
 ```ts
 defineSurface(spec): Surface<S>
@@ -510,7 +510,7 @@ defineSurface(spec): Surface<S>
   // surface.spec — passed-in spec for reflection
 ```
 
-### Server (`@kolu/cells/server`)
+### Server (`@kolu/surface/server`)
 
 ```ts
 implementSurface(surface, { channel, cells, collections, streams, events, procedures })
@@ -533,7 +533,7 @@ interface CellStore<T> { get(): T; set(v: T): void }
 interface ChannelBus<T> { publish(v: T): void; subscribe(signal?): AsyncIterable<T> }
 ```
 
-### Solid client (`@kolu/cells/solid`)
+### Solid client (`@kolu/surface/solid`)
 
 ```ts
 surfaceClient<S, Rpc>(surface, { websocket }): SurfaceClientBundle<S, Rpc>
@@ -561,7 +561,7 @@ createReactiveSubscription(inputFn, factory, options?): Subscription<T>
 
 The framework's vocabulary takes inspiration from Haskell's [reflex-frp](https://github.com/reflex-frp/reflex), specifically `Reflex.Class.Behavior`, `Event`, `Dynamic`, and `Incremental`. The core mappings:
 
-| Reflex | `@kolu/cells` | Notes |
+| Reflex | `@kolu/surface` | Notes |
 |---|---|---|
 | `Dynamic t a` (with no input) | `Cell<T>` | Same shape: a value over time. Cell's wire is `Incremental t (Replace a)` — every push is a full replacement. |
 | `Dynamic t a` (parameterized by input) | `Stream<I,T>` | Reflex models input-dependent dynamics by composing — `Dynamic t I → Dynamic t a` via `joinDyn` / `bind`. We model it as a single primitive because the parameterization is a wire-protocol concern (subscribe with input I) rather than a composition concern. |

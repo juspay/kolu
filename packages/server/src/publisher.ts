@@ -3,7 +3,7 @@
  *  One `MemoryPublisher` instance, two named registries on top:
  *
  *    - `terminalChannels` — keyed-broadcast bus per `(channel, terminalId)`
- *      pair. Each entry is a `ChannelBus<T>` from `@kolu/cells/server`,
+ *      pair. Each entry is a `ChannelBus<T>` from `@kolu/surface/server`,
  *      owning both publish AND subscribe for its named channel. Single
  *      source of truth for what events exist per terminal.
  *    - `terminalsDirtyChannel` — singleton control-flow signal that
@@ -17,7 +17,7 @@
  *  convention this file uses for the per-terminal axis.
  */
 
-import { type ChannelBus, publisherChannel } from "@kolu/cells/server";
+import { type ChannelBus, publisherChannel } from "@kolu/surface/server";
 import { MemoryPublisher } from "@orpc/experimental-publisher/memory";
 import type { GitInfo } from "kolu-common";
 

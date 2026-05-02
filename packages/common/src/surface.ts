@@ -11,7 +11,7 @@
  * without a migration ladder.
  */
 
-import { defineSurface } from "@kolu/cells/define";
+import { defineSurface } from "@kolu/surface/define";
 import { z } from "zod";
 import { DEFAULT_PREFERENCES } from "./config";
 import {
