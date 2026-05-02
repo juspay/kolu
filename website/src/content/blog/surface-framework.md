@@ -66,7 +66,7 @@ After the first PR landed CI-green, I noticed `streaming.md` rule §1 still in t
 
 This time though, once pointed at, the reviewers earned their keep. The talk-mode design pass (which auto-runs hickey + lowy on the proposal) immediately surfaced two findings I'd missed:
 
-- **Hickey F4 (the sharpest):** the proposed `terminalChannels` registry on the server only covered the **read** side. Write-side `publishForTerminal(...)` calls would still be scattered. The fix had to be symmetric — each entry a `ChannelBus<T>` owning both publish and subscribe.
+- **Hickey F4 (the sharpest):** the proposed `terminalChannels` registry on the server only covered the **read** side. Write-side `publishForTerminal(...)` calls would still be scattered. The fix had to be symmetric — each entry a `Channel<T>` owning both publish and subscribe.
 
 - **Lowy F7:** before deleting `subscribeForTerminal_`, the callback-form wrapper used by 5 providers had to be audited. The deletion would have stranded those.
 

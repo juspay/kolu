@@ -3,7 +3,7 @@
  *  One `MemoryPublisher` instance, two named registries on top:
  *
  *    - `terminalChannels` — keyed-broadcast bus per `(channel, terminalId)`
- *      pair. Each entry is a `ChannelBus<T>` from `@kolu/surface/server`,
+ *      pair. Each entry is a `Channel<T>` from `@kolu/surface/server`,
  *      owning both publish AND subscribe for its named channel. Single
  *      source of truth for what events exist per terminal.
  *    - `terminalsDirtyChannel` — singleton control-flow signal that
@@ -17,7 +17,7 @@
  *  convention this file uses for the per-terminal axis.
  */
 
-import { type ChannelBus, publisherChannel } from "@kolu/surface/server";
+import { type Channel, publisherChannel } from "@kolu/surface/server";
 import { MemoryPublisher } from "@orpc/experimental-publisher/memory";
 import type { GitInfo } from "kolu-common";
 
@@ -32,7 +32,7 @@ export const publisher = new MemoryPublisher<Record<string, any>>();
  *  diagnostics (see diagnostics.ts) — climbs if subscribers aren't draining. */
 export const publisherSize = (): number => publisher.size;
 
-/** Typed per-terminal channels. Each builder returns a `ChannelBus<T>`
+/** Typed per-terminal channels. Each builder returns a `Channel<T>`
  *  scoped to that terminal id — `terminalChannels.cwd(id).publish(cwd)`
  *  and `terminalChannels.cwd(id).subscribe(signal)` are symmetric.
  *
@@ -72,7 +72,7 @@ export const terminalsDirtyChannel = publisherChannel<Record<string, never>>(
  *  end-of-life noise). The five providers in `meta/*.ts` all consume a
  *  per-terminal channel this way. */
 export function consumeChannel<T>(
-  channel: ChannelBus<T>,
+  channel: Channel<T>,
   signal: AbortSignal,
   onEvent: (value: T) => void,
   onError: (err: unknown) => void,

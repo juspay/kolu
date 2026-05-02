@@ -103,7 +103,7 @@ export const preferences = cell({
 
 ### Server-side handler
 
-`cellHandlers` returns the four handler bodies a typed cell needs (`get`, `set`, `patch`, `test__set`). Persistence and pub/sub plug in via `CellStore<T>` and `ChannelBus<T>` interfaces — adapters for `conf` (`confStore`) and `@orpc/experimental-publisher` (`publisherChannel`) ship with the framework.
+`cellHandlers` returns the four handler bodies a typed cell needs (`get`, `set`, `patch`, `test__set`). Persistence and pub/sub plug in via `CellStore<T>` and `Channel<T>` interfaces — adapters for `conf` (`confStore`) and `@orpc/experimental-publisher` (`publisherChannel`) ship with the framework.
 
 ```ts
 // packages/server/src/router.ts
@@ -127,7 +127,7 @@ export const appRouter = t.router({
 });
 ```
 
-The framework guarantees snapshot-then-deltas on `get` (yields `store.get()` first, then every value pushed to `bus`); `set`/`patch` validate, persist, and broadcast on the same bus. Swap in any `CellStore` (sqlite, redis, in-memory via `inMemoryStore(default)`) or `ChannelBus` (Redis pub/sub, NATS, etc.) without touching the handler logic.
+The framework guarantees snapshot-then-deltas on `get` (yields `store.get()` first, then every value pushed to `bus`); `set`/`patch` validate, persist, and broadcast on the same bus. Swap in any `CellStore` (sqlite, redis, in-memory via `inMemoryStore(default)`) or `Channel` (Redis pub/sub, NATS, etc.) without touching the handler logic.
 
 ### Client setup
 
@@ -528,10 +528,10 @@ pollOnEvent({ read, isEqual, install, signal, onReadError? }): AsyncIterable<T>
 // Storage + bus adapters
 inMemoryStore<T>(initial): CellStore<T>
 confStore<T>(conf, key): CellStore<T>
-publisherChannel<T>(publisher, channelName): ChannelBus<T>
+publisherChannel<T>(publisher, channelName): Channel<T>
 
 interface CellStore<T> { get(): T; set(v: T): void }
-interface ChannelBus<T> { publish(v: T): void; subscribe(signal?): AsyncIterable<T> }
+interface Channel<T> { publish(v: T): void; subscribe(signal?): AsyncIterable<T> }
 ```
 
 ### Solid client (`@kolu/surface/solid`)

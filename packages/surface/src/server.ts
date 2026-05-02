@@ -10,7 +10,7 @@
  * etc. let domain code mutate without parallel store-and-publish paths.
  *
  * Persistence and pub/sub are pluggable via `CellStore<T>` and
- * `ChannelBus<T>` interfaces. Adapters for `conf` (`confStore`) and
+ * `Channel<T>` interfaces. Adapters for `conf` (`confStore`) and
  * `@orpc/experimental-publisher` (`publisherChannel`) ship with the
  * framework; consumers can supply their own.
  *
@@ -44,7 +44,7 @@ export interface CellStore<T> {
 /** A typed publish/subscribe channel. `publish` triggers all live
  *  iterators to emit the value; `subscribe` returns an AsyncIterable that
  *  yields each future publish until `signal` aborts. */
-export interface ChannelBus<T> {
+export interface Channel<T> {
   publish(value: T): void;
   subscribe(signal: AbortSignal | undefined): AsyncIterable<T>;
 }
@@ -57,7 +57,7 @@ export interface CellHandlerDeps<T, P = T> {
    *  cells (terminal-list etc.). */
   store: CellStore<T>;
   /** Publish channel used to broadcast mutation echoes to subscribers. */
-  bus: ChannelBus<T>;
+  bus: Channel<T>;
   /** Pure merge for partial-update mutations. Required when the cell's
    *  `set`-equivalent procedure takes a patch shape `P` distinct from `T`
    *  (e.g. `PreferencesPatch`). When omitted, `set/patch` treat input as
@@ -132,9 +132,9 @@ export interface CollectionHandlerDeps<K, T> {
   /** Persist a delete and broadcast removal to subscribers. */
   remove: (key: K) => void;
   /** Bus for per-key value updates. Subscribers watch `(channel, key)`. */
-  perKeyBus: (key: K) => ChannelBus<T>;
+  perKeyBus: (key: K) => Channel<T>;
   /** Bus for the live key set (broadcasts `K[]` snapshots on add/remove). */
-  keysBus: ChannelBus<K[]>;
+  keysBus: Channel<K[]>;
 }
 
 export interface CollectionHandlers<K, T> {
@@ -361,9 +361,9 @@ export function confStore<T>(
   };
 }
 
-// ── Built-in ChannelBus adapter for @orpc/experimental-publisher ──────
+// ── Built-in Channel adapter for @orpc/experimental-publisher ──────
 
-/** Build a `ChannelBus<T>` from an `@orpc/experimental-publisher`-style
+/** Build a `Channel<T>` from an `@orpc/experimental-publisher`-style
  *  publisher. The publisher's untyped string-channel API is hidden
  *  behind a typed bus so each cell has one named channel and consumers
  *  can't typo.
@@ -395,7 +395,7 @@ export function publisherChannel<T>(
     ) => AsyncIterable<T>;
   },
   channelName: string,
-): ChannelBus<T> {
+): Channel<T> {
   return {
     publish: (value) => {
       void publisher.publish(channelName, value);
@@ -492,7 +492,7 @@ export type EventImplDeps<S extends EventSpec<unknown, unknown>> = S extends {
       source?: (
         input: I,
         signal: AbortSignal | undefined,
-        helpers: { bus: ChannelBus<T> },
+        helpers: { bus: Channel<T> },
       ) => AsyncIterable<T>;
     }
   : never;
@@ -577,7 +577,7 @@ export interface ImplementSurfaceDeps<S extends SurfaceSpec> {
    *  passes them into this fn — the consumer plugs in their underlying
    *  publisher (`publisherChannel(publisher, name)` for the `@orpc/experimental-publisher`
    *  adapter). */
-  channel: <T>(name: string) => ChannelBus<T>;
+  channel: <T>(name: string) => Channel<T>;
 
   cells?: {
     [K in keyof S["cells"] & string]: CellImplDeps<NonNullable<S["cells"]>[K]>;
@@ -767,8 +767,8 @@ export function implementSurface<const S extends SurfaceSpec>(
         readOne: collDeps.readOne,
         upsert: wrappedUpsert,
         remove: wrappedRemove,
-        perKeyBus: perKeyBus as (k: unknown) => ChannelBus<unknown>,
-        keysBus: keysBus as ChannelBus<unknown[]>,
+        perKeyBus: perKeyBus as (k: unknown) => Channel<unknown>,
+        keysBus: keysBus as Channel<unknown[]>,
       },
     );
 
@@ -827,11 +827,11 @@ export function implementSurface<const S extends SurfaceSpec>(
           source?: (
             i: unknown,
             s: AbortSignal | undefined,
-            helpers: { bus: ChannelBus<unknown> },
+            helpers: { bus: Channel<unknown> },
           ) => AsyncIterable<unknown>;
         }
       | undefined;
-    const busFor = (input: unknown): ChannelBus<unknown> =>
+    const busFor = (input: unknown): Channel<unknown> =>
       deps.channel<unknown>(`${key}:${eventChannelKey(input)}`);
     eventsCtx[key] = {
       publish: (input: unknown, payload: unknown) => {
