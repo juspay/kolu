@@ -118,6 +118,8 @@ in
           ProgramArguments = args;
           RunAtLoad = true;
           KeepAlive.SuccessfulExit = false;
+          StandardOutPath = "${config.home.homeDirectory}/Library/Logs/kolu.out.log";
+          StandardErrorPath = "${config.home.homeDirectory}/Library/Logs/kolu.err.log";
         } // lib.optionalAttrs (envAttrs != { }) {
           EnvironmentVariables = envAttrs;
         };
