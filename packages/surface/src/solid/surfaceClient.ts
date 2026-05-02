@@ -1,11 +1,11 @@
 /**
- * `surfaceClient` — client-side bundle generated from a surface.
+ * `surfaceClient` — typed client-side surface generated from a `Surface`.
  *
  * Walks `surface.descriptors` once and pre-binds each Cell/Collection/Stream/Event
  * to its typed oRPC procedure refs, exposing a `.use(policy)` hook per
  * primitive that drops `source` / `mutate` / `valueSource` / `keyToInput`
  * from the per-call args. Imperative procedures stay accessible via
- * `bundle.rpc.<ns>.<verb>(...)`.
+ * `client.rpc.<ns>.<verb>(...)`.
  *
  * Type narrowing for `useCell` (server- vs local-authority discriminator)
  * is preserved across the bind: the bound `.use()` accepts the same
@@ -111,10 +111,10 @@ type BoundEventsFor<S extends SurfaceSpec> = {
     : never;
 };
 
-export interface SurfaceClientBundle<S extends SurfaceSpec, Rpc = unknown> {
+export interface SurfaceClient<S extends SurfaceSpec, Rpc = unknown> {
   /** The typed oRPC client. Use this for imperative procedures
-   *  (`bundle.rpc.notes.create(...)`) and for any verb the bound `.use()`
-   *  shape can't model.
+   *  (`client.rpc.surface.notes.create(...)`) and for any verb the bound
+   *  `.use()` shape can't model.
    *
    *  Typing note: `Rpc` is supplied at the call site rather than computed
    *  from `S` because TS's union-resolution budget can't expand both
@@ -137,7 +137,7 @@ export interface SurfaceClientBundle<S extends SurfaceSpec, Rpc = unknown> {
 export function surfaceClient<const S extends SurfaceSpec, Rpc = unknown>(
   surface: Surface<S>,
   opts: { websocket: WebSocket },
-): SurfaceClientBundle<S, Rpc> {
+): SurfaceClient<S, Rpc> {
   // Narrow `Rpc` at the call site: e.g.
   //   surfaceClient<typeof surface.spec, ContractRouterClient<typeof surface.contract, …>>(…)
   // Defaulting to `unknown` keeps the bundle's generic from triggering the

@@ -65,11 +65,12 @@ The library is intentionally non-magical: it does **not** auto-derive an oRPC co
                           │ imports      │ imports
                           ▼              ▼
        ┌─────────────────────┐   ┌─────────────────────┐
-       │ server:              │   │ client:              │
-       │   cellHandlers,      │   │   createCellsClient, │
-       │   collectionHandlers,│   │   useCell,           │
-       │   streamHandlers,    │   │   useCollection,     │
-       │   pollOnEvent,       │   │   useStream,         │
+       │ server:              │   │ solid:               │
+       │   implementSurface,  │   │   surfaceClient,     │
+       │   cellHandlers,      │   │   useCell,           │
+       │   collectionHandlers,│   │   useCollection,     │
+       │   streamHandlers,    │   │   useStream,         │
+       │   pollOnEvent,       │   │   useEvent,          │
        │   confStore /        │   │   streamCall         │
        │   publisherChannel   │   │   (Solid hooks)      │
        └─────────────────────┘   └─────────────────────┘
@@ -134,7 +135,7 @@ The framework owns the typed-client construction so consumers never reach into f
 
 ```ts
 // packages/client/src/wire.ts (kolu)
-import { createCellsClient } from "@kolu/surface/solid";
+import { createCellsClient } from "@kolu/surface/client";
 import type { contract } from "kolu-common/contract";
 
 const ws = new WebSocket(`wss://${host}/rpc/ws`);
@@ -536,12 +537,12 @@ interface ChannelBus<T> { publish(v: T): void; subscribe(signal?): AsyncIterable
 ### Solid client (`@kolu/surface/solid`)
 
 ```ts
-surfaceClient<S, Rpc>(surface, { websocket }): SurfaceClientBundle<S, Rpc>
-  // bundle.cells.<K>.use(policy)              ← drops source/mutate
-  // bundle.collections.<K>.use({ keys, ... }) ← drops valueSource/keyToInput
-  // bundle.streams.<K>.use(inputFn, opts?)
-  // bundle.events.<K>.use(inputFn, handler, opts?)
-  // bundle.rpc                                 ← typed oRPC client (pass Rpc generic for narrowing)
+surfaceClient<S, Rpc>(surface, { websocket }): SurfaceClient<S, Rpc>
+  // client.cells.<K>.use(policy)              ← drops source/mutate
+  // client.collections.<K>.use({ keys, ... }) ← drops valueSource/keyToInput
+  // client.streams.<K>.use(inputFn, opts?)
+  // client.events.<K>.use(inputFn, handler, opts?)
+  // client.rpc                                ← typed oRPC client (pass Rpc generic for narrowing)
 
 useCell(cell, { source, mutate?, authority?, applyPatch?, mergeIntoStore?, initial?, onError? })
 useCollection(collection, { keys, valueSource, keyToInput?, onError? })
@@ -549,7 +550,8 @@ useStream(stream, inputFn, source, { onError? }?)
 useEvent(event, inputFn, source, handler, { onError?, signal? }?): void
 
 streamCall(procedure, input, { signal?, onRetry? }?): Promise<AsyncIterable<O>>
-createCellsClient<C>({ websocket }): ContractRouterClient<C, ...>
+// `surfaceClient` builds the underlying RPC client internally; the
+// constructor itself lives at `@kolu/surface/client` for non-Solid consumers.
 
 createSubscription(source, options?): Subscription<T>           // leaf primitive
 createReactiveSubscription(inputFn, factory, options?): Subscription<T>

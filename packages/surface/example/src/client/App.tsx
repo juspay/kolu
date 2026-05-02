@@ -95,7 +95,7 @@ export default function App() {
     const current = selectedNote();
     if (!current) return;
     const next: Note = { ...current, [field]: value, updatedAt: Date.now() };
-    await app.rpc.surface.notes.update({ key: current.id, value: next });
+    await app.rpc.surface.notes.upsert({ key: current.id, value: next });
   };
 
   const handleDelete = async (id: NoteId): Promise<void> => {

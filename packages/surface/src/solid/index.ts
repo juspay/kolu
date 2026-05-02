@@ -28,16 +28,14 @@ export {
   type BoundCollection,
   type BoundEvent,
   type BoundStream,
-  type SurfaceClientBundle,
+  type SurfaceClient,
 } from "./surfaceClient";
 
-// Client-side transport primitives — re-exported so consumers can import
-// everything they need from `@kolu/surface/solid`. The pure-transport
-// definitions live in `@kolu/surface/client` for non-Solid consumers.
-// `STREAM_RETRY` and `ClientRetryPluginContext` are internal — hooks
-// thread the context, consumers never see it.
-export {
-  createCellsClient,
-  streamCall,
-  type StreamingProcedure,
-} from "../client";
+// `streamCall` is the one-line escape hatch for raw streaming RPCs that
+// don't fit a Cell/Collection/Stream descriptor (binary attaches,
+// lifecycle events). Re-exported so consumers can pull it from the same
+// `@kolu/surface/solid` import as the hooks. The full transport surface
+// (incl. the underlying RPC client constructor) lives at
+// `@kolu/surface/client` for non-Solid consumers; `surfaceClient` builds
+// it internally so Solid consumers don't reach for it directly.
+export { streamCall, type StreamingProcedure } from "../client";

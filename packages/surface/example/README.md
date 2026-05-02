@@ -66,17 +66,16 @@ packages/surface/example/
 └── src/
     ├── common/
     │   ├── schemas.ts       # Zod schemas for Note / Prefs / SearchResult / AutosaveEvent
-    │   ├── cells.ts         # the four descriptors + applyPrefsPatch
-    │   └── contract.ts      # oRPC contract (one block per primitive)
+    │   └── surface.ts       # the whole reactive surface, declared once via defineSurface
     ├── server/
     │   ├── store.ts         # in-memory state + typed channels
-    │   ├── router.ts        # handler wiring (cellHandlers, collectionHandlers, …)
+    │   ├── router.ts        # implementSurface(surface, deps) — one declarative call
     │   └── main.ts          # Hono + WebSocket bind on port 7700
     └── client/
         ├── index.html
         ├── main.tsx         # Solid render
-        ├── App.tsx          # the four hooks + sidebar/editor UI
-        ├── cells.ts         # createCellsClient setup
+        ├── App.tsx          # the four bound .use() hooks + sidebar/editor UI
+        ├── wire.ts          # surfaceClient(surface, { websocket }) bundle
         └── styles.css       # Tailwind import + dark variant
 ```
 

@@ -140,7 +140,7 @@ export interface CollectionHandlerDeps<K, T> {
 export interface CollectionHandlers<K, T> {
   keys: (opts: { signal?: AbortSignal }) => AsyncGenerator<K[]>;
   get: (opts: { input: { key: K }; signal?: AbortSignal }) => AsyncGenerator<T>;
-  update: (opts: { input: { key: K; value: T } }) => void;
+  upsert: (opts: { input: { key: K; value: T } }) => void;
   delete: (opts: { input: { key: K } }) => void;
   test__set: (opts: { input: Array<{ key: K; value: T }> }) => void;
 }
@@ -168,7 +168,7 @@ export function collectionHandlers<Name extends string, K, T>(
         yield v;
       }
     },
-    update: ({ input }) => {
+    upsert: ({ input }) => {
       deps.upsert(input.key, input.value);
     },
     delete: ({ input }) => {
@@ -701,7 +701,7 @@ export function implementSurface<const S extends SurfaceSpec>(
     };
 
     const verbs =
-      cellSpec.expose ??
+      cellSpec.verbs ??
       (cellSpec.patchSchema
         ? (["get", "patch"] as const)
         : (["get", "set"] as const));
@@ -773,7 +773,7 @@ export function implementSurface<const S extends SurfaceSpec>(
     );
 
     const verbs =
-      collSpec.expose ?? (["keys", "get", "update", "delete"] as const);
+      collSpec.verbs ?? (["keys", "get", "upsert", "delete"] as const);
     const ns: Record<string, unknown> = {};
     for (const v of verbs) {
       // biome-ignore lint/suspicious/noExplicitAny: see top of fn

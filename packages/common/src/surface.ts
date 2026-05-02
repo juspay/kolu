@@ -70,7 +70,7 @@ export const surface = defineSurface({
       patchSchema: PreferencesPatchSchema,
       patch: applyPreferencesPatch,
       // `test__set` exposed for e2e fixtures.
-      expose: ["get", "patch", "test__set"],
+      verbs: ["get", "patch", "test__set"],
     },
 
     /** Server-derived activity feed (recent repos + recent agents).
@@ -79,7 +79,7 @@ export const surface = defineSurface({
     activityFeed: {
       schema: ActivityFeedSchema,
       default: { recentRepos: [], recentAgents: [] } satisfies ActivityFeed,
-      expose: ["get", "test__set"],
+      verbs: ["get", "test__set"],
     },
 
     /** Last persisted snapshot of terminals + active id, or null when no
@@ -88,7 +88,7 @@ export const surface = defineSurface({
     session: {
       schema: SavedSessionSchema.nullable(),
       default: null as SavedSession | null,
-      expose: ["get", "test__set"],
+      verbs: ["get", "test__set"],
     },
 
     /** Live list of terminals — server-driven on create/kill. Mutations
@@ -97,19 +97,19 @@ export const surface = defineSurface({
     terminalList: {
       schema: z.array(TerminalInfoSchema),
       default: [] as z.infer<typeof TerminalInfoSchema>[],
-      expose: ["get"],
+      verbs: ["get"],
     },
   },
   collections: {
     /** Per-terminal metadata (cwd, git, PR, agent status). Each terminal
      *  is independently observable; mutations come from server-side
      *  providers writing through the publisher channel — clients don't
-     *  call `update` on this collection directly. */
+     *  call `upsert` on this collection directly. */
     terminalMetadata: {
       keySchema: TerminalIdSchema,
       schema: TerminalMetadataSchema,
       // Only the streaming reads are exposed; writes are server-internal.
-      expose: ["keys", "get"],
+      verbs: ["keys", "get"],
     },
   },
   streams: {

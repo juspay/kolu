@@ -42,14 +42,14 @@ import { cell, collection, event, stream } from "./index";
 export type CellVerb = "get" | "set" | "patch" | "test__set";
 
 /** Subset of collection verbs the surface exposes. Default
- *  `["keys", "get", "update", "delete"]`. `test__set` is opt-in. */
-export type CollectionVerb = "keys" | "get" | "update" | "delete" | "test__set";
+ *  `["keys", "get", "upsert", "delete"]`. `test__set` is opt-in. */
+export type CollectionVerb = "keys" | "get" | "upsert" | "delete" | "test__set";
 
 export interface CellSpec<T = unknown, P = T> {
   schema: ZodType<T>;
   default: T;
   /** When set, `patch` becomes the canonical mutation verb and `set` is
-   *  suppressed unless explicitly listed in `expose`. */
+   *  suppressed unless explicitly listed in `verbs`. */
   patchSchema?: ZodType<P>;
   /** Pure merge `(current, patch) => next`. When `patchSchema` is set,
    *  the framework needs this to apply partial updates. Used by **both**
@@ -66,13 +66,13 @@ export interface CellSpec<T = unknown, P = T> {
    *  `useCell`'s `applyPatch` when a side legitimately needs a different
    *  merge (rare). */
   patch?: (current: T, patch: P) => T;
-  expose?: readonly CellVerb[];
+  verbs?: readonly CellVerb[];
 }
 
 export interface CollectionSpec<K = unknown, T = unknown> {
   keySchema: ZodType<K>;
   schema: ZodType<T>;
-  expose?: readonly CollectionVerb[];
+  verbs?: readonly CollectionVerb[];
 }
 
 export interface StreamSpec<I = unknown, T = unknown> {
@@ -101,7 +101,7 @@ export interface SurfaceSpec {
    *  travel through the surface. Inner key is the verb. Lives under the
    *  same `<surface-key>.<verb>` namespace as the typed primitives, so
    *  `procedures.notes.create` ends up at `surface.notes.create` on the
-   *  wire — alongside `surface.notes.{keys,get,update,delete}` from the
+   *  wire — alongside `surface.notes.{keys,get,upsert,delete}` from the
    *  matching `collections.notes` entry. RPCs that don't fit a primitive
    *  *or* a request/response procedure (bidirectional binary streams,
    *  custom retry plumbing) stay outside the surface as raw oRPC. */
@@ -112,7 +112,7 @@ export interface SurfaceSpec {
 
 const DEFAULT_CELL_VERBS_WITH_PATCH = ["get", "patch"] as const;
 const DEFAULT_CELL_VERBS_WITHOUT_PATCH = ["get", "set"] as const;
-const DEFAULT_COLLECTION_VERBS = ["keys", "get", "update", "delete"] as const;
+const DEFAULT_COLLECTION_VERBS = ["keys", "get", "upsert", "delete"] as const;
 
 // ── Per-primitive contract derivation ──────────────────────────────────
 
@@ -126,7 +126,7 @@ function cellContractEntries<T, P>(
   spec: CellSpec<T, P>,
 ): Record<string, unknown> {
   const verbs =
-    spec.expose ??
+    spec.verbs ??
     (spec.patchSchema
       ? DEFAULT_CELL_VERBS_WITH_PATCH
       : DEFAULT_CELL_VERBS_WITHOUT_PATCH);
@@ -138,9 +138,7 @@ function cellContractEntries<T, P>(
       entries.set = oc.input(spec.schema).output(z.void());
     } else if (v === "patch") {
       if (!spec.patchSchema) {
-        throw new Error(
-          "cells surface: cell exposes 'patch' but has no patchSchema",
-        );
+        throw new Error("surface: cell exposes 'patch' but has no patchSchema");
       }
       entries.patch = oc.input(spec.patchSchema).output(z.void());
     } else if (v === "test__set") {
@@ -153,21 +151,21 @@ function cellContractEntries<T, P>(
 function collectionContractEntries<K, T>(
   spec: CollectionSpec<K, T>,
 ): Record<string, unknown> {
-  const verbs = spec.expose ?? DEFAULT_COLLECTION_VERBS;
+  const verbs = spec.verbs ?? DEFAULT_COLLECTION_VERBS;
   const keyShape = z.object({ key: spec.keySchema });
-  const updateShape = z.object({ key: spec.keySchema, value: spec.schema });
+  const upsertShape = z.object({ key: spec.keySchema, value: spec.schema });
   const entries: Record<string, unknown> = {};
   for (const v of verbs) {
     if (v === "keys") {
       entries.keys = oc.output(eventIterator(z.array(spec.keySchema)));
     } else if (v === "get") {
       entries.get = oc.input(keyShape).output(eventIterator(spec.schema));
-    } else if (v === "update") {
-      entries.update = oc.input(updateShape).output(z.void());
+    } else if (v === "upsert") {
+      entries.upsert = oc.input(upsertShape).output(z.void());
     } else if (v === "delete") {
       entries.delete = oc.input(keyShape).output(z.void());
     } else if (v === "test__set") {
-      entries.test__set = oc.input(z.array(updateShape)).output(z.void());
+      entries.test__set = oc.input(z.array(upsertShape)).output(z.void());
     }
   }
   return entries;
@@ -324,7 +322,7 @@ function buildCollection<K, T>(opts: {
   return {
     keys: oc.output(eventIterator(z.array(opts.keySchema))),
     get: oc.input(keyShape).output(eventIterator(opts.schema)),
-    update: oc
+    upsert: oc
       .input(z.object({ key: opts.keySchema, value: opts.schema }))
       .output(z.void()),
     delete: oc.input(keyShape).output(z.void()),
