@@ -11,10 +11,14 @@
  *      `terminalList` cell's content channel: this is the *trigger*,
  *      not the saved content.
  *
- *  Cell-level system channels (`preferences:changed`, `activity:changed`,
- *  `session:changed`, `terminal-list`) live in `./cells.ts`'s `cellBus`
- *  alongside the corresponding `Cell` descriptor — same one-bus-per-cell
- *  convention this file uses for the per-terminal axis.
+ *  Cell-level system channels (`preferences:changed`, `activityFeed:changed`,
+ *  `session:changed`, `terminalList:changed`) are owned by `implementSurface`
+ *  in `./surface.ts` — domain code mutates via `surfaceCtx.cells.X.set(...)`
+ *  and the framework publishes through the same `MemoryPublisher` instance
+ *  this file uses, via the `channel: <T>(name) => publisherChannel(...)`
+ *  factory the surface is wired with. Same one-channel-per-key convention,
+ *  framework-owned for cells/collections/events; this file keeps the
+ *  per-terminal axis where the framework can't model it.
  */
 
 import { type Channel, publisherChannel } from "@kolu/surface/server";
@@ -58,7 +62,8 @@ export const terminalChannels = {
 
 /** Singleton broadcast: terminal state mutated. Drives session
  *  auto-save's debounced write loop; the persisted content lives on
- *  the `savedSession` cell's own channel (see `cellBus.savedSession`). */
+ *  the surface's framework-owned `session:changed` channel, written
+ *  via `surfaceCtx.cells.session.set(...)` from `./session.ts`. */
 export const terminalsDirtyChannel = publisherChannel<Record<string, never>>(
   publisher,
   "terminals:dirty",

@@ -6,7 +6,7 @@
  * compares the returned process UUID against the last-known one to tell
  * a transient drop ("reconnected") from a server restart ("restarted").
  *
- * Transport setup (PartySocket, typed oRPC client) lives in `../cells.ts`.
+ * Transport setup (PartySocket, typed oRPC client) lives in `../wire.ts`.
  * This file is purely the kolu-shaped lifecycle layer above it: it reads
  * `ws` for transport events and `client.server.info` for identity.
  */

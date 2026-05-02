@@ -6,9 +6,10 @@
  * notification (Event). One file keeps the example readable end-to-end.
  *
  * Type aliases are exported only for the values App/router/store
- * actually reference. The `defineSurface` call in `cells.ts` infers all
- * the wire-shape types from these schemas — no need for `*PatchInput` /
- * `SearchInput` / `AutosaveEvent` aliases just for the contract.
+ * actually reference. The `defineSurface` call in `surface.ts` infers
+ * all the wire-shape types from these schemas — no need for
+ * `*PatchInput` / `SearchInput` / `AutosaveEvent` aliases just for the
+ * contract.
  */
 
 import { z } from "zod";
