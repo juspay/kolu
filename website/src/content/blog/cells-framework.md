@@ -114,6 +114,50 @@ The candidate was a notes app:
 
 It came together in ~500 LOC across server + client + common, single-file `App.tsx` so every hook is visible end-to-end. Hono + WebSocket + Vite + Tailwind v4. Self-contained, no Kolu-internal imports — that property matters: when the example imports something from Kolu, the example becomes Kolu, and the substrate is no longer smaller. The discipline is "if a future framework change ripples into this example, the change has to land on this example *first* before I touch Kolu."
 
+## Turn 6: the example, used as designed — and what it found
+
+The example existed to be a smaller substrate for iterating on the framework. It started doing that almost immediately.
+
+**First thing the example revealed: the contract was hand-written twice.** `defineCell` / `defineCollection` etc. produced descriptors. But the oRPC contract router still had to be hand-listed entry-by-entry — schemas duplicated between `cells.ts` and `contract.ts`, with no compile-time link. So I asked: _"Cell and Stream can be merged into a Dynamic, no?"_ — and once that was off the table (reviewers killed the collapse, type-level invariants again), the real question surfaced: _why am I still hand-typing?_
+
+Pushed for an actual framework instead of helpers:
+
+- `defineSurface({ cells, collections, streams, events, procedures })` — one declaration, one file.
+- `surface.contract` — derived from the spec, no parallel literal.
+- `implementSurface(surface, deps)` — server-side wiring, replaces the `t.X.<verb>.handler(...)` plumbing.
+- `surfaceClient(surface, transport)` — bound `.use()` hooks that drop `source` / `mutate` from per-call args.
+
+Built the framework, migrated the example, ran reviewers on the design.
+
+**Reviewer pushback that landed mid-iteration:** the matrix was originally going to wrap each entry in its own top-level namespace (`preferences.*`, `terminalList.*`, …). Hickey + I together arrived at: wrap the whole thing under one `surface.*` key. That makes composition with hand-listed raw oRPC trivial — `oc.router({ ...surface.contract, terminal: rawTerminalRouter })` — and namespace collisions disappear by construction.
+
+**Pushed back on every override field.** The first cut had `channelName` / `storeKey` / `channelNames` / `verbs` / `namespace` per-entry escape hatches, in case Kolu's existing wire shape didn't match the framework's defaults. Two arguments killed those:
+
+- _"I don't care for backwards compatibility in general."_ The framework owns one client; wire renames are free.
+- _"The whole point of improving cells is to avoid hand-typing."_ Every override is a place where domain code tells the framework what the framework should already know.
+
+Drops: every channel-name override, every verb-name override. `confStore` keys preserved by **picking surface keys that match existing on-disk slots** (`activityFeed` matches `confStore("activityFeed")` already), no migration ladder needed. The framework derives every channel name strictly from the surface key.
+
+### The duality that survived a refactor and got caught anyway
+
+After Kolu was on `defineSurface` end-to-end with all 10 typed primitives, I noticed `packages/server/src/cells.ts` still existed: a parallel registry of `publisherChannel`s and `confStore`s, used by domain modules to publish *directly* without going through the surface. `activity.ts`'s `trackRecentRepo` was still doing `store.set("activityFeed", …) + cellBus.activityFeed.publish(getActivityFeed())` — a re-implementation of the framework's `applyAndPublish` chain, hand-rolled.
+
+`/talk`: _"Identify all this kind of smell where kolu has BACKDOORS without going through our new library."_
+
+Lowy's review nailed it in one sentence:
+
+> The framework already builds the helpers we need. `cellsCtx[key].set` already does `store.set + bus.publish + onMutate` atomically — for procedure handlers. The gap is that `implementSurface` doesn't return it as a public value alongside the router.
+
+So the fix wasn't a new abstraction. It was **stop hiding what was already there.** Three changes:
+
+- `implementSurface` returns `{ router, ctx }`. ctx covers cells (`get`/`set`/`patch`), collections (`upsert`/`remove`/`readAll`/`readOne`), and events (`publish(input, payload)` to a framework-derived per-input channel).
+- Domain modules import `surfaceCtx` and use it directly. `activity.ts:88, 107` becomes one line. `session.ts:24-25` becomes one line.
+- `packages/server/src/cells.ts` deletes. `terminalChannels.metadata` and `terminalChannels.exit` delete from `publisher.ts` (framework-owned now). The only channels left in `publisher.ts` are genuinely-internal ones (`data`, `cwd`, `git`, `title`, `commandRun`).
+
+The bonus Lowy named: `onMutate` in `CellHandlerDeps` was **dead code** for any cell whose mutations originated in domain modules — the bypass skipped the framework's hooks. With ctx, every mutation flows through the same chain.
+
+**Net for Kolu:** zero string-typed channel names in any domain module. Rename a surface key and every wire / disk / publish path follows in lockstep. There's exactly one path from "mutate this cell" to "client sees update," and it's named.
+
 ## What I'm carrying into future sessions
 
 **Reviewers see local defects, not missing seams.** Hickey looks for braiding. Lowy looks for volatility-axis misalignment. Neither lens, as currently tuned, looks at code that isn't there. A framework-shaped negative space is a Layer-0 question — _is the diff at the right altitude?_ — that neither lens reaches. I want a third lens, or a meta-pass on the first two, that asks _"is this pattern across N call sites itself the artifact?"_ Not sure yet how to sharpen that into a skill prompt. It might be a Lowy extension — _"electricity audit: what would you extract as utility before you'd accept any of these per-call-site fixes?"_
@@ -122,8 +166,10 @@ It came together in ~500 LOC across server + client + common, single-file `App.t
 
 **Type-level enforcement of domain invariants is a real argument against collapse.** I came into the reflex-comparison turn expecting the simplification ("three primitives can collapse to two") to win. Both reviewers landed the same finding from different angles: collapsing trades compile-time enforcement for documentation. That's a real cost. **Concept count isn't the metric — invariant strength is.** Worth carrying.
 
-**Iteration runs faster than I expected.** Across this session: PR #805 went from "first commit" to "all-systems-CI-green" in 16 commits, then sealing went from "leak identified" to "all-systems-CI-green" in 11 more, then Event went in 2 more, then the example in 4 more. Each phase had hickey/lowy/police passes per the [/do](https://github.com/srid/agency/blob/master/skills/do/SKILL.md) workflow. I babysat less than I expected — most of the babysitting was at design altitude (the missing seams), not at code altitude.
+**Reviewers occasionally argue *for* the wrong wrapper.** During the override-field pruning, Hickey leaned mildly toward keeping a few of them ("type-level enforcement of the verb subset"). The right answer was the user-shaped one: the framework has one consumer, backcompat isn't a constraint, every override is a place where domain code knows something the framework should know. The reviewers are good at shape; they have less leverage on what counts as a real constraint vs. a false one. **The user is the constraint oracle.**
 
-The framework is at a stopping point that feels right for now. Not a finish line — a snapshot mid-process. I'll keep iterating. **Next, I think, is a closer look at whether the `cellBus` (in `packages/server/src/cells.ts`) and `terminalChannels` (in `packages/server/src/publisher.ts`) registries should fold into one** — both are typed-channel registries on the same `MemoryPublisher`, the boundary is enforced by convention only. Hickey flagged this as a Layer-3 fragmentation worth tracking but not blocking. The argument for keeping them separate is real (different lifecycle semantics: cells tied to handler subscriptions, terminal channels fire regardless). The argument for unifying is real too (one channel-registry primitive across the server). I'll come back to it.
+**Iteration runs faster than I expected.** Across this session: PR #805 went from "first commit" to "all-systems-CI-green" in 16 commits, then sealing went from "leak identified" to "all-systems-CI-green" in 11 more, then Event in 2, then the example in 4, then the matrix-to-surface rename + override pruning + Kolu migration in 6, then the backdoor elimination in 1. Each phase had hickey / lowy / police passes per the [/do](https://github.com/srid/agency/blob/master/skills/do/SKILL.md) workflow. I babysat less than I expected — most of the babysitting was at design altitude (the missing seams, the surviving backdoors), not at code altitude.
 
-The post will keep growing.
+**The framework's volatility boundary kept shrinking.** Each iteration moved more knowledge inside the framework: contract literal → `defineSurface` spec; per-cell handler wiring → `implementSurface`; per-call hook args → `surfaceClient` bundle; per-mutation publish duality → `surfaceCtx`. The framework absorbs another axis each turn. The signal that it's at the right level: domain code stops referencing channel names, store keys, retry contexts, oRPC procedure refs — all gone. What's left in `activity.ts` / `session.ts` / etc. is _just_ the domain logic.
+
+The post will keep growing. The framework will too.
