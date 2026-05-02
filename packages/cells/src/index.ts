@@ -17,10 +17,12 @@
  * client, or shared. Server-side handler helpers live in `./server`;
  * Solid client hooks live in `./solid`.
  *
- * The library intentionally does not auto-derive an oRPC contract.
- * TypeScript needs the contract literal at compile time for the typed
- * client; consumers hand-list contract entries in their own
- * `oc.router({...})` and pass the matching descriptor to the helpers.
+ * Headline path: declare the whole reactive surface once with
+ * `defineSurface` (`./define`); the framework derives the oRPC contract,
+ * server router (`implementSurface`, `./server`), and client bundle
+ * (`surfaceClient`, `./solid`) from one spec. The descriptor primitives
+ * here are the low-level building blocks that wiring stands on, and
+ * remain available as a manual escape hatch.
  */
 
 import type { ZodType } from "zod";

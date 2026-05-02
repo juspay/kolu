@@ -1,23 +1,23 @@
 /**
- * @kolu/cells/server — end-to-end server-side bindings for cells, collections, and streams.
+ * @kolu/cells/server — server-side bindings for the typed reactive surface.
  *
- * The framework owns the snapshot+deltas wire protocol on both sides:
- * client-side `useCell` / `useCollection` / `useStream` hooks consume the
- * stream; server-side `cellHandlers` / `collectionHandlers` /
- * `streamHandlers` produce it. Adding a new cell to a typed oRPC router
- * is a single declarative call instead of a hand-rolled async generator
- * per route.
+ * Headline API: `implementSurface(surface, deps)` walks a `Surface` (from
+ * `defineSurface`) and produces both a router fragment and a typed
+ * mutation `ctx` — every cell/collection/stream/event/procedure wired in
+ * one declarative call. The framework owns the snapshot+deltas wire
+ * protocol on both sides; client `useCell` / `useCollection` /
+ * `useStream` consume what `implementSurface` produces, and `ctx.cells.X.set(...)`
+ * etc. let domain code mutate without parallel store-and-publish paths.
  *
- * The framework is non-magical about the contract: callers hand-list the
- * oRPC contract entries (TypeScript needs the literal at compile time
- * for the typed client). What the framework owns is the *handler bodies*
- * — get's snapshot+deltas loop, set's validate+persist+publish chain,
- * test__set's reset+publish chain.
- *
- * The persistence and pub/sub are pluggable via `CellStore<T>` and
+ * Persistence and pub/sub are pluggable via `CellStore<T>` and
  * `ChannelBus<T>` interfaces. Adapters for `conf` (`confStore`) and
  * `@orpc/experimental-publisher` (`publisherChannel`) ship with the
  * framework; consumers can supply their own.
+ *
+ * Low-level escape hatches: `cellHandlers` / `collectionHandlers` /
+ * `streamHandlers` / `eventHandlers` build the same handler bodies for
+ * a single primitive — useful when a primitive needs custom plumbing
+ * that doesn't fit `implementSurface`'s declarative path.
  */
 
 import { implement } from "@orpc/server";
@@ -423,7 +423,7 @@ async function* iterateUntilAborted<T>(
 // ── implementSurface — server-side dep wiring for a Surface ─────────────
 
 /** Per-cell implementation deps. The surface owns the publish channel
- *  (derived from the surface key, overridable via `spec.cells[K].channelName`);
+ *  (`<key>:changed`, derived from the surface key — not configurable);
  *  the consumer supplies persistence + (when patchSchema is set) the patch
  *  merge fn. */
 export type CellImplDeps<S extends CellSpec<unknown, unknown>> = S extends {
@@ -446,11 +446,12 @@ export type CellImplDeps<S extends CellSpec<unknown, unknown>> = S extends {
     : never;
 
 /** Per-collection implementation deps. The surface owns both buses
- *  (derived from the surface key, overridable via `spec.collections[K].channelNames`)
- *  and wraps `upsert`/`remove` so every persisted change publishes through
- *  the surface's channels — the consumer's upsert/remove are persistence-only.
- *  Side-effects (`scheduleAutosave`, etc.) belong inside the consumer's
- *  upsert/remove fns or in the imperative procedure that triggered the call. */
+ *  (`<key>:keys` and `<key>:<k>`, derived from the surface key — not
+ *  configurable) and wraps `upsert`/`remove` so every persisted change
+ *  publishes through the surface's channels — the consumer's upsert/remove
+ *  are persistence-only. Side-effects (`scheduleAutosave`, etc.) belong
+ *  inside the consumer's upsert/remove fns or in the imperative procedure
+ *  that triggered the call. */
 export type CollectionImplDeps<S extends CollectionSpec<unknown, unknown>> =
   S extends { keySchema: ZodType<infer K>; schema: ZodType<infer T> }
     ? {
@@ -611,20 +612,23 @@ export interface ImplementSurfaceDeps<S extends SurfaceSpec> {
  *  cell, collection, stream, event, and imperative procedure declared in
  *  the surface.
  *
- *  Channel naming is surface-driven: cells use `"<key>:changed"`,
- *  collections use `"<key>:keys"` + `"<key>:" + String(key)`. Override
- *  via `spec.<kind>[K].channelName(s)` when migrating off hand-named
- *  channels (renaming a surface key would otherwise silently rename the
- *  channel and break consumers with persisted subscriptions).
+ *  Channel naming is surface-driven and not configurable: cells use
+ *  `"<key>:changed"`, collections use `"<key>:keys"` + `"<key>:" +
+ *  String(k)`, events use `"<key>:" + eventChannelKey(input)`. Renaming a
+ *  surface key thus renames the channel — for cells whose channels back
+ *  persisted subscriptions, prefer adding a new key and migrating off the
+ *  old one.
  *
- *  Compose with raw oRPC handlers: spread the result alongside hand-
- *  written `t.X.handler(...)` blocks for procedures the surface can't
- *  model (custom `onRetry`, binary framing, subscribe-before-yield):
+ *  Returns `{ router, ctx }`. Spread `router` into a host `t.router({...})`
+ *  alongside hand-written raw-oRPC blocks for procedures the surface can't
+ *  model (custom `onRetry`, binary framing, subscribe-before-yield); use
+ *  `ctx` from domain code for typed mutations:
  *
- *      const matrixRouter = implementSurface(surface, deps);
+ *      const { router: surfaceRouter, ctx: surfaceCtx } =
+ *        implementSurface(surface, deps);
  *      const t = implement(fullContract);
  *      export const appRouter = t.router({
- *        ...matrixRouter,
+ *        ...surfaceRouter,
  *        terminal: t.terminal.handler(...),
  *      });
  */

@@ -450,7 +450,7 @@ export const appRouter = implementSurface(surface, {
 });
 ```
 
-The surface derives publish channel names: cells use `"<key>:changed"`, collections use `"<key>:keys"` + `"<key>:" + String(key)`. Override via `spec.cells[K].channelName` / `spec.collections[K].channelNames` when migrating off hand-named channels — renaming a surface key would otherwise silently rename the channel and break consumers with persisted subscriptions.
+The surface derives publish channel names and they are not configurable: cells use `"<key>:changed"`, collections use `"<key>:keys"` + `"<key>:" + String(k)`, events use `"<key>:" + eventChannelKey(input)`. Renaming a surface key thus renames the channel — for cells whose channels back persisted subscriptions, prefer adding a new key and migrating off the old one.
 
 ### Client
 
@@ -460,19 +460,20 @@ import { surfaceClient } from "@kolu/cells/solid";
 import type { ContractRouterClient } from "@orpc/contract";
 import type { ClientRetryPluginContext } from "@orpc/client/plugins";
 
-export const cells = surfaceClient<
+export const app = surfaceClient<
   typeof surface.spec,
-  ContractRouterClient<typeof contract, ClientRetryPluginContext>
+  ContractRouterClient<typeof surface.contract, ClientRetryPluginContext>
 >(surface, { websocket });
 
 // In components:
-const prefs = cells.cells.prefs.use({ authority: "local", initial: DEFAULT_PREFS, applyPatch });
-const notes = cells.collections.notes.use({ keys, onError });
-const search = cells.streams.search.use(searchInput, { onError });
-cells.events.autosave.use(selectedId, handler, { onError });
+const prefs = app.cells.prefs.use({ authority: "local", initial: DEFAULT_PREFS, applyPatch });
+const notes = app.collections.notes.use({ keys, onError });
+const search = app.streams.search.use(searchInput, { onError });
+app.events.autosave.use(selectedId, handler, { onError });
 
-// Imperative procedures keep typed access via `bundle.rpc`:
-await cells.rpc.notes.create({ title: "Untitled" });
+// Imperative procedures keep typed access via `app.rpc` (under the
+// `surface.*` namespace `defineSurface` wraps everything in):
+await app.rpc.surface.notes.create({ title: "Untitled" });
 ```
 
 ### Composing with raw oRPC
@@ -486,7 +487,7 @@ export const contract = oc.router({
 });
 ```
 
-On the server, `implementSurface(surface, deps)` returns a router-shape value; spread it alongside hand-written handlers in the same `t.router({...})` block. This is the path Kolu itself will take when its existing wire shape (`preferences.update`, `terminal.list`, `git.onStatusChange`, …) is folded onto the surface — the surface's verb-naming defaults don't match Kolu's existing wire, so adoption requires either surface extensions (per-entry verb overrides) or reshaping Kolu's wire. Tracked as a follow-up.
+On the server, `implementSurface(surface, deps)` returns `{ router, ctx }`; spread `router` into the host `t.router({...})` block alongside hand-written handlers, and import `ctx` from domain code for typed mutations (`ctx.cells.X.set(...)`, `ctx.collections.X.upsert(k, v)`, `ctx.events.X.publish(input, payload)`) — the surface owns the apply+publish chain so parallel `store.set + bus.publish` paths don't drift.
 
 ## API reference
 
