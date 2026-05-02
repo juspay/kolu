@@ -26,7 +26,7 @@ _run-all: _local _linux _darwin
 # their own GitHub status — _summary reads those statuses to decide
 # the final pass/fail.
 _local:
-    just ci::fmt ci::typecheck ci::biome ci::unit ci::apm-sync ci::cells-example-build || true
+    just ci::fmt ci::typecheck ci::biome ci::unit ci::apm-sync ci::surface-example-build || true
 
 _linux:
     CI_SYSTEM=x86_64-linux just ci::pnpm-hash-fresh ci::nix ci::_linux-fanout || true
@@ -86,12 +86,12 @@ unit:
 apm-sync:
     just ci::_run apm-sync just ai::apm-sync
 
-# Build the @kolu/cells framework's example app (vite client + tsc on
+# Build the @kolu/surface framework's example app (vite client + tsc on
 # server). Catches example-only regressions that the workspace-wide
 # typecheck doesn't see — broken Tailwind imports, JSX errors, missing
 # imports in the production bundle. Cheap (~1s).
-cells-example-build:
-    just ci::_run cells-example-build "pnpm --filter @kolu/cells-example build:client"
+surface-example-build:
+    just ci::_run surface-example-build "pnpm --filter @kolu/surface-example build:client"
 
 fmt:
     just ci::_run fmt just fmt-check

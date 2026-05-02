@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-05-01T01:02:15.876206+00:00'
+generated_at: '2026-05-02T16:59:49.630288+00:00'
 apm_version: 0.11.0
 dependencies:
 - repo_url: anthropics/skills
@@ -37,7 +37,7 @@ dependencies:
   content_hash: sha256:67ff7ce606ad0378af382ad6cb84d9853bf70ec52d6fe40ed6b6f82ecd2c48c3
 - repo_url: srid/agency
   host: github.com
-  resolved_commit: 69fae02c5ca15851c99aca8eda12e7451d3b594f
+  resolved_commit: 8a27fcafbafe245ff9f71e76c76a67aff8380c15
   resolved_ref: master
   package_type: apm_package
   deployed_files:
@@ -143,6 +143,6 @@ local_deployed_file_hashes:
   .claude/rules/nix.md: sha256:1ac0f3738deafba04c3af189c863990809999021f4e9d0e6b38969ec1460acf3
   .claude/rules/solidjs.md: sha256:d6b03eb7701e4ae637d8c5a389148811ef028f68c40bf0e76e8769d816e6e545
   .claude/rules/state.md: sha256:749fbd3452a8182f29c26df5e2f5671cbe2a88ddc97aef162a36645efccc4ccf
-  .claude/rules/streaming.md: sha256:fef39a5f11b0353d0f42d2b9c552de92c12af178fb098117cfb96f955a9a6490
+  .claude/rules/streaming.md: sha256:a74276cb536560fe94bc01cb690c2992afb5470e448541c8c5ad62702d74c728
   .claude/rules/toast-conventions.md: sha256:e987215118a5269b05f064a477ca26ad986b014531dfb00bc7ba6b6bd3dce5bc
   .opencode/commands/whatchanged.md: sha256:283ce7bfddb6213172b2a89259c2b89b65d063c6f1d156dd6ee2b98760183f69
