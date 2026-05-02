@@ -17,7 +17,6 @@ import type {
   TerminalId,
   TerminalInfo,
 } from "kolu-common";
-import { cellBus } from "./cells.ts";
 import { cleanupClipboardDir } from "./clipboard.ts";
 import { log } from "./log.ts";
 import {
@@ -28,6 +27,7 @@ import {
 } from "./meta/index.ts";
 import { spawnPty } from "./pty.ts";
 import { terminalChannels, terminalsDirtyChannel } from "./publisher.ts";
+import { surfaceCtx } from "./surface.ts";
 import {
   drainTerminals,
   getTerminal,
@@ -80,9 +80,12 @@ function emitChanged(): void {
 }
 
 /** Notify that terminal membership changed (create/kill).
- *  Drives the live terminal.list stream to clients. */
+ *  Drives the live `surface.terminalList.get` stream to clients. The
+ *  surface owns the publish channel; calling `set` triggers the
+ *  framework's apply+publish chain (the `terminalList` cell's store is a
+ *  no-op since the registry is canonical). */
 function emitListChanged(): void {
-  cellBus.terminalList.publish(listTerminals());
+  surfaceCtx.cells.terminalList.set(listTerminals());
 }
 
 /** Create a new terminal, spawn a PTY process. `initial` seeds
@@ -113,7 +116,7 @@ export function createTerminal(
           entry.stopProviders();
           cleanupClipboardDir(id);
         }
-        terminalChannels.exit(id).publish(exitCode);
+        surfaceCtx.events.terminalExit.publish({ id }, exitCode);
         // Only save session on natural exit (entry still in map).
         // killAllTerminals clears the map first, so entry is gone — skip.
         const wasNaturalExit = unregisterTerminal(id);

@@ -29,7 +29,7 @@ import {
   upsertNote,
 } from "./store";
 
-export const appRouter = implementSurface(surface, {
+const { router: surfaceRouter } = implementSurface(surface, {
   channel: <T>(name: string) => publisherChannel<T>(publisher, name),
 
   cells: {
@@ -100,6 +100,8 @@ export const appRouter = implementSurface(surface, {
     },
   },
 });
+
+export const appRouter = surfaceRouter;
 
 // ── Helpers (search-tick subscription, autosave debounce) ──────────────
 

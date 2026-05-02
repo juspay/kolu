@@ -19,7 +19,7 @@
 
 import { type ChannelBus, publisherChannel } from "@kolu/cells/server";
 import { MemoryPublisher } from "@orpc/experimental-publisher/memory";
-import type { GitInfo, TerminalMetadata } from "kolu-common";
+import type { GitInfo } from "kolu-common";
 
 // `MemoryPublisher` constrains its generic to `Record<string, object>`,
 // which excludes the primitive payloads we publish (data strings, exit
@@ -43,13 +43,6 @@ export const publisherSize = (): number => publisher.size;
 export const terminalChannels = {
   /** Raw PTY output bytes — high frequency, drives xterm.js. */
   data: (id: string) => publisherChannel<string>(publisher, `data:${id}`),
-  /** All server-derived terminal state — client-facing aggregated channel.
-   *  Channel name matches `surface.terminalMetadata`'s default per-key name
-   *  (`<surface-key>:<key>`) so the matrix's `collectionHandlers` and the
-   *  domain providers (cwd / git / agent watchers) share one publisher
-   *  channel. */
-  metadata: (id: string) =>
-    publisherChannel<TerminalMetadata>(publisher, `terminalMetadata:${id}`),
   /** CWD changed (OSC 7 from PTY) — feeds the git provider. */
   cwd: (id: string) => publisherChannel<string>(publisher, `cwd:${id}`),
   /** Terminal title changed (OSC 0/2 from PTY) — feeds the process provider. */
@@ -61,8 +54,6 @@ export const terminalChannels = {
    *  each event is an isolated "the user just typed this" notice. */
   commandRun: (id: string) =>
     publisherChannel<string>(publisher, `commandRun:${id}`),
-  /** Terminal process exited — fires once per terminal lifetime. */
-  exit: (id: string) => publisherChannel<number>(publisher, `exit:${id}`),
 } as const;
 
 /** Singleton broadcast: terminal state mutated. Drives session

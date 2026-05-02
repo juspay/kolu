@@ -14,9 +14,8 @@ import {
   type RecentAgent,
   type RecentRepo,
 } from "kolu-common";
-import { cellBus } from "./cells.ts";
 import { log } from "./log.ts";
-import { store } from "./state.ts";
+import { surfaceCtx } from "./surface.ts";
 
 const MAX_RECENT_REPOS = 20;
 const MAX_RECENT_AGENTS = 10;
@@ -53,17 +52,17 @@ function upsertMru<T>(
  *  longer exist on disk and back-writes the trimmed list so subsequent
  *  reads don't re-stat. */
 function getRecentRepos(): RecentRepo[] {
-  const feed = store.get("activityFeed");
+  const feed = surfaceCtx.cells.activityFeed.get();
   const live = feed.recentRepos.filter((r) => existsOnDisk(r.repoRoot));
   if (live.length < feed.recentRepos.length) {
-    store.set("activityFeed", { ...feed, recentRepos: live });
+    surfaceCtx.cells.activityFeed.set({ ...feed, recentRepos: live });
   }
   return live;
 }
 
 /** Get recent agents, most-recently-seen first. */
 function getRecentAgents(): RecentAgent[] {
-  return store.get("activityFeed").recentAgents;
+  return surfaceCtx.cells.activityFeed.get().recentAgents;
 }
 
 /** Get the full activity feed snapshot. */
@@ -76,7 +75,7 @@ export function getActivityFeed(): ActivityFeed {
 
 /** Upsert a repo into the recent repos list and publish. */
 export function trackRecentRepo(repoRoot: string, repoName: string): void {
-  const feed = store.get("activityFeed");
+  const feed = surfaceCtx.cells.activityFeed.get();
   const next = upsertMru(
     feed.recentRepos,
     { repoRoot, repoName, lastSeen: Date.now() },
@@ -84,8 +83,7 @@ export function trackRecentRepo(repoRoot: string, repoName: string): void {
     (r) => r.lastSeen,
     MAX_RECENT_REPOS,
   );
-  store.set("activityFeed", { ...feed, recentRepos: next });
-  cellBus.activityFeed.publish(getActivityFeed());
+  surfaceCtx.cells.activityFeed.set({ ...feed, recentRepos: next });
 }
 
 /** Upsert a normalized agent command into the recent agents MRU.
@@ -94,7 +92,7 @@ export function trackRecentRepo(repoRoot: string, repoName: string): void {
  *  binary. The `command` string is the normalized form produced by
  *  `parseAgentCommand` — raw prompt text has already been stripped. */
 export function trackRecentAgent(command: string): void {
-  const feed = store.get("activityFeed");
+  const feed = surfaceCtx.cells.activityFeed.get();
   const next = upsertMru(
     feed.recentAgents,
     { command, lastSeen: Date.now() },
@@ -102,7 +100,6 @@ export function trackRecentAgent(command: string): void {
     (a) => a.lastSeen,
     MAX_RECENT_AGENTS,
   );
-  store.set("activityFeed", { ...feed, recentAgents: next });
+  surfaceCtx.cells.activityFeed.set({ ...feed, recentAgents: next });
   log.info({ command, total: next.length }, "recent agent tracked");
-  cellBus.activityFeed.publish(getActivityFeed());
 }

@@ -470,16 +470,29 @@ export type StreamImplDeps<S extends StreamSpec<unknown, unknown>> = S extends {
     }
   : never;
 
-/** Per-event implementation deps. The surface does NOT own event channels by
- *  default — events often have domain-specific sources (`terminalChannels.exit`,
- *  etc.) the surface can't model. Consumers provide their own source; if they
- *  want a surface-owned channel they wire it via `deps.channel` themselves. */
+/** Per-event implementation deps. The surface owns the per-input event
+ *  channel (default name `<key>:<key-of-input>` where the key-of-input is
+ *  `String(input)` for primitives and `JSON.stringify(input)` for objects).
+ *
+ *    - Domain code publishes via `ctx.events.<key>.publish(input, payload)`,
+ *      which writes to that channel.
+ *    - The wire handler reads from the same channel.
+ *
+ *  `source` is optional. The default reads from the channel forever; supply
+ *  one when the read path needs pre-subscribe validation, single-yield-then-
+ *  close, or any other shape. The supplied source receives `helpers.bus` —
+ *  the same channel `ctx.publish` writes to — so it doesn't reference a
+ *  channel name string. */
 export type EventImplDeps<S extends EventSpec<unknown, unknown>> = S extends {
   inputSchema: ZodType<infer I>;
   outputSchema: ZodType<infer T>;
 }
   ? {
-      source: (input: I, signal: AbortSignal | undefined) => AsyncIterable<T>;
+      source?: (
+        input: I,
+        signal: AbortSignal | undefined,
+        helpers: { bus: ChannelBus<T> },
+      ) => AsyncIterable<T>;
     }
   : never;
 
@@ -510,7 +523,19 @@ type CollectionCtxFor<S> = S extends {
     }
   : never;
 
-export type ProcedureCtx<S extends SurfaceSpec> = {
+/** Per-event ctx — `publish(input, payload)` writes to the framework-derived
+ *  channel that the event's handler subscribes to. The channel name is
+ *  `<key>:<key-of-input>` where the key-of-input is `String(input)` for
+ *  primitives or `JSON.stringify(input)` for objects. Domain code never
+ *  sees the channel string. */
+type EventCtxFor<S> = S extends {
+  inputSchema: ZodType<infer I>;
+  outputSchema: ZodType<infer T>;
+}
+  ? { publish: (input: I, payload: T) => void }
+  : never;
+
+export type SurfaceCtx<S extends SurfaceSpec> = {
   cells: {
     [K in keyof S["cells"] & string]: CellCtxFor<NonNullable<S["cells"]>[K]>;
   };
@@ -518,6 +543,9 @@ export type ProcedureCtx<S extends SurfaceSpec> = {
     [K in keyof S["collections"] & string]: CollectionCtxFor<
       NonNullable<S["collections"]>[K]
     >;
+  };
+  events: {
+    [K in keyof S["events"] & string]: EventCtxFor<NonNullable<S["events"]>[K]>;
   };
 };
 
@@ -572,7 +600,7 @@ export interface ImplementSurfaceDeps<S extends SurfaceSpec> {
     [K in keyof S["procedures"] & string]: {
       [V in keyof NonNullable<S["procedures"]>[K] & string]: ProcedureImpl<
         NonNullable<S["procedures"]>[K][V],
-        ProcedureCtx<S>
+        SurfaceCtx<S>
       >;
     };
   };
@@ -784,19 +812,38 @@ export function implementSurface<const S extends SurfaceSpec>(
   }
 
   // ── Events ───────────────────────────────────────────────────────────
+  // The surface owns each event's per-input channel. Domain code publishes
+  // via `ctx.events.<key>.publish(input, payload)`; the wire source reads
+  // from the same channel. Channel name = `<key>:<keyOfInput(input)>`.
+  const eventsCtx: Record<string, unknown> = {};
   for (const [key] of Object.entries(spec.events ?? {})) {
     // biome-ignore lint/suspicious/noExplicitAny: see top of fn
     const eventDeps = (deps.events as any)?.[key] as
       | {
-          source: (
+          source?: (
             i: unknown,
             s: AbortSignal | undefined,
+            helpers: { bus: ChannelBus<unknown> },
           ) => AsyncIterable<unknown>;
         }
       | undefined;
-    if (!eventDeps) {
-      throw new Error(`implementSurface: missing deps for event "${key}"`);
-    }
+    const busFor = (input: unknown): ChannelBus<unknown> =>
+      deps.channel<unknown>(`${key}:${eventChannelKey(input)}`);
+    eventsCtx[key] = {
+      publish: (input: unknown, payload: unknown) => {
+        busFor(input).publish(payload);
+      },
+    };
+    const consumerSource = eventDeps?.source;
+    const source = (
+      input: unknown,
+      signal: AbortSignal | undefined,
+    ): AsyncIterable<unknown> => {
+      const bus = busFor(input);
+      return consumerSource
+        ? consumerSource(input, signal, { bus })
+        : bus.subscribe(signal);
+    };
     const handlers = eventHandlers(
       // biome-ignore lint/suspicious/noExplicitAny: see top of fn
       (surface.descriptors.events as any)[key] as Event<
@@ -804,7 +851,7 @@ export function implementSurface<const S extends SurfaceSpec>(
         unknown,
         unknown
       >,
-      { source: eventDeps.source },
+      { source },
     );
     namespaces[key] = {
       ...(namespaces[key] ?? {}),
@@ -814,7 +861,11 @@ export function implementSurface<const S extends SurfaceSpec>(
   }
 
   // ── Procedures ───────────────────────────────────────────────────────
-  const ctx = { cells: cellsCtx, collections: collectionsCtx };
+  const ctx = {
+    cells: cellsCtx,
+    collections: collectionsCtx,
+    events: eventsCtx,
+  };
   for (const [ns, procs] of Object.entries(spec.procedures ?? {})) {
     namespaces[ns] = namespaces[ns] ?? {};
     // biome-ignore lint/suspicious/noExplicitAny: see top of fn
@@ -836,13 +887,36 @@ export function implementSurface<const S extends SurfaceSpec>(
     }
   }
 
-  // Wrap each leaf via `t.router(...)` so the returned fragment has a
-  // shape oRPC's router and `RPCHandler` accept. The fragment lives under
-  // a top-level `surface` key matching the contract; consumers typically
-  // spread it alongside hand-listed raw namespaces:
+  // Returns `{ router, ctx }`:
   //
-  //   t.router({ ...implementSurface(s, deps), terminal: { create: ... } })
+  //   - `router` — a fragment under the top-level `surface` key, ready to
+  //     spread into the consumer's host `t.router({...})` alongside
+  //     hand-listed raw namespaces:
   //
-  // biome-ignore lint/suspicious/noExplicitAny: see top of fn
-  return { surface: t.router(namespaces) } as any;
+  //       const { router: surfaceRouter, ctx: surfaceCtx } =
+  //         implementSurface(surface, deps);
+  //       const appRouter = t.router({
+  //         ...surfaceRouter,
+  //         terminal: { create: t.terminal.create.handler(...) },
+  //       });
+  //
+  //   - `ctx` — the typed cells/collections/events helper map. Domain
+  //     code that mutates a cell or collection (or fires an event) imports
+  //     `surfaceCtx` and calls `surfaceCtx.cells.X.set(value)` etc. — the
+  //     surface owns the apply+publish chain so direct `store.set + bus.publish`
+  //     parallel paths (and their drift risk) don't exist.
+  return {
+    // biome-ignore lint/suspicious/noExplicitAny: see top of fn
+    router: { surface: t.router(namespaces) } as any,
+    ctx: ctx as SurfaceCtx<S>,
+  };
+}
+
+/** Stringify an event input as a channel key. Primitives go through
+ *  `String(...)`; objects go through `JSON.stringify(...)` so each distinct
+ *  input gets a stable channel name without consumer config. */
+function eventChannelKey(input: unknown): string {
+  return typeof input === "object" && input !== null
+    ? JSON.stringify(input)
+    : String(input);
 }

@@ -21,7 +21,8 @@ import type {
 } from "kolu-common";
 import { prUnavailableReason, prValue } from "kolu-common";
 import { log } from "../log.ts";
-import { terminalChannels, terminalsDirtyChannel } from "../publisher.ts";
+import { terminalsDirtyChannel } from "../publisher.ts";
+import { surfaceCtx } from "../surface.ts";
 import type { TerminalProcess } from "../terminal-registry.ts";
 
 /** Create initial metadata state for a new terminal. */
@@ -59,7 +60,7 @@ function publishMetadata(entry: TerminalProcess, terminalId: string): void {
     },
     "metadata publish",
   );
-  terminalChannels.metadata(terminalId).publish({ ...m });
+  surfaceCtx.collections.terminalMetadata.upsert(terminalId, { ...m });
   terminalsDirtyChannel.publish({});
 }
 

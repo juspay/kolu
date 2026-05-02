@@ -10,19 +10,18 @@
  */
 
 import type { SavedSession, SavedTerminal } from "kolu-common";
-import { cellBus } from "./cells.ts";
 import { log } from "./log.ts";
 import { terminalsDirtyChannel } from "./publisher.ts";
 import { store } from "./state.ts";
+import { surfaceCtx } from "./surface.ts";
 
 /** Pending autosave timer — declared at module top so `setSavedSession`
  *  can cancel it (see comment on that function for the race). */
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
 
-/** Write the session blob (or clear it) and publish to subscribers. */
+/** Write the session blob (or clear it). The surface owns persist+publish. */
 function writeSession(next: SavedSession | null): void {
-  store.set("session", next);
-  cellBus.savedSession.publish(next);
+  surfaceCtx.cells.session.set(next);
 }
 
 /** Save a session snapshot. Clears the session when no terminals remain. */
