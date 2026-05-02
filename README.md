@@ -317,6 +317,8 @@ A home-manager module runs kolu as a systemd user service on Linux and as a laun
 
 See [`nix/home/example/`](nix/home/example/) for a full configuration — a NixOS VM test exercises the systemd path on Linux, and a standalone home-manager activation build exercises the launchd path on Darwin.
 
+On macOS, the LaunchAgent writes stdout to `~/Library/Logs/kolu.out.log` and stderr to `~/Library/Logs/kolu.err.log`, so crashes and startup failures leave service logs alongside other user logs.
+
 ### Diagnosing memory leaks
 
 If kolu grows unbounded (V8 heap climbing over hours), set `services.kolu.diagnostics.dir` to an absolute path. Each restart gets its own timestamped subdir there, with a baseline heap snapshot at T+5min, periodic `"diag"` stats lines (memory bands + `terminals`/`publisherSize`/`claudeSessions`/`pendingSummaryFetches`), and automatic near-OOM snapshots via V8's `--heapsnapshot-near-heap-limit`. `kill -USR2 <pid>` captures an on-demand snapshot into the same dir. Diff two snapshots offline with [memlab](https://facebook.github.io/memlab/docs/cli/CLI-commands/) to name the retainer. Unset = zero overhead; the code path is fully gated.

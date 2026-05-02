@@ -31,6 +31,17 @@
         home.stateVersion = "24.11";
       };
 
+      darwinHome = home-manager.lib.homeManagerConfiguration {
+        pkgs = darwinPkgs;
+        modules = [
+          koluHmModule
+          {
+            home.username = "alice";
+            home.homeDirectory = "/Users/alice";
+          }
+        ];
+      };
+
       # NixOS module: minimal system + home-manager with kolu enabled.
       nixosModule = {
         boot.loader.grub.devices = [ "nodev" ];
@@ -98,15 +109,18 @@
       # Darwin: standalone home-manager activation package. Building this
       # exercises the launchd.agents.kolu path end-to-end (plist generation,
       # wait4path wrapping, etc.) without needing a live launchd session.
-      checks.${darwinSystem}.home-activation = (home-manager.lib.homeManagerConfiguration {
-        pkgs = darwinPkgs;
-        modules = [
-          koluHmModule
-          {
-            home.username = "alice";
-            home.homeDirectory = "/Users/alice";
-          }
-        ];
-      }).activationPackage;
+      checks.${darwinSystem} = {
+        home-activation = darwinHome.activationPackage;
+
+        launchd-log-paths =
+          let
+            agentConfig = darwinHome.config.launchd.agents.kolu.config;
+          in
+          assert agentConfig.StandardOutPath == "/Users/alice/Library/Logs/kolu.out.log";
+          assert agentConfig.StandardErrorPath == "/Users/alice/Library/Logs/kolu.err.log";
+          darwinPkgs.runCommand "kolu-launchd-log-paths" { } ''
+            touch $out
+          '';
+      };
     };
 }
