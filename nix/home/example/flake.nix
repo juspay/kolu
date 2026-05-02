@@ -112,13 +112,17 @@
       checks.${darwinSystem} = {
         home-activation = darwinHome.activationPackage;
 
-        launchd-log-paths =
+        launchd-config =
           let
             agentConfig = darwinHome.config.launchd.agents.kolu.config;
           in
           assert agentConfig.StandardOutPath == "/Users/alice/Library/Logs/kolu.out.log";
           assert agentConfig.StandardErrorPath == "/Users/alice/Library/Logs/kolu.err.log";
-          darwinPkgs.runCommand "kolu-launchd-log-paths" { } ''
+          # Restart on non-zero exit AND on crash signals — matches systemd's
+          # `Restart = "on-failure"`. `SuccessfulExit` alone misses SIGSEGV etc.
+          assert agentConfig.KeepAlive.SuccessfulExit == false;
+          assert agentConfig.KeepAlive.Crashed == true;
+          darwinPkgs.runCommand "kolu-launchd-config" { } ''
             touch $out
           '';
       };
