@@ -15,17 +15,15 @@ import { terminalListSub } from "../wire";
 import { useTerminalMetadata } from "./useTerminalMetadata";
 
 function init() {
-  const list = { sub: terminalListSub, value: terminalListSub };
-
   const view = useViewState();
   const metadata = useTerminalMetadata({
-    list: list.value,
+    list: terminalListSub,
     activeId: view.activeId,
   });
 
   return {
     // Live terminal list from server (Subscription<TerminalInfo[]>).
-    listSub: list.sub,
+    listSub: terminalListSub,
     // View state
     ...view,
     // Server metadata + activity + derived ordering

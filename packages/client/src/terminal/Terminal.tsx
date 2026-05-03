@@ -40,7 +40,7 @@ import { streamCall } from "@kolu/surface/solid";
 import { client } from "../wire";
 import { isExpectedCleanupError } from "../rpc/streamCleanup";
 import { createScrollLock } from "../scrollLock";
-import { preferences, updatePreferences } from "../wire";
+import { preferences } from "../wire";
 import { isTouch } from "../useMobile";
 import ScrollToBottom from "./ScrollToBottom";
 import SearchBar from "./SearchBar";

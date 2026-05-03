@@ -240,18 +240,22 @@ export const ColorSchemeSchema = z.enum(["light", "dark", "system"]);
 /** Sub-view of the Code tab: local/branch diff modes or the file browser. */
 export const CodeTabViewSchema = z.enum(["local", "branch", "browse"]);
 
-/** Active tab of the right panel. A discriminated union so illegal pairings
- *  ("inspector with a code mode attached") can't be represented. The Inspector
- *  tab carries no sub-state; the Code tab carries its current mode. */
-export const RightPanelTabSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("inspector") }),
-  z.object({ kind: z.literal("code"), mode: CodeTabViewSchema }),
-]);
+/** Which tab is currently displayed in the right panel. */
+export const RightPanelTabKindSchema = z.enum(["inspector", "code"]);
 
+/** Right-panel preferences. `activeTab` and `codeMode` live as flat fields so
+ *  the storage layer's shallow merge is correct — Solid's `setStore` deep-merge
+ *  cannot preserve discriminated-union variant invariants without a per-path
+ *  `reconcile` escape hatch. Storing `codeMode` independently of `activeTab`
+ *  also lets the Code tab restore its last sub-mode when the user toggles
+ *  back from Inspector. The DU view (`{ kind: "inspector" } | { kind: "code",
+ *  mode }`) is exposed via `rightPanelView()` for ergonomic pattern-matching
+ *  at use sites. */
 export const RightPanelPrefsSchema = z.object({
   collapsed: z.boolean(),
   size: z.number(),
-  tab: RightPanelTabSchema,
+  activeTab: RightPanelTabKindSchema,
+  codeMode: CodeTabViewSchema,
 });
 
 export const PreferencesSchema = z.object({
@@ -317,8 +321,16 @@ export type RecentAgent = z.infer<typeof RecentAgentSchema>;
 export type SavedTerminal = z.infer<typeof SavedTerminalSchema>;
 export type ColorScheme = z.infer<typeof ColorSchemeSchema>;
 export type CodeTabView = z.infer<typeof CodeTabViewSchema>;
-export type RightPanelTab = z.infer<typeof RightPanelTabSchema>;
-export type RightPanelTabKind = RightPanelTab["kind"];
+export type RightPanelTabKind = z.infer<typeof RightPanelTabKindSchema>;
+
+/** Discriminated-union view of the right panel's active tab. Derived from the
+ *  flat `activeTab` + `codeMode` storage shape — see `rightPanelView()`. Use
+ *  this for pattern matching at consumption sites; never write code that
+ *  matches on `activeTab` and reads `codeMode` separately. */
+export type RightPanelTab =
+  | { kind: "inspector" }
+  | { kind: "code"; mode: CodeTabView };
+
 export type TaskProgress = z.infer<typeof TaskProgressSchema>;
 
 /** Default preference values — single source of truth for server and client. */
@@ -333,9 +345,22 @@ export const DEFAULT_PREFERENCES: z.infer<typeof PreferencesSchema> = {
   rightPanel: {
     collapsed: true,
     size: 0.25,
-    tab: { kind: "inspector" },
+    activeTab: "inspector",
+    codeMode: "local",
   },
 };
+
+/** Project the flat `RightPanelPrefs` shape onto its DU view. Storage stays
+ *  flat (Solid's setStore shallow-merges correctly); use sites get the
+ *  exhaustive-match-friendly DU. */
+export function rightPanelView(p: {
+  activeTab: RightPanelTabKind;
+  codeMode: CodeTabView;
+}): RightPanelTab {
+  return p.activeTab === "inspector"
+    ? { kind: "inspector" }
+    : { kind: "code", mode: p.codeMode };
+}
 
 // `applyPreferencesPatch` references `Preferences` / `PreferencesPatch`
 // before the surface is built, so we lift them off the schemas directly
@@ -370,9 +395,9 @@ export function applyPreferencesPatch(
 export const surface = defineSurface({
   cells: {
     /** User preferences — local-authority on the client; server-canonical
-     *  on disk. The client's `mergeIntoStore` for the `rightPanel.tab`
-     *  discriminated-union case is supplied at the `.use()` call site
-     *  (see `client/wire.ts`); the spec's `patch` covers server-side. */
+     *  on disk. Storage is flat (no discriminated-union subtrees), so the
+     *  spec's `patch` is the only merge path — both server and client run
+     *  it via `applyPatch` defaulting from the spec. */
     preferences: {
       schema: PreferencesSchema,
       default: DEFAULT_PREFERENCES,
@@ -455,24 +480,6 @@ export const surface = defineSurface({
     },
   },
 });
-
-// ── Back-compat re-exports ────────────────────────────────────────────
-//
-// Until every consumer is migrated to `app.cells.X.use(...)` etc. via the
-// surface client bundle, the manual descriptors stay accessible by name.
-// New code should reach for the bound primitives in `client/wire.ts`.
-
-export const preferencesCell = surface.descriptors.cells.preferences;
-export const activityFeedCell = surface.descriptors.cells.activityFeed;
-export const savedSessionCell = surface.descriptors.cells.session;
-export const terminalListCell = surface.descriptors.cells.terminalList;
-export const terminalMetadataCollection =
-  surface.descriptors.collections.terminalMetadata;
-export const gitStatusStream = surface.descriptors.streams.gitStatus;
-export const gitDiffStream = surface.descriptors.streams.gitDiff;
-export const fsListAllStream = surface.descriptors.streams.fsListAll;
-export const fsReadFileStream = surface.descriptors.streams.fsReadFile;
-export const terminalExitEvent = surface.descriptors.events.terminalExit;
 
 // ── Inferred runtime types — surface-bound, via SurfaceTypes ──────────
 // `Surface` lifts `z.infer<schema>` over the spec so consumers reach for

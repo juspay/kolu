@@ -13,6 +13,7 @@
  */
 
 import { type Accessor, createMemo } from "solid-js";
+import type { SetStoreFunction } from "solid-js/store";
 import type { ZodType } from "zod";
 import {
   createCellsClient,
@@ -51,10 +52,7 @@ export type BoundCellOptions<T, P = T> = T extends object
           authority: "local";
           initial: T;
           applyPatch?: (current: T, patch: P) => T;
-          mergeIntoStore?: (
-            setStore: (...args: unknown[]) => void,
-            patch: P,
-          ) => void;
+          mergeIntoStore?: (setStore: SetStoreFunction<T>, patch: P) => void;
           onError?: (err: Error) => void;
         }
   : { authority?: "server"; onError?: (err: Error) => void };
@@ -100,7 +98,7 @@ export interface BoundEvent<I, T> {
   use(
     inputFn: () => I | null,
     handler: (value: T) => void,
-    opts?: UseEventOptions,
+    opts: UseEventOptions,
   ): void;
 }
 

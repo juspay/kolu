@@ -57,12 +57,12 @@ export interface UseCellLocalOptions<T extends object, P = T> {
    *  Receives Solid's `setStore` directly so callers can do nested path-form
    *  writes that `applyPatch` + reconcile can't express cleanly.
    *
-   *  When using this, document at the call site (1) why `applyPatch` is
-   *  insufficient and (2) the specific nested mutation required. The hatch
-   *  couples the caller to Solid's store mutation API across the framework
-   *  boundary, so the cost should be visible to future readers. The
-   *  preferences `rightPanel.tab` discriminated-union reconcile is the
-   *  canonical example. */
+   *  Prefer flattening the storage shape so this hatch isn't needed — Solid's
+   *  setStore deep-merge can't preserve DU variant invariants without a
+   *  per-path `reconcile`, and the consumer-side cost is exporting Solid's
+   *  store API across the framework boundary. When you must use it, document
+   *  at the call site (1) why `applyPatch` is insufficient and (2) the
+   *  specific nested mutation required. */
   mergeIntoStore?: (setStore: SetStoreFunction<T>, patch: P) => void;
   onError?: (err: Error) => void;
 }

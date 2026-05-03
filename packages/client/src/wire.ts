@@ -29,7 +29,6 @@ import {
   surface,
 } from "kolu-common/surface";
 import { WebSocket as PartySocket } from "partysocket";
-import { reconcile } from "solid-js/store";
 import { toast } from "solid-sonner";
 
 const { protocol, host } = window.location;
@@ -56,30 +55,6 @@ export const client = app.rpc;
 const _preferences = app.cells.preferences.use({
   authority: "local",
   initial: DEFAULT_PREFERENCES,
-  // The 3-arg path form `setStore("rightPanel", "tab", reconcile(tab))` is
-  // load-bearing: the 2-arg merge form leaves stale fields from the old
-  // variant when `tab` switches between `kind: "inspector"` and
-  // `kind: "code"`, and the inspector branch's nested fields (mode) don't
-  // trigger fine-grained reactivity on readers like `tab.mode`. `reconcile`
-  // both replaces wholesale and fires proper reactivity.
-  mergeIntoStore: (setStore, patch: PreferencesPatch) => {
-    const { rightPanel: rpPatch, ...rest } = patch;
-    if (Object.keys(rest).length > 0) {
-      // biome-ignore lint/suspicious/noExplicitAny: setStore's overloaded merge form
-      (setStore as any)(rest);
-    }
-    if (rpPatch) {
-      const { tab, ...rpRest } = rpPatch;
-      if (Object.keys(rpRest).length > 0) {
-        // biome-ignore lint/suspicious/noExplicitAny: setStore's overloaded merge form
-        (setStore as any)("rightPanel", rpRest);
-      }
-      if (tab !== undefined) {
-        // biome-ignore lint/suspicious/noExplicitAny: setStore's overloaded merge form
-        (setStore as any)("rightPanel", "tab", reconcile(tab));
-      }
-    }
-  },
   onError: (err) =>
     toast.error(`Preferences subscription error: ${err.message}`),
 });

@@ -98,7 +98,7 @@ type PersistedState = z.infer<typeof PersistedStateSchema>;
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.19.0";
+const SCHEMA_VERSION = "1.20.0";
 
 // Callers must pass an explicit directory via KOLU_STATE_DIR. A bare launch
 // with no env would silently clobber whatever happens to live at conf's
@@ -208,41 +208,35 @@ export const store = new Conf<PersistedState>({
     },
     // RightPanelTab enum changed: "files" + "git" stubs collapsed into one "review" tab (#514).
     // Coerce stale persisted values to "inspector" so zod validation at the RPC boundary holds.
-    // Cast through `unknown` because on-disk tab predates both the current
-    // union and the older enum shape.
+    // The on-disk shape at this point is the legacy flat-string `tab` —
+    // walked via Record<string, unknown> because the current schema no
+    // longer carries a `tab` field (1.20.0 flattened it).
     "1.8.0": (store: Conf<PersistedState>) => {
-      const current = store.get("preferences");
-      const tab = current.rightPanel.tab as unknown as string;
+      const current = store.get("preferences") as Record<string, unknown>;
+      const rp = current.rightPanel as Record<string, unknown>;
+      const tab = rp.tab as string | undefined;
       const staleTab = tab !== "inspector" && tab !== "review";
       if (staleTab) {
         store.set("preferences", {
           ...current,
-          rightPanel: {
-            ...current.rightPanel,
-            tab: "inspector" as unknown as typeof current.rightPanel.tab,
-          },
-        });
+          rightPanel: { ...rp, tab: "inspector" },
+        } as unknown as Preferences);
       }
     },
     // Tab renamed: "review" → "diff" (#514). The label is "Code Diff" to
     // signal forge/VCS-agnostic intent. Anything other than "inspector" or
-    // "diff" coerces to "inspector". Cast through `unknown` because the
-    // on-disk value at this migration point is still a flat string, not
-    // the discriminated union introduced in 1.13.0.
+    // "diff" coerces to "inspector". On-disk shape is still a flat string
+    // here (the DU was introduced in 1.13.0 and flattened back out in 1.20.0).
     "1.9.0": (store: Conf<PersistedState>) => {
-      const current = store.get("preferences");
-      const tab = current.rightPanel.tab as unknown as string;
+      const current = store.get("preferences") as Record<string, unknown>;
+      const rp = current.rightPanel as Record<string, unknown>;
+      const tab = rp.tab as string | undefined;
       const next = tab === "review" ? "diff" : tab;
       const valid = next === "inspector" || next === "diff";
       store.set("preferences", {
         ...current,
-        rightPanel: {
-          ...current.rightPanel,
-          tab: (valid
-            ? next
-            : "inspector") as unknown as typeof current.rightPanel.tab,
-        },
-      });
+        rightPanel: { ...rp, tab: valid ? next : "inspector" },
+      } as unknown as Preferences);
     },
     // `randomTheme` (boolean) replaced by `shuffleTheme` (boolean). The
     // semantics changed under the hood — "shuffle" now uses a perceptual
@@ -312,8 +306,8 @@ export const store = new Conf<PersistedState>({
       const { codeMode: _codeMode, tab: _tab, ...rest } = rp;
       store.set("preferences", {
         ...current,
-        rightPanel: { ...rest, tab } as typeof current.rightPanel,
-      });
+        rightPanel: { ...rest, tab },
+      } as unknown as Preferences);
     },
     // terminalRenderer preference added — default to "auto" (existing behavior:
     // WebGL on focused+visible tile, DOM elsewhere).
@@ -390,6 +384,39 @@ export const store = new Conf<PersistedState>({
       };
       untyped.delete("recentRepos");
       untyped.delete("recentAgents");
+    },
+    // rightPanel.tab discriminated union flattened into `activeTab` +
+    // `codeMode` flat fields. Storage stays mergeable by Solid's setStore
+    // (no DU subtree to leak variant fields), and `codeMode` now persists
+    // across Inspector↔Code toggles instead of being thrown away on each
+    // switch. The DU view is reconstructed at consumption sites via
+    // `rightPanelView()`.
+    //
+    // Idempotent: tolerates any of three on-disk shapes — pre-1.13 flat
+    // string `tab`, the 1.13-introduced DU `{ kind, mode? }`, or this
+    // migration's own already-flat output. The legacy `tab` field is
+    // always stripped; `activeTab` and `codeMode` are recomputed from
+    // whichever shape was present (`activeTab`/`codeMode` win when set,
+    // since 1.13.0 stripped codeMode while writing a `tab` orphan that
+    // co-exists with the new fields on a freshly-defaulted store).
+    "1.20.0": (store: Conf<PersistedState>) => {
+      const current = store.get("preferences") as Record<string, unknown>;
+      const rp = current.rightPanel as Record<string, unknown>;
+      const tab = rp.tab as
+        | { kind: "inspector" }
+        | { kind: "code"; mode: "local" | "branch" | "browse" }
+        | undefined;
+      const activeTab =
+        (rp.activeTab as "inspector" | "code" | undefined) ??
+        (tab?.kind === "code" ? "code" : "inspector");
+      const codeMode =
+        (rp.codeMode as "local" | "branch" | "browse" | undefined) ??
+        (tab?.kind === "code" ? tab.mode : "local");
+      const { tab: _tab, ...rest } = rp;
+      store.set("preferences", {
+        ...current,
+        rightPanel: { ...rest, activeTab, codeMode },
+      } as Preferences);
     },
   },
 });

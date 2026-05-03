@@ -1,9 +1,13 @@
-/** Right panel state — singleton module. Tracks collapsed, size, pin, and
- *  active tab (a discriminated union of Inspector vs Code-with-mode),
- *  persisted via server preferences under `preferences.rightPanel`.
- *  Defaults to collapsed with the Inspector tab active. */
+/** Right panel state — singleton module. Tracks collapsed, size, active tab
+ *  (`"inspector" | "code"`), and the last-used code-mode (restored on
+ *  Inspector→Code toggle). Persisted via server preferences under
+ *  `preferences.rightPanel`. Defaults to collapsed with the Inspector tab. */
 
-import type { CodeTabView, RightPanelTab } from "kolu-common/surface";
+import {
+  type CodeTabView,
+  type RightPanelTab,
+  rightPanelView,
+} from "kolu-common/surface";
 import { preferences, updatePreferences } from "../wire";
 
 const MIN_PANEL_SIZE = 0.05;
@@ -14,19 +18,26 @@ export function useRightPanel() {
   return {
     collapsed: () => rp().collapsed,
     panelSize: () => rp().size,
-    /** The full tab state — discriminated union of Inspector vs Code+mode. */
-    activeTab: (): RightPanelTab => rp().tab,
-    /** Switch to Inspector. */
+    /** DU view of the active tab — `{ kind: "inspector" }` or
+     *  `{ kind: "code", mode }`. Matches `match(...).with(...).exhaustive()`. */
+    activeTab: (): RightPanelTab => rightPanelView(rp()),
+    /** Switch to Inspector. `codeMode` is preserved so toggling back to Code
+     *  restores the user's last sub-mode. */
     showInspector: () =>
-      updatePreferences({ rightPanel: { tab: { kind: "inspector" } } }),
-    /** Switch to Code tab with the given mode (defaults to "local").
-     *  Code-mode memory is intentionally not preserved across Inspector↔Code
-     *  switches — simpler state, no "what was I last looking at?" field. */
-    showCode: (mode: CodeTabView = "local") =>
-      updatePreferences({ rightPanel: { tab: { kind: "code", mode } } }),
+      updatePreferences({ rightPanel: { activeTab: "inspector" } }),
+    /** Switch to Code tab. When `mode` is omitted, the persisted `codeMode`
+     *  is used — this is the round-trip case (Inspector→Code restores the
+     *  last view). Pass `mode` explicitly to override. */
+    showCode: (mode?: CodeTabView) =>
+      updatePreferences({
+        rightPanel: {
+          activeTab: "code",
+          ...(mode !== undefined && { codeMode: mode }),
+        },
+      }),
     /** Change the sub-mode within the Code tab. */
     setCodeMode: (mode: CodeTabView) =>
-      updatePreferences({ rightPanel: { tab: { kind: "code", mode } } }),
+      updatePreferences({ rightPanel: { codeMode: mode } }),
     togglePanel: () =>
       updatePreferences({ rightPanel: { collapsed: !rp().collapsed } }),
     collapsePanel: () => updatePreferences({ rightPanel: { collapsed: true } }),

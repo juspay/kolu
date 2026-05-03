@@ -22,14 +22,17 @@
 
 import { implement } from "@orpc/server";
 import type { ZodType } from "zod";
-import type {
-  CellSpec,
-  CollectionSpec,
-  EventSpec,
-  Surface,
-  SurfaceSpec,
-  ProcedureSpec,
-  StreamSpec,
+import {
+  type CellSpec,
+  type CollectionSpec,
+  DEFAULT_CELL_VERBS_WITH_PATCH,
+  DEFAULT_CELL_VERBS_WITHOUT_PATCH,
+  DEFAULT_COLLECTION_VERBS,
+  type EventSpec,
+  type ProcedureSpec,
+  type StreamSpec,
+  type Surface,
+  type SurfaceSpec,
 } from "./define";
 import type { Cell, Collection, Event, Stream } from "./index";
 
@@ -257,6 +260,11 @@ export function eventHandlers<Name extends string, I, T>(
  *  subsequent read failure invokes `onReadError` and continues — a
  *  transient error shouldn't tear down a long-lived subscription.
  *
+ *  `onReadError` is required so the silent-skip path is an explicit choice
+ *  at every call site (a misbehaving source that perpetually fails reads
+ *  would otherwise burn CPU re-installing and re-reading with zero
+ *  observability). Pass `() => {}` if a use case genuinely doesn't care.
+ *
  *  The equality predicate stays at the call site so reviewers see it
  *  next to the schema. */
 export async function* pollOnEvent<T>(opts: {
@@ -264,7 +272,7 @@ export async function* pollOnEvent<T>(opts: {
   isEqual: (a: T, b: T) => boolean;
   install: (onEvent: () => void) => () => void;
   signal: AbortSignal | undefined;
-  onReadError?: (err: unknown) => void;
+  onReadError: (err: unknown) => void;
 }): AsyncIterable<T> {
   let last: T = await opts.read();
   yield last;
@@ -273,7 +281,7 @@ export async function* pollOnEvent<T>(opts: {
     try {
       next = await opts.read();
     } catch (e) {
-      opts.onReadError?.(e);
+      opts.onReadError(e);
       continue;
     }
     if (opts.isEqual(last, next)) continue;
@@ -703,8 +711,8 @@ export function implementSurface<const S extends SurfaceSpec>(
     const verbs =
       cellSpec.verbs ??
       (cellSpec.patchSchema
-        ? (["get", "patch"] as const)
-        : (["get", "set"] as const));
+        ? DEFAULT_CELL_VERBS_WITH_PATCH
+        : DEFAULT_CELL_VERBS_WITHOUT_PATCH);
     const ns: Record<string, unknown> = {};
     for (const v of verbs) {
       // biome-ignore lint/suspicious/noExplicitAny: see top of fn
@@ -772,8 +780,7 @@ export function implementSurface<const S extends SurfaceSpec>(
       },
     );
 
-    const verbs =
-      collSpec.verbs ?? (["keys", "get", "upsert", "delete"] as const);
+    const verbs = collSpec.verbs ?? DEFAULT_COLLECTION_VERBS;
     const ns: Record<string, unknown> = {};
     for (const v of verbs) {
       // biome-ignore lint/suspicious/noExplicitAny: see top of fn

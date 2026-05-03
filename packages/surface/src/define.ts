@@ -110,9 +110,17 @@ export interface SurfaceSpec {
 
 // ── Defaults ────────────────────────────────────────────────────────────
 
-const DEFAULT_CELL_VERBS_WITH_PATCH = ["get", "patch"] as const;
-const DEFAULT_CELL_VERBS_WITHOUT_PATCH = ["get", "set"] as const;
-const DEFAULT_COLLECTION_VERBS = ["keys", "get", "upsert", "delete"] as const;
+/** Default verb sets — exported so server-side `implementSurface` derives
+ *  handler verbs from the same source as `defineSurface`'s contract entries.
+ *  Drift between contract and handlers is a wire-shape break. */
+export const DEFAULT_CELL_VERBS_WITH_PATCH = ["get", "patch"] as const;
+export const DEFAULT_CELL_VERBS_WITHOUT_PATCH = ["get", "set"] as const;
+export const DEFAULT_COLLECTION_VERBS = [
+  "keys",
+  "get",
+  "upsert",
+  "delete",
+] as const;
 
 // ── Per-primitive contract derivation ──────────────────────────────────
 
@@ -397,7 +405,26 @@ export type SurfaceEventPayload<
   K extends keyof SurfaceTypes<S>["events"] & string,
 > = SurfaceTypes<S>["events"][K] extends { Payload: infer P } ? P : never;
 
-// ── Strongly-typed builder helpers (used for type derivation only) ─────
+// ── Type oracles for per-primitive contract entry shape ────────────────
+//
+// Each `build*` here is a runtime-dead type oracle: TypeScript reads
+// its return shape via `ReturnType<typeof X<T>>` at the mapped types
+// above (see `CellContract<S>` etc.) to compute the exact per-key
+// contract entry. The bodies are never called — the actual contract
+// entries are built by the lowercase `xxxContractEntries` functions
+// above, which return `Record<string, unknown>` (precise typing
+// happens at the call site through `oc.router(...)` re-typing).
+//
+// `noinline`-equivalent: tree-shaking removes the bodies because no
+// runtime caller exists. Keeping them as real functions (rather than
+// `declare function`) lets us reuse the lambda's inferred return type
+// without spelling out oRPC's internal types — rewriting these as
+// `declare function` would re-introduce the duplication this file
+// avoids by having one source of truth for the contract shape.
+//
+// Drift watch: when adding a verb to the contract, edit both the
+// runtime `xxxContractEntries` (above) AND the matching `build*`
+// oracle (below).
 
 function buildCellWithPatch<T, P>(opts: {
   schema: ZodType<T>;

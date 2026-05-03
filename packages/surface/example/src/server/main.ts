@@ -3,7 +3,7 @@
  *
  * No HTTPS, no auth, no migrations — just enough wiring to demonstrate
  * the framework end-to-end. Static client is served from
- * `KOLU_CELLS_EXAMPLE_DIST` (set by the Nix wrapper) when present;
+ * `KOLU_SURFACE_EXAMPLE_DIST` (set by the Nix wrapper) when present;
  * otherwise the dev path is "Vite serves the client on its own port,
  * Hono only handles `/rpc/*`".
  */
@@ -19,7 +19,7 @@ import { appRouter } from "./router";
 
 const PORT = Number(process.env.PORT ?? 7700);
 const HOST = process.env.HOST ?? "127.0.0.1";
-const DIST_DIR = process.env.KOLU_CELLS_EXAMPLE_DIST;
+const DIST_DIR = process.env.KOLU_SURFACE_EXAMPLE_DIST;
 
 const app = new Hono();
 
@@ -65,12 +65,10 @@ const server = serve(
   { fetch: app.fetch, port: PORT, hostname: HOST },
   (info) => {
     const where = `http://${info.address}:${info.port}`;
-    // eslint-disable-next-line no-console
     console.log(`@kolu/surface-example listening on ${where}`);
     if (!DIST_DIR) {
-      // eslint-disable-next-line no-console
       console.log(
-        "  (no KOLU_CELLS_EXAMPLE_DIST set — start Vite separately for the client)",
+        "  (no KOLU_SURFACE_EXAMPLE_DIST set — start Vite separately for the client)",
       );
     }
   },

@@ -22,8 +22,10 @@ import type { Event } from "../index";
 
 export interface UseEventOptions {
   /** Called when the subscription errors (transport failure that retry
-   *  can't recover, or an `ORPCError` from the source). */
-  onError?: (err: Error) => void;
+   *  can't recover, or an `ORPCError` from the source). Required because
+   *  `useEvent` returns `void` — without an error handler, lifecycle
+   *  bugs (the source dies and never re-fires) are invisible to the user. */
+  onError: (err: Error) => void;
   /** External abort signal. When provided, used instead of `onCleanup`
    *  — allows installing the subscription outside a reactive owner
    *  (e.g. inside a `createRoot`). */
@@ -40,7 +42,7 @@ export function useEvent<Name extends string, I, T>(
   inputFn: () => I | null,
   source: StreamingProcedure<I, T>,
   handler: (occurrence: T) => void,
-  options?: UseEventOptions,
+  options: UseEventOptions,
 ): void {
   // Track the abort controller for the active subscription. Nullable
   // because input may be `null` (paused) — no controller in that case.
@@ -69,7 +71,7 @@ export function useEvent<Name extends string, I, T>(
           handler(occurrence);
         }
       } catch (err) {
-        if (!controller.signal.aborted && options?.onError) {
+        if (!controller.signal.aborted) {
           options.onError(err instanceof Error ? err : new Error(String(err)));
         }
       } finally {
@@ -82,7 +84,7 @@ export function useEvent<Name extends string, I, T>(
   // onCleanup. Never both — avoids dual lifecycle braiding (same shape
   // `createSubscription` uses).
   const parentSignal =
-    options?.signal ??
+    options.signal ??
     (() => {
       const controller = new AbortController();
       onCleanup(() => controller.abort());

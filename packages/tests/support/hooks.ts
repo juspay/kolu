@@ -360,7 +360,8 @@ Before(async function (this: KoluWorld, scenario) {
         rightPanel: {
           collapsed: true,
           size: 0.25,
-          tab: { kind: "inspector" },
+          activeTab: "inspector",
+          codeMode: "local",
         },
       },
     }),

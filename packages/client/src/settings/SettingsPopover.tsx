@@ -1,5 +1,6 @@
-/** Settings popover — reads and writes preferences via usePreferences directly.
- *  Only needs open/close state and trigger ref from the parent. */
+/** Settings popover — reads and writes preferences via the wire singletons
+ *  (`preferences()` / `updatePreferences(...)`). Only needs open/close state
+ *  and trigger ref from the parent. */
 
 import type { Preferences } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";

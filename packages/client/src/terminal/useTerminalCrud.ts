@@ -10,9 +10,8 @@ import type {
 } from "kolu-common/surface";
 import { toast } from "solid-sonner";
 import { availableThemes, pickTheme, resolveThemeBgs } from "terminal-themes";
-import { client } from "../wire";
 import { CONTEXTUAL_TIPS } from "../settings/tips";
-import { preferences, updatePreferences } from "../wire";
+import { client, preferences } from "../wire";
 import { useTips } from "../settings/useTips";
 import { copyTextWithToast } from "./clipboard";
 import { useSubPanel } from "./useSubPanel";
