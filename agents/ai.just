@@ -8,6 +8,8 @@ set working-directory := '..'
 nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop --accept-flake-config -c' }
 
 apm_cmd := nix_shell + ' uvx --from apm-cli apm'
+apm_targets := 'claude,codex,opencode'
+apm_compile_targets := 'codex,opencode'
 
 # Install native APM integrations for Claude, Codex, and OpenCode.
 #
@@ -15,21 +17,21 @@ apm_cmd := nix_shell + ' uvx --from apm-cli apm'
 # `.codex/`, `.agents/skills/`, `.opencode/`). It does not generate the
 # root `AGENTS.md` instruction file that Codex/OpenCode consume.
 apm-install:
-    {{ apm_cmd }} install
+    {{ apm_cmd }} install --target {{ apm_targets }}
 
 # Compile the shared instruction file for runtimes that read `AGENTS.md`.
 #
 # Claude already reads `.claude/` natively, so we intentionally do not
 # compile `CLAUDE.md`.
 apm-compile:
-    {{ apm_cmd }} compile --target codex,opencode
+    {{ apm_cmd }} compile --target {{ apm_compile_targets }}
 
 # Refresh all APM-managed artifacts needed by Claude, Codex, and OpenCode.
 apm: apm-install apm-compile
 
 # Advance locked APM dependencies to latest refs (all, or specific packages)
 apm-update *packages:
-    {{ apm_cmd }} deps update {{ packages }}
+    {{ apm_cmd }} deps update --target {{ apm_targets }} {{ packages }}
     {{ just_executable() }} ai apm
 
 # Audit APM packages for security issues (Unicode, lockfile consistency)
@@ -76,8 +78,8 @@ apm-sync: apm-audit
     # placement is file-layout sensitive, so omitting checked-in files that
     # are present during local `just ai::apm` can produce a false sync diff.
     [[ ! -e .claude/launch.json ]] || cp .claude/launch.json "$scratch/.claude/launch.json"
-    (cd "$scratch" && {{ apm_cmd }} install)
-    (cd "$scratch" && {{ apm_cmd }} compile --target codex,opencode)
+    (cd "$scratch" && {{ apm_cmd }} install --target {{ apm_targets }})
+    (cd "$scratch" && {{ apm_cmd }} compile --target {{ apm_compile_targets }})
     # Exclude files that apm doesn't manage: launch.json is user-owned,
     # and `.claude/*` entries in .gitignore are runtime state written by
     # Claude Code itself (worktree bookkeeping, local settings, session

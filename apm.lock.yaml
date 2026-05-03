@@ -1,6 +1,6 @@
 lockfile_version: '1'
-generated_at: '2026-05-02T16:59:49.630288+00:00'
-apm_version: 0.11.0
+generated_at: '2026-05-03T15:42:24.146635+00:00'
+apm_version: 0.12.0
 dependencies:
 - repo_url: anthropics/skills
   host: github.com
@@ -11,7 +11,6 @@ dependencies:
   deployed_files:
   - .agents/skills/frontend-design
   - .claude/skills/frontend-design
-  - .opencode/skills/frontend-design
   content_hash: sha256:063a0e6448123cd359ad0044cc46b0e490cc7964d45ef4bb9fd842bd2ffbca67
 - repo_url: juspay/skills
   host: github.com
@@ -22,7 +21,6 @@ dependencies:
   deployed_files:
   - .agents/skills/nix-justfile
   - .claude/skills/nix-justfile
-  - .opencode/skills/nix-justfile
   content_hash: sha256:8f48e067e59da48c3ac90b4e2228ebb4ecfd988375b40efe831339d9a493accd
 - repo_url: juspay/skills
   host: github.com
@@ -33,7 +31,6 @@ dependencies:
   deployed_files:
   - .agents/skills/nix-typescript
   - .claude/skills/nix-typescript
-  - .opencode/skills/nix-typescript
   content_hash: sha256:67ff7ce606ad0378af382ad6cb84d9853bf70ec52d6fe40ed6b6f82ecd2c48c3
 - repo_url: srid/agency
   host: github.com
@@ -68,15 +65,6 @@ dependencies:
   - .codex/hooks/agency/scripts/do-stop-guard.sh
   - .opencode/agents/hickey.md
   - .opencode/agents/lowy.md
-  - .opencode/skills/code-police
-  - .opencode/skills/do
-  - .opencode/skills/elegance
-  - .opencode/skills/fact-check
-  - .opencode/skills/forge-pr
-  - .opencode/skills/hickey
-  - .opencode/skills/lowy
-  - .opencode/skills/ralph
-  - .opencode/skills/talk
   deployed_file_hashes:
     .claude/agents/hickey.md: sha256:edde9b0d3b27b947b7372f662b2e8652d136e0bb9af7924892b00450a1e586bc
     .claude/agents/lowy.md: sha256:a1c8e5ba115439bcfa0d7e331f96e71b2d690ff2e5fb9b824bb5f588eb43ac75
@@ -87,7 +75,7 @@ dependencies:
     .codex/hooks/agency/scripts/do-stop-guard.sh: sha256:cb033f86c15ffd3d09d8e4b74a61f55a70def4cc4131cc013b7368a2d23f3f33
     .opencode/agents/hickey.md: sha256:edde9b0d3b27b947b7372f662b2e8652d136e0bb9af7924892b00450a1e586bc
     .opencode/agents/lowy.md: sha256:a1c8e5ba115439bcfa0d7e331f96e71b2d690ff2e5fb9b824bb5f588eb43ac75
-  content_hash: sha256:5c0c8ad695cca6b09db10ed82ad169239898eff896f0b3406d83b2a213840b86
+  content_hash: sha256:9b6be5d68deec70822327de7099ddce36c92918f618bf65becb621d7ca963d91
 mcp_servers:
 - chrome-devtools
 mcp_configs:
@@ -127,12 +115,6 @@ local_deployed_files:
 - .claude/skills/pierre
 - .claude/skills/test
 - .opencode/commands/whatchanged.md
-- .opencode/skills/ci
-- .opencode/skills/hk
-- .opencode/skills/parcel
-- .opencode/skills/perf-diagnose
-- .opencode/skills/pierre
-- .opencode/skills/test
 local_deployed_file_hashes:
   .claude/commands/whatchanged.md: sha256:283ce7bfddb6213172b2a89259c2b89b65d063c6f1d156dd6ee2b98760183f69
   .claude/rules/apm-sources.md: sha256:90626875e2a63e5658f0b5e77524c9c4f949f4ce890bd1f1ce9a2663d4fc8ea7
@@ -143,6 +125,6 @@ local_deployed_file_hashes:
   .claude/rules/nix.md: sha256:1ac0f3738deafba04c3af189c863990809999021f4e9d0e6b38969ec1460acf3
   .claude/rules/solidjs.md: sha256:d6b03eb7701e4ae637d8c5a389148811ef028f68c40bf0e76e8769d816e6e545
   .claude/rules/state.md: sha256:749fbd3452a8182f29c26df5e2f5671cbe2a88ddc97aef162a36645efccc4ccf
-  .claude/rules/streaming.md: sha256:a74276cb536560fe94bc01cb690c2992afb5470e448541c8c5ad62702d74c728
+  .claude/rules/streaming.md: sha256:f67ae607dd8c4baf97c656d639452d82027ac295bb551d3dd774386101c5d0ec
   .claude/rules/toast-conventions.md: sha256:e987215118a5269b05f064a477ca26ad986b014531dfb00bc7ba6b6bd3dce5bc
   .opencode/commands/whatchanged.md: sha256:283ce7bfddb6213172b2a89259c2b89b65d063c6f1d156dd6ee2b98760183f69
