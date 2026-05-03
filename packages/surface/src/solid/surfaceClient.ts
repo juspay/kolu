@@ -12,8 +12,13 @@
  * `UseCellOptions` union, just with `source` / `mutate` already filled in.
  */
 
+import { type Accessor, createMemo } from "solid-js";
 import type { ZodType } from "zod";
-import { createCellsClient, type StreamingProcedure } from "../client";
+import {
+  createCellsClient,
+  streamCall,
+  type StreamingProcedure,
+} from "../client";
 import type {
   CellSpec,
   CollectionSpec,
@@ -24,7 +29,11 @@ import type {
   StreamSpec,
 } from "../define";
 import type { ReactiveSubscriptionOptions } from "./createReactiveSubscription";
-import type { Subscription, SubscriptionOptions } from "./createSubscription";
+import {
+  createSubscription,
+  type Subscription,
+  type SubscriptionOptions,
+} from "./createSubscription";
 import { useCell, type UseCellResult } from "./useCell";
 import { useCollection, type UseCollectionResult } from "./useCollection";
 import { useEvent, type UseEventOptions } from "./useEvent";
@@ -54,11 +63,30 @@ export interface BoundCell<T, P = T> {
   use(opts?: BoundCellOptions<T, P>): UseCellResult<T, P>;
 }
 
+/** Bound collection result — `useCollection`'s reactive view augmented
+ *  with imperative mutations (`upsert`, `delete`) so consumers don't
+ *  reach for `app.rpc.surface.<key>.{upsert,delete}` from event handlers. */
+export interface BoundCollectionResult<K, T> extends UseCollectionResult<K, T> {
+  upsert: (key: K, value: T) => Promise<void>;
+  delete: (key: K) => Promise<void>;
+}
+
 export interface BoundCollection<K, T> {
-  use(opts: {
-    keys: () => K[];
+  /** Reactive view. `keys` defaults to a subscription on the server's
+   *  `keys` stream — pass it explicitly only to filter or derive (e.g.
+   *  Kolu's `useTerminalMetadata` derives keys from the terminal list).
+   *
+   *  Result re-exposes `upsert` / `delete` for ergonomic in-component
+   *  handler closures; the same fns live on this `BoundCollection`
+   *  itself for lifecycle-free call sites. */
+  use(opts?: {
+    keys?: Accessor<K[]>;
     onError?: SubscriptionOptions<unknown>["onError"];
-  }): UseCollectionResult<K, T>;
+  }): BoundCollectionResult<K, T>;
+  /** Imperative wire mutations. Available outside any component
+   *  lifecycle — call from command handlers, route loaders, anywhere. */
+  upsert(key: K, value: T): Promise<void>;
+  delete(key: K): Promise<void>;
 }
 
 export interface BoundStream<I, T> {
@@ -184,9 +212,24 @@ export function surfaceClient<const S extends SurfaceSpec, Rpc = unknown>(
   for (const [key] of Object.entries(spec.collections ?? {})) {
     // biome-ignore lint/suspicious/noExplicitAny: walk-by-string
     const ns = (rpc as any).surface[key];
+    const upsert = (k: unknown, v: unknown) => ns.upsert({ key: k, value: v });
+    const del = (k: unknown) => ns.delete({ key: k });
     collections[key] = {
-      use: ({ keys, onError }) =>
-        useCollection(
+      use: (opts) => {
+        const onError = opts?.onError;
+        // Default keys: subscribe to the server's keys stream and lift
+        // it to a SolidJS accessor. The `.use()` runs inside a Solid
+        // owner so the subscription disposes with the component.
+        const keys =
+          opts?.keys ??
+          (() => {
+            const sub = createSubscription<unknown[]>(
+              () => streamCall(ns.keys, undefined),
+              { onError },
+            );
+            return createMemo<unknown[]>(() => sub() ?? []);
+          })();
+        const view = useCollection(
           // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only
           (surface.descriptors.collections as any)[key],
           {
@@ -195,7 +238,11 @@ export function surfaceClient<const S extends SurfaceSpec, Rpc = unknown>(
             keyToInput: (k) => ({ key: k }),
             onError,
           },
-        ),
+        );
+        return { ...view, upsert, delete: del };
+      },
+      upsert,
+      delete: del,
     };
   }
 

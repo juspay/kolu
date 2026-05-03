@@ -13,15 +13,7 @@
  * via `app.rpc.<ns>.<verb>(...)`.
  */
 
-import { createSubscription, streamCall } from "@kolu/surface/solid";
-import {
-  createEffect,
-  createMemo,
-  createRoot,
-  createSignal,
-  For,
-  Show,
-} from "solid-js";
+import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import { DEFAULT_PREFS, type Note, type NoteId } from "../common/surface";
 import { app } from "./wire";
 
@@ -40,17 +32,12 @@ export default function App() {
   });
 
   // ── 2. Collection: notes keyed by id ────────────────────────────────
-  // Keys come from a streaming subscription; the bound `.use()` hands
-  // every key to a per-key value subscription.
-  const keysSub = createRoot(() =>
-    createSubscription<NoteId[]>(() =>
-      streamCall(app.rpc.surface.notes.keys, undefined),
-    ),
-  );
-  const keys = createMemo<NoteId[]>(() => keysSub() ?? []);
-
+  // `keys` defaults to the server's keys stream — pass it explicitly
+  // only to filter or derive (we don't here). `notes.upsert` / `.delete`
+  // are re-exposed on the result for ergonomic in-component handlers;
+  // they're also reachable as `app.collections.notes.{upsert,delete}`
+  // for lifecycle-free call sites.
   const notes = app.collections.notes.use({
-    keys,
     onError: (err) => console.error("note subscription failed", err),
   });
 
@@ -77,7 +64,9 @@ export default function App() {
     { onError: (err) => console.error("autosave subscription failed", err) },
   );
 
-  // ── Mutations (app.rpc) ─────────────────────────────────────────────
+  // ── Mutations ──────────────────────────────────────────────────────
+  // notes.upsert / notes.delete are bound; only `notes.create` (an
+  // imperative procedure, not a collection verb) goes through `app.rpc`.
   const handleCreate = async () => {
     const note = await app.rpc.surface.notes.create({ title: "Untitled" });
     setSelectedId(note.id);
@@ -95,20 +84,20 @@ export default function App() {
     const current = selectedNote();
     if (!current) return;
     const next: Note = { ...current, [field]: value, updatedAt: Date.now() };
-    await app.rpc.surface.notes.upsert({ key: current.id, value: next });
+    await notes.upsert(current.id, next); // in-component result handle
   };
 
   const handleDelete = async (id: NoteId): Promise<void> => {
     if (selectedId() === id) setSelectedId(null);
-    await app.rpc.surface.notes.delete({ key: id });
+    await app.collections.notes.delete(id); // top-level lifecycle-free path
   };
 
   // Filter sidebar by search results. When no query, show all.
   const visibleKeys = createMemo<NoteId[]>(() => {
     const q = searchQuery().trim();
-    if (!q) return keys();
+    if (!q) return notes.keys();
     const matches = new Set(search()?.matches ?? []);
-    return keys().filter((id) => matches.has(id));
+    return notes.keys().filter((id) => matches.has(id));
   });
 
   return (

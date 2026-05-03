@@ -468,12 +468,23 @@ export const app = surfaceClient<
 
 // In components:
 const prefs = app.cells.prefs.use({ authority: "local", initial: DEFAULT_PREFS, applyPatch });
-const notes = app.collections.notes.use({ keys, onError });
+const notes = app.collections.notes.use({ onError });
+//   notes.keys()         — Accessor<K[]>, defaults to the server's keys stream
+//   notes.byKey(id)?.()  — Subscription<T> per key
+//   notes.upsert(k, v)   — bound mutation (also at app.collections.notes.upsert)
+//   notes.delete(k)      — bound mutation (also at app.collections.notes.delete)
+// Pass `keys` explicitly only to filter or derive (e.g. from a parent list).
 const search = app.streams.search.use(searchInput, { onError });
 app.events.autosave.use(selectedId, handler, { onError });
 
-// Imperative procedures keep typed access via `app.rpc` (under the
-// `surface.*` namespace `defineSurface` wraps everything in):
+// Lifecycle-free mutation paths — call from anywhere, including
+// outside a component:
+await app.collections.notes.upsert(id, value);
+
+// Imperative procedures (the escape hatch for verbs the primitives
+// can't model — `notes.create` assigns the id server-side) go through
+// `app.rpc` under the `surface.*` namespace `defineSurface` wraps
+// everything in:
 await app.rpc.surface.notes.create({ title: "Untitled" });
 ```
 
@@ -538,11 +549,12 @@ interface Channel<T> { publish(v: T): void; subscribe(signal?): AsyncIterable<T>
 
 ```ts
 surfaceClient<S, Rpc>(surface, { websocket }): SurfaceClient<S, Rpc>
-  // client.cells.<K>.use(policy)              ← drops source/mutate
-  // client.collections.<K>.use({ keys, ... }) ← drops valueSource/keyToInput
+  // client.cells.<K>.use(policy)                  ← drops source/mutate
+  // client.collections.<K>.use({ keys?, ... })    ← keys defaults to server stream
+  // client.collections.<K>.{upsert, delete}       ← lifecycle-free mutations
   // client.streams.<K>.use(inputFn, opts?)
   // client.events.<K>.use(inputFn, handler, opts?)
-  // client.rpc                                ← typed oRPC client (pass Rpc generic for narrowing)
+  // client.rpc                                    ← typed oRPC client (pass Rpc generic for narrowing)
 
 useCell(cell, { source, mutate?, authority?, applyPatch?, mergeIntoStore?, initial?, onError? })
 useCollection(collection, { keys, valueSource, keyToInput?, onError? })
