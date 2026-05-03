@@ -11,11 +11,7 @@
  * publishes route through the same channels.
  */
 
-import {
-  implementSurface,
-  pollOnEvent,
-  publisherChannel,
-} from "@kolu/surface/server";
+import { implementSurface, publisherChannel } from "@kolu/surface/server";
 import { surface } from "../common/surface";
 import {
   allNotes,
@@ -42,7 +38,7 @@ const { router: surfaceRouter } = implementSurface(surface, {
 
   collections: {
     notes: {
-      readAll,
+      readAll: allNotes,
       upsert: (key, value) => {
         upsertNote(key, value);
         scheduleAutosave(value);
@@ -53,23 +49,20 @@ const { router: surfaceRouter } = implementSurface(surface, {
 
   streams: {
     search: {
-      source: (input, signal) =>
-        pollOnEvent({
-          // Re-run the search whenever the notes set changes (good enough
-          // for the example — a real index would notify selectively
-          // per-note). The Stream's first yield is the initial result;
-          // subsequent yields fire only when matches actually differ.
-          read: async () => ({
-            matches: searchNotes(input.query),
-            query: input.query,
-          }),
-          isEqual: (a, b) =>
-            a.query === b.query &&
-            a.matches.length === b.matches.length &&
-            a.matches.every((id, i) => id === b.matches[i]),
-          install: (cb) => subscribeForCallback(cb),
-          signal,
-        }),
+      // One-shot per query: yield the search result for the current
+      // query and close. The client's `useStream` re-subscribes whenever
+      // its input signal changes, so each keystroke spawns a fresh
+      // subscription that runs once. The example doesn't track notes
+      // changes for live re-fire — that would either be a client-side
+      // `createMemo` over the bound notes view (zero wire) or, if
+      // genuinely needed server-side, a future "derived stream"
+      // primitive over a graph dep.
+      source: async function* (input) {
+        yield {
+          matches: searchNotes(input.query),
+          query: input.query,
+        };
+      },
     },
   },
 
@@ -103,37 +96,7 @@ const { router: surfaceRouter } = implementSurface(surface, {
 
 export const appRouter = surfaceRouter;
 
-// ── Helpers (search-tick subscription, autosave debounce) ──────────────
-
-function readAll(): Map<
-  string,
-  ReturnType<typeof allNotes> extends Map<infer _K, infer V> ? V : never
-> {
-  return allNotes();
-}
-
-/** Convert the surface's keys-channel into a callback-style subscription
- *  for `pollOnEvent.install`. Subscribes via the publisher directly so the
- *  `notes:keys` channel matches what `implementSurface` emits. */
-function subscribeForCallback(cb: () => void): () => void {
-  const ctrl = new AbortController();
-  void (async () => {
-    try {
-      const sub = publisherChannel<unknown>(
-        // biome-ignore lint/suspicious/noExplicitAny: matches publisher generic at use site
-        publisher as any,
-        "notes:keys",
-      ).subscribe(ctrl.signal);
-      for await (const _ of sub) {
-        if (ctrl.signal.aborted) break;
-        cb();
-      }
-    } catch {
-      // Expected on abort.
-    }
-  })();
-  return () => ctrl.abort();
-}
+// ── Helpers (autosave debounce) ────────────────────────────────────────
 
 /** Debounced autosave fire — coalesces rapid edits into one event.
  *  Publishes to `autosaveChannel` (managed in store.ts), which the
