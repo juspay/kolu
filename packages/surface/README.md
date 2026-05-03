@@ -385,6 +385,56 @@ Shapes that don't fit a descriptor stay as plain oRPC procedures.
 
 _The shared property of the "raw" rows: there's no temporal sequence of values for a given identity that the client cares to subscribe to. The framework is for typed reactive state pushed from server to client (Cell/Collection/Stream) plus typed point-in-time fires (Event); everything else stays raw._
 
+### Adding a new descriptor — worked example
+
+Surface mode keeps the addition cost at **two files**. To add (say) a new `windowBounds` cell tracking last window position/size:
+
+**1. `packages/common/src/surface.ts`** — declare schema + descriptor entry on the spec:
+
+```ts
+export const WindowBoundsSchema = z.object({
+  x: z.number(),
+  y: z.number(),
+  w: z.number(),
+  h: z.number(),
+});
+
+export const surface = defineSurface({
+  cells: {
+    // ...existing cells...
+    windowBounds: {
+      schema: WindowBoundsSchema,
+      default: { x: 0, y: 0, w: 1280, h: 800 },
+      verbs: ["get", "set", "test__set"],
+    },
+  },
+  // ...collections / streams / events / procedures unchanged...
+});
+
+export type WindowBounds = Surface["cells"]["windowBounds"]["Value"];
+```
+
+**2. `packages/server/src/surface.ts`** — add one wiring entry under `cells`:
+
+```ts
+const windowBoundsStore = confStore<WindowBounds>(store, "windowBounds");
+
+implementSurface(surface, {
+  channel: ...,
+  cells: {
+    // ...existing cells...
+    windowBounds: { store: windowBoundsStore },
+  },
+  // ...collections / streams / events / procedures unchanged...
+});
+```
+
+If the new field needs to seed existing users' on-disk state, bump `SCHEMA_VERSION` in `state.ts` and add a migration — the standard `Conf` ladder, untouched by the framework.
+
+**Client gets it for free.** `app.cells.windowBounds.use({ initial })` reads it; `app.cells.windowBounds.set(next)` writes. No wire-handler to write, no hook to maintain, no oRPC contract entry to edit — `surface.contract` is recomputed from the spec on every build.
+
+Adding a new collection, stream, or event follows the same shape: spec entry in `common/surface.ts` + wiring entry in `server/surface.ts`. _The 2-file invariant is the framework's value proposition — flag it in code review if the count creeps up._
+
 ## Surface
 
 `defineSurface({...})` declares the whole reactive surface of an app at one site. The example (`packages/surface/example/`) ships a working surface end-to-end — start there for a runnable reference.
@@ -606,5 +656,7 @@ The principle: the framework adopts reflex-FRP's *vocabulary* and *snapshot+delt
 - **The reconcile-or-assign branch is shared.** `createSubscription` and `createReactiveSubscription` use identical logic to write a new value into the local store: `reconcile` for objects/arrays (fine-grained reactivity), plain assignment for primitives. This used to be duplicated with a "keep in sync" comment between the two; now it lives in one place.
 
 - **Local authority's "ignore subsequent echoes" is the subtle invariant.** A naive implementation reconciles every server push into the local store. The bug surfaces only when an unrelated event piggybacks on the same channel: an activity-feed tick, say, would stomp a just-made preferences write whose RPC hadn't round-tripped yet. `useCell` with `authority: "local"` reconciles only on the first yield and then ignores the subscription thereafter — the local store is authoritative.
+
+- **`patch` is a cross-runtime contract.** When a cell's spec declares `patch: (current, p) => ...`, that exact function is invoked on **both** sides — the server's `cellHandlers.patch` verb runs it to merge incoming patches before persist+publish, and `surfaceClient` defaults the client's `useCell` `applyPatch` to it for `authority: "local"` cells (`packages/surface/src/solid/surfaceClient.ts:189-200`). The function is shared only because `common/surface.ts` is compiled into both packages — there is no runtime sync. _If server and client are deployed at different versions and `patch` changed between them, server applies new merge logic while the client applies old (or vice versa) and the views drift silently with no error._ Treat any change to `patch` as a wire-format change: server and client must redeploy together. The same applies to schemas referenced from the spec; treat the whole spec as a versioned contract.
 
 - **No second consumer pressure.** This package was extracted to decomplect Kolu's client and server source trees, not to be reused. The boundary is shaped by Kolu's actual ragged edges (terminal.attach's subscribe-before-yield, gitStatus's poll-on-event) rather than speculative ones; no contract auto-derivation, no pluggable backends beyond what Kolu actually has.
