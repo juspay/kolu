@@ -295,6 +295,108 @@ type MergeContract<
     (K extends keyof E ? E[K] : EmptyObj);
 };
 
+// ── Inferred runtime types from a spec ─────────────────────────────────
+
+/** Map a `SurfaceSpec` to the runtime types its schemas describe — the
+ *  `Note` you'd otherwise write `z.infer<typeof NoteSchema>` for. Lets a
+ *  surface declaration be the single source of truth for both wire shape
+ *  AND the domain types consumers render against.
+ *
+ *  Indexed-access usage (tRPC-style):
+ *
+ *      type SF = SurfaceTypes<typeof surface.spec>;
+ *      type Note     = SF["collections"]["notes"]["Value"];
+ *      type NoteId   = SF["collections"]["notes"]["Key"];
+ *      type Prefs    = SF["cells"]["preferences"]["Value"];
+ *      type PrefsP   = SF["cells"]["preferences"]["Patch"];   // never if no patchSchema
+ *
+ *  Re-export the per-domain aliases at the surface module so consumers
+ *  `import { Note, NoteId } from "./surface"` (the universal pattern in
+ *  Zod / Drizzle / tRPC ecosystems). */
+export type SurfaceTypes<S extends SurfaceSpec> = {
+  cells: S["cells"] extends Record<string, CellSpec<any, any>>
+    ? {
+        [K in keyof S["cells"] & string]: {
+          Value: z.infer<S["cells"][K]["schema"]>;
+          Patch: S["cells"][K]["patchSchema"] extends ZodType<infer P>
+            ? P
+            : never;
+        };
+      }
+    : EmptyObj;
+  collections: S["collections"] extends Record<string, CollectionSpec<any, any>>
+    ? {
+        [K in keyof S["collections"] & string]: {
+          Key: z.infer<S["collections"][K]["keySchema"]>;
+          Value: z.infer<S["collections"][K]["schema"]>;
+        };
+      }
+    : EmptyObj;
+  streams: S["streams"] extends Record<string, StreamSpec<any, any>>
+    ? {
+        [K in keyof S["streams"] & string]: {
+          Input: z.infer<S["streams"][K]["inputSchema"]>;
+          Output: z.infer<S["streams"][K]["outputSchema"]>;
+        };
+      }
+    : EmptyObj;
+  events: S["events"] extends Record<string, EventSpec<any, any>>
+    ? {
+        [K in keyof S["events"] & string]: {
+          Input: z.infer<S["events"][K]["inputSchema"]>;
+          Payload: z.infer<S["events"][K]["outputSchema"]>;
+        };
+      }
+    : EmptyObj;
+};
+
+/** Drizzle-style flat helpers — secondary to `SurfaceTypes<S>` indexed
+ *  access. Same result, one fewer indexing layer at the call site:
+ *
+ *      type Prefs = SurfaceCellValue<typeof surface.spec, "preferences">;
+ *      type Note  = SurfaceCollectionValue<typeof surface.spec, "notes">;
+ *
+ *  Use whichever reads better at the call site; both are typo-safe. */
+export type SurfaceCellValue<
+  S extends SurfaceSpec,
+  K extends keyof SurfaceTypes<S>["cells"] & string,
+> = SurfaceTypes<S>["cells"][K] extends { Value: infer V } ? V : never;
+
+export type SurfaceCellPatch<
+  S extends SurfaceSpec,
+  K extends keyof SurfaceTypes<S>["cells"] & string,
+> = SurfaceTypes<S>["cells"][K] extends { Patch: infer P } ? P : never;
+
+export type SurfaceCollectionKey<
+  S extends SurfaceSpec,
+  K extends keyof SurfaceTypes<S>["collections"] & string,
+> = SurfaceTypes<S>["collections"][K] extends { Key: infer T } ? T : never;
+
+export type SurfaceCollectionValue<
+  S extends SurfaceSpec,
+  K extends keyof SurfaceTypes<S>["collections"] & string,
+> = SurfaceTypes<S>["collections"][K] extends { Value: infer T } ? T : never;
+
+export type SurfaceStreamInput<
+  S extends SurfaceSpec,
+  K extends keyof SurfaceTypes<S>["streams"] & string,
+> = SurfaceTypes<S>["streams"][K] extends { Input: infer I } ? I : never;
+
+export type SurfaceStreamOutput<
+  S extends SurfaceSpec,
+  K extends keyof SurfaceTypes<S>["streams"] & string,
+> = SurfaceTypes<S>["streams"][K] extends { Output: infer O } ? O : never;
+
+export type SurfaceEventInput<
+  S extends SurfaceSpec,
+  K extends keyof SurfaceTypes<S>["events"] & string,
+> = SurfaceTypes<S>["events"][K] extends { Input: infer I } ? I : never;
+
+export type SurfaceEventPayload<
+  S extends SurfaceSpec,
+  K extends keyof SurfaceTypes<S>["events"] & string,
+> = SurfaceTypes<S>["events"][K] extends { Payload: infer P } ? P : never;
+
 // ── Strongly-typed builder helpers (used for type derivation only) ─────
 
 function buildCellWithPatch<T, P>(opts: {

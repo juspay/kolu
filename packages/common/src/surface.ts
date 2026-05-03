@@ -11,7 +11,7 @@
  * without a migration ladder.
  */
 
-import { defineSurface } from "@kolu/surface/define";
+import { defineSurface, type SurfaceTypes } from "@kolu/surface/define";
 import { z } from "zod";
 import { DEFAULT_PREFERENCES } from "./config";
 import {
@@ -25,8 +25,6 @@ import {
   GitDiffOutputSchema,
   GitStatusInputSchema,
   GitStatusOutputSchema,
-  type Preferences,
-  type PreferencesPatch,
   PreferencesPatchSchema,
   PreferencesSchema,
   type SavedSession,
@@ -37,6 +35,14 @@ import {
   TerminalMetadataSchema,
   TerminalOnExitOutputSchema,
 } from "./index";
+
+// `applyPreferencesPatch` references `Preferences` / `PreferencesPatch`
+// before the surface is built, so we lift them off the schemas directly
+// here. The post-`defineSurface` re-exports below derive the same types
+// via `SurfaceTypes` — same identity, single source of truth at the
+// declaration site.
+type Preferences = z.infer<typeof PreferencesSchema>;
+type PreferencesPatch = z.infer<typeof PreferencesPatchSchema>;
 
 /** Pure merge of a `PreferencesPatch` into the current preferences.
  *  `rightPanel` is deep-merged so callers can patch a single nested field
@@ -162,3 +168,13 @@ export const gitDiffStream = surface.descriptors.streams.gitDiff;
 export const fsListAllStream = surface.descriptors.streams.fsListAll;
 export const fsReadFileStream = surface.descriptors.streams.fsReadFile;
 export const terminalExitEvent = surface.descriptors.events.terminalExit;
+
+// ── Inferred runtime types ─────────────────────────────────────────────
+// `Surface` lifts `z.infer<schema>` over the surface spec so consumers
+// have one helper to reach for: `Surface["cells"]["preferences"]["Value"]`,
+// `Surface["collections"]["terminalMetadata"]["Value"]`, etc. The flat
+// `z.infer`-derived aliases in `./index` (`Preferences`, `TerminalMetadata`,
+// …) remain the conventional import for existing consumers — they're
+// structurally identical.
+
+export type Surface = SurfaceTypes<typeof surface.spec>;

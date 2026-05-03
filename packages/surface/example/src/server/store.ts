@@ -12,7 +12,7 @@
 
 import { publisherChannel } from "@kolu/surface/server";
 import { MemoryPublisher } from "@orpc/experimental-publisher/memory";
-import { DEFAULT_PREFS, type EditorPrefs, type Note } from "../common/schemas";
+import { DEFAULT_PREFS, type EditorPrefs, type Note } from "../common/surface";
 
 // ── Publisher ─────────────────────────────────────────────────────────
 

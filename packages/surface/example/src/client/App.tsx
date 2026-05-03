@@ -22,7 +22,7 @@ import {
   For,
   Show,
 } from "solid-js";
-import { DEFAULT_PREFS, type Note, type NoteId } from "../common/schemas";
+import { DEFAULT_PREFS, type Note, type NoteId } from "../common/surface";
 import { app } from "./wire";
 
 export default function App() {

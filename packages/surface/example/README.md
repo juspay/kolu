@@ -65,8 +65,7 @@ packages/surface/example/
 ├── vite.config.ts
 └── src/
     ├── common/
-    │   ├── schemas.ts       # Zod schemas for Note / Prefs / SearchResult / AutosaveEvent
-    │   └── surface.ts       # the whole reactive surface, declared once via defineSurface
+    │   └── surface.ts       # schemas + defineSurface + SurfaceTypes-derived domain types
     ├── server/
     │   ├── store.ts         # in-memory state + typed channels
     │   ├── router.ts        # implementSurface(surface, deps) — one declarative call
