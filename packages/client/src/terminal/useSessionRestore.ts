@@ -6,7 +6,7 @@ import type {
   SavedSession,
   TerminalId,
   TerminalInfo,
-} from "kolu-common";
+} from "kolu-common/surface";
 import { createEffect, createSignal } from "solid-js";
 import { toast } from "solid-sonner";
 import { lifecycle } from "../rpc/rpc";

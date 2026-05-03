@@ -18,7 +18,7 @@
  *  `stopPropagation`, or mutates the canvas / context / addon. Safe to
  *  ship to prod. */
 
-import type { TerminalId } from "kolu-common";
+import type { TerminalId } from "kolu-common/surface";
 
 /** Discriminated union: `defaultPrevented` is only meaningful for the
  *  `contextlost` event (it reads `e.defaultPrevented` at bubble phase,

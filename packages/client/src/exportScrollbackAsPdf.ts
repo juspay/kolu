@@ -9,12 +9,9 @@
  *  Client-side only — the server's headless xterm has no theme, so
  *  serializing there would produce unstyled HTML. */
 
-import {
-  escapeHtml,
-  type TerminalId,
-  type TerminalMetadata,
-  terminalKey,
-} from "kolu-common";
+import { escapeHtml } from "kolu-common/html";
+import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
+import { terminalKey } from "kolu-common/terminalKey";
 import { toast } from "solid-sonner";
 import { FONT_FAMILY } from "terminal-themes";
 import { getTerminalRefs } from "./terminal/terminalRefs";

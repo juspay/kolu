@@ -1,4 +1,4 @@
-import { cwdBasename, shortenCwd } from "kolu-common";
+import { cwdBasename, shortenCwd } from "kolu-common/path";
 import { describe, expect, it } from "vitest";
 
 describe("shortenCwd", () => {

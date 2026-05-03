@@ -1,6 +1,6 @@
 /** Command palette registry — declarative list of all app-level actions. */
 
-import type { RecentAgent } from "kolu-common";
+import type { RecentAgent } from "kolu-common/surface";
 import type { Accessor } from "solid-js";
 import { batch, createMemo } from "solid-js";
 import { availableThemes } from "terminal-themes";

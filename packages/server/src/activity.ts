@@ -9,11 +9,11 @@
  */
 
 import fs from "node:fs";
-import {
-  type ActivityFeed,
-  type RecentAgent,
-  type RecentRepo,
-} from "kolu-common";
+import type {
+  ActivityFeed,
+  RecentAgent,
+  RecentRepo,
+} from "kolu-common/surface";
 import { log } from "./log.ts";
 import { surfaceCtx } from "./surface.ts";
 

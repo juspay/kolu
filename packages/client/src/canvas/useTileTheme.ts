@@ -9,7 +9,7 @@
  *  `var(--color-fg)`) means a theme-tweak flows through every surface
  *  without each component re-deriving the defaults. */
 
-import type { TerminalId } from "kolu-common";
+import type { TerminalId } from "kolu-common/surface";
 import { useThemeManager } from "../useThemeManager";
 import type { TileTheme } from "./tileChrome";
 

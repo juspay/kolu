@@ -1,6 +1,6 @@
 /** Worktree operations — create and remove git worktrees with associated terminals. */
 
-import type { TerminalId } from "kolu-common";
+import type { TerminalId } from "kolu-common/surface";
 import { toast } from "solid-sonner";
 import { client } from "../wire";
 import type { TerminalStore } from "./useTerminalStore";

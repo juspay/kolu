@@ -8,8 +8,9 @@
  *  in sync is to make them the same projection.
  */
 
-import type { GitInfo, TerminalId } from "./index";
+import type { GitInfo } from "kolu-git/schemas";
 import { cwdBasename, shortenCwd } from "./path";
+import type { TerminalId } from "./surface";
 
 /** `(group, label)` plus an optional `suffix` for ids that collide on
  *  `(group, label)` within the live set.

@@ -12,7 +12,7 @@
  *  action (branch select, palette open, inspector toggle) so the
  *  parent can close the drawer. */
 
-import type { TerminalId } from "kolu-common";
+import type { TerminalId } from "kolu-common/surface";
 import { type Component, createSignal, For, Show } from "solid-js";
 import { type PillRepoGroup, repoColor } from "./canvas/pillTreeOrder";
 import { ACTIONS } from "./input/actions";

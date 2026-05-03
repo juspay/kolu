@@ -14,7 +14,7 @@
  *  `h3` — `h1`/`h2` are reserved for the document chrome
  *  (transcript title + sectioning). */
 
-import { escapeHtml } from "kolu-common";
+import { escapeHtml } from "kolu-common/html";
 import { Marked, type Tokens } from "marked";
 
 import { renderCodeBlock } from "./pierre.ts";

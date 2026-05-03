@@ -3,7 +3,7 @@
  *  persisted via server preferences under `preferences.rightPanel`.
  *  Defaults to collapsed with the Inspector tab active. */
 
-import type { CodeTabView, RightPanelTab } from "kolu-common";
+import type { CodeTabView, RightPanelTab } from "kolu-common/surface";
 import { preferences, updatePreferences } from "../wire";
 
 const MIN_PANEL_SIZE = 0.05;

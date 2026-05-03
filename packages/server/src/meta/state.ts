@@ -18,8 +18,8 @@ import type {
   TerminalClientMetadata,
   TerminalMetadata,
   TerminalServerMetadata,
-} from "kolu-common";
-import { prUnavailableReason, prValue } from "kolu-common";
+} from "kolu-common/surface";
+import { prUnavailableReason, prValue } from "kolu-github/schemas";
 import { log } from "../log.ts";
 import { terminalsDirtyChannel } from "../publisher.ts";
 import { surfaceCtx } from "../surface.ts";

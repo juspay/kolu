@@ -10,7 +10,7 @@
  * via `actionPaletteCommand`.
  */
 
-import type { TerminalId, TerminalMetadata } from "kolu-common";
+import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import { nonEmpty } from "nonempty";
 import type { Accessor, Setter } from "solid-js";
 import type { PaletteCommand } from "../CommandPalette";

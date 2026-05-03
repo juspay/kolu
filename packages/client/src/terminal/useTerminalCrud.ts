@@ -7,7 +7,7 @@ import type {
   CanvasLayout,
   InitialTerminalMetadata,
   TerminalId,
-} from "kolu-common";
+} from "kolu-common/surface";
 import { toast } from "solid-sonner";
 import { availableThemes, pickTheme, resolveThemeBgs } from "terminal-themes";
 import { client } from "../wire";

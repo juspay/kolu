@@ -4,7 +4,7 @@
  *  state via the typed RPC client directly. Callers (App.tsx, palette,
  *  pill swatches) just call `useThemeManager()` — no deps to wire. */
 
-import type { TerminalId } from "kolu-common";
+import type { TerminalId } from "kolu-common/surface";
 import { nonEmpty } from "nonempty";
 import { createMemo, createRoot, createSignal } from "solid-js";
 import { toast } from "solid-sonner";

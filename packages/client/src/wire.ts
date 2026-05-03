@@ -18,16 +18,16 @@
 import type { ClientRetryPluginContext } from "@orpc/client/plugins";
 import type { ContractRouterClient } from "@orpc/contract";
 import { surfaceClient } from "@kolu/surface/solid";
-import type {
-  Preferences,
-  PreferencesPatch,
-  RecentAgent,
-  RecentRepo,
-  SavedSession,
-} from "kolu-common";
-import { DEFAULT_PREFERENCES } from "kolu-common/config";
 import { contract } from "kolu-common/contract";
-import { surface } from "kolu-common/surface";
+import {
+  DEFAULT_PREFERENCES,
+  type Preferences,
+  type PreferencesPatch,
+  type RecentAgent,
+  type RecentRepo,
+  type SavedSession,
+  surface,
+} from "kolu-common/surface";
 import { WebSocket as PartySocket } from "partysocket";
 import { reconcile } from "solid-js/store";
 import { toast } from "solid-sonner";

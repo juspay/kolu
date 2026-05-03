@@ -48,6 +48,8 @@
     "@types/node": "^22.0.0",
     "anyagent": "workspace:*",
     "kolu-common": "workspace:*",
+    "kolu-git": "workspace:*",
+    "kolu-github": "workspace:*",
     "tailwindcss": "^4.1.0",
     "terminal-themes": "workspace:*",
     "typescript": "^5.8.0",

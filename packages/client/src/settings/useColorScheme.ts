@@ -9,7 +9,7 @@
  */
 
 import { usePrefersDark } from "@solid-primitives/media";
-import type { ColorScheme } from "kolu-common";
+import type { ColorScheme } from "kolu-common/surface";
 import { createEffect, createMemo } from "solid-js";
 import { preferences, updatePreferences } from "../wire";
 

@@ -1,7 +1,7 @@
 /** Shared display strings for agent kinds and states.
  *  Used by both AgentIndicator (compact header) and MetadataInspector (detail panel). */
 
-import type { AgentInfo } from "kolu-common";
+import type { AgentInfo } from "kolu-common/surface";
 import type { Component } from "solid-js";
 import { ClaudeCodeIcon, CodexIcon, OpenCodeIcon } from "../ui/Icons";
 

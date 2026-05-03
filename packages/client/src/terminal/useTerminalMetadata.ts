@@ -14,7 +14,11 @@
  *  terminal leaves the list. No manual Map, AbortController, or version
  *  signals needed at this call site. */
 
-import type { TerminalId, TerminalInfo, TerminalMetadata } from "kolu-common";
+import type {
+  TerminalId,
+  TerminalInfo,
+  TerminalMetadata,
+} from "kolu-common/surface";
 import { type Accessor, createMemo } from "solid-js";
 import { toast } from "solid-sonner";
 import { app } from "../wire";

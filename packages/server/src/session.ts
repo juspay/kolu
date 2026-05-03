@@ -9,7 +9,7 @@
  * then persists.
  */
 
-import type { SavedSession, SavedTerminal } from "kolu-common";
+import type { SavedSession, SavedTerminal } from "kolu-common/surface";
 import { log } from "./log.ts";
 import { terminalsDirtyChannel } from "./publisher.ts";
 import { store } from "./state.ts";

@@ -10,7 +10,7 @@
  *  one row per group of 3. Each grid row carries a leading ├─/└─ glyph
  *  so the parent→child relationship reads as a tree, not a soup. */
 
-import type { TerminalId } from "kolu-common";
+import type { TerminalId } from "kolu-common/surface";
 import { type Component, createMemo, For, Show } from "solid-js";
 import { match, P } from "ts-pattern";
 import { useTerminalStore } from "../terminal/useTerminalStore";

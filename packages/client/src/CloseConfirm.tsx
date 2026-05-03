@@ -3,8 +3,8 @@
  *  and terminals that live in a git worktree. */
 
 import Dialog from "@corvu/dialog";
-import type { TerminalId, TerminalMetadata } from "kolu-common";
-import { prValue } from "kolu-common/pr";
+import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
+import { prValue } from "kolu-github/schemas";
 import { type Component, Show } from "solid-js";
 import ChecksIndicator from "./terminal/ChecksIndicator";
 import { PrStateIcon, WorktreeIcon } from "./ui/Icons";

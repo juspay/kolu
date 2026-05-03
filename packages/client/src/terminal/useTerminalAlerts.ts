@@ -2,7 +2,7 @@
  *  Watches metadata subscriptions for agent state changes (any AI coding agent). */
 
 import { makeEventListener } from "@solid-primitives/event-listener";
-import type { TerminalId, TerminalMetadata } from "kolu-common";
+import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import { type Accessor, createEffect, on } from "solid-js";
 import { preferences, updatePreferences } from "../wire";
 import {

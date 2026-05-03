@@ -12,7 +12,7 @@ import {
   type FileTreeInitialExpansion,
   type GitStatusEntry,
 } from "@pierre/trees";
-import type { GitChangeStatus } from "kolu-common";
+import type { GitChangeStatus } from "kolu-git/schemas";
 import {
   type Component,
   createEffect,

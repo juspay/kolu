@@ -12,7 +12,7 @@
 import { ORPCError } from "@orpc/server";
 import { loadClaudeCodeTranscript } from "kolu-claude-code";
 import { loadCodexTranscript } from "kolu-codex";
-import type { Transcript, TranscriptPr } from "kolu-common";
+import type { Transcript, TranscriptPr } from "kolu-common/transcript";
 import { TerminalNotFoundError } from "kolu-common/errors";
 import { worktreeCreate, worktreeRemove } from "kolu-git";
 import { prValue } from "kolu-github/schemas";

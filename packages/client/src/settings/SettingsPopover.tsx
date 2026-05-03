@@ -1,7 +1,7 @@
 /** Settings popover — reads and writes preferences via usePreferences directly.
  *  Only needs open/close state and trigger ref from the parent. */
 
-import type { Preferences } from "kolu-common";
+import type { Preferences } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import SegmentedControl, {

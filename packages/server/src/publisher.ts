@@ -23,7 +23,7 @@
 
 import { type Channel, publisherChannel } from "@kolu/surface/server";
 import { MemoryPublisher } from "@orpc/experimental-publisher/memory";
-import type { GitInfo } from "kolu-common";
+import type { GitInfo } from "kolu-git/schemas";
 
 // `MemoryPublisher` constrains its generic to `Record<string, object>`,
 // which excludes the primitive payloads we publish (data strings, exit

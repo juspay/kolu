@@ -17,15 +17,15 @@
  */
 
 import Conf from "conf";
+import type { GitInfo } from "kolu-git/schemas";
 import {
   type ActivityFeed,
   ActivityFeedSchema,
-  type GitInfo,
+  DEFAULT_PREFERENCES,
   type Preferences,
   PreferencesSchema,
   SavedSessionSchema,
-} from "kolu-common";
-import { DEFAULT_PREFERENCES } from "kolu-common/config";
+} from "kolu-common/surface";
 import { z } from "zod";
 import { log } from "./log.ts";
 

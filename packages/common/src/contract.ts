@@ -1,37 +1,112 @@
 /**
  * oRPC contract: defines the typed API shape shared by server and client.
  *
- * The typed reactive layer lives in `surface.ts` (`defineSurface(...)`) and
+ * The typed reactive layer lives in `./surface` (`defineSurface(...)`) and
  * appears at `surface.<key>.<verb>` on the wire. Raw procedures that don't
  * fit a surface primitive — terminal lifecycle, attach (streaming with
  * custom retry), git mutations, server info — live here, hand-listed,
  * spread alongside `surface.contract` at the host router.
+ *
+ * The procedure I/O schemas this contract consumes are declared in this
+ * file. Schemas shared with the surface layer (TerminalAttachInputSchema,
+ * TerminalIdSchema, etc.) live in `./surface` and are imported here.
  */
 
 import { eventIterator, oc } from "@orpc/contract";
-import { z } from "zod";
 import {
-  ExportTranscriptHtmlInputSchema,
-  ExportTranscriptHtmlOutputSchema,
-  ServerInfoSchema,
-  SetActiveTerminalInputSchema,
-  TerminalAttachInputSchema,
-  TerminalAttachOutputSchema,
-  TerminalCreateInputSchema,
-  TerminalInfoSchema,
-  TerminalPasteImageInputSchema,
-  TerminalResizeInputSchema,
-  TerminalScreenTextInputSchema,
-  TerminalSendInputSchema,
-  TerminalSetCanvasLayoutInputSchema,
-  TerminalSetParentInputSchema,
-  TerminalSetSubPanelInputSchema,
-  TerminalSetThemeInputSchema,
   WorktreeCreateInputSchema,
   WorktreeCreateOutputSchema,
   WorktreeRemoveInputSchema,
-} from "./index";
-import { surface } from "./surface";
+} from "kolu-git/schemas";
+import { z } from "zod";
+import {
+  CanvasLayoutSchema,
+  InitialTerminalMetadataSchema,
+  surface,
+  TerminalAttachInputSchema,
+  TerminalIdSchema,
+  TerminalInfoSchema,
+} from "./surface";
+import {
+  ExportTranscriptHtmlInputSchema,
+  ExportTranscriptHtmlOutputSchema,
+} from "./transcript";
+
+// ── Raw oRPC procedure I/O schemas ────────────────────────────────────
+
+export const TerminalCreateInputSchema = z
+  .object({
+    cwd: z.string().optional(),
+    parentId: TerminalIdSchema.optional(),
+  })
+  .merge(InitialTerminalMetadataSchema);
+
+export const TerminalResizeInputSchema = z.object({
+  id: TerminalIdSchema,
+  cols: z.number(),
+  rows: z.number(),
+});
+
+export const TerminalSendInputSchema = z.object({
+  id: TerminalIdSchema,
+  data: z.string(),
+});
+
+export const TerminalSetThemeInputSchema = z.object({
+  id: TerminalIdSchema,
+  themeName: z.string(),
+});
+
+export const TerminalSetCanvasLayoutInputSchema = z.object({
+  id: TerminalIdSchema,
+  layout: CanvasLayoutSchema,
+});
+
+export const TerminalSetSubPanelInputSchema = z.object({
+  id: TerminalIdSchema,
+  collapsed: z.boolean(),
+  panelSize: z.number(),
+});
+
+export const SetActiveTerminalInputSchema = z.object({
+  id: TerminalIdSchema.nullable(),
+});
+
+export const TerminalAttachOutputSchema = z.string();
+
+export const TerminalScreenTextInputSchema = z.object({
+  id: TerminalIdSchema,
+  /** First line to capture (0-based, inclusive). Defaults to 0 (start of scrollback). */
+  startLine: z.number().int().nonnegative().optional(),
+  /** Last line to capture (exclusive). Defaults to buffer length. */
+  endLine: z.number().int().nonnegative().optional(),
+});
+
+export const TerminalPasteImageInputSchema = z.object({
+  id: TerminalIdSchema,
+  /** Base64-encoded image data (PNG, JPEG, etc.) */
+  data: z.string(),
+});
+
+export const TerminalSetParentInputSchema = z.object({
+  id: TerminalIdSchema,
+  parentId: TerminalIdSchema.nullable(),
+});
+
+export const ServerIdentitySchema = z.object({
+  hostname: z.string(),
+  name: z.string(),
+  themeColor: z.string(),
+});
+export type ServerIdentity = z.infer<typeof ServerIdentitySchema>;
+
+export const ServerInfoSchema = z.object({
+  identity: ServerIdentitySchema,
+  /** Unique ID for this server process — changes on restart. */
+  processId: z.string().uuid(),
+});
+
+// ── The contract ──────────────────────────────────────────────────────
 
 export const contract = oc.router({
   ...surface.contract,

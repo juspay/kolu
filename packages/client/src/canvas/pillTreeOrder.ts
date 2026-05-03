@@ -4,7 +4,7 @@
  *  source for both `PillTree` visualization and the mobile swipe-cycle
  *  handler so the two views never diverge. */
 
-import type { TerminalId } from "kolu-common";
+import type { TerminalId } from "kolu-common/surface";
 import type { TerminalDisplayInfo } from "../terminal/terminalDisplay";
 import type { TileLayout } from "./TileLayout";
 

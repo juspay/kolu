@@ -30,7 +30,7 @@ import {
 import { match } from "ts-pattern";
 import { SafeClipboardProvider } from "./clipboard";
 import "@xterm/xterm/css/xterm.css";
-import type { TerminalId } from "kolu-common";
+import type { TerminalId } from "kolu-common/surface";
 import { DEFAULT_SCROLLBACK } from "kolu-common/config";
 import { FONT_FAMILY } from "terminal-themes";
 import { matchesAnyShortcut } from "../input/actions";

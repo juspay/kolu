@@ -3,7 +3,7 @@
  * Owns all tip timing: state-driven triggers live here, not in consuming components.
  */
 
-import type { TerminalId } from "kolu-common";
+import type { TerminalId } from "kolu-common/surface";
 import { type Accessor, createEffect } from "solid-js";
 import { toast } from "solid-sonner";
 import { isMobile } from "../useMobile";

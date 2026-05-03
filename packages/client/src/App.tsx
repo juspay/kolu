@@ -7,7 +7,8 @@
 
 import Dialog from "@corvu/dialog";
 import { Meta, Title } from "@solidjs/meta";
-import type { ServerIdentity, TerminalId } from "kolu-common";
+import type { ServerIdentity } from "kolu-common/contract";
+import type { TerminalId } from "kolu-common/surface";
 import {
   type Component,
   createEffect,

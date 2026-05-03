@@ -4,7 +4,7 @@
  *  too narrow for a useful side panel. */
 
 import Resizable from "@corvu/resizable";
-import type { TerminalMetadata } from "kolu-common";
+import type { TerminalMetadata } from "kolu-common/surface";
 import { type Component, type JSX, Show } from "solid-js";
 import { isMobile } from "../useMobile";
 import RightPanel from "./RightPanel";

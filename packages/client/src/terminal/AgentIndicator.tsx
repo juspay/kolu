@@ -2,7 +2,7 @@
  *  count. Logo animates when active. Renders the appropriate icon per agent
  *  kind (Claude Code, OpenCode). */
 
-import type { AgentInfo } from "kolu-common";
+import type { AgentInfo } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
 import { Dynamic } from "solid-js/web";
 import { agentIcons, agentNames, stateLabels } from "../ui/agentDisplay";

@@ -14,7 +14,8 @@
  * tree layout/virtualization; `@pierre/diffs` owns diff parsing and
  * shiki highlighting. This component is just data flow + chrome. */
 
-import type { CodeTabView, GitDiffMode, TerminalMetadata } from "kolu-common";
+import type { GitDiffMode } from "kolu-git/schemas";
+import type { CodeTabView, TerminalMetadata } from "kolu-common/surface";
 import {
   type Component,
   createEffect,

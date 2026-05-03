@@ -25,7 +25,7 @@
  */
 
 import { parseAgentCommand } from "anyagent";
-import type { TerminalId } from "kolu-common";
+import type { TerminalId } from "kolu-common/surface";
 import { trackRecentAgent } from "../activity.ts";
 import { log } from "../log.ts";
 import { consumeChannel, terminalChannels } from "../publisher.ts";

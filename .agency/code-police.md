@@ -6,6 +6,36 @@ Kolu-specific rules layered on top of the base `code-police` skill — read by `
 
 These rules extend the base code-police skill with Kolu-specific patterns. They are checked during Pass 1 (rule checklist) alongside the generic rules.
 
+### no-re-export-bridge-modules
+
+A module whose entire body is `export … from "another-package"` (no
+locally-defined values, types, or doc) must not exist. Consumers should
+import directly from the source.
+
+Bad: a `kolu-common/integrations.ts` that just re-exports `GitInfoSchema`,
+`PrResultSchema`, `ClaudeCodeInfoSchema`, … from their respective
+integration packages. Or a `kolu-common/pr.ts` whose only content is
+`export … from "kolu-github/schemas"`. Both create a fake fan-in: the
+consumer's import path lies about where the symbol lives.
+
+Good: consumers `import { GitInfo } from "kolu-git/schemas"` directly.
+The integration package is the source of truth; one place to grep.
+
+_Allowed_: a module that re-exports AND adds local content (a curated
+narrow surface plus locally-defined helpers, schemas, or documented
+boundary semantics). A pure re-export with a comment explaining "this
+exists to avoid X bundling" is still a bridge — fix the underlying
+issue (subpath the source package exposes for browser-safe types) or
+let consumers reach for the source directly.
+
+_Rationale_: re-export bridges add an indirection that consumers and
+tools have to chase, drift over time (the bridge's set of re-exports
+goes stale relative to the source), and create the illusion that
+`kolu-common` owns concepts it doesn't. The `kolu-common` package
+should hold things that are genuinely shared across the host app and
+have no other natural home — not be a barrel for every external
+schema the app happens to use.
+
 ### subscription-use-pending
 
 Never check `sub() === undefined` as a proxy for loading — use `sub.pending()`.

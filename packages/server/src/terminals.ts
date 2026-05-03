@@ -16,7 +16,7 @@ import type {
   SavedTerminal,
   TerminalId,
   TerminalInfo,
-} from "kolu-common";
+} from "kolu-common/surface";
 import { cleanupClipboardDir } from "./clipboard.ts";
 import { log } from "./log.ts";
 import {

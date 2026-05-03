@@ -9,7 +9,7 @@
  *  New features should go in the appropriate module (or a new one),
  *  not back into this composition root. See #221, #242. */
 
-import type { TerminalId } from "kolu-common";
+import type { TerminalId } from "kolu-common/surface";
 import { createRoot } from "solid-js";
 import { toast } from "solid-sonner";
 import { isExpectedCleanupError } from "../rpc/streamCleanup";

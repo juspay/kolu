@@ -18,7 +18,7 @@ import type {
   AgentWatcher,
 } from "anyagent";
 import type { Logger } from "kolu-shared";
-import type { AgentInfo } from "kolu-common";
+import type { AgentInfo } from "kolu-common/surface";
 import { log } from "../log.ts";
 import { consumeChannel, terminalChannels } from "../publisher.ts";
 import type { TerminalProcess } from "../terminal-registry.ts";

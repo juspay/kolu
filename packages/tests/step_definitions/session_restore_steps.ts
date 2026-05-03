@@ -1,7 +1,7 @@
 import * as assert from "node:assert";
 import * as os from "node:os";
 import { Given, Then, When } from "@cucumber/cucumber";
-import type { SavedTerminal } from "kolu-common";
+import type { SavedTerminal } from "kolu-common/surface";
 import {
   type KoluWorld,
   PILL_TREE_ENTRY_SELECTOR,

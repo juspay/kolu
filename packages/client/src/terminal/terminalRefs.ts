@@ -10,7 +10,7 @@
 
 import type { SerializeAddon } from "@xterm/addon-serialize";
 import type { Terminal as XTerm } from "@xterm/xterm";
-import type { TerminalId } from "kolu-common";
+import type { TerminalId } from "kolu-common/surface";
 
 /** Volatile per-terminal probes. Unlike the stable `xterm`/`serialize`
  *  handles above, these accessors may return null even during the terminal's

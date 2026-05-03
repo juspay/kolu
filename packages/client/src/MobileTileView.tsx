@@ -8,7 +8,7 @@
  *  ChromeBar for touch — logo, vertical pill list, controls. */
 
 import Drawer from "@corvu/drawer";
-import type { TerminalId } from "kolu-common";
+import type { TerminalId } from "kolu-common/surface";
 import { type Component, createSignal, For, type JSX, Show } from "solid-js";
 import type { PillRepoGroup } from "./canvas/pillTreeOrder";
 import MobileChromeSheet from "./MobileChromeSheet";

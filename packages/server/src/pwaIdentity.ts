@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { ServerIdentity } from "kolu-common";
+import type { ServerIdentity } from "kolu-common/contract";
 
 const THEME_COLORS = [
   "#0f766e",

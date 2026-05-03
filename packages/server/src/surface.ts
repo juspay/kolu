@@ -30,7 +30,11 @@ import {
   publisherChannel,
 } from "@kolu/surface/server";
 import { ORPCError, implement } from "@orpc/server";
-import type { ActivityFeed, Preferences, SavedSession } from "kolu-common";
+import type {
+  ActivityFeed,
+  Preferences,
+  SavedSession,
+} from "kolu-common/surface";
 import { contract } from "kolu-common/contract";
 import { TerminalNotFoundError } from "kolu-common/errors";
 import { surface } from "kolu-common/surface";

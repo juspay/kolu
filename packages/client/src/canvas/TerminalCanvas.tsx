@@ -19,7 +19,7 @@ import {
   DragDropSensors,
   type DragEvent,
 } from "@thisbeyond/solid-dnd";
-import type { TerminalId } from "kolu-common";
+import type { TerminalId } from "kolu-common/surface";
 import {
   type Component,
   createEffect,

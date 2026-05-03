@@ -2,7 +2,7 @@
  *  through the unified action registry in `./actions.ts`. */
 
 import { makeEventListener } from "@solid-primitives/event-listener";
-import type { TerminalId } from "kolu-common";
+import type { TerminalId } from "kolu-common/surface";
 import {
   ACTIONS,
   type ActionContext,

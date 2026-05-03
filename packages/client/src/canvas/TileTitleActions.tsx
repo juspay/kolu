@@ -9,7 +9,7 @@
  *  as props because they are state setters whose ownership belongs at the
  *  orchestration layer. Extracted from App.tsx per kolu#626. */
 
-import type { TerminalId } from "kolu-common";
+import type { TerminalId } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
 import { useRightPanel } from "../right-panel/useRightPanel";
 import { CONTEXTUAL_TIPS } from "../settings/tips";

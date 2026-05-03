@@ -2,7 +2,7 @@
  *  Routes between Inspector and Code tabs via a discriminated union so
  *  illegal pairings (e.g. Inspector-with-a-code-mode) can't be represented. */
 
-import type { RightPanelTabKind, TerminalMetadata } from "kolu-common";
+import type { RightPanelTabKind, TerminalMetadata } from "kolu-common/surface";
 import { type Component, For } from "solid-js";
 import { match } from "ts-pattern";
 import { CHROME_ICON_BUTTON_CLASS } from "../ui/chromeSpacing";

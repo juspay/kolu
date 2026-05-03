@@ -10,7 +10,7 @@
  *  separate components, with shared bits (skeleton, agent progress)
  *  exported below for reuse. */
 
-import { prUnavailableSource, prValue } from "kolu-common/pr";
+import { prUnavailableSource, prValue } from "kolu-github/schemas";
 import { type Component, Show } from "solid-js";
 import { PrStateIcon, WorktreeIcon } from "../ui/Icons";
 import Tip from "../ui/Tip";
