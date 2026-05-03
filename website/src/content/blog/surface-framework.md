@@ -158,6 +158,92 @@ The bonus Lowy named: `onMutate` in `CellHandlerDeps` was **dead code** for any 
 
 **Net for Kolu:** zero string-typed channel names in any domain module. Rename a surface key and every wire / disk / publish path follows in lockstep. There's exactly one path from "mutate this cell" to "client sees update," and it's named.
 
+## Polish passes: rename, prune, and a feature that didn't ship
+
+After the framework was end-to-end functional, the next several
+sessions were polish — names, abstractions, and one feature I built
+then deleted.
+
+**The naming consolidation.** With the framework named `@kolu/surface`
+(originally `@kolu/cells`, before the realization that Cell is one of
+five primitives), every layer needed re-walking. `expose:` →
+`verbs:` (every comment already called them verbs). Collection's wire
+verb `update` → `upsert` (deps already used `upsert`; one less name
+per concept). `ChannelBus<T>` → `Channel<T>` — the suffix was
+disambiguator weight that the rest of the codebase no longer needed.
+`createCellsClient` retired from the public re-export path; consumers
+reach the typed RPC client via `surfaceClient(...).rpc`. None of these
+were big diffs; collectively they collapsed the API surface noticeably.
+The lesson here is just: **rename early or rename never.** Each Schema
+suffix that survived through the first pass (`CellSpec.schema`,
+`CollectionSpec.keySchema`) is still leftover in the codebase as I
+write this; the cost of fixing them is now proportional to
+"every consumer in Kolu." Names get expensive fast.
+
+**The bound collection API: default keys, lifecycle-free mutations.**
+The example was reaching for `app.rpc.surface.notes.keys` to wire up
+the keys stream that the bound `.use()` should have managed itself —
+five layers of `createRoot` + `createSubscription` + `streamCall` +
+the procedure ref + a default-empty memo, just to derive a value the
+framework already had. The fix: `keys` becomes optional on the bound
+`.use()`, defaulting to a framework-managed subscription on
+`surface.<key>.keys`. Same for mutations: `notes.upsert` /
+`notes.delete` now live both on the `.use()` result (ergonomic
+in-component closures) and at the top-level `BoundCollection`
+(lifecycle-free call sites). The example's app code dropped 8 lines
+of plumbing; the consumer never reaches across the bound layer for
+ordinary verbs anymore.
+
+**The package barrel that wasn't.** `packages/common/src/index.ts`
+had grown to 460 lines mixing surface schemas, raw-oRPC procedure
+schemas, integration re-exports, UI enums, and HTML helpers — six
+unrelated jobs. The dismantle: surface-bound schemas + types moved to
+`common/surface.ts` (now the single source of truth via
+`SurfaceTypes`); raw-oRPC procedure schemas moved alongside the
+contract literal in `common/contract.ts`; UI enums folded in next to
+their consumer. The barrel deleted entirely. **A code-police rule
+landed alongside it:** modules whose entire body is `export … from
+"another-package"` shouldn't exist — consumers go to the source.
+`integrations.ts` and `pr.ts` were exactly that anti-pattern; both
+deleted. The rule is now in `.agency/code-police.md`.
+
+**The feature I built, then didn't ship.** I'd noticed the example's
+search stream was ~35 lines of `pollOnEvent` plumbing. Designed a
+"derived stream" primitive — `streams.search.compute({ query, notes
+}) => …` with `from: { notes: surface.descriptors.collections.notes
+}` declaring the dep graph. Built the whole thing: `DescriptorRef`
+type, `runComputedStream` reactive runtime, discriminated
+`StreamImplDeps`, unit tests, README "Future directions" section.
+Workspace typecheck clean.
+
+Then we talked through where derive should run (server) and what the
+search example actually needs. Realization: **for the example,
+search-on-client is the right design.** The notes data is already on
+the client (it's subscribed via the notes collection). Filtering
+locally with a `createMemo` is zero wire roundtrip per keystroke;
+shipping the query to the server, recomputing there, sending matches
+back is the textbook wrong tradeoff for in-memory data.
+
+I checked Kolu's code-browser search — same pattern: `FileSearchInput`
++ Pierre's tree library do client-side filtering over a file list
+that's already streamed once. No Kolu use case for the new feature
+either. So I deleted everything: the runtime, the spec types, the
+tests, the README section. The example's search became a one-shot
+stream that just yields once per query — `useStream` re-subscribes on
+input change, server runs the source once, done.
+
+**Lesson:** structural correctness isn't sufficient. The
+`{from, compute}` shape is genuinely the right design for
+server-derived primitives. But "the right design for derived
+primitives" is the wrong question if your example doesn't have one.
+The example exists to be a tractable substrate for iterating on the
+framework — if a feature doesn't earn its keep in the example, it
+isn't earning its keep in the framework either. Keep the discussion
+in the README's "Future directions" section as a north star
+(implicit dep tracking via Solid server-side, suffix-free schema
+naming, incremental collections); ship none of it until a use case
+forces the question.
+
 ## What I'm carrying into future sessions
 
 **Reviewers see local defects, not missing seams.** Hickey looks for braiding. Lowy looks for volatility-axis misalignment. Neither lens, as currently tuned, looks at code that isn't there. A framework-shaped negative space is a Layer-0 question — _is the diff at the right altitude?_ — that neither lens reaches. I want a third lens, or a meta-pass on the first two, that asks _"is this pattern across N call sites itself the artifact?"_ Not sure yet how to sharpen that into a skill prompt. It might be a Lowy extension — _"electricity audit: what would you extract as utility before you'd accept any of these per-call-site fixes?"_
