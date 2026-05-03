@@ -20,7 +20,7 @@ import type {
 import type { Logger } from "kolu-shared";
 import type { AgentInfo } from "kolu-common/surface";
 import { log } from "../log.ts";
-import { consumeChannel, terminalChannels } from "../publisher.ts";
+import { terminalChannels } from "../publisher.ts";
 import type { TerminalProcess } from "../terminal-registry.ts";
 import { getLastAgentCommandName } from "./agent-command.ts";
 import { updateServerMetadata } from "./state.ts";
@@ -208,19 +208,16 @@ export function startAgentProvider<Session, Info extends AgentInfoShape>(
 
   // Title events — fired by OSC 2 preexec hook. Every shell command
   // boundary is a potential session-match change.
-  const abort = new AbortController();
-  consumeChannel(
-    terminalChannels.title(terminalId),
-    abort.signal,
-    () => reconcile(),
-    (err) => plog.error({ err }, "publisher subscription failed"),
-  );
+  const cleanup = terminalChannels.title(terminalId).consume({
+    onEvent: () => reconcile(),
+    onError: (err) => plog.error({ err }, "publisher subscription failed"),
+  });
 
   // Initial reconcile — covers terminals that already host a session.
   reconcile();
 
   return () => {
-    abort.abort();
+    cleanup();
     if (registeredForExternal) {
       activations.get(provider.kind)?.reconcilers.delete(reconcile);
     }

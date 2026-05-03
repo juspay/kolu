@@ -26,7 +26,6 @@ import {
   type CellStore,
   confStore,
   implementSurface,
-  pollOnEvent,
   publisherChannel,
 } from "@kolu/surface/server";
 import { ORPCError, implement } from "@orpc/server";
@@ -97,18 +96,19 @@ export function unwrapGit<T>(result: GitResult<T>): T {
   throw new ORPCError(status, { message });
 }
 
-/** Stream snapshot reads can transiently fail (git index lock, etc.); a
- *  persistent failure should be visible to operators. */
-function logStreamReadError(e: unknown): void {
-  log.error(
-    { err: e instanceof Error ? e.message : String(e) },
-    "stream snapshot read failed",
-  );
-}
-
 const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
   implementSurface(surface, {
     channel: <T>(name: string) => publisherChannel<T>(publisher, name),
+
+    // Default subsequent-read error handler for poll-shape streams.
+    // All four Kolu streams (gitStatus, gitDiff, fsListAll, fsReadFile)
+    // log transient read failures the same way; per-stream overrides
+    // are absent so this fires for every poll-shape stream.
+    onStreamReadError: (err, info) =>
+      log.error(
+        { err: err instanceof Error ? err.message : String(err), ...info },
+        "stream snapshot read failed",
+      ),
 
     cells: {
       preferences: {
@@ -173,58 +173,38 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
 
     streams: {
       gitStatus: {
-        source: (input, signal) =>
-          pollOnEvent({
-            read: async () =>
-              unwrapGit(await getStatus(input.repoPath, input.mode, log)),
-            isEqual: gitStatusOutputEqual,
-            install: (cb) => subscribeRepoChange(input.repoPath, cb, log),
-            signal,
-            onReadError: (e) => logStreamReadError(e),
-          }),
+        read: async (input) =>
+          unwrapGit(await getStatus(input.repoPath, input.mode, log)),
+        install: (input, cb) => subscribeRepoChange(input.repoPath, cb, log),
+        isEqual: gitStatusOutputEqual,
       },
       gitDiff: {
-        source: (input, signal) =>
-          pollOnEvent({
-            read: async () =>
-              unwrapGit(
-                await getDiff(
-                  input.repoPath,
-                  input.filePath,
-                  input.mode,
-                  log,
-                  input.oldPath,
-                ),
-              ),
-            isEqual: gitDiffOutputEqual,
-            install: (cb) => subscribeRepoChange(input.repoPath, cb, log),
-            signal,
-            onReadError: (e) => logStreamReadError(e),
-          }),
+        read: async (input) =>
+          unwrapGit(
+            await getDiff(
+              input.repoPath,
+              input.filePath,
+              input.mode,
+              log,
+              input.oldPath,
+            ),
+          ),
+        install: (input, cb) => subscribeRepoChange(input.repoPath, cb, log),
+        isEqual: gitDiffOutputEqual,
       },
       fsListAll: {
-        source: (input, signal) =>
-          pollOnEvent({
-            read: async () => ({
-              paths: unwrapGit(await listAll(input.repoPath, log)),
-            }),
-            isEqual: fsListAllOutputEqual,
-            install: (cb) => subscribeRepoChange(input.repoPath, cb, log),
-            signal,
-            onReadError: (e) => logStreamReadError(e),
-          }),
+        read: async (input) => ({
+          paths: unwrapGit(await listAll(input.repoPath, log)),
+        }),
+        install: (input, cb) => subscribeRepoChange(input.repoPath, cb, log),
+        isEqual: fsListAllOutputEqual,
       },
       fsReadFile: {
-        source: (input, signal) =>
-          pollOnEvent({
-            read: async () =>
-              unwrapGit(await readFile(input.repoPath, input.filePath, log)),
-            isEqual: fsReadFileOutputEqual,
-            install: (cb) =>
-              subscribeFileChange(input.repoPath, input.filePath, cb, log),
-            signal,
-            onReadError: (e) => logStreamReadError(e),
-          }),
+        read: async (input) =>
+          unwrapGit(await readFile(input.repoPath, input.filePath, log)),
+        install: (input, cb) =>
+          subscribeFileChange(input.repoPath, input.filePath, cb, log),
+        isEqual: fsReadFileOutputEqual,
       },
     },
 

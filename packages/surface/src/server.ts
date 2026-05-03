@@ -46,10 +46,24 @@ export interface CellStore<T> {
 
 /** A typed publish/subscribe channel. `publish` triggers all live
  *  iterators to emit the value; `subscribe` returns an AsyncIterable that
- *  yields each future publish until `signal` aborts. */
+ *  yields each future publish until `signal` aborts; `consume` spawns a
+ *  fire-and-forget loop that dispatches each value to `onEvent` and
+ *  surfaces unexpected errors via `onError`, returning a cleanup fn. */
 export interface Channel<T> {
   publish(value: T): void;
   subscribe(signal: AbortSignal | undefined): AsyncIterable<T>;
+  /** Subscribe and dispatch each value to `handlers.onEvent` until
+   *  cleanup. Owns the AbortController and suppresses post-abort errors
+   *  (the publisher's iterator rejects with `signal.reason` on shutdown,
+   *  which is expected end-of-life noise rather than a real failure).
+   *
+   *  `onError` is required to keep silent-swallow at the call site an
+   *  explicit choice — pass `() => {}` for fire-and-forget where the
+   *  consumer genuinely doesn't care. */
+  consume(handlers: {
+    onEvent: (value: T) => void;
+    onError: (err: unknown) => void;
+  }): () => void;
 }
 
 // ── Cell handlers ──────────────────────────────────────────────────────
@@ -404,12 +418,25 @@ export function publisherChannel<T>(
   },
   channelName: string,
 ): Channel<T> {
+  const subscribe = (signal: AbortSignal | undefined) =>
+    iterateUntilAborted(publisher.subscribe(channelName, { signal }), signal);
   return {
     publish: (value) => {
       void publisher.publish(channelName, value);
     },
-    subscribe: (signal) =>
-      iterateUntilAborted(publisher.subscribe(channelName, { signal }), signal),
+    subscribe,
+    consume: ({ onEvent, onError }) => {
+      const controller = new AbortController();
+      void (async () => {
+        try {
+          for await (const value of subscribe(controller.signal))
+            onEvent(value);
+        } catch (err) {
+          if (!controller.signal.aborted) onError(err);
+        }
+      })();
+      return () => controller.abort();
+    },
   };
 }
 
@@ -470,13 +497,48 @@ export type CollectionImplDeps<S extends CollectionSpec<unknown, unknown>> =
       }
     : never;
 
+/** Per-stream implementation deps. A stream is either:
+ *
+ *  - **Poll-on-event** (the common case for external mutable state — git,
+ *    fs): supply `{ read, install, isEqual }` and the framework synthesizes
+ *    `pollOnEvent` internally. Snapshot-then-deltas is preserved by
+ *    construction; `onReadError` for subsequent-read failures defaults to
+ *    `implementSurface(...).onStreamReadError`.
+ *  - **Raw async iterator**: supply `{ source }` directly when the source
+ *    isn't shaped as poll-on-event (e.g. a long-poll bidirectional stream,
+ *    or a custom snapshot computation). The author owns snapshot-then-
+ *    deltas; the framework yields whatever the iterator yields.
+ *
+ *  The two shapes are a discriminated union — supplying both is a type
+ *  error. */
 export type StreamImplDeps<S extends StreamSpec<unknown, unknown>> = S extends {
   inputSchema: ZodType<infer I>;
   outputSchema: ZodType<infer T>;
 }
-  ? {
-      source: (input: I, signal: AbortSignal | undefined) => AsyncIterable<T>;
-    }
+  ?
+      | {
+          source: (
+            input: I,
+            signal: AbortSignal | undefined,
+          ) => AsyncIterable<T>;
+        }
+      | {
+          /** Read current value for `input`. Yielded as the snapshot first
+           *  frame; re-invoked on every event tick from `install`. */
+          read: (input: I) => Promise<T>;
+          /** Install a "something changed" listener for `input`. The
+           *  callback is invoked on each potential change; the framework
+           *  re-reads and yields only when `isEqual(last, next)` is false.
+           *  Returns an unsubscribe fn. */
+          install: (input: I, onEvent: () => void) => () => void;
+          /** Equality predicate to suppress redundant yields. */
+          isEqual: (a: T, b: T) => boolean;
+          /** Subsequent-read error handler. Defaults to
+           *  `implementSurface(...).onStreamReadError` when omitted. The
+           *  initial read's error always propagates (the client has no
+           *  snapshot yet). */
+          onReadError?: (err: unknown) => void;
+        }
   : never;
 
 /** Per-event implementation deps. The surface owns the per-input event
@@ -586,6 +648,14 @@ export interface ImplementSurfaceDeps<S extends SurfaceSpec> {
    *  publisher (`publisherChannel(publisher, name)` for the `@orpc/experimental-publisher`
    *  adapter). */
   channel: <T>(name: string) => Channel<T>;
+
+  /** Default subsequent-read error handler for poll-shape streams (those
+   *  declared with `{ read, install, isEqual }` rather than a raw `source`).
+   *  Per-stream `onReadError` overrides this. The initial read's error
+   *  always propagates regardless. Required when at least one poll-shape
+   *  stream omits its own `onReadError`; pass `() => {}` to opt into
+   *  silent-skip explicitly. */
+  onStreamReadError?: (err: unknown, info: { stream: string }) => void;
 
   cells?: {
     [K in keyof S["cells"] & string]: CellImplDeps<NonNullable<S["cells"]>[K]>;
@@ -797,14 +867,58 @@ export function implementSurface<const S extends SurfaceSpec>(
     // biome-ignore lint/suspicious/noExplicitAny: see top of fn
     const streamDeps = (deps.streams as any)?.[key] as
       | {
-          source: (
+          source?: (
             i: unknown,
             s: AbortSignal | undefined,
           ) => AsyncIterable<unknown>;
+          read?: (i: unknown) => Promise<unknown>;
+          install?: (i: unknown, onEvent: () => void) => () => void;
+          isEqual?: (a: unknown, b: unknown) => boolean;
+          onReadError?: (err: unknown) => void;
         }
       | undefined;
     if (!streamDeps) {
       throw new Error(`implementSurface: missing deps for stream "${key}"`);
+    }
+    // Synthesize `source` from the poll shape when `source` is not supplied
+    // directly. The poll shape is the common case for external mutable
+    // state (git, fs); the framework owns `pollOnEvent` so consumers
+    // don't repeat the snapshot+install+re-read+isEqual plumbing per stream.
+    let source: (
+      i: unknown,
+      s: AbortSignal | undefined,
+    ) => AsyncIterable<unknown>;
+    if (streamDeps.source) {
+      source = streamDeps.source;
+    } else if (streamDeps.read && streamDeps.install && streamDeps.isEqual) {
+      const read = streamDeps.read;
+      const install = streamDeps.install;
+      const isEqual = streamDeps.isEqual;
+      // Per-stream override wins; fall back to top-level. Boot-time check
+      // — a poll-shape stream with no observability for transient read
+      // failures is almost always a bug, so fail at wiring rather than
+      // silently swallow at runtime.
+      const topLevel = deps.onStreamReadError;
+      const onReadError =
+        streamDeps.onReadError ??
+        (topLevel ? (err: unknown) => topLevel(err, { stream: key }) : null);
+      if (onReadError === null) {
+        throw new Error(
+          `implementSurface: stream "${key}" uses poll shape but has no onReadError — supply per-stream or set top-level onStreamReadError`,
+        );
+      }
+      source = (input, signal) =>
+        pollOnEvent({
+          read: () => read(input),
+          install: (cb) => install(input, cb),
+          isEqual,
+          signal,
+          onReadError,
+        });
+    } else {
+      throw new Error(
+        `implementSurface: stream "${key}" needs either { source } or { read, install, isEqual }`,
+      );
     }
     const handlers = streamHandlers(
       // biome-ignore lint/suspicious/noExplicitAny: see top of fn
@@ -813,7 +927,7 @@ export function implementSurface<const S extends SurfaceSpec>(
         unknown,
         unknown
       >,
-      { source: streamDeps.source },
+      { source },
     );
     namespaces[key] = {
       ...(namespaces[key] ?? {}),

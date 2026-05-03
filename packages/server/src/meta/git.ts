@@ -13,7 +13,7 @@
 import { subscribeGitInfo } from "kolu-git";
 import { trackRecentRepo } from "../activity.ts";
 import { log } from "../log.ts";
-import { consumeChannel, terminalChannels } from "../publisher.ts";
+import { terminalChannels } from "../publisher.ts";
 import type { TerminalProcess } from "../terminal-registry.ts";
 import { updateServerMetadata } from "./state.ts";
 
@@ -40,16 +40,13 @@ export function startGitProvider(
     plog,
   );
 
-  const abort = new AbortController();
-  consumeChannel(
-    terminalChannels.cwd(terminalId),
-    abort.signal,
-    (cwd) => watcher.setCwd(cwd),
-    (err) => plog.error({ err }, "publisher subscription failed"),
-  );
+  const cleanup = terminalChannels.cwd(terminalId).consume({
+    onEvent: (cwd) => watcher.setCwd(cwd),
+    onError: (err) => plog.error({ err }, "publisher subscription failed"),
+  });
 
   return () => {
-    abort.abort();
+    cleanup();
     watcher.stop();
     plog.debug("stopped");
   };

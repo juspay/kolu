@@ -28,7 +28,7 @@ import { parseAgentCommand } from "anyagent";
 import type { TerminalId } from "kolu-common/surface";
 import { trackRecentAgent } from "../activity.ts";
 import { log } from "../log.ts";
-import { consumeChannel, terminalChannels } from "../publisher.ts";
+import { terminalChannels } from "../publisher.ts";
 import { getTerminal } from "../terminal-registry.ts";
 import { updateServerMetadata } from "./state.ts";
 
@@ -49,11 +49,8 @@ export function getLastAgentCommandName(terminalId: TerminalId): string | null {
  *  goes away with the terminal). */
 export function startAgentCommandTracker(terminalId: TerminalId): () => void {
   currentAgent.set(terminalId, null);
-  const abort = new AbortController();
-  consumeChannel(
-    terminalChannels.commandRun(terminalId),
-    abort.signal,
-    (raw) => {
+  const cleanup = terminalChannels.commandRun(terminalId).consume({
+    onEvent: (raw) => {
       const normalized = parseAgentCommand(raw);
       currentAgent.set(terminalId, normalized?.split(" ")[0] ?? null);
       if (normalized) {
@@ -69,14 +66,14 @@ export function startAgentCommandTracker(terminalId: TerminalId): () => void {
         trackRecentAgent(normalized);
       }
     },
-    (err) =>
+    onError: (err) =>
       log.error(
         { err, terminal: terminalId, channel: "commandRun" },
         "publisher subscription failed",
       ),
-  );
+  });
   return () => {
-    abort.abort();
+    cleanup();
     currentAgent.delete(terminalId);
   };
 }

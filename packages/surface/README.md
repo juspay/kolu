@@ -70,7 +70,7 @@ The library is intentionally non-magical: it does **not** auto-derive an oRPC co
        │   cellHandlers,      │   │   useCell,           │
        │   collectionHandlers,│   │   useCollection,     │
        │   streamHandlers,    │   │   useStream,         │
-       │   pollOnEvent,       │   │   useEvent,          │
+       │   eventHandlers,     │   │   useEvent,          │
        │   confStore /        │   │   streamCall         │
        │   publisherChannel   │   │   (Solid hooks)      │
        └─────────────────────┘   └─────────────────────┘
@@ -243,26 +243,24 @@ export const gitStatus = stream({
 });
 ```
 
-### Server-side: `pollOnEvent`
+### Server-side: declarative poll-on-event
 
-For streams that watch external state (git, fs), the framework provides `pollOnEvent` — a snapshot-then-deltas helper that reads on each event tick and yields only when the value changed:
+For streams that watch external state (git, fs), the framework absorbs the snapshot+install+re-read+isEqual loop. The stream impl declares `read` + `install` + `isEqual`; the framework synthesizes the source internally:
 
 ```ts
-import { pollOnEvent } from "@kolu/surface/server";
-
-git: {
-  onStatusChange: t.git.onStatusChange.handler(async function* ({ input, signal }) {
-    yield* pollOnEvent({
-      read: () => unwrapGit(getStatus(input.repoPath, input.mode, log)),
-      isEqual: gitStatusOutputEqual,
-      install: (cb) => subscribeRepoChange(input.repoPath, cb, log),
-      signal,
-    });
-  }),
+streams: {
+  gitStatus: {
+    read: async (input) =>
+      unwrapGit(await getStatus(input.repoPath, input.mode, log)),
+    install: (input, cb) => subscribeRepoChange(input.repoPath, cb, log),
+    isEqual: gitStatusOutputEqual,
+  },
 }
 ```
 
-The initial read's exception propagates to the client (first frame); subsequent read failures retry on the next tick — a transient git error shouldn't tear down a long-lived subscription.
+The initial read's exception propagates to the client (first frame); subsequent read failures retry on the next tick — a transient git error shouldn't tear down a long-lived subscription. Subsequent-read errors flow through `onReadError` (per-stream) or the top-level `onStreamReadError` set on `implementSurface`'s deps. The framework refuses to wire a poll-shape stream that has no observability for these failures (boot-time check).
+
+The raw `source: (input, signal) => AsyncIterable<T>` shape stays available for cases that don't fit poll-on-event (custom snapshot computation, long-poll, bidirectional streams). The two shapes are a discriminated union; supplying both is a type error.
 
 ### Client-side hook
 
@@ -584,16 +582,20 @@ collectionHandlers(coll, { readAll, readOne?, upsert, remove, perKeyBus, keysBus
 streamHandlers(stream, { source }): { get }
 eventHandlers(event, { source }): { get }
 
-pollOnEvent({ read, isEqual, install, signal, onReadError? }): AsyncIterable<T>
-
 // Storage + bus adapters
 inMemoryStore<T>(initial): CellStore<T>
 confStore<T>(conf, key): CellStore<T>
 publisherChannel<T>(publisher, channelName): Channel<T>
 
 interface CellStore<T> { get(): T; set(v: T): void }
-interface Channel<T> { publish(v: T): void; subscribe(signal?): AsyncIterable<T> }
+interface Channel<T> {
+  publish(v: T): void
+  subscribe(signal?): AsyncIterable<T>
+  consume({ onEvent, onError }): () => void  // subscribe + dispatch + auto-cleanup
+}
 ```
+
+`pollOnEvent` is the underlying snapshot+install+re-read helper, exposed for advanced cases. Most poll-shape streams should use the declarative `{ read, install, isEqual }` form on `implementSurface(...).streams.<key>` (above) — the framework synthesizes the `pollOnEvent` call.
 
 ### Solid client (`@kolu/surface/solid`)
 
