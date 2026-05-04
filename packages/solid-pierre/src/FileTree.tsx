@@ -98,6 +98,22 @@ export const FileTree: Component<FileTreeProps> = (props) => {
           const p = paths[0] ?? null;
           if (p !== null && !fileSet().has(p)) return;
           props.onSelect?.(p);
+          // Pierre's `handleRowClick` calls `controller.closeSearch()`
+          // synchronously *after* this listener returns (see
+          // node_modules/@pierre/trees/dist/render/FileTreeView.js around
+          // L1738 and dist/render/fileTreeRowClickPlan.js where
+          // `closeSearch: isSearchOpen` is hardcoded with no opt-out).
+          // When the host drives search via `searchQuery`, that prop is
+          // the source of truth, so re-apply on the next microtask —
+          // after Pierre's clear has run — to restore the filter. Assumes
+          // Pierre's row-click handler stays synchronous; an async row
+          // handler would race this microtask. The deferred `createEffect`
+          // on `props.searchQuery` below handles the orthogonal case
+          // (host signal changes); this path handles Pierre's self-clear.
+          queueMicrotask(() => {
+            const q = untrack(() => props.searchQuery);
+            if (q && q.length > 0) tree?.setSearch(q);
+          });
         },
       });
       tree.render({ containerWrapper: container });

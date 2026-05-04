@@ -367,7 +367,7 @@ Then(
   },
 );
 
-// ── Right-panel tab switching ──
+// ── Right-panel tab switching + filter input ──
 
 When(
   "I click the right panel tab {string}",
@@ -376,5 +376,34 @@ When(
     await tab.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     await tab.click();
     await this.waitForFrame();
+  },
+);
+
+When(
+  "I type {string} into the Code tab filter",
+  async function (this: KoluWorld, value: string) {
+    const input = this.page.locator('[data-testid="diff-filter-search"]');
+    await input.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await input.fill(value);
+    await this.waitForFrame();
+  },
+);
+
+Then(
+  "the Code tab filter input should contain {string}",
+  async function (this: KoluWorld, value: string) {
+    // The filter is controlled — its value reflects the host signal exactly.
+    // Polling rather than asserting once: the #817 fix re-applies search on
+    // the next microtask after a row click, but the input itself is bound to
+    // the host signal which doesn't move during that round-trip — still, a
+    // poll keeps the assertion robust to incidental re-render timing.
+    await this.page.waitForFunction(
+      ({ sel, expected }) => {
+        const el = document.querySelector(sel) as HTMLInputElement | null;
+        return el?.value === expected;
+      },
+      { sel: '[data-testid="diff-filter-search"]', expected: value },
+      { timeout: POLL_TIMEOUT },
+    );
   },
 );
