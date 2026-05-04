@@ -359,7 +359,16 @@ body {
   overflow-x: auto;
 }
 
-/* Inline code within prose — keep lighter than pre blocks. */
+/* Inline code within prose — keep lighter than pre blocks. Tailwind
+   Typography ships literal backtick decoration via `::before` / `::after`
+   on inline code; suppress it (the inline-code box already reads as code,
+   the backticks are noisy redundancy and visibly wrong inside table cells
+   and headings). */
+.prose-editorial :not(pre) > code::before,
+.prose-editorial :not(pre) > code::after {
+  content: none;
+}
+
 .prose-editorial :not(pre) > code {
   font-family: var(--font-mono);
   background: var(--color-void-raised);
