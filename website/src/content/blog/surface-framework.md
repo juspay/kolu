@@ -1,7 +1,7 @@
 ---
 title: "Announcing @kolu/surface: typed reactive state for SolidJS + oRPC"
 description: "A small framework that owns the snapshot+deltas wire protocol so your Solid client and oRPC server stop hand-rolling it. Five primitives, one declaration, contract derived end-to-end."
-pubDate: 2026-05-01
+pubDate: 2026-05-04
 author: "Sridhar Ratnakumar"
 ---
 
