@@ -1,261 +1,332 @@
 ---
-title: "Electricity from a diff: extracting Kolu's cells"
-description: "A Lowy-style 'electricity' extraction in five turns. The reviewers didn't see the framework; one /talk turn turned three Solid primitives into a four-primitive end-to-end framework."
+title: "Announcing @kolu/surface: typed reactive state for SolidJS + oRPC"
+description: "A small framework that owns the snapshot+deltas wire protocol so your Solid client and oRPC server stop hand-rolling it. Five primitives, one declaration, contract derived end-to-end."
 pubDate: 2026-05-01
 author: "Sridhar Ratnakumar"
 ---
 
-<!--
-DEBUG (for future AI sessions iterating on this post — REMOVE before publishing):
+[`@kolu/surface`](https://github.com/juspay/kolu/tree/master/packages/surface) is a small framework for SolidJS clients backed by an oRPC streaming server. **Declare the reactive surface of your app once; the framework derives the typed contract, the server router, and the client hooks from a single spec.** It owns the wire protocol — snapshot+deltas, retry-on-reconnect, per-channel pub/sub — so your domain code stops referencing channel names, store keys, retry contexts, or oRPC procedure refs.
 
-The full transcript of the session that produced this post is at:
-  /home/srid/.claude/projects/-home-srid-code-kolu--worktrees-older-branch/9ddf81dd-1b86-41bf-a3eb-ca043885aad6.jsonl
+It was extracted from [Kolu](https://kolu.dev) and now ships as a workspace-private package alongside it. This post walks through why the framework exists, the five primitives it offers, the API for defining and implementing a surface, the runnable example, and how Kolu itself uses it.
 
-When updating this draft, grep that JSONL for verbatim user messages,
-agent decisions, and reviewer findings rather than relying on the
-post's prose. Cross-reference against the PR (#805) commit history for
-the structural beats. Both are authoritative; this draft is a
-narrative summary on top of them.
+## Why: electricity
 
-Strip this block (and the closing comment) before publishing.
--->
+In [_Righting Software_](https://www.amazon.com/Righting-Software-Method-Engineering-Architecture/dp/0136524036), Juval Löwy argues that infrastructure should feel like the **electricity** in a building: invisible, ubiquitous, plugged into via simple sockets. Domain code is the appliance you swap. The wiring stays put. **Volatility-based decomposition** is the discipline of deciding which is which.
 
-_Running notes from the session that produced [@kolu/surface](https://github.com/juspay/kolu/tree/master/packages/surface). Not a finish line — a snapshot mid-process. I'll keep updating as the framework evolves._
+Kolu's client had a dozen call sites doing the same thing: subscribe to an oRPC streaming RPC, lift the AsyncIterable into a Solid `Accessor`, reconcile new values into a local store, dispatch errors to a toast. Its server had the mirror image: hand-rolled `yield current; for await (ev of subscribeSystem(...)) yield ev` loops in every streaming handler, plus the parallel `publishSystem("X:changed", value)` write path threaded through every domain mutation.
 
-In [_Righting Software_](https://www.amazon.com/Righting-Software-Method-Engineering-Architecture/dp/0136524036), Juval Löwy argues that infrastructure should feel like the **electricity** in a building: invisible, ubiquitous, plugged into via simple sockets. Domain code is the appliance you swap. The wiring stays put. **Volatility decomposition** is the discipline of deciding which is which.
+The pattern was obvious enough that I'd been writing it for months. It also turned out to have **no Kolu-specific decision in any of it.** The schema varied. The procedure name varied. The `(channel, payload type)` pair varied. Everything else — the snapshot-then-deltas frame ordering, the retry context, the publish-then-subscribe symmetry, the reconcile-vs-assign branch on the store write — was electricity.
 
-This post is a session log. Across five conversational turns, a handful of `createSubscription` calls in Kolu's client + a parallel set of hand-rolled `yield X; for await ev of subscribeSystem_(...) yield ev` loops in Kolu's server became `@kolu/surface` — a four-primitive end-to-end framework that owns the entire snapshot+deltas wire protocol on both sides. Domain modules in Kolu shrank by ~190 lines net and stopped knowing about retry contexts, publisher channels, or oRPC plumbing.
+That's the bar for extraction: **what would I extract as utility before I'd accept any of these per-call-site fixes?** When the answer is "all of it," the question stops being _is this snippet clean?_ and becomes _is the snippet at the right altitude?_ The framework is the answer to the second question.
 
-A few things surprised me about how it went. **The reviewers didn't see the framework.** I had to ask for it. Then once I had asked, the model designed three primitives — but missed two important shapes that I had to pull out one turn at a time. By the end of the session there were four primitives plus a runnable example, and a clearer sense of where the [hickey](https://github.com/srid/agency/blob/master/skills/hickey/SKILL.md) and [lowy](https://github.com/srid/agency/blob/master/skills/lowy/SKILL.md) reviewer agents are doing their best work — and where they're blind.
+## The surface package
 
-## Turn 1: the reviewers don't see it
+`@kolu/surface` exposes **five primitives**. Each captures a structurally distinct shape that bites at runtime if collapsed into a single primitive:
 
-Kolu had `createSubscription` (an AsyncIterable→Solid `Accessor` lift) and `createReactiveSubscription` (input-parameterized variant) wired into ~12 client call sites. On the server, every "yield current state, then yield deltas" stream handler in `router.ts` was hand-rolled. The pattern was obvious enough that I'd been writing the same shape for months. The accidental discovery was that this whole pattern is **electricity** — universal infrastructure, parametric on the schema and procedure name. There was no Kolu-specific decision in any of it.
+| Primitive | The question it answers | Cardinality | Persistable | Mutable from client | Has current value |
+|-----------|-------------------------|-------------|-------------|---------------------|-------------------|
+| `Cell<T>` | "What's the current X?" | One singleton | Optional | Yes | Yes |
+| `Collection<K,T>` | "What's the current X for each key K?" | Many, keyed | Optional | Yes | Yes (per key) |
+| `Stream<I,T>` | "What's the live output for input I?" | One per input combo | Never | No (read-only) | Yes |
+| `Event<I,T>` | "Has X happened yet?" | Occurrences over time | Never | No (read-only) | **No** — handler-based |
+| `Procedure` | "Run this side-effect on the server" | Per call | n/a | Yes (RPC) | n/a |
 
-I'd been running [hickey](https://github.com/srid/agency/blob/master/skills/hickey/SKILL.md) and [lowy](https://github.com/srid/agency/blob/master/skills/lowy/SKILL.md) on every PR for months. Neither had said "extract this pattern into a framework." They reviewed the diff in front of them. They found local issues — a complecting here, a volatility-axis-misalignment there. **Neither lens, as currently tuned, looks at the negative space — the *absence* of an abstraction that should exist.**
+Cell, Collection, and Stream are *state* — there's a current value the consumer renders. Event is *occurrence* — a handler fires per yield, no current value to read. Procedure is *imperative* — a request/response RPC bound to the same surface namespace as the reactive primitives.
 
-That's a real gap. Hickey's lens catches concepts that are conflated. Lowy's lens catches volatility axes that are mis-encapsulated. Neither asks the meta-question: _is this whole class of code something that shouldn't be here at all_? The pattern across 12 call sites is, by design, _not yet_ a complecting (each call site is locally clean) and not yet a volatility miss (each call site's volatility is correctly local). It's a missing seam. Reviewers tuned for spatial defects + temporal defects don't see seam-shaped negative space.
+The vocabulary borrows from [reflex-frp](https://github.com/reflex-frp/reflex)'s `Dynamic` / `Incremental` / `Event` lattice, translated to an oRPC wire boundary. The structural difference between Cell and Stream comes from there directly: **Cells are identities over time** (same logical entity, value evolves; you can `set` one), while **Streams are functions being re-evaluated** (server-derived from external state — git, fs, network — that the framework doesn't own; you can't `set` one without becoming the cache).
 
-So I asked. `/talk` mode, pasting in a `createSubscription` call: _"This whole 'infrastructure' is NOT DEPENDENT on Kolu, but is complect'ed right now in client/server kolu code."_ Then: _"Stop thinking in terms of 'helpers' and start being creative about inventing 'framework'."_
+Anything genuinely outside these shapes — bidirectional binary streams, custom retry plumbing — stays as raw oRPC, accessed via a one-line `streamCall(client.X.Y, input, opts)` escape hatch that threads the same retry context the hooks use.
 
-That second sentence was load-bearing. Without it the model tried to refactor in place — extract a helper, deduplicate a shared function. Once "framework" was on the table, the design space opened.
+## The API
 
-## Turn 2: three primitives, hand-spec'd
+A surface is declared in three places — common, server, client — each layer derived from the same spec.
 
-Across a few back-and-forths in `/talk`, three primitives fell out:
+```
+common/  defineSurface({ cells, collections, streams, events, procedures })  ─┐
+                                  │                                           │ contract
+                                  ▼                                           │ derived
+server/  implementSurface(surface, { channel, cells, collections, … })  ◀────┘
+                                  │
+                                  ▼
+client/  surfaceClient(surface, { transport })
+                ├─ rpc            (raw oRPC client, retry-wired)
+                ├─ cells          (.use, .upsert, .patch)
+                ├─ collections    (.use, .upsert, .remove)
+                ├─ streams        (.use)
+                └─ events         (.use)
+```
 
-| Primitive | The question it answers | Cardinality |
-|-----------|-------------------------|-------------|
-| `Cell<T>` | "What's the current X?" | One singleton |
-| `Collection<K,T>` | "What's the current X for each key K?" | Many, keyed |
-| `Stream<I,T>` | "What's the live output for input I?" | One per input combo |
+### Define (`common/surface.ts`)
 
-The cuts came out of a specific question I asked: _"In table form, explain why we need them, and what they are used for in kolu."_ That table format is doing more work than it looks. It forced the model to commit to **what a primitive is for** in one phrase per row, and the asymmetries between rows became immediately visible. `Cell` answers "the current," `Stream` answers "the live output for input I"; one lives over time, the other is a function being re-evaluated. That structural difference would dictate API shape later.
+```ts
+import { defineSurface } from "@kolu/surface/define";
+import { z } from "zod";
 
-I drove the conversation through the table for a while — _"shouldn't `createReactiveSubscription` fit into this?"_ pinned which of Kolu's 12 call sites belonged to which primitive — and then `/do`'d the design with `--review` so the architect could pause, ask clarifying questions via `AskUserTool`, and confirm the cut before any code was written.
+const NoteIdSchema = z.string();
+const NoteSchema = z.object({
+  id: NoteIdSchema,
+  title: z.string(),
+  body: z.string(),
+  updatedAt: z.number(),
+});
+const EditorPrefsSchema = z.object({
+  fontSize: z.number().int().min(10).max(32),
+  theme: z.enum(["light", "dark"]),
+});
 
-Three rounds of [hickey + lowy](https://kolu.dev/blog/hickey-lowy/) ran across that PR. **Eleven findings landed as separate commits** — extract a reconcile helper, document `mergeIntoStore` invariants, document intended authority on cell descriptors, fix `useCellLocal.value()` hiding the seeded store, collapse `createSubscription` duplication, switch `listSub` to `Accessor<TerminalInfo[]>`, restore comments dropped during migration, pin `publisherChannel`'s microtask-delay invariant to its e2e regression, move `applyPreferencesPatch` next to `preferencesCell`, consolidate `activityFeed` into one Conf key. Each commit is one reviewer finding. The PR's commit history reads as a sequence of structural refinements, not a grab-bag squash.
+export const surface = defineSurface({
+  cells: {
+    prefs: {
+      schema: EditorPrefsSchema,
+      default: { fontSize: 16, theme: "light" },
+      patchSchema: EditorPrefsSchema.partial(),
+      patch: (current, p) => ({ ...current, ...p }),
+    },
+  },
+  collections: {
+    notes: { keySchema: NoteIdSchema, schema: NoteSchema },
+  },
+  streams: {
+    search: {
+      inputSchema: z.object({ query: z.string() }),
+      outputSchema: z.object({ matches: z.array(NoteIdSchema) }),
+    },
+  },
+  events: {
+    autosave: {
+      inputSchema: NoteIdSchema,
+      outputSchema: z.object({ noteId: NoteIdSchema, savedAt: z.number() }),
+    },
+  },
+  procedures: {
+    notes: {
+      // Imperative escape hatch — id minted server-side, so it doesn't
+      // fit the collection's `upsert`-with-key shape.
+      create: { input: z.object({ title: z.string() }), output: NoteSchema },
+    },
+  },
+});
 
-This is where the reviewers shine: once there's a concrete diff in front of them, they bite. The catch on `useCellLocal.value()` (`/code-police`'s fact-check pass) was particularly load-bearing — the bug let the seeded store be visible-then-hidden as soon as the first server yield arrived, which would have been a real flicker in production. Three reviewers running, three different lenses, and the bug got caught the first time.
+// `surface.contract` is a typed oRPC router built statically from the
+// spec — no parallel literal to maintain. Use it on both sides:
+//   server: const t = implement(surface.contract);
+//   client: createCellsClient<typeof surface.contract>({ websocket });
+```
 
-## Turn 3: the leak the reviewers DID catch — once asked
+A single mapped helper `SurfaceTypes<typeof surface.spec>` lifts the runtime types out of the spec, so consumers reach for `SF["cells"]["prefs"]["Value"]` instead of maintaining a parallel set of `z.infer` aliases. The spec is the single source of truth for schemas, defaults, and types.
 
-After the first PR landed CI-green, I noticed `streaming.md` rule §1 still in the codebase: _"Every async-iterator RPC the client consumes goes through `packages/client/src/rpc/rpc.ts`'s `stream` object, not `client.*` directly."_ A cultural rule whose existence is an admission that the framework is missing a piece. The `stream` namespace was a hand-maintained 11-entry table mapping every streaming RPC to its `STREAM_RETRY` context-threading wrapper.
+### Implement (`server/surface.ts`)
 
-`/talk` again: _"stream (rpc.ts) is still leaking outside of of packages/cell. Same on server side."_ The same pattern as turn 1: I had to point at the negative space.
+```ts
+import {
+  confStore,
+  implementSurface,
+  publisherChannel,
+} from "@kolu/surface/server";
+import { MemoryPublisher } from "@orpc/experimental-publisher/memory";
+import { surface } from "common/surface";
 
-This time though, once pointed at, the reviewers earned their keep. The talk-mode design pass (which auto-runs hickey + lowy on the proposal) immediately surfaced two findings I'd missed:
+const publisher = new MemoryPublisher();
 
-- **Hickey F4 (the sharpest):** the proposed `terminalChannels` registry on the server only covered the **read** side. Write-side `publishForTerminal(...)` calls would still be scattered. The fix had to be symmetric — each entry a `Channel<T>` owning both publish and subscribe.
+export const { router, ctx } = implementSurface(surface, {
+  channel: <T>(name: string) => publisherChannel<T>(publisher, name),
 
-- **Lowy F7:** before deleting `subscribeForTerminal_`, the callback-form wrapper used by 5 providers had to be audited. The deletion would have stranded those.
+  cells: {
+    prefs: { store: confStore(conf, "prefs") },
+  },
+  collections: {
+    notes: {
+      readAll: () => allNotes(),
+      upsert: (id, note) => upsertNote(id, note),
+      remove: removeNote,
+    },
+  },
+  streams: {
+    // Poll-on-event shape: the framework synthesizes the snapshot +
+    // install + re-read + isEqual loop internally.
+    search: {
+      read: async ({ query }) => ({ matches: searchNotes(query) }),
+      install: (_input, cb) => onNotesChange(cb),
+      isEqual: (a, b) => a.matches.join(",") === b.matches.join(","),
+    },
+  },
+  events: {
+    autosave: {
+      // Single-yield-then-close: forward a per-input channel.
+      source: (id, signal, { bus }) => bus.subscribe(signal),
+    },
+  },
+  procedures: {
+    notes: {
+      create: async ({ input, ctx }) => {
+        const note = { id: newId(), title: input.title, body: "", updatedAt: Date.now() };
+        ctx.collections.notes.upsert(note.id, note);
+        return note;
+      },
+    },
+  },
+});
 
-Both bites changed the design before any code was written. That's the talk-mode hickey/lowy at its best: a concrete sketch, two lenses on it, the proposal revised in light of what landed. The post-implement review on the actual diff caught a few more — `Cell.name` doc was misleading (it doesn't actually serve as the channel name; channel names are passed explicitly), `createCellsClient` returned `{client}` for no reason (YAGNI wrapper), `consumeChannel` helper extracted from the 5 inlined try/catch blocks.
+// Spread `router` into a host `t.router({...})` alongside any hand-written
+// raw-oRPC blocks; import `ctx` from domain modules for typed mutations:
+//   ctx.cells.prefs.set(next)
+//   ctx.collections.notes.upsert(id, value)
+//   ctx.events.autosave.publish(noteId, payload)
+```
 
-By the end of this turn the framework owned the entire wire protocol end-to-end. Kolu's `client/` and `server/` lost ~190 lines of generic transport plumbing.
+`implementSurface` returns `{ router, ctx }`. The `ctx` is the typed mutation surface domain code uses to write through the framework — every mutation flows through one apply+publish chain, so there's no parallel `store.set + bus.publish` path that can drift.
 
-## Turn 4: reflex says you missed one
+For Streams, the framework absorbs two common shapes. The poll-on-event form (above) is for state the server doesn't own — files, git refs, anything that fires "something changed" without telling you what. Provide `read` + `install` + `isEqual` and the framework handles snapshot-then-deltas, equality-suppression, and reconnect. Or provide a raw `source: (input, signal) => AsyncIterable<T>` for cases that don't fit poll-on-event.
 
-This is the turn that changed how I think about the framework.
+### Consume (`client/wire.ts`)
 
-I asked the model to research [reflex-frp](https://github.com/reflex-frp/reflex) — the Haskell FRP library — and explain how its types map to what we'd built. The map came back almost too cleanly:
+```ts
+import { surfaceClient } from "@kolu/surface/solid";
+import type { ContractRouterClient } from "@orpc/contract";
+import type { ClientRetryPluginContext } from "@orpc/client/plugins";
+import { surface } from "common/surface";
 
-| Reflex | `@kolu/surface` |
+const ws = new PartySocket(`wss://${host}/rpc/ws`);
+
+export const app = surfaceClient<
+  typeof surface.spec,
+  ContractRouterClient<typeof surface.contract, ClientRetryPluginContext>
+>(surface, { websocket: ws });
+
+// In components — bound `.use()` hooks drop source/mutate/keyToInput
+// from the per-call args; the surface supplies them.
+const prefs = app.cells.prefs.use({
+  authority: "local",
+  initial: DEFAULT_PREFS,
+});
+const notes = app.collections.notes.use();
+//   notes.keys()         — Accessor<NoteId[]>, defaults to the server's keys stream
+//   notes.byKey(id)?.()  — Subscription<Note> per key
+//   notes.upsert(k, v)   — bound mutation (also at app.collections.notes.upsert)
+const search = app.streams.search.use(
+  () => ({ query: query() }),
+  { onError: (err) => toast.error(`Search failed: ${err.message}`) },
+);
+app.events.autosave.use(
+  selectedId,
+  (payload) => flashSavedToast(payload),
+  { onError: (err) => console.error(err) },
+);
+
+// Imperative procedures go through `app.rpc` under the `surface.*` namespace:
+const note = await app.rpc.surface.notes.create({ title: "Untitled" });
+```
+
+The bound `.use()` shape is the headline ergonomic win. Compared to passing procedure refs at every call site, the surface client pre-binds each primitive to its oRPC entry, drops the wire-identity args, and threads `STREAM_RETRY` context internally. The hooks **own the snapshot+deltas reconcile path**, the per-key reactive lifecycle (via `mapArray`), the local-authority optimistic merge (for cells with `authority: "local"`), and the resubscribe-on-reconnect cleanup.
+
+## What the framework absorbs
+
+So you don't write any of these per call site:
+
+- **Snapshot+deltas wire protocol** — every server handler yields a fresh full snapshot first, then deltas; the streaming retry plugin re-invokes the source on every reconnect, so the new iterator's first yield replaces stale client state. Get this wrong and reconnects silently lose state.
+- **Retry context** — `ClientRetryPlugin` parameterized at both `RPCLink` and `ContractRouterClient` so per-call `{ context }` options type-check; the hooks thread `STREAM_RETRY` (infinite retry on transport, propagate `ORPCError`) automatically.
+- **Per-key channels** — `Channel<T>.publish(v)` / `.subscribe(signal)` / `.consume({ onEvent, onError })`. Channel names derive from the surface key; domain code never types `"X:changed"`.
+- **Reconcile vs assign** — primitives get plain assignment; objects/arrays go through Solid's `reconcile` for fine-grained reactivity.
+- **Per-collection lifecycle** — `useCollection` runs `mapArray` over the live key set; each key gets its own reactive owner, automatically disposed when the key leaves.
+- **Local authority's "ignore subsequent echoes"** — `useCell` with `authority: "local"` reconciles the first server yield, then ignores the subscription so an unrelated event piggybacking on the same channel doesn't stomp a just-made client write whose RPC hasn't round-tripped yet.
+
+## The runnable example
+
+`packages/surface/example/` is a minimal in-memory notes app demonstrating all five primitives end-to-end. ~500 LOC across server + client + common; single-file `App.tsx` with every hook visible; SolidJS + Tailwind v4. Self-contained — no Kolu-internal imports, just `@kolu/surface/{*}` plus the standard oRPC + Hono + Vite stack.
+
+```sh
+just surface-example
+```
+
+Enters the Nix devshell and starts the Hono server (port 7700) plus Vite dev server (port 5174) in parallel.
+
+| Primitive | What the example demonstrates |
 |---|---|
-| `Dynamic t a` (no input) | `Cell<T>` |
-| `Dynamic t a` (per-input) | `Stream<I,T>` |
-| `Incremental t (PatchMap K T)` | `Collection<K,T>` |
-| `Event t a` | _(missing)_ |
+| `Cell<EditorPrefs>` | Editor preferences (font size, theme). `authority: "local"` for instant-UI mutation; `applyPatch` defaulted from the spec's `patch` so server and client merge with the same function. |
+| `Collection<NoteId, Note>` | Notes keyed by id. Sidebar list with per-key reactive lifecycle. `notes.upsert` / `notes.delete` are framework-bound; `notes.create` is an imperative procedure that mints the id server-side. |
+| `Stream<{query}, SearchResult>` | Full-text search, one-shot per query. `useStream` re-subscribes on input change; the server runs the source once and closes. Demonstrates the raw `source` shape. |
+| `Event<NoteId, AutosaveEvent>` | "Saved" flash beside the active note title. Per-id channel; the autosave debounce in the server publishes to it; the client's `useEvent` handler triggers the flash. |
+| `Procedure` | `notes.create` — the imperative escape hatch for verbs the primitives can't model (id minting, cross-primitive coordination). |
 
-Reflex's `Event t a` is "a stream of occurrences with no current value" — point-in-time fires, handler-based, no snapshot on (re-)subscribe. Kolu had exactly this shape — `terminal.onExit` — sitting outside the framework as raw oRPC, consumed via a manually-threaded `streamCall(client.terminal.onExit, ...)`. The category-shaped hole was visible the moment the comparison was framed.
+The example existed first as a tractable substrate for iterating on the framework itself. **The discipline is that any framework change has to land on the example before it touches Kolu.** That keeps the API decisions visible end-to-end at 500 LOC instead of buried in Kolu's hundred-file consumer codebase.
 
-I asked for simplifications: could three primitives collapse to two? Could Cell be a Stream with `I = void`? Could Collection be a `Stream<void, Map<K,V>>`? Sketched it. Ran hickey + lowy. **Both reviewers killed the collapse**, and both for the same structural reason:
+## How Kolu uses it
 
-> The three primitives aren't split along the wire protocol — they're split along type-level enforcement of domain invariants. Streams are never mutable (compile error if you try). Cells have a canonical `default: T` shared across consumers (compile error if two callsites disagree). Collections have per-key reactive lifecycle via `mapArray` (structurally guaranteed, not convention). Collapsing trades type-level enforcement for runtime convention.
+Kolu has 10 typed primitives plus a handful of imperative procedures and raw streaming shapes. Every server-pushed reactive surface in Kolu maps to one entry in `packages/common/src/surface.ts`.
 
-I'd been thinking the primitives were a vocabulary choice. The reviewers showed me they were **encoding domain invariants the type system enforces**. That's a Lowy point dressed as a Hickey point, or vice versa. Either way — landed.
+### Cells
 
-What survived was just the additive finding: **add `Event<I,T>` as a fourth primitive.** Both reviewers explicitly endorsed it. Reconnect semantics differ (Streams idempotent re-subscribe with snapshot; Events don't redeliver missed occurrences) — they're not the same shape with different cardinalities.
+| Descriptor | Backs | Authority | Persistence |
+|---|---|---|---|
+| `preferences` | User preferences (theme, scrollLock, sound, right-panel state, …) | `local` | `confStore("preferences")` |
+| `terminalList` | Live terminal list — drives the pill tree, canvas tile set, mobile swipe order | `server` | `inMemoryStore` (registry is canonical) |
+| `activityFeed` | Recent repos cd'd into + recent agent CLIs spotted via OSC 633;E | `server` | `confStore("activityFeed")` |
+| `session` | Last-persisted snapshot of terminals + active id (drives session restore) | `server` | `confStore("session")` |
 
-The implementation hit one nasty bug. `eventHandlers`'s natural shape — `for await (const v of source) yield v` — silently drops the value for single-yield-then-return sources. oRPC's wire delivers an "iterator complete" frame the moment the wrapper's `for await` loops back to read source's `next()`, and that frame races the yielded value's delivery on the consumer side. The consumer's first iteration sees `done: true`, the value is dropped, and the kill.feature regression fires. Fix: forward `deps.source` directly as the handler iterator instead of wrapping. The framework's `eventHandlers` body is now one expression. Pinned in a doc-comment with a citation to the e2e scenario.
+### Collections
 
-## Turn 5: a runnable example, mostly for me
+| Descriptor | Backs |
+|---|---|
+| `terminalMetadata` | Per-terminal metadata (cwd, git, PR, agent state, foreground process) — each terminal's tile chrome and inspector reads its own key |
 
-The framework had a thorough README with a side-by-side "How Kolu uses this" inventory, plus a `## Comparison with Reflex-FRP` section laying out what we took (vocabulary, snapshot+deltas-as-Incremental, Stream input-parameterization) and what we didn't (`Behavior`, `MonadQuery`'s `Group`/`crop`/`SelectedCount` cross-network machinery, monadic Dynamic composition, one-primitive-fits-all). Kolu is single-client per session — Reflex's plumbing for `100 clients × shared subscriptions` doesn't pay back its weight at this scale.
+### Streams
 
-The actual reason I asked for the example wasn't reader-facing. **It was so I'd have a smaller surface to review against when iterating on the framework itself.** Kolu has 12 stream consumers across canvas chrome, terminal lifecycle, agent providers, code-tab views, session restore. When I want to ask _"would `useCell` feel right with the mutation arg restructured this way?"_, scrolling through Kolu to see the answer is exhausting — a hundred-file diff per design tweak. A 500-LOC example with one of each primitive is a tractable substrate. The framework's API decisions are visible end-to-end without the domain noise.
+| Descriptor | Backs |
+|---|---|
+| `gitStatus` | Code-view's Local/Branch mode file list (changed files) |
+| `gitDiff` | Code-view's unified diff for the selected file |
+| `fsListAll` | Code-view's All-mode tree (full repo path list) |
+| `fsReadFile` | Code-view's All-mode body (file content) |
 
-The candidate was a notes app:
+### Events
 
-- `prefsCell` — editor preferences (font size, theme). `authority: "local"` instant-UI mutation, `applyPatch` for partial updates.
-- `notesCollection` — notes keyed by id. Sidebar list with per-key reactive lifecycle.
-- `searchStream` — full-text search parameterized by query string. `pollOnEvent`-driven re-derivation when notes change.
-- `autosaveEvent` — "Saved" flash beside the active note title. Handler-based, no current value.
+| Descriptor | Backs |
+|---|---|
+| `terminalExit` | Per-terminal one-shot exit notification — drives the exit toast and the active-terminal auto-switch |
 
-It came together in ~500 LOC across server + client + common, single-file `App.tsx` so every hook is visible end-to-end. Hono + WebSocket + Vite + Tailwind v4. Self-contained, no Kolu-internal imports — that property matters: when the example imports something from Kolu, the example becomes Kolu, and the substrate is no longer smaller. The discipline is "if a future framework change ripples into this example, the change has to land on this example *first* before I touch Kolu."
+### Raw oRPC (everything else)
 
-## Turn 6: the example, used as designed — and what it found
+Shapes that don't fit a primitive stay imperative — terminal lifecycle (`create`/`kill`/`resize`/`sendInput`/...), git mutations (`worktreeCreate`/`worktreeRemove`), screen queries, and the bidirectional binary `terminal.attach` stream. They live in a hand-written `oc.router({...})` alongside `surface.contract`. The composition is one spread:
 
-The example existed to be a smaller substrate for iterating on the framework. It started doing that almost immediately.
+```ts
+export const contract = oc.router({
+  ...surface.contract,
+  terminal: rawTerminalContract,  // hand-written for terminal.attach + friends
+});
+```
 
-**First thing the example revealed: the contract was hand-written twice.** `defineCell` / `defineCollection` etc. produced descriptors. But the oRPC contract router still had to be hand-listed entry-by-entry — schemas duplicated between `cells.ts` and `contract.ts`, with no compile-time link. So I asked: _"Cell and Stream can be merged into a Dynamic, no?"_ — and once that was off the table (reviewers killed the collapse, type-level invariants again), the real question surfaced: _why am I still hand-typing?_
+### What disappeared from Kolu
 
-Pushed for an actual framework instead of helpers:
+The framework absorbed roughly 800 lines of plumbing across client and server:
 
-- `defineSurface({ cells, collections, streams, events, procedures })` — one declaration, one file.
-- `surface.contract` — derived from the spec, no parallel literal.
-- `implementSurface(surface, deps)` — server-side wiring, replaces the `t.X.<verb>.handler(...)` plumbing.
-- `surfaceClient(surface, transport)` — bound `.use()` hooks that drop `source` / `mutate` from per-call args.
+- **Zero** call sites of `createSubscription` / `createReactiveSubscription` outside `@kolu/surface/solid`.
+- **Zero** hand-rolled `yield X; for await (ev of subscribeSystem_(...)) yield ev` loops in `router.ts`.
+- **Zero** `publishSystem("X:changed", value)` or `publishForTerminal(channel, id, v)` calls — every server-side publish flows through a typed `Channel<T>`.
+- **Zero** `import { stream }` or hand-threaded `STREAM_RETRY` in client code — the bound layer threads context internally.
+- **Zero** `pollOnEvent` wrappers per stream — declarative `{ read, install, isEqual }` synthesizes inside the framework.
+- **Zero** `AbortController + consumeChannel` plumbing in meta providers — `Channel.consume` owns the controller and returns the cleanup.
 
-Built the framework, migrated the example, ran reviewers on the design.
+Adding a new cell in Kolu now touches **two files**: the descriptor in `packages/common/src/surface.ts`, the wiring in `packages/server/src/surface.ts`. The client gets it for free via `app.cells.X.use(...)`.
 
-**Reviewer pushback that landed mid-iteration:** the matrix was originally going to wrap each entry in its own top-level namespace (`preferences.*`, `terminalList.*`, …). Hickey + I together arrived at: wrap the whole thing under one `surface.*` key. That makes composition with hand-listed raw oRPC trivial — `oc.router({ ...surface.contract, terminal: rawTerminalRouter })` — and namespace collisions disappear by construction.
+## What the framework deliberately doesn't do
 
-**Pushed back on every override field.** The first cut had `channelName` / `storeKey` / `channelNames` / `verbs` / `namespace` per-entry escape hatches, in case Kolu's existing wire shape didn't match the framework's defaults. Two arguments killed those:
+Kolu is single-client per session. The framework doesn't carry plumbing it doesn't need:
 
-- _"I don't care for backwards compatibility in general."_ The framework owns one client; wire renames are free.
-- _"The whole point of improving cells is to avoid hand-typing."_ Every override is a place where domain code tells the framework what the framework should already know.
+- **No `Behavior`-style pull-only sampling.** Reflex's `Behavior t a` is a function `t -> a` you sample without subscribing. In a Solid client we have closures and `createMemo`; nothing the framework ships needs to model "value at time t" as a separate concept.
+- **No cross-network query machinery.** Reflex's `Group q` / `crop` / `SelectedCount` story (used in Obelisk / Focus) pays off when 100 clients are watching the same key. Single-client kolu doesn't have that problem; refcounting + crop projections would be plumbing without payback.
+- **No monadic Dynamic composition.** Reflex composes `Dynamic`s into bigger `Dynamic`s monadically (`bind`, `joinDyn`, `holdDyn`). We expose Solid's primitives (`createMemo`, `on`, `derive`) for that — the framework's job stops at the wire boundary.
+- **No one-primitive-fits-all.** Cell/Collection/Stream/Event are split because the type-level distinctions encode domain invariants the type system enforces. A `Stream` is read-only and never persisted; an `Event` has no current value to render; `Cell.default` is one canonical seed shared across consumers. Collapsing those would move invariants from compile-time enforcement to runtime convention.
 
-Drops: every channel-name override, every verb-name override. `confStore` keys preserved by **picking surface keys that match existing on-disk slots** (`activityFeed` matches `confStore("activityFeed")` already), no migration ladder needed. The framework derives every channel name strictly from the surface key.
+## Where it goes from here
 
-### The duality that survived a refactor and got caught anyway
+A few axes are visible but not built. The README's "Future directions" section keeps them alive as discussion targets:
 
-After Kolu was on `defineSurface` end-to-end with all 10 typed primitives, I noticed `packages/server/src/cells.ts` still existed: a parallel registry of `publisherChannel`s and `confStore`s, used by domain modules to publish *directly* without going through the surface. `activity.ts`'s `trackRecentRepo` was still doing `store.set("activityFeed", …) + cellBus.activityFeed.publish(getActivityFeed())` — a re-implementation of the framework's `applyAndPublish` chain, hand-rolled.
+- **Schema-walking for discriminated-union reconciliation.** Solid's `setStore` deep-merge can't preserve DU variant invariants without a per-path `reconcile` call, which forces consumers to pass a `mergeIntoStore` escape hatch. The framework could walk the cell's Zod schema once at registration, find every `z.discriminatedUnion` subtree, and reconcile those automatically. Kolu's only DU-shaped storage was already flattened (the right-panel `tab` field is now `activeTab` + `codeMode`), so the walker doesn't earn its keep yet.
+- **Derived streams** (`{ from, compute }` over a graph dep) — designed and built once, then deleted because neither Kolu nor the example needed it. The shape is genuinely the right design for server-derived primitives; it just doesn't have a use case yet. A second consumer with a server-side derivation requirement would resurrect it.
+- **Implicit dep tracking via Solid server-side.** The most ambitious axis: run Solid's reactive runtime on the server too, so a stream's `compute` body declares its inputs by reading them — same `createMemo` semantics, no `from:` prelude. That collapses the framework's surface area further but adds a runtime dep both sides have to agree on.
 
-`/talk`: _"Identify all this kind of smell where kolu has BACKDOORS without going through our new library."_
+For now: Cell, Collection, Stream, Event, Procedure. Five shapes the framework type-system-enforces, derived from one spec, snapshot+deltas on the wire, retry-resilient, opt-in. Kolu's domain code stops referencing channel names, store keys, retry contexts, or oRPC procedure refs.
 
-Lowy's review nailed it in one sentence:
+Use the framework when you're standing up a new app surface or migrating an existing one off hand-rolled streaming. The two-file invariant for adding a primitive — descriptor in common, wiring on the server — is the value proposition. Treat it as a regression in code review if the count creeps up.
 
-> The framework already builds the helpers we need. `cellsCtx[key].set` already does `store.set + bus.publish + onMutate` atomically — for procedure handlers. The gap is that `implementSurface` doesn't return it as a public value alongside the router.
-
-So the fix wasn't a new abstraction. It was **stop hiding what was already there.** Three changes:
-
-- `implementSurface` returns `{ router, ctx }`. ctx covers cells (`get`/`set`/`patch`), collections (`upsert`/`remove`/`readAll`/`readOne`), and events (`publish(input, payload)` to a framework-derived per-input channel).
-- Domain modules import `surfaceCtx` and use it directly. `activity.ts:88, 107` becomes one line. `session.ts:24-25` becomes one line.
-- `packages/server/src/cells.ts` deletes. `terminalChannels.metadata` and `terminalChannels.exit` delete from `publisher.ts` (framework-owned now). The only channels left in `publisher.ts` are genuinely-internal ones (`data`, `cwd`, `git`, `title`, `commandRun`).
-
-The bonus Lowy named: `onMutate` in `CellHandlerDeps` was **dead code** for any cell whose mutations originated in domain modules — the bypass skipped the framework's hooks. With ctx, every mutation flows through the same chain.
-
-**Net for Kolu:** zero string-typed channel names in any domain module. Rename a surface key and every wire / disk / publish path follows in lockstep. There's exactly one path from "mutate this cell" to "client sees update," and it's named.
-
-## Polish passes: rename, prune, and a feature that didn't ship
-
-After the framework was end-to-end functional, the next several
-sessions were polish — names, abstractions, and one feature I built
-then deleted.
-
-**The naming consolidation.** With the framework named `@kolu/surface`
-(originally `@kolu/cells`, before the realization that Cell is one of
-five primitives), every layer needed re-walking. `expose:` →
-`verbs:` (every comment already called them verbs). Collection's wire
-verb `update` → `upsert` (deps already used `upsert`; one less name
-per concept). `ChannelBus<T>` → `Channel<T>` — the suffix was
-disambiguator weight that the rest of the codebase no longer needed.
-`createCellsClient` retired from the public re-export path; consumers
-reach the typed RPC client via `surfaceClient(...).rpc`. None of these
-were big diffs; collectively they collapsed the API surface noticeably.
-The lesson here is just: **rename early or rename never.** Each Schema
-suffix that survived through the first pass (`CellSpec.schema`,
-`CollectionSpec.keySchema`) is still leftover in the codebase as I
-write this; the cost of fixing them is now proportional to
-"every consumer in Kolu." Names get expensive fast.
-
-**The bound collection API: default keys, lifecycle-free mutations.**
-The example was reaching for `app.rpc.surface.notes.keys` to wire up
-the keys stream that the bound `.use()` should have managed itself —
-five layers of `createRoot` + `createSubscription` + `streamCall` +
-the procedure ref + a default-empty memo, just to derive a value the
-framework already had. The fix: `keys` becomes optional on the bound
-`.use()`, defaulting to a framework-managed subscription on
-`surface.<key>.keys`. Same for mutations: `notes.upsert` /
-`notes.delete` now live both on the `.use()` result (ergonomic
-in-component closures) and at the top-level `BoundCollection`
-(lifecycle-free call sites). The example's app code dropped 8 lines
-of plumbing; the consumer never reaches across the bound layer for
-ordinary verbs anymore.
-
-**The package barrel that wasn't.** `packages/common/src/index.ts`
-had grown to 460 lines mixing surface schemas, raw-oRPC procedure
-schemas, integration re-exports, UI enums, and HTML helpers — six
-unrelated jobs. The dismantle: surface-bound schemas + types moved to
-`common/surface.ts` (now the single source of truth via
-`SurfaceTypes`); raw-oRPC procedure schemas moved alongside the
-contract literal in `common/contract.ts`; UI enums folded in next to
-their consumer. The barrel deleted entirely. **A code-police rule
-landed alongside it:** modules whose entire body is `export … from
-"another-package"` shouldn't exist — consumers go to the source.
-`integrations.ts` and `pr.ts` were exactly that anti-pattern; both
-deleted. The rule is now in `.agency/code-police.md`.
-
-**The feature I built, then didn't ship.** I'd noticed the example's
-search stream was ~35 lines of `pollOnEvent` plumbing. Designed a
-"derived stream" primitive — `streams.search.compute({ query, notes
-}) => …` with `from: { notes: surface.descriptors.collections.notes
-}` declaring the dep graph. Built the whole thing: `DescriptorRef`
-type, `runComputedStream` reactive runtime, discriminated
-`StreamImplDeps`, unit tests, README "Future directions" section.
-Workspace typecheck clean.
-
-Then we talked through where derive should run (server) and what the
-search example actually needs. Realization: **for the example,
-search-on-client is the right design.** The notes data is already on
-the client (it's subscribed via the notes collection). Filtering
-locally with a `createMemo` is zero wire roundtrip per keystroke;
-shipping the query to the server, recomputing there, sending matches
-back is the textbook wrong tradeoff for in-memory data.
-
-I checked Kolu's code-browser search — same pattern: `FileSearchInput`
-+ Pierre's tree library do client-side filtering over a file list
-that's already streamed once. No Kolu use case for the new feature
-either. So I deleted everything: the runtime, the spec types, the
-tests, the README section. The example's search became a one-shot
-stream that just yields once per query — `useStream` re-subscribes on
-input change, server runs the source once, done.
-
-**Lesson:** structural correctness isn't sufficient. The
-`{from, compute}` shape is genuinely the right design for
-server-derived primitives. But "the right design for derived
-primitives" is the wrong question if your example doesn't have one.
-The example exists to be a tractable substrate for iterating on the
-framework — if a feature doesn't earn its keep in the example, it
-isn't earning its keep in the framework either. Keep the discussion
-in the README's "Future directions" section as a north star
-(implicit dep tracking via Solid server-side, suffix-free schema
-naming, incremental collections); ship none of it until a use case
-forces the question.
-
-## What I'm carrying into future sessions
-
-**Reviewers see local defects, not missing seams.** Hickey looks for braiding. Lowy looks for volatility-axis misalignment. Neither lens, as currently tuned, looks at code that isn't there. A framework-shaped negative space is a Layer-0 question — _is the diff at the right altitude?_ — that neither lens reaches. I want a third lens, or a meta-pass on the first two, that asks _"is this pattern across N call sites itself the artifact?"_ Not sure yet how to sharpen that into a skill prompt. It might be a Lowy extension — _"electricity audit: what would you extract as utility before you'd accept any of these per-call-site fixes?"_
-
-**Talk-mode design + `/do --review` is the right beat.** Hand-spec'd primitives in `/talk`, then `/do --review` to pause for plan approval, then implement-then-review-the-diff. The first sketch (in talk) catches design-level structure. The post-implement review (on the actual diff) catches the per-callsite specifics. Both passes earn their cost; neither subsumes the other. Reflex came in via `/talk` and changed the framework shape — that's exactly the use case talk-mode exists for.
-
-**Type-level enforcement of domain invariants is a real argument against collapse.** I came into the reflex-comparison turn expecting the simplification ("three primitives can collapse to two") to win. Both reviewers landed the same finding from different angles: collapsing trades compile-time enforcement for documentation. That's a real cost. **Concept count isn't the metric — invariant strength is.** Worth carrying.
-
-**Reviewers occasionally argue *for* the wrong wrapper.** During the override-field pruning, Hickey leaned mildly toward keeping a few of them ("type-level enforcement of the verb subset"). The right answer was the user-shaped one: the framework has one consumer, backcompat isn't a constraint, every override is a place where domain code knows something the framework should know. The reviewers are good at shape; they have less leverage on what counts as a real constraint vs. a false one. **The user is the constraint oracle.**
-
-**Iteration runs faster than I expected.** Across this session: PR #805 went from "first commit" to "all-systems-CI-green" in 16 commits, then sealing went from "leak identified" to "all-systems-CI-green" in 11 more, then Event in 2, then the example in 4, then the matrix-to-surface rename + override pruning + Kolu migration in 6, then the backdoor elimination in 1. Each phase had hickey / lowy / police passes per the [/do](https://github.com/srid/agency/blob/master/skills/do/SKILL.md) workflow. I babysat less than I expected — most of the babysitting was at design altitude (the missing seams, the surviving backdoors), not at code altitude.
-
-**The framework's volatility boundary kept shrinking.** Each iteration moved more knowledge inside the framework: contract literal → `defineSurface` spec; per-cell handler wiring → `implementSurface`; per-call hook args → `surfaceClient` bundle; per-mutation publish duality → `surfaceCtx`. The framework absorbs another axis each turn. The signal that it's at the right level: domain code stops referencing channel names, store keys, retry contexts, oRPC procedure refs — all gone. What's left in `activity.ts` / `session.ts` / etc. is _just_ the domain logic.
-
-The post will keep growing. The framework will too.
+[`@kolu/surface` source](https://github.com/juspay/kolu/tree/master/packages/surface) · [the runnable example](https://github.com/juspay/kolu/tree/master/packages/surface/example) · [Kolu's surface declaration](https://github.com/juspay/kolu/blob/master/packages/common/src/surface.ts)
