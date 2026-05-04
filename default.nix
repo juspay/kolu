@@ -20,6 +20,7 @@ let
       ./pnpm-lock.yaml
       ./tsconfig.base.json
       ./packages/surface
+      ./packages/solid-pierre
       ./packages/common
       ./packages/integrations
       ./packages/nonempty
