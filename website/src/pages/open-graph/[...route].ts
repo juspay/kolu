@@ -33,6 +33,13 @@ const pages: Record<string, { title: string; description: string }> = {
   ),
 };
 
+// Local Noto Sans TTF — astro-og-canvas's default loader fetches
+// `https://api.fontsource.org/.../noto-sans/...ttf` at build time,
+// which fails inside the Nix sandbox (no network). Bundling a TTF
+// keeps the build hermetic. The TTF lives at `public/fonts/` so it's
+// also addressable as a static asset; the path here is project-rooted.
+const NOTO_SANS = "./public/fonts/NotoSans.ttf";
+
 export const { getStaticPaths, GET } = await OGImageRoute({
   param: "route",
   pages,
@@ -45,18 +52,21 @@ export const { getStaticPaths, GET } = await OGImageRoute({
     ],
     border: { color: [231, 184, 122], width: 8, side: "inline-start" },
     padding: 80,
+    fonts: [NOTO_SANS],
     font: {
       title: {
         color: [232, 229, 221],
         size: 64,
         weight: "Medium",
         lineHeight: 1.15,
+        families: ["Noto Sans"],
       },
       description: {
         color: [169, 165, 154],
         size: 28,
         weight: "Normal",
         lineHeight: 1.5,
+        families: ["Noto Sans"],
       },
     },
   }),
