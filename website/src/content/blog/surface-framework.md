@@ -11,7 +11,7 @@ It was extracted from [Kolu](https://kolu.dev) and now ships as a workspace-priv
 
 ## Why: electricity
 
-In [_Righting Software_](https://www.amazon.com/Righting-Software-Method-Engineering-Architecture/dp/0136524036), Juval Löwy argues that infrastructure should feel like the **electricity** in a building: invisible, ubiquitous, plugged into via simple sockets. Domain code is the appliance you swap. The wiring stays put. **Volatility-based decomposition** is the discipline of deciding which is which.
+In [_Righting Software_](https://www.amazon.com/Righting-Software-Method-Engineering-Architecture/dp/0136524036), Juval Löwy argues that infrastructure should feel like the **electricity** in a building: invisible, ubiquitous, plugged into via simple sockets. Domain code is the appliance you swap. The wiring stays put. **Volatility-based decomposition** is the discipline of deciding which is which. (The analogy is also developed in the [InformIT excerpt](https://www.informit.com/articles/article.aspx?p=2995357&seqNum=2) of Chapter 2 if you want a free read.)
 
 Kolu's client had a dozen call sites doing the same thing: subscribe to an oRPC streaming RPC, lift the AsyncIterable into a Solid `Accessor`, reconcile new values into a local store, dispatch errors to a toast. Its server had the mirror image: hand-rolled `yield current; for await (ev of subscribeSystem(...)) yield ev` loops in every streaming handler, plus the parallel `publishSystem("X:changed", value)` write path threaded through every domain mutation.
 
