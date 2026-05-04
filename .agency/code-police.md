@@ -172,6 +172,51 @@ log?.info({ dir }, "claude-code: dir watcher installed");
 log?.info({ dir }, "claude-code: dir watcher retired");
 ```
 
+### silent-handler-required-on-void-subscriptions
+
+When a hook or subscription primitive returns `void` (no `Subscription<T>` / `error()` accessor / `Result<T,E>` exposed in the result type), its error handler must be **required** at the type level — not optional. A void-returning subscription with optional `onError` silently swallows lifecycle failures: the source dies, the consumer never re-fires, no UI surface, no console warning, nothing.
+
+Bad:
+```ts
+function useEvent(...): void {
+  // catch (err) { if (options?.onError) options.onError(...); }
+}
+```
+
+Good:
+```ts
+function useEvent(..., options: { onError: (err) => void; ... }): void {
+  // catch (err) { options.onError(...); }
+}
+```
+
+_Rationale_: a hook returning `Subscription<T>` with `.error()` lets consumers read the error reactively and render it — optional `onError` is fine there. Void return with no error surface in the result type is a category mismatch; the type system has to require the handler or the failure is invisible by construction. Codified after `useEvent.onError` and `pollOnEvent.onReadError` were tightened to required in `@kolu/surface`.
+
+### migration-shape-guard
+
+A `Conf` (or analogous schema) migration that acts on a specific value shape must early-return when the on-disk shape doesn't match its preconditions. Never write transient orphan fields that subsequent migrations are expected to destructure-out.
+
+Bad:
+```ts
+"1.8.0": (store) => {
+  const tab = rp.tab;
+  // fires on undefined too — adds a `tab` orphan to the new flat shape
+  const stale = tab !== "inspector" && tab !== "review";
+  if (stale) store.set(..., { rightPanel: { ...rp, tab: "inspector" } });
+}
+```
+
+Good:
+```ts
+"1.8.0": (store) => {
+  if (typeof rp.tab !== "string") return;  // skip shapes this migration doesn't recognize
+  const stale = rp.tab !== "inspector" && rp.tab !== "review";
+  if (stale) store.set(..., { rightPanel: { ...rp, tab: "inspector" } });
+}
+```
+
+_Rationale_: a migration that writes orphans assuming a downstream migration will clean them up couples migrations to each other — one can't be removed without breaking the next, and a fresh-install ladder accumulates write-then-strip cycles. The shape guard makes each migration idempotent on shapes it doesn't recognize. Caught when 1.13.0 destructured `codeMode` (a real new-schema field) alongside a `tab` orphan that 1.8.0 had spuriously written for fresh installs.
+
 ### icons-in-registry
 
 All SVG icons must be defined as named exports in `packages/client/src/ui/Icons.tsx`. Never inline SVG markup in component files.

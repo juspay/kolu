@@ -2,6 +2,14 @@
 
 Project-declared areas of volatility used by the `lowy` review — read by `lowy` from this file (`.agency/lowy.md`) when it runs.
 
+## Layer-0 prompt: pattern-as-artifact
+
+Before evaluating boundaries within a diff, ask: **is the diff at the right altitude?** Specifically — is the *pattern* across N call sites itself the artifact that should be encapsulated, rather than the per-call-site cleanup the diff is currently proposing?
+
+Hickey catches local complecting; this list catches local volatility-axis misalignment. Neither lens, as currently tuned, asks the meta-question of whether the pattern under review is a missing seam rather than a present problem. A diff that touches 12 call sites, each of which is locally clean and locally correct, can still be the wrong diff if those 12 call sites are running the same cassette of plumbing the framework should own.
+
+When a review surfaces "this is the same shape every time" across consumers, treat that as a Layer-0 finding and recommend extraction *before* per-call-site fixes. The post-extraction diff usually deletes more lines than it adds, and the consumers it leaves behind are smaller than the ones it found.
+
 ## Areas of Volatility
 
 Surviving candidates from Kolu's own variable-vs-volatile screen. Each row names a volatility that has already shifted in this codebase and has a concrete encapsulation target. Rows are not findings — `/lowy` re-applies Lowy's bar (what + why + risk × likelihood × effect) and audits whether the boundaries under review actually encapsulate these, rather than leaking them into consumers.
