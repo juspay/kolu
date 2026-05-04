@@ -98,6 +98,12 @@ export const FileTree: Component<FileTreeProps> = (props) => {
           const p = paths[0] ?? null;
           if (p !== null && !fileSet().has(p)) return;
           props.onSelect?.(p);
+          // Pierre clears its internal search after row selection; when the
+          // host owns searchQuery, re-apply it after Pierre finishes the click.
+          queueMicrotask(() => {
+            const q = untrack(() => props.searchQuery);
+            if (q && q.length > 0) tree?.setSearch(q);
+          });
         },
       });
       tree.render({ containerWrapper: container });

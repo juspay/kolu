@@ -22,6 +22,7 @@ import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 const TREE = '[data-testid="pierre-file-tree"]';
 const DIFF_VIEW = '[data-testid="pierre-diff-view"]';
 const FILE_VIEW = '[data-testid="pierre-file-view"]';
+const FILTER_SEARCH = '[data-testid="diff-filter-search"]';
 
 function fileRow(path: string): string {
   return `${TREE} [data-item-path="${path}"][data-item-type="file"]:not([data-file-tree-sticky-row])`;
@@ -71,6 +72,16 @@ When(
     const opt = this.page.locator(`[data-testid="diff-mode-${mode}"]`);
     await opt.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     await opt.click();
+    await this.waitForFrame();
+  },
+);
+
+When(
+  "I type {string} into the Code tab filter",
+  async function (this: KoluWorld, value: string) {
+    const input = this.page.locator(FILTER_SEARCH);
+    await input.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await input.fill(value);
     await this.waitForFrame();
   },
 );
@@ -244,6 +255,20 @@ Then(
     // `processLine` (see @pierre/diffs/utils/processLine).
     const row = this.page.locator(`${DIFF_VIEW} [data-line]`).first();
     await row.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+Then(
+  "the Code tab filter input should contain {string}",
+  async function (this: KoluWorld, value: string) {
+    const input = this.page.locator(FILTER_SEARCH);
+    await input.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const actual = await input.inputValue();
+    if (actual !== value) {
+      throw new Error(
+        `Expected Code tab filter to contain "${value}", got "${actual}"`,
+      );
+    }
   },
 );
 

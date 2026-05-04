@@ -61,6 +61,27 @@ Feature: Code tab (review + browse)
     When I click the changed file "note.txt" in the Code tab
     Then the Code tab should render a diff view
 
+  Scenario: Filter survives clicking a filtered result
+    When I run "git init /tmp/kolu-filter-survive && cd /tmp/kolu-filter-survive"
+    And I run "git commit --allow-empty -m init"
+    And I run "printf 'a\n' > alpha.txt"
+    And I run "printf 'b\n' > beta.txt"
+    And I run "printf 'g\n' > gamma.txt"
+    And I click the Code tab
+    Then the Code tab should list a changed file "alpha.txt"
+    And the Code tab should list a changed file "beta.txt"
+    And the Code tab should list a changed file "gamma.txt"
+    When I type "alp" into the Code tab filter
+    Then the Code tab should list a changed file "alpha.txt"
+    And the Code tab should not list a changed file "beta.txt"
+    And the Code tab should not list a changed file "gamma.txt"
+    When I click the changed file "alpha.txt" in the Code tab
+    Then the Code tab should render a diff view
+    And the Code tab filter input should contain "alp"
+    And the Code tab should list a changed file "alpha.txt"
+    And the Code tab should not list a changed file "beta.txt"
+    And the Code tab should not list a changed file "gamma.txt"
+
   Scenario: Untracked files appear alongside modified tracked files
     When I run "git init /tmp/kolu-review-untracked && cd /tmp/kolu-review-untracked"
     And I run "git commit --allow-empty -m init"
