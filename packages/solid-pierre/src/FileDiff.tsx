@@ -21,6 +21,7 @@ import {
   onCleanup,
   onMount,
 } from "solid-js";
+import { toError } from "./toError";
 
 export type FileDiffProps = {
   /** Raw per-file unified diff (with `--- / +++ / @@` headers). */
@@ -62,7 +63,7 @@ const FileDiff: Component<FileDiffProps> = (props) => {
         fileDiff: parseFirstFile(raw),
       });
     } catch (e) {
-      props.onError(e instanceof Error ? e : new Error(String(e)));
+      props.onError(toError(e));
     }
   };
 
@@ -79,7 +80,7 @@ const FileDiff: Component<FileDiffProps> = (props) => {
       });
       safeRender(props.rawDiff);
     } catch (e) {
-      props.onError(e instanceof Error ? e : new Error(String(e)));
+      props.onError(toError(e));
     }
   });
 
@@ -98,7 +99,7 @@ const FileDiff: Component<FileDiffProps> = (props) => {
         try {
           instance?.setThemeType(t);
         } catch (e) {
-          props.onError(e instanceof Error ? e : new Error(String(e)));
+          props.onError(toError(e));
         }
       },
       { defer: true },

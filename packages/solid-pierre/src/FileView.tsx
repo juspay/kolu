@@ -20,6 +20,7 @@ import {
   onCleanup,
   onMount,
 } from "solid-js";
+import { toError } from "./toError";
 
 export type FileViewProps = {
   /** Display name (drives language inference for syntax highlighting). */
@@ -56,7 +57,7 @@ const FileView: Component<FileViewProps> = (props) => {
     try {
       instance.render({ containerWrapper: container, file });
     } catch (e) {
-      props.onError(e instanceof Error ? e : new Error(String(e)));
+      props.onError(toError(e));
     }
   };
 
@@ -70,7 +71,7 @@ const FileView: Component<FileViewProps> = (props) => {
       });
       safeRender(fileContents());
     } catch (e) {
-      props.onError(e instanceof Error ? e : new Error(String(e)));
+      props.onError(toError(e));
     }
   });
 
@@ -83,7 +84,7 @@ const FileView: Component<FileViewProps> = (props) => {
         try {
           instance?.setThemeType(t);
         } catch (e) {
-          props.onError(e instanceof Error ? e : new Error(String(e)));
+          props.onError(toError(e));
         }
       },
       { defer: true },

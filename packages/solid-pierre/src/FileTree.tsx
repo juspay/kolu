@@ -23,6 +23,7 @@ import {
   onMount,
   untrack,
 } from "solid-js";
+import { toError } from "./toError";
 
 type FileTreeOptions = ConstructorParameters<typeof FileTreeClass>[0];
 type Composition = NonNullable<FileTreeOptions["composition"]>;
@@ -113,7 +114,7 @@ export const FileTree: Component<FileTreeProps> = (props) => {
         tree.setSearch(initialQuery);
       }
     } catch (e) {
-      props.onError(e instanceof Error ? e : new Error(String(e)));
+      props.onError(toError(e));
     }
   });
 
@@ -124,7 +125,7 @@ export const FileTree: Component<FileTreeProps> = (props) => {
         try {
           tree?.resetPaths(paths);
         } catch (e) {
-          props.onError(e instanceof Error ? e : new Error(String(e)));
+          props.onError(toError(e));
         }
       },
       { defer: true },
@@ -138,7 +139,7 @@ export const FileTree: Component<FileTreeProps> = (props) => {
         try {
           tree?.setGitStatus(g);
         } catch (e) {
-          props.onError(e instanceof Error ? e : new Error(String(e)));
+          props.onError(toError(e));
         }
       },
       { defer: true },
@@ -152,7 +153,7 @@ export const FileTree: Component<FileTreeProps> = (props) => {
         try {
           tree?.setSearch(q && q.length > 0 ? q : null);
         } catch (e) {
-          props.onError(e instanceof Error ? e : new Error(String(e)));
+          props.onError(toError(e));
         }
       },
       { defer: true },
