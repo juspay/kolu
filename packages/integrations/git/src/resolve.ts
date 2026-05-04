@@ -145,44 +145,69 @@ export function subscribeGitInfo(
   onChange: (info: GitInfo | null) => void,
   log?: Logger,
 ): { setCwd(next: string): void; stop(): void } {
+  type GitWatchMode = "probing" | "repo" | "non-repo";
+
   let currentCwd = initialCwd;
   let currentInfo: GitInfo | null = null;
-  let stopHead = watchGitHead(currentCwd, handleHeadChange, log);
-  let stopGitEntry = watchGitEntry(currentCwd, handleGitEntryChange, log);
+  let watchedCwd: string | null = null;
+  let watchMode: GitWatchMode | null = null;
+  let stopHead: () => void = () => {};
+  let stopGitEntry: () => void = () => {};
 
   function handleHeadChange(): void {
     void resolve();
   }
 
   function handleGitEntryChange(): void {
-    if (currentInfo !== null || !hasGitDir(currentCwd)) return;
-    stopHead();
-    stopHead = watchGitHead(currentCwd, handleHeadChange, log);
+    if (!hasGitDir(currentCwd)) return;
+    syncWatchers("probing");
     void resolve();
   }
 
-  function resetGitEntryWatcher(): void {
-    stopGitEntry();
-    stopGitEntry =
-      currentInfo === null
-        ? watchGitEntry(currentCwd, handleGitEntryChange, log)
-        : () => {};
+  function syncWatchers(nextMode: GitWatchMode): void {
+    const cwdChanged = watchedCwd !== currentCwd;
+    const headWasActive = watchMode !== null && watchMode !== "non-repo";
+    const entryWasActive = watchMode !== null && watchMode !== "repo";
+    const headWanted = nextMode !== "non-repo";
+    const entryWanted = nextMode !== "repo";
+
+    if ((headWasActive && !headWanted) || (headWasActive && cwdChanged)) {
+      stopHead();
+      stopHead = () => {};
+    }
+    if ((entryWasActive && !entryWanted) || (entryWasActive && cwdChanged)) {
+      stopGitEntry();
+      stopGitEntry = () => {};
+    }
+    if (headWanted && (!headWasActive || cwdChanged)) {
+      stopHead = watchGitHead(currentCwd, handleHeadChange, log);
+    }
+    if (entryWanted && (!entryWasActive || cwdChanged)) {
+      stopGitEntry = watchGitEntry(currentCwd, handleGitEntryChange, log);
+    }
+
+    watchedCwd = currentCwd;
+    watchMode = nextMode;
   }
 
   async function resolve(): Promise<void> {
-    const result = await resolveGitInfo(currentCwd, log);
+    const resolvedCwd = currentCwd;
+    const result = await resolveGitInfo(resolvedCwd, log);
+    if (resolvedCwd !== currentCwd) return;
     const next: GitInfo | null = result.ok ? result.value : null;
+    syncWatchers(next === null ? "non-repo" : "repo");
     if (!result.ok && result.error.code !== "NOT_A_REPO") {
       log?.error(
-        { code: result.error.code, cwd: currentCwd },
+        { code: result.error.code, cwd: resolvedCwd },
         "git resolution failed",
       );
     }
     if (gitInfoEqual(next, currentInfo)) return;
     currentInfo = next;
-    resetGitEntryWatcher();
     onChange(next);
   }
+
+  syncWatchers("probing");
 
   // Initial resolve — covers repos that exist at subscribe time.
   void resolve();
@@ -195,17 +220,14 @@ export function subscribeGitInfo(
         // a repo and `.git` has since appeared (e.g. `git init`). The
         // existing `stopHead` is a no-op (install failed for a non-git dir),
         // so re-install here so the new repo's HEAD changes propagate.
-        if (currentInfo === null && hasGitDir(next)) {
-          stopHead();
-          stopHead = watchGitHead(next, handleHeadChange, log);
+        if (watchMode !== "repo" && hasGitDir(next)) {
+          syncWatchers("probing");
           void resolve();
         }
         return;
       }
       currentCwd = next;
-      stopHead();
-      stopHead = watchGitHead(next, handleHeadChange, log);
-      resetGitEntryWatcher();
+      syncWatchers("probing");
       void resolve();
     },
     stop(): void {
