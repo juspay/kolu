@@ -151,6 +151,8 @@ export function subscribeGitInfo(
   let currentInfo: GitInfo | null = null;
   let watchedCwd: string | null = null;
   let watchMode: GitWatchMode | null = null;
+  let headActive = false;
+  let entryActive = false;
   let stopHead: () => void = () => {};
   let stopGitEntry: () => void = () => {};
 
@@ -166,24 +168,26 @@ export function subscribeGitInfo(
 
   function syncWatchers(nextMode: GitWatchMode): void {
     const cwdChanged = watchedCwd !== currentCwd;
-    const headWasActive = watchMode !== null && watchMode !== "non-repo";
-    const entryWasActive = watchMode !== null && watchMode !== "repo";
-    const headWanted = nextMode !== "non-repo";
+    const headWanted = nextMode !== "non-repo" && hasGitDir(currentCwd);
     const entryWanted = nextMode !== "repo";
 
-    if ((headWasActive && !headWanted) || (headWasActive && cwdChanged)) {
+    if ((headActive && !headWanted) || (headActive && cwdChanged)) {
       stopHead();
       stopHead = () => {};
+      headActive = false;
     }
-    if ((entryWasActive && !entryWanted) || (entryWasActive && cwdChanged)) {
+    if ((entryActive && !entryWanted) || (entryActive && cwdChanged)) {
       stopGitEntry();
       stopGitEntry = () => {};
+      entryActive = false;
     }
-    if (headWanted && (!headWasActive || cwdChanged)) {
+    if (headWanted && !headActive) {
       stopHead = watchGitHead(currentCwd, handleHeadChange, log);
+      headActive = true;
     }
-    if (entryWanted && (!entryWasActive || cwdChanged)) {
+    if (entryWanted && !entryActive) {
       stopGitEntry = watchGitEntry(currentCwd, handleGitEntryChange, log);
+      entryActive = true;
     }
 
     watchedCwd = currentCwd;
@@ -217,9 +221,7 @@ export function subscribeGitInfo(
       if (next === currentCwd) {
         // Same cwd — only act if the repo state might have changed from
         // outside. Today that's exactly one case: we thought this dir wasn't
-        // a repo and `.git` has since appeared (e.g. `git init`). The
-        // existing `stopHead` is a no-op (install failed for a non-git dir),
-        // so re-install here so the new repo's HEAD changes propagate.
+        // a repo and `.git` has since appeared (e.g. `git init`).
         if (watchMode !== "repo" && hasGitDir(next)) {
           syncWatchers("probing");
           void resolve();
@@ -233,6 +235,8 @@ export function subscribeGitInfo(
     stop(): void {
       stopHead();
       stopGitEntry();
+      headActive = false;
+      entryActive = false;
     },
   };
 }
