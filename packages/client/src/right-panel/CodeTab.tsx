@@ -29,10 +29,6 @@ import {
 import { toast } from "solid-sonner";
 import { useColorScheme } from "../settings/useColorScheme";
 import { app } from "../wire";
-import {
-  CodeContextMenu,
-  type CodeContextMenuController,
-} from "../ui/CodeContextMenu";
 import { FileBrowseIcon, FileDiffIcon, GitBranchIcon } from "../ui/Icons";
 import {
   renderTreeContextMenu,
@@ -43,8 +39,8 @@ import {
   pierreIconConfig,
   pierreTreesStyle,
 } from "../ui/pierreTheme";
-import { useLineSelection } from "../ui/useLineSelection";
 import BrowseFileView from "./BrowseFileView";
+import CodeMenuFrame from "./CodeMenuFrame";
 import FileSearchInput from "./FileSearchInput";
 import ModeChipPicker, { type ModeOption } from "./ModeChipPicker";
 import { useRightPanel } from "./useRightPanel";
@@ -338,23 +334,9 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
                       )}
                     </Match>
                     <Match when={diff()}>
-                      {(d) => {
-                        let menuCtrl: CodeContextMenuController | undefined;
-                        const selection = useLineSelection(() => path);
-                        return (
-                          <div
-                            // Attach contextmenu via addEventListener so
-                            // the host div doesn't carry interactive JSX
-                            // props — the inner Pierre canvas is the
-                            // actual interactive surface; the host is
-                            // layout only.
-                            ref={(el) =>
-                              el.addEventListener("contextmenu", (e) =>
-                                menuCtrl?.open(e),
-                              )
-                            }
-                            class="h-full w-full"
-                          >
+                      {(d) => (
+                        <CodeMenuFrame path={path}>
+                          {(selection) => (
                             <FileDiff
                               rawDiff={d().hunks[0] ?? ""}
                               theme={diffTheme()}
@@ -368,13 +350,9 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
                               class="h-full w-full overflow-auto"
                               style={pierreDiffsStyle}
                             />
-                            <CodeContextMenu
-                              getItems={selection.buildItems}
-                              ref={(c) => (menuCtrl = c)}
-                            />
-                          </div>
-                        );
-                      }}
+                          )}
+                        </CodeMenuFrame>
+                      )}
                     </Match>
                   </Switch>
                 </Match>

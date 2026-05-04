@@ -8,13 +8,9 @@
 import { FileView } from "@kolu/solid-pierre";
 import { type Component, Match, Show, Switch } from "solid-js";
 import { toast } from "solid-sonner";
-import {
-  CodeContextMenu,
-  type CodeContextMenuController,
-} from "../ui/CodeContextMenu";
 import { pierreDiffsStyle } from "../ui/pierreTheme";
-import { useLineSelection } from "../ui/useLineSelection";
 import { app } from "../wire";
+import CodeMenuFrame from "./CodeMenuFrame";
 
 export type BrowseFileViewProps = {
   repoPath: string;
@@ -29,9 +25,6 @@ const BrowseFileView: Component<BrowseFileViewProps> = (props) => {
       onError: (err) => toast.error(`File content stream: ${err.message}`),
     },
   );
-
-  let menuCtrl: CodeContextMenuController | undefined;
-  const selection = useLineSelection(() => props.filePath);
 
   return (
     <Switch fallback={<div class="px-2 py-1 text-fg-3/50">Loading…</div>}>
@@ -48,33 +41,22 @@ const BrowseFileView: Component<BrowseFileViewProps> = (props) => {
                 File truncated (exceeds 1 MB)
               </div>
             </Show>
-            <div
-              // Attach contextmenu via addEventListener so the host div
-              // doesn't carry interactive JSX props — the inner Pierre
-              // canvas is the actual interactive surface; the host is
-              // layout only.
-              ref={(el) =>
-                el.addEventListener("contextmenu", (e) => menuCtrl?.open(e))
-              }
-              class="h-full w-full"
-            >
-              <FileView
-                name={props.filePath}
-                contents={fc().content}
-                theme={props.theme}
-                enableLineSelection
-                onLineSelected={selection.handleSelect}
-                onError={(err) =>
-                  toast.error(`File render failed: ${err.message}`)
-                }
-                class="h-full w-full overflow-auto"
-                style={pierreDiffsStyle}
-              />
-              <CodeContextMenu
-                getItems={selection.buildItems}
-                ref={(c) => (menuCtrl = c)}
-              />
-            </div>
+            <CodeMenuFrame path={props.filePath}>
+              {(selection) => (
+                <FileView
+                  name={props.filePath}
+                  contents={fc().content}
+                  theme={props.theme}
+                  enableLineSelection
+                  onLineSelected={selection.handleSelect}
+                  onError={(err) =>
+                    toast.error(`File render failed: ${err.message}`)
+                  }
+                  class="h-full w-full overflow-auto"
+                  style={pierreDiffsStyle}
+                />
+              )}
+            </CodeMenuFrame>
           </>
         )}
       </Match>
