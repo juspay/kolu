@@ -15,7 +15,7 @@ In [_Righting Software_](https://www.amazon.com/Righting-Software-Method-Enginee
 
 Kolu's client had a dozen call sites doing the same thing: subscribe to an oRPC streaming RPC, lift the AsyncIterable into a Solid `Accessor`, reconcile new values into a local store, dispatch errors to a toast. Its server had the mirror image: hand-rolled `yield current; for await (ev of subscribeSystem(...)) yield ev` loops in every streaming handler, plus the parallel `publishSystem("X:changed", value)` write path threaded through every domain mutation.
 
-The pattern was obvious enough that I'd been writing it for months. It also turned out to have **no Kolu-specific decision in any of it.** The schema varied. The procedure name varied. The `(channel, payload type)` pair varied. Everything else — the snapshot-then-deltas frame ordering, the retry context, the publish-then-subscribe symmetry, the reconcile-vs-assign branch on the store write — was electricity.
+The pattern was obvious enough that I'd been writing it for weeks. It also turned out to have **no Kolu-specific decision in any of it.** The schema varied. The procedure name varied. The `(channel, payload type)` pair varied. Everything else — the snapshot-then-deltas frame ordering, the retry context, the publish-then-subscribe symmetry, the reconcile-vs-assign branch on the store write — was electricity.
 
 That's the bar for extraction: **what would I extract as utility before I'd accept any of these per-call-site fixes?** When the answer is "all of it," the question stops being _is this snippet clean?_ and becomes _is the snippet at the right altitude?_ The framework is the answer to the second question.
 
