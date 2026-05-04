@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
+  <!--
+    Open Graph / Twitter Card image (1200x630). Source SVG; render to PNG via:
+      `nix shell nixpkgs#librsvg -c rsvg-convert -w 1200 -h 630 -o og.png og.svg`
+
+    Brand: void background (#0a0a0a) with amber accent (#e7b87a / #f4cf97).
+    Composition mirrors the homepage hero (eyebrow + display title + dim mono).
+    Terminal-frame motif at the top reinforces "terminal-native".
+  -->
+  <defs>
+    <linearGradient id="vignette" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#121110" stop-opacity="0.6"/>
+      <stop offset="60%" stop-color="#0a0a0a" stop-opacity="0"/>
+    </linearGradient>
+    <pattern id="dots" x="0" y="0" width="40" height="40" patternUnits="userSpaceOnUse">
+      <circle cx="1" cy="1" r="0.7" fill="#3a3832" fill-opacity="0.45"/>
+    </pattern>
+    <linearGradient id="amberFade" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#e7b87a" stop-opacity="0"/>
+      <stop offset="20%" stop-color="#e7b87a" stop-opacity="1"/>
+      <stop offset="80%" stop-color="#e7b87a" stop-opacity="1"/>
+      <stop offset="100%" stop-color="#e7b87a" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="630" fill="#0a0a0a"/>
+  <rect width="1200" height="630" fill="url(#dots)"/>
+  <rect width="1200" height="200" fill="url(#vignette)"/>
+
+  <!-- Terminal-frame motif: thin top bar with traffic lights -->
+  <line x1="0" y1="48" x2="1200" y2="48" stroke="#1f1d1a" stroke-width="1"/>
+  <circle cx="32" cy="24" r="6" fill="#3a3832"/>
+  <circle cx="56" cy="24" r="6" fill="#3a3832"/>
+  <circle cx="80" cy="24" r="6" fill="#3a3832"/>
+  <text x="600" y="30" text-anchor="middle" font-family="JetBrains Mono, ui-monospace, monospace" font-size="13" fill="#6f6b61" letter-spacing="2.4">
+    kolu.dev
+  </text>
+
+  <!-- Eyebrow -->
+  <text x="80" y="170" font-family="JetBrains Mono, ui-monospace, monospace" font-size="18" fill="#e7b87a" letter-spacing="4.8" font-weight="500">
+    AN AGENTIC DEVELOPMENT ENVIRONMENT
+  </text>
+
+  <!-- Display title — 3-line stack, generous breathing room -->
+  <text x="80" y="270" font-family="Fraunces, Georgia, 'Times New Roman', serif" font-size="80" fill="#e8e5dd" font-weight="500" letter-spacing="-1.5">
+    A terminal-native
+  </text>
+  <text x="80" y="355" font-family="Fraunces, Georgia, 'Times New Roman', serif" font-size="80" fill="#e8e5dd" font-weight="500" letter-spacing="-1.5">
+    cockpit <tspan fill="#e7b87a">for</tspan> coding
+  </text>
+  <text x="80" y="440" font-family="Fraunces, Georgia, 'Times New Roman', serif" font-size="80" fill="#e8e5dd" font-weight="500" letter-spacing="-1.5">
+    agents.
+  </text>
+
+  <!-- Amber rule between display + subtitle -->
+  <rect x="80" y="475" width="160" height="3" fill="url(#amberFade)"/>
+
+  <!-- Subtitle -->
+  <text x="80" y="520" font-family="ui-sans-serif, system-ui, sans-serif" font-size="22" fill="#a9a59a" font-weight="400">
+    Bring your own CLI. Run it anywhere.
+  </text>
+  <text x="80" y="553" font-family="ui-sans-serif, system-ui, sans-serif" font-size="22" fill="#a9a59a" font-weight="400">
+    claude, codex, opencode — all work the same way.
+  </text>
+
+  <!-- Bottom row: kolu.dev wordmark + mono license -->
+  <text x="80" y="595" font-family="JetBrains Mono, ui-monospace, monospace" font-size="20" fill="#e7b87a" font-weight="500" letter-spacing="1">
+    kolu.dev
+  </text>
+  <text x="1120" y="595" text-anchor="end" font-family="JetBrains Mono, ui-monospace, monospace" font-size="16" fill="#6f6b61" letter-spacing="2">
+    open source · agpl-3.0
+  </text>
+</svg>
