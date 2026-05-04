@@ -207,7 +207,7 @@ const _ACTIONS = {
   },
   toggleRightPanel: {
     label: "Toggle inspector panel",
-    keybind: { key: "b", code: "KeyB", mod: true },
+    keybind: { key: "b", code: "KeyB", mod: true, alt: true },
     handler: (ctx) => ctx.toggleRightPanel(),
   },
   toggleRecordingPause: {

@@ -1,5 +1,5 @@
 Feature: Right panel (inspector)
-  Collapsible right panel with metadata inspector, toggled via Cmd+B or header icon.
+  Collapsible right panel with metadata inspector, toggled via keyboard shortcut or header icon.
   Defaults to collapsed.
 
   Background:

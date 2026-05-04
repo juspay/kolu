@@ -109,6 +109,7 @@ describe("formatKeybind (non-mac)", () => {
     { kb: { key: "t", mod: true }, expected: "Ctrl+T" },
     { kb: { key: "Tab", ctrl: true }, expected: "Ctrl+Tab" },
     { kb: { key: "]", mod: true, shift: true }, expected: "Ctrl+Shift+]" },
+    { kb: { key: "b", mod: true, alt: true }, expected: "Ctrl+Alt+B" },
     { kb: { key: "t" }, expected: "T" },
     { kb: { key: "k", mod: true }, expected: "Ctrl+K" },
   ] as const)("formatKeybind → $expected", ({ kb, expected }) => {
@@ -127,6 +128,20 @@ describe("matchesAnyShortcut", () => {
     expect(matchesAnyShortcut(makeEvent({ key: "t", ctrlKey: true }))).toBe(
       true,
     );
+  });
+
+  it("does not capture Ctrl+B", () => {
+    expect(
+      matchesAnyShortcut(makeEvent({ key: "b", code: "KeyB", ctrlKey: true })),
+    ).toBe(false);
+  });
+
+  it("matches Ctrl+Alt+B (toggle inspector)", () => {
+    expect(
+      matchesAnyShortcut(
+        makeEvent({ key: "b", code: "KeyB", ctrlKey: true, altKey: true }),
+      ),
+    ).toBe(true);
   });
 
   it("does not match Ctrl/Cmd+Shift+C", () => {

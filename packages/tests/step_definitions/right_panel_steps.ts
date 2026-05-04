@@ -5,7 +5,7 @@ import { type KoluWorld, MOD_KEY, POLL_TIMEOUT } from "../support/world.ts";
 // ── Actions ──
 
 When("I press the toggle inspector shortcut", async function (this: KoluWorld) {
-  await this.page.keyboard.press(`${MOD_KEY}+b`);
+  await this.page.keyboard.press(`${MOD_KEY}+Alt+b`);
   await this.waitForFrame();
 });
 
