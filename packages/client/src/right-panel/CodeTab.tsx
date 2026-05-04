@@ -145,18 +145,21 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
 
   // Track membership rather than the treePaths array identity: browse paths
   // come from a reconciled store array whose contents can change in place.
-  // Treat an empty `treePaths` as "tree not yet loaded" — when the gitStatus
-  // stream resubscribes (e.g. on right-panel tab switch, since the inputFn
-  // returns a fresh object literal), `status()` briefly becomes undefined
-  // and `treePaths()` collapses to `[]`. Without this guard the effect
-  // would null `selectedPath` on every resubscribe, losing the user's
-  // selection across tab toggles.
+  // Gate on the relevant stream's `pending()` — when the gitStatus / fsList
+  // stream resubscribes (e.g. on right-panel tab switch, since its inputFn
+  // returns a fresh object literal), the value briefly resets to undefined
+  // and `treePaths()` collapses to `[]`. Treating that transient empty as
+  // "selected file is missing" would null `selectedPath` on every
+  // resubscribe and lose the selection across tab toggles. Once the stream
+  // has delivered (`!pending()`), an empty paths set IS authoritative —
+  // the file truly went away (commit cleared local diff, rm deleted it).
   createEffect(
     on(
       () => {
         const s = selectedPath();
+        const isPending = isDiffView() ? status.pending() : allPaths.pending();
         const paths = treePaths();
-        return [s, !s || paths.length === 0 || paths.includes(s)] as const;
+        return [s, !s || isPending || paths.includes(s)] as const;
       },
       ([path, pathExists]) => {
         if (path && !pathExists) setSelectedPath(null);
