@@ -117,9 +117,19 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
   // bleed across modes (e.g. a browse-mode pick showing up in diff mode).
   // Same reset clears the filename filter — the search needle was scoped
   // to the previous file set and rarely makes sense post-switch.
+  //
+  // The `on()` here is paired with a memoized key so it only fires when
+  // the (repoPath, view) tuple actually CHANGES VALUE. Without the memo,
+  // SolidJS' `on(...)` re-runs its callback on every upstream signal tick
+  // — and the upstream `preferences` cell ticks on activity beyond just
+  // tab/repo changes (e.g. unrelated pref updates). Since the callback
+  // unconditionally nulls `selectedPath`, an unmemoed accessor wipes the
+  // user's selection on every preference tick — visible after #818 made
+  // CodeTab survive across right-panel tab toggles.
+  const resetKey = createMemo(() => `${repoPath() ?? ""}::${view()}`);
   createEffect(
     on(
-      [repoPath, view],
+      resetKey,
       () => {
         setSelectedPath(null);
         setSearchQuery("");
@@ -135,11 +145,18 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
 
   // Track membership rather than the treePaths array identity: browse paths
   // come from a reconciled store array whose contents can change in place.
+  // Treat an empty `treePaths` as "tree not yet loaded" — when the gitStatus
+  // stream resubscribes (e.g. on right-panel tab switch, since the inputFn
+  // returns a fresh object literal), `status()` briefly becomes undefined
+  // and `treePaths()` collapses to `[]`. Without this guard the effect
+  // would null `selectedPath` on every resubscribe, losing the user's
+  // selection across tab toggles.
   createEffect(
     on(
       () => {
         const s = selectedPath();
-        return [s, s ? treePaths().includes(s) : true] as const;
+        const paths = treePaths();
+        return [s, !s || paths.length === 0 || paths.includes(s)] as const;
       },
       ([path, pathExists]) => {
         if (path && !pathExists) setSelectedPath(null);
@@ -154,8 +171,14 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
   });
 
   const handleSelect = (path: string | null) => {
-    // Pierre emits null on deselect; keep our single-select toggle semantics.
-    setSelectedPath((prev) => (prev === path ? null : path));
+    // Pierre fires null in many situations beyond user intent — including
+    // `resetPaths` clearing its selection during stream resubscribe, and
+    // tear-down on unmount. The Code tab has no UX affordance for
+    // deselect (user switches selection by clicking another file), so
+    // ignore null and only honor explicit non-null selections. Keeping
+    // the previous signal value through Pierre's internal churn lets the
+    // selected file survive right-panel tab toggles (#818).
+    if (path !== null) setSelectedPath(path);
   };
 
   const treeError = (): Error | undefined =>

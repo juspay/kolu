@@ -44,8 +44,19 @@ Then("the right panel should be visible", async function (this: KoluWorld) {
 });
 
 Then("the right panel should not be visible", async function (this: KoluWorld) {
-  const panel = this.page.locator('[data-testid="right-panel"]');
-  await panel.waitFor({ state: "hidden", timeout: POLL_TIMEOUT });
+  // After the keep-mounted refactor (#818), the panel stays in the DOM but
+  // Resizable shrinks it to ~0 width when collapsed (a 1px `border-l` is
+  // all that remains, so Playwright's `state: "hidden"` would still see it
+  // as visible). Assert effective collapse via bounding-box width instead.
+  await this.page.waitForFunction(
+    () => {
+      const el = document.querySelector('[data-testid="right-panel"]');
+      if (!el) return true;
+      return (el as HTMLElement).getBoundingClientRect().width <= 1;
+    },
+    null,
+    { timeout: POLL_TIMEOUT },
+  );
 });
 
 Then(
