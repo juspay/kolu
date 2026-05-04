@@ -10,10 +10,10 @@
  * (`ModeChipPicker`) and filename input (`FileSearchInput`) — in one
  * row. Pierre's built-in tree-header search is disabled so the
  * `FileSearchInput` is the single source of filter state, forwarded
- * via `PierreFileTree.searchQuery`. Pierre's `@pierre/trees` owns the
- * tree layout/virtualization; `@pierre/diffs` owns diff parsing and
- * shiki highlighting. This component is just data flow + chrome. */
+ * via `FileTree.searchQuery`. `@kolu/solid-pierre` owns the imperative
+ * Pierre lifecycle; this component is just data flow + chrome. */
 
+import { FileDiff, FileTree } from "@kolu/solid-pierre";
 import type { GitDiffMode } from "kolu-git/schemas";
 import type { CodeTabView, TerminalMetadata } from "kolu-common/surface";
 import {
@@ -29,9 +29,21 @@ import {
 import { toast } from "solid-sonner";
 import { useColorScheme } from "../settings/useColorScheme";
 import { app } from "../wire";
+import {
+  CodeContextMenu,
+  type CodeContextMenuController,
+} from "../ui/CodeContextMenu";
 import { FileBrowseIcon, FileDiffIcon, GitBranchIcon } from "../ui/Icons";
-import PierreDiffView from "../ui/PierreDiffView";
-import PierreFileTree, { toGitStatusEntries } from "../ui/PierreFileTree";
+import {
+  renderTreeContextMenu,
+  toGitStatusEntries,
+} from "../ui/pierreAdapters";
+import {
+  pierreDiffsStyle,
+  pierreIconConfig,
+  pierreTreesStyle,
+} from "../ui/pierreTheme";
+import { useLineSelection } from "../ui/useLineSelection";
 import BrowseFileView from "./BrowseFileView";
 import FileSearchInput from "./FileSearchInput";
 import ModeChipPicker, { type ModeOption } from "./ModeChipPicker";
@@ -254,7 +266,7 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
                   </div>
                 }
               >
-                <PierreFileTree
+                <FileTree
                   paths={treePaths()}
                   gitStatus={treeGitStatus()}
                   selectedPath={selectedPath()}
@@ -262,6 +274,17 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
                   initialExpansion={isDiffView() ? "open" : "closed"}
                   search={false}
                   searchQuery={searchQuery()}
+                  icons={pierreIconConfig}
+                  contextMenu={{
+                    enabled: true,
+                    triggerMode: "both",
+                    render: renderTreeContextMenu,
+                  }}
+                  onError={(err) =>
+                    toast.error(`File tree render failed: ${err.message}`)
+                  }
+                  class="h-full w-full"
+                  style={pierreTreesStyle}
                 />
               </Show>
             </Match>
@@ -315,13 +338,43 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
                       )}
                     </Match>
                     <Match when={diff()}>
-                      {(d) => (
-                        <PierreDiffView
-                          path={path}
-                          rawDiff={d().hunks[0] ?? ""}
-                          theme={diffTheme()}
-                        />
-                      )}
+                      {(d) => {
+                        let menuCtrl: CodeContextMenuController | undefined;
+                        const selection = useLineSelection(() => path);
+                        return (
+                          <div
+                            // Attach contextmenu via addEventListener so
+                            // the host div doesn't carry interactive JSX
+                            // props — the inner Pierre canvas is the
+                            // actual interactive surface; the host is
+                            // layout only.
+                            ref={(el) =>
+                              el.addEventListener("contextmenu", (e) =>
+                                menuCtrl?.open(e),
+                              )
+                            }
+                            class="h-full w-full"
+                          >
+                            <FileDiff
+                              rawDiff={d().hunks[0] ?? ""}
+                              theme={diffTheme()}
+                              enableLineSelection
+                              onLineSelected={selection.handleSelect}
+                              onError={(err) =>
+                                toast.error(
+                                  `Diff render failed: ${err.message}`,
+                                )
+                              }
+                              class="h-full w-full overflow-auto"
+                              style={pierreDiffsStyle}
+                            />
+                            <CodeContextMenu
+                              getItems={selection.buildItems}
+                              ref={(c) => (menuCtrl = c)}
+                            />
+                          </div>
+                        );
+                      }}
                     </Match>
                   </Switch>
                 </Match>
