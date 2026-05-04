@@ -4,7 +4,7 @@
  *  failures can't escape into a blank pane. */
 
 export { FileTree } from "./FileTree";
-export type { FileTreeContextMenu, FileTreeProps } from "./FileTree";
+export type { FileTreeProps } from "./FileTree";
 export { FileDiff } from "./FileDiff";
 export type { FileDiffProps } from "./FileDiff";
 export { FileView } from "./FileView";

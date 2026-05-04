@@ -27,12 +27,7 @@ import { toError } from "./toError";
 
 type FileTreeOptions = ConstructorParameters<typeof FileTreeClass>[0];
 type Composition = NonNullable<FileTreeOptions["composition"]>;
-
-/** Pierre's typed contextmenu hook surfaced as a single prop. The inner
- *  shape is Pierre's — `{ enabled, triggerMode, render }` — so consumers
- *  can lean on Pierre's docs/types directly without a stringly-keyed
- *  escape hatch. */
-export type FileTreeContextMenu = NonNullable<Composition["contextMenu"]>;
+type FileTreeContextMenu = NonNullable<Composition["contextMenu"]>;
 
 export type FileTreeProps = {
   paths: string[];
