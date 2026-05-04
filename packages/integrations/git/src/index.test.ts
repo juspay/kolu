@@ -868,11 +868,11 @@ describe("subscribeGitInfo watcher churn", () => {
     // The bug: 2 HEAD installs + 1 retire on a single cd into a repo,
     // plus 1 retire on stop. The fix: 1 HEAD install on cd into the repo,
     // 1 HEAD retire on stop. The entry watcher is active only while the
-    // cwd is unresolved or non-git, and every entry install is retired.
+    // cwd has no `.git` entry, and every entry install is retired.
     expect(counter.headInstalls).toBe(1);
     expect(counter.headRetires).toBe(1);
-    expect(counter.entryInstalls).toBe(2);
-    expect(counter.entryRetires).toBe(2);
+    expect(counter.entryInstalls).toBe(1);
+    expect(counter.entryRetires).toBe(1);
   });
 
   it("git init in the current cwd installs the HEAD watcher exactly once", async () => {
@@ -1011,7 +1011,7 @@ describe("subscribeGitInfo watcher churn", () => {
     // Initial install on a + retire on transition + install on b + retire on stop.
     expect(counter.headInstalls).toBe(2);
     expect(counter.headRetires).toBe(2);
-    expect(counter.entryInstalls).toBe(2);
-    expect(counter.entryRetires).toBe(2);
+    expect(counter.entryInstalls).toBe(0);
+    expect(counter.entryRetires).toBe(0);
   });
 });

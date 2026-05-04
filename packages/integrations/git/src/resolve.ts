@@ -171,8 +171,9 @@ export function subscribeGitInfo(
 
   function syncWatchers(nextMode: GitWatchMode): void {
     const cwdChanged = watchedCwd !== currentCwd;
-    const headWanted = nextMode !== "non-repo" && hasGitDir(currentCwd);
-    const entryWanted = nextMode !== "repo";
+    const gitEntryExists = hasGitDir(currentCwd);
+    const headWanted = nextMode !== "non-repo" && gitEntryExists;
+    const entryWanted = nextMode !== "repo" && !gitEntryExists;
 
     if ((headActive && !headWanted) || (headActive && cwdChanged)) {
       stopHead();
