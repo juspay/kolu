@@ -1,6 +1,6 @@
 # @kolu/surface
 
-Typed reactive state cells for SolidJS clients backed by an oRPC streaming server.
+A small framework for typed reactive state in SolidJS clients backed by an oRPC streaming server. Declare the surface once; the framework derives the contract, wires the server, and binds the client hooks.
 
 Four primitives cover the majority of typed server-to-client signal a Solid client consumes:
 
@@ -51,7 +51,7 @@ See `## Surface` below and `packages/surface/example/` for a full end-to-end dem
 
 ## Architecture
 
-The library is intentionally non-magical: it does **not** auto-derive an oRPC contract via runtime reflection. TypeScript needs the contract literal at compile time for the typed client to work end-to-end. Consumers hand-list contract entries in their own `oc.router({...})` and pass the matching descriptor to the framework's helpers.
+The framework is intentionally non-magical: it does **not** auto-derive an oRPC contract via runtime reflection. TypeScript needs the contract literal at compile time for the typed client to work end-to-end. Consumers hand-list contract entries in their own `oc.router({...})` and pass the matching descriptor to the framework's helpers.
 
 (For surface-driven consumers, `surface.contract` *is* a literal at compile time — it's built statically from the spec by `defineSurface`. The contract is still hand-listed; the surface just reads each entry once instead of you typing it twice.)
 
