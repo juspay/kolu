@@ -366,3 +366,15 @@ Then(
     await waitForViewText(this, "pierre-diff-view", expected);
   },
 );
+
+// ── Right-panel tab switching ──
+
+When(
+  "I click the right panel tab {string}",
+  async function (this: KoluWorld, kind: string) {
+    const tab = this.page.locator(`[data-testid="right-panel-tab-${kind}"]`);
+    await tab.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await tab.click();
+    await this.waitForFrame();
+  },
+);

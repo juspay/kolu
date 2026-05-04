@@ -50,6 +50,37 @@ Feature: Code tab (review + browse)
     Then the right panel should be visible
     And the Code tab mode should be "browse"
 
+  # Regression for #818: collapsing and reopening the right panel used to
+  # unmount RightPanel via `<Show when={!collapsed()}>`, discarding
+  # CodeTab's selectedPath signal. Resizable already shrinks the panel to
+  # zero width on collapse — keeping it mounted preserves selection.
+  Scenario: Selected file survives panel collapse and reopen
+    When I run "git init /tmp/kolu-818-collapse && cd /tmp/kolu-818-collapse"
+    And I run "git commit --allow-empty -m init"
+    And I run "printf 'aaa\n' > a.txt"
+    And I click the Code tab
+    And I click the changed file "a.txt" in the Code tab
+    Then the diff view should contain "aaa"
+    When I press the toggle inspector shortcut
+    Then the right panel should not be visible
+    When I press the toggle inspector shortcut
+    Then the right panel should be visible
+    And the diff view should contain "aaa"
+
+  # Regression for #818: switching to Inspector and back used to unmount
+  # CodeTab via `match(activeTab())`, discarding selectedPath. Both tabs
+  # are now always rendered with `display:none` toggling visibility.
+  Scenario: Selected file survives Inspector tab switch
+    When I run "git init /tmp/kolu-818-tabs && cd /tmp/kolu-818-tabs"
+    And I run "git commit --allow-empty -m init"
+    And I run "printf 'aaa\n' > a.txt"
+    And I click the Code tab
+    And I click the changed file "a.txt" in the Code tab
+    Then the diff view should contain "aaa"
+    When I click the right panel tab "inspector"
+    And I click the right panel tab "code"
+    Then the diff view should contain "aaa"
+
   # ── Local mode: file list + diff rendering ──
 
   Scenario: Lists changed files and opens a diff on click

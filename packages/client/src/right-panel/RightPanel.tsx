@@ -4,7 +4,6 @@
 
 import type { RightPanelTabKind, TerminalMetadata } from "kolu-common/surface";
 import { type Component, For } from "solid-js";
-import { match } from "ts-pattern";
 import { CHROME_ICON_BUTTON_CLASS } from "../ui/chromeSpacing";
 import { ChevronRightIcon } from "../ui/Icons";
 import { ACTIVE_TERMINAL_ACCENT } from "./activeTerminalAccent";
@@ -77,17 +76,30 @@ const RightPanel: Component<{
           </button>
         </div>
       </div>
+      {/* Both tabs are always rendered; the inactive one is display:none.
+       *  Mounting both keeps each tab's local state (CodeTab's selected file,
+       *  Pierre's tree expansion, scroll position) alive across tab switches
+       *  — a `match()` swap would unmount the inactive sibling and discard
+       *  it. TAB_KINDS / TAB_LABEL above already give compile-time
+       *  exhaustiveness over RightPanelTabKind, so adding a new tab kind
+       *  fails to compile there before reaching this renderer. */}
       <div class="flex-1 min-h-0 overflow-hidden">
-        {match(rightPanel.activeTab())
-          .with({ kind: "inspector" }, () => (
-            <MetadataInspector
-              meta={props.meta}
-              themeName={props.themeName}
-              onThemeClick={props.onThemeClick}
-            />
-          ))
-          .with({ kind: "code" }, () => <CodeTab meta={props.meta} />)
-          .exhaustive()}
+        <div
+          class={
+            rightPanel.activeTab().kind === "inspector" ? "h-full" : "hidden"
+          }
+        >
+          <MetadataInspector
+            meta={props.meta}
+            themeName={props.themeName}
+            onThemeClick={props.onThemeClick}
+          />
+        </div>
+        <div
+          class={rightPanel.activeTab().kind === "code" ? "h-full" : "hidden"}
+        >
+          <CodeTab meta={props.meta} />
+        </div>
       </div>
     </div>
   );
