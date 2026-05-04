@@ -22,6 +22,7 @@ const minutesRead = remarkPluginFrontmatter?.minutesRead;
 <BaseLayout
   title={post.data.title}
   description={post.data.description}
+  ogImageRoute={`blog/${post.id}`}
   ogType="article"
   pubDate={post.data.pubDate}
   author={post.data.author}

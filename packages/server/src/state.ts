@@ -207,15 +207,15 @@ export const store = new Conf<PersistedState>({
       });
     },
     // RightPanelTab enum changed: "files" + "git" stubs collapsed into one "review" tab (#514).
-    // Coerce stale persisted values to "inspector" so zod validation at the RPC boundary holds.
-    // The on-disk shape at this point is the legacy flat-string `tab` —
-    // walked via Record<string, unknown> because the current schema no
-    // longer carries a `tab` field (1.20.0 flattened it).
+    // Only acts on the legacy flat-string `tab` shape. The 1.13.0
+    // migration converted that to a DU, and 1.20.0 flattened it again
+    // into `activeTab` + `codeMode` — neither of those shapes has a
+    // string `tab`, so the early-return skips them cleanly.
     "1.8.0": (store: Conf<PersistedState>) => {
       const current = store.get("preferences") as Record<string, unknown>;
       const rp = current.rightPanel as Record<string, unknown>;
-      const tab = rp.tab as string | undefined;
-      const staleTab = tab !== "inspector" && tab !== "review";
+      if (typeof rp.tab !== "string") return;
+      const staleTab = rp.tab !== "inspector" && rp.tab !== "review";
       if (staleTab) {
         store.set("preferences", {
           ...current,
@@ -223,15 +223,13 @@ export const store = new Conf<PersistedState>({
         } as unknown as Preferences);
       }
     },
-    // Tab renamed: "review" → "diff" (#514). The label is "Code Diff" to
-    // signal forge/VCS-agnostic intent. Anything other than "inspector" or
-    // "diff" coerces to "inspector". On-disk shape is still a flat string
-    // here (the DU was introduced in 1.13.0 and flattened back out in 1.20.0).
+    // Tab renamed: "review" → "diff" (#514). Same string-tab guard as
+    // 1.8.0 — only acts on the legacy flat-string shape.
     "1.9.0": (store: Conf<PersistedState>) => {
       const current = store.get("preferences") as Record<string, unknown>;
       const rp = current.rightPanel as Record<string, unknown>;
-      const tab = rp.tab as string | undefined;
-      const next = tab === "review" ? "diff" : tab;
+      if (typeof rp.tab !== "string") return;
+      const next = rp.tab === "review" ? "diff" : rp.tab;
       const valid = next === "inspector" || next === "diff";
       store.set("preferences", {
         ...current,
@@ -281,24 +279,18 @@ export const store = new Conf<PersistedState>({
         } as unknown as Preferences);
       }
     },
-    // rightPanel.tab reshaped into a discriminated union so illegal
-    // combinations ("inspector + codeMode") are unrepresentable. Old shape:
+    // rightPanel.tab string ("inspector" | "diff") → discriminated union.
     //   { tab: "inspector" | "diff" }
-    // New shape:
+    //   →
     //   { tab: { kind: "inspector" } | { kind: "code", mode: "local"|"branch"|"browse" } }
-    // Any transient flat `codeMode` field from an in-flight build of #576 is
-    // discarded — the mode now lives inside the `code` variant of the tab.
-    // Users on such a build with `codeMode: "branch"` or `"browse"` are
-    // reset to `"local"`; no release ever shipped that intermediate shape,
-    // and "local" matches the pre-#555 default so it's a safe fallback.
-    // The `typeof === "object"` guard is a belt-and-suspenders no-op for
-    // the already-migrated case (conf won't re-run this key once seen);
-    // `null` slips through and falls into the inspector default, which is
-    // the right recovery for a corrupt tab value.
+    // Only acts on the string shape. Skips already-migrated DU stores
+    // and the post-1.20.0 flat shape (no `tab` field at all). The
+    // `_codeMode` strip drops any transient flat field from an
+    // in-flight build of #576 — released versions never had it.
     "1.13.0": (store: Conf<PersistedState>) => {
       const current = store.get("preferences");
       const rp = current.rightPanel as Record<string, unknown>;
-      if (rp.tab !== null && typeof rp.tab === "object") return;
+      if (typeof rp.tab !== "string") return;
       const tab =
         rp.tab === "diff"
           ? { kind: "code" as const, mode: "local" as const }
@@ -385,20 +377,11 @@ export const store = new Conf<PersistedState>({
       untyped.delete("recentRepos");
       untyped.delete("recentAgents");
     },
-    // rightPanel.tab discriminated union flattened into `activeTab` +
-    // `codeMode` flat fields. Storage stays mergeable by Solid's setStore
-    // (no DU subtree to leak variant fields), and `codeMode` now persists
-    // across Inspector↔Code toggles instead of being thrown away on each
-    // switch. The DU view is reconstructed at consumption sites via
-    // `rightPanelView()`.
-    //
-    // Idempotent: tolerates any of three on-disk shapes — pre-1.13 flat
-    // string `tab`, the 1.13-introduced DU `{ kind, mode? }`, or this
-    // migration's own already-flat output. The legacy `tab` field is
-    // always stripped; `activeTab` and `codeMode` are recomputed from
-    // whichever shape was present (`activeTab`/`codeMode` win when set,
-    // since 1.13.0 stripped codeMode while writing a `tab` orphan that
-    // co-exists with the new fields on a freshly-defaulted store).
+    // rightPanel.tab DU → flat `activeTab` + `codeMode`. Storage stays
+    // mergeable by Solid's setStore (no DU subtree to leak variant
+    // fields); `codeMode` now persists across Inspector↔Code toggles.
+    // The DU view is reconstructed at consumption sites via
+    // `rightPanelView()`. Corrupt/missing tab degrades to inspector/local.
     "1.20.0": (store: Conf<PersistedState>) => {
       const current = store.get("preferences") as Record<string, unknown>;
       const rp = current.rightPanel as Record<string, unknown>;
@@ -406,12 +389,8 @@ export const store = new Conf<PersistedState>({
         | { kind: "inspector" }
         | { kind: "code"; mode: "local" | "branch" | "browse" }
         | undefined;
-      const activeTab =
-        (rp.activeTab as "inspector" | "code" | undefined) ??
-        (tab?.kind === "code" ? "code" : "inspector");
-      const codeMode =
-        (rp.codeMode as "local" | "branch" | "browse" | undefined) ??
-        (tab?.kind === "code" ? tab.mode : "local");
+      const activeTab = tab?.kind === "code" ? "code" : "inspector";
+      const codeMode = tab?.kind === "code" ? tab.mode : "local";
       const { tab: _tab, ...rest } = rp;
       store.set("preferences", {
         ...current,
