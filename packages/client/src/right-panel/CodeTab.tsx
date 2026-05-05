@@ -62,10 +62,14 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
   const rightPanel = useRightPanel();
   const [selectedPath, setSelectedPath] = createSignal<string | null>(null);
 
-  const view = (): CodeTabView => {
-    const tab = rightPanel.activeTab();
-    return tab.kind === "code" ? tab.mode : "local";
-  };
+  // Read `codeMode` directly rather than projecting it from `activeTab`.
+  // CodeTab now stays mounted across the Inspector tab toggle (#818); a
+  // projection-with-fallback (`activeTab.kind === "code" ? mode : "local"`)
+  // would flip `view()` from the persisted mode (e.g. `"browse"`) to the
+  // fallback `"local"` while Inspector is active, then back on return —
+  // a real value transition that fires the `resetKey` reset effect and
+  // wipes selection on every Inspector round-trip in non-local modes.
+  const view = rightPanel.codeMode;
   const setView = rightPanel.setCodeMode;
 
   const repoPath = () => props.meta?.git?.repoRoot ?? null;

@@ -81,6 +81,22 @@ Feature: Code tab (review + browse)
     And I click the right panel tab "code"
     Then the diff view should contain "aaa"
 
+  # Same #818 invariant in browse mode — exercises `allPaths.pending()`
+  # rather than `status.pending()` (the membership-check pending-gate
+  # branches between them at CodeTab.tsx). The diff-mode scenario above
+  # only covers the gitStatus stream path; this covers the fsListAll path.
+  Scenario: Selected file survives Inspector tab switch in browse mode
+    When I run "git init /tmp/kolu-818-tabs-browse && cd /tmp/kolu-818-tabs-browse"
+    And I run "printf 'aaa\n' > a.txt"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    And I click the file "a.txt" in the file browser
+    Then the file content should contain "aaa"
+    When I click the right panel tab "inspector"
+    And I click the right panel tab "code"
+    Then the file content should contain "aaa"
+
   # ── Local mode: file list + diff rendering ──
 
   Scenario: Lists changed files and opens a diff on click
