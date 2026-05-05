@@ -50,52 +50,61 @@ Feature: Code tab (review + browse)
     Then the right panel should be visible
     And the Code tab mode should be "browse"
 
-  # Regression for #818: collapsing and reopening the right panel used to
-  # unmount RightPanel via `<Show when={!collapsed()}>`, discarding
-  # CodeTab's selectedPath signal. Resizable already shrinks the panel to
-  # zero width on collapse — keeping it mounted preserves selection.
-  Scenario: Selected file survives panel collapse and reopen
-    When I run "git init /tmp/kolu-818-collapse && cd /tmp/kolu-818-collapse"
-    And I run "git commit --allow-empty -m init"
-    And I run "printf 'aaa\n' > a.txt"
-    And I click the Code tab
-    And I click the changed file "a.txt" in the Code tab
-    Then the diff view should contain "aaa"
+  # ── Regression suites for #817/#818 ──
+  # Each invariant runs in all three Code-tab modes (local, branch,
+  # browse) via `Scenario Outline` + an `Examples` row per mode. The
+  # mode-parameterized harness lives in `code_tab_steps.ts` (search for
+  # "Mode-parameterized helpers"):
+  #
+  #   Given a Code tab in "<mode>" mode showing file "..." with content "..."
+  #   When  I open file "..." in the Code tab
+  #   Then  the selected file should show content "..."
+  #   Then  the Code tab should [not] show file "..."
+  #
+  # The shell setup, mode-chip click, and view-vs-diff dispatch are all
+  # hidden behind these polymorphic steps. Adding a fourth Code-tab
+  # regression test means writing one Outline plus three Examples rows;
+  # the per-mode coverage is automatic. Don't fall back to hand-written
+  # `[local]` / `[branch]` / `[browse]` scenarios — that's how the
+  # `view()` `"local"` fallback bug shipped past the first round of
+  # tests.
+
+  # Regression for #818: collapsing and reopening the right panel used
+  # to unmount RightPanel via `<Show when={!collapsed()}>`, discarding
+  # CodeTab's selectedPath signal. Resizable already shrinks the panel
+  # to zero width on collapse — keeping it mounted preserves selection.
+  Scenario Outline: Selected file survives panel collapse and reopen [<mode>]
+    Given a Code tab in "<mode>" mode showing file "a.txt" with content "aaa"
+    When I open file "a.txt" in the Code tab
+    Then the selected file should show content "aaa"
     When I press the toggle inspector shortcut
     Then the right panel should not be visible
     When I press the toggle inspector shortcut
     Then the right panel should be visible
-    And the diff view should contain "aaa"
+    And the selected file should show content "aaa"
+
+    Examples:
+      | mode   |
+      | local  |
+      | branch |
+      | browse |
 
   # Regression for #818: switching to Inspector and back used to unmount
   # CodeTab via `match(activeTab())`, discarding selectedPath. Both tabs
   # are now always rendered with `display:none` toggling visibility.
-  Scenario: Selected file survives Inspector tab switch
-    When I run "git init /tmp/kolu-818-tabs && cd /tmp/kolu-818-tabs"
-    And I run "git commit --allow-empty -m init"
-    And I run "printf 'aaa\n' > a.txt"
-    And I click the Code tab
-    And I click the changed file "a.txt" in the Code tab
-    Then the diff view should contain "aaa"
+  Scenario Outline: Selected file survives Inspector tab switch [<mode>]
+    Given a Code tab in "<mode>" mode showing file "a.txt" with content "aaa"
+    When I open file "a.txt" in the Code tab
+    Then the selected file should show content "aaa"
     When I click the right panel tab "inspector"
     And I click the right panel tab "code"
-    Then the diff view should contain "aaa"
+    Then the selected file should show content "aaa"
 
-  # Same #818 invariant in browse mode — exercises `allPaths.pending()`
-  # rather than `status.pending()` (the membership-check pending-gate
-  # branches between them at CodeTab.tsx). The diff-mode scenario above
-  # only covers the gitStatus stream path; this covers the fsListAll path.
-  Scenario: Selected file survives Inspector tab switch in browse mode
-    When I run "git init /tmp/kolu-818-tabs-browse && cd /tmp/kolu-818-tabs-browse"
-    And I run "printf 'aaa\n' > a.txt"
-    And I run "git add . && git commit -m init"
-    And I click the Code tab
-    And I click the Code tab mode "browse"
-    And I click the file "a.txt" in the file browser
-    Then the file content should contain "aaa"
-    When I click the right panel tab "inspector"
-    And I click the right panel tab "code"
-    Then the file content should contain "aaa"
+    Examples:
+      | mode   |
+      | local  |
+      | branch |
+      | browse |
 
   # ── Local mode: file list + diff rendering ──
 
@@ -113,34 +122,38 @@ Feature: Code tab (review + browse)
   # @pierre/trees/dist/render/FileTreeView.js around the row-click plan,
   # where `closeSearch: isSearchOpen` is hardcoded). The solid-pierre
   # wrapper re-applies the host's `searchQuery` on the next microtask so
-  # the host-controlled filter survives clicks.
-  Scenario: Filter survives clicking a filtered result
-    When I run "git init /tmp/kolu-817-filter && cd /tmp/kolu-817-filter"
-    And I run "git commit --allow-empty -m init"
-    And I run "printf 'a\n' > alpha.txt"
-    And I run "printf 'b\n' > beta.txt"
-    And I run "printf 'g\n' > gamma.txt"
-    And I click the Code tab
-    Then the Code tab should list a changed file "alpha.txt"
-    And the Code tab should list a changed file "beta.txt"
+  # the host-controlled filter survives clicks. Re-click step covers
+  # Pierre's selectionVersion gate that suppresses `onSelectionChange`
+  # but still runs `closeSearch()`.
+  Scenario Outline: Filter survives clicking a filtered result [<mode>]
+    Given a Code tab in "<mode>" mode showing files:
+      | path      | content |
+      | alpha.txt | a       |
+      | beta.txt  | b       |
+      | gamma.txt | g       |
+    Then the Code tab should show file "alpha.txt"
+    And the Code tab should show file "beta.txt"
     When I type "alp" into the Code tab filter
-    Then the Code tab should list a changed file "alpha.txt"
-    And the Code tab should not list a changed file "beta.txt"
-    And the Code tab should not list a changed file "gamma.txt"
-    When I click the changed file "alpha.txt" in the Code tab
-    Then the Code tab should render a diff view
+    Then the Code tab should show file "alpha.txt"
+    And the Code tab should not show file "beta.txt"
+    And the Code tab should not show file "gamma.txt"
+    When I open file "alpha.txt" in the Code tab
+    Then the selected file should show content "a"
     And the Code tab filter input should contain "alp"
-    And the Code tab should list a changed file "alpha.txt"
-    And the Code tab should not list a changed file "beta.txt"
-    And the Code tab should not list a changed file "gamma.txt"
-    # Re-click the already-selected row: Pierre's selectionVersion gate
-    # suppresses `onSelectionChange` here, but `closeSearch()` still
-    # runs — the DOM-click hook in the wrapper catches this case.
-    When I click the changed file "alpha.txt" in the Code tab
+    And the Code tab should show file "alpha.txt"
+    And the Code tab should not show file "beta.txt"
+    And the Code tab should not show file "gamma.txt"
+    When I open file "alpha.txt" in the Code tab
     Then the Code tab filter input should contain "alp"
-    And the Code tab should list a changed file "alpha.txt"
-    And the Code tab should not list a changed file "beta.txt"
-    And the Code tab should not list a changed file "gamma.txt"
+    And the Code tab should show file "alpha.txt"
+    And the Code tab should not show file "beta.txt"
+    And the Code tab should not show file "gamma.txt"
+
+    Examples:
+      | mode   |
+      | local  |
+      | branch |
+      | browse |
 
   Scenario: Untracked files appear alongside modified tracked files
     When I run "git init /tmp/kolu-review-untracked && cd /tmp/kolu-review-untracked"

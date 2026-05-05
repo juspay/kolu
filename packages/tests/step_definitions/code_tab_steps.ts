@@ -1,4 +1,4 @@
-import { Then, When } from "@cucumber/cucumber";
+import { Given, Then, When } from "@cucumber/cucumber";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
 // ── Pierre tree selectors ──
@@ -403,6 +403,204 @@ Then(
         return el?.value === expected;
       },
       { sel: '[data-testid="diff-filter-search"]', expected: value },
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+// ── Mode-parameterized helpers (Scenario Outline harness) ──
+// Used by the regression-suite outlines that run identical assertions
+// across {local, branch, browse}. Adding a new combinatorial regression
+// is one new outline + one Examples row per mode — no per-mode scenario
+// duplication. Keeps "any code-tab fix should be verified in all three
+// modes" cheap to enforce, instead of relying on the author to remember.
+
+type CodeTabMode = "local" | "branch" | "browse";
+
+const MODE_TMP_COUNTER: { n: number } = { n: 0 };
+function modeFixturePaths(mode: CodeTabMode): { work: string; origin: string } {
+  // Fresh per-scenario directories so Examples rows don't collide.
+  MODE_TMP_COUNTER.n += 1;
+  const stamp = `${mode}-${Date.now()}-${MODE_TMP_COUNTER.n}`;
+  return {
+    work: `/tmp/kolu-codetab-${stamp}`,
+    origin: `/tmp/kolu-codetab-${stamp}-origin.git`,
+  };
+}
+
+async function runShell(world: KoluWorld, cmd: string) {
+  // Reuse `KoluWorld.terminalRun` — same path as the `When I run "…"`
+  // step at terminal_steps.ts:30. The polymorphic mode-setup steps
+  // compose several of these in sequence so authors of new outlines
+  // don't have to interleave shell setup steps explicitly.
+  await world.terminalRun(cmd);
+  await world.waitForFrame();
+}
+
+/** Per-mode shell sequence to land in a state where `<file>` is visible
+ *  in the Code tab tree. Branch mode requires a real `origin` remote so
+ *  Kolu's `gitStatus` stream can resolve `merge-base(origin/<default>)`
+ *  for the branch-base diff — local and browse don't. */
+async function setupCodeTabFixture(
+  world: KoluWorld,
+  mode: CodeTabMode,
+  writeFiles: string,
+): Promise<void> {
+  const { work, origin } = modeFixturePaths(mode);
+  if (mode === "local") {
+    await runShell(world, `git init ${work} && cd ${work}`);
+    await runShell(world, `git commit --allow-empty -m init`);
+    await runShell(world, writeFiles);
+  } else if (mode === "branch") {
+    // `git init --bare` produces a remote we can push to; then push the
+    // initial commit so `origin/<default>` resolves and `merge-base` is
+    // the initial commit. Files have to be staged (`git add`) for branch
+    // mode to see them — Kolu's branch-mode listing is
+    // `git diff --name-status <merge-base>`, which excludes untracked
+    // files (see packages/integrations/git/src/review.ts:124).
+    await runShell(world, `git init --bare ${origin}`);
+    await runShell(world, `git init ${work} && cd ${work}`);
+    await runShell(world, `git remote add origin ${origin}`);
+    await runShell(world, `git commit --allow-empty -m init`);
+    await runShell(world, `git push -u origin HEAD`);
+    await runShell(world, `git checkout -b feature`);
+    await runShell(world, writeFiles);
+    await runShell(world, `git add .`);
+  } else if (mode === "browse") {
+    await runShell(world, `git init ${work} && cd ${work}`);
+    await runShell(world, writeFiles);
+    await runShell(world, `git add . && git commit -m init`);
+  } else {
+    throw new Error(`unknown mode: ${mode}`);
+  }
+}
+
+async function activateCodeTabMode(
+  world: KoluWorld,
+  mode: CodeTabMode,
+): Promise<void> {
+  const tab = world.page.locator('[data-testid="right-panel-tab-code"]');
+  await tab.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  await tab.click();
+  await world.waitForFrame();
+  if (mode === "local") return; // default
+  const chip = world.page.locator(`[data-testid="diff-filter-chip"]`);
+  await chip.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  await chip.click();
+  const opt = world.page.locator(`[data-testid="diff-mode-${mode}"]`);
+  await opt.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  await opt.click();
+  await world.waitForFrame();
+}
+
+/** Set up the Code tab in `<mode>` showing one file. The shell sequence
+ *  is mode-specific (see `setupCodeTabFixture`); post-conditions are
+ *  uniform: file row visible, mode chip set. */
+Given(
+  "a Code tab in {string} mode showing file {string} with content {string}",
+  async function (
+    this: KoluWorld,
+    mode: string,
+    path: string,
+    content: string,
+  ) {
+    const m = mode as CodeTabMode;
+    await setupCodeTabFixture(this, m, `printf '${content}\\n' > ${path}`);
+    await activateCodeTabMode(this, m);
+    await this.page
+      .locator(fileRow(path))
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+/** Multi-file variant. DataTable rows: `| path | content |`. */
+Given(
+  "a Code tab in {string} mode showing files:",
+  async function (
+    this: KoluWorld,
+    mode: string,
+    table: { rawTable: string[][] },
+  ) {
+    const m = mode as CodeTabMode;
+    const rows = table.rawTable.slice(1); // skip header
+    const writes = rows.map(([p, c]) => `printf '${c}\\n' > ${p}`).join(" && ");
+    await setupCodeTabFixture(this, m, writes);
+    await activateCodeTabMode(this, m);
+    const firstPath = rows[0]?.[0];
+    if (firstPath) {
+      await this.page
+        .locator(fileRow(firstPath))
+        .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    }
+  },
+);
+
+/** Mode-agnostic file click. The DOM selector
+ *  `[data-item-path][data-item-type="file"]` is identical across modes
+ *  (Pierre stamps both attributes regardless of which stream populated
+ *  the tree), so a single click step covers local/branch/browse. */
+When(
+  "I open file {string} in the Code tab",
+  async function (this: KoluWorld, path: string) {
+    const item = this.page.locator(fileRow(path));
+    await item.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await item.click();
+    await this.waitForFrame();
+  },
+);
+
+/** Mode-agnostic file-listing assertion. Same selector across modes. */
+Then(
+  "the Code tab should show file {string}",
+  async function (this: KoluWorld, path: string) {
+    await this.page
+      .locator(fileRow(path))
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+Then(
+  "the Code tab should not show file {string}",
+  async function (this: KoluWorld, path: string) {
+    await this.page
+      .locator(fileRow(path))
+      .waitFor({ state: "detached", timeout: POLL_TIMEOUT });
+  },
+);
+
+/** Mode-agnostic content assertion. Diff modes render
+ *  `[data-testid="pierre-diff-view"]`; browse mode renders
+ *  `[data-testid="pierre-file-view"]`. Either is fine — the assertion
+ *  succeeds if the expected text appears in whichever view is mounted. */
+Then(
+  "the selected file should show content {string}",
+  async function (this: KoluWorld, expected: string) {
+    await this.page.waitForFunction(
+      (exp) => {
+        for (const sel of [
+          '[data-testid="pierre-diff-view"]',
+          '[data-testid="pierre-file-view"]',
+        ]) {
+          const root = document.querySelector(sel);
+          if (!root) continue;
+          const stack: Node[] = [root];
+          let text = "";
+          while (stack.length) {
+            const n = stack.pop() as Node;
+            if (n.nodeType === 3) text += (n as Text).nodeValue || "";
+            if (n.nodeType === 1) {
+              const el = n as Element;
+              const sh = (el as unknown as { shadowRoot?: ShadowRoot })
+                .shadowRoot;
+              if (sh) for (const ch of sh.childNodes) stack.push(ch);
+              for (const ch of el.childNodes) stack.push(ch);
+            }
+          }
+          if (text.includes(exp)) return true;
+        }
+        return false;
+      },
+      expected,
       { timeout: POLL_TIMEOUT },
     );
   },
