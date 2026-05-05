@@ -76,9 +76,12 @@ When(
 );
 
 When("I hover the workspace switcher", async function (this: KoluWorld) {
-  const switcher = this.page.locator(WORKSPACE_SWITCHER_SELECTOR);
-  await switcher.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-  await switcher.hover();
+  // Engagement model is click-to-open via the pull-down handle (not
+  // hover). Step name preserved for backward-compatible scenarios; the
+  // intent is "open the workspace switcher panel" either way.
+  const toggle = this.page.locator('[data-testid="workspace-switcher-toggle"]');
+  await toggle.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  await toggle.click();
   await this.page
     .locator(PANEL_SELECTOR)
     .waitFor({ state: "visible", timeout: POLL_TIMEOUT });

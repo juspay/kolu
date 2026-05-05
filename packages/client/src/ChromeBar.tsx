@@ -63,7 +63,7 @@ const ChromeBar: Component<{
       // eat clicks meant for the canvas under the overlay. Interactive
       // children (identity row, workspace switcher, control cluster) re-enable
       // pointer events on themselves.
-      class="flex items-center gap-3 px-3 py-2 select-none pointer-events-none"
+      class="chrome-bar-surface flex items-center gap-3 px-3 py-2 select-none pointer-events-none transition-colors duration-150"
       classList={{
         "absolute top-0 left-0 z-50": !docked(),
         "relative shrink-0": docked(),
