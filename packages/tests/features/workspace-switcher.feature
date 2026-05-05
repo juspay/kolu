@@ -39,6 +39,16 @@ Feature: Workspace switcher
     Then the workspace switcher should show 1 card
     And there should be no page errors
 
+  Scenario: Clicking a workspace switcher repo facet keeps the panel open
+    Given I create a terminal
+    When I run "cd /tmp"
+    And I hover the workspace switcher
+    And I click workspace switcher repo "tmp"
+    Then the workspace switcher panel should be visible
+    And the workspace switcher should show 1 card
+    And the workspace switcher should show only repo "tmp" cards
+    And there should be no page errors
+
   Scenario: Selecting a workspace switcher card switches the active terminal
     Given I run "echo first-workspace-card"
     And I create a terminal

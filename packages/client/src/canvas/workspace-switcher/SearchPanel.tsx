@@ -1,5 +1,5 @@
 import type { TerminalId } from "kolu-common/surface";
-import { type Component, For, Show } from "solid-js";
+import { type Component, For, Index, Show } from "solid-js";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { SearchIcon } from "../../ui/Icons";
 import { useTileTheme } from "../useTileTheme";
@@ -55,36 +55,40 @@ const WorkspaceSearchPanel: Component<{
             </span>
           </button>
           <div class="mt-1 flex flex-col gap-0.5">
-            <For each={props.model.repoFacets}>
+            <Index each={props.model.repoFacets}>
               {(facet) => (
                 <button
                   type="button"
                   data-testid="workspace-switcher-repo"
-                  data-repo-name={facet.repoName}
+                  data-repo-name={facet().repoName}
                   data-selected={
-                    props.model.selectedRepo === facet.repoName ? "" : undefined
+                    props.model.selectedRepo === facet().repoName
+                      ? ""
+                      : undefined
                   }
                   class="w-full flex items-center justify-between gap-2 px-2 py-1.5 rounded-md text-sm text-left cursor-pointer transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
                   classList={{
                     "bg-surface-2 text-fg":
-                      props.model.selectedRepo === facet.repoName,
-                    "text-fg-2": props.model.selectedRepo !== facet.repoName,
+                      props.model.selectedRepo === facet().repoName,
+                    "text-fg-2": props.model.selectedRepo !== facet().repoName,
                   }}
                   onClick={() =>
                     props.onRepoFilterChange(
-                      props.model.selectedRepo === facet.repoName
+                      props.model.selectedRepo === facet().repoName
                         ? null
-                        : facet.repoName,
+                        : facet().repoName,
                     )
                   }
                 >
-                  <span class="truncate" style={{ color: facet.color }}>
-                    {facet.repoName}
+                  <span class="truncate" style={{ color: facet().color }}>
+                    {facet().repoName}
                   </span>
-                  <span class="font-mono text-xs text-fg-3">{facet.count}</span>
+                  <span class="font-mono text-xs text-fg-3">
+                    {facet().count}
+                  </span>
                 </button>
               )}
-            </For>
+            </Index>
           </div>
         </aside>
 

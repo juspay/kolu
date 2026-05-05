@@ -7,6 +7,7 @@ const BRANCH_SELECTOR = '[data-testid="workspace-switcher-pill"]';
 const PANEL_SELECTOR = '[data-testid="workspace-switcher-panel"]';
 const SEARCH_SELECTOR = '[data-testid="workspace-switcher-search"]';
 const CARD_SELECTOR = '[data-testid="workspace-switcher-card"]';
+const REPO_SELECTOR = '[data-testid="workspace-switcher-repo"]';
 
 Then(
   "the workspace switcher should be visible",
@@ -102,6 +103,18 @@ When(
   },
 );
 
+When(
+  "I click workspace switcher repo {string}",
+  async function (this: KoluWorld, repoName: string) {
+    const repo = this.page.locator(
+      `${REPO_SELECTOR}[data-repo-name="${repoName}"]`,
+    );
+    await repo.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await repo.click();
+    await this.waitForFrame();
+  },
+);
+
 Then(
   "the workspace switcher should show {int} card(s)",
   async function (this: KoluWorld, expected: number) {
@@ -117,6 +130,18 @@ Then(
       { selector: CARD_SELECTOR, count: expected },
       { timeout: POLL_TIMEOUT },
     );
+  },
+);
+
+Then(
+  "the workspace switcher should show only repo {string} cards",
+  async function (this: KoluWorld, repoName: string) {
+    const repos = await this.page
+      .locator(CARD_SELECTOR)
+      .evaluateAll((cards) =>
+        cards.map((card) => card.getAttribute("data-repo-name")),
+      );
+    assert.deepStrictEqual(repos, [repoName]);
   },
 );
 
