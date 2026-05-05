@@ -53,11 +53,12 @@ const WorkspaceSearchPanel: Component<{
     props.model.repoFacets.reduce((sum, facet) => sum + facet.count, 0);
 
   return (
-    // Outer wrapper carries pointer-events so the cursor can traverse
-    // the gap between the strip and the visible panel without leaving
-    // the group's hover state. `pt-3` sets the visible gap to ~4px
-    // while keeping a 12px hoverable bridge above the panel.
-    <div class="pointer-events-auto hidden group-hover/workspace-switcher:block group-focus-within/workspace-switcher:block absolute inset-x-0 top-9 z-50 pt-3">
+    // Visibility is owned by the parent (rendered via `Show` only when
+    // open). The outer wrapper carries pointer-events so the cursor can
+    // traverse the gap between the strip and the visible panel without
+    // leaving the switcher's tracked subtree — that's what keeps the
+    // hover signal alive while the cursor is over the gap.
+    <div class="pointer-events-auto absolute inset-x-0 top-9 z-50 pt-3">
       <div
         data-testid="workspace-switcher-panel"
         id="workspace-switcher-panel"
