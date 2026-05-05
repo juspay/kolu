@@ -24,12 +24,14 @@ import CloseConfirm, { type CloseConfirmTarget } from "./CloseConfirm";
 import CommandPalette from "./CommandPalette";
 import "kolu-common/test-hooks";
 import CanvasWatermark from "./canvas/CanvasWatermark";
-import PillTree from "./canvas/PillTree";
-import { flatPillOrder, groupByRepo } from "./canvas/pillTreeOrder";
+import {
+  flatWorkspaceOrder,
+  groupByRepo,
+} from "./canvas/workspaceSwitcherOrder";
 import TerminalCanvas from "./canvas/TerminalCanvas";
 import TileTitleActions from "./canvas/TileTitleActions";
-import { useViewPosture } from "./canvas/useViewPosture";
 import { useCanvasViewport } from "./canvas/viewport/useCanvasViewport";
+import WorkspaceSwitcher from "./canvas/WorkspaceSwitcher";
 import { createCommands } from "./commands";
 import DiagnosticInfo from "./DiagnosticInfo";
 import EmptyState from "./EmptyState";
@@ -79,24 +81,23 @@ const App: Component = () => {
   const rightPanel = useRightPanel();
   const { colorScheme } = useColorScheme();
   const canvasViewport = useCanvasViewport();
-  const posture = useViewPosture();
 
-  // Pill-tree-grouped order — single source for the desktop pill tree AND
-  // the mobile swipe handler so the two views never drift.
+  // Workspace-switcher compact order — single source for the desktop
+  // collapsed switcher AND the mobile swipe handler so the two views never drift.
   //
-  // Desktop: pass `getLayout` so the tree mirrors the canvas spatially
-  // (left tile → first pill, right tile → last pill). Reorders live as
+  // Desktop: pass `getLayout` so the compact switcher mirrors the canvas spatially
+  // (left tile -> first item, right tile -> last item). Reorders live as
   // tiles are dragged. Mobile has no canvas, so layouts are absent and
   // the function falls back to the caller's input order — the server's
   // Map insertion order (terminal creation order).
-  const pillGroups = createMemo(() =>
+  const workspaceGroups = createMemo(() =>
     groupByRepo(
       store.terminalIds(),
       store.getDisplayInfo,
       (id) => store.getMetadata(id)?.canvasLayout,
     ),
   );
-  const orderedIds = createMemo(() => flatPillOrder(pillGroups()));
+  const orderedIds = createMemo(() => flatWorkspaceOrder(workspaceGroups()));
 
   // Fetch server identity for document title, watermark, and PWA chrome color.
   const [identity, setIdentity] = createSignal<ServerIdentity>();
@@ -447,22 +448,20 @@ const App: Component = () => {
           if (target) void worktree.handleKillWorktree(target.id);
         }}
       />
-      {/* Desktop chrome — docked top bar carrying pill tree, identity,
+      {/* Desktop chrome — docked top bar carrying workspace switcher, identity,
        *  and global controls. Mobile has its own pull-down sheet (see
        *  MobileTileView) and does not render this band. */}
       <Show when={!isMobile()}>
         <ChromeBar
           status={wsStatus()}
           onOpenPalette={() => openPalette()}
-          pillTree={
-            <PillTree
-              groups={pillGroups()}
+          workspaceSwitcher={
+            <WorkspaceSwitcher
+              groups={workspaceGroups()}
               onSelect={(id) => {
                 store.setActiveId(id);
-                if (!posture.maximized()) {
-                  const layout = store.getMetadata(id)?.canvasLayout;
-                  if (layout) canvasViewport.centerOnTile(layout);
-                }
+                const layout = store.getMetadata(id)?.canvasLayout;
+                if (layout) canvasViewport.centerOnTile(layout);
               }}
               onCreate={() => openPaletteGroup("New terminal")}
             />
@@ -514,7 +513,7 @@ const App: Component = () => {
                 .with(true, () => (
                   <MobileTileView
                     orderedIds={orderedIds()}
-                    groups={pillGroups()}
+                    groups={workspaceGroups()}
                     status={wsStatus()}
                     appTitle={appTitle()}
                     onOpenPalette={() => openPalette()}

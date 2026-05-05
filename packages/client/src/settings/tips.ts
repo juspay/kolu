@@ -13,12 +13,12 @@ export interface Tip {
   text: string;
 }
 
-/** Built when the user clicks a pill in the floating tree — surfaces the
+/** Built when the user clicks a compact switcher pill — surfaces the
  *  numeric switch shortcut so they learn the keyboard path. */
-export function pillTreeSwitchTip(index: number): Tip {
+export function workspaceSwitcherSwitchTip(index: number): Tip {
   const key = (index + 1) as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
   return {
-    id: "pill-tree-switch",
+    id: "workspace-switcher-switch",
     text: `Tip: ${formatKeybind(ACTIONS[`switchTo${key}`].keybind)} switches directly`,
   };
 }
@@ -44,8 +44,8 @@ export const AMBIENT_TIPS: readonly Tip[] = [
     text: `${formatKeybind(ACTIONS.toggleSubPanel.keybind)} splits your terminal into a bottom pane`,
   },
   {
-    id: "amb-pill-tree",
-    text: "Hover the pill tree at the top of the canvas to switch terminals — click a branch pill to pan to it",
+    id: "amb-workspace-switcher",
+    text: "Hover the workspace switcher at the top of the canvas to search live terminals, filter by repo, and jump to the tile",
   },
   {
     id: "amb-mru",

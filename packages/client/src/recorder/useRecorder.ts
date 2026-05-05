@@ -5,7 +5,7 @@
  *  `getDisplayMedia({ preferCurrentTab: true, selfBrowserSurface: "include" })`.
  *  The browser's multi-surface picker collapses to a single "Share this
  *  tab" confirmation. The recording contains the whole Kolu UI — chrome
- *  bar, pill tree, canvas, and (if enabled) a fixed-corner webcam overlay
+ *  bar, workspace switcher, canvas, and (if enabled) a fixed-corner webcam overlay
  *  baked into the DOM. If the user wants to record one terminal they
  *  just maximize it first.
  *

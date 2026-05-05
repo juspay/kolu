@@ -1,6 +1,6 @@
 /** Terminal identity keys — the canonical `(group, label)` projection
  *  used to group, deduplicate, AND display terminals across every
- *  surface (pill tree, restore card, canvas tile chrome).
+ *  surface (workspace switcher, restore card, canvas tile chrome).
  *
  *  Pure: same inputs produce the same outputs on every client, so the
  *  server never has to broadcast suffixes. Single function: identity
@@ -52,7 +52,7 @@ export type TerminalIdentity = TerminalLocation & {
  *  distinct AND don't collide on identity. Identity, grouping, and
  *  rendering all read from this single projection — a divergent
  *  projection elsewhere silently breaks `computeTerminalKeys` collision
- *  detection or visually contradicts the live pill tree. */
+ *  detection or visually contradicts the live workspace switcher. */
 export function terminalKey(t: TerminalLocation): {
   group: string;
   label: string;

@@ -934,7 +934,7 @@ When(
   async function (this: KoluWorld, index: number) {
     // Synthesize a `dblclick` event directly on the title bar in page
     // context — Playwright's real-mouse dblclick contends with the
-    // PillTree overlay and the parent tile's drag activator on a
+    // Workspace-switcher overlay and the parent tile's drag activator on a
     // maximized tile (its position changes from absolute → fixed mid-
     // sequence). Dispatching the event bypasses both.
     await this.page.evaluate((i) => {

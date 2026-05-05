@@ -2,8 +2,11 @@ import * as assert from "node:assert";
 import { Then, When } from "@cucumber/cucumber";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
-const PILL_TREE_SELECTOR = '[data-testid="pill-tree"]';
-const BRANCH_SELECTOR = '[data-testid="pill-tree-branch"]';
+const PILL_TREE_SELECTOR = '[data-testid="workspace-switcher"]';
+const BRANCH_SELECTOR = '[data-testid="workspace-switcher-pill"]';
+const PANEL_SELECTOR = '[data-testid="workspace-switcher-panel"]';
+const SEARCH_SELECTOR = '[data-testid="workspace-switcher-search"]';
+const CARD_SELECTOR = '[data-testid="workspace-switcher-card"]';
 
 Then("the pill tree should be visible", async function (this: KoluWorld) {
   const tree = this.page.locator(PILL_TREE_SELECTOR);
@@ -61,6 +64,62 @@ When(
   async function (this: KoluWorld, position: number) {
     const branch = this.page.locator(BRANCH_SELECTOR).nth(position - 1);
     await branch.click();
+    await this.waitForFrame();
+  },
+);
+
+When("I hover the workspace switcher", async function (this: KoluWorld) {
+  const switcher = this.page.locator(PILL_TREE_SELECTOR);
+  await switcher.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  await switcher.hover();
+  await this.page
+    .locator(PANEL_SELECTOR)
+    .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+});
+
+Then(
+  "the workspace switcher panel should be visible",
+  async function (this: KoluWorld) {
+    await this.page
+      .locator(PANEL_SELECTOR)
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+When(
+  "I search the workspace switcher for {string}",
+  async function (this: KoluWorld, query: string) {
+    const search = this.page.locator(SEARCH_SELECTOR);
+    await search.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await search.fill(query);
+    await this.waitForFrame();
+  },
+);
+
+Then(
+  "the workspace switcher should show {int} card(s)",
+  async function (this: KoluWorld, expected: number) {
+    const cards = this.page.locator(CARD_SELECTOR);
+    if (expected > 0) {
+      await cards
+        .nth(expected - 1)
+        .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    }
+    await this.page.waitForFunction(
+      ({ selector, count }) =>
+        document.querySelectorAll(selector).length === count,
+      { selector: CARD_SELECTOR, count: expected },
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+When(
+  "I click workspace switcher card {int}",
+  async function (this: KoluWorld, position: number) {
+    const card = this.page.locator(CARD_SELECTOR).nth(position - 1);
+    await card.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await card.click();
     await this.waitForFrame();
   },
 );

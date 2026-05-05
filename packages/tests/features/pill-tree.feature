@@ -1,26 +1,26 @@
-Feature: Pill tree (terminal switcher)
-  The floating two-level pill tree is the canonical terminal switcher.
-  Repos are the top level, branches the second level. Sits on the canvas
-  ghosted at rest; click a branch pill to pan and activate that tile.
+Feature: Workspace switcher
+  The floating workspace switcher is the canonical live-terminal navigator.
+  Its collapsed form is a compact repo/branch pill strip; hover opens a
+  searchable panel grouped by agent state.
 
   Background:
     Given the terminal is ready
 
-  Scenario: Pill tree appears on the canvas
+  Scenario: Workspace switcher appears on the canvas
     Then the pill tree should be visible
     And there should be no page errors
 
-  Scenario: Pill tree shows one branch pill per terminal
+  Scenario: Collapsed workspace switcher shows one branch pill per terminal
     Given I create a terminal
     Then the pill tree should have 2 branch pills
     And there should be no page errors
 
-  Scenario: Active terminal's pill is marked active
+  Scenario: Active terminal's collapsed pill is marked active
     Given I create a terminal
     Then the second pill tree branch should be the active pill
     And there should be no page errors
 
-  Scenario: Clicking a branch pill switches the active terminal
+  Scenario: Clicking a collapsed branch pill switches the active terminal
     # The Background-created terminal is t0; running echo first targets it
     # (it's the active one). Then a second terminal becomes active. Clicking
     # pill 1 returns to t0, whose buffer carries the echo output.
@@ -30,7 +30,24 @@ Feature: Pill tree (terminal switcher)
     Then the active terminal should show "first-pill"
     And there should be no page errors
 
+  Scenario: Workspace switcher hover panel searches live terminal metadata
+    Given I create a terminal
+    When I run "cd /tmp"
+    And I hover the workspace switcher
+    Then the workspace switcher panel should be visible
+    When I search the workspace switcher for "/tmp"
+    Then the workspace switcher should show 1 card
+    And there should be no page errors
+
+  Scenario: Selecting a workspace switcher card switches the active terminal
+    Given I run "echo first-workspace-card"
+    And I create a terminal
+    When I hover the workspace switcher
+    And I click workspace switcher card 1
+    Then the active terminal should show "first-workspace-card"
+    And there should be no page errors
+
   @mobile
-  Scenario: Pill tree is not rendered on mobile
+  Scenario: Desktop workspace switcher is not rendered on mobile
     Then the pill tree should not be visible
     And there should be no page errors

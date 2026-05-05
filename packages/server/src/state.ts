@@ -311,7 +311,7 @@ export const store = new Conf<PersistedState>({
     },
     // canvasMode + sidebarAgentPreviews removed (#622) — the workspace is
     // now mode-less (canvas always on desktop) and the sidebar with its
-    // preview cards is gone, replaced by a floating pill tree.
+    // preview cards is gone, replaced by the floating workspace switcher.
     "1.15.0": (store: Conf<PersistedState>) => {
       const current = store.get("preferences") as Record<string, unknown>;
       const { canvasMode: _cm, sidebarAgentPreviews: _sap, ...rest } = current;

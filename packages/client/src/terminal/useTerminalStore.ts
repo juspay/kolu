@@ -4,7 +4,7 @@
  *  module-level subscriptions in `wire.ts` (`terminalListSub`); client view
  *  state (activeId, attention, mruOrder) lives in local signals.
  *
- *  Singleton (cached + createRoot): every consumer (PillTree, ChromeBar,
+ *  Singleton (cached + createRoot): every consumer (WorkspaceSwitcher, ChromeBar,
  *  TerminalCanvas, mobile sheet, tile theme) reads the same store, so
  *  derivations like `getDisplayInfo` and `getMetadata` flow without
  *  prop-drilling lookup functions through layout components. */

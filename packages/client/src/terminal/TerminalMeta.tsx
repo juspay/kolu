@@ -152,7 +152,7 @@ const TerminalMeta: Component<{
 };
 
 /** Mobile pull-handle one-row variant — repo + branch + #PR inline.
- *  Mirrors what the pill tree shows for a focused terminal; the full
+ *  Mirrors what the workspace switcher shows for a focused terminal; the full
  *  branch/PR/foreground details live in the chrome sheet that the
  *  pull-handle opens. */
 export const TerminalMetaCompact: Component<{
