@@ -77,6 +77,31 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
   // mode switch so a stale needle doesn't hide the wrong file set.
   const [searchQuery, setSearchQuery] = createSignal("");
 
+  // ── Selection-stability invariant ──────────────────────────────────
+  // CodeTab survives right-panel tab toggles and panel collapse (#818)
+  // — meaning every reactive surface in this component stays alive
+  // across UI state changes that previously destroyed and rebuilt it.
+  // Three independent sources of `selectedPath = null` would fire
+  // spuriously without explicit guards; each guard defends against a
+  // *different* origin of churn, so they don't collapse into one rule:
+  //
+  //   1. `resetKey` memo (below) — preferences cell ticks on unrelated
+  //      pref updates; raw `on([repoPath, view], …)` would re-fire its
+  //      callback every tick and wipe selection.
+  //   2. `pending()` gate on the membership check — gitStatus / fsList
+  //      stream resubscribes briefly drop `treePaths()` to `[]`; without
+  //      the gate, the membership check reads transient empty as
+  //      "selected file is missing".
+  //   3. `handleSelect` ignores Pierre's `null` events — Pierre fires
+  //      `onSelectionChange([])` from `resetPaths` and tear-down, not
+  //      just user deselect; the Code tab has no UX for explicit
+  //      deselect anyway (user switches by clicking another file).
+  //
+  // The unifying invariant is "preserve selection across non-genuine
+  // transitions". Adding a fourth churn source means adding a fourth
+  // guard in the same shape — extract a `createStableSignal`-style
+  // helper if/when it appears.
+
   const status = app.streams.gitStatus.use(
     () => {
       const p = repoPath();
@@ -126,6 +151,12 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
   // unconditionally nulls `selectedPath`, an unmemoed accessor wipes the
   // user's selection on every preference tick — visible after #818 made
   // CodeTab survive across right-panel tab toggles.
+  //
+  // `::` is collision-safe as the separator: `view()` is a typed enum
+  // (`"browse" | "local" | "branch"`) so it can't contain `::`, and
+  // `repoPath()` is `props.meta?.git?.repoRoot ?? null` — a real
+  // absolute path or `null`, never the empty string that would alias
+  // null.
   const resetKey = createMemo(() => `${repoPath() ?? ""}::${view()}`);
   createEffect(
     on(

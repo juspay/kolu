@@ -79,6 +79,23 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   // membership in this set is a reliable file-vs-folder discriminator.
   const fileSet = createMemo(() => new Set(props.paths));
 
+  // Pierre rejects `""` for setSearch (empty string ≠ "no filter"); collapse
+  // empty/null/undefined to `null` so callers don't need to reproduce this.
+  const normalizeSearchQuery = (q: string | null | undefined) =>
+    q && q.length > 0 ? q : null;
+
+  // Single funnel for "tell Pierre to (re)set its filter". Three callers —
+  // initial mount, the deferred prop effect, and the row-click re-apply
+  // below — all need identical normalization and the same `onError` route,
+  // so they share one helper rather than three try/catch dances.
+  const applySearchQuery = (q: string | null | undefined) => {
+    try {
+      tree?.setSearch(normalizeSearchQuery(q));
+    } catch (e) {
+      props.onError(toError(e));
+    }
+  };
+
   onMount(() => {
     try {
       tree = new FileTreeClass({
@@ -98,32 +115,58 @@ export const FileTree: Component<FileTreeProps> = (props) => {
           const p = paths[0] ?? null;
           if (p !== null && !fileSet().has(p)) return;
           props.onSelect?.(p);
-          // Pierre's `handleRowClick` calls `controller.closeSearch()`
-          // synchronously *after* this listener returns (see
-          // node_modules/@pierre/trees/dist/render/FileTreeView.js around
-          // L1738 and dist/render/fileTreeRowClickPlan.js where
-          // `closeSearch: isSearchOpen` is hardcoded with no opt-out).
-          // When the host drives search via `searchQuery`, that prop is
-          // the source of truth, so re-apply on the next microtask —
-          // after Pierre's clear has run — to restore the filter. Assumes
-          // Pierre's row-click handler stays synchronous; an async row
-          // handler would race this microtask. The deferred `createEffect`
-          // on `props.searchQuery` below handles the orthogonal case
-          // (host signal changes); this path handles Pierre's self-clear.
-          queueMicrotask(() => {
-            const q = untrack(() => props.searchQuery);
-            if (q && q.length > 0) tree?.setSearch(q);
-          });
         },
       });
       tree.render({ containerWrapper: container });
+
+      // Pierre's `handleRowClick` (in
+      // `node_modules/@pierre/trees/dist/render/FileTreeView.js`) clears its
+      // internal search via `controller.closeSearch()` after every row
+      // click — `closeSearch: isSearchOpen` is hardcoded in
+      // `fileTreeRowClickPlan.js` with no opt-out. When the host drives
+      // search externally via `searchQuery`, that prop is the source of
+      // truth, so we restore it after Pierre's click handler returns.
+      //
+      // We hook the DOM `click` event rather than Pierre's
+      // `onSelectionChange` callback because Pierre's selection-version
+      // gate (`FileTreeController.js` `#applySelection` short-circuits
+      // when the new selection equals the current one) suppresses the
+      // callback on re-clicks of the already-selected row — but
+      // `closeSearch()` still runs on every click, so an
+      // `onSelectionChange`-based hook would silently miss the re-click
+      // case while Pierre wipes the filter anyway.
+      //
+      // Detection uses the `data-item-path` attribute Pierre stamps on
+      // every row, found by walking `event.composedPath()` to pierce the
+      // shadow root. Invariants this depends on:
+      //   1. Pierre's row-click handler stays synchronous (so the
+      //      microtask runs *after* `closeSearch` has fired, not before).
+      //   2. Pierre keeps emitting `data-item-path` on row elements.
+      // Both are true today; both would silently break this re-apply if
+      // Pierre changes them, so they're worth the comment.
+      const reapplySearchAfterRowClick = (event: MouseEvent) => {
+        const clickedTreeRow = event
+          .composedPath()
+          .some(
+            (target) =>
+              target instanceof HTMLElement &&
+              target.dataset.itemPath !== undefined,
+          );
+        if (!clickedTreeRow) return;
+        queueMicrotask(() => {
+          const q = untrack(() => props.searchQuery);
+          if (normalizeSearchQuery(q) !== null) applySearchQuery(q);
+        });
+      };
+      container.addEventListener("click", reapplySearchAfterRowClick);
+      onCleanup(() =>
+        container.removeEventListener("click", reapplySearchAfterRowClick),
+      );
+
       // Apply an initial searchQuery if it was already non-empty at mount —
       // the deferred effect below only fires on subsequent changes, so a
       // pre-mount value would otherwise be silently dropped.
-      const initialQuery = untrack(() => props.searchQuery);
-      if (initialQuery && initialQuery.length > 0) {
-        tree.setSearch(initialQuery);
-      }
+      applySearchQuery(untrack(() => props.searchQuery));
     } catch (e) {
       props.onError(toError(e));
     }
@@ -157,19 +200,7 @@ export const FileTree: Component<FileTreeProps> = (props) => {
     ),
   );
 
-  createEffect(
-    on(
-      () => props.searchQuery,
-      (q) => {
-        try {
-          tree?.setSearch(q && q.length > 0 ? q : null);
-        } catch (e) {
-          props.onError(toError(e));
-        }
-      },
-      { defer: true },
-    ),
-  );
+  createEffect(on(() => props.searchQuery, applySearchQuery, { defer: true }));
 
   onCleanup(() => tree?.cleanUp());
 

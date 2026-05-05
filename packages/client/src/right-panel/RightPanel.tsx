@@ -12,8 +12,10 @@ import MetadataInspector from "./MetadataInspector";
 import { useRightPanel } from "./useRightPanel";
 
 /** Ordered tab kinds shown in the tab bar. Adding a new kind to the
- *  discriminated union requires a corresponding entry here AND a branch
- *  in the `match(tab)` below — both will fail-compile if you miss one. */
+ *  discriminated union requires a corresponding entry here AND in
+ *  `TAB_LABEL` below — both are typed `Record<RightPanelTabKind, …>` and
+ *  fail-compile on missing keys. The body renderer further down takes a
+ *  matching wrapper div per kind; that part is checked at review time. */
 const TAB_KINDS: readonly RightPanelTabKind[] = ["inspector", "code"] as const;
 
 const TAB_LABEL: Record<RightPanelTabKind, string> = {
@@ -36,6 +38,11 @@ const RightPanel: Component<{
     <div
       data-testid="right-panel"
       class="flex flex-col h-full min-w-0 overflow-hidden bg-surface-0 border-l border-edge"
+      // Panel stays mounted across the collapse toggle so CodeTab's local
+      // state survives (#818); RightPanelLayout shrinks it to ~0 width via
+      // Resizable `sizes=[1,0]`. `aria-hidden` makes the contract legible
+      // and keeps assistive tech in sync with the visual collapse.
+      aria-hidden={rightPanel.collapsed()}
     >
       {/* Tab bar */}
       <div class="flex items-center h-8 shrink-0 bg-surface-1 border-b border-edge">
@@ -88,6 +95,7 @@ const RightPanel: Component<{
           class={
             rightPanel.activeTab().kind === "inspector" ? "h-full" : "hidden"
           }
+          aria-hidden={rightPanel.activeTab().kind !== "inspector"}
         >
           <MetadataInspector
             meta={props.meta}
@@ -97,6 +105,7 @@ const RightPanel: Component<{
         </div>
         <div
           class={rightPanel.activeTab().kind === "code" ? "h-full" : "hidden"}
+          aria-hidden={rightPanel.activeTab().kind !== "code"}
         >
           <CodeTab meta={props.meta} />
         </div>
