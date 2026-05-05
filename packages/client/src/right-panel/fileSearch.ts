@@ -1,3 +1,9 @@
+/** Search projection for Pierre's current substring-only FileTree API.
+ *
+ *  `projectedPaths` is the optional Kolu-side visibility filter; for native
+ *  single-token searches it is the original path inventory by reference.
+ *  `pierreSearchQuery` is the residual substring Pierre should own for
+ *  expansion/focus after Kolu has handled multi-token path matching. */
 export type FileTreeSearchProjection = {
   projectedPaths: string[];
   pierreSearchQuery: string | null;
