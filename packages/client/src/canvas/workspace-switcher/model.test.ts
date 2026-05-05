@@ -1,12 +1,9 @@
 import type { AgentInfo, TerminalMetadata } from "kolu-common/surface";
 import type { GitInfo } from "kolu-git/schemas";
 import { describe, expect, it } from "vitest";
-import type { TerminalDisplayInfo } from "../terminal/terminalDisplay";
-import type { WorkspaceSwitcherRepoGroup } from "./workspaceSwitcherOrder";
-import {
-  agentBucket,
-  buildWorkspaceSwitcherModel,
-} from "./workspaceSwitcherModel";
+import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
+import type { WorkspaceSwitcherSourceEntry } from "./order";
+import { agentBucket, buildWorkspaceSwitcherModel } from "./model";
 
 function makeGit(overrides: Partial<GitInfo> = {}): GitInfo {
   return {
@@ -62,12 +59,21 @@ function makeInfo(
   };
 }
 
+function source(
+  id: string,
+  overrides: Partial<TerminalMetadata> = {},
+): WorkspaceSwitcherSourceEntry {
+  return {
+    id,
+    info: makeInfo(id, overrides),
+  };
+}
+
 function modelFor(
-  groups: WorkspaceSwitcherRepoGroup[],
-  infos: Record<string, TerminalDisplayInfo>,
-  options?: Parameters<typeof buildWorkspaceSwitcherModel>[2],
+  entries: WorkspaceSwitcherSourceEntry[],
+  options?: Parameters<typeof buildWorkspaceSwitcherModel>[1],
 ) {
-  return buildWorkspaceSwitcherModel(groups, (id) => infos[id], options);
+  return buildWorkspaceSwitcherModel(entries, options);
 }
 
 describe("agentBucket", () => {
@@ -86,33 +92,16 @@ describe("agentBucket", () => {
 });
 
 describe("buildWorkspaceSwitcherModel", () => {
-  const groups: WorkspaceSwitcherRepoGroup[] = [
-    {
-      repoName: "kolu",
-      items: [
-        { id: "t1", label: "bug-828" },
-        { id: "t2", label: "api-refactor" },
-      ],
-    },
-    {
-      repoName: "emanote",
-      items: [
-        { id: "t3", label: "docs" },
-        { id: "t4", label: "scratch", suffix: "#t4" },
-      ],
-    },
-  ];
-
-  const infos: Record<string, TerminalDisplayInfo> = {
-    t1: makeInfo("t1", {
+  const entries: WorkspaceSwitcherSourceEntry[] = [
+    source("t1", {
       agent: makeAgent({ state: "waiting" }),
       git: makeGit({ repoName: "kolu", branch: "bug-828" }),
     }),
-    t2: makeInfo("t2", {
+    source("t2", {
       agent: makeAgent({ state: "tool_use", summary: "Refactor API client" }),
       git: makeGit({ repoName: "kolu", branch: "api-refactor" }),
     }),
-    t3: makeInfo("t3", {
+    source("t3", {
       git: makeGit({
         repoRoot: "/home/user/emanote",
         repoName: "emanote",
@@ -122,7 +111,7 @@ describe("buildWorkspaceSwitcherModel", () => {
       }),
       foreground: { name: "vim", title: "vim README.md" },
     }),
-    t4: makeInfo("t4", {
+    source("t4", {
       cwd: "/tmp/scratch-space",
       git: null,
       lastAgentCommand: "claude --model sonnet",
@@ -137,10 +126,25 @@ describe("buildWorkspaceSwitcherModel", () => {
         },
       },
     }),
-  };
+  ];
+
+  it("derives compact repo groups from the same live entries", () => {
+    const model = modelFor(entries);
+
+    expect(
+      model.compactGroups.map((group) => ({
+        repoName: group.repoName,
+        itemIds: group.items.map((item) => item.id),
+      })),
+    ).toEqual([
+      { repoName: "kolu", itemIds: ["t1", "t2"] },
+      { repoName: "emanote", itemIds: ["t3"] },
+      { repoName: "nogit", itemIds: ["t4"] },
+    ]);
+  });
 
   it("buckets visible terminals by live agent state", () => {
-    const model = modelFor(groups, infos);
+    const model = modelFor(entries);
 
     expect(model.columns.map((column) => column.key)).toEqual([
       "awaiting",
@@ -156,37 +160,54 @@ describe("buildWorkspaceSwitcherModel", () => {
   });
 
   it("builds repo facets from the same query-matched entry set", () => {
-    const model = modelFor(groups, infos, { query: "api" });
+    const model = modelFor(entries, { query: "api" });
 
-    expect(model.repoFacets).toEqual([{ repoName: "kolu", count: 1 }]);
+    expect(model.repoFacets).toEqual([
+      { repoName: "kolu", count: 1, color: "oklch(0.75 0.14 20)" },
+    ]);
     expect(model.visibleEntries.map((entry) => entry.id)).toEqual(["t2"]);
   });
 
   it("filters visible entries by repo facet without changing search counts", () => {
-    const model = modelFor(groups, infos, { repoFilter: "emanote" });
+    const model = modelFor(entries, { repoFilter: "emanote" });
 
     expect(model.repoFacets).toEqual([
-      { repoName: "kolu", count: 2 },
-      { repoName: "emanote", count: 2 },
+      { repoName: "kolu", count: 2, color: "oklch(0.75 0.14 20)" },
+      { repoName: "emanote", count: 1, color: "oklch(0.75 0.14 20)" },
+      { repoName: "nogit", count: 1, color: "oklch(0.75 0.14 20)" },
     ]);
-    expect(model.visibleEntries.map((entry) => entry.id)).toEqual(["t3", "t4"]);
+    expect(model.visibleEntries.map((entry) => entry.id)).toEqual(["t3"]);
+    expect(model.selectedRepo).toBe("emanote");
+  });
+
+  it("drops a selected repo when the current query has no matching facet", () => {
+    const model = modelFor(entries, {
+      query: "api",
+      repoFilter: "emanote",
+    });
+
+    expect(model.repoFacets).toEqual([
+      { repoName: "kolu", count: 1, color: "oklch(0.75 0.14 20)" },
+    ]);
+    expect(model.selectedRepo).toBeNull();
+    expect(model.visibleEntries.map((entry) => entry.id)).toEqual(["t2"]);
   });
 
   it("searches foreground, pull request, agent, cwd, and command metadata", () => {
     expect(
-      modelFor(groups, infos, { query: "vim readme" }).visibleEntries,
+      modelFor(entries, { query: "vim readme" }).visibleEntries,
     ).toHaveLength(1);
     expect(
-      modelFor(groups, infos, { query: "parallelization" }).visibleEntries,
+      modelFor(entries, { query: "parallelization" }).visibleEntries,
     ).toHaveLength(1);
     expect(
-      modelFor(groups, infos, { query: "flaky checkout" }).visibleEntries,
+      modelFor(entries, { query: "flaky checkout" }).visibleEntries,
     ).toHaveLength(1);
     expect(
-      modelFor(groups, infos, { query: "scratch-space" }).visibleEntries,
+      modelFor(entries, { query: "scratch-space" }).visibleEntries,
     ).toHaveLength(1);
     expect(
-      modelFor(groups, infos, { query: "claude sonnet" }).visibleEntries,
+      modelFor(entries, { query: "claude sonnet" }).visibleEntries,
     ).toHaveLength(1);
   });
 });

@@ -10,7 +10,7 @@
 import Drawer from "@corvu/drawer";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, createSignal, For, type JSX, Show } from "solid-js";
-import type { WorkspaceSwitcherRepoGroup } from "./canvas/workspaceSwitcherOrder";
+import type { WorkspaceSwitcherRepoGroup } from "./canvas/workspace-switcher";
 import MobileChromeSheet from "./MobileChromeSheet";
 import type { WsStatus } from "./rpc/rpc";
 import { TerminalMetaCompact } from "./terminal/TerminalMeta";

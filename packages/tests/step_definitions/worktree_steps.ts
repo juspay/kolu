@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { Then, When } from "@cucumber/cucumber";
 import {
   type KoluWorld,
-  PILL_TREE_ENTRY_SELECTOR,
+  WORKSPACE_SWITCHER_ENTRY_SELECTOR,
   POLL_TIMEOUT,
 } from "../support/world.ts";
 
@@ -141,28 +141,30 @@ When("I cancel the close confirmation", async function (this: KoluWorld) {
 });
 
 Then(
-  "the pill tree entry count should be unchanged",
+  "the workspace switcher entry count should be unchanged",
   async function (this: KoluWorld) {
     assert.ok(
-      this.savedPillTreeCount !== undefined,
-      "Must note pill tree count first",
+      this.savedWorkspaceSwitcherCount !== undefined,
+      "Must note workspace switcher count first",
     );
-    const current = await this.page.locator(PILL_TREE_ENTRY_SELECTOR).count();
+    const current = await this.page
+      .locator(WORKSPACE_SWITCHER_ENTRY_SELECTOR)
+      .count();
     assert.strictEqual(
       current,
-      this.savedPillTreeCount,
-      `Expected pill tree count unchanged at ${this.savedPillTreeCount}, got ${current}`,
+      this.savedWorkspaceSwitcherCount,
+      `Expected workspace switcher count unchanged at ${this.savedWorkspaceSwitcherCount}, got ${current}`,
     );
   },
 );
 
 Then(
-  "the pill tree should have {int} fewer terminal entry/entries",
+  "the workspace switcher should have {int} fewer terminal entry/entries",
   async function (this: KoluWorld, fewer: number) {
-    const saved = this.savedPillTreeCount;
-    assert.ok(saved !== undefined, "Must note pill tree count first");
+    const saved = this.savedWorkspaceSwitcherCount;
+    assert.ok(saved !== undefined, "Must note workspace switcher count first");
     const expected = saved - fewer;
-    const sel = PILL_TREE_ENTRY_SELECTOR;
+    const sel = WORKSPACE_SWITCHER_ENTRY_SELECTOR;
     await this.page.waitForFunction(
       ({ sel, exp }) => document.querySelectorAll(sel).length === exp,
       { sel, exp: expected },

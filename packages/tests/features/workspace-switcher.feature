@@ -7,17 +7,17 @@ Feature: Workspace switcher
     Given the terminal is ready
 
   Scenario: Workspace switcher appears on the canvas
-    Then the pill tree should be visible
+    Then the workspace switcher should be visible
     And there should be no page errors
 
   Scenario: Collapsed workspace switcher shows one branch pill per terminal
     Given I create a terminal
-    Then the pill tree should have 2 branch pills
+    Then the workspace switcher should have 2 branch pills
     And there should be no page errors
 
   Scenario: Active terminal's collapsed pill is marked active
     Given I create a terminal
-    Then the second pill tree branch should be the active pill
+    Then the second workspace switcher branch should be the active pill
     And there should be no page errors
 
   Scenario: Clicking a collapsed branch pill switches the active terminal
@@ -26,7 +26,7 @@ Feature: Workspace switcher
     # pill 1 returns to t0, whose buffer carries the echo output.
     Given I run "echo first-pill"
     And I create a terminal
-    When I click pill tree branch 1
+    When I click workspace switcher branch 1
     Then the active terminal should show "first-pill"
     And there should be no page errors
 
@@ -49,5 +49,5 @@ Feature: Workspace switcher
 
   @mobile
   Scenario: Desktop workspace switcher is not rendered on mobile
-    Then the pill tree should not be visible
+    Then the workspace switcher should not be visible
     And there should be no page errors

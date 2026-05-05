@@ -1,6 +1,7 @@
 import type { AgentInfo, TerminalId } from "kolu-common/surface";
-import type { TerminalDisplayInfo } from "../terminal/terminalDisplay";
-import type { WorkspaceSwitcherRepoGroup } from "./workspaceSwitcherOrder";
+import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
+import { repoAccent } from "./identity";
+import type { WorkspaceSwitcherSourceEntry } from "./order";
 
 export type WorkspaceAgentBucket = "awaiting" | "working" | "none";
 
@@ -36,9 +37,23 @@ export type WorkspaceSwitcherEntry = {
   searchText: string;
 };
 
+export type WorkspaceSwitcherCompactItem = {
+  id: TerminalId;
+  label: string;
+  suffix?: string;
+  info: TerminalDisplayInfo;
+};
+
+export type WorkspaceSwitcherRepoGroup = {
+  repoName: string;
+  color: string;
+  items: WorkspaceSwitcherCompactItem[];
+};
+
 export type WorkspaceRepoFacet = {
   repoName: string;
   count: number;
+  color: string;
 };
 
 export type WorkspaceSwitcherColumn = {
@@ -50,7 +65,9 @@ export type WorkspaceSwitcherColumn = {
 
 export type WorkspaceSwitcherModel = {
   entries: WorkspaceSwitcherEntry[];
+  compactGroups: WorkspaceSwitcherRepoGroup[];
   visibleEntries: WorkspaceSwitcherEntry[];
+  selectedRepo: string | null;
   repoFacets: WorkspaceRepoFacet[];
   columns: WorkspaceSwitcherColumn[];
 };
@@ -107,8 +124,6 @@ function searchTextFor(entry: {
   const values: string[] = [
     entry.repoName,
     entry.label,
-    info.key.group,
-    info.key.label,
     ...prSearchFields(info),
   ];
 
@@ -145,33 +160,51 @@ function matchesQuery(
   return tokens.every((token) => entry.searchText.includes(token));
 }
 
+function compactGroupsFor(
+  entries: WorkspaceSwitcherEntry[],
+): WorkspaceSwitcherRepoGroup[] {
+  const groups = new Map<string, WorkspaceSwitcherRepoGroup>();
+  for (const entry of entries) {
+    let group = groups.get(entry.repoName);
+    if (!group) {
+      group = {
+        repoName: entry.repoName,
+        color: repoAccent(entry.info),
+        items: [],
+      };
+      groups.set(entry.repoName, group);
+    }
+    group.items.push({
+      id: entry.id,
+      label: entry.label,
+      suffix: entry.suffix,
+      info: entry.info,
+    });
+  }
+  return [...groups.values()];
+}
+
 export function buildWorkspaceSwitcherModel(
-  groups: WorkspaceSwitcherRepoGroup[],
-  getDisplayInfo: (id: TerminalId) => TerminalDisplayInfo | undefined,
+  sources: WorkspaceSwitcherSourceEntry[],
   options: {
     query?: string;
     repoFilter?: string | null;
   } = {},
 ): WorkspaceSwitcherModel {
-  const entries: WorkspaceSwitcherEntry[] = [];
-  for (const group of groups) {
-    for (const item of group.items) {
-      const info = getDisplayInfo(item.id);
-      if (!info) continue;
-      const base = {
-        id: item.id,
-        repoName: group.repoName,
-        label: item.label,
-        suffix: item.suffix,
-        bucket: agentBucket(info.meta.agent),
-        info,
-      };
-      entries.push({
-        ...base,
-        searchText: searchTextFor(base),
-      });
-    }
-  }
+  const entries: WorkspaceSwitcherEntry[] = sources.map((source) => {
+    const base = {
+      id: source.id,
+      repoName: source.info.key.group,
+      label: source.info.key.label,
+      suffix: source.info.key.suffix,
+      bucket: agentBucket(source.info.meta.agent),
+      info: source.info,
+    };
+    return {
+      ...base,
+      searchText: searchTextFor(base),
+    };
+  });
 
   const tokens = queryTokens(options.query ?? "");
   const queryMatches =
@@ -179,17 +212,32 @@ export function buildWorkspaceSwitcherModel(
       ? entries
       : entries.filter((entry) => matchesQuery(entry, tokens));
 
-  const facetCounts = new Map<string, number>();
+  const facetCounts = new Map<string, { count: number; color: string }>();
   for (const entry of queryMatches) {
-    facetCounts.set(entry.repoName, (facetCounts.get(entry.repoName) ?? 0) + 1);
+    const facet = facetCounts.get(entry.repoName);
+    if (facet) {
+      facet.count += 1;
+    } else {
+      facetCounts.set(entry.repoName, {
+        count: 1,
+        color: repoAccent(entry.info),
+      });
+    }
   }
-  const repoFacets = [...facetCounts.entries()].map(([repoName, count]) => ({
-    repoName,
-    count,
-  }));
+  const repoFacets = [...facetCounts.entries()].map(
+    ([repoName, { count, color }]) => ({
+      repoName,
+      count,
+      color,
+    }),
+  );
+  const selectedRepo =
+    options.repoFilter && facetCounts.has(options.repoFilter)
+      ? options.repoFilter
+      : null;
 
-  const visibleEntries = options.repoFilter
-    ? queryMatches.filter((entry) => entry.repoName === options.repoFilter)
+  const visibleEntries = selectedRepo
+    ? queryMatches.filter((entry) => entry.repoName === selectedRepo)
     : queryMatches;
 
   const columns = WORKSPACE_AGENT_BUCKETS.map((bucket) => ({
@@ -199,7 +247,9 @@ export function buildWorkspaceSwitcherModel(
 
   return {
     entries,
+    compactGroups: compactGroupsFor(entries),
     visibleEntries,
+    selectedRepo,
     repoFacets,
     columns,
   };

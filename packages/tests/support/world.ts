@@ -27,7 +27,7 @@ const SETTLED_SELECTOR =
   '[data-visible] .xterm-screen, [data-testid="empty-state"]';
 /** Workspace switcher compact entries (one per terminal) — the canonical
  *  "list of terminals" affordance. */
-export const PILL_TREE_ENTRY_SELECTOR =
+export const WORKSPACE_SWITCHER_ENTRY_SELECTOR =
   '[data-testid="workspace-switcher-pill"]';
 /** Per-tile elements on the canvas — one per top-level terminal. Mobile
  *  uses the mobile-tile-view body to enumerate terminals instead. */
@@ -48,7 +48,7 @@ export class KoluWorld extends World {
   lastResponseText?: string;
   lastResponseOk?: boolean;
   terminalCountBeforeRefresh?: number;
-  savedPillTreeCount?: number;
+  savedWorkspaceSwitcherCount?: number;
   savedActiveTerminalId?: string;
   savedScrollTop?: number;
   savedVisibleText?: string;

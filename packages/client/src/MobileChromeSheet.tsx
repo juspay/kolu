@@ -14,10 +14,7 @@
 
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, createSignal, For, Show } from "solid-js";
-import {
-  type WorkspaceSwitcherRepoGroup,
-  repoColor,
-} from "./canvas/workspaceSwitcherOrder";
+import type { WorkspaceSwitcherRepoGroup } from "./canvas/workspace-switcher";
 import { ACTIONS } from "./input/actions";
 import { formatKeybind } from "./input/keyboard";
 import { useRightPanel } from "./right-panel/useRightPanel";
@@ -83,7 +80,7 @@ const MobileChromeSheet: Component<{
             <div class="flex flex-col">
               <div
                 class="px-3 pt-2 pb-1 text-[0.65rem] font-semibold uppercase tracking-wide"
-                style={{ color: repoColor(group, store.getDisplayInfo) }}
+                style={{ color: group.color }}
               >
                 {group.repoName}
               </div>
@@ -116,7 +113,13 @@ const MobileChromeSheet: Component<{
                       >
                         └─
                       </span>
-                      <span class="flex-1 truncate">{item.label}</span>
+                      <span
+                        class="flex-1 truncate"
+                        style={{ color: item.info.branchColor }}
+                        classList={{ "text-fg-2": !item.info.branchColor }}
+                      >
+                        {item.label}
+                      </span>
                       <Show when={unread()}>
                         <span class="w-2 h-2 rounded-full bg-alert" />
                       </Show>

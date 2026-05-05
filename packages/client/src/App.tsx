@@ -24,14 +24,16 @@ import CloseConfirm, { type CloseConfirmTarget } from "./CloseConfirm";
 import CommandPalette from "./CommandPalette";
 import "kolu-common/test-hooks";
 import CanvasWatermark from "./canvas/CanvasWatermark";
-import {
+import WorkspaceSwitcher, {
+  buildWorkspaceEntries,
+  buildWorkspaceSwitcherModel,
+  desktopWorkspaceOrder,
   flatWorkspaceOrder,
-  groupByRepo,
-} from "./canvas/workspaceSwitcherOrder";
+  mobileWorkspaceOrder,
+} from "./canvas/workspace-switcher";
 import TerminalCanvas from "./canvas/TerminalCanvas";
 import TileTitleActions from "./canvas/TileTitleActions";
 import { useCanvasViewport } from "./canvas/viewport/useCanvasViewport";
-import WorkspaceSwitcher from "./canvas/WorkspaceSwitcher";
 import { createCommands } from "./commands";
 import DiagnosticInfo from "./DiagnosticInfo";
 import EmptyState from "./EmptyState";
@@ -82,22 +84,31 @@ const App: Component = () => {
   const { colorScheme } = useColorScheme();
   const canvasViewport = useCanvasViewport();
 
-  // Workspace-switcher compact order — single source for the desktop
-  // collapsed switcher AND the mobile swipe handler so the two views never drift.
+  // Workspace-switcher entries are one live terminal list. Desktop and mobile
+  // choose explicit order policies from it: desktop mirrors canvas geometry;
+  // mobile keeps live terminal order because there is no canvas affordance.
   //
-  // Desktop: pass `getLayout` so the compact switcher mirrors the canvas spatially
-  // (left tile -> first item, right tile -> last item). Reorders live as
-  // tiles are dragged. Mobile has no canvas, so layouts are absent and
-  // the function falls back to the caller's input order — the server's
-  // Map insertion order (terminal creation order).
-  const workspaceGroups = createMemo(() =>
-    groupByRepo(
+  // Layouts are still captured on the source entries so the desktop policy can
+  // reorder live as tiles are dragged without leaking that policy to mobile.
+  const workspaceEntries = createMemo(() =>
+    buildWorkspaceEntries(
       store.terminalIds(),
       store.getDisplayInfo,
       (id) => store.getMetadata(id)?.canvasLayout,
     ),
   );
-  const orderedIds = createMemo(() => flatWorkspaceOrder(workspaceGroups()));
+  const desktopWorkspaceEntries = createMemo(() =>
+    desktopWorkspaceOrder(workspaceEntries()),
+  );
+  const mobileWorkspaceEntries = createMemo(() =>
+    mobileWorkspaceOrder(workspaceEntries()),
+  );
+  const mobileWorkspaceModel = createMemo(() =>
+    buildWorkspaceSwitcherModel(mobileWorkspaceEntries()),
+  );
+  const orderedIds = createMemo(() =>
+    flatWorkspaceOrder(mobileWorkspaceEntries()),
+  );
 
   // Fetch server identity for document title, watermark, and PWA chrome color.
   const [identity, setIdentity] = createSignal<ServerIdentity>();
@@ -457,7 +468,7 @@ const App: Component = () => {
           onOpenPalette={() => openPalette()}
           workspaceSwitcher={
             <WorkspaceSwitcher
-              groups={workspaceGroups()}
+              entries={desktopWorkspaceEntries()}
               onSelect={(id) => {
                 store.setActiveId(id);
                 const layout = store.getMetadata(id)?.canvasLayout;
@@ -513,7 +524,7 @@ const App: Component = () => {
                 .with(true, () => (
                   <MobileTileView
                     orderedIds={orderedIds()}
-                    groups={workspaceGroups()}
+                    groups={mobileWorkspaceModel().compactGroups}
                     status={wsStatus()}
                     appTitle={appTitle()}
                     onOpenPalette={() => openPalette()}

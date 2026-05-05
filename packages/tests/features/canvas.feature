@@ -109,7 +109,7 @@ Feature: Canvas workspace
   # Viewport-pan assertion is flaky after the maximize signal landed
   # (sibling order in canvas-container changed; see Show wrapping the
   # Workspace switcher + minimap). The selection half of the behaviour is covered
-  # by the pill-tree.feature scenarios.
+  # by the workspace-switcher.feature scenarios.
   @skip
   Scenario: Clicking a minimap tile rect activates that terminal and pans the canvas
     Given I create a terminal

@@ -2,29 +2,35 @@ import * as assert from "node:assert";
 import { Then, When } from "@cucumber/cucumber";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
-const PILL_TREE_SELECTOR = '[data-testid="workspace-switcher"]';
+const WORKSPACE_SWITCHER_SELECTOR = '[data-testid="workspace-switcher"]';
 const BRANCH_SELECTOR = '[data-testid="workspace-switcher-pill"]';
 const PANEL_SELECTOR = '[data-testid="workspace-switcher-panel"]';
 const SEARCH_SELECTOR = '[data-testid="workspace-switcher-search"]';
 const CARD_SELECTOR = '[data-testid="workspace-switcher-card"]';
 
-Then("the pill tree should be visible", async function (this: KoluWorld) {
-  const tree = this.page.locator(PILL_TREE_SELECTOR);
-  await tree.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-});
-
-Then("the pill tree should not be visible", async function (this: KoluWorld) {
-  const tree = this.page.locator(PILL_TREE_SELECTOR);
-  // Either the tree element is absent or it isn't laid out — both count
-  // as "not visible" for the mobile path which doesn't mount it.
-  const count = await tree.count();
-  if (count === 0) return;
-  const visible = await tree.first().isVisible();
-  assert.ok(!visible, "Expected pill tree to not be visible");
-});
+Then(
+  "the workspace switcher should be visible",
+  async function (this: KoluWorld) {
+    const switcher = this.page.locator(WORKSPACE_SWITCHER_SELECTOR);
+    await switcher.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
 
 Then(
-  "the pill tree should have {int} branch pills",
+  "the workspace switcher should not be visible",
+  async function (this: KoluWorld) {
+    const switcher = this.page.locator(WORKSPACE_SWITCHER_SELECTOR);
+    // Either the switcher element is absent or it isn't laid out — both count
+    // as "not visible" for the mobile path which doesn't mount it.
+    const count = await switcher.count();
+    if (count === 0) return;
+    const visible = await switcher.first().isVisible();
+    assert.ok(!visible, "Expected workspace switcher to not be visible");
+  },
+);
+
+Then(
+  "the workspace switcher should have {int} branch pills",
   async function (this: KoluWorld, expected: number) {
     const branches = this.page.locator(BRANCH_SELECTOR);
     await branches.nth(expected - 1).waitFor({
@@ -37,7 +43,7 @@ Then(
 );
 
 Then(
-  "the {word} pill tree branch should be the active pill",
+  "the {word} workspace switcher branch should be the active pill",
   async function (this: KoluWorld, ordinal: string) {
     // 1-based: "first", "second", "third" → 1, 2, 3
     const indexMap: Record<string, number> = {
@@ -60,7 +66,7 @@ Then(
 );
 
 When(
-  "I click pill tree branch {int}",
+  "I click workspace switcher branch {int}",
   async function (this: KoluWorld, position: number) {
     const branch = this.page.locator(BRANCH_SELECTOR).nth(position - 1);
     await branch.click();
@@ -69,7 +75,7 @@ When(
 );
 
 When("I hover the workspace switcher", async function (this: KoluWorld) {
-  const switcher = this.page.locator(PILL_TREE_SELECTOR);
+  const switcher = this.page.locator(WORKSPACE_SWITCHER_SELECTOR);
   await switcher.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   await switcher.hover();
   await this.page

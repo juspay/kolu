@@ -1,7 +1,7 @@
 @claude-mock
 Feature: Claude Code status detection
   When Claude Code is running in a terminal, the canvas tile chrome shows
-  its current state (thinking, tool use, waiting). The pill tree pings the
+  its current state (thinking, tool use, waiting). The workspace switcher pings the
   branch when an agent has unread completion.
 
   Requires KOLU_CLAUDE_SESSIONS_DIR and KOLU_CLAUDE_PROJECTS_DIR env vars
@@ -37,20 +37,20 @@ Feature: Claude Code status detection
     Then the tile chrome should show an agent indicator with state "thinking"
     And there should be no page errors
 
-  Scenario: Pill tree pings the branch on unread completion
+  Scenario: Workspace switcher pings the branch on unread completion
     When a Claude Code session is mocked with state "waiting"
     And I create a terminal
     And I simulate an activity alert
-    Then a pill tree branch should be notified
+    Then a workspace switcher branch should be notified
     And there should be no page errors
 
   Scenario: Visiting an unread agent clears its pill ping
     When a Claude Code session is mocked with state "waiting"
     And I create a terminal
     And I simulate an activity alert
-    Then a pill tree branch should be notified
-    When I click the notified pill tree branch
-    Then no pill tree branch should be notified
+    Then a workspace switcher branch should be notified
+    When I click the notified workspace switcher branch
+    Then no workspace switcher branch should be notified
     And there should be no page errors
 
   Scenario: Tile chrome shows task progress when Claude has tasks
