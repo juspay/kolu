@@ -4,7 +4,7 @@
  *  single-token searches it is the original path inventory by reference.
  *  `pierreSearchQuery` is the residual substring Pierre should own for
  *  expansion/focus after Kolu has handled multi-token path matching. */
-export type FileTreeSearchProjection = {
+type FileTreeSearchProjection = {
   projectedPaths: string[];
   pierreSearchQuery: string | null;
 };
