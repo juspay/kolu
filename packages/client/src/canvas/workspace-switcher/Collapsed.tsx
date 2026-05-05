@@ -1,39 +1,24 @@
 import type { TerminalId } from "kolu-common/surface";
-import { type Component, createMemo, For, Show } from "solid-js";
+import { type Component, For, Show } from "solid-js";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { PlusIcon } from "../../ui/Icons";
-import { useTileTheme } from "../useTileTheme";
 import { agentBorderClass } from "./chrome";
 import { branchAccent, repoAccent } from "./identity";
-import type {
-  WorkspaceSwitcherCompactItem,
-  WorkspaceSwitcherRepoGroup,
-} from "./model";
+import type { WorkspaceSwitcherRepoGroup } from "./model";
 
 const ITEMS_PER_ROW = 3;
 
-function chunkItems(
-  items: WorkspaceSwitcherCompactItem[],
-): WorkspaceSwitcherCompactItem[][] {
-  const rows: WorkspaceSwitcherCompactItem[][] = [];
-  for (let i = 0; i < items.length; i += ITEMS_PER_ROW) {
-    rows.push(items.slice(i, i + ITEMS_PER_ROW));
-  }
-  return rows;
-}
-
-/** Collapsed desktop switcher: compact repo headings plus branch pills.
- *
- *  The repo color is carried by a 2px leading bar on the heading and a
- *  faint guide rail down the pill stack — replaces the ASCII tree
- *  connectors which never aligned with the pill baseline. */
+/** Collapsed desktop switcher: a miniaturised form of the search-panel
+ *  card vocabulary — same rectangle shape, same border treatment, same
+ *  agent-state ring, just compressed for the chrome bar. The repo color
+ *  lives in the heading bar; per-card eyebrows would be too dense at
+ *  this scale. Hover/focus reveals the full panel beneath. */
 const CollapsedWorkspaceSwitcher: Component<{
   groups: WorkspaceSwitcherRepoGroup[];
   onCreate: () => void;
   onSelect: (id: TerminalId) => void;
 }> = (props) => {
   const store = useTerminalStore();
-  const tileTheme = useTileTheme();
 
   return (
     <>
@@ -50,7 +35,7 @@ const CollapsedWorkspaceSwitcher: Component<{
 
       <For each={props.groups}>
         {(group) => {
-          const rows = createMemo(() => chunkItems(group.items));
+          const visible = () => group.items.slice(0, ITEMS_PER_ROW);
           const overflow = () =>
             Math.max(0, group.items.length - ITEMS_PER_ROW);
           return (
@@ -72,7 +57,7 @@ const CollapsedWorkspaceSwitcher: Component<{
                 <Show when={overflow() > 0}>
                   <span
                     data-testid="workspace-switcher-more"
-                    class="font-mono text-[0.55rem] tabular-nums leading-none text-fg-3 shrink-0 group-hover/workspace-switcher:hidden group-focus-within/workspace-switcher:hidden"
+                    class="font-mono text-[0.55rem] tabular-nums leading-none text-fg-3 shrink-0"
                     title={`${overflow()} more terminals`}
                   >
                     +{overflow()}
@@ -81,84 +66,70 @@ const CollapsedWorkspaceSwitcher: Component<{
               </div>
 
               <div
-                class="flex flex-col gap-1 pl-2 border-l-[1px]"
+                class="flex flex-row gap-1 pl-2 border-l-[1px]"
                 style={{
                   "border-color": `color-mix(in oklch, ${group.color} 22%, transparent)`,
                 }}
               >
-                <For each={rows()}>
-                  {(row, rowIdx) => (
-                    <div
-                      class="grid grid-cols-[repeat(3,auto)] gap-1 items-center"
-                      classList={{
-                        flex: rowIdx() === 0,
-                        "hidden group-hover/workspace-switcher:grid group-focus-within/workspace-switcher:grid":
-                          rowIdx() > 0,
-                      }}
-                    >
-                      <For each={row}>
-                        {(item) => {
-                          const theme = () => tileTheme(item.id);
-                          const active = () => store.activeId() === item.id;
-                          const unread = () => store.isUnread(item.id);
-                          const agentState = () => item.info.meta.agent?.state;
-                          const borderClass = () =>
-                            agentBorderClass(agentState());
-                          return (
-                            <button
-                              type="button"
-                              data-testid="workspace-switcher-pill"
-                              data-terminal-id={item.id}
-                              data-active={active() ? "" : undefined}
-                              data-unread={unread() ? "" : undefined}
-                              data-agent-state={agentState()}
-                              class={`pointer-events-auto relative flex items-center gap-1.5 px-2.5 h-6 rounded-full text-xs cursor-pointer transition-shadow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 max-w-[20ch] whitespace-nowrap ${borderClass()}`}
-                              classList={{
-                                "pill-border pill-border-active":
-                                  active() && !agentState(),
-                                "pill-glow-inner": active() && !!agentState(),
-                                "hover:ring-1 hover:ring-edge-bright/70":
-                                  !active() && !agentState(),
-                              }}
-                              style={{
-                                "background-color": theme().bg,
-                                color: theme().fg,
-                                "--card-color": repoAccent(item.info),
-                              }}
-                              onClick={() => props.onSelect(item.id)}
-                              title={item.info.meta.cwd}
-                            >
-                              <Show when={unread()}>
-                                <span
-                                  class="absolute -top-0.5 -right-0.5 inline-flex h-2 w-2"
-                                  aria-hidden="true"
-                                >
-                                  <span class="absolute inline-flex h-full w-full rounded-full bg-alert opacity-75 animate-ping" />
-                                  <span class="relative inline-flex rounded-full h-2 w-2 bg-alert" />
-                                </span>
-                              </Show>
-                              <span
-                                class="truncate min-w-0 font-medium"
-                                style={{ color: branchAccent(item.info) }}
-                              >
-                                {item.label}
-                              </span>
-                              <Show when={item.suffix}>
-                                {(suffix) => (
-                                  <span
-                                    data-testid="workspace-switcher-pill-suffix"
-                                    class="font-mono text-[0.6rem] text-fg-3 tabular-nums shrink-0"
-                                  >
-                                    {suffix()}
-                                  </span>
-                                )}
-                              </Show>
-                            </button>
-                          );
+                <For each={visible()}>
+                  {(item) => {
+                    const active = () => store.activeId() === item.id;
+                    const unread = () => store.isUnread(item.id);
+                    const agentState = () => item.info.meta.agent?.state;
+                    const borderClass = () => agentBorderClass(agentState());
+                    return (
+                      <button
+                        type="button"
+                        data-testid="workspace-switcher-pill"
+                        data-terminal-id={item.id}
+                        data-active={active() ? "" : undefined}
+                        data-unread={unread() ? "" : undefined}
+                        data-agent-state={agentState()}
+                        class={`pointer-events-auto relative flex items-center gap-1.5 px-2 h-6 rounded-md border text-xs cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 max-w-[20ch] whitespace-nowrap ${borderClass()}`}
+                        classList={{
+                          "border-accent/70 bg-surface-2":
+                            active() && !agentState(),
+                          "pill-glow-inner": active() && !!agentState(),
+                          "border-edge/60 bg-surface-0/60 hover:bg-surface-2/70 hover:border-edge-bright/70":
+                            !active() && !agentState(),
+                          "border-transparent bg-surface-0/60":
+                            !active() && !!agentState(),
                         }}
-                      </For>
-                    </div>
-                  )}
+                        style={{
+                          "--card-color": repoAccent(item.info),
+                          "--pill-border-radius": "calc(0.375rem + 2px)",
+                        }}
+                        onClick={() => props.onSelect(item.id)}
+                        title={item.info.meta.cwd}
+                      >
+                        <Show when={unread()}>
+                          <span
+                            class="absolute -top-1 -right-1 inline-flex h-2 w-2"
+                            aria-hidden="true"
+                          >
+                            <span class="absolute inline-flex h-full w-full rounded-full bg-alert opacity-75 animate-ping" />
+                            <span class="relative inline-flex rounded-full h-2 w-2 bg-alert" />
+                          </span>
+                        </Show>
+                        <span
+                          class="truncate min-w-0 font-medium"
+                          style={{ color: branchAccent(item.info) }}
+                        >
+                          {item.label}
+                        </span>
+                        <Show when={item.suffix}>
+                          {(suffix) => (
+                            <span
+                              data-testid="workspace-switcher-pill-suffix"
+                              class="font-mono text-[0.6rem] text-fg-3 tabular-nums shrink-0"
+                            >
+                              {suffix()}
+                            </span>
+                          )}
+                        </Show>
+                      </button>
+                    );
+                  }}
                 </For>
               </div>
             </div>
