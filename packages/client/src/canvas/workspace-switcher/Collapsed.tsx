@@ -22,6 +22,7 @@ function chunkItems(
   return rows;
 }
 
+/** Collapsed desktop switcher: compact repo headings plus branch pills. */
 const CollapsedWorkspaceSwitcher: Component<{
   groups: WorkspaceSwitcherRepoGroup[];
   onCreate: () => void;

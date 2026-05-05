@@ -13,6 +13,7 @@ import {
 import { branchAccent, repoAccent } from "./identity";
 import type { WorkspaceSwitcherModel } from "./model";
 
+/** Expanded hover panel with repo facets, search, and agent-state columns. */
 const WorkspaceSearchPanel: Component<{
   model: WorkspaceSwitcherModel;
   query: string;

@@ -8,12 +8,14 @@ import type { TerminalId } from "kolu-common/surface";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import type { TileLayout } from "../TileLayout";
 
+/** Live-terminal source row before a presentation-specific order is applied. */
 export interface WorkspaceSwitcherSourceEntry {
   id: TerminalId;
   info: TerminalDisplayInfo;
   layout?: TileLayout;
 }
 
+/** Pair terminal ids with display info and optional canvas layout. */
 export function buildWorkspaceEntries(
   ids: TerminalId[],
   getDisplayInfo: (id: TerminalId) => TerminalDisplayInfo | undefined,
@@ -49,6 +51,7 @@ export function mobileWorkspaceOrder(
   return [...entries];
 }
 
+/** Flatten an ordered source-entry list to terminal ids for swipe traversal. */
 export function flatWorkspaceOrder(
   entries: WorkspaceSwitcherSourceEntry[],
 ): TerminalId[] {

@@ -5,6 +5,7 @@ import type { WorkspaceSwitcherSourceEntry } from "./order";
 
 export type WorkspaceAgentBucket = "awaiting" | "working" | "none";
 
+/** Stable agent-state buckets shown as columns in the expanded switcher. */
 export const WORKSPACE_AGENT_BUCKETS: readonly {
   key: WorkspaceAgentBucket;
   label: string;
@@ -27,6 +28,7 @@ export const WORKSPACE_AGENT_BUCKETS: readonly {
   },
 ];
 
+/** Searchable live-terminal entry used by the expanded switcher panel. */
 export type WorkspaceSwitcherEntry = {
   id: TerminalId;
   repoName: string;
@@ -37,6 +39,7 @@ export type WorkspaceSwitcherEntry = {
   searchText: string;
 };
 
+/** Compact row item rendered under a repo heading. */
 export type WorkspaceSwitcherCompactItem = {
   id: TerminalId;
   label: string;
@@ -44,18 +47,21 @@ export type WorkspaceSwitcherCompactItem = {
   info: TerminalDisplayInfo;
 };
 
+/** Repo group used by the collapsed desktop switcher and mobile sheet. */
 export type WorkspaceSwitcherRepoGroup = {
   repoName: string;
   color: string;
   items: WorkspaceSwitcherCompactItem[];
 };
 
+/** Repo facet derived from the current search result set. */
 export type WorkspaceRepoFacet = {
   repoName: string;
   count: number;
   color: string;
 };
 
+/** Agent bucket plus the entries currently visible in that column. */
 export type WorkspaceSwitcherColumn = {
   key: WorkspaceAgentBucket;
   label: string;
@@ -63,6 +69,7 @@ export type WorkspaceSwitcherColumn = {
   entries: WorkspaceSwitcherEntry[];
 };
 
+/** Complete derived model for collapsed and expanded switcher renderers. */
 export type WorkspaceSwitcherModel = {
   entries: WorkspaceSwitcherEntry[];
   compactGroups: WorkspaceSwitcherRepoGroup[];
@@ -72,6 +79,7 @@ export type WorkspaceSwitcherModel = {
   columns: WorkspaceSwitcherColumn[];
 };
 
+/** Classify live agent metadata into the switcher's fixed column set. */
 export function agentBucket(
   agent: AgentInfo | null | undefined,
 ): WorkspaceAgentBucket {
@@ -184,6 +192,7 @@ function compactGroupsFor(
   return [...groups.values()];
 }
 
+/** Derive all switcher projections from one live-terminal entry list. */
 export function buildWorkspaceSwitcherModel(
   sources: WorkspaceSwitcherSourceEntry[],
   options: {

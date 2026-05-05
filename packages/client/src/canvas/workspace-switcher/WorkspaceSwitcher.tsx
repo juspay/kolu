@@ -15,6 +15,7 @@ import {
 } from "./model";
 import type { WorkspaceSwitcherSourceEntry } from "./order";
 
+/** Controller that owns query/filter state and composes both switcher views. */
 const WorkspaceSwitcher: Component<{
   entries: WorkspaceSwitcherSourceEntry[];
   /** Click handler — caller decides whether to pan, swap active, etc. */
