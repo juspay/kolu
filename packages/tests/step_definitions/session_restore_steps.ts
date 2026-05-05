@@ -93,18 +93,22 @@ Then(
   },
 );
 
-When("I click the restore button", async function (this: KoluWorld) {
-  const btn = this.page.locator('[data-testid="restore-session"]');
-  await btn.click();
-  // Wait for at least one terminal to appear — under load from 8 parallel
-  // workers, server can be slow to spawn terminals. Use waitForFunction
-  // for a reactive DOM check instead of locator.waitFor.
-  await this.page.waitForFunction(
-    (sel) => document.querySelectorAll(sel).length > 0,
-    PILL_TREE_ENTRY_SELECTOR,
-    { timeout: 20000 },
-  );
-});
+When(
+  "I click the restore button",
+  { timeout: 60_000 },
+  async function (this: KoluWorld) {
+    const btn = this.page.locator('[data-testid="restore-session"]');
+    await btn.click();
+    // Wait for at least one terminal to appear — under parallel macOS CI load,
+    // server can be slow to spawn restored PTYs. Use waitForFunction for a
+    // reactive DOM check instead of locator.waitFor.
+    await this.page.waitForFunction(
+      (sel) => document.querySelectorAll(sel).length > 0,
+      PILL_TREE_ENTRY_SELECTOR,
+      { timeout: 45_000 },
+    );
+  },
+);
 
 Then(
   "there should be {int} pill tree entries",

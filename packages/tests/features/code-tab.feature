@@ -155,6 +155,23 @@ Feature: Code tab (review + browse)
       | branch |
       | browse |
 
+  Scenario Outline: Filter matches files by path tokens [<mode>]
+    Given a Code tab in "<mode>" mode showing files:
+      | path                          | content |
+      | common/src/index.tsx          | common  |
+      | common/src/components/App.tsx | app     |
+      | packages/client/src/index.tsx | client  |
+    When I type "common index.ts" into the Code tab filter
+    Then the Code tab should show file "common/src/index.tsx"
+    And the Code tab should not show file "common/src/components/App.tsx"
+    And the Code tab should not show file "packages/client/src/index.tsx"
+
+    Examples:
+      | mode   |
+      | local  |
+      | branch |
+      | browse |
+
   Scenario: Untracked files appear alongside modified tracked files
     When I run "git init /tmp/kolu-review-untracked && cd /tmp/kolu-review-untracked"
     And I run "git commit --allow-empty -m init"

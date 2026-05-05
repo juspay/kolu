@@ -15,7 +15,7 @@
 
 import { FileDiff, FileTree } from "@kolu/solid-pierre";
 import type { GitDiffMode } from "kolu-git/schemas";
-import type { CodeTabView, TerminalMetadata } from "kolu-common/surface";
+import type { TerminalMetadata } from "kolu-common/surface";
 import {
   type Component,
   createEffect,
@@ -41,6 +41,7 @@ import {
 } from "../ui/pierreTheme";
 import BrowseFileView from "./BrowseFileView";
 import CodeMenuFrame from "./CodeMenuFrame";
+import { projectFileTreeSearch } from "./fileSearch";
 import FileSearchInput from "./FileSearchInput";
 import ModeChipPicker, { type ModeOption } from "./ModeChipPicker";
 import { useRightPanel } from "./useRightPanel";
@@ -177,6 +178,10 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
     if (view() === "browse") return allPaths()?.paths ?? [];
     return status()?.files.map((f) => f.path) ?? [];
   });
+
+  const treeSearch = createMemo(() =>
+    projectFileTreeSearch(treePaths(), searchQuery()),
+  );
 
   // Track membership rather than the treePaths array identity: browse paths
   // come from a reconciled store array whose contents can change in place.
@@ -324,13 +329,13 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
                 }
               >
                 <FileTree
-                  paths={treePaths()}
+                  paths={treeSearch().projectedPaths}
                   gitStatus={treeGitStatus()}
                   selectedPath={selectedPath()}
                   onSelect={handleSelect}
                   initialExpansion={isDiffView() ? "open" : "closed"}
                   search={false}
-                  searchQuery={searchQuery()}
+                  searchQuery={treeSearch().pierreSearchQuery}
                   icons={pierreIconConfig}
                   contextMenu={{
                     enabled: true,
