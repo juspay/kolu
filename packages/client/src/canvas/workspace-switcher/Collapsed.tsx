@@ -67,7 +67,8 @@ const CollapsedWorkspaceSwitcher: Component<{
                         class="items-center gap-1"
                         classList={{
                           flex: rowIdx() === 0,
-                          hidden: rowIdx() > 0,
+                          "hidden group-hover/workspace-switcher:flex group-focus-within/workspace-switcher:flex":
+                            rowIdx() > 0,
                         }}
                       >
                         <span

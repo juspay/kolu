@@ -28,7 +28,7 @@ const WorkspaceSearchPanel: Component<{
   return (
     <div
       data-testid="workspace-switcher-panel"
-      class="pointer-events-auto hidden group-hover/workspace-switcher:block group-focus-within/workspace-switcher:block absolute left-1/2 top-9 z-50 w-[min(78rem,calc(100vw-2rem))] -translate-x-1/2 rounded-lg border border-edge bg-surface-1/95 shadow-2xl backdrop-blur-md"
+      class="pointer-events-auto hidden group-hover/workspace-switcher:block group-focus-within/workspace-switcher:block absolute left-1/2 top-9 z-50 w-full max-w-[78rem] -translate-x-1/2 rounded-lg border border-edge bg-surface-1/95 shadow-2xl backdrop-blur-md"
     >
       <div class="grid grid-cols-[13rem_minmax(0,1fr)] max-h-[70vh] overflow-hidden">
         <aside class="border-r border-edge/70 p-3 overflow-y-auto">
