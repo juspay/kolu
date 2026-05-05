@@ -89,10 +89,11 @@ const CollapsedWorkspaceSwitcher: Component<{
                         classList={{
                           "border-accent/70 bg-surface-2":
                             active() && !agentState(),
-                          "pill-glow-inner": active() && !!agentState(),
-                          "border-edge/60 bg-surface-0/60 hover:bg-surface-2/70 hover:border-edge-bright/70":
+                          "pill-glow-inner bg-surface-0":
+                            active() && !!agentState(),
+                          "border-edge/60 bg-surface-0 hover:bg-surface-2 hover:border-edge-bright/70":
                             !active() && !agentState(),
-                          "border-transparent bg-surface-0/60":
+                          "border-transparent bg-surface-0":
                             !active() && !!agentState(),
                         }}
                         style={{

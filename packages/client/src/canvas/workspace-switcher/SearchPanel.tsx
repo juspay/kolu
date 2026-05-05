@@ -53,15 +53,16 @@ const WorkspaceSearchPanel: Component<{
     props.model.repoFacets.reduce((sum, facet) => sum + facet.count, 0);
 
   return (
-    // Click-to-open: parent renders this only when `open()` is true.
-    // No hover/focus visibility logic here. The panel hangs centered
-    // below the chrome bar; the chrome bar paints its own frosted
-    // surface across the header, so strip and panel read as one piece.
-    <div
-      data-testid="workspace-switcher-panel"
-      id="workspace-switcher-panel"
-      class="pointer-events-auto absolute left-1/2 top-12 z-50 w-full max-w-[78rem] -translate-x-1/2 overflow-hidden rounded-xl border border-edge/80 bg-surface-1/95 backdrop-blur-xl shadow-[0_30px_80px_-20px_rgba(0,0,0,0.65),inset_0_1px_0_0_rgba(255,255,255,0.04)]"
-    >
+    // Outer wrapper carries pointer-events so the cursor can traverse
+    // the gap between the strip and the visible panel without leaving
+    // the group's hover state. `pt-3` sets the visible gap to ~4px
+    // while keeping a 12px hoverable bridge above the panel.
+    <div class="pointer-events-auto hidden group-hover/workspace-switcher:block group-focus-within/workspace-switcher:block absolute inset-x-0 top-9 z-50 pt-3">
+      <div
+        data-testid="workspace-switcher-panel"
+        id="workspace-switcher-panel"
+        class="relative w-full max-w-[78rem] mx-auto overflow-hidden rounded-xl border border-edge/80 bg-surface-1/95 backdrop-blur-xl shadow-[0_30px_80px_-20px_rgba(0,0,0,0.65),inset_0_1px_0_0_rgba(255,255,255,0.04)]"
+      >
       {/* Top strip — search prompt + global count. The `>` glyph leans
        *  into the terminal-native aesthetic and replaces the generic
        *  bordered input box. */}
@@ -191,6 +192,7 @@ const WorkspaceSearchPanel: Component<{
             </div>
           </Show>
         </section>
+      </div>
       </div>
     </div>
   );

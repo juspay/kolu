@@ -167,15 +167,15 @@ body {
   animation: record-capsule-breathe 2s ease-out infinite;
 }
 
-/* ── Chrome bar surface emerges when the workspace switcher is open ─ */
+/* ── Chrome bar surface emerges on workspace-switcher engagement ─ */
 /* The chrome bar is normally fully transparent so the canvas grid
- * reads through it. When the workspace switcher's panel is open
- * (`data-open` set on the switcher), the bar fades in a frosted
- * surface across the entire header — identity, switcher slot, and
- * controls all sit on the same floating surface as the dropdown
- * panel below. `:has()` lets the bar react to descendant state
- * without prop-drilling an open signal. */
-.chrome-bar-surface:has([data-testid="workspace-switcher"][data-open]) {
+ * reads through it. When the user hovers (or keyboard-focuses) the
+ * workspace switcher, the bar fades in a frosted surface across the
+ * entire header — identity, switcher slot, and controls all sit on
+ * the same floating surface as the dropdown panel below. `:has()`
+ * lets the bar react to descendant state without prop-drilling. */
+.chrome-bar-surface:has([data-testid="workspace-switcher"]:hover),
+.chrome-bar-surface:has([data-testid="workspace-switcher"]:focus-within) {
   background-color: color-mix(
     in oklch,
     var(--color-surface-1) 88%,
