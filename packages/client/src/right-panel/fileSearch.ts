@@ -1,6 +1,6 @@
 export type FileTreeSearchProjection = {
-  paths: string[];
-  treeSearchQuery: string | null;
+  projectedPaths: string[];
+  pierreSearchQuery: string | null;
 };
 
 function normalizePathSearchText(value: string): string {
@@ -25,16 +25,18 @@ function pathContainsTokensInOrder(
 }
 
 export function projectFileTreeSearch(
-  paths: readonly string[],
+  paths: string[],
   query: string,
 ): FileTreeSearchProjection {
   const tokens = normalizePathSearchText(query).split(/\s+/).filter(Boolean);
   if (tokens.length <= 1) {
-    return { paths: [...paths], treeSearchQuery: query };
+    return { projectedPaths: paths, pierreSearchQuery: query };
   }
 
   return {
-    paths: paths.filter((path) => pathContainsTokensInOrder(path, tokens)),
-    treeSearchQuery: tokens.at(-1) ?? null,
+    projectedPaths: paths.filter((path) =>
+      pathContainsTokensInOrder(path, tokens),
+    ),
+    pierreSearchQuery: tokens.at(-1) ?? null,
   };
 }

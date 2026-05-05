@@ -329,13 +329,13 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
                 }
               >
                 <FileTree
-                  paths={treeSearch().paths}
+                  paths={treeSearch().projectedPaths}
                   gitStatus={treeGitStatus()}
                   selectedPath={selectedPath()}
                   onSelect={handleSelect}
                   initialExpansion={isDiffView() ? "open" : "closed"}
                   search={false}
-                  searchQuery={treeSearch().treeSearchQuery}
+                  searchQuery={treeSearch().pierreSearchQuery}
                   icons={pierreIconConfig}
                   contextMenu={{
                     enabled: true,
