@@ -22,9 +22,6 @@
       "@anthropic-ai/sdk": "^0.91.1",
       "@xterm/xterm": "github:juspay/xterm.js#fix/kolu-xterm-fixes-built",
       "@xterm/addon-webgl": "github:juspay/xterm.js#fix/kolu-xterm-fixes-built&path:/addons/addon-webgl"
-    },
-    "patchedDependencies": {
-      "node-pty@1.1.0": "patches/node-pty@1.1.0.patch"
     }
   },
   "devDependencies": {

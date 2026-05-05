@@ -16,11 +16,6 @@ overrides:
 
 packageExtensionsChecksum: sha256-GuGZA8jCJUaUE/saX+uezWes2nMASx9CFDTN3Aun/K8=
 
-patchedDependencies:
-  node-pty@1.1.0:
-    hash: 50f459cfc12675225bca395a9aab75c311e4cd6206f9c4990e818932465c8cd6
-    path: patches/node-pty@1.1.0.patch
-
 importers:
 
   .:
@@ -464,8 +459,8 @@ importers:
         specifier: workspace:*
         version: link:../transcript-html
       node-pty:
-        specifier: ^1.0.0
-        version: 1.1.0(patch_hash=50f459cfc12675225bca395a9aab75c311e4cd6206f9c4990e818932465c8cd6)
+        specifier: github:juspay/node-pty#fix/darwin-pty-fd-leak
+        version: https://codeload.github.com/juspay/node-pty/tar.gz/cc137d90e39bb9e5c72ca8b9d81210e5005c5fa3
       pino:
         specifier: ^10.3.1
         version: 10.3.1
@@ -3697,8 +3692,9 @@ packages:
   node-addon-api@7.1.1:
     resolution: {integrity: sha512-5m3bsyrjFWE1xf7nz7YXdN4udnVtXK6/Yfgn5qnahL6bCkf2yKt4k3nuTKAtT4r3IG8JNR2ncsIMdZuAzJjHQQ==}
 
-  node-pty@1.1.0:
-    resolution: {integrity: sha512-20JqtutY6JPXTUnL0ij1uad7Qe1baT46lyolh2sSENDd4sTzKZ4nmAFkeAARDKwmlLjPx6XKRlwRUxwjOy+lUg==}
+  node-pty@https://codeload.github.com/juspay/node-pty/tar.gz/cc137d90e39bb9e5c72ca8b9d81210e5005c5fa3:
+    resolution: {tarball: https://codeload.github.com/juspay/node-pty/tar.gz/cc137d90e39bb9e5c72ca8b9d81210e5005c5fa3}
+    version: 1.1.0
 
   node-releases@2.0.37:
     resolution: {integrity: sha512-1h5gKZCF+pO/o3Iqt5Jp7wc9rH3eJJ0+nh/CIoiRwjRxde/hAHyLPXYN4V3CqKAbiZPSeJFSWHmJsbkicta0Eg==}
@@ -7825,7 +7821,7 @@ snapshots:
 
   node-addon-api@7.1.1: {}
 
-  node-pty@1.1.0(patch_hash=50f459cfc12675225bca395a9aab75c311e4cd6206f9c4990e818932465c8cd6):
+  node-pty@https://codeload.github.com/juspay/node-pty/tar.gz/cc137d90e39bb9e5c72ca8b9d81210e5005c5fa3:
     dependencies:
       node-addon-api: 7.1.1
 
