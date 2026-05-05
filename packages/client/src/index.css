@@ -91,11 +91,15 @@ body {
 .pill-border {
   position: relative;
 }
+/* The ring's radius defaults to a pill (9999px) but can be overridden
+ * per-element via `--pill-border-radius` so the same animated border
+ * works on rectangular cards (where the ring should follow rounded-lg
+ * corners) without forking the keyframes or the mask-composite trick. */
 .pill-border::before {
   content: "";
   position: absolute;
   inset: -2px;
-  border-radius: 9999px;
+  border-radius: var(--pill-border-radius, 9999px);
   padding: 2px;
   -webkit-mask:
     linear-gradient(#fff 0 0) content-box,

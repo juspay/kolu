@@ -33,6 +33,35 @@ export function prLine(entry: WorkspaceSwitcherEntry): string | null {
   return `#${pr.value.number} ${pr.value.title}${checks}`;
 }
 
+/** Structured PR summary for renderers that style number, title, checks
+ *  separately (eyebrow vs. headline). Returns null when the PR is not
+ *  resolved (`absent`/`pending`/`unavailable`). */
+export type PrSummary = {
+  number: number;
+  title: string;
+  checks: string | null;
+};
+
+export function prSummary(entry: WorkspaceSwitcherEntry): PrSummary | null {
+  const pr = entry.info.meta.pr;
+  if (pr.kind !== "ok") return null;
+  return {
+    number: pr.value.number,
+    title: pr.value.title,
+    checks: pr.value.checks ?? null,
+  };
+}
+
+/** Single-glyph status bullet matching the column color treatment.
+ *  Mono-friendly so it aligns inside FiraCode metadata rows. */
+export function agentGlyph(state: AgentInfo["state"] | undefined): string {
+  return match(state)
+    .with("waiting", () => "⏵")
+    .with(P.union("thinking", "tool_use"), () => "▸")
+    .with(undefined, () => "·")
+    .exhaustive();
+}
+
 const tokenFormat = new Intl.NumberFormat("en", {
   notation: "compact",
   maximumFractionDigits: 1,
