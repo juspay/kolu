@@ -437,6 +437,16 @@ async function runShell(world: KoluWorld, cmd: string) {
   await world.waitForFrame();
 }
 
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+function writeFileCommand(path: string, content: string): string {
+  const parent = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
+  const mkdir = parent ? `mkdir -p ${shellQuote(parent)} && ` : "";
+  return `${mkdir}printf '%s\\n' ${shellQuote(content)} > ${shellQuote(path)}`;
+}
+
 /** Per-mode shell sequence to land in a state where `<file>` is visible
  *  in the Code tab tree. Branch mode requires a real `origin` remote so
  *  Kolu's `gitStatus` stream can resolve `merge-base(origin/<default>)`
@@ -493,6 +503,19 @@ async function activateCodeTabMode(
   await world.waitForFrame();
 }
 
+async function waitForFixturePath(
+  world: KoluWorld,
+  mode: CodeTabMode,
+  path: string,
+): Promise<void> {
+  const parentPath = path.slice(0, path.lastIndexOf("/"));
+  const selector =
+    mode === "browse" && parentPath ? dirRow(parentPath) : fileRow(path);
+  await world.page
+    .locator(selector)
+    .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+}
+
 /** Set up the Code tab in `<mode>` showing one file. The shell sequence
  *  is mode-specific (see `setupCodeTabFixture`); post-conditions are
  *  uniform: file row visible, mode chip set. */
@@ -505,11 +528,9 @@ Given(
     content: string,
   ) {
     const m = mode as CodeTabMode;
-    await setupCodeTabFixture(this, m, `printf '${content}\\n' > ${path}`);
+    await setupCodeTabFixture(this, m, writeFileCommand(path, content));
     await activateCodeTabMode(this, m);
-    await this.page
-      .locator(fileRow(path))
-      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await waitForFixturePath(this, m, path);
   },
 );
 
@@ -523,14 +544,12 @@ Given(
   ) {
     const m = mode as CodeTabMode;
     const rows = table.rawTable.slice(1); // skip header
-    const writes = rows.map(([p, c]) => `printf '${c}\\n' > ${p}`).join(" && ");
+    const writes = rows.map(([p, c]) => writeFileCommand(p, c)).join(" && ");
     await setupCodeTabFixture(this, m, writes);
     await activateCodeTabMode(this, m);
     const firstPath = rows[0]?.[0];
     if (firstPath) {
-      await this.page
-        .locator(fileRow(firstPath))
-        .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+      await waitForFixturePath(this, m, firstPath);
     }
   },
 );
