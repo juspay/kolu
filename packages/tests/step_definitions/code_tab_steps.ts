@@ -508,11 +508,13 @@ async function waitForFixturePath(
   mode: CodeTabMode,
   path: string,
 ): Promise<void> {
-  const parentPath = path.slice(0, path.lastIndexOf("/"));
   const selector =
-    mode === "browse" && parentPath ? dirRow(parentPath) : fileRow(path);
+    mode === "browse"
+      ? `${TREE} [data-item-path][data-item-type]:not([data-file-tree-sticky-row])`
+      : fileRow(path);
   await world.page
     .locator(selector)
+    .first()
     .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
 }
 
