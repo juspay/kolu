@@ -13,7 +13,7 @@
  * via `FileTree.searchQuery`. `@kolu/solid-pierre` owns the imperative
  * Pierre lifecycle; this component is just data flow + chrome. */
 
-import { FileDiff, FileTree } from "@kolu/solid-pierre";
+import { FileDiff, FileTree, Virtualizer } from "@kolu/solid-pierre";
 import type { GitDiffMode } from "kolu-git/schemas";
 import type { TerminalMetadata } from "kolu-common/surface";
 import {
@@ -403,19 +403,30 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
                       {(d) => (
                         <CodeMenuFrame path={path}>
                           {(selection) => (
-                            <FileDiff
-                              rawDiff={d().hunks[0] ?? ""}
-                              theme={diffTheme()}
-                              enableLineSelection
-                              onLineSelected={selection.handleSelect}
-                              onError={(err) =>
-                                toast.error(
-                                  `Diff render failed: ${err.message}`,
-                                )
-                              }
+                            // `<Virtualizer>` is the scroll container —
+                            // `<FileDiff>` consumes its context and
+                            // upgrades to Pierre's `VirtualizedFileDiff`,
+                            // windowing huge diffs (50k-line lockfile,
+                            // #809 / #514 Phase 8). Without this wrapper
+                            // `<FileDiff>` falls back to the vanilla
+                            // class — same as before.
+                            <Virtualizer
                               class="h-full w-full overflow-auto"
                               style={pierreDiffsStyle}
-                            />
+                            >
+                              <FileDiff
+                                rawDiff={d().hunks[0] ?? ""}
+                                theme={diffTheme()}
+                                enableLineSelection
+                                onLineSelected={selection.handleSelect}
+                                onError={(err) =>
+                                  toast.error(
+                                    `Diff render failed: ${err.message}`,
+                                  )
+                                }
+                                class="w-full"
+                              />
+                            </Virtualizer>
                           )}
                         </CodeMenuFrame>
                       )}
