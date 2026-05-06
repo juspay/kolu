@@ -52,9 +52,15 @@ export type FileDiffProps = {
    *  silently swallowing a parse failure leaves a blank pane that looks
    *  identical to an empty diff. */
   onError: (err: Error) => void;
-  /** Forwarded to the container `<div>`. */
+  /** Forwarded to the host `<div>` (Pierre's file-container element when
+   *  virtualized; the wrapper Pierre creates a child inside otherwise).
+   *  Use for sizing classes (`w-full`, `h-full`); do **not** apply
+   *  `overflow-*` here — the scroll container is the parent (or the
+   *  enclosing `<Virtualizer>` when virtualized). Putting overflow here
+   *  would create a nested scroller inside the virtualization scroll
+   *  surface and break Pierre's intersection-observer math. */
   class?: string;
-  /** Forwarded to the container `<div>` — host theming lives here. */
+  /** Forwarded to the host `<div>` — Pierre theming lives here. */
   style?: JSX.CSSProperties;
 };
 
