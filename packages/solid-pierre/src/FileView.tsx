@@ -150,7 +150,7 @@ const FileView: Component<FileViewProps> = (props) => {
   // strands the new instance in placeholder mode because Pierre's
   // intersection observer doesn't always fire entries when the root has
   // no layout box.
-  const fileContents = createMemo<FileContents>(
+  const fileContents = createMemo<FileContents, undefined>(
     () => ({ name: props.name, contents: props.contents }),
     undefined,
     {
