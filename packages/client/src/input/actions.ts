@@ -27,6 +27,7 @@ export interface ActionContext {
   handleCreate: (cwd?: string) => void;
   handleCreateSubTerminal: (parentId: TerminalId, cwd?: string) => void;
   openNewTerminalMenu: () => void;
+  openWorkspaceSwitcher: () => void;
   setPaletteOpen: Setter<boolean>;
   setShortcutsHelpOpen: Setter<boolean>;
   setSearchOpen: Setter<boolean>;
@@ -138,6 +139,11 @@ const _ACTIONS = {
     label: "Command palette",
     keybind: { key: "k", mod: true },
     handler: (ctx) => ctx.setPaletteOpen((v) => !v),
+  },
+  openWorkspaceSwitcher: {
+    label: "Workspace switcher",
+    keybind: { key: "K", code: "KeyK", mod: true, shift: true },
+    handler: (ctx) => ctx.openWorkspaceSwitcher(),
   },
   shortcutsHelp: {
     label: "Shortcuts help",

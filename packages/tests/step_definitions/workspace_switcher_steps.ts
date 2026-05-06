@@ -1,6 +1,6 @@
 import * as assert from "node:assert";
 import { Then, When } from "@cucumber/cucumber";
-import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
+import { type KoluWorld, MOD_KEY, POLL_TIMEOUT } from "../support/world.ts";
 
 const WORKSPACE_SWITCHER_SELECTOR = '[data-testid="workspace-switcher"]';
 const BRANCH_SELECTOR = '[data-testid="workspace-switcher-pill"]';
@@ -84,12 +84,34 @@ When("I hover the workspace switcher", async function (this: KoluWorld) {
     .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
 });
 
+When(
+  "I press the workspace switcher shortcut",
+  async function (this: KoluWorld) {
+    await this.page.keyboard.press(`${MOD_KEY}+Shift+K`);
+    await this.waitForFrame();
+  },
+);
+
 Then(
   "the workspace switcher panel should be visible",
   async function (this: KoluWorld) {
     await this.page
       .locator(PANEL_SELECTOR)
       .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+Then(
+  "the workspace switcher search should be focused",
+  async function (this: KoluWorld) {
+    await this.page
+      .locator(SEARCH_SELECTOR)
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await this.page.waitForFunction(
+      (selector) => document.activeElement === document.querySelector(selector),
+      SEARCH_SELECTOR,
+      { timeout: POLL_TIMEOUT },
+    );
   },
 );
 

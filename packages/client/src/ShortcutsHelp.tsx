@@ -12,6 +12,7 @@ import ModalDialog from "./ui/ModalDialog";
  *  any chord reassignment in the registry. */
 const HELP_ORDER: readonly { id: ActionId; label?: string }[] = [
   { id: "commandPalette" },
+  { id: "openWorkspaceSwitcher" },
   { id: "createTerminal" },
   { id: "newTerminalMenu" },
   { id: "cycleTerminalMru" },

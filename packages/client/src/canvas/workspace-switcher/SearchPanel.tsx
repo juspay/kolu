@@ -1,5 +1,5 @@
 import type { TerminalId } from "kolu-common/surface";
-import { type Component, For, Index, Show } from "solid-js";
+import { type Component, createEffect, For, Index, Show } from "solid-js";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { CloseIcon } from "../../ui/Icons";
 import { useTileTheme } from "../useTileTheme";
@@ -21,7 +21,9 @@ import {
 const WorkspaceSearchPanel: Component<{
   model: WorkspaceSwitcherModel;
   query: string;
+  focusSearch: boolean;
   onQueryChange: (query: string) => void;
+  onSearchFocused: () => void;
   onRepoFilterChange: (repoName: string | null) => void;
   onSelect: (id: TerminalId) => void;
   onClose: () => void;
@@ -33,6 +35,16 @@ const WorkspaceSearchPanel: Component<{
   const columnCount = () => Math.max(1, props.model.columns.length);
   const totalCount = () =>
     props.model.repoFacets.reduce((sum, facet) => sum + facet.count, 0);
+  let searchInputRef: HTMLInputElement | undefined;
+
+  createEffect(() => {
+    if (!props.focusSearch) return;
+    queueMicrotask(() => {
+      searchInputRef?.focus();
+      searchInputRef?.select();
+      props.onSearchFocused();
+    });
+  });
 
   return (
     // Visibility is owned by the parent (rendered via `Show` only when
@@ -60,6 +72,7 @@ const WorkspaceSearchPanel: Component<{
             ⏵
           </span>
           <input
+            ref={searchInputRef}
             data-testid="workspace-switcher-search"
             value={props.query}
             onInput={(e) => props.onQueryChange(e.currentTarget.value)}

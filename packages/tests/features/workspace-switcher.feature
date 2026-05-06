@@ -47,6 +47,12 @@ Feature: Workspace switcher
     Then the workspace switcher should show 1 card
     And there should be no page errors
 
+  Scenario: Workspace switcher shortcut opens search
+    When I press the workspace switcher shortcut
+    Then the workspace switcher panel should be visible
+    And the workspace switcher search should be focused
+    And there should be no page errors
+
   Scenario: Clicking a workspace switcher repo facet keeps the panel open
     Given I create a terminal
     When I run "cd /tmp"

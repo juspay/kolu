@@ -20,8 +20,10 @@
 import type { TerminalId } from "kolu-common/surface";
 import {
   type Component,
+  createEffect,
   createMemo,
   createSignal,
+  on,
   onCleanup,
   onMount,
   Show,
@@ -39,6 +41,8 @@ import {
 /** Controller that owns query/filter state and composes both switcher views. */
 const WorkspaceSwitcher: Component<{
   entries: WorkspaceSwitcherSourceEntry[];
+  /** Incremented by the app-level shortcut to latch the panel open. */
+  openRequest: number;
   /** Click handler — caller decides whether to pan, swap active, etc. */
   onSelect: (id: TerminalId) => void;
   /** Open the "new terminal" flow. */
@@ -50,6 +54,7 @@ const WorkspaceSwitcher: Component<{
   const [hover, setHover] = createSignal(false);
   const [dismissed, setDismissed] = createSignal(false);
   const [latched, setLatched] = createSignal(false);
+  const [focusSearchOnOpen, setFocusSearchOnOpen] = createSignal(false);
   const isOpen = createMemo(() => latched() || (hover() && !dismissed()));
   const switcher = createMemo<WorkspaceSwitcherModel>(() =>
     buildWorkspaceSwitcherModel(props.entries, {
@@ -87,6 +92,7 @@ const WorkspaceSwitcher: Component<{
     setHover(false);
     setLatched(false);
     setDismissed(true);
+    setFocusSearchOnOpen(false);
   };
 
   /** Toggle the latch from the explicit toggle button. */
@@ -98,6 +104,16 @@ const WorkspaceSwitcher: Component<{
       setDismissed(false);
     }
   };
+
+  const openFromShortcut = () => {
+    clearHoverCloseTimer();
+    setHover(false);
+    setLatched(true);
+    setDismissed(false);
+    setFocusSearchOnOpen(true);
+  };
+
+  createEffect(on(() => props.openRequest, openFromShortcut, { defer: true }));
 
   // `mousedown` outside the subtree closes a latched panel — without this,
   // latching would have no escape via clicking on the canvas. Hover is
@@ -179,7 +195,9 @@ const WorkspaceSwitcher: Component<{
         <WorkspaceSearchPanel
           model={switcher()}
           query={query()}
+          focusSearch={focusSearchOnOpen()}
           onQueryChange={setQuery}
+          onSearchFocused={() => setFocusSearchOnOpen(false)}
           onRepoFilterChange={setRepoFilter}
           onSelect={selectAndClose}
           onClose={closePanel}

@@ -132,6 +132,9 @@ const App: Component = () => {
   // Shortcuts help overlay state
   const [shortcutsHelpOpen, setShortcutsHelpOpen] = createSignal(false);
 
+  const [workspaceSwitcherOpenRequest, setWorkspaceSwitcherOpenRequest] =
+    createSignal(0);
+
   // About dialog state
   const [aboutOpen, setAboutOpen] = createSignal(false);
 
@@ -201,6 +204,9 @@ const App: Component = () => {
     handleCreateSubTerminal: (parentId, cwd) =>
       void crud.handleCreateSubTerminal(parentId, cwd),
     openNewTerminalMenu: () => openPaletteGroup("New terminal"),
+    openWorkspaceSwitcher: () => {
+      if (!isMobile()) setWorkspaceSwitcherOpenRequest((n) => n + 1);
+    },
     setPaletteOpen,
     setShortcutsHelpOpen,
     setSearchOpen,
@@ -471,6 +477,7 @@ const App: Component = () => {
           workspaceSwitcher={
             <WorkspaceSwitcher
               entries={desktopWorkspaceEntries()}
+              openRequest={workspaceSwitcherOpenRequest()}
               onSelect={(id) => {
                 store.setActiveId(id);
                 const layout = store.getMetadata(id)?.canvasLayout;

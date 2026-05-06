@@ -44,8 +44,8 @@ export const AMBIENT_TIPS: readonly Tip[] = [
     text: `${formatKeybind(ACTIONS.toggleSubPanel.keybind)} splits your terminal into a bottom pane`,
   },
   {
-    id: "amb-workspace-switcher",
-    text: "Hover the workspace switcher at the top of the canvas to search live terminals, filter by repo, and jump to the tile",
+    id: "amb-workspace-switcher-shortcut",
+    text: `${formatKeybind(ACTIONS.openWorkspaceSwitcher.keybind)} opens the workspace switcher with search focused`,
   },
   {
     id: "amb-mru",
