@@ -92,12 +92,56 @@ When(
   },
 );
 
+When("I click the workspace switcher toggle", async function (this: KoluWorld) {
+  const toggle = this.page.locator('[data-testid="workspace-switcher-toggle"]');
+  await toggle.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  await toggle.click();
+  await this.waitForFrame();
+});
+
+When(
+  "I click the workspace switcher close button",
+  async function (this: KoluWorld) {
+    const close = this.page.locator('[data-testid="workspace-switcher-close"]');
+    await close.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await close.click();
+    await this.waitForFrame();
+  },
+);
+
+When("I press Escape", async function (this: KoluWorld) {
+  await this.page.keyboard.press("Escape");
+  await this.waitForFrame();
+});
+
+When(
+  "I click outside the workspace switcher",
+  async function (this: KoluWorld) {
+    // Click on the canvas container — definitively outside the switcher
+    // subtree but inside the app, so no popup/navigation side effects.
+    // `position` targets a coordinate well below the chrome bar.
+    const canvas = this.page.locator('[data-testid="canvas-container"]');
+    await canvas.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await canvas.click({ position: { x: 50, y: 200 } });
+    await this.waitForFrame();
+  },
+);
+
 Then(
   "the workspace switcher panel should be visible",
   async function (this: KoluWorld) {
     await this.page
       .locator(PANEL_SELECTOR)
       .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+Then(
+  "the workspace switcher panel should not be visible",
+  async function (this: KoluWorld) {
+    await this.page
+      .locator(PANEL_SELECTOR)
+      .waitFor({ state: "hidden", timeout: POLL_TIMEOUT });
   },
 );
 

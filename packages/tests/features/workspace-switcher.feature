@@ -53,6 +53,44 @@ Feature: Workspace switcher
     And the workspace switcher search should be focused
     And there should be no page errors
 
+  Scenario: Toggle button latches the workspace switcher panel open
+    When I click the workspace switcher toggle
+    Then the workspace switcher panel should be visible
+    When I click the workspace switcher toggle
+    Then the workspace switcher panel should not be visible
+    And there should be no page errors
+
+  Scenario: Close button dismisses the workspace switcher panel
+    When I click the workspace switcher toggle
+    Then the workspace switcher panel should be visible
+    When I click the workspace switcher close button
+    Then the workspace switcher panel should not be visible
+    And there should be no page errors
+
+  Scenario: Escape dismisses the workspace switcher panel
+    When I click the workspace switcher toggle
+    Then the workspace switcher panel should be visible
+    When I press Escape
+    Then the workspace switcher panel should not be visible
+    And there should be no page errors
+
+  Scenario: Clicking outside dismisses a latched workspace switcher panel
+    When I click the workspace switcher toggle
+    Then the workspace switcher panel should be visible
+    When I click outside the workspace switcher
+    Then the workspace switcher panel should not be visible
+    And there should be no page errors
+
+  Scenario: Selecting a workspace switcher card closes the panel
+    Given I run "echo dismiss-after-select"
+    And I create a terminal
+    When I click the workspace switcher toggle
+    Then the workspace switcher panel should be visible
+    When I click workspace switcher card 1
+    Then the workspace switcher panel should not be visible
+    And the active terminal should show "dismiss-after-select"
+    And there should be no page errors
+
   Scenario: Clicking a workspace switcher repo facet keeps the panel open
     Given I create a terminal
     When I run "cd /tmp"

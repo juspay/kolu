@@ -202,7 +202,11 @@ body {
  * the track to transparent so it disappears when not needed. */
 .scrollbar-subtle {
   scrollbar-width: thin;
-  scrollbar-color: color-mix(in oklch, var(--color-edge-bright) 60%, transparent)
+  scrollbar-color: color-mix(
+      in oklch,
+      var(--color-edge-bright) 60%,
+      transparent
+    )
     transparent;
 }
 .scrollbar-subtle::-webkit-scrollbar {
