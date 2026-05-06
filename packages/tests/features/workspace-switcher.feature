@@ -20,6 +20,21 @@ Feature: Workspace switcher
     Then the second workspace switcher branch should be the active pill
     And there should be no page errors
 
+  Scenario: Active terminal stays visible past the per-row pill cap
+    # The collapsed strip shows up to ITEMS_PER_ROW=3 pills per repo and
+    # rolls the rest into a "+N" chip. Switching focus to a terminal that
+    # would otherwise sit in overflow must hoist it into the visible slice
+    # — otherwise the user can't see what they just clicked. Background
+    # creates t0; three more puts us at four same-repo terminals; the
+    # expanded panel exposes the would-be-clipped one as card 4.
+    Given I create a terminal
+    And I create a terminal
+    And I create a terminal
+    When I hover the workspace switcher
+    And I click workspace switcher card 4
+    Then the third workspace switcher branch should be the active pill
+    And there should be no page errors
+
   Scenario: Clicking a collapsed branch pill switches the active terminal
     # The Background-created terminal is t0; running echo targets it
     # (it's the active one). Then a second terminal becomes active. Clicking

@@ -38,7 +38,28 @@ const CollapsedWorkspaceSwitcher: Component<{
 
       <Index each={props.groups}>
         {(group) => {
-          const visible = () => group().items.slice(0, ITEMS_PER_ROW);
+          // Show the first ITEMS_PER_ROW items by recency, but make sure
+          // the user's active terminal is always one of them — without
+          // this, a focused terminal that lands at index ≥ ITEMS_PER_ROW
+          // (e.g. an idle pill behind several agent-active peers in the
+          // same repo) silently disappears under the `+N` overflow chip.
+          // Replace the last visible slot with the active item rather
+          // than prepending so the strip still leads with the most-recent
+          // peers in this repo.
+          const visible = () => {
+            const items = group().items;
+            const head = items.slice(0, ITEMS_PER_ROW);
+            const activeId = store.activeId();
+            if (
+              activeId === null ||
+              head.some((item) => item.id === activeId)
+            ) {
+              return head;
+            }
+            const active = items.find((item) => item.id === activeId);
+            if (!active) return head;
+            return [...head.slice(0, ITEMS_PER_ROW - 1), active];
+          };
           const overflow = () =>
             Math.max(0, group().items.length - ITEMS_PER_ROW);
           return (
