@@ -1,6 +1,7 @@
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, For, Index, Show } from "solid-js";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
+import { CloseIcon } from "../../ui/Icons";
 import { useTileTheme } from "../useTileTheme";
 import { agentLabel, metaLine, prSummary, tokenLine } from "./chrome";
 import { branchAccent, repoAccent } from "./identity";
@@ -23,6 +24,7 @@ const WorkspaceSearchPanel: Component<{
   onQueryChange: (query: string) => void;
   onRepoFilterChange: (repoName: string | null) => void;
   onSelect: (id: TerminalId) => void;
+  onClose: () => void;
 }> = (props) => {
   const store = useTerminalStore();
   const tileTheme = useTileTheme();
@@ -68,6 +70,16 @@ const WorkspaceSearchPanel: Component<{
           <span class="font-mono text-[0.65rem] uppercase tracking-[0.18em] text-fg-3 tabular-nums shrink-0">
             {totalCount()} live
           </span>
+          <button
+            type="button"
+            data-testid="workspace-switcher-close"
+            class="shrink-0 flex items-center justify-center w-6 h-6 -mr-1 rounded-md text-fg-3 hover:text-fg hover:bg-surface-2 active:bg-surface-2 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+            aria-label="Close workspace switcher"
+            title="Close (Esc)"
+            onClick={() => props.onClose()}
+          >
+            <CloseIcon class="w-3.5 h-3.5" />
+          </button>
         </div>
 
         <div class="grid grid-cols-[12rem_minmax(0,1fr)] max-h-[70vh] overflow-hidden">
