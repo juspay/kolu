@@ -5,26 +5,40 @@ import type { WorkspaceSwitcherSourceEntry } from "./order";
 
 export type WorkspaceAgentBucket = "awaiting" | "working" | "none";
 
-/** Stable agent-state buckets shown as columns in the expanded switcher. */
+/** Stable agent-state buckets shown as columns in the expanded switcher.
+ *
+ *  Co-locates each bucket's label, empty-state copy, and visual encoding
+ *  (text color, accent CSS variable used for the column rule). Keeping
+ *  them together means adding or renaming a bucket is a single edit;
+ *  presentation reads from this record rather than re-deriving the
+ *  mapping in each component. */
 export const WORKSPACE_AGENT_BUCKETS: readonly {
   key: WorkspaceAgentBucket;
   label: string;
   empty: string;
+  textClass: string;
+  accentVar: string;
 }[] = [
   {
     key: "awaiting",
     label: "Awaiting you",
     empty: "No terminals need input",
+    textClass: "text-alert",
+    accentVar: "var(--color-alert)",
   },
   {
     key: "working",
     label: "Working",
     empty: "No agents are running",
+    textClass: "text-accent",
+    accentVar: "var(--color-accent)",
   },
   {
     key: "none",
     label: "No agent",
     empty: "No plain shells match",
+    textClass: "text-fg-3",
+    accentVar: "var(--color-fg-3)",
   },
 ];
 
@@ -66,6 +80,8 @@ export type WorkspaceSwitcherColumn = {
   key: WorkspaceAgentBucket;
   label: string;
   empty: string;
+  textClass: string;
+  accentVar: string;
   entries: WorkspaceSwitcherEntry[];
 };
 
@@ -92,6 +108,25 @@ export function agentBucket(
     case undefined:
       return "none";
   }
+}
+
+const BUCKET_BY_KEY: Record<
+  WorkspaceAgentBucket,
+  (typeof WORKSPACE_AGENT_BUCKETS)[number]
+> = WORKSPACE_AGENT_BUCKETS.reduce(
+  (acc, bucket) => {
+    acc[bucket.key] = bucket;
+    return acc;
+  },
+  {} as Record<WorkspaceAgentBucket, (typeof WORKSPACE_AGENT_BUCKETS)[number]>,
+);
+
+/** Look up a bucket descriptor by its key. Used by presentation code
+ *  that has an entry's bucket and needs the matching label/color. */
+export function bucketDescriptor(
+  bucket: WorkspaceAgentBucket,
+): (typeof WORKSPACE_AGENT_BUCKETS)[number] {
+  return BUCKET_BY_KEY[bucket];
 }
 
 function add(values: string[], value: unknown): void {

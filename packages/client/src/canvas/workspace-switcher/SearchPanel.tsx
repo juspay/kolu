@@ -11,27 +11,11 @@ import {
   tokenLine,
 } from "./chrome";
 import { branchAccent, repoAccent } from "./identity";
-import type {
-  WorkspaceAgentBucket,
-  WorkspaceSwitcherEntry,
-  WorkspaceSwitcherModel,
+import {
+  bucketDescriptor,
+  type WorkspaceSwitcherEntry,
+  type WorkspaceSwitcherModel,
 } from "./model";
-
-/** Per-bucket accent — drives the column eyebrow and a faint top rule.
- *  "Awaiting you" gets the alert color so it pulls the eye first; the
- *  others sit in the supporting palette so the eye lands on actionable
- *  work without the panel feeling like a christmas tree. */
-const bucketAccent: Record<WorkspaceAgentBucket, string> = {
-  awaiting: "var(--color-alert)",
-  working: "var(--color-accent)",
-  none: "var(--color-fg-3)",
-};
-
-const bucketTextClass: Record<WorkspaceAgentBucket, string> = {
-  awaiting: "text-alert",
-  working: "text-accent",
-  none: "text-fg-3",
-};
 
 /** Expanded hover panel with repo facets, search, and agent-state columns.
  *
@@ -148,11 +132,11 @@ const WorkspaceSearchPanel: Component<{
                   <div
                     class="flex items-center justify-between gap-2 mb-2 pb-1.5 border-b"
                     style={{
-                      "border-color": `color-mix(in oklch, ${bucketAccent[column.key]} 22%, var(--color-edge))`,
+                      "border-color": `color-mix(in oklch, ${column.accentVar} 22%, var(--color-edge))`,
                     }}
                   >
                     <div
-                      class={`font-mono text-[0.65rem] font-semibold uppercase tracking-[0.2em] ${bucketTextClass[column.key]}`}
+                      class={`font-mono text-[0.65rem] font-semibold uppercase tracking-[0.2em] ${column.textClass}`}
                     >
                       {column.label}
                     </div>
@@ -337,7 +321,7 @@ const WorkspaceCard: Component<{
       <div class="mt-2 flex items-center gap-1.5 min-w-0 text-[0.72rem] text-fg-2">
         <span
           aria-hidden="true"
-          class={`font-mono leading-none shrink-0 ${bucketTextClass[props.entry.bucket]}`}
+          class={`font-mono leading-none shrink-0 ${bucketDescriptor(props.entry.bucket).textClass}`}
         >
           {glyph()}
         </span>
