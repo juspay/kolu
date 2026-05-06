@@ -50,7 +50,7 @@ export const WORKSPACE_AGENT_BUCKETS: readonly {
     empty: "No terminals need input",
     textClass: "text-alert",
     accentVar: "var(--color-alert)",
-    borderClass: "pill-border pill-border-waiting",
+    borderClass: "pill-border pill-border-awaiting",
     glyph: "⏵",
   },
   {
@@ -59,7 +59,7 @@ export const WORKSPACE_AGENT_BUCKETS: readonly {
     empty: "No agents are running",
     textClass: "text-accent",
     accentVar: "var(--color-accent)",
-    borderClass: "pill-border pill-border-spin",
+    borderClass: "pill-border pill-border-working",
     glyph: "▸",
   },
   {

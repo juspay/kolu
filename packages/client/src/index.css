@@ -62,39 +62,30 @@ body {
   --color-busy: #c4623e;
 }
 
-/* ── Spinning border animation ───────────────────────────────── */
-/* Drives `pill-border-spin` below: a conic gradient rotates around
-   the pill, leaving an animated "tire" ring via mask-composite. */
-
-@property --spin-angle {
-  syntax: "<angle>";
-  initial-value: 0deg;
-  inherits: false;
-}
-
-@keyframes border-spin {
-  to {
-    --spin-angle: 360deg;
-  }
-}
-
-/* ── Pill agent border ──────────────────────────────────────── */
-/* Single border channel encoding both `active` (which terminal is
- * focused) and `agent state` (what its agent is doing right now).
- * The ::before pseudo sits 2px outside the pill and uses the standard
- * mask-composite trick so only the ring is visible — the pill's own
- * background covers the inner area. `--card-color` is set per-pill
- * (repo color) so the border doubles as identity.
+/* ── Pill border channels ────────────────────────────────────
+ * Two visual channels live on the pill border:
  *
- * Reuses --spin-angle / @keyframes border-spin from above. */
+ *   1. Terminal-active — driven by `--card-color` (repo identity).
+ *      `.pill-border-active` paints a static ring; `.pill-glow-inner`
+ *      is the inset highlight used when a card is also showing an
+ *      agent-state ring on the outside.
+ *
+ *   2. Agent-state — driven by `--pill-state-color` (bucket accent
+ *      from `WORKSPACE_AGENT_BUCKETS`). `.pill-border-awaiting`
+ *      breathes; `.pill-border-working` is a static ring; idle has
+ *      no class.
+ *
+ * The two channels never read the same CSS variable, so a card that
+ * is both active and has an agent renders an outer bucket-colored
+ * ring + an inset repo-colored highlight without conflict.
+ *
+ * The ring radius defaults to a pill (9999px) but can be overridden
+ * per-element via `--pill-border-radius` so the same animation works
+ * on rectangular cards (rounded-md / rounded-lg). */
 
 .pill-border {
   position: relative;
 }
-/* The ring's radius defaults to a pill (9999px) but can be overridden
- * per-element via `--pill-border-radius` so the same animated border
- * works on rectangular cards (where the ring should follow rounded-lg
- * corners) without forking the keyframes or the mask-composite trick. */
 .pill-border::before {
   content: "";
   position: absolute;
@@ -113,30 +104,48 @@ body {
   background: oklch(from var(--card-color) l c h / 0.8);
 }
 
-.pill-border-spin::before {
-  background:
-    conic-gradient(
-      from var(--spin-angle),
-      transparent 0%,
-      oklch(from var(--card-color) l calc(c * 1.3) h) 8%,
-      transparent 16%,
-      transparent 100%
-    ),
-    oklch(from var(--card-color) l c h / 0.4);
-  animation: border-spin 2s linear infinite;
+.pill-border-awaiting::before {
+  animation: pill-awaiting-breathe 1.6s ease-in-out infinite;
 }
-
-.pill-border-waiting::before {
-  animation: pill-breathe 1.6s ease-in-out infinite;
-}
-
-@keyframes pill-breathe {
+@keyframes pill-awaiting-breathe {
   0%,
   100% {
-    background: oklch(from var(--card-color) l c h / 0.15);
+    background: color-mix(
+      in oklch,
+      var(--pill-state-color, var(--color-alert)) 20%,
+      transparent
+    );
   }
   50% {
-    background: oklch(from var(--card-color) l calc(c * 1.2) h / 0.85);
+    background: color-mix(
+      in oklch,
+      var(--pill-state-color, var(--color-alert)) 90%,
+      transparent
+    );
+  }
+}
+
+.pill-border-working::before {
+  background: color-mix(
+    in oklch,
+    var(--pill-state-color, var(--color-accent)) 70%,
+    transparent
+  );
+}
+
+/* Honour the user's motion preference: collapse the breathe to a
+ * static high-opacity background so awaiting still reads strongly
+ * but doesn't pulse. Without this the awaiting ring would flatten
+ * to a dim-and-static state visually indistinguishable from idle
+ * + working when reduce-motion is requested. */
+@media (prefers-reduced-motion: reduce) {
+  .pill-border-awaiting::before {
+    animation: none;
+    background: color-mix(
+      in oklch,
+      var(--pill-state-color, var(--color-alert)) 80%,
+      transparent
+    );
   }
 }
 

@@ -240,9 +240,11 @@ const RepoFacetButton: Component<{
 );
 
 /** Single workspace card — eyebrow / headline / status / meta. The card
- *  border (when an agent is live) carries motion via `pill-border-spin`
- *  or `pill-border-waiting`; the inner `pill-glow-inner` marks the card
- *  as ALSO active so the two states never compete for the same channel. */
+ *  border (when an agent is live) carries the bucket via
+ *  `pill-border-awaiting` / `pill-border-working`; the inner
+ *  `pill-glow-inner` marks the card as ALSO active so the two channels
+ *  (bucket via `--pill-state-color`, terminal-active via `--card-color`)
+ *  never compete for the same visual variable. */
 const WorkspaceCard: Component<{
   entry: WorkspaceSwitcherEntry;
   active: boolean;
@@ -273,6 +275,7 @@ const WorkspaceCard: Component<{
       }}
       style={{
         "--card-color": repoAccent(props.entry.info),
+        "--pill-state-color": bucketInfo().accentVar,
         // Override the pill-border ring radius so the agent-state border
         // follows the card's `rounded-lg` corners instead of drawing the
         // default pill oval. `inset: -2px` on ::before bumps the outer

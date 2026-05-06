@@ -79,9 +79,8 @@ const CollapsedWorkspaceSwitcher: Component<{
                     const active = () => store.activeId() === item.id;
                     const unread = () => store.isUnread(item.id);
                     const agentState = () => item.info.meta.agent?.state;
-                    const borderClass = () =>
-                      bucketDescriptor(agentBucket(item.info.meta.agent))
-                        .borderClass;
+                    const bucketInfo = () =>
+                      bucketDescriptor(agentBucket(item.info.meta.agent));
                     return (
                       <button
                         type="button"
@@ -90,7 +89,7 @@ const CollapsedWorkspaceSwitcher: Component<{
                         data-active={active() ? "" : undefined}
                         data-unread={unread() ? "" : undefined}
                         data-agent-state={agentState()}
-                        class={`pointer-events-auto relative flex items-center gap-1.5 px-2 h-6 rounded-md border text-xs cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 max-w-[20ch] whitespace-nowrap ${borderClass()}`}
+                        class={`pointer-events-auto relative flex items-center gap-1.5 px-2 h-6 rounded-md border text-xs cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 max-w-[20ch] whitespace-nowrap ${bucketInfo().borderClass}`}
                         classList={{
                           "border-accent/70 bg-surface-2":
                             active() && !agentState(),
@@ -103,6 +102,7 @@ const CollapsedWorkspaceSwitcher: Component<{
                         }}
                         style={{
                           "--card-color": repoAccent(item.info),
+                          "--pill-state-color": bucketInfo().accentVar,
                           "--pill-border-radius": "calc(0.375rem + 2px)",
                         }}
                         onClick={() => props.onSelect(item.id)}
