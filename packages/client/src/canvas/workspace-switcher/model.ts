@@ -274,8 +274,13 @@ function compactGroupsFor(
       };
       groups.set(entry.repoName, group);
     }
-    const isPriority = entry.info.meta.agent !== null || entry.id === activeId;
-    if (!isPriority) {
+    // Two distinct reasons to bypass the cap, kept named so a future
+    // divergence stays visible: an agent in flight is *salience*
+    // (something is happening); the user's current terminal is
+    // *reachability* (don't hide what they're looking at).
+    const hasAgent = entry.info.meta.agent !== null;
+    const isFocused = entry.id === activeId;
+    if (!hasAgent && !isFocused) {
       const idle = idleCounts.get(entry.repoName) ?? 0;
       if (idle >= IDLE_PILLS_PER_REPO) continue;
       idleCounts.set(entry.repoName, idle + 1);
@@ -297,17 +302,24 @@ function compactGroupsFor(
 }
 
 /** Derive all switcher projections from one live-terminal entry list.
- *  `activeId` keeps the user's current terminal in the collapsed pill
- *  strip even when its repo's idle cap would otherwise hide it. */
+ *  Owns the full ordering pipeline — pass `getRecency` and the model
+ *  applies `sortBySwitcherOrder` internally so callers can't accidentally
+ *  feed unsorted entries into the compact-pill grouping. `activeId` keeps
+ *  the user's current terminal in the collapsed pill strip even when its
+ *  repo's idle cap would otherwise hide it. */
 export function buildWorkspaceSwitcherModel(
   sources: WorkspaceSwitcherSourceEntry[],
   options: {
     query?: string;
     repoFilter?: string | null;
     activeId?: TerminalId | null;
+    getRecency?: (id: TerminalId) => number;
   } = {},
 ): WorkspaceSwitcherModel {
-  const entries: WorkspaceSwitcherEntry[] = sources.map((source) => {
+  const ordered = options.getRecency
+    ? sortBySwitcherOrder(sources, options.getRecency)
+    : sources;
+  const entries: WorkspaceSwitcherEntry[] = ordered.map((source) => {
     const base = {
       id: source.id,
       repoName: source.info.key.group,

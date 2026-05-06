@@ -27,7 +27,6 @@ import CanvasWatermark from "./canvas/CanvasWatermark";
 import WorkspaceSwitcher, {
   buildWorkspaceEntries,
   buildWorkspaceSwitcherModel,
-  sortBySwitcherOrder,
 } from "./canvas/workspace-switcher";
 import TerminalCanvas from "./canvas/TerminalCanvas";
 import TileTitleActions from "./canvas/TileTitleActions";
@@ -82,26 +81,26 @@ const App: Component = () => {
   const { colorScheme } = useColorScheme();
   const canvasViewport = useCanvasViewport();
 
-  // Workspace-switcher entries ordered by per-terminal recency, with canvas
-  // position as the stable secondary key. Both desktop and mobile read from
-  // the same memo; see `sortBySwitcherOrder` for the within-bucket caveat.
-  const orderedWorkspaceEntries = createMemo(() =>
-    sortBySwitcherOrder(
-      buildWorkspaceEntries(
-        store.terminalIds(),
-        store.getDisplayInfo,
-        (id) => store.getMetadata(id)?.canvasLayout,
-      ),
-      (id) => store.getMetadata(id)?.lastActivityAt ?? 0,
+  // Workspace-switcher entries — `buildWorkspaceSwitcherModel` owns the
+  // full ordering pipeline (recency-desc, canvas position, idle cap with
+  // active-bypass). Both desktop and mobile read the same accessors.
+  const workspaceEntries = createMemo(() =>
+    buildWorkspaceEntries(
+      store.terminalIds(),
+      store.getDisplayInfo,
+      (id) => store.getMetadata(id)?.canvasLayout,
     ),
   );
+  const recencyOf = (id: TerminalId): number =>
+    store.getMetadata(id)?.lastActivityAt ?? 0;
   const mobileWorkspaceModel = createMemo(() =>
-    buildWorkspaceSwitcherModel(orderedWorkspaceEntries(), {
+    buildWorkspaceSwitcherModel(workspaceEntries(), {
       activeId: store.activeId(),
+      getRecency: recencyOf,
     }),
   );
   const orderedIds = createMemo(() =>
-    orderedWorkspaceEntries().map((entry) => entry.id),
+    mobileWorkspaceModel().entries.map((entry) => entry.id),
   );
 
   // Fetch server identity for document title, watermark, and PWA chrome color.
@@ -468,8 +467,9 @@ const App: Component = () => {
           onOpenPalette={() => openPalette()}
           workspaceSwitcher={
             <WorkspaceSwitcher
-              entries={orderedWorkspaceEntries()}
+              entries={workspaceEntries()}
               activeId={store.activeId()}
+              getRecency={recencyOf}
               openRequest={workspaceSwitcherOpenRequest()}
               onSelect={(id) => {
                 store.setActiveId(id);
