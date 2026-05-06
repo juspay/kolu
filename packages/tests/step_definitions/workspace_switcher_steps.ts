@@ -76,9 +76,9 @@ When(
 );
 
 When("I hover the workspace switcher", async function (this: KoluWorld) {
-  const switcher = this.page.locator(WORKSPACE_SWITCHER_SELECTOR);
-  await switcher.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-  await switcher.hover();
+  const branch = this.page.locator(BRANCH_SELECTOR).first();
+  await branch.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  await branch.hover();
   await this.page
     .locator(PANEL_SELECTOR)
     .waitFor({ state: "visible", timeout: POLL_TIMEOUT });

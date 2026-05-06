@@ -30,6 +30,14 @@ Feature: Workspace switcher
     Then the active terminal should show "first-pill"
     And there should be no page errors
 
+  Scenario: Clicking a collapsed branch pill works while the panel is open
+    Given I run "echo hover-pill-click"
+    And I create a terminal
+    When I hover the workspace switcher
+    And I click workspace switcher branch 1
+    Then the active terminal should show "hover-pill-click"
+    And there should be no page errors
+
   Scenario: Workspace switcher hover panel searches live terminal metadata
     Given I create a terminal
     When I run "cd /tmp"

@@ -59,9 +59,32 @@ const WorkspaceSwitcher: Component<{
   );
 
   let containerRef: HTMLDivElement | undefined;
+  let hoverCloseTimer: number | undefined;
+
+  const clearHoverCloseTimer = () => {
+    if (hoverCloseTimer === undefined) return;
+    window.clearTimeout(hoverCloseTimer);
+    hoverCloseTimer = undefined;
+  };
+
+  const beginHover = () => {
+    clearHoverCloseTimer();
+    setHover(true);
+    setDismissed(false);
+  };
+
+  const endHoverSoon = () => {
+    clearHoverCloseTimer();
+    hoverCloseTimer = window.setTimeout(() => {
+      setHover(false);
+      hoverCloseTimer = undefined;
+    }, 140);
+  };
 
   /** Close everything — clear the latch and dismiss the hover-driven open. */
   const closePanel = () => {
+    clearHoverCloseTimer();
+    setHover(false);
     setLatched(false);
     setDismissed(true);
   };
@@ -76,24 +99,12 @@ const WorkspaceSwitcher: Component<{
     }
   };
 
-  // Document-level cursor tracking. The switcher container itself is
-  // `pointer-events-none` so clicks pass through to the canvas — that
-  // means `onMouseEnter`/`onMouseLeave` on the container is unreliable.
-  // Instead, watch every `mouseover` and check whether the new target
-  // sits inside our subtree. Re-entering re-arms the dismiss flag so
-  // a second hover after a select reopens the panel naturally.
-  //
-  // `mousedown` outside the subtree closes a latched panel — without
-  // this, latching would have no escape via clicking on the canvas.
+  // `mousedown` outside the subtree closes a latched panel — without this,
+  // latching would have no escape via clicking on the canvas. Hover is
+  // intentionally handled on the visible strip/panel instead of a document
+  // `mouseover`: transparent pointer-event bridges are easy to put above
+  // the pill buttons and turn their edges into click deadzones.
   onMount(() => {
-    const handleOver = (e: MouseEvent) => {
-      if (!containerRef) return;
-      const inside = containerRef.contains(e.target as Node);
-      if (inside !== hover()) {
-        setHover(inside);
-        if (inside) setDismissed(false);
-      }
-    };
     const handleMouseDown = (e: MouseEvent) => {
       if (!latched() || !containerRef) return;
       if (!containerRef.contains(e.target as Node)) closePanel();
@@ -104,11 +115,10 @@ const WorkspaceSwitcher: Component<{
         e.preventDefault();
       }
     };
-    document.addEventListener("mouseover", handleOver);
     document.addEventListener("mousedown", handleMouseDown);
     document.addEventListener("keydown", handleKey);
     onCleanup(() => {
-      document.removeEventListener("mouseover", handleOver);
+      clearHoverCloseTimer();
       document.removeEventListener("mousedown", handleMouseDown);
       document.removeEventListener("keydown", handleKey);
     });
@@ -118,8 +128,8 @@ const WorkspaceSwitcher: Component<{
    *  completion of "I'm looking for a terminal" — keep the surface
    *  out of the way once the user has what they came for. */
   const selectAndClose = (id: TerminalId) => {
-    closePanel();
     props.onSelect(id);
+    closePanel();
   };
 
   return (
@@ -131,12 +141,14 @@ const WorkspaceSwitcher: Component<{
       class="pointer-events-none select-none w-full relative"
     >
       <div
-        class="flex flex-nowrap items-start justify-center gap-x-2 transition-opacity duration-150"
+        class="pointer-events-auto mx-auto flex w-fit max-w-full flex-nowrap items-start justify-center gap-x-2 transition-opacity duration-150"
         classList={{
           "opacity-100": isOpen(),
           "opacity-80": !isOpen() && !posture.maximized(),
           "opacity-50": !isOpen() && posture.maximized(),
         }}
+        onPointerEnter={beginHover}
+        onPointerLeave={endHoverSoon}
       >
         <CollapsedWorkspaceSwitcher
           groups={switcher().compactGroups}
@@ -171,6 +183,8 @@ const WorkspaceSwitcher: Component<{
           onRepoFilterChange={setRepoFilter}
           onSelect={selectAndClose}
           onClose={closePanel}
+          onPointerEnter={beginHover}
+          onPointerLeave={endHoverSoon}
         />
       </Show>
     </div>

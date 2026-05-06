@@ -25,6 +25,8 @@ const WorkspaceSearchPanel: Component<{
   onRepoFilterChange: (repoName: string | null) => void;
   onSelect: (id: TerminalId) => void;
   onClose: () => void;
+  onPointerEnter: () => void;
+  onPointerLeave: () => void;
 }> = (props) => {
   const store = useTerminalStore();
   const tileTheme = useTileTheme();
@@ -34,18 +36,18 @@ const WorkspaceSearchPanel: Component<{
 
   return (
     // Visibility is owned by the parent (rendered via `Show` only when
-    // open). The outer wrapper sits *below* the strip (top-11 = 44px,
-    // matching the strip's bottom edge) and uses `pt-2` for an 8px
-    // pointer-events bridge so the cursor can traverse the gap without
-    // leaving the switcher's tracked subtree. Earlier versions used
-    // top-9 + pt-3 which had the wrapper overlapping the bottom 6px of
-    // every mini-card with z-50 on top — making the bottom quarter of
-    // each pill a click-deadzone. The wrapper must NOT cover the strip.
-    <div class="pointer-events-auto absolute inset-x-0 top-11 z-50 pt-2">
+    // open). Keep the absolute wrapper transparent to hit-testing: it spans
+    // the chrome width for layout, so letting it receive events creates an
+    // invisible layer above the collapsed pills. The panel itself owns
+    // pointer events; the parent keeps it alive briefly while crossing the
+    // visual gap from strip to panel.
+    <div class="pointer-events-none absolute inset-x-0 top-11 z-50 pt-2">
       <div
         data-testid="workspace-switcher-panel"
         id="workspace-switcher-panel"
-        class="relative w-full max-w-[78rem] mx-auto overflow-hidden rounded-xl border border-edge/80 bg-surface-1/95 backdrop-blur-xl shadow-[0_30px_80px_-20px_rgba(0,0,0,0.65),inset_0_1px_0_0_rgba(255,255,255,0.04)]"
+        class="pointer-events-auto relative w-full max-w-[78rem] mx-auto overflow-hidden rounded-xl border border-edge/80 bg-surface-1/95 backdrop-blur-xl shadow-[0_30px_80px_-20px_rgba(0,0,0,0.65),inset_0_1px_0_0_rgba(255,255,255,0.04)]"
+        onPointerEnter={() => props.onPointerEnter()}
+        onPointerLeave={() => props.onPointerLeave()}
       >
         {/* Top strip — search prompt + global count. The `>` glyph leans
          *  into the terminal-native aesthetic and replaces the generic
