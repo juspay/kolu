@@ -252,14 +252,15 @@ function matchesQuery(
   return tokens.every((token) => entry.searchText.includes(token));
 }
 
-/** Cap on idle (no-agent) compact pills per repo. Active-agent terminals
- *  bypass the cap entirely so a `working`/`awaiting` agent is always
- *  reachable from the pill strip; idle terminals fill the remaining
- *  slots in recency order. */
+/** Cap on idle (no-agent, non-active) compact pills per repo. Pills that
+ *  carry an active agent OR represent the user's active terminal bypass
+ *  the cap entirely — both are guaranteed reachable from the pill strip
+ *  no matter how many idle peers share the repo. */
 const IDLE_PILLS_PER_REPO = 5;
 
 function compactGroupsFor(
   entries: WorkspaceSwitcherEntry[],
+  activeId: TerminalId | null,
 ): WorkspaceSwitcherRepoGroup[] {
   const groups = new Map<string, WorkspaceSwitcherRepoGroup>();
   const idleCounts = new Map<string, number>();
@@ -273,8 +274,8 @@ function compactGroupsFor(
       };
       groups.set(entry.repoName, group);
     }
-    const hasAgent = entry.info.meta.agent !== null;
-    if (!hasAgent) {
+    const isPriority = entry.info.meta.agent !== null || entry.id === activeId;
+    if (!isPriority) {
       const idle = idleCounts.get(entry.repoName) ?? 0;
       if (idle >= IDLE_PILLS_PER_REPO) continue;
       idleCounts.set(entry.repoName, idle + 1);
@@ -286,24 +287,24 @@ function compactGroupsFor(
       info: entry.info,
     });
   }
-  // Visual ordering is alphabetical — both across repos and within each
-  // repo's pills — so a pill's position doesn't shift the moment one of
-  // its peers transitions an agent state. Stable sort handles label ties,
-  // falling back to the input array's recency order.
-  for (const group of groups.values()) {
-    group.items.sort((a, b) => a.label.localeCompare(b.label));
-  }
+  // Within a repo: pills appear in input order — recency-desc by upstream
+  // `sortBySwitcherOrder`, so the most recently agent-active sits first
+  // and idle peers tied at 0 fall back to canvas position. Across repos:
+  // alphabetical so a repo's slot in the strip stays predictable.
   return [...groups.values()].sort((a, b) =>
     a.repoName.localeCompare(b.repoName),
   );
 }
 
-/** Derive all switcher projections from one live-terminal entry list. */
+/** Derive all switcher projections from one live-terminal entry list.
+ *  `activeId` keeps the user's current terminal in the collapsed pill
+ *  strip even when its repo's idle cap would otherwise hide it. */
 export function buildWorkspaceSwitcherModel(
   sources: WorkspaceSwitcherSourceEntry[],
   options: {
     query?: string;
     repoFilter?: string | null;
+    activeId?: TerminalId | null;
   } = {},
 ): WorkspaceSwitcherModel {
   const entries: WorkspaceSwitcherEntry[] = sources.map((source) => {
@@ -334,7 +335,7 @@ export function buildWorkspaceSwitcherModel(
 
   return {
     entries,
-    compactGroups: compactGroupsFor(entries),
+    compactGroups: compactGroupsFor(entries, options.activeId ?? null),
     visibleEntries,
     selectedRepo,
     repoFacets,

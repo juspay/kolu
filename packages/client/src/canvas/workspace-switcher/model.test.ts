@@ -195,7 +195,7 @@ describe("buildWorkspaceSwitcherModel", () => {
     }),
   ];
 
-  it("derives compact repo groups: alphabetical by repo, alphabetical by branch within repo", () => {
+  it("derives compact repo groups: alphabetical by repo, recency-desc within repo", () => {
     const model = modelFor(entries);
 
     expect(
@@ -205,16 +205,17 @@ describe("buildWorkspaceSwitcherModel", () => {
       })),
     ).toEqual([
       { repoName: "emanote", itemIds: ["t3"] },
-      // t2's branch "api-refactor" sorts before t1's "bug-828"
-      { repoName: "kolu", itemIds: ["t2", "t1"] },
+      // Within "kolu": input order (which is recency-desc upstream) — here
+      // both t1 and t2 tie at 0 in fixtures, so input order wins.
+      { repoName: "kolu", itemIds: ["t1", "t2"] },
       { repoName: "nogit", itemIds: ["t4"] },
     ]);
   });
 
-  it("caps idle pills at IDLE_PILLS_PER_REPO, then alphabetizes within", () => {
-    // Seven idle peers in the same repo (no agent). The five most-recent
-    // are kept (input order is recency desc); alpha-sort by branch then
-    // fixes their position.
+  it("caps idle pills at IDLE_PILLS_PER_REPO, preserving input (recency) order", () => {
+    // Seven idle peers in the same repo (no agent). Input order is
+    // recency-desc; the five most-recent are kept and rendered in the
+    // same order — no further within-group sort is applied.
     const branches = [
       "z-feature", // most recent
       "alpha",
@@ -230,17 +231,18 @@ describe("buildWorkspaceSwitcherModel", () => {
     const model = modelFor(sources);
     const kept = model.compactGroups.find((g) => g.repoName === "many");
     expect(kept?.items.map((item) => item.label)).toEqual([
+      "z-feature",
       "alpha",
+      "delta",
       "beta",
       "charlie",
-      "delta",
-      "z-feature",
     ]);
   });
 
   it("never hides an active-agent terminal, even past the idle cap", () => {
     // Five idle peers fill the cap; a sixth terminal carries an active
-    // agent and must still appear. Order remains alphabetical by branch.
+    // agent and must still appear. Within-group order is input order,
+    // so the agent terminal lands after the five idle peers.
     const idleBranches = ["alpha", "beta", "charlie", "delta", "epsilon"];
     const idleSources = idleBranches.map((branch, i) =>
       source(`r${i}`, { git: makeGit({ repoName: "many", branch }) }),
@@ -259,6 +261,23 @@ describe("buildWorkspaceSwitcherModel", () => {
       "epsilon",
       "zeta",
     ]);
+  });
+
+  it("never hides the active terminal, even past the idle cap", () => {
+    // Five idle peers fill the cap; a sixth idle terminal is the active
+    // one and must still appear despite having no agent.
+    const idleBranches = ["alpha", "beta", "charlie", "delta", "epsilon"];
+    const idleSources = idleBranches.map((branch, i) =>
+      source(`r${i}`, { git: makeGit({ repoName: "many", branch }) }),
+    );
+    const activeSource = source("r-active", {
+      git: makeGit({ repoName: "many", branch: "zeta" }),
+    });
+    const model = buildWorkspaceSwitcherModel([...idleSources, activeSource], {
+      activeId: "r-active",
+    });
+    const kept = model.compactGroups.find((g) => g.repoName === "many");
+    expect(kept?.items.map((item) => item.id)).toContain("r-active");
   });
 
   it("buckets visible terminals by live agent state", () => {

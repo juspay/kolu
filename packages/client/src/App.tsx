@@ -96,7 +96,9 @@ const App: Component = () => {
     ),
   );
   const mobileWorkspaceModel = createMemo(() =>
-    buildWorkspaceSwitcherModel(orderedWorkspaceEntries()),
+    buildWorkspaceSwitcherModel(orderedWorkspaceEntries(), {
+      activeId: store.activeId(),
+    }),
   );
   const orderedIds = createMemo(() =>
     orderedWorkspaceEntries().map((entry) => entry.id),
@@ -467,6 +469,7 @@ const App: Component = () => {
           workspaceSwitcher={
             <WorkspaceSwitcher
               entries={orderedWorkspaceEntries()}
+              activeId={store.activeId()}
               openRequest={workspaceSwitcherOpenRequest()}
               onSelect={(id) => {
                 store.setActiveId(id);
