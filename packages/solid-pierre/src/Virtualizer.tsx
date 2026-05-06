@@ -58,6 +58,18 @@ export type VirtualizerProps = ParentProps<{
   contentStyle?: JSX.CSSProperties;
 }>;
 
+/** Cheap dev-mode flag. Vite sets `import.meta.env.DEV`; non-Vite
+ *  consumers (Vitest, future bundlers) may not — gracefully fall back
+ *  to `false` so the warning never fires in production builds. */
+const isDevMode = (): boolean => {
+  try {
+    // biome-ignore lint/suspicious/noExplicitAny: bundler-provided env shape
+    return Boolean((import.meta as any)?.env?.DEV);
+  } catch {
+    return false;
+  }
+};
+
 export const Virtualizer: Component<VirtualizerProps> = (props) => {
   let root!: HTMLDivElement;
 
@@ -71,6 +83,23 @@ export const Virtualizer: Component<VirtualizerProps> = (props) => {
 
   onMount(() => {
     instance?.setup(root);
+    // Pierre's intersection-observer is rooted at this element. If the
+    // root has `overflow: visible`, the observer computes intersection
+    // against the layout box (which grows with content), so every file
+    // inside is "visible" and Pierre falls back to full-DOM rendering —
+    // virtualization silently degrades. Catch the misconfig at the
+    // boundary instead of letting consumers debug "why is the lockfile
+    // diff still slow".
+    if (isDevMode()) {
+      queueMicrotask(() => {
+        const overflowY = getComputedStyle(root).overflowY;
+        if (overflowY === "visible") {
+          console.warn(
+            "[@kolu/solid-pierre] <Virtualizer> root has `overflow-y: visible`; virtualization will silently degrade to full-DOM rendering. Apply `overflow-y-auto` (or `overflow-auto`) to the <Virtualizer>'s class.",
+          );
+        }
+      });
+    }
   });
   onCleanup(() => {
     instance?.cleanUp();
