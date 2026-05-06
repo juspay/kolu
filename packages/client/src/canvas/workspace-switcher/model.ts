@@ -258,6 +258,13 @@ function matchesQuery(
  *  no matter how many idle peers share the repo. */
 const IDLE_PILLS_PER_REPO = 5;
 
+/** Visible-pill count per repo in the collapsed strip. The model uses
+ *  this to hoist the active terminal into the visible head when its
+ *  natural position would be past the slice boundary, so the renderer
+ *  can `slice(0, COMPACT_VISIBLE_PER_REPO)` without re-deriving active
+ *  awareness. Single point of enforcement for "active is reachable". */
+export const COMPACT_VISIBLE_PER_REPO = 3;
+
 function compactGroupsFor(
   entries: WorkspaceSwitcherEntry[],
   activeId: TerminalId | null,
@@ -292,10 +299,27 @@ function compactGroupsFor(
       info: entry.info,
     });
   }
-  // Within a repo: pills appear in input order — recency-desc by upstream
-  // `sortBySwitcherOrder`, so the most recently agent-active sits first
-  // and idle peers tied at 0 fall back to canvas position. Across repos:
-  // alphabetical so a repo's slot in the strip stays predictable.
+  // Hoist the active terminal into the visible-slice prefix — the
+  // renderer (Collapsed.tsx) slices the first COMPACT_VISIBLE_PER_REPO
+  // items and would otherwise clip a focused-but-not-recent terminal
+  // into the +N overflow chip. Doing the hoist here, not in the
+  // renderer, keeps "active is reachable" a single-enforcement-point
+  // rule. Idempotent — if active is already in the prefix or in a
+  // different repo's group, no-op.
+  if (activeId !== null) {
+    for (const group of groups.values()) {
+      const idx = group.items.findIndex((item) => item.id === activeId);
+      if (idx >= COMPACT_VISIBLE_PER_REPO) {
+        const [active] = group.items.splice(idx, 1);
+        if (active) {
+          group.items.splice(COMPACT_VISIBLE_PER_REPO - 1, 0, active);
+        }
+      }
+    }
+  }
+  // Within a repo: pills otherwise appear in input order — recency-desc
+  // by upstream `sortBySwitcherOrder`, so the most recently agent-active
+  // sits first. Across repos: alphabetical for a stable slot per repo.
   return [...groups.values()].sort((a, b) =>
     a.repoName.localeCompare(b.repoName),
   );

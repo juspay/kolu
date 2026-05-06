@@ -280,6 +280,43 @@ describe("buildWorkspaceSwitcherModel", () => {
     expect(kept?.items.map((item) => item.id)).toContain("r-active");
   });
 
+  it("hoists the active terminal into the renderer's visible prefix", () => {
+    // Active terminal at the tail of the input order: five idle peers in
+    // front. Without the hoist it lands at index 5 — past the renderer's
+    // slice cap (3) and into the +N overflow chip. The model owns the
+    // hoist so a naive `slice(0, 3)` in the renderer carries the active.
+    const idleBranches = ["alpha", "beta", "charlie", "delta", "epsilon"];
+    const idleSources = idleBranches.map((branch, i) =>
+      source(`r${i}`, { git: makeGit({ repoName: "many", branch }) }),
+    );
+    const activeSource = source("r-active", {
+      git: makeGit({ repoName: "many", branch: "zeta" }),
+    });
+    const model = buildWorkspaceSwitcherModel([...idleSources, activeSource], {
+      activeId: "r-active",
+    });
+    const kept = model.compactGroups.find((g) => g.repoName === "many");
+    const visible = kept?.items.slice(0, 3) ?? [];
+    expect(visible.map((item) => item.id)).toContain("r-active");
+  });
+
+  it("leaves recency order intact when the active terminal is already visible", () => {
+    // Active at index 1 — already inside the slice cap. The hoist must
+    // be a no-op so the leading recency order isn't perturbed.
+    const branches = ["alpha", "beta", "charlie", "delta"];
+    const sources = branches.map((branch, i) =>
+      source(`r${i}`, { git: makeGit({ repoName: "many", branch }) }),
+    );
+    const model = buildWorkspaceSwitcherModel(sources, { activeId: "r1" });
+    const kept = model.compactGroups.find((g) => g.repoName === "many");
+    expect(kept?.items.map((item) => item.id)).toEqual([
+      "r0",
+      "r1",
+      "r2",
+      "r3",
+    ]);
+  });
+
   it("buckets visible terminals by live agent state", () => {
     const model = modelFor(entries);
 
