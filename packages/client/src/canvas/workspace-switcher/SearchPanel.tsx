@@ -95,7 +95,7 @@ const WorkspaceSearchPanel: Component<{
         </div>
 
         <div class="grid grid-cols-[12rem_minmax(0,1fr)] max-h-[70vh] overflow-hidden">
-          <aside class="border-r border-edge/60 py-3 px-2 overflow-y-auto">
+          <aside class="scrollbar-subtle border-r border-edge/60 py-3 px-2 overflow-y-auto">
             <div class="px-2 mb-2 font-mono text-[0.6rem] uppercase tracking-[0.18em] text-fg-3/80">
               repos
             </div>
@@ -138,7 +138,7 @@ const WorkspaceSearchPanel: Component<{
 
           <section class="min-w-0 p-4 overflow-hidden">
             <div
-              class="grid gap-4 overflow-y-auto max-h-[calc(70vh-3.5rem)] pr-1"
+              class="scrollbar-subtle grid gap-4 overflow-y-auto max-h-[calc(70vh-3.5rem)] pr-1"
               style={{
                 "grid-template-columns": `repeat(${columnCount()}, minmax(0, 1fr))`,
               }}

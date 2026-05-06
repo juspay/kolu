@@ -195,6 +195,34 @@ body {
   -webkit-backdrop-filter: blur(10px);
 }
 
+/* ── Subtle themed scrollbar ─────────────────────────────────── */
+/* Default browser scrollbars look chunky and out-of-place against
+ * the panel's frosted surface. `.scrollbar-subtle` gives a thin
+ * track + thumb that picks up the theme's `edge` color and fades
+ * the track to transparent so it disappears when not needed. */
+.scrollbar-subtle {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklch, var(--color-edge-bright) 60%, transparent)
+    transparent;
+}
+.scrollbar-subtle::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.scrollbar-subtle::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scrollbar-subtle::-webkit-scrollbar-thumb {
+  background: color-mix(in oklch, var(--color-edge-bright) 60%, transparent);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.scrollbar-subtle::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in oklch, var(--color-edge-bright) 90%, transparent);
+  background-clip: padding-box;
+}
+
 /* ── Canvas grid background ─────────────────────────────────── */
 /* Fine line grid gives spatial grounding to the freeform canvas.
    Lines use the edge color at low opacity so they adapt to light/dark themes. */
