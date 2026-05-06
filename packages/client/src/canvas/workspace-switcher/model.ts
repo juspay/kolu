@@ -252,6 +252,11 @@ function matchesQuery(
   return tokens.every((token) => entry.searchText.includes(token));
 }
 
+/** Maximum compact pills shown per repo. Recency picks which terminals
+ *  qualify; alphabetical sort then fixes their visual position so muscle
+ *  memory survives across activity bumps. */
+const COMPACT_ITEMS_PER_REPO = 5;
+
 function compactGroupsFor(
   entries: WorkspaceSwitcherEntry[],
 ): WorkspaceSwitcherRepoGroup[] {
@@ -266,6 +271,7 @@ function compactGroupsFor(
       };
       groups.set(entry.repoName, group);
     }
+    if (group.items.length >= COMPACT_ITEMS_PER_REPO) continue;
     group.items.push({
       id: entry.id,
       label: entry.label,
@@ -273,7 +279,20 @@ function compactGroupsFor(
       info: entry.info,
     });
   }
-  return [...groups.values()];
+  // Two-stage ordering for predictability: recency picks WHICH terminals
+  // appear (the input array is already recency-sorted, and we cap each
+  // repo at COMPACT_ITEMS_PER_REPO above), but the visual ordering is
+  // alphabetical — both across repos and within each repo's pills — so a
+  // pill's position doesn't shift the moment one of its peers gets typed
+  // in. Stable sort handles label ties, falling back to the input array's
+  // recency order so two pills sharing a label still surface the recent
+  // one first.
+  for (const group of groups.values()) {
+    group.items.sort((a, b) => a.label.localeCompare(b.label));
+  }
+  return [...groups.values()].sort((a, b) =>
+    a.repoName.localeCompare(b.repoName),
+  );
 }
 
 /** Derive all switcher projections from one live-terminal entry list. */

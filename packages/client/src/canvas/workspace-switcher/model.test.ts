@@ -195,7 +195,7 @@ describe("buildWorkspaceSwitcherModel", () => {
     }),
   ];
 
-  it("derives compact repo groups from the same live entries", () => {
+  it("derives compact repo groups: alphabetical by repo, alphabetical by branch within repo", () => {
     const model = modelFor(entries);
 
     expect(
@@ -204,9 +204,37 @@ describe("buildWorkspaceSwitcherModel", () => {
         itemIds: group.items.map((item) => item.id),
       })),
     ).toEqual([
-      { repoName: "kolu", itemIds: ["t1", "t2"] },
       { repoName: "emanote", itemIds: ["t3"] },
+      // t2's branch "api-refactor" sorts before t1's "bug-828"
+      { repoName: "kolu", itemIds: ["t2", "t1"] },
       { repoName: "nogit", itemIds: ["t4"] },
+    ]);
+  });
+
+  it("caps each repo at the recency-top-N, then alphabetizes within", () => {
+    // Seven peers in the same repo, each on a different branch. Input
+    // order is the recency sort (most-recent first); the cap keeps the
+    // most-recent five, then alpha-sort by branch fixes their position.
+    const branches = [
+      "z-feature", // most recent
+      "alpha",
+      "delta",
+      "beta",
+      "charlie",
+      "epsilon", // 6th — should be evicted
+      "omega", // 7th — should be evicted
+    ];
+    const sources = branches.map((branch, i) =>
+      source(`r${i}`, { git: makeGit({ repoName: "many", branch }) }),
+    );
+    const model = modelFor(sources);
+    const kept = model.compactGroups.find((g) => g.repoName === "many");
+    expect(kept?.items.map((item) => item.label)).toEqual([
+      "alpha",
+      "beta",
+      "charlie",
+      "delta",
+      "z-feature",
     ]);
   });
 
