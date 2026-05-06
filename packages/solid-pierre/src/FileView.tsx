@@ -60,11 +60,6 @@ export type FileViewProps = {
   style?: JSX.CSSProperties;
 };
 
-/** Façade over Pierre's two file-content classes. Same pairing
- *  invariant as `createDiffRenderer`: keep the constructor and the
- *  render-call shape that follows from it inside one factory so a
- *  future render-option addition can't be applied to one arm and
- *  missed on the other. */
 type FileRenderer = {
   render(file: FileContents): void;
   setThemeType(theme: "light" | "dark"): void;
@@ -90,8 +85,8 @@ const createFileRenderer = (
     return {
       render: (file) => {
         instance?.cleanUp();
-        // Recompute options at recreate time so a theme change between
-        // renders is reflected in the fresh instance.
+        // `buildOptions` reads `props.theme` so a theme change between
+        // renders lands on the fresh instance.
         instance = new VirtualizedFileClass(
           buildOptions(),
           virtualizer,
@@ -137,9 +132,8 @@ const FileView: Component<FileViewProps> = (props) => {
     }
   };
 
-  // Re-evaluated each time the virtualized branch needs to recreate the
-  // Pierre instance, so a theme change between renders is reflected in
-  // the fresh instance.
+  // Closed over for the virtualized recreate path so each fresh
+  // instance picks up the current `props.theme`.
   const buildOptions = (): FileOptions<undefined> => ({
     theme: DEFAULT_THEMES,
     themeType: props.theme,

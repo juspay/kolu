@@ -69,15 +69,8 @@ const parseFirstFile = (raw: string): FileDiffMetadata | undefined => {
   return parsePatchFiles(raw)[0]?.files[0];
 };
 
-/** Façade over Pierre's two diff classes. The constructor and the
- *  render-call shape that follows from it must agree (vanilla pairs
- *  `FileDiff` with `containerWrapper`; virtualized pairs
- *  `VirtualizedFileDiff` + `isContainerManaged: true` with
- *  `fileContainer`). Keeping both halves of the pairing inside one
- *  factory prevents a future render-option addition from being applied
- *  to one arm and silently missed in the other. */
 type DiffRenderer = {
-  render(raw: string): void;
+  render(fileDiff: FileDiffMetadata | undefined): void;
   setThemeType(theme: "light" | "dark"): void;
   cleanUp(): void;
 };
@@ -100,12 +93,12 @@ const createDiffRenderer = (
     // instance doesn't walk the previous diff.
     let instance: VirtualizedFileDiffClass | undefined;
     return {
-      render: (raw) => {
+      render: (fileDiff) => {
         instance?.cleanUp();
-        // Recompute options at recreate time so a theme change between
-        // renders is reflected in the fresh instance (the
-        // `setThemeType` effect can't reach an instance that has just
-        // been thrown away).
+        // `buildOptions` reads `props.theme` so a theme change between
+        // renders lands on the fresh instance (the `setThemeType`
+        // effect can't reach an instance that has just been thrown
+        // away).
         instance = new VirtualizedFileDiffClass(
           buildOptions(),
           virtualizer,
@@ -113,10 +106,7 @@ const createDiffRenderer = (
           /* workerManager */ undefined,
           /* isContainerManaged */ true,
         );
-        instance.render({
-          fileContainer: container,
-          fileDiff: parseFirstFile(raw),
-        });
+        instance.render({ fileContainer: container, fileDiff });
       },
       setThemeType: (t) => instance?.setThemeType(t),
       cleanUp: () => instance?.cleanUp(),
@@ -128,11 +118,8 @@ const createDiffRenderer = (
   // so a single instance covers the whole lifetime.
   const instance = new FileDiffClass(buildOptions());
   return {
-    render: (raw) =>
-      instance.render({
-        containerWrapper: container,
-        fileDiff: parseFirstFile(raw),
-      }),
+    render: (fileDiff) =>
+      instance.render({ containerWrapper: container, fileDiff }),
     setThemeType: (t) => instance.setThemeType(t),
     cleanUp: () => instance.cleanUp(),
   };
@@ -151,16 +138,16 @@ const FileDiff: Component<FileDiffProps> = (props) => {
   const safeRender = (raw: string) => {
     if (!renderer) return;
     try {
-      renderer.render(raw);
+      // Parse before render so a malformed diff fails before the
+      // virtualized branch tears down the previous Pierre instance.
+      renderer.render(parseFirstFile(raw));
     } catch (e) {
       props.onError(toError(e));
     }
   };
 
-  // Re-evaluated each time the virtualized branch needs to recreate the
-  // Pierre instance. Reading `props.theme` here picks up the current
-  // value at recreate time without subscribing this function as a
-  // reactive dependency itself.
+  // Closed over for the virtualized recreate path so each fresh
+  // instance picks up the current `props.theme`.
   const buildOptions = (): FileDiffOptions<undefined> => ({
     theme: DEFAULT_THEMES,
     themeType: props.theme,
