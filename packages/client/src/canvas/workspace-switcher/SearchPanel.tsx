@@ -249,12 +249,9 @@ const RepoFacetButton: Component<{
   </button>
 );
 
-/** Single workspace card — eyebrow / headline / status / meta. The card
- *  border (when an agent is live) carries the bucket via
- *  `pill-border-awaiting` / `pill-border-working`; the inner
- *  `pill-glow-inner` marks the card as ALSO active so the two channels
- *  (bucket via `--pill-state-color`, terminal-active via `--card-color`)
- *  never compete for the same visual variable. */
+/** Single workspace card — eyebrow / headline / status / meta. Agent
+ *  state lives on inactive card borders; active state uses a left rail so
+ *  focus remains distinguishable even when the terminal is awaiting input. */
 const WorkspaceCard: Component<{
   entry: WorkspaceSwitcherEntry;
   active: boolean;
@@ -276,18 +273,11 @@ const WorkspaceCard: Component<{
       data-repo-name={props.entry.repoName}
       data-agent-bucket={props.entry.bucket}
       data-active={props.active ? "" : undefined}
-      // Active card wears a static accent ring + surface-2 fill; the
-      // agent-state ring is suppressed so the focused card doesn't
-      // pulse. Inactive cards keep the bucket border (animated for
-      // awaiting, static for working). Agent state on an active card
-      // is still legible from the column placement and the bucket
-      // glyph in the status row below.
+      // Active uses geometry, not fill color. Inactive cards keep the
+      // agent-state border; the focused card gets a branch-colored rail.
       class={`relative rounded-lg border p-2.5 text-left cursor-pointer transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 ${props.active ? "" : bucketInfo().borderClass}`}
       classList={{
-        // Active = solid accent fill, inverted text. Distinct from
-        // the awaiting/working ring treatments on inactive cards
-        // because it's a *fill*, not a ring.
-        "border-accent bg-accent shadow-[0_4px_14px_-4px_color-mix(in_oklch,var(--color-accent)_55%,transparent)]":
+        "border-edge-bright/70 bg-surface-0/60 shadow-[0_0_0_1px_color-mix(in_oklch,var(--card-color)_22%,transparent)]":
           props.active,
         "border-edge/60 bg-surface-0/60 hover:bg-surface-2/70 hover:border-edge-bright/70":
           !props.active,
@@ -304,6 +294,13 @@ const WorkspaceCard: Component<{
       onClick={() => props.onSelect()}
       title={props.entry.info.meta.cwd}
     >
+      <Show when={props.active}>
+        <span
+          aria-hidden="true"
+          class="absolute left-0 top-2 bottom-2 w-1 rounded-r-full"
+          style={{ "background-color": branchAccent(props.entry.info) }}
+        />
+      </Show>
       <Show when={props.unread}>
         <span
           class="absolute right-2 top-2 inline-flex h-2 w-2"
@@ -318,9 +315,7 @@ const WorkspaceCard: Component<{
       <div class="flex items-center justify-between gap-2 min-w-0">
         <span
           class="font-mono text-[0.6rem] font-bold uppercase tracking-[0.16em] truncate min-w-0"
-          style={
-            props.active ? undefined : { color: repoAccent(props.entry.info) }
-          }
+          style={{ color: repoAccent(props.entry.info) }}
         >
           {props.entry.repoName}
         </span>
@@ -338,9 +333,7 @@ const WorkspaceCard: Component<{
       <div class="mt-1 flex items-baseline gap-2 min-w-0">
         <span
           class="text-[0.95rem] font-semibold truncate leading-tight"
-          style={
-            props.active ? undefined : { color: branchAccent(props.entry.info) }
-          }
+          style={{ color: branchAccent(props.entry.info) }}
         >
           {props.entry.label}
         </span>

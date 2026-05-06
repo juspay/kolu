@@ -89,22 +89,12 @@ const CollapsedWorkspaceSwitcher: Component<{
                         data-active={active() ? "" : undefined}
                         data-unread={unread() ? "" : undefined}
                         data-agent-state={agentState()}
-                        // Active pills wear a static accent ring + surface-2
-                        // fill; the agent-state animated ring is suppressed
-                        // here so the focused terminal doesn't pulse. Inactive
-                        // pills keep the bucket border (animated for awaiting,
-                        // static for working) so the user can still triage at
-                        // a glance.
+                        // Active inverts the branch color: inactive pills
+                        // keep agent-state borders, while the focused
+                        // terminal gets a compact filled treatment.
                         class={`pointer-events-auto relative flex items-center gap-1.5 px-2 h-6 rounded-md border text-xs cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 max-w-[20ch] whitespace-nowrap ${active() ? "" : bucketInfo().borderClass}`}
                         classList={{
-                          // Active = quiet "selected tab" — surface-2 fill +
-                          // 2px accent border. Loud bold fills (used in the
-                          // panel cards) read as too much in a strip that's
-                          // always visible. The 2px border vs 1px on others
-                          // is the key qualitative difference; awaiting/
-                          // working pills wear *colored animations*, active
-                          // wears a *thicker static frame*.
-                          "border-2 border-accent bg-surface-2": active(),
+                          "border-transparent shadow-sm": active(),
                           "border-edge/60 bg-surface-0 hover:bg-surface-2 hover:border-edge-bright/70":
                             !active() && !agentState(),
                           "border-transparent bg-surface-0":
@@ -114,6 +104,12 @@ const CollapsedWorkspaceSwitcher: Component<{
                           "--card-color": repoAccent(item.info),
                           "--pill-state-color": bucketInfo().accentVar,
                           "--pill-border-radius": "calc(0.375rem + 2px)",
+                          ...(active()
+                            ? {
+                                "background-color": branchAccent(item.info),
+                                color: "oklch(0.18 0.03 260)",
+                              }
+                            : {}),
                         }}
                         onClick={() => props.onSelect(item.id)}
                         title={item.info.meta.cwd}
@@ -129,7 +125,11 @@ const CollapsedWorkspaceSwitcher: Component<{
                         </Show>
                         <span
                           class="truncate min-w-0 font-medium"
-                          style={{ color: branchAccent(item.info) }}
+                          style={
+                            active()
+                              ? { color: "currentColor" }
+                              : { color: branchAccent(item.info) }
+                          }
                         >
                           {item.label}
                         </span>
@@ -138,6 +138,9 @@ const CollapsedWorkspaceSwitcher: Component<{
                             <span
                               data-testid="workspace-switcher-pill-suffix"
                               class="font-mono text-[0.6rem] text-fg-3 tabular-nums shrink-0"
+                              style={
+                                active() ? { color: "currentColor" } : undefined
+                              }
                             >
                               {suffix()}
                             </span>
