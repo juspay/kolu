@@ -27,8 +27,8 @@ import type { TerminalProcess } from "../terminal-registry.ts";
 
 /** Create initial metadata state for a new terminal. `lastActivityAt: 0`
  *  means "no agent transition observed yet" — the only event that lifts
- *  the recency clock (#830). Idle terminals tie at 0 and fall back to
- *  canvas position. */
+ *  the recency clock. Idle terminals tie at 0 and fall back to canvas
+ *  position. */
 export function createMetadata(cwd: string): TerminalMetadata {
   return {
     cwd,

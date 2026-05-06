@@ -25,24 +25,19 @@ import type { TerminalProcess } from "../terminal-registry.ts";
 import { getLastAgentCommandName } from "./agent-command.ts";
 import { updateServerMetadata } from "./state.ts";
 
-/** Key over the fields that mark a user-meaningful transition. Watcher
- *  emits sharing the same `kind/sessionId/state` are dedup'd here so
- *  frequent sub-info refreshes (`contextTokens`, `summary`) do not bump
- *  recency. */
-function agentSemanticKey(info: AgentInfo | null): string {
-  if (!info) return "null";
-  return `${info.kind}/${info.sessionId}/${info.state}`;
-}
-
-/** Single write-site for `m.agent`. Sub-info refreshes still publish; only
- *  semantic-key transitions bump recency. */
+/** Single write-site for `m.agent`. Watcher emits sharing the same
+ *  `kind`/`sessionId`/`state` skip the recency bump so frequent sub-info
+ *  refreshes (`contextTokens`, `summary`) don't perturb ordering. */
 function setAgentMetadata(
   entry: TerminalProcess,
   terminalId: string,
   nextAgent: AgentInfo | null,
 ): void {
+  const prev = entry.info.meta.agent;
   const transitioning =
-    agentSemanticKey(entry.info.meta.agent) !== agentSemanticKey(nextAgent);
+    prev?.kind !== nextAgent?.kind ||
+    prev?.sessionId !== nextAgent?.sessionId ||
+    prev?.state !== nextAgent?.state;
   updateServerMetadata(entry, terminalId, (m) => {
     m.agent = nextAgent;
     if (transitioning) m.lastActivityAt = Date.now();

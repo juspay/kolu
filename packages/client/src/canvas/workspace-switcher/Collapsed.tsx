@@ -37,9 +37,6 @@ const CollapsedWorkspaceSwitcher: Component<{
 
       <Index each={props.groups}>
         {(group) => {
-          // Slice the visible head — the model already hoisted the active
-          // terminal into this prefix, so a naive slice always includes
-          // it. See `compactGroupsFor` in `./model`.
           const visible = () =>
             group().items.slice(0, COMPACT_VISIBLE_PER_REPO);
           const overflow = () =>

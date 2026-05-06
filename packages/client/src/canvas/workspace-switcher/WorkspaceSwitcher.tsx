@@ -44,8 +44,7 @@ const WorkspaceSwitcher: Component<{
   /** Active terminal id — kept in the collapsed pill strip even if its
    *  repo's idle cap would otherwise hide it. */
   activeId: TerminalId | null;
-  /** Per-terminal recency accessor; threads into the model so it can apply
-   *  the canonical sort internally (no caller-side pre-sorting). */
+  /** Per-terminal recency accessor (epoch-ms). */
   getRecency: (id: TerminalId) => number;
   /** Incremented by the app-level shortcut to latch the panel open. */
   openRequest: number;

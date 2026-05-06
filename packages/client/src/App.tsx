@@ -81,9 +81,8 @@ const App: Component = () => {
   const { colorScheme } = useColorScheme();
   const canvasViewport = useCanvasViewport();
 
-  // Workspace-switcher entries — `buildWorkspaceSwitcherModel` owns the
-  // full ordering pipeline (recency-desc, canvas position, idle cap with
-  // active-bypass). Both desktop and mobile read the same accessors.
+  // Workspace-switcher feeds — desktop and mobile share the same
+  // accessors; `buildWorkspaceSwitcherModel` owns the ordering pipeline.
   const workspaceEntries = createMemo(() =>
     buildWorkspaceEntries(
       store.terminalIds(),

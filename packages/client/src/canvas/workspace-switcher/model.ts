@@ -281,10 +281,8 @@ function compactGroupsFor(
       };
       groups.set(entry.repoName, group);
     }
-    // Two distinct reasons to bypass the cap, kept named so a future
-    // divergence stays visible: an agent in flight is *salience*
-    // (something is happening); the user's current terminal is
-    // *reachability* (don't hide what they're looking at).
+    // Idle-cap bypass: in-flight agent (salience) or active terminal
+    // (reachability). Names kept so a future divergence stays visible.
     const hasAgent = entry.info.meta.agent !== null;
     const isFocused = entry.id === activeId;
     if (!hasAgent && !isFocused) {
@@ -299,38 +297,30 @@ function compactGroupsFor(
       info: entry.info,
     });
   }
-  // Hoist the active terminal into the visible-slice prefix — the
-  // renderer (Collapsed.tsx) slices the first COMPACT_VISIBLE_PER_REPO
-  // items and would otherwise clip a focused-but-not-recent terminal
-  // into the +N overflow chip. Doing the hoist here, not in the
-  // renderer, keeps "active is reachable" a single-enforcement-point
-  // rule. Idempotent — if active is already in the prefix or in a
-  // different repo's group, no-op.
+  // Hoist active into the visible prefix so `Collapsed.tsx`'s
+  // `slice(0, N)` cannot clip a focused-but-not-recent terminal into
+  // the `+N` overflow chip.
   if (activeId !== null) {
     for (const group of groups.values()) {
       const idx = group.items.findIndex((item) => item.id === activeId);
       if (idx >= COMPACT_VISIBLE_PER_REPO) {
-        const [active] = group.items.splice(idx, 1);
-        if (active) {
-          group.items.splice(COMPACT_VISIBLE_PER_REPO - 1, 0, active);
-        }
+        // biome-ignore lint/style/noNonNullAssertion: idx came from findIndex on the same array, splice always yields the element.
+        const active = group.items.splice(idx, 1)[0]!;
+        group.items.splice(COMPACT_VISIBLE_PER_REPO - 1, 0, active);
       }
     }
   }
-  // Within a repo: pills otherwise appear in input order — recency-desc
-  // by upstream `sortBySwitcherOrder`, so the most recently agent-active
-  // sits first. Across repos: alphabetical for a stable slot per repo.
+  // Stable repo slot via alphabetical; intra-repo recency comes from
+  // input order (set upstream by `sortBySwitcherOrder`).
   return [...groups.values()].sort((a, b) =>
     a.repoName.localeCompare(b.repoName),
   );
 }
 
-/** Derive all switcher projections from one live-terminal entry list.
- *  Owns the full ordering pipeline — pass `getRecency` and the model
- *  applies `sortBySwitcherOrder` internally so callers can't accidentally
- *  feed unsorted entries into the compact-pill grouping. `activeId` keeps
- *  the user's current terminal in the collapsed pill strip even when its
- *  repo's idle cap would otherwise hide it. */
+/** Derive all switcher projections (search, facets, bucket columns,
+ *  compact groups) from one live-terminal entry list. Owns the ordering
+ *  pipeline — when `getRecency` is provided, applies `sortBySwitcherOrder`
+ *  internally so callers can't feed unsorted entries into the grouping. */
 export function buildWorkspaceSwitcherModel(
   sources: WorkspaceSwitcherSourceEntry[],
   options: {
