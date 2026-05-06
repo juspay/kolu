@@ -22,7 +22,6 @@ import { match } from "ts-pattern";
 import { saveClipboardImage } from "./clipboard.ts";
 import { serverHostname, serverProcessId } from "./hostname.ts";
 import { log } from "./log.ts";
-import { bumpRecency } from "./meta/index.ts";
 import { terminalChannels } from "./publisher.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import { surfaceRouter, t, unwrapGit } from "./surface.ts";
@@ -67,9 +66,7 @@ export const appRouter = t.router({
     }),
 
     sendInput: t.terminal.sendInput.handler(async ({ input }) => {
-      const entry = requireTerminal(input.id);
-      entry.handle.write(input.data);
-      bumpRecency(entry, input.id);
+      requireTerminal(input.id).handle.write(input.data);
     }),
 
     setTheme: t.terminal.setTheme.handler(async ({ input }) => {

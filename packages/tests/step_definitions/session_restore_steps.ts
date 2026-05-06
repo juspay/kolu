@@ -131,10 +131,12 @@ Then(
 
 // --- Ordering scenario ---
 
-/** Directories for the array-order scenario. Posted in this non-alphabetical
- *  order to prove the client honors the saved session's array order rather
- *  than silently re-sorting by cwd or anything else derived. */
+/** Directories for the predictable-ordering scenario. Posted in this
+ *  non-alphabetical order to prove the pill strip alphabetizes by group
+ *  (#830) regardless of saved insertion order — predictable position is
+ *  the property that survives across restores, not the array order. */
 const ORDERED_DIRS = ["/var", "/tmp", "/etc"];
+const ALPHABETICAL_DIRS = [...ORDERED_DIRS].sort();
 
 Given("a saved session in a specific order", async function (this: KoluWorld) {
   this.savedSessionTerminalCount = ORDERED_DIRS.length;
@@ -148,7 +150,7 @@ Given("a saved session in a specific order", async function (this: KoluWorld) {
 });
 
 Then(
-  "the workspace switcher entries should be in the saved order",
+  "the workspace switcher entries should be alphabetized",
   async function (this: KoluWorld) {
     const entries = this.page.locator(WORKSPACE_SWITCHER_ENTRY_SELECTOR);
     const count = await entries.count();
@@ -159,8 +161,8 @@ Then(
     }
     assert.deepStrictEqual(
       titles,
-      ORDERED_DIRS,
-      `Workspace switcher order ${JSON.stringify(titles)} doesn't match expected ${JSON.stringify(ORDERED_DIRS)}`,
+      ALPHABETICAL_DIRS,
+      `Workspace switcher order ${JSON.stringify(titles)} doesn't match expected alphabetical ${JSON.stringify(ALPHABETICAL_DIRS)}`,
     );
   },
 );

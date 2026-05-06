@@ -12,13 +12,13 @@ Feature: Session restore
     Then there should be 2 workspace switcher entries
     And there should be no page errors
 
-  Scenario: Restored terminals preserve their saved array order
+  Scenario: Restored terminals appear in the predictable alphabetical pill order
     Given a saved session in a specific order
     When I open the app
     Then the session restore card should be visible
     When I click the restore button
     Then there should be 3 workspace switcher entries
-    And the workspace switcher entries should be in the saved order
+    And the workspace switcher entries should be alphabetized
     And there should be no page errors
 
   Scenario: Restored terminals preserve their theme

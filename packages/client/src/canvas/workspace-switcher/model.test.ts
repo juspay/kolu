@@ -211,17 +211,17 @@ describe("buildWorkspaceSwitcherModel", () => {
     ]);
   });
 
-  it("caps each repo at the recency-top-N, then alphabetizes within", () => {
-    // Seven peers in the same repo, each on a different branch. Input
-    // order is the recency sort (most-recent first); the cap keeps the
-    // most-recent five, then alpha-sort by branch fixes their position.
+  it("caps idle pills at IDLE_PILLS_PER_REPO, then alphabetizes within", () => {
+    // Seven idle peers in the same repo (no agent). The five most-recent
+    // are kept (input order is recency desc); alpha-sort by branch then
+    // fixes their position.
     const branches = [
       "z-feature", // most recent
       "alpha",
       "delta",
       "beta",
       "charlie",
-      "epsilon", // 6th — should be evicted
+      "epsilon", // 6th — should be evicted (idle, over cap)
       "omega", // 7th — should be evicted
     ];
     const sources = branches.map((branch, i) =>
@@ -235,6 +235,29 @@ describe("buildWorkspaceSwitcherModel", () => {
       "charlie",
       "delta",
       "z-feature",
+    ]);
+  });
+
+  it("never hides an active-agent terminal, even past the idle cap", () => {
+    // Five idle peers fill the cap; a sixth terminal carries an active
+    // agent and must still appear. Order remains alphabetical by branch.
+    const idleBranches = ["alpha", "beta", "charlie", "delta", "epsilon"];
+    const idleSources = idleBranches.map((branch, i) =>
+      source(`r${i}`, { git: makeGit({ repoName: "many", branch }) }),
+    );
+    const agentSource = source("r-agent", {
+      git: makeGit({ repoName: "many", branch: "zeta" }),
+      agent: makeAgent({ state: "thinking" }),
+    });
+    const model = modelFor([...idleSources, agentSource]);
+    const kept = model.compactGroups.find((g) => g.repoName === "many");
+    expect(kept?.items.map((item) => item.label)).toEqual([
+      "alpha",
+      "beta",
+      "charlie",
+      "delta",
+      "epsilon",
+      "zeta",
     ]);
   });
 

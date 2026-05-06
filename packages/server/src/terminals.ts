@@ -20,7 +20,6 @@ import type {
 import { cleanupClipboardDir } from "./clipboard.ts";
 import { log } from "./log.ts";
 import {
-  clearRecencyState,
   createMetadata,
   startProviders,
   updateClientMetadata,
@@ -116,7 +115,6 @@ export function createTerminal(
         if (entry) {
           entry.stopProviders();
           cleanupClipboardDir(id);
-          clearRecencyState(id);
         }
         surfaceCtx.events.terminalExit.publish({ id }, exitCode);
         // Only save session on natural exit (entry still in map).
@@ -186,7 +184,6 @@ export function killTerminal(id: TerminalId): TerminalInfo | undefined {
   entry.stopProviders();
   entry.handle.dispose();
   cleanupClipboardDir(id);
-  clearRecencyState(id);
   unregisterTerminal(id);
   emitChanged();
   emitListChanged();
@@ -266,7 +263,6 @@ export function killAllTerminals(): void {
     entry.stopProviders();
     entry.handle.dispose();
     cleanupClipboardDir(entry.info.id);
-    clearRecencyState(entry.info.id);
   }
   emitListChanged();
 }

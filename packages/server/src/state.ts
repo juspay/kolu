@@ -398,8 +398,8 @@ export const store = new Conf<PersistedState>({
       } as Preferences);
     },
     // SavedTerminal.lastActivityAt added (#830). Seed legacy terminals to 0
-    // so they tie at "ancient" and fall back to canvas-position ordering
-    // until the user touches them.
+    // so they fall back to canvas-position ordering until an agent
+    // semantic-key transition stamps a real timestamp.
     "1.21.0": (store: Conf<PersistedState>) => {
       const session = store.get("session");
       if (!session) return;

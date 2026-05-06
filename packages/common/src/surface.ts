@@ -91,9 +91,9 @@ export const ServerPersistedTerminalFieldsSchema = z.object({
    *  input; drives the "resume agent on restore" offer in EmptyState.
    *  Absent for terminals that never ran a known agent. */
   lastAgentCommand: z.string().optional(),
-  /** Workspace-switcher recency key: epoch-millis of the last user input
-   *  or agent semantic-key transition. Default `0` ties legacy terminals
-   *  at "ancient" so canvas position takes over for them. */
+  /** Workspace-switcher recency key: epoch-millis of the last agent
+   *  semantic-key transition (`kind`/`sessionId`/`state`). Idle terminals
+   *  stay at `0` and fall back to canvas position. */
   lastActivityAt: z.number().default(0),
 });
 

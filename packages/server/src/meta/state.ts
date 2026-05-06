@@ -16,7 +16,6 @@
 
 import type {
   TerminalClientMetadata,
-  TerminalId,
   TerminalMetadata,
   TerminalServerMetadata,
 } from "kolu-common/surface";
@@ -27,11 +26,9 @@ import { surfaceCtx } from "../surface.ts";
 import type { TerminalProcess } from "../terminal-registry.ts";
 
 /** Create initial metadata state for a new terminal. `lastActivityAt: 0`
- *  means "no activity yet" — the issue (#830) defines activity as user
- *  input or an agent semantic-key transition, neither of which has
- *  happened yet at create time. Tied at 0 sorts a fresh terminal below
- *  any peer with real activity, falling back to canvas position among
- *  peers that are also idle. */
+ *  means "no agent transition observed yet" — the only event that lifts
+ *  the recency clock (#830). Idle terminals tie at 0 and fall back to
+ *  canvas position. */
 export function createMetadata(cwd: string): TerminalMetadata {
   return {
     cwd,
@@ -95,29 +92,4 @@ export function updateClientMetadata(
 ): void {
   mutate(entry.info.meta);
   publishMetadata(entry, terminalId);
-}
-
-/** Per-terminal leading-edge throttle for `bumpRecency`. Without it every
- *  keystroke would broadcast a metadata upsert and dirty the debounced
- *  session auto-save. */
-const BUMP_RECENCY_INTERVAL_MS = 500;
-const lastBumpAt = new Map<TerminalId, number>();
-
-/** Note user-meaningful activity on this terminal. Throttled per id. */
-export function bumpRecency(
-  entry: TerminalProcess,
-  terminalId: TerminalId,
-): void {
-  const now = Date.now();
-  const last = lastBumpAt.get(terminalId) ?? 0;
-  if (now - last < BUMP_RECENCY_INTERVAL_MS) return;
-  lastBumpAt.set(terminalId, now);
-  updateServerMetadata(entry, terminalId, (m) => {
-    m.lastActivityAt = now;
-  });
-}
-
-/** Release the throttle entry for a disposed terminal. */
-export function clearRecencyState(terminalId: TerminalId): void {
-  lastBumpAt.delete(terminalId);
 }

@@ -119,18 +119,6 @@ Feature: Workspace switcher
     Then the active terminal should show "hover-crossing"
     And there should be no page errors
 
-  Scenario: Workspace switcher orders cards by recent terminal activity
-    # Pain case from #830: typing in an older terminal must lift it ahead
-    # of newer-but-idle ones. Background's t0 is active; type in it to bump
-    # its recency, then create the idle t1. t0 leads the sort because
-    # creation alone is not "activity".
-    Given I run "echo earlier-activity"
-    And I create a terminal
-    When I hover the workspace switcher
-    And I click workspace switcher card 1
-    Then the active terminal should show "earlier-activity"
-    And there should be no page errors
-
   @mobile
   Scenario: Desktop workspace switcher is not rendered on mobile
     Then the workspace switcher should not be visible
