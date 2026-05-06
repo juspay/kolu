@@ -16,6 +16,7 @@
 
 import {
   DEFAULT_THEMES,
+  DIFFS_TAG_NAME,
   FileDiff as FileDiffClass,
   type FileDiffMetadata,
   type FileDiffOptions,
@@ -81,8 +82,15 @@ const createDiffRenderer = (
   virtualizer: VirtualizerClass | undefined,
 ): DiffRenderer => {
   if (virtualizer) {
-    // Virtualized: `container` IS the file container; we own its
-    // lifecycle (`isContainerManaged: true`). Pierre's
+    // Virtualized: we own a `<diffs-container>` custom element nested
+    // inside our wrapper, and pass it to Pierre as `fileContainer`.
+    // Creating the element ourselves (`document.createElement(
+    // DIFFS_TAG_NAME)`) is what triggers the custom-element constructor
+    // in `@pierre/diffs/components/web-components`, which attaches a
+    // shadow root and adopts Pierre's main stylesheet — without this,
+    // the diff would render unstyled (syntax tokens fall back to the
+    // inherited fg colour, gutter grid layout collapses).
+    //
     // `VirtualizedFileDiff` caches the first `fileDiff` via `??=` and
     // ignores subsequent values, so a single instance can't swap
     // content. Recreate on every render: the live-update path
@@ -90,15 +98,20 @@ const createDiffRenderer = (
     // `rawDiff` reassignment for the same path go through this
     // function, and a stale viewport would silently render the old
     // content. Recreate cost is bounded by Pierre's setup; the new
-    // instance doesn't walk the previous diff.
+    // instance doesn't walk the previous diff. The `<diffs-container>`
+    // host stays put across recreates so the adopted stylesheet
+    // survives.
     let instance: VirtualizedFileDiffClass | undefined;
+    let fileContainer: HTMLElement | undefined;
     return {
       render: (fileDiff) => {
         instance?.cleanUp();
+        if (fileContainer == null) {
+          fileContainer = document.createElement(DIFFS_TAG_NAME);
+          container.appendChild(fileContainer);
+        }
         // `buildOptions` reads `props.theme` so a theme change between
-        // renders lands on the fresh instance (the `setThemeType`
-        // effect can't reach an instance that has just been thrown
-        // away).
+        // renders lands on the fresh instance.
         instance = new VirtualizedFileDiffClass(
           buildOptions(),
           virtualizer,
@@ -106,10 +119,14 @@ const createDiffRenderer = (
           /* workerManager */ undefined,
           /* isContainerManaged */ true,
         );
-        instance.render({ fileContainer: container, fileDiff });
+        instance.render({ fileContainer, fileDiff });
       },
       setThemeType: (t) => instance?.setThemeType(t),
-      cleanUp: () => instance?.cleanUp(),
+      cleanUp: () => {
+        instance?.cleanUp();
+        fileContainer?.remove();
+        fileContainer = undefined;
+      },
     };
   }
   // Vanilla: `container` is the wrapper; Pierre creates an inner
