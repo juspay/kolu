@@ -1,12 +1,12 @@
 /** Shared tile-chrome derivations — single source for the color tiers
- *  CanvasTile, PillTree, and CanvasMinimap all derive from a terminal's
+ *  CanvasTile, WorkspaceSwitcher, and CanvasMinimap all derive from a terminal's
  *  theme. Same `color-mix(in oklch, fg X%, bg)` formula was duplicated
  *  across three files; consolidating it here means a tweak to one tier
  *  flows everywhere it's read.
  *
  *  Scope: **color derivations only**. Tile sizing, layout, border-radius,
  *  shadow, hover state, animation, and other interaction styling stay
- *  inline in their owning component (CanvasTile, PillTree, CanvasMinimap).
+ *  inline in their owning component (CanvasTile, WorkspaceSwitcher, CanvasMinimap).
  *  This module's volatility is the per-theme color formula — anything
  *  that doesn't change when the formula changes belongs elsewhere. */
 
@@ -18,8 +18,8 @@ export interface TileTheme {
 }
 
 /** Title-bar background — a faint fg-tinted bg. Used by CanvasTile's
- *  title bar AND by PillTree pills, so the pill visually echoes the
- *  tile's chrome (one color, two surfaces). */
+ *  title bar AND by collapsed workspace-switcher pills, so the switcher
+ *  visually echoes the tile's chrome (one color, two surfaces). */
 export function tileTitleBarBg(theme: TileTheme): string {
   return `color-mix(in oklch, ${theme.fg} 8%, ${theme.bg})`;
 }

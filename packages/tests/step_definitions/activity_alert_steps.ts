@@ -59,21 +59,24 @@ When(
   },
 );
 
-Then("a pill tree branch should be notified", async function (this: KoluWorld) {
-  const notified = this.page.locator(
-    '[data-testid="pill-tree-branch"][data-unread]',
-  );
-  await notified.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-});
+Then(
+  "a workspace switcher branch should be notified",
+  async function (this: KoluWorld) {
+    const notified = this.page.locator(
+      '[data-testid="workspace-switcher-pill"][data-unread]',
+    );
+    await notified.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
 
 Then(
-  "no pill tree branch should be notified",
+  "no workspace switcher branch should be notified",
   async function (this: KoluWorld) {
     // Double frame wait to flush SolidJS reactivity + any pending DOM updates
     await this.waitForFrame();
     await this.waitForFrame();
     const count = await this.page
-      .locator('[data-testid="pill-tree-branch"][data-unread]')
+      .locator('[data-testid="workspace-switcher-pill"][data-unread]')
       .count();
     assert.strictEqual(
       count,
@@ -83,14 +86,17 @@ Then(
   },
 );
 
-When("I click the notified pill tree branch", async function (this: KoluWorld) {
-  const notified = this.page.locator(
-    '[data-testid="pill-tree-branch"][data-unread]',
-  );
-  await notified.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-  await notified.first().click();
-  await this.waitForFrame();
-});
+When(
+  "I click the notified workspace switcher branch",
+  async function (this: KoluWorld) {
+    const notified = this.page.locator(
+      '[data-testid="workspace-switcher-pill"][data-unread]',
+    );
+    await notified.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await notified.first().click();
+    await this.waitForFrame();
+  },
+);
 
 When("I stub the Badging API", async function (this: KoluWorld) {
   await this.page.evaluate(() => {

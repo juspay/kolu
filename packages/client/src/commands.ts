@@ -145,6 +145,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
     actionPaletteCommand("toggleRightPanel", deps),
     ...(!deps.isMobile()
       ? [
+          actionPaletteCommand("openWorkspaceSwitcher", deps),
           {
             name: "Center on active tile",
             onSelect: () => deps.canvasCenterActive(),

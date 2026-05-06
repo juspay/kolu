@@ -121,7 +121,7 @@ Then(
   "the sub-terminal should have keyboard focus",
   async function (this: KoluWorld) {
     // Wait for focus to land inside a [data-sub-terminal] container directly —
-    // no indirect ID comparison with the pill tree's active entry.
+    // no indirect ID comparison with the workspace switcher's active entry.
     await this.page.waitForFunction(
       () => !!document.activeElement?.closest("[data-sub-terminal]"),
       { timeout: POLL_TIMEOUT },

@@ -24,11 +24,12 @@ import CloseConfirm, { type CloseConfirmTarget } from "./CloseConfirm";
 import CommandPalette from "./CommandPalette";
 import "kolu-common/test-hooks";
 import CanvasWatermark from "./canvas/CanvasWatermark";
-import PillTree from "./canvas/PillTree";
-import { flatPillOrder, groupByRepo } from "./canvas/pillTreeOrder";
+import WorkspaceSwitcher, {
+  buildWorkspaceEntries,
+  buildWorkspaceSwitcherModel,
+} from "./canvas/workspace-switcher";
 import TerminalCanvas from "./canvas/TerminalCanvas";
 import TileTitleActions from "./canvas/TileTitleActions";
-import { useViewPosture } from "./canvas/useViewPosture";
 import { useCanvasViewport } from "./canvas/viewport/useCanvasViewport";
 import { createCommands } from "./commands";
 import DiagnosticInfo from "./DiagnosticInfo";
@@ -79,24 +80,37 @@ const App: Component = () => {
   const rightPanel = useRightPanel();
   const { colorScheme } = useColorScheme();
   const canvasViewport = useCanvasViewport();
-  const posture = useViewPosture();
 
-  // Pill-tree-grouped order — single source for the desktop pill tree AND
-  // the mobile swipe handler so the two views never drift.
+  // Workspace-switcher entries are one live terminal list. Desktop and mobile
+  // choose explicit order policies from it: desktop mirrors canvas geometry
+  // (leftmost first, topmost as tie-break), mobile keeps live terminal order
+  // because there is no canvas affordance.
   //
-  // Desktop: pass `getLayout` so the tree mirrors the canvas spatially
-  // (left tile → first pill, right tile → last pill). Reorders live as
-  // tiles are dragged. Mobile has no canvas, so layouts are absent and
-  // the function falls back to the caller's input order — the server's
-  // Map insertion order (terminal creation order).
-  const pillGroups = createMemo(() =>
-    groupByRepo(
+  // Layouts are still captured on the source entries so the desktop policy can
+  // reorder live as tiles are dragged without leaking that policy to mobile.
+  const workspaceEntries = createMemo(() =>
+    buildWorkspaceEntries(
       store.terminalIds(),
       store.getDisplayInfo,
       (id) => store.getMetadata(id)?.canvasLayout,
     ),
   );
-  const orderedIds = createMemo(() => flatPillOrder(pillGroups()));
+  const desktopWorkspaceEntries = createMemo(() =>
+    [...workspaceEntries()].sort((a, b) => {
+      const ax = a.layout?.x ?? Infinity;
+      const bx = b.layout?.x ?? Infinity;
+      if (ax !== bx) return ax - bx;
+      const ay = a.layout?.y ?? Infinity;
+      const by = b.layout?.y ?? Infinity;
+      return ay - by;
+    }),
+  );
+  const mobileWorkspaceModel = createMemo(() =>
+    buildWorkspaceSwitcherModel(workspaceEntries()),
+  );
+  const orderedIds = createMemo(() =>
+    workspaceEntries().map((entry) => entry.id),
+  );
 
   // Fetch server identity for document title, watermark, and PWA chrome color.
   const [identity, setIdentity] = createSignal<ServerIdentity>();
@@ -117,6 +131,9 @@ const App: Component = () => {
 
   // Shortcuts help overlay state
   const [shortcutsHelpOpen, setShortcutsHelpOpen] = createSignal(false);
+
+  const [workspaceSwitcherOpenRequest, setWorkspaceSwitcherOpenRequest] =
+    createSignal(0);
 
   // About dialog state
   const [aboutOpen, setAboutOpen] = createSignal(false);
@@ -187,6 +204,9 @@ const App: Component = () => {
     handleCreateSubTerminal: (parentId, cwd) =>
       void crud.handleCreateSubTerminal(parentId, cwd),
     openNewTerminalMenu: () => openPaletteGroup("New terminal"),
+    openWorkspaceSwitcher: () => {
+      if (!isMobile()) setWorkspaceSwitcherOpenRequest((n) => n + 1);
+    },
     setPaletteOpen,
     setShortcutsHelpOpen,
     setSearchOpen,
@@ -447,22 +467,21 @@ const App: Component = () => {
           if (target) void worktree.handleKillWorktree(target.id);
         }}
       />
-      {/* Desktop chrome — docked top bar carrying pill tree, identity,
+      {/* Desktop chrome — docked top bar carrying workspace switcher, identity,
        *  and global controls. Mobile has its own pull-down sheet (see
        *  MobileTileView) and does not render this band. */}
       <Show when={!isMobile()}>
         <ChromeBar
           status={wsStatus()}
           onOpenPalette={() => openPalette()}
-          pillTree={
-            <PillTree
-              groups={pillGroups()}
+          workspaceSwitcher={
+            <WorkspaceSwitcher
+              entries={desktopWorkspaceEntries()}
+              openRequest={workspaceSwitcherOpenRequest()}
               onSelect={(id) => {
                 store.setActiveId(id);
-                if (!posture.maximized()) {
-                  const layout = store.getMetadata(id)?.canvasLayout;
-                  if (layout) canvasViewport.centerOnTile(layout);
-                }
+                const layout = store.getMetadata(id)?.canvasLayout;
+                if (layout) canvasViewport.centerOnTile(layout);
               }}
               onCreate={() => openPaletteGroup("New terminal")}
             />
@@ -514,7 +533,7 @@ const App: Component = () => {
                 .with(true, () => (
                   <MobileTileView
                     orderedIds={orderedIds()}
-                    groups={pillGroups()}
+                    groups={mobileWorkspaceModel().compactGroups}
                     status={wsStatus()}
                     appTitle={appTitle()}
                     onOpenPalette={() => openPalette()}

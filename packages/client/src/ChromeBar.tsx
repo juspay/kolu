@@ -1,7 +1,7 @@
 /** ChromeBar — the always-visible workspace chrome band.
  *
  *  Replaces the pre-#622 global Header. Carries app identity (logo +
- *  connection dot) on the left, the pill tree in the middle, and the
+ *  connection dot) on the left, the workspace switcher in the middle, and the
  *  global control cluster (inspector toggle, settings, command palette)
  *  on the right.
  *
@@ -40,10 +40,10 @@ const statusStyles: Record<WsStatus, string> = {
 const ChromeBar: Component<{
   status: WsStatus;
   onOpenPalette: () => void;
-  /** Pill tree slot — caller composes `<PillTree ... />`. ChromeBar
-   *  is a layout host (logo + tree + controls); it doesn't need to
-   *  know the tree's prop shape, just where to drop it. */
-  pillTree: JSX.Element;
+  /** Workspace switcher slot — caller composes the live-terminal navigator.
+   *  ChromeBar is a layout host (logo + switcher + controls); it doesn't need
+   *  to know the switcher's prop shape, just where to drop it. */
+  workspaceSwitcher: JSX.Element;
 }> = (props) => {
   const rightPanel = useRightPanel();
   const posture = useViewPosture();
@@ -61,12 +61,18 @@ const ChromeBar: Component<{
       data-maximized={posture.maximized() ? "" : undefined}
       // pointer-events-none on the root so the transparent gaps don't
       // eat clicks meant for the canvas under the overlay. Interactive
-      // children (identity row, pill tree, control cluster) re-enable
+      // children (identity row, workspace switcher, control cluster) re-enable
       // pointer events on themselves.
-      class="flex items-center gap-3 px-3 py-2 select-none pointer-events-none"
+      class="chrome-bar-surface flex items-center gap-3 px-3 py-2 select-none pointer-events-none transition-colors duration-150"
+      // z-50 in BOTH modes. Without it on the docked branch, the
+      // `backdrop-filter` we apply to the bar when the workspace
+      // switcher is open creates a stacking context with auto z-index,
+      // which traps the dropdown panel's own z-50 inside the bar — the
+      // maximized tile (z-40 in the canvas) then paints on top of the
+      // panel at the App root's auto-z layer (DOM order wins).
       classList={{
         "absolute top-0 left-0 z-50": !docked(),
-        "relative shrink-0": docked(),
+        "relative shrink-0 z-50": docked(),
       }}
       style={
         docked()
@@ -102,13 +108,13 @@ const ChromeBar: Component<{
         </Tip>
       </div>
 
-      {/* Pill tree — fills the middle, wraps as needed.
+      {/* Workspace switcher — fills the middle, wraps as needed.
        *  pointer-events-none here so the empty middle space (no pills,
        *  or padding around them) lets clicks pass through to the right
-       *  panel / canvas underneath; PillTree's own outer wrapper
+       *  panel / canvas underneath; the switcher's own outer wrapper
        *  re-enables pointer events on the actual pill elements. */}
       <div class="flex-1 min-w-0 flex justify-center pointer-events-none">
-        {props.pillTree}
+        {props.workspaceSwitcher}
       </div>
 
       {/* Control cluster: inspector → settings → ⌘K. Cluster wrapper

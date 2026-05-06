@@ -1,9 +1,9 @@
 /** MobileChromeSheet — content of the pull-down chrome drawer for mobile.
  *
- *  On mobile the viewport is too tight for a persistent pill tree or
+ *  On mobile the viewport is too tight for a persistent workspace switcher or
  *  control cluster, so chrome lives behind a pull-handle at the top of
  *  the terminal. Tap or pull the handle to reveal this sheet. Contents
- *  mirror the desktop ChromeBar — logo + identity, pill tree (as a
+ *  mirror the desktop ChromeBar — logo + identity, switcher list (as a
  *  vertical tap list), global controls — but reflowed for touch.
  *
  *  Sheet machinery (open state, drag-to-dismiss, overlay, portal) is
@@ -14,7 +14,7 @@
 
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, createSignal, For, Show } from "solid-js";
-import { type PillRepoGroup, repoColor } from "./canvas/pillTreeOrder";
+import type { WorkspaceSwitcherRepoGroup } from "./canvas/workspace-switcher";
 import { ACTIONS } from "./input/actions";
 import { formatKeybind } from "./input/keyboard";
 import { useRightPanel } from "./right-panel/useRightPanel";
@@ -34,7 +34,7 @@ const MobileChromeSheet: Component<{
   status: WsStatus;
   appTitle: string;
   onOpenPalette: () => void;
-  groups: PillRepoGroup[];
+  groups: WorkspaceSwitcherRepoGroup[];
   onSelect: (id: TerminalId) => void;
   /** Close the drawer after the user takes an action (branch select,
    *  palette open, inspector toggle). The drawer is otherwise dismissed
@@ -72,27 +72,27 @@ const MobileChromeSheet: Component<{
         />
       </div>
 
-      {/* Pill tree — vertical list, one branch per row. Repo headers
-       *  break up sections; tap any branch to switch and dismiss. */}
+      {/* Workspace switcher — vertical list, one item per row. Repo headers
+       *  break up sections; tap any item to switch and dismiss. */}
       <div class="flex flex-col py-1">
         <For each={props.groups}>
           {(group) => (
             <div class="flex flex-col">
               <div
                 class="px-3 pt-2 pb-1 text-[0.65rem] font-semibold uppercase tracking-wide"
-                style={{ color: repoColor(group, store.getDisplayInfo) }}
+                style={{ color: group.color }}
               >
                 {group.repoName}
               </div>
-              <For each={group.branches}>
-                {(b) => {
-                  const active = () => store.activeId() === b.id;
-                  const unread = () => store.isUnread(b.id);
+              <For each={group.items}>
+                {(item) => {
+                  const active = () => store.activeId() === item.id;
+                  const unread = () => store.isUnread(item.id);
                   return (
                     <button
                       type="button"
                       data-testid="mobile-pill-branch"
-                      data-terminal-id={b.id}
+                      data-terminal-id={item.id}
                       data-active={active() ? "" : undefined}
                       data-unread={unread() ? "" : undefined}
                       class="flex items-center gap-2 px-5 py-2 text-sm text-left transition-colors cursor-pointer active:bg-surface-2"
@@ -105,7 +105,7 @@ const MobileChromeSheet: Component<{
                       // claiming the gesture — without this, any micro-drag
                       // during a tap suppresses the click event.
                       onPointerDown={(e) => e.stopPropagation()}
-                      onClick={() => handleSelect(b.id)}
+                      onClick={() => handleSelect(item.id)}
                     >
                       <span
                         aria-hidden="true"
@@ -113,7 +113,13 @@ const MobileChromeSheet: Component<{
                       >
                         └─
                       </span>
-                      <span class="flex-1 truncate">{b.label}</span>
+                      <span
+                        class="flex-1 truncate"
+                        style={{ color: item.info.branchColor }}
+                        classList={{ "text-fg-2": !item.info.branchColor }}
+                      >
+                        {item.label}
+                      </span>
                       <Show when={unread()}>
                         <span class="w-2 h-2 rounded-full bg-alert" />
                       </Show>

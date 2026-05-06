@@ -344,7 +344,7 @@ Concrete inventory — what every server-pushed reactive surface in Kolu maps to
 | Descriptor | Backs | Authority | Mutation | Persistence |
 |---|---|---|---|---|
 | `preferencesCell` | User preferences (theme, scrollLock, sound, rightPanel state, …) | `local` (instant UI) | `client.preferences.update(patch)` | `confStore("preferences")` |
-| `terminalListCell` | Live terminal list — drives the pill tree, canvas tile set, mobile swipe order | `server` | _server-only_ (via `terminal.create` / `kill` mutations) | `inMemoryStore` (registry is canonical) |
+| `terminalListCell` | Live terminal list — drives the workspace switcher, canvas tile set, mobile swipe order | `server` | _server-only_ (via `terminal.create` / `kill` mutations) | `inMemoryStore` (registry is canonical) |
 | `activityFeedCell` | Recent repos cd'd into + recent agent CLIs spotted via OSC 633;E | `server` | _server-only_ (via `trackRecentRepo` / `trackRecentAgent`) | `confStore("activityFeed")` |
 | `savedSessionCell` | Last-persisted snapshot of terminals + active id (drives session restore) | `server` | _server-only_ (debounced autosave on `terminals:dirty`) | `confStore("session")` |
 

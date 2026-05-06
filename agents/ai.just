@@ -34,9 +34,10 @@ apm-update *packages:
     {{ apm_cmd }} deps update --target {{ apm_targets }} {{ packages }}
     {{ just_executable() }} ai apm
 
-# Audit APM packages for security issues (Unicode, lockfile consistency)
+# Audit APM packages for security issues and lockfile consistency.
+# Drift is verified by apm-sync's repo-aware scratch diff below.
 apm-audit:
-    {{ apm_cmd }} audit --ci
+    {{ apm_cmd }} audit --ci --no-drift
 
 # Verify APM-managed outputs match sources + security audit
 #
@@ -81,11 +82,13 @@ apm-sync: apm-audit
     (cd "$scratch" && {{ apm_cmd }} install --target {{ apm_targets }})
     (cd "$scratch" && {{ apm_cmd }} compile --target {{ apm_compile_targets }})
     # Exclude files that apm doesn't manage: launch.json is user-owned,
-    # and `.claude/*` entries in .gitignore are runtime state written by
-    # Claude Code itself (worktree bookkeeping, local settings, session
-    # lockfiles). Keep this list in sync with .gitignore — if a new
-    # runtime file appears in .claude/, add it to .gitignore and here.
+    # `.apm-pin` is install metadata, and `.claude/*` entries in .gitignore
+    # are runtime state written by Claude Code itself (worktree bookkeeping,
+    # local settings, session lockfiles). Keep this list in sync with
+    # .gitignore — if a new runtime file appears in .claude/, add it to
+    # .gitignore and here.
     if ! diff -r \
+        -x .apm-pin \
         -x launch.json \
         -x worktrees \
         -x settings.local.json \
@@ -95,15 +98,17 @@ apm-sync: apm-audit
         exit 1
     fi
     if ! diff -r \
+        -x .apm-pin \
         .codex "$scratch/.codex"; then
         echo "ERROR: .codex/ out of sync with sources — run: just ai::apm" >&2
         exit 1
     fi
-    if ! diff -r .agents "$scratch/.agents"; then
+    if ! diff -r -x .apm-pin .agents "$scratch/.agents"; then
         echo "ERROR: .agents/ out of sync with sources — run: just ai::apm" >&2
         exit 1
     fi
     if ! diff -r \
+        -x .apm-pin \
         -x .gitignore \
         -x node_modules \
         -x package-lock.json \

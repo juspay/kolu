@@ -264,7 +264,7 @@ const TerminalCanvas: Component<{
   }
 
   // On first mount at the default origin, pan so the persisted active tile
-  // is centered (matches what a pill-tree click does). If there's no
+  // is centered (matches what a workspace-switcher click does). If there's no
   // active tile, fall back to centering the bounding box of all tiles so
   // restored sessions whose tiles live far from (0,0) don't open empty.
   const isDefaultViewport = () =>

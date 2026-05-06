@@ -21,6 +21,13 @@ export function useRightPanel() {
     /** DU view of the active tab — `{ kind: "inspector" }` or
      *  `{ kind: "code", mode }`. Matches `match(...).with(...).exhaustive()`. */
     activeTab: (): RightPanelTab => rightPanelView(rp()),
+    /** Persisted Code-tab sub-mode regardless of which tab is active.
+     *  CodeTab needs the mode even when the user has flipped over to
+     *  Inspector — selection / filter state is keyed by it, and the
+     *  fallback behaviour of reading `activeTab` would mask a "browse"
+     *  selection as "local" while Inspector is active and trigger a
+     *  spurious reset on the round-trip back. */
+    codeMode: (): CodeTabView => rp().codeMode,
     /** Switch to Inspector. `codeMode` is preserved so toggling back to Code
      *  restores the user's last sub-mode. */
     showInspector: () =>

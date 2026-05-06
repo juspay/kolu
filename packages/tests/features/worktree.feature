@@ -16,7 +16,7 @@ Feature: Git worktree management
     And I select "New terminal" in the palette
     And I select "kolu-wt-test" in the palette
     Then the header CWD should show ".worktrees/"
-    And the pill tree should show a worktree indicator
+    And the workspace switcher should show a worktree indicator
     And there should be no page errors
 
   Scenario: Close terminal on worktree shows confirmation and removes worktree
@@ -27,13 +27,13 @@ Feature: Git worktree management
     And I select "New terminal" in the palette
     And I select "kolu-wt-remove" in the palette
     Then the header CWD should show ".worktrees/"
-    And the pill tree should show a worktree indicator
-    Given I note the pill tree entry count
+    And the workspace switcher should show a worktree indicator
+    Given I note the workspace switcher entry count
     When I open the command palette
     And I select "Close terminal" in the palette
     Then the close confirmation should be visible
     When I confirm worktree removal
-    Then the pill tree should have 1 fewer terminal entry
+    Then the workspace switcher should have 1 fewer terminal entry
     And there should be no page errors
 
   Scenario: Cancel worktree removal keeps the terminal
@@ -44,13 +44,13 @@ Feature: Git worktree management
     And I select "New terminal" in the palette
     And I select "kolu-wt-cancel" in the palette
     Then the header CWD should show ".worktrees/"
-    And the pill tree should show a worktree indicator
-    Given I note the pill tree entry count
+    And the workspace switcher should show a worktree indicator
+    Given I note the workspace switcher entry count
     When I open the command palette
     And I select "Close terminal" in the palette
     Then the close confirmation should be visible
     When I dismiss the close confirmation
-    Then the pill tree entry count should be unchanged
+    Then the workspace switcher entry count should be unchanged
     And there should be no page errors
 
   Scenario: Close only keeps the worktree on disk
@@ -61,13 +61,13 @@ Feature: Git worktree management
     And I select "New terminal" in the palette
     And I select "kolu-wt-close-only" in the palette
     Then the header CWD should show ".worktrees/"
-    And the pill tree should show a worktree indicator
-    Given I note the pill tree entry count
+    And the workspace switcher should show a worktree indicator
+    Given I note the workspace switcher entry count
     When I open the command palette
     And I select "Close terminal" in the palette
     Then the close confirmation should be visible
     When I click close only in the close confirmation
-    Then the pill tree should have 1 fewer terminal entry
+    Then the workspace switcher should have 1 fewer terminal entry
     And there should be no page errors
 
   Scenario: Remove option is hidden when another terminal shares the worktree
@@ -78,13 +78,13 @@ Feature: Git worktree management
     When I create a terminal
     And I run "cd /tmp/kolu-wt-shared/.worktrees/shared-wt"
     Then the header should show a branch name
-    Given I note the pill tree entry count
+    Given I note the workspace switcher entry count
     When I open the command palette
     And I select "Close terminal" in the palette
     Then the close confirmation should be visible
     And the close confirmation should not offer worktree removal because "sharedWithOtherTerminals"
     When I confirm close all in the close confirmation
-    Then the pill tree should have 1 fewer terminal entry
+    Then the workspace switcher should have 1 fewer terminal entry
     And there should be no page errors
 
   # Sub-terminal create-via-palette in a worktree-spawned terminal stalls
@@ -119,10 +119,10 @@ Feature: Git worktree management
     And I select "kolu-wt-splits" in the palette
     Then the header CWD should show ".worktrees/"
     When I create a sub-terminal via command palette
-    Given I note the pill tree entry count
+    Given I note the workspace switcher entry count
     When I open the command palette
     And I select "Close terminal" in the palette
     Then the close confirmation should be visible
     When I confirm worktree removal
-    Then the pill tree should have 1 fewer terminal entry
+    Then the workspace switcher should have 1 fewer terminal entry
     And there should be no page errors

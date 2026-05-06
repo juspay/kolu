@@ -52,7 +52,7 @@ Then(
 );
 
 Then(
-  "the pill tree branch should contain {string}",
+  "the workspace switcher branch should contain {string}",
   async function (this: KoluWorld, expected: string) {
     await waitForTestIdText(this, "terminal-meta-branch", expected);
   },
@@ -79,7 +79,7 @@ When(
 );
 
 Then(
-  "the pill tree should show a branch name",
+  "the workspace switcher should show a branch name",
   async function (this: KoluWorld) {
     await waitForTestIdText(this, "terminal-meta-branch");
   },
@@ -100,14 +100,14 @@ Then(
 );
 
 Then(
-  "the pill tree label should show {string}",
+  "the workspace switcher label should show {string}",
   async function (this: KoluWorld, expected: string) {
     await waitForTestIdText(this, "terminal-meta-name", expected);
   },
 );
 
 Then(
-  "the pill tree should show a worktree indicator",
+  "the workspace switcher should show a worktree indicator",
   async function (this: KoluWorld) {
     await this.page
       .locator('[data-testid="worktree-indicator"]')
@@ -117,7 +117,7 @@ Then(
 );
 
 Then(
-  "the pill tree should not show a worktree indicator",
+  "the workspace switcher should not show a worktree indicator",
   async function (this: KoluWorld) {
     const count = await this.page
       .locator('[data-testid="worktree-indicator"]')
@@ -130,19 +130,22 @@ Then(
   },
 );
 
-Then("the pill tree should not show PR info", async function (this: KoluWorld) {
-  const count = await this.page
-    .locator('[data-testid="terminal-meta-pr"]')
-    .count();
-  assert.strictEqual(
-    count,
-    0,
-    `Expected no PR info in pill tree but found ${count} PR elements`,
-  );
-});
+Then(
+  "the workspace switcher should not show PR info",
+  async function (this: KoluWorld) {
+    const count = await this.page
+      .locator('[data-testid="terminal-meta-pr"]')
+      .count();
+    assert.strictEqual(
+      count,
+      0,
+      `Expected no PR info in workspace switcher but found ${count} PR elements`,
+    );
+  },
+);
 
 Then(
-  "the pill tree should not show git context",
+  "the workspace switcher should not show git context",
   async function (this: KoluWorld) {
     const text = (
       await this.page
@@ -153,7 +156,7 @@ Then(
     assert.strictEqual(
       text ?? "",
       "",
-      `Expected empty branch in pill tree but found "${text}"`,
+      `Expected empty branch in workspace switcher but found "${text}"`,
     );
   },
 );

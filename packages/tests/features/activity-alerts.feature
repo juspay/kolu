@@ -1,21 +1,21 @@
 Feature: Activity Alerts
-  Pill tree glow and audio when a background terminal's Claude finishes.
+  Workspace switcher glow and audio when a background terminal's Claude finishes.
 
   Background:
     Given the terminal is ready
 
-  Scenario: Simulated alert shows pill tree glow on background terminal
+  Scenario: Simulated alert shows workspace switcher glow on background terminal
     When I create a terminal
     And I simulate an activity alert
-    Then a pill tree branch should be notified
+    Then a workspace switcher branch should be notified
     And there should be no page errors
 
   Scenario: Visiting notified terminal clears the glow
     When I create a terminal
     And I simulate an activity alert
-    Then a pill tree branch should be notified
-    When I click the notified pill tree branch
-    Then no pill tree branch should be notified
+    Then a workspace switcher branch should be notified
+    When I click the notified workspace switcher branch
+    Then no workspace switcher branch should be notified
     And there should be no page errors
 
   Scenario: Simulated alert badges the PWA dock icon
@@ -23,7 +23,7 @@ Feature: Activity Alerts
     And I stub the Badging API
     And I simulate an activity alert
     Then the app badge should show 1
-    When I click the notified pill tree branch
+    When I click the notified workspace switcher branch
     Then the app badge should be cleared
     And there should be no page errors
 
@@ -33,7 +33,7 @@ Feature: Activity Alerts
     And I click the activity alerts toggle
     And I press Escape
     And I simulate an activity alert
-    Then no pill tree branch should be notified
+    Then no workspace switcher branch should be notified
     And there should be no page errors
 
   Scenario: Hidden active terminal badges the PWA dock icon
@@ -43,5 +43,5 @@ Feature: Activity Alerts
     Then the app badge should show 1
     When I simulate the Kolu tab becoming visible
     Then the app badge should be cleared
-    And no pill tree branch should be notified
+    And no workspace switcher branch should be notified
     And there should be no page errors

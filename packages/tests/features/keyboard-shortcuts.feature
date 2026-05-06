@@ -76,9 +76,9 @@ Feature: Keyboard Shortcuts
     And there should be no page errors
 
   Scenario: Create terminal with shortcut
-    Given I note the pill tree entry count
+    Given I note the workspace switcher entry count
     When I press the create terminal shortcut
-    Then the pill tree should have 1 more terminal entry
+    Then the workspace switcher should have 1 more terminal entry
     And the terminal canvas should be visible
     And there should be no page errors
 
