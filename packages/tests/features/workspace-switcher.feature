@@ -109,6 +109,14 @@ Feature: Workspace switcher
     Then the active terminal should show "first-workspace-card"
     And there should be no page errors
 
+  Scenario: Moving from a branch pill into the panel keeps cards clickable
+    Given I run "echo hover-crossing"
+    And I create a terminal
+    When I move from the workspace switcher pill into the panel
+    And I click workspace switcher card 1
+    Then the active terminal should show "hover-crossing"
+    And there should be no page errors
+
   @mobile
   Scenario: Desktop workspace switcher is not rendered on mobile
     Then the workspace switcher should not be visible

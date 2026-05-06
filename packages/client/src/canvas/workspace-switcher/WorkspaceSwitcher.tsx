@@ -64,31 +64,17 @@ const WorkspaceSwitcher: Component<{
   );
 
   let containerRef: HTMLDivElement | undefined;
-  let hoverCloseTimer: number | undefined;
-
-  const clearHoverCloseTimer = () => {
-    if (hoverCloseTimer === undefined) return;
-    window.clearTimeout(hoverCloseTimer);
-    hoverCloseTimer = undefined;
-  };
-
   const beginHover = () => {
-    clearHoverCloseTimer();
     setHover(true);
     setDismissed(false);
   };
 
-  const endHoverSoon = () => {
-    clearHoverCloseTimer();
-    hoverCloseTimer = window.setTimeout(() => {
-      setHover(false);
-      hoverCloseTimer = undefined;
-    }, 140);
+  const endHover = () => {
+    setHover(false);
   };
 
   /** Close everything — clear the latch and dismiss the hover-driven open. */
   const closePanel = () => {
-    clearHoverCloseTimer();
     setHover(false);
     setLatched(false);
     setDismissed(true);
@@ -109,7 +95,6 @@ const WorkspaceSwitcher: Component<{
   };
 
   const openFromShortcut = () => {
-    clearHoverCloseTimer();
     setHover(false);
     setLatched(true);
     setDismissed(false);
@@ -121,8 +106,8 @@ const WorkspaceSwitcher: Component<{
   // `mousedown` outside the subtree closes a latched panel — without this,
   // latching would have no escape via clicking on the canvas. Hover is
   // intentionally handled on the visible strip/panel instead of a document
-  // `mouseover`: transparent pointer-event bridges are easy to put above
-  // the pill buttons and turn their edges into click deadzones.
+  // `mouseover`: keep any transparent hit area narrow and local to the
+  // row/panel crossing so it cannot become a broad click deadzone.
   onMount(() => {
     const handleMouseDown = (e: MouseEvent) => {
       if (!latched() || !containerRef) return;
@@ -137,7 +122,6 @@ const WorkspaceSwitcher: Component<{
     document.addEventListener("mousedown", handleMouseDown);
     document.addEventListener("keydown", handleKey);
     onCleanup(() => {
-      clearHoverCloseTimer();
       document.removeEventListener("mousedown", handleMouseDown);
       document.removeEventListener("keydown", handleKey);
     });
@@ -158,63 +142,71 @@ const WorkspaceSwitcher: Component<{
       data-maximized={posture.maximized() ? "" : undefined}
       data-open={isOpen() ? "" : undefined}
       class="pointer-events-none select-none w-full relative"
+      onPointerEnter={beginHover}
+      onPointerLeave={endHover}
     >
-      <div
-        class="pointer-events-auto mx-auto flex w-fit max-w-full flex-nowrap items-start justify-center gap-x-2 transition-opacity duration-150"
-        classList={{
-          "opacity-100": isOpen(),
-          "opacity-80": !isOpen(),
-        }}
-        onPointerEnter={beginHover}
-        onPointerLeave={endHoverSoon}
-      >
-        <CollapsedWorkspaceSwitcher
-          groups={switcher().compactGroups}
-          onCreate={props.onCreate}
-          onSelect={selectAndClose}
-        />
-        {/* Explicit toggle — clicking opens the panel and latches it open
-         *  until an explicit dismissal. Mirrors the new-terminal "+" on
-         *  the strip's left edge so the row reads as a pair of tools. */}
-        <button
-          type="button"
-          data-testid="workspace-switcher-toggle"
-          class="pointer-events-auto flex items-center justify-center w-7 h-7 mt-3 rounded-md shrink-0 cursor-pointer text-fg-3 hover:text-fg hover:bg-surface-2/70 active:bg-surface-2 transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
-          aria-expanded={isOpen() ? "true" : "false"}
-          aria-controls="workspace-switcher-panel"
-          aria-label={
-            latched()
-              ? "Close workspace switcher"
-              : "Pin workspace switcher open"
-          }
-          // Chevron rotation tracks `isOpen()` so the visual matches the
-          // panel's visibility. The click action gates on `latched()` —
-          // clicking a hover-opened panel pins it; clicking a latched
-          // panel closes it. Title describes the action, not the state.
-          title={latched() ? "Close workspaces" : "Pin workspaces open"}
-          onClick={toggleLatch}
+      <div class="pointer-events-none mx-auto relative w-fit max-w-full">
+        <div
+          class="pointer-events-auto mx-auto flex w-fit max-w-full flex-nowrap items-start justify-center gap-x-2 transition-opacity duration-150"
+          classList={{
+            "opacity-100": isOpen(),
+            "opacity-80": !isOpen(),
+          }}
         >
-          <span
-            class="inline-flex transition-transform duration-200"
-            classList={{ "rotate-180": isOpen() }}
+          <CollapsedWorkspaceSwitcher
+            groups={switcher().compactGroups}
+            onCreate={props.onCreate}
+            onSelect={selectAndClose}
+          />
+          {/* Explicit toggle — clicking opens the panel and latches it open
+           *  until an explicit dismissal. Mirrors the new-terminal "+" on
+           *  the strip's left edge so the row reads as a pair of tools. */}
+          <button
+            type="button"
+            data-testid="workspace-switcher-toggle"
+            class="pointer-events-auto flex items-center justify-center w-7 h-7 mt-3 rounded-md shrink-0 cursor-pointer text-fg-3 hover:text-fg hover:bg-surface-2/70 active:bg-surface-2 transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+            aria-expanded={isOpen() ? "true" : "false"}
+            aria-controls="workspace-switcher-panel"
+            aria-label={
+              latched()
+                ? "Close workspace switcher"
+                : "Pin workspace switcher open"
+            }
+            // Chevron rotation tracks `isOpen()` so the visual matches the
+            // panel's visibility. The click action gates on `latched()` —
+            // clicking a hover-opened panel pins it; clicking a latched
+            // panel closes it. Title describes the action, not the state.
+            title={latched() ? "Close workspaces" : "Pin workspaces open"}
+            onClick={toggleLatch}
           >
-            <ChevronDownIcon class="w-3.5 h-3.5" />
-          </span>
-        </button>
+            <span
+              class="inline-flex transition-transform duration-200"
+              classList={{ "rotate-180": isOpen() }}
+            >
+              <ChevronDownIcon class="w-3.5 h-3.5" />
+            </span>
+          </button>
+        </div>
+        <Show when={isOpen()}>
+          <div
+            aria-hidden="true"
+            class="pointer-events-auto absolute inset-x-0 top-10 h-4"
+          />
+        </Show>
       </div>
       <Show when={isOpen()}>
-        <WorkspaceSearchPanel
-          model={switcher()}
-          query={query()}
-          focusSearch={focusSearchOnOpen()}
-          onQueryChange={setQuery}
-          onSearchFocused={() => setFocusSearchOnOpen(false)}
-          onRepoFilterChange={setRepoFilter}
-          onSelect={selectAndClose}
-          onClose={closePanel}
-          onPointerEnter={beginHover}
-          onPointerLeave={endHoverSoon}
-        />
+        <div class="pointer-events-none absolute inset-x-0 top-11 z-50 mx-auto w-full max-w-[78rem] pt-2">
+          <WorkspaceSearchPanel
+            model={switcher()}
+            query={query()}
+            focusSearch={focusSearchOnOpen()}
+            onQueryChange={setQuery}
+            onSearchFocused={() => setFocusSearchOnOpen(false)}
+            onRepoFilterChange={setRepoFilter}
+            onSelect={selectAndClose}
+            onClose={closePanel}
+          />
+        </div>
       </Show>
     </div>
   );

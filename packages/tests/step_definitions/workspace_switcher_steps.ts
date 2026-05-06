@@ -85,6 +85,32 @@ When("I hover the workspace switcher", async function (this: KoluWorld) {
 });
 
 When(
+  "I move from the workspace switcher pill into the panel",
+  async function (this: KoluWorld) {
+    const branch = this.page.locator(BRANCH_SELECTOR).first();
+    await branch.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+
+    const branchBox = await branch.boundingBox();
+    assert.ok(branchBox, "Workspace switcher branch has no bounding box");
+
+    const x = branchBox.x + branchBox.width / 2;
+    await this.page.mouse.move(x, branchBox.y + branchBox.height / 2);
+
+    const panel = this.page.locator(PANEL_SELECTOR);
+    await panel.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+
+    const panelBox = await panel.boundingBox();
+    assert.ok(panelBox, "Workspace switcher panel has no bounding box");
+
+    await this.page.mouse.move(x, branchBox.y + branchBox.height + 6, {
+      steps: 4,
+    });
+    await this.page.mouse.move(x, panelBox.y + 8, { steps: 4 });
+    await this.waitForFrame();
+  },
+);
+
+When(
   "I press the workspace switcher shortcut",
   async function (this: KoluWorld) {
     await this.page.keyboard.press(`${MOD_KEY}+Shift+K`);
