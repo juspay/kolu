@@ -254,7 +254,43 @@ export function buildWorkspaceSwitcherModel(
     };
   });
 
-  const tokens = queryTokens(options.query ?? "");
+  const { repoFacets, selectedRepo, visibleEntries } = searchResults(
+    entries,
+    options.query ?? "",
+    options.repoFilter ?? null,
+  );
+
+  const columns = WORKSPACE_AGENT_BUCKETS.map((bucket) => ({
+    ...bucket,
+    entries: visibleEntries.filter((entry) => entry.bucket === bucket.key),
+  }));
+
+  return {
+    entries,
+    compactGroups: compactGroupsFor(entries),
+    visibleEntries,
+    selectedRepo,
+    repoFacets,
+    columns,
+  };
+}
+
+/** Filter, facet, and repo-narrow in one shot. Bundling the three
+ *  results makes the dependency explicit: facets count *pre*-repo-
+ *  filter matches (so the user can see how many entries would appear
+ *  in each repo), `visibleEntries` count *post*-filter (only the
+ *  selected repo). Splitting them across separate locals invited a
+ *  silent reordering bug. */
+function searchResults(
+  entries: WorkspaceSwitcherEntry[],
+  query: string,
+  repoFilter: string | null,
+): {
+  repoFacets: WorkspaceRepoFacet[];
+  selectedRepo: string | null;
+  visibleEntries: WorkspaceSwitcherEntry[];
+} {
+  const tokens = queryTokens(query);
   const queryMatches =
     tokens.length === 0
       ? entries
@@ -279,26 +315,12 @@ export function buildWorkspaceSwitcherModel(
       color,
     }),
   );
-  const selectedRepo =
-    options.repoFilter && facetCounts.has(options.repoFilter)
-      ? options.repoFilter
-      : null;
 
+  const selectedRepo =
+    repoFilter && facetCounts.has(repoFilter) ? repoFilter : null;
   const visibleEntries = selectedRepo
     ? queryMatches.filter((entry) => entry.repoName === selectedRepo)
     : queryMatches;
 
-  const columns = WORKSPACE_AGENT_BUCKETS.map((bucket) => ({
-    ...bucket,
-    entries: visibleEntries.filter((entry) => entry.bucket === bucket.key),
-  }));
-
-  return {
-    entries,
-    compactGroups: compactGroupsFor(entries),
-    visibleEntries,
-    selectedRepo,
-    repoFacets,
-    columns,
-  };
+  return { repoFacets, selectedRepo, visibleEntries };
 }
