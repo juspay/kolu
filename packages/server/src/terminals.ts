@@ -266,6 +266,7 @@ export function killAllTerminals(): void {
     entry.stopProviders();
     entry.handle.dispose();
     cleanupClipboardDir(entry.info.id);
+    clearRecencyState(entry.info.id);
   }
   emitListChanged();
 }
