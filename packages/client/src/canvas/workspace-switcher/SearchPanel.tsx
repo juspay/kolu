@@ -82,9 +82,6 @@ const WorkspaceSearchPanel: Component<{
             spellcheck={false}
             autocomplete="off"
           />
-          <span class="font-mono text-[0.65rem] uppercase tracking-[0.18em] text-fg-3 tabular-nums shrink-0">
-            {totalCount()} live
-          </span>
           <button
             type="button"
             data-testid="workspace-switcher-close"
@@ -279,12 +276,21 @@ const WorkspaceCard: Component<{
       data-repo-name={props.entry.repoName}
       data-agent-bucket={props.entry.bucket}
       data-active={props.active ? "" : undefined}
-      class={`relative rounded-lg border p-2.5 text-left cursor-pointer transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 ${bucketInfo().borderClass}`}
+      // Active card wears a static accent ring + surface-2 fill; the
+      // agent-state ring is suppressed so the focused card doesn't
+      // pulse. Inactive cards keep the bucket border (animated for
+      // awaiting, static for working). Agent state on an active card
+      // is still legible from the column placement and the bucket
+      // glyph in the status row below.
+      class={`relative rounded-lg border p-2.5 text-left cursor-pointer transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 ${props.active ? "" : bucketInfo().borderClass}`}
       classList={{
-        "border-accent/70 bg-surface-2": props.active && !agent(),
+        // Active = solid accent fill, inverted text. Distinct from
+        // the awaiting/working ring treatments on inactive cards
+        // because it's a *fill*, not a ring.
+        "border-accent bg-accent shadow-[0_4px_14px_-4px_color-mix(in_oklch,var(--color-accent)_55%,transparent)]":
+          props.active,
         "border-edge/60 bg-surface-0/60 hover:bg-surface-2/70 hover:border-edge-bright/70":
           !props.active,
-        "pill-glow-inner": props.active && !!agent(),
       }}
       style={{
         "--card-color": repoAccent(props.entry.info),
@@ -312,7 +318,9 @@ const WorkspaceCard: Component<{
       <div class="flex items-center justify-between gap-2 min-w-0">
         <span
           class="font-mono text-[0.6rem] font-bold uppercase tracking-[0.16em] truncate min-w-0"
-          style={{ color: repoAccent(props.entry.info) }}
+          style={
+            props.active ? undefined : { color: repoAccent(props.entry.info) }
+          }
         >
           {props.entry.repoName}
         </span>
@@ -330,7 +338,9 @@ const WorkspaceCard: Component<{
       <div class="mt-1 flex items-baseline gap-2 min-w-0">
         <span
           class="text-[0.95rem] font-semibold truncate leading-tight"
-          style={{ color: branchAccent(props.entry.info) }}
+          style={
+            props.active ? undefined : { color: branchAccent(props.entry.info) }
+          }
         >
           {props.entry.label}
         </span>

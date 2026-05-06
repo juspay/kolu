@@ -64,9 +64,15 @@ const ChromeBar: Component<{
       // children (identity row, workspace switcher, control cluster) re-enable
       // pointer events on themselves.
       class="chrome-bar-surface flex items-center gap-3 px-3 py-2 select-none pointer-events-none transition-colors duration-150"
+      // z-50 in BOTH modes. Without it on the docked branch, the
+      // `backdrop-filter` we apply to the bar when the workspace
+      // switcher is open creates a stacking context with auto z-index,
+      // which traps the dropdown panel's own z-50 inside the bar — the
+      // maximized tile (z-40 in the canvas) then paints on top of the
+      // panel at the App root's auto-z layer (DOM order wins).
       classList={{
         "absolute top-0 left-0 z-50": !docked(),
-        "relative shrink-0": docked(),
+        "relative shrink-0 z-50": docked(),
       }}
       style={
         docked()

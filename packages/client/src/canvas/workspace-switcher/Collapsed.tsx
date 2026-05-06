@@ -89,12 +89,22 @@ const CollapsedWorkspaceSwitcher: Component<{
                         data-active={active() ? "" : undefined}
                         data-unread={unread() ? "" : undefined}
                         data-agent-state={agentState()}
-                        class={`pointer-events-auto relative flex items-center gap-1.5 px-2 h-6 rounded-md border text-xs cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 max-w-[20ch] whitespace-nowrap ${bucketInfo().borderClass}`}
+                        // Active pills wear a static accent ring + surface-2
+                        // fill; the agent-state animated ring is suppressed
+                        // here so the focused terminal doesn't pulse. Inactive
+                        // pills keep the bucket border (animated for awaiting,
+                        // static for working) so the user can still triage at
+                        // a glance.
+                        class={`pointer-events-auto relative flex items-center gap-1.5 px-2 h-6 rounded-md border text-xs cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 max-w-[20ch] whitespace-nowrap ${active() ? "" : bucketInfo().borderClass}`}
                         classList={{
-                          "border-accent/70 bg-surface-2":
-                            active() && !agentState(),
-                          "pill-glow-inner bg-surface-0":
-                            active() && !!agentState(),
+                          // Active = quiet "selected tab" — surface-2 fill +
+                          // 2px accent border. Loud bold fills (used in the
+                          // panel cards) read as too much in a strip that's
+                          // always visible. The 2px border vs 1px on others
+                          // is the key qualitative difference; awaiting/
+                          // working pills wear *colored animations*, active
+                          // wears a *thicker static frame*.
+                          "border-2 border-accent bg-surface-2": active(),
                           "border-edge/60 bg-surface-0 hover:bg-surface-2 hover:border-edge-bright/70":
                             !active() && !agentState(),
                           "border-transparent bg-surface-0":

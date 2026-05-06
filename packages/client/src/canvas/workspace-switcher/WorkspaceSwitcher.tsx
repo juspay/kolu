@@ -160,8 +160,7 @@ const WorkspaceSwitcher: Component<{
         class="pointer-events-auto mx-auto flex w-fit max-w-full flex-nowrap items-start justify-center gap-x-2 transition-opacity duration-150"
         classList={{
           "opacity-100": isOpen(),
-          "opacity-80": !isOpen() && !posture.maximized(),
-          "opacity-50": !isOpen() && posture.maximized(),
+          "opacity-80": !isOpen(),
         }}
         onPointerEnter={beginHover}
         onPointerLeave={endHoverSoon}
