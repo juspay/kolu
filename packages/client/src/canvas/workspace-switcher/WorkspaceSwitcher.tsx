@@ -183,14 +183,23 @@ const WorkspaceSwitcher: Component<{
           aria-expanded={isOpen() ? "true" : "false"}
           aria-controls="workspace-switcher-panel"
           aria-label={
-            latched() ? "Close workspace switcher" : "Open workspace switcher"
+            latched()
+              ? "Close workspace switcher"
+              : "Pin workspace switcher open"
           }
-          title={latched() ? "Close workspaces" : "Show all workspaces"}
+          // Chevron rotation tracks `isOpen()` so the visual matches the
+          // panel's visibility. The click action gates on `latched()` —
+          // clicking a hover-opened panel pins it; clicking a latched
+          // panel closes it. Title describes the action, not the state.
+          title={latched() ? "Close workspaces" : "Pin workspaces open"}
           onClick={toggleLatch}
         >
-          <ChevronDownIcon
-            class={`w-3.5 h-3.5 transition-transform duration-200 ${latched() ? "rotate-180" : ""}`}
-          />
+          <span
+            class="inline-flex transition-transform duration-200"
+            classList={{ "rotate-180": isOpen() }}
+          >
+            <ChevronDownIcon class="w-3.5 h-3.5" />
+          </span>
         </button>
       </div>
       <Show when={isOpen()}>

@@ -199,7 +199,15 @@ body {
 /* Default browser scrollbars look chunky and out-of-place against
  * the panel's frosted surface. `.scrollbar-subtle` gives a thin
  * track + thumb that picks up the theme's `edge` color and fades
- * the track to transparent so it disappears when not needed. */
+ * the track to transparent so it disappears when not needed.
+ *
+ * Custom CSS (not Tailwind utilities) here is intentional:
+ * `styling-tailwind-only` allows the exception "unless truly
+ * impossible with Tailwind." Stock Tailwind v4 has no utilities for
+ * `::-webkit-scrollbar` pseudo-elements or the Firefox
+ * `scrollbar-color` two-color shorthand, so the rule exception
+ * applies. Adding `tailwind-scrollbar` would be a new dependency
+ * just to encode what these ~25 lines already do. */
 .scrollbar-subtle {
   scrollbar-width: thin;
   scrollbar-color: color-mix(
