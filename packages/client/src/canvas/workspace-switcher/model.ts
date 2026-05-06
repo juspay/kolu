@@ -7,17 +7,20 @@ export type WorkspaceAgentBucket = "awaiting" | "working" | "none";
 
 /** Stable agent-state buckets shown as columns in the expanded switcher.
  *
- *  Co-locates each bucket's label, empty-state copy, and visual encoding
- *  (text color, accent CSS variable used for the column rule). Keeping
- *  them together means adding or renaming a bucket is a single edit;
+ *  Co-locates each bucket's label, empty-state copy, and full visual
+ *  encoding — text color, accent CSS variable for the column rule,
+ *  the animated `pill-border-*` class set, and the status glyph used
+ *  on cards. Adding or renaming a bucket is a single edit here;
  *  presentation reads from this record rather than re-deriving the
- *  mapping in each component. */
+ *  same mapping in each component. */
 export const WORKSPACE_AGENT_BUCKETS: readonly {
   key: WorkspaceAgentBucket;
   label: string;
   empty: string;
   textClass: string;
   accentVar: string;
+  borderClass: string;
+  glyph: string;
 }[] = [
   {
     key: "awaiting",
@@ -25,6 +28,8 @@ export const WORKSPACE_AGENT_BUCKETS: readonly {
     empty: "No terminals need input",
     textClass: "text-alert",
     accentVar: "var(--color-alert)",
+    borderClass: "pill-border pill-border-waiting",
+    glyph: "⏵",
   },
   {
     key: "working",
@@ -32,6 +37,8 @@ export const WORKSPACE_AGENT_BUCKETS: readonly {
     empty: "No agents are running",
     textClass: "text-accent",
     accentVar: "var(--color-accent)",
+    borderClass: "pill-border pill-border-spin",
+    glyph: "▸",
   },
   {
     key: "none",
@@ -39,6 +46,8 @@ export const WORKSPACE_AGENT_BUCKETS: readonly {
     empty: "No plain shells match",
     textClass: "text-fg-3",
     accentVar: "var(--color-fg-3)",
+    borderClass: "",
+    glyph: "·",
   },
 ];
 
@@ -76,12 +85,7 @@ export type WorkspaceRepoFacet = {
 };
 
 /** Agent bucket plus the entries currently visible in that column. */
-export type WorkspaceSwitcherColumn = {
-  key: WorkspaceAgentBucket;
-  label: string;
-  empty: string;
-  textClass: string;
-  accentVar: string;
+export type WorkspaceSwitcherColumn = (typeof WORKSPACE_AGENT_BUCKETS)[number] & {
   entries: WorkspaceSwitcherEntry[];
 };
 

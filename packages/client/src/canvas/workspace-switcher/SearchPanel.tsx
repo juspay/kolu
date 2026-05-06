@@ -2,16 +2,10 @@ import type { TerminalId } from "kolu-common/surface";
 import { type Component, For, Index, Show } from "solid-js";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { useTileTheme } from "../useTileTheme";
-import {
-  agentBorderClass,
-  agentGlyph,
-  agentLabel,
-  metaLine,
-  prSummary,
-  tokenLine,
-} from "./chrome";
+import { agentLabel, metaLine, prSummary, tokenLine } from "./chrome";
 import { branchAccent, repoAccent } from "./identity";
 import {
+  agentBucket,
   bucketDescriptor,
   type WorkspaceSwitcherEntry,
   type WorkspaceSwitcherModel,
@@ -243,7 +237,7 @@ const WorkspaceCard: Component<{
   const agent = () => props.entry.info.meta.agent;
   const pr = () => prSummary(props.entry);
   const tokens = () => tokenLine(agent());
-  const glyph = () => agentGlyph(agent()?.state);
+  const bucketInfo = () => bucketDescriptor(agentBucket(agent()));
 
   return (
     <button
@@ -253,7 +247,7 @@ const WorkspaceCard: Component<{
       data-repo-name={props.entry.repoName}
       data-agent-bucket={props.entry.bucket}
       data-active={props.active ? "" : undefined}
-      class={`relative rounded-lg border p-2.5 text-left cursor-pointer transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 ${agentBorderClass(agent()?.state)}`}
+      class={`relative rounded-lg border p-2.5 text-left cursor-pointer transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 ${bucketInfo().borderClass}`}
       classList={{
         "border-accent/70 bg-surface-2": props.active && !agent(),
         "border-edge/60 bg-surface-0/60 hover:bg-surface-2/70 hover:border-edge-bright/70":
@@ -321,9 +315,9 @@ const WorkspaceCard: Component<{
       <div class="mt-2 flex items-center gap-1.5 min-w-0 text-[0.72rem] text-fg-2">
         <span
           aria-hidden="true"
-          class={`font-mono leading-none shrink-0 ${bucketDescriptor(props.entry.bucket).textClass}`}
+          class={`font-mono leading-none shrink-0 ${bucketInfo().textClass}`}
         >
-          {glyph()}
+          {bucketInfo().glyph}
         </span>
         <span class="truncate">{agentLabel(agent())}</span>
         <Show when={tokens()}>

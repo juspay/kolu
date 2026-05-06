@@ -2,9 +2,12 @@ import type { TerminalId } from "kolu-common/surface";
 import { type Component, For, Show } from "solid-js";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { PlusIcon } from "../../ui/Icons";
-import { agentBorderClass } from "./chrome";
 import { branchAccent, repoAccent } from "./identity";
-import type { WorkspaceSwitcherRepoGroup } from "./model";
+import {
+  agentBucket,
+  bucketDescriptor,
+  type WorkspaceSwitcherRepoGroup,
+} from "./model";
 
 const ITEMS_PER_ROW = 3;
 
@@ -76,7 +79,9 @@ const CollapsedWorkspaceSwitcher: Component<{
                     const active = () => store.activeId() === item.id;
                     const unread = () => store.isUnread(item.id);
                     const agentState = () => item.info.meta.agent?.state;
-                    const borderClass = () => agentBorderClass(agentState());
+                    const borderClass = () =>
+                      bucketDescriptor(agentBucket(item.info.meta.agent))
+                        .borderClass;
                     return (
                       <button
                         type="button"
