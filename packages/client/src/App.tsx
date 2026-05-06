@@ -27,9 +27,6 @@ import CanvasWatermark from "./canvas/CanvasWatermark";
 import WorkspaceSwitcher, {
   buildWorkspaceEntries,
   buildWorkspaceSwitcherModel,
-  desktopWorkspaceOrder,
-  flatWorkspaceOrder,
-  mobileWorkspaceOrder,
 } from "./canvas/workspace-switcher";
 import TerminalCanvas from "./canvas/TerminalCanvas";
 import TileTitleActions from "./canvas/TileTitleActions";
@@ -85,8 +82,9 @@ const App: Component = () => {
   const canvasViewport = useCanvasViewport();
 
   // Workspace-switcher entries are one live terminal list. Desktop and mobile
-  // choose explicit order policies from it: desktop mirrors canvas geometry;
-  // mobile keeps live terminal order because there is no canvas affordance.
+  // choose explicit order policies from it: desktop mirrors canvas geometry
+  // (leftmost first, topmost as tie-break), mobile keeps live terminal order
+  // because there is no canvas affordance.
   //
   // Layouts are still captured on the source entries so the desktop policy can
   // reorder live as tiles are dragged without leaking that policy to mobile.
@@ -98,16 +96,20 @@ const App: Component = () => {
     ),
   );
   const desktopWorkspaceEntries = createMemo(() =>
-    desktopWorkspaceOrder(workspaceEntries()),
-  );
-  const mobileWorkspaceEntries = createMemo(() =>
-    mobileWorkspaceOrder(workspaceEntries()),
+    [...workspaceEntries()].sort((a, b) => {
+      const ax = a.layout?.x ?? Infinity;
+      const bx = b.layout?.x ?? Infinity;
+      if (ax !== bx) return ax - bx;
+      const ay = a.layout?.y ?? Infinity;
+      const by = b.layout?.y ?? Infinity;
+      return ay - by;
+    }),
   );
   const mobileWorkspaceModel = createMemo(() =>
-    buildWorkspaceSwitcherModel(mobileWorkspaceEntries()),
+    buildWorkspaceSwitcherModel(workspaceEntries()),
   );
   const orderedIds = createMemo(() =>
-    flatWorkspaceOrder(mobileWorkspaceEntries()),
+    workspaceEntries().map((entry) => entry.id),
   );
 
   // Fetch server identity for document title, watermark, and PWA chrome color.

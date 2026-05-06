@@ -2,8 +2,11 @@ import type { AgentInfo, TerminalMetadata } from "kolu-common/surface";
 import type { GitInfo } from "kolu-git/schemas";
 import { describe, expect, it } from "vitest";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
-import type { WorkspaceSwitcherSourceEntry } from "./order";
-import { agentBucket, buildWorkspaceSwitcherModel } from "./model";
+import {
+  agentBucket,
+  buildWorkspaceSwitcherModel,
+  type WorkspaceSwitcherSourceEntry,
+} from "./model";
 
 function makeGit(overrides: Partial<GitInfo> = {}): GitInfo {
   return {

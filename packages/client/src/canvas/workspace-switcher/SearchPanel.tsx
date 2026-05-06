@@ -45,136 +45,136 @@ const WorkspaceSearchPanel: Component<{
         id="workspace-switcher-panel"
         class="relative w-full max-w-[78rem] mx-auto overflow-hidden rounded-xl border border-edge/80 bg-surface-1/95 backdrop-blur-xl shadow-[0_30px_80px_-20px_rgba(0,0,0,0.65),inset_0_1px_0_0_rgba(255,255,255,0.04)]"
       >
-      {/* Top strip — search prompt + global count. The `>` glyph leans
-       *  into the terminal-native aesthetic and replaces the generic
-       *  bordered input box. */}
-      <div class="flex items-center gap-3 px-4 h-10 border-b border-edge/60 bg-surface-0/40">
-        <span
-          aria-hidden="true"
-          class="font-mono text-[0.85rem] leading-none text-accent select-none"
-        >
-          ⏵
-        </span>
-        <input
-          data-testid="workspace-switcher-search"
-          value={props.query}
-          onInput={(e) => props.onQueryChange(e.currentTarget.value)}
-          class="flex-1 min-w-0 bg-transparent border-0 outline-none font-mono text-[0.8rem] text-fg placeholder:text-fg-3/60 caret-accent"
-          placeholder="repo, branch, pr, agent, cwd…"
-          aria-label="Search workspaces"
-          spellcheck={false}
-          autocomplete="off"
-        />
-        <span class="font-mono text-[0.65rem] uppercase tracking-[0.18em] text-fg-3 tabular-nums shrink-0">
-          {totalCount()} live
-        </span>
-      </div>
-
-      <div class="grid grid-cols-[12rem_minmax(0,1fr)] max-h-[70vh] overflow-hidden">
-        <aside class="border-r border-edge/60 py-3 px-2 overflow-y-auto">
-          <div class="px-2 mb-2 font-mono text-[0.6rem] uppercase tracking-[0.18em] text-fg-3/80">
-            repos
-          </div>
-          <RepoFacetButton
-            label="All"
-            count={totalCount()}
-            color="var(--color-accent)"
-            selected={props.model.selectedRepo === null}
-            onClick={() => props.onRepoFilterChange(null)}
-            data-testid="workspace-switcher-repo"
-            data-selected={props.model.selectedRepo === null ? "" : undefined}
-          />
-          <div class="mt-0.5 flex flex-col gap-px">
-            <Index each={props.model.repoFacets}>
-              {(facet) => (
-                <RepoFacetButton
-                  label={facet().repoName}
-                  count={facet().count}
-                  color={facet().color}
-                  selected={props.model.selectedRepo === facet().repoName}
-                  onClick={() =>
-                    props.onRepoFilterChange(
-                      props.model.selectedRepo === facet().repoName
-                        ? null
-                        : facet().repoName,
-                    )
-                  }
-                  data-testid="workspace-switcher-repo"
-                  data-repo-name={facet().repoName}
-                  data-selected={
-                    props.model.selectedRepo === facet().repoName
-                      ? ""
-                      : undefined
-                  }
-                />
-              )}
-            </Index>
-          </div>
-        </aside>
-
-        <section class="min-w-0 p-4 overflow-hidden">
-          <div
-            class="grid gap-4 overflow-y-auto max-h-[calc(70vh-3.5rem)] pr-1"
-            style={{
-              "grid-template-columns": `repeat(${columnCount()}, minmax(0, 1fr))`,
-            }}
+        {/* Top strip — search prompt + global count. The `>` glyph leans
+         *  into the terminal-native aesthetic and replaces the generic
+         *  bordered input box. */}
+        <div class="flex items-center gap-3 px-4 h-10 border-b border-edge/60 bg-surface-0/40">
+          <span
+            aria-hidden="true"
+            class="font-mono text-[0.85rem] leading-none text-accent select-none"
           >
-            <For each={props.model.columns}>
-              {(column) => (
-                <div
-                  data-testid="workspace-switcher-column"
-                  data-agent-bucket={column.key}
-                  class="min-w-0"
-                >
+            ⏵
+          </span>
+          <input
+            data-testid="workspace-switcher-search"
+            value={props.query}
+            onInput={(e) => props.onQueryChange(e.currentTarget.value)}
+            class="flex-1 min-w-0 bg-transparent border-0 outline-none font-mono text-[0.8rem] text-fg placeholder:text-fg-3/60 caret-accent"
+            placeholder="repo, branch, pr, agent, cwd…"
+            aria-label="Search workspaces"
+            spellcheck={false}
+            autocomplete="off"
+          />
+          <span class="font-mono text-[0.65rem] uppercase tracking-[0.18em] text-fg-3 tabular-nums shrink-0">
+            {totalCount()} live
+          </span>
+        </div>
+
+        <div class="grid grid-cols-[12rem_minmax(0,1fr)] max-h-[70vh] overflow-hidden">
+          <aside class="border-r border-edge/60 py-3 px-2 overflow-y-auto">
+            <div class="px-2 mb-2 font-mono text-[0.6rem] uppercase tracking-[0.18em] text-fg-3/80">
+              repos
+            </div>
+            <RepoFacetButton
+              label="All"
+              count={totalCount()}
+              color="var(--color-accent)"
+              selected={props.model.selectedRepo === null}
+              onClick={() => props.onRepoFilterChange(null)}
+              data-testid="workspace-switcher-repo"
+              data-selected={props.model.selectedRepo === null ? "" : undefined}
+            />
+            <div class="mt-0.5 flex flex-col gap-px">
+              <Index each={props.model.repoFacets}>
+                {(facet) => (
+                  <RepoFacetButton
+                    label={facet().repoName}
+                    count={facet().count}
+                    color={facet().color}
+                    selected={props.model.selectedRepo === facet().repoName}
+                    onClick={() =>
+                      props.onRepoFilterChange(
+                        props.model.selectedRepo === facet().repoName
+                          ? null
+                          : facet().repoName,
+                      )
+                    }
+                    data-testid="workspace-switcher-repo"
+                    data-repo-name={facet().repoName}
+                    data-selected={
+                      props.model.selectedRepo === facet().repoName
+                        ? ""
+                        : undefined
+                    }
+                  />
+                )}
+              </Index>
+            </div>
+          </aside>
+
+          <section class="min-w-0 p-4 overflow-hidden">
+            <div
+              class="grid gap-4 overflow-y-auto max-h-[calc(70vh-3.5rem)] pr-1"
+              style={{
+                "grid-template-columns": `repeat(${columnCount()}, minmax(0, 1fr))`,
+              }}
+            >
+              <For each={props.model.columns}>
+                {(column) => (
                   <div
-                    class="flex items-center justify-between gap-2 mb-2 pb-1.5 border-b"
-                    style={{
-                      "border-color": `color-mix(in oklch, ${column.accentVar} 22%, var(--color-edge))`,
-                    }}
+                    data-testid="workspace-switcher-column"
+                    data-agent-bucket={column.key}
+                    class="min-w-0"
                   >
                     <div
-                      class={`font-mono text-[0.65rem] font-semibold uppercase tracking-[0.2em] ${column.textClass}`}
+                      class="flex items-center justify-between gap-2 mb-2 pb-1.5 border-b"
+                      style={{
+                        "border-color": `color-mix(in oklch, ${column.accentVar} 22%, var(--color-edge))`,
+                      }}
                     >
-                      {column.label}
+                      <div
+                        class={`font-mono text-[0.65rem] font-semibold uppercase tracking-[0.2em] ${column.textClass}`}
+                      >
+                        {column.label}
+                      </div>
+                      <div class="font-mono text-[0.65rem] text-fg-3 tabular-nums">
+                        {column.entries.length.toString().padStart(2, "0")}
+                      </div>
                     </div>
-                    <div class="font-mono text-[0.65rem] text-fg-3 tabular-nums">
-                      {column.entries.length.toString().padStart(2, "0")}
+                    <div class="flex flex-col gap-2">
+                      <Show
+                        when={column.entries.length > 0}
+                        fallback={
+                          <div class="font-mono text-[0.7rem] text-fg-3/70 tracking-wide py-3 text-center">
+                            ── {column.empty} ──
+                          </div>
+                        }
+                      >
+                        <For each={column.entries}>
+                          {(entry) => (
+                            <WorkspaceCard
+                              entry={entry}
+                              active={store.activeId() === entry.id}
+                              unread={store.isUnread(entry.id)}
+                              tileBg={tileTheme(entry.id).bg}
+                              tileFg={tileTheme(entry.id).fg}
+                              onSelect={() => props.onSelect(entry.id)}
+                            />
+                          )}
+                        </For>
+                      </Show>
                     </div>
                   </div>
-                  <div class="flex flex-col gap-2">
-                    <Show
-                      when={column.entries.length > 0}
-                      fallback={
-                        <div class="font-mono text-[0.7rem] text-fg-3/70 tracking-wide py-3 text-center">
-                          ── {column.empty} ──
-                        </div>
-                      }
-                    >
-                      <For each={column.entries}>
-                        {(entry) => (
-                          <WorkspaceCard
-                            entry={entry}
-                            active={store.activeId() === entry.id}
-                            unread={store.isUnread(entry.id)}
-                            tileBg={tileTheme(entry.id).bg}
-                            tileFg={tileTheme(entry.id).fg}
-                            onSelect={() => props.onSelect(entry.id)}
-                          />
-                        )}
-                      </For>
-                    </Show>
-                  </div>
-                </div>
-              )}
-            </For>
-          </div>
-          <Show when={props.model.visibleEntries.length === 0}>
-            <div class="mt-4 font-mono text-[0.75rem] text-fg-3/80 text-center tracking-wide">
-              ── no live terminals match ──
+                )}
+              </For>
             </div>
-          </Show>
-        </section>
-      </div>
+            <Show when={props.model.visibleEntries.length === 0}>
+              <div class="mt-4 font-mono text-[0.75rem] text-fg-3/80 text-center tracking-wide">
+                ── no live terminals match ──
+              </div>
+            </Show>
+          </section>
+        </div>
       </div>
     </div>
   );

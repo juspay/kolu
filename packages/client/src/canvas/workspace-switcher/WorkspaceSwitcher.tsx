@@ -28,8 +28,8 @@ import WorkspaceSearchPanel from "./SearchPanel";
 import {
   buildWorkspaceSwitcherModel,
   type WorkspaceSwitcherModel,
+  type WorkspaceSwitcherSourceEntry,
 } from "./model";
-import type { WorkspaceSwitcherSourceEntry } from "./order";
 
 /** Controller that owns query/filter state and composes both switcher views. */
 const WorkspaceSwitcher: Component<{

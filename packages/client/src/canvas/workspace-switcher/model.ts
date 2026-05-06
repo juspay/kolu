@@ -1,7 +1,29 @@
 import type { AgentInfo, TerminalId } from "kolu-common/surface";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
+import type { TileLayout } from "../TileLayout";
 import { repoAccent } from "./identity";
-import type { WorkspaceSwitcherSourceEntry } from "./order";
+
+/** Live-terminal source row before a presentation-specific order is applied. */
+export interface WorkspaceSwitcherSourceEntry {
+  id: TerminalId;
+  info: TerminalDisplayInfo;
+  layout?: TileLayout;
+}
+
+/** Pair terminal ids with display info and optional canvas layout. */
+export function buildWorkspaceEntries(
+  ids: TerminalId[],
+  getDisplayInfo: (id: TerminalId) => TerminalDisplayInfo | undefined,
+  getLayout?: (id: TerminalId) => TileLayout | undefined,
+): WorkspaceSwitcherSourceEntry[] {
+  const entries: WorkspaceSwitcherSourceEntry[] = [];
+  for (const id of ids) {
+    const info = getDisplayInfo(id);
+    if (!info) continue;
+    entries.push({ id, info, layout: getLayout?.(id) });
+  }
+  return entries;
+}
 
 export type WorkspaceAgentBucket = "awaiting" | "working" | "none";
 
@@ -85,9 +107,10 @@ export type WorkspaceRepoFacet = {
 };
 
 /** Agent bucket plus the entries currently visible in that column. */
-export type WorkspaceSwitcherColumn = (typeof WORKSPACE_AGENT_BUCKETS)[number] & {
-  entries: WorkspaceSwitcherEntry[];
-};
+export type WorkspaceSwitcherColumn =
+  (typeof WORKSPACE_AGENT_BUCKETS)[number] & {
+    entries: WorkspaceSwitcherEntry[];
+  };
 
 /** Complete derived model for collapsed and expanded switcher renderers. */
 export type WorkspaceSwitcherModel = {
