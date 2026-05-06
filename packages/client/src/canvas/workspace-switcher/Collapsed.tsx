@@ -1,5 +1,5 @@
 import type { TerminalId } from "kolu-common/surface";
-import { type Component, For, Show } from "solid-js";
+import { type Component, Index, Show } from "solid-js";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { PlusIcon } from "../../ui/Icons";
 import { branchAccent, repoAccent } from "./identity";
@@ -36,26 +36,26 @@ const CollapsedWorkspaceSwitcher: Component<{
         <PlusIcon class="w-3.5 h-3.5 transition-transform duration-200 group-hover/new:rotate-90" />
       </button>
 
-      <For each={props.groups}>
+      <Index each={props.groups}>
         {(group) => {
-          const visible = () => group.items.slice(0, ITEMS_PER_ROW);
+          const visible = () => group().items.slice(0, ITEMS_PER_ROW);
           const overflow = () =>
-            Math.max(0, group.items.length - ITEMS_PER_ROW);
+            Math.max(0, group().items.length - ITEMS_PER_ROW);
           return (
             <div class="pointer-events-auto flex flex-col items-start gap-1.5 min-w-0">
               <div class="flex items-center gap-1.5 max-w-[18ch] min-w-0 pl-0.5">
                 <span
                   aria-hidden="true"
                   class="w-[2px] h-3 rounded-full shrink-0"
-                  style={{ "background-color": group.color }}
+                  style={{ "background-color": group().color }}
                 />
                 <div
                   data-testid="workspace-switcher-compact-repo"
                   class="font-mono text-[0.6rem] font-bold uppercase tracking-[0.16em] truncate"
-                  style={{ color: group.color }}
-                  title={group.repoName}
+                  style={{ color: group().color }}
+                  title={group().repoName}
                 >
-                  {group.repoName}
+                  {group().repoName}
                 </div>
                 <Show when={overflow() > 0}>
                   <span
@@ -71,21 +71,21 @@ const CollapsedWorkspaceSwitcher: Component<{
               <div
                 class="flex flex-row gap-1 pl-2 border-l-[1px]"
                 style={{
-                  "border-color": `color-mix(in oklch, ${group.color} 22%, transparent)`,
+                  "border-color": `color-mix(in oklch, ${group().color} 22%, transparent)`,
                 }}
               >
-                <For each={visible()}>
+                <Index each={visible()}>
                   {(item) => {
-                    const active = () => store.activeId() === item.id;
-                    const unread = () => store.isUnread(item.id);
-                    const agentState = () => item.info.meta.agent?.state;
+                    const active = () => store.activeId() === item().id;
+                    const unread = () => store.isUnread(item().id);
+                    const agentState = () => item().info.meta.agent?.state;
                     const bucketInfo = () =>
-                      bucketDescriptor(agentBucket(item.info.meta.agent));
+                      bucketDescriptor(agentBucket(item().info.meta.agent));
                     return (
                       <button
                         type="button"
                         data-testid="workspace-switcher-pill"
-                        data-terminal-id={item.id}
+                        data-terminal-id={item().id}
                         data-active={active() ? "" : undefined}
                         data-unread={unread() ? "" : undefined}
                         data-agent-state={agentState()}
@@ -101,18 +101,18 @@ const CollapsedWorkspaceSwitcher: Component<{
                             !active() && !!agentState(),
                         }}
                         style={{
-                          "--card-color": repoAccent(item.info),
+                          "--card-color": repoAccent(item().info),
                           "--pill-state-color": bucketInfo().accentVar,
                           "--pill-border-radius": "calc(0.375rem + 2px)",
                           ...(active()
                             ? {
-                                "background-color": branchAccent(item.info),
+                                "background-color": branchAccent(item().info),
                                 color: "oklch(0.18 0.03 260)",
                               }
                             : {}),
                         }}
-                        onClick={() => props.onSelect(item.id)}
-                        title={item.info.meta.cwd}
+                        onClick={() => props.onSelect(item().id)}
+                        title={item().info.meta.cwd}
                       >
                         <Show when={unread()}>
                           <span
@@ -128,12 +128,12 @@ const CollapsedWorkspaceSwitcher: Component<{
                           style={
                             active()
                               ? { color: "currentColor" }
-                              : { color: branchAccent(item.info) }
+                              : { color: branchAccent(item().info) }
                           }
                         >
-                          {item.label}
+                          {item().label}
                         </span>
-                        <Show when={item.suffix}>
+                        <Show when={item().suffix}>
                           {(suffix) => (
                             <span
                               data-testid="workspace-switcher-pill-suffix"
@@ -149,12 +149,12 @@ const CollapsedWorkspaceSwitcher: Component<{
                       </button>
                     );
                   }}
-                </For>
+                </Index>
               </div>
             </div>
           );
         }}
-      </For>
+      </Index>
     </>
   );
 };

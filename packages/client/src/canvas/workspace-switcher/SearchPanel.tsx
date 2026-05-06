@@ -1,5 +1,5 @@
 import type { TerminalId } from "kolu-common/surface";
-import { type Component, createEffect, For, Index, Show } from "solid-js";
+import { type Component, createEffect, Index, Show } from "solid-js";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { CloseIcon } from "../../ui/Icons";
 import { useTileTheme } from "../useTileTheme";
@@ -134,54 +134,54 @@ const WorkspaceSearchPanel: Component<{
               "grid-template-columns": `repeat(${columnCount()}, minmax(0, 1fr))`,
             }}
           >
-            <For each={props.model.columns}>
+            <Index each={props.model.columns}>
               {(column) => (
                 <div
                   data-testid="workspace-switcher-column"
-                  data-agent-bucket={column.key}
+                  data-agent-bucket={column().key}
                   class="min-w-0"
                 >
                   <div
                     class="flex items-center justify-between gap-2 mb-2 pb-1.5 border-b"
                     style={{
-                      "border-color": `color-mix(in oklch, ${column.accentVar} 22%, var(--color-edge))`,
+                      "border-color": `color-mix(in oklch, ${column().accentVar} 22%, var(--color-edge))`,
                     }}
                   >
                     <div
-                      class={`font-mono text-[0.65rem] font-semibold uppercase tracking-[0.2em] ${column.textClass}`}
+                      class={`font-mono text-[0.65rem] font-semibold uppercase tracking-[0.2em] ${column().textClass}`}
                     >
-                      {column.label}
+                      {column().label}
                     </div>
                     <div class="font-mono text-[0.65rem] text-fg-3 tabular-nums">
-                      {column.entries.length.toString().padStart(2, "0")}
+                      {column().entries.length.toString().padStart(2, "0")}
                     </div>
                   </div>
                   <div class="flex flex-col gap-2">
                     <Show
-                      when={column.entries.length > 0}
+                      when={column().entries.length > 0}
                       fallback={
                         <div class="font-mono text-[0.7rem] text-fg-3/70 tracking-wide py-3 text-center">
-                          ── {column.empty} ──
+                          ── {column().empty} ──
                         </div>
                       }
                     >
-                      <For each={column.entries}>
+                      <Index each={column().entries}>
                         {(entry) => (
                           <WorkspaceCard
-                            entry={entry}
-                            active={store.activeId() === entry.id}
-                            unread={store.isUnread(entry.id)}
-                            tileBg={tileTheme(entry.id).bg}
-                            tileFg={tileTheme(entry.id).fg}
-                            onSelect={() => props.onSelect(entry.id)}
+                            entry={entry()}
+                            active={store.activeId() === entry().id}
+                            unread={store.isUnread(entry().id)}
+                            tileBg={tileTheme(entry().id).bg}
+                            tileFg={tileTheme(entry().id).fg}
+                            onSelect={() => props.onSelect(entry().id)}
                           />
                         )}
-                      </For>
+                      </Index>
                     </Show>
                   </div>
                 </div>
               )}
-            </For>
+            </Index>
           </div>
           <Show when={props.model.visibleEntries.length === 0}>
             <div class="mt-4 font-mono text-[0.75rem] text-fg-3/80 text-center tracking-wide">
