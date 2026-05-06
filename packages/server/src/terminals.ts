@@ -116,6 +116,7 @@ export function createTerminal(
         if (entry) {
           entry.stopProviders();
           cleanupClipboardDir(id);
+          clearRecencyState(id);
         }
         surfaceCtx.events.terminalExit.publish({ id }, exitCode);
         // Only save session on natural exit (entry still in map).
