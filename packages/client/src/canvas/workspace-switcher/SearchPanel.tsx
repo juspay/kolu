@@ -32,11 +32,14 @@ const WorkspaceSearchPanel: Component<{
 
   return (
     // Visibility is owned by the parent (rendered via `Show` only when
-    // open). The outer wrapper carries pointer-events so the cursor can
-    // traverse the gap between the strip and the visible panel without
-    // leaving the switcher's tracked subtree — that's what keeps the
-    // hover signal alive while the cursor is over the gap.
-    <div class="pointer-events-auto absolute inset-x-0 top-9 z-50 pt-3">
+    // open). The outer wrapper sits *below* the strip (top-11 = 44px,
+    // matching the strip's bottom edge) and uses `pt-2` for an 8px
+    // pointer-events bridge so the cursor can traverse the gap without
+    // leaving the switcher's tracked subtree. Earlier versions used
+    // top-9 + pt-3 which had the wrapper overlapping the bottom 6px of
+    // every mini-card with z-50 on top — making the bottom quarter of
+    // each pill a click-deadzone. The wrapper must NOT cover the strip.
+    <div class="pointer-events-auto absolute inset-x-0 top-11 z-50 pt-2">
       <div
         data-testid="workspace-switcher-panel"
         id="workspace-switcher-panel"
