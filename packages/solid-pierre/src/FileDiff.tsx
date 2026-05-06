@@ -18,8 +18,10 @@ import {
   DEFAULT_THEMES,
   FileDiff as FileDiffClass,
   type FileDiffMetadata,
+  type FileDiffOptions,
   parsePatchFiles,
   type SelectedLineRange,
+  type Virtualizer as VirtualizerClass,
   VirtualizedFileDiff as VirtualizedFileDiffClass,
 } from "@pierre/diffs";
 import {
@@ -56,38 +58,82 @@ export type FileDiffProps = {
   style?: JSX.CSSProperties;
 };
 
+const parseFirstFile = (raw: string): FileDiffMetadata | undefined => {
+  if (!raw) return undefined;
+  return parsePatchFiles(raw)[0]?.files[0];
+};
+
+/** Façade over Pierre's two diff classes. The constructor and the
+ *  render-call shape that follows from it must agree (vanilla pairs
+ *  `FileDiff` with `containerWrapper`; virtualized pairs
+ *  `VirtualizedFileDiff` + `isContainerManaged: true` with
+ *  `fileContainer`). Keeping both halves of the pairing inside one
+ *  factory prevents a future render-option addition from being applied
+ *  to one arm and silently missed in the other. */
+type DiffRenderer = {
+  render(raw: string): void;
+  setThemeType(theme: "light" | "dark"): void;
+  cleanUp(): void;
+};
+
+const createDiffRenderer = (
+  options: FileDiffOptions<undefined>,
+  container: HTMLDivElement,
+  virtualizer: VirtualizerClass | undefined,
+): DiffRenderer => {
+  if (virtualizer) {
+    // Virtualized: `container` IS the file container; we own its
+    // lifecycle (`isContainerManaged: true`). Pierre's
+    // `VirtualizedFileDiff` caches the first `fileDiff` via `??=` and
+    // ignores subsequent values — content swaps require a host-driven
+    // remount (kolu's `<Show keyed>` already does this on path
+    // changes). Calling `render()` on every update still flushes
+    // visibility / window-spec changes.
+    const instance = new VirtualizedFileDiffClass(
+      options,
+      virtualizer,
+      /* metrics */ undefined,
+      /* workerManager */ undefined,
+      /* isContainerManaged */ true,
+    );
+    return {
+      render: (raw) =>
+        instance.render({
+          fileContainer: container,
+          fileDiff: parseFirstFile(raw),
+        }),
+      setThemeType: (t) => instance.setThemeType(t),
+      cleanUp: () => instance.cleanUp(),
+    };
+  }
+  // Vanilla: `container` is the wrapper; Pierre creates an inner
+  // file-container element inside it on first render.
+  const instance = new FileDiffClass(options);
+  return {
+    render: (raw) =>
+      instance.render({
+        containerWrapper: container,
+        fileDiff: parseFirstFile(raw),
+      }),
+    setThemeType: (t) => instance.setThemeType(t),
+    cleanUp: () => instance.cleanUp(),
+  };
+};
+
 const FileDiff: Component<FileDiffProps> = (props) => {
   let container!: HTMLDivElement;
-  let instance: FileDiffClass | undefined;
+  let renderer: DiffRenderer | undefined;
 
-  // Captured at setup. Switching modes mid-life would require tearing
-  // down the instance — kolu's `<Show keyed>` on the selected path
-  // already remounts the component on higher-level transitions.
+  // Captured once at setup. Switching modes mid-life would corrupt
+  // Pierre's instance — kolu's `<Show keyed>` on the selected path
+  // already remounts the component on higher-level transitions, which
+  // is the supported way to swap modes.
   const virtualizer = useVirtualizer();
 
-  const parseFirstFile = (raw: string): FileDiffMetadata | undefined => {
-    if (!raw) return undefined;
-    return parsePatchFiles(raw)[0]?.files[0];
-  };
-
   const safeRender = (raw: string) => {
-    if (!instance) return;
+    if (!renderer) return;
     try {
-      const fileDiff = parseFirstFile(raw);
-      if (virtualizer) {
-        // Virtualized: `container` IS the file container — we own its
-        // lifecycle (`isContainerManaged: true`). Note that
-        // `VirtualizedFileDiff` caches the first `fileDiff` via `??=`
-        // and ignores subsequent values, so live content swaps require
-        // a host-driven remount (kolu's `<Show keyed>` already does this
-        // on path changes). Calling `render()` here still flushes
-        // visibility / window-spec changes.
-        instance.render({ fileContainer: container, fileDiff });
-      } else {
-        // Non-virtualized: `container` is the wrapper; Pierre creates
-        // the inner file-container element inside it on first render.
-        instance.render({ containerWrapper: container, fileDiff });
-      }
+      renderer.render(raw);
     } catch (e) {
       props.onError(toError(e));
     }
@@ -95,24 +141,19 @@ const FileDiff: Component<FileDiffProps> = (props) => {
 
   onMount(() => {
     try {
-      const options = {
-        theme: DEFAULT_THEMES,
-        themeType: props.theme,
-        diffStyle: props.diffStyle ?? "unified",
-        overflow: "wrap" as const,
-        lineHoverHighlight: "both" as const,
-        enableLineSelection: props.enableLineSelection ?? false,
-        onLineSelected: props.onLineSelected,
-      };
-      instance = virtualizer
-        ? new VirtualizedFileDiffClass(
-            options,
-            virtualizer,
-            /* metrics */ undefined,
-            /* workerManager */ undefined,
-            /* isContainerManaged */ true,
-          )
-        : new FileDiffClass(options);
+      renderer = createDiffRenderer(
+        {
+          theme: DEFAULT_THEMES,
+          themeType: props.theme,
+          diffStyle: props.diffStyle ?? "unified",
+          overflow: "wrap",
+          lineHoverHighlight: "both",
+          enableLineSelection: props.enableLineSelection ?? false,
+          onLineSelected: props.onLineSelected,
+        },
+        container,
+        virtualizer,
+      );
       safeRender(props.rawDiff);
     } catch (e) {
       props.onError(toError(e));
@@ -132,7 +173,7 @@ const FileDiff: Component<FileDiffProps> = (props) => {
       () => props.theme,
       (t) => {
         try {
-          instance?.setThemeType(t);
+          renderer?.setThemeType(t);
         } catch (e) {
           props.onError(toError(e));
         }
@@ -141,7 +182,7 @@ const FileDiff: Component<FileDiffProps> = (props) => {
     ),
   );
 
-  onCleanup(() => instance?.cleanUp());
+  onCleanup(() => renderer?.cleanUp());
 
   return (
     <div

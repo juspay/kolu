@@ -16,7 +16,9 @@ import {
   DEFAULT_THEMES,
   File as FileClass,
   type FileContents,
+  type FileOptions,
   type SelectedLineRange,
+  type Virtualizer as VirtualizerClass,
   VirtualizedFile as VirtualizedFileClass,
 } from "@pierre/diffs";
 import {
@@ -52,13 +54,56 @@ export type FileViewProps = {
   style?: JSX.CSSProperties;
 };
 
+/** Façade over Pierre's two file-content classes. Same pairing
+ *  invariant as `createDiffRenderer`: keep the constructor and the
+ *  render-call shape that follows from it inside one factory so a
+ *  future render-option addition can't be applied to one arm and
+ *  missed on the other. */
+type FileRenderer = {
+  render(file: FileContents): void;
+  setThemeType(theme: "light" | "dark"): void;
+  cleanUp(): void;
+};
+
+const createFileRenderer = (
+  options: FileOptions<undefined>,
+  container: HTMLDivElement,
+  virtualizer: VirtualizerClass | undefined,
+): FileRenderer => {
+  if (virtualizer) {
+    // Virtualized: `container` IS the file container; we own its
+    // lifecycle (`isContainerManaged: true`). Pierre's `VirtualizedFile`
+    // re-renders against the cached `file` for window-spec changes;
+    // swapping a different file entirely should remount the host
+    // component (kolu's `<Show keyed>` does this on path changes).
+    const instance = new VirtualizedFileClass(
+      options,
+      virtualizer,
+      /* metrics */ undefined,
+      /* workerManager */ undefined,
+      /* isContainerManaged */ true,
+    );
+    return {
+      render: (file) => instance.render({ fileContainer: container, file }),
+      setThemeType: (t) => instance.setThemeType(t),
+      cleanUp: () => instance.cleanUp(),
+    };
+  }
+  // Vanilla: `container` is the wrapper; Pierre creates the inner
+  // file-content element inside it on first render.
+  const instance = new FileClass(options);
+  return {
+    render: (file) => instance.render({ containerWrapper: container, file }),
+    setThemeType: (t) => instance.setThemeType(t),
+    cleanUp: () => instance.cleanUp(),
+  };
+};
+
 const FileView: Component<FileViewProps> = (props) => {
   let container!: HTMLDivElement;
-  let instance: FileClass | undefined;
+  let renderer: FileRenderer | undefined;
 
-  // Captured at setup. Switching modes mid-life would require tearing
-  // down the instance — hosts that remount on higher-level transitions
-  // (e.g. kolu's `<Show keyed>` on path) avoid that case.
+  // Captured once at setup; see FileDiff for the rationale.
   const virtualizer = useVirtualizer();
 
   const fileContents = createMemo<FileContents>(() => ({
@@ -67,19 +112,9 @@ const FileView: Component<FileViewProps> = (props) => {
   }));
 
   const safeRender = (file: FileContents) => {
-    if (!instance) return;
+    if (!renderer) return;
     try {
-      if (virtualizer) {
-        // Virtualized: `container` IS the file container — we own its
-        // lifecycle. Pierre's `VirtualizedFile.render` reuses the cached
-        // `file` for window-spec changes; calling render() with new
-        // `file` updates underlying `super.render` metadata, but to swap
-        // a different file entirely host code should remount the
-        // component.
-        instance.render({ fileContainer: container, file });
-      } else {
-        instance.render({ containerWrapper: container, file });
-      }
+      renderer.render(file);
     } catch (e) {
       props.onError(toError(e));
     }
@@ -87,21 +122,16 @@ const FileView: Component<FileViewProps> = (props) => {
 
   onMount(() => {
     try {
-      const options = {
-        theme: DEFAULT_THEMES,
-        themeType: props.theme,
-        enableLineSelection: props.enableLineSelection ?? false,
-        onLineSelected: props.onLineSelected,
-      };
-      instance = virtualizer
-        ? new VirtualizedFileClass(
-            options,
-            virtualizer,
-            /* metrics */ undefined,
-            /* workerManager */ undefined,
-            /* isContainerManaged */ true,
-          )
-        : new FileClass(options);
+      renderer = createFileRenderer(
+        {
+          theme: DEFAULT_THEMES,
+          themeType: props.theme,
+          enableLineSelection: props.enableLineSelection ?? false,
+          onLineSelected: props.onLineSelected,
+        },
+        container,
+        virtualizer,
+      );
       safeRender(fileContents());
     } catch (e) {
       props.onError(toError(e));
@@ -115,7 +145,7 @@ const FileView: Component<FileViewProps> = (props) => {
       () => props.theme,
       (t) => {
         try {
-          instance?.setThemeType(t);
+          renderer?.setThemeType(t);
         } catch (e) {
           props.onError(toError(e));
         }
@@ -124,7 +154,7 @@ const FileView: Component<FileViewProps> = (props) => {
     ),
   );
 
-  onCleanup(() => instance?.cleanUp());
+  onCleanup(() => renderer?.cleanUp());
 
   return (
     <div
