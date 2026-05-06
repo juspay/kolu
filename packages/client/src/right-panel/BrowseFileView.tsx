@@ -43,8 +43,8 @@ const BrowseFileView: Component<BrowseFileViewProps> = (props) => {
             </Show>
             <CodeMenuFrame path={props.filePath}>
               {(selection) => (
-                // Wrap in `<Virtualizer>` so `<FileView>` upgrades to
-                // Pierre's `VirtualizedFile` for very large files
+                // `<Virtualizer>` upgrades `<FileView>` to Pierre's
+                // `VirtualizedFile` for very large files
                 // (#809 / #514 Phase 8). Without it, `<FileView>` uses
                 // the vanilla `File` class — same behavior as before.
                 <Virtualizer

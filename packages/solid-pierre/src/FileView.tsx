@@ -94,6 +94,30 @@ const createFileRenderer = (
           /* workerManager */ undefined,
           /* isContainerManaged */ true,
         );
+        // Pierre upstream bug: `VirtualizedFile.setVisibility(true)`
+        // doesn't reset `renderRange`, so after a display:none →
+        // display:block transition (e.g. inspector → code right-panel
+        // tab toggle in kolu) Pierre's superclass `File.render`
+        // early-returns because the cached `renderRange` matches the
+        // freshly-computed one — the file stays stuck in the
+        // placeholder DOM that `setVisibility(false)` rendered, with
+        // no content. `VirtualizedFileDiff.setVisibility` resets
+        // `renderRange` itself; this patch mirrors that fix on the
+        // file-content sibling. Remove this when Pierre ships the fix
+        // upstream.
+        const patchedInstance = instance as unknown as {
+          isVisible: boolean;
+          renderRange: unknown;
+          setVisibility(visible: boolean): void;
+        };
+        const originalSetVisibility =
+          patchedInstance.setVisibility.bind(patchedInstance);
+        patchedInstance.setVisibility = (visible: boolean) => {
+          if (visible && !patchedInstance.isVisible) {
+            patchedInstance.renderRange = undefined;
+          }
+          originalSetVisibility(visible);
+        };
         instance.render({ fileContainer: container, file });
       },
       setThemeType: (t) => instance?.setThemeType(t),
@@ -118,10 +142,21 @@ const FileView: Component<FileViewProps> = (props) => {
   // Captured once at setup; see FileDiff for the rationale.
   const virtualizer = useVirtualizer();
 
-  const fileContents = createMemo<FileContents>(() => ({
-    name: props.name,
-    contents: props.contents,
-  }));
+  // Structural equality: only emit when the underlying strings change.
+  // The default reference-equality form would re-emit on every parent
+  // re-render (each render produces a fresh object literal), and in the
+  // virtualized branch each emit triggers a tear-down + recreate of the
+  // Pierre instance — a recreate during a tab toggle into `display:none`
+  // strands the new instance in placeholder mode because Pierre's
+  // intersection observer doesn't always fire entries when the root has
+  // no layout box.
+  const fileContents = createMemo<FileContents>(
+    () => ({ name: props.name, contents: props.contents }),
+    undefined,
+    {
+      equals: (a, b) => a.name === b.name && a.contents === b.contents,
+    },
+  );
 
   const safeRender = (file: FileContents) => {
     if (!renderer) return;
