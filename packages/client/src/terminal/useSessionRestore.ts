@@ -162,6 +162,7 @@ export function useSessionRestore(deps: {
           themeName: t.themeName,
           canvasLayout: t.canvasLayout,
           subPanel: t.subPanel,
+          lastActivityAt: t.lastActivityAt,
         });
         oldToNew.set(t.id, newId);
         // Client-side sub-panel state (activeSubTab, focusTarget) isn't

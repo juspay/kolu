@@ -156,6 +156,8 @@ export function createTerminal(
   if (initial?.themeName) meta.themeName = initial.themeName;
   if (initial?.canvasLayout) meta.canvasLayout = initial.canvasLayout;
   if (initial?.subPanel) meta.subPanel = initial.subPanel;
+  if (initial?.lastActivityAt !== undefined)
+    meta.lastActivityAt = initial.lastActivityAt;
   const entry: TerminalProcess = {
     info: {
       id,

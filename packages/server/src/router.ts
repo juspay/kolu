@@ -58,6 +58,7 @@ export const appRouter = t.router({
         themeName: input.themeName,
         canvasLayout: input.canvasLayout,
         subPanel: input.subPanel,
+        lastActivityAt: input.lastActivityAt,
       }),
     ),
 

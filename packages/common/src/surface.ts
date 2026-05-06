@@ -165,11 +165,18 @@ export const TerminalMetadataSchema = PersistedTerminalFieldsSchema.merge(
 
 /** Client-owned metadata supplied at create time. Seeded onto the new
  *  terminal's `meta` before the first `terminal.list` yield, so session
- *  restore can't race the canvas default-cascade effect (#642). */
+ *  restore can't race the canvas default-cascade effect (#642).
+ *
+ *  `lastActivityAt` is technically a server-derived field, but session
+ *  restore is the one client-driven path with truth about its prior
+ *  value (read from the saved session blob). Threading it through here
+ *  keeps recency ordering stable across restart — without it,
+ *  `createMetadata` would reset every restored terminal to `0`. */
 export const InitialTerminalMetadataSchema = z.object({
   themeName: z.string().optional(),
   canvasLayout: CanvasLayoutSchema.optional(),
   subPanel: SubPanelStateSchema.optional(),
+  lastActivityAt: z.number().optional(),
 });
 
 // ── Terminal cell value + raw-procedure shared schemas ────────────────
