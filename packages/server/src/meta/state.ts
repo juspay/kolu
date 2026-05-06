@@ -92,17 +92,13 @@ export function updateClientMetadata(
   publishMetadata(entry, terminalId);
 }
 
-/** Per-terminal leading-edge throttle for `bumpRecency`. Keystroke cadence
- *  would otherwise broadcast a metadata upsert per byte; coalescing to one
- *  publish per `BUMP_RECENCY_INTERVAL_MS` keeps the wire and the debounced
- *  session-save loop calm without losing meaningful ordering precision. */
+/** Per-terminal leading-edge throttle for `bumpRecency`. Without it every
+ *  keystroke would broadcast a metadata upsert and dirty the debounced
+ *  session auto-save. */
 const BUMP_RECENCY_INTERVAL_MS = 500;
 const lastBumpAt = new Map<TerminalId, number>();
 
-/** Note user-meaningful activity for ordering the workspace switcher.
- *  Throttled per terminal — successive calls inside the window are no-ops.
- *  The first call after the window publishes the current timestamp via
- *  `updateServerMetadata`, riding the existing publish + autosave path. */
+/** Note user-meaningful activity on this terminal. Throttled per id. */
 export function bumpRecency(
   entry: TerminalProcess,
   terminalId: TerminalId,
@@ -116,8 +112,7 @@ export function bumpRecency(
   });
 }
 
-/** Release the throttle entry for a disposed terminal so the map cannot
- *  leak across the process lifetime. Called from `killTerminal`. */
+/** Release the throttle entry for a disposed terminal. */
 export function clearRecencyState(terminalId: TerminalId): void {
   lastBumpAt.delete(terminalId);
 }

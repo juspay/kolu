@@ -147,8 +147,6 @@ describe("sortBySwitcherOrder", () => {
   });
 
   it("places a recently-active terminal ahead of an older canvas-leading one", () => {
-    // Pain case from #830: t-old sits at canvas x=0 (would lead by layout
-    // sort), but the user just typed in t-new (x=999) — t-new must come first.
     const sources: WorkspaceSwitcherSourceEntry[] = [
       source("t-old", {}, layout(0, 0)),
       source("t-new", {}, layout(999, 0)),

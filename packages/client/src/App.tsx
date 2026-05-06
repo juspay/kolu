@@ -82,13 +82,9 @@ const App: Component = () => {
   const { colorScheme } = useColorScheme();
   const canvasViewport = useCanvasViewport();
 
-  // Workspace-switcher entries: most-recently-active first, then canvas
-  // position as a stable secondary key. Recency is per-terminal `m.lastActivityAt`,
-  // bumped server-side on user input and on agent semantic-key transitions
-  // (#830). Desktop and mobile share this order — the expanded panel
-  // re-buckets entries by agent state so the visible effect is
-  // recency-within-bucket; the collapsed panel and mobile sheet render the
-  // order verbatim.
+  // Workspace-switcher entries ordered by per-terminal recency, with canvas
+  // position as the stable secondary key. Both desktop and mobile read from
+  // the same memo; see `sortBySwitcherOrder` for the within-bucket caveat.
   const orderedWorkspaceEntries = createMemo(() =>
     sortBySwitcherOrder(
       buildWorkspaceEntries(

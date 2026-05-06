@@ -25,13 +25,11 @@ export function buildWorkspaceEntries(
   return entries;
 }
 
-/** Order live entries for the workspace switcher: most recently active
- *  first, then canvas position (`x`, `y`), with the input array's index
- *  as the final stable tiebreak. Pure — the recency value is supplied via
- *  the accessor so callers can plug in either live metadata or a static
- *  fixture. The expanded panel re-buckets these entries by agent state, so
- *  the visible effect is recency-within-bucket; the collapsed panel and
- *  the mobile sheet render the order as-is. */
+/** Order entries by recency descending, with canvas (`x`, `y`) as the
+ *  secondary key and stable input order as the final tiebreak. Pure — the
+ *  recency value is plugged in via the accessor. The expanded panel
+ *  re-buckets by agent state, so the visible effect there is
+ *  recency-within-bucket. */
 export function sortBySwitcherOrder(
   entries: WorkspaceSwitcherSourceEntry[],
   getRecency: (id: TerminalId) => number,

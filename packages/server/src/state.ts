@@ -397,12 +397,9 @@ export const store = new Conf<PersistedState>({
         rightPanel: { ...rest, activeTab, codeMode },
       } as Preferences);
     },
-    // SavedTerminal.lastActivityAt added — drives recency ordering in the
-    // workspace switcher (#830). Schema default is 0 so legacy terminals
-    // tie at "ancient" and fall back to canvas-position secondary key,
-    // preserving their pre-feature ordering until the user interacts with
-    // them. Seed the field explicitly so the on-disk shape matches the
-    // post-migration schema.
+    // SavedTerminal.lastActivityAt added (#830). Seed legacy terminals to 0
+    // so they tie at "ancient" and fall back to canvas-position ordering
+    // until the user touches them.
     "1.21.0": (store: Conf<PersistedState>) => {
       const session = store.get("session");
       if (!session) return;

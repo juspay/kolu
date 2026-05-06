@@ -25,22 +25,17 @@ import type { TerminalProcess } from "../terminal-registry.ts";
 import { getLastAgentCommandName } from "./agent-command.ts";
 import { updateServerMetadata } from "./state.ts";
 
-/** Compact key over the fields that mark a user-meaningful agent
- *  transition: agent identity (`kind`/`sessionId`) and lifecycle state.
- *  Sub-fields like `contextTokens`, `summary`, `model`, or `taskProgress`
- *  update at watcher cadence and would otherwise bump recency on every
- *  emit; comparing this key keeps the bump aligned with what a user would
- *  call a "state change". `null` is its own bucket so session-end is a
- *  transition. */
+/** Key over the fields that mark a user-meaningful transition. Watcher
+ *  emits sharing the same `kind/sessionId/state` are dedup'd here so
+ *  frequent sub-info refreshes (`contextTokens`, `summary`) do not bump
+ *  recency. */
 function agentSemanticKey(info: AgentInfo | null): string {
   if (!info) return "null";
   return `${info.kind}/${info.sessionId}/${info.state}`;
 }
 
-/** Single write-site for `m.agent`. Compares the semantic key against the
- *  previous snapshot and bumps `lastActivityAt` only when it actually
- *  changed — sub-info refreshes still publish (so the UI sees fresh
- *  `contextTokens` / `summary`) but do not perturb recency ordering. */
+/** Single write-site for `m.agent`. Sub-info refreshes still publish; only
+ *  semantic-key transitions bump recency. */
 function setAgentMetadata(
   entry: TerminalProcess,
   terminalId: string,
