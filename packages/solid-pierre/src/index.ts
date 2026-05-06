@@ -9,6 +9,8 @@ export { FileDiff } from "./FileDiff";
 export type { FileDiffProps } from "./FileDiff";
 export { FileView } from "./FileView";
 export type { FileViewProps } from "./FileView";
+export { Virtualizer, useVirtualizer } from "./Virtualizer";
+export type { VirtualizerProps } from "./Virtualizer";
 
 // Re-export Pierre types consumers commonly need to type prop callbacks
 // without reaching into `@pierre/*` directly.
@@ -19,4 +21,4 @@ export type {
   FileTreeInitialExpansion,
   GitStatusEntry,
 } from "@pierre/trees";
-export type { SelectedLineRange } from "@pierre/diffs";
+export type { SelectedLineRange, VirtualizerConfig } from "@pierre/diffs";

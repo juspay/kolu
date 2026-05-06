@@ -5,7 +5,7 @@
  *  the snapshot via `reconcile` (inside `useStream`'s underlying primitive)
  *  avoids stomping scroll position on no-op ticks. */
 
-import { FileView } from "@kolu/solid-pierre";
+import { FileView, Virtualizer } from "@kolu/solid-pierre";
 import { type Component, Match, Show, Switch } from "solid-js";
 import { toast } from "solid-sonner";
 import { pierreDiffsStyle } from "../ui/pierreTheme";
@@ -43,18 +43,26 @@ const BrowseFileView: Component<BrowseFileViewProps> = (props) => {
             </Show>
             <CodeMenuFrame path={props.filePath}>
               {(selection) => (
-                <FileView
-                  name={props.filePath}
-                  contents={fc().content}
-                  theme={props.theme}
-                  enableLineSelection
-                  onLineSelected={selection.handleSelect}
-                  onError={(err) =>
-                    toast.error(`File render failed: ${err.message}`)
-                  }
+                // `<Virtualizer>` upgrades `<FileView>` to Pierre's
+                // `VirtualizedFile` for very large files
+                // (#809 / #514 Phase 8). Without it, `<FileView>` uses
+                // the vanilla `File` class — same behavior as before.
+                <Virtualizer
                   class="h-full w-full overflow-auto"
                   style={pierreDiffsStyle}
-                />
+                >
+                  <FileView
+                    name={props.filePath}
+                    contents={fc().content}
+                    theme={props.theme}
+                    enableLineSelection
+                    onLineSelected={selection.handleSelect}
+                    onError={(err) =>
+                      toast.error(`File render failed: ${err.message}`)
+                    }
+                    class="w-full"
+                  />
+                </Virtualizer>
               )}
             </CodeMenuFrame>
           </>
