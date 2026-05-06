@@ -26,7 +26,12 @@ import { terminalsDirtyChannel } from "../publisher.ts";
 import { surfaceCtx } from "../surface.ts";
 import type { TerminalProcess } from "../terminal-registry.ts";
 
-/** Create initial metadata state for a new terminal. */
+/** Create initial metadata state for a new terminal. `lastActivityAt: 0`
+ *  means "no activity yet" — the issue (#830) defines activity as user
+ *  input or an agent semantic-key transition, neither of which has
+ *  happened yet at create time. Tied at 0 sorts a fresh terminal below
+ *  any peer with real activity, falling back to canvas position among
+ *  peers that are also idle. */
 export function createMetadata(cwd: string): TerminalMetadata {
   return {
     cwd,
@@ -34,7 +39,7 @@ export function createMetadata(cwd: string): TerminalMetadata {
     pr: { kind: "pending" },
     agent: null,
     foreground: null,
-    lastActivityAt: Date.now(),
+    lastActivityAt: 0,
   };
 }
 

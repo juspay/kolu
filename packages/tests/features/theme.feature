@@ -94,9 +94,8 @@ Feature: Theme switching
     And I press Enter
     And I create a terminal
     Then the header should show theme "Tomorrow Night"
-    # The newly-created t1 sorts first by recency (#830), so the themed
-    # background t0 is at position 2. Selecting it should switch the active
-    # terminal back to the Dracula-themed one.
-    When I select workspace switcher entry 2
+    # Select the newly created terminal (index 1 in createdTerminalIds),
+    # then switch back to it after selecting the background terminal by workspace switcher position.
+    When I select workspace switcher entry 1
     Then the header should show theme "Dracula"
 
