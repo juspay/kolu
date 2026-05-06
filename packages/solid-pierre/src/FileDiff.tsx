@@ -83,7 +83,7 @@ type DiffRenderer = {
 };
 
 const createDiffRenderer = (
-  options: FileDiffOptions<undefined>,
+  buildOptions: () => FileDiffOptions<undefined>,
   container: HTMLDivElement,
   virtualizer: VirtualizerClass | undefined,
 ): DiffRenderer => {
@@ -91,30 +91,42 @@ const createDiffRenderer = (
     // Virtualized: `container` IS the file container; we own its
     // lifecycle (`isContainerManaged: true`). Pierre's
     // `VirtualizedFileDiff` caches the first `fileDiff` via `??=` and
-    // ignores subsequent values — content swaps require a host-driven
-    // remount (kolu's `<Show keyed>` already does this on path
-    // changes). Calling `render()` on every update still flushes
-    // visibility / window-spec changes.
-    const instance = new VirtualizedFileDiffClass(
-      options,
-      virtualizer,
-      /* metrics */ undefined,
-      /* workerManager */ undefined,
-      /* isContainerManaged */ true,
-    );
+    // ignores subsequent values, so a single instance can't swap
+    // content. Recreate on every render: the live-update path
+    // (`gitDiff` stream tick when the working tree changes) and any
+    // `rawDiff` reassignment for the same path go through this
+    // function, and a stale viewport would silently render the old
+    // content. Recreate cost is bounded by Pierre's setup; the new
+    // instance doesn't walk the previous diff.
+    let instance: VirtualizedFileDiffClass | undefined;
     return {
-      render: (raw) =>
+      render: (raw) => {
+        instance?.cleanUp();
+        // Recompute options at recreate time so a theme change between
+        // renders is reflected in the fresh instance (the
+        // `setThemeType` effect can't reach an instance that has just
+        // been thrown away).
+        instance = new VirtualizedFileDiffClass(
+          buildOptions(),
+          virtualizer,
+          /* metrics */ undefined,
+          /* workerManager */ undefined,
+          /* isContainerManaged */ true,
+        );
         instance.render({
           fileContainer: container,
           fileDiff: parseFirstFile(raw),
-        }),
-      setThemeType: (t) => instance.setThemeType(t),
-      cleanUp: () => instance.cleanUp(),
+        });
+      },
+      setThemeType: (t) => instance?.setThemeType(t),
+      cleanUp: () => instance?.cleanUp(),
     };
   }
   // Vanilla: `container` is the wrapper; Pierre creates an inner
-  // file-container element inside it on first render.
-  const instance = new FileDiffClass(options);
+  // file-container element inside it on first render. Pierre's
+  // reference-equality check on `fileDiff` handles updates internally,
+  // so a single instance covers the whole lifetime.
+  const instance = new FileDiffClass(buildOptions());
   return {
     render: (raw) =>
       instance.render({
@@ -145,21 +157,23 @@ const FileDiff: Component<FileDiffProps> = (props) => {
     }
   };
 
+  // Re-evaluated each time the virtualized branch needs to recreate the
+  // Pierre instance. Reading `props.theme` here picks up the current
+  // value at recreate time without subscribing this function as a
+  // reactive dependency itself.
+  const buildOptions = (): FileDiffOptions<undefined> => ({
+    theme: DEFAULT_THEMES,
+    themeType: props.theme,
+    diffStyle: props.diffStyle ?? "unified",
+    overflow: "wrap",
+    lineHoverHighlight: "both",
+    enableLineSelection: props.enableLineSelection ?? false,
+    onLineSelected: props.onLineSelected,
+  });
+
   onMount(() => {
     try {
-      renderer = createDiffRenderer(
-        {
-          theme: DEFAULT_THEMES,
-          themeType: props.theme,
-          diffStyle: props.diffStyle ?? "unified",
-          overflow: "wrap",
-          lineHoverHighlight: "both",
-          enableLineSelection: props.enableLineSelection ?? false,
-          onLineSelected: props.onLineSelected,
-        },
-        container,
-        virtualizer,
-      );
+      renderer = createDiffRenderer(buildOptions, container, virtualizer);
       safeRender(props.rawDiff);
     } catch (e) {
       props.onError(toError(e));

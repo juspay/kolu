@@ -72,32 +72,43 @@ type FileRenderer = {
 };
 
 const createFileRenderer = (
-  options: FileOptions<undefined>,
+  buildOptions: () => FileOptions<undefined>,
   container: HTMLDivElement,
   virtualizer: VirtualizerClass | undefined,
 ): FileRenderer => {
   if (virtualizer) {
     // Virtualized: `container` IS the file container; we own its
-    // lifecycle (`isContainerManaged: true`). Pierre's `VirtualizedFile`
-    // re-renders against the cached `file` for window-spec changes;
-    // swapping a different file entirely should remount the host
-    // component (kolu's `<Show keyed>` does this on path changes).
-    const instance = new VirtualizedFileClass(
-      options,
-      virtualizer,
-      /* metrics */ undefined,
-      /* workerManager */ undefined,
-      /* isContainerManaged */ true,
-    );
+    // lifecycle (`isContainerManaged: true`). `VirtualizedFile.render`
+    // caches the first `file` via `??=` and ignores subsequent values,
+    // so a single instance can't swap content. Recreate on every
+    // render: the live-update path (`fsReadFile` stream tick when the
+    // file changes on disk) goes through this function, and a stale
+    // viewport would silently render the old content. Recreate cost
+    // is bounded by Pierre's setup; the new instance doesn't walk the
+    // previous content.
+    let instance: VirtualizedFileClass | undefined;
     return {
-      render: (file) => instance.render({ fileContainer: container, file }),
-      setThemeType: (t) => instance.setThemeType(t),
-      cleanUp: () => instance.cleanUp(),
+      render: (file) => {
+        instance?.cleanUp();
+        // Recompute options at recreate time so a theme change between
+        // renders is reflected in the fresh instance.
+        instance = new VirtualizedFileClass(
+          buildOptions(),
+          virtualizer,
+          /* metrics */ undefined,
+          /* workerManager */ undefined,
+          /* isContainerManaged */ true,
+        );
+        instance.render({ fileContainer: container, file });
+      },
+      setThemeType: (t) => instance?.setThemeType(t),
+      cleanUp: () => instance?.cleanUp(),
     };
   }
   // Vanilla: `container` is the wrapper; Pierre creates the inner
-  // file-content element inside it on first render.
-  const instance = new FileClass(options);
+  // file-content element inside it on first render. Pierre's internal
+  // diffing handles updates, so a single instance covers the lifetime.
+  const instance = new FileClass(buildOptions());
   return {
     render: (file) => instance.render({ containerWrapper: container, file }),
     setThemeType: (t) => instance.setThemeType(t),
@@ -126,18 +137,19 @@ const FileView: Component<FileViewProps> = (props) => {
     }
   };
 
+  // Re-evaluated each time the virtualized branch needs to recreate the
+  // Pierre instance, so a theme change between renders is reflected in
+  // the fresh instance.
+  const buildOptions = (): FileOptions<undefined> => ({
+    theme: DEFAULT_THEMES,
+    themeType: props.theme,
+    enableLineSelection: props.enableLineSelection ?? false,
+    onLineSelected: props.onLineSelected,
+  });
+
   onMount(() => {
     try {
-      renderer = createFileRenderer(
-        {
-          theme: DEFAULT_THEMES,
-          themeType: props.theme,
-          enableLineSelection: props.enableLineSelection ?? false,
-          onLineSelected: props.onLineSelected,
-        },
-        container,
-        virtualizer,
-      );
+      renderer = createFileRenderer(buildOptions, container, virtualizer);
       safeRender(fileContents());
     } catch (e) {
       props.onError(toError(e));
