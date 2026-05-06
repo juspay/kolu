@@ -352,7 +352,7 @@ Concrete inventory — what every server-pushed reactive surface in Kolu maps to
 
 | Descriptor | Backs | Mutation |
 |---|---|---|
-| `terminalMetadataCollection` | Per-terminal metadata (cwd, git, PR, agent state, foreground process) — each terminal's tile chrome and inspector reads its own key | _server-only_ (providers under `meta/*.ts` write via `updateServerMetadata`) |
+| `terminalMetadataCollection` | Per-terminal metadata (cwd, git, PR, agent state, foreground process, last-activity timestamp for switcher recency) — each terminal's tile chrome and inspector reads its own key | _server-only_ (providers under `meta/*.ts` write via `updateServerMetadata`; `bumpRecency` is the throttled writer for input-cadence updates) |
 
 ### Streams
 

@@ -49,6 +49,8 @@ import { startGitHubPrProvider } from "./github.ts";
 import { startProcessProvider } from "./process.ts";
 
 export {
+  bumpRecency,
+  clearRecencyState,
   createMetadata,
   updateClientMetadata,
   updateServerMetadata,

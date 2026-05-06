@@ -92,7 +92,9 @@ Feature: Sub-terminals
     And I click the main terminal
     Then the main terminal should have keyboard focus
     When I create a terminal
-    And I select workspace switcher entry 1
+    # Newly-created terminal sorts first by recency (#830); the original
+    # parent terminal is at entry 2.
+    And I select workspace switcher entry 2
     Then the main terminal should have keyboard focus
     And there should be no page errors
 
@@ -100,7 +102,7 @@ Feature: Sub-terminals
     When I create a sub-terminal via command palette
     Then the sub-terminal should have keyboard focus
     When I create a terminal
-    And I select workspace switcher entry 1
+    And I select workspace switcher entry 2
     Then the sub-terminal should have keyboard focus
     And there should be no page errors
 

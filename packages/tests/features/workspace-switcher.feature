@@ -21,12 +21,14 @@ Feature: Workspace switcher
     And there should be no page errors
 
   Scenario: Clicking a collapsed branch pill switches the active terminal
-    # The Background-created terminal is t0; running echo first targets it
-    # (it's the active one). Then a second terminal becomes active. Clicking
-    # pill 1 returns to t0, whose buffer carries the echo output.
+    # The Background-created terminal is t0; running echo targets it (the
+    # active one) and bumps its recency. Creating t1 then bumps t1's recency
+    # past t0's (create-time stamps lastActivityAt), so pill 1 = t1 and
+    # pill 2 = t0. Clicking pill 2 returns to t0, whose buffer carries the
+    # echo output.
     Given I run "echo first-pill"
     And I create a terminal
-    When I click workspace switcher branch 1
+    When I click workspace switcher branch 2
     Then the active terminal should show "first-pill"
     And there should be no page errors
 
@@ -34,7 +36,7 @@ Feature: Workspace switcher
     Given I run "echo hover-pill-click"
     And I create a terminal
     When I hover the workspace switcher
-    And I click workspace switcher branch 1
+    And I click workspace switcher branch 2
     Then the active terminal should show "hover-pill-click"
     And there should be no page errors
 
@@ -86,7 +88,7 @@ Feature: Workspace switcher
     And I create a terminal
     When I click the workspace switcher toggle
     Then the workspace switcher panel should be visible
-    When I click workspace switcher card 1
+    When I click workspace switcher card 2
     Then the workspace switcher panel should not be visible
     And the active terminal should show "dismiss-after-select"
     And there should be no page errors
@@ -105,7 +107,7 @@ Feature: Workspace switcher
     Given I run "echo first-workspace-card"
     And I create a terminal
     When I hover the workspace switcher
-    And I click workspace switcher card 1
+    And I click workspace switcher card 2
     Then the active terminal should show "first-workspace-card"
     And there should be no page errors
 
@@ -113,8 +115,21 @@ Feature: Workspace switcher
     Given I run "echo hover-crossing"
     And I create a terminal
     When I move from the workspace switcher pill into the panel
-    And I click workspace switcher card 1
+    And I click workspace switcher card 2
     Then the active terminal should show "hover-crossing"
+    And there should be no page errors
+
+  Scenario: Workspace switcher orders cards by recent terminal activity
+    # Background creates t0; create t1 so we have two terminals. t1 sorts
+    # first by recency (just created). Switching to t0 alone does not bump
+    # recency; only typed input does. Once we type in t0, its lastActivityAt
+    # surpasses t1's and t0 takes the lead card.
+    Given I create a terminal
+    And I click workspace switcher branch 2
+    When I run "echo recency-leader"
+    And I hover the workspace switcher
+    And I click workspace switcher card 1
+    Then the active terminal should show "recency-leader"
     And there should be no page errors
 
   @mobile

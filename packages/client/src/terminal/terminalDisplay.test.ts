@@ -10,6 +10,7 @@ function makeMeta(overrides: Partial<TerminalMetadata> = {}): TerminalMetadata {
     pr: { kind: "pending" },
     agent: null,
     foreground: null,
+    lastActivityAt: 0,
     ...overrides,
   };
 }

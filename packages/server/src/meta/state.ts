@@ -16,6 +16,7 @@
 
 import type {
   TerminalClientMetadata,
+  TerminalId,
   TerminalMetadata,
   TerminalServerMetadata,
 } from "kolu-common/surface";
@@ -33,6 +34,7 @@ export function createMetadata(cwd: string): TerminalMetadata {
     pr: { kind: "pending" },
     agent: null,
     foreground: null,
+    lastActivityAt: Date.now(),
   };
 }
 
@@ -88,4 +90,34 @@ export function updateClientMetadata(
 ): void {
   mutate(entry.info.meta);
   publishMetadata(entry, terminalId);
+}
+
+/** Per-terminal leading-edge throttle for `bumpRecency`. Keystroke cadence
+ *  would otherwise broadcast a metadata upsert per byte; coalescing to one
+ *  publish per `BUMP_RECENCY_INTERVAL_MS` keeps the wire and the debounced
+ *  session-save loop calm without losing meaningful ordering precision. */
+const BUMP_RECENCY_INTERVAL_MS = 500;
+const lastBumpAt = new Map<TerminalId, number>();
+
+/** Note user-meaningful activity for ordering the workspace switcher.
+ *  Throttled per terminal — successive calls inside the window are no-ops.
+ *  The first call after the window publishes the current timestamp via
+ *  `updateServerMetadata`, riding the existing publish + autosave path. */
+export function bumpRecency(
+  entry: TerminalProcess,
+  terminalId: TerminalId,
+): void {
+  const now = Date.now();
+  const last = lastBumpAt.get(terminalId) ?? 0;
+  if (now - last < BUMP_RECENCY_INTERVAL_MS) return;
+  lastBumpAt.set(terminalId, now);
+  updateServerMetadata(entry, terminalId, (m) => {
+    m.lastActivityAt = now;
+  });
+}
+
+/** Release the throttle entry for a disposed terminal so the map cannot
+ *  leak across the process lifetime. Called from `killTerminal`. */
+export function clearRecencyState(terminalId: TerminalId): void {
+  lastBumpAt.delete(terminalId);
 }

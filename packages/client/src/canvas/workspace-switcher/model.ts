@@ -25,6 +25,30 @@ export function buildWorkspaceEntries(
   return entries;
 }
 
+/** Order live entries for the workspace switcher: most recently active
+ *  first, then canvas position (`x`, `y`), with the input array's index
+ *  as the final stable tiebreak. Pure — the recency value is supplied via
+ *  the accessor so callers can plug in either live metadata or a static
+ *  fixture. The expanded panel re-buckets these entries by agent state, so
+ *  the visible effect is recency-within-bucket; the collapsed panel and
+ *  the mobile sheet render the order as-is. */
+export function sortBySwitcherOrder(
+  entries: WorkspaceSwitcherSourceEntry[],
+  getRecency: (id: TerminalId) => number,
+): WorkspaceSwitcherSourceEntry[] {
+  return [...entries].sort((a, b) => {
+    const ra = getRecency(a.id);
+    const rb = getRecency(b.id);
+    if (ra !== rb) return rb - ra;
+    const ax = a.layout?.x ?? Infinity;
+    const bx = b.layout?.x ?? Infinity;
+    if (ax !== bx) return ax - bx;
+    const ay = a.layout?.y ?? Infinity;
+    const by = b.layout?.y ?? Infinity;
+    return ay - by;
+  });
+}
+
 export type WorkspaceAgentBucket = "awaiting" | "working" | "none";
 
 /** Stable agent-state buckets shown as columns in the expanded switcher.

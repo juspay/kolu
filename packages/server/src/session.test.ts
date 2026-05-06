@@ -23,6 +23,7 @@ const terminal: SavedTerminal = {
     isWorktree: false,
     mainRepoRoot: "/home/user/project",
   },
+  lastActivityAt: 0,
 };
 
 describe("session persistence", () => {
@@ -72,9 +73,9 @@ describe("session persistence", () => {
 
   it("preserves multiple terminals with array order", () => {
     const terminals: SavedTerminal[] = [
-      { id: "a", cwd: "/a", git: null },
-      { id: "b", cwd: "/b", git: null },
-      { id: "c", cwd: "/c", git: null, parentId: "a" },
+      { id: "a", cwd: "/a", git: null, lastActivityAt: 0 },
+      { id: "b", cwd: "/b", git: null, lastActivityAt: 0 },
+      { id: "c", cwd: "/c", git: null, parentId: "a", lastActivityAt: 0 },
     ];
     saveSession({ terminals, activeTerminalId: null });
     const session = getSavedSession();
@@ -86,8 +87,14 @@ describe("session persistence", () => {
 
   it("preserves themeName on round-trip", () => {
     const terminals: SavedTerminal[] = [
-      { id: "a", cwd: "/a", git: null, themeName: "Dracula" },
-      { id: "b", cwd: "/b", git: null },
+      {
+        id: "a",
+        cwd: "/a",
+        git: null,
+        themeName: "Dracula",
+        lastActivityAt: 0,
+      },
+      { id: "b", cwd: "/b", git: null, lastActivityAt: 0 },
     ];
     saveSession({ terminals, activeTerminalId: null });
     const session = getSavedSession();

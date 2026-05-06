@@ -25,6 +25,35 @@ import type { TerminalProcess } from "../terminal-registry.ts";
 import { getLastAgentCommandName } from "./agent-command.ts";
 import { updateServerMetadata } from "./state.ts";
 
+/** Compact key over the fields that mark a user-meaningful agent
+ *  transition: agent identity (`kind`/`sessionId`) and lifecycle state.
+ *  Sub-fields like `contextTokens`, `summary`, `model`, or `taskProgress`
+ *  update at watcher cadence and would otherwise bump recency on every
+ *  emit; comparing this key keeps the bump aligned with what a user would
+ *  call a "state change". `null` is its own bucket so session-end is a
+ *  transition. */
+function agentSemanticKey(info: AgentInfo | null): string {
+  if (!info) return "null";
+  return `${info.kind}/${info.sessionId}/${info.state}`;
+}
+
+/** Single write-site for `m.agent`. Compares the semantic key against the
+ *  previous snapshot and bumps `lastActivityAt` only when it actually
+ *  changed — sub-info refreshes still publish (so the UI sees fresh
+ *  `contextTokens` / `summary`) but do not perturb recency ordering. */
+function setAgentMetadata(
+  entry: TerminalProcess,
+  terminalId: string,
+  nextAgent: AgentInfo | null,
+): void {
+  const transitioning =
+    agentSemanticKey(entry.info.meta.agent) !== agentSemanticKey(nextAgent);
+  updateServerMetadata(entry, terminalId, (m) => {
+    m.agent = nextAgent;
+    if (transitioning) m.lastActivityAt = Date.now();
+  });
+}
+
 /** node-pty may return a full path (e.g. `/nix/store/.../bin/opencode` on
  *  NixOS). Normalize to basename so providers can compare against known
  *  binary names. Mirrors `processBasename` in `process.ts`.
@@ -178,9 +207,7 @@ export function startAgentProvider<Session, Info extends AgentInfoShape>(
       // Only clear metadata if the terminal's agent is ours to clear.
       // Other providers of different kinds share the same `m.agent` slot.
       if (entry.info.meta.agent?.kind === provider.kind) {
-        updateServerMetadata(entry, terminalId, (m) => {
-          m.agent = null;
-        });
+        setAgentMetadata(entry, terminalId, null);
       }
       return;
     }
@@ -191,15 +218,13 @@ export function startAgentProvider<Session, Info extends AgentInfoShape>(
       watcher: provider.createWatcher(
         next,
         (info) => {
-          updateServerMetadata(entry, terminalId, (m) => {
-            // Widen Info to AgentInfo — every concrete Info variant is a
-            // member of the AgentInfo discriminated union by construction
-            // (its schema is one of the union's branches). The cast lives
-            // at the sole metadata-write site for agent info, so widening
-            // is confined to this one line rather than smeared across
-            // every provider.
-            m.agent = info as unknown as AgentInfo;
-          });
+          // Widen Info to AgentInfo — every concrete Info variant is a
+          // member of the AgentInfo discriminated union by construction
+          // (its schema is one of the union's branches). The cast lives
+          // at the sole metadata-write site for agent info, so widening
+          // is confined to this one line rather than smeared across
+          // every provider.
+          setAgentMetadata(entry, terminalId, info as unknown as AgentInfo);
         },
         plog,
       ),

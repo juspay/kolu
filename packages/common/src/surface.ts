@@ -91,6 +91,13 @@ export const ServerPersistedTerminalFieldsSchema = z.object({
    *  input; drives the "resume agent on restore" offer in EmptyState.
    *  Absent for terminals that never ran a known agent. */
   lastAgentCommand: z.string().optional(),
+  /** Epoch-millis timestamp of the last user-meaningful activity — sent
+   *  input or an agent semantic-key transition. Drives recency ordering
+   *  in the workspace switcher. Persisted so restored sessions sort
+   *  correctly without waiting for fresh interaction. Defaults to 0 on
+   *  legacy session restore (terminal sorts last by recency, falling back
+   *  to canvas-position secondary key). */
+  lastActivityAt: z.number().default(0),
 });
 
 /**

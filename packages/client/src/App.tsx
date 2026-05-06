@@ -27,6 +27,7 @@ import CanvasWatermark from "./canvas/CanvasWatermark";
 import WorkspaceSwitcher, {
   buildWorkspaceEntries,
   buildWorkspaceSwitcherModel,
+  sortBySwitcherOrder,
 } from "./canvas/workspace-switcher";
 import TerminalCanvas from "./canvas/TerminalCanvas";
 import TileTitleActions from "./canvas/TileTitleActions";
@@ -81,35 +82,28 @@ const App: Component = () => {
   const { colorScheme } = useColorScheme();
   const canvasViewport = useCanvasViewport();
 
-  // Workspace-switcher entries are one live terminal list. Desktop and mobile
-  // choose explicit order policies from it: desktop mirrors canvas geometry
-  // (leftmost first, topmost as tie-break), mobile keeps live terminal order
-  // because there is no canvas affordance.
-  //
-  // Layouts are still captured on the source entries so the desktop policy can
-  // reorder live as tiles are dragged without leaking that policy to mobile.
-  const workspaceEntries = createMemo(() =>
-    buildWorkspaceEntries(
-      store.terminalIds(),
-      store.getDisplayInfo,
-      (id) => store.getMetadata(id)?.canvasLayout,
+  // Workspace-switcher entries: most-recently-active first, then canvas
+  // position as a stable secondary key. Recency is per-terminal `m.lastActivityAt`,
+  // bumped server-side on user input and on agent semantic-key transitions
+  // (#830). Desktop and mobile share this order — the expanded panel
+  // re-buckets entries by agent state so the visible effect is
+  // recency-within-bucket; the collapsed panel and mobile sheet render the
+  // order verbatim.
+  const orderedWorkspaceEntries = createMemo(() =>
+    sortBySwitcherOrder(
+      buildWorkspaceEntries(
+        store.terminalIds(),
+        store.getDisplayInfo,
+        (id) => store.getMetadata(id)?.canvasLayout,
+      ),
+      (id) => store.getMetadata(id)?.lastActivityAt ?? 0,
     ),
   );
-  const desktopWorkspaceEntries = createMemo(() =>
-    [...workspaceEntries()].sort((a, b) => {
-      const ax = a.layout?.x ?? Infinity;
-      const bx = b.layout?.x ?? Infinity;
-      if (ax !== bx) return ax - bx;
-      const ay = a.layout?.y ?? Infinity;
-      const by = b.layout?.y ?? Infinity;
-      return ay - by;
-    }),
-  );
   const mobileWorkspaceModel = createMemo(() =>
-    buildWorkspaceSwitcherModel(workspaceEntries()),
+    buildWorkspaceSwitcherModel(orderedWorkspaceEntries()),
   );
   const orderedIds = createMemo(() =>
-    workspaceEntries().map((entry) => entry.id),
+    orderedWorkspaceEntries().map((entry) => entry.id),
   );
 
   // Fetch server identity for document title, watermark, and PWA chrome color.
@@ -476,7 +470,7 @@ const App: Component = () => {
           onOpenPalette={() => openPalette()}
           workspaceSwitcher={
             <WorkspaceSwitcher
-              entries={desktopWorkspaceEntries()}
+              entries={orderedWorkspaceEntries()}
               openRequest={workspaceSwitcherOpenRequest()}
               onSelect={(id) => {
                 store.setActiveId(id);

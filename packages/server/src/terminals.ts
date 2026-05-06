@@ -20,6 +20,7 @@ import type {
 import { cleanupClipboardDir } from "./clipboard.ts";
 import { log } from "./log.ts";
 import {
+  clearRecencyState,
   createMetadata,
   startProviders,
   updateClientMetadata,
@@ -184,6 +185,7 @@ export function killTerminal(id: TerminalId): TerminalInfo | undefined {
   entry.stopProviders();
   entry.handle.dispose();
   cleanupClipboardDir(id);
+  clearRecencyState(id);
   unregisterTerminal(id);
   emitChanged();
   emitListChanged();
