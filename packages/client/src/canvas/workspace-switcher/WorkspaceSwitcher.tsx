@@ -95,9 +95,12 @@ const WorkspaceSwitcher: Component<{
     setFocusSearchOnOpen(false);
   };
 
-  /** Toggle the latch from the explicit toggle button. */
+  /** Toggle the latch from the explicit toggle button. Gates on
+   *  `latched()`, not `isOpen()`: a hover-opened panel + click should
+   *  *latch* it (so the cursor can roam without dismissing), not
+   *  flip-close. Second click on the latched chevron un-latches. */
   const toggleLatch = () => {
-    if (isOpen()) {
+    if (latched()) {
       closePanel();
     } else {
       setLatched(true);
@@ -180,13 +183,13 @@ const WorkspaceSwitcher: Component<{
           aria-expanded={isOpen() ? "true" : "false"}
           aria-controls="workspace-switcher-panel"
           aria-label={
-            isOpen() ? "Close workspace switcher" : "Open workspace switcher"
+            latched() ? "Close workspace switcher" : "Open workspace switcher"
           }
-          title={isOpen() ? "Close workspaces" : "Show all workspaces"}
+          title={latched() ? "Close workspaces" : "Show all workspaces"}
           onClick={toggleLatch}
         >
           <ChevronDownIcon
-            class={`w-3.5 h-3.5 transition-transform duration-200 ${isOpen() ? "rotate-180" : ""}`}
+            class={`w-3.5 h-3.5 transition-transform duration-200 ${latched() ? "rotate-180" : ""}`}
           />
         </button>
       </div>

@@ -109,11 +109,6 @@ When(
   },
 );
 
-When("I press Escape", async function (this: KoluWorld) {
-  await this.page.keyboard.press("Escape");
-  await this.waitForFrame();
-});
-
 When(
   "I click outside the workspace switcher",
   async function (this: KoluWorld) {
