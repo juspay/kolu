@@ -34,6 +34,19 @@ Feature: Git worktree management
     And a workspace switcher pill should show "fix-login-bug"
     And there should be no page errors
 
+  Scenario: Invalid worktree name surfaces inline error and blocks Enter
+    When I set up a git repo at "/tmp/kolu-wt-validate"
+    And I run "cd /tmp/kolu-wt-validate"
+    Then the header should show a branch name
+    When I open the command palette
+    And I select "New terminal" in the palette
+    And I select "kolu-wt-validate" in the palette
+    And I type "fix login bug" in the palette
+    Then the palette name input should show error "whitespace"
+    When I press Enter
+    Then the command palette should be visible
+    And there should be no page errors
+
   Scenario: Reusing an existing worktree name surfaces a collision toast
     When I set up a git repo at "/tmp/kolu-wt-collide"
     And I run "cd /tmp/kolu-wt-collide"

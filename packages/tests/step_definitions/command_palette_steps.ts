@@ -196,6 +196,21 @@ Then(
 );
 
 Then(
+  "the palette name input should show error {string}",
+  async function (this: KoluWorld, fragment: string) {
+    const err = this.page.locator(
+      `${PALETTE_SELECTOR} [data-testid="palette-value-error"]`,
+    );
+    await err.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const text = await err.textContent();
+    assert.ok(
+      text?.includes(fragment),
+      `Expected palette error to contain "${fragment}", got "${text}"`,
+    );
+  },
+);
+
+Then(
   "the palette name input should be prefilled",
   async function (this: KoluWorld) {
     const input = this.page.locator(

@@ -46,10 +46,15 @@ export interface PaletteCommand {
    *  Children are passive label rows: their own `onSelect` is bypassed and
    *  Enter (or click) routes through this group's `onSubmit` with the
    *  typed value plus the highlighted child. Up/Down still moves the
-   *  highlight; Backspace on an empty value drills back out. */
+   *  highlight; Backspace on an empty value drills back out.
+   *
+   *  `validate` runs on every keystroke; returning a non-null message
+   *  paints the input red, renders the message under the input, and
+   *  blocks submit until the value passes again. */
   valueInput?: {
     prefill: () => string;
     placeholder?: string;
+    validate?: (value: string) => string | null;
     onSubmit: (value: string, selected: PaletteCommand) => void;
   };
   /** Keyboard shortcut(s) to display alongside the command name. */
@@ -150,6 +155,12 @@ const CommandPalette: Component<{
   /** Active `valueInput` of the deepest path segment, if any. */
   const valueLeaf = createMemo(() => path().at(-1)?.valueInput);
 
+  /** Live validation error for the current value-input query. `null` when
+   *  the leaf has no validator, or the value passes; otherwise the
+   *  message to surface inline. Read by the input border, the error row,
+   *  and the submit guard in `execute`. */
+  const valueError = createMemo(() => valueLeaf()?.validate?.(query()) ?? null);
+
   /** Commands at the current level (filter is bypassed in value-input mode). */
   const filtered = createMemo((): PaletteCommand[] => {
     const items = currentItems().filter(isCommand);
@@ -203,6 +214,9 @@ const CommandPalette: Component<{
   function execute(cmd: PaletteCommand) {
     const leaf = valueLeaf();
     if (leaf) {
+      // Block submit while the typed value is invalid; the inline error
+      // row already tells the user what to fix.
+      if (valueError()) return;
       // Children in value-input mode are passive labels (see `valueInput` docs).
       didSelect = true;
       props.onOpenChange(false);
@@ -377,11 +391,26 @@ const CommandPalette: Component<{
           ref={inputRef}
           type="text"
           data-value-input={valueLeaf() ? "" : undefined}
+          data-value-invalid={valueError() ? "" : undefined}
           placeholder={valueLeaf()?.placeholder ?? "Type a command..."}
-          class="w-full px-4 py-3 bg-surface-1 text-fg text-sm border-b border-edge outline-none placeholder-fg-3"
+          class="w-full px-4 py-3 bg-surface-1 text-fg text-sm border-b outline-none placeholder-fg-3"
+          classList={{
+            "border-edge": !valueError(),
+            "border-danger": !!valueError(),
+          }}
           value={query()}
           onInput={(e) => setQuery(e.currentTarget.value)}
         />
+        <Show when={valueError()}>
+          {(msg) => (
+            <div
+              data-testid="palette-value-error"
+              class="px-4 py-2 text-xs text-danger border-b border-edge"
+            >
+              {msg()}
+            </div>
+          )}
+        </Show>
         <div
           ref={(el) => {
             // Mouse activity tracker is incidental UI state, not a real

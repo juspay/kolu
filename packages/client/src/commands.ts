@@ -1,6 +1,7 @@
 /** Command palette registry — declarative list of all app-level actions. */
 
 import type { RecentAgent } from "kolu-common/surface";
+import { WorktreeNameSchema } from "kolu-git/schemas";
 import { randomName } from "memorable-names";
 import type { Accessor } from "solid-js";
 import { batch, createMemo } from "solid-js";
@@ -9,6 +10,15 @@ import type { PaletteCommand, PaletteItem } from "./CommandPalette";
 import { type ActionContext, actionPaletteCommand } from "./input/actions";
 import { client } from "./wire";
 import { recentRepos, recentAgents } from "./wire";
+
+/** Live worktree-name validator — reuses the server schema so the rule
+ *  has one source of truth. Returns the first issue's message, or null
+ *  when the trimmed name passes. */
+function validateWorktreeName(name: string): string | null {
+  const result = WorktreeNameSchema.safeParse(name.trim());
+  if (result.success) return null;
+  return result.error.issues[0]?.message ?? "Invalid worktree name";
+}
 
 /** PaletteItems listing each recent agent command. Used by the Debug →
  *  "Recent agents" entry (phase 1 prefill flow). */
@@ -79,9 +89,13 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
               valueInput: {
                 prefill: randomName,
                 placeholder: "Worktree name",
+                validate: validateWorktreeName,
                 onSubmit: (name, selected) => {
                   const trimmed = name.trim();
-                  if (!trimmed) return;
+                  // The palette already blocks submit on validation failure;
+                  // this guard keeps the contract self-enforcing if a future
+                  // caller wires onSubmit without a validator.
+                  if (validateWorktreeName(trimmed) !== null) return;
                   const agentCmd =
                     typeof selected.data === "string"
                       ? selected.data

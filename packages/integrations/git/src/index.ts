@@ -61,6 +61,7 @@ export {
   GitStatusOutputSchema,
   WorktreeCreateInputSchema,
   WorktreeCreateOutputSchema,
+  WorktreeNameSchema,
   WorktreeRemoveInputSchema,
 } from "./schemas.ts";
 // Working-tree watcher (axis 4, parcel-watcher backed)
