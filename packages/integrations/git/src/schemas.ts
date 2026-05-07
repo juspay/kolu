@@ -18,14 +18,16 @@ export const GitInfoSchema = z.object({
 
 export const WorktreeCreateInputSchema = z.object({
   repoPath: z.string(),
-  // Whitespace is the most common typo (e.g. "fix login bug") and git
-  // rejects it with an opaque "fatal: not a valid branch name" error;
-  // catch it at the schema so the client gets a clean message.
+  // Catch the common ref-name violations at the schema layer so the client
+  // gets a structured 400 with a readable message instead of git's opaque
+  // "fatal: not a valid branch name". Obscure cases (`@{`, `.lock` suffix,
+  // leading slash) still fall through to git's own check.
   name: z
     .string()
     .min(1)
-    .refine((s) => !/\s/.test(s), {
-      message: "branch name cannot contain whitespace",
+    .refine((s) => !/[\s~^:?*[\\]/.test(s) && !s.includes(".."), {
+      message:
+        "branch name cannot contain whitespace, '..', or any of: ~ ^ : ? * [ \\",
     }),
 });
 
