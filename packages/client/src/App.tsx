@@ -185,17 +185,11 @@ const App: Component = () => {
   function handleCanvasAutoArrange() {
     if (isMobile()) return;
     const arranged = arrangeByRepo(
-      store.terminalIds().flatMap((id) => {
-        const info = store.getDisplayInfo(id);
-        if (!info) return [];
-        return [
-          {
-            id,
-            group: info.key.group,
-            layout: store.getMetadata(id)?.canvasLayout,
-          },
-        ];
-      }),
+      workspaceEntries().map(({ id, info, layout }) => ({
+        id,
+        group: info.key.group,
+        layout,
+      })),
     );
     crud.setCanvasLayouts(
       [...arranged.entries()].map(([id, layout]) => ({ id, layout })),
