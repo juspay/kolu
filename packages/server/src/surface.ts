@@ -30,11 +30,7 @@ import {
 } from "@kolu/surface/server";
 import { ORPCError, implement } from "@orpc/server";
 import { match } from "ts-pattern";
-import type {
-  ActivityFeed,
-  Preferences,
-  SavedSession,
-} from "kolu-common/surface";
+import type { ActivityFeed, Preferences } from "kolu-common/surface";
 import { contract } from "kolu-common/contract";
 import { TerminalNotFoundError } from "kolu-common/errors";
 import { surface } from "kolu-common/surface";
@@ -53,10 +49,7 @@ import {
 } from "kolu-git";
 import { log } from "./log.ts";
 import { publisher } from "./publisher.ts";
-import {
-  cancelPendingSessionAutoSave,
-  getSavedSession,
-} from "./session-store.ts";
+import { savedSessionStore } from "./session-store.ts";
 import { store } from "./state.ts";
 import { getTerminal, listTerminals } from "./terminal-registry.ts";
 
@@ -75,15 +68,6 @@ const activityFeedStore: CellStore<ActivityFeed> = confStore<ActivityFeed>(
   store,
   "activityFeed",
 );
-const rawSavedSessionStore: CellStore<SavedSession | null> =
-  confStore<SavedSession | null>(store, "session");
-const savedSessionStore: CellStore<SavedSession | null> = {
-  get: () => getSavedSession(),
-  set: (value) => {
-    cancelPendingSessionAutoSave();
-    rawSavedSessionStore.set(value);
-  },
-};
 
 // ── Surface implementation ─────────────────────────────────────────────
 
@@ -149,8 +133,9 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
       },
       activityFeed: { store: activityFeedStore },
       session: {
-        // Reads through `getSavedSession` to keep the "empty terminals = null"
-        // legacy normalization at one site (`session.ts` owns that invariant).
+        // `savedSessionStore` (defined in `session-store.ts`) bakes
+        // cancel-then-write into a single `.set` so any session write —
+        // through this cell or otherwise — cannot race the autosave timer.
         store: savedSessionStore,
       },
       terminalList: {

@@ -870,14 +870,17 @@ When(
     const { id } = await readCanvasTilePosition(this, index);
     const layout = { x, y, w, h };
     const resp = await this.page.request.fetch(
-      "/rpc/terminal/setCanvasLayouts",
+      "/rpc/terminal/applyCanvasLayoutBatch",
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         data: JSON.stringify({ json: { layouts: [{ id, layout }] } }),
       },
     );
-    assert.ok(resp.ok(), `terminal/setCanvasLayouts failed: ${resp.status()}`);
+    assert.ok(
+      resp.ok(),
+      `terminal/applyCanvasLayoutBatch failed: ${resp.status()}`,
+    );
     await this.page.waitForFunction(
       ({
         sel,
@@ -1053,14 +1056,17 @@ When(
     const { id } = await readFirstTilePosition(this);
     const layout = { x, y, w: 700, h: 500 };
     const resp = await this.page.request.fetch(
-      "/rpc/terminal/setCanvasLayouts",
+      "/rpc/terminal/applyCanvasLayoutBatch",
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         data: JSON.stringify({ json: { layouts: [{ id, layout }] } }),
       },
     );
-    assert.ok(resp.ok(), `terminal/setCanvasLayouts failed: ${resp.status()}`);
+    assert.ok(
+      resp.ok(),
+      `terminal/applyCanvasLayoutBatch failed: ${resp.status()}`,
+    );
     // Wait for the tile to render at the new position — proves the metadata
     // subscription delivered the update (the mechanism that must survive refresh).
     await this.page.waitForFunction(

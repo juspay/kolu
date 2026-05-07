@@ -141,9 +141,22 @@ const TerminalCanvas: Component<{
     if (changed) setPending(next);
   });
 
-  /** Effective layout for a tile (pending override wins over saved). */
+  /** Single source of truth for "what layout does each tile currently
+   *  occupy, accounting for in-flight pending overrides". Drag/resize/
+   *  arrange/render all read from this memo so the effective layout is
+   *  named once and threaded everywhere it's needed. */
+  const effectiveLayouts = createMemo<Record<string, TileLayout>>(() => {
+    const p = pending();
+    const result: Record<string, TileLayout> = {};
+    for (const id of props.tileIds) {
+      const l = p[id] ?? props.getLayout(id);
+      if (l) result[id] = l;
+    }
+    return result;
+  });
+
   function layoutOf(id: string): TileLayout | undefined {
-    return pending()[id] ?? props.getLayout(id);
+    return effectiveLayouts()[id];
   }
 
   createEffect(
@@ -152,11 +165,12 @@ const TerminalCanvas: Component<{
       (request) => {
         const autoArrange = props.autoArrange;
         if (!request || !autoArrange) return;
+        const merged = effectiveLayouts();
         const arranged = arrangeByRepo(
           props.tileIds.flatMap((id) => {
             const group = autoArrange.getGroup(id);
             if (!group) return [];
-            return [{ id, group, layout: layoutOf(id) }];
+            return [{ id, group, layout: merged[id] }];
           }),
         );
         const layouts = [...arranged.entries()].map(([id, layout]) => ({
@@ -174,16 +188,6 @@ const TerminalCanvas: Component<{
       },
     ),
   );
-
-  /** Merged layouts keyed by tile ID — consumed by CanvasTile and CanvasMinimap. */
-  const layouts = createMemo<Record<string, TileLayout>>(() => {
-    const result: Record<string, TileLayout> = {};
-    for (const id of props.tileIds) {
-      const l = layoutOf(id);
-      if (l) result[id] = l;
-    }
-    return result;
-  });
 
   // Auto-assign a default layout for tiles with no saved position.
   // The pending seed makes the tile paint at the cascade position on its
@@ -383,7 +387,7 @@ const TerminalCanvas: Component<{
               renderBody={() =>
                 props.renderTileBody(id, () => store.activeId() === id)
               }
-              layouts={layouts()}
+              layouts={effectiveLayouts()}
               startResize={startResize}
               zoom={viewport.zoom}
             />
@@ -421,7 +425,7 @@ const TerminalCanvas: Component<{
         <Show when={!posture.maximized()}>
           <CanvasMinimap
             tileIds={props.tileIds}
-            layouts={layouts()}
+            layouts={effectiveLayouts()}
             onSelect={props.onSelect}
             onStartTileDrag={(id) => {
               const origin = layoutOf(id);

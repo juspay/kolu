@@ -17,7 +17,7 @@ import { copyTextWithToast } from "./clipboard";
 import { useSubPanel } from "./useSubPanel";
 import type { TerminalStore } from "./useTerminalStore";
 
-type CanvasLayoutUpdate = { id: TerminalId; layout: CanvasLayout };
+export type CanvasLayoutUpdate = { id: TerminalId; layout: CanvasLayout };
 
 export function useTerminalCrud(deps: {
   store: TerminalStore;
@@ -49,11 +49,16 @@ export function useTerminalCrud(deps: {
       );
   }
 
-  /** Persist canvas tile positions/sizes from one server command. */
-  function setCanvasLayouts(layouts: CanvasLayoutUpdate[]) {
+  /** Persist one or more canvas tile positions/sizes atomically.
+   *  Single-tile drag/resize and multi-tile auto-arrange share this verb;
+   *  callers don't decide whether to batch — the server handles either. */
+  function applyCanvasLayouts(
+    update: CanvasLayoutUpdate | CanvasLayoutUpdate[],
+  ) {
+    const layouts = Array.isArray(update) ? update : [update];
     if (layouts.length === 0) return;
     void client.terminal
-      .setCanvasLayouts({ layouts })
+      .applyCanvasLayoutBatch({ layouts })
       .catch((err: Error) =>
         toast.error(`Failed to save canvas layouts: ${err.message}`),
       );
@@ -208,7 +213,7 @@ export function useTerminalCrud(deps: {
 
   return {
     setThemeName,
-    setCanvasLayouts,
+    applyCanvasLayouts,
     removeAndAutoSwitch,
     handleCreate,
     handleCreateSubTerminal,

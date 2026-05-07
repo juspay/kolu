@@ -209,8 +209,8 @@ export function setTerminalParent(
   }
 }
 
-/** Store multiple terminal canvas layouts from one client command. */
-export function setCanvasLayouts(
+/** Apply a batch of canvas-layout updates atomically — see contract. */
+export function applyCanvasLayoutBatch(
   layouts: { id: TerminalId; layout: CanvasLayout }[],
 ): void {
   updateClientMetadataBatch(

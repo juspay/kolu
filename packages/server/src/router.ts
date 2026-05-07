@@ -27,11 +27,11 @@ import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import { surfaceRouter, t, unwrapGit } from "./surface.ts";
 import { getTerminal, type TerminalProcess } from "./terminal-registry.ts";
 import {
+  applyCanvasLayoutBatch,
   createTerminal,
   killAllTerminals,
   killTerminal,
   setActiveTerminalId,
-  setCanvasLayouts,
   setSubPanelState,
   setTerminalParent,
   setTerminalTheme,
@@ -76,10 +76,12 @@ export const appRouter = t.router({
       setTerminalTheme(input.id, input.themeName);
     }),
 
-    setCanvasLayouts: t.terminal.setCanvasLayouts.handler(async ({ input }) => {
-      for (const { id } of input.layouts) requireTerminal(id);
-      setCanvasLayouts(input.layouts);
-    }),
+    applyCanvasLayoutBatch: t.terminal.applyCanvasLayoutBatch.handler(
+      async ({ input }) => {
+        for (const { id } of input.layouts) requireTerminal(id);
+        applyCanvasLayoutBatch(input.layouts);
+      },
+    ),
 
     setSubPanel: t.terminal.setSubPanel.handler(async ({ input }) => {
       requireTerminal(input.id);

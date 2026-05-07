@@ -12,15 +12,13 @@
 import type { SavedSession, SavedTerminal } from "kolu-common/surface";
 import { log } from "./log.ts";
 import { terminalsDirtyChannel } from "./publisher.ts";
-import {
-  cancelPendingSessionAutoSave,
-  scheduleSessionAutoSave,
-} from "./session-store.ts";
+import { scheduleSessionAutoSave } from "./session-store.ts";
 import { surfaceCtx } from "./surface.ts";
 
 export { getSavedSession } from "./session-store.ts";
 
-/** Write the session blob (or clear it). The surface owns persist+publish. */
+/** Write the session blob (or clear it). The surface owns persist+publish;
+ *  the cell store cancels any pending autosave before persist. */
 function writeSession(next: SavedSession | null): void {
   surfaceCtx.cells.session.set(next);
 }
@@ -47,18 +45,8 @@ export function clearSavedSession(): void {
 }
 
 /** Set the saved session directly (used by test harness and session tests).
- *
- *  Also cancels any pending autosave timer so a stale `terminals:dirty`
- *  event scheduled before this call cannot fire after it and clobber the
- *  manually-set session with an empty-snapshot null. The race surfaces in
- *  e2e: the test scenario's Before hook drains terminals, then posts a
- *  fresh saved session, then loads the page; in between, a lingering
- *  provider event from a previous scenario's drained terminal fires
- *  `terminals:dirty`, the autosave callback runs 500ms later with an empty
- *  terminal snapshot, and `saveSession([])` rewrites the session to null —
- *  the restore card disappears mid-scenario. */
+ *  Bypasses the empty-terminals normalization in `saveSession`. */
 export function setSavedSession(session: SavedSession | null): void {
-  cancelPendingSessionAutoSave();
   writeSession(session);
 }
 

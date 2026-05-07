@@ -551,10 +551,10 @@ const App: Component = () => {
                       request: canvasAutoArrangeRequest(),
                       getGroup: (id) => store.getDisplayInfo(id)?.key.group,
                       onLayoutsChange: (layouts) =>
-                        crud.setCanvasLayouts(layouts),
+                        crud.applyCanvasLayouts(layouts),
                     }}
                     onLayoutChange={(id, layout) =>
-                      crud.setCanvasLayouts([{ id, layout }])
+                      crud.applyCanvasLayouts({ id, layout })
                     }
                     onSelect={(id) => store.setActiveId(id)}
                     onClose={(id) => closeTerminal(id)}

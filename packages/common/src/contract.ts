@@ -62,7 +62,7 @@ export const TerminalCanvasLayoutUpdateSchema = z.object({
   layout: CanvasLayoutSchema,
 });
 
-export const TerminalSetCanvasLayoutsInputSchema = z.object({
+export const TerminalApplyCanvasLayoutBatchInputSchema = z.object({
   layouts: z.array(TerminalCanvasLayoutUpdateSchema),
 });
 
@@ -122,8 +122,12 @@ export const contract = oc.router({
     resize: oc.input(TerminalResizeInputSchema).output(z.void()),
     sendInput: oc.input(TerminalSendInputSchema).output(z.void()),
     setTheme: oc.input(TerminalSetThemeInputSchema).output(z.void()),
-    setCanvasLayouts: oc
-      .input(TerminalSetCanvasLayoutsInputSchema)
+    /** Apply a batch of canvas-layout updates atomically: all mutations
+     *  land in memory before any metadata snapshot publishes, and the
+     *  batch fires exactly one session auto-save. Single-tile updates
+     *  pass an array of one. */
+    applyCanvasLayoutBatch: oc
+      .input(TerminalApplyCanvasLayoutBatchInputSchema)
       .output(z.void()),
     setSubPanel: oc.input(TerminalSetSubPanelInputSchema).output(z.void()),
     setActive: oc.input(SetActiveTerminalInputSchema).output(z.void()),
