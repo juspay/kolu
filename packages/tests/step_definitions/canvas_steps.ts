@@ -222,6 +222,34 @@ Then(
   },
 );
 
+Then(
+  "the active canvas tile should be centered in the viewport",
+  async function (this: KoluWorld) {
+    await this.page.waitForFunction(
+      (sel: string) => {
+        const container = document.querySelector(sel);
+        const tile = container?.querySelector(
+          '[data-testid="canvas-tile"][data-active="true"]',
+        );
+        if (!container || !tile) return false;
+        const cRect = container.getBoundingClientRect();
+        const tRect = tile.getBoundingClientRect();
+        const tileCx = tRect.left + tRect.width / 2 - cRect.left;
+        const tileCy = tRect.top + tRect.height / 2 - cRect.top;
+        const viewCx = cRect.width / 2;
+        const viewCy = cRect.height / 2;
+        const tolerance = 40;
+        return (
+          Math.abs(tileCx - viewCx) < tolerance &&
+          Math.abs(tileCy - viewCy) < tolerance
+        );
+      },
+      CANVAS_SELECTOR,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
 When(
   "I create a terminal with keyboard shortcut",
   async function (this: KoluWorld) {

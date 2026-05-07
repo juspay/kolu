@@ -166,6 +166,11 @@ const TerminalCanvas: Component<{
         if (layouts.length === 0) return;
         setPendingLayouts(layouts);
         autoArrange.onLayoutsChange(layouts);
+        const activeId = store.activeId();
+        const activeLayout = activeId ? arranged.get(activeId) : undefined;
+        if (activeLayout) {
+          requestAnimationFrame(() => viewport.centerOnTile(activeLayout));
+        }
       },
     ),
   );

@@ -138,6 +138,7 @@ Feature: Canvas workspace
     And I save canvas tile 3 position
     And I click the workspace switcher arrange button
     Then canvas tiles should be in a squarish cluster with sizes preserved
+    And the active canvas tile should be centered in the viewport
     And there should be no page errors
 
   Scenario: WebGL context is held only by the focused tile
