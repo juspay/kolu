@@ -17,21 +17,19 @@
 import { type AgentBucket, bucketDescriptor } from "../agent/agentPresentation";
 
 export type TileBorderEncoding = {
-  /** Class string — pairs with the tile's structural classes. */
   class: string;
-  /** CSS variable bindings consumed by the chassis. */
   style: Record<string, string>;
 };
+
+/** rounded-xl is 0.75rem; the `pill-border` ::before sits at `inset: -2px`,
+ *  so the outer radius must be `tile-radius + 2px` to stay flush. */
+const TILE_BORDER_RADIUS = "calc(0.75rem + 2px)";
 
 export function tileBorderEncoding(args: {
   active: boolean;
   maximized: boolean;
   bucket: AgentBucket;
   cardColor: string;
-  /** CSS radius matching the tile's rounded corners + 2px chassis offset.
-   *  The `pill-border` ::before sits at `inset: -2px`, so the outer radius
-   *  must be `tile-radius + 2px` to stay flush. */
-  radius: string;
 }): TileBorderEncoding {
   if (args.maximized) {
     return { class: "border border-transparent", style: {} };
@@ -54,7 +52,7 @@ export function tileBorderEncoding(args: {
   };
   if (hasBucketRing) {
     style["--pill-state-color"] = desc.accentVar;
-    style["--pill-border-radius"] = args.radius;
+    style["--pill-border-radius"] = TILE_BORDER_RADIUS;
   }
   return { class: classes.join(" "), style };
 }

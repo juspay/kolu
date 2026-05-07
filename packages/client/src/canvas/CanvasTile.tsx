@@ -11,7 +11,7 @@
  *    so chrome reflects state and double-click toggles it. */
 
 import { createDraggable } from "@thisbeyond/solid-dnd";
-import { type Component, For, type JSX, Show } from "solid-js";
+import { type Component, createMemo, For, type JSX, Show } from "solid-js";
 import type { AgentBucket } from "../agent/agentPresentation";
 import { CHROME_ICON_BUTTON_CLASS } from "../ui/chromeSpacing";
 import { MaximizeIcon, RestoreIcon } from "../ui/Icons";
@@ -71,35 +71,40 @@ const CanvasTile: Component<{
 
   // Outer ring (agent state) + inset glow (focus) come from the encoding
   // helper. Drop shadow stays here as a pure depth cue — it does not carry
-  // colour, so it can't compete with the bucket ring.
-  const encoding = () =>
+  // colour, so it can't compete with the bucket ring. Memoized so a drag
+  // tick (60Hz) doesn't rebuild the class string + style object when only
+  // the transform changes.
+  const encoding = createMemo(() =>
     tileBorderEncoding({
       active: props.active,
       maximized: props.maximized,
       bucket: props.bucket,
       cardColor: props.cardColor,
-      // rounded-xl is 0.75rem; pill-border ::before sits at inset -2px.
-      radius: "calc(0.75rem + 2px)",
-    });
+    }),
+  );
 
-  // While maximized: ignore drag transform and pin to viewport. While
-  // tiled: absolute-positioned at layout(), drag transform follows.
-  const tiledStyle = () => ({
-    left: `${layout().x}px`,
-    top: `${layout().y}px`,
-    width: `${layout().w}px`,
-    height: `${layout().h}px`,
-    "background-color": bg(),
-    "z-index": props.active ? 10 : 1,
-    opacity: props.active ? 1 : 0.92,
-    "box-shadow": props.active
-      ? "0 8px 32px rgba(0,0,0,0.4)"
-      : "0 2px 8px rgba(0,0,0,0.2)",
-    // Drag transform is screen-space — divide by zoom so the tile
-    // moves at the correct rate in the scaled canvas coordinate system.
-    transform: `translate(${draggable.transform.x / props.zoom()}px, ${draggable.transform.y / props.zoom()}px)`,
-    ...encoding().style,
-  });
+  // One style builder for both display modes — maximized fills the
+  // viewport via `absolute inset-0` (set in classList), so it skips the
+  // layout/transform fields. Both modes share background + encoding vars.
+  const tileStyle = () => {
+    const base = { "background-color": bg(), ...encoding().style };
+    if (props.maximized) return base;
+    return {
+      ...base,
+      left: `${layout().x}px`,
+      top: `${layout().y}px`,
+      width: `${layout().w}px`,
+      height: `${layout().h}px`,
+      "z-index": props.active ? 10 : 1,
+      opacity: props.active ? 1 : 0.92,
+      "box-shadow": props.active
+        ? "0 8px 32px rgba(0,0,0,0.4)"
+        : "0 2px 8px rgba(0,0,0,0.2)",
+      // Drag transform is screen-space — divide by zoom so the tile
+      // moves at the correct rate in the scaled canvas coordinate system.
+      transform: `translate(${draggable.transform.x / props.zoom()}px, ${draggable.transform.y / props.zoom()}px)`,
+    };
+  };
 
   return (
     <div
@@ -124,11 +129,7 @@ const CanvasTile: Component<{
         "inset-0 z-40": props.maximized,
         "rounded-xl": !props.maximized,
       }}
-      style={
-        props.maximized
-          ? { "background-color": bg(), ...encoding().style }
-          : tiledStyle()
-      }
+      style={tileStyle()}
       onMouseDown={() => props.onSelect()}
     >
       {/* Title bar — uses tile foreground at low opacity for guaranteed
