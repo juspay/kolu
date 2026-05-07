@@ -168,7 +168,12 @@ app.get("/manifest.webmanifest", (c) => {
         { src: "/icon-512.png", sizes: "512x512", type: "image/png" },
       ],
     },
-    { headers: { "Content-Type": "application/manifest+json" } },
+    {
+      headers: {
+        "Content-Type": "application/manifest+json",
+        "Cache-Control": REVALIDATE_CACHE_CONTROL,
+      },
+    },
   );
 });
 
