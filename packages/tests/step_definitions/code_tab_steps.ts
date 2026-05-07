@@ -379,29 +379,20 @@ Then(
   async function (this: KoluWorld) {
     const row = this.page.locator(`${FILE_VIEW} [data-line]`).first();
     await row.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const line = await row.elementHandle();
+    if (line === null) throw new Error("Expected a rendered file content line");
 
     await this.page.waitForFunction(
-      `(() => {
-        const root = document.querySelector('${FILE_VIEW}');
-        if (!root) return false;
-        const stack = [root];
-        while (stack.length) {
-          const node = stack.pop();
-          if (node.nodeType !== 1) continue;
-          if (node.matches?.('[data-line]')) {
-            const style = getComputedStyle(node);
-            const lineHeight = Number.parseFloat(style.lineHeight);
-            const singleLineHeight = Number.isFinite(lineHeight)
-              ? lineHeight
-              : Number.parseFloat(style.fontSize) * 1.2;
-            return node.getBoundingClientRect().height > singleLineHeight * 1.5;
-          }
-          if (node.shadowRoot) for (const ch of node.shadowRoot.childNodes) stack.push(ch);
-          for (const ch of node.childNodes) stack.push(ch);
-        }
-        return false;
-      })()`,
-      undefined,
+      (node) => {
+        const line = node as Element;
+        const style = getComputedStyle(line);
+        const lineHeight = Number.parseFloat(style.lineHeight);
+        const singleLineHeight = Number.isFinite(lineHeight)
+          ? lineHeight
+          : Number.parseFloat(style.fontSize) * 1.2;
+        return line.getBoundingClientRect().height > singleLineHeight * 1.5;
+      },
+      line,
       { timeout: POLL_TIMEOUT },
     );
   },
