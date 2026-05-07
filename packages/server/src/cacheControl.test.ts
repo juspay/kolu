@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { getCacheControlHeader } from "./cacheControl";
+import {
+  getCacheControlHeader,
+  REVALIDATE_CACHE_CONTROL,
+} from "./cacheControl";
 
 describe("getCacheControlHeader", () => {
   it("pins Vite content-addressed assets", () => {
@@ -9,24 +12,22 @@ describe("getCacheControlHeader", () => {
   });
 
   it("revalidates the SPA shell", () => {
-    expect(getCacheControlHeader("/")).toBe("no-cache, must-revalidate");
-    expect(getCacheControlHeader("/index.html")).toBe(
-      "no-cache, must-revalidate",
-    );
+    expect(getCacheControlHeader("/")).toBe(REVALIDATE_CACHE_CONTROL);
+    expect(getCacheControlHeader("/index.html")).toBe(REVALIDATE_CACHE_CONTROL);
   });
 
   it("revalidates fixed-name public assets", () => {
     expect(getCacheControlHeader("/favicon.svg")).toBe(
-      "no-cache, must-revalidate",
+      REVALIDATE_CACHE_CONTROL,
     );
     expect(getCacheControlHeader("/icon-192.png")).toBe(
-      "no-cache, must-revalidate",
+      REVALIDATE_CACHE_CONTROL,
     );
     expect(getCacheControlHeader("/icon-512.png")).toBe(
-      "no-cache, must-revalidate",
+      REVALIDATE_CACHE_CONTROL,
     );
     expect(getCacheControlHeader("/sounds/notification.mp3")).toBe(
-      "no-cache, must-revalidate",
+      REVALIDATE_CACHE_CONTROL,
     );
   });
 

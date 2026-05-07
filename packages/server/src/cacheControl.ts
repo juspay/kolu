@@ -9,6 +9,8 @@
  *   cleanup route, not static file policy.
  * - Everything else — no opinion, let the upstream default stand.
  */
+export const REVALIDATE_CACHE_CONTROL = "no-cache, must-revalidate";
+
 const REVALIDATE_PATHS = new Set([
   "/",
   "/index.html",
@@ -23,7 +25,7 @@ export function getCacheControlHeader(path: string): string | null {
     return "public, max-age=31536000, immutable";
   }
   if (REVALIDATE_PATHS.has(path)) {
-    return "no-cache, must-revalidate";
+    return REVALIDATE_CACHE_CONTROL;
   }
   return null;
 }

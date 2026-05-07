@@ -11,7 +11,10 @@ import { pinoLogger } from "hono-pino";
 import { DEFAULT_PORT } from "kolu-common/config";
 import { WebSocketServer } from "ws";
 import pkg from "../package.json" with { type: "json" };
-import { getCacheControlHeader } from "./cacheControl.ts";
+import {
+  getCacheControlHeader,
+  REVALIDATE_CACHE_CONTROL,
+} from "./cacheControl.ts";
 import { startDiagnostics } from "./diagnostics.ts";
 import { serverHostname } from "./hostname.ts";
 import { ensureKoluRoot, shutdownCleanup } from "./koluRoot.ts";
@@ -184,13 +187,18 @@ app.get(
 const clientDist = process.env.KOLU_CLIENT_DIST;
 if (clientDist) {
   const root = resolve(clientDist);
+  const serveIndexHtml = serveStatic({ root, path: "index.html" });
+
   app.use("/*", async (c, next) => {
     const directive = getCacheControlHeader(c.req.path);
     if (directive) c.header("Cache-Control", directive);
     return next();
   });
   app.use("/*", serveStatic({ root }));
-  app.get("/*", serveStatic({ root, path: "index.html" }));
+  app.get("/*", async (c, next) => {
+    c.header("Cache-Control", REVALIDATE_CACHE_CONTROL);
+    return serveIndexHtml(c, next);
+  });
 }
 
 // --- TLS setup ---
