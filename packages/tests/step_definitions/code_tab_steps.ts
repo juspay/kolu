@@ -116,8 +116,22 @@ When(
 async function clickLineGutterIn(world: KoluWorld, root: string, line: number) {
   const lineEl = world.page.locator(`${root} [data-column-number="${line}"]`);
   await lineEl.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-  const box = await lineEl.first().boundingBox();
-  if (!box) throw new Error("line gutter has no bounding box");
+  // Switching files re-mounts Pierre's `VirtualizedFileDiff` (FileDiff
+  // is keyed on path), so the line element can pass `waitFor(visible)`
+  // and then return a null bounding box on the very next call as the
+  // virtualizer re-measures. Poll until the box is stable.
+  const deadline = Date.now() + POLL_TIMEOUT;
+  let box = await lineEl.first().boundingBox();
+  while (
+    (!box || box.width === 0 || box.height === 0) &&
+    Date.now() < deadline
+  ) {
+    await new Promise((r) => setTimeout(r, 50));
+    box = await lineEl.first().boundingBox();
+  }
+  if (!box || box.width === 0 || box.height === 0) {
+    throw new Error("line gutter has no bounding box after polling");
+  }
   await world.page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await world.page.mouse.down();
   await world.page.mouse.up();
