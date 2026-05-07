@@ -18,7 +18,15 @@ export const GitInfoSchema = z.object({
 
 export const WorktreeCreateInputSchema = z.object({
   repoPath: z.string(),
-  name: z.string().min(1),
+  // Whitespace is the most common typo (e.g. "fix login bug") and git
+  // rejects it with an opaque "fatal: not a valid branch name" error;
+  // catch it at the schema so the client gets a clean message.
+  name: z
+    .string()
+    .min(1)
+    .refine((s) => !/\s/.test(s), {
+      message: "branch name cannot contain whitespace",
+    }),
 });
 
 export const WorktreeCreateOutputSchema = z.object({
