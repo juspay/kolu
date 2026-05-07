@@ -23,7 +23,6 @@ import ChromeBar from "./ChromeBar";
 import CloseConfirm, { type CloseConfirmTarget } from "./CloseConfirm";
 import CommandPalette from "./CommandPalette";
 import "kolu-common/test-hooks";
-import { arrangeByRepo } from "./canvas/autoArrange";
 import CanvasWatermark from "./canvas/CanvasWatermark";
 import WorkspaceSwitcher, {
   buildWorkspaceEntries,
@@ -125,6 +124,8 @@ const App: Component = () => {
 
   const [workspaceSwitcherOpenRequest, setWorkspaceSwitcherOpenRequest] =
     createSignal(0);
+  const [canvasAutoArrangeRequest, setCanvasAutoArrangeRequest] =
+    createSignal(0);
 
   // About dialog state
   const [aboutOpen, setAboutOpen] = createSignal(false);
@@ -184,16 +185,7 @@ const App: Component = () => {
 
   function handleCanvasAutoArrange() {
     if (isMobile()) return;
-    const arranged = arrangeByRepo(
-      workspaceEntries().map(({ id, info, layout }) => ({
-        id,
-        group: info.key.group,
-        layout,
-      })),
-    );
-    crud.setCanvasLayouts(
-      [...arranged.entries()].map(([id, layout]) => ({ id, layout })),
-    );
+    setCanvasAutoArrangeRequest((n) => n + 1);
   }
 
   // Shared between the keyboard dispatcher and the command palette so a single
@@ -555,8 +547,15 @@ const App: Component = () => {
                     tileIds={store.terminalIds()}
                     watermark={appTitle()}
                     getLayout={(id) => store.getMetadata(id)?.canvasLayout}
+                    autoArrangeRequest={canvasAutoArrangeRequest()}
+                    getAutoArrangeGroup={(id) =>
+                      store.getDisplayInfo(id)?.key.group
+                    }
                     onLayoutChange={(id, layout) =>
                       crud.setCanvasLayout(id, layout)
+                    }
+                    onLayoutsChange={(layouts) =>
+                      crud.setCanvasLayouts(layouts)
                     }
                     onSelect={(id) => store.setActiveId(id)}
                     onClose={(id) => closeTerminal(id)}
