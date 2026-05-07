@@ -15,12 +15,13 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import { After, Then, When } from "@cucumber/cucumber";
 import type { AgentLifecycleState } from "../support/agent-lifecycle.ts";
 import { writeOpenCodeFixture } from "../support/agent-mock-opencode.ts";
 import { waitForBufferContains } from "../support/buffer.ts";
 import { clearMockDatabase } from "../support/mock-fs.ts";
+import { nudgeWal } from "../support/nudge.ts";
+import { pollFor } from "../support/poll.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
 const getOpenCodeDb = () => process.env.KOLU_OPENCODE_DB;
@@ -154,53 +155,34 @@ When(
   },
 );
 
-/** Force a fresh WAL frame on the mock OpenCode DB so the server's
- *  `fs.watch` re-fires its session refresh. Mirror of
- *  `claude_code_steps.ts::nudgeMockFiles` and `codex_steps.ts::nudgeCodexWal`
- *  — under parallel-worker inotify pressure the kernel queue overflows
- *  and silently drops events, so we drive the recovery from the test
- *  side rather than hoping the kernel queue stays warm. */
-function nudgeOpenCodeWal() {
-  const dbPath = getOpenCodeDb();
-  if (!dbPath || !fs.existsSync(dbPath)) return;
-  try {
-    const db = new DatabaseSync(dbPath);
-    try {
-      db.exec(
-        `BEGIN; INSERT INTO session (id, title, directory, time_updated) VALUES ('__nudge__', '', '', 0); DELETE FROM session WHERE id = '__nudge__'; COMMIT;`,
-      );
-    } finally {
-      db.close();
-    }
-  } catch {
-    // best-effort
-  }
-}
+/** Mock-side WAL nudge for the opencode `session` DB. See
+ *  `codex_steps.ts::CODEX_NUDGE_SQL` for the BEGIN/COMMIT and
+ *  `__kolu_nudge__` rationale. */
+const OPENCODE_NUDGE_SQL = `BEGIN; INSERT INTO session (id, title, directory, time_updated) VALUES ('__kolu_nudge__', '', '', 0); DELETE FROM session WHERE id = '__kolu_nudge__'; COMMIT;`;
+
+const nudgeOpenCode = () => nudgeWal(getOpenCodeDb(), OPENCODE_NUDGE_SQL);
 
 Then(
   "the tile chrome should show an OpenCode indicator with state {string}",
   async function (this: KoluWorld, expectedState: string) {
-    const start = Date.now();
-    let last: string | null = null;
-    let lastKind: string | null = null;
-    while (Date.now() - start < POLL_TIMEOUT) {
-      nudgeOpenCodeWal();
-      const observed = await this.page.evaluate(() => {
-        const el = document.querySelector(
-          '[data-testid="canvas-tile"] [data-testid="agent-indicator"], [data-testid="mobile-tile-titlebar"] [data-testid="agent-indicator"]',
-        );
-        return {
-          state: el?.getAttribute("data-agent-state") ?? null,
-          kind: el?.getAttribute("data-agent-kind") ?? null,
-        };
-      });
-      last = observed.state;
-      lastKind = observed.kind;
-      if (last === expectedState && lastKind === "opencode") return;
-      await new Promise((r) => setTimeout(r, 250));
-    }
-    throw new Error(
-      `Expected OpenCode indicator state "${expectedState}" (kind=opencode), got state="${last}" kind="${lastKind}" after ${POLL_TIMEOUT}ms`,
-    );
+    await pollFor({
+      observe: () =>
+        this.page.evaluate(() => {
+          const el = document.querySelector(
+            '[data-testid="canvas-tile"] [data-testid="agent-indicator"], [data-testid="mobile-tile-titlebar"] [data-testid="agent-indicator"]',
+          );
+          return {
+            state: el?.getAttribute("data-agent-state") ?? null,
+            kind: el?.getAttribute("data-agent-kind") ?? null,
+          };
+        }),
+      isDone: (o) => o.state === expectedState && o.kind === "opencode",
+      onTick: nudgeOpenCode,
+      onTimeout: (last, ms) =>
+        new Error(
+          `Expected OpenCode indicator state "${expectedState}" (kind=opencode), got state="${last?.state ?? null}" kind="${last?.kind ?? null}" after ${ms}ms`,
+        ),
+      timeoutMs: POLL_TIMEOUT,
+    });
   },
 );

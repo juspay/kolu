@@ -16,7 +16,6 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import { After, Then, When } from "@cucumber/cucumber";
 import type { AgentLifecycleState } from "../support/agent-lifecycle.ts";
 import {
@@ -26,6 +25,8 @@ import {
 } from "../support/agent-mock-codex.ts";
 import { waitForBufferContains } from "../support/buffer.ts";
 import { clearMockDatabase } from "../support/mock-fs.ts";
+import { nudgeWal } from "../support/nudge.ts";
+import { pollFor } from "../support/poll.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
 const getCodexDir = () => process.env.KOLU_CODEX_DIR;
@@ -197,75 +198,60 @@ When(
   },
 );
 
-/** Force a fresh WAL frame on the mock Codex DB so the server's
- *  `fs.watch` re-fires its session refresh. Mirror of
- *  `claude_code_steps.ts::nudgeMockFiles` — under parallel-worker
- *  inotify pressure the kernel queue overflows and silently drops
- *  events, so we drive the recovery from the test side rather than
- *  hoping the kernel queue stays warm. Best-effort: any error is
- *  swallowed because the surrounding poll loop will retry. */
-function nudgeCodexWal() {
-  if (!mockFixture) return;
-  try {
-    const db = new DatabaseSync(mockFixture.dbPath);
-    try {
-      db.exec(
-        `BEGIN; INSERT INTO threads (id, rollout_path, cwd, source, archived, updated_at_ms) VALUES ('__nudge__', '', '', 'cli', 0, 0); DELETE FROM threads WHERE id = '__nudge__'; COMMIT;`,
-      );
-    } finally {
-      db.close();
-    }
-  } catch {
-    // best-effort
-  }
-}
+/** Mock-side WAL nudge for the codex `threads` DB. The INSERT/DELETE
+ *  is wrapped in BEGIN/COMMIT so it produces exactly one WAL commit
+ *  frame — without the explicit transaction, individual statements
+ *  could be coalesced or split into different frames depending on
+ *  SQLite's autocommit/journal state. The transient `__kolu_nudge__`
+ *  row is namespaced so production code (which never inserts ids
+ *  starting with `__kolu_`) can't mistake it for a real session row
+ *  if a concurrent reader sees it inside the WAL window. */
+const CODEX_NUDGE_SQL = `BEGIN; INSERT INTO threads (id, rollout_path, cwd, source, archived, updated_at_ms) VALUES ('__kolu_nudge__', '', '', 'cli', 0, 0); DELETE FROM threads WHERE id = '__kolu_nudge__'; COMMIT;`;
+
+const nudgeCodex = () => nudgeWal(mockFixture?.dbPath, CODEX_NUDGE_SQL);
 
 Then(
   "the tile chrome should show a Codex indicator with state {string}",
   async function (this: KoluWorld, expectedState: string) {
-    const start = Date.now();
-    let last: string | null = null;
-    let lastKind: string | null = null;
-    while (Date.now() - start < POLL_TIMEOUT) {
-      nudgeCodexWal();
-      const observed = await this.page.evaluate(() => {
-        const el = document.querySelector(
-          '[data-testid="canvas-tile"] [data-testid="agent-indicator"], [data-testid="mobile-tile-titlebar"] [data-testid="agent-indicator"]',
-        );
-        return {
-          state: el?.getAttribute("data-agent-state") ?? null,
-          kind: el?.getAttribute("data-agent-kind") ?? null,
-        };
-      });
-      last = observed.state;
-      lastKind = observed.kind;
-      if (last === expectedState && lastKind === "codex") return;
-      await new Promise((r) => setTimeout(r, 250));
-    }
-    throw new Error(
-      `Expected Codex indicator state "${expectedState}" (kind=codex), got state="${last}" kind="${lastKind}" after ${POLL_TIMEOUT}ms`,
-    );
+    await pollFor({
+      observe: () =>
+        this.page.evaluate(() => {
+          const el = document.querySelector(
+            '[data-testid="canvas-tile"] [data-testid="agent-indicator"], [data-testid="mobile-tile-titlebar"] [data-testid="agent-indicator"]',
+          );
+          return {
+            state: el?.getAttribute("data-agent-state") ?? null,
+            kind: el?.getAttribute("data-agent-kind") ?? null,
+          };
+        }),
+      isDone: (o) => o.state === expectedState && o.kind === "codex",
+      onTick: nudgeCodex,
+      onTimeout: (last, ms) =>
+        new Error(
+          `Expected Codex indicator state "${expectedState}" (kind=codex), got state="${last?.state ?? null}" kind="${last?.kind ?? null}" after ${ms}ms`,
+        ),
+      timeoutMs: POLL_TIMEOUT,
+    });
   },
 );
 
 Then(
   "the tile chrome should show context tokens {string}",
   async function (this: KoluWorld, expected: string) {
-    const start = Date.now();
-    let last: string | null = null;
-    while (Date.now() - start < POLL_TIMEOUT) {
-      nudgeCodexWal();
-      last = await this.page.evaluate(() => {
-        const el = document.querySelector(
-          '[data-testid="agent-context-tokens"]',
-        );
-        return el?.textContent ?? null;
-      });
-      if (last?.includes(expected)) return;
-      await new Promise((r) => setTimeout(r, 250));
-    }
-    throw new Error(
-      `Expected context tokens to contain "${expected}", got "${last}" after ${POLL_TIMEOUT}ms`,
-    );
+    await pollFor({
+      observe: () =>
+        this.page.evaluate(
+          () =>
+            document.querySelector('[data-testid="agent-context-tokens"]')
+              ?.textContent ?? null,
+        ),
+      isDone: (text) => text?.includes(expected) ?? false,
+      onTick: nudgeCodex,
+      onTimeout: (last, ms) =>
+        new Error(
+          `Expected context tokens to contain "${expected}", got "${last}" after ${ms}ms`,
+        ),
+      timeoutMs: POLL_TIMEOUT,
+    });
   },
 );

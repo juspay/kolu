@@ -1,4 +1,5 @@
 import { Given, Then, When } from "@cucumber/cucumber";
+import { pollFor } from "../support/poll.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
 // ── Pierre tree selectors ──
@@ -120,18 +121,17 @@ async function clickLineGutterIn(world: KoluWorld, root: string, line: number) {
   // is keyed on path), so the line element can pass `waitFor(visible)`
   // and then return a null bounding box on the very next call as the
   // virtualizer re-measures. Poll until the box is stable.
-  const deadline = Date.now() + POLL_TIMEOUT;
-  let box = await lineEl.first().boundingBox();
-  while (
-    (!box || box.width === 0 || box.height === 0) &&
-    Date.now() < deadline
-  ) {
-    await new Promise((r) => setTimeout(r, 50));
-    box = await lineEl.first().boundingBox();
-  }
-  if (!box || box.width === 0 || box.height === 0) {
-    throw new Error("line gutter has no bounding box after polling");
-  }
+  const box = await pollFor({
+    observe: () => lineEl.first().boundingBox(),
+    isDone: (b) => !!b && b.width > 0 && b.height > 0,
+    onTimeout: (last, ms) =>
+      new Error(
+        `line gutter ${root} [data-column-number="${line}"] has no usable bounding box after ${ms}ms (last=${JSON.stringify(last)})`,
+      ),
+    timeoutMs: POLL_TIMEOUT,
+    intervalMs: 50,
+  });
+  if (!box) throw new Error("unreachable: pollFor returned without box");
   await world.page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await world.page.mouse.down();
   await world.page.mouse.up();

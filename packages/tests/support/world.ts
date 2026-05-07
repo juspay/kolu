@@ -42,6 +42,10 @@ export class KoluWorld extends World {
   // Stashed state for comparison across steps
   savedSessionTerminalCount?: number;
   savedSessionTerminals?: import("kolu-common").SavedTerminal[];
+  /** Captured on the first saved-session POST per scenario; replayed
+   *  verbatim on self-heal re-POSTs so assertions always exercise the
+   *  originally-persisted session, not a fresh one. */
+  savedSessionSavedAt?: number;
   savedCanvas?: { x: number; y: number; width: number; height: number };
   previousCanvas?: { x: number; y: number; width: number; height: number };
   savedFontSize?: number;
