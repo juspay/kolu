@@ -37,6 +37,17 @@ export interface PaletteCommand {
   onSelect?: () => void;
   /** Nested sub-commands (group). Static array or accessor for dynamic lists. */
   children?: PaletteItem[] | (() => PaletteItem[]);
+  /** When set on a group, drilling in switches the input from a filter to a
+   *  value field — pre-filled with `prefill()` and auto-selected on focus.
+   *  Children render unchanged but their own `onSelect` is bypassed: Enter
+   *  (or click) submits the typed value plus the highlighted child via
+   *  `onSubmit`. Up/Down still moves the highlight; Backspace on an empty
+   *  value drills back out. */
+  valueInput?: {
+    prefill: () => string;
+    placeholder?: string;
+    onSubmit: (value: string, selected: PaletteCommand) => void;
+  };
   /** Keyboard shortcut(s) to display alongside the command name. */
   keybind?: Keybind | Keybind[];
   /** Called when this item becomes the highlighted item during navigation. */
@@ -132,17 +143,25 @@ const CommandPalette: Component<{
     return level;
   });
 
-  /** Commands at the current level, filtered by the search query. Hints are excluded. */
+  /** The current path's deepest segment, when it carries a `valueInput`.
+   *  Drives the "input is a value, not a filter" mode: the input pre-fills
+   *  with `prefill()`, list filtering is disabled, and Enter calls
+   *  `onSubmit(value, highlighted)` instead of `highlighted.onSelect()`. */
+  const valueLeaf = createMemo(() => path().at(-1)?.valueInput);
+
+  /** Commands at the current level. In value-input mode the search query is
+   *  the user's typed value, so it does NOT filter the list — every child
+   *  stays visible. Otherwise filter by name/description as usual. */
   const filtered = createMemo((): PaletteCommand[] => {
+    const items = currentItems().filter(isCommand);
+    if (valueLeaf()) return items;
     const q = query().toLowerCase();
-    return currentItems()
-      .filter(isCommand)
-      .filter(
-        (cmd) =>
-          !q ||
-          cmd.name.toLowerCase().includes(q) ||
-          cmd.description?.toLowerCase().includes(q),
-      );
+    return items.filter(
+      (cmd) =>
+        !q ||
+        cmd.name.toLowerCase().includes(q) ||
+        cmd.description?.toLowerCase().includes(q),
+    );
   });
 
   /** Hints at the current level — rendered as non-interactive rows below the list. */
@@ -152,7 +171,15 @@ const CommandPalette: Component<{
 
   function drillIn(cmd: PaletteCommand) {
     setPath((p) => [...p, cmd]);
-    setQuery("");
+    if (cmd.valueInput) {
+      // Value-input mode: seed with the prefill and select it so the user's
+      // first keystroke replaces the suggestion. Defer to rAF so the input
+      // has rendered the new value before `select()` runs.
+      setQuery(cmd.valueInput.prefill());
+      requestAnimationFrame(() => inputRef.select());
+    } else {
+      setQuery("");
+    }
     setSelectedIndex(0);
   }
 
@@ -176,6 +203,16 @@ const CommandPalette: Component<{
   let didSelect = false;
 
   function execute(cmd: PaletteCommand) {
+    const leaf = valueLeaf();
+    if (leaf) {
+      // Value-input mode: the highlighted child is the agent choice; the
+      // input value is the worktree name. Submit both via `onSubmit` and
+      // ignore `cmd.onSelect` (children in this mode are non-actionable).
+      didSelect = true;
+      props.onOpenChange(false);
+      leaf.onSubmit(query(), cmd);
+      return;
+    }
     if (isGroup(cmd)) {
       drillIn(cmd);
     } else {
@@ -272,7 +309,18 @@ const CommandPalette: Component<{
   // Intentionally tracks `query`, not `filtered` — filtered returns a new array
   // reference on every recomputation, so tracking it would reset the index whenever
   // upstream data (commands memo) recomputes in the background.
-  createEffect(on(query, () => setSelectedIndex(0), { defer: true }));
+  // Skip in value-input mode: query holds the user's typed value, not a
+  // filter, so each keystroke must not yank the agent highlight back to 0.
+  createEffect(
+    on(
+      query,
+      () => {
+        if (valueLeaf()) return;
+        setSelectedIndex(0);
+      },
+      { defer: true },
+    ),
+  );
 
   // Notify highlighted item when selection changes.
   // Uses on() for stable dependency tracking — bare createEffect would drop
@@ -333,7 +381,8 @@ const CommandPalette: Component<{
         <input
           ref={inputRef}
           type="text"
-          placeholder="Type a command..."
+          data-value-input={valueLeaf() ? "" : undefined}
+          placeholder={valueLeaf()?.placeholder ?? "Type a command..."}
           class="w-full px-4 py-3 bg-surface-1 text-fg text-sm border-b border-edge outline-none placeholder-fg-3"
           value={query()}
           onInput={(e) => setQuery(e.currentTarget.value)}

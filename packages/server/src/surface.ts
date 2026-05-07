@@ -84,7 +84,9 @@ export function unwrapGit<T>(result: GitResult<T>): T {
   const status =
     e.code === "BASE_BRANCH_NOT_FOUND"
       ? "PRECONDITION_FAILED"
-      : "INTERNAL_SERVER_ERROR";
+      : e.code === "WORKTREE_NAME_COLLISION"
+        ? "CONFLICT"
+        : "INTERNAL_SERVER_ERROR";
   const message =
     e.code === "PATH_ESCAPES_ROOT"
       ? `path escapes root: ${e.child}`

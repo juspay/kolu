@@ -18,6 +18,7 @@ export const GitInfoSchema = z.object({
 
 export const WorktreeCreateInputSchema = z.object({
   repoPath: z.string(),
+  name: z.string().min(1),
 });
 
 export const WorktreeCreateOutputSchema = z.object({

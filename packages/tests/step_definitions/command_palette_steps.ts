@@ -196,6 +196,21 @@ Then(
 );
 
 Then(
+  "the palette name input should be prefilled",
+  async function (this: KoluWorld) {
+    const input = this.page.locator(
+      `${PALETTE_SELECTOR} input[data-value-input]`,
+    );
+    await input.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const value = await input.inputValue();
+    assert.ok(
+      value.length > 0,
+      `Expected the palette name input to be prefilled, got "${value}"`,
+    );
+  },
+);
+
+Then(
   "palette item {string} should be visible",
   async function (this: KoluWorld, text: string) {
     const palette = this.page.locator(PALETTE_SELECTOR);

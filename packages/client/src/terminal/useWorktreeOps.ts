@@ -14,11 +14,12 @@ export function useWorktreeOps(deps: {
 
   async function handleCreateWorktree(
     repoPath: string,
+    name: string,
     initialCommand?: string,
   ) {
     const id = toast.loading("Creating worktree…");
     try {
-      const result = await client.git.worktreeCreate({ repoPath });
+      const result = await client.git.worktreeCreate({ repoPath, name });
       toast.success(`Created worktree at ${result.path}`, { id });
       const newTerminalId = await deps.handleCreate(result.path);
       // Recent repos update reactively via trackRecentRepo → publishSystem

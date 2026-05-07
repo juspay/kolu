@@ -2,15 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { simpleGit } from "simple-git";
-import {
-  afterAll,
-  afterEach,
-  beforeAll,
-  describe,
-  expect,
-  it,
-  vi,
-} from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
   type GitInfo,
   getDiff,
@@ -24,11 +16,6 @@ import {
   worktreeCreate,
 } from "./index.ts";
 import { _sharedHeadWatcherCount } from "./head-watcher.ts";
-
-// Mock randomName to return a predictable value
-vi.mock("memorable-names", () => ({
-  randomName: () => "test-worktree",
-}));
 
 // --- getDiff: renames ---
 
@@ -537,9 +524,10 @@ describe("worktreeCreate", () => {
 
     await bareGit.raw(["symbolic-ref", "HEAD", "refs/heads/main"]);
 
-    const result = await worktreeCreate(repos.cloneDir);
+    const result = await worktreeCreate(repos.cloneDir, "feat-default");
     expect(result.ok).toBe(true);
     if (!result.ok) return;
+    expect(result.value.branch).toBe("feat-default");
 
     const worktreeGit = simpleGit(result.value.path);
     const worktreeHead = (await worktreeGit.revparse(["HEAD"])).trim();
@@ -571,7 +559,7 @@ describe("worktreeCreate", () => {
     const staleCommit = (await cloneGit.revparse(["origin/main"])).trim();
     expect(staleCommit).not.toBe(latestCommit);
 
-    const result = await worktreeCreate(repos.cloneDir);
+    const result = await worktreeCreate(repos.cloneDir, "feat-fresh");
     expect(result.ok).toBe(true);
     if (!result.ok) return;
 
@@ -580,6 +568,27 @@ describe("worktreeCreate", () => {
     expect(worktreeHead).toBe(latestCommit);
 
     await cloneGit.raw(["worktree", "remove", result.value.path, "--force"]);
+  });
+
+  it("returns WORKTREE_NAME_COLLISION when the branch already exists", async () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-git-test-"));
+    const repos = await setupRepos();
+
+    const first = await worktreeCreate(repos.cloneDir, "shared-name");
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+
+    const second = await worktreeCreate(repos.cloneDir, "shared-name");
+    expect(second.ok).toBe(false);
+    if (second.ok) return;
+    expect(second.error.code).toBe("WORKTREE_NAME_COLLISION");
+
+    await simpleGit(repos.cloneDir).raw([
+      "worktree",
+      "remove",
+      first.value.path,
+      "--force",
+    ]);
   });
 });
 

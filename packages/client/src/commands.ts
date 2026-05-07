@@ -1,6 +1,7 @@
 /** Command palette registry — declarative list of all app-level actions. */
 
 import type { RecentAgent } from "kolu-common/surface";
+import { randomName } from "memorable-names";
 import type { Accessor } from "solid-js";
 import { batch, createMemo } from "solid-js";
 import { availableThemes } from "terminal-themes";
@@ -21,18 +22,19 @@ function agentItems(
   }));
 }
 
-/** PaletteItems for a "create fresh terminal, optionally with an agent"
- *  flow. Prepends "Plain shell" to the agent list so the default (empty
- *  worktree) stays the keyboard-flow default. Used by phase 2's
- *  recent-repo sub-palette under "New terminal". */
-function agentItemsWithPlainShell(
-  agents: RecentAgent[],
-  onPickPlainShell: () => void,
-  onPickAgent: (command: string) => void,
-): PaletteItem[] {
+/** Sentinel name for the "no agent — just a plain shell" row inside the
+ *  worktree-naming leaf. Top of the agent list, so it's the highlighted
+ *  default when the user hits Enter without navigating. */
+const PLAIN_SHELL_LABEL = "Plain shell";
+
+/** Children of the worktree-naming leaf: a non-actionable list of agent
+ *  options (Plain shell + recent agents). The parent group's `valueInput`
+ *  routes Enter to `handleCreateWorktree(repo, name, agentCmd)` — these
+ *  items just carry their label, so `onSelect` would never fire. */
+function worktreeAgentOptions(agents: RecentAgent[]): PaletteItem[] {
   return [
-    { name: "Plain shell", onSelect: onPickPlainShell },
-    ...agentItems(agents, onPickAgent),
+    { name: PLAIN_SHELL_LABEL },
+    ...agents.map((a) => ({ name: a.command })),
   ];
 }
 
@@ -55,7 +57,11 @@ export interface CommandDeps extends ActionContext {
   isMobile: () => boolean;
   canvasCenterActive: () => void;
   // Worktree
-  handleCreateWorktree: (repoPath: string, initialCommand?: string) => void;
+  handleCreateWorktree: (
+    repoPath: string,
+    name: string,
+    initialCommand?: string,
+  ) => void;
   handleClose: () => void;
   // Debug
   simulateAlert: () => void;
@@ -68,39 +74,36 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
       name: "New terminal",
       children: (): PaletteItem[] => {
         const repos = recentRepos();
-        // `hasAgents` decides leaf-vs-group shape at memo time; the nested
-        // `children` accessor re-reads `recentAgents()` live so the sub-
-        // palette reflects agent MRU changes between drilling into "New
-        // terminal" and drilling into a specific repo. Mirrors the pattern
-        // used by the Debug → "Recent agents" entry below.
-        const hasAgents = recentAgents().length > 0;
         return [
           {
             name: "In current directory",
             onSelect: () => deps.handleCreate(deps.activeMeta()?.cwd),
           },
-          // Recent-repo entries. When the user has any known-agent CLI in
-          // their MRU, picking a repo opens a sub-palette (Plain shell +
-          // agents). With no recent agents, the entry stays a flat leaf
-          // that creates a plain-shell worktree — exact pre-phase-2
-          // behavior, so first-run UX is unchanged.
-          ...repos.map((r) =>
-            hasAgents
-              ? {
-                  name: r.repoName,
-                  description: `New worktree in ${r.repoRoot}`,
-                  children: (): PaletteItem[] =>
-                    agentItemsWithPlainShell(
-                      recentAgents(),
-                      () => deps.handleCreateWorktree(r.repoRoot),
-                      (cmd) => deps.handleCreateWorktree(r.repoRoot, cmd),
-                    ),
-                }
-              : {
-                  name: r.repoName,
-                  description: `New worktree in ${r.repoRoot}`,
-                  onSelect: () => deps.handleCreateWorktree(r.repoRoot),
+          // Recent-repo entries. Drilling in lands on the worktree-naming
+          // leaf: input pre-filled with `randomName()` (auto-selected on
+          // focus, type to replace), agent rows below ("Plain shell" first,
+          // then recent agents). Enter submits with the typed name + the
+          // highlighted agent. Up/Down navigates the agent list.
+          ...repos.map(
+            (r): PaletteCommand => ({
+              name: r.repoName,
+              description: `New worktree in ${r.repoRoot}`,
+              valueInput: {
+                prefill: randomName,
+                placeholder: "Worktree name",
+                onSubmit: (name, selected) => {
+                  const trimmed = name.trim();
+                  if (!trimmed) return;
+                  const agentCmd =
+                    selected.name === PLAIN_SHELL_LABEL
+                      ? undefined
+                      : selected.name;
+                  deps.handleCreateWorktree(r.repoRoot, trimmed, agentCmd);
                 },
+              },
+              children: (): PaletteItem[] =>
+                worktreeAgentOptions(recentAgents()),
+            }),
           ),
           ...(repos.length === 0
             ? [

@@ -15,8 +15,41 @@ Feature: Git worktree management
     When I open the command palette
     And I select "New terminal" in the palette
     And I select "kolu-wt-test" in the palette
+    Then the palette name input should be prefilled
+    When I press Enter
     Then the header CWD should show ".worktrees/"
     And the workspace switcher should show a worktree indicator
+    And there should be no page errors
+
+  Scenario: User types a custom worktree name and it appears on the pill
+    When I set up a git repo at "/tmp/kolu-wt-named"
+    And I run "cd /tmp/kolu-wt-named"
+    Then the header should show a branch name
+    When I open the command palette
+    And I select "New terminal" in the palette
+    And I select "kolu-wt-named" in the palette
+    And I type "fix-login-bug" in the palette
+    And I press Enter
+    Then the header CWD should show ".worktrees/fix-login-bug"
+    And a workspace switcher pill should show "fix-login-bug"
+    And there should be no page errors
+
+  Scenario: Reusing an existing worktree name surfaces a collision toast
+    When I set up a git repo at "/tmp/kolu-wt-collide"
+    And I run "cd /tmp/kolu-wt-collide"
+    Then the header should show a branch name
+    When I open the command palette
+    And I select "New terminal" in the palette
+    And I select "kolu-wt-collide" in the palette
+    And I type "duplicate-name" in the palette
+    And I press Enter
+    Then the header CWD should show ".worktrees/duplicate-name"
+    When I open the command palette
+    And I select "New terminal" in the palette
+    And I select "kolu-wt-collide" in the palette
+    And I type "duplicate-name" in the palette
+    And I press Enter
+    Then a toast should appear with text "already exists"
     And there should be no page errors
 
   Scenario: Close terminal on worktree shows confirmation and removes worktree
@@ -26,6 +59,7 @@ Feature: Git worktree management
     When I open the command palette
     And I select "New terminal" in the palette
     And I select "kolu-wt-remove" in the palette
+    And I press Enter
     Then the header CWD should show ".worktrees/"
     And the workspace switcher should show a worktree indicator
     Given I note the workspace switcher entry count
@@ -43,6 +77,7 @@ Feature: Git worktree management
     When I open the command palette
     And I select "New terminal" in the palette
     And I select "kolu-wt-cancel" in the palette
+    And I press Enter
     Then the header CWD should show ".worktrees/"
     And the workspace switcher should show a worktree indicator
     Given I note the workspace switcher entry count
@@ -60,6 +95,7 @@ Feature: Git worktree management
     When I open the command palette
     And I select "New terminal" in the palette
     And I select "kolu-wt-close-only" in the palette
+    And I press Enter
     Then the header CWD should show ".worktrees/"
     And the workspace switcher should show a worktree indicator
     Given I note the workspace switcher entry count
@@ -100,6 +136,7 @@ Feature: Git worktree management
     When I open the command palette
     And I select "New terminal" in the palette
     And I select "kolu-wt-split-close" in the palette
+    And I press Enter
     Then the header CWD should show ".worktrees/"
     When I create a sub-terminal via command palette
     And I create another sub-terminal via command palette
@@ -117,6 +154,7 @@ Feature: Git worktree management
     When I open the command palette
     And I select "New terminal" in the palette
     And I select "kolu-wt-splits" in the palette
+    And I press Enter
     Then the header CWD should show ".worktrees/"
     When I create a sub-terminal via command palette
     Given I note the workspace switcher entry count

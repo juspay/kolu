@@ -104,6 +104,9 @@ importers:
       fix-webm-duration:
         specifier: ^1.0.6
         version: 1.0.6
+      memorable-names:
+        specifier: workspace:*
+        version: link:../memorable-names
       neverthrow:
         specifier: ^8.2.0
         version: 8.2.0
