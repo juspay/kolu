@@ -13,6 +13,7 @@ export type AutoArrangeOptions = {
   tileGap?: number;
   groupGap?: number;
   groupJitter?: number;
+  random?: () => number;
   originX?: number;
   originY?: number;
 };
@@ -117,18 +118,10 @@ function arrangeCluster(
   };
 }
 
-function hashString(value: string): number {
-  let hash = 0;
-  for (let i = 0; i < value.length; i++) {
-    hash = (hash * 31 + value.charCodeAt(i)) >>> 0;
-  }
-  return hash;
-}
-
-function jitterFor(group: string, axis: "x" | "y", maxJitter: number): number {
+function jitterFor(maxJitter: number, random: () => number): number {
   const steps = Math.floor(maxJitter / GRID_SIZE);
   if (steps <= 0) return 0;
-  return (hashString(`${axis}:${group}`) % (steps + 1)) * GRID_SIZE;
+  return Math.min(steps, Math.floor(random() * (steps + 1))) * GRID_SIZE;
 }
 
 function originFor(
@@ -144,9 +137,9 @@ function originFor(
 /** Arrange live terminal tiles into repo islands.
  *
  * Each repo group becomes a compact square-ish grid; repo islands themselves
- * get a wider, deterministic stagger so the minimap still reads as distinct
- * groups instead of one tiled mass. Width and height are preserved for every
- * tile — the command only rewrites x/y.
+ * get a wider, random stagger so the minimap still reads as distinct islands
+ * instead of one tiled mass. Width and height are preserved for every tile —
+ * the command only rewrites x/y.
  */
 export function arrangeByRepo(
   tiles: AutoArrangeTile[],
@@ -156,6 +149,7 @@ export function arrangeByRepo(
 
   const tileGap = options.tileGap ?? DEFAULT_TILE_GAP;
   const groupGap = options.groupGap ?? DEFAULT_GROUP_GAP;
+  const random = options.random ?? Math.random;
   const originX = originFor(tiles, "x", options.originX);
   const originY = originFor(tiles, "y", options.originY);
   const groups = new Map<string, AutoArrangeTile[]>();
@@ -180,8 +174,8 @@ export function arrangeByRepo(
 
   clusters.forEach((cluster, index) => {
     const offset = clusterOffsets[index] ?? { item: cluster, x: 0, y: 0 };
-    const jitterX = jitterFor(cluster.group, "x", groupJitter);
-    const jitterY = jitterFor(cluster.group, "y", groupJitter);
+    const jitterX = jitterFor(groupJitter, random);
+    const jitterY = jitterFor(groupJitter, random);
     for (const [id, layout] of cluster.layouts) {
       result.set(id, {
         ...layout,

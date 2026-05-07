@@ -9,6 +9,11 @@ function tile(
   return { id, group, layout };
 }
 
+function randomSequence(values: number[]): () => number {
+  let index = 0;
+  return () => values[index++] ?? 0;
+}
+
 describe("arrangeByRepo", () => {
   it("packs terminals from the same repo into a square-ish grid", () => {
     const arranged = arrangeByRepo(
@@ -84,6 +89,28 @@ describe("arrangeByRepo", () => {
     expect(otherRepo.x - (second.x + second.w)).toBeGreaterThanOrEqual(192);
     expect(first.x % 24).toBe(0);
     expect(otherRepo.x % 24).toBe(0);
+  });
+
+  it("can randomize repo island positions while keeping grid alignment", () => {
+    const tiles = [
+      tile("a", "alpha", { x: 0, y: 0, w: 96, h: 72 }),
+      tile("b", "alpha", { x: 0, y: 0, w: 96, h: 72 }),
+      tile("c", "beta", { x: 0, y: 0, w: 96, h: 72 }),
+    ];
+    const plain = arrangeByRepo(tiles, {
+      originX: 0,
+      originY: 0,
+      random: randomSequence([0, 0, 0, 0]),
+    });
+    const scattered = arrangeByRepo(tiles, {
+      originX: 0,
+      originY: 0,
+      random: randomSequence([0, 0, 0.99, 0.99]),
+    });
+
+    expect(scattered.get("a")).toEqual(plain.get("a"));
+    expect(scattered.get("b")).toEqual(plain.get("b"));
+    expect(scattered.get("c")).toEqual({ x: 600, y: 96, w: 96, h: 72 });
   });
 
   it("anchors the arrangement at the existing bounding origin by default", () => {
