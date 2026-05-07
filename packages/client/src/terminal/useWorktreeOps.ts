@@ -43,10 +43,13 @@ export function useWorktreeOps(deps: {
           );
       }
     } catch (err) {
+      // Toast surfaces the message; don't rethrow — the caller (palette
+      // valueInput.onSubmit) is fire-and-forget, and a rethrow leaks as
+      // an unhandled rejection now that user-typed names make
+      // WORKTREE_NAME_COLLISION a normal-flow error.
       toast.error(`Failed to create worktree: ${(err as Error).message}`, {
         id,
       });
-      throw err;
     }
   }
 
