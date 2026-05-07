@@ -109,7 +109,17 @@ When(
   { timeout: 60_000 },
   async function (this: KoluWorld) {
     const btn = this.page.locator('[data-testid="restore-session"]');
-    await btn.click();
+    await btn.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    // handleRestoreSession intentionally clears the saved-session card
+    // immediately. Dispatch the DOM click directly to avoid Playwright's
+    // actionability-stability wait racing that expected removal on loaded CI.
+    await this.page.evaluate(() => {
+      const button = document.querySelector<HTMLButtonElement>(
+        '[data-testid="restore-session"]',
+      );
+      if (!button) throw new Error("Restore button not found");
+      button.click();
+    });
     // Wait for at least one terminal to appear — under parallel macOS CI load,
     // server can be slow to spawn restored PTYs. Use waitForFunction for a
     // reactive DOM check instead of locator.waitFor.
