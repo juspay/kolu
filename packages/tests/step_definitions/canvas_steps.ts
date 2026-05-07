@@ -724,16 +724,26 @@ Then(
 // ── Canvas layout persistence ──
 
 /** Read the position (style.left/top) of the first visible canvas tile. */
-async function readFirstTilePosition(
-  world: KoluWorld,
-): Promise<{ id: string; left: number; top: number }> {
+async function readFirstTilePosition(world: KoluWorld): Promise<{
+  id: string;
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}> {
   return readCanvasTilePosition(world, 1);
 }
 
 async function readCanvasTilePosition(
   world: KoluWorld,
   index: number,
-): Promise<{ id: string; left: number; top: number }> {
+): Promise<{
+  id: string;
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}> {
   const result = await world.page.evaluate(
     ({ sel, index }: { sel: string; index: number }) => {
       const container = document.querySelector(sel);
@@ -748,6 +758,8 @@ async function readCanvasTilePosition(
         id,
         left: parseFloat(tile.style.left),
         top: parseFloat(tile.style.top),
+        width: parseFloat(tile.style.width),
+        height: parseFloat(tile.style.height),
       };
     },
     { sel: CANVAS_SELECTOR, index },
@@ -817,6 +829,67 @@ When(
   },
 );
 
+When(
+  "I move canvas tile {int} to x={int} y={int} w={int} h={int}",
+  async function (
+    this: KoluWorld,
+    index: number,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+  ) {
+    const { id } = await readCanvasTilePosition(this, index);
+    const layout = { x, y, w, h };
+    const resp = await this.page.request.fetch(
+      "/rpc/terminal/setCanvasLayout",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        data: JSON.stringify({ json: { id, layout } }),
+      },
+    );
+    assert.ok(resp.ok(), `terminal/setCanvasLayout failed: ${resp.status()}`);
+    await this.page.waitForFunction(
+      ({
+        sel,
+        tileId,
+        wantX,
+        wantY,
+        wantW,
+        wantH,
+      }: {
+        sel: string;
+        tileId: string;
+        wantX: number;
+        wantY: number;
+        wantW: number;
+        wantH: number;
+      }) => {
+        const tile = document
+          .querySelector(`${sel} [data-terminal-id="${tileId}"]`)
+          ?.closest("[style*='left']") as HTMLElement | null;
+        if (!tile) return false;
+        return (
+          Math.abs(parseFloat(tile.style.left) - wantX) < 1 &&
+          Math.abs(parseFloat(tile.style.top) - wantY) < 1 &&
+          Math.abs(parseFloat(tile.style.width) - wantW) < 1 &&
+          Math.abs(parseFloat(tile.style.height) - wantH) < 1
+        );
+      },
+      {
+        sel: CANVAS_SELECTOR,
+        tileId: id,
+        wantX: x,
+        wantY: y,
+        wantW: w,
+        wantH: h,
+      },
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
 Then(
   "canvas tile {int} position should have changed",
   async function (this: KoluWorld, index: number) {
@@ -850,6 +923,98 @@ Then(
         top: saved.top,
       },
       { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+Then(
+  "canvas tiles should be in a squarish cluster with sizes preserved",
+  async function (this: KoluWorld) {
+    const saved = this.savedCanvasTilePositions;
+    if (!saved?.[1] || !saved[2] || !saved[3]) {
+      throw new Error("Expected saved layouts for canvas tiles 1, 2, and 3");
+    }
+    await this.page.waitForFunction(
+      ({
+        sel,
+        savedLayouts,
+      }: {
+        sel: string;
+        savedLayouts: Record<
+          string,
+          {
+            id: string;
+            left: number;
+            top: number;
+            width: number;
+            height: number;
+          }
+        >;
+      }) => {
+        const nodes = Array.from(
+          document.querySelectorAll(`${sel} [data-terminal-id][data-visible]`),
+        );
+        const layouts = nodes.slice(0, 3).map((inner) => {
+          const tile = inner.closest("[style*='left']") as HTMLElement | null;
+          if (!tile) return null;
+          return {
+            left: parseFloat(tile.style.left),
+            top: parseFloat(tile.style.top),
+            width: parseFloat(tile.style.width),
+            height: parseFloat(tile.style.height),
+          };
+        });
+        const [first, second, third] = layouts;
+        if (!first || !second || !third) return false;
+        const widthsPreserved = [first, second, third].every((layout, idx) => {
+          const saved = savedLayouts[String(idx + 1)];
+          return (
+            saved !== undefined &&
+            layout.width === saved.width &&
+            layout.height === saved.height
+          );
+        });
+        return (
+          widthsPreserved &&
+          second.left > first.left + first.width &&
+          Math.abs(second.top - first.top) < 1 &&
+          Math.abs(third.left - first.left) < 1 &&
+          third.top > first.top + first.height
+        );
+      },
+      { sel: CANVAS_SELECTOR, savedLayouts: saved },
+      { timeout: POLL_TIMEOUT },
+    );
+    const first = await readCanvasTilePosition(this, 1);
+    const second = await readCanvasTilePosition(this, 2);
+    const third = await readCanvasTilePosition(this, 3);
+
+    for (const [index, current] of [
+      [1, first],
+      [2, second],
+      [3, third],
+    ] as const) {
+      const previous = saved[index];
+      assert.ok(previous, `Expected saved layout for canvas tile ${index}`);
+      assert.strictEqual(current.width, previous.width);
+      assert.strictEqual(current.height, previous.height);
+    }
+
+    assert.ok(
+      second.left > first.left + first.width,
+      "Expected tile 2 to be right of tile 1",
+    );
+    assert.ok(
+      Math.abs(second.top - first.top) < 1,
+      "Expected tile 2 to stay on tile 1's row",
+    );
+    assert.ok(
+      Math.abs(third.left - first.left) < 1,
+      "Expected tile 3 to start tile 1's column",
+    );
+    assert.ok(
+      third.top > first.top + first.height,
+      "Expected tile 3 to be below tile 1",
     );
   },
 );

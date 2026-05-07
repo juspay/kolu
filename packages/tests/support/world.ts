@@ -68,7 +68,7 @@ export class KoluWorld extends World {
    *  steps. */
   savedCanvasTilePositions?: Record<
     number,
-    { id: string; left: number; top: number }
+    { id: string; left: number; top: number; width: number; height: number }
   >;
   _scrollFifo?: string;
   createdTerminalIds: string[] = [];

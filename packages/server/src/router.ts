@@ -32,6 +32,7 @@ import {
   killTerminal,
   setActiveTerminalId,
   setCanvasLayout,
+  setCanvasLayouts,
   setSubPanelState,
   setTerminalParent,
   setTerminalTheme,
@@ -79,6 +80,11 @@ export const appRouter = t.router({
     setCanvasLayout: t.terminal.setCanvasLayout.handler(async ({ input }) => {
       requireTerminal(input.id);
       setCanvasLayout(input.id, input.layout);
+    }),
+
+    setCanvasLayouts: t.terminal.setCanvasLayouts.handler(async ({ input }) => {
+      for (const { id } of input.layouts) requireTerminal(id);
+      setCanvasLayouts(input.layouts);
     }),
 
     setSubPanel: t.terminal.setSubPanel.handler(async ({ input }) => {

@@ -8,6 +8,7 @@ const PANEL_SELECTOR = '[data-testid="workspace-switcher-panel"]';
 const SEARCH_SELECTOR = '[data-testid="workspace-switcher-search"]';
 const CARD_SELECTOR = '[data-testid="workspace-switcher-card"]';
 const REPO_SELECTOR = '[data-testid="workspace-switcher-repo"]';
+const ARRANGE_SELECTOR = '[data-testid="workspace-switcher-arrange"]';
 
 Then(
   "the workspace switcher should be visible",
@@ -124,6 +125,25 @@ When("I click the workspace switcher toggle", async function (this: KoluWorld) {
   await toggle.click();
   await this.waitForFrame();
 });
+
+When(
+  "I click the workspace switcher arrange button",
+  async function (this: KoluWorld) {
+    const button = this.page.locator(ARRANGE_SELECTOR);
+    await button.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await button.click();
+    await this.waitForFrame();
+  },
+);
+
+Then(
+  "the workspace switcher arrange button should be visible",
+  async function (this: KoluWorld) {
+    await this.page
+      .locator(ARRANGE_SELECTOR)
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
 
 When(
   "I click the workspace switcher close button",

@@ -23,6 +23,7 @@ import ChromeBar from "./ChromeBar";
 import CloseConfirm, { type CloseConfirmTarget } from "./CloseConfirm";
 import CommandPalette from "./CommandPalette";
 import "kolu-common/test-hooks";
+import { arrangeByRepo } from "./canvas/autoArrange";
 import CanvasWatermark from "./canvas/CanvasWatermark";
 import WorkspaceSwitcher, {
   buildWorkspaceEntries,
@@ -181,6 +182,26 @@ const App: Component = () => {
     if (tile) canvasViewport.centerOnTile(tile);
   }
 
+  function handleCanvasAutoArrange() {
+    if (isMobile()) return;
+    const arranged = arrangeByRepo(
+      store.terminalIds().flatMap((id) => {
+        const info = store.getDisplayInfo(id);
+        if (!info) return [];
+        return [
+          {
+            id,
+            group: info.key.group,
+            layout: store.getMetadata(id)?.canvasLayout,
+          },
+        ];
+      }),
+    );
+    crud.setCanvasLayouts(
+      [...arranged.entries()].map(([id, layout]) => ({ id, layout })),
+    );
+  }
+
   // Shared between the keyboard dispatcher and the command palette so a single
   // wiring keeps both surfaces in sync. Palette-only deps (theme management,
   // dialog setters, debug, etc.) are added below in the createCommands call.
@@ -277,6 +298,7 @@ const App: Component = () => {
     simulateAlert: alerts.simulateAlert,
     isMobile,
     canvasCenterActive: handleCanvasCenterActive,
+    canvasAutoArrange: handleCanvasAutoArrange,
   });
 
   // Reset state on close and return focus to terminal
@@ -476,6 +498,7 @@ const App: Component = () => {
                 if (layout) canvasViewport.centerOnTile(layout);
               }}
               onCreate={() => openPaletteGroup("New terminal")}
+              onAutoArrange={handleCanvasAutoArrange}
             />
           }
         />

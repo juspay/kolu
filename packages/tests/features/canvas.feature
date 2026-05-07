@@ -127,6 +127,19 @@ Feature: Canvas workspace
     Then the canvas tile should be at x=320 y=420
     And there should be no page errors
 
+  Scenario: Arrange canvas by repo packs terminals into a square cluster
+    Given I create a terminal
+    And I create a terminal
+    When I move canvas tile 1 to x=480 y=480 w=600 h=420
+    And I move canvas tile 2 to x=24 y=900 w=520 h=360
+    And I move canvas tile 3 to x=960 y=120 w=700 h=500
+    And I save canvas tile 1 position
+    And I save canvas tile 2 position
+    And I save canvas tile 3 position
+    And I click the workspace switcher arrange button
+    Then canvas tiles should be in a squarish cluster with sizes preserved
+    And there should be no page errors
+
   Scenario: WebGL context is held only by the focused tile
     Given I create a terminal
     Then there should be 2 canvas tiles

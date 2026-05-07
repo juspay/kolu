@@ -54,6 +54,7 @@ export interface CommandDeps extends ActionContext {
   // the canvas isn't mounted at all.
   isMobile: () => boolean;
   canvasCenterActive: () => void;
+  canvasAutoArrange: () => void;
   // Worktree
   handleCreateWorktree: (repoPath: string, initialCommand?: string) => void;
   handleClose: () => void;
@@ -149,6 +150,10 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
           {
             name: "Center on active tile",
             onSelect: () => deps.canvasCenterActive(),
+          },
+          {
+            name: "Arrange canvas by repo",
+            onSelect: () => deps.canvasAutoArrange(),
           },
         ]
       : []),

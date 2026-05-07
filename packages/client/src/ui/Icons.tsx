@@ -7,6 +7,28 @@
 import { type Component, Show } from "solid-js";
 import { Dynamic } from "solid-js/web";
 
+export const ArrangeIcon: Component<{ class?: string }> = (props) => (
+  <svg
+    class={props.class ?? "w-3.5 h-3.5"}
+    viewBox="0 0 16 16"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="1.6"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    aria-hidden="true"
+  >
+    <rect x="2" y="2" width="4" height="4" rx="0.75" />
+    <rect x="10" y="2" width="4" height="4" rx="0.75" />
+    <rect x="2" y="10" width="4" height="4" rx="0.75" />
+    <rect x="10" y="10" width="4" height="4" rx="0.75" />
+    <path d="M7.5 4H8.5" />
+    <path d="M4 7.5V8.5" />
+    <path d="M11.5 8.5V7.5" />
+    <path d="M8.5 12H7.5" />
+  </svg>
+);
+
 export const ChevronDownIcon: Component<{ class?: string }> = (props) => (
   <svg
     class={props.class ?? "w-3.5 h-3.5"}

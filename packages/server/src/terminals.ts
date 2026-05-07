@@ -12,6 +12,7 @@
  */
 
 import type {
+  CanvasLayout,
   InitialTerminalMetadata,
   SavedTerminal,
   TerminalId,
@@ -218,6 +219,15 @@ export function setCanvasLayout(
   updateClientMetadata(entry, id, (m) => {
     m.canvasLayout = layout;
   });
+}
+
+/** Store multiple terminal canvas layouts from one client command. */
+export function setCanvasLayouts(
+  layouts: { id: TerminalId; layout: CanvasLayout }[],
+): void {
+  for (const { id, layout } of layouts) {
+    setCanvasLayout(id, layout);
+  }
 }
 
 /** Store a terminal's sub-panel state (client-reported).

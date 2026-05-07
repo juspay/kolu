@@ -17,6 +17,8 @@ import { copyTextWithToast } from "./clipboard";
 import { useSubPanel } from "./useSubPanel";
 import type { TerminalStore } from "./useTerminalStore";
 
+type CanvasLayoutUpdate = { id: TerminalId; layout: CanvasLayout };
+
 export function useTerminalCrud(deps: {
   store: TerminalStore;
   subscribeExit: (id: TerminalId) => void;
@@ -53,6 +55,16 @@ export function useTerminalCrud(deps: {
       .setCanvasLayout({ id, layout })
       .catch((err: Error) =>
         toast.error(`Failed to save canvas layout: ${err.message}`),
+      );
+  }
+
+  /** Persist several canvas tile positions/sizes from a single user command. */
+  function setCanvasLayouts(layouts: CanvasLayoutUpdate[]) {
+    if (layouts.length === 0) return;
+    void client.terminal
+      .setCanvasLayouts({ layouts })
+      .catch((err: Error) =>
+        toast.error(`Failed to save canvas layouts: ${err.message}`),
       );
   }
 
@@ -206,6 +218,7 @@ export function useTerminalCrud(deps: {
   return {
     setThemeName,
     setCanvasLayout,
+    setCanvasLayouts,
     removeAndAutoSwitch,
     handleCreate,
     handleCreateSubTerminal,

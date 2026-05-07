@@ -137,6 +137,12 @@ Feature: Command Palette
     Then palette item "Keyboard shortcuts" should show shortcut "/"
     And there should be no page errors
 
+  Scenario: Arrange canvas command is discoverable
+    When I open the command palette
+    And I type "Arrange canvas" in the palette
+    Then palette item "Arrange canvas by repo" should be visible
+    And there should be no page errors
+
   Scenario: Shortcut hints shown in nested group
     When I open the app
     And I create a terminal
