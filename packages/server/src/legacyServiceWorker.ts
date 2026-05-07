@@ -30,14 +30,22 @@ self.addEventListener("install", () => {
 
 self.addEventListener("activate", (event) => {
   event.waitUntil((async () => {
-    await self.registration.unregister();
+    try {
+      await self.registration.unregister();
+    } catch (err) {
+      console.warn("Legacy service-worker unregister failed:", err);
+    }
 
-    const cacheNames = await self.caches.keys();
-    await Promise.all(
-      cacheNames
-        .filter(isLegacyWorkboxCacheName)
-        .map((cacheName) => self.caches.delete(cacheName)),
-    );
+    try {
+      const cacheNames = await self.caches.keys();
+      await Promise.all(
+        cacheNames
+          .filter(isLegacyWorkboxCacheName)
+          .map((cacheName) => self.caches.delete(cacheName)),
+      );
+    } catch (err) {
+      console.warn("Legacy Workbox cache cleanup failed:", err);
+    }
 
     const clients = await self.clients.matchAll({
       type: "window",
