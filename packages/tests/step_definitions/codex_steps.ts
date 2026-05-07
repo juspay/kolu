@@ -171,6 +171,22 @@ When(
 );
 
 When(
+  "a Codex session is mocked with state {string} and input tokens {int} with cached input tokens {int}",
+  async function (
+    this: KoluWorld,
+    state: string,
+    inputTokens: number,
+    cachedInputTokens: number,
+  ) {
+    await mockCodexSession(this, {
+      state: state as AgentLifecycleState,
+      inputTokens,
+      cachedInputTokens,
+    });
+  },
+);
+
+When(
   "the Codex rollout reports input tokens {int} with cached input tokens {int}",
   async function (
     this: KoluWorld,

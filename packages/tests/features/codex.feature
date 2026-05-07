@@ -40,8 +40,7 @@ Feature: Codex status detection
     # Regression guard for 431edd3: summing input_tokens + cached_input_tokens
     # double-counted cache hits. OpenAI's schema puts the cached count inside
     # input_tokens already, so the badge should read 30K, not 40K.
-    When a Codex session is mocked with state "waiting"
-    And the Codex rollout reports input tokens 30000 with cached input tokens 10000
+    When a Codex session is mocked with state "waiting" and input tokens 30000 with cached input tokens 10000
     Then the tile chrome should show a Codex indicator with state "waiting"
     And the tile chrome should show context tokens "30K"
     And there should be no page errors
