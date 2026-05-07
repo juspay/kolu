@@ -305,8 +305,8 @@ importers:
         specifier: workspace:*
         version: link:../../memorable-names
       simple-git:
-        specifier: ^3.33.0
-        version: 3.33.0
+        specifier: ^3.36.0
+        version: 3.36.0
       zod:
         specifier: ^4.3.6
         version: 4.3.6
@@ -394,10 +394,10 @@ importers:
     dependencies:
       '@hono/node-server':
         specifier: ^1.19.13
-        version: 1.19.13(hono@4.12.14)
+        version: 1.19.13(hono@4.12.18)
       '@hono/node-ws':
         specifier: ^1.1.0
-        version: 1.3.0(@hono/node-server@1.19.13(hono@4.12.14))(hono@4.12.14)
+        version: 1.3.0(@hono/node-server@1.19.13(hono@4.12.18))(hono@4.12.18)
       '@kolu/surface':
         specifier: workspace:*
         version: link:../surface
@@ -432,11 +432,11 @@ importers:
         specifier: ^15.1.0
         version: 15.1.0
       hono:
-        specifier: ^4.12.14
-        version: 4.12.14
+        specifier: ^4.12.16
+        version: 4.12.18
       hono-pino:
         specifier: ^0.10.3
-        version: 0.10.3(hono@4.12.14)(pino@10.3.1)
+        version: 0.10.3(hono@4.12.18)(pino@10.3.1)
       kolu-claude-code:
         specifier: workspace:*
         version: link:../integrations/claude-code
@@ -559,10 +559,10 @@ importers:
     dependencies:
       '@hono/node-server':
         specifier: ^1.19.13
-        version: 1.19.13(hono@4.12.14)
+        version: 1.19.13(hono@4.12.18)
       '@hono/node-ws':
         specifier: ^1.1.0
-        version: 1.3.0(@hono/node-server@1.19.13(hono@4.12.14))(hono@4.12.14)
+        version: 1.3.0(@hono/node-server@1.19.13(hono@4.12.18))(hono@4.12.18)
       '@kolu/surface':
         specifier: workspace:*
         version: link:..
@@ -579,8 +579,8 @@ importers:
         specifier: ^1.13.13
         version: 1.13.13(ws@8.19.0)
       hono:
-        specifier: ^4.12.14
-        version: 4.12.14
+        specifier: ^4.12.16
+        version: 4.12.18
       partysocket:
         specifier: ^1.1.16
         version: 1.1.16(react@19.2.5)
@@ -2288,6 +2288,12 @@ packages:
   '@shikijs/vscode-textmate@10.0.2':
     resolution: {integrity: sha512-83yeghZ2xxin3Nj8z1NMd/NCuca+gsYXswywDy5bHvwlWL8tpTQmzGeUuHd9FC3E/SBEMvzJRwWEOz5gGes9Qg==}
 
+  '@simple-git/args-pathspec@1.0.3':
+    resolution: {integrity: sha512-ngJMaHlsWDTfjyq9F3VIQ8b7NXbBLq5j9i5bJ6XLYtD6qlDXT7fdKY2KscWWUF8t18xx052Y/PUO1K1TRc9yKA==}
+
+  '@simple-git/argv-parser@1.1.1':
+    resolution: {integrity: sha512-Q9lBcfQ+VQCpQqGJFHe5yooOS5hGdLFFbJ5R+R5aDsnkPCahtn1hSkMcORX65J2Z5lxSkD0lQorMsncuBQxYUw==}
+
   '@solid-primitives/event-listener@2.4.5':
     resolution: {integrity: sha512-nwRV558mIabl4yVAhZKY8cb6G+O1F0M6Z75ttTu5hk+SxdOnKSGj+eetDIu7Oax1P138ZdUU01qnBPR8rnxaEA==}
     peerDependencies:
@@ -3234,8 +3240,8 @@ packages:
       hono: '>=4.0.0'
       pino: '>=7.1.0'
 
-  hono@4.12.14:
-    resolution: {integrity: sha512-am5zfg3yu6sqn5yjKBNqhnTX7Cv+m00ox+7jbaKkrLMRJ4rAdldd1xPd/JzbBWspqaQv6RSTrgFN95EsfhC+7w==}
+  hono@4.12.18:
+    resolution: {integrity: sha512-RWzP96k/yv0PQfyXnWjs6zot20TqfpfsNXhOnev8d1InAxubW93L11/oNUc3tQqn2G0bSdAOBpX+2uDFHV7kdQ==}
     engines: {node: '>=16.9.0'}
 
   hosted-git-info@9.0.2:
@@ -4124,8 +4130,8 @@ packages:
     resolution: {integrity: sha512-bzyZ1e88w9O1iNJbKnOlvYTrWPDl46O1bG0D3XInv+9tkPrxrN8jUUTiFlDkkmKWgn1M6CfIA13SuGqOa9Korw==}
     engines: {node: '>=14'}
 
-  simple-git@3.33.0:
-    resolution: {integrity: sha512-D4V/tGC2sjsoNhoMybKyGoE+v8A60hRawKQ1iFRA1zwuDgGZCBJ4ByOzZ5J8joBbi4Oam0qiPH+GhzmSBwbJng==}
+  simple-git@3.36.0:
+    resolution: {integrity: sha512-cGQjLjK8bxJw4QuYT7gxHw3/IouVESbhahSsHrX97MzCL1gu2u7oy38W6L2ZIGECEfIBG4BabsWDPjBxJENv9Q==}
 
   smob@1.6.1:
     resolution: {integrity: sha512-KAkBqZl3c2GvNgNhcoyJae1aKldDW0LO279wF9bk1PnluRTETKBq0WyzRXxEhoQLk56yHaOY4JCBEKDuJIET5g==}
@@ -5816,14 +5822,14 @@ snapshots:
 
   '@floating-ui/utils@0.2.11': {}
 
-  '@hono/node-server@1.19.13(hono@4.12.14)':
+  '@hono/node-server@1.19.13(hono@4.12.18)':
     dependencies:
-      hono: 4.12.14
+      hono: 4.12.18
 
-  '@hono/node-ws@1.3.0(@hono/node-server@1.19.13(hono@4.12.14))(hono@4.12.14)':
+  '@hono/node-ws@1.3.0(@hono/node-server@1.19.13(hono@4.12.18))(hono@4.12.18)':
     dependencies:
-      '@hono/node-server': 1.19.13(hono@4.12.14)
-      hono: 4.12.14
+      '@hono/node-server': 1.19.13(hono@4.12.18)
+      hono: 4.12.18
       ws: 8.19.0
     transitivePeerDependencies:
       - bufferutil
@@ -5927,7 +5933,7 @@ snapshots:
 
   '@modelcontextprotocol/sdk@1.29.0(zod@4.3.6)':
     dependencies:
-      '@hono/node-server': 1.19.13(hono@4.12.14)
+      '@hono/node-server': 1.19.13(hono@4.12.18)
       ajv: 8.18.0
       ajv-formats: 3.0.1(ajv@8.18.0)
       content-type: 1.0.5
@@ -5937,7 +5943,7 @@ snapshots:
       eventsource-parser: 3.0.6
       express: 5.2.1
       express-rate-limit: 8.3.2(express@5.2.1)
-      hono: 4.12.14
+      hono: 4.12.18
       jose: 6.2.2
       json-schema-typed: 8.0.2
       pkce-challenge: 5.0.1
@@ -6392,6 +6398,12 @@ snapshots:
       '@types/hast': 3.0.4
 
   '@shikijs/vscode-textmate@10.0.2': {}
+
+  '@simple-git/args-pathspec@1.0.3': {}
+
+  '@simple-git/argv-parser@1.1.1':
+    dependencies:
+      '@simple-git/args-pathspec': 1.0.3
 
   '@solid-primitives/event-listener@2.4.5(solid-js@1.9.11)':
     dependencies:
@@ -7429,13 +7441,13 @@ snapshots:
 
   help-me@5.0.0: {}
 
-  hono-pino@0.10.3(hono@4.12.14)(pino@10.3.1):
+  hono-pino@0.10.3(hono@4.12.18)(pino@10.3.1):
     dependencies:
       defu: 6.1.7
-      hono: 4.12.14
+      hono: 4.12.18
       pino: 10.3.1
 
-  hono@4.12.14: {}
+  hono@4.12.18: {}
 
   hosted-git-info@9.0.2:
     dependencies:
@@ -8328,10 +8340,12 @@ snapshots:
 
   signal-exit@4.1.0: {}
 
-  simple-git@3.33.0:
+  simple-git@3.36.0:
     dependencies:
       '@kwsites/file-exists': 1.1.1
       '@kwsites/promise-deferred': 1.1.1
+      '@simple-git/args-pathspec': 1.0.3
+      '@simple-git/argv-parser': 1.1.1
       debug: 4.4.3(supports-color@8.1.1)
     transitivePeerDependencies:
       - supports-color
