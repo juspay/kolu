@@ -25,22 +25,48 @@ import type { TerminalProcess } from "../terminal-registry.ts";
 import { getLastAgentCommandName } from "./agent-command.ts";
 import { updateServerMetadata } from "./state.ts";
 
-/** Single write-site for `m.agent`. Watcher emits sharing the same
- *  `kind`/`sessionId`/`state` skip the recency bump so frequent sub-info
- *  refreshes (`contextTokens`, `summary`) don't perturb ordering. */
+/** Pure decision: does this agent transition warrant a recency bump?
+ *
+ *  - Watcher emits sharing the same `kind`/`sessionId`/`state` are
+ *    dedup'd here so frequent sub-info refreshes (`contextTokens`,
+ *    `summary`) don't perturb ordering.
+ *  - Restore caveat: agent state is transient, so a restored terminal
+ *    always sees a `null → detected` "transition" the moment the
+ *    provider re-observes the still-running session. If the terminal
+ *    already carries a non-zero `lastActivityAt` (from the saved
+ *    session), that's the truth of when the user last interacted —
+ *    don't overwrite it with `Date.now()` just because the live agent
+ *    slot was re-populated. The next real state change inside the
+ *    session will bump as usual. */
+export function shouldBumpRecencyForAgentChange(
+  prev: AgentInfo | null,
+  next: AgentInfo | null,
+  currentLastActivityAt: number,
+): boolean {
+  const transitioning =
+    prev?.kind !== next?.kind ||
+    prev?.sessionId !== next?.sessionId ||
+    prev?.state !== next?.state;
+  if (!transitioning) return false;
+  const isReDetectionAfterRestore =
+    prev === null && next !== null && currentLastActivityAt > 0;
+  return !isReDetectionAfterRestore;
+}
+
+/** Single write-site for `m.agent`. */
 function setAgentMetadata(
   entry: TerminalProcess,
   terminalId: string,
   nextAgent: AgentInfo | null,
 ): void {
-  const prev = entry.info.meta.agent;
-  const transitioning =
-    prev?.kind !== nextAgent?.kind ||
-    prev?.sessionId !== nextAgent?.sessionId ||
-    prev?.state !== nextAgent?.state;
+  const bump = shouldBumpRecencyForAgentChange(
+    entry.info.meta.agent,
+    nextAgent,
+    entry.info.meta.lastActivityAt,
+  );
   updateServerMetadata(entry, terminalId, (m) => {
     m.agent = nextAgent;
-    if (transitioning) m.lastActivityAt = Date.now();
+    if (bump) m.lastActivityAt = Date.now();
   });
 }
 
