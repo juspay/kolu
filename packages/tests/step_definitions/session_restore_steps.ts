@@ -2,6 +2,7 @@ import * as assert from "node:assert";
 import * as os from "node:os";
 import { Given, Then, When } from "@cucumber/cucumber";
 import type { SavedTerminal } from "kolu-common/surface";
+import { pollFor } from "../support/poll.ts";
 import {
   type KoluWorld,
   WORKSPACE_SWITCHER_ENTRY_SELECTOR,
@@ -11,28 +12,38 @@ import {
 /** Post the saved-session payload to the server. Used both at scenario
  *  setup (Given) and as a self-heal in the assertion. Idempotent. */
 async function postSavedSession(
-  page: KoluWorld["page"],
+  world: KoluWorld,
   count: number,
 ): Promise<void> {
   const dirs = [os.homedir(), os.tmpdir(), "/"].slice(0, count);
   await postSavedSessionPayload(
-    page,
+    world,
     dirs.map((cwd, i) => ({ id: String(i), cwd, git: null })),
   );
 }
 
-/** Post an arbitrary saved-session terminal list. */
+/** Post an arbitrary saved-session terminal list. The `savedAt`
+ *  timestamp is captured on the first POST per scenario and replayed
+ *  verbatim on subsequent self-heal re-POSTs — so the test always
+ *  asserts that the *originally persisted* session restores, never a
+ *  fresh-savedAt one a regression might require. */
 async function postSavedSessionPayload(
-  page: KoluWorld["page"],
+  world: KoluWorld,
   terminals: SavedTerminal[],
 ): Promise<void> {
-  const resp = await page.request.fetch("/rpc/surface/session/test__set", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    data: JSON.stringify({
-      json: { terminals, savedAt: Date.now() },
-    }),
-  });
+  if (world.savedSessionSavedAt === undefined) {
+    world.savedSessionSavedAt = Date.now();
+  }
+  const resp = await world.page.request.fetch(
+    "/rpc/surface/session/test__set",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      data: JSON.stringify({
+        json: { terminals, savedAt: world.savedSessionSavedAt },
+      }),
+    },
+  );
   assert.ok(resp.ok(), `surface/session/test__set failed: ${resp.status()}`);
 }
 
@@ -41,7 +52,7 @@ Given(
   async function (this: KoluWorld, count: number) {
     // Stash count for the assertion-side self-heal.
     this.savedSessionTerminalCount = count;
-    await postSavedSession(this.page, count);
+    await postSavedSession(this, count);
   },
 );
 
@@ -72,9 +83,9 @@ Then(
     // mount — treating those as "not visible" just routes to the self-heal below.
     if (await card.isVisible().catch(() => false)) return;
     if (this.savedSessionTerminals) {
-      await postSavedSessionPayload(this.page, this.savedSessionTerminals);
+      await postSavedSessionPayload(this, this.savedSessionTerminals);
     } else if (this.savedSessionTerminalCount !== undefined) {
-      await postSavedSession(this.page, this.savedSessionTerminalCount);
+      await postSavedSession(this, this.savedSessionTerminalCount);
     }
     await card.waitFor({ state: "visible", timeout: 10000 });
   },
@@ -146,7 +157,7 @@ Given("a saved session in a specific order", async function (this: KoluWorld) {
     git: null,
   }));
   this.savedSessionTerminals = terminals;
-  await postSavedSessionPayload(this.page, terminals);
+  await postSavedSessionPayload(this, terminals);
 });
 
 Then(
@@ -175,7 +186,7 @@ Given(
     this.savedSessionTerminalCount = 1;
     const terminals = [{ id: "0", cwd: os.homedir(), git: null, themeName }];
     this.savedSessionTerminals = terminals;
-    await postSavedSessionPayload(this.page, terminals);
+    await postSavedSessionPayload(this, terminals);
   },
 );
 
@@ -194,7 +205,7 @@ Given(
       },
     ];
     this.savedSessionTerminals = terminals;
-    await postSavedSessionPayload(this.page, terminals);
+    await postSavedSessionPayload(this, terminals);
   },
 );
 
@@ -272,23 +283,42 @@ Given(
       t.id === id ? { ...t, lastAgentCommand: command } : t,
     );
     this.savedSessionTerminals = updated;
-    await postSavedSessionPayload(this.page, updated);
+    await postSavedSessionPayload(this, updated);
   },
 );
 
 Then(
   "the restore card should show agent command {string}",
   async function (this: KoluWorld, command: string) {
-    await this.page.waitForFunction(
-      (cmd) => {
-        const nodes = document.querySelectorAll(
-          '[data-testid="resume-command"]',
-        );
-        return Array.from(nodes).some((n) => n.textContent?.trim() === cmd);
+    // Same race as the visibility step: under parallel-worker load the
+    // client can hydrate `savedSession` before the server snapshot
+    // includes the most recent `lastAgentCommand` POST. Re-POSTing on
+    // each poll iteration drives a `serverState.savedSession()` change
+    // that re-fires `useSessionRestore`'s recovery effect — so the
+    // commands eventually land in the rendered card. The replayed POST
+    // reuses the original `savedAt` (see `postSavedSessionPayload`) so
+    // the assertion still exercises the originally-persisted session.
+    await pollFor({
+      observe: () =>
+        this.page.evaluate(
+          (cmd) =>
+            Array.from(
+              document.querySelectorAll('[data-testid="resume-command"]'),
+            ).some((n) => n.textContent?.trim() === cmd),
+          command,
+        ),
+      isDone: (visible) => visible,
+      onTick: async () => {
+        if (this.savedSessionTerminals) {
+          await postSavedSessionPayload(this, this.savedSessionTerminals);
+        }
       },
-      command,
-      { timeout: POLL_TIMEOUT },
-    );
+      onTimeout: (_, ms) =>
+        new Error(
+          `Restore card never showed agent command "${command}" within ${ms}ms`,
+        ),
+      timeoutMs: POLL_TIMEOUT,
+    });
   },
 );
 
@@ -337,7 +367,7 @@ Given(
     this.savedSessionTerminalCount = 1;
     const terminals: SavedTerminal[] = [{ id: "0", cwd, git: null }];
     this.savedSessionTerminals = terminals;
-    await postSavedSessionPayload(this.page, terminals);
+    await postSavedSessionPayload(this, terminals);
   },
 );
 

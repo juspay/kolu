@@ -20,6 +20,8 @@ import type { AgentLifecycleState } from "../support/agent-lifecycle.ts";
 import { writeOpenCodeFixture } from "../support/agent-mock-opencode.ts";
 import { waitForBufferContains } from "../support/buffer.ts";
 import { clearMockDatabase } from "../support/mock-fs.ts";
+import { nudgeWal } from "../support/nudge.ts";
+import { pollFor } from "../support/poll.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
 const getOpenCodeDb = () => process.env.KOLU_OPENCODE_DB;
@@ -153,29 +155,34 @@ When(
   },
 );
 
+/** Mock-side WAL nudge for the opencode `session` DB. See
+ *  `codex_steps.ts::CODEX_NUDGE_SQL` for the BEGIN/COMMIT and
+ *  `__kolu_nudge__` rationale. */
+const OPENCODE_NUDGE_SQL = `BEGIN; INSERT INTO session (id, title, directory, time_updated) VALUES ('__kolu_nudge__', '', '', 0); DELETE FROM session WHERE id = '__kolu_nudge__'; COMMIT;`;
+
+const nudgeOpenCode = () => nudgeWal(getOpenCodeDb(), OPENCODE_NUDGE_SQL);
+
 Then(
   "the tile chrome should show an OpenCode indicator with state {string}",
   async function (this: KoluWorld, expectedState: string) {
-    const start = Date.now();
-    let last: string | null = null;
-    let lastKind: string | null = null;
-    while (Date.now() - start < POLL_TIMEOUT) {
-      const observed = await this.page.evaluate(() => {
-        const el = document.querySelector(
-          '[data-testid="canvas-tile"] [data-testid="agent-indicator"], [data-testid="mobile-tile-titlebar"] [data-testid="agent-indicator"]',
-        );
-        return {
-          state: el?.getAttribute("data-agent-state") ?? null,
-          kind: el?.getAttribute("data-agent-kind") ?? null,
-        };
-      });
-      last = observed.state;
-      lastKind = observed.kind;
-      if (last === expectedState && lastKind === "opencode") return;
-      await new Promise((r) => setTimeout(r, 250));
-    }
-    throw new Error(
-      `Expected OpenCode indicator state "${expectedState}" (kind=opencode), got state="${last}" kind="${lastKind}" after ${POLL_TIMEOUT}ms`,
-    );
+    await pollFor({
+      observe: () =>
+        this.page.evaluate(() => {
+          const el = document.querySelector(
+            '[data-testid="canvas-tile"] [data-testid="agent-indicator"], [data-testid="mobile-tile-titlebar"] [data-testid="agent-indicator"]',
+          );
+          return {
+            state: el?.getAttribute("data-agent-state") ?? null,
+            kind: el?.getAttribute("data-agent-kind") ?? null,
+          };
+        }),
+      isDone: (o) => o.state === expectedState && o.kind === "opencode",
+      onTick: nudgeOpenCode,
+      onTimeout: (last, ms) =>
+        new Error(
+          `Expected OpenCode indicator state "${expectedState}" (kind=opencode), got state="${last?.state ?? null}" kind="${last?.kind ?? null}" after ${ms}ms`,
+        ),
+      timeoutMs: POLL_TIMEOUT,
+    });
   },
 );
