@@ -237,6 +237,16 @@ Feature: Code tab (review + browse)
     When I click the file "greeting.txt" in the file browser
     Then the file content should contain "hello world"
 
+  Scenario: File browser wraps long lines by default
+    When I run "git init /tmp/kolu-browse-wrap && cd /tmp/kolu-browse-wrap"
+    And I run "printf 'prefix-' > long.txt && printf '%*s' 240 '' | tr ' ' x >> long.txt && printf '\n' >> long.txt"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    When I click the file "long.txt" in the file browser
+    Then the file content should contain "prefix-"
+    And the file content should wrap long lines
+
   Scenario: File browser expands directories lazily
     When I run "git init /tmp/kolu-browse-expand && cd /tmp/kolu-browse-expand"
     And I run "mkdir -p lib && printf 'x\n' > lib/util.ts"

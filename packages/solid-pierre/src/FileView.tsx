@@ -40,6 +40,9 @@ export type FileViewProps = {
   contents: string;
   /** Light vs dark syntax-highlight theme. */
   theme: "light" | "dark";
+  /** Horizontal overflow behavior. Default `"scroll"` matches Pierre's
+   *  file-view default; callers can opt into wrapped long lines. */
+  overflow?: FileOptions<undefined>["overflow"];
   /** When true, Pierre wires gutter selection. The consumer drives it via
    *  `onLineSelected`. Default `false`. */
   enableLineSelection?: boolean;
@@ -190,6 +193,7 @@ const FileView: Component<FileViewProps> = (props) => {
   const buildOptions = (): FileOptions<undefined> => ({
     theme: DEFAULT_THEMES,
     themeType: props.theme,
+    overflow: props.overflow ?? "scroll",
     enableLineSelection: props.enableLineSelection ?? false,
     onLineSelected: props.onLineSelected,
   });

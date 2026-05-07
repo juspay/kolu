@@ -1,3 +1,4 @@
+import * as assert from "node:assert";
 import { Given, Then, When } from "@cucumber/cucumber";
 import { pollFor } from "../support/poll.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
@@ -371,6 +372,37 @@ Then(
   "the file content should contain {string}",
   async function (this: KoluWorld, expected: string) {
     await waitForViewText(this, "pierre-file-view", expected);
+  },
+);
+
+Then(
+  "the file content should wrap long lines",
+  async function (this: KoluWorld) {
+    const row = this.page.locator(`${FILE_VIEW} [data-line]`).first();
+    await row.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+
+    const wraps = await row.evaluate((line) => {
+      const root = line.getRootNode();
+      const rootWrap =
+        root instanceof Document || root instanceof ShadowRoot
+          ? root.querySelector('[data-overflow="wrap"]')
+          : null;
+      const wrappedContainer =
+        line.closest('[data-overflow="wrap"]') ?? rootWrap;
+      if (wrappedContainer) return true;
+
+      const style = getComputedStyle(line);
+      return (
+        style.whiteSpace === "pre-wrap" &&
+        (style.wordBreak === "break-word" ||
+          style.overflowWrap === "break-word")
+      );
+    });
+    assert.strictEqual(
+      wraps,
+      true,
+      "Expected browse-mode file content to render long lines in wrap mode",
+    );
   },
 );
 

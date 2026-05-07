@@ -55,6 +55,7 @@ const BrowseFileView: Component<BrowseFileViewProps> = (props) => {
                     name={props.filePath}
                     contents={fc().content}
                     theme={props.theme}
+                    overflow="wrap"
                     enableLineSelection
                     onLineSelected={selection.handleSelect}
                     onError={(err) =>
