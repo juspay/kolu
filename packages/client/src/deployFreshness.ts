@@ -1,3 +1,5 @@
+import { isLegacyWorkboxCacheName } from "kolu-common/legacyWorkboxCache";
+
 /**
  * Deploy-synchronization helpers. Owns "make sure the user's next navigation
  * lands on the fresh build" so transport UI and lifecycle probing do not own
@@ -34,7 +36,9 @@ async function clearLegacyAppShellCache(): Promise<void> {
     if ("caches" in window) {
       const cacheNames = await caches.keys();
       await Promise.all(
-        cacheNames.map((cacheName) => caches.delete(cacheName)),
+        cacheNames
+          .filter(isLegacyWorkboxCacheName)
+          .map((cacheName) => caches.delete(cacheName)),
       );
     }
   } catch (err) {

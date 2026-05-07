@@ -12,6 +12,7 @@
     "./config": "./src/config.ts",
     "./path": "./src/path.ts",
     "./html": "./src/html.ts",
+    "./legacyWorkboxCache": "./src/legacyWorkboxCache.ts",
     "./terminalKey": "./src/terminalKey.ts",
     "./transcript": "./src/transcript.ts",
     "./test-hooks": "./src/test-hooks.ts"
