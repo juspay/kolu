@@ -19,8 +19,18 @@ async function clearLegacyAppShellCache(): Promise<void> {
   try {
     const reg = await navigator.serviceWorker?.getRegistration();
     await reg?.update();
-    await reg?.unregister();
+  } catch (err) {
+    console.warn("Legacy service-worker update before reload failed:", err);
+  }
 
+  try {
+    const reg = await navigator.serviceWorker?.getRegistration();
+    await reg?.unregister();
+  } catch (err) {
+    console.warn("Legacy service-worker unregister before reload failed:", err);
+  }
+
+  try {
     if ("caches" in window) {
       const cacheNames = await caches.keys();
       await Promise.all(
@@ -28,7 +38,7 @@ async function clearLegacyAppShellCache(): Promise<void> {
       );
     }
   } catch (err) {
-    console.warn("Legacy app-shell cleanup before reload failed:", err);
+    console.warn("Legacy cache cleanup before reload failed:", err);
   }
 }
 
