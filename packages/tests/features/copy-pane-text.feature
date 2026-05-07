@@ -1,5 +1,5 @@
 Feature: Copy terminal text
-  Copy the terminal buffer as plain text via keyboard shortcut or command palette.
+  Copy the terminal buffer as plain text via command palette.
 
   Background:
     Given the terminal is ready

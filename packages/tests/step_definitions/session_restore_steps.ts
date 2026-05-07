@@ -1,10 +1,10 @@
 import * as assert from "node:assert";
 import * as os from "node:os";
 import { Given, Then, When } from "@cucumber/cucumber";
-import type { SavedTerminal } from "kolu-common";
+import type { SavedTerminal } from "kolu-common/surface";
 import {
   type KoluWorld,
-  PILL_TREE_ENTRY_SELECTOR,
+  WORKSPACE_SWITCHER_ENTRY_SELECTOR,
   POLL_TIMEOUT,
 } from "../support/world.ts";
 
@@ -26,14 +26,14 @@ async function postSavedSessionPayload(
   page: KoluWorld["page"],
   terminals: SavedTerminal[],
 ): Promise<void> {
-  const resp = await page.request.fetch("/rpc/session/test__set", {
+  const resp = await page.request.fetch("/rpc/surface/session/test__set", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     data: JSON.stringify({
       json: { terminals, savedAt: Date.now() },
     }),
   });
-  assert.ok(resp.ok(), `session/test__set failed: ${resp.status()}`);
+  assert.ok(resp.ok(), `surface/session/test__set failed: ${resp.status()}`);
 }
 
 Given(
@@ -93,34 +93,38 @@ Then(
   },
 );
 
-When("I click the restore button", async function (this: KoluWorld) {
-  const btn = this.page.locator('[data-testid="restore-session"]');
-  await btn.click();
-  // Wait for at least one terminal to appear — under load from 8 parallel
-  // workers, server can be slow to spawn terminals. Use waitForFunction
-  // for a reactive DOM check instead of locator.waitFor.
-  await this.page.waitForFunction(
-    (sel) => document.querySelectorAll(sel).length > 0,
-    PILL_TREE_ENTRY_SELECTOR,
-    { timeout: 20000 },
-  );
-});
+When(
+  "I click the restore button",
+  { timeout: 60_000 },
+  async function (this: KoluWorld) {
+    const btn = this.page.locator('[data-testid="restore-session"]');
+    await btn.click();
+    // Wait for at least one terminal to appear — under parallel macOS CI load,
+    // server can be slow to spawn restored PTYs. Use waitForFunction for a
+    // reactive DOM check instead of locator.waitFor.
+    await this.page.waitForFunction(
+      (sel) => document.querySelectorAll(sel).length > 0,
+      WORKSPACE_SWITCHER_ENTRY_SELECTOR,
+      { timeout: 45_000 },
+    );
+  },
+);
 
 Then(
-  "there should be {int} pill tree entries",
+  "there should be {int} workspace switcher entries",
   async function (this: KoluWorld, expected: number) {
-    const entries = this.page.locator(PILL_TREE_ENTRY_SELECTOR);
+    const entries = this.page.locator(WORKSPACE_SWITCHER_ENTRY_SELECTOR);
     await this.page.waitForFunction(
       ({ selector, count }) =>
         document.querySelectorAll(selector).length === count,
-      { selector: PILL_TREE_ENTRY_SELECTOR, count: expected },
+      { selector: WORKSPACE_SWITCHER_ENTRY_SELECTOR, count: expected },
       { timeout: 15000 },
     );
     const actual = await entries.count();
     assert.strictEqual(
       actual,
       expected,
-      `Expected ${expected} pill tree entries, got ${actual}`,
+      `Expected ${expected} workspace switcher entries, got ${actual}`,
     );
   },
 );
@@ -144,9 +148,9 @@ Given("a saved session in a specific order", async function (this: KoluWorld) {
 });
 
 Then(
-  "the pill tree entries should be in the saved order",
+  "the workspace switcher entries should be in the saved order",
   async function (this: KoluWorld) {
-    const entries = this.page.locator(PILL_TREE_ENTRY_SELECTOR);
+    const entries = this.page.locator(WORKSPACE_SWITCHER_ENTRY_SELECTOR);
     const count = await entries.count();
     const titles: string[] = [];
     for (let i = 0; i < count; i++) {
@@ -156,7 +160,7 @@ Then(
     assert.deepStrictEqual(
       titles,
       ORDERED_DIRS,
-      `Pill tree order ${JSON.stringify(titles)} doesn't match expected ${JSON.stringify(ORDERED_DIRS)}`,
+      `Workspace switcher order ${JSON.stringify(titles)} doesn't match expected ${JSON.stringify(ORDERED_DIRS)}`,
     );
   },
 );
@@ -228,7 +232,7 @@ When("I wait for the session auto-save", async function (this: KoluWorld) {
 });
 
 Then(
-  "pill tree entry {int} should be active",
+  "workspace switcher entry {int} should be active",
   async function (this: KoluWorld, index: number) {
     const id = this.createdTerminalIds[index - 1];
     assert.ok(id, `No terminal created at index ${index} in this scenario`);

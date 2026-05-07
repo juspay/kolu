@@ -6,43 +6,50 @@
  *   - Branch: working tree vs `merge-base(origin/<default>)` — same, with a
  *     branch base. Forge-agnostic "what this branch will ship".
  *
- * The mode trio is structured as a nested segmented control: All sits
- * apart from the Local/Branch pair because Local and Branch are siblings
- * (both filter to changed files; only the diff base differs), while All
- * is the unfiltered base view. Pierre's `@pierre/trees` owns the tree
- * layout/search/virtualization; `@pierre/diffs` owns diff parsing and
- * shiki highlighting. This component is just data flow + chrome. */
+ * The toolbar combines two independent filter axes — mode picker
+ * (`ModeChipPicker`) and filename input (`FileSearchInput`) — in one
+ * row. Pierre's built-in tree-header search is disabled so the
+ * `FileSearchInput` is the single source of filter state, forwarded
+ * via `FileTree.searchQuery`. `@kolu/solid-pierre` owns the imperative
+ * Pierre lifecycle; this component is just data flow + chrome. */
 
-import type { CodeTabView, GitDiffMode, TerminalMetadata } from "kolu-common";
+import { FileDiff, FileTree, Virtualizer } from "@kolu/solid-pierre";
+import type { GitDiffMode } from "kolu-git/schemas";
+import type { TerminalMetadata } from "kolu-common/surface";
 import {
   type Component,
   createEffect,
   createMemo,
-  createResource,
   createSignal,
   Match,
   on,
   Show,
   Switch,
 } from "solid-js";
-import { client } from "../rpc/rpc";
+import { toast } from "solid-sonner";
 import { useColorScheme } from "../settings/useColorScheme";
-import { FileDiffIcon, GitBranchIcon } from "../ui/Icons";
-import PierreDiffView from "../ui/PierreDiffView";
-import PierreFileTree, { toGitStatusEntries } from "../ui/PierreFileTree";
+import { app } from "../wire";
+import { FileBrowseIcon, FileDiffIcon, GitBranchIcon } from "../ui/Icons";
+import {
+  renderTreeContextMenu,
+  toGitStatusEntries,
+} from "../ui/pierreAdapters";
+import {
+  pierreDiffsStyle,
+  pierreIconConfig,
+  pierreTreesStyle,
+} from "../ui/pierreTheme";
 import BrowseFileView from "./BrowseFileView";
+import CodeMenuFrame from "./CodeMenuFrame";
+import { projectFileTreeSearch } from "./fileSearch";
+import FileSearchInput from "./FileSearchInput";
+import ModeChipPicker, { type ModeOption } from "./ModeChipPicker";
 import { useRightPanel } from "./useRightPanel";
 
 const EMPTY_STATE: Record<GitDiffMode, string> = {
   local: "No local changes",
   branch: "No changes vs base",
 };
-
-/** Pill button shared by both segment groups. Inherits the same active-state
- *  chrome the canvas tile chrome uses (lifted surface-0 + soft shadow), so
- *  the mode picker reads as a continuation of kolu's existing tab language. */
-const PILL_BUTTON_CLASS =
-  "px-2 h-5 rounded text-[10px] font-mono cursor-pointer transition-colors text-fg-3/50 hover:text-fg-2 data-[active=true]:text-fg data-[active=true]:bg-surface-0 data-[active=true]:shadow-sm";
 
 const FileSelectHint: Component<{ label: string }> = (props) => (
   <div class="flex flex-col items-center justify-center h-full text-fg-3/40 gap-2">
@@ -56,10 +63,14 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
   const rightPanel = useRightPanel();
   const [selectedPath, setSelectedPath] = createSignal<string | null>(null);
 
-  const view = (): CodeTabView => {
-    const tab = rightPanel.activeTab();
-    return tab.kind === "code" ? tab.mode : "local";
-  };
+  // Read `codeMode` directly rather than projecting it from `activeTab`.
+  // CodeTab now stays mounted across the Inspector tab toggle (#818); a
+  // projection-with-fallback (`activeTab.kind === "code" ? mode : "local"`)
+  // would flip `view()` from the persisted mode (e.g. `"browse"`) to the
+  // fallback `"local"` while Inspector is active, then back on return —
+  // a real value transition that fires the `resetKey` reset effect and
+  // wipes selection on every Inspector round-trip in non-local modes.
+  const view = rightPanel.codeMode;
   const setView = rightPanel.setCodeMode;
 
   const repoPath = () => props.meta?.git?.repoRoot ?? null;
@@ -67,69 +78,188 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
   const diffMode = (): GitDiffMode | undefined =>
     view() === "browse" ? undefined : (view() as GitDiffMode);
 
-  const [status, { refetch: refetchStatus }] = createResource(
+  // Filename filter — drives Pierre's tree filter externally. Reset on
+  // mode switch so a stale needle doesn't hide the wrong file set.
+  const [searchQuery, setSearchQuery] = createSignal("");
+
+  // ── Selection-stability invariant ──────────────────────────────────
+  // CodeTab survives right-panel tab toggles and panel collapse (#818)
+  // — meaning every reactive surface in this component stays alive
+  // across UI state changes that previously destroyed and rebuilt it.
+  // Three independent sources of `selectedPath = null` would fire
+  // spuriously without explicit guards; each guard defends against a
+  // *different* origin of churn, so they don't collapse into one rule:
+  //
+  //   1. `resetKey` memo (below) — preferences cell ticks on unrelated
+  //      pref updates; raw `on([repoPath, view], …)` would re-fire its
+  //      callback every tick and wipe selection.
+  //   2. `pending()` gate on the membership check — gitStatus / fsList
+  //      stream resubscribes briefly drop `treePaths()` to `[]`; without
+  //      the gate, the membership check reads transient empty as
+  //      "selected file is missing".
+  //   3. `handleSelect` ignores Pierre's `null` events — Pierre fires
+  //      `onSelectionChange([])` from `resetPaths` and tear-down, not
+  //      just user deselect; the Code tab has no UX for explicit
+  //      deselect anyway (user switches by clicking another file).
+  //
+  // The unifying invariant is "preserve selection across non-genuine
+  // transitions". Adding a fourth churn source means adding a fourth
+  // guard in the same shape — extract a `createStableSignal`-style
+  // helper if/when it appears.
+
+  const status = app.streams.gitStatus.use(
     () => {
       const p = repoPath();
       const m = diffMode();
       return p && m ? { repoPath: p, mode: m } : null;
     },
-    (input) => client.git.status(input),
+    {
+      onError: (err) => toast.error(`Git status stream: ${err.message}`),
+    },
   );
 
-  const [allPaths, { refetch: refetchAll }] = createResource(
+  const allPaths = app.streams.fsListAll.use(
     () => {
       const p = repoPath();
       return p && view() === "browse" ? { repoPath: p } : null;
     },
-    (input) => client.fs.listAll(input).then((r) => r.paths),
+    {
+      onError: (err) => toast.error(`File list stream: ${err.message}`),
+    },
   );
 
-  const [diff, { refetch: refetchDiff }] = createResource(
+  const diff = app.streams.gitDiff.use(
     () => {
       const p = repoPath();
       const s = selectedPath();
       const m = diffMode();
       if (!p || !s || !m) return null;
       const file = status()?.files.find((f) => f.path === s);
-      return { repoPath: p, filePath: s, mode: m, oldPath: file?.oldPath };
+      if (!file) return null;
+      return { repoPath: p, filePath: s, mode: m, oldPath: file.oldPath };
     },
-    (input) => client.git.diff(input),
+    {
+      onError: (err) => toast.error(`Git diff stream: ${err.message}`),
+    },
   );
 
   // Reset selection when the repo or view changes so a stale path doesn't
   // bleed across modes (e.g. a browse-mode pick showing up in diff mode).
+  // Same reset clears the filename filter — the search needle was scoped
+  // to the previous file set and rarely makes sense post-switch.
+  //
+  // The `on()` here is paired with a memoized key so it only fires when
+  // the (repoPath, view) tuple actually CHANGES VALUE. Without the memo,
+  // SolidJS' `on(...)` re-runs its callback on every upstream signal tick
+  // — and the upstream `preferences` cell ticks on activity beyond just
+  // tab/repo changes (e.g. unrelated pref updates). Since the callback
+  // unconditionally nulls `selectedPath`, an unmemoed accessor wipes the
+  // user's selection on every preference tick — visible after #818 made
+  // CodeTab survive across right-panel tab toggles.
+  //
+  // `::` is collision-safe as the separator: `view()` is a typed enum
+  // (`"browse" | "local" | "branch"`) so it can't contain `::`, and
+  // `repoPath()` is `props.meta?.git?.repoRoot ?? null` — a real
+  // absolute path or `null`, never the empty string that would alias
+  // null.
+  const resetKey = createMemo(() => `${repoPath() ?? ""}::${view()}`);
   createEffect(
-    on([repoPath, view], () => setSelectedPath(null), { defer: true }),
+    on(
+      resetKey,
+      () => {
+        setSelectedPath(null);
+        setSearchQuery("");
+      },
+      { defer: true },
+    ),
   );
 
-  const handleRefresh = () => {
-    if (isDiffView()) {
-      void refetchStatus();
-      if (selectedPath()) void refetchDiff();
-    } else {
-      void refetchAll();
-    }
-  };
-
   const treePaths = createMemo(() => {
-    if (view() === "browse") return allPaths() ?? [];
+    if (view() === "browse") return allPaths()?.paths ?? [];
     return status()?.files.map((f) => f.path) ?? [];
   });
+
+  const treeSearch = createMemo(() =>
+    projectFileTreeSearch(treePaths(), searchQuery()),
+  );
+
+  // Track membership rather than the treePaths array identity: browse paths
+  // come from a reconciled store array whose contents can change in place.
+  // Gate on the relevant stream's `pending()` — when the gitStatus / fsList
+  // stream resubscribes (e.g. on right-panel tab switch, since its inputFn
+  // returns a fresh object literal), the value briefly resets to undefined
+  // and `treePaths()` collapses to `[]`. Treating that transient empty as
+  // "selected file is missing" would null `selectedPath` on every
+  // resubscribe and lose the selection across tab toggles. Once the stream
+  // has delivered (`!pending()`), an empty paths set IS authoritative —
+  // the file truly went away (commit cleared local diff, rm deleted it).
+  createEffect(
+    on(
+      () => {
+        const s = selectedPath();
+        const isPending = isDiffView() ? status.pending() : allPaths.pending();
+        const paths = treePaths();
+        return [s, !s || isPending || paths.includes(s)] as const;
+      },
+      ([path, pathExists]) => {
+        if (path && !pathExists) setSelectedPath(null);
+      },
+      { defer: true },
+    ),
+  );
+
   const treeGitStatus = createMemo(() => {
     const s = status();
     return s ? toGitStatusEntries(s.files) : undefined;
   });
 
   const handleSelect = (path: string | null) => {
-    // Pierre emits null on deselect; keep our single-select toggle semantics.
-    setSelectedPath((prev) => (prev === path ? null : path));
+    // Pierre fires null in many situations beyond user intent — including
+    // `resetPaths` clearing its selection during stream resubscribe, and
+    // tear-down on unmount. The Code tab has no UX affordance for
+    // deselect (user switches selection by clicking another file), so
+    // ignore null and only honor explicit non-null selections. Keeping
+    // the previous signal value through Pierre's internal churn lets the
+    // selected file survive right-panel tab toggles (#818).
+    if (path !== null) setSelectedPath(path);
   };
 
   const treeError = (): Error | undefined =>
-    (isDiffView() ? status.error : allPaths.error) as Error | undefined;
+    isDiffView() ? status.error() : allPaths.error();
   const treeReady = () => (isDiffView() ? status() : allPaths());
-  const branchTooltip = () =>
-    `Changes vs ${status()?.base?.ref ?? "branch base"}`;
+  const branchRef = (): string | null => status()?.base?.ref ?? null;
+
+  // Mode catalog — owns the list of views, their labels, hints, and
+  // test IDs. Adding a new mode (e.g. "stash") happens here, plus the
+  // data-source switch above. ModeChipPicker is purely a presenter.
+  const modeOptions = createMemo<ModeOption[]>(() => {
+    const ref = branchRef();
+    return [
+      {
+        view: "browse",
+        label: "All files",
+        hint: "Browse the whole repo",
+        testId: "diff-mode-browse",
+        icon: FileBrowseIcon,
+      },
+      {
+        view: "local",
+        group: "Git",
+        label: "Local",
+        hint: "Working tree vs HEAD",
+        testId: "diff-mode-local",
+        icon: GitBranchIcon,
+      },
+      {
+        view: "branch",
+        group: "Git",
+        label: "Branch",
+        hint: ref ? `vs ${ref}` : "Working tree vs branch base",
+        testId: "diff-mode-branch",
+        icon: GitBranchIcon,
+      },
+    ];
+  });
 
   /** Diff value narrowed to "this is a pure-rename" (no hunks, both old +
    *  new file names present and different). Returning the full diff so the
@@ -162,54 +292,13 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
         class="flex flex-col h-full min-h-0 text-[11px]"
         data-testid="diff-tab"
       >
-        <div class="flex items-center h-7 px-1.5 bg-surface-1/30 border-b border-edge shrink-0 gap-1.5">
-          <div class="flex items-center bg-surface-2/40 rounded p-0.5">
-            <button
-              type="button"
-              onClick={() => setView("browse")}
-              title="Browse all files"
-              class={PILL_BUTTON_CLASS}
-              data-testid="diff-mode-browse"
-              data-active={view() === "browse"}
-              aria-pressed={view() === "browse"}
-            >
-              All
-            </button>
-          </div>
-          <div class="flex items-center bg-surface-2/40 rounded p-0.5 gap-0.5">
-            <button
-              type="button"
-              onClick={() => setView("local")}
-              title="Changes vs HEAD"
-              class={PILL_BUTTON_CLASS}
-              data-testid="diff-mode-local"
-              data-active={view() === "local"}
-              aria-pressed={view() === "local"}
-            >
-              Local
-            </button>
-            <button
-              type="button"
-              onClick={() => setView("branch")}
-              title={branchTooltip()}
-              class={PILL_BUTTON_CLASS}
-              data-testid="diff-mode-branch"
-              data-active={view() === "branch"}
-              aria-pressed={view() === "branch"}
-            >
-              Branch
-            </button>
-          </div>
-          <div class="flex-1" />
-          <button
-            type="button"
-            onClick={handleRefresh}
-            class="text-fg-3/40 hover:text-fg-2 cursor-pointer px-1 shrink-0 transition-colors"
-            aria-label="Refresh"
-            data-testid="diff-refresh"
-          >
-            ↻
-          </button>
+        <div class="flex items-center h-7 px-1.5 bg-surface-1/30 border-b border-edge shrink-0 gap-2">
+          <ModeChipPicker
+            view={view()}
+            onViewChange={setView}
+            modes={modeOptions()}
+          />
+          <FileSearchInput value={searchQuery()} onChange={setSearchQuery} />
         </div>
 
         <div
@@ -239,12 +328,25 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
                   </div>
                 }
               >
-                <PierreFileTree
-                  paths={treePaths()}
+                <FileTree
+                  paths={treeSearch().projectedPaths}
                   gitStatus={treeGitStatus()}
                   selectedPath={selectedPath()}
                   onSelect={handleSelect}
                   initialExpansion={isDiffView() ? "open" : "closed"}
+                  search={false}
+                  searchQuery={treeSearch().pierreSearchQuery}
+                  icons={pierreIconConfig}
+                  contextMenu={{
+                    enabled: true,
+                    triggerMode: "both",
+                    render: renderTreeContextMenu,
+                  }}
+                  onError={(err) =>
+                    toast.error(`File tree render failed: ${err.message}`)
+                  }
+                  class="h-full w-full"
+                  style={pierreTreesStyle}
                 />
               </Show>
             </Match>
@@ -282,10 +384,12 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
                       <div class="px-2 py-1 text-fg-3/50">Loading diff…</div>
                     }
                   >
-                    <Match when={diff.error}>
-                      <div class="px-2 py-1 text-danger">
-                        Error: {(diff.error as Error).message}
-                      </div>
+                    <Match when={diff.error()}>
+                      {(err) => (
+                        <div class="px-2 py-1 text-danger">
+                          Error: {err().message}
+                        </div>
+                      )}
                     </Match>
                     <Match when={renamedDiff()}>
                       {(rename) => (
@@ -297,11 +401,34 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
                     </Match>
                     <Match when={diff()}>
                       {(d) => (
-                        <PierreDiffView
-                          path={path}
-                          rawDiff={d().hunks[0] ?? ""}
-                          theme={diffTheme()}
-                        />
+                        <CodeMenuFrame path={path}>
+                          {(selection) => (
+                            // `<Virtualizer>` is the scroll container —
+                            // `<FileDiff>` consumes its context and
+                            // upgrades to Pierre's `VirtualizedFileDiff`,
+                            // windowing huge diffs (50k-line lockfile,
+                            // #809 / #514 Phase 8). Without this wrapper
+                            // `<FileDiff>` falls back to the vanilla
+                            // class — same as before.
+                            <Virtualizer
+                              class="h-full w-full overflow-auto"
+                              style={pierreDiffsStyle}
+                            >
+                              <FileDiff
+                                rawDiff={d().hunks[0] ?? ""}
+                                theme={diffTheme()}
+                                enableLineSelection
+                                onLineSelected={selection.handleSelect}
+                                onError={(err) =>
+                                  toast.error(
+                                    `Diff render failed: ${err.message}`,
+                                  )
+                                }
+                                class="w-full"
+                              />
+                            </Virtualizer>
+                          )}
+                        </CodeMenuFrame>
                       )}
                     </Match>
                   </Switch>

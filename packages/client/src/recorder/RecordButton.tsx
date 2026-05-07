@@ -18,7 +18,8 @@
 
 import { type Component, createSignal, Match, Show, Switch } from "solid-js";
 import { match } from "ts-pattern";
-import { formatKeybind, SHORTCUTS } from "../input/keyboard";
+import { ACTIONS } from "../input/actions";
+import { formatKeybind } from "../input/keyboard";
 import { PauseIcon, RecordIcon, ResumeIcon, WebcamIcon } from "../ui/Icons";
 import Tip from "../ui/Tip";
 import RecordPopover from "./RecordPopover";
@@ -52,8 +53,8 @@ const RecordButton: Component = () => {
 
   const pauseLabel = () =>
     isPaused()
-      ? `Resume (${formatKeybind(SHORTCUTS.toggleRecordingPause.keybind)})`
-      : `Pause (${formatKeybind(SHORTCUTS.toggleRecordingPause.keybind)})`;
+      ? `Resume (${formatKeybind(ACTIONS.toggleRecordingPause.keybind)})`
+      : `Pause (${formatKeybind(ACTIONS.toggleRecordingPause.keybind)})`;
 
   const webcamLabel = () =>
     recorder.webcamEnabled() ? "Hide webcam" : "Show webcam";

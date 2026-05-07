@@ -9,15 +9,13 @@
  */
 
 import fs from "node:fs";
-import {
-  type ActivityFeed,
-  ActivityFeedSchema,
-  type RecentAgent,
-  type RecentRepo,
-} from "kolu-common";
+import type {
+  ActivityFeed,
+  RecentAgent,
+  RecentRepo,
+} from "kolu-common/surface";
 import { log } from "./log.ts";
-import { publishSystem } from "./publisher.ts";
-import { store } from "./state.ts";
+import { surfaceCtx } from "./surface.ts";
 
 const MAX_RECENT_REPOS = 20;
 const MAX_RECENT_AGENTS = 10;
@@ -54,15 +52,17 @@ function upsertMru<T>(
  *  longer exist on disk and back-writes the trimmed list so subsequent
  *  reads don't re-stat. */
 function getRecentRepos(): RecentRepo[] {
-  const repos = store.get("recentRepos");
-  const live = repos.filter((r) => existsOnDisk(r.repoRoot));
-  if (live.length < repos.length) store.set("recentRepos", live);
+  const feed = surfaceCtx.cells.activityFeed.get();
+  const live = feed.recentRepos.filter((r) => existsOnDisk(r.repoRoot));
+  if (live.length < feed.recentRepos.length) {
+    surfaceCtx.cells.activityFeed.set({ ...feed, recentRepos: live });
+  }
   return live;
 }
 
 /** Get recent agents, most-recently-seen first. */
 function getRecentAgents(): RecentAgent[] {
-  return store.get("recentAgents");
+  return surfaceCtx.cells.activityFeed.get().recentAgents;
 }
 
 /** Get the full activity feed snapshot. */
@@ -75,15 +75,15 @@ export function getActivityFeed(): ActivityFeed {
 
 /** Upsert a repo into the recent repos list and publish. */
 export function trackRecentRepo(repoRoot: string, repoName: string): void {
+  const feed = surfaceCtx.cells.activityFeed.get();
   const next = upsertMru(
-    store.get("recentRepos"),
+    feed.recentRepos,
     { repoRoot, repoName, lastSeen: Date.now() },
     (r) => r.repoRoot,
     (r) => r.lastSeen,
     MAX_RECENT_REPOS,
   );
-  store.set("recentRepos", next);
-  publishSystem("activity:changed", getActivityFeed());
+  surfaceCtx.cells.activityFeed.set({ ...feed, recentRepos: next });
 }
 
 /** Upsert a normalized agent command into the recent agents MRU.
@@ -92,27 +92,14 @@ export function trackRecentRepo(repoRoot: string, repoName: string): void {
  *  binary. The `command` string is the normalized form produced by
  *  `parseAgentCommand` — raw prompt text has already been stripped. */
 export function trackRecentAgent(command: string): void {
+  const feed = surfaceCtx.cells.activityFeed.get();
   const next = upsertMru(
-    store.get("recentAgents"),
+    feed.recentAgents,
     { command, lastSeen: Date.now() },
     (a) => a.command,
     (a) => a.lastSeen,
     MAX_RECENT_AGENTS,
   );
-  store.set("recentAgents", next);
+  surfaceCtx.cells.activityFeed.set({ ...feed, recentAgents: next });
   log.info({ command, total: next.length }, "recent agent tracked");
-  publishSystem("activity:changed", getActivityFeed());
-}
-
-/** Test-only: replace both feeds wholesale. Used by e2e hooks to reset
- *  state between scenarios. Validates so fixture errors surface clearly. */
-export function setActivityForTest(feed: ActivityFeed): void {
-  const result = ActivityFeedSchema.safeParse(feed);
-  if (!result.success) {
-    log.error({ issues: result.error.issues }, "test activity feed invalid");
-    throw new Error("Invalid activity feed in test__set");
-  }
-  store.set("recentRepos", result.data.recentRepos);
-  store.set("recentAgents", result.data.recentAgents);
-  publishSystem("activity:changed", result.data);
 }

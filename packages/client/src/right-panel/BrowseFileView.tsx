@@ -1,11 +1,16 @@
-/** File content viewer for the Code tab's browse mode. Reads the file via
- *  RPC and hands the contents to Pierre's `File` renderer for shiki-powered
- *  syntax highlighting. Kept as its own module so `CodeTab.tsx` stays a
- *  layout shell. */
+/** File content viewer for the Code tab's browse mode. Subscribes to the
+ *  server's live file-content stream so editor saves and branch checkouts
+ *  reflect without a manual refresh. The wrapper around `@kolu/solid-pierre`'s
+ *  `FileView` provides shiki-powered syntax highlighting; equality-gating
+ *  the snapshot via `reconcile` (inside `useStream`'s underlying primitive)
+ *  avoids stomping scroll position on no-op ticks. */
 
-import { type Component, createResource, Match, Show, Switch } from "solid-js";
-import { client } from "../rpc/rpc";
-import PierreFileView from "../ui/PierreFileView";
+import { FileView, Virtualizer } from "@kolu/solid-pierre";
+import { type Component, Match, Show, Switch } from "solid-js";
+import { toast } from "solid-sonner";
+import { pierreDiffsStyle } from "../ui/pierreTheme";
+import { app } from "../wire";
+import CodeMenuFrame from "./CodeMenuFrame";
 
 export type BrowseFileViewProps = {
   repoPath: string;
@@ -14,17 +19,19 @@ export type BrowseFileViewProps = {
 };
 
 const BrowseFileView: Component<BrowseFileViewProps> = (props) => {
-  const [fileContent] = createResource(
+  const fileContent = app.streams.fsReadFile.use(
     () => ({ repoPath: props.repoPath, filePath: props.filePath }),
-    (input) => client.fs.readFile(input),
+    {
+      onError: (err) => toast.error(`File content stream: ${err.message}`),
+    },
   );
 
   return (
     <Switch fallback={<div class="px-2 py-1 text-fg-3/50">Loading…</div>}>
-      <Match when={fileContent.error}>
-        <div class="px-2 py-1 text-danger">
-          Error: {(fileContent.error as Error).message}
-        </div>
+      <Match when={fileContent.error()}>
+        {(err) => (
+          <div class="px-2 py-1 text-danger">Error: {err().message}</div>
+        )}
       </Match>
       <Match when={fileContent()}>
         {(fc) => (
@@ -34,11 +41,30 @@ const BrowseFileView: Component<BrowseFileViewProps> = (props) => {
                 File truncated (exceeds 1 MB)
               </div>
             </Show>
-            <PierreFileView
-              name={props.filePath}
-              contents={fc().content}
-              theme={props.theme}
-            />
+            <CodeMenuFrame path={props.filePath}>
+              {(selection) => (
+                // `<Virtualizer>` upgrades `<FileView>` to Pierre's
+                // `VirtualizedFile` for very large files
+                // (#809 / #514 Phase 8). Without it, `<FileView>` uses
+                // the vanilla `File` class — same behavior as before.
+                <Virtualizer
+                  class="h-full w-full overflow-auto"
+                  style={pierreDiffsStyle}
+                >
+                  <FileView
+                    name={props.filePath}
+                    contents={fc().content}
+                    theme={props.theme}
+                    enableLineSelection
+                    onLineSelected={selection.handleSelect}
+                    onError={(err) =>
+                      toast.error(`File render failed: ${err.message}`)
+                    }
+                    class="w-full"
+                  />
+                </Virtualizer>
+              )}
+            </CodeMenuFrame>
           </>
         )}
       </Match>

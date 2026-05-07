@@ -16,7 +16,7 @@ import type {
   SavedTerminal,
   TerminalId,
   TerminalInfo,
-} from "kolu-common";
+} from "kolu-common/surface";
 import { cleanupClipboardDir } from "./clipboard.ts";
 import { log } from "./log.ts";
 import {
@@ -26,14 +26,15 @@ import {
   updateServerMetadata,
 } from "./meta/index.ts";
 import { spawnPty } from "./pty.ts";
-import { publishForTerminal, publishSystem } from "./publisher.ts";
+import { terminalChannels, terminalsDirtyChannel } from "./publisher.ts";
+import { surfaceCtx } from "./surface.ts";
 import {
   drainTerminals,
   getTerminal,
   listTerminals,
   registerTerminal,
-  terminalEntries,
   type TerminalProcess,
+  terminalEntries,
   unregisterTerminal,
 } from "./terminal-registry.ts";
 
@@ -43,8 +44,8 @@ export {
   countActiveClaudeSessions,
   getTerminal,
   listTerminals,
-  terminalCount,
   type TerminalProcess,
+  terminalCount,
 } from "./terminal-registry.ts";
 
 /** Build a session snapshot from current terminal state.
@@ -75,13 +76,16 @@ export function snapshotSession(): {
 
 /** Notify that terminal state changed (triggers debounced session auto-save). */
 function emitChanged(): void {
-  publishSystem("terminals:dirty", {});
+  terminalsDirtyChannel.publish({});
 }
 
 /** Notify that terminal membership changed (create/kill).
- *  Drives the live terminal.list stream to clients. */
+ *  Drives the live `surface.terminalList.get` stream to clients. The
+ *  surface owns the publish channel; calling `set` triggers the
+ *  framework's apply+publish chain (the `terminalList` cell's store is a
+ *  no-op since the registry is canonical). */
 function emitListChanged(): void {
-  publishSystem("terminal-list", listTerminals());
+  surfaceCtx.cells.terminalList.set(listTerminals());
 }
 
 /** Create a new terminal, spawn a PTY process. `initial` seeds
@@ -102,7 +106,7 @@ export function createTerminal(
     id,
     {
       onData: (data) => {
-        publishForTerminal("data", id, data);
+        terminalChannels.data(id).publish(data);
       },
       // On natural exit: notify clients, then remove from server state
       onExit: (exitCode) => {
@@ -112,7 +116,7 @@ export function createTerminal(
           entry.stopProviders();
           cleanupClipboardDir(id);
         }
-        publishForTerminal("exit", id, exitCode);
+        surfaceCtx.events.terminalExit.publish({ id }, exitCode);
         // Only save session on natural exit (entry still in map).
         // killAllTerminals clears the map first, so entry is gone — skip.
         const wasNaturalExit = unregisterTerminal(id);
@@ -123,13 +127,13 @@ export function createTerminal(
       },
       // PTY callback (OSC 0/2): notify process provider that title changed
       onTitleChange: (title) => {
-        publishForTerminal("title", id, title);
+        terminalChannels.title(id).publish(title);
       },
       // PTY callback (OSC 633;E): raw preexec command line. Agent parsing,
       // the per-terminal stash, and the recent-agents MRU all live in
       // `meta/agent-command.ts`, fed via this channel.
       onCommandRun: (raw) => {
-        publishForTerminal("commandRun", id, raw);
+        terminalChannels.commandRun(id).publish(raw);
       },
       // PTY callback (OSC 7): update metadata CWD, notify providers via cwd channel
       onCwd: (newCwd) => {
@@ -138,7 +142,7 @@ export function createTerminal(
           updateServerMetadata(entry, id, (m) => {
             m.cwd = newCwd;
           });
-          publishForTerminal("cwd", id, newCwd);
+          terminalChannels.cwd(id).publish(newCwd);
         }
       },
     },

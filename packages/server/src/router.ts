@@ -1,48 +1,41 @@
 /**
- * oRPC router: implements the contract with terminal lifecycle and I/O handlers.
+ * oRPC router: composes the surface router fragment (`./surface.ts`) with
+ * hand-listed raw oRPC handlers (terminal lifecycle, attach, git
+ * mutations, server info).
  *
- * Streaming handlers subscribe to publisher channels over WebSocket.
- * Terminal CRUD (create, kill, etc.) is request-response; list and metadata are live streams.
+ * The typed reactive layer goes through `surfaceRouter` / `surfaceCtx`
+ * (see `./surface.ts`). Domain mutations import `surfaceCtx` directly
+ * from there. This file is just the glue between the surface fragment
+ * and the raw RPCs.
  */
-import { implement, ORPCError } from "@orpc/server";
 
-import { contract } from "kolu-common/contract";
+import { ORPCError } from "@orpc/server";
+import { loadClaudeCodeTranscript } from "kolu-claude-code";
+import { loadCodexTranscript } from "kolu-codex";
+import type { Transcript, TranscriptPr } from "kolu-common/transcript";
 import { TerminalNotFoundError } from "kolu-common/errors";
-import {
-  type GitResult,
-  getDiff,
-  getStatus,
-  listAll,
-  readFile,
-  worktreeCreate,
-  worktreeRemove,
-} from "kolu-git";
-import { getActivityFeed, setActivityForTest } from "./activity.ts";
+import { worktreeCreate, worktreeRemove } from "kolu-git";
+import { prValue } from "kolu-github/schemas";
+import { loadOpenCodeTranscript } from "kolu-opencode";
+import { transcriptToHtml } from "kolu-transcript-html";
+import { match } from "ts-pattern";
 import { saveClipboardImage } from "./clipboard.ts";
 import { serverHostname, serverProcessId } from "./hostname.ts";
 import { log } from "./log.ts";
-import {
-  getPreferences,
-  setPreferencesForTest,
-  updatePreferences,
-} from "./preferences.ts";
-import { subscribeForTerminal_, subscribeSystem_ } from "./publisher.ts";
-import { getSavedSession, setSavedSession } from "./session.ts";
+import { terminalChannels } from "./publisher.ts";
+import { pwaIdentityForHostname } from "./pwaIdentity.ts";
+import { surfaceRouter, t, unwrapGit } from "./surface.ts";
+import { getTerminal, type TerminalProcess } from "./terminal-registry.ts";
 import {
   createTerminal,
-  getTerminal,
   killAllTerminals,
   killTerminal,
-  listTerminals,
   setActiveTerminalId,
   setCanvasLayout,
   setSubPanelState,
   setTerminalParent,
   setTerminalTheme,
-  type TerminalProcess,
 } from "./terminals.ts";
-
-const t = implement(contract);
 
 /** Get terminal or throw — shared by all per-terminal handlers. */
 function requireTerminal(id: string): TerminalProcess {
@@ -51,29 +44,11 @@ function requireTerminal(id: string): TerminalProcess {
   return entry;
 }
 
-/** Unwrap a GitResult or throw an ORPCError for the client. */
-function unwrapGit<T>(result: GitResult<T>): T {
-  if (result.ok) return result.value;
-  const e = result.error;
-  const status =
-    e.code === "BASE_BRANCH_NOT_FOUND"
-      ? "PRECONDITION_FAILED"
-      : "INTERNAL_SERVER_ERROR";
-  const message =
-    e.code === "PATH_ESCAPES_ROOT"
-      ? `path escapes root: ${e.child}`
-      : e.code === "BASE_BRANCH_NOT_FOUND"
-        ? e.message
-        : "message" in e
-          ? e.message
-          : `Git operation failed: ${e.code}`;
-  throw new ORPCError(status, { message });
-}
-
 export const appRouter = t.router({
+  ...surfaceRouter,
   server: {
     info: t.server.info.handler(async () => ({
-      hostname: serverHostname,
+      identity: pwaIdentityForHostname(serverHostname),
       processId: serverProcessId,
     })),
   },
@@ -85,12 +60,6 @@ export const appRouter = t.router({
         subPanel: input.subPanel,
       }),
     ),
-    list: t.terminal.list.handler(async function* ({ signal }) {
-      yield listTerminals();
-      for await (const list of subscribeSystem_("terminal-list", signal)) {
-        yield list;
-      }
-    }),
 
     resize: t.terminal.resize.handler(async ({ input }) => {
       requireTerminal(input.id).handle.resize(input.cols, input.rows);
@@ -132,14 +101,9 @@ export const appRouter = t.router({
      */
     attach: t.terminal.attach.handler(async function* ({ input, signal }) {
       const entry = requireTerminal(input.id);
-
-      // Subscribe FIRST, then serialize — any output between these two
-      // steps is queued inside the publisher, not lost.
-      const live = subscribeForTerminal_("data", input.id, signal);
-
+      const live = terminalChannels.data(input.id).subscribe(signal);
       const screenState = entry.handle.getScreenState();
       if (screenState) yield screenState;
-
       for await (const data of live) yield data;
     }),
 
@@ -189,32 +153,74 @@ export const appRouter = t.router({
       killAllTerminals();
     }),
 
-    onMetadataChange: t.terminal.onMetadataChange.handler(async function* ({
-      input,
-      signal,
-    }) {
-      const entry = requireTerminal(input.id);
-      yield { ...entry.info.meta };
-      for await (const meta of subscribeForTerminal_(
-        "metadata",
-        input.id,
-        signal,
-      )) {
-        yield meta;
-      }
-    }),
-
-    onExit: t.terminal.onExit.handler(async function* ({ input, signal }) {
-      requireTerminal(input.id);
-      for await (const exitCode of subscribeForTerminal_(
-        "exit",
-        input.id,
-        signal,
-      )) {
-        yield exitCode;
-        return;
-      }
-    }),
+    exportTranscriptHtml: t.terminal.exportTranscriptHtml.handler(
+      async ({ input }) => {
+        const term = requireTerminal(input.id);
+        const agent = term.info.meta.agent;
+        if (!agent) {
+          throw new ORPCError("PRECONDITION_FAILED", {
+            message:
+              "No active agent session in this terminal — start Claude Code, OpenCode, or Codex first",
+          });
+        }
+        const cwd = term.info.meta.cwd;
+        const repoName = term.info.meta.git?.repoName ?? null;
+        const prInfo = prValue(term.info.meta.pr);
+        const pr: TranscriptPr | null = prInfo
+          ? { number: prInfo.number, url: prInfo.url }
+          : null;
+        const transcript = match<typeof agent, Transcript | null>(agent)
+          .with({ kind: "claude-code" }, (a) =>
+            loadClaudeCodeTranscript({
+              sessionId: a.sessionId,
+              cwd,
+              title: a.summary,
+              repoName,
+              model: a.model,
+              contextTokens: a.contextTokens,
+              pr,
+            }),
+          )
+          .with({ kind: "opencode" }, (a) =>
+            loadOpenCodeTranscript(
+              {
+                sessionId: a.sessionId,
+                title: a.summary,
+                repoName,
+                cwd,
+                model: a.model,
+                contextTokens: a.contextTokens,
+                pr,
+              },
+              log,
+            ),
+          )
+          .with({ kind: "codex" }, (a) =>
+            loadCodexTranscript(
+              {
+                sessionId: a.sessionId,
+                title: a.summary,
+                repoName,
+                cwd,
+                model: a.model,
+                contextTokens: a.contextTokens,
+                pr,
+              },
+              log,
+            ),
+          )
+          .exhaustive();
+        if (!transcript) {
+          throw new ORPCError("NOT_FOUND", {
+            message: `Transcript not found for ${agent.kind} session ${agent.sessionId}`,
+          });
+        }
+        const html = await transcriptToHtml(transcript);
+        const safeId = agent.sessionId.replace(/[^a-zA-Z0-9_-]/g, "");
+        const filename = `kolu-${agent.kind}-${safeId.slice(0, 12)}.html`;
+        return { html, filename };
+      },
+    ),
   },
   git: {
     worktreeCreate: t.git.worktreeCreate.handler(async ({ input }) => {
@@ -229,77 +235,6 @@ export const appRouter = t.router({
     worktreeRemove: t.git.worktreeRemove.handler(async ({ input }) => {
       log.info({ worktree: input.worktreePath }, "worktree remove");
       unwrapGit(await worktreeRemove(input.worktreePath, log));
-    }),
-    status: t.git.status.handler(async ({ input }) => {
-      return unwrapGit(await getStatus(input.repoPath, input.mode, log));
-    }),
-    diff: t.git.diff.handler(async ({ input }) => {
-      return unwrapGit(
-        await getDiff(
-          input.repoPath,
-          input.filePath,
-          input.mode,
-          log,
-          input.oldPath,
-        ),
-      );
-    }),
-  },
-  fs: {
-    listAll: t.fs.listAll.handler(async ({ input }) => ({
-      paths: unwrapGit(await listAll(input.repoPath, log)),
-    })),
-    readFile: t.fs.readFile.handler(async ({ input }) =>
-      unwrapGit(await readFile(input.repoPath, input.filePath, log)),
-    ),
-  },
-  preferences: {
-    get: t.preferences.get.handler(async function* ({ signal }) {
-      yield getPreferences();
-      for await (const prefs of subscribeSystem_(
-        "preferences:changed",
-        signal,
-      )) {
-        yield prefs;
-      }
-    }),
-    update: t.preferences.update.handler(async ({ input }) => {
-      // Log only patched keys — values may carry user-identifying state.
-      log.info(
-        {
-          keys: Object.keys(input),
-          rightPanel: input.rightPanel
-            ? Object.keys(input.rightPanel)
-            : undefined,
-        },
-        "preferences update",
-      );
-      updatePreferences(input);
-    }),
-    test__set: t.preferences.test__set.handler(async ({ input }) => {
-      setPreferencesForTest(input);
-    }),
-  },
-  activity: {
-    get: t.activity.get.handler(async function* ({ signal }) {
-      yield getActivityFeed();
-      for await (const feed of subscribeSystem_("activity:changed", signal)) {
-        yield feed;
-      }
-    }),
-    test__set: t.activity.test__set.handler(async ({ input }) => {
-      setActivityForTest(input);
-    }),
-  },
-  session: {
-    get: t.session.get.handler(async function* ({ signal }) {
-      yield getSavedSession();
-      for await (const session of subscribeSystem_("session:changed", signal)) {
-        yield session;
-      }
-    }),
-    test__set: t.session.test__set.handler(async ({ input }) => {
-      setSavedSession(input);
     }),
   },
 });

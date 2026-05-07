@@ -14,7 +14,7 @@ import {
 } from "kolu-common/config";
 import * as pty from "node-pty";
 import type { Logger } from "./log.ts";
-import { cleanEnv, osc7Init } from "./shell.ts";
+import { cleanEnv, prepareShellInit } from "./shell.ts";
 
 // @xterm packages ship CJS only — use createRequire for clean ESM interop
 const require = createRequire(import.meta.url);
@@ -89,15 +89,15 @@ export function spawnPty(
   const shell = env.SHELL ?? "/bin/sh";
   const cwd = spawnCwd || env.HOME || "/";
 
-  const osc7 = osc7Init({
+  const shellInit = prepareShellInit({
     shell,
     home: env.HOME,
     terminalId,
   });
-  Object.assign(env, osc7.env);
+  Object.assign(env, shellInit.env);
 
   tlog.debug({ shell, cwd }, "spawning pty");
-  const proc = pty.spawn(shell, osc7.args, {
+  const proc = pty.spawn(shell, shellInit.args, {
     name: "xterm-256color",
     cols: DEFAULT_COLS,
     rows: DEFAULT_ROWS,
@@ -226,7 +226,7 @@ export function spawnPty(
       exitDisposable.dispose();
       proc.kill();
       headless.dispose();
-      osc7.cleanup();
+      shellInit.cleanup();
     },
   };
 }

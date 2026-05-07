@@ -7,12 +7,11 @@ import type {
   CanvasLayout,
   InitialTerminalMetadata,
   TerminalId,
-} from "kolu-common";
+} from "kolu-common/surface";
 import { toast } from "solid-sonner";
 import { availableThemes, pickTheme, resolveThemeBgs } from "terminal-themes";
-import { client } from "../rpc/rpc";
 import { CONTEXTUAL_TIPS } from "../settings/tips";
-import { usePreferences } from "../settings/usePreferences";
+import { client, preferences } from "../wire";
 import { useTips } from "../settings/useTips";
 import { copyTextWithToast } from "./clipboard";
 import { useSubPanel } from "./useSubPanel";
@@ -25,7 +24,6 @@ export function useTerminalCrud(deps: {
   const { store } = deps;
   const subPanel = useSubPanel();
   const { showTipOnce } = useTips();
-  const { preferences } = usePreferences();
 
   /** The terminal the user is currently interacting with —
    *  the active sub-tab when a split has focus, otherwise the workspace root. */

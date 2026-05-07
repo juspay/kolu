@@ -5,15 +5,13 @@
  * provider calls these functions and bridges results into its event system.
  */
 
-import { execSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import type { Logger } from "anyagent";
+import type { Logger } from "kolu-shared";
 import { simpleGit } from "simple-git";
 import { err, type GitResult, ok } from "./errors.ts";
+import { watchGitHead } from "./head-watcher.ts";
 import type { GitInfo } from "./schemas.ts";
-
-const DEBOUNCE_MS = 150;
 
 /** Fast check: does a .git entry exist in this directory? (stat, not a git subprocess) */
 export function hasGitDir(cwd: string): boolean {
@@ -114,50 +112,6 @@ export async function resolveGitInfo(
   }
 }
 
-/**
- * Watch .git/HEAD for changes (branch switches, checkout, etc.).
- * Returns a cleanup function. Returns a no-op for non-git directories.
- */
-export function watchGitHead(
-  cwd: string,
-  onChange: () => void,
-  log?: Logger,
-): () => void {
-  let gitDir: string;
-  try {
-    const result = execSync("git rev-parse --git-dir", {
-      cwd,
-      encoding: "utf-8",
-      stdio: ["pipe", "pipe", "pipe"],
-    });
-    gitDir = path.resolve(cwd, result.trim());
-  } catch {
-    // Expected in non-git directories — watchGitHead is called speculatively.
-    return () => {};
-  }
-
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  let watcher: fs.FSWatcher | undefined;
-  try {
-    watcher = fs.watch(gitDir, (_, filename) => {
-      if (filename !== "HEAD") return;
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(onChange, DEBOUNCE_MS);
-    });
-  } catch (e) {
-    log?.debug(
-      { err: e instanceof Error ? e.message : String(e), gitDir },
-      "git: failed to watch git dir",
-    );
-    return () => {};
-  }
-
-  return () => {
-    if (timer) clearTimeout(timer);
-    watcher?.close();
-  };
-}
-
 /** Compare two GitInfo values for equality. */
 export function gitInfoEqual(a: GitInfo | null, b: GitInfo | null): boolean {
   if (a === b) return true;
@@ -208,12 +162,6 @@ export function subscribeGitInfo(
       );
     }
     if (gitInfoEqual(next, currentInfo)) return;
-    // null → non-null: the HEAD watcher started as a no-op (missing `.git`);
-    // restart it so branch switches in the newly-appeared repo propagate.
-    if (currentInfo === null && next !== null) {
-      stopHead();
-      stopHead = watchGitHead(currentCwd, handleHeadChange, log);
-    }
     currentInfo = next;
     onChange(next);
   }
@@ -226,10 +174,12 @@ export function subscribeGitInfo(
       if (next === currentCwd) {
         // Same cwd — only act if the repo state might have changed from
         // outside. Today that's exactly one case: we thought this dir wasn't
-        // a repo and `.git` has since appeared (e.g. `git init`). The HEAD
-        // watcher was a no-op, so there's no other signal that would trigger
-        // a re-resolve on its own.
+        // a repo and `.git` has since appeared (e.g. `git init`). The
+        // existing `stopHead` is a no-op (install failed for a non-git dir),
+        // so re-install here so the new repo's HEAD changes propagate.
         if (currentInfo === null && hasGitDir(next)) {
+          stopHead();
+          stopHead = watchGitHead(next, handleHeadChange, log);
           void resolve();
         }
         return;

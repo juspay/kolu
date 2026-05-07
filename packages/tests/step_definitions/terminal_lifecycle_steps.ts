@@ -1,12 +1,12 @@
 /** Shared terminal lifecycle + buffer assertion steps. Surface-agnostic —
- *  work for canvas tiles, mobile pager, and the pill tree. */
+ *  work for canvas tiles, mobile pager, and the workspace switcher. */
 
 import * as assert from "node:assert";
 import { Given, Then, When } from "@cucumber/cucumber";
 import { waitForBufferContains } from "../support/buffer.ts";
 import {
   type KoluWorld,
-  PILL_TREE_ENTRY_SELECTOR,
+  WORKSPACE_SWITCHER_ENTRY_SELECTOR,
   POLL_TIMEOUT,
 } from "../support/world.ts";
 
@@ -36,13 +36,13 @@ Then(
 );
 
 When(
-  "I select terminal {int} in the pill tree",
+  "I select terminal {int} in the workspace switcher",
   async function (this: KoluWorld, index: number) {
     const id = this.createdTerminalIds[index - 1];
     assert.ok(id, `No terminal created at index ${index} in this scenario`);
-    // Click the pill-tree branch for this terminal.
+    // Click the workspace-switcher branch for this terminal.
     await this.page
-      .locator(`${PILL_TREE_ENTRY_SELECTOR}[data-terminal-id="${id}"]`)
+      .locator(`${WORKSPACE_SWITCHER_ENTRY_SELECTOR}[data-terminal-id="${id}"]`)
       .click();
     // Wait for the selected terminal to take focus.
     await this.page
@@ -52,22 +52,25 @@ When(
   },
 );
 
-Given("I note the pill tree entry count", async function (this: KoluWorld) {
-  this.savedPillTreeCount = await this.page
-    .locator(PILL_TREE_ENTRY_SELECTOR)
-    .count();
-});
+Given(
+  "I note the workspace switcher entry count",
+  async function (this: KoluWorld) {
+    this.savedWorkspaceSwitcherCount = await this.page
+      .locator(WORKSPACE_SWITCHER_ENTRY_SELECTOR)
+      .count();
+  },
+);
 
 Then(
-  "the pill tree should have {int} more terminal entry/entries",
+  "the workspace switcher should have {int} more terminal entry/entries",
   async function (this: KoluWorld, delta: number) {
-    const expected = (this.savedPillTreeCount ?? 0) + delta;
-    const buttons = this.page.locator(PILL_TREE_ENTRY_SELECTOR);
+    const expected = (this.savedWorkspaceSwitcherCount ?? 0) + delta;
+    const buttons = this.page.locator(WORKSPACE_SWITCHER_ENTRY_SELECTOR);
     await buttons
       .nth(expected - 1)
       .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     const current = await buttons.count();
-    const baseline = this.savedPillTreeCount ?? 0;
+    const baseline = this.savedWorkspaceSwitcherCount ?? 0;
     assert.strictEqual(
       current - baseline,
       delta,
@@ -76,5 +79,5 @@ Then(
   },
 );
 
-// "the pill tree should have N fewer terminal entries" already lives in
+// "the workspace switcher should have N fewer terminal entries" already lives in
 // worktree_steps.ts — don't redeclare it here.

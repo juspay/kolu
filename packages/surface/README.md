@@ -1,0 +1,664 @@
+# @kolu/surface
+
+A small framework for typed reactive state in SolidJS clients backed by an oRPC streaming server. Declare the surface once; the framework derives the contract, wires the server, and binds the client hooks.
+
+Four primitives cover the majority of typed server-to-client signal a Solid client consumes:
+
+| Primitive | The question it answers | Cardinality | What the server sends | Persistable | Mutable from client | Has current value |
+|-----------|-------------------------|-------------|------------------------|-------------|---------------------|-------------------|
+| `Cell<T>` | "What's the current X?" | One singleton | Snapshot then deltas (push on change) | Optional | Yes | Yes |
+| `Collection<K,T>` | "What's the current X for each key K?" | Many, keyed | Per-key snapshot then deltas | Optional | Yes | Yes (per key) |
+| `Stream<I,T>` | "What's the live output for input I?" | One per input combo | Snapshot then deltas (push on derived-state change) | Never | No (read-only) | Yes |
+| `Event<I,T>` | "Has X happened yet?" | Occurrences over time | Zero or more occurrences (no snapshot) | Never | No (read-only) | **No** — handler-based |
+
+The first three (Cell, Collection, Stream) are *state* — there's a current value the consumer renders. `Event` is *occurrence* — a handler fires per yield, no current value to read. Anything genuinely outside these shapes — bidirectional binary streams, commands, queries — stays as raw oRPC.
+
+## Why four primitives, not one
+
+Each captures a structurally distinct shape that bites at runtime if collapsed:
+
+- **Cell vs Collection** — folding many keyed values into a single `Cell<Map<K,V>>` makes every subscriber re-render when any key changes. Independent peers should be observable independently.
+- **Cell/Collection vs Stream** — Streams are computed views over external state (the file system, git, network) the server doesn't own. Caching them as Cells means the framework would have to invalidate state it doesn't manage.
+- **Cell vs Stream** — Cells are identities over time (same logical entity, value evolves). Streams are functions being re-evaluated. The semantic difference shows up in mutation: you can `set` a Cell; you can't `set` a Stream's output without becoming the cache.
+- **Stream vs Event** — Streams have a current value that's rendered (every consumer reads `sub()`); the wire promises a fresh snapshot on every (re-)subscribe. Events are point-in-time fires consumed via handler — no current value, no snapshot obligation, late subscribers miss past occurrences. Modelling `terminal.onExit` as a `Stream<{id}, ExitCode>` would force the consumer to render an iterator that yields once and closes — the wire shape would lie about cardinality.
+
+## Install
+
+This is a workspace-private package. Wire it into both server and client packages:
+
+```jsonc
+// packages/server/package.json + packages/client/package.json
+{
+  "dependencies": {
+    "@kolu/surface": "workspace:*"
+  }
+}
+```
+
+## Two ways in
+
+**Manual** — hand-list each primitive (`cell({...})`, `collection({...})`, `stream({...})`, `event({...})`), hand-list the oRPC contract that talks to them, hand-wire the server's handlers, hand-pass `source`/`mutate` refs to `useCell`/`useCollection`/etc. Maximum flexibility; substantial plumbing per descriptor.
+
+**Surface** (`@kolu/surface/define`) — one `defineSurface({...})` declaration covers every Cell, Collection, Stream, Event, and imperative procedure the app exposes. From it the framework derives:
+
+- `surface.contract` — replaces the hand-written `oc.router({...})` literal.
+- `implementSurface(surface, deps)` — replaces the per-verb `t.X.<verb>.handler(handlers.<verb>)` plumbing (server-side).
+- `surfaceClient(surface, transport)` — replaces hand-passed `source`/`mutate`/`valueSource`/`keyToInput` at every hook call site (client-side).
+
+The surface is opt-in. Reach for it when you're standing up a new app surface or writing a self-contained module; stay manual when an existing wire shape doesn't match the surface's verb-naming defaults (currently `get`/`patch`/`set`/`test__set` for cells, `keys`/`get`/`update`/`delete`/`test__set` for collections — see the example for the full set). The two approaches compose: spread `surface.contract` alongside a sibling `oc.router({...})` of raw procedures, and similarly for `implementSurface`'s output.
+
+See `## Surface` below and `packages/surface/example/` for a full end-to-end demo.
+
+## Architecture
+
+The framework is intentionally non-magical: it does **not** auto-derive an oRPC contract via runtime reflection. TypeScript needs the contract literal at compile time for the typed client to work end-to-end. Consumers hand-list contract entries in their own `oc.router({...})` and pass the matching descriptor to the framework's helpers.
+
+(For surface-driven consumers, `surface.contract` *is* a literal at compile time — it's built statically from the spec by `defineSurface`. The contract is still hand-listed; the surface just reads each entry once instead of you typing it twice.)
+
+```
+                  ┌─────────────────────────┐
+                  │ kolu-common/surface.ts    │   Descriptors live here.
+                  │   cell, collection,     │   Pure data: name, schemas,
+                  │   stream descriptors    │   defaults. No runtime behavior.
+                  └─────────────────────────┘
+                          │              │
+                          │ imports      │ imports
+                          ▼              ▼
+       ┌─────────────────────┐   ┌─────────────────────┐
+       │ server:              │   │ solid:               │
+       │   implementSurface,  │   │   surfaceClient,     │
+       │   cellHandlers,      │   │   useCell,           │
+       │   collectionHandlers,│   │   useCollection,     │
+       │   streamHandlers,    │   │   useStream,         │
+       │   eventHandlers,     │   │   useEvent,          │
+       │   confStore /        │   │   streamCall         │
+       │   publisherChannel   │   │   (Solid hooks)      │
+       └─────────────────────┘   └─────────────────────┘
+```
+
+## Cell
+
+A singleton typed value. The server owns the canonical state; clients subscribe with snapshot-then-deltas semantics.
+
+### Define
+
+```ts
+// packages/common/src/surface.ts
+import { cell } from "@kolu/surface";
+import { z } from "zod";
+
+export const PreferencesSchema = z.object({
+  theme: z.string(),
+  shuffleTheme: z.boolean(),
+  // ...
+});
+export type Preferences = z.infer<typeof PreferencesSchema>;
+
+export const preferences = cell({
+  name: "preferences",
+  schema: PreferencesSchema,
+  default: { theme: "light", shuffleTheme: false },
+});
+```
+
+### Server-side handler
+
+`cellHandlers` returns the four handler bodies a typed cell needs (`get`, `set`, `patch`, `test__set`). Persistence and pub/sub plug in via `CellStore<T>` and `Channel<T>` interfaces — adapters for `conf` (`confStore`) and `@orpc/experimental-publisher` (`publisherChannel`) ship with the framework.
+
+```ts
+// packages/server/src/router.ts
+import { cellHandlers, confStore, publisherChannel } from "@kolu/surface/server";
+import { preferences } from "kolu-common/surface";
+
+const handlers = cellHandlers(preferences, {
+  store: confStore<Preferences>(conf, "preferences"),
+  bus: publisherChannel<Preferences>(publisher, "preferences:changed"),
+  patch: applyPreferencesPatch,  // (current, patch) => next
+});
+
+const t = implement(contract);
+export const appRouter = t.router({
+  preferences: {
+    get: t.preferences.get.handler(handlers.get),
+    update: t.preferences.update.handler(handlers.patch),
+    test__set: t.preferences.test__set.handler(handlers.test__set),
+  },
+  // ...
+});
+```
+
+The framework guarantees snapshot-then-deltas on `get` (yields `store.get()` first, then every value pushed to `bus`); `set`/`patch` validate, persist, and broadcast on the same bus. Swap in any `CellStore` (sqlite, redis, in-memory via `inMemoryStore(default)`) or `Channel` (Redis pub/sub, NATS, etc.) without touching the handler logic.
+
+### Client setup
+
+The framework owns the typed-client construction so consumers never reach into framework internals. Build it once at app start:
+
+```ts
+// packages/client/src/wire.ts (kolu)
+import { createCellsClient } from "@kolu/surface/client";
+import type { contract } from "kolu-common/contract";
+
+const ws = new WebSocket(`wss://${host}/rpc/ws`);
+export const client = createCellsClient<typeof contract>({ websocket: ws });
+```
+
+`createCellsClient` installs `ClientRetryPlugin` and returns the typed oRPC client. Hooks accept procedure refs (e.g. `client.preferences.get`) and thread `STREAM_RETRY` retry context internally — there's no `stream` namespace to maintain. For raw streaming RPCs that don't fit a Cell/Collection/Stream descriptor (terminal `attach`, lifecycle `onExit`), use `streamCall(procedure, input, opts)` — same retry context, escape hatch for non-descriptor shapes.
+
+### Client-side hook
+
+```ts
+// packages/client/src/settings/usePreferences.ts
+import { useCell } from "@kolu/surface/solid";
+import { preferences } from "kolu-common/surface";
+import { client } from "../cells";
+
+export function usePreferences() {
+  return useCell(preferences, {
+    source: client.preferences.get,
+    mutate: client.preferences.update,
+    authority: "local",       // optimistic local apply; ignore server echoes after init
+    initial: DEFAULT_PREFERENCES,
+    applyPatch: (current, p) => deepMergePrefs(current, p),
+  });
+}
+```
+
+The hook returns:
+
+```ts
+{
+  value:   () => Preferences | undefined,
+  pending: () => boolean,
+  error:   () => Error | undefined,
+  set:     (next: Preferences) => Promise<void>,
+  patch:   (p: PreferencesPatch) => Promise<void>,
+  sub:     Subscription<Preferences>,
+}
+```
+
+### Authority modes
+
+- **`"server"` (default)** — server is canonical. Every server push reconciles into the local view. Mutations RPC; the resulting echo updates the view.
+
+- **`"local"`** — local store is authoritative after init. The first server yield seeds the store; subsequent server pushes are ignored. `set` / `patch` apply locally synchronously (instant UI response), then RPC to the server. The server's echo is intentionally ignored to avoid stomping a just-made client write whose RPC hasn't round-tripped yet.
+
+Local authority is for state where instant UI response gates re-render timing. Without it, every flip introduces a single-frame lag while the round-trip completes.
+
+For non-shallow merges (e.g. discriminated-union nested fields), pass `mergeIntoStore` instead of (or in addition to) `applyPatch`. It receives Solid's `setStore` directly:
+
+```ts
+mergeIntoStore: (setStore, patch) => {
+  if (patch.tab) setStore("rightPanel", "tab", reconcile(patch.tab));
+  if (patch.collapsed !== undefined) setStore("rightPanel", "collapsed", patch.collapsed);
+}
+```
+
+## Collection
+
+A keyed dictionary of typed values. Each key is independently observable; the live key set is its own subscription.
+
+### Define
+
+```ts
+import { collection } from "@kolu/surface";
+
+export const terminalMetadata = collection({
+  name: "terminalMetadata",
+  keySchema: TerminalIdSchema,
+  schema: TerminalMetadataSchema,
+});
+```
+
+### Client-side hook
+
+```ts
+const meta = useCollection(terminalMetadata, {
+  keys: () => terminalIds(),  // caller-provided live key set (any reactive accessor)
+  valueSource: client.terminal.onMetadataChange,
+  keyToInput: (id) => ({ id }),  // adapt key shape to the procedure's input shape
+});
+
+meta.keys();          // Accessor<TerminalId[]>
+meta.byKey(id);       // Subscription<TerminalMetadata> | undefined
+meta.byKey(id)?.();   // current value or undefined
+```
+
+`keyToInput` is required when the procedure's input shape isn't the bare key — most contracts wrap it (`{ id }`, `{ key }`, etc.). When input is the key itself, omit it.
+
+Per-key subscriptions are managed via `mapArray` so SolidJS handles lifecycle: when a key leaves the live set, its reactive owner is disposed, the per-key subscription's `onCleanup` fires, the AbortController aborts, and the server stream tears down. No manual Map / version signals / abort plumbing required at the call site.
+
+## Stream
+
+A derived view computed on demand from a reactive input. Snapshot-then-deltas, never persisted.
+
+### Define
+
+```ts
+import { stream } from "@kolu/surface";
+
+export const gitStatus = stream({
+  name: "gitStatus",
+  inputSchema: z.object({ repoPath: z.string(), mode: GitDiffModeSchema }),
+  outputSchema: GitStatusOutputSchema,
+});
+```
+
+### Server-side: declarative poll-on-event
+
+For streams that watch external state (git, fs), the framework absorbs the snapshot+install+re-read+isEqual loop. The stream impl declares `read` + `install` + `isEqual`; the framework synthesizes the source internally:
+
+```ts
+streams: {
+  gitStatus: {
+    read: async (input) =>
+      unwrapGit(await getStatus(input.repoPath, input.mode, log)),
+    install: (input, cb) => subscribeRepoChange(input.repoPath, cb, log),
+    isEqual: gitStatusOutputEqual,
+  },
+}
+```
+
+The initial read's exception propagates to the client (first frame); subsequent read failures retry on the next tick — a transient git error shouldn't tear down a long-lived subscription. Subsequent-read errors flow through `onReadError` (per-stream) or the top-level `onStreamReadError` set on `implementSurface`'s deps. The framework refuses to wire a poll-shape stream that has no observability for these failures (boot-time check).
+
+The raw `source: (input, signal) => AsyncIterable<T>` shape stays available for cases that don't fit poll-on-event (custom snapshot computation, long-poll, bidirectional streams). The two shapes are a discriminated union; supplying both is a type error.
+
+### Client-side hook
+
+```ts
+const status = useStream(
+  gitStatus,
+  () => repoPath() ? { repoPath: repoPath(), mode: mode() } : null,
+  client.git.onStatusChange,
+);
+
+status();          // current GitStatusOutput | undefined
+status.pending();  // true between input change and first yield
+status.error();    // last subscription error
+```
+
+When the input changes, the previous subscription tears down and a fresh one starts; value resets to `undefined` between input change and first yield.
+
+## Event
+
+A point-in-time channel: occurrences flow from server to client, the consumer registers a handler, no current value to render. Distinct from `Stream<I,T>` because the framework guarantees no snapshot on (re-)subscribe — late subscribers miss past occurrences by design. Lifecycle notifications (terminal exit, session expiry, one-shot completions) fit this shape.
+
+### Define
+
+```ts
+import { event } from "@kolu/surface";
+
+export const terminalExitEvent = event({
+  name: "terminalExit",
+  inputSchema: z.object({ id: TerminalIdSchema }),
+  outputSchema: z.number(),  // exit code
+});
+```
+
+### Server-side handler
+
+`eventHandlers` produces the `get` body for the contract entry. The framework explicitly does **not** require the source to yield a snapshot — sources may yield zero, one, or many occurrences before the iterator closes:
+
+```ts
+import { eventHandlers } from "@kolu/surface/server";
+
+const exitHandlers = eventHandlers(terminalExitEvent, {
+  source: async function* (input, signal) {
+    requireTerminal(input.id);
+    for await (const code of terminalChannels.exit(input.id).subscribe(signal)) {
+      yield code;
+      return;  // single-yield-then-close
+    }
+  },
+});
+
+t.terminal.onExit.handler(exitHandlers.get);
+```
+
+The split from `streamHandlers` exists so authors can't accidentally wire an event source — which has no snapshot — to a stream handler that promises snapshot-then-deltas.
+
+### Client-side hook
+
+```ts
+useEvent(
+  terminalExitEvent,
+  () => ({ id: terminalId }),
+  client.terminal.onExit,
+  (exitCode) => {
+    toast.warning(`Terminal exited with ${exitCode}`);
+    removeAndAutoSwitch(terminalId);
+  },
+  { onError: (err) => console.error("Exit stream error:", err) },
+);
+```
+
+`useEvent` returns nothing — there's no `Subscription<T>` because there's no current value to access. Cleanup is signal-driven: by default the subscription dies when the reactive owner disposes (component unmount or `createRoot` dispose); pass `options.signal` for explicit lifecycle control.
+
+When the input accessor returns `null` the subscription is paused; when it changes, the previous subscription tears down and a fresh one starts.
+
+## How Kolu uses this framework
+
+Concrete inventory — what every server-pushed reactive surface in Kolu maps to today.
+
+### Cells
+
+| Descriptor | Backs | Authority | Mutation | Persistence |
+|---|---|---|---|---|
+| `preferencesCell` | User preferences (theme, scrollLock, sound, rightPanel state, …) | `local` (instant UI) | `client.preferences.update(patch)` | `confStore("preferences")` |
+| `terminalListCell` | Live terminal list — drives the workspace switcher, canvas tile set, mobile swipe order | `server` | _server-only_ (via `terminal.create` / `kill` mutations) | `inMemoryStore` (registry is canonical) |
+| `activityFeedCell` | Recent repos cd'd into + recent agent CLIs spotted via OSC 633;E | `server` | _server-only_ (via `trackRecentRepo` / `trackRecentAgent`) | `confStore("activityFeed")` |
+| `savedSessionCell` | Last-persisted snapshot of terminals + active id (drives session restore) | `server` | _server-only_ (debounced autosave on `terminals:dirty`) | `confStore("session")` |
+
+### Collections
+
+| Descriptor | Backs | Mutation |
+|---|---|---|
+| `terminalMetadataCollection` | Per-terminal metadata (cwd, git, PR, agent state, foreground process) — each terminal's tile chrome and inspector reads its own key | _server-only_ (providers under `meta/*.ts` write via `updateServerMetadata`) |
+
+### Streams
+
+| Descriptor | Backs |
+|---|---|
+| `gitStatusStream` | Code-view's Local/Branch mode file list (changed files) |
+| `gitDiffStream` | Code-view's unified diff for the selected file |
+| `fsListAllStream` | Code-view's All mode tree (full repo path list) |
+| `fsReadFileStream` | Code-view's All mode body (file content) |
+
+### Events
+
+| Descriptor | Backs |
+|---|---|
+| `terminalExitEvent` | Per-terminal one-shot exit notification — drives the exit toast and the active-terminal auto-switch in `useTerminals` |
+
+### Raw oRPC (everything else)
+
+Shapes that don't fit a descriptor stay as plain oRPC procedures.
+
+| Pattern | Procedures | How to consume |
+|---|---|---|
+| **Bidirectional binary stream** — subscribe-before-yield ordering, custom `onRetry` (xterm buffer reset before re-subscribe's first frame) | `terminal.attach` | `streamCall(client.terminal.attach, { id }, { signal, onRetry })` |
+| **One-shot queries** — request/response, no subscription dimension | `server.info`, `terminal.screenState`, `terminal.screenText`, `terminal.exportTranscriptHtml` | `await client.X.Y(input)` |
+| **Mutations** — request/response writes | `terminal.create` / `kill` / `killAll` / `resize` / `sendInput` / `setTheme` / `setCanvasLayout` / `setSubPanel` / `setActive` / `setParent` / `pasteImage`, `git.worktreeCreate` / `worktreeRemove`, `preferences.update` | `await client.X.Y(input)` (the retry plugin's `retry: 0` default fails them fast) |
+
+`streamCall` applies the same `STREAM_RETRY` context the descriptor hooks thread (and merges in an optional `onRetry` callback) so transport drops re-subscribe transparently — escape hatch for non-descriptor shapes, same retry semantics.
+
+_The shared property of the "raw" rows: there's no temporal sequence of values for a given identity that the client cares to subscribe to. The framework is for typed reactive state pushed from server to client (Cell/Collection/Stream) plus typed point-in-time fires (Event); everything else stays raw._
+
+### Adding a new descriptor — worked example
+
+Surface mode keeps the addition cost at **two files**. To add (say) a new `windowBounds` cell tracking last window position/size:
+
+**1. `packages/common/src/surface.ts`** — declare schema + descriptor entry on the spec:
+
+```ts
+export const WindowBoundsSchema = z.object({
+  x: z.number(),
+  y: z.number(),
+  w: z.number(),
+  h: z.number(),
+});
+
+export const surface = defineSurface({
+  cells: {
+    // ...existing cells...
+    windowBounds: {
+      schema: WindowBoundsSchema,
+      default: { x: 0, y: 0, w: 1280, h: 800 },
+      verbs: ["get", "set", "test__set"],
+    },
+  },
+  // ...collections / streams / events / procedures unchanged...
+});
+
+export type WindowBounds = Surface["cells"]["windowBounds"]["Value"];
+```
+
+**2. `packages/server/src/surface.ts`** — add one wiring entry under `cells`:
+
+```ts
+const windowBoundsStore = confStore<WindowBounds>(store, "windowBounds");
+
+implementSurface(surface, {
+  channel: ...,
+  cells: {
+    // ...existing cells...
+    windowBounds: { store: windowBoundsStore },
+  },
+  // ...collections / streams / events / procedures unchanged...
+});
+```
+
+If the new field needs to seed existing users' on-disk state, bump `SCHEMA_VERSION` in `state.ts` and add a migration — the standard `Conf` ladder, untouched by the framework.
+
+**Client gets it for free.** `app.cells.windowBounds.use({ initial })` reads it; `app.cells.windowBounds.set(next)` writes. No wire-handler to write, no hook to maintain, no oRPC contract entry to edit — `surface.contract` is recomputed from the spec on every build.
+
+Adding a new collection, stream, or event follows the same shape: spec entry in `common/surface.ts` + wiring entry in `server/surface.ts`. _The 2-file invariant is the framework's value proposition — flag it in code review if the count creeps up._
+
+## Surface
+
+`defineSurface({...})` declares the whole reactive surface of an app at one site. The example (`packages/surface/example/`) ships a working surface end-to-end — start there for a runnable reference.
+
+```ts
+// common/surface.ts
+import { defineSurface } from "@kolu/surface/define";
+import { z } from "zod";
+
+export const surface = defineSurface({
+  cells: {
+    prefs: {
+      schema: PrefsSchema,
+      default: DEFAULT_PREFS,
+      patchSchema: PrefsPatchSchema,
+      // `patch` lives on the spec so server and client apply patches via
+      // the same merge fn — no helper imported in two places.
+      patch: (current, p) => ({ ...current, ...p }),
+    },
+  },
+  collections: {
+    notes: { keySchema: z.string(), schema: NoteSchema },
+  },
+  streams: {
+    search: { inputSchema: SearchInputSchema, outputSchema: SearchResultSchema },
+  },
+  events: {
+    autosave: { inputSchema: z.string(), outputSchema: AutosaveSchema },
+  },
+  // Imperative escape hatch — non-descriptor RPCs share the namespace.
+  procedures: {
+    notes: { create: { input: NoteCreateSchema, output: NoteSchema } },
+  },
+});
+
+// Use `surface.contract` at server (`implement(surface.contract)`) and
+// client (`createCellsClient<typeof surface.contract>(...)`) — no
+// separate `contract.ts` re-export needed.
+```
+
+### Server
+
+```ts
+// server/router.ts
+import { implementSurface, publisherChannel } from "@kolu/surface/server";
+
+export const appRouter = implementSurface(surface, {
+  channel: <T>(name: string) => publisherChannel<T>(publisher, name),
+  cells:       { prefs: { store, patch: patch } },
+  collections: { notes: { readAll, upsert, remove } },  // persistence-only; surface wraps publish
+  streams:     { search: { source } },
+  events:      { autosave: { source } },
+  procedures:  {
+    notes: {
+      // ctx exposes surface-wrapped helpers; cross-descriptor publishes
+      // route through the same channels the wire handlers do.
+      create: async ({ input, ctx }) => {
+        const note = { id: nextId(), ...input };
+        ctx.collections.notes.upsert(note.id, note);
+        return note;
+      },
+    },
+  },
+});
+```
+
+The surface derives publish channel names and they are not configurable: cells use `"<key>:changed"`, collections use `"<key>:keys"` + `"<key>:" + String(k)`, events use `"<key>:" + eventChannelKey(input)`. Renaming a surface key thus renames the channel — for cells whose channels back persisted subscriptions, prefer adding a new key and migrating off the old one.
+
+### Client
+
+```ts
+// client/wire.ts
+import { surfaceClient } from "@kolu/surface/solid";
+import type { ContractRouterClient } from "@orpc/contract";
+import type { ClientRetryPluginContext } from "@orpc/client/plugins";
+
+export const app = surfaceClient<
+  typeof surface.spec,
+  ContractRouterClient<typeof surface.contract, ClientRetryPluginContext>
+>(surface, { websocket });
+
+// In components:
+const prefs = app.cells.prefs.use({ authority: "local", initial: DEFAULT_PREFS, applyPatch });
+const notes = app.collections.notes.use({ onError });
+//   notes.keys()         — Accessor<K[]>, defaults to the server's keys stream
+//   notes.byKey(id)?.()  — Subscription<T> per key
+//   notes.upsert(k, v)   — bound mutation (also at app.collections.notes.upsert)
+//   notes.delete(k)      — bound mutation (also at app.collections.notes.delete)
+// Pass `keys` explicitly only to filter or derive (e.g. from a parent list).
+const search = app.streams.search.use(searchInput, { onError });
+app.events.autosave.use(selectedId, handler, { onError });
+
+// Lifecycle-free mutation paths — call from anywhere, including
+// outside a component:
+await app.collections.notes.upsert(id, value);
+
+// Imperative procedures (the escape hatch for verbs the primitives
+// can't model — `notes.create` assigns the id server-side) go through
+// `app.rpc` under the `surface.*` namespace `defineSurface` wraps
+// everything in:
+await app.rpc.surface.notes.create({ title: "Untitled" });
+```
+
+### Composing with raw oRPC
+
+For RPCs the surface can't model — bidirectional binary streams (`terminal.attach`), custom `onRetry` hooks, or any wire shape outside the cell/collection/stream/event taxonomy — keep them in a sibling `oc.router({...})` and merge:
+
+```ts
+export const contract = oc.router({
+  ...surface.contract,
+  terminal: rawTerminalContract,  // hand-written for terminal.attach + friends
+});
+```
+
+On the server, `implementSurface(surface, deps)` returns `{ router, ctx }`; spread `router` into the host `t.router({...})` block alongside hand-written handlers, and import `ctx` from domain code for typed mutations (`ctx.cells.X.set(...)`, `ctx.collections.X.upsert(k, v)`, `ctx.events.X.publish(input, payload)`) — the surface owns the apply+publish chain so parallel `store.set + bus.publish` paths don't drift.
+
+## API reference
+
+### Descriptors (`@kolu/surface`)
+
+```ts
+cell({ name, schema, default }): Cell<Name, T>
+collection({ name, keySchema, schema }): Collection<Name, K, T>
+stream({ name, inputSchema, outputSchema }): Stream<Name, I, T>
+event({ name, inputSchema, outputSchema }): Event<Name, I, T>
+```
+
+### Surface (`@kolu/surface/define`)
+
+```ts
+defineSurface(spec): Surface<S>
+  // spec.cells / .collections / .streams / .events / .procedures
+  // surface.contract — typed oc.router built from the spec
+  // surface.descriptors — underlying primitives keyed by surface path
+  // surface.spec — passed-in spec for reflection
+```
+
+### Server (`@kolu/surface/server`)
+
+```ts
+implementSurface(surface, { channel, cells, collections, streams, events, procedures })
+  // → oc.router-shape value with all handlers wired
+
+cellHandlers(cell, { store, bus, patch?, onMutate? }): { get, set, patch, test__set }
+collectionHandlers(coll, { readAll, readOne?, upsert, remove, perKeyBus, keysBus }):
+  { keys, get, update, delete, test__set }
+streamHandlers(stream, { source }): { get }
+eventHandlers(event, { source }): { get }
+
+// Storage + bus adapters
+inMemoryStore<T>(initial): CellStore<T>
+confStore<T>(conf, key): CellStore<T>
+publisherChannel<T>(publisher, channelName): Channel<T>
+
+interface CellStore<T> { get(): T; set(v: T): void }
+interface Channel<T> {
+  publish(v: T): void
+  subscribe(signal?): AsyncIterable<T>
+  consume({ onEvent, onError }): () => void  // subscribe + dispatch + auto-cleanup
+}
+```
+
+`pollOnEvent` is the underlying snapshot+install+re-read helper, exposed for advanced cases. Most poll-shape streams should use the declarative `{ read, install, isEqual }` form on `implementSurface(...).streams.<key>` (above) — the framework synthesizes the `pollOnEvent` call.
+
+### Solid client (`@kolu/surface/solid`)
+
+```ts
+surfaceClient<S, Rpc>(surface, { websocket }): SurfaceClient<S, Rpc>
+  // client.cells.<K>.use(policy)                  ← drops source/mutate
+  // client.collections.<K>.use({ keys?, ... })    ← keys defaults to server stream
+  // client.collections.<K>.{upsert, delete}       ← lifecycle-free mutations
+  // client.streams.<K>.use(inputFn, opts?)
+  // client.events.<K>.use(inputFn, handler, opts?)
+  // client.rpc                                    ← typed oRPC client (pass Rpc generic for narrowing)
+
+useCell(cell, { source, mutate?, authority?, applyPatch?, mergeIntoStore?, initial?, onError? })
+useCollection(collection, { keys, valueSource, keyToInput?, onError? })
+useStream(stream, inputFn, source, { onError? }?)
+useEvent(event, inputFn, source, handler, { onError?, signal? }?): void
+
+streamCall(procedure, input, { signal?, onRetry? }?): Promise<AsyncIterable<O>>
+// `surfaceClient` builds the underlying RPC client internally; the
+// constructor itself lives at `@kolu/surface/client` for non-Solid consumers.
+
+createSubscription(source, options?): Subscription<T>           // leaf primitive
+createReactiveSubscription(inputFn, factory, options?): Subscription<T>
+```
+
+`source` / `valueSource` accept typed oRPC procedure refs directly (e.g. `client.preferences.get`); the hook threads `STREAM_RETRY` retry context internally. The leaf primitives `createSubscription` / `createReactiveSubscription` are exposed for advanced consumers that need direct AsyncIterable→Accessor lifting outside the cell/collection/stream taxonomy.
+
+## Comparison with Reflex-FRP
+
+The framework's vocabulary takes inspiration from Haskell's [reflex-frp](https://github.com/reflex-frp/reflex), specifically `Reflex.Class.Behavior`, `Event`, `Dynamic`, and `Incremental`. The core mappings:
+
+| Reflex | `@kolu/surface` | Notes |
+|---|---|---|
+| `Dynamic t a` (with no input) | `Cell<T>` | Same shape: a value over time. Cell's wire is `Incremental t (Replace a)` — every push is a full replacement. |
+| `Dynamic t a` (parameterized by input) | `Stream<I,T>` | Reflex models input-dependent dynamics by composing — `Dynamic t I → Dynamic t a` via `joinDyn` / `bind`. We model it as a single primitive because the parameterization is a wire-protocol concern (subscribe with input I) rather than a composition concern. |
+| `Incremental t (PatchMap K T)` | `Collection<K,T>` | Same shape: a map snapshot plus per-key add/remove/update patches. `mapArray`-driven per-key reactivity is the equivalent of Reflex's `selectIncremental`. |
+| `Event t a` | `Event<I,T>` | Same shape: occurrences without a current value. We parameterize by input I (the subscriber declares interest in occurrences for some entity) where Reflex composes `Event t I → Event t a`. |
+| `Behavior t a` | _(none)_ | Pull-only sample-on-demand is rare in our UI path. We use functions instead. |
+
+### What we took
+
+- **The vocabulary.** Naming `Cell` / `Collection` / `Stream` / `Event` borrows from Reflex's lattice: state with current value (Dynamic / Incremental) vs occurrence-without-value (Event). The `Stream` vs `Event` split in particular is the Reflex distinction between "the iterator yields a current snapshot on (re-)subscribe" and "the iterator yields occurrences with no snapshot obligation," translated into oRPC wire shape.
+- **Snapshot+deltas as the wire equivalent of `Incremental`.** Reflex's `Incremental t p` is "a Dynamic with patches instead of full replacements." The framework's snapshot-then-deltas wire protocol is the same idea — a fresh snapshot replaces stale state on reconnect, deltas roll forward thereafter. Server-side helpers enforce the snapshot-first invariant in code.
+- **`Stream<I,T>` as input-parameterized state.** Reflex consumers think of subscriptions as "a Dynamic that depends on a Dynamic input" (composed via `joinDyn`). `useStream(descriptor, () => input(), source)` is the same idea wired to a wire boundary: the input accessor changing tears down the old subscription and starts a fresh one.
+
+### What we didn't take
+
+- **`Behavior` (pull-only sampling).** Reflex's `Behavior t a` is a function `t -> a` you sample without subscribing. In a Solid client we have closures and `createMemo`; nothing the framework ships needs to model "value at time `t`" as a separate concept. Skipped.
+- **`MonadQuery`'s `Group q` / `crop` / `SelectedCount` machinery.** Reflex's cross-network story (used in Obelisk / Focus) is: clients maintain a `Dynamic t Query` of their declarations of interest; the server aggregates clients' queries via a `Group q` instance, runs unified data-source subscriptions, and `crop`s results back per client. This pays off when the cost of "100 clients each watching the same key" is real. Kolu is single-client per session — refcounting, server-side dedup, and `crop` projections solve a problem we don't have. The cost (every value type implementing `Group` / `Commutative` / `Query` / `Monoid`-on-`QueryResult`) would be plumbing without payback. Skipped.
+- **Reflex's monadic frame semantics.** Reflex orchestrates frame coherence (every Event firing in a frame is consistent with every Behavior sampled in the same frame). We rely on Solid's reactive scheduler for frame coherence on the client; the wire's snapshot-then-deltas invariant is what's load-bearing on the server. Not modelled.
+- **`Dynamic`'s monadic API (`bind` / `joinDyn` / `holdDyn`).** Reflex composes `Dynamic`s into bigger `Dynamic`s monadically. We expose Solid's primitives (`createMemo`, `on`, `derive`) for that — the framework's job stops at the wire boundary.
+- **One-primitive-fits-all (`Dynamic` over everything).** Reflex's `Dynamic` is general enough to encode singletons, keyed maps, parameterized views — all by varying the type parameter. We chose to keep four primitives because the type-level distinctions (`Stream` is read-only and never persisted; `Event` has no current value to render; `Cell.default` is one canonical seed shared across consumers) encode domain invariants the type system enforces. Collapsing to a single primitive would move those invariants from compile-time enforcement to runtime convention.
+
+The principle: the framework adopts reflex-FRP's *vocabulary* and *snapshot+deltas-as-Incremental* framing. It doesn't adopt the cross-network query machinery, the pull-side `Behavior`, or the monadic Dynamic composition — those pay off in problems Kolu doesn't have, at a plumbing cost Kolu would have to carry.
+
+## Design notes
+
+- **Snapshot-then-deltas is load-bearing.** The streaming retry plugin re-invokes the source function on every reconnect. The first frame of every stream MUST be a fresh full snapshot, otherwise reconnects silently lose state. Every server-side helper enforces this in code.
+
+- **The reconcile-or-assign branch is shared.** `createSubscription` and `createReactiveSubscription` use identical logic to write a new value into the local store: `reconcile` for objects/arrays (fine-grained reactivity), plain assignment for primitives. This used to be duplicated with a "keep in sync" comment between the two; now it lives in one place.
+
+- **Local authority's "ignore subsequent echoes" is the subtle invariant.** A naive implementation reconciles every server push into the local store. The bug surfaces only when an unrelated event piggybacks on the same channel: an activity-feed tick, say, would stomp a just-made preferences write whose RPC hadn't round-tripped yet. `useCell` with `authority: "local"` reconciles only on the first yield and then ignores the subscription thereafter — the local store is authoritative.
+
+- **`patch` is a cross-runtime contract.** When a cell's spec declares `patch: (current, p) => ...`, that exact function is invoked on **both** sides — the server's `cellHandlers.patch` verb runs it to merge incoming patches before persist+publish, and `surfaceClient` defaults the client's `useCell` `applyPatch` to it for `authority: "local"` cells (`packages/surface/src/solid/surfaceClient.ts:189-200`). The function is shared only because `common/surface.ts` is compiled into both packages — there is no runtime sync. _If server and client are deployed at different versions and `patch` changed between them, server applies new merge logic while the client applies old (or vice versa) and the views drift silently with no error._ Treat any change to `patch` as a wire-format change: server and client must redeploy together. The same applies to schemas referenced from the spec; treat the whole spec as a versioned contract.
+
+- **No second consumer pressure.** This package was extracted to decomplect Kolu's client and server source trees, not to be reused. The boundary is shaped by Kolu's actual ragged edges (terminal.attach's subscribe-before-yield, gitStatus's poll-on-event) rather than speculative ones; no contract auto-derivation, no pluggable backends beyond what Kolu actually has.

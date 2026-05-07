@@ -1,0 +1,29 @@
+{
+  "name": "kolu-transcript-html",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./src/index.tsx",
+  "types": "./src/index.tsx",
+  "exports": {
+    ".": "./src/index.tsx"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@pierre/diffs": "^1.1.20",
+    "kolu-common": "workspace:*",
+    "kolu-transcript-core": "workspace:*",
+    "marked": "^18.0.2",
+    "preact": "^10.29.1",
+    "preact-render-to-string": "^6.6.7",
+    "ts-pattern": "^5.9.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.8.0"
+  }
+}

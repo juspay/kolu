@@ -1,11 +1,21 @@
 /**
  * Shell environment preparation for PTY spawning.
  *
- * Passes the server's env straight through to PTY shells and injects
- * OSC 7 CWD reporting hooks.  Nix devshell pollution is handled at
- * startup: the server refuses to start inside a nix shell unless
- * --allow-nix-shell-with-env-whitelist is passed (used by `just dev` /
- * `just test`).
+ * Two cooperating layers reach the spawned PTY:
+ *   1. cleanEnv() — sanitizes the parent env passed to the PTY.
+ *   2. prepareShellInit() — writes a wrapper rcfile that replays the shell's
+ *      normal startup chain (which our --rcfile / ZDOTDIR override would
+ *      otherwise suppress) and injects kolu's OSC hooks.
+ *
+ * The split matters under macOS launchd user agents, where the parent env
+ * is near-empty and cleanEnv passthrough alone wouldn't carry a usable
+ * PATH — the wrapper's replay step compensates by sourcing user dotfiles
+ * directly. Linux/systemd masks this because PAM seeds the user-instance
+ * env from the login session.
+ *
+ * Nix devshell pollution is handled at startup: the server refuses to run
+ * inside a nix shell unless --allow-nix-shell-with-env-whitelist is passed
+ * (used by `just dev` / `just test`).
  */
 
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
@@ -47,11 +57,16 @@ export function configureNixShellEnv(whitelist: string | undefined): void {
 }
 
 /**
- * Build env for the PTY shell.
+ * Sanitize the parent env that will reach the PTY shell.
  *
  * Without a whitelist (production): pass process.env straight through.
  * With a whitelist (dev/test inside nix shell): pick only whitelisted vars
  * and override SHELL with the user's login shell from /etc/passwd.
+ *
+ * Scope note: this layer only filters what the parent process exposes.
+ * Restoring user env that the parent doesn't carry (e.g. PATH from
+ * ~/.zshenv under macOS launchd) is the wrapper rcfile's job — see
+ * prepareShellInit.
  */
 export function cleanEnv(): Record<string, string> {
   let env: Record<string, string>;
@@ -144,96 +159,133 @@ export const OSC2_PREEXEC_BASH_GUARD = [
 export const OSC2_PRECMD_BASH = `__kolu_title_precmd() { printf '\\033]2;%s\\033\\\\' "$(dirs +0)"; }`;
 export const OSC2_PRECMD_ZSH = `__kolu_title_precmd() { print -Pn '\\e]2;%(4~|…/%3~|%~)\\a'; }`;
 
+type SpawnInit = {
+  args: string[];
+  env: Record<string, string>;
+  cleanup: () => void;
+};
+
 /**
- * Prepare shell init that injects hooks *after* the user's login + rc files.
+ * Per-shell wrapper-rc strategy.
  *
- * The wrapper rc sources the login init chain (/etc/profile, ~/.bash_profile
- * or ~/.zprofile) followed by the interactive rc (~/.bashrc / ~/.zshrc), then
- * appends kolu's OSC hooks. This gives terminals the full PATH even when
- * the server runs as a systemd user service with a minimal environment.
+ * Two volatility axes are separated here so neither hides regressions in
+ * the other:
  *
- * We can't just set PROMPT_COMMAND in env — tools like starship overwrite it.
- * The wrapper approach lets us append after all user init completes.
+ *   - **replay**: the user dotfiles the shell would have auto-sourced if
+ *     our wrapper override didn't suppress the lookup. New entries land
+ *     here when shell startup semantics change (e.g. zsh's ~/.zshenv
+ *     gap, fixed in #800). Anything missing is silently stripped from
+ *     PTY shells whenever the parent env is empty.
  *
- * Returns extra spawn args, env overrides, and a cleanup function to remove
- * any temp files created.
+ *   - **hooks**: OSC injection script lines. Conceptually the same goal
+ *     across shells but expressed differently (bash DEBUG trap vs zsh
+ *     add-zsh-hook), so the lists aren't merge-able.
+ *
+ * The wrapper *mechanism* (--rcfile vs ZDOTDIR) is encapsulated in
+ * `spawn`, which writes the assembled rcContent and returns spawn args
+ * + env override + cleanup.
  */
-export function osc7Init(opts: {
-  shell: string;
-  home: string | undefined;
-  terminalId: string;
-}): { args: string[]; env: Record<string, string>; cleanup: () => void } {
-  const { shell, home, terminalId } = opts;
-  const noop = { args: [], env: {}, cleanup: () => {} };
-  if (!home) return noop;
+type ShellInit = {
+  replay: (home: string) => string[];
+  hooks: string[];
+  spawn: (rcContent: string, terminalId: string) => SpawnInit;
+};
 
-  const isBash = shell.endsWith("/bash") || shell.endsWith("/bash5");
-  const isZsh = shell.endsWith("/zsh");
-
-  if (isBash) {
+const BASH_INIT: ShellInit = {
+  replay: (home) => [
+    // /etc/profile pulls in distro-wide additions (e.g. NixOS sources
+    // /etc/profile.d/hm-session-vars.sh, which sets PATH).
+    `[ -f /etc/profile ] && . /etc/profile`,
+    // Bash login priority: first existing of these wins. Mirrors bash's
+    // own login-shell semantics — only one of the three is sourced.
+    `__kolu_login=0; for __f in "${home}/.bash_profile" "${home}/.bash_login" "${home}/.profile"; do [ -f "$__f" ] && { . "$__f"; __kolu_login=1; break; }; done`,
+    // Fallback to interactive rc if no login file matched.
+    `[ "$__kolu_login" = 0 ] && [ -f "${home}/.bashrc" ] && . "${home}/.bashrc"`,
+    `unset __kolu_login __f`,
+  ],
+  hooks: [
+    OSC7_FN,
+    OSC2_PREEXEC_FN,
+    OSC2_PREEXEC_BASH_GUARD,
+    OSC2_PRECMD_BASH,
+    // PROMPT_COMMAND order: our hooks first, user's after, arm last —
+    // so the DEBUG ready flag only goes "on" between prompt setup and
+    // the next user command (filters out PROMPT_COMMAND-internal hooks).
+    `PROMPT_COMMAND="__kolu_osc7;__kolu_title_precmd\${PROMPT_COMMAND:+;$PROMPT_COMMAND};__kolu_preexec_arm"`,
+    // DEBUG trap persists across commands, so install once at source time.
+    `trap '__kolu_preexec_dispatch' DEBUG`,
+  ],
+  spawn: (rcContent, terminalId) => {
     const rcFile = join(koluShellDir, `bashrc-${terminalId}`);
-    writeFileSync(
-      rcFile,
-      [
-        // Source login init chain so the shell inherits the full PATH
-        // (e.g., from /etc/profile.d/hm-session-vars.sh on NixOS).
-        // Mirrors bash login behavior: /etc/profile, then the first of
-        // ~/.bash_profile / ~/.bash_login / ~/.profile.
-        // If no login file exists, fall back to ~/.bashrc directly.
-        `[ -f /etc/profile ] && . /etc/profile`,
-        `__kolu_login=0; for __f in "${home}/.bash_profile" "${home}/.bash_login" "${home}/.profile"; do [ -f "$__f" ] && { . "$__f"; __kolu_login=1; break; }; done`,
-        `[ "$__kolu_login" = 0 ] && [ -f "${home}/.bashrc" ] && . "${home}/.bashrc"`,
-        `unset __kolu_login __f`,
-        OSC7_FN,
-        OSC2_PREEXEC_FN,
-        OSC2_PREEXEC_BASH_GUARD,
-        OSC2_PRECMD_BASH,
-        // PROMPT_COMMAND order matters:
-        //   1. Our own osc7 + title_precmd (title/CWD)
-        //   2. User's PROMPT_COMMAND (if any)
-        //   3. __kolu_preexec_arm — MUST be last, so the ready flag only goes
-        //      "on" between the end of prompt setup and the next user command.
-        //      Any DEBUG firing before arm (hooks, aliases, etc.) sees flag=""
-        //      and skips emitting OSC 2.
-        `PROMPT_COMMAND="__kolu_osc7;__kolu_title_precmd\${PROMPT_COMMAND:+;$PROMPT_COMMAND};__kolu_preexec_arm"`,
-        // Install the DEBUG trap at source time — reinstalling inside
-        // PROMPT_COMMAND is unnecessary since the trap persists across
-        // commands. If a user's .bashrc clears it, bash-preexec-compatible
-        // setups will still work if we're loaded first.
-        `trap '__kolu_preexec_dispatch' DEBUG`,
-      ].join("\n"),
-    );
+    writeFileSync(rcFile, rcContent);
     return {
       args: ["--rcfile", rcFile],
       env: {},
       cleanup: () => rmSync(rcFile, { force: true }),
     };
-  }
+  },
+};
 
-  if (isZsh) {
+const ZSH_INIT: ShellInit = {
+  replay: (home) => [
+    // Order matches zsh's natural startup order: zshenv → zprofile → zshrc.
+    // ZDOTDIR override (in spawn below) shadows zsh's auto-lookup of each
+    // of these, so we replay them by absolute path.
+    `[ -f "${home}/.zshenv" ] && source "${home}/.zshenv"`,
+    `[ -f /etc/zprofile ] && source /etc/zprofile`,
+    `[ -f "${home}/.zprofile" ] && source "${home}/.zprofile"`,
+    // Reset ZDOTDIR while sourcing the user's .zshrc so any internal
+    // ZDOTDIR-relative lookups (plugin managers, completion dirs) hit
+    // the real home rather than our wrapper temp dir.
+    `[ -f "${home}/.zshrc" ] && ZDOTDIR="${home}" source "${home}/.zshrc"`,
+  ],
+  hooks: [
+    OSC7_FN,
+    OSC2_PREEXEC_FN,
+    OSC2_PRECMD_ZSH,
+    `autoload -Uz add-zsh-hook`,
+    `add-zsh-hook precmd __kolu_osc7`,
+    `add-zsh-hook precmd __kolu_title_precmd`,
+    `add-zsh-hook preexec __kolu_preexec`,
+  ],
+  spawn: (rcContent, terminalId) => {
     const zdotdir = join(koluShellDir, `zdotdir-${terminalId}`);
     mkdirSync(zdotdir, { recursive: true });
-    writeFileSync(
-      join(zdotdir, ".zshrc"),
-      [
-        `[ -f /etc/zprofile ] && source /etc/zprofile`,
-        `[ -f "${home}/.zprofile" ] && source "${home}/.zprofile"`,
-        `[ -f "${home}/.zshrc" ] && ZDOTDIR="${home}" source "${home}/.zshrc"`,
-        OSC7_FN,
-        OSC2_PREEXEC_FN,
-        OSC2_PRECMD_ZSH,
-        `autoload -Uz add-zsh-hook`,
-        `add-zsh-hook precmd __kolu_osc7`,
-        `add-zsh-hook precmd __kolu_title_precmd`,
-        `add-zsh-hook preexec __kolu_preexec`,
-      ].join("\n"),
-    );
+    writeFileSync(join(zdotdir, ".zshrc"), rcContent);
     return {
       args: [],
       env: { ZDOTDIR: zdotdir },
       cleanup: () => rmSync(zdotdir, { recursive: true, force: true }),
     };
-  }
+  },
+};
 
-  return noop;
+function selectShellInit(shell: string): ShellInit | null {
+  if (shell.endsWith("/bash") || shell.endsWith("/bash5")) return BASH_INIT;
+  if (shell.endsWith("/zsh")) return ZSH_INIT;
+  return null;
+}
+
+/**
+ * Build the wrapper rcfile for the user's shell and return the spawn args
+ * + env override + cleanup that go alongside it.
+ *
+ * The wrapper layers two things in order: replay (user dotfiles the shell
+ * would have auto-sourced) → hooks (kolu's OSC injection). The layering is
+ * load-bearing — replay must precede hooks so user PROMPT_COMMAND / starship
+ * etc. can't clobber our hooks. PROMPT_COMMAND in env doesn't work because
+ * the user's rc would overwrite it.
+ */
+export function prepareShellInit(opts: {
+  shell: string;
+  home: string | undefined;
+  terminalId: string;
+}): SpawnInit {
+  const noop: SpawnInit = { args: [], env: {}, cleanup: () => {} };
+  const { shell, home, terminalId } = opts;
+  if (!home) return noop;
+  const init = selectShellInit(shell);
+  if (!init) return noop;
+  const rcContent = [...init.replay(home), ...init.hooks].join("\n");
+  return init.spawn(rcContent, terminalId);
 }

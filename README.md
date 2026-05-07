@@ -31,7 +31,7 @@ Open http://127.0.0.1:7681 (or the address you chose above).
 
 ### Terminals
 
-- Create, switch, and kill terminals — every terminal renders as a draggable tile on the canvas, with a floating two-level pill tree (repo → branches) for at-a-glance navigation
+- Create, switch, and kill terminals — every terminal renders as a draggable tile on the canvas, with a floating workspace switcher for at-a-glance navigation
 - Split terminals — <kbd>Ctrl+&#96;</kbd> splits a bottom pane per terminal; <kbd>Ctrl+Shift+&#96;</kbd> adds tabs, <kbd>Ctrl+PageDown</kbd> / <kbd>Ctrl+PageUp</kbd> cycles
 - Font zoom (<kbd>Cmd/Ctrl</kbd> <kbd>+</kbd>/<kbd>-</kbd>), persisted per terminal across sessions
 - WebGL rendering with canvas fallback, clickable URLs, Unicode 11, inline images (sixel, iTerm2, kitty)
@@ -42,7 +42,7 @@ Open http://127.0.0.1:7681 (or the address you chose above).
 
 - Command palette (<kbd>Cmd/Ctrl+K</kbd>) — search terminals, switch themes, run actions
 - Agent-aware command palette — once you've run a known agent CLI (`claude`, `aider`, `opencode`, `codex`, `goose`, `gemini`, `cursor-agent`) in any kolu terminal, it surfaces in two places: under `New terminal → <recent repo>` as a sub-palette that creates the worktree and launches the agent in one step, and under `Debug → Recent agents` as a prefill-into-active-terminal affordance. Prompt/message flag values (`-p`/`--prompt`/`-m`/`--message`) are stripped before storage so ephemeral prompt text never lands in the persisted MRU
-- Pill-tree pings — when an agent is waiting on you (or has finished with an unread completion), its branch pill in the floating tree pulses an alert dot so you can spot it without panning. <kbd>Ctrl+Tab</kbd> (or <kbd>Alt+Tab</kbd>) cycles terminals in MRU order: hold the modifier, press Tab to advance, release to commit
+- Workspace-switcher pings — when an agent is waiting on you (or has finished with an unread completion), its collapsed switcher pill pulses an alert dot so you can spot it without panning. <kbd>Ctrl+Tab</kbd> (or <kbd>Alt+Tab</kbd>) cycles terminals in MRU order: hold the modifier, press Tab to advance, release to commit
 - Keyboard-driven — <kbd>Cmd+T</kbd> new terminal, <kbd>Cmd+1</kbd>…<kbd>Cmd+9</kbd> jump, <kbd>Cmd+Shift+[</kbd> / <kbd>Cmd+Shift+]</kbd> cycle, <kbd>Cmd+/</kbd> shortcuts help
 
 ### Canvas workspace
@@ -52,22 +52,22 @@ The desktop workspace is mode-less — every terminal renders as a draggable, re
 - **Infinite pan & zoom** — two-finger scroll / trackpad to pan, pinch or <kbd>Ctrl+scroll</kbd> to zoom. Hold <kbd>Shift</kbd> to force pan even with the cursor over a terminal tile (hand-tool style). No boundaries — the canvas extends freely in every direction via CSS `transform: translate() scale()` (Figma/Excalidraw model)
 - **Snap-to-grid** — tiles snap to a 24px grid on drag and resize for tidy layouts
 - **Maximize a tile** — double-click any tile's title bar (or click the maximize button) to fill the viewport; the maximized posture persists across reload via localStorage so you land back where you left off
-- **Floating pill tree** — a two-level overlay (repo → branches) sits at the top of the canvas, ghosted at rest and behind any tile that overlaps it; hover pops it to full opacity. Branches sort by **canvas x-position**, so the tree reads left-to-right exactly as the tiles sit. Click a branch pill to pan and center its tile
-- **Pill border encodes state** — each pill's border doubles as identity (repo color) and live status: a conic-gradient sweep while the agent is `thinking`/`tool_use`, a breathing pulse while `waiting`, a static ring when the terminal is just active, and an inset glow when the active tile also has a working agent
-- **Identity-collision suffix** — when two terminals share the same repo+branch (or cwd, for non-git), the server assigns each a stable 4-char id suffix (`#a3f2`) so the pill tree and tile chrome can disambiguate them at a glance
-- **Keyboard navigation** — <kbd>Cmd/Ctrl+Shift+2</kbd> centers on the active tile
+- **Floating workspace switcher** — a compact repo/branch pill strip sits at the top of the canvas, ghosted at rest and behind any tile that overlaps it; hover opens a searchable panel grouped by live agent state (`Awaiting you`, `Working`, `No agent`) with repo facets. Compact pills and panel cards sort by **canvas x-position**, so navigation reads left-to-right exactly as the tiles sit. Click a pill or card to focus and center its tile
+- **Switcher border encodes state** — each collapsed pill or panel card border doubles as identity (repo color) and live status: a conic-gradient sweep while the agent is `thinking`/`tool_use`, a breathing pulse while `waiting`, a static ring when the terminal is just active, and an inset glow when the active tile also has a working agent
+- **Identity-collision suffix** — when two terminals share the same repo+branch (or cwd, for non-git), the server assigns each a stable 4-char id suffix (`#a3f2`) so the workspace switcher and tile chrome can disambiguate them at a glance
+- **Canvas navigation** — the command palette can center the active tile when panning has moved it out of view
 - **Per-tile theming** — title bars and pill swatches derive their colors from each terminal's theme for guaranteed contrast
-- **Mobile** — the canvas, pan/zoom, and the floating pill tree are all disabled; the active tile fills the viewport and swipe-left/right cycles between terminals in pill-tree order. A pull-down chrome sheet at the top reveals the same logo + pill list + controls as a touch-sized drawer
+- **Mobile** — the canvas, pan/zoom, and the desktop workspace switcher are disabled; the active tile fills the viewport and swipe-left/right cycles between terminals in compact switcher order. A pull-down chrome sheet at the top reveals the same logo + vertical switcher list + controls as a touch-sized drawer
 
 ### Git & GitHub
 
 - Auto-detected repo name, branch, and working directory (via OSC 7 + `.git/HEAD` watcher)
 - GitHub PR detection — shows PR number, title, and CI check status (pass/pending/fail) on the tile chrome and inspector
-- Per-repo color coding on the pill tree and tile chrome via golden-angle hue spacing
+- Per-repo color coding on the workspace switcher and tile chrome via golden-angle hue spacing
 
 ### Claude Code Status
 
-Detects [Claude Code](https://docs.anthropic.com/en/docs/claude-code) sessions running in any terminal and surfaces their state on the tile's chrome (and on its pill in the floating tree).
+Detects [Claude Code](https://docs.anthropic.com/en/docs/claude-code) sessions running in any terminal and surfaces their state on the tile's chrome and in the workspace switcher.
 
 **What we detect:**
 
@@ -144,6 +144,7 @@ Detects [OpenCode](https://github.com/anomalyco/opencode) sessions and shows the
 - Live preview while browsing themes in the palette
 - Shuffle theme — new terminals (and the active one on <kbd>⌘J</kbd>) get a background perceptually distinct from every other open terminal (toggleable; on by default)
 - Dark / light / system UI theme
+- Installed PWA chrome color derives from the server hostname, so app windows from different machines are easier to distinguish
 
 ### Clipboard
 
@@ -160,13 +161,25 @@ Record the Kolu tab — whole canvas or a single maximized terminal — with mic
 - **Webcam PiP overlay** — when enabled, a circular mirrored `<video>` pins to the bottom-right above maximized tiles but below the chrome bar, and is baked into the recording by the tab-capture stream (no offscreen compositing)
 - **Browser picker collapses** — `getDisplayMedia({ preferCurrentTab: true, selfBrowserSurface: "include" })` turns the multi-surface picker into a single "Share this tab" confirmation
 
+### Transcript export
+
+Command-palette entry "Export agent session as HTML" (visible only when the active terminal has an agent session) saves the current Claude Code, OpenCode, or Codex transcript as a single self-contained `.html` file — no external assets, no server upload, opens in any browser offline.
+
+- **Vendor-neutral IR** — each integration loader normalizes its session storage (Claude's JSONL, OpenCode's SQLite, Codex's rollout) into the same `TranscriptEvent` union in `kolu-transcript-core`. The renderer dispatches on `event.kind`, never on the agent — adding a new vendor's quirky tool name is a loader-side change with zero renderer churn
+- **Typed `ToolInput` union** — every Claude Code built-in tool ([34 entries](https://code.claude.com/docs/en/tools-reference): Edit/Bash/Skill/TaskCreate/WebSearch/PowerShell/…) and every OpenCode built-in tool ([13 entries](https://opencode.ai/docs/tools/): edit/bash/todowrite/lsp/question/…) maps to a kind the renderer can specialise on. Anything we haven't modelled lands honestly in `kind: "unknown"` with the original `toolName` preserved — the document never lies about what a tool was
+- **Code surfaces through Pierre** — `Edit`, `Write`, fenced markdown code, and Codex `apply_patch` all flow through [`@pierre/diffs`](https://www.npmjs.com/package/@pierre/diffs)'s SSR. Each chunk hydrates into a `<diffs-container>` custom element; a tiny inlined bootstrap shares Pierre's ~43KB core stylesheet across every chunk via `adoptedStyleSheets` so the per-event payload stays small
+- **Warm-parchment editorial layout** — serif prose, mono code, role-tinted gutters, sticky dock for hide-tools / hide-reasoning / theme cycle, `j`/`k` to step between prompts, Reddit-style indent for nested subtask blocks
+- **Theme follows the toggle** — manual dark/light flip flows through to Pierre's shiki tokens via `color-scheme: inherit !important` on `<diffs-container>`, so the whole document (chrome + code) flips together instead of Pierre staying in the system-preferred mode
+
 ## Architecture
 
 pnpm monorepo:
 
 | Package                              | Stack                                                                                                                                                                 |
 | ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `packages/common/`                   | [oRPC](https://orpc.dev/) contract + [Zod](https://zod.dev/) schemas                                                                                                  |
+| `packages/common/`                   | [oRPC](https://orpc.dev/) contract + [Zod](https://zod.dev/) schemas + cell descriptors                                                                               |
+| `packages/surface/`                  | Reactive state framework — typed `Cell<T>`, `Collection<K,T>`, `Stream<I,T>`, `Event<I,T>` over oRPC streams; SolidJS hooks (`useCell`, `useCollection`, `useStream`, `useEvent`)               |
+| `packages/solid-pierre/`             | Solid-native wrappers around [`@pierre/trees`](https://www.npmjs.com/package/@pierre/trees) and [`@pierre/diffs`](https://www.npmjs.com/package/@pierre/diffs); encapsulates Pierre's imperative mount/render lifecycle behind `<FileTree>`, `<FileDiff>`, `<FileView>` with required `onError` props. Wrap content in `<Virtualizer>` to upgrade `<FileDiff>` / `<FileView>` to Pierre's windowed-rendering counterparts for very large files |
 | `packages/server/`                   | [Hono](https://hono.dev/) + [node-pty](https://github.com/microsoft/node-pty) + [@xterm/headless](https://www.npmjs.com/package/@xterm/headless)                      |
 | `packages/client/`                   | [SolidJS](https://www.solidjs.com/) + [xterm.js](https://xtermjs.org/) + [Tailwind CSS v4](https://tailwindcss.com/)                                                  |
 | `packages/integrations/claude-code/` | Claude Code detection — JSONL transcript tailing + Claude Agent SDK; exports a `claudeCodeProvider` `AgentProvider`                                                   |
@@ -175,6 +188,8 @@ pnpm monorepo:
 | `packages/integrations/opencode/`    | OpenCode detection — reads OpenCode's SQLite database via Node's built-in `node:sqlite`; exports an `opencodeProvider` `AgentProvider`                                |
 | `packages/integrations/git/`         | Pure git operations — `simple-git` wrapper: repo resolution, worktree lifecycle, diff review, path security; schemas re-exported by `kolu-common`                     |
 | `packages/integrations/github/`      | GitHub PR schemas + pure helpers (`deriveCheckStatus`, `classifyGhError`, `prResultEqual`); server wraps with `gh pr view` spawn via `KOLU_GH_BIN`                    |
+| `packages/transcript-core/`          | Vendor-neutral transcript IR (`Transcript`, `TranscriptEvent`, typed `ToolInput` union) + structural transforms; per-agent loaders normalize into this shape          |
+| `packages/transcript-html/`          | Static-export renderer — `marked` for prose, [`@pierre/diffs`](https://www.npmjs.com/package/@pierre/diffs) SSR for shiki-tokenized code/diffs, [Preact](https://preactjs.com/) JSX for chrome; emits one self-contained `.html` |
 | `packages/terminal-themes/`          | Terminal color scheme catalog + perceptual-distance picker — themes checked-in as JSON                                                                                |
 | `packages/memorable-names/`          | ADJ-NOUN random name generator — word lists checked-in as JSON                                                                                                        |
 
@@ -199,7 +214,7 @@ flowchart TB
     User((User)):::user
     Xterm["xterm.js\nrender + input"]:::client
     Subs["createSubscription\nsignals"]:::cache
-    UI["UI components\npill tree · tile chrome · chrome bar · palette"]:::client
+    UI["UI components\nworkspace switcher · tile chrome · chrome bar · palette"]:::client
   end
 
   subgraph Server["Server (Hono)"]
@@ -241,7 +256,7 @@ flowchart TB
 
 **Metadata** (dashed lines) — shell activity triggers a provider DAG: CWD changes (OSC 7) → git provider (.git/HEAD watcher) → GitHub provider (`gh pr view` polling). Agent detection uses a single generic orchestrator ([`meta/agent.ts`](packages/server/src/meta/agent.ts)) driven by per-agent `AgentProvider` instances from each integration package. Today three instances are registered: `claudeCodeProvider` (from `kolu-claude-code`) wakes on title events (OSC 2) and its own `fs.watch` on `~/.claude/sessions/`; `codexProvider` (from `kolu-codex`) queries the highest-numbered `~/.codex/state_<N>.sqlite` for thread metadata and tails the matched rollout JSONL for state transitions; `opencodeProvider` (from `kolu-opencode`) queries OpenCode's SQLite database directly and watches its WAL file for live state updates. Adding a new agent CLI is one new `AgentProvider` and one line in `startProviders` — no server-side adapter file. All providers feed a single metadata channel streamed to the client as a subscription[^providers]. Separately, kolu's preexec hook emits an `OSC 633;E` command mark before each user command; the pty handler republishes the raw payload on a `commandRun` channel, and [`meta/agent-command.ts`](packages/server/src/meta/agent-command.ts) subscribes to match the first token against a known-agents allowlist and fan out to both (a) a bounded recent-agents MRU for the agent-aware command palette and (b) a per-terminal stash keyed by terminal id, so codex/opencode session detection still matches when the agent is an interpreter shim (e.g. npm-installed `codex`, whose kernel-level process name is `node`). No `/proc` lookups or argv scraping.
 
-**User actions** — command palette, pill tree, and tile chrome dispatch plain oRPC client calls ([`useTerminalCrud`](packages/client/src/terminal/useTerminalCrud.ts), [`useWorktreeOps`](packages/client/src/terminal/useWorktreeOps.ts)). The server's live subscriptions push updated state to the client automatically. [`useTerminalMetadata`](packages/client/src/terminal/useTerminalMetadata.ts) uses SolidJS's `mapArray` to create per-terminal subscriptions that automatically tear down when terminals are removed[^client-state].
+**User actions** — command palette, workspace switcher, and tile chrome dispatch plain oRPC client calls ([`useTerminalCrud`](packages/client/src/terminal/useTerminalCrud.ts), [`useWorktreeOps`](packages/client/src/terminal/useWorktreeOps.ts)). The server's live subscriptions push updated state to the client automatically. [`useTerminalMetadata`](packages/client/src/terminal/useTerminalMetadata.ts) uses SolidJS's `mapArray` to create per-terminal subscriptions that automatically tear down when terminals are removed[^client-state].
 
 [^lazy-attach]: ~4 KB serialized snapshot instead of replaying the full scrollback buffer.
 
@@ -253,7 +268,7 @@ flowchart TB
 
 [^persistence]: Schema is versioned with explicit migrations. Stores CWD, sort order, and parent relationships per terminal.
 
-[PartySocket](https://docs.partykit.io/reference/partysocket-api/) handles WebSocket auto-reconnect; the `stream` namespace in `packages/client/src/rpc/rpc.ts` routes every async-iterator procedure through oRPC's [`ClientRetryPlugin`](https://orpc.dev/docs/plugins/client-retry) so consumers transparently re-subscribe after a drop — every server-side streaming handler is already snapshot-then-deltas and the reducer in `useTerminalMetadata.ts` pattern-matches an `ActivityStreamEvent` discriminated union (`snapshot` replaces, `delta` appends) so re-subscribe resume is structural, not defensive. Transport events (`connecting` / `connected` / `disconnected` / `reconnected` / `restarted`) are exposed as a single `ServerLifecycleEvent` signal, and `TransportOverlay` pattern-matches it into one dim-backdrop card: `disconnected` shows "Reconnecting…" (the backdrop is pointer-events-none, so users can still scroll and read buffers underneath), and `restarted` swaps to "Server updated" with the Reload button inline in the card.
+[PartySocket](https://docs.partykit.io/reference/partysocket-api/) handles WebSocket auto-reconnect; `@kolu/surface/solid`'s `surfaceClient` (wired up in `packages/client/src/wire.ts`) installs oRPC's [`ClientRetryPlugin`](https://orpc.dev/docs/plugins/client-retry) so every Cell/Collection/Stream/Event hook (and the `streamCall` escape hatch for raw streams like terminal `attach`) transparently re-subscribes after a drop — every server-side streaming handler is already snapshot-then-deltas and the reducer in `useTerminalMetadata.ts` pattern-matches an `ActivityStreamEvent` discriminated union (`snapshot` replaces, `delta` appends) so re-subscribe resume is structural, not defensive. Transport events (`connecting` / `connected` / `disconnected` / `reconnected` / `restarted`) are exposed as a single `ServerLifecycleEvent` signal in `packages/client/src/rpc/rpc.ts`, and `TransportOverlay` pattern-matches it into one dim-backdrop card: `disconnected` shows "Reconnecting…" (the backdrop is pointer-events-none, so users can still scroll and read buffers underneath), and `restarted` swaps to "Server updated" with the Reload button inline in the card.
 
 ### Build & packaging
 
@@ -277,7 +292,7 @@ Bug fixes, build/CI fixes, doc tweaks, and behavior-preserving refactors are wel
 
 ## CI
 
-`just ci` builds all flake outputs on x86_64-linux and aarch64-darwin in parallel, runs e2e tests, and posts GitHub commit statuses. See [`ci/`](ci/) for details and reuse instructions.
+`just ci` builds all flake outputs on x86_64-linux and aarch64-darwin in parallel, runs e2e tests, boots the packaged binary against `/api/health` as a runtime smoke, and posts GitHub commit statuses. See [`ci/`](ci/) for details and reuse instructions.
 
 ```sh
 just ci              # full CI run
@@ -285,9 +300,9 @@ just ci::protect     # set branch protection
 just ci::_summary    # check current status
 ```
 
-## Deployment (NixOS + home-manager)
+## Deployment (home-manager)
 
-A home-manager module runs kolu as a systemd user service:
+A home-manager module runs kolu as a systemd user service on Linux and as a launchd LaunchAgent on macOS:
 
 ```nix
 {
@@ -301,7 +316,9 @@ A home-manager module runs kolu as a systemd user service:
 }
 ```
 
-See [`nix/home/example/`](nix/home/example/) for a full configuration with a VM test.
+See [`nix/home/example/`](nix/home/example/) for a full configuration — a NixOS VM test exercises the systemd path on Linux, and a standalone home-manager activation build exercises the launchd path on Darwin.
+
+On macOS, the LaunchAgent writes stdout to `~/Library/Logs/kolu.out.log` and stderr to `~/Library/Logs/kolu.err.log`, so crashes and startup failures leave service logs alongside other user logs.
 
 ### Diagnosing memory leaks
 

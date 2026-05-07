@@ -3,12 +3,8 @@ import { describe, expect, it, vi } from "vitest";
 // Mock the platform module before importing keyboard
 vi.mock("./platform", () => ({ isMac: false }));
 
-import {
-  formatKeybind,
-  type Keybind,
-  matchesAnyShortcut,
-  matchesKeybind,
-} from "./keyboard";
+import { matchesAnyShortcut } from "./actions";
+import { formatKeybind, type Keybind, matchesKeybind } from "./keyboard";
 
 function makeEvent(overrides: Partial<KeyboardEvent> = {}): KeyboardEvent {
   return {
@@ -113,6 +109,7 @@ describe("formatKeybind (non-mac)", () => {
     { kb: { key: "t", mod: true }, expected: "Ctrl+T" },
     { kb: { key: "Tab", ctrl: true }, expected: "Ctrl+Tab" },
     { kb: { key: "]", mod: true, shift: true }, expected: "Ctrl+Shift+]" },
+    { kb: { key: "b", mod: true, alt: true }, expected: "Ctrl+Alt+B" },
     { kb: { key: "t" }, expected: "T" },
     { kb: { key: "k", mod: true }, expected: "Ctrl+K" },
   ] as const)("formatKeybind → $expected", ({ kb, expected }) => {
@@ -122,15 +119,42 @@ describe("formatKeybind (non-mac)", () => {
 
 describe("matchesAnyShortcut", () => {
   it("matches Alt+Tab", () => {
-    expect(matchesAnyShortcut(makeEvent({ altKey: true, key: "Tab" }))).toBe(
-      true,
-    );
+    expect(
+      matchesAnyShortcut(makeEvent({ altKey: true, key: "Tab", code: "Tab" })),
+    ).toBe(true);
   });
 
   it("matches Ctrl+T (create terminal)", () => {
     expect(matchesAnyShortcut(makeEvent({ key: "t", ctrlKey: true }))).toBe(
       true,
     );
+  });
+
+  it("does not capture Ctrl+B", () => {
+    expect(
+      matchesAnyShortcut(makeEvent({ key: "b", code: "KeyB", ctrlKey: true })),
+    ).toBe(false);
+  });
+
+  it("matches Ctrl+Alt+B (toggle inspector)", () => {
+    expect(
+      matchesAnyShortcut(
+        makeEvent({ key: "b", code: "KeyB", ctrlKey: true, altKey: true }),
+      ),
+    ).toBe(true);
+  });
+
+  it("does not match Ctrl/Cmd+Shift+C", () => {
+    expect(
+      matchesAnyShortcut(
+        makeEvent({ key: "C", code: "KeyC", ctrlKey: true, shiftKey: true }),
+      ),
+    ).toBe(false);
+    expect(
+      matchesAnyShortcut(
+        makeEvent({ key: "C", code: "KeyC", metaKey: true, shiftKey: true }),
+      ),
+    ).toBe(false);
   });
 
   it("does not match random key", () => {

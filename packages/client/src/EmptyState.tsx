@@ -1,20 +1,24 @@
 /** Empty state — shown when no terminals exist. Offers session restore + key shortcuts. */
 
-import {
-  type SavedSession,
-  type SavedTerminal,
-  terminalKey,
-} from "kolu-common";
+import type { SavedSession, SavedTerminal } from "kolu-common/surface";
+import { terminalKey } from "kolu-common/terminalKey";
 import { type Component, createMemo, createSignal, For, Show } from "solid-js";
-import { formatKeybind, SHORTCUTS } from "./input/keyboard";
+import { ACTIONS } from "./input/actions";
+import { formatKeybind } from "./input/keyboard";
 import Kbd from "./ui/Kbd";
 import Toggle from "./ui/Toggle";
 
 const features = [
-  { label: "New terminal", shortcut: SHORTCUTS.createTerminalAlt.keybind },
-  { label: "New terminal menu", shortcut: SHORTCUTS.newTerminalMenu.keybind },
-  { label: "Command palette", shortcut: SHORTCUTS.commandPalette.keybind },
-  { label: "Cycle terminals", shortcut: SHORTCUTS.cycleTerminalMru.keybind },
+  // Show the alt chord (Cmd+Enter): Cmd+T is intercepted by browsers outside
+  // PWA-installed mode, so the alt is the more universally-functional advert.
+  {
+    label: "New terminal",
+    shortcut:
+      ACTIONS.createTerminal.altKeybind ?? ACTIONS.createTerminal.keybind,
+  },
+  { label: "New terminal menu", shortcut: ACTIONS.newTerminalMenu.keybind },
+  { label: "Command palette", shortcut: ACTIONS.commandPalette.keybind },
+  { label: "Cycle terminals", shortcut: ACTIONS.cycleTerminalMru.keybind },
 ];
 
 interface RepoGroup {

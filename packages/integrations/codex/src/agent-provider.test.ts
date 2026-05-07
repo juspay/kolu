@@ -1,4 +1,5 @@
-import type { AgentTerminalState, Logger } from "anyagent";
+import type { AgentTerminalState } from "anyagent";
+import type { Logger } from "kolu-shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const findSessionMock = vi.fn();

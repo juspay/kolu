@@ -359,7 +359,16 @@ body {
   overflow-x: auto;
 }
 
-/* Inline code within prose — keep lighter than pre blocks. */
+/* Inline code within prose — keep lighter than pre blocks. Tailwind
+   Typography ships literal backtick decoration via `::before` / `::after`
+   on inline code; suppress it (the inline-code box already reads as code,
+   the backticks are noisy redundancy and visibly wrong inside table cells
+   and headings). */
+.prose-editorial :not(pre) > code::before,
+.prose-editorial :not(pre) > code::after {
+  content: none;
+}
+
 .prose-editorial :not(pre) > code {
   font-family: var(--font-mono);
   background: var(--color-void-raised);
@@ -416,8 +425,15 @@ body {
   color: var(--color-ink);
 }
 
-/* Drop-cap on the first paragraph — subtle editorial flourish. */
-.prose-editorial > p:first-of-type::first-letter {
+/* Drop-cap on the first paragraph — subtle editorial flourish.
+   Skipped when the paragraph opens with a code chip or link;
+   `::first-letter` extends through leading punctuation, so a paragraph
+   starting with `[\`@kolu/surface\`](url)` would render `@k` as a giant
+   amber drop-cap inside (and tearing apart) the code chip's
+   border/background. `<em>` / `<strong>` / `<span>`-led paragraphs
+   keep the drop-cap — those have no chrome to fight with. */
+.prose-editorial
+> p:first-of-type:not(:has(> :first-child:is(a, code)))::first-letter {
   font-variation-settings:
     "opsz" 144,
     "SOFT" 20,

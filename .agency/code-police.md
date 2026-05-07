@@ -6,6 +6,36 @@ Kolu-specific rules layered on top of the base `code-police` skill — read by `
 
 These rules extend the base code-police skill with Kolu-specific patterns. They are checked during Pass 1 (rule checklist) alongside the generic rules.
 
+### no-re-export-bridge-modules
+
+A module whose entire body is `export … from "another-package"` (no
+locally-defined values, types, or doc) must not exist. Consumers should
+import directly from the source.
+
+Bad: a `kolu-common/integrations.ts` that just re-exports `GitInfoSchema`,
+`PrResultSchema`, `ClaudeCodeInfoSchema`, … from their respective
+integration packages. Or a `kolu-common/pr.ts` whose only content is
+`export … from "kolu-github/schemas"`. Both create a fake fan-in: the
+consumer's import path lies about where the symbol lives.
+
+Good: consumers `import { GitInfo } from "kolu-git/schemas"` directly.
+The integration package is the source of truth; one place to grep.
+
+_Allowed_: a module that re-exports AND adds local content (a curated
+narrow surface plus locally-defined helpers, schemas, or documented
+boundary semantics). A pure re-export with a comment explaining "this
+exists to avoid X bundling" is still a bridge — fix the underlying
+issue (subpath the source package exposes for browser-safe types) or
+let consumers reach for the source directly.
+
+_Rationale_: re-export bridges add an indirection that consumers and
+tools have to chase, drift over time (the bridge's set of re-exports
+goes stale relative to the source), and create the illusion that
+`kolu-common` owns concepts it doesn't. The `kolu-common` package
+should hold things that are genuinely shared across the host app and
+have no other natural home — not be a barrel for every external
+schema the app happens to use.
+
 ### subscription-use-pending
 
 Never check `sub() === undefined` as a proxy for loading — use `sub.pending()`.
@@ -26,12 +56,21 @@ Bad: `unwrap(arr[i], "out of bounds")` — type system can't see the throw
 Good: `arr[i] ?? arr[0]` on `NonEmpty<T>` — positional `arr[0]` is statically `T`, fallback is typed
 _Rationale_: Every "untyped throw" wrapper is an escape hatch the compiler can't reason about. The fix is structural — make the data model carry the invariant — not packaging the same assertion behind a nicer name.
 
-### catch-must-surface-error
+### toast-must-include-error-message
 
 When catching an error to show a toast, always include `err.message` in the toast text.
 Bad: `.catch(() => toast.error("Failed to set theme"))`
 Good: `.catch((err: Error) => toast.error(\`Failed to set theme: ${err.message}\`))`
 _Rationale_: Generic error toasts hide the server's actual error message, making debugging impossible. The server returns specific error details via oRPC — surface them.
+
+### caught-error-must-not-collapse-to-empty
+
+When a `try`/`catch` converts a thrown error into a "no data" return value (`undefined`, `null`, `[]`, `""`), the failure must be **distinguishable to the user from a legitimate empty result**. `console.warn` / `console.error` does not count — DevTools is not a user surface. Surface via toast, an error signal the caller renders, a `Result<T, E>` return, or an error boundary.
+
+Bad: `try { return parse(raw); } catch (e) { console.warn(e); return undefined; }` — caller can't tell malformed-input from no-input
+Good: `try { return ok(parse(raw)); } catch (e) { return err({ message: e.message }); }` — caller decides how to render the error
+
+_Rationale_: A silent fallback to empty state means a malformed input renders identically to a missing one. The bug stays invisible until someone notices and instruments DevTools — by which point the data path has been wrong for weeks. This rule covers the gap `toast-must-include-error-message` leaves: that one is about *how* to format a toast you've already decided to show; this one is about whether the failure surfaces at all.
 
 ### styling-tailwind-only
 
@@ -92,6 +131,91 @@ E2e step definitions must never assert synchronously on state that changes async
 Bad: `const text = await page.evaluate(() => navigator.clipboard.readText()); assert.ok(text.includes(expected));`
 Good: `await page.waitForFunction((exp) => navigator.clipboard.readText().then(t => t.includes(exp)), expected, { timeout: POLL_TIMEOUT });`
 _Rationale_: A bare `page.evaluate()` + `assert` is a race condition — the async operation (clipboard write, SolidJS reactivity flush, DOM update) may not have completed by the time the read fires. This passes on fast machines (x86_64-linux) and fails on slower ones (aarch64-darwin). The fix was applied in commit `36c82cd` for command palette tests; this rule prevents the pattern from recurring.
+
+### watcher-lifecycle-logs
+
+Every long-lived `fs.watch` (or analogous subscription — refcounted singleton, DB WAL watcher, per-session JSONL tail) must emit `info`-level logs at install and retire, formatted exactly:
+
+```
+"<integration>: <subject> watcher installed"
+"<integration>: <subject> watcher retired"
+```
+
+Pass the watch target (`gitDir`, `dir`, `path`, `walPath`, `session`, etc.) in the **structured fields** object — not in the message string. The message owns the label; the fields own the identity.
+
+Examples in tree (mirror these):
+
+| Site | Label | Fields |
+| --- | --- | --- |
+| `git/head-watcher.ts` | `git: head` | `{ gitDir }` |
+| `anyagent/wal-subscription.ts` | `<config.label>: wal` | `{ walPath }` |
+| `claude-code/core.ts` `tryWatchDir` | `claude-code: dir` | `{ dir }` |
+| `claude-code/session-watcher.ts` | `claude-code: transcript` | `{ path, session }` |
+| `codex/session-watcher.ts` | `codex: session` | `{ session }` |
+| `opencode/session-watcher.ts` | `opencode: session` | `{ session }` |
+
+_Why_: operators correlating watcher counts in long-running processes need a single grep pattern (`grep "watcher \(installed\|retired\)"`) that catches every site. Format drift — different verbs, different prefix punctuation, label-in-fields-instead-of-message — silently breaks the correlation tool.
+
+_What this rule is NOT_: a generic "log every lifecycle event" mandate. PTY spawn/exit, agent session match/end, and other lifecycle pairs use their own verbs and stay as ordinary `log.info({...}, "X started")` calls. This rule fires only when adding a long-lived `fs.watch` or analogous resource subscription.
+
+_Bad_:
+
+```ts
+log.info({ dir, kind: "claude-code" }, "watcher installed: dir");
+log.info({}, `claude-code dir watcher started at ${dir}`);
+```
+
+_Good_:
+
+```ts
+log?.info({ dir }, "claude-code: dir watcher installed");
+log?.info({ dir }, "claude-code: dir watcher retired");
+```
+
+### silent-handler-required-on-void-subscriptions
+
+When a hook or subscription primitive returns `void` (no `Subscription<T>` / `error()` accessor / `Result<T,E>` exposed in the result type), its error handler must be **required** at the type level — not optional. A void-returning subscription with optional `onError` silently swallows lifecycle failures: the source dies, the consumer never re-fires, no UI surface, no console warning, nothing.
+
+Bad:
+```ts
+function useEvent(...): void {
+  // catch (err) { if (options?.onError) options.onError(...); }
+}
+```
+
+Good:
+```ts
+function useEvent(..., options: { onError: (err) => void; ... }): void {
+  // catch (err) { options.onError(...); }
+}
+```
+
+_Rationale_: a hook returning `Subscription<T>` with `.error()` lets consumers read the error reactively and render it — optional `onError` is fine there. Void return with no error surface in the result type is a category mismatch; the type system has to require the handler or the failure is invisible by construction. Codified after `useEvent.onError` and `pollOnEvent.onReadError` were tightened to required in `@kolu/surface`.
+
+### migration-shape-guard
+
+A `Conf` (or analogous schema) migration that acts on a specific value shape must early-return when the on-disk shape doesn't match its preconditions. Never write transient orphan fields that subsequent migrations are expected to destructure-out.
+
+Bad:
+```ts
+"1.8.0": (store) => {
+  const tab = rp.tab;
+  // fires on undefined too — adds a `tab` orphan to the new flat shape
+  const stale = tab !== "inspector" && tab !== "review";
+  if (stale) store.set(..., { rightPanel: { ...rp, tab: "inspector" } });
+}
+```
+
+Good:
+```ts
+"1.8.0": (store) => {
+  if (typeof rp.tab !== "string") return;  // skip shapes this migration doesn't recognize
+  const stale = rp.tab !== "inspector" && rp.tab !== "review";
+  if (stale) store.set(..., { rightPanel: { ...rp, tab: "inspector" } });
+}
+```
+
+_Rationale_: a migration that writes orphans assuming a downstream migration will clean them up couples migrations to each other — one can't be removed without breaking the next, and a fresh-install ladder accumulates write-then-strip cycles. The shape guard makes each migration idempotent on shapes it doesn't recognize. Caught when 1.13.0 destructured `codeMode` (a real new-schema field) alongside a `tab` orphan that 1.8.0 had spuriously written for fresh installs.
 
 ### icons-in-registry
 

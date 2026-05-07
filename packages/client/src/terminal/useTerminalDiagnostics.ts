@@ -14,7 +14,7 @@
  *  — both registrations happen in Terminal.tsx onMount/onCleanup. */
 
 import type { Terminal as XTerm } from "@xterm/xterm";
-import type { TerminalId } from "kolu-common";
+import type { TerminalId } from "kolu-common/surface";
 import { type Accessor, createEffect, createRoot } from "solid-js";
 import { createStore, produce } from "solid-js/store";
 

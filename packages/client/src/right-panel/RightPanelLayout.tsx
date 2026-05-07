@@ -4,7 +4,7 @@
  *  too narrow for a useful side panel. */
 
 import Resizable from "@corvu/resizable";
-import type { TerminalMetadata } from "kolu-common";
+import type { TerminalMetadata } from "kolu-common/surface";
 import { type Component, type JSX, Show } from "solid-js";
 import { isMobile } from "../useMobile";
 import RightPanel from "./RightPanel";
@@ -66,14 +66,16 @@ const RightPanelLayout: Component<{
             class="min-w-0 min-h-0 overflow-hidden"
             minSize={0}
           >
-            <Show when={!rightPanel.collapsed()}>
-              <RightPanel
-                meta={props.meta}
-                onToggle={rightPanel.togglePanel}
-                themeName={props.themeName}
-                onThemeClick={props.onThemeClick}
-              />
-            </Show>
+            {/* Render unconditionally so CodeTab's selectedPath signal and
+             *  Pierre's tree expansion survive collapse — Resizable already
+             *  shrinks this panel to zero width via sizes=[1,0] above. An
+             *  inner <Show> would unmount and discard that state. */}
+            <RightPanel
+              meta={props.meta}
+              onToggle={rightPanel.togglePanel}
+              themeName={props.themeName}
+              onThemeClick={props.onThemeClick}
+            />
           </Resizable.Panel>
         </Resizable>
       </div>

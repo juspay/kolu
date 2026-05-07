@@ -7,15 +7,29 @@
 export { randomName } from "memorable-names";
 // File tree browsing
 export { listAll, readFile } from "./browse.ts";
+// Equality predicates for streamed snapshot dedup
+export {
+  fsListAllOutputEqual,
+  fsReadFileOutputEqual,
+  gitDiffOutputEqual,
+  gitStatusOutputEqual,
+} from "./equals.ts";
 // Error types
 export { err, type GitError, type GitResult, ok } from "./errors.ts";
+// HEAD watcher (refcounted shared singleton)
+export { watchGitHead } from "./head-watcher.ts";
+// Index watcher (refcounted shared singleton, axis 3)
+export { watchGitIndex } from "./index-watcher.ts";
+// Reflog watcher (refcounted shared singleton, axis 2)
+export { watchGitReflog } from "./reflog-watcher.ts";
+// Composed primitives for the live Code-view streaming endpoints
+export { subscribeFileChange, subscribeRepoChange } from "./repo-change.ts";
 // Repository resolution
 export {
   gitInfoEqual,
   hasGitDir,
   resolveGitInfo,
   subscribeGitInfo,
-  watchGitHead,
 } from "./resolve.ts";
 
 // Diff review
@@ -49,6 +63,8 @@ export {
   WorktreeCreateOutputSchema,
   WorktreeRemoveInputSchema,
 } from "./schemas.ts";
+// Working-tree watcher (axis 4, parcel-watcher backed)
+export { watchWorkingTree } from "./working-tree-watcher.ts";
 // Worktree operations
 export {
   detectDefaultBranch,

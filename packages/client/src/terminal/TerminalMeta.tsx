@@ -10,7 +10,7 @@
  *  separate components, with shared bits (skeleton, agent progress)
  *  exported below for reuse. */
 
-import { prUnavailableSource, prValue } from "kolu-common/pr";
+import { prUnavailableSource, prValue } from "kolu-github/schemas";
 import { type Component, Show } from "solid-js";
 import { PrStateIcon, WorktreeIcon } from "../ui/Icons";
 import Tip from "../ui/Tip";
@@ -152,7 +152,7 @@ const TerminalMeta: Component<{
 };
 
 /** Mobile pull-handle one-row variant — repo + branch + #PR inline.
- *  Mirrors what the pill tree shows for a focused terminal; the full
+ *  Mirrors what the workspace switcher shows for a focused terminal; the full
  *  branch/PR/foreground details live in the chrome sheet that the
  *  pull-handle opens. */
 export const TerminalMetaCompact: Component<{

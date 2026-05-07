@@ -19,7 +19,14 @@ const { Content, remarkPluginFrontmatter } = await render(post);
 const minutesRead = remarkPluginFrontmatter?.minutesRead;
 ---
 
-<BaseLayout title={post.data.title} description={post.data.description}>
+<BaseLayout
+  title={post.data.title}
+  description={post.data.description}
+  ogImageRoute={`blog/${post.id}`}
+  ogType="article"
+  pubDate={post.data.pubDate}
+  author={post.data.author}
+>
   <article class="mx-auto max-w-[44rem] px-6 pt-20 pb-24">
     <header class="mb-14">
       <a

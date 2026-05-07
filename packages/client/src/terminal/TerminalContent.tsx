@@ -6,7 +6,7 @@
 
 import Resizable from "@corvu/resizable";
 import type { ITheme } from "@xterm/xterm";
-import type { TerminalId, TerminalMetadata } from "kolu-common";
+import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import { type Component, For, Show } from "solid-js";
 import SubPanelTabBar from "./SubPanelTabBar";
 import Terminal from "./Terminal";

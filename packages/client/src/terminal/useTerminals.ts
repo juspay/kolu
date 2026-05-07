@@ -9,10 +9,11 @@
  *  New features should go in the appropriate module (or a new one),
  *  not back into this composition root. See #221, #242. */
 
-import type { TerminalId } from "kolu-common";
+import type { TerminalId } from "kolu-common/surface";
+import { createRoot } from "solid-js";
 import { toast } from "solid-sonner";
-import { stream } from "../rpc/rpc";
 import { isExpectedCleanupError } from "../rpc/streamCleanup";
+import { app } from "../wire";
 import { useSessionRestore } from "./useSessionRestore";
 import { useTerminalAlerts } from "./useTerminalAlerts";
 import { useTerminalCrud } from "./useTerminalCrud";
@@ -35,19 +36,23 @@ export function useTerminals() {
 
   /** Subscribe to exit events for a terminal (one-shot action, not queryable state).
    *
+   *  `subscribeExit` is invoked from `handleCreate` /
+   *  `handleSessionRestore` after `await client.terminal.create` — by
+   *  then there's no surrounding Solid reactive owner. Wrap the hook in
+   *  `createRoot` so onCleanup binds to a per-terminal root that lives
+   *  for the terminal's lifetime; the iterator naturally ends when the
+   *  server yields the exit code.
+   *
    *  Race: if the terminal exits while the socket is down, the retried
    *  re-subscribe throws `TerminalNotFoundError` (not retried, per
    *  shouldRetry in rpc.ts) and the exit toast is missed. The terminal
    *  itself is still removed via the list subscription in useTerminalStore,
    *  so correctness is preserved even if the toast is lost. */
   function subscribeExit(id: TerminalId) {
-    // Fire-and-forget: the IIFE owns its try/catch so the floating
-    // promise never rejects out into the caller. `void` makes the
-    // discard explicit for noFloatingPromises.
-    void (async () => {
-      try {
-        const iter = await stream.exit(id);
-        for await (const code of iter) {
+    createRoot(() => {
+      app.events.terminalExit.use(
+        () => ({ id }),
+        (code) => {
           const label = store.terminalLabel(id);
           if (code === 0) {
             toast(`${label} exited`);
@@ -55,15 +60,16 @@ export function useTerminals() {
             toast.warning(`${label} exited with code ${code}`);
           }
           crud.removeAndAutoSwitch(id);
-        }
-      } catch (err) {
-        // Non-cleanup errors land here — notably `TerminalNotFoundError`
-        // from a server-restart re-subscribe. Log so it's diagnosable.
-        if (!isExpectedCleanupError(err)) {
-          console.error("Exit stream error:", err);
-        }
-      }
-    })();
+        },
+        {
+          onError: (err) => {
+            if (!isExpectedCleanupError(err)) {
+              console.error("Exit stream error:", err);
+            }
+          },
+        },
+      );
+    });
   }
 
   const crud = useTerminalCrud({

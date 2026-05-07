@@ -8,7 +8,8 @@
         "--command",
         "just",
         "ai::mcp-chrome-devtools"
-      ]
+      ],
+      "type": "stdio"
     }
   }
 }

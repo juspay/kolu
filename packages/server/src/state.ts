@@ -17,15 +17,15 @@
  */
 
 import Conf from "conf";
+import type { GitInfo } from "kolu-git/schemas";
 import {
-  type GitInfo,
+  type ActivityFeed,
+  ActivityFeedSchema,
+  DEFAULT_PREFERENCES,
   type Preferences,
   PreferencesSchema,
-  RecentAgentSchema,
-  RecentRepoSchema,
   SavedSessionSchema,
-} from "kolu-common";
-import { DEFAULT_PREFERENCES } from "kolu-common/config";
+} from "kolu-common/surface";
 import { z } from "zod";
 import { log } from "./log.ts";
 
@@ -86,8 +86,7 @@ export function migrateLegacyTerminal_1_18_0(
  *  the per-domain shapes (Preferences / ActivityFeed / SavedSession), not
  *  this aggregate. Adding a new domain key requires a migration entry below. */
 const PersistedStateSchema = z.object({
-  recentRepos: z.array(RecentRepoSchema),
-  recentAgents: z.array(RecentAgentSchema),
+  activityFeed: ActivityFeedSchema,
   session: SavedSessionSchema.nullable(),
   preferences: PreferencesSchema,
 });
@@ -99,7 +98,7 @@ type PersistedState = z.infer<typeof PersistedStateSchema>;
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.18.0";
+const SCHEMA_VERSION = "1.20.0";
 
 // Callers must pass an explicit directory via KOLU_STATE_DIR. A bare launch
 // with no env would silently clobber whatever happens to live at conf's
@@ -122,8 +121,7 @@ export const store = new Conf<PersistedState>({
   cwd: stateDir,
   projectVersion: SCHEMA_VERSION,
   defaults: {
-    recentRepos: [],
-    recentAgents: [],
+    activityFeed: { recentRepos: [], recentAgents: [] } satisfies ActivityFeed,
     session: null,
     preferences: DEFAULT_PREFERENCES,
   },
@@ -174,9 +172,16 @@ export const store = new Conf<PersistedState>({
       } as unknown as Preferences);
     },
     // recentAgents added — seed as empty array for existing state files.
+    // The `recentAgents` key was a top-level slot until 1.19.0 collapsed
+    // it into `activityFeed.recentAgents`; the cast keeps this historical
+    // migration valid against the post-1.19 schema.
     "1.5.0": (store: Conf<PersistedState>) => {
-      if (!store.has("recentAgents")) {
-        store.set("recentAgents", []);
+      const untyped = store as unknown as {
+        has: (key: string) => boolean;
+        set: (key: string, value: unknown) => void;
+      };
+      if (!untyped.has("recentAgents")) {
+        untyped.set("recentAgents", []);
       }
     },
     // rightPanelCollapsed + rightPanelSize added — old preference blobs lack these fields.
@@ -202,42 +207,34 @@ export const store = new Conf<PersistedState>({
       });
     },
     // RightPanelTab enum changed: "files" + "git" stubs collapsed into one "review" tab (#514).
-    // Coerce stale persisted values to "inspector" so zod validation at the RPC boundary holds.
-    // Cast through `unknown` because on-disk tab predates both the current
-    // union and the older enum shape.
+    // Only acts on the legacy flat-string `tab` shape. The 1.13.0
+    // migration converted that to a DU, and 1.20.0 flattened it again
+    // into `activeTab` + `codeMode` — neither of those shapes has a
+    // string `tab`, so the early-return skips them cleanly.
     "1.8.0": (store: Conf<PersistedState>) => {
-      const current = store.get("preferences");
-      const tab = current.rightPanel.tab as unknown as string;
-      const staleTab = tab !== "inspector" && tab !== "review";
+      const current = store.get("preferences") as Record<string, unknown>;
+      const rp = current.rightPanel as Record<string, unknown>;
+      if (typeof rp.tab !== "string") return;
+      const staleTab = rp.tab !== "inspector" && rp.tab !== "review";
       if (staleTab) {
         store.set("preferences", {
           ...current,
-          rightPanel: {
-            ...current.rightPanel,
-            tab: "inspector" as unknown as typeof current.rightPanel.tab,
-          },
-        });
+          rightPanel: { ...rp, tab: "inspector" },
+        } as unknown as Preferences);
       }
     },
-    // Tab renamed: "review" → "diff" (#514). The label is "Code Diff" to
-    // signal forge/VCS-agnostic intent. Anything other than "inspector" or
-    // "diff" coerces to "inspector". Cast through `unknown` because the
-    // on-disk value at this migration point is still a flat string, not
-    // the discriminated union introduced in 1.13.0.
+    // Tab renamed: "review" → "diff" (#514). Same string-tab guard as
+    // 1.8.0 — only acts on the legacy flat-string shape.
     "1.9.0": (store: Conf<PersistedState>) => {
-      const current = store.get("preferences");
-      const tab = current.rightPanel.tab as unknown as string;
-      const next = tab === "review" ? "diff" : tab;
+      const current = store.get("preferences") as Record<string, unknown>;
+      const rp = current.rightPanel as Record<string, unknown>;
+      if (typeof rp.tab !== "string") return;
+      const next = rp.tab === "review" ? "diff" : rp.tab;
       const valid = next === "inspector" || next === "diff";
       store.set("preferences", {
         ...current,
-        rightPanel: {
-          ...current.rightPanel,
-          tab: (valid
-            ? next
-            : "inspector") as unknown as typeof current.rightPanel.tab,
-        },
-      });
+        rightPanel: { ...rp, tab: valid ? next : "inspector" },
+      } as unknown as Preferences);
     },
     // `randomTheme` (boolean) replaced by `shuffleTheme` (boolean). The
     // semantics changed under the hood — "shuffle" now uses a perceptual
@@ -282,24 +279,18 @@ export const store = new Conf<PersistedState>({
         } as unknown as Preferences);
       }
     },
-    // rightPanel.tab reshaped into a discriminated union so illegal
-    // combinations ("inspector + codeMode") are unrepresentable. Old shape:
+    // rightPanel.tab string ("inspector" | "diff") → discriminated union.
     //   { tab: "inspector" | "diff" }
-    // New shape:
+    //   →
     //   { tab: { kind: "inspector" } | { kind: "code", mode: "local"|"branch"|"browse" } }
-    // Any transient flat `codeMode` field from an in-flight build of #576 is
-    // discarded — the mode now lives inside the `code` variant of the tab.
-    // Users on such a build with `codeMode: "branch"` or `"browse"` are
-    // reset to `"local"`; no release ever shipped that intermediate shape,
-    // and "local" matches the pre-#555 default so it's a safe fallback.
-    // The `typeof === "object"` guard is a belt-and-suspenders no-op for
-    // the already-migrated case (conf won't re-run this key once seen);
-    // `null` slips through and falls into the inspector default, which is
-    // the right recovery for a corrupt tab value.
+    // Only acts on the string shape. Skips already-migrated DU stores
+    // and the post-1.20.0 flat shape (no `tab` field at all). The
+    // `_codeMode` strip drops any transient flat field from an
+    // in-flight build of #576 — released versions never had it.
     "1.13.0": (store: Conf<PersistedState>) => {
       const current = store.get("preferences");
       const rp = current.rightPanel as Record<string, unknown>;
-      if (rp.tab !== null && typeof rp.tab === "object") return;
+      if (typeof rp.tab !== "string") return;
       const tab =
         rp.tab === "diff"
           ? { kind: "code" as const, mode: "local" as const }
@@ -307,8 +298,8 @@ export const store = new Conf<PersistedState>({
       const { codeMode: _codeMode, tab: _tab, ...rest } = rp;
       store.set("preferences", {
         ...current,
-        rightPanel: { ...rest, tab } as typeof current.rightPanel,
-      });
+        rightPanel: { ...rest, tab },
+      } as unknown as Preferences);
     },
     // terminalRenderer preference added — default to "auto" (existing behavior:
     // WebGL on focused+visible tile, DOM elsewhere).
@@ -320,7 +311,7 @@ export const store = new Conf<PersistedState>({
     },
     // canvasMode + sidebarAgentPreviews removed (#622) — the workspace is
     // now mode-less (canvas always on desktop) and the sidebar with its
-    // preview cards is gone, replaced by a floating pill tree.
+    // preview cards is gone, replaced by the floating workspace switcher.
     "1.15.0": (store: Conf<PersistedState>) => {
       const current = store.get("preferences") as Record<string, unknown>;
       const { canvasMode: _cm, sidebarAgentPreviews: _sap, ...rest } = current;
@@ -363,16 +354,58 @@ export const store = new Conf<PersistedState>({
         terminals: terminals as typeof session.terminals,
       });
     },
+    // recentRepos + recentAgents — two top-level keys carrying one logical
+    // ActivityFeed cell — collapse into a single `activityFeed` key. The
+    // framework's `cellHandlers` treats activityFeed as one atomic value;
+    // the legacy two-key split was a leak of disk-shape into the cell
+    // adapter. Strip the old keys after writing the new one so the
+    // PersistedStateSchema's `.strict()` (or future-stricter) reads don't
+    // see the orphans.
+    "1.19.0": (store: Conf<PersistedState>) => {
+      const raw = store.store as unknown as Record<string, unknown>;
+      const recentRepos = (raw.recentRepos ??
+        []) as ActivityFeed["recentRepos"];
+      const recentAgents = (raw.recentAgents ??
+        []) as ActivityFeed["recentAgents"];
+      store.set("activityFeed", { recentRepos, recentAgents });
+      // Strip the legacy keys (no longer in PersistedStateSchema) — the
+      // double-cast is needed because Conf's typed `delete` rejects keys
+      // outside the current schema.
+      const untyped = store as unknown as {
+        delete: (key: string) => void;
+      };
+      untyped.delete("recentRepos");
+      untyped.delete("recentAgents");
+    },
+    // rightPanel.tab DU → flat `activeTab` + `codeMode`. Storage stays
+    // mergeable by Solid's setStore (no DU subtree to leak variant
+    // fields); `codeMode` now persists across Inspector↔Code toggles.
+    // The DU view is reconstructed at consumption sites via
+    // `rightPanelView()`. Corrupt/missing tab degrades to inspector/local.
+    "1.20.0": (store: Conf<PersistedState>) => {
+      const current = store.get("preferences") as Record<string, unknown>;
+      const rp = current.rightPanel as Record<string, unknown>;
+      const tab = rp.tab as
+        | { kind: "inspector" }
+        | { kind: "code"; mode: "local" | "branch" | "browse" }
+        | undefined;
+      const activeTab = tab?.kind === "code" ? "code" : "inspector";
+      const codeMode = tab?.kind === "code" ? tab.mode : "local";
+      const { tab: _tab, ...rest } = rp;
+      store.set("preferences", {
+        ...current,
+        rightPanel: { ...rest, activeTab, codeMode },
+      } as Preferences);
+    },
   },
 });
 
 // Early validation so corrupt state shows up in journalctl immediately at
 // startup, not only when the first client connects. Validates the aggregate
-// on-disk shape — the per-domain getters in preferences.ts / activity.ts /
-// session.ts trust the validated store thereafter.
+// on-disk shape — the per-domain getters in activity.ts / session.ts trust
+// the validated store thereafter.
 const result = PersistedStateSchema.safeParse({
-  recentRepos: store.get("recentRepos"),
-  recentAgents: store.get("recentAgents"),
+  activityFeed: store.get("activityFeed"),
   session: store.get("session"),
   preferences: store.get("preferences"),
 });

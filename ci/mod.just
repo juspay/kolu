@@ -26,7 +26,7 @@ _run-all: _local _linux _darwin
 # their own GitHub status — _summary reads those statuses to decide
 # the final pass/fail.
 _local:
-    just ci::fmt ci::typecheck ci::biome ci::unit ci::apm-sync || true
+    just ci::fmt ci::typecheck ci::biome ci::unit ci::surface-example-build ci::apm-sync || true
 
 _linux:
     CI_SYSTEM=x86_64-linux just ci::pnpm-hash-fresh ci::nix ci::_linux-fanout || true
@@ -34,10 +34,10 @@ _linux:
 # Runs post-nix steps in parallel. Within the same just process, their
 # `: nix` deps are already satisfied, so nix is not rebuilt.
 [parallel]
-_linux-fanout: home-manager e2e
+_linux-fanout: home-manager e2e smoke
 
 [parallel]
-_darwin-fanout: e2e
+_darwin-fanout: home-manager e2e smoke
 
 _darwin:
     CI_SYSTEM=aarch64-darwin just ci::nix ci::_darwin-fanout || true
@@ -72,6 +72,12 @@ typecheck:
 e2e: nix
     just ci::_run e2e just test
 
+# Boot the packaged Kolu and verify /api/health — runtime smoke that catches
+# packaging regressions where `nix build` passes but the binary crashes at
+# boot (e.g. missing workspace dep — see #761).
+smoke: nix
+    just ci::_run smoke just smoke
+
 # Run vitest unit tests (server + client)
 unit:
     just ci::_run unit just test-unit
@@ -79,6 +85,13 @@ unit:
 # Verify vendored .claude/ matches .apm/ sources + security audit
 apm-sync:
     just ci::_run apm-sync just ai::apm-sync
+
+# Build the @kolu/surface framework's example app (vite client + tsc on
+# server). Catches example-only regressions that the workspace-wide
+# typecheck doesn't see — broken Tailwind imports, JSX errors, missing
+# imports in the production bundle. Cheap (~1s).
+surface-example-build:
+    just ci::_run surface-example-build "pnpm --filter @kolu/surface-example build:client"
 
 fmt:
     just ci::_run fmt just fmt-check

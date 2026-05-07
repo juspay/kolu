@@ -17,7 +17,8 @@
  * suffices for every provider.
  */
 
-import type { Logger, TaskProgress } from "./index.ts";
+import type { Logger } from "kolu-shared";
+import type { TaskProgress } from "./schemas.ts";
 
 /** Snapshot of a terminal's observable state, passed to `resolveSession`.
  *  Fields are the inputs every agent's session-matching logic can draw from;

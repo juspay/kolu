@@ -3,13 +3,12 @@
  *  Identity-and-presentation come from `terminalKey()` in `kolu-common`;
  *  this module only adds the decorations. */
 
+import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import {
   computeTerminalKeys,
-  terminalKey,
-  type TerminalId,
   type TerminalKey,
-  type TerminalMetadata,
-} from "kolu-common";
+  terminalKey,
+} from "kolu-common/terminalKey";
 
 export type TerminalDisplayInfo = {
   repoColor?: string;

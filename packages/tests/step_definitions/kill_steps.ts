@@ -3,7 +3,7 @@ import { Then, When } from "@cucumber/cucumber";
 import {
   type KoluWorld,
   MOD_KEY,
-  PILL_TREE_ENTRY_SELECTOR,
+  WORKSPACE_SWITCHER_ENTRY_SELECTOR,
   POLL_TIMEOUT,
 } from "../support/world.ts";
 
@@ -71,9 +71,9 @@ When(
 );
 
 Then(
-  "the pill tree should have {int} terminal entry/entries",
+  "the workspace switcher should have {int} terminal entry/entries",
   async function (this: KoluWorld, expected: number) {
-    const sel = PILL_TREE_ENTRY_SELECTOR;
+    const sel = WORKSPACE_SWITCHER_ENTRY_SELECTOR;
     await this.page.waitForFunction(
       ({ sel, exp }) => document.querySelectorAll(sel).length === exp,
       { sel, exp: expected },
@@ -88,10 +88,10 @@ Then("the empty state tip should be visible", async function (this: KoluWorld) {
 });
 
 Then(
-  "the pill tree should eventually have {int} terminal entry/entries",
+  "the workspace switcher should eventually have {int} terminal entry/entries",
   async function (this: KoluWorld, expected: number) {
     // Natural exit can take a moment — use waitForFunction for reactive check
-    const sel = PILL_TREE_ENTRY_SELECTOR;
+    const sel = WORKSPACE_SWITCHER_ENTRY_SELECTOR;
     await this.page.waitForFunction(
       ({ sel, exp }) => document.querySelectorAll(sel).length === exp,
       { sel, exp: expected },

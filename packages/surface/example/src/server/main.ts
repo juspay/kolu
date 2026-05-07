@@ -1,0 +1,91 @@
+/**
+ * Server entry — Hono + WebSocket bound to oRPC's `RPCHandler`.
+ *
+ * No HTTPS, no auth, no migrations — just enough wiring to demonstrate
+ * the framework end-to-end. Static client is served from
+ * `KOLU_SURFACE_EXAMPLE_DIST` (set by the Nix wrapper) when present;
+ * otherwise the dev path is "Vite serves the client on its own port,
+ * Hono only handles `/rpc/*`".
+ */
+
+import { existsSync, readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { serve } from "@hono/node-server";
+import { RPCHandler } from "@orpc/server/fetch";
+import { RPCHandler as WsRPCHandler } from "@orpc/server/ws";
+import { Hono } from "hono";
+import { WebSocketServer } from "ws";
+import { appRouter } from "./router";
+
+const PORT = Number(process.env.PORT ?? 7700);
+const HOST = process.env.HOST ?? "127.0.0.1";
+const DIST_DIR = process.env.KOLU_SURFACE_EXAMPLE_DIST;
+
+const app = new Hono();
+
+// ── HTTP RPC (mutations + one-shot queries) ───────────────────────────
+const httpHandler = new RPCHandler(appRouter);
+app.use("/rpc/*", async (c, next) => {
+  const { matched, response } = await httpHandler.handle(c.req.raw, {
+    prefix: "/rpc",
+  });
+  if (matched) return response;
+  await next();
+});
+
+// ── Static client (Nix-build mode) ────────────────────────────────────
+if (DIST_DIR && existsSync(DIST_DIR)) {
+  app.get("*", (c) => {
+    const url = new URL(c.req.url);
+    const filePath =
+      url.pathname === "/"
+        ? join(DIST_DIR, "index.html")
+        : join(DIST_DIR, url.pathname);
+    const safe = resolve(filePath);
+    if (!safe.startsWith(resolve(DIST_DIR))) return c.notFound();
+    const target = existsSync(safe) ? safe : join(DIST_DIR, "index.html");
+    const body = readFileSync(target);
+    return new Response(new Uint8Array(body), {
+      headers: { "content-type": guessContentType(target) },
+    });
+  });
+}
+
+function guessContentType(p: string): string {
+  if (p.endsWith(".html")) return "text/html; charset=utf-8";
+  if (p.endsWith(".js")) return "application/javascript; charset=utf-8";
+  if (p.endsWith(".css")) return "text/css; charset=utf-8";
+  if (p.endsWith(".svg")) return "image/svg+xml";
+  if (p.endsWith(".json")) return "application/json; charset=utf-8";
+  return "application/octet-stream";
+}
+
+// ── HTTP server bind via @hono/node-server ────────────────────────────
+const server = serve(
+  { fetch: app.fetch, port: PORT, hostname: HOST },
+  (info) => {
+    const where = `http://${info.address}:${info.port}`;
+    console.log(`@kolu/surface-example listening on ${where}`);
+    if (!DIST_DIR) {
+      console.log(
+        "  (no KOLU_SURFACE_EXAMPLE_DIST set — start Vite separately for the client)",
+      );
+    }
+  },
+);
+
+// ── WebSocket RPC (streaming subscriptions) ───────────────────────────
+const wsHandler = new WsRPCHandler(appRouter);
+const wss = new WebSocketServer({ noServer: true });
+wss.on("connection", (peer) => {
+  void wsHandler.upgrade(peer);
+});
+server.on("upgrade", (req, socket, head) => {
+  if (req.url?.startsWith("/rpc/ws")) {
+    wss.handleUpgrade(req, socket, head, (ws) => {
+      wss.emit("connection", ws, req);
+    });
+  } else {
+    socket.destroy();
+  }
+});

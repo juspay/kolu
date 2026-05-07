@@ -14,7 +14,7 @@
  * keeps this file a leaf.
  */
 
-import type { TerminalId, TerminalInfo } from "kolu-common";
+import type { TerminalId, TerminalInfo } from "kolu-common/surface";
 import type { PtyHandle } from "./pty.ts";
 
 /** Server-side terminal state. Owns a PtyHandle and embeds the wire-type TerminalInfo. */

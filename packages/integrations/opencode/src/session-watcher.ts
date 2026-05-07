@@ -1,19 +1,19 @@
 /**
  * OpenCodeWatcher — encapsulates all per-session lifecycle state.
  *
- * Creating an OpenCodeWatcher subscribes to the shared WAL watcher and
- * emits state via the onChange callback. Destroying it unsubscribes and
- * closes the held DB connection. No "remember to reset N variables"
- * invariant — the lifetime IS the object.
+ * Wraps `kolu-shared`'s generic `createDebounceWatcher` with opencode's
+ * SQLite refresh logic. The factory owns the destroy flag, debounce
+ * timer, DB lifetime, equality-gated dispatch, and lifecycle logs;
+ * this file only owns the per-event `refresh` body.
  *
- * The server's opencode provider creates one of these per matched session
- * and replaces it on session change. Mirrors the SessionWatcher pattern
- * from `kolu-claude-code` (PR #437).
+ * The server's opencode provider creates one of these per matched
+ * session and replaces it on session change.
  */
 
 import type { DatabaseSync } from "node:sqlite";
-import type { Logger } from "anyagent";
 import { agentInfoEqual } from "anyagent";
+import type { Logger } from "kolu-shared";
+import { createDebounceWatcher } from "kolu-shared/sqlite";
 import {
   deriveSessionState,
   getLatestAssistantContextTokens,
@@ -56,28 +56,14 @@ export function createOpenCodeWatcher(
   onChange: (info: OpenCodeInfo) => void,
   log?: Logger,
 ): OpenCodeWatcher {
-  let lastInfo: OpenCodeInfo | null = null;
-  let destroyed = false;
-  // Trailing-edge debounce timer for WAL fs.watch events.
-  // Null when idle. Cleared on destroy.
-  let debounceTimer: NodeJS.Timeout | null = null;
-
-  // Hoist the DB connection across the watcher's lifetime so we don't
-  // open/close on every WAL event. Safe in WAL mode: an open connection
-  // holds no locks until you start a transaction, and our queries are
-  // autocommit. See README's OpenCode Status section for the full
-  // locking analysis.
-  const db: DatabaseSync | null = openDb(log);
-
-  function refresh() {
-    if (destroyed || !db) return;
+  function refresh(db: DatabaseSync): OpenCodeInfo | null {
     const derived = deriveSessionState(session.id, log, db);
     if (!derived) {
       log?.debug(
         { session: session.id },
         "no messages yet for opencode session",
       );
-      return;
+      return null;
     }
 
     // When the assistant is actively generating (state === "thinking"),
@@ -102,7 +88,7 @@ export function createOpenCodeWatcher(
     // count whenever the user is typing.
     const contextTokens = getLatestAssistantContextTokens(session.id, log, db);
 
-    const info: OpenCodeInfo = {
+    return {
       kind: "opencode",
       state,
       sessionId: session.id,
@@ -111,9 +97,9 @@ export function createOpenCodeWatcher(
       taskProgress,
       contextTokens,
     };
+  }
 
-    if (agentInfoEqual(lastInfo, info)) return;
-    lastInfo = info;
+  function logAndDispatch(info: OpenCodeInfo): void {
     log?.debug(
       { state: info.state, model: info.model, session: info.sessionId },
       "opencode state updated",
@@ -121,37 +107,23 @@ export function createOpenCodeWatcher(
     onChange(info);
   }
 
-  /** Trailing-edge debounce: reset the timer on every event, fire
-   *  `refresh` once after `WAL_DEBOUNCE_MS` of quiet. The handler's own
-   *  `destroyed` guard makes late-firing callbacks safe, but we clear
-   *  the timer in `destroy()` anyway to avoid holding closure refs
-   *  unnecessarily. */
-  function scheduleRefresh() {
-    if (destroyed) return;
-    if (debounceTimer) clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(() => {
-      debounceTimer = null;
-      refresh();
-    }, WAL_DEBOUNCE_MS);
-  }
+  // Hoist the DB connection across the watcher's lifetime so we don't
+  // open/close on every WAL event. Safe in WAL mode: an open connection
+  // holds no locks until you start a transaction, and our queries are
+  // autocommit. See README's OpenCode Status section for the full
+  // locking analysis.
+  const db = openDb(log);
 
-  const unsubscribe = subscribeOpenCodeDb(
-    scheduleRefresh,
-    (err) => log?.error({ err, session: session.id }, "wal listener threw"),
-    log,
-  );
-  refresh();
-
-  return {
+  return createDebounceWatcher({
     session,
-    destroy() {
-      destroyed = true;
-      if (debounceTimer) {
-        clearTimeout(debounceTimer);
-        debounceTimer = null;
-      }
-      unsubscribe();
-      db?.close();
-    },
-  };
+    label: "opencode: session",
+    debounceMs: WAL_DEBOUNCE_MS,
+    db,
+    subscribe: subscribeOpenCodeDb,
+    refresh,
+    isEqual: agentInfoEqual,
+    onChange: logAndDispatch,
+    logCtx: { session: session.id },
+    log,
+  });
 }

@@ -4,7 +4,7 @@
  * fallback, and promote-on-appearance dance all live upstream.
  */
 
-import { createWalSubscription } from "anyagent";
+import { createWalSubscription } from "kolu-shared/sqlite";
 import { OPENCODE_DB_PATH, OPENCODE_DB_WAL_PATH } from "./config.ts";
 
 const { subscribe: subscribeOpenCodeDb } = createWalSubscription({

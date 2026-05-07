@@ -6,8 +6,9 @@
  *  bar via `canvas/TileTitleActions`. The header is intentionally minimal. */
 
 import Dialog from "@corvu/dialog";
-import { Title } from "@solidjs/meta";
-import type { TerminalId } from "kolu-common";
+import { Meta, Title } from "@solidjs/meta";
+import type { ServerIdentity } from "kolu-common/contract";
+import type { TerminalId } from "kolu-common/surface";
 import {
   type Component,
   createEffect,
@@ -23,16 +24,19 @@ import CloseConfirm, { type CloseConfirmTarget } from "./CloseConfirm";
 import CommandPalette from "./CommandPalette";
 import "kolu-common/test-hooks";
 import CanvasWatermark from "./canvas/CanvasWatermark";
-import PillTree from "./canvas/PillTree";
-import { flatPillOrder, groupByRepo } from "./canvas/pillTreeOrder";
+import WorkspaceSwitcher, {
+  buildWorkspaceEntries,
+  buildWorkspaceSwitcherModel,
+} from "./canvas/workspace-switcher";
 import TerminalCanvas from "./canvas/TerminalCanvas";
 import TileTitleActions from "./canvas/TileTitleActions";
-import { useViewPosture } from "./canvas/useViewPosture";
 import { useCanvasViewport } from "./canvas/viewport/useCanvasViewport";
 import { createCommands } from "./commands";
 import DiagnosticInfo from "./DiagnosticInfo";
 import EmptyState from "./EmptyState";
 import { exportScrollbackAsPdf } from "./exportScrollbackAsPdf";
+import { exportSessionAsHtml } from "./exportSessionAsHtml";
+import type { ActionContext } from "./input/actions";
 import { useShortcuts } from "./input/useShortcuts";
 import MobileKeyBar from "./MobileKeyBar";
 import MobileTileView from "./MobileTileView";
@@ -40,7 +44,8 @@ import { useRecorder } from "./recorder/useRecorder";
 import WebcamOverlay from "./recorder/WebcamOverlay";
 import RightPanelLayout from "./right-panel/RightPanelLayout";
 import { useRightPanel } from "./right-panel/useRightPanel";
-import { client, serverProcessId, wsStatus } from "./rpc/rpc";
+import { client } from "./wire";
+import { serverProcessId, wsStatus } from "./rpc/rpc";
 import TransportOverlay from "./rpc/TransportOverlay";
 import ShortcutsHelp from "./ShortcutsHelp";
 import { screenshotTerminal } from "./screenshotTerminal";
@@ -75,37 +80,48 @@ const App: Component = () => {
   const rightPanel = useRightPanel();
   const { colorScheme } = useColorScheme();
   const canvasViewport = useCanvasViewport();
-  const posture = useViewPosture();
 
-  // Pill-tree-grouped order — single source for the desktop pill tree AND
-  // the mobile swipe handler so the two views never drift.
+  // Workspace-switcher entries are one live terminal list. Desktop and mobile
+  // choose explicit order policies from it: desktop mirrors canvas geometry
+  // (leftmost first, topmost as tie-break), mobile keeps live terminal order
+  // because there is no canvas affordance.
   //
-  // Desktop: pass `getLayout` so the tree mirrors the canvas spatially
-  // (left tile → first pill, right tile → last pill). Reorders live as
-  // tiles are dragged. Mobile has no canvas, so layouts are absent and
-  // the function falls back to the caller's input order — the server's
-  // Map insertion order (terminal creation order).
-  const pillGroups = createMemo(() =>
-    groupByRepo(
+  // Layouts are still captured on the source entries so the desktop policy can
+  // reorder live as tiles are dragged without leaking that policy to mobile.
+  const workspaceEntries = createMemo(() =>
+    buildWorkspaceEntries(
       store.terminalIds(),
       store.getDisplayInfo,
       (id) => store.getMetadata(id)?.canvasLayout,
     ),
   );
-  const orderedIds = createMemo(() => flatPillOrder(pillGroups()));
+  const desktopWorkspaceEntries = createMemo(() =>
+    [...workspaceEntries()].sort((a, b) => {
+      const ax = a.layout?.x ?? Infinity;
+      const bx = b.layout?.x ?? Infinity;
+      if (ax !== bx) return ax - bx;
+      const ay = a.layout?.y ?? Infinity;
+      const by = b.layout?.y ?? Infinity;
+      return ay - by;
+    }),
+  );
+  const mobileWorkspaceModel = createMemo(() =>
+    buildWorkspaceSwitcherModel(workspaceEntries()),
+  );
+  const orderedIds = createMemo(() =>
+    workspaceEntries().map((entry) => entry.id),
+  );
 
-  // Fetch hostname from server; used in document title and header
-  const [hostname, setHostname] = createSignal<string>();
+  // Fetch server identity for document title, watermark, and PWA chrome color.
+  const [identity, setIdentity] = createSignal<ServerIdentity>();
   void client.server
     .info()
-    .then((info) => setHostname(info.hostname))
-    .catch(() => {
-      // Server info is cosmetic (document title) — safe to ignore on failure
+    .then((info) => setIdentity(info.identity))
+    .catch((err) => {
+      // Server info is cosmetic — safe to ignore on failure.
+      console.warn("Server info fetch failed:", err);
     });
-  const appTitle = () => {
-    const h = hostname();
-    return h ? `kolu@${h}` : "kolu";
-  };
+  const appTitle = () => identity()?.name ?? "kolu";
 
   // Palette state
   const [paletteOpen, setPaletteOpen] = createSignal(false);
@@ -115,6 +131,9 @@ const App: Component = () => {
 
   // Shortcuts help overlay state
   const [shortcutsHelpOpen, setShortcutsHelpOpen] = createSignal(false);
+
+  const [workspaceSwitcherOpenRequest, setWorkspaceSwitcherOpenRequest] =
+    createSignal(0);
 
   // About dialog state
   const [aboutOpen, setAboutOpen] = createSignal(false);
@@ -152,6 +171,12 @@ const App: Component = () => {
     exportScrollbackAsPdf(id, store.getMetadata(id));
   }
 
+  function handleExportSessionAsHtml() {
+    const id = store.activeId();
+    if (id === null) return;
+    void exportSessionAsHtml(id);
+  }
+
   function handleScreenshotTerminal(id?: TerminalId) {
     const targetId = id ?? store.activeId();
     if (targetId === null) return;
@@ -166,16 +191,22 @@ const App: Component = () => {
     if (tile) canvasViewport.centerOnTile(tile);
   }
 
-  useShortcuts({
+  // Shared between the keyboard dispatcher and the command palette so a single
+  // wiring keeps both surfaces in sync. Palette-only deps (theme management,
+  // dialog setters, debug, etc.) are added below in the createCommands call.
+  const actionContext: ActionContext = {
     terminalIds: store.terminalIds,
     activeId: store.activeId,
     setActiveId: store.setActiveId,
     mruOrder: store.mruOrder,
+    activeMeta: store.activeMeta,
     handleCreate: (cwd?: string) => void crud.handleCreate(cwd),
     handleCreateSubTerminal: (parentId, cwd) =>
       void crud.handleCreateSubTerminal(parentId, cwd),
     openNewTerminalMenu: () => openPaletteGroup("New terminal"),
-    activeMeta: store.activeMeta,
+    openWorkspaceSwitcher: () => {
+      if (!isMobile()) setWorkspaceSwitcherOpenRequest((n) => n + 1);
+    },
     setPaletteOpen,
     setShortcutsHelpOpen,
     setSearchOpen,
@@ -189,9 +220,10 @@ const App: Component = () => {
     handleShuffleTheme,
     handleScreenshotTerminal: () => handleScreenshotTerminal(),
     toggleRightPanel: rightPanel.togglePanel,
-    canvasCenterActive: handleCanvasCenterActive,
     toggleRecordingPause: () => useRecorder().togglePause(),
-  });
+  };
+
+  useShortcuts(actionContext);
 
   function openPalette() {
     setPaletteInitialGroup(undefined);
@@ -235,23 +267,14 @@ const App: Component = () => {
   }
 
   const commands = createCommands({
-    terminalIds: store.terminalIds,
-    activeId: store.activeId,
-    setActiveId: store.setActiveId,
-    activeMeta: store.activeMeta,
-    handleCreate: (cwd) => void crud.handleCreate(cwd),
-    handleCreateSubTerminal: (parentId, cwd) =>
-      void crud.handleCreateSubTerminal(parentId, cwd),
+    ...actionContext,
     handleCopyTerminalText: () => void crud.handleCopyTerminalText(),
     handleRunInActiveTerminal: (cmd) => crud.handleRunInActiveTerminal(cmd),
     handleExportScrollbackAsPdf,
-    handleScreenshotTerminal: () => handleScreenshotTerminal(),
-    toggleSubPanel: handleToggleSubPanel,
+    handleExportSessionAsHtml,
     committedThemeName,
     setPreviewThemeName,
     handleSetTheme,
-    handleShuffleTheme,
-    setShortcutsHelpOpen,
     setAboutOpen,
     setDiagnosticInfoOpen,
     handleCreateWorktree: (repoPath, initialCommand) =>
@@ -262,9 +285,8 @@ const App: Component = () => {
     },
     handleCloseAll: () => void crud.handleCloseAll(),
     simulateAlert: alerts.simulateAlert,
-    toggleRightPanel: rightPanel.togglePanel,
-    canvasCenterActive: handleCanvasCenterActive,
     isMobile,
+    canvasCenterActive: handleCanvasCenterActive,
   });
 
   // Reset state on close and return focus to terminal
@@ -342,6 +364,9 @@ const App: Component = () => {
       }}
     >
       <Title>{appTitle()}</Title>
+      <Show when={identity()?.themeColor}>
+        {(themeColor) => <Meta name="theme-color" content={themeColor()} />}
+      </Show>
       <TransportOverlay />
       <WebcamOverlay />
       <Toaster
@@ -442,22 +467,21 @@ const App: Component = () => {
           if (target) void worktree.handleKillWorktree(target.id);
         }}
       />
-      {/* Desktop chrome — docked top bar carrying pill tree, identity,
+      {/* Desktop chrome — docked top bar carrying workspace switcher, identity,
        *  and global controls. Mobile has its own pull-down sheet (see
        *  MobileTileView) and does not render this band. */}
       <Show when={!isMobile()}>
         <ChromeBar
           status={wsStatus()}
           onOpenPalette={() => openPalette()}
-          pillTree={
-            <PillTree
-              groups={pillGroups()}
+          workspaceSwitcher={
+            <WorkspaceSwitcher
+              entries={desktopWorkspaceEntries()}
+              openRequest={workspaceSwitcherOpenRequest()}
               onSelect={(id) => {
                 store.setActiveId(id);
-                if (!posture.maximized()) {
-                  const layout = store.getMetadata(id)?.canvasLayout;
-                  if (layout) canvasViewport.centerOnTile(layout);
-                }
+                const layout = store.getMetadata(id)?.canvasLayout;
+                if (layout) canvasViewport.centerOnTile(layout);
               }}
               onCreate={() => openPaletteGroup("New terminal")}
             />
@@ -509,7 +533,7 @@ const App: Component = () => {
                 .with(true, () => (
                   <MobileTileView
                     orderedIds={orderedIds()}
-                    groups={pillGroups()}
+                    groups={mobileWorkspaceModel().compactGroups}
                     status={wsStatus()}
                     appTitle={appTitle()}
                     onOpenPalette={() => openPalette()}

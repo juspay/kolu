@@ -8,6 +8,8 @@ set working-directory := '..'
 nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop --accept-flake-config -c' }
 
 apm_cmd := nix_shell + ' uvx --from apm-cli apm'
+apm_targets := 'claude,codex,opencode'
+apm_compile_targets := 'codex,opencode'
 
 # Install native APM integrations for Claude, Codex, and OpenCode.
 #
@@ -15,26 +17,27 @@ apm_cmd := nix_shell + ' uvx --from apm-cli apm'
 # `.codex/`, `.agents/skills/`, `.opencode/`). It does not generate the
 # root `AGENTS.md` instruction file that Codex/OpenCode consume.
 apm-install:
-    {{ apm_cmd }} install
+    {{ apm_cmd }} install --target {{ apm_targets }}
 
 # Compile the shared instruction file for runtimes that read `AGENTS.md`.
 #
 # Claude already reads `.claude/` natively, so we intentionally do not
 # compile `CLAUDE.md`.
 apm-compile:
-    {{ apm_cmd }} compile --target codex,opencode
+    {{ apm_cmd }} compile --target {{ apm_compile_targets }}
 
 # Refresh all APM-managed artifacts needed by Claude, Codex, and OpenCode.
 apm: apm-install apm-compile
 
 # Advance locked APM dependencies to latest refs (all, or specific packages)
 apm-update *packages:
-    {{ apm_cmd }} deps update {{ packages }}
+    {{ apm_cmd }} deps update --target {{ apm_targets }} {{ packages }}
     {{ just_executable() }} ai apm
 
-# Audit APM packages for security issues (Unicode, lockfile consistency)
+# Audit APM packages for security issues and lockfile consistency.
+# Drift is verified by apm-sync's repo-aware scratch diff below.
 apm-audit:
-    {{ apm_cmd }} audit --ci
+    {{ apm_cmd }} audit --ci --no-drift
 
 # Verify APM-managed outputs match sources + security audit
 #
@@ -53,6 +56,11 @@ apm-sync: apm-audit
     # mirror the worktree into scratch while excluding runtime/generated trees.
     # `apm install` rewrites apm.lock.yaml's `generated_at` on every run, which
     # is fine here because the scratch copy is disposable.
+    # Anchor `/CLAUDE.md` with a leading slash so only the project-root
+    # generated file is stripped — `apm_modules/<dep>/CLAUDE.md` is a
+    # shipped file inside vendored dependencies, and dropping it makes
+    # `apm install` re-verify against an incomplete tree and fail with a
+    # spurious content-hash mismatch.
     rsync -a \
         --exclude='.git/' \
         --exclude='node_modules/' \
@@ -62,7 +70,7 @@ apm-sync: apm-audit
         --exclude='.codex/' \
         --exclude='.agents/' \
         --exclude='.opencode/' \
-        --exclude='CLAUDE.md' \
+        --exclude='/CLAUDE.md' \
         "$PWD/" "$scratch/"
     # Mirror the runtime folders that drive target detection for install.
     # Compile is explicit so we only emit `AGENTS.md` for Codex/OpenCode.
@@ -71,15 +79,16 @@ apm-sync: apm-audit
     # placement is file-layout sensitive, so omitting checked-in files that
     # are present during local `just ai::apm` can produce a false sync diff.
     [[ ! -e .claude/launch.json ]] || cp .claude/launch.json "$scratch/.claude/launch.json"
-    [[ ! -e .codex/config.toml ]] || cp .codex/config.toml "$scratch/.codex/config.toml"
-    (cd "$scratch" && {{ apm_cmd }} install >/dev/null)
-    (cd "$scratch" && {{ apm_cmd }} compile --target codex,opencode >/dev/null)
+    (cd "$scratch" && {{ apm_cmd }} install --target {{ apm_targets }})
+    (cd "$scratch" && {{ apm_cmd }} compile --target {{ apm_compile_targets }})
     # Exclude files that apm doesn't manage: launch.json is user-owned,
-    # and `.claude/*` entries in .gitignore are runtime state written by
-    # Claude Code itself (worktree bookkeeping, local settings, session
-    # lockfiles). Keep this list in sync with .gitignore — if a new
-    # runtime file appears in .claude/, add it to .gitignore and here.
+    # `.apm-pin` is install metadata, and `.claude/*` entries in .gitignore
+    # are runtime state written by Claude Code itself (worktree bookkeeping,
+    # local settings, session lockfiles). Keep this list in sync with
+    # .gitignore — if a new runtime file appears in .claude/, add it to
+    # .gitignore and here.
     if ! diff -r \
+        -x .apm-pin \
         -x launch.json \
         -x worktrees \
         -x settings.local.json \
@@ -88,20 +97,18 @@ apm-sync: apm-audit
         echo "ERROR: .claude/ out of sync with sources — run: just ai::apm" >&2
         exit 1
     fi
-    # `.codex/config.toml` is currently a checked-in manual fallback for
-    # project-local Codex MCP until microsoft/apm#803 lands; current APM
-    # does not emit it in the scratch tree yet.
     if ! diff -r \
-        -x config.toml \
+        -x .apm-pin \
         .codex "$scratch/.codex"; then
         echo "ERROR: .codex/ out of sync with sources — run: just ai::apm" >&2
         exit 1
     fi
-    if ! diff -r .agents "$scratch/.agents"; then
+    if ! diff -r -x .apm-pin .agents "$scratch/.agents"; then
         echo "ERROR: .agents/ out of sync with sources — run: just ai::apm" >&2
         exit 1
     fi
     if ! diff -r \
+        -x .apm-pin \
         -x .gitignore \
         -x node_modules \
         -x package-lock.json \

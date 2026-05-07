@@ -9,6 +9,7 @@
   },
   "pnpm": {
     "onlyBuiltDependencies": [
+      "@parcel/watcher",
       "esbuild",
       "node-pty"
     ],
@@ -17,12 +18,10 @@
       "picomatch": "^4.0.4",
       "yaml": "^2.8.3",
       "defu": "^6.1.5",
-      "@anthropic-ai/sdk": "^0.81.0",
+      "postcss": "^8.5.10",
+      "@anthropic-ai/sdk": "^0.91.1",
       "@xterm/xterm": "github:juspay/xterm.js#fix/kolu-xterm-fixes-built",
       "@xterm/addon-webgl": "github:juspay/xterm.js#fix/kolu-xterm-fixes-built&path:/addons/addon-webgl"
-    },
-    "patchedDependencies": {
-      "node-pty@1.1.0": "patches/node-pty@1.1.0.patch"
     }
   },
   "devDependencies": {

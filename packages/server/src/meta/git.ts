@@ -13,7 +13,7 @@
 import { subscribeGitInfo } from "kolu-git";
 import { trackRecentRepo } from "../activity.ts";
 import { log } from "../log.ts";
-import { publishForTerminal, subscribeForTerminal } from "../publisher.ts";
+import { terminalChannels } from "../publisher.ts";
 import type { TerminalProcess } from "../terminal-registry.ts";
 import { updateServerMetadata } from "./state.ts";
 
@@ -31,7 +31,7 @@ export function startGitProvider(
       updateServerMetadata(entry, terminalId, (m) => {
         m.git = git;
       });
-      publishForTerminal("git", terminalId, git);
+      terminalChannels.git(terminalId).publish(git);
       plog.debug(
         { repo: git?.repoName, branch: git?.branch },
         "git info updated",
@@ -40,13 +40,13 @@ export function startGitProvider(
     plog,
   );
 
-  const abort = new AbortController();
-  subscribeForTerminal("cwd", terminalId, abort.signal, (cwd) =>
-    watcher.setCwd(cwd),
-  );
+  const cleanup = terminalChannels.cwd(terminalId).consume({
+    onEvent: (cwd) => watcher.setCwd(cwd),
+    onError: (err) => plog.error({ err }, "publisher subscription failed"),
+  });
 
   return () => {
-    abort.abort();
+    cleanup();
     watcher.stop();
     plog.debug("stopped");
   };

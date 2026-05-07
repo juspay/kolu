@@ -1,12 +1,12 @@
 /** Canvas display posture — desktop only. The single public seam for
- *  `canvasMaximized`. Canvas readers (ChromeBar, TerminalCanvas, PillTree)
+ *  `canvasMaximized`. Canvas readers (ChromeBar, TerminalCanvas, WorkspaceSwitcher)
  *  import this hook instead of reaching into `useTerminalStore`, so a
  *  future enum upgrade (PiP, per-tile maximize) can be absorbed here
  *  without rippling across every reader.
  *
  *  Scope is deliberately narrow: only `maximized` (the state) and
  *  `toggle` (the single writer). Per-reader derivations like "show
- *  minimap" or "pill-tree opacity" stay at the reader — naming hook
+ *  minimap" or "workspace-switcher opacity" stay at the reader — naming hook
  *  outputs after reader-specific behaviors would couple this interface
  *  to their internals.
  *

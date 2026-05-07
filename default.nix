@@ -19,20 +19,18 @@ let
       ./pnpm-workspace.yaml
       ./pnpm-lock.yaml
       ./tsconfig.base.json
+      ./packages/surface
+      ./packages/solid-pierre
       ./packages/common
       ./packages/integrations
       ./packages/nonempty
+      ./packages/shared
       ./packages/terminal-themes
       ./packages/memorable-names
       ./packages/server
       ./packages/client
-      # pnpm.patchedDependencies entries — read by pnpm during install and
-      # applied to the upstream tarball. Currently:
-      #   - node-pty@1.1.0.patch: adds a foregroundPid accessor wrapping
-      #     tcgetpgrp(masterFd). Upstream feature request:
-      #     https://github.com/microsoft/node-pty/issues/913 — drop this
-      #     patch once that lands.
-      ./patches
+      ./packages/transcript-core
+      ./packages/transcript-html
     ];
   };
 
@@ -47,7 +45,7 @@ let
     # hash-fresh` enforces this stays in sync with pnpm-lock.yaml by forcing
     # fetchPnpmDeps to re-execute (--rebuild), so stale artifacts in the
     # binary cache can't silently satisfy a hash that no longer matches.
-    hash = "sha256-Klgo7A+q0VluW1gTtCZw0UhTf7HkZ0heVjj3Cpwb5kE=";
+    hash = "sha256-KIDaKB+Kf+dUUP/a4R7JPj2c5oQIh4z0fFs5OU9J+Lw=";
     fetcherVersion = 3;
   };
 

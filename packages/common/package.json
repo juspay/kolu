@@ -5,14 +5,15 @@
   "license": "AGPL-3.0-or-later",
   "type": "module",
   "sideEffects": false,
-  "main": "./src/index.ts",
-  "types": "./src/index.ts",
   "exports": {
-    ".": "./src/index.ts",
+    "./surface": "./src/surface.ts",
     "./contract": "./src/contract.ts",
     "./errors": "./src/errors.ts",
     "./config": "./src/config.ts",
-    "./pr": "./src/pr.ts",
+    "./path": "./src/path.ts",
+    "./html": "./src/html.ts",
+    "./terminalKey": "./src/terminalKey.ts",
+    "./transcript": "./src/transcript.ts",
     "./test-hooks": "./src/test-hooks.ts"
   },
   "scripts": {
@@ -23,6 +24,7 @@
     "typescript": "^5.8.0"
   },
   "dependencies": {
+    "@kolu/surface": "workspace:*",
     "@orpc/contract": "^1.13.13",
     "kolu-claude-code": "workspace:*",
     "kolu-codex": "workspace:*",
@@ -30,6 +32,7 @@
     "kolu-github": "workspace:*",
     "anyagent": "workspace:*",
     "kolu-opencode": "workspace:*",
+    "kolu-transcript-core": "workspace:*",
     "ts-pattern": "^5.9.0",
     "zod": "^4.3.6"
   }

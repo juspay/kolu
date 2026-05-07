@@ -16,7 +16,8 @@
     "test:unit": "vitest run"
   },
   "dependencies": {
-    "anyagent": "workspace:*",
+    "@parcel/watcher": "^2.5.1",
+    "kolu-shared": "workspace:*",
     "memorable-names": "workspace:*",
     "simple-git": "^3.33.0",
     "zod": "^4.3.6"

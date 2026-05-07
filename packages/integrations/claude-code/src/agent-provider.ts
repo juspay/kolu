@@ -25,8 +25,8 @@ import fs from "node:fs";
 import { type AgentProvider, matchesAgent } from "anyagent";
 import {
   readSessionFile,
-  type SessionFile,
   SESSIONS_DIR,
+  type SessionFile,
   subscribeSessionsDir,
 } from "./core.ts";
 import type { ClaudeCodeInfo } from "./schemas.ts";
@@ -52,8 +52,8 @@ export const claudeCodeProvider: AgentProvider<SessionFile, ClaudeCodeInfo> = {
     isPresent(state) {
       return matchesAgent(state, "claude") || fs.existsSync(SESSIONS_DIR);
     },
-    install(onChange, onError) {
-      subscribeSessionsDir(onChange, onError);
+    install(onChange, onError, log) {
+      subscribeSessionsDir(onChange, onError, log);
     },
   },
 };

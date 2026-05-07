@@ -1,5 +1,5 @@
 Feature: Mobile chrome drawer
-  On mobile the persistent pill tree and chrome bar are replaced by a
+  On mobile the persistent workspace switcher and chrome bar are replaced by a
   pull-down drawer (`MobileChromeSheet`). Tapping the pull-handle opens
   it; tapping a pill switches the active terminal and dismisses the
   drawer; tapping the backdrop dismisses without switching.

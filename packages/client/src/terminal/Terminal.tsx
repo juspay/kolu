@@ -30,16 +30,17 @@ import {
 import { match } from "ts-pattern";
 import { SafeClipboardProvider } from "./clipboard";
 import "@xterm/xterm/css/xterm.css";
-import type { TerminalId } from "kolu-common";
+import type { TerminalId } from "kolu-common/surface";
 import { DEFAULT_SCROLLBACK } from "kolu-common/config";
 import { FONT_FAMILY } from "terminal-themes";
-import { matchesAnyShortcut } from "../input/keyboard";
+import { matchesAnyShortcut } from "../input/actions";
 import { createZoom } from "../input/zoom";
 import { refitOnTabVisible } from "../refitOnTabVisible";
-import { client, stream } from "../rpc/rpc";
+import { streamCall } from "@kolu/surface/solid";
+import { client } from "../wire";
 import { isExpectedCleanupError } from "../rpc/streamCleanup";
 import { createScrollLock } from "../scrollLock";
-import { usePreferences } from "../settings/usePreferences";
+import { preferences } from "../wire";
 import { isTouch } from "../useMobile";
 import ScrollToBottom from "./ScrollToBottom";
 import SearchBar from "./SearchBar";
@@ -154,7 +155,6 @@ const Terminal: Component<{
   let terminal: XTerm | null = null;
   let fitAddon: FitAddon | null = null;
   const [searchAddon, setSearchAddon] = createSignal<SearchAddon | null>(null);
-  const { preferences } = usePreferences();
   const scrollLock = createScrollLock(() => preferences().scrollLock);
   let fitRaf = 0;
 
@@ -574,13 +574,17 @@ const Terminal: Component<{
           // (a fresh screenState snapshot) — otherwise it double-paints.
           consumeStream(
             () =>
-              stream.attach(props.terminalId, {
-                signal,
-                onRetry: () => {
-                  terminal?.reset();
-                  scrollLock.reset();
+              streamCall(
+                client.terminal.attach,
+                { id: props.terminalId },
+                {
+                  signal,
+                  onRetry: () => {
+                    terminal?.reset();
+                    scrollLock.reset();
+                  },
                 },
-              }),
+              ),
             (data) => {
               if (terminal) scrollLock.writeData(terminal, data);
             },

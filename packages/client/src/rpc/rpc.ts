@@ -1,98 +1,21 @@
 /**
- * oRPC client: single WebSocket connection to the server.
+ * Server lifecycle: distinguishing connecting / connected / disconnected /
+ * reconnected / restarted as a single discriminated union, plus the
+ * derived facets (transport status, server process identity) Kolu's UI
+ * reads. The `server.info()` probe runs on every WebSocket open and
+ * compares the returned process UUID against the last-known one to tell
+ * a transient drop ("reconnected") from a server restart ("restarted").
  *
- * Uses partysocket for auto-reconnect. All terminal procedures
- * (create, attach, sendInput, resize) go through this link.
+ * Transport setup (PartySocket, typed oRPC client) lives in `../wire.ts`.
+ * This file is purely the kolu-shaped lifecycle layer above it: it reads
+ * `ws` for transport events and `client.server.info` for identity.
  */
 
-import { createORPCClient, ORPCError } from "@orpc/client";
-import {
-  ClientRetryPlugin,
-  type ClientRetryPluginContext,
-} from "@orpc/client/plugins";
-import { RPCLink } from "@orpc/client/websocket";
-import type { ContractRouterClient } from "@orpc/contract";
-import type { TerminalId } from "kolu-common";
-import type { contract } from "kolu-common/contract";
-import { WebSocket as PartySocket } from "partysocket";
 import { createMemo, createSignal } from "solid-js";
 import { match } from "ts-pattern";
+import { client, ws } from "../wire";
 
 export type WsStatus = "connecting" | "open" | "closed";
-
-// Parameterize with ClientRetryPluginContext so `{ context: STREAM_RETRY }`
-// and `onRetry` overrides are type-checked at every call site.
-type Client = ContractRouterClient<typeof contract, ClientRetryPluginContext>;
-
-const { protocol, host } = window.location;
-const wsUrl = `${protocol === "https:" ? "wss:" : "ws:"}//${host}/rpc/ws`;
-
-const ws = new PartySocket(wsUrl);
-
-// Expose for e2e tests: the reconnect regression test (#410) needs to
-// drop and restore the socket directly. Same pattern as __xterm on the
-// terminal container. Harmless in production — just an attribute on window.
-(window as Window & { __koluWs?: PartySocket }).__koluWs = ws;
-
-// Cast: PartySocket is API-compatible with WebSocket but types don't overlap.
-// Plugin default retry=0: mutations and unary calls fail fast. Streaming
-// calls opt into infinite retry via the `stream` namespace below.
-const link = new RPCLink<ClientRetryPluginContext>({
-  websocket: ws as unknown as WebSocket,
-  plugins: [new ClientRetryPlugin()],
-});
-
-export const client = createORPCClient<Client>(link);
-
-/**
- * Private retry context for streaming procedures — route new streaming
- * calls through the `stream` namespace below instead of importing this.
- * Transport errors (WS drop → aborted iterator) retry forever; application
- * errors (`ORPCError`) propagate so consumers can handle them. Every kolu
- * streaming procedure is snapshot-then-deltas on every subscribe (see
- * `server/src/router.ts`), so re-invoking resumes with fresh full state.
- */
-const STREAM_RETRY: ClientRetryPluginContext = {
-  retry: Number.POSITIVE_INFINITY,
-  retryDelay: (o) => o.lastEventRetry ?? 1000,
-  shouldRetry: ({ error }) => !(error instanceof ORPCError),
-};
-
-/**
- * Streaming procedure wrappers. Adding a new streaming procedure = adding
- * one entry here, so retry adherence is mechanical rather than cultural.
- * `attach` takes an `onRetry` callback because `ClientRetryPlugin` fires
- * `onRetry` before the new iterator emits its first yield, and the server's
- * first yield post-reconnect is a fresh `getScreenState()` snapshot that
- * would double-paint onto a stale xterm buffer without an explicit reset.
- */
-export const stream = {
-  preferences: (signal?: AbortSignal) =>
-    client.preferences.get(undefined, { signal, context: STREAM_RETRY }),
-  /** Server-derived activity feed (recent repos + recent agents). Used
-   *  by the command palette for "recent cwds" and similar entries. */
-  activityFeed: (signal?: AbortSignal) =>
-    client.activity.get(undefined, { signal, context: STREAM_RETRY }),
-  session: (signal?: AbortSignal) =>
-    client.session.get(undefined, { signal, context: STREAM_RETRY }),
-  terminalList: (signal?: AbortSignal) =>
-    client.terminal.list(undefined, { signal, context: STREAM_RETRY }),
-  metadata: (id: TerminalId, signal?: AbortSignal) =>
-    client.terminal.onMetadataChange({ id }, { signal, context: STREAM_RETRY }),
-  exit: (id: TerminalId, signal?: AbortSignal) =>
-    client.terminal.onExit({ id }, { signal, context: STREAM_RETRY }),
-  attach: (
-    id: TerminalId,
-    opts: { signal?: AbortSignal; onRetry: () => void },
-  ) =>
-    client.terminal.attach(
-      { id },
-      {
-        signal: opts.signal,
-        context: { ...STREAM_RETRY, onRetry: opts.onRetry },
-      },
-    ),
-};
 
 /**
  * Single discriminated union describing every observable state of the

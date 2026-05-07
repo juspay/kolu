@@ -36,7 +36,8 @@
  */
 
 import { DatabaseSync } from "node:sqlite";
-import { type Logger, withDb as sharedWithDb } from "anyagent";
+import type { Logger } from "kolu-shared";
+import { withDb as sharedWithDb } from "kolu-shared/sqlite";
 import { CODEX_DB_PATH } from "./config.ts";
 import type { CodexInfo } from "./schemas.ts";
 

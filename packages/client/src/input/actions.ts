@@ -1,0 +1,267 @@
+/**
+ * Unified action registry — single source of truth for keyboard shortcuts,
+ * the help overlay, and shared palette command metadata. The registry key is
+ * the action's id; each entry carries label, keybind, optional altKeybind,
+ * and optional handler.
+ *
+ * Adding or rebinding a global action touches this one file. The dispatcher
+ * in `useShortcuts.ts` loops over `ACTIONS`; `ShortcutsHelp.tsx` walks
+ * `HELP_ORDER` against the registry; `commands.ts` derives palette entries
+ * via `actionPaletteCommand`.
+ */
+
+import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
+import { nonEmpty } from "nonempty";
+import type { Accessor, Setter } from "solid-js";
+import type { PaletteCommand } from "../CommandPalette";
+import { type Keybind, matchesKeybind } from "./keyboard";
+
+/** Shared handler context — every dispatched action receives this. */
+export interface ActionContext {
+  terminalIds: Accessor<TerminalId[]>;
+  activeId: Accessor<TerminalId | null>;
+  setActiveId: Setter<TerminalId | null>;
+  /** Terminal IDs in most-recently-used order; used for Alt+Tab / Ctrl+Tab cycling. */
+  mruOrder: Accessor<TerminalId[]>;
+  activeMeta: Accessor<TerminalMetadata | null>;
+  handleCreate: (cwd?: string) => void;
+  handleCreateSubTerminal: (parentId: TerminalId, cwd?: string) => void;
+  openNewTerminalMenu: () => void;
+  openWorkspaceSwitcher: () => void;
+  setPaletteOpen: Setter<boolean>;
+  setShortcutsHelpOpen: Setter<boolean>;
+  setSearchOpen: Setter<boolean>;
+  /** Toggle sub-panel: creates first split if none exist, otherwise toggles visibility. */
+  toggleSubPanel: (parentId: TerminalId) => void;
+  cycleSubTab: (parentId: TerminalId, direction: 1 | -1) => void;
+  handleShuffleTheme: () => void;
+  handleScreenshotTerminal: () => void;
+  toggleRightPanel: () => void;
+  toggleRecordingPause: () => void;
+}
+
+interface AppActionBase {
+  label: string;
+  keybind: Keybind;
+  /** Optional alternate keybind that triggers the same handler (e.g. Cmd+Enter for "New terminal"). */
+  altKeybind?: Keybind;
+}
+
+/** An action whose dispatch flows through the registry's generic loop —
+ *  every palette-callable action, the position-switch group, and every
+ *  toggle/open chord. */
+export type DispatchableAction = AppActionBase & {
+  handler: (ctx: ActionContext) => void;
+};
+
+/** An action that's registered only for help/palette/passthrough display.
+ *  Dispatch lives elsewhere because it needs state the registry can't
+ *  carry: `cycleTerminalMru` snapshots MRU order in a closure inside
+ *  `useShortcuts` and commits on modifier keyup; `zoom*` is owned by the
+ *  per-terminal `createZoom` listener. They still appear in
+ *  `matchesAnyShortcut` so xterm doesn't consume their chords. */
+export type DisplayOnlyAction = AppActionBase;
+
+export type AppAction = DispatchableAction | DisplayOnlyAction;
+
+/** Type guard: does this action carry a registry-dispatched handler? */
+export function isDispatchable(a: AppAction): a is DispatchableAction {
+  return "handler" in a;
+}
+
+/** Cycle to the next/previous terminal by position. */
+function cycleTerminalByPosition(ctx: ActionContext, direction: 1 | -1) {
+  const ids = nonEmpty(ctx.terminalIds());
+  if (!ids) return;
+  const current = ids.indexOf(ctx.activeId() as TerminalId);
+  const next = (current + direction + ids.length) % ids.length;
+  // Tuple positional `ids[0]` is statically `TerminalId`; `?? ids[0]` is
+  // a typed fallback the math never actually triggers.
+  ctx.setActiveId(ids[next] ?? ids[0]);
+}
+
+/** Mod+1 through Mod+9 — direct positional terminal switch. */
+const SWITCH_KEYS = [1, 2, 3, 4, 5, 6, 7, 8, 9] as const;
+type SwitchKey = (typeof SWITCH_KEYS)[number];
+type SwitchId = `switchTo${SwitchKey}`;
+
+const switchToActions = Object.fromEntries(
+  SWITCH_KEYS.map((i) => [
+    `switchTo${i}`,
+    {
+      label: `Switch to terminal ${i}`,
+      keybind: { key: String(i), mod: true },
+      handler: (ctx) => {
+        const target = ctx.terminalIds()[i - 1];
+        if (target !== undefined) ctx.setActiveId(target);
+      },
+    } satisfies DispatchableAction,
+  ]),
+) as { [K in SwitchId]: DispatchableAction };
+
+// `_ACTIONS` keeps each entry's literal shape so `keyof typeof _ACTIONS`
+// produces the precise `ActionId` union. `ACTIONS` re-types it through
+// `Record<ActionId, AppAction>` so consumers see a uniform `AppAction` at
+// every access site (optional `handler`/`altKeybind` properly typed),
+// instead of a discriminated union where some variants lack those fields.
+const _ACTIONS = {
+  ...switchToActions,
+  createTerminal: {
+    label: "New terminal",
+    keybind: { key: "t", mod: true },
+    altKeybind: { key: "Enter", mod: true },
+    handler: (ctx) => ctx.handleCreate(ctx.activeMeta()?.cwd ?? undefined),
+  },
+  newTerminalMenu: {
+    label: "New terminal menu",
+    keybind: { key: "Enter", mod: true, shift: true },
+    handler: (ctx) => ctx.openNewTerminalMenu(),
+  },
+  nextTerminal: {
+    label: "Next terminal",
+    keybind: { key: "]", code: "BracketRight", mod: true, shift: true },
+    handler: (ctx) => cycleTerminalByPosition(ctx, 1),
+  },
+  prevTerminal: {
+    label: "Previous terminal",
+    keybind: { key: "[", code: "BracketLeft", mod: true, shift: true },
+    handler: (ctx) => cycleTerminalByPosition(ctx, -1),
+  },
+  cycleTerminalMru: {
+    label: "Cycle terminals by most recent use",
+    // shiftOptional: shift modulates direction (forward/back) rather than
+    // selecting a different chord. alt covers macOS Chrome, which captures
+    // Ctrl+Tab. Dispatch is stateful (snapshot/cursor in useShortcuts).
+    keybind: { key: "Tab", code: "Tab", ctrl: true, shiftOptional: true },
+    altKeybind: { key: "Tab", code: "Tab", alt: true, shiftOptional: true },
+  },
+  commandPalette: {
+    label: "Command palette",
+    keybind: { key: "k", mod: true },
+    handler: (ctx) => ctx.setPaletteOpen((v) => !v),
+  },
+  openWorkspaceSwitcher: {
+    label: "Workspace switcher",
+    keybind: { key: "K", code: "KeyK", mod: true, shift: true },
+    handler: (ctx) => ctx.openWorkspaceSwitcher(),
+  },
+  shortcutsHelp: {
+    label: "Shortcuts help",
+    keybind: { key: "/", mod: true },
+    handler: (ctx) => ctx.setShortcutsHelpOpen((v) => !v),
+  },
+  findInTerminal: {
+    label: "Find in terminal",
+    keybind: { key: "f", mod: true },
+    handler: (ctx) => ctx.setSearchOpen((v) => !v),
+  },
+  zoomIn: {
+    label: "Zoom in",
+    keybind: { key: "+", mod: true },
+    // Dispatched by per-terminal createZoom listener.
+  },
+  zoomOut: {
+    label: "Zoom out",
+    keybind: { key: "-", mod: true },
+  },
+  zoomReset: {
+    label: "Reset zoom",
+    keybind: { key: "0", mod: true },
+  },
+  toggleSubPanel: {
+    label: "Toggle terminal split",
+    keybind: { key: "`", code: "Backquote", ctrl: true },
+    handler: (ctx) => {
+      const id = ctx.activeId();
+      if (id) ctx.toggleSubPanel(id);
+    },
+  },
+  createSubTerminal: {
+    label: "Split terminal",
+    keybind: { key: "`", code: "Backquote", ctrl: true, shift: true },
+    handler: (ctx) => {
+      const id = ctx.activeId();
+      if (id)
+        ctx.handleCreateSubTerminal(id, ctx.activeMeta()?.cwd ?? undefined);
+    },
+  },
+  nextSubTab: {
+    label: "Next split tab",
+    keybind: { key: "PageDown", code: "PageDown", ctrl: true },
+    handler: (ctx) => {
+      const id = ctx.activeId();
+      if (id) ctx.cycleSubTab(id, 1);
+    },
+  },
+  prevSubTab: {
+    label: "Previous split tab",
+    keybind: { key: "PageUp", code: "PageUp", ctrl: true },
+    handler: (ctx) => {
+      const id = ctx.activeId();
+      if (id) ctx.cycleSubTab(id, -1);
+    },
+  },
+  shuffleTheme: {
+    label: "Shuffle theme",
+    keybind: { key: "j", mod: true },
+    handler: (ctx) => ctx.handleShuffleTheme(),
+  },
+  screenshotTerminal: {
+    label: "Screenshot terminal",
+    keybind: { key: "S", code: "KeyS", mod: true, shift: true },
+    handler: (ctx) => ctx.handleScreenshotTerminal(),
+  },
+  toggleRightPanel: {
+    label: "Toggle inspector panel",
+    keybind: { key: "b", code: "KeyB", mod: true, alt: true },
+    handler: (ctx) => ctx.toggleRightPanel(),
+  },
+  toggleRecordingPause: {
+    label: "Pause / resume recording",
+    keybind: { key: ".", code: "Period", mod: true, shift: true },
+    handler: (ctx) => ctx.toggleRecordingPause(),
+  },
+} satisfies Record<string, AppAction>;
+
+export type ActionId = keyof typeof _ACTIONS;
+export const ACTIONS: Record<ActionId, AppAction> = _ACTIONS;
+
+/**
+ * Check if a KeyboardEvent matches any registered action's keybind.
+ * Used by xterm's key handler to let app shortcuts bubble through
+ * instead of being consumed by the terminal.
+ */
+export function matchesAnyShortcut(e: KeyboardEvent): boolean {
+  for (const a of Object.values(ACTIONS)) {
+    if (matchesKeybind(e, a.keybind)) return true;
+    if (a.altKeybind !== undefined && matchesKeybind(e, a.altKeybind))
+      return true;
+  }
+  return false;
+}
+
+/** Action ids whose registry entry is a `DispatchableAction` — i.e. has a
+ *  handler that the keyboard dispatcher and palette can both invoke. */
+export type DispatchableId = {
+  [K in ActionId]: (typeof _ACTIONS)[K] extends DispatchableAction ? K : never;
+}[ActionId];
+
+/**
+ * Build a palette command from a registered action — same label, same keybind,
+ * same handler. The id is constrained to `DispatchableId` so palette callers
+ * can't accidentally mount a display-only action (which would render a
+ * clickable entry that silently does nothing).
+ */
+export function actionPaletteCommand(
+  id: DispatchableId,
+  ctx: ActionContext,
+  overrides: Partial<Pick<PaletteCommand, "name" | "description">> = {},
+): PaletteCommand {
+  const a = ACTIONS[id] as DispatchableAction;
+  return {
+    name: overrides.name ?? a.label,
+    description: overrides.description,
+    keybind: a.keybind,
+    onSelect: () => a.handler(ctx),
+  };
+}

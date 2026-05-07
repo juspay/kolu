@@ -1,16 +1,16 @@
 /** MobileTileView — single fullscreen tile with swipe navigation.
  *
- *  On mobile the canvas (pan/zoom) and the desktop pill tree are
+ *  On mobile the canvas (pan/zoom) and the desktop workspace switcher are
  *  disabled per #622. The active terminal fills the viewport; swipe-
- *  left/right cycles between terminals in pill-tree order. A pull-handle
+ *  left/right cycles between terminals in workspace-switcher order. A pull-handle
  *  row at the top is always visible (drag-bar + identity + connection
  *  dot); tapping it opens `MobileChromeSheet`, which mirrors the desktop
  *  ChromeBar for touch — logo, vertical pill list, controls. */
 
 import Drawer from "@corvu/drawer";
-import type { TerminalId } from "kolu-common";
+import type { TerminalId } from "kolu-common/surface";
 import { type Component, createSignal, For, type JSX, Show } from "solid-js";
-import type { PillRepoGroup } from "./canvas/pillTreeOrder";
+import type { WorkspaceSwitcherRepoGroup } from "./canvas/workspace-switcher";
 import MobileChromeSheet from "./MobileChromeSheet";
 import type { WsStatus } from "./rpc/rpc";
 import { TerminalMetaCompact } from "./terminal/TerminalMeta";
@@ -28,12 +28,12 @@ const VERTICAL_TOLERANCE_RATIO = 0.7;
 const PULL_OPEN_THRESHOLD = 24;
 
 const MobileTileView: Component<{
-  /** Pill-tree-ordered ids — same source as the desktop pill tree, so swipe
+  /** Workspace-switcher-ordered ids — same source as the desktop switcher, so swipe
    *  order matches what the user would see if they switched to desktop. */
   orderedIds: TerminalId[];
   /** Chrome sheet props. Passed through to MobileChromeSheet when the
    *  user opens the drawer. */
-  groups: PillRepoGroup[];
+  groups: WorkspaceSwitcherRepoGroup[];
   status: WsStatus;
   appTitle: string;
   onOpenPalette: () => void;

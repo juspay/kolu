@@ -2,17 +2,19 @@
  *  `PrResult.kind === "unavailable"`. Dispatch happens in two layers:
  *  `ProviderUnavailableContent` matches on `source.provider` (today only
  *  `"gh"`), delegating to a per-provider content component so bkt's future
- *  recovery UX doesn't need to fit a shared mold. Portal + click-outside +
- *  Escape mirror `settings/SettingsPopover.tsx` — no Corvu Popover in the
- *  repo, and the settings panel is the canonical anchored-floating pattern. */
+ *  recovery UX doesn't need to fit a shared mold. Anchored positioning
+ *  comes from `useAnchoredPopover`. */
 
-import { makeEventListener } from "@solid-primitives/event-listener";
-import type { GhUnavailableCode, PrUnavailableSource } from "kolu-common";
-import { reasonForSource } from "kolu-common/pr";
+import type {
+  GhUnavailableCode,
+  PrUnavailableSource,
+} from "kolu-github/schemas";
+import { reasonForSource } from "kolu-github/schemas";
 import { type Component, createSignal, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import { toast } from "solid-sonner";
 import { match } from "ts-pattern";
+import { useAnchoredPopover } from "../ui/useAnchoredPopover";
 import { WarningIcon } from "../ui/Icons";
 import { writeTextToClipboard } from "./clipboard";
 
@@ -111,49 +113,25 @@ const PrUnavailablePopover: Component<{
   triggerRef?: HTMLElement;
   source: PrUnavailableSource;
 }> = (props) => {
-  let panelRef: HTMLDivElement | undefined;
-  const [pos, setPos] = createSignal({ top: 0, left: 0 });
-
-  const updatePos = () => {
-    if (!props.triggerRef) return;
-    const rect = props.triggerRef.getBoundingClientRect();
-    // Anchor below the trigger, aligned to its left edge, with viewport clamp
-    // so narrow tiles near the right edge don't clip the panel.
-    const panelWidth = 280;
-    const left = Math.min(rect.left, window.innerWidth - panelWidth - 8);
-    setPos({ top: rect.bottom + 4, left: Math.max(8, left) });
-  };
-
-  makeEventListener(document, "mousedown", (e) => {
-    if (
-      props.open &&
-      panelRef &&
-      !panelRef.contains(e.target as Node) &&
-      !props.triggerRef?.contains(e.target as Node)
-    ) {
-      props.onOpenChange(false);
-    }
-  });
-
-  makeEventListener(document, "keydown", (e) => {
-    if (props.open && e.key === "Escape") props.onOpenChange(false);
+  const { panelRef, panelStyle } = useAnchoredPopover({
+    triggerRef: () => props.triggerRef,
+    open: () => props.open,
+    onDismiss: () => props.onOpenChange(false),
+    anchor: "bottom-start",
+    panelMinWidth: 280,
   });
 
   return (
     <Show when={props.open}>
       <Portal>
         <div
-          ref={(el) => {
-            panelRef = el;
-            updatePos();
-          }}
+          ref={panelRef}
           data-testid="pr-unavailable-popover"
           role="dialog"
           aria-label={reasonForSource(props.source)}
           class="fixed z-50 bg-surface-1 border border-edge rounded-xl shadow-2xl shadow-black/50 p-3 w-[280px] space-y-2 text-xs"
           style={{
-            top: `${pos().top}px`,
-            left: `${pos().left}px`,
+            ...panelStyle(),
             "background-color": "var(--color-surface-1)",
           }}
         >

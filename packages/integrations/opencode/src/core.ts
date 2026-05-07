@@ -25,7 +25,8 @@
  */
 
 import { DatabaseSync } from "node:sqlite";
-import { type Logger, withDb as sharedWithDb } from "anyagent";
+import type { Logger } from "kolu-shared";
+import { withDb as sharedWithDb } from "kolu-shared/sqlite";
 import { match } from "ts-pattern";
 import { OPENCODE_DB_PATH } from "./config.ts";
 import type { OpenCodeInfo, TaskProgress } from "./schemas.ts";

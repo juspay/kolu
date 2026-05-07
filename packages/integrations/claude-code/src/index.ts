@@ -16,12 +16,7 @@
  * back through it (which was the #710 noImportCycles hit).
  */
 
-export {
-  type ClaudeCodeInfo,
-  ClaudeCodeInfoSchema,
-  type TaskProgress,
-  TaskProgressSchema,
-} from "./schemas.ts";
+export { claudeCodeProvider } from "./agent-provider.ts";
 
 export {
   deriveState,
@@ -32,16 +27,21 @@ export {
   findTranscriptPath,
   PROJECTS_DIR,
   readSessionFile,
-  type SessionFile,
   SESSIONS_DIR,
-  subscribeSessionsDir,
+  type SessionFile,
   SUMMARY_FETCH_ENABLED,
+  subscribeSessionsDir,
   TAIL_BYTES,
   tailJsonlLines,
   tryWatchDir,
   watchOrWaitForDir,
 } from "./core.ts";
-
+export {
+  type ClaudeCodeInfo,
+  ClaudeCodeInfoSchema,
+  type TaskProgress,
+  TaskProgressSchema,
+} from "./schemas.ts";
 export {
   createSessionWatcher,
   getPendingSummaryFetches,
@@ -49,4 +49,7 @@ export {
   type WatcherLog,
 } from "./session-watcher.ts";
 
-export { claudeCodeProvider } from "./agent-provider.ts";
+export {
+  loadClaudeCodeTranscript,
+  parseClaudeCodeJsonl,
+} from "./transcript.ts";

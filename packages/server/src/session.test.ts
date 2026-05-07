@@ -1,5 +1,5 @@
 import * as assert from "node:assert";
-import type { SavedTerminal } from "kolu-common";
+import type { SavedTerminal } from "kolu-common/surface";
 import { afterAll, describe, expect, it } from "vitest";
 import {
   clearSavedSession,

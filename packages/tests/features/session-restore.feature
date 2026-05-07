@@ -9,7 +9,7 @@ Feature: Session restore
     Then the session restore card should be visible
     And the restore button should mention "2 terminals"
     When I click the restore button
-    Then there should be 2 pill tree entries
+    Then there should be 2 workspace switcher entries
     And there should be no page errors
 
   Scenario: Restored terminals preserve their saved array order
@@ -17,8 +17,8 @@ Feature: Session restore
     When I open the app
     Then the session restore card should be visible
     When I click the restore button
-    Then there should be 3 pill tree entries
-    And the pill tree entries should be in the saved order
+    Then there should be 3 workspace switcher entries
+    And the workspace switcher entries should be in the saved order
     And there should be no page errors
 
   Scenario: Restored terminals preserve their theme
@@ -26,7 +26,7 @@ Feature: Session restore
     When I open the app
     Then the session restore card should be visible
     When I click the restore button
-    Then there should be 1 pill tree entries
+    Then there should be 1 workspace switcher entries
     And the header should show theme "Dracula"
     And there should be no page errors
 
@@ -39,7 +39,7 @@ Feature: Session restore
     When I open the app
     Then the session restore card should be visible
     When I click the restore button
-    Then there should be 1 pill tree entries
+    Then there should be 1 workspace switcher entries
     And the canvas tile should be at x=420 y=180 w=640 h=360
     And there should be no page errors
 
@@ -47,10 +47,10 @@ Feature: Session restore
     When I open the app
     And I create a terminal
     And I create a terminal
-    And I select terminal 2 in the pill tree
+    And I select terminal 2 in the workspace switcher
     And I wait for the session auto-save
     And I reload the page and wait for ready
-    Then pill tree entry 2 should be active
+    Then workspace switcher entry 2 should be active
     And there should be no page errors
 
   # Captured agent commands (persisted on each SavedTerminal's `lastAgentCommand`)

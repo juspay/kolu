@@ -1,15 +1,17 @@
 /**
  * CodexWatcher — encapsulates all per-session lifecycle state.
  *
- * Creating a CodexWatcher subscribes to the shared WAL watcher and
- * emits state via the onChange callback. Destroying it unsubscribes,
- * clears the debounce timer, and closes the held DB connection.
+ * Wraps `kolu-shared`'s generic `createDebounceWatcher` with codex's
+ * SQLite + JSONL refresh logic. The factory owns the destroy flag,
+ * debounce timer, DB lifetime, equality-gated dispatch, and lifecycle
+ * logs; this file only owns the per-event `refresh` body and codex's
+ * `cachedDerive` JSONL-tail short-circuit.
  *
- * Data flow per WAL event:
- *   1. debounce 150 ms (coalesces bursts the way OpenCode does)
- *   2. re-read `threads.{title, model, tokens_used}` from SQLite
- *   3. tail the matched rollout JSONL (last TAIL_BYTES) and derive state
- *   4. assemble CodexInfo; emit only if structurally different from last
+ * Data flow per WAL event (inside the factory's debounce):
+ *   1. re-read `threads.{title, model, tokens_used}` from SQLite
+ *   2. tail the matched rollout JSONL (last TAIL_BYTES) — skipped when
+ *      the file size is unchanged from the last parse
+ *   3. assemble CodexInfo; the factory gates dispatch on `agentInfoEqual`
  *
  * Mirrors `OpenCodeWatcher` (SQLite side) composed with `SessionWatcher`
  * (JSONL tail side). The merge happens here because Codex is the one
@@ -19,8 +21,10 @@
 
 import fs from "node:fs";
 import type { DatabaseSync } from "node:sqlite";
-import type { Logger } from "anyagent";
-import { agentInfoEqual, readTailLines } from "anyagent";
+import { agentInfoEqual } from "anyagent";
+import type { Logger } from "kolu-shared";
+import { readTailLines } from "kolu-shared";
+import { createDebounceWatcher } from "kolu-shared/sqlite";
 import {
   type CodexSession,
   getThreadMetadata,
@@ -69,9 +73,6 @@ export function createCodexWatcher(
   onChange: (info: CodexInfo) => void,
   log?: Logger,
 ): CodexWatcher {
-  let lastInfo: CodexInfo | null = null;
-  let destroyed = false;
-  let debounceTimer: NodeJS.Timeout | null = null;
   /** Cache of the last-parsed rollout state + context-token count,
    *  scoped to a specific JSONL byte size. On a WAL event whose
    *  corresponding stat size matches `size`, we reuse the cached
@@ -89,15 +90,7 @@ export function createCodexWatcher(
     contextTokens: number | null;
   } | null = null;
 
-  // Hoist the DB connection across the watcher's lifetime so we don't
-  // open/close on every WAL event. Safe in WAL mode: an open read-only
-  // connection holds no locks until a transaction starts, and our
-  // single-SELECT queries are autocommit.
-  const db: DatabaseSync | null = openDb(log);
-
-  function refresh() {
-    if (destroyed || !db) return;
-
+  function refresh(db: DatabaseSync): CodexInfo | null {
     const meta = getThreadMetadata(session.id, log, db);
     if (!meta) {
       // The row existed at match time (otherwise we wouldn't have a
@@ -110,11 +103,11 @@ export function createCodexWatcher(
         { session: session.id },
         "codex thread row disappeared after match",
       );
-      return;
+      return null;
     }
 
     const stat = statRollout(session, log);
-    if (stat === null) return;
+    if (stat === null) return null;
 
     let state: CodexInfo["state"];
     let contextTokens: number | null;
@@ -123,13 +116,13 @@ export function createCodexWatcher(
       contextTokens = cachedDerive.contextTokens;
     } else {
       const derived = readAndParseTail(session, stat.size, log);
-      if (derived === null) return;
+      if (derived === null) return null;
       state = derived.state;
       contextTokens = derived.contextTokens;
       cachedDerive = { size: stat.size, state, contextTokens };
     }
 
-    const info: CodexInfo = {
+    return {
       kind: "codex",
       state,
       sessionId: session.id,
@@ -138,9 +131,9 @@ export function createCodexWatcher(
       taskProgress: null,
       contextTokens,
     };
+  }
 
-    if (agentInfoEqual(lastInfo, info)) return;
-    lastInfo = info;
+  function logAndDispatch(info: CodexInfo): void {
     log?.debug(
       {
         state: info.state,
@@ -153,39 +146,24 @@ export function createCodexWatcher(
     onChange(info);
   }
 
-  /** Trailing-edge debounce: reset the timer on every event, fire
-   *  `refresh` once after `WAL_DEBOUNCE_MS` of quiet. The handler's own
-   *  `destroyed` guard makes late-firing callbacks safe, but we clear
-   *  the timer in `destroy()` anyway to avoid holding closure refs
-   *  unnecessarily. */
-  function scheduleRefresh() {
-    if (destroyed) return;
-    if (debounceTimer) clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(() => {
-      debounceTimer = null;
-      refresh();
-    }, WAL_DEBOUNCE_MS);
-  }
+  // Hoist the DB connection across the watcher's lifetime so we don't
+  // open/close on every WAL event. Safe in WAL mode: an open read-only
+  // connection holds no locks until a transaction starts, and our
+  // single-SELECT queries are autocommit.
+  const db = openDb(log);
 
-  const unsubscribe = subscribeCodexDb(
-    scheduleRefresh,
-    (err) => log?.error({ err, session: session.id }, "wal listener threw"),
-    log,
-  );
-  refresh();
-
-  return {
+  return createDebounceWatcher({
     session,
-    destroy() {
-      destroyed = true;
-      if (debounceTimer) {
-        clearTimeout(debounceTimer);
-        debounceTimer = null;
-      }
-      unsubscribe();
-      db?.close();
-    },
-  };
+    label: "codex: session",
+    debounceMs: WAL_DEBOUNCE_MS,
+    db,
+    subscribe: subscribeCodexDb,
+    refresh,
+    isEqual: agentInfoEqual,
+    onChange: logAndDispatch,
+    logCtx: { session: session.id },
+    log,
+  });
 }
 
 /** Stat the rollout JSONL. Returns `{ size }` on success, null on any
@@ -211,13 +189,13 @@ function statRollout(
 }
 
 /** Read the last TAIL_BYTES of the rollout JSONL at the given size
- *  via anyagent's shared tail reader, then derive state and
- *  context-token count from the same buffer in two passes.
- *  Returns null on hard read error (logged at `error`) or when the
- *  state machine found no task events in the tail (logged at `debug`
- *  — the caller treats this uniformly as "skip"). `contextTokens`
- *  may independently be null when the tail contains a lifecycle
- *  event but no `token_count` event yet. */
+ *  via kolu-shared's tail reader, then derive state and context-token
+ *  count from the same buffer in two passes. Returns null on hard read
+ *  error (logged at `error`) or when the state machine found no task
+ *  events in the tail (logged at `debug` — the caller treats this
+ *  uniformly as "skip"). `contextTokens` may independently be null
+ *  when the tail contains a lifecycle event but no `token_count`
+ *  event yet. */
 function readAndParseTail(
   session: CodexSession,
   size: number,

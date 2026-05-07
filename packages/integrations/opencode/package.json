@@ -17,6 +17,8 @@
   },
   "dependencies": {
     "anyagent": "workspace:*",
+    "kolu-shared": "workspace:*",
+    "kolu-transcript-core": "workspace:*",
     "ts-pattern": "^5.9.0",
     "zod": "^4.3.6"
   },

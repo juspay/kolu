@@ -56,6 +56,10 @@ server:
 client:
     cd packages/client && {{ nix_shell }} pnpm dev
 
+# Run the @kolu/surface framework example (notes app — all 4 primitives)
+surface-example: install
+    {{ nix_shell }} pnpm --filter @kolu/surface-example dev
+
 # Run unit tests (vitest) across server and client packages
 test-unit: install
     {{ nix_shell }} pnpm test:unit
@@ -95,6 +99,10 @@ test-quick *args: install
         {{ nix_shell_e2e }} node --import tsx \
         ./node_modules/@cucumber/cucumber/bin/cucumber-js \
         --profile ui {{ args }}
+
+# Boot the packaged Kolu and verify /api/health — production-like runtime smoke
+smoke:
+    {{ nix_shell }} bash ci/smoke.sh
 
 # Remove all gitignored files (node_modules, build artifacts, etc.)
 clean:

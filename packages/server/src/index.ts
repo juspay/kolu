@@ -16,6 +16,7 @@ import { startDiagnostics } from "./diagnostics.ts";
 import { serverHostname } from "./hostname.ts";
 import { ensureKoluRoot, shutdownCleanup } from "./koluRoot.ts";
 import { log } from "./log.ts";
+import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import { appRouter } from "./router.ts";
 import { initSessionAutoSave } from "./session.ts";
 import { configureNixShellEnv } from "./shell.ts";
@@ -63,6 +64,8 @@ const argv = cli({
   strictFlags: true,
 });
 
+const PWA_BACKGROUND_COLOR = "#0c0c0e";
+
 configureNixShellEnv(argv.flags.allowNixShellWithEnvWhitelist);
 ensureKoluRoot();
 initSessionAutoSave(snapshotSession);
@@ -106,7 +109,10 @@ const rpcPlugins = [
 ];
 
 // --- oRPC HTTP handler (non-streaming calls) ---
-const rpcHandler = new RPCHandler(appRouter, { plugins: rpcPlugins });
+// biome-ignore lint/suspicious/noExplicitAny: appRouter mixes implementSurface's
+// Lazy<Router> spread with hand-listed namespaces; oRPC's RPCHandler input
+// type doesn't accept that union. The runtime shape is a valid router.
+const rpcHandler = new RPCHandler(appRouter as any, { plugins: rpcPlugins });
 app.use("/rpc/*", async (c, next) => {
   const { matched, response } = await rpcHandler.handle(c.req.raw, {
     prefix: "/rpc",
@@ -143,17 +149,16 @@ process.on("unhandledRejection", (reason) => {
 app.get("/api/health", (c) => c.text("kolu"));
 
 // --- Dynamic PWA manifest (includes hostname) ---
-// theme_color must match <meta name="theme-color"> in client/index.html
 app.get("/manifest.webmanifest", (c) => {
-  const name = `kolu@${serverHostname}`;
+  const identity = pwaIdentityForHostname(serverHostname);
   return c.json(
     {
-      name,
-      short_name: name,
+      name: identity.name,
+      short_name: identity.name,
       start_url: "/",
       display: "standalone",
-      background_color: "#292c33",
-      theme_color: "#292c33",
+      background_color: PWA_BACKGROUND_COLOR,
+      theme_color: identity.themeColor,
       icons: [
         { src: "/icon-192.png", sizes: "192x192", type: "image/png" },
         { src: "/icon-512.png", sizes: "512x512", type: "image/png" },
@@ -209,7 +214,10 @@ const server = serve(
 
 // --- oRPC WebSocket handler (streaming) ---
 const wss = new WebSocketServer({ noServer: true });
-const wsRpcHandler = new WsRPCHandler(appRouter, { plugins: rpcPlugins });
+// biome-ignore lint/suspicious/noExplicitAny: see RPCHandler comment above
+const wsRpcHandler = new WsRPCHandler(appRouter as any, {
+  plugins: rpcPlugins,
+});
 
 let nextConnId = 0;
 wss.on("connection", (ws) => {
