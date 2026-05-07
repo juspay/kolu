@@ -15,6 +15,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { After, Then, When } from "@cucumber/cucumber";
 import type { AgentLifecycleState } from "../support/agent-lifecycle.ts";
 import { writeOpenCodeFixture } from "../support/agent-mock-opencode.ts";
@@ -153,6 +154,29 @@ When(
   },
 );
 
+/** Force a fresh WAL frame on the mock OpenCode DB so the server's
+ *  `fs.watch` re-fires its session refresh. Mirror of
+ *  `claude_code_steps.ts::nudgeMockFiles` and `codex_steps.ts::nudgeCodexWal`
+ *  — under parallel-worker inotify pressure the kernel queue overflows
+ *  and silently drops events, so we drive the recovery from the test
+ *  side rather than hoping the kernel queue stays warm. */
+function nudgeOpenCodeWal() {
+  const dbPath = getOpenCodeDb();
+  if (!dbPath || !fs.existsSync(dbPath)) return;
+  try {
+    const db = new DatabaseSync(dbPath);
+    try {
+      db.exec(
+        `BEGIN; INSERT INTO session (id, title, directory, time_updated) VALUES ('__nudge__', '', '', 0); DELETE FROM session WHERE id = '__nudge__'; COMMIT;`,
+      );
+    } finally {
+      db.close();
+    }
+  } catch {
+    // best-effort
+  }
+}
+
 Then(
   "the tile chrome should show an OpenCode indicator with state {string}",
   async function (this: KoluWorld, expectedState: string) {
@@ -160,6 +184,7 @@ Then(
     let last: string | null = null;
     let lastKind: string | null = null;
     while (Date.now() - start < POLL_TIMEOUT) {
+      nudgeOpenCodeWal();
       const observed = await this.page.evaluate(() => {
         const el = document.querySelector(
           '[data-testid="canvas-tile"] [data-testid="agent-indicator"], [data-testid="mobile-tile-titlebar"] [data-testid="agent-indicator"]',

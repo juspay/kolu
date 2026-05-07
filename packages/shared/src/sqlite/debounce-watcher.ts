@@ -11,16 +11,7 @@
  *  events per write, and active-generation bursts are several events per
  *  second. Without coalescing, every burst triggers N refresh passes
  *  (each running SQL queries and JSONL tails) for the same logical state
- *  change.
- *
- *  Low-frequency polling fallback — `fs.watch` (inotify on Linux,
- *  FSEvents on darwin) is best-effort: under heavy load the kernel queue
- *  overflows and events are silently dropped. A dropped WAL event would
- *  wedge the watcher in a stale state with no recovery path. The poll
- *  re-runs `refresh` every `pollFallbackMs` (default 2 s); the equality
- *  gate suppresses no-op dispatches, so the cost is one cheap refresh
- *  per interval per active watcher. The poll is suspended while the
- *  debounce timer is armed so a burst can't be amplified. */
+ *  change. */
 
 import type { Logger } from "../log.ts";
 import type { Closable } from "./with-db.ts";
@@ -36,11 +27,6 @@ export interface DebounceWatcherConfig<Session, Info, Db extends Closable> {
   label: string;
   /** Trailing-edge debounce window in milliseconds. */
   debounceMs: number;
-  /** Low-frequency polling fallback — re-run `refresh` every N ms in
-   *  addition to event-driven fires. Defends against dropped `fs.watch`
-   *  events under inotify queue overflow (parallel test workers, dense
-   *  CI runners). Default 2000 ms; pass 0 to disable. */
-  pollFallbackMs?: number;
   /** DB handle held across the watcher's lifetime. The factory closes
    *  it on `destroy()`. Pass `null` if `openDb` failed — `refresh` will
    *  short-circuit on every fire and `destroy` is a no-op for the DB. */
@@ -115,17 +101,6 @@ export function createDebounceWatcher<Session, Info, Db extends Closable>(
   config.log?.info(config.logCtx, `${config.label} watcher installed`);
   performRefresh();
 
-  // Polling fallback. Skipped when a debounce is in flight so a burst of
-  // real events can't be amplified into back-to-back refreshes.
-  const pollFallbackMs = config.pollFallbackMs ?? 2000;
-  const pollTimer =
-    pollFallbackMs > 0
-      ? setInterval(() => {
-          if (destroyed || debounceTimer) return;
-          performRefresh();
-        }, pollFallbackMs)
-      : null;
-
   return {
     session: config.session,
     destroy(): void {
@@ -134,7 +109,6 @@ export function createDebounceWatcher<Session, Info, Db extends Closable>(
         clearTimeout(debounceTimer);
         debounceTimer = null;
       }
-      if (pollTimer) clearInterval(pollTimer);
       unsubscribe();
       config.db?.close();
       config.log?.info(config.logCtx, `${config.label} watcher retired`);

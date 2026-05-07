@@ -16,6 +16,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { After, Then, When } from "@cucumber/cucumber";
 import type { AgentLifecycleState } from "../support/agent-lifecycle.ts";
 import {
@@ -196,6 +197,29 @@ When(
   },
 );
 
+/** Force a fresh WAL frame on the mock Codex DB so the server's
+ *  `fs.watch` re-fires its session refresh. Mirror of
+ *  `claude_code_steps.ts::nudgeMockFiles` — under parallel-worker
+ *  inotify pressure the kernel queue overflows and silently drops
+ *  events, so we drive the recovery from the test side rather than
+ *  hoping the kernel queue stays warm. Best-effort: any error is
+ *  swallowed because the surrounding poll loop will retry. */
+function nudgeCodexWal() {
+  if (!mockFixture) return;
+  try {
+    const db = new DatabaseSync(mockFixture.dbPath);
+    try {
+      db.exec(
+        `BEGIN; INSERT INTO threads (id, rollout_path, cwd, source, archived, updated_at_ms) VALUES ('__nudge__', '', '', 'cli', 0, 0); DELETE FROM threads WHERE id = '__nudge__'; COMMIT;`,
+      );
+    } finally {
+      db.close();
+    }
+  } catch {
+    // best-effort
+  }
+}
+
 Then(
   "the tile chrome should show a Codex indicator with state {string}",
   async function (this: KoluWorld, expectedState: string) {
@@ -203,6 +227,7 @@ Then(
     let last: string | null = null;
     let lastKind: string | null = null;
     while (Date.now() - start < POLL_TIMEOUT) {
+      nudgeCodexWal();
       const observed = await this.page.evaluate(() => {
         const el = document.querySelector(
           '[data-testid="canvas-tile"] [data-testid="agent-indicator"], [data-testid="mobile-tile-titlebar"] [data-testid="agent-indicator"]',
@@ -226,15 +251,21 @@ Then(
 Then(
   "the tile chrome should show context tokens {string}",
   async function (this: KoluWorld, expected: string) {
-    await this.page.waitForFunction(
-      (txt) => {
+    const start = Date.now();
+    let last: string | null = null;
+    while (Date.now() - start < POLL_TIMEOUT) {
+      nudgeCodexWal();
+      last = await this.page.evaluate(() => {
         const el = document.querySelector(
           '[data-testid="agent-context-tokens"]',
         );
-        return el?.textContent?.includes(txt) ?? false;
-      },
-      expected,
-      { timeout: POLL_TIMEOUT },
+        return el?.textContent ?? null;
+      });
+      if (last?.includes(expected)) return;
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    throw new Error(
+      `Expected context tokens to contain "${expected}", got "${last}" after ${POLL_TIMEOUT}ms`,
     );
   },
 );
