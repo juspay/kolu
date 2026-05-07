@@ -54,3 +54,17 @@ Feature: Agent-aware worktree creation
     Then the header CWD should show ".worktrees/"
     And the workspace switcher should show a worktree indicator
     And there should be no page errors
+
+  Scenario: Typing a custom name and picking an agent creates a named worktree with the agent
+    When I set up a git repo at "/tmp/kolu-wt-agent-named"
+    And I run "cd /tmp/kolu-wt-agent-named"
+    And I run "claude --dangerously-skip-permissions"
+    And I open the command palette
+    And I select "New terminal" in the palette
+    And I select "kolu-wt-agent-named" in the palette
+    And I type "agent-experiment" in the palette
+    And I select "claude --dangerously-skip-permissions" in the palette
+    Then the header CWD should show ".worktrees/agent-experiment"
+    And a workspace switcher pill should show "agent-experiment"
+    And the screen state should contain "claude --dangerously-skip-permissions"
+    And there should be no page errors

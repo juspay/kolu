@@ -6,7 +6,6 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { Logger } from "kolu-shared";
-import { randomName } from "memorable-names";
 import { simpleGit } from "simple-git";
 import { err, type GitResult, ok } from "./errors.ts";
 
@@ -36,11 +35,13 @@ export async function detectDefaultBranch(repoPath: string): Promise<string> {
 }
 
 /**
- * Create a git worktree with a random name, branching from origin/<default>.
- * Retries with a new name on collision.
+ * Create a git worktree at `.worktrees/<name>` on a new branch `<name>`,
+ * based on `origin/<default>`. Fails fast on collision; callers choose
+ * how to recover.
  */
 export async function worktreeCreate(
   repoPath: string,
+  name: string,
   log?: Logger,
 ): Promise<GitResult<{ path: string; branch: string }>> {
   try {
@@ -61,44 +62,42 @@ export async function worktreeCreate(
     }
     const defaultBranch = await detectDefaultBranch(mainRoot);
 
-    for (let attempt = 0; attempt < 5; attempt++) {
-      const branch = randomName();
-      const targetPath = path.join(mainRoot, ".worktrees", branch);
+    const targetPath = path.join(mainRoot, ".worktrees", name);
 
-      // Check for both directory and branch name collision — a previous worktree
-      // removal deletes the directory but leaves the branch behind.
-      if (fs.existsSync(targetPath)) {
-        log?.info({ branch }, "path collision, retrying");
-        continue;
-      }
-      try {
-        await git.raw(["rev-parse", "--verify", `refs/heads/${branch}`]);
-        log?.info({ branch }, "branch collision, retrying");
-        continue;
-      } catch {
-        // Branch doesn't exist — good
-      }
-
-      log?.info(
-        { targetPath, branch, base: `origin/${defaultBranch}` },
-        "creating worktree",
-      );
-      await git.raw([
-        "worktree",
-        "add",
-        targetPath,
-        "-b",
-        branch,
-        `origin/${defaultBranch}`,
-      ]);
-
-      return ok({ path: targetPath, branch });
+    // Check for both directory and branch collision — a previous worktree
+    // removal deletes the directory but leaves the branch behind.
+    if (fs.existsSync(targetPath)) {
+      return err({
+        code: "WORKTREE_NAME_COLLISION",
+        name,
+        message: `A worktree directory already exists at ${targetPath}`,
+      });
+    }
+    try {
+      await git.raw(["rev-parse", "--verify", `refs/heads/${name}`]);
+      return err({
+        code: "WORKTREE_NAME_COLLISION",
+        name,
+        message: `Branch '${name}' already exists`,
+      });
+    } catch {
+      // Branch doesn't exist — good
     }
 
-    return err({
-      code: "WORKTREE_NAME_EXHAUSTED",
-      message: "Failed to generate unique worktree name after 5 attempts",
-    });
+    log?.info(
+      { targetPath, branch: name, base: `origin/${defaultBranch}` },
+      "creating worktree",
+    );
+    await git.raw([
+      "worktree",
+      "add",
+      targetPath,
+      "-b",
+      name,
+      `origin/${defaultBranch}`,
+    ]);
+
+    return ok({ path: targetPath, branch: name });
   } catch (e) {
     return err({
       code: "GIT_FAILED",

@@ -37,6 +37,26 @@ export interface PaletteCommand {
   onSelect?: () => void;
   /** Nested sub-commands (group). Static array or accessor for dynamic lists. */
   children?: PaletteItem[] | (() => PaletteItem[]);
+  /** Opaque payload readable by `valueInput.onSubmit`. The palette never
+   *  interprets `data`; it just hands it back so callers can identify the
+   *  chosen option without string-matching on `name`. */
+  data?: unknown;
+  /** When set on a group, drilling in switches the input from a filter to a
+   *  value field — pre-filled with `prefill()` and auto-selected on focus.
+   *  Children are passive label rows: their own `onSelect` is bypassed and
+   *  Enter (or click) routes through this group's `onSubmit` with the
+   *  typed value plus the highlighted child. Up/Down still moves the
+   *  highlight; Backspace on an empty value drills back out.
+   *
+   *  `validate` runs on every keystroke; returning a non-null message
+   *  paints the input red, renders the message under the input, and
+   *  blocks submit until the value passes again. */
+  valueInput?: {
+    prefill: () => string;
+    placeholder?: string;
+    validate?: (value: string) => string | null;
+    onSubmit: (value: string, selected: PaletteCommand) => void;
+  };
   /** Keyboard shortcut(s) to display alongside the command name. */
   keybind?: Keybind | Keybind[];
   /** Called when this item becomes the highlighted item during navigation. */
@@ -132,17 +152,26 @@ const CommandPalette: Component<{
     return level;
   });
 
-  /** Commands at the current level, filtered by the search query. Hints are excluded. */
+  /** Active `valueInput` of the deepest path segment, if any. */
+  const valueLeaf = createMemo(() => path().at(-1)?.valueInput);
+
+  /** Live validation error for the current value-input query. `null` when
+   *  the leaf has no validator, or the value passes; otherwise the
+   *  message to surface inline. Read by the input border, the error row,
+   *  and the submit guard in `execute`. */
+  const valueError = createMemo(() => valueLeaf()?.validate?.(query()) ?? null);
+
+  /** Commands at the current level (filter is bypassed in value-input mode). */
   const filtered = createMemo((): PaletteCommand[] => {
+    const items = currentItems().filter(isCommand);
+    if (valueLeaf()) return items;
     const q = query().toLowerCase();
-    return currentItems()
-      .filter(isCommand)
-      .filter(
-        (cmd) =>
-          !q ||
-          cmd.name.toLowerCase().includes(q) ||
-          cmd.description?.toLowerCase().includes(q),
-      );
+    return items.filter(
+      (cmd) =>
+        !q ||
+        cmd.name.toLowerCase().includes(q) ||
+        cmd.description?.toLowerCase().includes(q),
+    );
   });
 
   /** Hints at the current level — rendered as non-interactive rows below the list. */
@@ -152,7 +181,14 @@ const CommandPalette: Component<{
 
   function drillIn(cmd: PaletteCommand) {
     setPath((p) => [...p, cmd]);
-    setQuery("");
+    if (cmd.valueInput) {
+      setQuery(cmd.valueInput.prefill());
+      // Defer select() to rAF so the input has rendered the new value
+      // first — selecting before the render highlights nothing.
+      requestAnimationFrame(() => inputRef.select());
+    } else {
+      setQuery("");
+    }
     setSelectedIndex(0);
   }
 
@@ -176,6 +212,17 @@ const CommandPalette: Component<{
   let didSelect = false;
 
   function execute(cmd: PaletteCommand) {
+    const leaf = valueLeaf();
+    if (leaf) {
+      // Block submit while the typed value is invalid; the inline error
+      // row already tells the user what to fix.
+      if (valueError()) return;
+      // Children in value-input mode are passive labels (see `valueInput` docs).
+      didSelect = true;
+      props.onOpenChange(false);
+      leaf.onSubmit(query(), cmd);
+      return;
+    }
     if (isGroup(cmd)) {
       drillIn(cmd);
     } else {
@@ -272,7 +319,17 @@ const CommandPalette: Component<{
   // Intentionally tracks `query`, not `filtered` — filtered returns a new array
   // reference on every recomputation, so tracking it would reset the index whenever
   // upstream data (commands memo) recomputes in the background.
-  createEffect(on(query, () => setSelectedIndex(0), { defer: true }));
+  createEffect(
+    on(
+      query,
+      () => {
+        // Skip in value-input mode: query is a value, not a filter.
+        if (valueLeaf()) return;
+        setSelectedIndex(0);
+      },
+      { defer: true },
+    ),
+  );
 
   // Notify highlighted item when selection changes.
   // Uses on() for stable dependency tracking — bare createEffect would drop
@@ -333,11 +390,27 @@ const CommandPalette: Component<{
         <input
           ref={inputRef}
           type="text"
-          placeholder="Type a command..."
-          class="w-full px-4 py-3 bg-surface-1 text-fg text-sm border-b border-edge outline-none placeholder-fg-3"
+          data-value-input={valueLeaf() ? "" : undefined}
+          data-value-invalid={valueError() ? "" : undefined}
+          placeholder={valueLeaf()?.placeholder ?? "Type a command..."}
+          class="w-full px-4 py-3 bg-surface-1 text-fg text-sm border-b outline-none placeholder-fg-3"
+          classList={{
+            "border-edge": !valueError(),
+            "border-danger": !!valueError(),
+          }}
           value={query()}
           onInput={(e) => setQuery(e.currentTarget.value)}
         />
+        <Show when={valueError()}>
+          {(msg) => (
+            <div
+              data-testid="palette-value-error"
+              class="px-4 py-2 text-xs text-danger border-b border-edge"
+            >
+              {msg()}
+            </div>
+          )}
+        </Show>
         <div
           ref={(el) => {
             // Mouse activity tracker is incidental UI state, not a real

@@ -45,6 +45,16 @@ Then(
 );
 
 Then(
+  "a workspace switcher pill should show {string}",
+  async function (this: KoluWorld, expected: string) {
+    const pill = this.page
+      .locator(BRANCH_SELECTOR)
+      .filter({ hasText: expected });
+    await pill.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+Then(
   "the {word} workspace switcher branch should be the active pill",
   async function (this: KoluWorld, ordinal: string) {
     // 1-based: "first", "second", "third" → 1, 2, 3

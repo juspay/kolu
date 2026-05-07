@@ -225,8 +225,10 @@ export const appRouter = t.router({
   },
   git: {
     worktreeCreate: t.git.worktreeCreate.handler(async ({ input }) => {
-      log.info({ repo: input.repoPath }, "worktree create");
-      const result = unwrapGit(await worktreeCreate(input.repoPath, log));
+      log.info({ repo: input.repoPath, name: input.name }, "worktree create");
+      const result = unwrapGit(
+        await worktreeCreate(input.repoPath, input.name, log),
+      );
       log.info(
         { repo: input.repoPath, path: result.path, branch: result.branch },
         "worktree created",

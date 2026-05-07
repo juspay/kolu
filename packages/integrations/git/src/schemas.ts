@@ -16,8 +16,23 @@ export const GitInfoSchema = z.object({
 
 // --- Git worktree operations ---
 
+/** Worktree branch name. Catches the common ref-name violations so the
+ *  toast says what's actually wrong instead of git's opaque "fatal: not
+ *  a valid branch name". Obscure cases (`@{`, `.lock` suffix, leading
+ *  slash) still fall through to git's own check. Exported so the client
+ *  can run the same predicate live in the worktree-naming palette leaf
+ *  — single source of truth for the rule. */
+export const WorktreeNameSchema = z
+  .string()
+  .min(1)
+  .refine((s) => !/[\s~^:?*[\\]/.test(s) && !s.includes(".."), {
+    message:
+      "branch name cannot contain whitespace, '..', or any of: ~ ^ : ? * [ \\",
+  });
+
 export const WorktreeCreateInputSchema = z.object({
   repoPath: z.string(),
+  name: WorktreeNameSchema,
 });
 
 export const WorktreeCreateOutputSchema = z.object({

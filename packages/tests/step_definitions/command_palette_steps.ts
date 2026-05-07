@@ -196,6 +196,40 @@ Then(
 );
 
 Then(
+  "the palette name input should show error {string}",
+  async function (this: KoluWorld, fragment: string) {
+    const err = this.page.locator(
+      `${PALETTE_SELECTOR} [data-testid="palette-value-error"]`,
+    );
+    await err.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const text = await err.textContent();
+    assert.ok(
+      text?.includes(fragment),
+      `Expected palette error to contain "${fragment}", got "${text}"`,
+    );
+  },
+);
+
+Then(
+  "the palette name input should be prefilled",
+  async function (this: KoluWorld) {
+    const input = this.page.locator(
+      `${PALETTE_SELECTOR} input[data-value-input]`,
+    );
+    await input.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    // Prefill arrives async; poll until the value lands.
+    await this.page.waitForFunction(
+      (sel) => {
+        const el = document.querySelector(`${sel} input[data-value-input]`);
+        return el instanceof HTMLInputElement && el.value.length > 0;
+      },
+      PALETTE_SELECTOR,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+Then(
   "palette item {string} should be visible",
   async function (this: KoluWorld, text: string) {
     const palette = this.page.locator(PALETTE_SELECTOR);

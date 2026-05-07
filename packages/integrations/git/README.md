@@ -10,7 +10,7 @@ All fallible functions return `GitResult<T>` instead of throwing:
 type GitResult<T> = { ok: true; value: T } | { ok: false; error: GitError };
 ```
 
-`GitError` is a discriminated union on `code`: `NOT_A_REPO`, `BASE_BRANCH_NOT_FOUND`, `WORKTREE_NAME_EXHAUSTED`, `PATH_ESCAPES_ROOT`, `GIT_FAILED`.
+`GitError` is a discriminated union on `code`: `NOT_A_REPO`, `BASE_BRANCH_NOT_FOUND`, `WORKTREE_NAME_COLLISION`, `PATH_ESCAPES_ROOT`, `GIT_FAILED`.
 
 The server unwraps results at the RPC boundary via `unwrapGit()` in `router.ts`, mapping error codes to `ORPCError` statuses. This package has **zero dependency on oRPC**.
 

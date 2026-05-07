@@ -5,7 +5,7 @@
 export type GitError =
   | { code: "NOT_A_REPO" }
   | { code: "BASE_BRANCH_NOT_FOUND"; ref: string; message: string }
-  | { code: "WORKTREE_NAME_EXHAUSTED"; message: string }
+  | { code: "WORKTREE_NAME_COLLISION"; name: string; message: string }
   | { code: "PATH_ESCAPES_ROOT"; root: string; child: string }
   | { code: "GIT_FAILED"; message: string };
 
