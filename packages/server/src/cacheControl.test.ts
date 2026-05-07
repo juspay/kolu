@@ -15,6 +15,21 @@ describe("getCacheControlHeader", () => {
     );
   });
 
+  it("revalidates fixed-name public assets", () => {
+    expect(getCacheControlHeader("/favicon.svg")).toBe(
+      "no-cache, must-revalidate",
+    );
+    expect(getCacheControlHeader("/icon-192.png")).toBe(
+      "no-cache, must-revalidate",
+    );
+    expect(getCacheControlHeader("/icon-512.png")).toBe(
+      "no-cache, must-revalidate",
+    );
+    expect(getCacheControlHeader("/sounds/notification.mp3")).toBe(
+      "no-cache, must-revalidate",
+    );
+  });
+
   it("leaves the legacy service worker route to its explicit handler", () => {
     expect(getCacheControlHeader("/sw.js")).toBeNull();
     expect(getCacheControlHeader("/registerSW.js")).toBeNull();
