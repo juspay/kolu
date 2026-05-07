@@ -3,7 +3,11 @@
 import { MetaProvider } from "@solidjs/meta";
 import { render } from "solid-js/web";
 import App from "./App";
+import { reloadIfServerBuildChanged } from "./deployFreshness";
 import "./index.css";
+import { onServerInfo } from "./rpc/rpc";
+
+onServerInfo(({ build }) => reloadIfServerBuildChanged(build.commit));
 
 // Unregister any stale service worker in dev mode — production SW from a previous
 // build can intercept dev server requests and serve cached assets indefinitely.

@@ -109,6 +109,7 @@ export const ServerInfoSchema = z.object({
     commit: z.string(),
   }),
 });
+export type ServerInfo = z.infer<typeof ServerInfoSchema>;
 
 // ── The contract ──────────────────────────────────────────────────────
 

@@ -12,8 +12,8 @@
  */
 
 import { createMemo, createSignal } from "solid-js";
+import type { ServerInfo } from "kolu-common/contract";
 import { match } from "ts-pattern";
-import { reloadIfServerBuildChanged } from "../deployFreshness";
 import { client, ws } from "../wire";
 
 export type WsStatus = "connecting" | "open" | "closed";
@@ -58,6 +58,13 @@ const serverProcessId = createMemo(() => {
 
 export { serverProcessId, wsStatus };
 
+const serverInfoListeners = new Set<(info: ServerInfo) => void>();
+
+export function onServerInfo(listener: (info: ServerInfo) => void): () => void {
+  serverInfoListeners.add(listener);
+  return () => serverInfoListeners.delete(listener);
+}
+
 // IIFE scopes `connectCount` and `knownProcessId` — no module-level
 // mutables leak; external observers read `lifecycle()` instead.
 (() => {
@@ -71,8 +78,9 @@ export { serverProcessId, wsStatus };
     // fails fast; partysocket will fire another `open` after reconnect.
     client.server
       .info()
-      .then(({ build, processId }) => {
-        reloadIfServerBuildChanged(build.commit);
+      .then((info) => {
+        for (const listener of serverInfoListeners) listener(info);
+        const { processId } = info;
 
         if (isFirstConnect) {
           knownProcessId = processId;
