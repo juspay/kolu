@@ -29,6 +29,7 @@ import {
   publisherChannel,
 } from "@kolu/surface/server";
 import { ORPCError, implement } from "@orpc/server";
+import { match } from "ts-pattern";
 import type {
   ActivityFeed,
   Preferences,
@@ -80,21 +81,28 @@ const savedSessionStore: CellStore<SavedSession | null> =
  *  with the raw git handlers in `router.ts`. */
 export function unwrapGit<T>(result: GitResult<T>): T {
   if (result.ok) return result.value;
-  const e = result.error;
-  const status =
-    e.code === "BASE_BRANCH_NOT_FOUND"
-      ? "PRECONDITION_FAILED"
-      : e.code === "WORKTREE_NAME_COLLISION"
-        ? "CONFLICT"
-        : "INTERNAL_SERVER_ERROR";
-  const message =
-    e.code === "PATH_ESCAPES_ROOT"
-      ? `path escapes root: ${e.child}`
-      : e.code === "BASE_BRANCH_NOT_FOUND"
-        ? e.message
-        : "message" in e
-          ? e.message
-          : `Git operation failed: ${e.code}`;
+  const { status, message } = match(result.error)
+    .with({ code: "BASE_BRANCH_NOT_FOUND" }, (e) => ({
+      status: "PRECONDITION_FAILED" as const,
+      message: e.message,
+    }))
+    .with({ code: "WORKTREE_NAME_COLLISION" }, (e) => ({
+      status: "CONFLICT" as const,
+      message: e.message,
+    }))
+    .with({ code: "PATH_ESCAPES_ROOT" }, (e) => ({
+      status: "INTERNAL_SERVER_ERROR" as const,
+      message: `path escapes root: ${e.child}`,
+    }))
+    .with({ code: "GIT_FAILED" }, (e) => ({
+      status: "INTERNAL_SERVER_ERROR" as const,
+      message: e.message,
+    }))
+    .with({ code: "NOT_A_REPO" }, () => ({
+      status: "INTERNAL_SERVER_ERROR" as const,
+      message: "Not a git repository",
+    }))
+    .exhaustive();
   throw new ORPCError(status, { message });
 }
 
