@@ -382,21 +382,12 @@ Then(
     await row.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
 
     const wraps = await row.evaluate((line) => {
-      const root = line.getRootNode();
-      const rootWrap =
-        root instanceof Document || root instanceof ShadowRoot
-          ? root.querySelector('[data-overflow="wrap"]')
-          : null;
-      const wrappedContainer =
-        line.closest('[data-overflow="wrap"]') ?? rootWrap;
-      if (wrappedContainer) return true;
-
       const style = getComputedStyle(line);
-      return (
-        style.whiteSpace === "pre-wrap" &&
-        (style.wordBreak === "break-word" ||
-          style.overflowWrap === "break-word")
-      );
+      const lineHeight = Number.parseFloat(style.lineHeight);
+      const singleLineHeight = Number.isFinite(lineHeight)
+        ? lineHeight
+        : Number.parseFloat(style.fontSize) * 1.2;
+      return line.getBoundingClientRect().height > singleLineHeight * 1.5;
     });
     assert.strictEqual(
       wraps,
