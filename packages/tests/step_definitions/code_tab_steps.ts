@@ -1,4 +1,3 @@
-import * as assert from "node:assert";
 import { Given, Then, When } from "@cucumber/cucumber";
 import { pollFor } from "../support/poll.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
@@ -381,18 +380,29 @@ Then(
     const row = this.page.locator(`${FILE_VIEW} [data-line]`).first();
     await row.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
 
-    const wraps = await row.evaluate((line) => {
-      const style = getComputedStyle(line);
-      const lineHeight = Number.parseFloat(style.lineHeight);
-      const singleLineHeight = Number.isFinite(lineHeight)
-        ? lineHeight
-        : Number.parseFloat(style.fontSize) * 1.2;
-      return line.getBoundingClientRect().height > singleLineHeight * 1.5;
-    });
-    assert.strictEqual(
-      wraps,
-      true,
-      "Expected browse-mode file content to render long lines in wrap mode",
+    await this.page.waitForFunction(
+      `(() => {
+        const root = document.querySelector('${FILE_VIEW}');
+        if (!root) return false;
+        const stack = [root];
+        while (stack.length) {
+          const node = stack.pop();
+          if (node.nodeType !== 1) continue;
+          if (node.matches?.('[data-line]')) {
+            const style = getComputedStyle(node);
+            const lineHeight = Number.parseFloat(style.lineHeight);
+            const singleLineHeight = Number.isFinite(lineHeight)
+              ? lineHeight
+              : Number.parseFloat(style.fontSize) * 1.2;
+            return node.getBoundingClientRect().height > singleLineHeight * 1.5;
+          }
+          if (node.shadowRoot) for (const ch of node.shadowRoot.childNodes) stack.push(ch);
+          for (const ch of node.childNodes) stack.push(ch);
+        }
+        return false;
+      })()`,
+      undefined,
+      { timeout: POLL_TIMEOUT },
     );
   },
 );
