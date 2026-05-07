@@ -202,10 +202,15 @@ Then(
       `${PALETTE_SELECTOR} input[data-value-input]`,
     );
     await input.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    const value = await input.inputValue();
-    assert.ok(
-      value.length > 0,
-      `Expected the palette name input to be prefilled, got "${value}"`,
+    // Prefill is set on drillIn but the input's `.value` reflects it only
+    // after SolidJS flushes the signal; poll instead of reading once.
+    await this.page.waitForFunction(
+      (sel) => {
+        const el = document.querySelector(`${sel} input[data-value-input]`);
+        return el instanceof HTMLInputElement && el.value.length > 0;
+      },
+      PALETTE_SELECTOR,
+      { timeout: POLL_TIMEOUT },
     );
   },
 );
