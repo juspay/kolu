@@ -36,8 +36,8 @@ export async function detectDefaultBranch(repoPath: string): Promise<string> {
 
 /**
  * Create a git worktree at `.worktrees/<name>` on a new branch `<name>`,
- * based on `origin/<default>`. Fails fast on collision — the caller (client)
- * supplies the name and is the right place to recover (re-prompt the user).
+ * based on `origin/<default>`. Fails fast on collision; callers choose
+ * how to recover.
  */
 export async function worktreeCreate(
   repoPath: string,

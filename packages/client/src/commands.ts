@@ -22,11 +22,8 @@ function agentItems(
   }));
 }
 
-/** Children of the worktree-naming leaf: a non-actionable list of agent
- *  options (Plain shell + recent agents). The parent group's `valueInput`
- *  routes Enter to `handleCreateWorktree(repo, name, agentCmd)` via the
- *  selected row's `data` — `data: undefined` means plain shell, anything
- *  else is the agent CLI to launch in the new worktree. */
+/** Children of the worktree-naming leaf. Each row's `data` is the agent
+ *  CLI string to launch (or `undefined` for plain shell). */
 function worktreeAgentOptions(agents: RecentAgent[]): PaletteItem[] {
   return [
     { name: "Plain shell", data: undefined },
@@ -75,11 +72,6 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
             name: "In current directory",
             onSelect: () => deps.handleCreate(deps.activeMeta()?.cwd),
           },
-          // Recent-repo entries. Drilling in lands on the worktree-naming
-          // leaf: input pre-filled with `randomName()` (auto-selected on
-          // focus, type to replace), agent rows below ("Plain shell" first,
-          // then recent agents). Enter submits with the typed name + the
-          // highlighted agent. Up/Down navigates the agent list.
           ...repos.map(
             (r): PaletteCommand => ({
               name: r.repoName,

@@ -147,15 +147,10 @@ const CommandPalette: Component<{
     return level;
   });
 
-  /** The current path's deepest segment, when it carries a `valueInput`.
-   *  Drives the "input is a value, not a filter" mode: the input pre-fills
-   *  with `prefill()`, list filtering is disabled, and Enter calls
-   *  `onSubmit(value, highlighted)` instead of `highlighted.onSelect()`. */
+  /** Active `valueInput` of the deepest path segment, if any. */
   const valueLeaf = createMemo(() => path().at(-1)?.valueInput);
 
-  /** Commands at the current level. In value-input mode the search query is
-   *  the user's typed value, so it does NOT filter the list — every child
-   *  stays visible. Otherwise filter by name/description as usual. */
+  /** Commands at the current level (filter is bypassed in value-input mode). */
   const filtered = createMemo((): PaletteCommand[] => {
     const items = currentItems().filter(isCommand);
     if (valueLeaf()) return items;
@@ -176,10 +171,9 @@ const CommandPalette: Component<{
   function drillIn(cmd: PaletteCommand) {
     setPath((p) => [...p, cmd]);
     if (cmd.valueInput) {
-      // Value-input mode: seed with the prefill and select it so the user's
-      // first keystroke replaces the suggestion. Defer to rAF so the input
-      // has rendered the new value before `select()` runs.
       setQuery(cmd.valueInput.prefill());
+      // Defer select() to rAF so the input has rendered the new value
+      // first — selecting before the render highlights nothing.
       requestAnimationFrame(() => inputRef.select());
     } else {
       setQuery("");
@@ -209,9 +203,7 @@ const CommandPalette: Component<{
   function execute(cmd: PaletteCommand) {
     const leaf = valueLeaf();
     if (leaf) {
-      // Value-input mode: the highlighted child is the agent choice; the
-      // input value is the worktree name. Submit both via `onSubmit` and
-      // ignore `cmd.onSelect` (children in this mode are non-actionable).
+      // Children in value-input mode are passive labels (see `valueInput` docs).
       didSelect = true;
       props.onOpenChange(false);
       leaf.onSubmit(query(), cmd);
@@ -313,12 +305,11 @@ const CommandPalette: Component<{
   // Intentionally tracks `query`, not `filtered` — filtered returns a new array
   // reference on every recomputation, so tracking it would reset the index whenever
   // upstream data (commands memo) recomputes in the background.
-  // Skip in value-input mode: query holds the user's typed value, not a
-  // filter, so each keystroke must not yank the agent highlight back to 0.
   createEffect(
     on(
       query,
       () => {
+        // Skip in value-input mode: query is a value, not a filter.
         if (valueLeaf()) return;
         setSelectedIndex(0);
       },
