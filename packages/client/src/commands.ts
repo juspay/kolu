@@ -22,19 +22,15 @@ function agentItems(
   }));
 }
 
-/** Sentinel name for the "no agent — just a plain shell" row inside the
- *  worktree-naming leaf. Top of the agent list, so it's the highlighted
- *  default when the user hits Enter without navigating. */
-const PLAIN_SHELL_LABEL = "Plain shell";
-
 /** Children of the worktree-naming leaf: a non-actionable list of agent
  *  options (Plain shell + recent agents). The parent group's `valueInput`
- *  routes Enter to `handleCreateWorktree(repo, name, agentCmd)` — these
- *  items just carry their label, so `onSelect` would never fire. */
+ *  routes Enter to `handleCreateWorktree(repo, name, agentCmd)` via the
+ *  selected row's `data` — `data: undefined` means plain shell, anything
+ *  else is the agent CLI to launch in the new worktree. */
 function worktreeAgentOptions(agents: RecentAgent[]): PaletteItem[] {
   return [
-    { name: PLAIN_SHELL_LABEL },
-    ...agents.map((a) => ({ name: a.command })),
+    { name: "Plain shell", data: undefined },
+    ...agents.map((a) => ({ name: a.command, data: a.command })),
   ];
 }
 
@@ -95,9 +91,9 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
                   const trimmed = name.trim();
                   if (!trimmed) return;
                   const agentCmd =
-                    selected.name === PLAIN_SHELL_LABEL
-                      ? undefined
-                      : selected.name;
+                    typeof selected.data === "string"
+                      ? selected.data
+                      : undefined;
                   deps.handleCreateWorktree(r.repoRoot, trimmed, agentCmd);
                 },
               },

@@ -37,12 +37,16 @@ export interface PaletteCommand {
   onSelect?: () => void;
   /** Nested sub-commands (group). Static array or accessor for dynamic lists. */
   children?: PaletteItem[] | (() => PaletteItem[]);
+  /** Opaque payload readable by `valueInput.onSubmit`. The palette never
+   *  interprets `data`; it just hands it back so callers can identify the
+   *  chosen option without string-matching on `name`. */
+  data?: unknown;
   /** When set on a group, drilling in switches the input from a filter to a
    *  value field — pre-filled with `prefill()` and auto-selected on focus.
-   *  Children render unchanged but their own `onSelect` is bypassed: Enter
-   *  (or click) submits the typed value plus the highlighted child via
-   *  `onSubmit`. Up/Down still moves the highlight; Backspace on an empty
-   *  value drills back out. */
+   *  Children are passive label rows: their own `onSelect` is bypassed and
+   *  Enter (or click) routes through this group's `onSubmit` with the
+   *  typed value plus the highlighted child. Up/Down still moves the
+   *  highlight; Backspace on an empty value drills back out. */
   valueInput?: {
     prefill: () => string;
     placeholder?: string;
