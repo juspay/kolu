@@ -279,15 +279,29 @@ Given(
 Then(
   "the restore card should show agent command {string}",
   async function (this: KoluWorld, command: string) {
-    await this.page.waitForFunction(
-      (cmd) => {
+    // Same race as the visibility step: under parallel-worker load the
+    // client can hydrate `savedSession` before the server snapshot
+    // includes the most recent `lastAgentCommand` POST. Re-POSTing on
+    // each poll iteration drives a `serverState.savedSession()` change
+    // that re-fires `useSessionRestore`'s recovery effect — so the
+    // commands eventually land in the rendered card.
+    const start = Date.now();
+    let visible = false;
+    while (Date.now() - start < POLL_TIMEOUT) {
+      visible = await this.page.evaluate((cmd) => {
         const nodes = document.querySelectorAll(
           '[data-testid="resume-command"]',
         );
         return Array.from(nodes).some((n) => n.textContent?.trim() === cmd);
-      },
-      command,
-      { timeout: POLL_TIMEOUT },
+      }, command);
+      if (visible) return;
+      if (this.savedSessionTerminals) {
+        await postSavedSessionPayload(this.page, this.savedSessionTerminals);
+      }
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    throw new Error(
+      `Restore card never showed agent command "${command}" within ${POLL_TIMEOUT}ms`,
     );
   },
 );
