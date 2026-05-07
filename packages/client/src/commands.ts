@@ -91,16 +91,11 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
                 placeholder: "Worktree name",
                 validate: validateWorktreeName,
                 onSubmit: (name, selected) => {
-                  const trimmed = name.trim();
-                  // The palette already blocks submit on validation failure;
-                  // this guard keeps the contract self-enforcing if a future
-                  // caller wires onSubmit without a validator.
-                  if (validateWorktreeName(trimmed) !== null) return;
                   const agentCmd =
                     typeof selected.data === "string"
                       ? selected.data
                       : undefined;
-                  deps.handleCreateWorktree(r.repoRoot, trimmed, agentCmd);
+                  deps.handleCreateWorktree(r.repoRoot, name.trim(), agentCmd);
                 },
               },
               children: (): PaletteItem[] =>
