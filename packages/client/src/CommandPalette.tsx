@@ -27,42 +27,61 @@ import { useTips } from "./settings/useTips";
 import Kbd from "./ui/Kbd";
 import ModalDialog from "./ui/ModalDialog";
 
-/** A command that can be executed from the palette, or a group containing sub-commands. */
-export interface PaletteCommand {
-  kind?: "command";
+/** Fields shared by every interactive palette item. */
+interface PaletteBase {
   name: string;
   /** Secondary text shown after the name, de-emphasized. */
   description?: string;
-  /** Execute this command (leaf). Mutually exclusive with `children`. */
-  onSelect?: () => void;
-  /** Nested sub-commands (group). Static array or accessor for dynamic lists. */
-  children?: PaletteItem[] | (() => PaletteItem[]);
-  /** Opaque payload readable by `valueInput.onSubmit`. The palette never
-   *  interprets `data`; it just hands it back so callers can identify the
-   *  chosen option without string-matching on `name`. */
+  /** Opaque payload — palette never interprets `data`; it just hands it
+   *  back via `onSubmit` so callers can identify the chosen option
+   *  without string-matching on `name`. */
   data?: unknown;
-  /** When set on a group, drilling in switches the input from a filter to a
-   *  value field — pre-filled with `prefill()` and auto-selected on focus.
-   *  Children are passive label rows: their own `onSelect` is bypassed and
-   *  Enter (or click) routes through this group's `onSubmit` with the
-   *  typed value plus the highlighted child. Up/Down still moves the
-   *  highlight; Backspace on an empty value drills back out.
-   *
-   *  `validate` runs on every keystroke; returning a non-null message
-   *  paints the input red, renders the message under the input, and
-   *  blocks submit until the value passes again. */
-  valueInput?: {
-    prefill: () => string;
-    placeholder?: string;
-    validate?: (value: string) => string | null;
-    onSubmit: (value: string, selected: PaletteCommand) => void;
-  };
   /** Keyboard shortcut(s) to display alongside the command name. */
   keybind?: Keybind | Keybind[];
   /** Called when this item becomes the highlighted item during navigation. */
   onHighlight?: () => void;
-  /** Called when leaving this group without executing a child (Escape, Backspace, breadcrumb). */
+  /** Called when leaving this item without executing it (Escape, Backspace, breadcrumb). */
   onCancel?: () => void;
+}
+
+/** A leaf that runs an action when selected. */
+export interface PaletteAction extends PaletteBase {
+  kind: "action";
+  onSelect: () => void;
+}
+
+/** A nested level. Drilling in narrows navigation to its children. */
+export interface PaletteGroup extends PaletteBase {
+  kind: "group";
+  /** Static array or accessor for dynamic lists. */
+  children: PaletteItem[] | (() => PaletteItem[]);
+}
+
+/** A group whose drill-in switches the input from a filter to a free-text
+ *  value field — pre-filled with `prefill()` and auto-selected on focus.
+ *  Children are passive label rows: their own `onSelect` (if any) is
+ *  bypassed and Enter (or click) routes through this group's `onSubmit`
+ *  with the typed value plus the highlighted child. Up/Down still moves
+ *  the highlight; Backspace on an empty value drills back out.
+ *
+ *  `validate` runs on every keystroke; returning a non-null message
+ *  paints the input red, renders the message under the input, and
+ *  blocks submit until the value passes again. */
+export interface PaletteValueInput extends PaletteBase {
+  kind: "value";
+  prefill: () => string;
+  placeholder?: string;
+  validate?: (value: string) => string | null;
+  onSubmit: (value: string, selected: PaletteCommand) => void;
+  /** Static array or accessor for dynamic lists. */
+  children: PaletteItem[] | (() => PaletteItem[]);
+}
+
+/** A passive selectable row inside a `PaletteValueInput`'s children —
+ *  rendered like an action but has no `onSelect` of its own; the value
+ *  group's `onSubmit` receives it as the highlighted choice. */
+export interface PaletteLabel extends PaletteBase {
+  kind: "label";
 }
 
 /** A non-interactive informational row shown inside a palette group. */
@@ -71,6 +90,12 @@ export interface PaletteHint {
   text: string;
 }
 
+export type PaletteCommand =
+  | PaletteAction
+  | PaletteGroup
+  | PaletteValueInput
+  | PaletteLabel;
+
 /** Anything renderable at a palette level — a command or a hint. */
 export type PaletteItem = PaletteCommand | PaletteHint;
 
@@ -78,19 +103,13 @@ function isCommand(item: PaletteItem): item is PaletteCommand {
   return item.kind !== "hint";
 }
 
-function isHint(item: PaletteItem): item is PaletteHint {
-  return item.kind === "hint";
+function isGroup(cmd: PaletteCommand): cmd is PaletteGroup | PaletteValueInput {
+  return cmd.kind === "group" || cmd.kind === "value";
 }
 
 /** Resolve children, handling both static arrays and accessors. */
-function resolveChildren(cmd: PaletteCommand): PaletteItem[] {
-  if (!cmd.children) return [];
+function resolveChildren(cmd: PaletteGroup | PaletteValueInput): PaletteItem[] {
   return typeof cmd.children === "function" ? cmd.children() : cmd.children;
-}
-
-/** Whether a command is a group (has children rather than an action). */
-function isGroup(cmd: PaletteCommand): boolean {
-  return cmd.children !== undefined;
 }
 
 /** Ctrl+key → normalized key for readline-style navigation. */
@@ -100,20 +119,25 @@ const CommandPalette: Component<{
   commands: Accessor<PaletteItem[]>;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** If set, auto-drill into the group with this name on open. */
+  /** If set, auto-drill into the group with this name on open. Tracked
+   *  reactively — a caller updating the prop while open re-targets the
+   *  drilled level. */
   initialGroup?: string;
   /** When true, the backdrop is transparent so content behind is visible. */
   transparentOverlay?: boolean;
 }> = (props) => {
   const { randomAmbientTip } = useTips();
   let inputRef!: HTMLInputElement;
+  let listEl!: HTMLDivElement;
   const [query, setQuery] = createSignal("");
   const [ambientTip, setAmbientTip] = createSignal("");
   const [selectedIndex, setSelectedIndex] = createSignal(0);
-  // Ignore mouseEnter until a real mouse move after opening (prevents cursor-under-palette hijack)
-  let mouseActive = false;
-  // Navigation path: list of group commands we've drilled into
-  const [path, setPath] = createSignal<PaletteCommand[]>([]);
+  // Ignore mouseEnter until a real mouse move after opening (prevents cursor-under-palette hijack).
+  const [mouseActive, setMouseActive] = createSignal(false);
+  // Navigation path: list of group commands we've drilled into.
+  const [path, setPath] = createSignal<(PaletteGroup | PaletteValueInput)[]>(
+    [],
+  );
 
   /** Items at the current navigation level (may include hints).
    *
@@ -137,34 +161,61 @@ const CommandPalette: Component<{
     let level: PaletteItem[] = props.commands();
     for (const segment of p) {
       const match = level.find(
-        (item): item is PaletteCommand =>
-          isCommand(item) && item.name === segment.name,
+        (item): item is PaletteGroup | PaletteValueInput =>
+          isCommand(item) && item.name === segment.name && isGroup(item),
       );
-      if (!match || !isGroup(match)) {
-        // Segment no longer present in the current tree; fall back to
-        // the stale reference to keep the level rendered. Happens e.g.
-        // when a visibility guard hides a parent group while the user
-        // is still drilled into it.
-        return resolveChildren(last);
-      }
+      if (!match) return resolveChildren(last);
       level = resolveChildren(match);
     }
     return level;
   });
 
-  /** Active `valueInput` of the deepest path segment, if any. */
-  const valueLeaf = createMemo(() => path().at(-1)?.valueInput);
+  /** Single-pass partition of `currentItems()` into commands and hints —
+   *  one traversal feeds both consumers (the list and the hint footer). */
+  const partitioned = createMemo(() => {
+    const items = currentItems();
+    const commands: PaletteCommand[] = [];
+    const hints: PaletteHint[] = [];
+    for (const item of items) {
+      if (item.kind === "hint") hints.push(item);
+      else commands.push(item);
+    }
+    return { commands, hints };
+  });
 
-  /** Live validation error for the current value-input query. `null` when
-   *  the leaf has no validator, or the value passes; otherwise the
-   *  message to surface inline. Read by the input border, the error row,
-   *  and the submit guard in `execute`. */
-  const valueError = createMemo(() => valueLeaf()?.validate?.(query()) ?? null);
+  /** Discriminated UI mode driven by the deepest path segment.
+   *  Filter mode: input narrows the children list. Value mode: input is
+   *  a free-text field; children render as passive labels. The five
+   *  behavior swaps (filter bypass, validation, placeholder,
+   *  selection-reset suppression, submit dispatch) all switch on this. */
+  type Mode = { kind: "filter" } | { kind: "value"; leaf: PaletteValueInput };
 
-  /** Commands at the current level (filter is bypassed in value-input mode). */
+  const mode = createMemo<Mode>(() => {
+    const last = path().at(-1);
+    return last?.kind === "value"
+      ? { kind: "value", leaf: last }
+      : { kind: "filter" };
+  });
+
+  /** Validation error for the current value-input query. `null` outside
+   *  value mode or when the value passes. */
+  const valueError = createMemo<string | null>(() => {
+    const m = mode();
+    if (m.kind !== "value") return null;
+    return m.leaf.validate?.(query()) ?? null;
+  });
+
+  /** Input placeholder, derived from mode. */
+  const placeholder = createMemo(() => {
+    const m = mode();
+    if (m.kind === "value") return m.leaf.placeholder ?? "Type a command...";
+    return "Type a command...";
+  });
+
+  /** Commands at the current level (filter is bypassed in value mode). */
   const filtered = createMemo((): PaletteCommand[] => {
-    const items = currentItems().filter(isCommand);
-    if (valueLeaf()) return items;
+    const items = partitioned().commands;
+    if (mode().kind === "value") return items;
     const q = query().toLowerCase();
     return items.filter(
       (cmd) =>
@@ -174,29 +225,16 @@ const CommandPalette: Component<{
     );
   });
 
-  /** Hints at the current level — rendered as non-interactive rows below the list. */
-  const hintsAtLevel = createMemo((): PaletteHint[] =>
-    currentItems().filter(isHint),
-  );
-
-  function drillIn(cmd: PaletteCommand) {
+  function drillInto(cmd: PaletteGroup | PaletteValueInput) {
     setPath((p) => [...p, cmd]);
-    if (cmd.valueInput) {
-      setQuery(cmd.valueInput.prefill());
+    if (cmd.kind === "value") {
+      setQuery(cmd.prefill());
       // Defer select() to rAF so the input has rendered the new value
       // first — selecting before the render highlights nothing.
       requestAnimationFrame(() => inputRef.select());
     } else {
       setQuery("");
     }
-    setSelectedIndex(0);
-  }
-
-  function drillOut() {
-    const p = path();
-    p[p.length - 1]?.onCancel?.();
-    setPath(p.slice(0, -1));
-    setQuery("");
     setSelectedIndex(0);
   }
 
@@ -208,30 +246,46 @@ const CommandPalette: Component<{
     setSelectedIndex(0);
   }
 
-  // Track whether the palette is closing due to a selection (skip onCancel).
-  let didSelect = false;
+  /** Internal close after a successful selection — bypasses cancel
+   *  propagation that `handleOpenChange` would otherwise run. */
+  function closeForSelection() {
+    props.onOpenChange(false);
+  }
+
+  /** External close (Escape, backdrop click, parent setting open=false
+   *  unprompted): fire onCancel handlers for the drilled-in path before
+   *  propagating. Internal selections call `closeForSelection` and skip
+   *  this path entirely. */
+  function handleOpenChange(open: boolean) {
+    if (!open) {
+      for (const g of path()) g.onCancel?.();
+    }
+    props.onOpenChange(open);
+  }
 
   function execute(cmd: PaletteCommand) {
-    const leaf = valueLeaf();
-    if (leaf) {
+    const m = mode();
+    if (m.kind === "value") {
       // Block submit while the typed value is invalid; the inline error
       // row already tells the user what to fix.
       if (valueError()) return;
-      // Children in value-input mode are passive labels (see `valueInput` docs).
-      didSelect = true;
-      props.onOpenChange(false);
-      leaf.onSubmit(query(), cmd);
+      // Children in value mode are passive — Enter routes through the
+      // leaf's onSubmit with the typed value + highlighted child.
+      closeForSelection();
+      m.leaf.onSubmit(query(), cmd);
       return;
     }
-    if (isGroup(cmd)) {
-      drillIn(cmd);
-    } else {
+    if (cmd.kind === "group" || cmd.kind === "value") {
+      drillInto(cmd);
+      return;
+    }
+    if (cmd.kind === "action") {
       // Close first so the highlight effect stops tracking filtered(),
       // preventing onSelect's state changes from re-triggering a preview.
-      didSelect = true;
-      props.onOpenChange(false);
-      cmd.onSelect?.();
+      closeForSelection();
+      cmd.onSelect();
     }
+    // PaletteLabel: not reachable in filter mode (labels live inside value groups).
   }
 
   function handleKeyDown(e: KeyboardEvent) {
@@ -259,7 +313,7 @@ const CommandPalette: Component<{
       case "Backspace":
         // Drill out when backspacing on empty query
         if (query() === "" && path().length > 0) {
-          drillOut();
+          navigateTo(path().length - 1);
           break;
         }
         return;
@@ -282,37 +336,43 @@ const CommandPalette: Component<{
   // Capture phase: intercept before terminal's keydown handler
   makeEventListener(window, "keydown", handleKeyDown, { capture: true });
 
-  // Reset all state when opening; cancel groups on close (unless a command was selected)
+  // Reset transient state on open.
   createEffect(
     on(
       () => props.open,
       (isOpen) => {
-        if (isOpen) {
-          setQuery("");
-          setSelectedIndex(0);
-          setAmbientTip(randomAmbientTip());
-          mouseActive = false;
-          const group = props.initialGroup
-            ? props
-                .commands()
-                .find(
-                  (c): c is PaletteCommand =>
-                    isCommand(c) && c.name === props.initialGroup,
-                )
-            : undefined;
-          setPath(group ? [group] : []);
-          didSelect = false;
-          // forceMount keeps the dialog in the DOM, so Corvu's initialFocusEl
-          // only fires on first mount. Re-focus explicitly on every open.
-          requestAnimationFrame(() =>
-            requestAnimationFrame(() => inputRef.focus()),
-          );
-        } else {
-          if (!didSelect) for (const g of path()) g.onCancel?.();
-          didSelect = false;
-        }
+        if (!isOpen) return;
+        setQuery("");
+        setSelectedIndex(0);
+        setAmbientTip(randomAmbientTip());
+        setMouseActive(false);
+        // forceMount keeps the dialog in the DOM, so Corvu's initialFocusEl
+        // only fires on first mount. Re-focus explicitly on every open.
+        requestAnimationFrame(() =>
+          requestAnimationFrame(() => inputRef.focus()),
+        );
       },
     ),
+  );
+
+  // Track initialGroup reactively: a caller changing the prop (or opening
+  // with a new value) re-targets the drilled level. Closing clears the path.
+  createEffect(
+    on([() => props.open, () => props.initialGroup], ([isOpen, initial]) => {
+      if (!isOpen) {
+        setPath([]);
+        return;
+      }
+      const group = initial
+        ? props
+            .commands()
+            .find(
+              (c): c is PaletteGroup | PaletteValueInput =>
+                isCommand(c) && c.name === initial && isGroup(c),
+            )
+        : undefined;
+      setPath(group ? [group] : []);
+    }),
   );
 
   // Reset selection when the user types (defer: skip initial run).
@@ -323,29 +383,40 @@ const CommandPalette: Component<{
     on(
       query,
       () => {
-        // Skip in value-input mode: query is a value, not a filter.
-        if (valueLeaf()) return;
+        // Skip in value mode: query is a value, not a filter.
+        if (mode().kind === "value") return;
         setSelectedIndex(0);
       },
       { defer: true },
     ),
   );
 
-  // Notify highlighted item when selection changes.
-  // Uses on() for stable dependency tracking — bare createEffect would drop
-  // filtered/selectedIndex tracking when props.open is false, creating
-  // flickering dependency sets across open/close cycles.
+  // Notify highlighted item when selection changes. Tracks props.open so
+  // the effect re-fires on reopen with the same selection.
   createEffect(
-    on([filtered, selectedIndex], ([items, idx]) => {
-      if (!props.open) return;
+    on([filtered, selectedIndex, () => props.open], ([items, idx, open]) => {
+      if (!open) return;
       items[idx]?.onHighlight?.();
     }),
   );
 
+  // Auto-scroll the highlighted row into view. One effect outside <For>:
+  // the per-row JSX sets data-selected on the matching row; this effect
+  // queries it. Solid flushes JSX bindings before running effects in
+  // creation order, so the query finds the freshly-selected row.
+  createEffect(() => {
+    selectedIndex();
+    filtered();
+    if (!props.open) return;
+    listEl
+      ?.querySelector<HTMLElement>("[data-selected]")
+      ?.scrollIntoView({ block: "nearest" });
+  });
+
   return (
     <ModalDialog
       open={props.open}
-      onOpenChange={props.onOpenChange}
+      onOpenChange={handleOpenChange}
       transparentOverlay={props.transparentOverlay}
       initialFocusEl={inputRef}
     >
@@ -390,9 +461,9 @@ const CommandPalette: Component<{
         <input
           ref={inputRef}
           type="text"
-          data-value-input={valueLeaf() ? "" : undefined}
+          data-value-input={mode().kind === "value" ? "" : undefined}
           data-value-invalid={valueError() ? "" : undefined}
-          placeholder={valueLeaf()?.placeholder ?? "Type a command..."}
+          placeholder={placeholder()}
           class="w-full px-4 py-3 bg-surface-1 text-fg text-sm border-b outline-none placeholder-fg-3"
           classList={{
             "border-edge": !valueError(),
@@ -413,16 +484,14 @@ const CommandPalette: Component<{
         </Show>
         <div
           ref={(el) => {
-            // Mouse activity tracker is incidental UI state, not a real
-            // interactive event on this scroll container — attach via
-            // addEventListener so the div stays a plain layout element.
-            el.addEventListener(
-              "mousemove",
-              () => {
-                mouseActive = true;
-              },
-              { passive: true },
-            );
+            listEl = el;
+            // mousemove is incidental UI state, not a real interactive event
+            // on this scroll container — attach via addEventListener so the
+            // div stays a plain layout element (Biome's
+            // noStaticElementInteractions would flag a JSX onMouseMove).
+            el.addEventListener("mousemove", () => setMouseActive(true), {
+              passive: true,
+            });
           }}
           class="flex-1 min-h-0 overflow-y-auto"
         >
@@ -438,13 +507,6 @@ const CommandPalette: Component<{
               <For each={filtered()}>
                 {(cmd, i) => (
                   <div
-                    ref={(el) => {
-                      // Auto-scroll selected item into view during keyboard navigation
-                      createEffect(() => {
-                        if (selectedIndex() === i())
-                          el.scrollIntoView({ block: "nearest" });
-                      });
-                    }}
                     role="option"
                     tabIndex={-1}
                     aria-selected={selectedIndex() === i()}
@@ -456,7 +518,7 @@ const CommandPalette: Component<{
                         selectedIndex() !== i(),
                     }}
                     data-selected={selectedIndex() === i() || undefined}
-                    onMouseEnter={() => mouseActive && setSelectedIndex(i())}
+                    onMouseEnter={() => mouseActive() && setSelectedIndex(i())}
                     onClick={() => execute(cmd)}
                     onKeyDown={(e) => {
                       if (e.key === "Enter" || e.key === " ") {
@@ -495,9 +557,9 @@ const CommandPalette: Component<{
               </For>
             </div>
           </Show>
-          <Show when={hintsAtLevel().length > 0}>
+          <Show when={partitioned().hints.length > 0}>
             <ul class="py-1">
-              <For each={hintsAtLevel()}>
+              <For each={partitioned().hints}>
                 {(hint) => (
                   <li
                     data-testid="palette-hint"

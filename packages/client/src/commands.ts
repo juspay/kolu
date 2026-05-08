@@ -6,10 +6,16 @@ import { randomName } from "memorable-names";
 import type { Accessor } from "solid-js";
 import { batch, createMemo } from "solid-js";
 import { availableThemes } from "terminal-themes";
-import type { PaletteCommand, PaletteItem } from "./CommandPalette";
+import type {
+  PaletteAction,
+  PaletteCommand,
+  PaletteItem,
+  PaletteLabel,
+  PaletteValueInput,
+} from "./CommandPalette";
 import { type ActionContext, actionPaletteCommand } from "./input/actions";
 import { client } from "./wire";
-import { recentRepos, recentAgents } from "./wire";
+import { recentAgents, recentRepos } from "./wire";
 
 /** Live worktree-name validator — reuses the server schema so the rule
  *  has one source of truth. Returns the first issue's message, or null
@@ -26,18 +32,29 @@ function agentItems(
   agents: RecentAgent[],
   onPick: (command: string) => void,
 ): PaletteItem[] {
-  return agents.map((a) => ({
-    name: a.command,
-    onSelect: () => onPick(a.command),
-  }));
+  return agents.map(
+    (a): PaletteAction => ({
+      kind: "action",
+      name: a.command,
+      onSelect: () => onPick(a.command),
+    }),
+  );
 }
 
 /** Children of the worktree-naming leaf. Each row's `data` is the agent
- *  CLI string to launch (or `undefined` for plain shell). */
+ *  CLI string to launch (or `undefined` for plain shell). They render as
+ *  passive labels — Enter/click routes through the value group's
+ *  `onSubmit`, not these rows' own (absent) handler. */
 function worktreeAgentOptions(agents: RecentAgent[]): PaletteItem[] {
   return [
-    { name: "Plain shell", data: undefined },
-    ...agents.map((a) => ({ name: a.command, data: a.command })),
+    { kind: "label", name: "Plain shell", data: undefined },
+    ...agents.map(
+      (a): PaletteLabel => ({
+        kind: "label",
+        name: a.command,
+        data: a.command,
+      }),
+    ),
   ];
 }
 
@@ -74,29 +91,28 @@ export interface CommandDeps extends ActionContext {
 export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
   return createMemo((): PaletteCommand[] => [
     {
+      kind: "group",
       name: "New terminal",
       children: (): PaletteItem[] => {
         const repos = recentRepos();
         return [
           {
+            kind: "action",
             name: "In current directory",
             onSelect: () => deps.handleCreate(deps.activeMeta()?.cwd),
           },
           ...repos.map(
-            (r): PaletteCommand => ({
+            (r): PaletteValueInput => ({
+              kind: "value",
               name: r.repoName,
               description: `New worktree in ${r.repoRoot}`,
-              valueInput: {
-                prefill: randomName,
-                placeholder: "Worktree name",
-                validate: validateWorktreeName,
-                onSubmit: (name, selected) => {
-                  const agentCmd =
-                    typeof selected.data === "string"
-                      ? selected.data
-                      : undefined;
-                  deps.handleCreateWorktree(r.repoRoot, name.trim(), agentCmd);
-                },
+              prefill: randomName,
+              placeholder: "Worktree name",
+              validate: validateWorktreeName,
+              onSubmit: (name, selected) => {
+                const agentCmd =
+                  typeof selected.data === "string" ? selected.data : undefined;
+                deps.handleCreateWorktree(r.repoRoot, name.trim(), agentCmd);
               },
               children: (): PaletteItem[] =>
                 worktreeAgentOptions(recentAgents()),
@@ -116,22 +132,26 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
     ...(deps.activeId() !== null
       ? [
           {
+            kind: "action" as const,
             name: "Close terminal",
             onSelect: () => deps.handleClose(),
           },
           actionPaletteCommand("toggleSubPanel", deps),
           actionPaletteCommand("createSubTerminal", deps),
           {
+            kind: "action" as const,
             name: "Copy terminal text",
             onSelect: () => deps.handleCopyTerminalText(),
           },
           {
+            kind: "action" as const,
             name: "Export scrollback as PDF",
             onSelect: () => deps.handleExportScrollbackAsPdf(),
           },
           ...(deps.activeMeta()?.agent
             ? [
                 {
+                  kind: "action" as const,
                   name: "Export agent session as HTML",
                   description:
                     "Open a self-contained transcript of the current Claude Code, OpenCode, or Codex session",
@@ -147,6 +167,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
       ? [
           actionPaletteCommand("openWorkspaceSwitcher", deps),
           {
+            kind: "action" as const,
             name: "Center on active tile",
             onSelect: () => deps.canvasCenterActive(),
           },
@@ -155,36 +176,48 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
     ...(deps.terminalIds().length > 0
       ? [
           {
+            kind: "group" as const,
             name: "Switch terminal",
             children: () =>
-              deps.terminalIds().map((id, i) => ({
-                ...(i < 9
-                  ? actionPaletteCommand(
-                      `switchTo${(i + 1) as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9}`,
-                      deps,
-                      { name: `Switch to terminal ${i + 1}` },
-                    )
-                  : { name: `Switch to terminal ${i + 1}` }),
-                onSelect: () => deps.setActiveId(id),
-              })),
+              deps.terminalIds().map(
+                (id, i): PaletteAction =>
+                  i < 9
+                    ? {
+                        ...actionPaletteCommand(
+                          `switchTo${(i + 1) as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9}`,
+                          deps,
+                          { name: `Switch to terminal ${i + 1}` },
+                        ),
+                        onSelect: () => deps.setActiveId(id),
+                      }
+                    : {
+                        kind: "action",
+                        name: `Switch to terminal ${i + 1}`,
+                        onSelect: () => deps.setActiveId(id),
+                      },
+              ),
           },
         ]
       : []),
     {
+      kind: "group",
       name: "Theme",
       onCancel: () => deps.setPreviewThemeName(undefined),
       children: () =>
         availableThemes
           .filter((t) => t.name !== deps.committedThemeName())
-          .map((t) => ({
-            name: t.name,
-            onHighlight: () => deps.setPreviewThemeName(t.name),
-            onSelect: () =>
-              batch(() => {
-                deps.setPreviewThemeName(undefined);
-                deps.handleSetTheme(t.name);
-              }),
-          })),
+          .map(
+            (t): PaletteAction => ({
+              kind: "action",
+              name: t.name,
+              onHighlight: () => deps.setPreviewThemeName(t.name),
+              onSelect: () =>
+                batch(() => {
+                  deps.setPreviewThemeName(undefined);
+                  deps.handleSetTheme(t.name);
+                }),
+            }),
+          ),
     },
     ...(deps.activeId() !== null
       ? [
@@ -196,18 +229,22 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
       : []),
     actionPaletteCommand("shortcutsHelp", deps, { name: "Keyboard shortcuts" }),
     {
+      kind: "action",
       name: "About kolu",
       onSelect: () => deps.setAboutOpen(true),
     },
     {
+      kind: "group",
       name: "Debug",
       children: [
         {
+          kind: "action",
           name: "Diagnostic info",
           description: "Runtime state — renderer, WS, terminals",
           onSelect: () => deps.setDiagnosticInfoOpen(true),
         },
         {
+          kind: "action",
           name: "Simulate activity alert",
           onSelect: () => deps.simulateAlert(),
         },
@@ -219,6 +256,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
         ...(deps.activeId() !== null && recentAgents().length > 0
           ? [
               {
+                kind: "group" as const,
                 name: "Recent agents",
                 description: "Prefill an agent CLI into the active terminal",
                 children: (): PaletteItem[] =>
@@ -227,6 +265,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
             ]
           : []),
         {
+          kind: "action",
           name: "Trigger server error",
           onSelect: () =>
             void client.terminal.resize({
@@ -236,10 +275,12 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
             }),
         },
         {
+          kind: "action",
           name: "Close all terminals",
           onSelect: () => deps.handleCloseAll(),
         },
         {
+          kind: "action",
           name: "Clear localStorage",
           onSelect: () => {
             localStorage.clear();
