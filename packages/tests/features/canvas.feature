@@ -180,6 +180,38 @@ Feature: Canvas workspace
     Then the saved active canvas tile should still be active
     And there should be no page errors
 
+  Scenario: A worktree opened after arrange when ALL existing tiles are worktrees of the same repo (regression — #844)
+    # The bug: when every existing tile is a worktree of the same repo,
+    # `resolvePlacementBucket`'s fallback walks each candidate's
+    # `git.repoRoot` — which for a worktree points to the worktree's
+    # OWN working dir, not the shared parent. The new worktree's cwd
+    # doesn't start with any sibling's `repoRoot`, so the fallback
+    # finds no match and `placeNew` returns undefined — the new tile
+    # cascades at viewport center instead of joining its cluster. The
+    # fix walks `mainRepoRoot` too.
+    When I set up a git repo at "/tmp/kolu-wt-cluster"
+    And I run "cd /tmp/kolu-wt-cluster"
+    And I run "git worktree add -b wt-init .worktrees/wt-init"
+    And I run "cd .worktrees/wt-init"
+    Then the header branch should contain "wt-init"
+    When I open the command palette
+    And I select "New terminal" in the palette
+    And I select "kolu-wt-cluster" in the palette
+    And I type "wt1" in the palette
+    And I press Enter
+    Then there should be 2 canvas tiles
+    When I open the command palette
+    And I type "Arrange canvas by repo" in the palette
+    And I select "Arrange canvas by repo" in the palette
+    When I open the command palette
+    And I select "New terminal" in the palette
+    And I select "kolu-wt-cluster" in the palette
+    And I type "wt2" in the palette
+    And I press Enter
+    Then there should be 3 canvas tiles
+    And no two canvas tiles should overlap
+    And there should be no page errors
+
   Scenario: A worktree opened right after arrange lands adjacent to its repo cluster without overlap
     When I set up a git repo at "/tmp/kolu-arrange-wt"
     And I run "cd /tmp/kolu-arrange-wt"

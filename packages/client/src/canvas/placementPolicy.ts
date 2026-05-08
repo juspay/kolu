@@ -53,18 +53,28 @@ export function resolvePlacementBucket(
   }
   const cwd = store.getMetadata(id)?.cwd;
   if (!cwd) return ownBucket;
-  // Prefer the most-specific (longest) repo root so a terminal in a
-  // nested repo lands in the child repo's island, not the parent's —
-  // matches what the user would expect when they cd into a submodule.
+  // Walk both `repoRoot` (current working tree) and `mainRepoRoot`
+  // (parent repo for worktrees). Without `mainRepoRoot` the fallback
+  // misses the case where every existing tile is a worktree of the
+  // same repo: each worktree's `repoRoot` is its own working dir, so
+  // a new worktree's cwd doesn't start with any sibling's root, and
+  // `placeNew` would return undefined → the new tile cascades at
+  // viewport center instead of joining its repo cluster.
+  // Prefer the most-specific (longest) match so a terminal in a
+  // nested repo lands in the child repo's island, not the parent's.
   let best: { bucket: string; rootLength: number } | undefined;
   for (const candidate of candidateIds) {
-    const root = store.getMetadata(candidate)?.git?.repoRoot;
-    if (!root) continue;
-    if (cwd === root || cwd.startsWith(`${root}/`)) {
-      const bucket = getBucketFor(store, candidate);
-      if (!bucket) continue;
-      if (!best || root.length > best.rootLength) {
-        best = { bucket, rootLength: root.length };
+    const meta = store.getMetadata(candidate);
+    const roots = [meta?.git?.repoRoot, meta?.git?.mainRepoRoot].filter(
+      (r): r is string => Boolean(r),
+    );
+    for (const root of roots) {
+      if (cwd === root || cwd.startsWith(`${root}/`)) {
+        const bucket = getBucketFor(store, candidate);
+        if (!bucket) continue;
+        if (!best || root.length > best.rootLength) {
+          best = { bucket, rootLength: root.length };
+        }
       }
     }
   }
