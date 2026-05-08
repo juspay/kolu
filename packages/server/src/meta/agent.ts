@@ -60,9 +60,9 @@ function setAgentMetadata(
   nextAgent: AgentInfo | null,
 ): void {
   const bump = shouldBumpRecencyForAgentChange(
-    entry.info.meta.agent,
+    entry.meta.agent,
     nextAgent,
-    entry.info.meta.lastActivityAt,
+    entry.meta.lastActivityAt,
   );
   updateServerMetadata(entry, terminalId, (m) => {
     m.agent = nextAgent;
@@ -114,7 +114,7 @@ function snapshotTerminalState(
     foregroundPid === undefined || foregroundPid === entry.handle.pid;
   return {
     foregroundPid,
-    cwd: entry.info.meta.cwd,
+    cwd: entry.meta.cwd,
     readForegroundBasename: () => {
       if (basename === undefined)
         basename = readForegroundBasenameOnce(entry, plog);
@@ -222,7 +222,7 @@ export function startAgentProvider<Session, Info extends AgentInfoShape>(
       if (hadCurrent) plog.debug("agent session ended");
       // Only clear metadata if the terminal's agent is ours to clear.
       // Other providers of different kinds share the same `m.agent` slot.
-      if (entry.info.meta.agent?.kind === provider.kind) {
+      if (entry.meta.agent?.kind === provider.kind) {
         setAgentMetadata(entry, terminalId, null);
       }
       return;

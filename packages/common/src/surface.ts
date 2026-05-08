@@ -181,10 +181,11 @@ export const InitialTerminalMetadataSchema = z.object({
 
 // ── Terminal cell value + raw-procedure shared schemas ────────────────
 
+/** Wire shape for the `terminalList` cell. Identity only — metadata
+ *  flows through the `terminalMetadata` collection. */
 export const TerminalInfoSchema = z.object({
   id: TerminalIdSchema,
   pid: z.number(),
-  meta: TerminalMetadataSchema,
 });
 
 /** Shared by both `terminal.attach` (raw oRPC streaming) and the

@@ -45,7 +45,7 @@ export function createMetadata(cwd: string): TerminalMetadata {
  *  `updateClientMetadata` so the publish/audit path is identical regardless
  *  of who wrote the fields. */
 function publishMetadata(entry: TerminalProcess, terminalId: string): void {
-  const m = entry.info.meta;
+  const m = entry.meta;
   const pr = prValue(m.pr);
   const prUnavailable = prUnavailableReason(m.pr);
   log.debug(
@@ -77,7 +77,7 @@ export function updateServerMetadata(
   terminalId: string,
   mutate: (meta: TerminalServerMetadata) => void,
 ): void {
-  mutate(entry.info.meta);
+  mutate(entry.meta);
   publishMetadata(entry, terminalId);
 }
 
@@ -90,6 +90,6 @@ export function updateClientMetadata(
   terminalId: string,
   mutate: (meta: TerminalClientMetadata) => void,
 ): void {
-  mutate(entry.info.meta);
+  mutate(entry.meta);
   publishMetadata(entry, terminalId);
 }

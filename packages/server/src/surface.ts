@@ -34,6 +34,7 @@ import type {
   ActivityFeed,
   Preferences,
   SavedSession,
+  TerminalMetadata,
 } from "kolu-common/surface";
 import { contract } from "kolu-common/contract";
 import { TerminalNotFoundError } from "kolu-common/errors";
@@ -152,29 +153,21 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
     collections: {
       terminalMetadata: {
         readAll: () => {
-          const map = new Map<
-            string,
-            ReturnType<typeof getTerminal> extends infer T
-              ? T extends { info: { meta: infer M } }
-                ? M
-                : never
-              : never
-          >();
+          const map = new Map<string, TerminalMetadata>();
           for (const info of listTerminals()) {
             const term = getTerminal(info.id);
-            if (term)
-              (map as Map<string, unknown>).set(info.id, term.info.meta);
+            if (term) map.set(info.id, term.meta);
           }
           return map;
         },
         readOne: (key) => {
           const term = getTerminal(key as string);
-          return term ? term.info.meta : undefined;
+          return term ? term.meta : undefined;
         },
         // Server-internal collection: clients can't write. The `upsert`/
         // `remove` no-ops let `surfaceCtx.collections.terminalMetadata.upsert`
         // publish without re-mutating the registry (the registry is the
-        // store; meta/state.ts mutates entry.info.meta in place before
+        // store; meta/state.ts mutates entry.meta in place before
         // calling ctx.upsert).
         upsert: () => {},
         remove: () => {},

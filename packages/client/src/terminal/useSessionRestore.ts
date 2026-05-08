@@ -6,6 +6,7 @@ import type {
   SavedSession,
   TerminalId,
   TerminalInfo,
+  TerminalMetadata,
 } from "kolu-common/surface";
 import { createEffect, createSignal } from "solid-js";
 import { toast } from "solid-sonner";
@@ -17,6 +18,11 @@ import {
 } from "../wire";
 import { useSubPanel } from "./useSubPanel";
 import type { TerminalStore } from "./useTerminalStore";
+
+/** A terminal paired with its (already-arrived) metadata. The hydration
+ *  effect builds these by gating on the `terminalMetadata` collection
+ *  having yielded for every entry, so `m` is always defined. */
+type HydrationEntry = { t: TerminalInfo; m: TerminalMetadata };
 
 export function useSessionRestore(deps: {
   store: TerminalStore;
@@ -48,39 +54,42 @@ export function useSessionRestore(deps: {
     // with a null before the server snapshot arrives and miss a restore prompt.
     if (existing === undefined || savedSessionSub.pending()) return;
     if (hydrated) return;
-    hydrated = true;
     if (existing.length === 0) {
+      hydrated = true;
       setSavedSession(fromServer);
       return;
     }
-    hydrateFromTerminals(existing, fromServer?.activeTerminalId ?? null);
+    // Wait for the `terminalMetadata` collection to yield a value for
+    // every terminal — hydration reads `parentId` and `subPanel` off it
+    // (since #806 the list snapshot no longer carries `meta`). The reads
+    // are reactive, so the effect re-runs as values arrive.
+    const entries: HydrationEntry[] = [];
+    for (const t of existing) {
+      const m = store.getMetadata(t.id);
+      if (m === undefined) return;
+      entries.push({ t, m });
+    }
+    hydrated = true;
+    hydrateFromTerminals(entries, fromServer?.activeTerminalId ?? null);
   });
 
   function hydrateFromTerminals(
-    existing: TerminalInfo[],
+    entries: HydrationEntry[],
     serverActiveId: string | null,
   ) {
     // Canvas layouts live on metadata — no client-side seeding needed.
     // Seed sub-panel state from server metadata.
-    for (const t of existing) {
-      if (t.meta.subPanel) {
-        subPanel.seedPanel(t.id, t.meta.subPanel);
-      }
+    for (const { t, m } of entries) {
+      if (m.subPanel) subPanel.seedPanel(t.id, m.subPanel);
     }
 
     // Initialize sub-panel active tabs for parents with sub-terminals
-    const subs: Record<TerminalId, TerminalId[]> = {};
-    for (const t of existing) {
-      const parentId = t.meta.parentId;
-      if (!parentId) continue;
-      const existingList = subs[parentId];
-      if (existingList) {
-        existingList.push(t.id);
-      } else {
-        subs[parentId] = [t.id];
-      }
-    }
-    for (const [parentId, subIds] of Object.entries(subs)) {
+    const subs = Object.groupBy(
+      entries.filter(({ m }) => m.parentId),
+      ({ m }) => m.parentId as string,
+    );
+    for (const [parentId, group] of Object.entries(subs)) {
+      const subIds = group?.map(({ t }) => t.id) ?? [];
       const panel = subPanel.getSubPanel(parentId);
       if (!panel.activeSubTab || !subIds.includes(panel.activeSubTab)) {
         subPanel.setActiveSubTab(parentId, subIds[0] ?? null);
@@ -90,10 +99,9 @@ export function useSessionRestore(deps: {
     // Prefer the server-persisted active terminal; fall back to first in order.
     // `store.activeId()` starts as null after refresh (lost makePersisted in
     // #554), so on refresh the server snapshot is the only source of truth
-    // for "which terminal was active". `existing` arrives in the server's
+    // for "which terminal was active". `entries` arrives in the server's
     // Map insertion order, which is the canonical ordering.
-    const topLevel = existing.filter((t) => !t.meta.parentId);
-    const topIds = topLevel.map((t) => t.id);
+    const topIds = entries.filter(({ m }) => !m.parentId).map(({ t }) => t.id);
     const picked =
       serverActiveId && topIds.includes(serverActiveId as TerminalId)
         ? (serverActiveId as TerminalId)
@@ -106,7 +114,7 @@ export function useSessionRestore(deps: {
       active ? [active, ...topIds.filter((x) => x !== active)] : topIds,
     );
 
-    for (const t of existing) deps.subscribeExit(t.id);
+    for (const { t } of entries) deps.subscribeExit(t.id);
   }
 
   // Re-fetch saved session when all terminals are killed mid-session,
