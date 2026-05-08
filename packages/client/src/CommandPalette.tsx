@@ -402,11 +402,11 @@ const CommandPalette: Component<{
 
   // Auto-scroll the highlighted row into view. One effect outside <For>:
   // the per-row JSX sets data-selected on the matching row; this effect
-  // queries it. Solid flushes JSX bindings before running effects in
-  // creation order, so the query finds the freshly-selected row.
+  // queries it. Filter changes already reset selectedIndex to 0 (see the
+  // selection-reset effect above), so the top item is structurally in
+  // view — no need to re-scroll on `filtered()` changes.
   createEffect(() => {
     selectedIndex();
-    filtered();
     if (!props.open) return;
     listEl
       ?.querySelector<HTMLElement>("[data-selected]")
