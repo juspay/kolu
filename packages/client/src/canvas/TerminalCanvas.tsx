@@ -167,6 +167,7 @@ const TerminalCanvas: Component<{
         const cx = viewport.panX() + width / (2 * zoom);
         const cy = viewport.panY() + height / (2 * zoom);
         const placed: { id: TerminalId; layout: TileLayout }[] = [];
+        let recenterOn: TileLayout | undefined;
         for (const id of ids) {
           const existing = layoutOf(id);
           if (existing) {
@@ -185,9 +186,21 @@ const TerminalCanvas: Component<{
             );
             defaultLayout = { x, y, w: DEFAULT_TILE_W, h: DEFAULT_TILE_H };
           }
+          // Recenter on the active newly-placed tile when there are
+          // already-placed siblings — covers "create a 2nd terminal that
+          // lands far from the current viewport (e.g. next to its repo
+          // island)". The first-mount case (no siblings yet) is handled
+          // by the bbox-recenter effect below.
+          if (id === store.activeId() && placed.length > 0) {
+            recenterOn = defaultLayout;
+          }
           setPendingLayout(id, defaultLayout);
           props.onLayoutChange(id, defaultLayout);
           placed.push({ id, layout: defaultLayout });
+        }
+        if (recenterOn) {
+          const target = recenterOn;
+          requestAnimationFrame(() => viewport.centerOnTile(target));
         }
       },
     ),

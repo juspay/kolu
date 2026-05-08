@@ -255,6 +255,57 @@ Then(
   },
 );
 
+Then(
+  "canvas tile {int} should be in the same row as canvas tile {int}",
+  async function (this: KoluWorld, a: number, b: number) {
+    await this.page.waitForFunction(
+      ({ sel, i, j }: { sel: string; i: number; j: number }) => {
+        const tiles = document.querySelectorAll(
+          `${sel} [data-terminal-id][data-visible]`,
+        );
+        const tileA = tiles.item(i) as HTMLElement | null;
+        const tileB = tiles.item(j) as HTMLElement | null;
+        if (!tileA || !tileB) return false;
+        const rA = tileA.getBoundingClientRect();
+        const rB = tileB.getBoundingClientRect();
+        // Same row: tops match within grid-snap tolerance; B is to the right of A.
+        return Math.abs(rA.top - rB.top) <= 2 && rB.left > rA.left;
+      },
+      { sel: CANVAS_SELECTOR, i: a - 1, j: b - 1 },
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+Then(
+  "the active canvas tile should be centered in the viewport",
+  async function (this: KoluWorld) {
+    await this.page.waitForFunction(
+      (sel: string) => {
+        const container = document.querySelector(sel);
+        if (!container) return false;
+        const tile = container.querySelector(
+          '[data-active="true"]',
+        ) as HTMLElement | null;
+        if (!tile) return false;
+        const cRect = container.getBoundingClientRect();
+        const tRect = tile.getBoundingClientRect();
+        const tileCx = tRect.left + tRect.width / 2 - cRect.left;
+        const tileCy = tRect.top + tRect.height / 2 - cRect.top;
+        const viewCx = cRect.width / 2;
+        const viewCy = cRect.height / 2;
+        const tolerance = 40; // grid snap (24px) + rounding
+        return (
+          Math.abs(tileCx - viewCx) < tolerance &&
+          Math.abs(tileCy - viewCy) < tolerance
+        );
+      },
+      CANVAS_SELECTOR,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
 // ── Gesture ownership: two-finger scroll on terminal must not pan the canvas ──
 
 /** Read the inner canvas transform div's transform (scale(z) translate(x, y)).

@@ -36,17 +36,13 @@ Feature: Canvas workspace
     And the canvas tiles should be visible in the viewport
     And there should be no page errors
 
-  Scenario: New terminal shifts when an existing tile occupies the viewport center
-    When I create a terminal with keyboard shortcut
-    Then there should be 2 canvas tiles
-    And canvas tile 2 should be offset from canvas tile 1
-
-  Scenario: Creating a terminal after panning opens at the new viewport center
+  Scenario: New terminal lands beside its repo's existing tile and centers in the viewport
     When I record the canvas transform
     And I scroll the wheel over the canvas background
     Then the canvas transform should have changed
     When I create a terminal with keyboard shortcut
     Then there should be 2 canvas tiles
+    And canvas tile 2 should be in the same row as canvas tile 1
     And the newest canvas tile should be centered in the viewport
 
   Scenario: Scroll on terminal does not pan the canvas
@@ -131,6 +127,17 @@ Feature: Canvas workspace
     And I type "Arrange canvas by repo" in the palette
     And I select "Arrange canvas by repo" in the palette
     Then canvas tile 1 position should have changed
+    And there should be no page errors
+
+  Scenario: Arrange canvas centers the viewport on the active tile
+    Given I create a terminal
+    Then there should be 2 canvas tiles
+    When I move the canvas tile to x=4800 y=2400
+    Then the canvas tile should be at x=4800 y=2400
+    When I open the command palette
+    And I type "Arrange canvas by repo" in the palette
+    And I select "Arrange canvas by repo" in the palette
+    Then the active canvas tile should be centered in the viewport
     And there should be no page errors
 
   Scenario: Canvas tile positions persist across refresh

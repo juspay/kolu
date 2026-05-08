@@ -219,9 +219,15 @@ const App: Component = () => {
       const tile = repoIslandTileFor(id, layout);
       return tile ? [tile] : [];
     });
-    for (const [id, layout] of arrangeRepoIslands(tiles)) {
+    const arranged = arrangeRepoIslands(tiles);
+    for (const [id, layout] of arranged) {
       applyTileGeometry(id, layout);
     }
+    // Recenter on the active tile's new position so a far-away active
+    // tile doesn't end up off-screen after arrange.
+    const activeId = store.activeId();
+    const activeLayout = activeId ? arranged.get(activeId) : undefined;
+    if (activeLayout) canvasViewport.centerOnTile(activeLayout);
   }
 
   // Shared between the keyboard dispatcher and the command palette so a single
