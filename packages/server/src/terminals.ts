@@ -220,13 +220,25 @@ export function setCanvasLayout(
 /** Store a terminal's sub-panel state (client-reported).
  *  Publishes via metadata so other clients (and the same client after a
  *  refresh, via the collection's snapshot read) pick up the change from
- *  the same channel as every other client-owned metadata field. */
+ *  the same channel as every other client-owned metadata field.
+ *
+ *  Equality-gated: the client RPCs this on every drag tick of the
+ *  resizable handle, so without a guard each mouse-move would fan a
+ *  full per-key metadata publish to every connected client. Same shape
+ *  as `meta/agent-command.ts`'s `lastAgentCommand` gate. */
 export function setSubPanelState(
   id: TerminalId,
   state: { collapsed: boolean; panelSize: number },
 ): void {
   const entry = getTerminal(id);
   if (!entry) return;
+  const cur = entry.meta.subPanel;
+  if (
+    cur &&
+    cur.collapsed === state.collapsed &&
+    cur.panelSize === state.panelSize
+  )
+    return;
   updateClientMetadata(entry, id, (m) => {
     m.subPanel = state;
   });
