@@ -284,8 +284,9 @@ Then(
         if (!tileA || !tileB) return false;
         const rA = tileA.getBoundingClientRect();
         const rB = tileB.getBoundingClientRect();
-        // Same row: tops match (sub-pixel rounding tolerance); B is to the right of A.
-        return Math.abs(rA.top - rB.top) <= 2 && rB.left > rA.left;
+        // Same row: tops match (sub-pixel rounding tolerance); the
+        // subject tile (A) sits to the right of the reference (B).
+        return Math.abs(rA.top - rB.top) <= 2 && rA.left > rB.left;
       },
       { sel: CANVAS_SELECTOR, i: a - 1, j: b - 1 },
       { timeout: POLL_TIMEOUT },
