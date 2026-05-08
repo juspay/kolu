@@ -166,6 +166,20 @@ Feature: Canvas workspace
     And canvas tile 3 should be to the right of and in the same row as canvas tile 2
     And there should be no page errors
 
+  Scenario: Arrange twice in a row preserves the active tile (regression — #844)
+    Given I create a terminal
+    Then there should be 2 canvas tiles
+    When I save the active canvas tile id
+    And I open the command palette
+    And I type "Arrange canvas by repo" in the palette
+    And I select "Arrange canvas by repo" in the palette
+    Then the saved active canvas tile should still be active
+    When I open the command palette
+    And I type "Arrange canvas by repo" in the palette
+    And I select "Arrange canvas by repo" in the palette
+    Then the saved active canvas tile should still be active
+    And there should be no page errors
+
   Scenario: A worktree opened right after arrange lands adjacent to its repo cluster without overlap
     When I set up a git repo at "/tmp/kolu-arrange-wt"
     And I run "cd /tmp/kolu-arrange-wt"

@@ -8,16 +8,18 @@
  *  that contract so refocus / scroll / scope-of-active-terminal logic
  *  doesn't depend on the raw attribute strings (issue #845).
  *
- *  Scoped to the canvas-tile convention — does **not** match
- *  `data-active` on chrome bar tabs, sub-panel headers, mode chips, etc.
- *  The combined selector `[data-terminal-id][data-active='true']`
- *  serializes to `<inner-terminal-with-active-set-on-its-tile>` only via
- *  CanvasTile's `data-active="true"` form (other producers use
- *  `data-active=""` or boolean coercion). Future readers should keep
- *  narrowing through this accessor rather than reaching for the raw
- *  attribute. */
+ *  **Scoped to canvas tiles, NOT just `data-active='true'`.** Other
+ *  producers in the app set `data-active="true"` via boolean coercion
+ *  (RightPanel buttons, ModeChipPicker entries — see RightPanel.tsx,
+ *  ModeChipPicker.tsx). A bare `[data-active='true']` selector
+ *  resolves to whichever such element comes first in DOM order —
+ *  often a right-panel chip when the inspector is open — and the
+ *  inner-terminal lookup then finds nothing, falling back to the
+ *  first canvas tile and silently flipping `activeId` to it. The
+ *  combined `[data-testid='canvas-tile'][data-active='true']` selector
+ *  scopes the match to CanvasTile's wrapper specifically. */
 
-const ACTIVE_TILE_SELECTOR = "[data-active='true']";
+const ACTIVE_TILE_SELECTOR = "[data-testid='canvas-tile'][data-active='true']";
 const TERMINAL_INNER_SELECTOR = "[data-visible][data-terminal-id]";
 
 /** The Terminal-element child of the active CanvasTile, or null when no
