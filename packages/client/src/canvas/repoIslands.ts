@@ -140,7 +140,10 @@ function packCluster(tiles: RepoIslandTile[]): {
 
 /** Pack rectangles into a square-ish grid; return per-rect (x, y) offsets.
  *  Column widths and row heights are the per-track maxima so unequal
- *  rectangles don't overlap. */
+ *  rectangles don't overlap. The returned array is the same length as
+ *  the input and aligned by index — callers (e.g. `packCluster`) zip it
+ *  with the originals; reordering or filtering inside this function
+ *  would silently misassign geometry. */
 function packGrid(
   rects: { w: number; h: number }[],
   gap: number,
