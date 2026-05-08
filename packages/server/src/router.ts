@@ -157,16 +157,16 @@ export const appRouter = t.router({
     exportTranscriptHtml: t.terminal.exportTranscriptHtml.handler(
       async ({ input }) => {
         const term = requireTerminal(input.id);
-        const agent = term.info.meta.agent;
+        const agent = term.meta.agent;
         if (!agent) {
           throw new ORPCError("PRECONDITION_FAILED", {
             message:
               "No active agent session in this terminal — start Claude Code, OpenCode, or Codex first",
           });
         }
-        const cwd = term.info.meta.cwd;
-        const repoName = term.info.meta.git?.repoName ?? null;
-        const prInfo = prValue(term.info.meta.pr);
+        const cwd = term.meta.cwd;
+        const repoName = term.meta.git?.repoName ?? null;
+        const prInfo = prValue(term.meta.pr);
         const pr: TranscriptPr | null = prInfo
           ? { number: prInfo.number, url: prInfo.url }
           : null;

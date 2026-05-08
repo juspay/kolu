@@ -58,7 +58,7 @@ export function startAgentCommandTracker(terminalId: TerminalId): () => void {
         // Gate on actual value change — otherwise re-invoking the same
         // agent (`claude --model sonnet` twice in a row) would refire
         // the metadata publish + session auto-save on every command.
-        if (entry && entry.info.meta.lastAgentCommand !== normalized) {
+        if (entry && entry.meta.lastAgentCommand !== normalized) {
           updateServerMetadata(entry, terminalId, (m) => {
             m.lastAgentCommand = normalized;
           });

@@ -6,6 +6,7 @@ import type {
   SavedSession,
   TerminalId,
   TerminalInfo,
+  TerminalMetadata,
 } from "kolu-common/surface";
 import { createEffect, createSignal } from "solid-js";
 import { toast } from "solid-sonner";
@@ -48,30 +49,48 @@ export function useSessionRestore(deps: {
     // with a null before the server snapshot arrives and miss a restore prompt.
     if (existing === undefined || savedSessionSub.pending()) return;
     if (hydrated) return;
-    hydrated = true;
     if (existing.length === 0) {
+      hydrated = true;
       setSavedSession(fromServer);
       return;
     }
-    hydrateFromTerminals(existing, fromServer?.activeTerminalId ?? null);
+    // Wait for the `terminalMetadata` collection to yield a value for
+    // every terminal — hydration reads `parentId` and `subPanel` off it
+    // (since #806 the list snapshot no longer carries `meta`). The reads
+    // are reactive, so the effect re-runs as values arrive.
+    const metas = existing.map((t) => store.getMetadata(t.id));
+    if (metas.some((m) => m === undefined)) return;
+    hydrated = true;
+    hydrateFromTerminals(
+      existing,
+      metas as TerminalMetadata[],
+      fromServer?.activeTerminalId ?? null,
+    );
   });
 
   function hydrateFromTerminals(
     existing: TerminalInfo[],
+    metas: TerminalMetadata[],
     serverActiveId: string | null,
   ) {
     // Canvas layouts live on metadata — no client-side seeding needed.
     // Seed sub-panel state from server metadata.
-    for (const t of existing) {
-      if (t.meta.subPanel) {
-        subPanel.seedPanel(t.id, t.meta.subPanel);
+    for (let i = 0; i < existing.length; i++) {
+      const t = existing[i];
+      const m = metas[i];
+      if (!t || !m) continue;
+      if (m.subPanel) {
+        subPanel.seedPanel(t.id, m.subPanel);
       }
     }
 
     // Initialize sub-panel active tabs for parents with sub-terminals
     const subs: Record<TerminalId, TerminalId[]> = {};
-    for (const t of existing) {
-      const parentId = t.meta.parentId;
+    for (let i = 0; i < existing.length; i++) {
+      const t = existing[i];
+      const m = metas[i];
+      if (!t || !m) continue;
+      const parentId = m.parentId;
       if (!parentId) continue;
       const existingList = subs[parentId];
       if (existingList) {
@@ -92,8 +111,10 @@ export function useSessionRestore(deps: {
     // #554), so on refresh the server snapshot is the only source of truth
     // for "which terminal was active". `existing` arrives in the server's
     // Map insertion order, which is the canonical ordering.
-    const topLevel = existing.filter((t) => !t.meta.parentId);
-    const topIds = topLevel.map((t) => t.id);
+    const topIds = existing
+      .map((t, i) => ({ t, m: metas[i] }))
+      .filter(({ m }) => m && !m.parentId)
+      .map(({ t }) => t.id);
     const picked =
       serverActiveId && topIds.includes(serverActiveId as TerminalId)
         ? (serverActiveId as TerminalId)

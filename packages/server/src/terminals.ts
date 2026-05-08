@@ -67,7 +67,7 @@ export function snapshotSession(): {
         agent: _agent,
         foreground: _foreground,
         ...persisted
-      } = entry.info.meta;
+      } = entry.meta;
       return { id, ...persisted };
     },
   );
@@ -89,10 +89,10 @@ function emitListChanged(): void {
 }
 
 /** Create a new terminal, spawn a PTY process. `initial` seeds
- *  client-owned metadata onto `meta` before the first `emitListChanged()`,
- *  so the list snapshot already carries it — used by session restore
- *  to avoid racing post-hoc `setCanvasLayout` / `setTheme` / `setSubPanel`
- *  RPCs against the client's canvas-cascade effect (#642). */
+ *  client-owned metadata before `startProviders` runs, so the first
+ *  `terminalMetadata` collection read carries it — used by session
+ *  restore to avoid racing post-hoc `setCanvasLayout` / `setTheme` /
+ *  `setSubPanel` RPCs against the client's canvas-cascade effect (#642). */
 export function createTerminal(
   cwd?: string,
   parentId?: string,
@@ -151,19 +151,16 @@ export function createTerminal(
 
   const meta = createMetadata(handle.cwd);
   if (parentId) meta.parentId = parentId;
-  // Seed client-owned initial metadata BEFORE emitListChanged so the
-  // first list snapshot carries these fields (see #642).
+  // Seed client-owned initial metadata BEFORE startProviders so the first
+  // `terminalMetadata` collection yield carries these fields (see #642).
   if (initial?.themeName) meta.themeName = initial.themeName;
   if (initial?.canvasLayout) meta.canvasLayout = initial.canvasLayout;
   if (initial?.subPanel) meta.subPanel = initial.subPanel;
   if (initial?.lastActivityAt !== undefined)
     meta.lastActivityAt = initial.lastActivityAt;
   const entry: TerminalProcess = {
-    info: {
-      id,
-      pid: handle.pid,
-      meta,
-    },
+    info: { id, pid: handle.pid },
+    meta,
     handle,
     stopProviders: () => {},
   };
@@ -228,7 +225,7 @@ export function setSubPanelState(
 ): void {
   const entry = getTerminal(id);
   if (!entry) return;
-  entry.info.meta.subPanel = state;
+  entry.meta.subPanel = state;
   emitChanged();
 }
 

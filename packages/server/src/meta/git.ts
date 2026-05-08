@@ -22,10 +22,10 @@ export function startGitProvider(
   terminalId: string,
 ): () => void {
   const plog = log.child({ provider: "git", terminal: terminalId });
-  plog.debug({ cwd: entry.info.meta.cwd }, "started");
+  plog.debug({ cwd: entry.meta.cwd }, "started");
 
   const watcher = subscribeGitInfo(
-    entry.info.meta.cwd,
+    entry.meta.cwd,
     (git) => {
       if (git) trackRecentRepo(git.mainRepoRoot, git.repoName);
       updateServerMetadata(entry, terminalId, (m) => {

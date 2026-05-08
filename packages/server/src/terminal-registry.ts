@@ -14,13 +14,24 @@
  * keeps this file a leaf.
  */
 
-import type { TerminalId, TerminalInfo } from "kolu-common/surface";
+import type {
+  TerminalId,
+  TerminalInfo,
+  TerminalMetadata,
+} from "kolu-common/surface";
 import type { PtyHandle } from "./pty.ts";
 
-/** Server-side terminal state. Owns a PtyHandle and embeds the wire-type TerminalInfo. */
+/** Server-side terminal state. Owns a PtyHandle and the canonical
+ *  `TerminalMetadata` slot.
+ *
+ *  `info` is the wire shape (`id`, `pid`) sent in the `terminalList` cell
+ *  snapshot. `meta` is server-side state — providers mutate it in place
+ *  and `meta/state.ts` publishes via the `terminalMetadata` collection.
+ *  The split (#806) keeps a single channel for metadata: the snapshot
+ *  carries only identity, the collection carries the slow-changing state. */
 export interface TerminalProcess {
-  /** The wire-type snapshot — single source of truth for id, pid, meta. */
   info: TerminalInfo;
+  meta: TerminalMetadata;
   handle: PtyHandle;
   /** Cleanup function for all metadata providers. */
   stopProviders: () => void;
@@ -70,13 +81,13 @@ export function listTerminals(): TerminalInfo[] {
 export const terminalCount = (): number => terminals.size;
 
 /** Number of terminals currently hosting a Claude Code session. Derived
- *  from `entry.info.meta.agent` — the generic agent orchestrator
+ *  from `entry.meta.agent` — the generic agent orchestrator
  *  (`meta/agent.ts`, driven by `claudeCodeProvider` from `kolu-claude-code`)
  *  sets it on session match and clears it on teardown. Exported for diagnostics. */
 export function countActiveClaudeSessions(): number {
   let n = 0;
   for (const entry of terminals.values()) {
-    if (entry.info.meta.agent?.kind === "claude-code") n++;
+    if (entry.meta.agent?.kind === "claude-code") n++;
   }
   return n;
 }

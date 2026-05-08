@@ -37,9 +37,7 @@ export function useTerminalMetadata(deps: {
   });
 
   function getMetadata(id: TerminalId): TerminalMetadata | undefined {
-    // Prefer live subscription value; fall back to list-embedded metadata
-    // so terminals appear in the sidebar immediately (before metadata sub connects).
-    return meta.byKey(id)?.() ?? deps.list()?.find((t) => t.id === id)?.meta;
+    return meta.byKey(id)?.();
   }
 
   // --- Order: server Map insertion order, filtered by parent relationship ---
