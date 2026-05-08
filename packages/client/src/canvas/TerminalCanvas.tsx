@@ -68,6 +68,15 @@ const TerminalCanvas: Component<{
   watermark?: string;
   /** Saved layout for a tile, or undefined if none exists yet. */
   getLayout: (id: TerminalId) => TileLayout | undefined;
+  /** Optional placement policy hook for new tiles. The canvas asks for a
+   *  position; if the hook returns one it's used, otherwise the default
+   *  cascade kicks in. `existing` is each currently-placed tile's
+   *  effective layout (pending merged with saved) — so a tile mid-drag
+   *  isn't treated as absent. */
+  placeNew?: (
+    id: TerminalId,
+    existing: { id: TerminalId; layout: TileLayout }[],
+  ) => TileLayout | undefined;
   /** Report a layout change (drag commit, resize commit, default assignment). */
   onLayoutChange: (id: TerminalId, layout: TileLayout) => void;
   onSelect: (id: TerminalId) => void;
@@ -157,23 +166,28 @@ const TerminalCanvas: Component<{
         const zoom = viewport.zoom();
         const cx = viewport.panX() + width / (2 * zoom);
         const cy = viewport.panY() + height / (2 * zoom);
-        const placed: TileLayout[] = [];
+        const placed: { id: TerminalId; layout: TileLayout }[] = [];
         for (const id of ids) {
           const existing = layoutOf(id);
           if (existing) {
-            placed.push(existing);
+            placed.push({ id, layout: existing });
             continue;
           }
-          const { x, y } = findFreeTilePosition(cx, cy, placed);
-          const defaultLayout: TileLayout = {
-            x,
-            y,
-            w: DEFAULT_TILE_W,
-            h: DEFAULT_TILE_H,
-          };
+          const fromPolicy = props.placeNew?.(id, placed);
+          let defaultLayout: TileLayout;
+          if (fromPolicy) {
+            defaultLayout = fromPolicy;
+          } else {
+            const { x, y } = findFreeTilePosition(
+              cx,
+              cy,
+              placed.map((p) => p.layout),
+            );
+            defaultLayout = { x, y, w: DEFAULT_TILE_W, h: DEFAULT_TILE_H };
+          }
           setPendingLayout(id, defaultLayout);
           props.onLayoutChange(id, defaultLayout);
-          placed.push(defaultLayout);
+          placed.push({ id, layout: defaultLayout });
         }
       },
     ),

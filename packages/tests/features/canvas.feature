@@ -121,6 +121,18 @@ Feature: Canvas workspace
     And canvas tile 3 should be the active tile
     And there should be no page errors
 
+  Scenario: Arrange canvas by repo repositions tiles
+    Given I create a terminal
+    Then there should be 2 canvas tiles
+    When I move the canvas tile to x=2400 y=1200
+    Then the canvas tile should be at x=2400 y=1200
+    When I save canvas tile 1 position
+    And I open the command palette
+    And I type "Arrange canvas by repo" in the palette
+    And I select "Arrange canvas by repo" in the palette
+    Then canvas tile 1 position should have changed
+    And there should be no page errors
+
   Scenario: Canvas tile positions persist across refresh
     When I move the canvas tile to x=320 y=420
     When I reload the page and wait for ready

@@ -24,6 +24,12 @@ import CloseConfirm, { type CloseConfirmTarget } from "./CloseConfirm";
 import CommandPalette from "./CommandPalette";
 import "kolu-common/test-hooks";
 import CanvasWatermark from "./canvas/CanvasWatermark";
+import {
+  arrangeRepoIslands,
+  placeNextToBucket,
+  type RepoIslandTile,
+} from "./canvas/repoIslands";
+import type { TileLayout } from "./canvas/TileLayout";
 import WorkspaceSwitcher, {
   buildWorkspaceEntries,
   buildWorkspaceSwitcherModel,
@@ -181,6 +187,36 @@ const App: Component = () => {
     if (tile) canvasViewport.centerOnTile(tile);
   }
 
+  /** Single commit point for canvas tile geometry — drag, resize,
+   *  default-place, and arrange all flow through here. A future tiling
+   *  mode that wants to interpret drag-as-swap or resize-as-ratio-adjust
+   *  branches inside this function without touching the canvas. */
+  function commitTileLayout(id: TerminalId, layout: TileLayout) {
+    crud.setCanvasLayout(id, layout);
+  }
+
+  /** Project a placed tile into the shape `repoIslands` consumes. */
+  function repoIslandTileFor(
+    id: TerminalId,
+    layout: TileLayout,
+  ): RepoIslandTile | undefined {
+    const bucket = store.getDisplayInfo(id)?.key.group;
+    return bucket ? { id, bucket, layout } : undefined;
+  }
+
+  function handleCanvasAutoArrange() {
+    if (isMobile()) return;
+    const tiles = store.terminalIds().flatMap((id) => {
+      const layout = store.getMetadata(id)?.canvasLayout;
+      if (!layout) return [];
+      const tile = repoIslandTileFor(id, layout);
+      return tile ? [tile] : [];
+    });
+    for (const [id, layout] of arrangeRepoIslands(tiles)) {
+      commitTileLayout(id, layout);
+    }
+  }
+
   // Shared between the keyboard dispatcher and the command palette so a single
   // wiring keeps both surfaces in sync. Palette-only deps (theme management,
   // dialog setters, debug, etc.) are added below in the createCommands call.
@@ -277,6 +313,7 @@ const App: Component = () => {
     simulateAlert: alerts.simulateAlert,
     isMobile,
     canvasCenterActive: handleCanvasCenterActive,
+    canvasAutoArrange: handleCanvasAutoArrange,
   });
 
   // Reset state on close and return focus to terminal
@@ -538,9 +575,16 @@ const App: Component = () => {
                     tileIds={store.terminalIds()}
                     watermark={appTitle()}
                     getLayout={(id) => store.getMetadata(id)?.canvasLayout}
-                    onLayoutChange={(id, layout) =>
-                      crud.setCanvasLayout(id, layout)
-                    }
+                    placeNew={(id, existing) => {
+                      const bucket = store.getDisplayInfo(id)?.key.group;
+                      if (!bucket) return undefined;
+                      const islands = existing.flatMap((e) => {
+                        const t = repoIslandTileFor(e.id, e.layout);
+                        return t ? [t] : [];
+                      });
+                      return placeNextToBucket(bucket, islands);
+                    }}
+                    onLayoutChange={commitTileLayout}
                     onSelect={(id) => store.setActiveId(id)}
                     onClose={(id) => closeTerminal(id)}
                     renderTileTitle={(id) => (

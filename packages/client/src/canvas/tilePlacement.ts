@@ -21,7 +21,12 @@ const MAX_CASCADE_ITERATIONS = 50;
  *  center and cascading diagonally if the spot is already taken. `existing`
  *  is the set of already-positioned tiles (saved + pending); only their
  *  top-left is compared, so callers must pass tiles of the same default
- *  dimensions for collision detection to be accurate. */
+ *  dimensions for collision detection to be accurate.
+ *
+ *  Viewport-relative — only correct for one-shot placement at create time.
+ *  A future continuous tiler must compute placement in a viewport-independent
+ *  frame (canvas-origin or the existing tiles' bounding box); pan would
+ *  otherwise re-place tiles every frame. */
 export function findFreeTilePosition(
   viewportCenterX: number,
   viewportCenterY: number,
