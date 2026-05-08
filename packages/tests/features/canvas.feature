@@ -42,7 +42,7 @@ Feature: Canvas workspace
     Then the canvas transform should have changed
     When I create a terminal with keyboard shortcut
     Then there should be 2 canvas tiles
-    And canvas tile 2 should be in the same row as canvas tile 1
+    And canvas tile 2 should be to the right of and in the same row as canvas tile 1
     And the newest canvas tile should be centered in the viewport
 
   Scenario: Scroll on terminal does not pan the canvas

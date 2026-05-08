@@ -272,7 +272,7 @@ Then(
 );
 
 Then(
-  "canvas tile {int} should be in the same row as canvas tile {int}",
+  "canvas tile {int} should be to the right of and in the same row as canvas tile {int}",
   async function (this: KoluWorld, a: number, b: number) {
     await this.page.waitForFunction(
       ({ sel, i, j }: { sel: string; i: number; j: number }) => {
