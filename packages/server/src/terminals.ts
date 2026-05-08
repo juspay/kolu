@@ -218,15 +218,18 @@ export function setCanvasLayout(
 }
 
 /** Store a terminal's sub-panel state (client-reported).
- *  Same approach: mutate metadata directly, session auto-save only. */
+ *  Publishes via metadata so other clients (and the same client after a
+ *  refresh, via the collection's snapshot read) pick up the change from
+ *  the same channel as every other client-owned metadata field. */
 export function setSubPanelState(
   id: TerminalId,
   state: { collapsed: boolean; panelSize: number },
 ): void {
   const entry = getTerminal(id);
   if (!entry) return;
-  entry.meta.subPanel = state;
-  emitChanged();
+  updateClientMetadata(entry, id, (m) => {
+    m.subPanel = state;
+  });
 }
 
 // Active terminal ID — client-reported, used only for session snapshots.
