@@ -19,18 +19,25 @@
  *  that reads a different key. */
 
 import type { TerminalId } from "kolu-common/surface";
-import { createStore, produce } from "solid-js/store";
+import { createStore, produce, reconcile } from "solid-js/store";
 import { layoutsEqual, type TileLayout } from "./TileLayout";
 
 const [pending, setPending] = createStore<Record<string, TileLayout>>({});
 
-// E2e test hook — append-only history of every `applyMany` call. Use
+// E2e test hook — bounded ring of recent `applyMany` calls. Use
 // instead of a snapshot getter on the live store: the snapshot races
 // the `dropEvicted` cleanup (under CI load the seeded window can be
 // shorter than the polling interval), but the history survives. The
 // fix for the worktree-after-arrange race is "applyMany is called
 // synchronously inside the arrange handler"; the history records
-// that call deterministically. See `kolu-common/test-hooks`. */
+// that call deterministically. See `kolu-common/test-hooks`.
+//
+// Capped at HISTORY_LIMIT: applyMany fires on every drag/resize/
+// default-place/arrange, so a long-running session would otherwise
+// accumulate one entry per gesture. The cap is large enough that any
+// individual e2e step's writes survive within the same scenario,
+// small enough that production sessions don't leak a growing array. */
+const HISTORY_LIMIT = 32;
 if (typeof window !== "undefined") {
   window.__koluPendingApplyHistory = [];
 }
@@ -63,17 +70,24 @@ export function usePendingLayouts(): {
       setPending(id, layout);
     },
     applyMany(layouts) {
-      const ids = [...layouts.keys()];
       setPending(
         produce((draft: Record<string, TileLayout>) => {
           for (const [id, layout] of layouts) draft[id] = layout;
         }),
       );
       if (typeof window !== "undefined") {
-        window.__koluPendingApplyHistory?.push(ids);
+        const history = window.__koluPendingApplyHistory;
+        if (history) {
+          history.push([...layouts.keys()]);
+          if (history.length > HISTORY_LIMIT) history.shift();
+        }
       }
     },
     dropEvicted(alive, saved) {
+      // Steady-state after echoes settle is empty pending — skip the
+      // produce-draft alloc on every effect tick when there's nothing
+      // to consider.
+      if (Object.keys(pending).length === 0) return;
       setPending(
         produce((draft: Record<string, TileLayout>) => {
           for (const id of Object.keys(draft)) {
@@ -91,11 +105,7 @@ export function usePendingLayouts(): {
       );
     },
     clear() {
-      setPending(
-        produce((draft: Record<string, TileLayout>) => {
-          for (const id of Object.keys(draft)) delete draft[id];
-        }),
-      );
+      setPending(reconcile({}));
     },
   };
 }

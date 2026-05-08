@@ -152,14 +152,14 @@ describe("resolvePlacementBucket", () => {
   });
 
   it("returns undefined when the new tile has no cwd and no matching bucket", () => {
-    // The new tile is in the store but has no cwd metadata yet — both
-    // the direct-bucket-match path and the containment-walk fallback
-    // bail. `placeNew`'s caller cascades on undefined.
-    const byId = new Map<TerminalId, TerminalMetadata>([
-      ["new", { cwd: undefined } as unknown as TerminalMetadata],
-    ]);
+    // The new tile has no cwd metadata yet — both the direct-bucket-
+    // match path and the containment-walk fallback bail.
+    // `stubStore` is bypassed here because `buildTerminalDisplayInfos`
+    // calls `cwdBasename(cwd)` → `cwd.replace(...)`, which throws on
+    // undefined. The narrow accessors here are exactly the surface
+    // `resolvePlacementBucket` reads.
     const store = {
-      getMetadata: (id: TerminalId) => byId.get(id),
+      getMetadata: () => ({ cwd: undefined }) as unknown as TerminalMetadata,
       getDisplayInfo: () => undefined,
     } as unknown as TerminalStore;
     expect(resolvePlacementBucket(store, "new", [])).toBeUndefined();
