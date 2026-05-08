@@ -108,12 +108,7 @@ describe("getDiff", () => {
     expect(diffLines).toEqual(["+export const b = 2;"]);
   });
 
-  // --- binary detection (#810) ---
-  // git emits `Binary files a/foo and b/foo differ` (no @@ hunks) when it
-  // detects NUL bytes. The flag lets the client render a placeholder
-  // instead of an empty pane — Pierre never sees the binary marker.
-
-  /** Bytes guaranteed to look binary to git: NUL in the first 8KB. */
+  /** Bytes guaranteed to trigger git's binary detection — NUL at byte 4. */
   const BINARY_BYTES = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x01, 0x02]);
 
   it("modified binary file: binary=true, hunks empty", async () => {

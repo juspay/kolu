@@ -330,7 +330,7 @@ Feature: Code tab (review + browse)
   Scenario: Binary file shows the "not displayable" placeholder
     When I run "rm -rf /tmp/kolu-binary-diff && git init /tmp/kolu-binary-diff && cd /tmp/kolu-binary-diff"
     And I run "git commit --allow-empty -m init"
-    And I run "head -c 64 /dev/urandom > image.png"
+    And I run "printf 'PNG\0fake\1\2' > image.png"
     And I click the Code tab
     Then the Code tab should list a changed file "image.png"
     When I click the changed file "image.png" in the Code tab
@@ -346,15 +346,11 @@ Feature: Code tab (review + browse)
     Then the Code tab should render a diff view
     And the Code tab should not show the binary placeholder
 
-  # A binary rename satisfies both the pure-rename predicate (no @@ hunks,
-  # distinct old/new names) and the binary predicate. The intersection has
-  # one correct answer — show the binary placeholder, not the rename hint
-  # — and the data-level guard (`renamedDiff` excludes `binary`) is what
-  # enforces it. Without that guard, dispatch would depend on Switch arm
-  # ordering, which a refactor could silently flip.
+  # Regression: binary + rename satisfies both predicates. Rationale for
+  # picking binary over rename lives at the `renamedDiff` memo guard.
   Scenario: Binary rename shows the binary placeholder, not the rename hint
     When I run "rm -rf /tmp/kolu-binary-rename && git init /tmp/kolu-binary-rename && cd /tmp/kolu-binary-rename"
-    And I run "head -c 64 /dev/urandom > old.png"
+    And I run "printf 'PNG\0fake\1\2' > old.png"
     And I run "git add old.png && git commit -m 'add binary'"
     And I run "git mv old.png new.png"
     And I click the Code tab
@@ -369,7 +365,7 @@ Feature: Code tab (review + browse)
   Scenario: Binary placeholder flips off when the file becomes text
     When I run "rm -rf /tmp/kolu-binary-flip && git init /tmp/kolu-binary-flip && cd /tmp/kolu-binary-flip"
     And I run "git commit --allow-empty -m init"
-    And I run "head -c 64 /dev/urandom > note.txt"
+    And I run "printf 'PNG\0fake\1\2' > note.txt"
     And I click the Code tab
     And I click the changed file "note.txt" in the Code tab
     Then the Code tab should show the binary placeholder

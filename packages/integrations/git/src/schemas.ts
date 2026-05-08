@@ -120,15 +120,9 @@ export const GitDiffInputSchema = z.object({
  *  newFileName null). The renderer uses the pair to spot pure renames
  *  (no hunks but both names set and different).
  *
- *  Two field categories live here:
- *    - **Structural** (`oldFileName`, `newFileName`, `hunks`) — what the
- *      renderer paints when it has displayable content.
- *    - **Classification flags** (`binary`, …) — what dispatches to a
- *      placeholder panel instead. Detection lives in one site:
- *      `parseRawDiffFlags` in `review.ts`. Adding a new flag (submodule,
- *      skipped, large-file) means a field here, a branch in
- *      `parseRawDiffFlags`, and a `<Match>` in the client — in that
- *      order. Don't put detection in the client. */
+ *  Classification flags (`binary`, …) gate the client to a placeholder
+ *  instead of the renderer. Detection lives in `parseRawDiffFlags`
+ *  (`review.ts`) — not in the client. */
 export const GitDiffOutputSchema = z.object({
   oldFileName: z.string().nullable(),
   newFileName: z.string().nullable(),

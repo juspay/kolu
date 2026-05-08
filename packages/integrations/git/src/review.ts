@@ -155,14 +155,9 @@ export async function getStatus(
   }
 }
 
-/**
- * Classify a raw `git diff` blob along the axes the wire schema cares
- * about: hunk presence (`hasHunks`), per-side existence (`oldAbsent` /
- * `newAbsent` from `--- /dev/null` / `+++ /dev/null` headers), and git's
- * binary marker. Co-located with `getDiff` so the next axis (submodule,
- * skipped, large-file) has one named home to extend rather than another
- * inline regex sprinkled into the result builder.
- */
+/** Single home for raw-diff parsing — every classification flag the wire
+ *  schema gates rendering on lives here, not split across the result
+ *  builder. */
 function parseRawDiffFlags(rawDiff: string): {
   hasHunks: boolean;
   oldAbsent: boolean;
