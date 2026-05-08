@@ -10,6 +10,10 @@
 
 import Dialog from "@corvu/dialog";
 import type { Component, JSX } from "solid-js";
+import {
+  getActiveTerminalNode,
+  getFirstTerminalNode,
+} from "../canvas/activeTerminal";
 
 /** Click the visible terminal to restore focus after a dialog closes.
  *  If a terminal already has focus (e.g. sub-panel managed its own focus),
@@ -19,14 +23,11 @@ export function refocusTerminal() {
   if (document.activeElement?.closest("[data-terminal-id]")) return;
   // Prefer the active tile's terminal — clicking the first DOM tile
   // would fire its onFocus and silently flip activeId to whoever
-  // happens to be first in tileIds order (regression source: #843
-  // arrange flow centered on tile B then refocus stole active to tile A).
-  const target =
-    document
-      .querySelector("[data-active='true']")
-      ?.querySelector<HTMLElement>("[data-visible][data-terminal-id]") ??
-    document.querySelector<HTMLElement>("[data-visible][data-terminal-id]");
-  target?.click();
+  // happens to be first in tileIds order. The accessor scopes to
+  // CanvasTile's data-active convention and won't pick up sub-panel
+  // headers / chrome tabs / mode chips that also set data-active in
+  // their own format (#845).
+  (getActiveTerminalNode() ?? getFirstTerminalNode())?.click();
 }
 
 // Width cap for the dialog. Applied to the flex-item wrapper (not Dialog.Content)
