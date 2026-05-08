@@ -191,34 +191,50 @@ Then(
   },
 );
 
-Then(
-  "the newest canvas tile should be centered in the viewport",
-  async function (this: KoluWorld) {
-    await this.page.waitForFunction(
-      (sel: string) => {
-        const container = document.querySelector(sel);
-        if (!container) return false;
+/** Poll until the picked tile's bounding-box center matches the canvas
+ *  container's center within grid-snap tolerance. `pick` chooses which
+ *  tile: "newest" = last in DOM order (waits for ≥2 to exist),
+ *  "active" = the one carrying `data-active="true"`. */
+async function waitForTileCenteredInViewport(
+  world: KoluWorld,
+  pick: "newest" | "active",
+) {
+  await world.page.waitForFunction(
+    ({ sel, pick }: { sel: string; pick: "newest" | "active" }) => {
+      const container = document.querySelector(sel);
+      if (!container) return false;
+      let tile: HTMLElement | null;
+      if (pick === "newest") {
         const tiles = container.querySelectorAll(
           "[data-terminal-id][data-visible]",
         );
         if (tiles.length < 2) return false;
-        const tile = tiles[tiles.length - 1] as HTMLElement;
-        const cRect = container.getBoundingClientRect();
-        const tRect = tile.getBoundingClientRect();
-        // Tile center vs container center — allow tolerance for grid snapping
-        const tileCx = tRect.left + tRect.width / 2 - cRect.left;
-        const tileCy = tRect.top + tRect.height / 2 - cRect.top;
-        const viewCx = cRect.width / 2;
-        const viewCy = cRect.height / 2;
-        const tolerance = 40; // grid snap (24px) + rounding
-        return (
-          Math.abs(tileCx - viewCx) < tolerance &&
-          Math.abs(tileCy - viewCy) < tolerance
-        );
-      },
-      CANVAS_SELECTOR,
-      { timeout: POLL_TIMEOUT },
-    );
+        tile = tiles[tiles.length - 1] as HTMLElement;
+      } else {
+        tile = container.querySelector('[data-active="true"]');
+      }
+      if (!tile) return false;
+      const cRect = container.getBoundingClientRect();
+      const tRect = tile.getBoundingClientRect();
+      const tileCx = tRect.left + tRect.width / 2 - cRect.left;
+      const tileCy = tRect.top + tRect.height / 2 - cRect.top;
+      const viewCx = cRect.width / 2;
+      const viewCy = cRect.height / 2;
+      const tolerance = 40; // grid snap (24px) + rounding
+      return (
+        Math.abs(tileCx - viewCx) < tolerance &&
+        Math.abs(tileCy - viewCy) < tolerance
+      );
+    },
+    { sel: CANVAS_SELECTOR, pick },
+    { timeout: POLL_TIMEOUT },
+  );
+}
+
+Then(
+  "the newest canvas tile should be centered in the viewport",
+  async function (this: KoluWorld) {
+    await waitForTileCenteredInViewport(this, "newest");
   },
 );
 
@@ -280,29 +296,7 @@ Then(
 Then(
   "the active canvas tile should be centered in the viewport",
   async function (this: KoluWorld) {
-    await this.page.waitForFunction(
-      (sel: string) => {
-        const container = document.querySelector(sel);
-        if (!container) return false;
-        const tile = container.querySelector(
-          '[data-active="true"]',
-        ) as HTMLElement | null;
-        if (!tile) return false;
-        const cRect = container.getBoundingClientRect();
-        const tRect = tile.getBoundingClientRect();
-        const tileCx = tRect.left + tRect.width / 2 - cRect.left;
-        const tileCy = tRect.top + tRect.height / 2 - cRect.top;
-        const viewCx = cRect.width / 2;
-        const viewCy = cRect.height / 2;
-        const tolerance = 40; // grid snap (24px) + rounding
-        return (
-          Math.abs(tileCx - viewCx) < tolerance &&
-          Math.abs(tileCy - viewCy) < tolerance
-        );
-      },
-      CANVAS_SELECTOR,
-      { timeout: POLL_TIMEOUT },
-    );
+    await waitForTileCenteredInViewport(this, "active");
   },
 );
 
