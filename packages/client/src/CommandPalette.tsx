@@ -255,21 +255,16 @@ const CommandPalette: Component<{
     setSelectedIndex(0);
   }
 
-  /** Internal close after a successful selection — bypasses cancel
-   *  propagation that `handleOpenChange` would otherwise run. */
-  function closeForSelection() {
-    props.onOpenChange(false);
-  }
+  // Selection-initiated close: signals the close-effect to skip
+  // path.onCancel propagation. External closes (Escape, backdrop click,
+  // parent toggle via setPaletteOpen) leave this false so onCancel fires.
+  // Three close paths converge on the close-effect; this signal is the
+  // single discriminator that distinguishes "completed" from "cancelled".
+  const [closingForSelection, setClosingForSelection] = createSignal(false);
 
-  /** External close (Escape, backdrop click, parent setting open=false
-   *  unprompted): fire onCancel handlers for the drilled-in path before
-   *  propagating. Internal selections call `closeForSelection` and skip
-   *  this path entirely. */
-  function handleOpenChange(open: boolean) {
-    if (!open) {
-      for (const g of path()) g.onCancel?.();
-    }
-    props.onOpenChange(open);
+  function closeForSelection() {
+    setClosingForSelection(true);
+    props.onOpenChange(false);
   }
 
   function execute(cmd: PaletteCommand | PaletteLabel) {
@@ -349,21 +344,29 @@ const CommandPalette: Component<{
   // Capture phase: intercept before terminal's keydown handler
   makeEventListener(window, "keydown", handleKeyDown, { capture: true });
 
-  // Reset transient state on open.
+  // Open: reset transient state. Close: fire onCancel for the drilled-in
+  // path unless the close was selection-initiated.
   createEffect(
     on(
       () => props.open,
       (isOpen) => {
-        if (!isOpen) return;
-        setQuery("");
-        setSelectedIndex(0);
-        setAmbientTip(randomAmbientTip());
-        setMouseActive(false);
-        // forceMount keeps the dialog in the DOM, so Corvu's initialFocusEl
-        // only fires on first mount. Re-focus explicitly on every open.
-        requestAnimationFrame(() =>
-          requestAnimationFrame(() => inputRef.focus()),
-        );
+        if (isOpen) {
+          setQuery("");
+          setSelectedIndex(0);
+          setAmbientTip(randomAmbientTip());
+          setMouseActive(false);
+          setClosingForSelection(false);
+          // forceMount keeps the dialog in the DOM, so Corvu's initialFocusEl
+          // only fires on first mount. Re-focus explicitly on every open.
+          requestAnimationFrame(() =>
+            requestAnimationFrame(() => inputRef.focus()),
+          );
+        } else {
+          if (!closingForSelection()) {
+            for (const g of path()) g.onCancel?.();
+          }
+          setClosingForSelection(false);
+        }
       },
     ),
   );
@@ -428,7 +431,7 @@ const CommandPalette: Component<{
   return (
     <ModalDialog
       open={props.open}
-      onOpenChange={handleOpenChange}
+      onOpenChange={props.onOpenChange}
       transparentOverlay={props.transparentOverlay}
       initialFocusEl={inputRef}
     >
