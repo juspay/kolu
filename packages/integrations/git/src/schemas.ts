@@ -118,7 +118,11 @@ export const GitDiffInputSchema = z.object({
  *  `oldFileName` / `newFileName` are null when the file doesn't exist on
  *  that side of the diff (added file → oldFileName null; deleted file →
  *  newFileName null). The renderer uses the pair to spot pure renames
- *  (no hunks but both names set and different). */
+ *  (no hunks but both names set and different).
+ *
+ *  Classification flags (`binary`, …) gate the client to a placeholder
+ *  instead of the renderer. Detection lives in `parseRawDiffFlags`
+ *  (`review.ts`) — not in the client. */
 export const GitDiffOutputSchema = z.object({
   oldFileName: z.string().nullable(),
   newFileName: z.string().nullable(),
@@ -126,6 +130,11 @@ export const GitDiffOutputSchema = z.object({
    *  header block (i.e. passthrough of `git diff` output), not a bare hunk
    *  body. Currently always zero or one element — a single per-file patch. */
   hunks: z.array(z.string()),
+  /** True when git classified the file as binary (NUL bytes in the first
+   *  8KB). Binary files yield no `@@` hunks — git emits a single
+   *  `Binary files a/x and b/x differ` line — so the client renders a
+   *  "Binary file — not displayable" placeholder instead of an empty pane. */
+  binary: z.boolean(),
 });
 export type GitDiffOutput = z.infer<typeof GitDiffOutputSchema>;
 

@@ -317,6 +317,68 @@ Feature: Code tab (review + browse)
   # right-panel tab moves focus off the terminal, so subsequent keystrokes
   # would land in the panel instead of the PTY.
 
+  # ── Binary file diffs (#810) ──
+  # git classifies a file as binary when it sees NUL bytes in the first
+  # ~8KB and emits `Binary files a/x and b/x differ` instead of @@ hunks.
+  # Without a placeholder the diff pane is empty and indistinguishable
+  # from "no file selected". The server now sets `binary: true` on the
+  # diff response so the client renders a "Binary file — not displayable"
+  # panel. Scenarios cover three distinct user-visible paths: binary
+  # file selected, text file selected, and the binary→text streaming
+  # flip from #786.
+
+  Scenario: Binary file shows the "not displayable" placeholder
+    When I run "rm -rf /tmp/kolu-binary-diff && git init /tmp/kolu-binary-diff && cd /tmp/kolu-binary-diff"
+    And I run "git commit --allow-empty -m init"
+    And I run "printf 'PNG\0fake\1\2' > image.png"
+    And I click the Code tab
+    Then the Code tab should list a changed file "image.png"
+    When I click the changed file "image.png" in the Code tab
+    Then the Code tab should show the binary placeholder
+
+  Scenario: Text file does not show the binary placeholder
+    When I run "rm -rf /tmp/kolu-text-diff && git init /tmp/kolu-text-diff && cd /tmp/kolu-text-diff"
+    And I run "git commit --allow-empty -m init"
+    And I run "printf 'hello\nworld\n' > note.txt"
+    And I click the Code tab
+    Then the Code tab should list a changed file "note.txt"
+    When I click the changed file "note.txt" in the Code tab
+    Then the Code tab should render a diff view
+    And the Code tab should not show the binary placeholder
+
+  # Regression: binary + rename satisfies both predicates. Rationale for
+  # picking binary over rename lives at the `renamedDiff` memo guard.
+  # Needs an actual content edit on the renamed file — git only emits the
+  # `Binary files ... differ` marker when there's a content delta; a pure
+  # rename of binary content (similarity 100%) emits only the rename
+  # header, with nothing for the regex to match against.
+  Scenario: Binary rename with content change shows the binary placeholder
+    When I run "rm -rf /tmp/kolu-binary-rename && git init /tmp/kolu-binary-rename && cd /tmp/kolu-binary-rename"
+    And I run "printf 'PNG\0fake\1\2\3\4\5\6\7\10\11\12\13\14\15\16\17' > old.png"
+    And I run "git add old.png && git commit -m 'add binary'"
+    And I run "git mv old.png new.png"
+    And I run "printf 'PNG\0fake\1\2\3\4\5\6\7\10\11\12\13\14\15\16\17modified' > new.png"
+    And I click the Code tab
+    Then the Code tab should list a changed file "new.png"
+    When I click the changed file "new.png" in the Code tab
+    Then the Code tab should show the binary placeholder
+
+  # Regression for #810 + #786: a file transitioning from binary to text
+  # via live updates must flip the placeholder off (and vice versa). The
+  # streaming endpoint re-emits `binary` on every diff change; without it
+  # in `gitDiffOutputEqual`, the snapshot dedupe would suppress the flip.
+  Scenario: Binary placeholder flips off when the file becomes text
+    When I run "rm -rf /tmp/kolu-binary-flip && git init /tmp/kolu-binary-flip && cd /tmp/kolu-binary-flip"
+    And I run "git commit --allow-empty -m init"
+    And I run "printf 'PNG\0fake\1\2' > note.txt"
+    And I click the Code tab
+    And I click the changed file "note.txt" in the Code tab
+    Then the Code tab should show the binary placeholder
+    When I click the terminal canvas
+    And I run "printf 'now text\n' > note.txt"
+    Then the diff view should contain "now text"
+    And the Code tab should not show the binary placeholder
+
   Scenario: Editing a file updates the diff view live
     When I run "git init /tmp/kolu-live-diff && cd /tmp/kolu-live-diff"
     And I run "git commit --allow-empty -m init"

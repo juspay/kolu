@@ -262,6 +262,22 @@ Then(
 );
 
 Then(
+  "the Code tab should show the binary placeholder",
+  async function (this: KoluWorld) {
+    const placeholder = this.page.locator('[data-testid="diff-binary"]');
+    await placeholder.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+Then(
+  "the Code tab should not show the binary placeholder",
+  async function (this: KoluWorld) {
+    const placeholder = this.page.locator('[data-testid="diff-binary"]');
+    await placeholder.waitFor({ state: "detached", timeout: POLL_TIMEOUT });
+  },
+);
+
+Then(
   "the Code tab mode should be {string}",
   async function (this: KoluWorld, mode: string) {
     // The chip carries `data-mode` reflecting the current view, so the

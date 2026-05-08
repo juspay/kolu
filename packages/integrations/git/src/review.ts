@@ -155,6 +155,33 @@ export async function getStatus(
   }
 }
 
+/** Single home for raw-diff parsing — every classification flag the wire
+ *  schema gates rendering on lives here, not split across the result
+ *  builder. */
+function parseRawDiffFlags(rawDiff: string): {
+  hasHunks: boolean;
+  oldAbsent: boolean;
+  newAbsent: boolean;
+  binary: boolean;
+} {
+  return {
+    // A pure rename produces a header (similarity index, rename from/to)
+    // but no @@ hunks. The client renders renames via the
+    // oldFileName/newFileName pair, so only emit hunks when the diff
+    // actually contains hunk markers.
+    hasHunks: rawDiff.includes("\n@@"),
+    // Existence on each side from the unified-diff headers: added emits
+    // `--- /dev/null`, deleted emits `+++ /dev/null`. Cheaper than a
+    // separate `git cat-file -e` round-trip per side.
+    oldAbsent: /^--- \/dev\/null/m.test(rawDiff),
+    newAbsent: /^\+\+\+ \/dev\/null/m.test(rawDiff),
+    // Binary files: git emits `Binary files a/foo and b/foo differ` with
+    // no @@ hunks. Same marker for added (`Binary files /dev/null and
+    // b/foo differ`) and deleted, so one regex covers all cases.
+    binary: /^Binary files .* differ$/m.test(rawDiff),
+  };
+}
+
 /**
  * Run git and return stdout, surviving the `--no-index` exit-1 convention.
  *
@@ -247,22 +274,13 @@ export async function getDiff(
       );
     }
 
-    // A pure rename produces a header (similarity index, rename from/to)
-    // but no @@ hunks. The client (PierreDiffView) renders renames via
-    // the oldFileName/newFileName pair, so only emit hunks when the diff
-    // actually contains hunk markers.
-    const hasHunks = rawDiff.includes("\n@@");
-
-    // Existence on each side, derived from the unified-diff headers:
-    // added files emit `--- /dev/null`, deleted files emit `+++ /dev/null`.
-    // Cheaper than a separate `git cat-file -e` round-trip per side.
-    const oldAbsent = /^--- \/dev\/null/m.test(rawDiff);
-    const newAbsent = /^\+\+\+ \/dev\/null/m.test(rawDiff);
+    const flags = parseRawDiffFlags(rawDiff);
 
     return ok({
-      oldFileName: oldAbsent ? null : oldRel,
-      newFileName: newAbsent ? null : rel,
-      hunks: rawDiff && hasHunks ? [rawDiff] : [],
+      oldFileName: flags.oldAbsent ? null : oldRel,
+      newFileName: flags.newAbsent ? null : rel,
+      hunks: rawDiff && flags.hasHunks ? [rawDiff] : [],
+      binary: flags.binary,
     });
   } catch (e) {
     return err({

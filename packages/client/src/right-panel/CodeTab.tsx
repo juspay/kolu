@@ -58,6 +58,17 @@ const FileSelectHint: Component<{ label: string }> = (props) => (
   </div>
 );
 
+const BinaryFileHint: Component<{ fileName: string | null }> = (props) => (
+  <div
+    class="flex flex-col items-center justify-center h-full text-fg-3/40 gap-2"
+    data-testid="diff-binary"
+  >
+    <FileDiffIcon class="w-8 h-8 opacity-40" />
+    <span class="text-[11px]">Binary file — not displayable</span>
+    <span class="text-[10px] text-fg-3/30">{props.fileName}</span>
+  </div>
+);
+
 const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
   const { themeTypeLiteral: diffTheme } = useColorScheme();
   const rightPanel = useRightPanel();
@@ -263,10 +274,18 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
 
   /** Diff value narrowed to "this is a pure-rename" (no hunks, both old +
    *  new file names present and different). Returning the full diff so the
-   *  rendering Match can read its names without re-narrowing. */
+   *  rendering Match can read its names without re-narrowing.
+   *
+   *  Binary excluded from the rename predicate: a binary rename satisfies
+   *  hunks.length === 0 with distinct old/new names *and* `binary === true`.
+   *  Without this guard, dispatch between the binary placeholder and the
+   *  rename hint would depend on Switch arm ordering — load-bearing and
+   *  invisible. With this guard, the mutual exclusion lives in the data,
+   *  so a Switch refactor can't silently flip the rendering. */
   const renamedDiff = createMemo(() => {
     const d = diff();
     if (!d) return undefined;
+    if (d.binary) return undefined;
     if (d.hunks.length !== 0) return undefined;
     const { oldFileName, newFileName } = d;
     if (!oldFileName || !newFileName || oldFileName === newFileName) {
@@ -389,6 +408,13 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
                         <div class="px-2 py-1 text-danger">
                           Error: {err().message}
                         </div>
+                      )}
+                    </Match>
+                    <Match when={diff()?.binary && diff()}>
+                      {(d) => (
+                        <BinaryFileHint
+                          fileName={d().newFileName ?? d().oldFileName}
+                        />
                       )}
                     </Match>
                     <Match when={renamedDiff()}>
