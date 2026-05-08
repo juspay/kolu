@@ -203,6 +203,39 @@ const App: Component = () => {
     return store.getDisplayInfo(id)?.key.group;
   }
 
+  /** Resolve a placement bucket for a tile whose git may not have been
+   *  resolved yet. Tries `key.group` first (already-projected); if that
+   *  doesn't match any candidate bucket, walks `candidateIds` for a
+   *  sibling whose git repo contains this tile's cwd and returns its
+   *  bucket. The fallback covers the common race: a fresh terminal's
+   *  metadata yields with `cwd` set but `git` still null, so its
+   *  basename-derived `key.group` doesn't match a sibling whose git is
+   *  fully resolved. */
+  function resolvePlacementBucket(
+    id: TerminalId,
+    candidateIds: TerminalId[],
+  ): string | undefined {
+    const ownBucket = getBucketFor(id);
+    if (ownBucket && candidateIds.some((c) => getBucketFor(c) === ownBucket)) {
+      return ownBucket;
+    }
+    const cwd = store.getMetadata(id)?.cwd;
+    if (!cwd) return ownBucket;
+    let best: { bucket: string; rootLength: number } | undefined;
+    for (const candidate of candidateIds) {
+      const root = store.getMetadata(candidate)?.git?.repoRoot;
+      if (!root) continue;
+      if (cwd === root || cwd.startsWith(`${root}/`)) {
+        const bucket = getBucketFor(candidate);
+        if (!bucket) continue;
+        if (!best || root.length > best.rootLength) {
+          best = { bucket, rootLength: root.length };
+        }
+      }
+    }
+    return best?.bucket ?? ownBucket;
+  }
+
   function repoIslandTileFor(
     id: TerminalId,
     layout: TileLayout,
@@ -600,7 +633,10 @@ const App: Component = () => {
                     watermark={appTitle()}
                     getLayout={(id) => store.getMetadata(id)?.canvasLayout}
                     placeNew={(id, existing) => {
-                      const bucket = getBucketFor(id);
+                      const bucket = resolvePlacementBucket(
+                        id,
+                        existing.map((e) => e.id),
+                      );
                       if (!bucket) return undefined;
                       const islands = existing.flatMap((e) => {
                         const t = repoIslandTileFor(e.id, e.layout);
