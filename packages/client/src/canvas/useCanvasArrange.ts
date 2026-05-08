@@ -19,6 +19,7 @@ import {
   type RepoIslandTile,
 } from "./repoIslands";
 import { layoutsEqual, type TileLayout } from "./TileLayout";
+import { usePendingLayouts } from "./usePendingLayouts";
 import type { useCanvasViewport } from "./viewport/useCanvasViewport";
 import type { useTerminalCrud } from "../terminal/useTerminalCrud";
 import type { TerminalStore } from "../terminal/useTerminalStore";
@@ -30,6 +31,7 @@ export function useCanvasArrange(deps: {
   isMobile: () => boolean;
 }) {
   const { store, crud, viewport, isMobile } = deps;
+  const pendingLayouts = usePendingLayouts();
 
   /** Apply a tile's geometry — drag-end, resize-end, default-place,
    *  and arrange all flow through this single point. The 500ms session
@@ -75,6 +77,12 @@ export function useCanvasArrange(deps: {
       return tile ? [tile] : [];
     });
     const arranged = arrangeRepoIslands(tiles);
+    // Seed pending layouts BEFORE the writes go out, so a follow-on
+    // `placeNew` (e.g. user opens a new worktree in the same repo right
+    // after arrange) sees the arranged layouts in `existing` instead of
+    // the still-saved pre-arrange ones. The canvas's pending-cleanup
+    // effect drops these once the server round-trip catches up.
+    pendingLayouts.applyMany(arranged);
     // Skip no-op writes: a re-arrange of an already-arranged workspace
     // shouldn't fire N round-trip RPCs and trigger a session-dirty save.
     for (const [id, layout] of arranged) {

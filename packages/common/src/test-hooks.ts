@@ -40,6 +40,17 @@ declare global {
      *  patches `WebSocket.prototype.send` once per scenario; subsequent
      *  steps `evaluate` and read this array. */
     __wsSent?: string[];
+
+    /** Returns the canvas's current pending-layout overrides keyed by
+     *  terminal id. Set by `usePendingLayouts` so e2e tests can assert
+     *  that arrange (and any other one-shot canvas op) seeded pending
+     *  immediately — proving the fix for the timing race where a new
+     *  worktree opened right after arrange would `placeNew` against the
+     *  pre-arrange layouts. */
+    __koluPendingLayouts?: () => Record<
+      string,
+      { x: number; y: number; w: number; h: number }
+    >;
   }
 
   /** Structural subset of `xterm.Terminal` that e2e steps read off the

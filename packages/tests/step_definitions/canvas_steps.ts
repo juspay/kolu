@@ -301,6 +301,119 @@ Then(
   },
 );
 
+Then(
+  "the canvas pending overrides should include all current tiles",
+  async function (this: KoluWorld) {
+    // Asserts the architectural invariant that `useCanvasArrange.handleCanvasAutoArrange`
+    // seeds pending BEFORE the server writes go out. Without that seeding,
+    // a new terminal (worktree) created right after arrange would resolve
+    // its `placeNew(existing)` against pre-arrange layouts and overlap the
+    // cluster — a race a polled position assertion can't catch in tests
+    // because metadata echoes arrive within the polling window.
+    const result = await this.page.evaluate(() => {
+      const ids = Array.from(
+        document.querySelectorAll(
+          "[data-testid='canvas-container'] [data-terminal-id][data-visible]",
+        ),
+      ).map((el) => (el as HTMLElement).getAttribute("data-terminal-id"));
+      const pending = window.__koluPendingLayouts?.() ?? {};
+      const missing = ids.filter((id) => !id || !pending[id]);
+      return { ids, pendingKeys: Object.keys(pending), missing };
+    });
+    if (result.missing.length > 0) {
+      throw new Error(
+        `Expected pending overrides for all tiles, got pending=${JSON.stringify(
+          result.pendingKeys,
+        )} tiles=${JSON.stringify(result.ids)} missing=${JSON.stringify(
+          result.missing,
+        )}`,
+      );
+    }
+  },
+);
+
+When("I click the minimap arrange button", async function (this: KoluWorld) {
+  const button = this.page.locator('[data-testid="minimap-arrange"]');
+  await button.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  await button.click();
+  await this.waitForFrame();
+});
+
+Then("no two canvas tiles should overlap", async function (this: KoluWorld) {
+  await this.page.waitForFunction(
+    (sel: string) => {
+      const tiles = Array.from(
+        document.querySelectorAll(`${sel} [data-terminal-id][data-visible]`),
+      ).map((t) => {
+        const wrapper = (t as HTMLElement).closest(
+          "[style*='left']",
+        ) as HTMLElement | null;
+        return (wrapper ?? (t as HTMLElement)).getBoundingClientRect();
+      });
+      for (let i = 0; i < tiles.length; i++) {
+        for (let j = i + 1; j < tiles.length; j++) {
+          const a = tiles[i];
+          const b = tiles[j];
+          if (!a || !b) continue;
+          // 2 px tolerance: tiles touching at exact grid edges shouldn't
+          // count as overlapping.
+          const overlapX = a.left < b.right - 2 && a.right - 2 > b.left;
+          const overlapY = a.top < b.bottom - 2 && a.bottom - 2 > b.top;
+          if (overlapX && overlapY) return false;
+        }
+      }
+      return true;
+    },
+    CANVAS_SELECTOR,
+    { timeout: POLL_TIMEOUT },
+  );
+});
+
+When("I save the active canvas tile id", async function (this: KoluWorld) {
+  const id = await this.page.evaluate((sel: string) => {
+    const tile = document
+      .querySelector(sel)
+      ?.querySelector('[data-active="true"]');
+    return (
+      tile
+        ?.querySelector("[data-terminal-id]")
+        ?.getAttribute("data-terminal-id") ??
+      tile?.getAttribute("data-terminal-id") ??
+      null
+    );
+  }, CANVAS_SELECTOR);
+  if (!id) throw new Error("No active canvas tile to save");
+  this.savedActiveTerminalId = id;
+});
+
+Then(
+  "the saved active canvas tile should still be active",
+  async function (this: KoluWorld) {
+    const saved = this.savedActiveTerminalId;
+    if (!saved) throw new Error("No saved active canvas tile id");
+    await this.page.waitForFunction(
+      ({ sel, savedId }: { sel: string; savedId: string }) => {
+        // The active tile's CanvasTile wrapper carries data-active="true".
+        // Its inner Terminal element carries data-terminal-id. Walk down
+        // from the active wrapper rather than checking every tile —
+        // that makes "did active flip to a different tile" the failure
+        // mode, not "is savedId still in the DOM" (it always is).
+        const activeWrapper = document
+          .querySelector(sel)
+          ?.querySelector('[data-active="true"]');
+        if (!activeWrapper) return false;
+        const inner = activeWrapper.querySelector("[data-terminal-id]");
+        const activeId =
+          inner?.getAttribute("data-terminal-id") ??
+          activeWrapper.getAttribute("data-terminal-id");
+        return activeId === savedId;
+      },
+      { sel: CANVAS_SELECTOR, savedId: saved },
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
 // ── Gesture ownership: two-finger scroll on terminal must not pan the canvas ──
 
 /** Read the inner canvas transform div's transform (scale(z) translate(x, y)).

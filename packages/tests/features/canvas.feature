@@ -129,15 +129,62 @@ Feature: Canvas workspace
     Then canvas tile 1 position should have changed
     And there should be no page errors
 
-  Scenario: Arrange canvas centers the viewport on the active tile
+  Scenario: Arrange canvas centers the active tile and preserves which tile is active
     Given I create a terminal
     Then there should be 2 canvas tiles
     When I move the canvas tile to x=4800 y=2400
     Then the canvas tile should be at x=4800 y=2400
+    When I save the active canvas tile id
+    And I open the command palette
+    And I type "Arrange canvas by repo" in the palette
+    And I select "Arrange canvas by repo" in the palette
+    Then the saved active canvas tile should still be active
+    And the active canvas tile should be centered in the viewport
+    And there should be no page errors
+
+  Scenario: Minimap arrange button repositions tiles
+    Given I create a terminal
+    Then there should be 2 canvas tiles
+    When I move the canvas tile to x=2400 y=1200
+    Then the canvas tile should be at x=2400 y=1200
+    When I save canvas tile 1 position
+    And I click the minimap arrange button
+    Then canvas tile 1 position should have changed
+    And there should be no page errors
+
+  Scenario: A new terminal created right after arrange lands adjacent without overlap
+    Given I create a terminal
+    Then there should be 2 canvas tiles
+    When I move the canvas tile to x=2400 y=1200
+    Then the canvas tile should be at x=2400 y=1200
     When I open the command palette
     And I type "Arrange canvas by repo" in the palette
     And I select "Arrange canvas by repo" in the palette
-    Then the active canvas tile should be centered in the viewport
+    And I create a terminal with keyboard shortcut
+    Then there should be 3 canvas tiles
+    And no two canvas tiles should overlap
+    And canvas tile 3 should be to the right of and in the same row as canvas tile 2
+    And there should be no page errors
+
+  Scenario: A worktree opened right after arrange lands adjacent to its repo cluster without overlap
+    When I set up a git repo at "/tmp/kolu-arrange-wt"
+    And I run "cd /tmp/kolu-arrange-wt"
+    Then the header should show a branch name
+    When I create a terminal
+    Then there should be 2 canvas tiles
+    When I move the canvas tile to x=2400 y=1200
+    Then the canvas tile should be at x=2400 y=1200
+    When I open the command palette
+    And I type "Arrange canvas by repo" in the palette
+    And I select "Arrange canvas by repo" in the palette
+    Then the canvas pending overrides should include all current tiles
+    When I open the command palette
+    And I select "New terminal" in the palette
+    And I select "kolu-arrange-wt" in the palette
+    And I press Enter
+    Then there should be 3 canvas tiles
+    And no two canvas tiles should overlap
+    And canvas tile 3 should be to the right of and in the same row as canvas tile 2
     And there should be no page errors
 
   Scenario: Canvas tile positions persist across refresh
