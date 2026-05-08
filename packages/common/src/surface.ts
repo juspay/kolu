@@ -181,13 +181,8 @@ export const InitialTerminalMetadataSchema = z.object({
 
 // ── Terminal cell value + raw-procedure shared schemas ────────────────
 
-/** Wire shape for the live `terminalList` cell snapshot. Carries only
- *  identity + process — terminal metadata reaches clients via the
- *  `terminalMetadata` collection (per-terminal subscription). Two parallel
- *  paths used to coexist (snapshot-embedded `meta` + live collection)
- *  with a fallback in `useTerminalMetadata`; #806 collapsed that to one
- *  source so the same fact doesn't live in two channels with different
- *  temporal semantics. */
+/** Wire shape for the `terminalList` cell. Identity only — metadata
+ *  flows through the `terminalMetadata` collection. */
 export const TerminalInfoSchema = z.object({
   id: TerminalIdSchema,
   pid: z.number(),

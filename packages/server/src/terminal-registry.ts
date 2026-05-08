@@ -21,14 +21,10 @@ import type {
 } from "kolu-common/surface";
 import type { PtyHandle } from "./pty.ts";
 
-/** Server-side terminal state. Owns a PtyHandle and the canonical
- *  `TerminalMetadata` slot.
- *
- *  `info` is the wire shape (`id`, `pid`) sent in the `terminalList` cell
- *  snapshot. `meta` is server-side state — providers mutate it in place
- *  and `meta/state.ts` publishes via the `terminalMetadata` collection.
- *  The split (#806) keeps a single channel for metadata: the snapshot
- *  carries only identity, the collection carries the slow-changing state. */
+/** Server-side terminal state. `info` is the wire shape sent in the
+ *  `terminalList` cell snapshot; `meta` is mutated in place by providers
+ *  and published via the `terminalMetadata` collection from
+ *  `meta/state.ts`. */
 export interface TerminalProcess {
   info: TerminalInfo;
   meta: TerminalMetadata;
