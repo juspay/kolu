@@ -195,12 +195,19 @@ const App: Component = () => {
     crud.setCanvasLayout(id, layout);
   }
 
-  /** Project a placed tile into the shape `repoIslands` consumes. */
+  /** Bucket key used by repo-island layout — `key.group` from
+   *  `terminalKey(meta)`. Single site so a future rule change (e.g.
+   *  sub-terminals share parent's bucket) doesn't have to track down
+   *  every projection. */
+  function getBucketFor(id: TerminalId): string | undefined {
+    return store.getDisplayInfo(id)?.key.group;
+  }
+
   function repoIslandTileFor(
     id: TerminalId,
     layout: TileLayout,
   ): RepoIslandTile | undefined {
-    const bucket = store.getDisplayInfo(id)?.key.group;
+    const bucket = getBucketFor(id);
     return bucket ? { id, bucket, layout } : undefined;
   }
 
@@ -576,7 +583,7 @@ const App: Component = () => {
                     watermark={appTitle()}
                     getLayout={(id) => store.getMetadata(id)?.canvasLayout}
                     placeNew={(id, existing) => {
-                      const bucket = store.getDisplayInfo(id)?.key.group;
+                      const bucket = getBucketFor(id);
                       if (!bucket) return undefined;
                       const islands = existing.flatMap((e) => {
                         const t = repoIslandTileFor(e.id, e.layout);
