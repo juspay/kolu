@@ -302,21 +302,22 @@ Then(
 );
 
 Then(
-  "the canvas pending overrides should include all current tiles",
+  "arrange should have seeded pending overrides for all current tiles",
   async function (this: KoluWorld) {
-    // Asserts the architectural invariant that `useCanvasArrange.handleCanvasAutoArrange`
-    // seeds pending BEFORE the server writes go out. Without that
-    // seeding, a new terminal (worktree) created right after arrange
-    // would resolve its `placeNew(existing)` against pre-arrange
-    // layouts and overlap the cluster — a race a polled position
-    // assertion can't catch because metadata echoes arrive within the
-    // polling window.
+    // Architectural invariant: `useCanvasArrange.handleCanvasAutoArrange`
+    // calls `pendingLayouts.applyMany(arranged)` synchronously inside
+    // the click handler. Without that call, a new terminal (worktree)
+    // created right after arrange resolves `placeNew(existing)` against
+    // pre-arrange layouts and overlaps the cluster — a race a polled
+    // tile-position assertion can't catch because metadata echoes
+    // arrive within its polling window.
     //
-    // Polled because pending is an ephemeral bridge: applyMany seeds
-    // it, the server echoes back ~10–50 ms later, the cleanup effect
-    // drops the entries. We only need to catch the seeded window —
-    // its presence proves the architectural property held even if
-    // it's been cleared by the time the next assertion runs.
+    // We assert against the append-only `__koluPendingApplyHistory`
+    // hook rather than the live pending store, because under CI load
+    // the cleanup effect (`dropEvicted`) can fire faster than the
+    // polling can observe the seeded window. The history survives the
+    // cleanup; what we care about is that `applyMany` was called for
+    // every visible tile.
     await this.page.waitForFunction(
       () => {
         const ids = Array.from(
@@ -326,11 +327,13 @@ Then(
         )
           .map((el) => (el as HTMLElement).getAttribute("data-terminal-id"))
           .filter((id): id is string => id !== null);
-        const pending = window.__koluPendingLayouts?.() ?? {};
-        return ids.length > 0 && ids.every((id) => Boolean(pending[id]));
+        const history = window.__koluPendingApplyHistory ?? [];
+        if (ids.length === 0 || history.length === 0) return false;
+        const seeded = new Set(history.flat());
+        return ids.every((id) => seeded.has(id));
       },
       undefined,
-      { timeout: POLL_TIMEOUT, polling: 8 },
+      { timeout: POLL_TIMEOUT },
     );
   },
 );

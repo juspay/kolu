@@ -177,7 +177,7 @@ Feature: Canvas workspace
     When I open the command palette
     And I type "Arrange canvas by repo" in the palette
     And I select "Arrange canvas by repo" in the palette
-    Then the canvas pending overrides should include all current tiles
+    Then arrange should have seeded pending overrides for all current tiles
     When I open the command palette
     And I select "New terminal" in the palette
     And I select "kolu-arrange-wt" in the palette

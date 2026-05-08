@@ -24,13 +24,15 @@ import { layoutsEqual, type TileLayout } from "./TileLayout";
 
 const [pending, setPending] = createStore<Record<string, TileLayout>>({});
 
-// E2e test hook — exposes a snapshot getter so step defs can assert
-// pending was seeded synchronously by arrange (catching the
-// pre-arrange layout race that a polled tile-position assertion would
-// miss because echoes arrive within the polling window). See
-// `kolu-common/test-hooks`.
+// E2e test hook — append-only history of every `applyMany` call. Use
+// instead of a snapshot getter on the live store: the snapshot races
+// the `dropEvicted` cleanup (under CI load the seeded window can be
+// shorter than the polling interval), but the history survives. The
+// fix for the worktree-after-arrange race is "applyMany is called
+// synchronously inside the arrange handler"; the history records
+// that call deterministically. See `kolu-common/test-hooks`. */
 if (typeof window !== "undefined") {
-  window.__koluPendingLayouts = () => ({ ...pending });
+  window.__koluPendingApplyHistory = [];
 }
 
 export function usePendingLayouts(): {
@@ -61,11 +63,15 @@ export function usePendingLayouts(): {
       setPending(id, layout);
     },
     applyMany(layouts) {
+      const ids = [...layouts.keys()];
       setPending(
         produce((draft: Record<string, TileLayout>) => {
           for (const [id, layout] of layouts) draft[id] = layout;
         }),
       );
+      if (typeof window !== "undefined") {
+        window.__koluPendingApplyHistory?.push(ids);
+      }
     },
     dropEvicted(alive, saved) {
       setPending(
