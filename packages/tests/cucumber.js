@@ -3,9 +3,11 @@ const parallel = parseInt(process.env.CUCUMBER_PARALLEL || "1", 10);
 // Only set default paths if no feature files were passed as CLI args.
 // CLI positional args (e.g. features/worktree.feature) are ignored when
 // the profile hardcodes paths — so we omit paths to let CLI args win.
+// Match both `foo.feature` and `foo.feature:42[:56...]` line-targeted forms;
+// missing the line form would inject `paths` and silently broaden the run.
 const cliHasFeatureArgs = process.argv
   .slice(2)
-  .some((a) => a.endsWith(".feature"));
+  .some((a) => /\.feature(?::\d+)*$/.test(a));
 
 // Default tag filter: exclude @skip'd scenarios (regression harnesses for
 // known-broken behavior). `CUCUMBER_TAGS` fully replaces the default — e.g.
