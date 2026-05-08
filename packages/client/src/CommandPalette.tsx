@@ -65,10 +65,10 @@ export interface PaletteGroup extends PaletteBase {
  *  with the typed value plus the highlighted label. Up/Down still moves
  *  the highlight; Backspace on an empty value drills back out.
  *
- *  Children are typed as `PaletteValueChild` so the "labels live inside
- *  value groups" invariant is enforced at compile time — no actions or
- *  nested groups can appear here. `onSubmit` receives the highlighted
- *  child narrowed to `PaletteLabel`.
+ *  Children are restricted to labels and hints — the type rules out
+ *  actions or nested groups, so the "labels live inside value groups"
+ *  invariant is enforced at compile time. `onSubmit` receives the
+ *  highlighted child narrowed to `PaletteLabel`.
  *
  *  `validate` runs on every keystroke; returning a non-null message
  *  paints the input red, renders the message under the input, and
@@ -80,7 +80,9 @@ export interface PaletteValueInput extends PaletteBase {
   validate?: (value: string) => string | null;
   onSubmit: (value: string, selected: PaletteLabel) => void;
   /** Static array or accessor for dynamic lists. */
-  children: PaletteValueChild[] | (() => PaletteValueChild[]);
+  children:
+    | (PaletteLabel | PaletteHint)[]
+    | (() => (PaletteLabel | PaletteHint)[]);
 }
 
 /** A passive selectable row inside a `PaletteValueInput`'s children —
@@ -100,9 +102,6 @@ export interface PaletteHint {
  *  permitted at the top level; they appear only as `PaletteValueInput`
  *  children. */
 export type PaletteCommand = PaletteAction | PaletteGroup | PaletteValueInput;
-
-/** Children of a `PaletteValueInput`: passive labels plus optional hints. */
-export type PaletteValueChild = PaletteLabel | PaletteHint;
 
 /** Anything renderable at a palette level. */
 export type PaletteItem = PaletteCommand | PaletteLabel | PaletteHint;
@@ -140,7 +139,6 @@ const CommandPalette: Component<{
   const [selectedIndex, setSelectedIndex] = createSignal(0);
   // Ignore mouseEnter until a real mouse move after opening (prevents cursor-under-palette hijack).
   const [mouseActive, setMouseActive] = createSignal(false);
-  // Navigation path: list of group commands we've drilled into.
   const [path, setPath] = createSignal<(PaletteGroup | PaletteValueInput)[]>(
     [],
   );
@@ -212,12 +210,13 @@ const CommandPalette: Component<{
     return m.leaf.validate?.(query()) ?? null;
   });
 
-  /** Input placeholder, derived from mode. */
-  const placeholder = createMemo(() => {
+  /** Input placeholder, derived from mode. Plain function — single
+   *  consumer (the input element). */
+  function placeholder(): string {
     const m = mode();
     if (m.kind === "value") return m.leaf.placeholder ?? "Type a command...";
     return "Type a command...";
-  });
+  }
 
   /** Interactive rows at the current level (filter is bypassed in value
    *  mode). Filter mode produces `PaletteCommand[]`; value mode produces
@@ -319,7 +318,6 @@ const CommandPalette: Component<{
         );
         break;
       case "Backspace":
-        // Drill out when backspacing on empty query
         if (query() === "" && path().length > 0) {
           navigateTo(path().length - 1);
           break;

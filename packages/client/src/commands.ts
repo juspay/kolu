@@ -9,9 +9,9 @@ import { availableThemes } from "terminal-themes";
 import type {
   PaletteAction,
   PaletteCommand,
+  PaletteHint,
   PaletteItem,
   PaletteLabel,
-  PaletteValueChild,
   PaletteValueInput,
 } from "./CommandPalette";
 import { type ActionContext, actionPaletteCommand } from "./input/actions";
@@ -46,7 +46,9 @@ function agentItems(
  *  CLI string to launch (or `undefined` for plain shell). They render as
  *  passive labels — Enter/click routes through the value group's
  *  `onSubmit`, not these rows' own (absent) handler. */
-function worktreeAgentOptions(agents: RecentAgent[]): PaletteValueChild[] {
+function worktreeAgentOptions(
+  agents: RecentAgent[],
+): (PaletteLabel | PaletteHint)[] {
   return [
     { kind: "label", name: "Plain shell", data: undefined },
     ...agents.map(
@@ -115,7 +117,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
                   typeof selected.data === "string" ? selected.data : undefined;
                 deps.handleCreateWorktree(r.repoRoot, name.trim(), agentCmd);
               },
-              children: (): PaletteValueChild[] =>
+              children: (): (PaletteLabel | PaletteHint)[] =>
                 worktreeAgentOptions(recentAgents()),
             }),
           ),
