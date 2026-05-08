@@ -24,12 +24,7 @@ import CloseConfirm, { type CloseConfirmTarget } from "./CloseConfirm";
 import CommandPalette from "./CommandPalette";
 import "kolu-common/test-hooks";
 import CanvasWatermark from "./canvas/CanvasWatermark";
-import {
-  arrangeRepoIslands,
-  placeNextToBucket,
-  type RepoIslandTile,
-} from "./canvas/repoIslands";
-import { layoutsEqual, type TileLayout } from "./canvas/TileLayout";
+import { useCanvasArrange } from "./canvas/useCanvasArrange";
 import WorkspaceSwitcher, {
   buildWorkspaceEntries,
   buildWorkspaceSwitcherModel,
@@ -187,89 +182,12 @@ const App: Component = () => {
     if (tile) canvasViewport.centerOnTile(tile);
   }
 
-  /** Apply a tile's geometry — drag-end, resize-end, default-place,
-   *  and arrange all flow through this single point. The 500ms session
-   *  auto-save throttle on the server collapses N writes into one save,
-   *  so the per-tile RPC is fine for batch flows like arrange. */
-  function applyTileGeometry(id: TerminalId, layout: TileLayout) {
-    crud.setCanvasLayout(id, layout);
-  }
-
-  /** Bucket key used by repo-island layout — `key.group` from
-   *  `terminalKey(meta)`. Single site so a future rule change (e.g.
-   *  sub-terminals share parent's bucket) doesn't have to track down
-   *  every projection. */
-  function getBucketFor(id: TerminalId): string | undefined {
-    return store.getDisplayInfo(id)?.key.group;
-  }
-
-  /** Resolve a placement bucket for a tile whose git may not have been
-   *  resolved yet. Tries `key.group` first (already-projected); if that
-   *  doesn't match any candidate bucket, walks `candidateIds` for a
-   *  sibling whose git repo contains this tile's cwd and returns its
-   *  bucket. The fallback covers the common race: a fresh terminal's
-   *  metadata yields with `cwd` set but `git` still null, so its
-   *  basename-derived `key.group` doesn't match a sibling whose git is
-   *  fully resolved. */
-  function resolvePlacementBucket(
-    id: TerminalId,
-    candidateIds: TerminalId[],
-  ): string | undefined {
-    const ownBucket = getBucketFor(id);
-    if (ownBucket && candidateIds.some((c) => getBucketFor(c) === ownBucket)) {
-      return ownBucket;
-    }
-    const cwd = store.getMetadata(id)?.cwd;
-    if (!cwd) return ownBucket;
-    // Prefer the most-specific (longest) repo root so a terminal in a
-    // nested repo lands in the child repo's island, not the parent's —
-    // matches what the user would expect when they cd into a submodule.
-    let best: { bucket: string; rootLength: number } | undefined;
-    for (const candidate of candidateIds) {
-      const root = store.getMetadata(candidate)?.git?.repoRoot;
-      if (!root) continue;
-      if (cwd === root || cwd.startsWith(`${root}/`)) {
-        const bucket = getBucketFor(candidate);
-        if (!bucket) continue;
-        if (!best || root.length > best.rootLength) {
-          best = { bucket, rootLength: root.length };
-        }
-      }
-    }
-    return best?.bucket ?? ownBucket;
-  }
-
-  function repoIslandTileFor(
-    id: TerminalId,
-    layout: TileLayout,
-  ): RepoIslandTile | undefined {
-    const bucket = getBucketFor(id);
-    return bucket ? { id, bucket, layout } : undefined;
-  }
-
-  function handleCanvasAutoArrange() {
-    if (isMobile()) return;
-    const tiles = store.terminalIds().flatMap((id) => {
-      const layout = store.getMetadata(id)?.canvasLayout;
-      if (!layout) return [];
-      const tile = repoIslandTileFor(id, layout);
-      return tile ? [tile] : [];
-    });
-    const arranged = arrangeRepoIslands(tiles);
-    // Skip no-op writes: a re-arrange of an already-arranged workspace
-    // shouldn't fire N round-trip RPCs and trigger a session-dirty save.
-    for (const [id, layout] of arranged) {
-      const prev = store.getMetadata(id)?.canvasLayout;
-      if (!prev || !layoutsEqual(prev, layout)) {
-        applyTileGeometry(id, layout);
-      }
-    }
-    // Recenter on the active tile's new position so a far-away active
-    // tile doesn't end up off-screen after arrange.
-    const activeId = store.activeId();
-    const activeLayout = activeId ? arranged.get(activeId) : undefined;
-    if (activeLayout) canvasViewport.centerOnTile(activeLayout);
-  }
+  const arrange = useCanvasArrange({
+    store,
+    crud,
+    viewport: canvasViewport,
+    isMobile,
+  });
 
   // Shared between the keyboard dispatcher and the command palette so a single
   // wiring keeps both surfaces in sync. Palette-only deps (theme management,
@@ -367,7 +285,7 @@ const App: Component = () => {
     simulateAlert: alerts.simulateAlert,
     isMobile,
     canvasCenterActive: handleCanvasCenterActive,
-    canvasAutoArrange: handleCanvasAutoArrange,
+    canvasAutoArrange: arrange.handleCanvasAutoArrange,
   });
 
   // Reset state on close and return focus to terminal
@@ -629,19 +547,8 @@ const App: Component = () => {
                     tileIds={store.terminalIds()}
                     watermark={appTitle()}
                     getLayout={(id) => store.getMetadata(id)?.canvasLayout}
-                    placeNew={(id, existing) => {
-                      const bucket = resolvePlacementBucket(
-                        id,
-                        existing.map((e) => e.id),
-                      );
-                      if (!bucket) return undefined;
-                      const islands = existing.flatMap((e) => {
-                        const t = repoIslandTileFor(e.id, e.layout);
-                        return t ? [t] : [];
-                      });
-                      return placeNextToBucket(bucket, islands);
-                    }}
-                    onLayoutChange={applyTileGeometry}
+                    placeNew={arrange.placeNew}
+                    onLayoutChange={arrange.applyTileGeometry}
                     onSelect={(id) => store.setActiveId(id)}
                     onClose={(id) => closeTerminal(id)}
                     renderTileTitle={(id) => (
