@@ -1,25 +1,26 @@
 /** Typed accessor for the active terminal's DOM node.
  *
- *  The canvas marks its active tile with `data-active="true"` on the
- *  CanvasTile wrapper; the inner Terminal element (xterm) carries
- *  `data-terminal-id` and `data-visible`. To "focus the active terminal"
- *  callers need to find the Terminal element *inside* the active tile —
- *  a two-attribute query. This module is the single grep-able home for
- *  that contract so refocus / scroll / scope-of-active-terminal logic
- *  doesn't depend on the raw attribute strings (issue #845).
+ *  The canvas marks its tiles with `data-canvas-tile=""` on the
+ *  CanvasTile wrapper and `data-active="true"` when the tile is the
+ *  user's selection. The inner Terminal element (xterm) carries
+ *  `data-terminal-id` and `data-visible`. To "focus the active
+ *  terminal" callers need to find the Terminal element *inside* the
+ *  active tile — a two-attribute query. This module is the single
+ *  grep-able home for that contract (issue #845).
  *
- *  **Scoped to canvas tiles, NOT just `data-active='true'`.** Other
- *  producers in the app set `data-active="true"` via boolean coercion
- *  (RightPanel buttons, ModeChipPicker entries — see RightPanel.tsx,
- *  ModeChipPicker.tsx). A bare `[data-active='true']` selector
- *  resolves to whichever such element comes first in DOM order —
- *  often a right-panel chip when the inspector is open — and the
- *  inner-terminal lookup then finds nothing, falling back to the
- *  first canvas tile and silently flipping `activeId` to it. The
- *  combined `[data-testid='canvas-tile'][data-active='true']` selector
- *  scopes the match to CanvasTile's wrapper specifically. */
+ *  **The selector is scoped via `data-canvas-tile`, not `data-testid`.**
+ *  `data-active="true"` collides with several producers (RightPanel
+ *  inspector tab, ModeChipPicker chips, SubPanelTabBar entries —
+ *  boolean coercion → "true"); a bare `[data-active='true']` would
+ *  resolve to whichever non-tile element comes first in DOM order,
+ *  the inner lookup would find nothing, refocus would fall back to
+ *  the first canvas tile, and `activeId` would silently flip off
+ *  the user's selection. We need a canvas-tile-only marker. We
+ *  use a dedicated production attribute (`data-canvas-tile`) rather
+ *  than `data-testid="canvas-tile"` so a future test-attribute
+ *  rename can't silently break refocus. */
 
-const ACTIVE_TILE_SELECTOR = "[data-testid='canvas-tile'][data-active='true']";
+const ACTIVE_TILE_SELECTOR = "[data-canvas-tile][data-active='true']";
 const TERMINAL_INNER_SELECTOR = "[data-visible][data-terminal-id]";
 
 /** The Terminal-element child of the active CanvasTile, or null when no

@@ -82,6 +82,7 @@ const CanvasTile: Component<{
     <div
       ref={draggable.ref}
       data-testid="canvas-tile"
+      data-canvas-tile=""
       data-terminal-id={id}
       data-active={props.active ? "true" : undefined}
       data-maximized={props.maximized ? "true" : undefined}

@@ -18,7 +18,7 @@
  *  module is the shared seam Lowy flagged in the PR #844 fourth-pass
  *  review. */
 
-import type { TerminalId } from "kolu-common/surface";
+import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import type { TerminalStore } from "../terminal/useTerminalStore";
 
 /** Bucket key for a terminal — `key.group` from `terminalKey(meta)`.
@@ -53,30 +53,60 @@ export function resolvePlacementBucket(
   }
   const cwd = store.getMetadata(id)?.cwd;
   if (!cwd) return ownBucket;
-  // Walk both `repoRoot` (current working tree) and `mainRepoRoot`
-  // (parent repo for worktrees). Without `mainRepoRoot` the fallback
-  // misses the case where every existing tile is a worktree of the
-  // same repo: each worktree's `repoRoot` is its own working dir, so
-  // a new worktree's cwd doesn't start with any sibling's root, and
-  // `placeNew` would return undefined → the new tile cascades at
-  // viewport center instead of joining its repo cluster.
-  // Prefer the most-specific (longest) match so a terminal in a
-  // nested repo lands in the child repo's island, not the parent's.
+  return resolveByContainment(store, cwd, candidateIds) ?? ownBucket;
+}
+
+/** Containment fallback for `resolvePlacementBucket`: walk every
+ *  candidate's git roots, return the bucket whose root MOST
+ *  SPECIFICALLY contains `cwd`.
+ *
+ *  Specificity = path length. Two intuitions ride on the same length
+ *  comparison and happen to agree under git's worktree layout:
+ *  - **Nested-repo precedence**: a submodule's working tree at
+ *    `/repo/sub` outranks the parent at `/repo`.
+ *  - **Same-worktree-over-parent precedence**: a worktree's own
+ *    `repoRoot` (e.g. `/repo/.worktrees/wt0`) outranks its
+ *    `mainRepoRoot` (`/repo`). When the user opens a new terminal
+ *    inside `/repo/.worktrees/wt0`, the existing wt0 tile wins over
+ *    a parent-repo tile — that's the user's mental model.
+ *
+ *  Both intuitions are captured by "longest matched root wins". If
+ *  a future workspace concept (monorepo, common-dir for stacked
+ *  worktrees, …) breaks the path-length proxy, this is the site to
+ *  split the comparator. */
+function resolveByContainment(
+  store: TerminalStore,
+  cwd: string,
+  candidateIds: TerminalId[],
+): string | undefined {
   let best: { bucket: string; rootLength: number } | undefined;
   for (const candidate of candidateIds) {
-    const meta = store.getMetadata(candidate);
-    const roots = [meta?.git?.repoRoot, meta?.git?.mainRepoRoot].filter(
-      (r): r is string => Boolean(r),
-    );
-    for (const root of roots) {
-      if (cwd === root || cwd.startsWith(`${root}/`)) {
-        const bucket = getBucketFor(store, candidate);
-        if (!bucket) continue;
-        if (!best || root.length > best.rootLength) {
-          best = { bucket, rootLength: root.length };
-        }
+    const bucket = getBucketFor(store, candidate);
+    if (!bucket) continue;
+    for (const root of candidateRootsFor(store.getMetadata(candidate))) {
+      if (cwd !== root && !cwd.startsWith(`${root}/`)) continue;
+      if (!best || root.length > best.rootLength) {
+        best = { bucket, rootLength: root.length };
       }
     }
   }
-  return best?.bucket ?? ownBucket;
+  return best?.bucket;
+}
+
+/** The git roots that count for placement-containment matching. For a
+ *  non-worktree tile both fields equal the same path, so we dedupe; for
+ *  a worktree, `repoRoot` is the worktree's own working dir and
+ *  `mainRepoRoot` is the shared parent — both can legitimately contain
+ *  another tile's cwd. Adding a future root field (e.g. monorepo
+ *  workspace, git's `commondir` for stacked worktrees) is one update
+ *  here, not at every walk site. */
+function candidateRootsFor(
+  meta: TerminalMetadata | undefined,
+): readonly string[] {
+  const git = meta?.git;
+  if (!git) return [];
+  const roots = new Set<string>();
+  if (git.repoRoot) roots.add(git.repoRoot);
+  if (git.mainRepoRoot) roots.add(git.mainRepoRoot);
+  return [...roots];
 }
