@@ -28,6 +28,7 @@ import {
   For,
   type JSX,
   on,
+  onCleanup,
   Show,
 } from "solid-js";
 import { useTerminalStore } from "../terminal/useTerminalStore";
@@ -35,7 +36,7 @@ import CanvasMinimap from "./CanvasMinimap";
 import CanvasTile from "./CanvasTile";
 import CanvasWatermark from "./CanvasWatermark";
 import { applyResize, type ResizeDirection } from "./resizeGeometry";
-import { layoutsEqual, type TileLayout } from "./TileLayout";
+import type { TileLayout } from "./TileLayout";
 import {
   DEFAULT_TILE_H,
   DEFAULT_TILE_W,
@@ -79,7 +80,15 @@ const TerminalCanvas: Component<{
   ) => TileLayout | undefined;
   /** Optional one-shot arrange trigger. When provided, the minimap
    *  zoom-bar grows an arrange button. The canvas is just plumbing —
-   *  the arrange logic itself lives in `useCanvasArrange`. */
+   *  the arrange logic itself lives in `useCanvasArrange`.
+   *
+   *  Threaded as a prop rather than consumed via a singleton hook
+   *  (the way `useCanvasViewport` and `usePendingLayouts` are read
+   *  inside `CanvasMinimap`) because `useCanvasArrange` takes
+   *  composition-root deps (`{ store, crud, viewport, isMobile }`) —
+   *  it's a function, not a zero-arg singleton. The prop captures
+   *  the bound result; the minimap doesn't know or care about the
+   *  arrange policy. */
   onAutoArrange?: () => void;
   /** Report a layout change (drag commit, resize commit, default assignment). */
   onLayoutChange: (id: TerminalId, layout: TileLayout) => void;
@@ -109,30 +118,23 @@ const TerminalCanvas: Component<{
   const setPendingLayout = (id: string, layout: TileLayout) =>
     pendingLayouts.setOne(id, layout);
 
+  // Drop pending entries for tiles that died OR whose echo caught up.
+  // The cleanup policy itself lives inside `usePendingLayouts` so the
+  // canvas only owns the trigger (tileIds + getLayout changes), not the
+  // rule. `getLayout` is captured in a stable closure so SolidJS's
+  // fine-grained tracking re-runs the effect when either input shifts.
   createEffect(() => {
-    const p = pendingLayouts.pending();
-    const alive = new Set(props.tileIds);
-    let changed = false;
-    const next: Record<string, TileLayout> = {};
-    for (const [id, layout] of Object.entries(p)) {
-      // Drop entries for removed tiles — metadata never arrives for them.
-      if (!alive.has(id)) {
-        changed = true;
-        continue;
-      }
-      const current = props.getLayout(id);
-      if (current && layoutsEqual(current, layout)) {
-        changed = true;
-      } else {
-        next[id] = layout;
-      }
-    }
-    if (changed) pendingLayouts.replace(next);
+    pendingLayouts.dropEvicted(new Set(props.tileIds), props.getLayout);
   });
+
+  // Pending lives at module scope (singleton, shared with useCanvasArrange).
+  // Flush on canvas unmount so a mobile↔desktop remount never inherits a
+  // stale entry whose echo arrived while the canvas was gone.
+  onCleanup(() => pendingLayouts.clear());
 
   /** Effective layout for a tile (pending override wins over saved). */
   function layoutOf(id: string): TileLayout | undefined {
-    return pendingLayouts.pending()[id] ?? props.getLayout(id);
+    return pendingLayouts.pending[id] ?? props.getLayout(id);
   }
 
   /** Merged layouts keyed by tile ID — consumed by CanvasTile and CanvasMinimap. */
@@ -273,7 +275,7 @@ const TerminalCanvas: Component<{
         onEnd: (ev) => {
           abortResize = null;
           // No motion — skip commit so a bare click doesn't round-trip the server.
-          if (!pendingLayouts.pending()[id]) return;
+          if (!pendingLayouts.pending[id]) return;
           const { dx, dy } = viewport.normalizeDelta(
             ev.clientX - startX,
             ev.clientY - startY,

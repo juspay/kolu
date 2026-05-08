@@ -305,30 +305,33 @@ Then(
   "the canvas pending overrides should include all current tiles",
   async function (this: KoluWorld) {
     // Asserts the architectural invariant that `useCanvasArrange.handleCanvasAutoArrange`
-    // seeds pending BEFORE the server writes go out. Without that seeding,
-    // a new terminal (worktree) created right after arrange would resolve
-    // its `placeNew(existing)` against pre-arrange layouts and overlap the
-    // cluster — a race a polled position assertion can't catch in tests
-    // because metadata echoes arrive within the polling window.
-    const result = await this.page.evaluate(() => {
-      const ids = Array.from(
-        document.querySelectorAll(
-          "[data-testid='canvas-container'] [data-terminal-id][data-visible]",
-        ),
-      ).map((el) => (el as HTMLElement).getAttribute("data-terminal-id"));
-      const pending = window.__koluPendingLayouts?.() ?? {};
-      const missing = ids.filter((id) => !id || !pending[id]);
-      return { ids, pendingKeys: Object.keys(pending), missing };
-    });
-    if (result.missing.length > 0) {
-      throw new Error(
-        `Expected pending overrides for all tiles, got pending=${JSON.stringify(
-          result.pendingKeys,
-        )} tiles=${JSON.stringify(result.ids)} missing=${JSON.stringify(
-          result.missing,
-        )}`,
-      );
-    }
+    // seeds pending BEFORE the server writes go out. Without that
+    // seeding, a new terminal (worktree) created right after arrange
+    // would resolve its `placeNew(existing)` against pre-arrange
+    // layouts and overlap the cluster — a race a polled position
+    // assertion can't catch because metadata echoes arrive within the
+    // polling window.
+    //
+    // Polled because pending is an ephemeral bridge: applyMany seeds
+    // it, the server echoes back ~10–50 ms later, the cleanup effect
+    // drops the entries. We only need to catch the seeded window —
+    // its presence proves the architectural property held even if
+    // it's been cleared by the time the next assertion runs.
+    await this.page.waitForFunction(
+      () => {
+        const ids = Array.from(
+          document.querySelectorAll(
+            "[data-testid='canvas-container'] [data-terminal-id][data-visible]",
+          ),
+        )
+          .map((el) => (el as HTMLElement).getAttribute("data-terminal-id"))
+          .filter((id): id is string => id !== null);
+        const pending = window.__koluPendingLayouts?.() ?? {};
+        return ids.length > 0 && ids.every((id) => Boolean(pending[id]));
+      },
+      undefined,
+      { timeout: POLL_TIMEOUT, polling: 8 },
+    );
   },
 );
 

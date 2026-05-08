@@ -34,7 +34,14 @@ const CanvasMinimap: Component<{
   /** Optional: trigger the arrange-by-repo command. When provided, the
    *  zoom bar grows an arrange button that fires this callback. Hidden
    *  for single-tile workspaces (a single-tile arrange is a visual no-op,
-   *  same gate as the palette entry). */
+   *  same gate as the palette entry).
+   *
+   *  Why a prop and not `useCanvasArrange()` directly: this minimap
+   *  consumes `useCanvasViewport()` and `useTerminalStore()` as
+   *  zero-arg singletons, but `useCanvasArrange` takes composition-
+   *  root deps (`{ store, crud, viewport, isMobile }`) bound once at
+   *  App.tsx. The prop carries the bound result; the minimap stays
+   *  ignorant of the arrange policy itself. */
   onAutoArrange?: () => void;
 }> = (props) => {
   const viewport = useCanvasViewport();
