@@ -170,12 +170,7 @@ const WorkspaceSearchPanel: Component<{
                       {column().label}
                     </div>
                     <div class="font-mono text-[0.65rem] text-fg-3 tabular-nums">
-                      {column()
-                        .entries.filter(
-                          (entry) => !isStale(entry.info.meta.lastActivityAt),
-                        )
-                        .length.toString()
-                        .padStart(2, "0")}
+                      {column().nonStaleCount.toString().padStart(2, "0")}
                     </div>
                   </div>
                   <div class="flex flex-col gap-2">

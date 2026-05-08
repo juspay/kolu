@@ -128,10 +128,15 @@ export type WorkspaceRepoFacet = {
   color: string;
 };
 
-/** Agent bucket plus the entries currently visible in that column. */
+/** Agent bucket plus the entries currently visible in that column.
+ *  `nonStaleCount` is the active subset — entries whose last observed
+ *  agent transition is recent enough to count toward the visible badge.
+ *  When the model is built without an `isStale` predicate, every entry is
+ *  counted as live (so legacy callers see `entries.length`). */
 export type WorkspaceSwitcherColumn =
   (typeof WORKSPACE_AGENT_BUCKETS)[number] & {
     entries: WorkspaceSwitcherEntry[];
+    nonStaleCount: number;
   };
 
 /** Complete derived model for collapsed and expanded switcher renderers. */
@@ -320,7 +325,9 @@ function compactGroupsFor(
 /** Derive all switcher projections (search, facets, bucket columns,
  *  compact groups) from one live-terminal entry list. Owns the ordering
  *  pipeline — when `getRecency` is provided, applies `sortBySwitcherOrder`
- *  internally so callers can't feed unsorted entries into the grouping. */
+ *  internally so callers can't feed unsorted entries into the grouping.
+ *  When `isStale` is provided, each column's `nonStaleCount` excludes
+ *  parked-by-inactivity entries; otherwise every entry counts as live. */
 export function buildWorkspaceSwitcherModel(
   sources: WorkspaceSwitcherSourceEntry[],
   options: {
@@ -328,6 +335,7 @@ export function buildWorkspaceSwitcherModel(
     repoFilter?: string | null;
     activeId?: TerminalId | null;
     getRecency?: (id: TerminalId) => number;
+    isStale?: (lastActivityAt: number) => boolean;
   } = {},
 ): WorkspaceSwitcherModel {
   const ordered = options.getRecency
@@ -354,10 +362,19 @@ export function buildWorkspaceSwitcherModel(
     options.repoFilter ?? null,
   );
 
-  const columns = WORKSPACE_AGENT_BUCKETS.map((bucket) => ({
-    ...bucket,
-    entries: visibleEntries.filter((entry) => entry.bucket === bucket.key),
-  }));
+  const isStale = options.isStale;
+  const columns = WORKSPACE_AGENT_BUCKETS.map((bucket) => {
+    const bucketEntries = visibleEntries.filter(
+      (entry) => entry.bucket === bucket.key,
+    );
+    const nonStaleCount = isStale
+      ? bucketEntries.reduce(
+          (n, entry) => (isStale(entry.info.meta.lastActivityAt) ? n : n + 1),
+          0,
+        )
+      : bucketEntries.length;
+    return { ...bucket, entries: bucketEntries, nonStaleCount };
+  });
 
   return {
     entries,

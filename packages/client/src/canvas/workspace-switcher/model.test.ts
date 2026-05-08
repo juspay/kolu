@@ -333,6 +333,41 @@ describe("buildWorkspaceSwitcherModel", () => {
     ]);
   });
 
+  it("counts every entry as live when no isStale predicate is supplied", () => {
+    const model = modelFor(entries);
+
+    expect(model.columns.map((column) => column.nonStaleCount)).toEqual(
+      model.columns.map((column) => column.entries.length),
+    );
+  });
+
+  it("excludes stale entries from each column's nonStaleCount but keeps them in entries", () => {
+    // Seed t1 (awaiting) and t3 (none) with lastActivityAt=1 so the
+    // predicate marks them stale; t2 and t4 stay at the default (0) and
+    // remain live.
+    const seeded = entries.map((entry) =>
+      entry.id === "t1" || entry.id === "t3"
+        ? {
+            ...entry,
+            info: {
+              ...entry.info,
+              meta: { ...entry.info.meta, lastActivityAt: 1 },
+            },
+          }
+        : entry,
+    );
+    const m = modelFor(seeded, {
+      isStale: (lastActivityAt) => lastActivityAt === 1,
+    });
+    // Column entries unchanged — stale terminals stay in their bucket.
+    expect(m.columns[0]?.entries.map((e) => e.id)).toEqual(["t1"]);
+    expect(m.columns[2]?.entries.map((e) => e.id)).toEqual(["t3", "t4"]);
+    // Counts exclude stale.
+    expect(m.columns[0]?.nonStaleCount).toBe(0);
+    expect(m.columns[1]?.nonStaleCount).toBe(1);
+    expect(m.columns[2]?.nonStaleCount).toBe(1);
+  });
+
   it("builds repo facets from the same query-matched entry set", () => {
     const model = modelFor(entries, { query: "api" });
 
