@@ -220,8 +220,19 @@ const App: Component = () => {
       return tile ? [tile] : [];
     });
     const arranged = arrangeRepoIslands(tiles);
+    // Skip no-op writes: a re-arrange of an already-arranged workspace
+    // shouldn't fire N round-trip RPCs and trigger a session-dirty save.
     for (const [id, layout] of arranged) {
-      applyTileGeometry(id, layout);
+      const prev = store.getMetadata(id)?.canvasLayout;
+      if (
+        !prev ||
+        prev.x !== layout.x ||
+        prev.y !== layout.y ||
+        prev.w !== layout.w ||
+        prev.h !== layout.h
+      ) {
+        applyTileGeometry(id, layout);
+      }
     }
     // Recenter on the active tile's new position so a far-away active
     // tile doesn't end up off-screen after arrange.
