@@ -98,9 +98,12 @@ const CanvasTile: Component<{
       height: `${layout().h}px`,
       "z-index": props.active ? 10 : 1,
       opacity: props.active ? 1 : 0.92,
+      // Layered elevation — long soft shadow for ambient lift +
+      // shorter contact shadow for grounding. Inactive tiles stay
+      // nearly flat so the focused tile clearly hovers above peers.
       "box-shadow": props.active
-        ? "0 8px 32px rgba(0,0,0,0.4)"
-        : "0 2px 8px rgba(0,0,0,0.2)",
+        ? "0 24px 48px -12px rgba(0,0,0,0.55), 0 6px 14px -4px rgba(0,0,0,0.4)"
+        : "0 1px 3px rgba(0,0,0,0.18)",
       // Drag transform is screen-space — divide by zoom so the tile
       // moves at the correct rate in the scaled canvas coordinate system.
       transform: `translate(${draggable.transform.x / props.zoom()}px, ${draggable.transform.y / props.zoom()}px)`,
