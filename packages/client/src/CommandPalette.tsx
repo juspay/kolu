@@ -61,8 +61,13 @@ export interface PaletteGroup extends PaletteBase {
  *  value field — pre-filled with `prefill()` and auto-selected on focus.
  *  Children are passive label rows: their own `onSelect` (if any) is
  *  bypassed and Enter (or click) routes through this group's `onSubmit`
- *  with the typed value plus the highlighted child. Up/Down still moves
+ *  with the typed value plus the highlighted label. Up/Down still moves
  *  the highlight; Backspace on an empty value drills back out.
+ *
+ *  Children are typed as `PaletteValueChild` so the "labels live inside
+ *  value groups" invariant is enforced at compile time — no actions or
+ *  nested groups can appear here. `onSubmit` receives the highlighted
+ *  child narrowed to `PaletteLabel`.
  *
  *  `validate` runs on every keystroke; returning a non-null message
  *  paints the input red, renders the message under the input, and
@@ -72,9 +77,9 @@ export interface PaletteValueInput extends PaletteBase {
   prefill: () => string;
   placeholder?: string;
   validate?: (value: string) => string | null;
-  onSubmit: (value: string, selected: PaletteCommand) => void;
+  onSubmit: (value: string, selected: PaletteLabel) => void;
   /** Static array or accessor for dynamic lists. */
-  children: PaletteItem[] | (() => PaletteItem[]);
+  children: PaletteValueChild[] | (() => PaletteValueChild[]);
 }
 
 /** A passive selectable row inside a `PaletteValueInput`'s children —
@@ -90,26 +95,30 @@ export interface PaletteHint {
   text: string;
 }
 
-export type PaletteCommand =
-  | PaletteAction
-  | PaletteGroup
-  | PaletteValueInput
-  | PaletteLabel;
+/** Top-level commands — action, group, or value-input. Labels are not
+ *  permitted at the top level; they appear only as `PaletteValueInput`
+ *  children. */
+export type PaletteCommand = PaletteAction | PaletteGroup | PaletteValueInput;
 
-/** Anything renderable at a palette level — a command or a hint. */
-export type PaletteItem = PaletteCommand | PaletteHint;
+/** Children of a `PaletteValueInput`: passive labels plus optional hints. */
+export type PaletteValueChild = PaletteLabel | PaletteHint;
 
-function isCommand(item: PaletteItem): item is PaletteCommand {
-  return item.kind !== "hint";
+/** Anything renderable at a palette level. */
+export type PaletteItem = PaletteCommand | PaletteLabel | PaletteHint;
+
+function isGroup(item: PaletteItem): item is PaletteGroup | PaletteValueInput {
+  return item.kind === "group" || item.kind === "value";
 }
 
-function isGroup(cmd: PaletteCommand): cmd is PaletteGroup | PaletteValueInput {
-  return cmd.kind === "group" || cmd.kind === "value";
-}
-
-/** Resolve children, handling both static arrays and accessors. */
+/** Resolve children, handling both static arrays and accessors.
+ *  `PaletteValueChild` is a subset of `PaletteItem`, so a value-group's
+ *  children fit the wider return type. */
 function resolveChildren(cmd: PaletteGroup | PaletteValueInput): PaletteItem[] {
   return typeof cmd.children === "function" ? cmd.children() : cmd.children;
+}
+
+function assertNever(x: never): never {
+  throw new Error(`unhandled palette command kind: ${JSON.stringify(x)}`);
 }
 
 /** Ctrl+key → normalized key for readline-style navigation. */
@@ -162,7 +171,7 @@ const CommandPalette: Component<{
     for (const segment of p) {
       const match = level.find(
         (item): item is PaletteGroup | PaletteValueInput =>
-          isCommand(item) && item.name === segment.name && isGroup(item),
+          isGroup(item) && item.name === segment.name,
       );
       if (!match) return resolveChildren(last);
       level = resolveChildren(match);
@@ -170,17 +179,18 @@ const CommandPalette: Component<{
     return level;
   });
 
-  /** Single-pass partition of `currentItems()` into commands and hints —
-   *  one traversal feeds both consumers (the list and the hint footer). */
+  /** Single-pass partition of `currentItems()` into interactive rows
+   *  (commands or labels) and hints — one traversal feeds both consumers
+   *  (the list and the hint footer). */
   const partitioned = createMemo(() => {
     const items = currentItems();
-    const commands: PaletteCommand[] = [];
+    const interactive: (PaletteCommand | PaletteLabel)[] = [];
     const hints: PaletteHint[] = [];
     for (const item of items) {
       if (item.kind === "hint") hints.push(item);
-      else commands.push(item);
+      else interactive.push(item);
     }
-    return { commands, hints };
+    return { interactive, hints };
   });
 
   /** Discriminated UI mode driven by the deepest path segment.
@@ -212,9 +222,11 @@ const CommandPalette: Component<{
     return "Type a command...";
   });
 
-  /** Commands at the current level (filter is bypassed in value mode). */
-  const filtered = createMemo((): PaletteCommand[] => {
-    const items = partitioned().commands;
+  /** Interactive rows at the current level (filter is bypassed in value
+   *  mode). Filter mode produces `PaletteCommand[]`; value mode produces
+   *  `PaletteLabel[]` — the union covers both without dynamic typing. */
+  const filtered = createMemo((): (PaletteCommand | PaletteLabel)[] => {
+    const items = partitioned().interactive;
     if (mode().kind === "value") return items;
     const q = query().toLowerCase();
     return items.filter(
@@ -263,29 +275,37 @@ const CommandPalette: Component<{
     props.onOpenChange(open);
   }
 
-  function execute(cmd: PaletteCommand) {
+  function execute(cmd: PaletteCommand | PaletteLabel) {
     const m = mode();
     if (m.kind === "value") {
+      // Structural invariant: value-input children are PaletteLabel —
+      // anything else here is a caller bug.
+      if (cmd.kind !== "label") return;
       // Block submit while the typed value is invalid; the inline error
       // row already tells the user what to fix.
       if (valueError()) return;
-      // Children in value mode are passive — Enter routes through the
-      // leaf's onSubmit with the typed value + highlighted child.
       closeForSelection();
       m.leaf.onSubmit(query(), cmd);
       return;
     }
-    if (cmd.kind === "group" || cmd.kind === "value") {
-      drillInto(cmd);
-      return;
+    // Filter mode — labels never appear at the top level (enforced by
+    // PaletteValueChild only being reachable inside a value group).
+    switch (cmd.kind) {
+      case "group":
+      case "value":
+        drillInto(cmd);
+        return;
+      case "action":
+        // Close first so the highlight effect stops tracking filtered(),
+        // preventing onSelect's state changes from re-triggering a preview.
+        closeForSelection();
+        cmd.onSelect();
+        return;
+      case "label":
+        return;
+      default:
+        assertNever(cmd);
     }
-    if (cmd.kind === "action") {
-      // Close first so the highlight effect stops tracking filtered(),
-      // preventing onSelect's state changes from re-triggering a preview.
-      closeForSelection();
-      cmd.onSelect();
-    }
-    // PaletteLabel: not reachable in filter mode (labels live inside value groups).
   }
 
   function handleKeyDown(e: KeyboardEvent) {
@@ -368,7 +388,7 @@ const CommandPalette: Component<{
         .commands()
         .find(
           (c): c is PaletteGroup | PaletteValueInput =>
-            isCommand(c) && c.name === initial && isGroup(c),
+            isGroup(c) && c.name === initial,
         );
       if (group) drillInto(group);
     }),
