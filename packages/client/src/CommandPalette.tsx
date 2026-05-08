@@ -540,7 +540,7 @@ const CommandPalette: Component<{
                         →
                       </span>
                     </Show>
-                    <Show when={!isGroup(cmd) && cmd.keybind}>
+                    <Show when={cmd.kind === "action" && cmd.keybind}>
                       {(keybind) => {
                         const kb = keybind();
                         return (
