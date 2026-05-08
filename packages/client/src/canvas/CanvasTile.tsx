@@ -33,6 +33,10 @@ const CanvasTile: Component<{
   /** When true, the tile fills the canvas viewport (fixed inset-0) and
    *  drag/resize are disabled. Toggled by double-clicking the title bar. */
   maximized: boolean;
+  /** Presentational hint — when true and the tile is not active, render
+   *  faded so an inactive ("parked") tile recedes visually. The decision
+   *  itself lives in the caller; the tile shell only honors the bit. */
+  dimmed?: boolean;
   theme: TileTheme;
   onSelect: () => void;
   onClose: () => void;
@@ -60,6 +64,11 @@ const CanvasTile: Component<{
 
   const bg = () => props.theme.bg;
 
+  // Active stays full-strength regardless of dimmed — the user is looking
+  // right at it. Inactive defaults to 0.92; dimmed inactive drops to 0.55
+  // so a parked tile recedes without disappearing.
+  const inactiveOpacity = () => (props.dimmed ? 0.55 : 0.92);
+
   // While maximized: ignore drag transform and pin to viewport. While
   // tiled: absolute-positioned at layout(), drag transform follows.
   const tiledStyle = () => ({
@@ -69,7 +78,7 @@ const CanvasTile: Component<{
     height: `${layout().h}px`,
     "background-color": bg(),
     "z-index": props.active ? 10 : 1,
-    opacity: props.active ? 1 : 0.92,
+    opacity: props.active ? 1 : inactiveOpacity(),
     "box-shadow": props.active
       ? `0 8px 32px rgba(0,0,0,0.4), 0 0 0 1px var(--color-accent)`
       : `0 2px 8px rgba(0,0,0,0.2)`,
@@ -86,6 +95,7 @@ const CanvasTile: Component<{
       data-terminal-id={id}
       data-active={props.active ? "true" : undefined}
       data-maximized={props.maximized ? "true" : undefined}
+      data-dimmed={props.dimmed ? "true" : undefined}
       class="flex flex-col overflow-hidden border transition-shadow duration-200"
       classList={{
         // Maximized stays `absolute inset-0` so it fills the canvas

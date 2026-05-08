@@ -31,6 +31,7 @@ import {
   onCleanup,
   Show,
 } from "solid-js";
+import { useStaleCheck } from "../terminal/staleness";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import CanvasMinimap from "./CanvasMinimap";
 import CanvasTile from "./CanvasTile";
@@ -107,6 +108,7 @@ const TerminalCanvas: Component<{
   const store = useTerminalStore();
   const tileTheme = useTileTheme();
   const posture = useViewPosture();
+  const isStale = useStaleCheck();
 
   /** Pending per-tile layout overrides — bridges the gap between local
    *  geometry intent (drag-end, resize-end, default-place, arrange) and
@@ -355,6 +357,7 @@ const TerminalCanvas: Component<{
               id={id}
               active={maximized || store.activeId() === id}
               maximized={maximized}
+              dimmed={isStale(store.getMetadata(id)?.lastActivityAt ?? 0)}
               theme={tileTheme(id)}
               onSelect={() => props.onSelect(id)}
               onClose={() => props.onClose(id)}

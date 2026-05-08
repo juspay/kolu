@@ -1,5 +1,6 @@
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, createEffect, Index, Show } from "solid-js";
+import { useStaleCheck } from "../../terminal/staleness";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { CloseIcon } from "../../ui/Icons";
 import { useTileTheme } from "../useTileTheme";
@@ -45,6 +46,7 @@ const WorkspaceSearchPanel: Component<{
 }> = (props) => {
   const store = useTerminalStore();
   const tileTheme = useTileTheme();
+  const isStale = useStaleCheck();
   const columnCount = () => Math.max(1, props.model.columns.length);
   const totalCount = () =>
     props.model.repoFacets.reduce((sum, facet) => sum + facet.count, 0);
@@ -168,7 +170,12 @@ const WorkspaceSearchPanel: Component<{
                       {column().label}
                     </div>
                     <div class="font-mono text-[0.65rem] text-fg-3 tabular-nums">
-                      {column().entries.length.toString().padStart(2, "0")}
+                      {column()
+                        .entries.filter(
+                          (entry) => !isStale(entry.info.meta.lastActivityAt),
+                        )
+                        .length.toString()
+                        .padStart(2, "0")}
                     </div>
                   </div>
                   <div class="flex flex-col gap-2">
@@ -186,6 +193,7 @@ const WorkspaceSearchPanel: Component<{
                             entry={entry()}
                             active={store.activeId() === entry().id}
                             unread={store.isUnread(entry().id)}
+                            stale={isStale(entry().info.meta.lastActivityAt)}
                             tileBg={tileTheme(entry().id).bg}
                             tileFg={tileTheme(entry().id).fg}
                             onSelect={() => props.onSelect(entry().id)}
@@ -261,6 +269,7 @@ const WorkspaceCard: Component<{
   entry: WorkspaceSwitcherEntry;
   active: boolean;
   unread: boolean;
+  stale: boolean;
   tileBg: string;
   tileFg: string;
   onSelect: () => void;
@@ -279,14 +288,18 @@ const WorkspaceCard: Component<{
       data-repo-name={props.entry.repoName}
       data-agent-bucket={props.entry.bucket}
       data-active={props.active ? "" : undefined}
+      data-stale={props.stale ? "" : undefined}
       // Active uses geometry, not fill color. Inactive cards keep the
       // agent-state border; the focused card gets a branch-colored rail.
-      class={`relative rounded-lg border p-2.5 text-left cursor-pointer transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 ${props.active ? "" : bucketInfo().borderClass}`}
+      // Stale also drops the agent-state border so a parked awaiting
+      // terminal doesn't keep breathing for attention.
+      class={`relative rounded-lg border p-2.5 text-left cursor-pointer transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 ${props.active || props.stale ? "" : bucketInfo().borderClass}`}
       classList={{
         "border-edge-bright/70 bg-surface-0/60 shadow-[0_0_0_1px_color-mix(in_oklch,var(--card-color)_22%,transparent)]":
           props.active,
         "border-edge/60 bg-surface-0/60 hover:bg-surface-2/70 hover:border-edge-bright/70":
           !props.active,
+        "opacity-60": props.stale && !props.active,
       }}
       style={{
         "--card-color": repoAccent(props.entry.info),
