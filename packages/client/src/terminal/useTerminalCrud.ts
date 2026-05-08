@@ -53,13 +53,9 @@ export function useTerminalCrud(deps: {
       );
   }
 
-  /** Persist one or more canvas tile positions/sizes atomically.
-   *  Single-tile drag/resize and multi-tile auto-arrange share this verb;
-   *  callers don't decide whether to batch — the server handles either. */
-  function applyCanvasLayouts(
-    update: CanvasLayoutUpdate | CanvasLayoutUpdate[],
-  ) {
-    const layouts = Array.isArray(update) ? update : [update];
+  /** Persist a batch of canvas tile positions/sizes. Single-tile drag/
+   *  resize callers wrap their one update in an array. */
+  function applyCanvasLayoutBatch(layouts: CanvasLayoutUpdate[]) {
     if (layouts.length === 0) return;
     void client.terminal
       .applyCanvasLayoutBatch({ layouts })
@@ -219,7 +215,7 @@ export function useTerminalCrud(deps: {
 
   return {
     setThemeName,
-    applyCanvasLayouts,
+    applyCanvasLayoutBatch,
     removeAndAutoSwitch,
     handleCreate,
     handleCreateSubTerminal,

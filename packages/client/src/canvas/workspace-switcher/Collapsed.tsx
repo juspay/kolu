@@ -1,7 +1,7 @@
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, Index, Show } from "solid-js";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
-import { ArrangeIcon, PlusIcon } from "../../ui/Icons";
+import { PlusIcon } from "../../ui/Icons";
 import { branchAccent, repoAccent } from "./identity";
 import {
   agentBucket,
@@ -18,7 +18,6 @@ import {
 const CollapsedWorkspaceSwitcher: Component<{
   groups: WorkspaceSwitcherRepoGroup[];
   onCreate: () => void;
-  onAutoArrange: () => void;
   onSelect: (id: TerminalId) => void;
 }> = (props) => {
   const store = useTerminalStore();
@@ -34,17 +33,6 @@ const CollapsedWorkspaceSwitcher: Component<{
         title="New terminal"
       >
         <PlusIcon class="w-3.5 h-3.5 transition-transform duration-200 group-hover/new:rotate-90" />
-      </button>
-
-      <button
-        type="button"
-        data-testid="workspace-switcher-arrange"
-        class="pointer-events-auto flex items-center justify-center w-7 h-7 mt-3 rounded-md shrink-0 cursor-pointer text-fg-3 hover:text-fg hover:bg-surface-2/70 active:bg-surface-2 transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
-        onClick={props.onAutoArrange}
-        aria-label="Arrange canvas by repo"
-        title="Arrange canvas by repo"
-      >
-        <ArrangeIcon class="w-3.5 h-3.5" />
       </button>
 
       <Index each={props.groups}>

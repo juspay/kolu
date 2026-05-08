@@ -28,6 +28,8 @@ import {
   For,
   type JSX,
   on,
+  onCleanup,
+  onMount,
   Show,
 } from "solid-js";
 import { useTerminalStore } from "../terminal/useTerminalStore";
@@ -51,17 +53,13 @@ const MIN_H = 200;
 
 type LayoutChange = { id: TerminalId; layout: TileLayout };
 
-/** One-shot auto-arrange wiring. The canvas owns when (request bump) and
- *  what (apply layouts, center on active) but stays agnostic to how the
- *  target layouts are computed — `arrange` is given the current effective
- *  layouts and returns the desired layouts for whichever tiles it wants
- *  to move. Repo-grouping policy lives at the call site. */
-type AutoArrangeRequest = {
-  request: number;
-  arrange: (
-    current: ReadonlyMap<TerminalId, TileLayout>,
-  ) => Map<TerminalId, TileLayout>;
-  onLayoutsChange: (layouts: LayoutChange[]) => void;
+/** Imperative handle exposed to the parent via the `ref` prop. Lets callers
+ *  read the canvas's current effective layouts (pending overrides merged
+ *  with saved metadata) and seed pending overrides for one-shot commands
+ *  like auto-arrange — without the canvas having to know the policy. */
+export type TerminalCanvasHandle = {
+  applyPending(layouts: Map<TerminalId, TileLayout>): void;
+  effectiveLayouts(): Map<TerminalId, TileLayout>;
 };
 
 /** Wheel gestures that start inside an xterm tile should scroll the terminal,
@@ -83,8 +81,11 @@ const TerminalCanvas: Component<{
   watermark?: string;
   /** Saved layout for a tile, or undefined if none exists yet. */
   getLayout: (id: TerminalId) => TileLayout | undefined;
-  /** Optional one-shot auto-arrange command wiring. */
-  autoArrange?: AutoArrangeRequest;
+  /** Imperative handle setter: called with the handle on mount, and again
+   *  with `undefined` on unmount so the parent can clear stale references.
+   *  Used for one-shot commands (auto-arrange) that need to seed pending
+   *  overrides from outside the canvas. */
+  ref?: (handle: TerminalCanvasHandle | undefined) => void;
   /** Report a layout change (drag commit, resize commit, default assignment). */
   onLayoutChange: (id: TerminalId, layout: TileLayout) => void;
   onSelect: (id: TerminalId) => void;
@@ -165,30 +166,18 @@ const TerminalCanvas: Component<{
     return effectiveLayouts()[id];
   }
 
-  createEffect(
-    on(
-      () => props.autoArrange?.request,
-      (request) => {
-        const autoArrange = props.autoArrange;
-        if (!request || !autoArrange) return;
-        const arranged = autoArrange.arrange(
-          new Map(Object.entries(effectiveLayouts())),
-        );
-        const layouts = [...arranged.entries()].map(([id, layout]) => ({
-          id,
-          layout,
-        }));
-        if (layouts.length === 0) return;
-        setPendingLayouts(layouts);
-        autoArrange.onLayoutsChange(layouts);
-        const activeId = store.activeId();
-        const activeLayout = activeId ? arranged.get(activeId) : undefined;
-        if (activeLayout) {
-          requestAnimationFrame(() => viewport.centerOnTile(activeLayout));
-        }
-      },
-    ),
-  );
+  const handle: TerminalCanvasHandle = {
+    applyPending(layouts) {
+      setPendingLayouts(
+        [...layouts.entries()].map(([id, layout]) => ({ id, layout })),
+      );
+    },
+    effectiveLayouts() {
+      return new Map(Object.entries(effectiveLayouts()));
+    },
+  };
+  onMount(() => props.ref?.(handle));
+  onCleanup(() => props.ref?.(undefined));
 
   // Auto-assign a default layout for tiles with no saved position.
   // The pending seed makes the tile paint at the cascade position on its

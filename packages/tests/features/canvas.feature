@@ -136,7 +136,8 @@ Feature: Canvas workspace
     And I save canvas tile 1 position
     And I save canvas tile 2 position
     And I save canvas tile 3 position
-    And I click the workspace switcher arrange button
+    And I open the command palette
+    And I select "Arrange canvas by repo" in the palette
     Then canvas tiles should be in a squarish cluster with sizes preserved
     And the active canvas tile should be centered in the viewport
     And there should be no page errors

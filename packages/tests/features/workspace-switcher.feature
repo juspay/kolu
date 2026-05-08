@@ -10,10 +10,6 @@ Feature: Workspace switcher
     Then the workspace switcher should be visible
     And there should be no page errors
 
-  Scenario: Workspace switcher exposes the canvas arrange action
-    Then the workspace switcher arrange button should be visible
-    And there should be no page errors
-
   Scenario: Collapsed workspace switcher shows one branch pill per terminal
     Given I create a terminal
     Then the workspace switcher should have 2 branch pills
@@ -85,13 +81,6 @@ Feature: Workspace switcher
     When I click the workspace switcher toggle
     Then the workspace switcher panel should be visible
     When I click the workspace switcher close button
-    Then the workspace switcher panel should not be visible
-    And there should be no page errors
-
-  Scenario: Arrange action dismisses the workspace switcher panel
-    When I click the workspace switcher toggle
-    Then the workspace switcher panel should be visible
-    When I click the workspace switcher arrange button
     Then the workspace switcher panel should not be visible
     And there should be no page errors
 

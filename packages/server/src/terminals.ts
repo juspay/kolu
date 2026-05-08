@@ -14,7 +14,6 @@
 import type {
   CanvasLayout,
   InitialTerminalMetadata,
-  TerminalClientMetadata,
   SavedTerminal,
   TerminalId,
   TerminalInfo,
@@ -24,7 +23,6 @@ import { log } from "./log.ts";
 import {
   createMetadata,
   startProviders,
-  updateClientMetadataBatch,
   updateClientMetadata,
   updateServerMetadata,
 } from "./meta/index.ts";
@@ -209,25 +207,19 @@ export function setTerminalParent(
   }
 }
 
-/** Apply a batch of canvas-layout updates atomically — see contract. */
+/** Apply a batch of canvas-layout updates. The session autosave channel
+ *  is throttled (500ms in `session-store.ts`), so the burst of N publishes
+ *  collapses into a single save — no separate batch metadata-mutator needed. */
 export function applyCanvasLayoutBatch(
   layouts: { id: TerminalId; layout: CanvasLayout }[],
 ): void {
-  updateClientMetadataBatch(
-    layouts.flatMap(({ id, layout }) => {
-      const entry = getTerminal(id);
-      if (!entry) return [];
-      return [
-        {
-          entry,
-          terminalId: id,
-          mutate: (m: TerminalClientMetadata) => {
-            m.canvasLayout = layout;
-          },
-        },
-      ];
-    }),
-  );
+  for (const { id, layout } of layouts) {
+    const entry = getTerminal(id);
+    if (!entry) continue;
+    updateClientMetadata(entry, id, (m) => {
+      m.canvasLayout = layout;
+    });
+  }
 }
 
 /** Store a terminal's sub-panel state (client-reported).

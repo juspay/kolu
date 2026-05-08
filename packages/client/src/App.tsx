@@ -25,11 +25,14 @@ import CommandPalette from "./CommandPalette";
 import "kolu-common/test-hooks";
 import CanvasWatermark from "./canvas/CanvasWatermark";
 import { arrangeRepoIslands } from "./canvas/repoIslandPlacement";
+import type { TileLayout } from "./canvas/TileLayout";
 import WorkspaceSwitcher, {
   buildWorkspaceEntries,
   buildWorkspaceSwitcherModel,
 } from "./canvas/workspace-switcher";
-import TerminalCanvas from "./canvas/TerminalCanvas";
+import TerminalCanvas, {
+  type TerminalCanvasHandle,
+} from "./canvas/TerminalCanvas";
 import TileTitleActions from "./canvas/TileTitleActions";
 import { useCanvasViewport } from "./canvas/viewport/useCanvasViewport";
 import { createCommands } from "./commands";
@@ -125,8 +128,12 @@ const App: Component = () => {
 
   const [workspaceSwitcherOpenRequest, setWorkspaceSwitcherOpenRequest] =
     createSignal(0);
-  const [canvasAutoArrangeRequest, setCanvasAutoArrangeRequest] =
-    createSignal(0);
+
+  /** Imperative handle to the desktop canvas. Set on mount, cleared on
+   *  unmount (mobile or when the empty-state takes over). One-shot
+   *  commands (auto-arrange) read effective layouts and seed pending
+   *  overrides through it. */
+  let canvasHandle: TerminalCanvasHandle | undefined;
 
   // About dialog state
   const [aboutOpen, setAboutOpen] = createSignal(false);
@@ -176,17 +183,46 @@ const App: Component = () => {
     void screenshotTerminal(targetId, store.getMetadata(targetId));
   }
 
+  /** Pan the canvas viewport so the given tile is centered. No-op on
+   *  mobile (no canvas) or when the layout is missing. Wrapped in
+   *  `requestAnimationFrame` so callers that mutate adjacent state in the
+   *  same tick (active-id, pending overrides, palette dismissal) let the
+   *  render flush before the camera moves. */
+  function centerOnLayout(layout: TileLayout | undefined) {
+    if (!layout || isMobile()) return;
+    requestAnimationFrame(() => canvasViewport.centerOnTile(layout));
+  }
+
   function handleCanvasCenterActive() {
-    if (isMobile()) return;
     const id = store.activeId();
     if (!id) return;
-    const tile = store.getMetadata(id)?.canvasLayout;
-    if (tile) canvasViewport.centerOnTile(tile);
+    centerOnLayout(store.getMetadata(id)?.canvasLayout);
   }
 
   function handleCanvasAutoArrange() {
-    if (isMobile()) return;
-    setCanvasAutoArrangeRequest((n) => n + 1);
+    if (!canvasHandle) return;
+    const current = canvasHandle.effectiveLayouts();
+    const arranged = arrangeRepoIslands(
+      store.terminalIds().flatMap((id) => {
+        const group = store.getDisplayInfo(id)?.key.group;
+        if (!group) return [];
+        return [{ id, group, layout: current.get(id) }];
+      }),
+    );
+    if (arranged.size === 0) return;
+    canvasHandle.applyPending(arranged);
+    crud.applyCanvasLayoutBatch(
+      [...arranged.entries()].map(([id, layout]) => ({ id, layout })),
+    );
+    // Closing the palette queues a `refocusTerminal()` rAF that may shift
+    // the active tile (e.g. when the previously-active xterm wasn't the
+    // first DOM-order one). Defer the activeId read into a rAF too so we
+    // recenter on whichever tile actually ends up focused, not the one
+    // that was active at arrange-time.
+    requestAnimationFrame(() => {
+      const id = store.activeId();
+      if (id) centerOnLayout(arranged.get(id));
+    });
   }
 
   // Shared between the keyboard dispatcher and the command palette so a single
@@ -481,11 +517,9 @@ const App: Component = () => {
               openRequest={workspaceSwitcherOpenRequest()}
               onSelect={(id) => {
                 store.setActiveId(id);
-                const layout = store.getMetadata(id)?.canvasLayout;
-                if (layout) canvasViewport.centerOnTile(layout);
+                centerOnLayout(store.getMetadata(id)?.canvasLayout);
               }}
               onCreate={() => openPaletteGroup("New terminal")}
-              onAutoArrange={handleCanvasAutoArrange}
             />
           }
         />
@@ -548,21 +582,9 @@ const App: Component = () => {
                     tileIds={store.terminalIds()}
                     watermark={appTitle()}
                     getLayout={(id) => store.getMetadata(id)?.canvasLayout}
-                    autoArrange={{
-                      request: canvasAutoArrangeRequest(),
-                      arrange: (current) =>
-                        arrangeRepoIslands(
-                          store.terminalIds().flatMap((id) => {
-                            const group = store.getDisplayInfo(id)?.key.group;
-                            if (!group) return [];
-                            return [{ id, group, layout: current.get(id) }];
-                          }),
-                        ),
-                      onLayoutsChange: (layouts) =>
-                        crud.applyCanvasLayouts(layouts),
-                    }}
+                    ref={(handle) => (canvasHandle = handle)}
                     onLayoutChange={(id, layout) =>
-                      crud.applyCanvasLayouts({ id, layout })
+                      crud.applyCanvasLayoutBatch([{ id, layout }])
                     }
                     onSelect={(id) => store.setActiveId(id)}
                     onClose={(id) => closeTerminal(id)}
