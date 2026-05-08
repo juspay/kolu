@@ -12,6 +12,7 @@
  *  - `handleCanvasAutoArrange()` — the one-shot palette command. */
 
 import type { TerminalId } from "kolu-common/surface";
+import { getBucketFor, resolvePlacementBucket } from "./placementPolicy";
 import {
   arrangeRepoIslands,
   placeNextToBucket,
@@ -38,55 +39,12 @@ export function useCanvasArrange(deps: {
     crud.setCanvasLayout(id, layout);
   }
 
-  /** Bucket key used by repo-island layout — `key.group` from
-   *  `terminalKey(meta)`. Single site so a future rule change (e.g.
-   *  sub-terminals share parent's bucket) doesn't have to track down
-   *  every projection. */
-  function getBucketFor(id: TerminalId): string | undefined {
-    return store.getDisplayInfo(id)?.key.group;
-  }
-
   function repoIslandTileFor(
     id: TerminalId,
     layout: TileLayout,
   ): RepoIslandTile | undefined {
-    const bucket = getBucketFor(id);
+    const bucket = getBucketFor(store, id);
     return bucket ? { id, bucket, layout } : undefined;
-  }
-
-  /** Resolve a placement bucket for a tile whose git may not have been
-   *  resolved yet. Tries `key.group` first; if that doesn't match any
-   *  candidate bucket, walks `candidateIds` for a sibling whose git
-   *  repo contains this tile's cwd and returns its bucket. The fallback
-   *  covers the common race: a fresh terminal's metadata yields with
-   *  `cwd` set but `git` still null, so its basename-derived `key.group`
-   *  doesn't match a sibling whose git is fully resolved. */
-  function resolvePlacementBucket(
-    id: TerminalId,
-    candidateIds: TerminalId[],
-  ): string | undefined {
-    const ownBucket = getBucketFor(id);
-    if (ownBucket && candidateIds.some((c) => getBucketFor(c) === ownBucket)) {
-      return ownBucket;
-    }
-    const cwd = store.getMetadata(id)?.cwd;
-    if (!cwd) return ownBucket;
-    // Prefer the most-specific (longest) repo root so a terminal in a
-    // nested repo lands in the child repo's island, not the parent's —
-    // matches what the user would expect when they cd into a submodule.
-    let best: { bucket: string; rootLength: number } | undefined;
-    for (const candidate of candidateIds) {
-      const root = store.getMetadata(candidate)?.git?.repoRoot;
-      if (!root) continue;
-      if (cwd === root || cwd.startsWith(`${root}/`)) {
-        const bucket = getBucketFor(candidate);
-        if (!bucket) continue;
-        if (!best || root.length > best.rootLength) {
-          best = { bucket, rootLength: root.length };
-        }
-      }
-    }
-    return best?.bucket ?? ownBucket;
   }
 
   /** Per-create policy fed to `TerminalCanvas`'s `placeNew` prop. */
@@ -95,6 +53,7 @@ export function useCanvasArrange(deps: {
     existing: { id: TerminalId; layout: TileLayout }[],
   ): TileLayout | undefined {
     const bucket = resolvePlacementBucket(
+      store,
       id,
       existing.map((e) => e.id),
     );
