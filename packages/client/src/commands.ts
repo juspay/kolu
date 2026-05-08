@@ -181,6 +181,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
           ...(deps.terminalIds().length > 1
             ? [
                 {
+                  kind: "action" as const,
                   name: "Arrange canvas by repo",
                   onSelect: () => deps.canvasAutoArrange(),
                 },
