@@ -348,11 +348,16 @@ Feature: Code tab (review + browse)
 
   # Regression: binary + rename satisfies both predicates. Rationale for
   # picking binary over rename lives at the `renamedDiff` memo guard.
-  Scenario: Binary rename shows the binary placeholder, not the rename hint
+  # Needs an actual content edit on the renamed file — git only emits the
+  # `Binary files ... differ` marker when there's a content delta; a pure
+  # rename of binary content (similarity 100%) emits only the rename
+  # header, with nothing for the regex to match against.
+  Scenario: Binary rename with content change shows the binary placeholder
     When I run "rm -rf /tmp/kolu-binary-rename && git init /tmp/kolu-binary-rename && cd /tmp/kolu-binary-rename"
-    And I run "printf 'PNG\0fake\1\2' > old.png"
+    And I run "printf 'PNG\0fake\1\2\3\4\5\6\7\10\11\12\13\14\15\16\17' > old.png"
     And I run "git add old.png && git commit -m 'add binary'"
     And I run "git mv old.png new.png"
+    And I run "printf 'PNG\0fake\1\2\3\4\5\6\7\10\11\12\13\14\15\16\17modified' > new.png"
     And I click the Code tab
     Then the Code tab should list a changed file "new.png"
     When I click the changed file "new.png" in the Code tab
