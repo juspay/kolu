@@ -71,8 +71,11 @@ const TerminalCanvas: Component<{
   /** Optional placement policy hook for new tiles. The canvas asks for a
    *  position; if the hook returns one it's used, otherwise the default
    *  cascade kicks in. `existing` is each currently-placed tile's
-   *  effective layout (pending merged with saved) — so a tile mid-drag
-   *  isn't treated as absent. */
+   *  effective layout (pending merged with saved) plus tiles that the
+   *  same loop pass has just default-placed. The caller can't reconstruct
+   *  this from its own store: pending overrides live only inside the
+   *  canvas, and same-pass placements haven't round-tripped through the
+   *  server yet. */
   placeNew?: (
     id: TerminalId,
     existing: { id: TerminalId; layout: TileLayout }[],

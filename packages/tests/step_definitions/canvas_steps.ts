@@ -284,7 +284,7 @@ Then(
         if (!tileA || !tileB) return false;
         const rA = tileA.getBoundingClientRect();
         const rB = tileB.getBoundingClientRect();
-        // Same row: tops match within grid-snap tolerance; B is to the right of A.
+        // Same row: tops match (sub-pixel rounding tolerance); B is to the right of A.
         return Math.abs(rA.top - rB.top) <= 2 && rB.left > rA.left;
       },
       { sel: CANVAS_SELECTOR, i: a - 1, j: b - 1 },
