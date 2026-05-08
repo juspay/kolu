@@ -22,6 +22,7 @@ import {
   on,
   Show,
 } from "solid-js";
+import { match } from "ts-pattern";
 import { formatKeybind, type Keybind } from "./input/keyboard";
 import { useTips } from "./settings/useTips";
 import Kbd from "./ui/Kbd";
@@ -115,10 +116,6 @@ function isGroup(item: PaletteItem): item is PaletteGroup | PaletteValueInput {
  *  children fit the wider return type. */
 function resolveChildren(cmd: PaletteGroup | PaletteValueInput): PaletteItem[] {
   return typeof cmd.children === "function" ? cmd.children() : cmd.children;
-}
-
-function assertNever(x: never): never {
-  throw new Error(`unhandled palette command kind: ${JSON.stringify(x)}`);
 }
 
 /** Ctrl+key → normalized key for readline-style navigation. */
@@ -290,22 +287,18 @@ const CommandPalette: Component<{
     }
     // Filter mode — labels never appear at the top level (enforced by
     // PaletteValueChild only being reachable inside a value group).
-    switch (cmd.kind) {
-      case "group":
-      case "value":
-        drillInto(cmd);
-        return;
-      case "action":
+    // .exhaustive() forces a compile error if a future kind is added
+    // without an arm here.
+    match(cmd)
+      .with({ kind: "group" }, { kind: "value" }, (group) => drillInto(group))
+      .with({ kind: "action" }, (action) => {
         // Close first so the highlight effect stops tracking filtered(),
         // preventing onSelect's state changes from re-triggering a preview.
         closeForSelection();
-        cmd.onSelect();
-        return;
-      case "label":
-        return;
-      default:
-        assertNever(cmd);
-    }
+        action.onSelect();
+      })
+      .with({ kind: "label" }, () => {})
+      .exhaustive();
   }
 
   function handleKeyDown(e: KeyboardEvent) {
