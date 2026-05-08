@@ -14,7 +14,7 @@
  *  shows a steady accent ring around a brighter inset rim. Maximized
  *  drops both: edge-to-edge fill, no border at all. */
 
-import { type AgentBucket, bucketDescriptor } from "../agent/agentPresentation";
+import type { AgentBucket } from "../agent/agentPresentation";
 
 export type TileBorderEncoding = {
   /** SolidJS classList map — spread into the tile's `classList` prop.
@@ -27,9 +27,33 @@ export type TileBorderEncoding = {
   style: Record<string, string>;
 };
 
-/** rounded-xl is 0.75rem; the `pill-border` ::before sits at `inset: -2px`,
- *  so the outer radius must be `tile-radius + 2px` to stay flush. */
-const TILE_BORDER_RADIUS = "calc(0.75rem + 2px)";
+/** Two channels, both expressed through the `tile-ring` chassis:
+ *  bucket → ring colour, focus → ring thickness. Idle inactive tiles
+ *  get a 1px neutral edge; idle active swaps in `--card-color` so the
+ *  focused tile's identity reads even without a bucket signal; bucket
+ *  rings step from 2px (inactive) to 3px (active) and brighten from
+ *  70% to 95% mix so active+working stays distinguishable from
+ *  inactive+working without inventing a third channel. Awaiting
+ *  layers a breath animation on top — the only animated state. */
+function tileRingColor(args: { active: boolean; bucket: AgentBucket }): string {
+  if (args.bucket === "none") {
+    return args.active
+      ? "var(--card-color)"
+      : "color-mix(in oklch, var(--color-edge) 80%, transparent)";
+  }
+  const base =
+    args.bucket === "working" ? "var(--color-accent)" : "var(--color-alert)";
+  const intensity = args.active ? "95%" : "70%";
+  return `color-mix(in oklch, ${base} ${intensity}, transparent)`;
+}
+
+function tileRingThickness(args: {
+  active: boolean;
+  bucket: AgentBucket;
+}): string {
+  if (args.bucket === "none") return args.active ? "2px" : "1px";
+  return args.active ? "3px" : "2px";
+}
 
 export function tileBorderEncoding(args: {
   active: boolean;
@@ -39,30 +63,16 @@ export function tileBorderEncoding(args: {
 }): TileBorderEncoding {
   const style: Record<string, string> = { "--card-color": args.cardColor };
   if (args.maximized) {
-    return {
-      classList: { border: true, "border-transparent": true },
-      style,
-    };
+    // Maximized fills the viewport edge-to-edge — no ring, no body
+    // border. Caller still needs the layout positioning classes.
+    return { classList: {}, style };
   }
-  const desc = bucketDescriptor(args.bucket);
-  const hasBucketRing = desc.borderClass !== "";
-  if (hasBucketRing) {
-    style["--pill-state-color"] = desc.accentVar;
-    style["--pill-border-radius"] = TILE_BORDER_RADIUS;
-  }
+  style["--tile-ring-color"] = tileRingColor(args);
+  style["--tile-ring-thickness"] = tileRingThickness(args);
   return {
     classList: {
-      border: true,
-      // pill-border ::before paints the ring; suppress the underlying
-      // Tailwind border-color so the chassis doesn't fight a default 1px line.
-      "border-transparent": hasBucketRing,
-      "pill-border": hasBucketRing,
-      "pill-border-awaiting": args.bucket === "awaiting",
-      "pill-border-working": args.bucket === "working",
-      "pill-glow-inner": args.active,
-      "border-edge-bright/70": !hasBucketRing && args.active,
-      "border-edge/40": !hasBucketRing && !args.active,
-      "hover:border-edge/60": !hasBucketRing && !args.active,
+      "tile-ring": true,
+      "tile-ring--breath": args.bucket === "awaiting",
     },
     style,
   };
