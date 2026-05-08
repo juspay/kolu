@@ -19,6 +19,11 @@ import {
 import { useSubPanel } from "./useSubPanel";
 import type { TerminalStore } from "./useTerminalStore";
 
+/** A terminal paired with its (already-arrived) metadata. The hydration
+ *  effect builds these by gating on the `terminalMetadata` collection
+ *  having yielded for every entry, so `m` is always defined. */
+type HydrationEntry = { t: TerminalInfo; m: TerminalMetadata };
+
 export function useSessionRestore(deps: {
   store: TerminalStore;
   subscribeExit: (id: TerminalId) => void;
@@ -58,45 +63,35 @@ export function useSessionRestore(deps: {
     // every terminal — hydration reads `parentId` and `subPanel` off it
     // (since #806 the list snapshot no longer carries `meta`). The reads
     // are reactive, so the effect re-runs as values arrive.
-    const metas = existing.map((t) => store.getMetadata(t.id));
-    if (metas.some((m) => m === undefined)) return;
+    const entries: HydrationEntry[] = [];
+    for (const t of existing) {
+      const m = store.getMetadata(t.id);
+      if (m === undefined) return;
+      entries.push({ t, m });
+    }
     hydrated = true;
-    hydrateFromTerminals(
-      existing,
-      metas as TerminalMetadata[],
-      fromServer?.activeTerminalId ?? null,
-    );
+    hydrateFromTerminals(entries, fromServer?.activeTerminalId ?? null);
   });
 
   function hydrateFromTerminals(
-    existing: TerminalInfo[],
-    metas: TerminalMetadata[],
+    entries: HydrationEntry[],
     serverActiveId: string | null,
   ) {
     // Canvas layouts live on metadata — no client-side seeding needed.
     // Seed sub-panel state from server metadata.
-    for (let i = 0; i < existing.length; i++) {
-      const t = existing[i];
-      const m = metas[i];
-      if (!t || !m) continue;
-      if (m.subPanel) {
-        subPanel.seedPanel(t.id, m.subPanel);
-      }
+    for (const { t, m } of entries) {
+      if (m.subPanel) subPanel.seedPanel(t.id, m.subPanel);
     }
 
     // Initialize sub-panel active tabs for parents with sub-terminals
     const subs: Record<TerminalId, TerminalId[]> = {};
-    for (let i = 0; i < existing.length; i++) {
-      const t = existing[i];
-      const m = metas[i];
-      if (!t || !m) continue;
-      const parentId = m.parentId;
-      if (!parentId) continue;
-      const existingList = subs[parentId];
+    for (const { t, m } of entries) {
+      if (!m.parentId) continue;
+      const existingList = subs[m.parentId];
       if (existingList) {
         existingList.push(t.id);
       } else {
-        subs[parentId] = [t.id];
+        subs[m.parentId] = [t.id];
       }
     }
     for (const [parentId, subIds] of Object.entries(subs)) {
@@ -109,12 +104,9 @@ export function useSessionRestore(deps: {
     // Prefer the server-persisted active terminal; fall back to first in order.
     // `store.activeId()` starts as null after refresh (lost makePersisted in
     // #554), so on refresh the server snapshot is the only source of truth
-    // for "which terminal was active". `existing` arrives in the server's
+    // for "which terminal was active". `entries` arrives in the server's
     // Map insertion order, which is the canonical ordering.
-    const topIds = existing
-      .map((t, i) => ({ t, m: metas[i] }))
-      .filter(({ m }) => m && !m.parentId)
-      .map(({ t }) => t.id);
+    const topIds = entries.filter(({ m }) => !m.parentId).map(({ t }) => t.id);
     const picked =
       serverActiveId && topIds.includes(serverActiveId as TerminalId)
         ? (serverActiveId as TerminalId)
@@ -127,7 +119,7 @@ export function useSessionRestore(deps: {
       active ? [active, ...topIds.filter((x) => x !== active)] : topIds,
     );
 
-    for (const t of existing) deps.subscribeExit(t.id);
+    for (const { t } of entries) deps.subscribeExit(t.id);
   }
 
   // Re-fetch saved session when all terminals are killed mid-session,
