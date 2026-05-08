@@ -11,7 +11,7 @@
  *  constant; if a knob ever becomes useful, it lands in `Preferences` and
  *  flows through this module without consumers changing. */
 
-import { type Accessor, createSignal } from "solid-js";
+import { type Accessor, createRoot, createSignal } from "solid-js";
 
 const HOUR_MS = 60 * 60 * 1000;
 const TICK_MS = 60_000;
@@ -41,13 +41,21 @@ let nowSignal: Accessor<number> | null = null;
 
 /** Lazily-initialized monotonic-ish ticker. One signal for the whole app —
  *  re-evaluating staleness once a minute is sufficient (the threshold is
- *  measured in hours; a 60s ceiling on visual lag is invisible). */
+ *  measured in hours; a 60s ceiling on visual lag is invisible).
+ *
+ *  Wrapped in `createRoot` so the signal's reactive owner is the app
+ *  itself, not whichever component happened to call `useStaleCheck()`
+ *  first. Without that, a fast-refresh or test-teardown that disposed
+ *  the first caller's owner would orphan the ticker and silently freeze
+ *  every consumer. */
 function getNowTicker(): Accessor<number> {
   if (nowSignal !== null) return nowSignal;
-  const [now, setNow] = createSignal(Date.now());
-  setInterval(() => setNow(Date.now()), TICK_MS);
-  nowSignal = now;
-  return now;
+  nowSignal = createRoot(() => {
+    const [now, setNow] = createSignal(Date.now());
+    setInterval(() => setNow(Date.now()), TICK_MS);
+    return now;
+  });
+  return nowSignal;
 }
 
 /** Reactive stale check. Returns a function consumers call per terminal —
