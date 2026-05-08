@@ -29,7 +29,7 @@ import {
   placeNextToBucket,
   type RepoIslandTile,
 } from "./canvas/repoIslands";
-import type { TileLayout } from "./canvas/TileLayout";
+import { layoutsEqual, type TileLayout } from "./canvas/TileLayout";
 import WorkspaceSwitcher, {
   buildWorkspaceEntries,
   buildWorkspaceSwitcherModel,
@@ -221,6 +221,9 @@ const App: Component = () => {
     }
     const cwd = store.getMetadata(id)?.cwd;
     if (!cwd) return ownBucket;
+    // Prefer the most-specific (longest) repo root so a terminal in a
+    // nested repo lands in the child repo's island, not the parent's —
+    // matches what the user would expect when they cd into a submodule.
     let best: { bucket: string; rootLength: number } | undefined;
     for (const candidate of candidateIds) {
       const root = store.getMetadata(candidate)?.git?.repoRoot;
@@ -257,13 +260,7 @@ const App: Component = () => {
     // shouldn't fire N round-trip RPCs and trigger a session-dirty save.
     for (const [id, layout] of arranged) {
       const prev = store.getMetadata(id)?.canvasLayout;
-      if (
-        !prev ||
-        prev.x !== layout.x ||
-        prev.y !== layout.y ||
-        prev.w !== layout.w ||
-        prev.h !== layout.h
-      ) {
+      if (!prev || !layoutsEqual(prev, layout)) {
         applyTileGeometry(id, layout);
       }
     }

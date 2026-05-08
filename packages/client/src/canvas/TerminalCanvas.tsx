@@ -35,7 +35,7 @@ import CanvasMinimap from "./CanvasMinimap";
 import CanvasTile from "./CanvasTile";
 import CanvasWatermark from "./CanvasWatermark";
 import { applyResize, type ResizeDirection } from "./resizeGeometry";
-import type { TileLayout } from "./TileLayout";
+import { layoutsEqual, type TileLayout } from "./TileLayout";
 import {
   DEFAULT_TILE_H,
   DEFAULT_TILE_W,
@@ -54,10 +54,6 @@ const MIN_H = 200;
  *  for ~150ms so mid-gesture cursor drift doesn't hand off. */
 function isWheelTargetTerminal(e: WheelEvent): boolean {
   return e.target instanceof Element && e.target.closest(".xterm") !== null;
-}
-
-function layoutsEqual(a: TileLayout, b: TileLayout): boolean {
-  return a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h;
 }
 
 const TerminalCanvas: Component<{
