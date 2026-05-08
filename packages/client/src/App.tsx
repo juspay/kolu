@@ -549,6 +549,7 @@ const App: Component = () => {
                     getLayout={(id) => store.getMetadata(id)?.canvasLayout}
                     placeNew={arrange.placeNew}
                     onLayoutChange={arrange.applyTileGeometry}
+                    onAutoArrange={arrange.handleCanvasAutoArrange}
                     onSelect={(id) => store.setActiveId(id)}
                     onClose={(id) => closeTerminal(id)}
                     renderTileTitle={(id) => (

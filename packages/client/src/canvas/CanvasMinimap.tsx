@@ -3,6 +3,7 @@
 
 import { type Component, createMemo, createSignal, For, Show } from "solid-js";
 import { useTerminalStore } from "../terminal/useTerminalStore";
+import { GridIcon } from "../ui/Icons";
 import {
   handleMinimapClick,
   startTileDrag,
@@ -30,6 +31,11 @@ const CanvasMinimap: Component<{
     preview: (dx: number, dy: number) => void;
     commit: (dx: number, dy: number) => void;
   } | null;
+  /** Optional: trigger the arrange-by-repo command. When provided, the
+   *  zoom bar grows an arrange button that fires this callback. Hidden
+   *  for single-tile workspaces (a single-tile arrange is a visual no-op,
+   *  same gate as the palette entry). */
+  onAutoArrange?: () => void;
 }> = (props) => {
   const viewport = useCanvasViewport();
   const store = useTerminalStore();
@@ -304,6 +310,17 @@ const CanvasMinimap: Component<{
         >
           +
         </button>
+        <Show when={props.onAutoArrange && props.tileIds.length > 1}>
+          <button
+            type="button"
+            data-testid="minimap-arrange"
+            class="flex items-center justify-center w-7 h-8 text-fg-3 hover:text-fg hover:bg-surface-3/60 transition-colors cursor-pointer border-l border-edge/40"
+            title="Arrange canvas by repo"
+            onClick={() => props.onAutoArrange?.()}
+          >
+            <GridIcon class="w-3.5 h-3.5" />
+          </button>
+        </Show>
       </div>
     </div>
   );

@@ -41,6 +41,7 @@ import {
   DEFAULT_TILE_W,
   findFreeTilePosition,
 } from "./tilePlacement";
+import { usePendingLayouts } from "./usePendingLayouts";
 import { useTileTheme } from "./useTileTheme";
 import { useViewPosture } from "./useViewPosture";
 import { capturePointerGesture } from "./viewport/capturePointerGesture";
@@ -76,6 +77,10 @@ const TerminalCanvas: Component<{
     id: TerminalId,
     existing: { id: TerminalId; layout: TileLayout }[],
   ) => TileLayout | undefined;
+  /** Optional one-shot arrange trigger. When provided, the minimap
+   *  zoom-bar grows an arrange button. The canvas is just plumbing —
+   *  the arrange logic itself lives in `useCanvasArrange`. */
+  onAutoArrange?: () => void;
   /** Report a layout change (drag commit, resize commit, default assignment). */
   onLayoutChange: (id: TerminalId, layout: TileLayout) => void;
   onSelect: (id: TerminalId) => void;
@@ -94,23 +99,18 @@ const TerminalCanvas: Component<{
   const tileTheme = useTileTheme();
   const posture = useViewPosture();
 
-  /** Pending per-tile layout overrides — used for three cases, all bridging
-   *  a gap until the server's metadata echo arrives:
-   *    1. Default-position seed: a new tile's cascade layout, so the first
-   *       paint isn't at (0,0) before the echo.
-   *    2. Drag commit: hold the drop position until getLayout catches up —
-   *       solid-dnd has already reset its transform to 0 by then.
-   *    3. Resize preview: live width/height during pointer-move; snapped
-   *       value on pointer-up until the server echoes the committed size.
-   *  Entries auto-clear when the echoed layout matches (effect below). */
-  const [pending, setPending] = createSignal<Record<string, TileLayout>>({});
-
-  function setPendingLayout(id: string, layout: TileLayout) {
-    setPending((prev) => ({ ...prev, [id]: layout }));
-  }
+  /** Pending per-tile layout overrides — bridges the gap between local
+   *  geometry intent (drag-end, resize-end, default-place, arrange) and
+   *  the server metadata echo. Singleton hook so `useCanvasArrange` can
+   *  seed pending for one-shot arrange writes without an imperative ref
+   *  handshake. Entries auto-clear when the echoed layout matches
+   *  (effect below). */
+  const pendingLayouts = usePendingLayouts();
+  const setPendingLayout = (id: string, layout: TileLayout) =>
+    pendingLayouts.setOne(id, layout);
 
   createEffect(() => {
-    const p = pending();
+    const p = pendingLayouts.pending();
     const alive = new Set(props.tileIds);
     let changed = false;
     const next: Record<string, TileLayout> = {};
@@ -127,12 +127,12 @@ const TerminalCanvas: Component<{
         next[id] = layout;
       }
     }
-    if (changed) setPending(next);
+    if (changed) pendingLayouts.replace(next);
   });
 
   /** Effective layout for a tile (pending override wins over saved). */
   function layoutOf(id: string): TileLayout | undefined {
-    return pending()[id] ?? props.getLayout(id);
+    return pendingLayouts.pending()[id] ?? props.getLayout(id);
   }
 
   /** Merged layouts keyed by tile ID — consumed by CanvasTile and CanvasMinimap. */
@@ -273,7 +273,7 @@ const TerminalCanvas: Component<{
         onEnd: (ev) => {
           abortResize = null;
           // No motion — skip commit so a bare click doesn't round-trip the server.
-          if (!pending()[id]) return;
+          if (!pendingLayouts.pending()[id]) return;
           const { dx, dy } = viewport.normalizeDelta(
             ev.clientX - startX,
             ev.clientY - startY,
@@ -406,6 +406,7 @@ const TerminalCanvas: Component<{
             tileIds={props.tileIds}
             layouts={layouts()}
             onSelect={props.onSelect}
+            onAutoArrange={props.onAutoArrange}
             onStartTileDrag={(id) => {
               const origin = layoutOf(id);
               if (!origin) return null;
