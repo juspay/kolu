@@ -357,21 +357,20 @@ const CommandPalette: Component<{
 
   // Track initialGroup reactively: a caller changing the prop (or opening
   // with a new value) re-targets the drilled level. Closing clears the path.
+  // Routes through `drillInto` rather than `setPath` directly so the
+  // value-input branch (prefill + auto-select) fires when initialGroup
+  // names a value-input leaf.
   createEffect(
     on([() => props.open, () => props.initialGroup], ([isOpen, initial]) => {
-      if (!isOpen) {
-        setPath([]);
-        return;
-      }
-      const group = initial
-        ? props
-            .commands()
-            .find(
-              (c): c is PaletteGroup | PaletteValueInput =>
-                isCommand(c) && c.name === initial && isGroup(c),
-            )
-        : undefined;
-      setPath(group ? [group] : []);
+      setPath([]);
+      if (!isOpen || !initial) return;
+      const group = props
+        .commands()
+        .find(
+          (c): c is PaletteGroup | PaletteValueInput =>
+            isCommand(c) && c.name === initial && isGroup(c),
+        );
+      if (group) drillInto(group);
     }),
   );
 
