@@ -274,10 +274,18 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
 
   /** Diff value narrowed to "this is a pure-rename" (no hunks, both old +
    *  new file names present and different). Returning the full diff so the
-   *  rendering Match can read its names without re-narrowing. */
+   *  rendering Match can read its names without re-narrowing.
+   *
+   *  Binary excluded from the rename predicate: a binary rename satisfies
+   *  hunks.length === 0 with distinct old/new names *and* `binary === true`.
+   *  Without this guard, dispatch between the binary placeholder and the
+   *  rename hint would depend on Switch arm ordering — load-bearing and
+   *  invisible. With this guard, the mutual exclusion lives in the data,
+   *  so a Switch refactor can't silently flip the rendering. */
   const renamedDiff = createMemo(() => {
     const d = diff();
     if (!d) return undefined;
+    if (d.binary) return undefined;
     if (d.hunks.length !== 0) return undefined;
     const { oldFileName, newFileName } = d;
     if (!oldFileName || !newFileName || oldFileName === newFileName) {
