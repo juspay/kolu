@@ -14,7 +14,7 @@
  *  knob ever becomes useful, it lands in `Preferences` and flows through
  *  this module without consumers changing. */
 
-import { type Accessor, createRoot, createSignal } from "solid-js";
+import { type Accessor, createRoot, createSignal, onCleanup } from "solid-js";
 
 const HOUR_MS = 60 * 60 * 1000;
 const TICK_MS = 60_000;
@@ -55,7 +55,8 @@ function getNowTicker(): Accessor<number> {
   if (nowSignal !== null) return nowSignal;
   nowSignal = createRoot(() => {
     const [now, setNow] = createSignal(Date.now());
-    setInterval(() => setNow(Date.now()), TICK_MS);
+    const id = setInterval(() => setNow(Date.now()), TICK_MS);
+    onCleanup(() => clearInterval(id));
     return now;
   });
   return nowSignal;
