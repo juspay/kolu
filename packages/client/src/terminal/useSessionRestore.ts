@@ -84,17 +84,12 @@ export function useSessionRestore(deps: {
     }
 
     // Initialize sub-panel active tabs for parents with sub-terminals
-    const subs: Record<TerminalId, TerminalId[]> = {};
-    for (const { t, m } of entries) {
-      if (!m.parentId) continue;
-      const existingList = subs[m.parentId];
-      if (existingList) {
-        existingList.push(t.id);
-      } else {
-        subs[m.parentId] = [t.id];
-      }
-    }
-    for (const [parentId, subIds] of Object.entries(subs)) {
+    const subs = Object.groupBy(
+      entries.filter(({ m }) => m.parentId),
+      ({ m }) => m.parentId as string,
+    );
+    for (const [parentId, group] of Object.entries(subs)) {
+      const subIds = group?.map(({ t }) => t.id) ?? [];
       const panel = subPanel.getSubPanel(parentId);
       if (!panel.activeSubTab || !subIds.includes(panel.activeSubTab)) {
         subPanel.setActiveSubTab(parentId, subIds[0] ?? null);
