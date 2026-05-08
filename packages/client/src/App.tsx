@@ -187,11 +187,11 @@ const App: Component = () => {
     if (tile) canvasViewport.centerOnTile(tile);
   }
 
-  /** Single commit point for canvas tile geometry — drag, resize,
-   *  default-place, and arrange all flow through here. A future tiling
-   *  mode that wants to interpret drag-as-swap or resize-as-ratio-adjust
-   *  branches inside this function without touching the canvas. */
-  function commitTileLayout(id: TerminalId, layout: TileLayout) {
+  /** Apply a tile's geometry — drag-end, resize-end, default-place,
+   *  and arrange all flow through this single point. The 500ms session
+   *  auto-save throttle on the server collapses N writes into one save,
+   *  so the per-tile RPC is fine for batch flows like arrange. */
+  function applyTileGeometry(id: TerminalId, layout: TileLayout) {
     crud.setCanvasLayout(id, layout);
   }
 
@@ -213,7 +213,7 @@ const App: Component = () => {
       return tile ? [tile] : [];
     });
     for (const [id, layout] of arrangeRepoIslands(tiles)) {
-      commitTileLayout(id, layout);
+      applyTileGeometry(id, layout);
     }
   }
 
@@ -584,7 +584,7 @@ const App: Component = () => {
                       });
                       return placeNextToBucket(bucket, islands);
                     }}
-                    onLayoutChange={commitTileLayout}
+                    onLayoutChange={applyTileGeometry}
                     onSelect={(id) => store.setActiveId(id)}
                     onClose={(id) => closeTerminal(id)}
                     renderTileTitle={(id) => (
