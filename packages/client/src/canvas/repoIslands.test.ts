@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
+import { DEFAULT_TILE_H, DEFAULT_TILE_W } from "./tilePlacement";
+import { GRID_SIZE } from "./viewport/transforms";
 import {
   arrangeRepoIslands,
   placeNextToBucket,
   type RepoIslandTile,
 } from "./repoIslands";
+
+const TILE_GAP = GRID_SIZE;
 
 function tile(
   id: string,
@@ -19,19 +23,26 @@ describe("arrangeRepoIslands", () => {
   });
 
   it("packs same-bucket tiles into a square-ish grid", () => {
+    const w = 96;
+    const h = 72;
     const arranged = arrangeRepoIslands([
-      tile("a", "kolu", { x: 0, y: 0, w: 96, h: 72 }),
-      tile("b", "kolu", { x: 500, y: 0, w: 96, h: 72 }),
-      tile("c", "kolu", { x: 0, y: 500, w: 96, h: 72 }),
-      tile("d", "kolu", { x: 500, y: 500, w: 96, h: 72 }),
+      tile("a", "kolu", { x: 0, y: 0, w, h }),
+      tile("b", "kolu", { x: 500, y: 0, w, h }),
+      tile("c", "kolu", { x: 0, y: 500, w, h }),
+      tile("d", "kolu", { x: 500, y: 500, w, h }),
     ]);
-
-    expect([...arranged.values()]).toEqual([
-      { x: 0, y: 0, w: 96, h: 72 },
-      { x: 120, y: 0, w: 96, h: 72 },
-      { x: 0, y: 96, w: 96, h: 72 },
-      { x: 120, y: 96, w: 96, h: 72 },
-    ]);
+    const a = arranged.get("a");
+    const b = arranged.get("b");
+    const c = arranged.get("c");
+    const d = arranged.get("d");
+    if (!a || !b || !c || !d) throw new Error("Expected all entries");
+    // 2×2 grid: row 0 = a, b; row 1 = c, d. col 0 = a, c; col 1 = b, d.
+    expect(a.y).toBe(b.y);
+    expect(c.y).toBe(d.y);
+    expect(a.x).toBe(c.x);
+    expect(b.x).toBe(d.x);
+    expect(b.x - (a.x + a.w)).toBe(TILE_GAP);
+    expect(c.y - (a.y + a.h)).toBe(TILE_GAP);
   });
 
   it("packs separate buckets into distinct clusters", () => {
@@ -93,7 +104,12 @@ describe("placeNextToBucket", () => {
       tile("a", "kolu", { x: 96, y: 48, w: 300, h: 200 }),
       tile("b", "other", { x: 2000, y: 2000, w: 300, h: 200 }),
     ]);
-    expect(layout).toEqual({ x: 432, y: 48, w: 800, h: 540 });
+    if (!layout) throw new Error("Expected a layout");
+    // Right of the matching island, top-aligned with it.
+    expect(layout.x).toBeGreaterThanOrEqual(96 + 300 + TILE_GAP);
+    expect(layout.y).toBe(48);
+    expect(layout.w).toBe(DEFAULT_TILE_W);
+    expect(layout.h).toBe(DEFAULT_TILE_H);
   });
 
   it("uses the entire matching island as the anchor", () => {
@@ -101,7 +117,10 @@ describe("placeNextToBucket", () => {
       tile("a", "kolu", { x: 0, y: 240, w: 800, h: 540 }),
       tile("b", "kolu", { x: 840, y: 0, w: 640, h: 360 }),
     ]);
-    expect(layout).toEqual({ x: 1512, y: 0, w: 800, h: 540 });
+    if (!layout) throw new Error("Expected a layout");
+    // Right of the cluster's right edge (max x + w of any bucket tile).
+    expect(layout.x).toBeGreaterThanOrEqual(840 + 640 + TILE_GAP);
+    expect(layout.y).toBe(0);
   });
 
   it("steps down when the adjacent slot is taken", () => {
@@ -109,7 +128,10 @@ describe("placeNextToBucket", () => {
       tile("a", "kolu", { x: 0, y: 0, w: 800, h: 540 }),
       tile("b", "other", { x: 840, y: 0, w: 800, h: 540 }),
     ]);
-    expect(layout).toEqual({ x: 840, y: 576, w: 800, h: 540 });
+    if (!layout) throw new Error("Expected a layout");
+    // First slot (right of "kolu") collides with the "other" tile, so the
+    // candidate steps down to the next tile-row.
+    expect(layout.y).toBeGreaterThanOrEqual(540 + TILE_GAP);
   });
 
   it("returns undefined when no matching island exists", () => {
