@@ -165,6 +165,7 @@ const WorkspaceSwitcher: Component<{
         >
           <CollapsedWorkspaceSwitcher
             groups={switcher().compactGroups}
+            isStale={isStale}
             onCreate={props.onCreate}
             onSelect={selectAndClose}
           />
@@ -210,6 +211,7 @@ const WorkspaceSwitcher: Component<{
             model={switcher()}
             query={query()}
             focusSearch={focusSearchOnOpen()}
+            isStale={isStale}
             onQueryChange={setQuery}
             onSearchFocused={() => setFocusSearchOnOpen(false)}
             onRepoFilterChange={setRepoFilter}

@@ -1,6 +1,5 @@
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, createEffect, Index, Show } from "solid-js";
-import { useStaleCheck } from "../../terminal/staleness";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { CloseIcon } from "../../ui/Icons";
 import { useTileTheme } from "../useTileTheme";
@@ -38,6 +37,7 @@ const WorkspaceSearchPanel: Component<{
   model: WorkspaceSwitcherModel;
   query: string;
   focusSearch: boolean;
+  isStale: (lastActivityAt: number) => boolean;
   onQueryChange: (query: string) => void;
   onSearchFocused: () => void;
   onRepoFilterChange: (repoName: string | null) => void;
@@ -46,7 +46,6 @@ const WorkspaceSearchPanel: Component<{
 }> = (props) => {
   const store = useTerminalStore();
   const tileTheme = useTileTheme();
-  const isStale = useStaleCheck();
   const columnCount = () => Math.max(1, props.model.columns.length);
   const totalCount = () =>
     props.model.repoFacets.reduce((sum, facet) => sum + facet.count, 0);
@@ -188,7 +187,9 @@ const WorkspaceSearchPanel: Component<{
                             entry={entry()}
                             active={store.activeId() === entry().id}
                             unread={store.isUnread(entry().id)}
-                            stale={isStale(entry().info.meta.lastActivityAt)}
+                            stale={props.isStale(
+                              entry().info.meta.lastActivityAt,
+                            )}
                             tileBg={tileTheme(entry().id).bg}
                             tileFg={tileTheme(entry().id).fg}
                             onSelect={() => props.onSelect(entry().id)}

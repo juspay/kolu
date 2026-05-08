@@ -1,6 +1,5 @@
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, Index, Show } from "solid-js";
-import { useStaleCheck } from "../../terminal/staleness";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { PlusIcon } from "../../ui/Icons";
 import { branchAccent, repoAccent } from "./identity";
@@ -18,11 +17,11 @@ import {
  *  this scale. Hover/focus reveals the full panel beneath. */
 const CollapsedWorkspaceSwitcher: Component<{
   groups: WorkspaceSwitcherRepoGroup[];
+  isStale: (lastActivityAt: number) => boolean;
   onCreate: () => void;
   onSelect: (id: TerminalId) => void;
 }> = (props) => {
   const store = useTerminalStore();
-  const isStale = useStaleCheck();
 
   return (
     <>
@@ -87,7 +86,7 @@ const CollapsedWorkspaceSwitcher: Component<{
                     // border (no breathing ring on parked terminals) and
                     // fades the pill so live work reads louder.
                     const stale = () =>
-                      isStale(item().info.meta.lastActivityAt);
+                      props.isStale(item().info.meta.lastActivityAt);
                     return (
                       <button
                         type="button"

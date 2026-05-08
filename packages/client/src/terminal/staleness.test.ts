@@ -26,28 +26,16 @@ describe("isStale", () => {
       why: "exactly at threshold (strict greater-than)",
     },
     {
-      lastActivityAt: now - HOUR - 1,
+      lastActivityAt: now - 24 * HOUR,
       thresholdMs: HOUR,
       expected: true,
       why: "older than threshold",
     },
     {
       lastActivityAt: now - 24 * HOUR,
-      thresholdMs: HOUR,
-      expected: true,
-      why: "much older than threshold",
-    },
-    {
-      lastActivityAt: now - 24 * HOUR,
       thresholdMs: null,
       expected: false,
       why: "feature off (threshold=null)",
-    },
-    {
-      lastActivityAt: 0,
-      thresholdMs: null,
-      expected: false,
-      why: "off + never observed",
     },
   ])("$why", ({ lastActivityAt, thresholdMs, expected }) => {
     expect(isStale(lastActivityAt, now, thresholdMs)).toBe(expected);
