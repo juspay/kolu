@@ -259,10 +259,18 @@ export async function getDiff(
     const oldAbsent = /^--- \/dev\/null/m.test(rawDiff);
     const newAbsent = /^\+\+\+ \/dev\/null/m.test(rawDiff);
 
+    // Binary files: git emits `Binary files a/foo and b/foo differ` with
+    // no @@ hunks. Same marker for added (`Binary files /dev/null and
+    // b/foo differ`) and deleted, so one regex covers all cases. The
+    // client uses this flag to render a placeholder; the marker itself
+    // stays out of `hunks` since `hasHunks` is already false.
+    const binary = /^Binary files .* differ$/m.test(rawDiff);
+
     return ok({
       oldFileName: oldAbsent ? null : oldRel,
       newFileName: newAbsent ? null : rel,
       hunks: rawDiff && hasHunks ? [rawDiff] : [],
+      binary,
     });
   } catch (e) {
     return err({

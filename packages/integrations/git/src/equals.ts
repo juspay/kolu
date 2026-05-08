@@ -56,6 +56,7 @@ export function gitDiffOutputEqual(
   return (
     a.oldFileName === b.oldFileName &&
     a.newFileName === b.newFileName &&
+    a.binary === b.binary &&
     arrayEqual(a.hunks, b.hunks, (x, y) => x === y)
   );
 }

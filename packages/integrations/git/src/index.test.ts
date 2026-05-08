@@ -107,6 +107,69 @@ describe("getDiff", () => {
       );
     expect(diffLines).toEqual(["+export const b = 2;"]);
   });
+
+  // --- binary detection (#810) ---
+  // git emits `Binary files a/foo and b/foo differ` (no @@ hunks) when it
+  // detects NUL bytes. The flag lets the client render a placeholder
+  // instead of an empty pane — Pierre never sees the binary marker.
+
+  /** Bytes guaranteed to look binary to git: NUL in the first 8KB. */
+  const BINARY_BYTES = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x01, 0x02]);
+
+  it("modified binary file: binary=true, hunks empty", async () => {
+    const { dir, git } = await initRepo();
+
+    fs.writeFileSync(path.join(dir, "image.png"), BINARY_BYTES);
+    await git.add("image.png");
+    await git.commit("add binary");
+
+    fs.writeFileSync(
+      path.join(dir, "image.png"),
+      Buffer.concat([BINARY_BYTES, BINARY_BYTES]),
+    );
+
+    const result = await getDiff(dir, "image.png", "local");
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(result.value.binary).toBe(true);
+    expect(result.value.hunks).toEqual([]);
+    expect(result.value.newFileName).toBe("image.png");
+  });
+
+  it("untracked binary file: binary=true via --no-index", async () => {
+    const { dir, git } = await initRepo();
+    // Need an initial commit so HEAD exists.
+    fs.writeFileSync(path.join(dir, "seed.txt"), "seed\n");
+    await git.add("seed.txt");
+    await git.commit("seed");
+
+    fs.writeFileSync(path.join(dir, "blob.bin"), BINARY_BYTES);
+
+    const result = await getDiff(dir, "blob.bin", "local");
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(result.value.binary).toBe(true);
+    expect(result.value.hunks).toEqual([]);
+  });
+
+  it("text file: binary=false", async () => {
+    const { dir, git } = await initRepo();
+
+    fs.writeFileSync(path.join(dir, "readme.txt"), "hello\n");
+    await git.add("readme.txt");
+    await git.commit("add text");
+
+    fs.writeFileSync(path.join(dir, "readme.txt"), "hello\nworld\n");
+
+    const result = await getDiff(dir, "readme.txt", "local");
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(result.value.binary).toBe(false);
+    expect(result.value.hunks.length).toBe(1);
+  });
 });
 
 // --- resolveUnder ---

@@ -391,6 +391,22 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
                         </div>
                       )}
                     </Match>
+                    <Match when={diff()?.binary && diff()}>
+                      {(d) => (
+                        <div
+                          class="flex flex-col items-center justify-center h-full text-fg-3/40 gap-2"
+                          data-testid="diff-binary"
+                        >
+                          <FileDiffIcon class="w-8 h-8 opacity-40" />
+                          <span class="text-[11px]">
+                            Binary file — not displayable
+                          </span>
+                          <span class="text-[10px] text-fg-3/30">
+                            {d().newFileName ?? d().oldFileName}
+                          </span>
+                        </div>
+                      )}
+                    </Match>
                     <Match when={renamedDiff()}>
                       {(rename) => (
                         <div class="flex items-center justify-center h-full text-fg-3/50">
