@@ -9,10 +9,11 @@
  *  New features should go in the appropriate module (or a new one),
  *  not back into this composition root. See #221, #242. */
 
-import type { TerminalId } from "kolu-common/surface";
+import type { CanvasLayout, TerminalId } from "kolu-common/surface";
 import { createRoot } from "solid-js";
 import { toast } from "solid-sonner";
 import { placeNewTileInRepoIsland } from "../canvas/repoIslandPlacement";
+import { useCanvasViewport } from "../canvas/viewport/useCanvasViewport";
 import { isExpectedCleanupError } from "../rpc/streamCleanup";
 import { app } from "../wire";
 import { useSessionRestore } from "./useSessionRestore";
@@ -23,6 +24,19 @@ import { useWorktreeOps } from "./useWorktreeOps";
 
 export function useTerminals() {
   const store = useTerminalStore();
+  const viewport = useCanvasViewport();
+
+  /** Pan the viewport onto a freshly-created tile. Cohort placement can
+   *  park a new terminal far from the current viewport (e.g. when its
+   *  repo island sits off-screen); without this pan the user creates a
+   *  terminal and sees nothing change. Cascade placement (no `layout`)
+   *  drops the tile near the current viewport already, so no pan needed. */
+  function centerOnNewTerminal(
+    _id: TerminalId,
+    layout: CanvasLayout | undefined,
+  ) {
+    if (layout) viewport.centerOnTile(layout);
+  }
 
   const alerts = useTerminalAlerts({
     activeId: store.activeId,
@@ -76,6 +90,7 @@ export function useTerminals() {
   const crud = useTerminalCrud({
     store,
     subscribeExit,
+    onCreated: centerOnNewTerminal,
     computeInitialLayout: (cwd) =>
       placeNewTileInRepoIsland({
         cwd,

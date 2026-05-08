@@ -26,6 +26,13 @@ export function useTerminalCrud(deps: {
    *  to the canvas's default cascade. Composition root supplies this so
    *  CRUD stays agnostic to whichever placement policy is in force. */
   computeInitialLayout?: (cwd: string | undefined) => CanvasLayout | undefined;
+  /** Fired once per fresh `handleCreate` (not session restore). Carries the
+   *  canvas layout we sent at create time when one was computed (cohort
+   *  placement) — composition root uses it to pan the viewport onto the
+   *  new tile so a cohort-placed terminal that lands off-screen doesn't
+   *  appear invisible. `undefined` means cascade placement; the canvas
+   *  drops the tile near the current viewport center, so no pan needed. */
+  onCreated?: (id: TerminalId, layout: CanvasLayout | undefined) => void;
 }) {
   const { store } = deps;
   const subPanel = useSubPanel();
@@ -144,6 +151,10 @@ export function useTerminalCrud(deps: {
     store.setActiveId(info.id);
     deps.subscribeExit(info.id);
     showTipOnce(CONTEXTUAL_TIPS.themeSwitch);
+    // Skip the post-create hook during session restore — `initial` carries
+    // saved layout/theme/sub-panel and the restore flow does its own
+    // viewport positioning.
+    if (!initial) deps.onCreated?.(info.id, canvasLayout);
     return info.id;
   }
 

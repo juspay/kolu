@@ -49,6 +49,18 @@ Feature: Canvas workspace
     Then there should be 2 canvas tiles
     And canvas tile 2 should be to the right of canvas tile 1
 
+  Scenario: Creating a terminal centers the canvas on the new tile
+    # The cohort placement can park a new tile far from the current viewport
+    # (e.g. when its repo island sits off-screen). Without an explicit pan,
+    # the user would create a terminal and see no visible change. The viewport
+    # must follow the newly-active tile so it's always centered after create.
+    When I move canvas tile 1 to x=2400 y=2400 w=600 h=420
+    And I save canvas tile 1 position
+    When I create a terminal with keyboard shortcut
+    Then there should be 2 canvas tiles
+    And the active canvas tile should be centered in the viewport
+    And there should be no page errors
+
   Scenario: Scroll on terminal does not pan the canvas
     When I record the canvas transform
     And I scroll the wheel over the terminal tile
