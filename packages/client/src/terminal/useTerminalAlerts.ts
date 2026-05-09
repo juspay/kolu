@@ -36,10 +36,15 @@ export function useTerminalAlerts(deps: {
     deps.hasBadgeAttention(id) &&
     !isStale(deps.getMetadata(id)?.lastActivityAt ?? 0);
 
-  // Badge the PWA dock icon with terminals that need attention.
+  // Badge the PWA dock icon with terminals that need attention. The
+  // effect re-runs on every staleness tick (~60s), so guard against
+  // re-issuing the same count to the OS shell.
+  let lastBadgeCount = -1;
   createEffect(() => {
     if (!("setAppBadge" in navigator)) return;
     const count = deps.terminalIds().filter(isAttentionLive).length;
+    if (count === lastBadgeCount) return;
+    lastBadgeCount = count;
     if (count > 0) {
       void navigator.setAppBadge(count);
     } else {
