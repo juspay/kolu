@@ -73,7 +73,15 @@ const TerminalCanvas: Component<{
    *  same loop pass has just default-placed. The caller can't reconstruct
    *  this from its own store: pending overrides live only inside the
    *  canvas, and same-pass placements haven't round-tripped through the
-   *  server yet. */
+   *  server yet.
+   *
+   *  Side-effect contract (NOT pure-query, despite the signature shape):
+   *  the hook MAY mutate sibling layouts — e.g. a square-ish repack
+   *  shifts existing tiles to make room for the new one. Implementations
+   *  that need to move siblings must seed the canvas's pending store
+   *  AND dispatch geometry RPCs for those siblings BEFORE returning,
+   *  so the new-tile write the canvas performs after this hook lands
+   *  on top of an already-applied sibling layout — not under it. */
   placeNew?: (
     id: TerminalId,
     existing: { id: TerminalId; layout: TileLayout }[],
