@@ -62,6 +62,52 @@ Feature: Canvas workspace
     Then there should be 2 canvas tiles
     And the active canvas tile should be centered in the viewport
 
+  Scenario: Each successive terminal create centers the viewport on the new active tile
+    # Reported by user with a 5-tile screenshot: after creating multiple
+    # tiles in succession, the viewport stayed anchored on the original
+    # tile while the active jumped to the latest. The active (last-created)
+    # tile must end up centered, not just the first.
+    Then there should be 1 canvas tile
+    When I create a terminal
+    Then there should be 2 canvas tiles
+    And the active canvas tile should be centered in the viewport
+    When I create a terminal
+    Then there should be 3 canvas tiles
+    And the active canvas tile should be centered in the viewport
+    When I create a terminal
+    Then there should be 4 canvas tiles
+    And the active canvas tile should be centered in the viewport
+    When I create a terminal
+    Then there should be 5 canvas tiles
+    And the active canvas tile should be centered in the viewport
+
+  Scenario: Ctrl+Tab cycle pans the canvas to the newly-active tile
+    # Reported by user: cycling with Ctrl+Tab (or Alt+Tab on macOS Chrome)
+    # changed the active terminal but the viewport stayed put — the new
+    # active tile could land off-screen entirely.
+    Given I create a terminal
+    And I create a terminal
+    And I create a terminal
+    Then there should be 4 canvas tiles
+    When I press Control+Tab
+    Then the active canvas tile should be centered in the viewport
+
+  Scenario: Cmd+1 positional switch pans the canvas to the newly-active tile
+    Given I create a terminal
+    And I create a terminal
+    And I create a terminal
+    Then there should be 4 canvas tiles
+    When I press Control+1
+    Then the active canvas tile should be centered in the viewport
+
+  Scenario: Ctrl+Shift+] next-terminal pans the canvas to the newly-active tile
+    Given I create a terminal
+    And I create a terminal
+    And I create a terminal
+    Then there should be 4 canvas tiles
+    When I press Control+Shift+BracketRight
+    Then the active canvas tile should be centered in the viewport
+
   Scenario: First terminal created on an emptied canvas is centered in the viewport
     Then there should be 1 canvas tile
     When I scroll the wheel over the canvas background

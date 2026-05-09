@@ -49,7 +49,10 @@ export function useShortcuts(ctx: ActionContext) {
     const n = cycle.snapshot.length;
     cycle.cursor = (cycle.cursor + direction + n) % n;
     const target = cycle.snapshot[cycle.cursor];
-    if (target) ctx.setActiveId(target);
+    if (target) {
+      ctx.setActiveId(target);
+      ctx.requestCenterActive(target);
+    }
   }
 
   makeEventListener(

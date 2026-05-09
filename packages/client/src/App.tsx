@@ -191,6 +191,7 @@ const App: Component = () => {
     terminalIds: store.terminalIds,
     activeId: store.activeId,
     setActiveId: store.setActiveId,
+    requestCenterActive: store.requestCenterActive,
     mruOrder: store.mruOrder,
     activeMeta: store.activeMeta,
     handleCreate: (cwd?: string) => void crud.handleCreate(cwd),
