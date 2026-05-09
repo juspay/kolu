@@ -108,6 +108,19 @@ Feature: Canvas workspace
     When I press Control+Shift+BracketRight
     Then the active canvas tile should be centered in the viewport
 
+  Scenario: Command palette "Switch to terminal" pans the canvas to the newly-active tile
+    # Caught by hickey: commands.ts:207,212 spreads actionPaletteCommand then
+    # overrides onSelect with bare setActiveId(id), stripping the centering
+    # the action handler already does.
+    Given I create a terminal
+    And I create a terminal
+    And I create a terminal
+    Then there should be 4 canvas tiles
+    When I open the command palette
+    And I select "Switch terminal" in the palette
+    And I select "Switch to terminal 1" in the palette
+    Then the active canvas tile should be centered in the viewport
+
   Scenario: First terminal created on an emptied canvas is centered in the viewport
     Then there should be 1 canvas tile
     When I scroll the wheel over the canvas background

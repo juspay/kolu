@@ -204,12 +204,12 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
                           deps,
                           { name: `Switch to terminal ${i + 1}` },
                         ),
-                        onSelect: () => deps.setActiveId(id),
+                        onSelect: () => deps.activate(id),
                       }
                     : {
                         kind: "action",
                         name: `Switch to terminal ${i + 1}`,
-                        onSelect: () => deps.setActiveId(id),
+                        onSelect: () => deps.activate(id),
                       },
               ),
           },

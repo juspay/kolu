@@ -35,15 +35,35 @@ export function useViewState() {
 
   const [mruOrder, setMruOrder] = createSignal<TerminalId[]>([]);
 
-  /** Impulse signal — see `canvas/useCanvasFocus.ts` for the seam and
-   *  the contract. Lives on the store so terminal-side writers can bump
-   *  it without taking a reverse dep on `canvas/`. `equals: false` so
-   *  back-to-back requests for the same id still fire the listener. */
+  /** Canvas "pan to this tile" intent — see `canvas/useCanvasFocus.ts`
+   *  for the consumer seam. `equals: false` so back-to-back requests for
+   *  the same id still fire the listener. Public reads only; the writer
+   *  is private — external callers go through `activate(id)` instead, so
+   *  there is no two-call dance to forget. */
   const [centerActiveRequest, setCenterActiveRequest] =
     createSignal<TerminalId | null>(null, { equals: false });
-  function requestCenterActive(id: TerminalId) {
-    setCenterActiveRequest(id);
+
+  /** Make `id` the active terminal AND ask the canvas viewport to pan to
+   *  it. The single public writer for system-driven activation — close
+   *  auto-switch, post-create centering, palette / switcher / keyboard
+   *  navigation, post-arrange recenter. Adding a new activation path
+   *  means calling this; there is no separate "request centering" the
+   *  caller can forget.
+   *
+   *  Use {@link setActiveSilently} only for the small set of callers
+   *  where the tile is already on screen by construction (in-canvas tile
+   *  click, focus events, title-bar buttons, mobile pager) or where there
+   *  is no canvas to pan (mobile, session restore — initial-mount
+   *  fallback handles centering). */
+  function activate(id: TerminalId | null) {
+    setActiveId(id);
+    if (id !== null) setCenterActiveRequest(id);
   }
+
+  /** Set the active terminal without panning the canvas. Reserve for
+   *  callers that have a domain reason not to pan; use {@link activate}
+   *  by default. */
+  const setActiveSilently = setActiveId;
   createEffect(
     on(activeId, (id) => {
       if (id === null) return;
@@ -101,13 +121,13 @@ export function useViewState() {
 
   return {
     activeId,
-    setActiveId,
+    activate,
+    setActiveSilently,
     canvasMaximized,
     toggleCanvasMaximized,
     mruOrder,
     setMruOrder,
     centerActiveRequest,
-    requestCenterActive,
     markUnread,
     markBadgeAttention,
     clearBadgeAttention,

@@ -175,7 +175,7 @@ const App: Component = () => {
   function handleCanvasCenterActive() {
     if (isMobile()) return;
     const id = store.activeId();
-    if (id) store.requestCenterActive(id);
+    if (id) store.activate(id);
   }
 
   const arrange = useCanvasArrange({
@@ -190,8 +190,7 @@ const App: Component = () => {
   const actionContext: ActionContext = {
     terminalIds: store.terminalIds,
     activeId: store.activeId,
-    setActiveId: store.setActiveId,
-    requestCenterActive: store.requestCenterActive,
+    activate: store.activate,
     mruOrder: store.mruOrder,
     activeMeta: store.activeMeta,
     handleCreate: (cwd?: string) => void crud.handleCreate(cwd),
@@ -318,7 +317,7 @@ const App: Component = () => {
         }
         onCloseTerminal={closeTerminal}
         activeMeta={store.activeMeta()}
-        onFocus={() => store.setActiveId(id)}
+        onFocus={() => store.setActiveSilently(id)}
       />
     );
   }
@@ -475,10 +474,7 @@ const App: Component = () => {
               activeId={store.activeId()}
               getRecency={recencyOf}
               openRequest={workspaceSwitcherOpenRequest()}
-              onSelect={(id) => {
-                store.setActiveId(id);
-                store.requestCenterActive(id);
-              }}
+              onSelect={store.activate}
               onCreate={() => openPaletteGroup("New terminal")}
             />
           }
@@ -545,7 +541,7 @@ const App: Component = () => {
                     placeNew={arrange.placeNew}
                     onLayoutChange={arrange.applyTileGeometry}
                     onAutoArrange={arrange.handleCanvasAutoArrange}
-                    onSelect={(id) => store.setActiveId(id)}
+                    onSelect={store.setActiveSilently}
                     onClose={(id) => closeTerminal(id)}
                     renderTileTitle={(id) => (
                       <TerminalMeta info={store.getDisplayInfo(id)} />

@@ -106,7 +106,11 @@ export function useSessionRestore(deps: {
       serverActiveId && topIds.includes(serverActiveId as TerminalId)
         ? (serverActiveId as TerminalId)
         : (topIds[0] ?? null);
-    store.setActiveId(picked);
+    // `setActiveSilently`: the canvas's first-mount fallback effect pans
+    // the viewport to the picked active when restoring at default origin —
+    // calling `activate` here would double-pan and racing the still-
+    // assembling pendingLayouts.
+    store.setActiveSilently(picked);
 
     // Seed MRU with all top-level terminals (active first, rest in sidebar order).
     const active = store.activeId();
@@ -201,7 +205,7 @@ export function useSessionRestore(deps: {
       // Restore active terminal
       if (session.activeTerminalId) {
         const newActiveId = oldToNew.get(session.activeTerminalId);
-        if (newActiveId) store.setActiveId(newActiveId);
+        if (newActiveId) store.setActiveSilently(newActiveId);
       }
       const summary =
         resumed > 0

@@ -15,7 +15,7 @@ import { matchesKeybind } from "./keyboard";
 /** MRU cycling state — a frozen snapshot is taken on the first Tab press while
  *  the modifier (Alt or Ctrl) is held, and the cursor advances through that
  *  snapshot on each subsequent Tab. Using the live MRU would re-order under
- *  our feet as setActiveId fires. Snapshot resets on modifier keyup. */
+ *  our feet as activate fires. Snapshot resets on modifier keyup. */
 interface MruCycleState {
   snapshot: TerminalId[];
   cursor: number;
@@ -49,10 +49,7 @@ export function useShortcuts(ctx: ActionContext) {
     const n = cycle.snapshot.length;
     cycle.cursor = (cycle.cursor + direction + n) % n;
     const target = cycle.snapshot[cycle.cursor];
-    if (target) {
-      ctx.setActiveId(target);
-      ctx.requestCenterActive(target);
-    }
+    if (target) ctx.activate(target);
   }
 
   makeEventListener(

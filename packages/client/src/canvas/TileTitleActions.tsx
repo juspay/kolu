@@ -61,7 +61,7 @@ const TileTitleActions: Component<{
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => {
               e.stopPropagation();
-              store.setActiveId(props.id);
+              store.setActiveSilently(props.id);
               rightPanel.expandPanel();
             }}
             title="Open inspector"
@@ -81,7 +81,7 @@ const TileTitleActions: Component<{
               onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => {
                 e.stopPropagation();
-                store.setActiveId(props.id);
+                store.setActiveSilently(props.id);
                 props.onOpenPaletteGroup("Theme");
                 setTimeout(
                   () => showTipOnce(CONTEXTUAL_TIPS.themeFromPalette),
@@ -104,7 +104,7 @@ const TileTitleActions: Component<{
           onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => {
             e.stopPropagation();
-            store.setActiveId(props.id);
+            store.setActiveSilently(props.id);
             props.onToggleSubPanel(props.id);
           }}
           aria-label="Toggle split"
@@ -129,7 +129,7 @@ const TileTitleActions: Component<{
           onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => {
             e.stopPropagation();
-            store.setActiveId(props.id);
+            store.setActiveSilently(props.id);
             props.onOpenSearch();
           }}
           aria-label="Find in terminal"

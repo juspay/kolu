@@ -20,11 +20,11 @@ import { type Keybind, matchesKeybind } from "./keyboard";
 export interface ActionContext {
   terminalIds: Accessor<TerminalId[]>;
   activeId: Accessor<TerminalId | null>;
-  setActiveId: Setter<TerminalId | null>;
-  /** Ask the canvas to pan so the given tile lands centered. Cycle and
-   *  positional-switch handlers call this after `setActiveId` so the
-   *  viewport follows when the new active tile is off-screen. */
-  requestCenterActive: (id: TerminalId) => void;
+  /** Make `id` the active terminal AND pan the canvas to it. The single
+   *  writer for keyboard-driven activation (cycle, positional, MRU) so
+   *  every shortcut gets viewport-follow without remembering a second
+   *  call. Mirrors `store.activate` from `useViewState`. */
+  activate: (id: TerminalId | null) => void;
   /** Terminal IDs in most-recently-used order; used for Alt+Tab / Ctrl+Tab cycling. */
   mruOrder: Accessor<TerminalId[]>;
   activeMeta: Accessor<TerminalMetadata | null>;
@@ -81,9 +81,7 @@ function cycleTerminalByPosition(ctx: ActionContext, direction: 1 | -1) {
   const next = (current + direction + ids.length) % ids.length;
   // Tuple positional `ids[0]` is statically `TerminalId`; `?? ids[0]` is
   // a typed fallback the math never actually triggers.
-  const target = ids[next] ?? ids[0];
-  ctx.setActiveId(target);
-  ctx.requestCenterActive(target);
+  ctx.activate(ids[next] ?? ids[0]);
 }
 
 /** Mod+1 through Mod+9 — direct positional terminal switch. */
@@ -99,10 +97,7 @@ const switchToActions = Object.fromEntries(
       keybind: { key: String(i), mod: true },
       handler: (ctx) => {
         const target = ctx.terminalIds()[i - 1];
-        if (target !== undefined) {
-          ctx.setActiveId(target);
-          ctx.requestCenterActive(target);
-        }
+        if (target !== undefined) ctx.activate(target);
       },
     } satisfies DispatchableAction,
   ]),

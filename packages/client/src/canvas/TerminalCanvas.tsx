@@ -206,12 +206,15 @@ const TerminalCanvas: Component<{
           props.onLayoutChange(id, defaultLayout);
           placed.push({ id, layout: defaultLayout, isNew: true });
         }
-        // Pan to the active newly-placed tile. Routed through the focus
-        // seam so create-driven and close-driven panning share one
-        // mechanism (the `focus.request` effect below).
+        // Pan to the active newly-placed tile. `activate` is a no-op
+        // setter when active is already this id (handleCreate already set
+        // it via setActiveSilently before the cascade ran) — the call's
+        // job here is bumping the centering signal once the new tile's
+        // pending layout exists. Same mechanism the `focus.request`
+        // effect below uses for every other system-driven activation.
         const activeId = store.activeId();
         if (activeId && placed.some((p) => p.isNew && p.id === activeId)) {
-          focus.requestCenter(activeId);
+          store.activate(activeId);
         }
       },
     ),

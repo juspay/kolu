@@ -103,11 +103,12 @@ export function useCanvasArrange(deps: {
     const arranged = arrangeRepoIslands(tiles);
     applyLayoutBatch(arranged);
     // Recenter on the active tile's new position so a far-away active
-    // tile doesn't end up off-screen after arrange. Routed through
-    // `requestCenterActive` (the canvas resolves the just-applied
-    // pending layout via `layoutOf`) to share the create/close path.
+    // tile doesn't end up off-screen after arrange. `activate` re-bumps
+    // the centering signal even though active hasn't changed (the canvas
+    // resolves the just-applied pending layout via `layoutOf`), so this
+    // shares the create/close path.
     const activeId = store.activeId();
-    if (activeId && arranged.has(activeId)) store.requestCenterActive(activeId);
+    if (activeId && arranged.has(activeId)) store.activate(activeId);
   }
 
   return { applyTileGeometry, placeNew, handleCanvasAutoArrange };

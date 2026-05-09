@@ -60,7 +60,8 @@ const MobileTileView: Component<{
     if (idx === -1) return;
     const next = (idx + direction + ids.length) % ids.length;
     const target = ids[next];
-    if (target) store.setActiveId(target);
+    // Mobile: there is no canvas to pan — `setActiveSilently` is correct.
+    if (target) store.setActiveSilently(target);
   }
 
   function onTouchStart(e: TouchEvent) {
@@ -175,7 +176,7 @@ const MobileTileView: Component<{
             appTitle={props.appTitle}
             onOpenPalette={props.onOpenPalette}
             groups={props.groups}
-            onSelect={store.setActiveId}
+            onSelect={store.setActiveSilently}
             onClose={() => setSheetOpen(false)}
           />
         </Drawer.Content>
