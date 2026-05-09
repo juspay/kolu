@@ -41,14 +41,18 @@ export function createMetadata(cwd: string): TerminalMetadata {
   };
 }
 
-/** Log + publish the current metadata snapshot. Shared tail for every
- *  update variant — the publish/audit path is identical regardless of who
- *  wrote the fields. Distinct from `publishMetadataAndPersist` (below):
- *  this one does NOT fire `terminals:dirty`, so live-only writes (agent
- *  stream sub-info, pr poll results, foreground process churn) don't
- *  schedule autosaves whose persisted bytes would be byte-identical to
- *  the previous snapshot. */
-function publishMetadata(entry: TerminalProcess, terminalId: string): void {
+/** Log + emit the current metadata snapshot to the surface collection.
+ *  Shared tail for every update variant — the publish/audit path is
+ *  identical regardless of who wrote the fields. Distinct from
+ *  `publishSnapshotAndDirty` (below): this one does NOT fire
+ *  `terminals:dirty`, so live-only writes (agent stream sub-info, pr poll
+ *  results, foreground process churn) don't schedule autosaves whose
+ *  persisted bytes would be byte-identical to the previous snapshot.
+ *
+ *  The name is "snapshot", not "persist": no I/O happens here. The
+ *  `terminals:dirty` channel is the *signal* that downstream
+ *  `session.ts` listens for and translates into a write to disk. */
+function publishSnapshot(entry: TerminalProcess, terminalId: string): void {
   const m = entry.meta;
   const pr = prValue(m.pr);
   const prUnavailable = prUnavailableReason(m.pr);
@@ -71,13 +75,16 @@ function publishMetadata(entry: TerminalProcess, terminalId: string): void {
   surfaceCtx.collections.terminalMetadata.upsert(terminalId, { ...m });
 }
 
-/** `publishMetadata` + fire `terminals:dirty`. Use this from any path that
- *  wrote a persisted field — the channel tells `session.ts` to flush. */
-function publishMetadataAndPersist(
+/** `publishSnapshot` + fire `terminals:dirty`. Use this from any path
+ *  that wrote a persisted field — the dirty signal tells `session.ts`'s
+ *  autosave loop to debounce-save the snapshot. The actual disk write
+ *  is downstream; this function is named for what it *does* (signal
+ *  dirty), not what eventually happens (a write). */
+function publishSnapshotAndDirty(
   entry: TerminalProcess,
   terminalId: string,
 ): void {
-  publishMetadata(entry, terminalId);
+  publishSnapshot(entry, terminalId);
   terminalsDirtyChannel.publish({});
 }
 
@@ -93,7 +100,7 @@ export function updateServerMetadata(
   mutate: (meta: TerminalServerMetadata) => void,
 ): void {
   mutate(entry.meta);
-  publishMetadataAndPersist(entry, terminalId);
+  publishSnapshotAndDirty(entry, terminalId);
 }
 
 /** Atomically mutate live-only server metadata (`pr`, `agent`,
@@ -107,7 +114,7 @@ export function updateServerLiveMetadata(
   mutate: (meta: LiveTerminalFields) => void,
 ): void {
   mutate(entry.meta);
-  publishMetadata(entry, terminalId);
+  publishSnapshot(entry, terminalId);
 }
 
 /** Atomically mutate client-owned metadata (themeName, parentId,
@@ -121,5 +128,5 @@ export function updateClientMetadata(
   mutate: (meta: TerminalClientMetadata) => void,
 ): void {
   mutate(entry.meta);
-  publishMetadataAndPersist(entry, terminalId);
+  publishSnapshotAndDirty(entry, terminalId);
 }
