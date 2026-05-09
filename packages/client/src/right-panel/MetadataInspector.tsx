@@ -1,11 +1,11 @@
-/** MetadataInspector — live view of the active terminal's full context.
- *  Renders sections from the supplied `meta`; the active theme name is
- *  read from `useThemeManager` directly so callers don't have to drill
- *  it through every host that renders this component. The theme-button
- *  click stays a prop because it triggers a palette open whose owner
- *  lives at the App layer (no global palette-controller singleton yet). */
+/** MetadataInspector — live view of a terminal's full context.
+ *  Renders sections from the supplied `meta`; the active terminal's
+ *  preview-aware theme name is read from `useThemeManager` only when
+ *  the inspector is displaying that terminal. The theme-button click
+ *  stays a prop because it triggers a palette open whose owner lives
+ *  at the App layer (no global palette-controller singleton yet). */
 
-import type { TerminalMetadata } from "kolu-common/surface";
+import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import { prUnavailableSource, prValue } from "kolu-github/schemas";
 import { type Component, Show } from "solid-js";
 import { Dynamic } from "solid-js/web";
@@ -19,16 +19,21 @@ import Section from "../ui/Section";
 import { useThemeManager } from "../useThemeManager";
 
 const MetadataInspector: Component<{
+  /** Anchor terminal id — needed so we only consult the active-tile-
+   *  scoped theme manager when this inspector is displaying the active
+   *  tile's metadata. Without it, the inspector for a non-active anchor
+   *  would render the active terminal's preview theme over its own
+   *  metadata. */
+  terminalId: TerminalId;
   meta: TerminalMetadata | null;
   onThemeClick?: () => void;
 }> = (props) => {
   const { activeThemeName } = useThemeManager();
   const store = useTerminalStore();
-  // Active terminal: the theme manager owns the canonical name (it
-  // tracks committed-vs-preview state). Inactive terminal: fall back to
-  // the persisted name on metadata.
+  // Active anchor: theme manager has the preview-aware name. Otherwise:
+  // fall back to the persisted name on the anchor's metadata.
   const themeName = () =>
-    store.activeId() && props.meta
+    store.activeId() === props.terminalId
       ? activeThemeName()
       : (props.meta?.themeName ?? undefined);
   return (

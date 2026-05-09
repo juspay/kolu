@@ -164,6 +164,7 @@ const CompanionTile: Component<{
         <Switch>
           <Match when={props.companionRef.kind === "inspector"}>
             <MetadataInspector
+              terminalId={props.anchorId}
               meta={props.meta}
               onThemeClick={props.onThemeClick}
             />
