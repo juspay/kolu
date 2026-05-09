@@ -216,7 +216,12 @@ const App: Component = () => {
     handleShuffleTheme,
     handleScreenshotTerminal: () => handleScreenshotTerminal(),
     toggleCodeCompanion: () => {
-      const id = store.activeId();
+      // Prefer the active terminal; fall back to the first terminal in
+      // the list. The fallback covers the keybind-pressed-before-any-
+      // selection path — the prior global right panel had no anchor
+      // requirement, so users (and tests) reach for the shortcut
+      // before clicking a tile.
+      const id = store.activeId() ?? store.terminalIds()[0];
       if (!id) return;
       // Default to the local-diff sub-mode when opening — same default
       // the prior right-panel Code tab opened to. Re-pressing closes the
@@ -224,7 +229,7 @@ const App: Component = () => {
       companion.toggleCompanion(id, { kind: "code", mode: "local" });
     },
     toggleInspectorCompanion: () => {
-      const id = store.activeId();
+      const id = store.activeId() ?? store.terminalIds()[0];
       if (!id) return;
       companion.toggleCompanion(id, { kind: "inspector" });
     },
