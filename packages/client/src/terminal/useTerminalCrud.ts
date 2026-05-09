@@ -89,7 +89,11 @@ export function useTerminalCrud(deps: {
     store.setMruOrder((prev) => prev.filter((x) => x !== id));
     if (store.activeId() === id) {
       const remaining = ids.filter((x) => x !== id);
-      store.setActiveId(remaining[Math.min(idx, remaining.length - 1)] ?? null);
+      const next = remaining[Math.min(idx, remaining.length - 1)] ?? null;
+      store.setActiveId(next);
+      // Pan the canvas so the auto-switched tile lands in view — without
+      // this the viewport would stay centered on the just-killed tile.
+      if (next !== null) store.requestCenterActive();
     }
   }
 

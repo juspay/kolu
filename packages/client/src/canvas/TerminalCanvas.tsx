@@ -204,16 +204,14 @@ const TerminalCanvas: Component<{
           props.onLayoutChange(id, defaultLayout);
           placed.push({ id, layout: defaultLayout, isNew: true });
         }
-        // Recenter on the active newly-placed tile when there are
-        // already-placed siblings — covers "create a 2nd terminal that
-        // lands far from the current viewport (e.g. next to its repo
-        // island)". The first-mount case (no pre-existing siblings) is
-        // handled by the bbox-recenter effect below.
+        // Recenter on the active newly-placed tile. Covers both "create a
+        // 2nd terminal that lands far from the current viewport" and
+        // "create the first terminal on a previously-panned empty canvas"
+        // — both look identical from the cascade's perspective.
         const activeId = store.activeId();
-        const hadExisting = placed.some((p) => !p.isNew);
-        const recenterOn = hadExisting
-          ? placed.find((p) => p.isNew && p.id === activeId)?.layout
-          : undefined;
+        const recenterOn = placed.find(
+          (p) => p.isNew && p.id === activeId,
+        )?.layout;
         if (recenterOn) {
           requestAnimationFrame(() => viewport.centerOnTile(recenterOn));
         }
@@ -304,6 +302,25 @@ const TerminalCanvas: Component<{
       abortResize,
     );
   }
+
+  // Pan to the active tile whenever `useTerminalCrud` flags a system-driven
+  // reassignment (close → auto-switch). User-driven changes (clicks,
+  // workspace switcher) don't bump this signal — clicking a partially-
+  // visible tile shouldn't yank the viewport.
+  createEffect(
+    on(
+      store.centerActiveRequest,
+      () => {
+        const id = store.activeId();
+        if (!id) return;
+        const layout = layoutOf(id);
+        if (layout) {
+          requestAnimationFrame(() => viewport.centerOnTile(layout));
+        }
+      },
+      { defer: true },
+    ),
+  );
 
   // On first mount at the default origin, pan so the persisted active tile
   // is centered (matches what a workspace-switcher click does). If there's no

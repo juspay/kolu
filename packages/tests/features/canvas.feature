@@ -53,6 +53,26 @@ Feature: Canvas workspace
     And canvas tile 3 should be below canvas tile 1 in the same column
     And no two canvas tiles should overlap
 
+  Scenario: First terminal created on an emptied canvas is centered in the viewport
+    Then there should be 1 canvas tile
+    When I scroll the wheel over the canvas background
+    Then the canvas transform should have changed
+    When I click the close button on canvas tile 1
+    Then the close confirmation should be visible
+    When I confirm close all in the close confirmation
+    Then there should be 0 canvas tiles
+    When I create a terminal
+    Then there should be 1 canvas tile
+    And the active canvas tile should be centered in the viewport
+
+  Scenario: Closing the active terminal pans the canvas to the auto-switched tile
+    Given I create a terminal
+    And I create a terminal
+    Then there should be 3 canvas tiles
+    When I close terminal 2 via tile close button
+    Then there should be 2 canvas tiles
+    And the active canvas tile should be centered in the viewport
+
   Scenario: Scroll on terminal does not pan the canvas
     When I record the canvas transform
     And I scroll the wheel over the terminal tile

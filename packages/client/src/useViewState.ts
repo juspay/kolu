@@ -34,6 +34,17 @@ export function useViewState() {
   >({});
 
   const [mruOrder, setMruOrder] = createSignal<TerminalId[]>([]);
+
+  /** Counter signal bumped when the system (not the user) reassigns the
+   *  active tile and wants the canvas viewport to follow — e.g. the
+   *  auto-switch after closing the active terminal. A direct
+   *  `centerOnTile` call from `useTerminalCrud` would reach across the
+   *  terminal → canvas layer; the signal lets the canvas effect own the
+   *  pan and keeps `useTerminalCrud` free of viewport deps. */
+  const [centerActiveRequest, setCenterActiveRequest] = createSignal(0);
+  function requestCenterActive() {
+    setCenterActiveRequest((n) => n + 1);
+  }
   createEffect(
     on(activeId, (id) => {
       if (id === null) return;
@@ -96,6 +107,8 @@ export function useViewState() {
     toggleCanvasMaximized,
     mruOrder,
     setMruOrder,
+    centerActiveRequest,
+    requestCenterActive,
     markUnread,
     markBadgeAttention,
     clearBadgeAttention,
