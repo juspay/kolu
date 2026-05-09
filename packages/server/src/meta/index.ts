@@ -10,12 +10,25 @@
  *                                                 + metadata:<id> (lastAgentCommand)
  *                                                 + activity:changed
  *
- * Providers publish server-derived fields via `updateServerMetadata`; client
- * RPC handlers persist client-owned fields via `updateClientMetadata` (or
- * direct mutation for paths that skip the metadata publish). Both functions
- * share the same publish/auto-save path — the type difference is a
- * compile-time fence so a provider cannot accidentally write canvasLayout
- * and an RPC handler cannot accidentally write git.
+ * Providers route writes through one of three helpers in `./state.ts`:
+ *
+ *   - `updateServerMetadata` — server-persisted fields (cwd, git,
+ *     lastAgentCommand, lastActivityAt). Mutator is narrowed to
+ *     `ServerPersistedTerminalFields` so the live-field firehose can't
+ *     grow back through this path. Fires `terminals:dirty`.
+ *   - `updateServerLiveMetadata` — live-only fields (pr, agent,
+ *     foreground). Mutator is narrowed to `LiveTerminalFields`. Does
+ *     NOT fire `terminals:dirty` — that's the whole point: the agent
+ *     stream watcher publishes ~150ms during streaming, and most of
+ *     those publishes touch only live state.
+ *   - `updateClientMetadata` — client-persisted fields (themeName,
+ *     parentId, canvasLayout, subPanel). Fires `terminals:dirty`.
+ *
+ * The mutator-type narrowing is a bidirectional compile-time fence:
+ * each helper can only write the fields it owns, so a provider cannot
+ * accidentally write canvasLayout, an RPC handler cannot accidentally
+ * write git, and a live-field write cannot accidentally re-trigger
+ * the autosave firehose.
  *
  * No provider subscribes to the aggregated "metadata" channel — that's client-facing only.
  *
@@ -51,6 +64,7 @@ import { startProcessProvider } from "./process.ts";
 export {
   createMetadata,
   updateClientMetadata,
+  updateServerLiveMetadata,
   updateServerMetadata,
 } from "./state.ts";
 
