@@ -207,13 +207,10 @@ export const TerminalMetadataSchema = PersistedTerminalFieldsSchema.merge(
  *  value (read from the saved session blob). Threading it through here
  *  keeps recency ordering stable across restart — without it,
  *  `createMetadata` would reset every restored terminal to `0`. */
-export const InitialTerminalMetadataSchema = z.object({
-  themeName: z.string().optional(),
-  intent: z.string().optional(),
-  canvasLayout: CanvasLayoutSchema.optional(),
-  subPanel: SubPanelStateSchema.optional(),
-  lastActivityAt: z.number().optional(),
-});
+export const InitialTerminalMetadataSchema =
+  ClientPersistedTerminalFieldsSchema.omit({ parentId: true }).extend({
+    lastActivityAt: z.number().optional(),
+  });
 
 // ── Terminal cell value + raw-procedure shared schemas ────────────────
 
@@ -287,6 +284,13 @@ export const SavedTerminalSchema = PersistedTerminalFieldsSchema.extend({
   /** Stable ID within this session (original terminal UUID at save time). */
   id: z.string(),
 });
+
+/** Project a saved terminal snapshot onto the create-time metadata seed. */
+export function initialMetadataFromSavedTerminal(
+  terminal: z.infer<typeof SavedTerminalSchema>,
+): z.infer<typeof InitialTerminalMetadataSchema> {
+  return InitialTerminalMetadataSchema.parse(terminal);
+}
 
 export const SavedSessionSchema = z.object({
   terminals: z.array(SavedTerminalSchema),

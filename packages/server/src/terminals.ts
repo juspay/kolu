@@ -16,6 +16,7 @@ import type {
   SavedTerminal,
   TerminalId,
   TerminalInfo,
+  TerminalMetadata,
 } from "kolu-common/surface";
 import { cleanupClipboardDir } from "./clipboard.ts";
 import { log } from "./log.ts";
@@ -88,6 +89,20 @@ function emitListChanged(): void {
   surfaceCtx.cells.terminalList.set(listTerminals());
 }
 
+function applyInitialTerminalMetadata(
+  meta: TerminalMetadata,
+  initial?: InitialTerminalMetadata,
+): void {
+  if (!initial) return;
+  if (initial.themeName !== undefined) meta.themeName = initial.themeName;
+  if (initial.intent !== undefined) meta.intent = initial.intent;
+  if (initial.canvasLayout !== undefined)
+    meta.canvasLayout = initial.canvasLayout;
+  if (initial.subPanel !== undefined) meta.subPanel = initial.subPanel;
+  if (initial.lastActivityAt !== undefined)
+    meta.lastActivityAt = initial.lastActivityAt;
+}
+
 /** Create a new terminal, spawn a PTY process. `initial` seeds
  *  client-owned metadata before `startProviders` runs, so the first
  *  `terminalMetadata` collection read carries it — used by session
@@ -151,14 +166,9 @@ export function createTerminal(
 
   const meta = createMetadata(handle.cwd);
   if (parentId) meta.parentId = parentId;
-  // Seed client-owned initial metadata BEFORE startProviders so the first
+  // Seed initial metadata BEFORE startProviders so the first
   // `terminalMetadata` collection yield carries these fields (see #642).
-  if (initial?.themeName) meta.themeName = initial.themeName;
-  if (initial?.intent) meta.intent = initial.intent;
-  if (initial?.canvasLayout) meta.canvasLayout = initial.canvasLayout;
-  if (initial?.subPanel) meta.subPanel = initial.subPanel;
-  if (initial?.lastActivityAt !== undefined)
-    meta.lastActivityAt = initial.lastActivityAt;
+  applyInitialTerminalMetadata(meta, initial);
   const entry: TerminalProcess = {
     info: { id, pid: handle.pid },
     meta,

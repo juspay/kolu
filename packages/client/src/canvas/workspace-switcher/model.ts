@@ -139,6 +139,23 @@ export type WorkspaceSwitcherQueuedWorktree = QueuedWorktree & {
   searchText: string;
 };
 
+/** Unified search/facet item across live terminals and queued worktrees. */
+export type WorkspaceSwitcherItem =
+  | {
+      kind: "terminal";
+      repoName: string;
+      color: string;
+      searchText: string;
+      terminal: WorkspaceSwitcherEntry;
+    }
+  | {
+      kind: "queued";
+      repoName: string;
+      color: string;
+      searchText: string;
+      queued: WorkspaceSwitcherQueuedWorktree;
+    };
+
 /** Agent bucket plus the entries currently visible in that column.
  *  `nonStaleCount` is the active subset — entries whose last observed
  *  agent transition is recent enough to count toward the visible badge.
@@ -154,9 +171,11 @@ export type WorkspaceSwitcherColumn =
 export type WorkspaceSwitcherModel = {
   entries: WorkspaceSwitcherEntry[];
   queuedWorktrees: WorkspaceSwitcherQueuedWorktree[];
+  items: WorkspaceSwitcherItem[];
   compactGroups: WorkspaceSwitcherRepoGroup[];
   visibleEntries: WorkspaceSwitcherEntry[];
   visibleQueuedWorktrees: WorkspaceSwitcherQueuedWorktree[];
+  visibleItems: WorkspaceSwitcherItem[];
   selectedRepo: string | null;
   repoFacets: WorkspaceRepoFacet[];
   columns: WorkspaceSwitcherColumn[];
@@ -395,13 +414,38 @@ export function buildWorkspaceSwitcherModel(
     return { ...base, searchText: queuedSearchTextFor(base) };
   });
 
-  const { repoFacets, selectedRepo, visibleEntries, visibleQueuedWorktrees } =
-    searchResults(
-      entries,
-      queuedWorktrees,
-      options.query ?? "",
-      options.repoFilter ?? null,
-    );
+  const items: WorkspaceSwitcherItem[] = [
+    ...entries.map(
+      (entry): WorkspaceSwitcherItem => ({
+        kind: "terminal",
+        repoName: entry.repoName,
+        color: entry.info.repoColor,
+        searchText: entry.searchText,
+        terminal: entry,
+      }),
+    ),
+    ...queuedWorktrees.map(
+      (queued): WorkspaceSwitcherItem => ({
+        kind: "queued",
+        repoName: queued.repoName,
+        color: "var(--color-accent)",
+        searchText: queued.searchText,
+        queued,
+      }),
+    ),
+  ];
+
+  const { repoFacets, selectedRepo, visibleItems } = searchResults(
+    items,
+    options.query ?? "",
+    options.repoFilter ?? null,
+  );
+  const visibleEntries = visibleItems.flatMap((item) =>
+    item.kind === "terminal" ? [item.terminal] : [],
+  );
+  const visibleQueuedWorktrees = visibleItems.flatMap((item) =>
+    item.kind === "queued" ? [item.queued] : [],
+  );
 
   const isStale = options.isStale;
   const columns = WORKSPACE_AGENT_BUCKETS.map((bucket) => {
@@ -420,9 +464,11 @@ export function buildWorkspaceSwitcherModel(
   return {
     entries,
     queuedWorktrees,
+    items,
     compactGroups: compactGroupsFor(entries, options.activeId ?? null),
     visibleEntries,
     visibleQueuedWorktrees,
+    visibleItems,
     selectedRepo,
     repoFacets,
     columns,
@@ -431,30 +477,24 @@ export function buildWorkspaceSwitcherModel(
 
 /** Filter, facet, and repo-narrow in one shot. Bundling the three
  *  results makes the dependency explicit: facets count *pre*-repo-
- *  filter matches (so the user can see how many entries would appear
- *  in each repo), `visibleEntries` count *post*-filter (only the
+ *  filter matches (so the user can see how many items would appear
+ *  in each repo), `visibleItems` count *post*-filter (only the
  *  selected repo). Splitting them across separate locals invited a
  *  silent reordering bug. */
 function searchResults(
-  entries: WorkspaceSwitcherEntry[],
-  queuedWorktrees: WorkspaceSwitcherQueuedWorktree[],
+  items: WorkspaceSwitcherItem[],
   query: string,
   repoFilter: string | null,
 ): {
   repoFacets: WorkspaceRepoFacet[];
   selectedRepo: string | null;
-  visibleEntries: WorkspaceSwitcherEntry[];
-  visibleQueuedWorktrees: WorkspaceSwitcherQueuedWorktree[];
+  visibleItems: WorkspaceSwitcherItem[];
 } {
   const tokens = queryTokens(query);
   const queryMatches =
     tokens.length === 0
-      ? entries
-      : entries.filter((entry) => matchesQuery(entry, tokens));
-  const queuedMatches =
-    tokens.length === 0
-      ? queuedWorktrees
-      : queuedWorktrees.filter((q) => matchesQuery(q, tokens));
+      ? items
+      : items.filter((item) => matchesQuery(item, tokens));
 
   const facetCounts = new Map<string, { count: number; color: string }>();
   const addFacet = (repoName: string, color: string) => {
@@ -465,11 +505,8 @@ function searchResults(
       facetCounts.set(repoName, { count: 1, color });
     }
   };
-  for (const entry of queryMatches) {
-    addFacet(entry.repoName, entry.info.repoColor);
-  }
-  for (const q of queuedMatches) {
-    addFacet(q.repoName, "var(--color-accent)");
+  for (const item of queryMatches) {
+    addFacet(item.repoName, item.color);
   }
   const repoFacets = [...facetCounts.entries()].map(
     ([repoName, { count, color }]) => ({
@@ -481,12 +518,9 @@ function searchResults(
 
   const selectedRepo =
     repoFilter && facetCounts.has(repoFilter) ? repoFilter : null;
-  const visibleEntries = selectedRepo
-    ? queryMatches.filter((entry) => entry.repoName === selectedRepo)
+  const visibleItems = selectedRepo
+    ? queryMatches.filter((item) => item.repoName === selectedRepo)
     : queryMatches;
-  const visibleQueuedWorktrees = selectedRepo
-    ? queuedMatches.filter((q) => q.repoName === selectedRepo)
-    : queuedMatches;
 
-  return { repoFacets, selectedRepo, visibleEntries, visibleQueuedWorktrees };
+  return { repoFacets, selectedRepo, visibleItems };
 }

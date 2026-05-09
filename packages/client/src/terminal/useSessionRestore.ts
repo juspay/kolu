@@ -8,6 +8,7 @@ import type {
   TerminalInfo,
   TerminalMetadata,
 } from "kolu-common/surface";
+import { initialMetadataFromSavedTerminal } from "kolu-common/surface";
 import { createEffect, createSignal } from "solid-js";
 import { toast } from "solid-sonner";
 import { lifecycle } from "../rpc/rpc";
@@ -170,13 +171,10 @@ export function useSessionRestore(deps: {
       // so the canvas cascade effect sees the saved layout on its first run
       // and skips the default-cascade branch (#642).
       for (const t of topLevel) {
-        const newId = await deps.handleCreate(t.cwd, {
-          themeName: t.themeName,
-          intent: t.intent,
-          canvasLayout: t.canvasLayout,
-          subPanel: t.subPanel,
-          lastActivityAt: t.lastActivityAt,
-        });
+        const newId = await deps.handleCreate(
+          t.cwd,
+          initialMetadataFromSavedTerminal(t),
+        );
         oldToNew.set(t.id, newId);
         // Client-side sub-panel state (activeSubTab, focusTarget) isn't
         // server-persisted — seed it locally so the restored panel reopens

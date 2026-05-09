@@ -132,14 +132,14 @@ export function useTerminalCrud(deps: {
       (peerBgs
         ? pickTheme(availableThemes, { spread: true, peerBgs })
         : undefined);
+    const nextInitial: InitialTerminalMetadata = {
+      ...initial,
+      themeName: theme,
+    };
     const info = await client.terminal
       .create({
         cwd,
-        themeName: theme,
-        intent: initial?.intent,
-        canvasLayout: initial?.canvasLayout,
-        subPanel: initial?.subPanel,
-        lastActivityAt: initial?.lastActivityAt,
+        initial: nextInitial,
       })
       .catch((err: Error) => {
         toast.error(`Failed to create terminal: ${err.message}`);

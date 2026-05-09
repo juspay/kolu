@@ -39,7 +39,7 @@ export const TerminalCreateInputSchema = z
     cwd: z.string().optional(),
     parentId: TerminalIdSchema.optional(),
   })
-  .merge(InitialTerminalMetadataSchema);
+  .extend({ initial: InitialTerminalMetadataSchema.optional() });
 
 export const TerminalResizeInputSchema = z.object({
   id: TerminalIdSchema,

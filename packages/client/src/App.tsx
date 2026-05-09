@@ -8,8 +8,7 @@
 import Dialog from "@corvu/dialog";
 import { Meta, Title } from "@solidjs/meta";
 import type { ServerIdentity } from "kolu-common/contract";
-import type { QueuedWorktree, TerminalId } from "kolu-common/surface";
-import { randomName } from "memorable-names";
+import type { TerminalId } from "kolu-common/surface";
 import {
   type Component,
   createEffect,
@@ -45,12 +44,7 @@ import { useRecorder } from "./recorder/useRecorder";
 import WebcamOverlay from "./recorder/WebcamOverlay";
 import RightPanelLayout from "./right-panel/RightPanelLayout";
 import { useRightPanel } from "./right-panel/useRightPanel";
-import {
-  client,
-  queuedWorktrees,
-  recentAgents,
-  setQueuedWorktrees,
-} from "./wire";
+import { client, recentAgents } from "./wire";
 import { serverProcessId, wsStatus } from "./rpc/rpc";
 import TransportOverlay from "./rpc/TransportOverlay";
 import ShortcutsHelp from "./ShortcutsHelp";
@@ -59,6 +53,7 @@ import { useColorScheme } from "./settings/useColorScheme";
 import { useTips } from "./settings/useTips";
 import TerminalContent from "./terminal/TerminalContent";
 import TerminalMeta from "./terminal/TerminalMeta";
+import { useQueuedWorktrees } from "./terminal/useQueuedWorktrees";
 import { useSubPanel } from "./terminal/useSubPanel";
 import { useTerminals } from "./terminal/useTerminals";
 import ModalDialog, { refocusTerminal } from "./ui/ModalDialog";
@@ -184,40 +179,6 @@ const App: Component = () => {
     if (id) store.activate(id);
   }
 
-  function queueWorktree(repoPath: string, intent: string) {
-    const trimmed = intent.trim();
-    if (!trimmed) return;
-    const item: QueuedWorktree = {
-      id: crypto.randomUUID(),
-      repoPath,
-      intent: trimmed,
-      createdAt: Date.now(),
-    };
-    setQueuedWorktrees([...queuedWorktrees(), item]);
-  }
-
-  function deleteQueuedWorktree(id: string) {
-    setQueuedWorktrees(queuedWorktrees().filter((q) => q.id !== id));
-  }
-
-  async function startQueuedWorktree(
-    id: string,
-    name: string,
-    initialCommand?: string,
-  ) {
-    const item = queuedWorktrees().find((q) => q.id === id);
-    if (!item) return;
-    const terminalId = await worktree.handleCreateWorktree(
-      item.repoPath,
-      name.trim(),
-      {
-        initialCommand,
-        initial: { intent: item.intent },
-      },
-    );
-    if (terminalId) deleteQueuedWorktree(id);
-  }
-
   function handleSetTerminalIntent(intent?: string) {
     const id = store.activeId();
     if (!id) return;
@@ -228,6 +189,9 @@ const App: Component = () => {
     store,
     crud,
     isMobile,
+  });
+  const queuedWorktrees = useQueuedWorktrees({
+    handleCreateWorktree: worktree.handleCreateWorktree,
   });
 
   // Shared between the keyboard dispatcher and the command palette so a single
@@ -318,11 +282,14 @@ const App: Component = () => {
     setDiagnosticInfoOpen,
     handleCreateWorktree: (repoPath, name, options) =>
       void worktree.handleCreateWorktree(repoPath, name, options),
-    queuedWorktrees,
-    queueWorktree,
+    queuedWorktrees: queuedWorktrees.items,
+    queueWorktree: queuedWorktrees.enqueue,
     startQueuedWorktree: (id, name, initialCommand) =>
-      void startQueuedWorktree(id, name, initialCommand),
-    deleteQueuedWorktree,
+      void queuedWorktrees.start(id, {
+        worktreeName: name,
+        agentCommand: initialCommand,
+      }),
+    deleteQueuedWorktree: queuedWorktrees.remove,
     handleSetTerminalIntent,
     handleClose: () => {
       const id = store.activeId();
@@ -523,22 +490,18 @@ const App: Component = () => {
           workspaceSwitcher={
             <WorkspaceSwitcher
               entries={workspaceEntries()}
-              queuedWorktrees={queuedWorktrees()}
+              queuedWorktrees={queuedWorktrees.items()}
               recentAgentCommands={recentAgents().map((a) => a.command)}
               activeId={store.activeId()}
               getRecency={recencyOf}
               openRequest={workspaceSwitcherOpenRequest()}
               onSelect={store.activate}
-              onStartQueuedWorktree={(id, initialCommand) => {
-                const item = queuedWorktrees().find((q) => q.id === id);
-                if (!item) return;
-                void startQueuedWorktree(
-                  id,
-                  item.worktreeName ?? randomName(),
-                  initialCommand,
-                );
-              }}
-              onDeleteQueuedWorktree={deleteQueuedWorktree}
+              onStartQueuedWorktree={(id, initialCommand) =>
+                void queuedWorktrees.start(id, {
+                  agentCommand: initialCommand,
+                })
+              }
+              onDeleteQueuedWorktree={queuedWorktrees.remove}
               onCreate={() => openPaletteGroup("New terminal")}
             />
           }

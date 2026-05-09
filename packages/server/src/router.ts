@@ -55,13 +55,7 @@ export const appRouter = t.router({
   },
   terminal: {
     create: t.terminal.create.handler(async ({ input }) =>
-      createTerminal(input.cwd, input.parentId, {
-        themeName: input.themeName,
-        intent: input.intent,
-        canvasLayout: input.canvasLayout,
-        subPanel: input.subPanel,
-        lastActivityAt: input.lastActivityAt,
-      }),
+      createTerminal(input.cwd, input.parentId, input.initial),
     ),
 
     resize: t.terminal.resize.handler(async ({ input }) => {

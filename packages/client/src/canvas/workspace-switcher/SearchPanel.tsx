@@ -258,12 +258,7 @@ const WorkspaceSearchPanel: Component<{
               )}
             </Index>
           </div>
-          <Show
-            when={
-              props.model.visibleEntries.length === 0 &&
-              props.model.visibleQueuedWorktrees.length === 0
-            }
-          >
+          <Show when={props.model.visibleItems.length === 0}>
             <div class="mt-4 font-mono text-[0.75rem] text-fg-3/80 text-center tracking-wide">
               -- no workspaces match --
             </div>
