@@ -30,6 +30,8 @@ import { pollFor } from "../support/poll.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
 const getCodexDir = () => process.env.KOLU_CODEX_DIR;
+const codexTitleBurst =
+  "sleep 0.2; for i in 1 2 3 4 5 6 7 8; do printf '\\033]0;codex\\007'; sleep 0.25; done";
 
 let mockCwd: string | null = null;
 let mockFixture: CodexFixture | null = null;
@@ -73,17 +75,16 @@ async function startFakeAgent(world: KoluWorld): Promise<void> {
   // Emitting OSC 2 from inside the body is a stability belt — the
   // reconcile triggered by bash's preexec OSC 2 fires before the new
   // process is actually in the foreground (Linux inotify coalescing +
-  // OSC 7 vs title event ordering under parallel-worker load), so we
-  // emit a second title event once the fake agent is definitively the
-  // foreground process. Without this the detection misses in ~5% of
-  // CI runs.
+  // OSC 7 vs title event ordering under parallel-worker load), so the
+  // fake agent emits a short title burst after launch. Without this the
+  // detection can miss when the single title event arrives too early.
   //
   // `terminal/killAll` in hooks.ts:Before tears the pty down between
   // scenarios, which SIGKILLs the whole tree.
   const bin = process.env.KOLU_FAKE_CODEX_BIN;
   if (!bin) throw new Error("KOLU_FAKE_CODEX_BIN must be set");
   await world.page.keyboard.type(
-    `${bin} -c "printf '\\033]0;codex\\007'; sleep 99999 ; :"`,
+    `${bin} -c "${codexTitleBurst}; sleep 99999 ; :"`,
   );
   await world.page.keyboard.press("Enter");
 }
@@ -99,14 +100,14 @@ async function startShimmedAgent(world: KoluWorld): Promise<void> {
   // hook fires on the second line with exactly "codex", so
   // `parseAgentCommand` normalizes to "codex".
   //
-  // The function body emits a second OSC 2 from inside the subshell —
+  // The function body emits a title burst from inside the subshell —
   // the reconcile triggered by the preexec OSC 2 fires BEFORE the
   // subshell is in the foreground (shellIdle=true at that instant
-  // clears lastAgentCommandName), so a second title event with the
-  // subshell already running is what lets matchesAgent succeed via
-  // the preexec-hint branch.
+  // clears lastAgentCommandName), so later title events with the
+  // subshell already running let matchesAgent succeed via the
+  // preexec-hint branch.
   await world.page.keyboard.type(
-    `codex() { ( printf '\\033]0;codex\\007'; sleep 99999 ; :); }`,
+    `codex() { ( ${codexTitleBurst}; sleep 99999 ; :); }`,
   );
   await world.page.keyboard.press("Enter");
   await world.page.keyboard.type("codex");

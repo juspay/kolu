@@ -25,6 +25,8 @@ import { pollFor } from "../support/poll.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
 const getOpenCodeDb = () => process.env.KOLU_OPENCODE_DB;
+const openCodeTitleBurst =
+  "sleep 0.2; for i in 1 2 3 4 5 6 7 8; do printf '\\033]0;opencode\\007'; sleep 0.25; done";
 
 let mockCwd: string | null = null;
 
@@ -54,7 +56,7 @@ async function startFakeAgent(world: KoluWorld): Promise<void> {
   const bin = process.env.KOLU_FAKE_OPENCODE_BIN;
   if (!bin) throw new Error("KOLU_FAKE_OPENCODE_BIN must be set");
   await world.page.keyboard.type(
-    `${bin} -c "printf '\\033]0;opencode\\007'; sleep 99999 ; :"`,
+    `${bin} -c "${openCodeTitleBurst}; sleep 99999 ; :"`,
   );
   await world.page.keyboard.press("Enter");
 }
@@ -62,7 +64,7 @@ async function startFakeAgent(world: KoluWorld): Promise<void> {
 async function startShimmedAgent(world: KoluWorld): Promise<void> {
   // See codex_steps.ts::startShimmedAgent for the full rationale.
   await world.page.keyboard.type(
-    `opencode() { ( printf '\\033]0;opencode\\007'; sleep 99999 ; :); }`,
+    `opencode() { ( ${openCodeTitleBurst}; sleep 99999 ; :); }`,
   );
   await world.page.keyboard.press("Enter");
   await world.page.keyboard.type("opencode");
