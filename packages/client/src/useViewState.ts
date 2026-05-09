@@ -35,14 +35,21 @@ export function useViewState() {
 
   const [mruOrder, setMruOrder] = createSignal<TerminalId[]>([]);
 
-  /** Signal bumped when the system (not the user) reassigns the active
-   *  tile and wants the canvas viewport to follow — e.g. the auto-switch
-   *  after closing the active terminal. The payload carries the target
-   *  tile id explicitly so the consumer doesn't have to re-read
-   *  `activeId` as a side-channel (and risk panning to the wrong tile if
-   *  a future caller forgets to update `activeId` first). Each call
-   *  allocates a new wrapper so reference inequality fires the listener
-   *  even when the same id is requested back-to-back. */
+  /** Impulse signal — not view state. The other signals here describe
+   *  current truth (which tile is active, which need attention, whether
+   *  the canvas is maximized); this one carries a one-shot "pan to this
+   *  tile" intent the canvas consumes once and discards. It lives on the
+   *  store so terminal-side writers can bump it without taking a
+   *  reverse dep on `canvas/`; the canvas-side seam is `useCanvasFocus`
+   *  (`canvas/useCanvasFocus.ts`), which is where new canvas readers
+   *  should go.
+   *
+   *  The payload carries the target tile id explicitly so the consumer
+   *  doesn't have to re-read `activeId` as a side-channel (and risk
+   *  panning to the wrong tile if a future caller forgets to update
+   *  `activeId` first). Each call allocates a fresh wrapper so reference
+   *  inequality fires the listener even on back-to-back requests for
+   *  the same id. */
   const [centerActiveRequest, setCenterActiveRequest] = createSignal<{
     id: TerminalId;
   } | null>(null);
