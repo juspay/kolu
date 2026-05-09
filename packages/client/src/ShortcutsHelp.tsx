@@ -25,7 +25,8 @@ const HELP_ORDER: readonly { id: ActionId; label?: string }[] = [
   { id: "createSubTerminal" },
   { id: "nextSubTab" },
   { id: "prevSubTab" },
-  { id: "toggleRightPanel" },
+  { id: "toggleInspectorCompanion" },
+  { id: "toggleCodeCompanion" },
   { id: "shortcutsHelp" },
 ];
 

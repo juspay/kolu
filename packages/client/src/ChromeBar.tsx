@@ -1,17 +1,16 @@
 /** ChromeBar — the always-visible workspace chrome band.
  *
  *  Replaces the pre-#622 global Header. Carries app identity (logo +
- *  connection dot) on the left, the workspace switcher in the middle, and the
- *  global control cluster (inspector toggle, settings, command palette)
- *  on the right.
+ *  connection dot) on the left, the workspace switcher in the middle,
+ *  and the global control cluster (settings, command palette) on the
+ *  right.
  *
  *  Two positioning modes, switched on `canvasMaximized`:
  *  - Canvas mode (default): absolute overlay above the canvas. Pure
  *    transparent so the grid reads through and the chrome looks like
- *    it floats ON the canvas, not capping it. When the right panel
- *    is open, the overlay's right edge stops at the panel's left
- *    edge so the controls cluster doesn't sit on top of the panel's
- *    tab bar.
+ *    it floats ON the canvas, not capping it. The chrome spans the
+ *    full viewport width — the prior right-panel dock no longer exists,
+ *    so there is no per-anchor inset to compute.
  *  - Maximized mode: docked in flex flow so the maximized terminal
  *    owns the rest of the viewport without the terminal's own title
  *    bar overlapping the chrome.
@@ -24,10 +23,9 @@ import { useViewPosture } from "./canvas/useViewPosture";
 import { ACTIONS } from "./input/actions";
 import { formatKeybind } from "./input/keyboard";
 import RecordButton from "./recorder/RecordButton";
-import { useRightPanel } from "./right-panel/useRightPanel";
 import type { WsStatus } from "./rpc/rpc";
 import SettingsPopover from "./settings/SettingsPopover";
-import { InspectorToggleIcon, SettingsIcon } from "./ui/Icons";
+import { SettingsIcon } from "./ui/Icons";
 import Kbd from "./ui/Kbd";
 import Tip from "./ui/Tip";
 
@@ -45,14 +43,14 @@ const ChromeBar: Component<{
    *  to know the switcher's prop shape, just where to drop it. */
   workspaceSwitcher: JSX.Element;
 }> = (props) => {
-  const rightPanel = useRightPanel();
   const posture = useViewPosture();
   let settingsTriggerRef!: HTMLButtonElement;
   const [settingsOpen, setSettingsOpen] = createSignal(false);
 
   // Dock only when the terminal is maximized, so its own title bar
-  // doesn't collide with the chrome. Panel-open stays on the floating
-  // overlay — the `right:` offset below keeps controls off the panel.
+  // doesn't collide with the chrome. Otherwise the chrome floats over
+  // the canvas full-width — the prior right-panel inset is gone with
+  // the panel itself.
   const docked = () => posture.maximized();
 
   return (
@@ -71,22 +69,9 @@ const ChromeBar: Component<{
       // maximized tile (z-40 in the canvas) then paints on top of the
       // panel at the App root's auto-z layer (DOM order wins).
       classList={{
-        "absolute top-0 left-0 z-50": !docked(),
+        "absolute top-0 left-0 right-0 z-50": !docked(),
         "relative shrink-0 z-50": docked(),
       }}
-      style={
-        docked()
-          ? undefined
-          : {
-              // Stop the floating chrome's right edge at the right
-              // panel's left edge so the controls cluster (inspector,
-              // settings, ⌘K) doesn't sit on top of the panel's tab
-              // bar. `panelSize` is a [0..1] fraction of viewport width.
-              right: rightPanel.collapsed()
-                ? 0
-                : `${rightPanel.panelSize() * 100}vw`,
-            }
-      }
     >
       {/* Identity: logo (→ kolu.dev) + connection dot. App name lives as
        *  a corner watermark on the canvas, not in the chrome. */}
@@ -117,31 +102,11 @@ const ChromeBar: Component<{
         {props.workspaceSwitcher}
       </div>
 
-      {/* Control cluster: inspector → settings → ⌘K. Cluster wrapper
-       *  itself stays pointer-events-none so the gap-2 spaces and any
-       *  area covered when the cluster overlaps the right panel pass
+      {/* Control cluster: settings → ⌘K. Cluster wrapper
+       *  itself stays pointer-events-none so the gap-2 spaces pass
        *  clicks through; each button re-enables pointer-events-auto. */}
       <div class="flex items-center gap-2 shrink-0">
         <RecordButton />
-        <Tip
-          label={`Toggle inspector (${formatKeybind(ACTIONS.toggleRightPanel.keybind)})`}
-        >
-          <button
-            type="button"
-            data-testid="inspector-toggle"
-            class="pointer-events-auto hidden sm:flex items-center justify-center w-7 h-7 rounded-lg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
-            classList={{
-              "bg-surface-2 text-fg": !rightPanel.collapsed(),
-              "text-fg-3 hover:bg-surface-2 hover:text-fg":
-                rightPanel.collapsed(),
-            }}
-            data-active={!rightPanel.collapsed() ? "" : undefined}
-            onClick={() => rightPanel.togglePanel()}
-            aria-label="Toggle inspector"
-          >
-            <InspectorToggleIcon active={!rightPanel.collapsed()} />
-          </button>
-        </Tip>
         <div class="pointer-events-auto">
           <Tip label="Settings">
             <button

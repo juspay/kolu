@@ -15,7 +15,7 @@
 
 import { FileDiff, FileTree, Virtualizer } from "@kolu/solid-pierre";
 import type { GitDiffMode } from "kolu-git/schemas";
-import type { TerminalMetadata } from "kolu-common/surface";
+import type { CodeTabView, TerminalMetadata } from "kolu-common/surface";
 import {
   type Component,
   createEffect,
@@ -44,7 +44,6 @@ import CodeMenuFrame from "./CodeMenuFrame";
 import { projectFileTreeSearch } from "./fileSearch";
 import FileSearchInput from "./FileSearchInput";
 import ModeChipPicker, { type ModeOption } from "./ModeChipPicker";
-import { useRightPanel } from "./useRightPanel";
 
 const EMPTY_STATE: Record<GitDiffMode, string> = {
   local: "No local changes",
@@ -69,20 +68,21 @@ const BinaryFileHint: Component<{ fileName: string | null }> = (props) => (
   </div>
 );
 
-const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
+const CodeTab: Component<{
+  meta: TerminalMetadata | null;
+  /** Active sub-view: file browser, local diff, or branch-base diff. */
+  mode: CodeTabView;
+  /** Switch sub-view; the companion store carries this state across
+   *  open/close cycles within a session. */
+  onModeChange: (mode: CodeTabView) => void;
+}> = (props) => {
   const { themeTypeLiteral: diffTheme } = useColorScheme();
-  const rightPanel = useRightPanel();
   const [selectedPath, setSelectedPath] = createSignal<string | null>(null);
 
-  // Read `codeMode` directly rather than projecting it from `activeTab`.
-  // CodeTab now stays mounted across the Inspector tab toggle (#818); a
-  // projection-with-fallback (`activeTab.kind === "code" ? mode : "local"`)
-  // would flip `view()` from the persisted mode (e.g. `"browse"`) to the
-  // fallback `"local"` while Inspector is active, then back on return —
-  // a real value transition that fires the `resetKey` reset effect and
-  // wipes selection on every Inspector round-trip in non-local modes.
-  const view = rightPanel.codeMode;
-  const setView = rightPanel.setCodeMode;
+  // Read mode from props so CodeTab stays decoupled from the right-panel
+  // preferences cell — the companion store owns this state in Phase 1.
+  const view = () => props.mode;
+  const setView = (mode: CodeTabView) => props.onModeChange(mode);
 
   const repoPath = () => props.meta?.git?.repoRoot ?? null;
   const isDiffView = () => view() !== "browse";

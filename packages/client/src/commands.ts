@@ -166,7 +166,8 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
           actionPaletteCommand("screenshotTerminal", deps),
         ]
       : []),
-    actionPaletteCommand("toggleRightPanel", deps),
+    actionPaletteCommand("toggleInspectorCompanion", deps),
+    actionPaletteCommand("toggleCodeCompanion", deps),
     ...(!deps.isMobile()
       ? [
           actionPaletteCommand("openWorkspaceSwitcher", deps),

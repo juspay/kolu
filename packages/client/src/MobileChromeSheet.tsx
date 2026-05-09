@@ -17,7 +17,6 @@ import { type Component, createSignal, For, Show } from "solid-js";
 import type { WorkspaceSwitcherRepoGroup } from "./canvas/workspace-switcher";
 import { ACTIONS } from "./input/actions";
 import { formatKeybind } from "./input/keyboard";
-import { useRightPanel } from "./right-panel/useRightPanel";
 import type { WsStatus } from "./rpc/rpc";
 import SettingsPopover from "./settings/SettingsPopover";
 import { useTerminalStore } from "./terminal/useTerminalStore";
@@ -37,11 +36,10 @@ const MobileChromeSheet: Component<{
   groups: WorkspaceSwitcherRepoGroup[];
   onSelect: (id: TerminalId) => void;
   /** Close the drawer after the user takes an action (branch select,
-   *  palette open, inspector toggle). The drawer is otherwise dismissed
-   *  by drag-down or overlay tap, both handled by Corvu. */
+   *  palette open). The drawer is otherwise dismissed by drag-down or
+   *  overlay tap, both handled by Corvu. */
   onClose: () => void;
 }> = (props) => {
-  const rightPanel = useRightPanel();
   const store = useTerminalStore();
   let settingsTriggerRef!: HTMLButtonElement;
   const [settingsOpen, setSettingsOpen] = createSignal(false);
@@ -131,10 +129,12 @@ const MobileChromeSheet: Component<{
         </For>
       </div>
 
-      {/* Control cluster — palette, settings, inspector. Each button
-       *  stops propagation on pointerdown so Corvu Drawer's drag handler
-       *  on Drawer.Content can't claim the tap as the start of a drag
-       *  (which would suppress the click). */}
+      {/* Control cluster — palette + settings. Each button stops
+       *  propagation on pointerdown so Corvu Drawer's drag handler on
+       *  Drawer.Content can't claim the tap as the start of a drag
+       *  (which would suppress the click). Mobile has no canvas-peer
+       *  companions — the screen is too narrow — so no inspector
+       *  affordance lives here. */}
       <div class="flex items-center gap-2 px-3 py-2 border-t border-edge/50">
         <button
           type="button"
@@ -167,22 +167,6 @@ const MobileChromeSheet: Component<{
             triggerRef={settingsTriggerRef}
           />
         </div>
-        <button
-          type="button"
-          data-testid="inspector-toggle"
-          class="h-9 w-9 flex items-center justify-center text-fg-2 bg-surface-2 rounded-lg border border-edge active:bg-surface-3"
-          classList={{
-            "bg-surface-3 text-fg": !rightPanel.collapsed(),
-          }}
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={() => {
-            rightPanel.togglePanel();
-            props.onClose();
-          }}
-          aria-label="Toggle inspector"
-        >
-          ⟳
-        </button>
       </div>
     </div>
   );

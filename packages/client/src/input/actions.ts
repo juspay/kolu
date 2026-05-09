@@ -36,7 +36,10 @@ export interface ActionContext {
   cycleSubTab: (parentId: TerminalId, direction: 1 | -1) => void;
   handleShuffleTheme: () => void;
   handleScreenshotTerminal: () => void;
-  toggleRightPanel: () => void;
+  /** Toggle the Code companion welded to the active tile. */
+  toggleCodeCompanion: () => void;
+  /** Toggle the Inspector companion welded to the active tile. */
+  toggleInspectorCompanion: () => void;
   toggleRecordingPause: () => void;
 }
 
@@ -211,10 +214,15 @@ const _ACTIONS = {
     keybind: { key: "S", code: "KeyS", mod: true, shift: true },
     handler: (ctx) => ctx.handleScreenshotTerminal(),
   },
-  toggleRightPanel: {
-    label: "Toggle inspector panel",
+  toggleInspectorCompanion: {
+    label: "Toggle inspector companion",
     keybind: { key: "b", code: "KeyB", mod: true, alt: true },
-    handler: (ctx) => ctx.toggleRightPanel(),
+    handler: (ctx) => ctx.toggleInspectorCompanion(),
+  },
+  toggleCodeCompanion: {
+    label: "Toggle code companion",
+    keybind: { key: "e", code: "KeyE", mod: true, alt: true },
+    handler: (ctx) => ctx.toggleCodeCompanion(),
   },
   toggleRecordingPause: {
     label: "Pause / resume recording",

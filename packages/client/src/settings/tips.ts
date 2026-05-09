@@ -69,7 +69,11 @@ export const AMBIENT_TIPS: readonly Tip[] = [
   },
   {
     id: "amb-inspector",
-    text: `${formatKeybind(ACTIONS.toggleRightPanel.keybind)} toggles the inspector panel with full terminal context`,
+    text: `${formatKeybind(ACTIONS.toggleInspectorCompanion.keybind)} welds an inspector panel beside the active tile`,
+  },
+  {
+    id: "amb-code-companion",
+    text: `${formatKeybind(ACTIONS.toggleCodeCompanion.keybind)} welds a code/diff browser beside the active tile`,
   },
   {
     id: "amb-canvas-zoom",

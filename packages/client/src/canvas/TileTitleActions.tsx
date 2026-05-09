@@ -3,7 +3,7 @@
  *  Order (left → right between title and close): agent indicator, theme
  *  pill, split toggle, search, screenshot.
  *
- *  Reads singleton state (store, sub-panel, theme manager, right panel,
+ *  Reads singleton state (store, sub-panel, companions, theme manager,
  *  tips) directly — per `no-preference-prop-drilling`. Only App-local
  *  imperative actions (palette open, search open, screenshot) are drilled
  *  as props because they are state setters whose ownership belongs at the
@@ -11,7 +11,7 @@
 
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
-import { useRightPanel } from "../right-panel/useRightPanel";
+import { useCompanion } from "../companions/useCompanion";
 import { CONTEXTUAL_TIPS } from "../settings/tips";
 import { useTips } from "../settings/useTips";
 import AgentIndicator from "../terminal/AgentIndicator";
@@ -39,7 +39,7 @@ const TileTitleActions: Component<{
   onScreenshot: (id: TerminalId) => void;
 }> = (props) => {
   const store = useTerminalStore();
-  const rightPanel = useRightPanel();
+  const companion = useCompanion();
   const subPanel = useSubPanel();
   const { activeThemeName } = useThemeManager();
   const { showTipOnce } = useTips();
@@ -62,9 +62,9 @@ const TileTitleActions: Component<{
             onClick={(e) => {
               e.stopPropagation();
               store.setActiveId(props.id);
-              rightPanel.expandPanel();
+              companion.toggleCompanion(props.id, { kind: "inspector" });
             }}
-            title="Open inspector"
+            title="Toggle inspector companion"
           >
             <AgentIndicator agent={agent()} />
           </button>

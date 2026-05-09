@@ -41,10 +41,9 @@ import type { ActionContext } from "./input/actions";
 import { useShortcuts } from "./input/useShortcuts";
 import MobileKeyBar from "./MobileKeyBar";
 import MobileTileView from "./MobileTileView";
+import { useCompanion } from "./companions/useCompanion";
 import { useRecorder } from "./recorder/useRecorder";
 import WebcamOverlay from "./recorder/WebcamOverlay";
-import RightPanelLayout from "./right-panel/RightPanelLayout";
-import { useRightPanel } from "./right-panel/useRightPanel";
 import { client } from "./wire";
 import { serverProcessId, wsStatus } from "./rpc/rpc";
 import TransportOverlay from "./rpc/TransportOverlay";
@@ -78,7 +77,7 @@ const App: Component = () => {
   } = useThemeManager();
 
   const subPanel = useSubPanel();
-  const rightPanel = useRightPanel();
+  const companion = useCompanion();
   const { colorScheme } = useColorScheme();
   const canvasViewport = useCanvasViewport();
 
@@ -217,7 +216,19 @@ const App: Component = () => {
       ),
     handleShuffleTheme,
     handleScreenshotTerminal: () => handleScreenshotTerminal(),
-    toggleRightPanel: rightPanel.togglePanel,
+    toggleCodeCompanion: () => {
+      const id = store.activeId();
+      if (!id) return;
+      // Default to the local-diff sub-mode when opening — same default
+      // the prior right-panel Code tab opened to. Re-pressing closes the
+      // companion (handled inside `useCompanion.toggleCompanion`).
+      companion.toggleCompanion(id, { kind: "code", mode: "local" });
+    },
+    toggleInspectorCompanion: () => {
+      const id = store.activeId();
+      if (!id) return;
+      companion.toggleCompanion(id, { kind: "inspector" });
+    },
     toggleRecordingPause: () => useRecorder().togglePause(),
   };
 
@@ -489,7 +500,7 @@ const App: Component = () => {
           }
         />
       </Show>
-      {/* relative: anchor for overlay panels.
+      {/* relative: anchor for overlays (toaster, modals).
        *  --active-terminal-{bg,fg} published here so child components
        *  can read them via CSS without prop drilling. The fg lets sub-
        *  components re-tune text tiers against the terminal theme. */}
@@ -524,51 +535,46 @@ const App: Component = () => {
               </div>
             }
           >
-            <RightPanelLayout
-              meta={store.activeMeta()}
-              themeName={activeThemeName()}
-              onThemeClick={() => openPaletteGroup("Theme")}
-              contentClass={isMobile() ? "flex-col" : undefined}
-            >
-              {match(isMobile())
-                .with(true, () => (
-                  <MobileTileView
-                    orderedIds={orderedIds()}
-                    groups={mobileWorkspaceModel().compactGroups}
-                    status={wsStatus()}
-                    appTitle={appTitle()}
-                    onOpenPalette={() => openPalette()}
-                    renderBody={renderMobileTileBody}
-                    bottomBar={<MobileKeyBar activeId={store.activeId} />}
-                  />
-                ))
-                .with(false, () => (
-                  <TerminalCanvas
-                    tileIds={store.terminalIds()}
-                    watermark={appTitle()}
-                    getLayout={(id) => store.getMetadata(id)?.canvasLayout}
-                    placeNew={arrange.placeNew}
-                    onLayoutChange={arrange.applyTileGeometry}
-                    onAutoArrange={arrange.handleCanvasAutoArrange}
-                    onSelect={(id) => store.setActiveId(id)}
-                    onClose={(id) => closeTerminal(id)}
-                    renderTileTitle={(id) => (
-                      <TerminalMeta info={store.getDisplayInfo(id)} />
-                    )}
-                    renderTileTitleActions={(id) => (
-                      <TileTitleActions
-                        id={id}
-                        onOpenPaletteGroup={openPaletteGroup}
-                        onToggleSubPanel={handleToggleSubPanel}
-                        onOpenSearch={() => setSearchOpen(true)}
-                        onScreenshot={handleScreenshotTerminal}
-                      />
-                    )}
-                    renderTileBody={renderCanvasTileBody}
-                  />
-                ))
-                .exhaustive()}
-            </RightPanelLayout>
+            {match(isMobile())
+              .with(true, () => (
+                <MobileTileView
+                  orderedIds={orderedIds()}
+                  groups={mobileWorkspaceModel().compactGroups}
+                  status={wsStatus()}
+                  appTitle={appTitle()}
+                  onOpenPalette={() => openPalette()}
+                  renderBody={renderMobileTileBody}
+                  bottomBar={<MobileKeyBar activeId={store.activeId} />}
+                />
+              ))
+              .with(false, () => (
+                <TerminalCanvas
+                  tileIds={store.terminalIds()}
+                  watermark={appTitle()}
+                  getLayout={(id) => store.getMetadata(id)?.canvasLayout}
+                  placeNew={arrange.placeNew}
+                  onLayoutChange={arrange.applyTileGeometry}
+                  onAutoArrange={arrange.handleCanvasAutoArrange}
+                  onSelect={(id) => store.setActiveId(id)}
+                  onClose={(id) => closeTerminal(id)}
+                  themeName={activeThemeName()}
+                  onThemeClick={() => openPaletteGroup("Theme")}
+                  renderTileTitle={(id) => (
+                    <TerminalMeta info={store.getDisplayInfo(id)} />
+                  )}
+                  renderTileTitleActions={(id) => (
+                    <TileTitleActions
+                      id={id}
+                      onOpenPaletteGroup={openPaletteGroup}
+                      onToggleSubPanel={handleToggleSubPanel}
+                      onOpenSearch={() => setSearchOpen(true)}
+                      onScreenshot={handleScreenshotTerminal}
+                    />
+                  )}
+                  renderTileBody={renderCanvasTileBody}
+                />
+              ))
+              .exhaustive()}
           </Show>
         </Show>
       </div>

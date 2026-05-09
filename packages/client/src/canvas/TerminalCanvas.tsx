@@ -31,6 +31,8 @@ import {
   onCleanup,
   Show,
 } from "solid-js";
+import CompanionTile from "../companions/CompanionTile";
+import { useCompanion } from "../companions/useCompanion";
 import { useStaleCheck } from "../terminal/staleness";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import CanvasMinimap from "./CanvasMinimap";
@@ -110,12 +112,19 @@ const TerminalCanvas: Component<{
    *  every focus change — reads happen inside the returned JSX's props
    *  (fine-grained reactivity), not around the render-prop effect. */
   renderTileBody: (id: TerminalId, active: () => boolean) => JSX.Element;
+  /** Theme name surfaced inside the inspector companion (clickable to
+   *  open the theme picker). The canvas owns companion mounting because
+   *  companions live inside the pan/zoom transform — keeping these props
+   *  here means the App doesn't have to know about companions at all. */
+  themeName?: string;
+  onThemeClick?: () => void;
 }> = (props) => {
   const viewport = useCanvasViewport();
   const store = useTerminalStore();
   const tileTheme = useTileTheme();
   const posture = useViewPosture();
   const isStale = useStaleCheck();
+  const companion = useCompanion();
 
   /** Pending per-tile layout overrides — bridges the gap between local
    *  geometry intent (drag-end, resize-end, default-place, arrange) and
@@ -355,9 +364,10 @@ const TerminalCanvas: Component<{
         <Show when={props.watermark}>
           {(text) => <CanvasWatermark text={text()} />}
         </Show>
-        {/* renderTile: one definition shared by tiled and maximized
-         *  branches — the only difference is the `maximized` boolean
-         *  and (for tiled) the active-state read derived from store. */}
+        {/* renderTile + renderCompanions: one tile-render definition
+         *  shared by tiled and maximized branches; companions are
+         *  rendered as siblings of their anchor inside the same pan/zoom
+         *  transform so they pan and zoom with the canvas. */}
         {(() => {
           const renderTile = (id: TerminalId, maximized: boolean) => (
             <Show when={store.getDisplayInfo(id)}>
@@ -388,11 +398,76 @@ const TerminalCanvas: Component<{
               )}
             </Show>
           );
+
+          /** Render every companion currently attached to `anchorId`.
+           *  Phase 1 only writes the East side, but the loop is
+           *  side-agnostic so Phase 3's side-picker doesn't need to
+           *  re-touch the canvas. The position is computed inside
+           *  `CompanionTile` from the anchor's effective layout. */
+          const renderCompanionsFor = (
+            anchorId: TerminalId,
+            anchorLayout: TileLayout,
+            maximized: boolean,
+          ) => {
+            const sides = companion.getCompanions(anchorId);
+            const info = store.getDisplayInfo(anchorId);
+            if (!info) return null;
+            return (
+              <For each={Object.entries(sides)}>
+                {([side, slot]) => {
+                  if (!slot) return null;
+                  return (
+                    <CompanionTile
+                      anchorId={anchorId}
+                      anchorLayout={anchorLayout}
+                      side={side as "n" | "e" | "s" | "w"}
+                      size={slot.size}
+                      ref={slot.ref}
+                      meta={store.getMetadata(anchorId) ?? null}
+                      themeName={
+                        store.activeId() === anchorId
+                          ? props.themeName
+                          : undefined
+                      }
+                      onThemeClick={props.onThemeClick}
+                      onClose={() =>
+                        companion.closeCompanion(
+                          anchorId,
+                          side as "n" | "e" | "s" | "w",
+                        )
+                      }
+                      onSizeChange={(next) =>
+                        companion.setCompanionSize(
+                          anchorId,
+                          side as "n" | "e" | "s" | "w",
+                          next,
+                        )
+                      }
+                      onRefChange={(ref) =>
+                        companion.setCompanionRef(
+                          anchorId,
+                          side as "n" | "e" | "s" | "w",
+                          ref,
+                        )
+                      }
+                      theme={tileTheme(anchorId)}
+                      repoColor={info.repoColor}
+                      active={maximized || store.activeId() === anchorId}
+                      zoom={viewport.zoom}
+                      maximized={maximized}
+                    />
+                  );
+                }}
+              </For>
+            );
+          };
+
           return (
             <>
-              {/* Tiled canvas — tiles live inside the pan/zoom transform.
-               *  Hidden entirely when maximized; no reason to paint
-               *  tiles the user can't see. */}
+              {/* Tiled canvas — tiles AND their companions live inside
+               *  the pan/zoom transform. Companions render as siblings
+               *  of their anchor at computed positions; they have no
+               *  saved layout of their own. */}
               <Show when={!posture.maximized()}>
                 <div
                   data-testid="canvas-transform"
@@ -402,15 +477,81 @@ const TerminalCanvas: Component<{
                   }}
                 >
                   <For each={props.tileIds}>
-                    {(id) => renderTile(id, false)}
+                    {(id) => (
+                      <>
+                        {renderTile(id, false)}
+                        <Show when={layouts()[id]}>
+                          {(anchorLayout) =>
+                            renderCompanionsFor(id, anchorLayout(), false)
+                          }
+                        </Show>
+                      </>
+                    )}
                   </For>
                 </div>
               </Show>
 
-              {/* Maximized view — only the active tile, outside any
-               *  transform, covering the canvas via `absolute inset-0`. */}
+              {/* Maximized view — the active tile fills the canvas, and
+               *  its companions dock beside it as part of the same
+               *  weld-group footprint (Hickey Q4: derive the group at
+               *  the canvas caller; useViewPosture stays a boolean). */}
               <Show when={posture.maximized() && store.activeId()} keyed>
-                {(id) => renderTile(id, true)}
+                {(id) => (
+                  <div class="absolute inset-0 z-40 flex">
+                    <div class="flex-1 min-w-0 relative">
+                      {renderTile(id, true)}
+                    </div>
+                    <For each={Object.entries(companion.getCompanions(id))}>
+                      {([side, slot]) => {
+                        if (!slot) return null;
+                        const info = store.getDisplayInfo(id);
+                        if (!info) return null;
+                        return (
+                          <div
+                            class="shrink-0 relative"
+                            style={{ width: `${slot.size}px` }}
+                          >
+                            <CompanionTile
+                              anchorId={id}
+                              anchorLayout={{ x: 0, y: 0, w: 0, h: 0 }}
+                              side={side as "n" | "e" | "s" | "w"}
+                              size={slot.size}
+                              ref={slot.ref}
+                              meta={store.getMetadata(id) ?? null}
+                              themeName={props.themeName}
+                              onThemeClick={props.onThemeClick}
+                              onClose={() =>
+                                companion.closeCompanion(
+                                  id,
+                                  side as "n" | "e" | "s" | "w",
+                                )
+                              }
+                              onSizeChange={(next) =>
+                                companion.setCompanionSize(
+                                  id,
+                                  side as "n" | "e" | "s" | "w",
+                                  next,
+                                )
+                              }
+                              onRefChange={(ref) =>
+                                companion.setCompanionRef(
+                                  id,
+                                  side as "n" | "e" | "s" | "w",
+                                  ref,
+                                )
+                              }
+                              theme={tileTheme(id)}
+                              repoColor={info.repoColor}
+                              active={true}
+                              zoom={viewport.zoom}
+                              maximized={true}
+                            />
+                          </div>
+                        );
+                      }}
+                    </For>
+                  </div>
+                )}
               </Show>
             </>
           );

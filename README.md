@@ -48,7 +48,7 @@ Open http://127.0.0.1:7681 (or the address you chose above).
 
 ### Canvas workspace
 
-The desktop workspace is mode-less — every terminal renders as a draggable, resizable tile on an infinite 2D canvas. Per-terminal chrome (theme pill, agent indicator, screenshot, split toggle, find) lives on each tile's title bar. A transparent **chrome bar** floats at the top carrying logo, command palette, settings, and inspector toggle; the canvas grid reads through it. When a tile is maximized or the inspector panel is open, the chrome bar docks above so the two surfaces don't fight.
+The desktop workspace is mode-less — every terminal renders as a draggable, resizable tile on an infinite 2D canvas. Per-terminal chrome (theme pill, agent indicator, screenshot, split toggle, find) lives on each tile's title bar. A transparent **chrome bar** floats at the top carrying logo, command palette, and settings; the canvas grid reads through it, full viewport width. When a tile is maximized the chrome bar docks above so the two surfaces don't fight. Code review and inspector views attach to a terminal as **welded canvas-peer companions** (Cmd+Alt+E for code, Cmd+Alt+B for inspector) — same canvas, same arrange-by-repo, no separate dock.
 
 - **Infinite pan & zoom** — two-finger scroll / trackpad to pan, pinch or <kbd>Ctrl+scroll</kbd> to zoom. Hold <kbd>Shift</kbd> to force pan even with the cursor over a terminal tile (hand-tool style). No boundaries — the canvas extends freely in every direction via CSS `transform: translate() scale()` (Figma/Excalidraw model)
 - **Snap-to-grid** — tiles snap to a 24px grid on drag and resize for tidy layouts
@@ -64,7 +64,7 @@ The desktop workspace is mode-less — every terminal renders as a draggable, re
 ### Git & GitHub
 
 - Auto-detected repo name, branch, and working directory (via OSC 7 + `.git/HEAD` watcher)
-- GitHub PR detection — shows PR number, title, and CI check status (pass/pending/fail) on the tile chrome and inspector
+- GitHub PR detection — shows PR number, title, and CI check status (pass/pending/fail) on the tile chrome and the inspector companion
 - Per-repo color coding on the workspace switcher, tile chrome, canvas tile border, and minimap via golden-angle hue spacing — the same hue echoes across every surface so a repo reads as one identity at a glance
 
 ### Claude Code Status
