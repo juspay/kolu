@@ -27,20 +27,19 @@ export function useTerminalAlerts(deps: {
   // Request browser notification permission eagerly when alerts are enabled
   if (activityAlerts()) requestNotificationPermission();
 
-  // Badge the PWA dock icon with terminals that need attention. Stale
-  // terminals (auto-parked per #849) are excluded — a session you parked
-  // yesterday shouldn't keep ringing the OS dock just because it's still
-  // marked. The mark itself stays, so a fresh agent transition (which
-  // bumps `lastActivityAt` and unparks) wakes the badge back up.
+  // Active dock-badge predicate: terminal is flagged for attention AND
+  // not auto-parked (#849). The attention mark itself stays across
+  // staleness, so a fresh agent transition — which bumps
+  // `lastActivityAt` and unparks — wakes the badge back up. Named here
+  // so the rule reads as one concept rather than a chained filter.
+  const isAttentionLive = (id: TerminalId) =>
+    deps.hasBadgeAttention(id) &&
+    !isStale(deps.getMetadata(id)?.lastActivityAt ?? 0);
+
+  // Badge the PWA dock icon with terminals that need attention.
   createEffect(() => {
     if (!("setAppBadge" in navigator)) return;
-    const count = deps
-      .terminalIds()
-      .filter(
-        (id) =>
-          deps.hasBadgeAttention(id) &&
-          !isStale(deps.getMetadata(id)?.lastActivityAt ?? 0),
-      ).length;
+    const count = deps.terminalIds().filter(isAttentionLive).length;
     if (count > 0) {
       void navigator.setAppBadge(count);
     } else {
