@@ -23,7 +23,7 @@ import { log } from "../log.ts";
 import { terminalChannels } from "../publisher.ts";
 import type { TerminalProcess } from "../terminal-registry.ts";
 import { getLastAgentCommandName } from "./agent-command.ts";
-import { updateServerMetadata } from "./state.ts";
+import { updateServerLiveMetadata, updateServerMetadata } from "./state.ts";
 
 /** Pure decision: does this agent transition warrant a recency bump?
  *
@@ -53,7 +53,18 @@ export function shouldBumpRecencyForAgentChange(
   return !isReDetectionAfterRestore;
 }
 
-/** Single write-site for `m.agent`. */
+/** Single write-site for `m.agent`. The provider's watcher emits at
+ *  ~150ms cadence while an agent is streaming; only a small fraction
+ *  of those emits cross the recency-bump threshold (transitions on
+ *  `kind`/`sessionId`/`state`). Sub-info refreshes — `contextTokens`,
+ *  `summary`, `taskProgress` — share the live `agent` slot but don't
+ *  bump.
+ *
+ *  Every tick writes `m.agent` via the live variant (no dirty signal,
+ *  no autosave). On a bump, a second call writes `m.lastActivityAt`
+ *  via the persisting variant. The two-call shape is forced by the
+ *  bidirectional type fence in `state.ts`; the second publish is
+ *  cheap and only happens on transitions. */
 function setAgentMetadata(
   entry: TerminalProcess,
   terminalId: string,
@@ -64,10 +75,19 @@ function setAgentMetadata(
     nextAgent,
     entry.meta.lastActivityAt,
   );
-  updateServerMetadata(entry, terminalId, (m) => {
+  // Live first so the dirty-fire snapshot already includes `nextAgent`.
+  // The bidirectional fence on `updateServerMetadata` (mutator typed
+  // to ServerPersistedTerminalFields) means the bump path can't write
+  // `m.agent` and `m.lastActivityAt` in one closure — that's the price
+  // of the structural fence, paid only on transitions (sparse).
+  updateServerLiveMetadata(entry, terminalId, (m) => {
     m.agent = nextAgent;
-    if (bump) m.lastActivityAt = Date.now();
   });
+  if (bump) {
+    updateServerMetadata(entry, terminalId, (m) => {
+      m.lastActivityAt = Date.now();
+    });
+  }
 }
 
 /** node-pty may return a full path (e.g. `/nix/store/.../bin/opencode` on

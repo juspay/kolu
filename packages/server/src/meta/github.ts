@@ -5,7 +5,8 @@
  * `gh pr view` spawn, branch-change dedup, the 30s polling loop, failure
  * classification and routing. This file just wires the watcher to the
  * server's `git:` channel and pushes resolved `PrResult` values into
- * terminal metadata via `updateServerMetadata`.
+ * terminal metadata via `updateServerLiveMetadata` — `pr` is a live
+ * field, so PR-poll churn doesn't trigger session autosaves.
  *
  * ┌─ FUTURE: PrProvider extraction ──────────────────────────────────────┐
  * │ When Bitbucket (`bkt`) support lands (srid/agency#10), a sibling     │
@@ -23,7 +24,7 @@ import { subscribeGitHubPr } from "kolu-github";
 import { log } from "../log.ts";
 import { terminalChannels } from "../publisher.ts";
 import type { TerminalProcess } from "../terminal-registry.ts";
-import { updateServerMetadata } from "./state.ts";
+import { updateServerLiveMetadata } from "./state.ts";
 
 export function startGitHubPrProvider(
   entry: TerminalProcess,
@@ -33,7 +34,7 @@ export function startGitHubPrProvider(
   plog.debug("started");
 
   const watcher = subscribeGitHubPr((pr) => {
-    updateServerMetadata(entry, terminalId, (m) => {
+    updateServerLiveMetadata(entry, terminalId, (m) => {
       m.pr = pr;
     });
     plog.debug(
