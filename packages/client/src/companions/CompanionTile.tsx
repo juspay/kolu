@@ -11,7 +11,7 @@
  *  and `useCompanion.ts` for Phase 3 to fill in. */
 
 import type { CodeTabView, TerminalMetadata } from "kolu-common/surface";
-import { type Component, Match, Switch } from "solid-js";
+import { type Component, Match, Show, Switch } from "solid-js";
 import type { TileTheme } from "../canvas/CanvasTile";
 import {
   tileChromeButton,
@@ -181,12 +181,17 @@ const CompanionTile: Component<{
       {/* Seam handle — a 4px-wide hit zone on the West edge that the user
        *  drags to resize the companion. Cursor change is the affordance.
        *  The handle straddles the seam (`-left-1`) so neither the anchor
-       *  nor the companion gets a visible inset. */}
-      <div
-        data-testid="companion-seam"
-        class="absolute inset-y-0 -left-1 w-2 cursor-col-resize hover:bg-accent/30 transition-colors"
-        onPointerDown={startSeamResize}
-      />
+       *  nor the companion gets a visible inset. Hidden in maximized
+       *  mode: the flex-row layout owns the maximized companion's width,
+       *  so a `-left-1` absolute handle would float misaligned over the
+       *  parent's edge with no defined resize semantics. */}
+      <Show when={!props.maximized}>
+        <div
+          data-testid="companion-seam"
+          class="absolute inset-y-0 -left-1 w-2 cursor-col-resize hover:bg-accent/30 transition-colors"
+          onPointerDown={startSeamResize}
+        />
+      </Show>
     </div>
   );
 };
