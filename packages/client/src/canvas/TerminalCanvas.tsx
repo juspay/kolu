@@ -432,18 +432,24 @@ const TerminalCanvas: Component<{
           ) => {
             const info = store.getDisplayInfo(anchorId);
             if (!info) return null;
-            // Type the iteration once so each Match arm and prop call
-            // sees `Side` instead of `string` — kills the `as Side` cast
-            // repetition the renderCompanionsFor body would otherwise
-            // need at every companion-store call site.
-            const entries = Object.entries(
-              companion.getCompanions(anchorId),
-            ) as [
-              Side,
-              { size: number; companionRef: CompanionRef } | undefined,
-            ][];
+            // `<For each={fn}>` requires an accessor for reactivity:
+            // `companion.getCompanions` reads the per-anchor store
+            // entry, so a toggleCompanion write re-fires this `each` and
+            // the For diffs the new entries list. Snapshotting via
+            // `const entries = Object.entries(…)` outside the For
+            // freezes the value at first render — the companion never
+            // appears after toggle (caught by e2e). The `as` cast types
+            // the iteration once so each closure body sees `Side`
+            // instead of `string`.
             return (
-              <For each={entries}>
+              <For
+                each={
+                  Object.entries(companion.getCompanions(anchorId)) as [
+                    Side,
+                    { size: number; companionRef: CompanionRef } | undefined,
+                  ][]
+                }
+              >
                 {([side, slot]) => {
                   if (!slot) return null;
                   const tile = (
