@@ -23,7 +23,7 @@ import { log } from "../log.ts";
 import { terminalChannels } from "../publisher.ts";
 import type { TerminalProcess } from "../terminal-registry.ts";
 import { getLastAgentCommandName } from "./agent-command.ts";
-import { updateServerMetadata } from "./state.ts";
+import { updateServerLiveMetadata, updateServerMetadata } from "./state.ts";
 
 /** Pure decision: does this agent transition warrant a recency bump?
  *
@@ -53,7 +53,16 @@ export function shouldBumpRecencyForAgentChange(
   return !isReDetectionAfterRestore;
 }
 
-/** Single write-site for `m.agent`. */
+/** Single write-site for `m.agent`. The provider's watcher emits at ~150ms
+ *  cadence while an agent is streaming; only a small fraction of those
+ *  emits cross the recency-bump threshold (transitions on
+ *  `kind`/`sessionId`/`state`). Sub-info refreshes — `contextTokens`,
+ *  `summary`, `taskProgress` — share the live `agent` slot but don't
+ *  bump.
+ *
+ *  We split the write per-tick so the firehose stays live-only:
+ *  bump → persist (`updateServerMetadata` fires `terminals:dirty`),
+ *  no-bump → live (`updateServerLiveMetadata` skips the channel). */
 function setAgentMetadata(
   entry: TerminalProcess,
   terminalId: string,
@@ -64,10 +73,16 @@ function setAgentMetadata(
     nextAgent,
     entry.meta.lastActivityAt,
   );
-  updateServerMetadata(entry, terminalId, (m) => {
-    m.agent = nextAgent;
-    if (bump) m.lastActivityAt = Date.now();
-  });
+  if (bump) {
+    updateServerMetadata(entry, terminalId, (m) => {
+      m.agent = nextAgent;
+      m.lastActivityAt = Date.now();
+    });
+  } else {
+    updateServerLiveMetadata(entry, terminalId, (m) => {
+      m.agent = nextAgent;
+    });
+  }
 }
 
 /** node-pty may return a full path (e.g. `/nix/store/.../bin/opencode` on

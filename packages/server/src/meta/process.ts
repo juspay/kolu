@@ -12,7 +12,7 @@ import path from "node:path";
 import { log } from "../log.ts";
 import { terminalChannels } from "../publisher.ts";
 import type { TerminalProcess } from "../terminal-registry.ts";
-import { updateServerMetadata } from "./state.ts";
+import { updateServerLiveMetadata } from "./state.ts";
 
 /** node-pty may return a full path (e.g. `/nix/store/.../bin/opencode` on NixOS).
  *  Always normalize to the basename. */
@@ -41,7 +41,7 @@ export function startProcessProvider(
     );
     lastName = name;
     lastTitle = newTitle;
-    updateServerMetadata(entry, terminalId, (m) => {
+    updateServerLiveMetadata(entry, terminalId, (m) => {
       m.foreground = { name, title: newTitle };
     });
   }

@@ -15,6 +15,7 @@
  */
 
 import type {
+  LiveTerminalFields,
   TerminalClientMetadata,
   TerminalMetadata,
   TerminalServerMetadata,
@@ -40,10 +41,13 @@ export function createMetadata(cwd: string): TerminalMetadata {
   };
 }
 
-/** Log + publish the current metadata snapshot and trigger debounced
- *  session auto-save. Shared tail for both `updateServerMetadata` and
- *  `updateClientMetadata` so the publish/audit path is identical regardless
- *  of who wrote the fields. */
+/** Log + publish the current metadata snapshot. Shared tail for every
+ *  update variant — the publish/audit path is identical regardless of who
+ *  wrote the fields. Distinct from `publishMetadataAndPersist` (below):
+ *  this one does NOT fire `terminals:dirty`, so live-only writes (agent
+ *  stream sub-info, pr poll results, foreground process churn) don't
+ *  schedule autosaves whose persisted bytes would be byte-identical to
+ *  the previous snapshot. */
 function publishMetadata(entry: TerminalProcess, terminalId: string): void {
   const m = entry.meta;
   const pr = prValue(m.pr);
@@ -65,17 +69,42 @@ function publishMetadata(entry: TerminalProcess, terminalId: string): void {
     "metadata publish",
   );
   surfaceCtx.collections.terminalMetadata.upsert(terminalId, { ...m });
+}
+
+/** `publishMetadata` + fire `terminals:dirty`. Use this from any path that
+ *  wrote a persisted field — the channel tells `session.ts` to flush. */
+function publishMetadataAndPersist(
+  entry: TerminalProcess,
+  terminalId: string,
+): void {
+  publishMetadata(entry, terminalId);
   terminalsDirtyChannel.publish({});
 }
 
-/** Atomically mutate server-derived metadata (cwd, git, pr, agent,
- *  foreground) and publish. The mutator is narrowed to
- *  `TerminalServerMetadata` so providers cannot accidentally write
- *  client-owned fields. */
+/** Atomically mutate server-derived metadata (cwd, git, lastAgentCommand,
+ *  lastActivityAt, pr, agent, foreground) and publish. The mutator is
+ *  narrowed to `TerminalServerMetadata` so providers cannot accidentally
+ *  write client-owned fields. Fires `terminals:dirty` — use the `Live`
+ *  variant when you know only live fields (`pr`, `agent`, `foreground`)
+ *  are touched. */
 export function updateServerMetadata(
   entry: TerminalProcess,
   terminalId: string,
   mutate: (meta: TerminalServerMetadata) => void,
+): void {
+  mutate(entry.meta);
+  publishMetadataAndPersist(entry, terminalId);
+}
+
+/** Atomically mutate live-only server metadata (`pr`, `agent`,
+ *  `foreground`) and publish — without firing `terminals:dirty`. The
+ *  mutator type is `LiveTerminalFields`, a compile-time fence: writing
+ *  any persisted field through this function is a type error, which is
+ *  the structural guarantee that the firehose can't grow back. */
+export function updateServerLiveMetadata(
+  entry: TerminalProcess,
+  terminalId: string,
+  mutate: (meta: LiveTerminalFields) => void,
 ): void {
   mutate(entry.meta);
   publishMetadata(entry, terminalId);
@@ -84,12 +113,13 @@ export function updateServerMetadata(
 /** Atomically mutate client-owned metadata (themeName, parentId,
  *  canvasLayout, subPanel) and publish. The mutator is narrowed to
  *  `TerminalClientMetadata` so RPC handlers cannot accidentally overwrite
- *  provider-owned state. */
+ *  provider-owned state. Every client field is persisted, so this always
+ *  fires `terminals:dirty`. */
 export function updateClientMetadata(
   entry: TerminalProcess,
   terminalId: string,
   mutate: (meta: TerminalClientMetadata) => void,
 ): void {
   mutate(entry.meta);
-  publishMetadata(entry, terminalId);
+  publishMetadataAndPersist(entry, terminalId);
 }
