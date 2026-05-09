@@ -351,31 +351,32 @@ const TerminalCanvas: Component<{
          *  and (for tiled) the active-state read derived from store. */}
         {(() => {
           const renderTile = (id: TerminalId, maximized: boolean) => (
-            <CanvasTile
-              id={id}
-              active={maximized || store.activeId() === id}
-              maximized={maximized}
-              theme={tileTheme(id)}
-              // biome-ignore lint/style/noNonNullAssertion: tileIds come
-              //   from useTerminalMetadata.terminalIds, which filters out
-              //   ids without metadata — so getDisplayInfo is defined here.
-              repoColor={store.getDisplayInfo(id)!.repoColor}
-              onSelect={() => props.onSelect(id)}
-              onClose={() => props.onClose(id)}
-              onToggleMaximize={posture.toggle}
-              renderTitle={() => props.renderTileTitle(id)}
-              renderTitleActions={
-                props.renderTileTitleActions
-                  ? () => props.renderTileTitleActions?.(id)
-                  : undefined
-              }
-              renderBody={() =>
-                props.renderTileBody(id, () => store.activeId() === id)
-              }
-              layouts={layouts()}
-              startResize={startResize}
-              zoom={viewport.zoom}
-            />
+            <Show when={store.getDisplayInfo(id)}>
+              {(info) => (
+                <CanvasTile
+                  id={id}
+                  active={maximized || store.activeId() === id}
+                  maximized={maximized}
+                  theme={tileTheme(id)}
+                  repoColor={info().repoColor}
+                  onSelect={() => props.onSelect(id)}
+                  onClose={() => props.onClose(id)}
+                  onToggleMaximize={posture.toggle}
+                  renderTitle={() => props.renderTileTitle(id)}
+                  renderTitleActions={
+                    props.renderTileTitleActions
+                      ? () => props.renderTileTitleActions?.(id)
+                      : undefined
+                  }
+                  renderBody={() =>
+                    props.renderTileBody(id, () => store.activeId() === id)
+                  }
+                  layouts={layouts()}
+                  startResize={startResize}
+                  zoom={viewport.zoom}
+                />
+              )}
+            </Show>
           );
           return (
             <>

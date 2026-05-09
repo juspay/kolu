@@ -200,17 +200,24 @@ const CanvasMinimap: Component<{
             {(id) => {
               const layout = () => props.layouts[id];
               const theme = () => tileTheme(id);
-              // tileIds come from useTerminalMetadata.terminalIds, which
-              // filters out ids without metadata — so getDisplayInfo is
-              // defined here.
-              // biome-ignore lint/style/noNonNullAssertion: see comment
-              const repoColor = () => store.getDisplayInfo(id)!.repoColor;
-              const pos = () => {
+              // Single accessor that yields all the per-tile data the
+              // rectangle needs, or null when the tile isn't ready yet
+              // (no layout, or metadata still arriving). The `Show` below
+              // narrows once instead of forcing a non-null assertion on
+              // `getDisplayInfo` per field.
+              const tile = () => {
                 const l = layout();
-                if (!l) return null;
+                const info = store.getDisplayInfo(id);
+                if (!l || !info) return null;
                 const s = minimapScale();
                 const p = toMinimap(l.x, l.y, s);
-                return { x: p.x, y: p.y, w: l.w * s, h: l.h * s };
+                return {
+                  x: p.x,
+                  y: p.y,
+                  w: l.w * s,
+                  h: l.h * s,
+                  repoColor: info.repoColor,
+                };
               };
               const handleTileClick = (e: MouseEvent) => {
                 // Don't let this also trigger the background pan-to-point.
@@ -243,8 +250,8 @@ const CanvasMinimap: Component<{
                 );
               };
               return (
-                <Show when={pos()}>
-                  {(p) => (
+                <Show when={tile()}>
+                  {(t) => (
                     <div
                       data-testid="minimap-tile-rect"
                       data-tile-id={id}
@@ -255,12 +262,12 @@ const CanvasMinimap: Component<{
                         "opacity-70": store.activeId() !== id,
                       }}
                       style={{
-                        left: `${p().x}px`,
-                        top: `${p().y}px`,
-                        width: `${p().w}px`,
-                        height: `${p().h}px`,
+                        left: `${t().x}px`,
+                        top: `${t().y}px`,
+                        width: `${t().w}px`,
+                        height: `${t().h}px`,
                         "background-color": theme().bg,
-                        border: `1px solid ${repoColor()}`,
+                        border: `1px solid ${t().repoColor}`,
                       }}
                       title={id}
                       onPointerDown={handleTilePointerDown}
