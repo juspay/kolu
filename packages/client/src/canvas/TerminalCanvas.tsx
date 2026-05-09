@@ -303,17 +303,19 @@ const TerminalCanvas: Component<{
     );
   }
 
-  // Pan to the active tile whenever `useTerminalCrud` flags a system-driven
-  // reassignment (close → auto-switch). User-driven changes (clicks,
-  // workspace switcher) don't bump this signal — clicking a partially-
-  // visible tile shouldn't yank the viewport.
+  // Pan to the requested tile whenever `useTerminalCrud` flags a
+  // system-driven reassignment (close → auto-switch). User-driven changes
+  // (clicks, workspace switcher) don't bump this signal — clicking a
+  // partially-visible tile shouldn't yank the viewport. The target id
+  // travels in the signal payload so we don't side-channel-read
+  // `activeId` here and pan to the wrong tile if a future caller forgets
+  // to update `activeId` first.
   createEffect(
     on(
       store.centerActiveRequest,
-      () => {
-        const id = store.activeId();
-        if (!id) return;
-        const layout = layoutOf(id);
+      (req) => {
+        if (!req) return;
+        const layout = layoutOf(req.id);
         if (layout) {
           requestAnimationFrame(() => viewport.centerOnTile(layout));
         }

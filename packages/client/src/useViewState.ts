@@ -35,15 +35,19 @@ export function useViewState() {
 
   const [mruOrder, setMruOrder] = createSignal<TerminalId[]>([]);
 
-  /** Counter signal bumped when the system (not the user) reassigns the
-   *  active tile and wants the canvas viewport to follow — e.g. the
-   *  auto-switch after closing the active terminal. A direct
-   *  `centerOnTile` call from `useTerminalCrud` would reach across the
-   *  terminal → canvas layer; the signal lets the canvas effect own the
-   *  pan and keeps `useTerminalCrud` free of viewport deps. */
-  const [centerActiveRequest, setCenterActiveRequest] = createSignal(0);
-  function requestCenterActive() {
-    setCenterActiveRequest((n) => n + 1);
+  /** Signal bumped when the system (not the user) reassigns the active
+   *  tile and wants the canvas viewport to follow — e.g. the auto-switch
+   *  after closing the active terminal. The payload carries the target
+   *  tile id explicitly so the consumer doesn't have to re-read
+   *  `activeId` as a side-channel (and risk panning to the wrong tile if
+   *  a future caller forgets to update `activeId` first). Each call
+   *  allocates a new wrapper so reference inequality fires the listener
+   *  even when the same id is requested back-to-back. */
+  const [centerActiveRequest, setCenterActiveRequest] = createSignal<{
+    id: TerminalId;
+  } | null>(null);
+  function requestCenterActive(id: TerminalId) {
+    setCenterActiveRequest({ id });
   }
   createEffect(
     on(activeId, (id) => {

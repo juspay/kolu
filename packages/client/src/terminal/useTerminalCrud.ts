@@ -93,7 +93,7 @@ export function useTerminalCrud(deps: {
       store.setActiveId(next);
       // Pan the canvas so the auto-switched tile lands in view — without
       // this the viewport would stay centered on the just-killed tile.
-      if (next !== null) store.requestCenterActive();
+      if (next !== null) store.requestCenterActive(next);
     }
   }
 
