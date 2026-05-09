@@ -267,7 +267,6 @@ const CanvasMinimap: Component<{
                     <div
                       data-testid="minimap-tile-rect"
                       data-tile-id={id}
-                      data-awaiting={awaiting() ? "true" : undefined}
                       class="absolute rounded-sm transition-opacity cursor-pointer hover:opacity-100 hover:ring-1 hover:ring-accent/40"
                       classList={{
                         "opacity-100 ring-1 ring-accent/60":
