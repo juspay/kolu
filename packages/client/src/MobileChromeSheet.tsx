@@ -116,7 +116,6 @@ const MobileChromeSheet: Component<{
                       <span
                         class="flex-1 truncate"
                         style={{ color: item.info.branchColor }}
-                        classList={{ "text-fg-2": !item.info.branchColor }}
                       >
                         {item.label}
                       </span>
