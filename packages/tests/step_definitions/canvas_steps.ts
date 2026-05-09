@@ -295,6 +295,27 @@ Then(
 );
 
 Then(
+  "canvas tile {int} should be below canvas tile {int} in the same column",
+  async function (this: KoluWorld, a: number, b: number) {
+    await this.page.waitForFunction(
+      ({ sel, i, j }: { sel: string; i: number; j: number }) => {
+        const tiles = document.querySelectorAll(
+          `${sel} [data-terminal-id][data-visible]`,
+        );
+        const tileA = tiles.item(i) as HTMLElement | null;
+        const tileB = tiles.item(j) as HTMLElement | null;
+        if (!tileA || !tileB) return false;
+        const rA = tileA.getBoundingClientRect();
+        const rB = tileB.getBoundingClientRect();
+        return Math.abs(rA.left - rB.left) <= 2 && rA.top > rB.top;
+      },
+      { sel: CANVAS_SELECTOR, i: a - 1, j: b - 1 },
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+Then(
   "the active canvas tile should be centered in the viewport",
   async function (this: KoluWorld) {
     await waitForTileCenteredInViewport(this, "active");
