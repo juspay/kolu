@@ -1,12 +1,12 @@
 /** Shared tile-chrome derivations — single source for the color tiers
- *  CanvasTile, WorkspaceSwitcher, and CanvasMinimap all derive from a terminal's
- *  theme. Same `color-mix(in oklch, fg X%, bg)` formula was duplicated
- *  across three files; consolidating it here means a tweak to one tier
- *  flows everywhere it's read.
+ *  CanvasTile and WorkspaceSwitcher both derive from a terminal's theme.
+ *  Same `color-mix(in oklch, fg X%, bg)` formula was duplicated across
+ *  files; consolidating it here means a tweak to one tier flows
+ *  everywhere it's read.
  *
  *  Scope: **color derivations only**. Tile sizing, layout, border-radius,
  *  shadow, hover state, animation, and other interaction styling stay
- *  inline in their owning component (CanvasTile, WorkspaceSwitcher, CanvasMinimap).
+ *  inline in their owning component (CanvasTile, WorkspaceSwitcher).
  *  This module's volatility is the per-theme color formula — anything
  *  that doesn't change when the formula changes belongs elsewhere. */
 
