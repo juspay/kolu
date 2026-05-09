@@ -1,4 +1,8 @@
-import type { AgentInfo, TerminalId } from "kolu-common/surface";
+import type {
+  AgentInfo,
+  TerminalId,
+  TerminalMetadata,
+} from "kolu-common/surface";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import type { TileLayout } from "../TileLayout";
 
@@ -161,6 +165,21 @@ export function agentBucket(
     case undefined:
       return "none";
   }
+}
+
+/** True when the terminal is currently asking for the user's attention:
+ *  agent is in the `awaiting` bucket and the terminal isn't auto-parked
+ *  by inactivity. The single concept "demanding attention right now" —
+ *  consumers (canvas-minimap heatmap, future awaiting badges) compose
+ *  via this predicate so a future suppression axis (snooze, importance
+ *  tag, per-repo threshold) lands in one place. */
+export function isAwaitingAttention(
+  meta: TerminalMetadata,
+  isStale: (lastActivityAt: number) => boolean,
+): boolean {
+  return (
+    agentBucket(meta.agent) === "awaiting" && !isStale(meta.lastActivityAt)
+  );
 }
 
 const BUCKET_BY_KEY: Record<

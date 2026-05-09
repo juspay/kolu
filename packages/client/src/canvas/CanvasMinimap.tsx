@@ -13,6 +13,7 @@ import {
 import type { TileLayout } from "./TileLayout";
 import { useTileTheme } from "./useTileTheme";
 import { useCanvasViewport } from "./viewport/useCanvasViewport";
+import { isAwaitingAttention } from "./workspace-switcher";
 
 /** Minimap target dimensions in pixels. */
 const MAP_W = 180;
@@ -213,20 +214,13 @@ const CanvasMinimap: Component<{
                 if (!l || !info) return null;
                 const s = minimapScale();
                 const p = toMinimap(l.x, l.y, s);
-                // Currently asking for attention: agent is waiting AND
-                // the terminal isn't auto-parked. Stale awaiting tiles
-                // already fade in the switcher (#849); echoing the same
-                // suppression here keeps the canvas-wide signal honest.
-                const awaiting =
-                  info.meta.agent?.state === "waiting" &&
-                  !isStale(info.meta.lastActivityAt);
                 return {
                   x: p.x,
                   y: p.y,
                   w: l.w * s,
                   h: l.h * s,
                   repoColor: info.repoColor,
-                  awaiting,
+                  awaiting: isAwaitingAttention(info.meta, isStale),
                 };
               };
               const handleTileClick = (e: MouseEvent) => {

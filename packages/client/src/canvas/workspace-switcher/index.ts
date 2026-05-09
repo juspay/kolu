@@ -9,6 +9,7 @@ export {
   agentBucket,
   buildWorkspaceEntries,
   buildWorkspaceSwitcherModel,
+  isAwaitingAttention,
   sortBySwitcherOrder,
   type WorkspaceSwitcherRepoGroup,
   type WorkspaceSwitcherSourceEntry,
