@@ -75,14 +75,13 @@ const CanvasTile: Component<{
     height: `${layout().h}px`,
     "background-color": bg(),
     "border-color": props.repoColor,
-    // Active tile's right edge is the asymmetric handshake to the right
-    // panel ("this side points at the inspector"). Longhand sits after
-    // the shorthand `border-color` in the same declaration so the
-    // cascade resolves cleanly — a Tailwind utility would lose to the
-    // inline shorthand and silently fail.
-    ...(props.active && !props.maximized
-      ? { "border-right-color": "var(--color-accent)" }
-      : {}),
+    // Active tile's right edge points at the inspector panel — repoColor
+    // on the other three edges, accent on the right. Longhand wins after
+    // shorthand in the same declaration block.
+    "border-right-color":
+      props.active && !props.maximized
+        ? "var(--color-accent)"
+        : props.repoColor,
     "z-index": props.active ? 10 : 1,
     opacity: props.active ? 1 : 0.92,
     "box-shadow": props.active
