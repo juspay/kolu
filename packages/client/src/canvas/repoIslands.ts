@@ -128,6 +128,10 @@ export function repackBucket(
   return result;
 }
 
+/** Pack tiles into a square-ish grid anchored at (0, 0). The returned
+ *  layouts are zero-based offsets — callers own anchoring (add a chosen
+ *  origin to each `x`/`y`) and grid-snapping. `w`/`h` are the cluster's
+ *  bounding-box extents, useful for inter-cluster packing. */
 function packCluster(tiles: RepoIslandTile[]): {
   layouts: Map<TerminalId, TileLayout>;
   w: number;
@@ -155,12 +159,14 @@ function packCluster(tiles: RepoIslandTile[]): {
   return { layouts, w: maxRight, h: maxBottom };
 }
 
-/** Pack rectangles into a square-ish grid; return per-rect (x, y) offsets.
- *  Column widths and row heights are the per-track maxima so unequal
- *  rectangles don't overlap. The returned array is the same length as
- *  the input and aligned by index — callers (e.g. `packCluster`) zip it
- *  with the originals; reordering or filtering inside this function
- *  would silently misassign geometry. */
+/** Pack rectangles into a square-ish grid; return per-rect (x, y) offsets
+ *  anchored at (0, 0). Column widths and row heights are the per-track
+ *  maxima so unequal rectangles don't overlap; the gap between adjacent
+ *  rects is exactly `gap` regardless of rect dimensions (no implicit
+ *  grid-snapping inside the cumulative offset). The returned array is
+ *  the same length as the input and aligned by index — callers (e.g.
+ *  `packCluster`) zip it with the originals; reordering or filtering
+ *  inside this function would silently misassign geometry. */
 function packGrid(
   rects: { w: number; h: number }[],
   gap: number,
