@@ -230,9 +230,13 @@ async function newScenarioPage(
       previousContext = undefined;
     }
     const context = await browser.newContext({
+      // 1920×1080 matches a typical desktop monitor — the previous 1280×720
+      // default hid viewport-size-dependent bugs (e.g. the canvas
+      // centering math behaves differently when the tile is small relative
+      // to the viewport vs nearly filling it).
       viewport: isMobile
         ? { width: 390, height: 844 }
-        : { width: 1280, height: 720 },
+        : { width: 1920, height: 1080 },
       ...(isMobile && { hasTouch: true, isMobile: true }),
       baseURL: baseUrl,
       ignoreHTTPSErrors: true,
