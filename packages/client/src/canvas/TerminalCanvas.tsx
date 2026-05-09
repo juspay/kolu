@@ -145,6 +145,21 @@ const TerminalCanvas: Component<{
     pendingLayouts.dropEvicted(new Set(props.tileIds), props.getLayout);
   });
 
+  // Drop companion state for anchors that no longer exist. Without this,
+  // killing a terminal leaks its companion's `{ref, size}` entries in
+  // the singleton store for the rest of the page session — and a
+  // recreated id (memorable-name collision in a fresh worktree) would
+  // inherit the dead anchor's stale companion. Tracks `tileIds` in a
+  // Set so the diff is O(removed) per change.
+  let knownTileIds = new Set<TerminalId>(props.tileIds);
+  createEffect(() => {
+    const next = new Set(props.tileIds);
+    for (const prev of knownTileIds) {
+      if (!next.has(prev)) companion.removeAnchor(prev);
+    }
+    knownTileIds = next;
+  });
+
   // Pending lives at module scope (singleton, shared with useCanvasArrange).
   // Flush on canvas unmount so a mobile↔desktop remount never inherits a
   // stale entry whose echo arrived while the canvas was gone.
