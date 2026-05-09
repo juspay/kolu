@@ -189,7 +189,7 @@ function trackOffsets(lengths: number[], gap: number): number[] {
   let cursor = 0;
   for (const len of lengths) {
     out.push(cursor);
-    cursor = ceilToGrid(cursor + len + gap);
+    cursor += len + gap;
   }
   return out;
 }
@@ -203,8 +203,4 @@ function groupBy<T, K>(items: T[], key: (t: T) => K): Map<K, T[]> {
     else map.set(k, [item]);
   }
   return map;
-}
-
-function ceilToGrid(v: number): number {
-  return Math.ceil(v / GRID_SIZE) * GRID_SIZE;
 }
