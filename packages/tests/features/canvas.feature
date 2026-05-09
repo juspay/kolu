@@ -83,14 +83,9 @@ Feature: Canvas workspace
     Then the canvas transform should have changed
     And there should be no page errors
 
-  Scenario: Minimap shows zoom bar on the canvas
+  Scenario: Minimap is always visible on the canvas
     Then the minimap should be visible
-    And there should be no page errors
-
-  Scenario: Minimap expands with multiple terminals
-    Given I create a terminal
-    And I create a terminal
-    Then the minimap map should be visible
+    And the minimap map should be visible
     And there should be no page errors
 
   Scenario: Minimap viewport rect drag pans the canvas

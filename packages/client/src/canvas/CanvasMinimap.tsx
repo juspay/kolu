@@ -1,5 +1,4 @@
-/** Canvas minimap — spatial overview of all tiles + integrated zoom controls.
- *  Auto-hides the map when ≤2 tiles. */
+/** Canvas minimap — spatial overview of all tiles + integrated zoom controls. */
 
 import { type Component, createMemo, createSignal, For, Show } from "solid-js";
 import { useStaleCheck } from "../terminal/staleness";
@@ -20,8 +19,6 @@ const MAP_W = 180;
 const MAP_H = 120;
 /** Padding around tile bounding box in canvas-space units. */
 const MAP_PAD = 100;
-/** Show full minimap only when tile count exceeds this. */
-const AUTO_SHOW_THRESHOLD = 2;
 
 const CanvasMinimap: Component<{
   tileIds: string[];
@@ -115,11 +112,6 @@ const CanvasMinimap: Component<{
     return { w: b.w * s, h: b.h * s };
   });
 
-  // ── Whether to show the full minimap or just the zoom bar ──
-  const shouldShowMap = createMemo(
-    () => props.tileIds.length > AUTO_SHOW_THRESHOLD,
-  );
-
   // ── Viewport rect drag ──
   let abortDrag: AbortController | null = null;
   let abortTileDrag: AbortController | null = null;
@@ -183,142 +175,131 @@ const CanvasMinimap: Component<{
       class="absolute bottom-4 left-4 z-20 flex flex-col items-start gap-px"
     >
       {/* Minimap visualization */}
-      <Show when={shouldShowMap()}>
-        <div
-          data-testid="minimap-map"
-          class="rounded-t-lg bg-surface-2/80 backdrop-blur-sm border border-b-0 border-edge/40 overflow-hidden"
-          style={{ width: `${mapDims().w}px`, height: `${mapDims().h}px` }}
-          classList={{
-            "cursor-default": !hoveringViewport() && !draggingViewport(),
-            "cursor-grab": hoveringViewport() && !draggingViewport(),
-            "cursor-grabbing": draggingViewport(),
-          }}
-          onPointerDown={handleMapPointerDown}
-          onPointerMove={handleMapPointerMove}
-          onPointerLeave={() => setHoveringViewport(false)}
-          onClick={handleMapClick}
-        >
-          {/* Tile rectangles */}
-          <For each={props.tileIds}>
-            {(id) => {
-              const layout = () => props.layouts[id];
-              const theme = () => tileTheme(id);
-              // Single accessor that yields all the per-tile data the
-              // rectangle needs, or null when the tile isn't ready yet
-              // (no layout, or metadata still arriving). The `Show` below
-              // narrows once instead of forcing a non-null assertion on
-              // `getDisplayInfo` per field.
-              const tile = createMemo(() => {
-                const l = layout();
-                const info = store.getDisplayInfo(id);
-                if (!l || !info) return null;
-                const s = minimapScale();
-                const p = toMinimap(l.x, l.y, s);
-                return {
-                  x: p.x,
-                  y: p.y,
-                  w: l.w * s,
-                  h: l.h * s,
-                  repoColor: info.repoColor,
-                };
-              });
-              // Split from `tile()` so the staleness tick doesn't
-              // invalidate the rectangle — only the awaiting span re-runs.
-              const awaiting = () => {
-                const info = store.getDisplayInfo(id);
-                return info ? isAwaitingAttention(info.meta, isStale) : false;
-              };
-              const handleTileClick = (e: MouseEvent) => {
-                // Don't let this also trigger the background pan-to-point.
-                e.stopPropagation();
-                if (suppressNextClick) {
-                  suppressNextClick = false;
-                  return;
-                }
-                const l = layout();
-                if (!l) return;
-                props.onSelect(id);
-                viewport.centerOnTile(l);
-              };
-              const handleTilePointerDown = (e: PointerEvent) => {
-                e.stopPropagation();
-                const drag = props.onStartTileDrag(id);
-                if (!drag) return;
-                abortTileDrag = startTileDrag(
-                  e,
-                  minimapScale(),
-                  abortTileDrag,
-                  {
-                    onDragStart: () => props.onSelect(id),
-                    onPreview: drag.preview,
-                    onCommit: (dx, dy) => {
-                      drag.commit(dx, dy);
-                      suppressNextClick = true;
-                    },
-                  },
-                );
-              };
-              return (
-                <Show when={tile()}>
-                  {(t) => (
-                    <div
-                      data-testid="minimap-tile-rect"
-                      data-tile-id={id}
-                      class="absolute rounded-sm transition-opacity cursor-pointer hover:opacity-100 hover:ring-1 hover:ring-accent/40"
-                      classList={{
-                        "opacity-100 ring-1 ring-accent/60":
-                          store.activeId() === id,
-                        "opacity-70": store.activeId() !== id,
-                      }}
-                      style={{
-                        left: `${t().x}px`,
-                        top: `${t().y}px`,
-                        width: `${t().w}px`,
-                        height: `${t().h}px`,
-                        "background-color": theme().bg,
-                        border: `1px solid ${t().repoColor}`,
-                      }}
-                      title={id}
-                      onPointerDown={handleTilePointerDown}
-                      onClick={handleTileClick}
-                    >
-                      <Show when={awaiting()}>
-                        <span
-                          data-testid="minimap-awaiting-dot"
-                          class="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-alert pointer-events-none"
-                        />
-                      </Show>
-                    </div>
-                  )}
-                </Show>
-              );
-            }}
-          </For>
-
-          {/* Viewport rectangle */}
-          <div
-            data-testid="minimap-viewport-rect"
-            class="absolute pointer-events-none border-2 border-accent/50 rounded-sm"
-            style={{
-              left: `${viewportRect().x}px`,
-              top: `${viewportRect().y}px`,
-              width: `${viewportRect().w}px`,
-              height: `${viewportRect().h}px`,
-              "background-color":
-                "var(--color-accent-alpha, rgba(99, 102, 241, 0.08))",
-            }}
-          />
-        </div>
-      </Show>
-
-      {/* Zoom bar — always visible */}
       <div
-        class="flex items-center gap-px bg-surface-2/80 backdrop-blur-sm border border-edge/40 overflow-hidden"
+        data-testid="minimap-map"
+        class="rounded-t-lg bg-surface-2/80 backdrop-blur-sm border border-b-0 border-edge/40 overflow-hidden"
+        style={{ width: `${mapDims().w}px`, height: `${mapDims().h}px` }}
         classList={{
-          "rounded-lg": !shouldShowMap(),
-          "rounded-b-lg border-t-0": shouldShowMap(),
+          "cursor-default": !hoveringViewport() && !draggingViewport(),
+          "cursor-grab": hoveringViewport() && !draggingViewport(),
+          "cursor-grabbing": draggingViewport(),
         }}
-        style={shouldShowMap() ? { width: `${mapDims().w}px` } : undefined}
+        onPointerDown={handleMapPointerDown}
+        onPointerMove={handleMapPointerMove}
+        onPointerLeave={() => setHoveringViewport(false)}
+        onClick={handleMapClick}
+      >
+        {/* Tile rectangles */}
+        <For each={props.tileIds}>
+          {(id) => {
+            const layout = () => props.layouts[id];
+            const theme = () => tileTheme(id);
+            // Single accessor that yields all the per-tile data the
+            // rectangle needs, or null when the tile isn't ready yet
+            // (no layout, or metadata still arriving). The `Show` below
+            // narrows once instead of forcing a non-null assertion on
+            // `getDisplayInfo` per field.
+            const tile = createMemo(() => {
+              const l = layout();
+              const info = store.getDisplayInfo(id);
+              if (!l || !info) return null;
+              const s = minimapScale();
+              const p = toMinimap(l.x, l.y, s);
+              return {
+                x: p.x,
+                y: p.y,
+                w: l.w * s,
+                h: l.h * s,
+                repoColor: info.repoColor,
+              };
+            });
+            // Split from `tile()` so the staleness tick doesn't
+            // invalidate the rectangle — only the awaiting span re-runs.
+            const awaiting = () => {
+              const info = store.getDisplayInfo(id);
+              return info ? isAwaitingAttention(info.meta, isStale) : false;
+            };
+            const handleTileClick = (e: MouseEvent) => {
+              // Don't let this also trigger the background pan-to-point.
+              e.stopPropagation();
+              if (suppressNextClick) {
+                suppressNextClick = false;
+                return;
+              }
+              const l = layout();
+              if (!l) return;
+              props.onSelect(id);
+              viewport.centerOnTile(l);
+            };
+            const handleTilePointerDown = (e: PointerEvent) => {
+              e.stopPropagation();
+              const drag = props.onStartTileDrag(id);
+              if (!drag) return;
+              abortTileDrag = startTileDrag(e, minimapScale(), abortTileDrag, {
+                onDragStart: () => props.onSelect(id),
+                onPreview: drag.preview,
+                onCommit: (dx, dy) => {
+                  drag.commit(dx, dy);
+                  suppressNextClick = true;
+                },
+              });
+            };
+            return (
+              <Show when={tile()}>
+                {(t) => (
+                  <div
+                    data-testid="minimap-tile-rect"
+                    data-tile-id={id}
+                    class="absolute rounded-sm transition-opacity cursor-pointer hover:opacity-100 hover:ring-1 hover:ring-accent/40"
+                    classList={{
+                      "opacity-100 ring-1 ring-accent/60":
+                        store.activeId() === id,
+                      "opacity-70": store.activeId() !== id,
+                    }}
+                    style={{
+                      left: `${t().x}px`,
+                      top: `${t().y}px`,
+                      width: `${t().w}px`,
+                      height: `${t().h}px`,
+                      "background-color": theme().bg,
+                      border: `1px solid ${t().repoColor}`,
+                    }}
+                    title={id}
+                    onPointerDown={handleTilePointerDown}
+                    onClick={handleTileClick}
+                  >
+                    <Show when={awaiting()}>
+                      <span
+                        data-testid="minimap-awaiting-dot"
+                        class="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-alert pointer-events-none"
+                      />
+                    </Show>
+                  </div>
+                )}
+              </Show>
+            );
+          }}
+        </For>
+
+        {/* Viewport rectangle */}
+        <div
+          data-testid="minimap-viewport-rect"
+          class="absolute pointer-events-none border-2 border-accent/50 rounded-sm"
+          style={{
+            left: `${viewportRect().x}px`,
+            top: `${viewportRect().y}px`,
+            width: `${viewportRect().w}px`,
+            height: `${viewportRect().h}px`,
+            "background-color":
+              "var(--color-accent-alpha, rgba(99, 102, 241, 0.08))",
+          }}
+        />
+      </div>
+
+      {/* Zoom bar — sits flush below the map */}
+      <div
+        class="flex items-center gap-px bg-surface-2/80 backdrop-blur-sm border border-t-0 border-edge/40 overflow-hidden rounded-b-lg"
+        style={{ width: `${mapDims().w}px` }}
       >
         <button
           type="button"
