@@ -208,7 +208,7 @@ const CanvasMinimap: Component<{
               // (no layout, or metadata still arriving). The `Show` below
               // narrows once instead of forcing a non-null assertion on
               // `getDisplayInfo` per field.
-              const tile = () => {
+              const tile = createMemo(() => {
                 const l = layout();
                 const info = store.getDisplayInfo(id);
                 if (!l || !info) return null;
@@ -221,7 +221,7 @@ const CanvasMinimap: Component<{
                   h: l.h * s,
                   repoColor: info.repoColor,
                 };
-              };
+              });
               // Awaiting is split from `tile()` so the once-a-minute
               // staleness tick (`useStaleCheck`'s ticker) only
               // invalidates the awaiting-aware spans below — not the
