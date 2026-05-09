@@ -53,16 +53,18 @@ export function shouldBumpRecencyForAgentChange(
   return !isReDetectionAfterRestore;
 }
 
-/** Single write-site for `m.agent`. The provider's watcher emits at ~150ms
- *  cadence while an agent is streaming; only a small fraction of those
- *  emits cross the recency-bump threshold (transitions on
+/** Single write-site for `m.agent`. The provider's watcher emits at
+ *  ~150ms cadence while an agent is streaming; only a small fraction
+ *  of those emits cross the recency-bump threshold (transitions on
  *  `kind`/`sessionId`/`state`). Sub-info refreshes — `contextTokens`,
  *  `summary`, `taskProgress` — share the live `agent` slot but don't
  *  bump.
  *
- *  We split the write per-tick so the firehose stays live-only:
- *  bump → persist (`updateServerMetadata` fires `terminals:dirty`),
- *  no-bump → live (`updateServerLiveMetadata` skips the channel). */
+ *  Every tick writes `m.agent` via the live variant (no dirty signal,
+ *  no autosave). On a bump, a second call writes `m.lastActivityAt`
+ *  via the persisting variant. The two-call shape is forced by the
+ *  bidirectional type fence in `state.ts`; the second publish is
+ *  cheap and only happens on transitions. */
 function setAgentMetadata(
   entry: TerminalProcess,
   terminalId: string,
@@ -73,14 +75,17 @@ function setAgentMetadata(
     nextAgent,
     entry.meta.lastActivityAt,
   );
+  // Live first so the dirty-fire snapshot already includes `nextAgent`.
+  // The bidirectional fence on `updateServerMetadata` (mutator typed
+  // to ServerPersistedTerminalFields) means the bump path can't write
+  // `m.agent` and `m.lastActivityAt` in one closure — that's the price
+  // of the structural fence, paid only on transitions (sparse).
+  updateServerLiveMetadata(entry, terminalId, (m) => {
+    m.agent = nextAgent;
+  });
   if (bump) {
     updateServerMetadata(entry, terminalId, (m) => {
-      m.agent = nextAgent;
       m.lastActivityAt = Date.now();
-    });
-  } else {
-    updateServerLiveMetadata(entry, terminalId, (m) => {
-      m.agent = nextAgent;
     });
   }
 }

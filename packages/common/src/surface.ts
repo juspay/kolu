@@ -328,6 +328,9 @@ export type PersistedTerminalFields = z.infer<
   typeof PersistedTerminalFieldsSchema
 >;
 export type LiveTerminalFields = z.infer<typeof LiveTerminalFieldsSchema>;
+export type ServerPersistedTerminalFields = z.infer<
+  typeof ServerPersistedTerminalFieldsSchema
+>;
 export type RecentRepo = z.infer<typeof RecentRepoSchema>;
 export type RecentAgent = z.infer<typeof RecentAgentSchema>;
 export type SavedTerminal = z.infer<typeof SavedTerminalSchema>;

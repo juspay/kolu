@@ -16,9 +16,9 @@
 
 import type {
   LiveTerminalFields,
+  ServerPersistedTerminalFields,
   TerminalClientMetadata,
   TerminalMetadata,
-  TerminalServerMetadata,
 } from "kolu-common/surface";
 import { prUnavailableReason, prValue } from "kolu-github/schemas";
 import { log } from "../log.ts";
@@ -88,16 +88,18 @@ function publishSnapshotAndDirty(
   terminalsDirtyChannel.publish({});
 }
 
-/** Atomically mutate server-derived metadata (cwd, git, lastAgentCommand,
- *  lastActivityAt, pr, agent, foreground) and publish. The mutator is
- *  narrowed to `TerminalServerMetadata` so providers cannot accidentally
- *  write client-owned fields. Fires `terminals:dirty` — use the `Live`
- *  variant when you know only live fields (`pr`, `agent`, `foreground`)
- *  are touched. */
+/** Atomically mutate server-persisted metadata (`cwd`, `git`,
+ *  `lastAgentCommand`, `lastActivityAt`) and publish. The mutator is
+ *  narrowed to `ServerPersistedTerminalFields` — bidirectional fence: a
+ *  provider cannot write client-owned fields (themeName, parentId, …)
+ *  AND cannot write live-only fields (pr, agent, foreground) through
+ *  this function. The latter half is the structural guarantee that the
+ *  terminals:dirty firehose can't grow back: every live-field write
+ *  must go through `updateServerLiveMetadata`. Fires `terminals:dirty`. */
 export function updateServerMetadata(
   entry: TerminalProcess,
   terminalId: string,
-  mutate: (meta: TerminalServerMetadata) => void,
+  mutate: (meta: ServerPersistedTerminalFields) => void,
 ): void {
   mutate(entry.meta);
   publishSnapshotAndDirty(entry, terminalId);
@@ -106,8 +108,10 @@ export function updateServerMetadata(
 /** Atomically mutate live-only server metadata (`pr`, `agent`,
  *  `foreground`) and publish — without firing `terminals:dirty`. The
  *  mutator type is `LiveTerminalFields`, a compile-time fence: writing
- *  any persisted field through this function is a type error, which is
- *  the structural guarantee that the firehose can't grow back. */
+ *  any persisted field through this function is a type error.
+ *  Together with the matching narrowing on `updateServerMetadata`,
+ *  this is the structural guarantee that the firehose can't grow
+ *  back. */
 export function updateServerLiveMetadata(
   entry: TerminalProcess,
   terminalId: string,

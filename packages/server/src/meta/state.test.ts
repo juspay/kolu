@@ -93,4 +93,32 @@ describe("metadata publish routing", () => {
     }
     expect(dirtyCount).toBe(0);
   });
+
+  // Type-fence assertions — these are the structural guarantee that the
+  // firehose can't grow back. If any of these `@ts-expect-error` lines
+  // start compiling, the fence is broken and a future write site can
+  // silently re-firehose live writes through the persisting path (or
+  // vice versa). Test runtime is irrelevant; the assertion is at type
+  // check.
+  it("type fence: live fields cannot be written through updateServerMetadata", () => {
+    const entry = fakeTerminal();
+    updateServerMetadata(entry, "term-pub-test", (m) => {
+      // @ts-expect-error — `agent` is live, not persisted.
+      m.agent = null;
+      // @ts-expect-error — `pr` is live, not persisted.
+      m.pr = { kind: "pending" };
+      // @ts-expect-error — `foreground` is live, not persisted.
+      m.foreground = null;
+    });
+  });
+
+  it("type fence: persisted fields cannot be written through updateServerLiveMetadata", () => {
+    const entry = fakeTerminal();
+    updateServerLiveMetadata(entry, "term-pub-test", (m) => {
+      // @ts-expect-error — `cwd` is persisted, not live.
+      m.cwd = "/tmp";
+      // @ts-expect-error — `lastActivityAt` is persisted, not live.
+      m.lastActivityAt = 0;
+    });
+  });
 });
