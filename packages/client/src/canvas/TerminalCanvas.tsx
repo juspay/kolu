@@ -206,18 +206,12 @@ const TerminalCanvas: Component<{
           props.onLayoutChange(id, defaultLayout);
           placed.push({ id, layout: defaultLayout, isNew: true });
         }
-        // Recenter on the active newly-placed tile. Covers both "create a
-        // 2nd terminal that lands far from the current viewport" and
-        // "create the first terminal on a previously-panned empty canvas"
-        // — both look identical from the cascade's perspective. Routed
-        // through `requestCenterActive` so the close-driven path and the
-        // create-driven path share one mechanism — the
-        // `centerActiveRequest` effect is the sole place that turns
-        // intent into a `viewport.centerOnTile` call.
+        // Pan to the active newly-placed tile. Routed through the focus
+        // seam so create-driven and close-driven panning share one
+        // mechanism (the `focus.request` effect below).
         const activeId = store.activeId();
-        const recenter = placed.find((p) => p.isNew && p.id === activeId);
-        if (recenter) {
-          focus.requestCenter(recenter.id);
+        if (activeId && placed.some((p) => p.isNew && p.id === activeId)) {
+          focus.requestCenter(activeId);
         }
       },
     ),
@@ -307,25 +301,16 @@ const TerminalCanvas: Component<{
     );
   }
 
-  // Pan to the requested tile whenever the system flags a tile change it
-  // wants the viewport to follow — close-driven auto-switch, or the
-  // cascade effect after placing a new active tile. User-driven changes
-  // (clicks, workspace switcher) don't bump this signal — clicking a
-  // partially-visible tile shouldn't yank the viewport. The target id
-  // travels in the signal payload so we don't side-channel-read
-  // `activeId` here and pan to the wrong tile if a future caller forgets
-  // to update `activeId` first.
-  //
   // No `defer: true`: the cascade effect bumps the signal during canvas
-  // mount, and on a remount (close-all → re-create) the cascade can
-  // register before this effect installs its tracker. Without defer the
-  // initial run sees the bumped payload; a stale id from a prior mount
-  // resolves to `layoutOf(id) === undefined` (the tile is gone) so the
-  // initial run is a safe no-op.
+  // mount and on a remount (close-all → re-create) it can register
+  // before this effect installs its tracker. Without defer the initial
+  // run sees the bumped payload; a stale id from a prior mount resolves
+  // to `layoutOf(id) === undefined` (the tile is gone) so the initial
+  // run is a safe no-op.
   createEffect(
-    on(focus.request, (req) => {
-      if (!req) return;
-      const layout = layoutOf(req.id);
+    on(focus.request, (id) => {
+      if (!id) return;
+      const layout = layoutOf(id);
       if (layout) {
         requestAnimationFrame(() => viewport.centerOnTile(layout));
       }

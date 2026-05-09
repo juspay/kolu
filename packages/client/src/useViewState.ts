@@ -35,26 +35,14 @@ export function useViewState() {
 
   const [mruOrder, setMruOrder] = createSignal<TerminalId[]>([]);
 
-  /** Impulse signal — not view state. The other signals here describe
-   *  current truth (which tile is active, which need attention, whether
-   *  the canvas is maximized); this one carries a one-shot "pan to this
-   *  tile" intent the canvas consumes once and discards. It lives on the
-   *  store so terminal-side writers can bump it without taking a
-   *  reverse dep on `canvas/`; the canvas-side seam is `useCanvasFocus`
-   *  (`canvas/useCanvasFocus.ts`), which is where new canvas readers
-   *  should go.
-   *
-   *  The payload carries the target tile id explicitly so the consumer
-   *  doesn't have to re-read `activeId` as a side-channel (and risk
-   *  panning to the wrong tile if a future caller forgets to update
-   *  `activeId` first). Each call allocates a fresh wrapper so reference
-   *  inequality fires the listener even on back-to-back requests for
-   *  the same id. */
-  const [centerActiveRequest, setCenterActiveRequest] = createSignal<{
-    id: TerminalId;
-  } | null>(null);
+  /** Impulse signal — see `canvas/useCanvasFocus.ts` for the seam and
+   *  the contract. Lives on the store so terminal-side writers can bump
+   *  it without taking a reverse dep on `canvas/`. `equals: false` so
+   *  back-to-back requests for the same id still fire the listener. */
+  const [centerActiveRequest, setCenterActiveRequest] =
+    createSignal<TerminalId | null>(null, { equals: false });
   function requestCenterActive(id: TerminalId) {
-    setCenterActiveRequest({ id });
+    setCenterActiveRequest(id);
   }
   createEffect(
     on(activeId, (id) => {
