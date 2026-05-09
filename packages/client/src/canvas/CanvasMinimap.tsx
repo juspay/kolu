@@ -220,8 +220,16 @@ const CanvasMinimap: Component<{
                   w: l.w * s,
                   h: l.h * s,
                   repoColor: info.repoColor,
-                  awaiting: isAwaitingAttention(info.meta, isStale),
                 };
+              };
+              // Awaiting is split from `tile()` so the once-a-minute
+              // staleness tick (`useStaleCheck`'s ticker) only
+              // invalidates the awaiting-aware spans below — not the
+              // whole tile rectangle. Cheap derivation on its own
+              // accessor; no memo needed.
+              const awaiting = () => {
+                const info = store.getDisplayInfo(id);
+                return info ? isAwaitingAttention(info.meta, isStale) : false;
               };
               const handleTileClick = (e: MouseEvent) => {
                 // Don't let this also trigger the background pan-to-point.
@@ -259,7 +267,7 @@ const CanvasMinimap: Component<{
                     <div
                       data-testid="minimap-tile-rect"
                       data-tile-id={id}
-                      data-awaiting={t().awaiting ? "true" : undefined}
+                      data-awaiting={awaiting() ? "true" : undefined}
                       class="absolute rounded-sm transition-opacity cursor-pointer hover:opacity-100 hover:ring-1 hover:ring-accent/40"
                       classList={{
                         "opacity-100 ring-1 ring-accent/60":
@@ -278,7 +286,7 @@ const CanvasMinimap: Component<{
                       onPointerDown={handleTilePointerDown}
                       onClick={handleTileClick}
                     >
-                      <Show when={t().awaiting}>
+                      <Show when={awaiting()}>
                         <span
                           data-testid="minimap-awaiting-dot"
                           class="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-alert pointer-events-none"
