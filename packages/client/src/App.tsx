@@ -31,7 +31,6 @@ import WorkspaceSwitcher, {
 } from "./canvas/workspace-switcher";
 import TerminalCanvas from "./canvas/TerminalCanvas";
 import TileTitleActions from "./canvas/TileTitleActions";
-import { useCanvasViewport } from "./canvas/viewport/useCanvasViewport";
 import { createCommands } from "./commands";
 import DiagnosticInfo from "./DiagnosticInfo";
 import EmptyState from "./EmptyState";
@@ -80,7 +79,6 @@ const App: Component = () => {
   const subPanel = useSubPanel();
   const rightPanel = useRightPanel();
   const { colorScheme } = useColorScheme();
-  const canvasViewport = useCanvasViewport();
 
   // Workspace-switcher feeds — desktop and mobile share the same
   // accessors; `buildWorkspaceSwitcherModel` owns the ordering pipeline.
@@ -177,15 +175,12 @@ const App: Component = () => {
   function handleCanvasCenterActive() {
     if (isMobile()) return;
     const id = store.activeId();
-    if (!id) return;
-    const tile = store.getMetadata(id)?.canvasLayout;
-    if (tile) canvasViewport.centerOnTile(tile);
+    if (id) store.requestCenterActive(id);
   }
 
   const arrange = useCanvasArrange({
     store,
     crud,
-    viewport: canvasViewport,
     isMobile,
   });
 
@@ -481,8 +476,7 @@ const App: Component = () => {
               openRequest={workspaceSwitcherOpenRequest()}
               onSelect={(id) => {
                 store.setActiveId(id);
-                const layout = store.getMetadata(id)?.canvasLayout;
-                if (layout) canvasViewport.centerOnTile(layout);
+                store.requestCenterActive(id);
               }}
               onCreate={() => openPaletteGroup("New terminal")}
             />

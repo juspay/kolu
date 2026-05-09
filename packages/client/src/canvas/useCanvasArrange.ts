@@ -1,11 +1,11 @@
 /** Repo-island arrange + per-create placement composition.
  *
  *  Glues the pure layout module (`repoIslands.ts`) against the live
- *  terminal store + viewport. Lives outside `App.tsx` per the
- *  "App.tsx is a thin layout shell" rule (`.claude/rules/solidjs.md`):
- *  placement is its own domain (store reads, git-race fallback, no-op
- *  skip on writes, post-arrange recenter), and that domain owns its
- *  `useXxx.ts` module like every other feature.
+ *  terminal store. Lives outside `App.tsx` per the "App.tsx is a thin
+ *  layout shell" rule (`.claude/rules/solidjs.md`): placement is its
+ *  own domain (store reads, git-race fallback, no-op skip on writes,
+ *  post-arrange recenter), and that domain owns its `useXxx.ts` module
+ *  like every other feature.
  *
  *  Two arrange concerns live here:
  *  - `placeNew(id, existing)` — per-create policy fed to TerminalCanvas.
@@ -20,17 +20,15 @@ import {
 } from "./repoIslands";
 import { layoutsEqual, type TileLayout } from "./TileLayout";
 import { usePendingLayouts } from "./usePendingLayouts";
-import type { useCanvasViewport } from "./viewport/useCanvasViewport";
 import type { useTerminalCrud } from "../terminal/useTerminalCrud";
 import type { TerminalStore } from "../terminal/useTerminalStore";
 
 export function useCanvasArrange(deps: {
   store: TerminalStore;
   crud: ReturnType<typeof useTerminalCrud>;
-  viewport: ReturnType<typeof useCanvasViewport>;
   isMobile: () => boolean;
 }) {
-  const { store, crud, viewport, isMobile } = deps;
+  const { store, crud, isMobile } = deps;
   const pendingLayouts = usePendingLayouts();
 
   /** Apply a tile's geometry — drag-end, resize-end, default-place,
@@ -105,10 +103,11 @@ export function useCanvasArrange(deps: {
     const arranged = arrangeRepoIslands(tiles);
     applyLayoutBatch(arranged);
     // Recenter on the active tile's new position so a far-away active
-    // tile doesn't end up off-screen after arrange.
+    // tile doesn't end up off-screen after arrange. Routed through
+    // `requestCenterActive` (the canvas resolves the just-applied
+    // pending layout via `layoutOf`) to share the create/close path.
     const activeId = store.activeId();
-    const activeLayout = activeId ? arranged.get(activeId) : undefined;
-    if (activeLayout) viewport.centerOnTile(activeLayout);
+    if (activeId && arranged.has(activeId)) store.requestCenterActive(activeId);
   }
 
   return { applyTileGeometry, placeNew, handleCanvasAutoArrange };
