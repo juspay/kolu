@@ -2,7 +2,6 @@ import type { TerminalId } from "kolu-common/surface";
 import { type Component, Index, Show } from "solid-js";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { PlusIcon } from "../../ui/Icons";
-import { branchAccent, repoAccent } from "./identity";
 import {
   agentBucket,
   bucketDescriptor,
@@ -101,12 +100,12 @@ const CollapsedWorkspaceSwitcher: Component<{
                             !active() && !!agentState(),
                         }}
                         style={{
-                          "--card-color": repoAccent(item().info),
+                          "--card-color": item().info.repoColor,
                           "--pill-state-color": bucketInfo().accentVar,
                           "--pill-border-radius": "calc(0.375rem + 2px)",
                           ...(active()
                             ? {
-                                "background-color": branchAccent(item().info),
+                                "background-color": item().info.branchColor,
                                 color: "oklch(0.18 0.03 260)",
                               }
                             : {}),
@@ -128,7 +127,7 @@ const CollapsedWorkspaceSwitcher: Component<{
                           style={
                             active()
                               ? { color: "currentColor" }
-                              : { color: branchAccent(item().info) }
+                              : { color: item().info.branchColor }
                           }
                         >
                           {item().label}

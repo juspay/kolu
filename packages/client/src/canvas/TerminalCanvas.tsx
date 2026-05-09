@@ -356,6 +356,10 @@ const TerminalCanvas: Component<{
               active={maximized || store.activeId() === id}
               maximized={maximized}
               theme={tileTheme(id)}
+              // biome-ignore lint/style/noNonNullAssertion: tileIds come
+              //   from useTerminalMetadata.terminalIds, which filters out
+              //   ids without metadata — so getDisplayInfo is defined here.
+              repoColor={store.getDisplayInfo(id)!.repoColor}
               onSelect={() => props.onSelect(id)}
               onClose={() => props.onClose(id)}
               onToggleMaximize={posture.toggle}

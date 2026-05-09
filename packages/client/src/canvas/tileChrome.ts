@@ -48,9 +48,3 @@ export function tileFgTier(theme: TileTheme, level: 1 | 2 | 3): string {
 export function tileChromeButton(theme: TileTheme): string {
   return `color-mix(in oklch, ${theme.fg} 50%, ${theme.bg})`;
 }
-
-/** Minimap tile border — a stronger fg mix so the rectangle reads
- *  against the dim minimap surface. */
-export function tileMinimapBorder(theme: TileTheme): string {
-  return `color-mix(in oklch, ${theme.fg} 25%, ${theme.bg})`;
-}

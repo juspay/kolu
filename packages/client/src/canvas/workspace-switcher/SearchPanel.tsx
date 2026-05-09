@@ -19,7 +19,6 @@ function formatTimeAgo(ts: number): string {
   if (hr < 24) return `${hr}h ago`;
   return `${Math.floor(hr / 24)}d ago`;
 }
-import { branchAccent, repoAccent } from "./identity";
 import {
   agentBucket,
   bucketDescriptor,
@@ -289,7 +288,7 @@ const WorkspaceCard: Component<{
           !props.active,
       }}
       style={{
-        "--card-color": repoAccent(props.entry.info),
+        "--card-color": props.entry.info.repoColor,
         "--pill-state-color": bucketInfo().accentVar,
         // Override the pill-border ring radius so the agent-state border
         // follows the card's `rounded-lg` corners instead of drawing the
@@ -304,7 +303,7 @@ const WorkspaceCard: Component<{
         <span
           aria-hidden="true"
           class="absolute left-0 top-2 bottom-2 w-1 rounded-r-full"
-          style={{ "background-color": branchAccent(props.entry.info) }}
+          style={{ "background-color": props.entry.info.branchColor }}
         />
       </Show>
       <Show when={props.unread}>
@@ -321,7 +320,7 @@ const WorkspaceCard: Component<{
       <div class="flex items-center justify-between gap-2 min-w-0">
         <span
           class="font-mono text-[0.6rem] font-bold uppercase tracking-[0.16em] truncate min-w-0"
-          style={{ color: repoAccent(props.entry.info) }}
+          style={{ color: props.entry.info.repoColor }}
         >
           {props.entry.repoName}
         </span>
@@ -339,7 +338,7 @@ const WorkspaceCard: Component<{
       <div class="mt-1 flex items-baseline gap-2 min-w-0">
         <span
           class="text-[0.95rem] font-semibold truncate leading-tight"
-          style={{ color: branchAccent(props.entry.info) }}
+          style={{ color: props.entry.info.branchColor }}
         >
           {props.entry.label}
         </span>

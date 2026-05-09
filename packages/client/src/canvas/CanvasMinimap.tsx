@@ -10,7 +10,6 @@ import {
   startViewportDrag,
 } from "./minimapGestures";
 import type { TileLayout } from "./TileLayout";
-import { tileMinimapBorder } from "./tileChrome";
 import { useTileTheme } from "./useTileTheme";
 import { useCanvasViewport } from "./viewport/useCanvasViewport";
 
@@ -201,6 +200,11 @@ const CanvasMinimap: Component<{
             {(id) => {
               const layout = () => props.layouts[id];
               const theme = () => tileTheme(id);
+              // tileIds come from useTerminalMetadata.terminalIds, which
+              // filters out ids without metadata — so getDisplayInfo is
+              // defined here.
+              // biome-ignore lint/style/noNonNullAssertion: see comment
+              const repoColor = () => store.getDisplayInfo(id)!.repoColor;
               const pos = () => {
                 const l = layout();
                 if (!l) return null;
@@ -256,7 +260,7 @@ const CanvasMinimap: Component<{
                         width: `${p().w}px`,
                         height: `${p().h}px`,
                         "background-color": theme().bg,
-                        border: `1px solid ${tileMinimapBorder(theme())}`,
+                        border: `1px solid ${repoColor()}`,
                       }}
                       title={id}
                       onPointerDown={handleTilePointerDown}

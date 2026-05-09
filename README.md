@@ -64,7 +64,7 @@ The desktop workspace is mode-less — every terminal renders as a draggable, re
 
 - Auto-detected repo name, branch, and working directory (via OSC 7 + `.git/HEAD` watcher)
 - GitHub PR detection — shows PR number, title, and CI check status (pass/pending/fail) on the tile chrome and inspector
-- Per-repo color coding on the workspace switcher and tile chrome via golden-angle hue spacing
+- Per-repo color coding on the workspace switcher, tile chrome, canvas tile border, and minimap via golden-angle hue spacing — the same hue echoes across every surface so a repo reads as one identity at a glance
 
 ### Claude Code Status
 

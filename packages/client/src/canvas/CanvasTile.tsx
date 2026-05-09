@@ -34,6 +34,12 @@ const CanvasTile: Component<{
    *  drag/resize are disabled. Toggled by double-clicking the title bar. */
   maximized: boolean;
   theme: TileTheme;
+  /** Per-repo identity color from `TerminalDisplayInfo.repoColor`. Drives
+   *  the idle border so canvas-level repo clusters read at a glance.
+   *  Active state keeps `--color-accent` on the right edge as the
+   *  inspector handshake; the box-shadow ring (in `tiledStyle`) outlines
+   *  the rest, so focus stacks on top of identity rather than replacing it. */
+  repoColor: string;
   onSelect: () => void;
   onClose: () => void;
   /** Toggle between tiled and maximized. Bound to title-bar double-click. */
@@ -68,6 +74,7 @@ const CanvasTile: Component<{
     width: `${layout().w}px`,
     height: `${layout().h}px`,
     "background-color": bg(),
+    "border-color": props.repoColor,
     "z-index": props.active ? 10 : 1,
     opacity: props.active ? 1 : 0.92,
     "box-shadow": props.active
@@ -99,16 +106,16 @@ const CanvasTile: Component<{
         absolute: true,
         "inset-0 z-40": props.maximized,
         "rounded-xl": !props.maximized,
-        "border-accent/60 shadow-xl": props.active && !props.maximized,
+        "shadow-xl": props.active && !props.maximized,
         // Active-tile right edge is the visual handshake to the right
-        // panel (the panel inspects this tile). The other three edges
-        // stay at accent/60 via the rule above; this overrides only the
-        // right edge to full accent so the cue reads asymmetrically as
-        // "this side points at the inspector." Sits in classList rather
-        // than tiledStyle() so it isn't re-evaluated on every drag tick.
+        // panel (the panel inspects this tile). Idle borders carry the
+        // tile's repo color (set in `tiledStyle`); this overrides only
+        // the right edge to full accent on active so the cue reads
+        // asymmetrically as "this side points at the inspector,"
+        // without erasing the repo identity on the other three edges.
+        // Sits in classList rather than tiledStyle() so it isn't
+        // re-evaluated on every drag tick.
         "border-r-[var(--color-accent)]": props.active && !props.maximized,
-        "border-edge/40 hover:border-edge/60":
-          !props.active && !props.maximized,
         "border-transparent": props.maximized,
       }}
       style={props.maximized ? { "background-color": bg() } : tiledStyle()}

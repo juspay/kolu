@@ -1,7 +1,6 @@
 import type { AgentInfo, TerminalId } from "kolu-common/surface";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import type { TileLayout } from "../TileLayout";
-import { repoAccent } from "./identity";
 
 /** Live-terminal source row before a presentation-specific order is applied. */
 export interface WorkspaceSwitcherSourceEntry {
@@ -276,7 +275,7 @@ function compactGroupsFor(
     if (!group) {
       group = {
         repoName: entry.repoName,
-        color: repoAccent(entry.info),
+        color: entry.info.repoColor,
         items: [],
       };
       groups.set(entry.repoName, group);
@@ -398,7 +397,7 @@ function searchResults(
     } else {
       facetCounts.set(entry.repoName, {
         count: 1,
-        color: repoAccent(entry.info),
+        color: entry.info.repoColor,
       });
     }
   }
