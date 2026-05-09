@@ -43,6 +43,7 @@ import {
   DEFAULT_TILE_W,
   findFreeTilePosition,
 } from "./tilePlacement";
+import { useCanvasFocus } from "./useCanvasFocus";
 import { usePendingLayouts } from "./usePendingLayouts";
 import { useTileTheme } from "./useTileTheme";
 import { useViewPosture } from "./useViewPosture";
@@ -113,6 +114,7 @@ const TerminalCanvas: Component<{
 }> = (props) => {
   const viewport = useCanvasViewport();
   const store = useTerminalStore();
+  const focus = useCanvasFocus();
   const tileTheme = useTileTheme();
   const posture = useViewPosture();
   const isStale = useStaleCheck();
@@ -215,7 +217,7 @@ const TerminalCanvas: Component<{
         const activeId = store.activeId();
         const recenter = placed.find((p) => p.isNew && p.id === activeId);
         if (recenter) {
-          store.requestCenterActive(recenter.id);
+          focus.requestCenter(recenter.id);
         }
       },
     ),
@@ -321,7 +323,7 @@ const TerminalCanvas: Component<{
   // resolves to `layoutOf(id) === undefined` (the tile is gone) so the
   // initial run is a safe no-op.
   createEffect(
-    on(store.centerActiveRequest, (req) => {
+    on(focus.request, (req) => {
       if (!req) return;
       const layout = layoutOf(req.id);
       if (layout) {
