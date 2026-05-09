@@ -75,6 +75,14 @@ const CanvasTile: Component<{
     height: `${layout().h}px`,
     "background-color": bg(),
     "border-color": props.repoColor,
+    // Active tile's right edge is the asymmetric handshake to the right
+    // panel ("this side points at the inspector"). Longhand sits after
+    // the shorthand `border-color` in the same declaration so the
+    // cascade resolves cleanly — a Tailwind utility would lose to the
+    // inline shorthand and silently fail.
+    ...(props.active && !props.maximized
+      ? { "border-right-color": "var(--color-accent)" }
+      : {}),
     "z-index": props.active ? 10 : 1,
     opacity: props.active ? 1 : 0.92,
     "box-shadow": props.active
@@ -107,15 +115,6 @@ const CanvasTile: Component<{
         "inset-0 z-40": props.maximized,
         "rounded-xl": !props.maximized,
         "shadow-xl": props.active && !props.maximized,
-        // Active-tile right edge is the visual handshake to the right
-        // panel (the panel inspects this tile). Idle borders carry the
-        // tile's repo color (set in `tiledStyle`); this overrides only
-        // the right edge to full accent on active so the cue reads
-        // asymmetrically as "this side points at the inspector,"
-        // without erasing the repo identity on the other three edges.
-        // Sits in classList rather than tiledStyle() so it isn't
-        // re-evaluated on every drag tick.
-        "border-r-[var(--color-accent)]": props.active && !props.maximized,
         "border-transparent": props.maximized,
       }}
       style={props.maximized ? { "background-color": bg() } : tiledStyle()}
