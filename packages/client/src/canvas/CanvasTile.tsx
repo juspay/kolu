@@ -34,11 +34,7 @@ const CanvasTile: Component<{
    *  drag/resize are disabled. Toggled by double-clicking the title bar. */
   maximized: boolean;
   theme: TileTheme;
-  /** Per-repo identity color from `TerminalDisplayInfo.repoColor`. Drives
-   *  the idle border so canvas-level repo clusters read at a glance.
-   *  Active state keeps `--color-accent` on the right edge as the
-   *  inspector handshake; the box-shadow ring (in `tiledStyle`) outlines
-   *  the rest, so focus stacks on top of identity rather than replacing it. */
+  /** Per-repo identity color; drives the tile border. */
   repoColor: string;
   onSelect: () => void;
   onClose: () => void;
