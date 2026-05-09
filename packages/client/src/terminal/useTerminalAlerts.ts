@@ -27,11 +27,9 @@ export function useTerminalAlerts(deps: {
   // Request browser notification permission eagerly when alerts are enabled
   if (activityAlerts()) requestNotificationPermission();
 
-  // Active dock-badge predicate: terminal is flagged for attention AND
-  // not auto-parked (#849). The attention mark itself stays across
-  // staleness, so a fresh agent transition — which bumps
-  // `lastActivityAt` and unparks — wakes the badge back up. Named here
-  // so the rule reads as one concept rather than a chained filter.
+  // Stale terminals are excluded — but the attention mark itself
+  // stays, so a fresh agent transition (which bumps `lastActivityAt`
+  // and unparks) wakes the badge back up.
   const isAttentionLive = (id: TerminalId) =>
     deps.hasBadgeAttention(id) &&
     !isStale(deps.getMetadata(id)?.lastActivityAt ?? 0);

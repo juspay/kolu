@@ -222,11 +222,8 @@ const CanvasMinimap: Component<{
                   repoColor: info.repoColor,
                 };
               });
-              // Awaiting is split from `tile()` so the once-a-minute
-              // staleness tick (`useStaleCheck`'s ticker) only
-              // invalidates the awaiting-aware spans below — not the
-              // whole tile rectangle. Cheap derivation on its own
-              // accessor; no memo needed.
+              // Split from `tile()` so the staleness tick doesn't
+              // invalidate the rectangle — only the awaiting span re-runs.
               const awaiting = () => {
                 const info = store.getDisplayInfo(id);
                 return info ? isAwaitingAttention(info.meta, isStale) : false;
