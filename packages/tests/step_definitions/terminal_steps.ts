@@ -126,6 +126,16 @@ Then("the terminal canvas should be visible", async function (this: KoluWorld) {
   await this.canvas.waitFor({ state: "visible" });
 });
 
+Then(
+  "the terminal meta should show intent {string}",
+  async function (this: KoluWorld, expected: string) {
+    const intent = this.page.locator('[data-testid="terminal-meta-intent"]', {
+      hasText: expected,
+    });
+    await intent.first().waitFor({ state: "visible" });
+  },
+);
+
 Then("there should be no page errors", function (this: KoluWorld) {
   assert.deepStrictEqual(this.errors, []);
 });

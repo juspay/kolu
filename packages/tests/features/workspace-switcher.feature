@@ -64,6 +64,26 @@ Feature: Workspace switcher
     Then the workspace switcher should show 1 card
     And there should be no page errors
 
+  Scenario: Queued worktree intent is searchable and starts as a live worktree
+    When I set up a git repo at "/tmp/kolu-queued-wt"
+    And I run "cd /tmp/kolu-queued-wt"
+    And I open the command palette
+    And I select "Queue worktree" in the palette
+    And I select "kolu-queued-wt" in the palette
+    And I type "Review payment retry flow" in the palette
+    And I press Enter
+    And I click the workspace switcher toggle
+    Then the workspace switcher panel should be visible
+    And the workspace switcher should show 1 queued worktree
+    And a queued worktree should show intent "Review payment retry flow"
+    When I search the workspace switcher for "payment retry"
+    Then the workspace switcher should show 1 queued worktree
+    When I start queued worktree 1 as shell
+    Then the workspace switcher should show 0 queued worktrees
+    And the workspace switcher should show a worktree indicator
+    And the terminal meta should show intent "Review payment retry flow"
+    And there should be no page errors
+
   Scenario: Workspace switcher shortcut opens search
     When I press the workspace switcher shortcut
     Then the workspace switcher panel should be visible

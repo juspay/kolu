@@ -8,6 +8,8 @@ const PANEL_SELECTOR = '[data-testid="workspace-switcher-panel"]';
 const SEARCH_SELECTOR = '[data-testid="workspace-switcher-search"]';
 const CARD_SELECTOR = '[data-testid="workspace-switcher-card"]';
 const REPO_SELECTOR = '[data-testid="workspace-switcher-repo"]';
+const QUEUED_WORKTREE_SELECTOR =
+  '[data-testid="workspace-switcher-queued-worktree"]';
 
 Then(
   "the workspace switcher should be visible",
@@ -249,5 +251,46 @@ When(
     await card.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     await card.click();
     await this.waitForFrame();
+  },
+);
+
+Then(
+  "the workspace switcher should show {int} queued worktree(s)",
+  async function (this: KoluWorld, expected: number) {
+    const queued = this.page.locator(QUEUED_WORKTREE_SELECTOR);
+    if (expected > 0) {
+      await queued
+        .nth(expected - 1)
+        .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    }
+    await this.page.waitForFunction(
+      ({ selector, count }) =>
+        document.querySelectorAll(selector).length === count,
+      { selector: QUEUED_WORKTREE_SELECTOR, count: expected },
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+Then(
+  "a queued worktree should show intent {string}",
+  async function (this: KoluWorld, expected: string) {
+    const intent = this.page.locator(
+      '[data-testid="workspace-switcher-queued-intent"]',
+      { hasText: expected },
+    );
+    await intent.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+When(
+  "I start queued worktree {int} as shell",
+  async function (this: KoluWorld, position: number) {
+    const queued = this.page
+      .locator(QUEUED_WORKTREE_SELECTOR)
+      .nth(position - 1);
+    await queued.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await queued.getByRole("button", { name: "Shell" }).click();
+    await this.waitForSettled();
   },
 );
