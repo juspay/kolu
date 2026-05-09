@@ -77,11 +77,33 @@ export const SubPanelStateSchema = z.object({
 });
 
 // ── Terminal metadata fields, organized by write-authority + persistence ──
+//
+// Invariant: every terminal-metadata field appears in EXACTLY ONE of
+// `ServerPersistedTerminalFieldsSchema`, `ClientPersistedTerminalFieldsSchema`,
+// or `LiveTerminalFieldsSchema`. The three schemas partition the
+// `TerminalMetadata` field set; their merge (in `TerminalMetadataSchema`
+// below) is the wire shape.
+//
+// Adding a field misclassifies in one of two failure modes:
+//   - Persisted base, but written through the live update helper →
+//     compile error (the live mutator type excludes it).
+//   - Live base, but written through the persisting update helper →
+//     compile error (the persisting mutator types exclude it).
+//
+// Misclassifying a NEW field (declaring it on the wrong base) is the
+// only silent failure mode — choose the base on the first axis: "must
+// this survive a process restart?" If yes → one of the persisted
+// schemas; if no → `LiveTerminalFieldsSchema`. Then on the second
+// axis: "is this written by a server-side provider or by a client RPC
+// handler?" That picks server-persisted vs client-persisted.
 
 /**
  * Server-persisted fields — written by server-side metadata providers
  * (via `updateServerMetadata`) and round-tripped through disk. The
  * "server-writes + persisted" intersection, declared structurally.
+ *
+ * Disjoint from `ClientPersistedTerminalFieldsSchema` and
+ * `LiveTerminalFieldsSchema`. See the partition comment above.
  */
 export const ServerPersistedTerminalFieldsSchema = z.object({
   cwd: z.string(),
@@ -102,6 +124,9 @@ export const ServerPersistedTerminalFieldsSchema = z.object({
  * `updateClientMetadata`, or direct mutation for paths that intentionally
  * skip the publish like sub-panel state) and round-tripped through disk.
  * The "client-writes + persisted" intersection, declared structurally.
+ *
+ * Disjoint from `ServerPersistedTerminalFieldsSchema` and
+ * `LiveTerminalFieldsSchema`. See the partition comment above.
  */
 export const ClientPersistedTerminalFieldsSchema = z.object({
   themeName: z.string().optional(),
@@ -118,6 +143,12 @@ export const ClientPersistedTerminalFieldsSchema = z.object({
  * external state and never persisted. If a field is here, a session
  * restore must re-derive it; if a field is on one of the persisted
  * schemas, it round-trips through disk as-is.
+ *
+ * Disjoint from `ServerPersistedTerminalFieldsSchema` and
+ * `ClientPersistedTerminalFieldsSchema`. See the partition comment
+ * above. Writes go through `updateServerLiveMetadata`, which does NOT
+ * fire `terminals:dirty` — that's how the agent-stream firehose is
+ * kept off the autosave channel.
  */
 export const LiveTerminalFieldsSchema = z.object({
   /** GitHub PR resolution — discriminated union (see PrResultSchema). */
@@ -129,9 +160,11 @@ export const LiveTerminalFieldsSchema = z.object({
 });
 
 /**
- * Every field that rides to disk. Union of the two write-authority
- * bases — `SavedTerminal` just adds `id` to this shape. Adding a
- * persisted field is a one-place change on whichever base owns it.
+ * Every field that rides to disk. Disjoint union of the two
+ * write-authority persisted bases — `SavedTerminal` just adds `id` to
+ * this shape. Adding a persisted field is a one-place change on
+ * whichever base owns it (server vs client). Live fields don't
+ * participate.
  */
 export const PersistedTerminalFieldsSchema =
   ServerPersistedTerminalFieldsSchema.merge(
