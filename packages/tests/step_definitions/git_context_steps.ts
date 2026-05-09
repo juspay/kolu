@@ -33,13 +33,18 @@ When(
 );
 
 Then("the header should show a branch name", async function (this: KoluWorld) {
-  await waitForTestIdText(this, "inspector-branch");
+  // The "header" wording predates the canvas-peer redesign — branch info
+  // now reads off the active tile's chrome (terminal-meta-branch), which
+  // is always mounted regardless of whether the inspector companion is
+  // open. The legacy `inspector-branch` testid only exists when the
+  // inspector companion is currently rendered.
+  await waitForTestIdText(this, "terminal-meta-branch");
 });
 
 Then(
   "the header branch should contain {string}",
   async function (this: KoluWorld, expected: string) {
-    await waitForTestIdText(this, "inspector-branch", expected);
+    await waitForTestIdText(this, "terminal-meta-branch", expected);
   },
 );
 
