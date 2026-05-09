@@ -437,7 +437,7 @@ const TerminalCanvas: Component<{
                       anchorLayout={anchorLayout}
                       side={side as "n" | "e" | "s" | "w"}
                       size={slot.size}
-                      ref={slot.ref}
+                      companionRef={slot.companionRef}
                       meta={store.getMetadata(anchorId) ?? null}
                       themeName={
                         store.activeId() === anchorId
@@ -458,7 +458,7 @@ const TerminalCanvas: Component<{
                           next,
                         )
                       }
-                      onRefChange={(ref) =>
+                      onCompanionRefChange={(ref) =>
                         companion.setCompanionRef(
                           anchorId,
                           side as "n" | "e" | "s" | "w",
@@ -531,7 +531,7 @@ const TerminalCanvas: Component<{
                               anchorLayout={{ x: 0, y: 0, w: 0, h: 0 }}
                               side={side as "n" | "e" | "s" | "w"}
                               size={slot.size}
-                              ref={slot.ref}
+                              companionRef={slot.companionRef}
                               meta={store.getMetadata(id) ?? null}
                               themeName={props.themeName}
                               onThemeClick={props.onThemeClick}
@@ -548,7 +548,7 @@ const TerminalCanvas: Component<{
                                   next,
                                 )
                               }
-                              onRefChange={(ref) =>
+                              onCompanionRefChange={(ref) =>
                                 companion.setCompanionRef(
                                   id,
                                   side as "n" | "e" | "s" | "w",

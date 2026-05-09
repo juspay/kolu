@@ -35,16 +35,17 @@ const CompanionTile: Component<{
   anchorLayout: TileLayout;
   side: Side;
   size: number;
-  ref: CompanionRef;
+  companionRef: CompanionRef;
   meta: TerminalMetadata | null;
   themeName?: string;
   onThemeClick?: () => void;
   onClose: () => void;
   onSizeChange: (size: number) => void;
-  /** Update the ref in place — used when the Code companion's sub-mode
-   *  switches (browse / local / branch). Companion-store call site lives
-   *  in TerminalCanvas; this prop is the renderer's only mutation seam. */
-  onRefChange: (ref: CompanionRef) => void;
+  /** Update the companion ref in place — used when the Code companion's
+   *  sub-mode switches (browse / local / branch). Companion-store call
+   *  site lives in TerminalCanvas; this prop is the renderer's only
+   *  mutation seam. */
+  onCompanionRefChange: (ref: CompanionRef) => void;
   /** Inherit the anchor's tile theme so the companion reads as the same
    *  surface, not a foreign panel. */
   theme: TileTheme;
@@ -99,14 +100,14 @@ const CompanionTile: Component<{
   }
 
   const handleCodeModeChange = (mode: CodeTabView) => {
-    props.onRefChange({ kind: "code", mode });
+    props.onCompanionRefChange({ kind: "code", mode });
   };
 
   return (
     <div
       data-testid="companion-tile"
       data-companion-anchor={props.anchorId}
-      data-companion-kind={props.ref.kind}
+      data-companion-kind={props.companionRef.kind}
       data-companion-side={props.side}
       class="flex flex-col overflow-hidden border transition-shadow duration-200"
       classList={{
@@ -139,7 +140,7 @@ const CompanionTile: Component<{
         }}
       >
         <span class="font-medium" style={{ color: tileFgTier(props.theme, 1) }}>
-          {COMPANION_LABEL[props.ref.kind]}
+          {COMPANION_LABEL[props.companionRef.kind]}
         </span>
         <div class="flex-1" />
         <button
@@ -159,14 +160,18 @@ const CompanionTile: Component<{
        *  fails compilation until the renderer is updated. */}
       <div class="flex-1 min-h-0 overflow-hidden">
         <Switch>
-          <Match when={props.ref.kind === "inspector"}>
+          <Match when={props.companionRef.kind === "inspector"}>
             <MetadataInspector
               meta={props.meta}
               themeName={props.themeName}
               onThemeClick={props.onThemeClick}
             />
           </Match>
-          <Match when={props.ref.kind === "code" ? props.ref : null}>
+          <Match
+            when={
+              props.companionRef.kind === "code" ? props.companionRef : null
+            }
+          >
             {(codeRef) => (
               <CodeView
                 meta={props.meta}

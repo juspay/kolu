@@ -56,14 +56,14 @@ export function useCompanion() {
     toggleCompanion(anchorId: TerminalId, ref: CompanionRef) {
       const side = DEFAULT_COMPANION_SIDE;
       const existing = state[anchorId]?.[side];
-      if (existing && sameKind(existing.ref, ref)) {
+      if (existing && sameKind(existing.companionRef, ref)) {
         this.closeCompanion(anchorId, side);
         return;
       }
       setState(
         anchorId,
         produce((sides) => {
-          sides[side] = { ref, size: DEFAULT_COMPANION_WIDTH };
+          sides[side] = { companionRef: ref, size: DEFAULT_COMPANION_WIDTH };
         }),
       );
     },
@@ -82,7 +82,7 @@ export function useCompanion() {
     setCompanionRef(anchorId: TerminalId, side: Side, ref: CompanionRef) {
       const sides = state[anchorId];
       if (!sides?.[side]) return;
-      setState(anchorId, side, "ref", ref);
+      setState(anchorId, side, "companionRef", ref);
     },
 
     /** Close a single side's companion. */

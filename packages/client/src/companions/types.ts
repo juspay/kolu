@@ -22,7 +22,12 @@ export type CompanionRef =
   | { kind: "inspector" };
 
 export interface AnchorCompanion {
-  ref: CompanionRef;
+  /** Renamed from `ref` to avoid colliding with SolidJS's reserved DOM-
+   *  binding directive: a future component author writing
+   *  `<CompanionTile ref={el} … />` expecting a DOM ref would silently
+   *  pass a setter as the domain CompanionRef. The longer name keeps
+   *  intent explicit at every call site. */
+  companionRef: CompanionRef;
   /** Companion's controlled dimension in canvas-space pixels: width when
    *  on E/W, height when on N/S. The perpendicular dimension matches the
    *  anchor's bbox. */
