@@ -2,6 +2,7 @@
  *  Auto-hides the map when ≤2 tiles. */
 
 import { type Component, createMemo, createSignal, For, Show } from "solid-js";
+import { useStaleCheck } from "../terminal/staleness";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { GridIcon } from "../ui/Icons";
 import {
@@ -46,6 +47,7 @@ const CanvasMinimap: Component<{
   const viewport = useCanvasViewport();
   const store = useTerminalStore();
   const tileTheme = useTileTheme();
+  const isStale = useStaleCheck();
   const [hoveringViewport, setHoveringViewport] = createSignal(false);
   const [draggingViewport, setDraggingViewport] = createSignal(false);
 
@@ -211,12 +213,20 @@ const CanvasMinimap: Component<{
                 if (!l || !info) return null;
                 const s = minimapScale();
                 const p = toMinimap(l.x, l.y, s);
+                // Currently asking for attention: agent is waiting AND
+                // the terminal isn't auto-parked. Stale awaiting tiles
+                // already fade in the switcher (#849); echoing the same
+                // suppression here keeps the canvas-wide signal honest.
+                const awaiting =
+                  info.meta.agent?.state === "waiting" &&
+                  !isStale(info.meta.lastActivityAt);
                 return {
                   x: p.x,
                   y: p.y,
                   w: l.w * s,
                   h: l.h * s,
                   repoColor: info.repoColor,
+                  awaiting,
                 };
               };
               const handleTileClick = (e: MouseEvent) => {
@@ -255,6 +265,7 @@ const CanvasMinimap: Component<{
                     <div
                       data-testid="minimap-tile-rect"
                       data-tile-id={id}
+                      data-awaiting={t().awaiting ? "true" : undefined}
                       class="absolute rounded-sm transition-opacity cursor-pointer hover:opacity-100 hover:ring-1 hover:ring-accent/40"
                       classList={{
                         "opacity-100 ring-1 ring-accent/60":
@@ -272,7 +283,14 @@ const CanvasMinimap: Component<{
                       title={id}
                       onPointerDown={handleTilePointerDown}
                       onClick={handleTileClick}
-                    />
+                    >
+                      <Show when={t().awaiting}>
+                        <span
+                          data-testid="minimap-awaiting-dot"
+                          class="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-alert pointer-events-none"
+                        />
+                      </Show>
+                    </div>
                   )}
                 </Show>
               );

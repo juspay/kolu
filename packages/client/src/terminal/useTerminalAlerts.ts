@@ -5,6 +5,7 @@ import { makeEventListener } from "@solid-primitives/event-listener";
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import { type Accessor, createEffect, on } from "solid-js";
 import { preferences } from "../wire";
+import { useStaleCheck } from "./staleness";
 import {
   fireActivityAlert,
   requestNotificationPermission,
@@ -21,14 +22,25 @@ export function useTerminalAlerts(deps: {
   terminalLabel: (id: TerminalId) => string;
 }) {
   const activityAlerts = () => preferences().activityAlerts;
+  const isStale = useStaleCheck();
 
   // Request browser notification permission eagerly when alerts are enabled
   if (activityAlerts()) requestNotificationPermission();
 
-  // Badge the PWA dock icon with terminals that need attention.
+  // Badge the PWA dock icon with terminals that need attention. Stale
+  // terminals (auto-parked per #849) are excluded — a session you parked
+  // yesterday shouldn't keep ringing the OS dock just because it's still
+  // marked. The mark itself stays, so a fresh agent transition (which
+  // bumps `lastActivityAt` and unparks) wakes the badge back up.
   createEffect(() => {
     if (!("setAppBadge" in navigator)) return;
-    const count = deps.terminalIds().filter(deps.hasBadgeAttention).length;
+    const count = deps
+      .terminalIds()
+      .filter(
+        (id) =>
+          deps.hasBadgeAttention(id) &&
+          !isStale(deps.getMetadata(id)?.lastActivityAt ?? 0),
+      ).length;
     if (count > 0) {
       void navigator.setAppBadge(count);
     } else {
