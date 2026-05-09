@@ -15,7 +15,7 @@ import type { TerminalId } from "kolu-common/surface";
 import { getBucketFor, resolvePlacementBucket } from "./placementPolicy";
 import {
   arrangeRepoIslands,
-  placeNextToBucket,
+  repackBucket,
   type RepoIslandTile,
 } from "./repoIslands";
 import { layoutsEqual, type TileLayout } from "./TileLayout";
@@ -49,7 +49,16 @@ export function useCanvasArrange(deps: {
     return bucket ? { id, bucket, layout } : undefined;
   }
 
-  /** Per-create policy fed to `TerminalCanvas`'s `placeNew` prop. */
+  /** Per-create policy fed to `TerminalCanvas`'s `placeNew` prop.
+   *
+   *  Repacks the bucket's island to include the new tile in a square-ish
+   *  grid — without this, every new tile would land to the right of the
+   *  existing rightmost sibling and a many-worktree cluster would grow
+   *  into a 1×N row instead of staying square. Existing tiles' layouts
+   *  are seeded into pending and dispatched to the server before the
+   *  caller applies the new tile's layout, so the canvas doesn't paint
+   *  a frame with the old positions while the metadata round-trip
+   *  catches up. */
   function placeNew(
     id: TerminalId,
     existing: { id: TerminalId; layout: TileLayout }[],
@@ -64,7 +73,25 @@ export function useCanvasArrange(deps: {
       const t = repoIslandTileFor(e.id, e.layout);
       return t ? [t] : [];
     });
-    return placeNextToBucket(bucket, islands);
+    const repacked = repackBucket(bucket, islands, id);
+    if (!repacked) return undefined;
+
+    const existingUpdates = new Map<TerminalId, TileLayout>();
+    for (const [tileId, layout] of repacked) {
+      if (tileId === id) continue;
+      const prev = store.getMetadata(tileId)?.canvasLayout;
+      if (!prev || !layoutsEqual(prev, layout)) {
+        existingUpdates.set(tileId, layout);
+      }
+    }
+    if (existingUpdates.size > 0) {
+      pendingLayouts.applyMany(existingUpdates);
+      for (const [tileId, layout] of existingUpdates) {
+        applyTileGeometry(tileId, layout);
+      }
+    }
+
+    return repacked.get(id);
   }
 
   /** One-shot rearrange triggered from the command palette. */
