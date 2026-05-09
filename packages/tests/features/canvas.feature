@@ -53,6 +53,15 @@ Feature: Canvas workspace
     And canvas tile 3 should be below canvas tile 1 in the same column
     And no two canvas tiles should overlap
 
+  Scenario: Second terminal created at the default viewport is centered in the viewport
+    # Regression: with no prior pan, creating a 2nd tile placed it next to
+    # the existing tile but left the viewport centered on the original —
+    # so the new (active) tile rendered half off-screen.
+    Then there should be 1 canvas tile
+    When I create a terminal
+    Then there should be 2 canvas tiles
+    And the active canvas tile should be centered in the viewport
+
   Scenario: First terminal created on an emptied canvas is centered in the viewport
     Then there should be 1 canvas tile
     When I scroll the wheel over the canvas background
