@@ -25,13 +25,14 @@ type AnchorCompanions = Partial<Record<Side, AnchorCompanion>>;
 
 const [state, setState] = createStore<Record<TerminalId, AnchorCompanions>>({});
 
-/** Same-discriminant comparison so toggling the active companion
- *  collapses (instead of replacing) when the user re-presses the same
- *  open shortcut. */
-function refsMatch(a: CompanionRef, b: CompanionRef): boolean {
-  if (a.kind !== b.kind) return false;
-  if (a.kind === "code" && b.kind === "code") return a.mode === b.mode;
-  return true;
+/** Toggle-identity is the discriminant kind only — sub-mode is content-
+ *  navigation state, not toggle state. If the user opened Code, switched
+ *  it to "browse", then re-pressed the Code-companion shortcut, the
+ *  expected outcome is "close" (re-press toggles), not "silently reset
+ *  the sub-mode to local". Comparing modes here would couple the toggle
+ *  decision to view state and break that contract. */
+function sameKind(a: CompanionRef, b: CompanionRef): boolean {
+  return a.kind === b.kind;
 }
 
 export function useCompanion() {
@@ -55,7 +56,7 @@ export function useCompanion() {
     toggleCompanion(anchorId: TerminalId, ref: CompanionRef) {
       const side = DEFAULT_COMPANION_SIDE;
       const existing = state[anchorId]?.[side];
-      if (existing && refsMatch(existing.ref, ref)) {
+      if (existing && sameKind(existing.ref, ref)) {
         this.closeCompanion(anchorId, side);
         return;
       }
