@@ -207,13 +207,15 @@ const TerminalCanvas: Component<{
         // Recenter on the active newly-placed tile. Covers both "create a
         // 2nd terminal that lands far from the current viewport" and
         // "create the first terminal on a previously-panned empty canvas"
-        // — both look identical from the cascade's perspective.
+        // — both look identical from the cascade's perspective. Routed
+        // through `requestCenterActive` so the close-driven path and the
+        // create-driven path share one mechanism — the
+        // `centerActiveRequest` effect is the sole place that turns
+        // intent into a `viewport.centerOnTile` call.
         const activeId = store.activeId();
-        const recenterOn = placed.find(
-          (p) => p.isNew && p.id === activeId,
-        )?.layout;
-        if (recenterOn) {
-          requestAnimationFrame(() => viewport.centerOnTile(recenterOn));
+        const recenter = placed.find((p) => p.isNew && p.id === activeId);
+        if (recenter) {
+          store.requestCenterActive(recenter.id);
         }
       },
     ),
@@ -303,25 +305,29 @@ const TerminalCanvas: Component<{
     );
   }
 
-  // Pan to the requested tile whenever `useTerminalCrud` flags a
-  // system-driven reassignment (close → auto-switch). User-driven changes
+  // Pan to the requested tile whenever the system flags a tile change it
+  // wants the viewport to follow — close-driven auto-switch, or the
+  // cascade effect after placing a new active tile. User-driven changes
   // (clicks, workspace switcher) don't bump this signal — clicking a
   // partially-visible tile shouldn't yank the viewport. The target id
   // travels in the signal payload so we don't side-channel-read
   // `activeId` here and pan to the wrong tile if a future caller forgets
   // to update `activeId` first.
+  //
+  // No `defer: true`: the cascade effect bumps the signal during canvas
+  // mount, and on a remount (close-all → re-create) the cascade can
+  // register before this effect installs its tracker. Without defer the
+  // initial run sees the bumped payload; a stale id from a prior mount
+  // resolves to `layoutOf(id) === undefined` (the tile is gone) so the
+  // initial run is a safe no-op.
   createEffect(
-    on(
-      store.centerActiveRequest,
-      (req) => {
-        if (!req) return;
-        const layout = layoutOf(req.id);
-        if (layout) {
-          requestAnimationFrame(() => viewport.centerOnTile(layout));
-        }
-      },
-      { defer: true },
-    ),
+    on(store.centerActiveRequest, (req) => {
+      if (!req) return;
+      const layout = layoutOf(req.id);
+      if (layout) {
+        requestAnimationFrame(() => viewport.centerOnTile(layout));
+      }
+    }),
   );
 
   // On first mount at the default origin, pan so the persisted active tile
