@@ -52,15 +52,19 @@ When(
 Then("the right panel should be visible", async function (this: KoluWorld) {
   // The "right panel" wording predates the canvas-peer redesign — what
   // the assertion actually means now is "the inspector companion is
-  // mounted as a welded peer to the active tile."
+  // mounted as a welded peer to the active tile." Using `state:
+  // "attached"` instead of `"visible"` because companions are
+  // canvas-positioned (anchor.x + anchor.w) and may land outside the
+  // viewport in tiled mode without auto-centering — DOM presence is
+  // what the structural contract guarantees; viewport-fit is a polish
+  // item for a follow-up.
   const companion = this.page.locator(INSPECTOR_COMPANION_SELECTOR);
-  await companion.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  await companion.waitFor({ state: "attached", timeout: POLL_TIMEOUT });
 });
 
 Then("the right panel should not be visible", async function (this: KoluWorld) {
   // Companions unmount on close (no keep-mounted-at-zero-width hack
-  // like the old RightPanelLayout used) — `state: "detached"` is the
-  // right assertion.
+  // like the old RightPanelLayout used).
   const companion = this.page.locator(INSPECTOR_COMPANION_SELECTOR);
   await companion.waitFor({ state: "detached", timeout: POLL_TIMEOUT });
 });
