@@ -46,11 +46,6 @@ Feature: Canvas workspace
     And the newest canvas tile should be centered in the viewport
 
   Scenario: Third same-repo terminal wraps below the first to keep the cluster square
-    # Without the per-create repack, the third tile would land to the
-    # right of tile 2 and the cluster would grow into a 1×N row no
-    # matter how many tiles arrived. With repackBucket, n=3 packs into
-    # a 2×2-shaped grid (cols = ceil(sqrt(3)) = 2) so tile 3 lands
-    # below tile 1 in the same column.
     Given I create a terminal
     Then there should be 2 canvas tiles
     When I create a terminal with keyboard shortcut

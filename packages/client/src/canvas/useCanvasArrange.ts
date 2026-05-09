@@ -49,14 +49,10 @@ export function useCanvasArrange(deps: {
     return bucket ? { id, bucket, layout } : undefined;
   }
 
-  /** Apply a layout map: seed pending BEFORE the per-tile writes go
-   *  out, then dispatch geometry for each entry whose layout actually
-   *  changed. The seed-before-dispatch ordering is load-bearing — a
-   *  follow-on `placeNew` reading `existing` from the canvas's pending
-   *  store must see the just-applied layouts, not the still-saved
-   *  pre-arrange ones. Skips no-op writes so a re-arrange of an
-   *  already-arranged workspace doesn't fire N round-trip RPCs and
-   *  trigger a session-dirty save. */
+  /** Seed pending BEFORE dispatching writes — a follow-on `placeNew`
+   *  reading `existing` from the canvas's pending store must see the
+   *  just-applied layouts, not the still-saved ones. Skips no-op
+   *  writes so a re-arrange doesn't fire N round-trip RPCs. */
   function applyLayoutBatch(layouts: Map<TerminalId, TileLayout>) {
     if (layouts.size === 0) return;
     pendingLayouts.applyMany(layouts);
@@ -69,14 +65,8 @@ export function useCanvasArrange(deps: {
   }
 
   /** Per-create policy fed to `TerminalCanvas`'s `placeNew` prop.
-   *
-   *  Repacks the bucket's island to include the new tile in a square-ish
-   *  grid — without this, every new tile would land to the right of the
-   *  existing rightmost sibling and a many-worktree cluster would grow
-   *  into a 1×N row instead of staying square. Existing tiles' layouts
-   *  are dispatched here via `applyLayoutBatch`; the new tile's layout
-   *  is returned for the caller to write last (matching the prop's
-   *  `TileLayout | undefined` contract). */
+   *  Sibling layouts dispatched via `applyLayoutBatch`; the new tile's
+   *  layout is returned for the caller to write last. */
   function placeNew(
     id: TerminalId,
     existing: { id: TerminalId; layout: TileLayout }[],

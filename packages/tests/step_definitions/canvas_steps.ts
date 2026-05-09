@@ -307,8 +307,6 @@ Then(
         if (!tileA || !tileB) return false;
         const rA = tileA.getBoundingClientRect();
         const rB = tileB.getBoundingClientRect();
-        // Same column: lefts match (sub-pixel rounding tolerance); the
-        // subject tile (A) sits below the reference (B).
         return Math.abs(rA.left - rB.left) <= 2 && rA.top > rB.top;
       },
       { sel: CANVAS_SELECTOR, i: a - 1, j: b - 1 },

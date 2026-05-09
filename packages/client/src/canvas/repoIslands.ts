@@ -1,23 +1,13 @@
 /** Repo-island layout — pack tiles bucketed by `bucket` into square-ish
  *  clusters and pack the clusters across the canvas.
  *
- *  Two entry points serve two genuinely different operations:
+ *  Two entry points:
+ *  - `arrangeRepoIslands(tiles)` — palette command; lays out all tiles.
+ *  - `repackBucket(bucket, existing, newTileId)` — per-create policy;
+ *    re-lays out one bucket to include the new tile.
  *
- *  - `arrangeRepoIslands(tiles)` is the one-shot palette command. It
- *    takes ALL tiles (each already placed) and returns a layout for
- *    every one. Same-bucket tiles cluster together; clusters lay out
- *    side-by-side. Each tile keeps its current `w` and `h` — this
- *    layout only moves, it doesn't resize.
- *
- *  - `repackBucket(bucket, existing, newTileId)` is the per-create
- *    policy. Given a new tile's bucket and the canvas's currently-placed
- *    tiles, repack the bucket's island to include the new tile in a
- *    square-ish grid, anchored at the bucket's current bounding-box
- *    top-left. Returns layouts for every same-bucket tile (existing +
- *    new) so the caller can keep the cluster shape consistent on every
- *    add — without this, appending always-to-the-right grows a 1×N row
- *    no matter how many tiles arrive. Returns `undefined` when no
- *    matching island exists; callers fall back to the cascade default.
+ *  Both go through `packCluster`/`packGrid` so the per-create path
+ *  produces the same square-ish shape as a full arrange.
  *
  *  Why `bucket: string` instead of `group: string`: the function only
  *  needs an opaque bucketing key. Today the caller projects from
@@ -85,16 +75,12 @@ export function arrangeRepoIslands(
 }
 
 /** Repack the bucket's island to include `newTileId` in a square-ish
- *  grid, anchored at the bucket's current bounding-box top-left so the
- *  cluster stays in place. Returns `undefined` when no matching island
- *  exists — caller cascades.
+ *  grid, anchored at the bucket's current bounding-box top-left.
+ *  Returns `undefined` when no matching island exists.
  *
- *  Existing tiles keep their slots while the column count is stable
- *  (sorted by current (y, x) so left-to-right / top-to-bottom maps to
- *  the same row-major slot index they already occupy); when n+1 forces
- *  a new column count (e.g. 4→5 grows from 2×2 to 3×2), they shift —
- *  that's the trade for "always square-ish". The new tile lands at the
- *  trailing slot. */
+ *  Existing tiles keep their slots while the column count is stable;
+ *  when n+1 forces a new column count (e.g. 4→5 grows from 2×2 to 3×2)
+ *  they shift — that's the trade for "always square-ish". */
 export function repackBucket(
   bucket: string,
   existing: RepoIslandTile[],
@@ -128,10 +114,9 @@ export function repackBucket(
   return result;
 }
 
-/** Pack tiles into a square-ish grid anchored at (0, 0). The returned
- *  layouts are zero-based offsets — callers own anchoring (add a chosen
- *  origin to each `x`/`y`) and grid-snapping. `w`/`h` are the cluster's
- *  bounding-box extents, useful for inter-cluster packing. */
+/** Pack tiles into a square-ish grid anchored at (0, 0). Returned
+ *  layouts are zero-based offsets — callers own anchoring and
+ *  grid-snapping. */
 function packCluster(tiles: RepoIslandTile[]): {
   layouts: Map<TerminalId, TileLayout>;
   w: number;
