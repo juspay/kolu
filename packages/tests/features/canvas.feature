@@ -45,6 +45,14 @@ Feature: Canvas workspace
     And canvas tile 2 should be to the right of and in the same row as canvas tile 1
     And the newest canvas tile should be centered in the viewport
 
+  Scenario: Third same-repo terminal wraps below the first to keep the cluster square
+    Given I create a terminal
+    Then there should be 2 canvas tiles
+    When I create a terminal with keyboard shortcut
+    Then there should be 3 canvas tiles
+    And canvas tile 3 should be below canvas tile 1 in the same column
+    And no two canvas tiles should overlap
+
   Scenario: Scroll on terminal does not pan the canvas
     When I record the canvas transform
     And I scroll the wheel over the terminal tile
@@ -163,7 +171,7 @@ Feature: Canvas workspace
     And I create a terminal with keyboard shortcut
     Then there should be 3 canvas tiles
     And no two canvas tiles should overlap
-    And canvas tile 3 should be to the right of and in the same row as canvas tile 2
+    And canvas tile 3 should be below canvas tile 1 in the same column
     And there should be no page errors
 
   Scenario: Arrange twice in a row preserves the active tile (regression — #844)
@@ -230,7 +238,7 @@ Feature: Canvas workspace
     And I press Enter
     Then there should be 3 canvas tiles
     And no two canvas tiles should overlap
-    And canvas tile 3 should be to the right of and in the same row as canvas tile 2
+    And canvas tile 3 should be below canvas tile 1 in the same column
     And there should be no page errors
 
   Scenario: Canvas tile positions persist across refresh

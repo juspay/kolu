@@ -31,6 +31,7 @@ import {
   onCleanup,
   Show,
 } from "solid-js";
+import { useStaleCheck } from "../terminal/staleness";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import CanvasMinimap from "./CanvasMinimap";
 import CanvasTile from "./CanvasTile";
@@ -73,7 +74,14 @@ const TerminalCanvas: Component<{
    *  same loop pass has just default-placed. The caller can't reconstruct
    *  this from its own store: pending overrides live only inside the
    *  canvas, and same-pass placements haven't round-tripped through the
-   *  server yet. */
+   *  server yet.
+   *
+   *  Side-effect contract (despite the pure-query signature shape):
+   *  the hook MAY mutate sibling layouts. Implementations that move
+   *  siblings must seed the canvas's pending store and dispatch
+   *  geometry RPCs for those siblings BEFORE returning, so the
+   *  new-tile write that follows lands on top of an already-applied
+   *  sibling layout. */
   placeNew?: (
     id: TerminalId,
     existing: { id: TerminalId; layout: TileLayout }[],
@@ -107,6 +115,7 @@ const TerminalCanvas: Component<{
   const store = useTerminalStore();
   const tileTheme = useTileTheme();
   const posture = useViewPosture();
+  const isStale = useStaleCheck();
 
   /** Pending per-tile layout overrides — bridges the gap between local
    *  geometry intent (drag-end, resize-end, default-place, arrange) and
@@ -357,6 +366,7 @@ const TerminalCanvas: Component<{
                   id={id}
                   active={maximized || store.activeId() === id}
                   maximized={maximized}
+                  dimmed={isStale(store.getMetadata(id)?.lastActivityAt ?? 0)}
                   theme={tileTheme(id)}
                   repoColor={info().repoColor}
                   onSelect={() => props.onSelect(id)}

@@ -1,19 +1,13 @@
 /** Repo-island layout — pack tiles bucketed by `bucket` into square-ish
  *  clusters and pack the clusters across the canvas.
  *
- *  Two entry points serve two genuinely different operations:
+ *  Two entry points:
+ *  - `arrangeRepoIslands(tiles)` — palette command; lays out all tiles.
+ *  - `repackBucket(bucket, existing, newTileId)` — per-create policy;
+ *    re-lays out one bucket to include the new tile.
  *
- *  - `arrangeRepoIslands(tiles)` is the one-shot palette command. It
- *    takes ALL tiles (each already placed) and returns a layout for
- *    every one. Same-bucket tiles cluster together; clusters lay out
- *    side-by-side. Each tile keeps its current `w` and `h` — this
- *    layout only moves, it doesn't resize.
- *
- *  - `placeNextToBucket(bucket, existing)` is the per-create policy.
- *    Given a new tile's bucket and the canvas's currently-placed tiles,
- *    return where to drop the new tile so it sits beside its bucket's
- *    existing island. Returns `undefined` when no matching island
- *    exists; callers fall back to the cascade default.
+ *  Both go through `packCluster`/`packGrid` so the per-create path
+ *  produces the same square-ish shape as a full arrange.
  *
  *  Why `bucket: string` instead of `group: string`: the function only
  *  needs an opaque bucketing key. Today the caller projects from
@@ -80,37 +74,49 @@ export function arrangeRepoIslands(
   return result;
 }
 
-/** Return a layout adjacent to the existing same-bucket island, or
- *  `undefined` when no matching island exists. Caller cascades on miss.
- *  Result tries (right of bucket bounding box, top-aligned); if it
- *  overlaps any existing tile, steps down a tile-row at a time. */
-export function placeNextToBucket(
+/** Repack the bucket's island to include `newTileId` in a square-ish
+ *  grid, anchored at the bucket's current bounding-box top-left.
+ *  Returns `undefined` when no matching island exists.
+ *
+ *  Existing tiles keep their slots while the column count is stable;
+ *  when n+1 forces a new column count (e.g. 4→5 grows from 2×2 to 3×2)
+ *  they shift — that's the trade for "always square-ish". */
+export function repackBucket(
   bucket: string,
   existing: RepoIslandTile[],
-): TileLayout | undefined {
-  const bucketLayouts = existing
-    .filter((t) => t.bucket === bucket)
-    .map((t) => t.layout);
-  if (bucketLayouts.length === 0) return undefined;
+  newTileId: TerminalId,
+): Map<TerminalId, TileLayout> | undefined {
+  const bucketTiles = existing.filter((t) => t.bucket === bucket);
+  if (bucketTiles.length === 0) return undefined;
 
-  const minY = Math.min(...bucketLayouts.map((l) => l.y));
-  const maxX = Math.max(...bucketLayouts.map((l) => l.x + l.w));
-  const allLayouts = existing.map((t) => t.layout);
-  const verticalStep = ceilToGrid(DEFAULT_TILE_H + TILE_GAP);
-
-  let candidate: TileLayout = {
-    x: ceilToGrid(maxX + TILE_GAP),
-    y: snapToGrid(minY),
-    w: DEFAULT_TILE_W,
-    h: DEFAULT_TILE_H,
+  const ordered = [...bucketTiles].sort((a, b) =>
+    a.layout.y !== b.layout.y
+      ? a.layout.y - b.layout.y
+      : a.layout.x - b.layout.x,
+  );
+  const newTile: RepoIslandTile = {
+    id: newTileId,
+    bucket,
+    layout: { x: 0, y: 0, w: DEFAULT_TILE_W, h: DEFAULT_TILE_H },
   };
-  for (let i = 0; i < 50; i++) {
-    if (!allLayouts.some((l) => overlaps(candidate, l))) return candidate;
-    candidate = { ...candidate, y: snapToGrid(candidate.y + verticalStep) };
+  const { layouts } = packCluster([...ordered, newTile]);
+  const anchorX = snapToGrid(Math.min(...bucketTiles.map((t) => t.layout.x)));
+  const anchorY = snapToGrid(Math.min(...bucketTiles.map((t) => t.layout.y)));
+
+  const result = new Map<TerminalId, TileLayout>();
+  for (const [id, layout] of layouts) {
+    result.set(id, {
+      ...layout,
+      x: anchorX + layout.x,
+      y: anchorY + layout.y,
+    });
   }
-  return undefined;
+  return result;
 }
 
+/** Pack tiles into a square-ish grid anchored at (0, 0). Returned
+ *  layouts are zero-based offsets — callers own anchoring and
+ *  grid-snapping. */
 function packCluster(tiles: RepoIslandTile[]): {
   layouts: Map<TerminalId, TileLayout>;
   w: number;
@@ -138,12 +144,14 @@ function packCluster(tiles: RepoIslandTile[]): {
   return { layouts, w: maxRight, h: maxBottom };
 }
 
-/** Pack rectangles into a square-ish grid; return per-rect (x, y) offsets.
- *  Column widths and row heights are the per-track maxima so unequal
- *  rectangles don't overlap. The returned array is the same length as
- *  the input and aligned by index — callers (e.g. `packCluster`) zip it
- *  with the originals; reordering or filtering inside this function
- *  would silently misassign geometry. */
+/** Pack rectangles into a square-ish grid; return per-rect (x, y) offsets
+ *  anchored at (0, 0). Column widths and row heights are the per-track
+ *  maxima so unequal rectangles don't overlap; the gap between adjacent
+ *  rects is exactly `gap` regardless of rect dimensions (no implicit
+ *  grid-snapping inside the cumulative offset). The returned array is
+ *  the same length as the input and aligned by index — callers (e.g.
+ *  `packCluster`) zip it with the originals; reordering or filtering
+ *  inside this function would silently misassign geometry. */
 function packGrid(
   rects: { w: number; h: number }[],
   gap: number,
@@ -172,7 +180,7 @@ function trackOffsets(lengths: number[], gap: number): number[] {
   let cursor = 0;
   for (const len of lengths) {
     out.push(cursor);
-    cursor = ceilToGrid(cursor + len + gap);
+    cursor += len + gap;
   }
   return out;
 }
@@ -186,14 +194,4 @@ function groupBy<T, K>(items: T[], key: (t: T) => K): Map<K, T[]> {
     else map.set(k, [item]);
   }
   return map;
-}
-
-function ceilToGrid(v: number): number {
-  return Math.ceil(v / GRID_SIZE) * GRID_SIZE;
-}
-
-function overlaps(a: TileLayout, b: TileLayout): boolean {
-  return (
-    a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y
-  );
 }

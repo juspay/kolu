@@ -16,6 +16,7 @@ import {
  *  this scale. Hover/focus reveals the full panel beneath. */
 const CollapsedWorkspaceSwitcher: Component<{
   groups: WorkspaceSwitcherRepoGroup[];
+  isStale: (lastActivityAt: number) => boolean;
   onCreate: () => void;
   onSelect: (id: TerminalId) => void;
 }> = (props) => {
@@ -80,6 +81,11 @@ const CollapsedWorkspaceSwitcher: Component<{
                     const agentState = () => item().info.meta.agent?.state;
                     const bucketInfo = () =>
                       bucketDescriptor(agentBucket(item().info.meta.agent));
+                    // Stale = parked-by-inactivity. Drops the agent-state
+                    // border (no breathing ring on parked terminals) and
+                    // fades the pill so live work reads louder.
+                    const stale = () =>
+                      props.isStale(item().info.meta.lastActivityAt);
                     return (
                       <button
                         type="button"
@@ -88,16 +94,18 @@ const CollapsedWorkspaceSwitcher: Component<{
                         data-active={active() ? "" : undefined}
                         data-unread={unread() ? "" : undefined}
                         data-agent-state={agentState()}
+                        data-stale={stale() ? "" : undefined}
                         // Active inverts the branch color: inactive pills
                         // keep agent-state borders, while the focused
                         // terminal gets a compact filled treatment.
-                        class={`pointer-events-auto relative flex items-center gap-1.5 px-2 h-6 rounded-md border text-xs cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 max-w-[20ch] whitespace-nowrap ${active() ? "" : bucketInfo().borderClass}`}
+                        class={`pointer-events-auto relative flex items-center gap-1.5 px-2 h-6 rounded-md border text-xs cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 max-w-[20ch] whitespace-nowrap ${active() || stale() ? "" : bucketInfo().borderClass}`}
                         classList={{
                           "border-transparent shadow-sm": active(),
                           "border-edge/60 bg-surface-0 hover:bg-surface-2 hover:border-edge-bright/70":
                             !active() && !agentState(),
                           "border-transparent bg-surface-0":
                             !active() && !!agentState(),
+                          "opacity-60": stale() && !active(),
                         }}
                         style={{
                           "--card-color": item().info.repoColor,
