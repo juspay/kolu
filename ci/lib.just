@@ -158,11 +158,14 @@ _summary:
     echo ""
     echo "━━━ CI Summary ({{ sha }}) ━━━"
     # Fetch all statuses once
-    all_statuses=$(gh api "repos/{{ repo }}/statuses/{{ sha }}" --jq '
-      [.[] | select(.context | startswith("ci/"))]
-      | group_by(.context)
-      | map(max_by(.updated_at))
-      | .[] | {(.context): .state}' 2>/dev/null | jq -s 'add // {}')
+    all_statuses=$(gh api --paginate "repos/{{ repo }}/statuses/{{ sha }}" \
+      --jq '.[] | select(.context | startswith("ci/"))' 2>/dev/null \
+      | jq -s '
+          sort_by(.context)
+          | group_by(.context)
+          | map(max_by(.updated_at))
+          | map({(.context): .state})
+          | add // {}')
     failed=0
     while IFS= read -r ctx; do
         context="ci/$ctx"
