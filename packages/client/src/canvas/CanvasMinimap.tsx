@@ -1,6 +1,7 @@
 /** Canvas minimap — spatial overview of all tiles + integrated zoom controls. */
 
 import { type Component, createMemo, createSignal, For, Show } from "solid-js";
+import { useStaleCheck } from "../terminal/staleness";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { GridIcon } from "../ui/Icons";
 import {
@@ -11,6 +12,7 @@ import {
 import type { TileLayout } from "./TileLayout";
 import { useTileTheme } from "./useTileTheme";
 import { useCanvasViewport } from "./viewport/useCanvasViewport";
+import { isAwaitingAttention } from "./workspace-switcher";
 
 /** Minimap target dimensions in pixels. */
 const MAP_W = 180;
@@ -43,6 +45,7 @@ const CanvasMinimap: Component<{
   const viewport = useCanvasViewport();
   const store = useTerminalStore();
   const tileTheme = useTileTheme();
+  const isStale = useStaleCheck();
   const [hoveringViewport, setHoveringViewport] = createSignal(false);
   const [draggingViewport, setDraggingViewport] = createSignal(false);
 
@@ -196,7 +199,7 @@ const CanvasMinimap: Component<{
             // (no layout, or metadata still arriving). The `Show` below
             // narrows once instead of forcing a non-null assertion on
             // `getDisplayInfo` per field.
-            const tile = () => {
+            const tile = createMemo(() => {
               const l = layout();
               const info = store.getDisplayInfo(id);
               if (!l || !info) return null;
@@ -209,6 +212,12 @@ const CanvasMinimap: Component<{
                 h: l.h * s,
                 repoColor: info.repoColor,
               };
+            });
+            // Split from `tile()` so the staleness tick doesn't
+            // invalidate the rectangle — only the awaiting span re-runs.
+            const awaiting = () => {
+              const info = store.getDisplayInfo(id);
+              return info ? isAwaitingAttention(info.meta, isStale) : false;
             };
             const handleTileClick = (e: MouseEvent) => {
               // Don't let this also trigger the background pan-to-point.
@@ -258,7 +267,14 @@ const CanvasMinimap: Component<{
                     title={id}
                     onPointerDown={handleTilePointerDown}
                     onClick={handleTileClick}
-                  />
+                  >
+                    <Show when={awaiting()}>
+                      <span
+                        data-testid="minimap-awaiting-dot"
+                        class="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-alert pointer-events-none"
+                      />
+                    </Show>
+                  </div>
                 )}
               </Show>
             );

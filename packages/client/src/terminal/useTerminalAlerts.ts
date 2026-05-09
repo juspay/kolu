@@ -5,6 +5,7 @@ import { makeEventListener } from "@solid-primitives/event-listener";
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import { type Accessor, createEffect, on } from "solid-js";
 import { preferences } from "../wire";
+import { useStaleCheck } from "./staleness";
 import {
   fireActivityAlert,
   requestNotificationPermission,
@@ -21,14 +22,27 @@ export function useTerminalAlerts(deps: {
   terminalLabel: (id: TerminalId) => string;
 }) {
   const activityAlerts = () => preferences().activityAlerts;
+  const isStale = useStaleCheck();
 
   // Request browser notification permission eagerly when alerts are enabled
   if (activityAlerts()) requestNotificationPermission();
 
-  // Badge the PWA dock icon with terminals that need attention.
+  // Stale terminals are excluded — but the attention mark itself
+  // stays, so a fresh agent transition (which bumps `lastActivityAt`
+  // and unparks) wakes the badge back up.
+  const isAttentionLive = (id: TerminalId) =>
+    deps.hasBadgeAttention(id) &&
+    !isStale(deps.getMetadata(id)?.lastActivityAt ?? 0);
+
+  // Badge the PWA dock icon with terminals that need attention. The
+  // effect re-runs on every staleness tick (~60s), so guard against
+  // re-issuing the same count to the OS shell.
+  let lastBadgeCount = -1;
   createEffect(() => {
     if (!("setAppBadge" in navigator)) return;
-    const count = deps.terminalIds().filter(deps.hasBadgeAttention).length;
+    const count = deps.terminalIds().filter(isAttentionLive).length;
+    if (count === lastBadgeCount) return;
+    lastBadgeCount = count;
     if (count > 0) {
       void navigator.setAppBadge(count);
     } else {

@@ -6,13 +6,11 @@
  *  agent stay at `0` and are excluded — staleness only applies to terminals
  *  whose attention state has actually been observed at some point.
  *
- *  Drives the switcher's per-column count badges and the switcher-pill,
- *  panel-card, and canvas-tile fade — those three projections share one
- *  source so they move together. The OS/PWA dock badge is set separately
- *  in `useTerminalAlerts` from agent-state transitions and is **not**
- *  suppressed by staleness. The threshold is a constant; if a preference
- *  knob ever becomes useful, it lands in `Preferences` and flows through
- *  this module without consumers changing. */
+ *  The threshold is a constant; if a preference knob ever becomes useful,
+ *  it lands in `Preferences` and flows through this module without
+ *  consumers changing. Consumers compose via `useStaleCheck` (or via
+ *  `isAwaitingAttention` in the workspace-switcher model when the
+ *  conjunction with awaiting state is the actual concept). */
 
 import { type Accessor, createRoot, createSignal, onCleanup } from "solid-js";
 
