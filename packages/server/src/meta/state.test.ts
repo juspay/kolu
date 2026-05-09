@@ -8,7 +8,7 @@
  * cadence — either over-saving or losing data on restart.
  */
 
-import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { terminalsDirtyChannel } from "../publisher.ts";
 import type { TerminalProcess } from "../terminal-registry.ts";
 import {
@@ -37,7 +37,18 @@ function fakeTerminal(): TerminalProcess {
 let dirtyCount: number;
 let stopWatch: () => void;
 
-beforeEach(() => {
+/** Yield to the event loop so the channel's async iterator (started by
+ *  `consume`) can receive any queued publishes. The publisher pipeline
+ *  is async end-to-end (`publish` returns a Promise; the consume IIFE
+ *  awaits via `for await`), so a synchronous read of `dirtyCount`
+ *  immediately after `updateServerMetadata` will see the pre-event
+ *  count. Two `setImmediate` ticks cover both legs of the pipe. */
+async function settle(): Promise<void> {
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  await new Promise<void>((resolve) => setImmediate(resolve));
+}
+
+beforeEach(async () => {
   dirtyCount = 0;
   stopWatch = terminalsDirtyChannel.consume({
     onEvent: () => {
@@ -45,30 +56,38 @@ beforeEach(() => {
     },
     onError: () => {},
   });
+  // Let `consume`'s async IIFE reach its first `for await` before any
+  // test publishes; otherwise the first publish races the subscribe.
+  await settle();
 });
 
-afterAll(() => {
+afterEach(() => {
+  // Each test gets a fresh subscriber; without this, prior subscribers
+  // keep firing into the shared `dirtyCount` and bystander tests see
+  // inflated counts.
   stopWatch?.();
 });
 
 describe("metadata publish routing", () => {
-  it("updateServerMetadata fires terminals:dirty (cwd is persisted)", () => {
+  it("updateServerMetadata fires terminals:dirty (cwd is persisted)", async () => {
     const entry = fakeTerminal();
     updateServerMetadata(entry, "term-pub-test", (m) => {
       m.cwd = "/new/cwd";
     });
+    await settle();
     expect(dirtyCount).toBe(1);
   });
 
-  it("updateClientMetadata fires terminals:dirty (every client field is persisted)", () => {
+  it("updateClientMetadata fires terminals:dirty (every client field is persisted)", async () => {
     const entry = fakeTerminal();
     updateClientMetadata(entry, "term-pub-test", (m) => {
       m.themeName = "dracula";
     });
+    await settle();
     expect(dirtyCount).toBe(1);
   });
 
-  it("updateServerLiveMetadata does NOT fire terminals:dirty (agent stream is live)", () => {
+  it("updateServerLiveMetadata does NOT fire terminals:dirty (agent stream is live)", async () => {
     const entry = fakeTerminal();
     updateServerLiveMetadata(entry, "term-pub-test", (m) => {
       m.agent = {
@@ -81,16 +100,18 @@ describe("metadata publish routing", () => {
         contextTokens: null,
       };
     });
+    await settle();
     expect(dirtyCount).toBe(0);
   });
 
-  it("updateServerLiveMetadata called repeatedly stays silent (the firehose case)", () => {
+  it("updateServerLiveMetadata called repeatedly stays silent (the firehose case)", async () => {
     const entry = fakeTerminal();
     for (let i = 0; i < 50; i += 1) {
       updateServerLiveMetadata(entry, "term-pub-test", (m) => {
         m.foreground = { name: "claude", title: `tick ${i}` };
       });
     }
+    await settle();
     expect(dirtyCount).toBe(0);
   });
 
