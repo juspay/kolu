@@ -36,7 +36,7 @@ This does not replace the terminal indicators — it complements them. The indic
 
 > Tell A yes, codemod approach. Tell B I'll review in ten. Skip C.
 
-The terminal still owns the conversation; the meta-agent is a router, not a parallel agent.
+The terminal still owns the conversation; the meta-agent is a router, not a parallel agent. Internally the write side decomposes into two seams along independent volatility axes — see Implementation notes.
 
 **Voice and text as transports.** Brainstorming flows faster spoken than typed, and a verbal interface meets the user where they already are when thinking hard — pacing, looking away from the screen. Text remains available for situations where voice is inconvenient (open offices, noisy environments). Both feed the same underlying primitive.
 
@@ -51,6 +51,11 @@ Not yet attached. CONTRIBUTING notes that proposal+prototype is the strongest fo
 The user has no opinion on the *how* in general, but the structural review surfaced a few directions worth recording so they don't get re-litigated:
 
 - **Read side is a presentation surface, not a new layer.** It derives from the existing per-terminal metadata subscription that already publishes "what is this session asking" data (agent state, summary). No new streaming procedure or server-side classifier is needed; the unified ledger is a client-side render over data the subscription already delivers.
+- **Write side is two independent seams, not one dispatcher.** The volatility axes are different and should be encapsulated separately:
+  - *NL intent parser.* Takes one instruction string plus the list of currently-active terminals, returns structured `(terminalId, message)` pairs. Volatile along the algorithm axis (rule-based vs. LLM-backed vs. hybrid; provider choice; confidence handling).
+  - *Per-CLI safe injection.* Given a `(terminalId, message)` pair, decides when and how to write into that terminal's PTY — including mid-tool-call arbitration. Volatile along the per-agent-CLI axis: each CLI has its own input protocol and its own definition of "safe to deliver right now".
+
+  Treating these as one dispatcher couples the two axes: changing the NL parser would force a touch on the injection logic, and vice versa. The proposal names them as separate seams so an implementer doesn't collapse them out of convenience.
 
 ## Alternatives considered
 
@@ -65,9 +70,9 @@ The user has no opinion on the *how* in general, but the structural review surfa
 ## Open questions
 
 - **UI shape vs. kolu's existing layout.** Where does the meta-agent live? A panel inside the existing window, an overlay over the terminal grid / canvas, or a dedicated window that can sit on a second display while the user paces? Each has trade-offs against kolu's current per-folder and per-workspace model that maintainers are better placed to judge.
-- **Write-side arbitration when a session is mid-tool-call.** Dispatching a natural-language instruction into a Claude / opencode session that is currently waiting for the user is straightforward. Dispatching while the agent is mid-tool-call is not. Does the dispatcher queue, refuse, or interrupt? Is queueing safe across all supported agent CLIs?
+- **Mid-tool-call arbitration on the per-CLI injection seam.** Dispatching a natural-language instruction into a Claude / opencode session that is currently waiting for the user is straightforward. Dispatching while the agent is mid-tool-call is not. Does the injection seam queue, refuse, or interrupt? The right answer is per-CLI and lives inside the injection seam (see Implementation notes), not in the NL parser.
 - **Voice: primitive or transport?** The wishlist framed voice as central. On reflection it might be one transport over a more general primitive — *one input that knows which session to route to* — and voice and text are equally valid surfaces over that primitive. Worth deciding early; it changes how the feature is scoped and named.
-- **Authoring surface for the meta-agent itself.** Is this an LLM call wrapping kolu's existing terminal state, a deterministic surface that templates from session metadata, or a hybrid (deterministic for the read-side ledger, LLM for the dispatcher's NL parsing)?
+- **NL parser authoring strategy.** Inside the NL intent parser seam: deterministic templating, an LLM call, or hybrid? This is the parser's internal volatility — confined behind the seam, but the choice still has UX implications (latency, failure modes, confidence handling) worth deciding before scoping.
 - **Agent-CLI fragmentation.** Different agent CLIs (Claude Code, opencode, Codex, anyagent) have different prompts, different ways of indicating "waiting on user", and different control surfaces. Does the dispatcher need a per-integration adapter, or can the existing `AgentProvider` abstraction carry it?
 
 ## Out of scope
