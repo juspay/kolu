@@ -38,7 +38,7 @@ This does not replace the terminal indicators — it complements them. The indic
 
 The terminal still owns the conversation; the meta-agent is a router, not a parallel agent. Internally the write side decomposes into two seams along independent volatility axes — see Implementation notes.
 
-**Voice and text as transports.** Brainstorming flows faster spoken than typed, and a verbal interface meets the user where they already are when thinking hard — pacing, looking away from the screen. Text remains available for situations where voice is inconvenient (open offices, noisy environments). Both feed the same underlying primitive.
+**Voice and text as transports.** Brainstorming flows faster spoken than typed, and a verbal interface meets the user where they already are when thinking hard — pacing, looking away from the screen. Text remains available for situations where voice is inconvenient (open offices, noisy environments). Both are *client-side* transports: the server contract receives a plain instruction string and never knows whether it was typed or spoken (mirroring how `sendInput` for terminals works today). Speech-to-text, push-to-talk UX, and text-input widgets are client-only concerns and not part of this proposal's scope.
 
 **Auto-quiet on terminal focus.** When the user focuses a specific terminal, the meta-agent stops surfacing summaries and stops accepting dispatches until refocused. Outside planning mode the full terminal context is the right surface; the meta-agent should disappear rather than compete for attention.
 
@@ -72,7 +72,6 @@ The user has no opinion on the *how* in general, but the structural review surfa
 
 - **UI shape vs. kolu's existing layout.** Where does the meta-agent live? A panel inside the existing window, an overlay over the terminal grid / canvas, or a dedicated window that can sit on a second display while the user paces? Each has trade-offs against kolu's current per-folder and per-workspace model that maintainers are better placed to judge.
 - **Mid-tool-call arbitration on the per-CLI injection seam.** Dispatching a natural-language instruction into a Claude / opencode session that is currently waiting for the user is straightforward. Dispatching while the agent is mid-tool-call is not. Does the injection seam queue, refuse, or interrupt? The right answer is per-CLI and lives inside the injection seam (see Implementation notes), not in the NL parser.
-- **Voice: primitive or transport?** The wishlist framed voice as central. On reflection it might be one transport over a more general primitive — *one input that knows which session to route to* — and voice and text are equally valid surfaces over that primitive. Worth deciding early; it changes how the feature is scoped and named.
 - **NL parser authoring strategy.** Inside the NL intent parser seam: deterministic templating, an LLM call, or hybrid? This is the parser's internal volatility — confined behind the seam, but the choice still has UX implications (latency, failure modes, confidence handling) worth deciding before scoping.
 
 ## Out of scope
