@@ -48,7 +48,9 @@ Not yet attached. CONTRIBUTING notes that proposal+prototype is the strongest fo
 
 ## Implementation notes
 
-*Intentionally empty.* The user has no opinion on the *how* and per CONTRIBUTING that is the implementer's job. The Open questions below capture the parts that genuinely need design work.
+The user has no opinion on the *how* in general, but the structural review surfaced a few directions worth recording so they don't get re-litigated:
+
+- **Read side is a presentation surface, not a new layer.** It derives from the existing per-terminal metadata subscription that already publishes "what is this session asking" data (agent state, summary). No new streaming procedure or server-side classifier is needed; the unified ledger is a client-side render over data the subscription already delivers.
 
 ## Alternatives considered
 
@@ -65,7 +67,6 @@ Not yet attached. CONTRIBUTING notes that proposal+prototype is the strongest fo
 - **UI shape vs. kolu's existing layout.** Where does the meta-agent live? A panel inside the existing window, an overlay over the terminal grid / canvas, or a dedicated window that can sit on a second display while the user paces? Each has trade-offs against kolu's current per-folder and per-workspace model that maintainers are better placed to judge.
 - **Write-side arbitration when a session is mid-tool-call.** Dispatching a natural-language instruction into a Claude / opencode session that is currently waiting for the user is straightforward. Dispatching while the agent is mid-tool-call is not. Does the dispatcher queue, refuse, or interrupt? Is queueing safe across all supported agent CLIs?
 - **Voice: primitive or transport?** The wishlist framed voice as central. On reflection it might be one transport over a more general primitive — *one input that knows which session to route to* — and voice and text are equally valid surfaces over that primitive. Worth deciding early; it changes how the feature is scoped and named.
-- **Streaming surface.** Does the read side need a new streaming procedure, or can it be derived from the existing terminal subscriptions plus a server-side classifier of "what is this session asking"?
 - **Authoring surface for the meta-agent itself.** Is this an LLM call wrapping kolu's existing terminal state, a deterministic surface that templates from session metadata, or a hybrid (deterministic for the read-side ledger, LLM for the dispatcher's NL parsing)?
 - **Agent-CLI fragmentation.** Different agent CLIs (Claude Code, opencode, Codex, anyagent) have different prompts, different ways of indicating "waiting on user", and different control surfaces. Does the dispatcher need a per-integration adapter, or can the existing `AgentProvider` abstraction carry it?
 
