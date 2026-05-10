@@ -56,6 +56,7 @@ The user has no opinion on the *how* in general, but the structural review surfa
   - *Per-CLI safe injection.* Given a `(terminalId, message)` pair, decides when and how to write into that terminal's PTY — including mid-tool-call arbitration. Volatile along the per-agent-CLI axis: each CLI has its own input protocol and its own definition of "safe to deliver right now".
 
   Treating these as one dispatcher couples the two axes: changing the NL parser would force a touch on the injection logic, and vice versa. The proposal names them as separate seams so an implementer doesn't collapse them out of convenience.
+- **The per-CLI injection seam belongs in `AgentProvider`, not a parallel adapter family.** `AgentProvider` already encapsulates per-CLI volatility (detection, state-watching) and is the seam every new agent CLI already has to implement. Adding a second `DispatchProvider`/`InjectionAdapter` family alongside it would double the blast radius of adding a new CLI without naming a different volatility axis. Extend `AgentProvider` with an optional injection capability (method signature is an implementation decision).
 
 ## Alternatives considered
 
@@ -73,7 +74,6 @@ The user has no opinion on the *how* in general, but the structural review surfa
 - **Mid-tool-call arbitration on the per-CLI injection seam.** Dispatching a natural-language instruction into a Claude / opencode session that is currently waiting for the user is straightforward. Dispatching while the agent is mid-tool-call is not. Does the injection seam queue, refuse, or interrupt? The right answer is per-CLI and lives inside the injection seam (see Implementation notes), not in the NL parser.
 - **Voice: primitive or transport?** The wishlist framed voice as central. On reflection it might be one transport over a more general primitive — *one input that knows which session to route to* — and voice and text are equally valid surfaces over that primitive. Worth deciding early; it changes how the feature is scoped and named.
 - **NL parser authoring strategy.** Inside the NL intent parser seam: deterministic templating, an LLM call, or hybrid? This is the parser's internal volatility — confined behind the seam, but the choice still has UX implications (latency, failure modes, confidence handling) worth deciding before scoping.
-- **Agent-CLI fragmentation.** Different agent CLIs (Claude Code, opencode, Codex, anyagent) have different prompts, different ways of indicating "waiting on user", and different control surfaces. Does the dispatcher need a per-integration adapter, or can the existing `AgentProvider` abstraction carry it?
 
 ## Out of scope
 
