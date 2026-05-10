@@ -42,6 +42,8 @@ The terminal still owns the conversation; the meta-agent is a router, not a para
 
 **Auto-quiet on terminal focus.** When the user focuses a specific terminal, the meta-agent stops surfacing summaries and stops accepting dispatches until refocused. Outside planning mode the full terminal context is the right surface; the meta-agent should disappear rather than compete for attention.
 
+This rule assumes the meta-agent and the terminals share one window. The second-display layout variant (see Open questions) breaks the assumption: with the meta-agent on display A and a focused terminal on display B, "terminal focus" no longer signals "user has shifted attention away from the meta-agent." Whichever layout maintainers pick will need to re-derive the auto-quiet trigger; the rule as stated above is the single-window default.
+
 ## Prototype
 
 Not yet attached. CONTRIBUTING notes that proposal+prototype is the strongest form, and a screen recording of the workflow this would replace — the user pacing while orchestrating three projects through a single interface — would communicate the value better than prose. Happy to add one if maintainers want it before accepting; flagging the gap explicitly rather than treating the proposal as complete.
