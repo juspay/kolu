@@ -24,7 +24,7 @@ The friction is most visible in *parallel brainstorming*: three Claude / opencod
 
 ## User-facing behavior
 
-Two surfaces over a single conversational primitive:
+Two surfaces — read and write — sharing a single UI chrome (the conversational layer the user interacts with) but with distinct underlying mechanisms (see Implementation notes). The user experiences one place to glance and one place to dictate; the implementation behind that experience is two seams.
 
 **Read side.** On demand, the meta-agent surfaces a unified picture of what every active terminal is currently asking. Example phrasing the user might hear or read back:
 
