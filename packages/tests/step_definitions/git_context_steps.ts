@@ -32,6 +32,16 @@ When(
   },
 );
 
+When(
+  "a git repo is initialized externally in {string}",
+  function (this: KoluWorld, repoPath: string) {
+    // Run `git init` from the test process, not the terminal's shell —
+    // no OSC 7 fires, so the provider only has the cwd-entry watcher to
+    // notice `.git`. Mirrors the user's bug in #813.
+    execFileSync("git", ["init", repoPath], { stdio: "ignore" });
+  },
+);
+
 Then("the header should show a branch name", async function (this: KoluWorld) {
   await waitForTestIdText(this, "inspector-branch");
 });

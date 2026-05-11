@@ -15,6 +15,7 @@ import {
   watchGitHead,
   worktreeCreate,
 } from "./index.ts";
+import { _sharedCwdGitWatcherCount } from "./cwd-git-watcher.ts";
 import { _sharedHeadWatcherCount } from "./head-watcher.ts";
 
 // --- getDiff: renames ---
@@ -866,16 +867,21 @@ describe("subscribeGitInfo watcher churn", () => {
 
   afterEach(() => {
     expect(_sharedHeadWatcherCount()).toBe(0);
+    expect(_sharedCwdGitWatcherCount()).toBe(0);
   });
 
   /** Tracks watcher install/retire log lines as a vitest-friendly counter. */
   function makeLog() {
     let installs = 0;
     let retires = 0;
+    let cwdInstalls = 0;
+    let cwdRetires = 0;
     const log = {
       info(_obj: unknown, msg: string) {
         if (msg === "git: head watcher installed") installs++;
         if (msg === "git: head watcher retired") retires++;
+        if (msg === "git: cwd watcher installed") cwdInstalls++;
+        if (msg === "git: cwd watcher retired") cwdRetires++;
       },
       debug() {},
       warn() {},
@@ -888,6 +894,12 @@ describe("subscribeGitInfo watcher churn", () => {
       },
       get retires() {
         return retires;
+      },
+      get cwdInstalls() {
+        return cwdInstalls;
+      },
+      get cwdRetires() {
+        return cwdRetires;
       },
     };
   }
@@ -927,8 +939,12 @@ describe("subscribeGitInfo watcher churn", () => {
     expect(counter.retires).toBe(1);
   });
 
-  it("git init in the current cwd installs the watcher exactly once", async () => {
-    const dir = path.join(tmpDir, "git-init-dir");
+  // `git init` in the cwd a terminal is already sitting in must reach the
+  // Code browser and path pill — but the shell doesn't re-emit OSC 7 when
+  // cwd hasn't changed, so the provider can't rely on `setCwd` to learn
+  // about the new `.git`.
+  it("detects `git init` in the current cwd without an OSC 7 setCwd", async () => {
+    const dir = path.join(tmpDir, "git-init-osc7-less");
     fs.mkdirSync(dir, { recursive: true });
 
     const counter = makeLog();
@@ -941,10 +957,14 @@ describe("subscribeGitInfo watcher churn", () => {
       counter.log,
     );
 
-    // Initial subscribe on a non-git dir installs no watcher.
+    // Initial subscribe on a non-git dir installs the cwd watcher, not the
+    // HEAD watcher — there's nothing inside `.git/` to watch yet.
     expect(counter.installs).toBe(0);
+    expect(counter.cwdInstalls).toBe(1);
 
-    // Simulate `git init` in the same cwd.
+    // `git init` (no setCwd / OSC 7 follow-up). The cwd watcher must fire
+    // on `.git` appearing, trigger a re-resolve, and swap to the HEAD
+    // watcher.
     const git = simpleGit(dir);
     await git.init();
     await git.checkoutLocalBranch("main");
@@ -952,9 +972,42 @@ describe("subscribeGitInfo watcher churn", () => {
     await git.add(".");
     await git.commit("initial");
 
-    // Same-cwd setCwd must trigger the install (this is the only path
-    // that does — there's no fs.watch on the parent dir to signal the
-    // .git appearing).
+    await waitFor(() => updates.length >= 1, 3000);
+    expect(updates[0]?.repoRoot).toBe(fs.realpathSync(dir));
+
+    sub.stop();
+
+    expect(counter.installs).toBe(1);
+    expect(counter.retires).toBe(1);
+    expect(counter.cwdRetires).toBe(1);
+  });
+
+  it("setCwd defense-in-depth still works if the cwd watcher missed the event", async () => {
+    // Some filesystems (bind-mounted containers, polling fallback) can lose
+    // events. A same-cwd setCwd from a downstream caller is the belt-and-
+    // braces fallback for that case.
+    const dir = path.join(tmpDir, "git-init-via-setcwd");
+    fs.mkdirSync(dir, { recursive: true });
+
+    const counter = makeLog();
+    const updates: (GitInfo | null)[] = [];
+    const sub = subscribeGitInfo(
+      dir,
+      (info) => {
+        updates.push(info);
+      },
+      counter.log,
+    );
+
+    const git = simpleGit(dir);
+    await git.init();
+    await git.checkoutLocalBranch("main");
+    fs.writeFileSync(path.join(dir, "f.txt"), "x");
+    await git.add(".");
+    await git.commit("initial");
+
+    // Explicit re-resolve via setCwd. The cwd watcher may also have fired
+    // by now; both paths converge on the same end state.
     sub.setCwd(dir);
 
     await waitFor(() => updates.length >= 1);
@@ -962,6 +1015,8 @@ describe("subscribeGitInfo watcher churn", () => {
 
     sub.stop();
 
+    // Even with both paths potentially firing, the HEAD watcher is
+    // installed exactly once.
     expect(counter.installs).toBe(1);
     expect(counter.retires).toBe(1);
   });
