@@ -142,6 +142,9 @@ export function gitInfoEqual(a: GitInfo | null, b: GitInfo | null): boolean {
  * tears down whichever watcher is active; `setCwd(next)` swaps the watched
  * directory.
  */
+type WatcherMode = "head" | "cwd";
+type WatcherSlot = { mode: WatcherMode; stop: () => void };
+
 export function subscribeGitInfo(
   initialCwd: string,
   onChange: (info: GitInfo | null) => void,
@@ -149,43 +152,31 @@ export function subscribeGitInfo(
 ): { setCwd(next: string): void; stop(): void } {
   let currentCwd = initialCwd;
   let currentInfo: GitInfo | null = null;
-  // Exactly one of these is non-null at any time. Head fires on .git/HEAD
-  // changes (in-repo case); cwd fires on the `.git` entry itself appearing
-  // or disappearing in cwd (out-of-repo case).
-  let stopHead: (() => void) | null = null;
-  let stopCwd: (() => void) | null = null;
+  // The head watcher fires on `.git/HEAD` changes (in-repo case); the cwd
+  // watcher fires on the `.git` entry itself appearing or disappearing
+  // (out-of-repo case). The two are mutually exclusive — `WatcherSlot`
+  // makes "neither" and "both" unrepresentable.
+  let watcher: WatcherSlot | null = null;
 
   function handleWatcherEvent(): void {
     void resolve();
   }
 
-  function ensureHeadWatcher(): void {
-    if (stopHead) return;
-    if (stopCwd) {
-      stopCwd();
-      stopCwd = null;
-    }
-    stopHead = watchGitHead(currentCwd, handleWatcherEvent, log);
+  function install(mode: WatcherMode): () => void {
+    return mode === "head"
+      ? watchGitHead(currentCwd, handleWatcherEvent, log)
+      : watchCwdForGitDir(currentCwd, handleWatcherEvent, log);
   }
 
-  function ensureCwdWatcher(): void {
-    if (stopCwd) return;
-    if (stopHead) {
-      stopHead();
-      stopHead = null;
-    }
-    stopCwd = watchCwdForGitDir(currentCwd, handleWatcherEvent, log);
+  function ensureMode(mode: WatcherMode): void {
+    if (watcher?.mode === mode) return;
+    watcher?.stop();
+    watcher = { mode, stop: install(mode) };
   }
 
   function tearDownWatchers(): void {
-    if (stopHead) {
-      stopHead();
-      stopHead = null;
-    }
-    if (stopCwd) {
-      stopCwd();
-      stopCwd = null;
-    }
+    watcher?.stop();
+    watcher = null;
   }
 
   async function resolve(): Promise<void> {
@@ -199,8 +190,7 @@ export function subscribeGitInfo(
     }
     // Watchers track the resolved state. Idempotent: a no-op when the right
     // one is already running.
-    if (next !== null) ensureHeadWatcher();
-    else ensureCwdWatcher();
+    ensureMode(next !== null ? "head" : "cwd");
     if (gitInfoEqual(next, currentInfo)) return;
     currentInfo = next;
     onChange(next);
@@ -208,8 +198,7 @@ export function subscribeGitInfo(
 
   // Sync best-effort install before first resolve so a `.git` appearing
   // during the resolve window can't slip past.
-  if (hasGitDir(currentCwd)) ensureHeadWatcher();
-  else ensureCwdWatcher();
+  ensureMode(hasGitDir(currentCwd) ? "head" : "cwd");
   void resolve();
 
   return {
@@ -224,8 +213,7 @@ export function subscribeGitInfo(
       }
       currentCwd = next;
       tearDownWatchers();
-      if (hasGitDir(next)) ensureHeadWatcher();
-      else ensureCwdWatcher();
+      ensureMode(hasGitDir(next) ? "head" : "cwd");
       void resolve();
     },
     stop(): void {
