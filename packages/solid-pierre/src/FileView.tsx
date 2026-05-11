@@ -73,10 +73,11 @@ type FileRenderer = {
   render(file: FileContents): void;
   setThemeType(theme: "light" | "dark"): void;
   setSelectedLines(range: SelectedLineRange | null): void;
-  /** Best-effort: find the line element by its `data-line-index` and
-   *  scroll it into view. No-op when the element isn't in the DOM yet
-   *  (virtualized files only render a windowed range). */
-  scrollToLine(lineNumber: number): void;
+  /** Best-effort scroll the line into view. Returns an rAF handle for
+   *  the virtualized-retry frame (0 when no retry was queued); the
+   *  caller is responsible for cancelling it before scheduling the
+   *  next scroll. */
+  scrollToLine(lineNumber: number): number;
   cleanUp(): void;
 };
 
@@ -91,24 +92,29 @@ type FileRenderer = {
  *  custom element for virtualized files, or the wrapper div for vanilla);
  *  the fallback path walks up from it to find the enclosing `<Virtualizer>`
  *  scroll container via `VIRTUALIZER_SCROLLER_ATTR`. */
+/** Result of scheduling a scroll — `0` when the direct query hit (no
+ *  follow-up frame needed) or the rAF handle of the queued retry. The
+ *  caller is expected to `cancelAnimationFrame` on the handle before
+ *  scheduling the next scroll, otherwise rapid clicks stack retries
+ *  that race the latest scrollTop. */
 const scrollToLineIndex = (
   root: ParentNode | null | undefined,
   lineNumber: number,
   virtualizerAnchor?: HTMLElement,
-): void => {
+): number => {
   const selector = `[data-line-index="${lineNumber - 1}"]`;
   const direct = root?.querySelector(selector);
   if (direct instanceof HTMLElement) {
     direct.scrollIntoView({ block: "center" });
-    return;
+    return 0;
   }
-  if (!virtualizerAnchor) return;
+  if (!virtualizerAnchor) return 0;
   // No row in the DOM — estimate scroll target from any rendered row's
   // height, jump the outer scroller, then refine on the next frame.
   const scroller = virtualizerAnchor.closest<HTMLElement>(
     `[${VIRTUALIZER_SCROLLER_ATTR}]`,
   );
-  if (!scroller) return;
+  if (!scroller) return 0;
   const sample = root?.querySelector<HTMLElement>("[data-line-index]");
   const lineHeight =
     sample?.getBoundingClientRect().height ||
@@ -119,7 +125,7 @@ const scrollToLineIndex = (
     0,
     (lineNumber - 1) * lineHeight - scroller.clientHeight / 2,
   );
-  requestAnimationFrame(() => {
+  return requestAnimationFrame(() => {
     const retry = root?.querySelector(selector);
     if (retry instanceof HTMLElement) {
       retry.scrollIntoView({ block: "center" });
@@ -247,6 +253,7 @@ const FileView: Component<FileViewProps> = (props) => {
     },
   );
 
+  let scrollRetryRaf = 0;
   const applySelection = () => {
     if (!renderer) return;
     const r = props.selectedLines ?? null;
@@ -258,9 +265,10 @@ const FileView: Component<FileViewProps> = (props) => {
         // Cancel any prior queued frame so rapid click-spam doesn't
         // stack scrollIntoView calls with stale targets.
         cancelAnimationFrame(scrollRaf);
-        scrollRaf = requestAnimationFrame(() =>
-          renderer?.scrollToLine(r.start),
-        );
+        cancelAnimationFrame(scrollRetryRaf);
+        scrollRaf = requestAnimationFrame(() => {
+          scrollRetryRaf = renderer?.scrollToLine(r.start) ?? 0;
+        });
       }
     } catch (e) {
       props.onError(toError(e));
@@ -330,6 +338,7 @@ const FileView: Component<FileViewProps> = (props) => {
 
   onCleanup(() => {
     cancelAnimationFrame(scrollRaf);
+    cancelAnimationFrame(scrollRetryRaf);
     renderer?.cleanUp();
   });
 
