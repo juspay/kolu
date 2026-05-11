@@ -9,9 +9,11 @@
  * The toolbar combines two independent filter axes — mode picker
  * (`ModeChipPicker`) and filename input (`FileSearchInput`) — in one
  * row. Pierre's built-in tree-header search is disabled so the
- * `FileSearchInput` is the single source of filter state, forwarded
- * via `FileTree.searchQuery`. `@kolu/solid-pierre` owns the imperative
- * Pierre lifecycle; this component is just data flow + chrome. */
+ * `FileSearchInput` is the single source of filter state. Kolu projects
+ * the path list and opens matching ancestors only when that projection
+ * resets; this keeps results visible while preserving normal folder
+ * collapse after the user clicks. `@kolu/solid-pierre` owns the
+ * imperative Pierre lifecycle; this component is just data flow + chrome. */
 
 import { FileDiff, FileTree, Virtualizer } from "@kolu/solid-pierre";
 import type { GitDiffMode } from "kolu-git/schemas";
@@ -353,6 +355,7 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
                   selectedPath={selectedPath()}
                   onSelect={handleSelect}
                   initialExpansion={isDiffView() ? "open" : "closed"}
+                  expandedPathsOnReset={treeSearch().expandedPathsOnReset}
                   search={false}
                   searchQuery={treeSearch().pierreSearchQuery}
                   icons={pierreIconConfig}

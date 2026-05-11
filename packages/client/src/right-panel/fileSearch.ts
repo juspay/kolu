@@ -1,11 +1,12 @@
 /** Search projection for Pierre's current substring-only FileTree API.
  *
- *  `projectedPaths` is the optional Kolu-side visibility filter; for native
- *  single-token searches it is the original path inventory by reference.
- *  `pierreSearchQuery` is the residual substring Pierre should own for
- *  expansion/focus after Kolu has handled multi-token path matching. */
+ *  `projectedPaths` is Kolu's visibility filter. Keeping Code-tab search as
+ *  a path-list projection leaves Pierre's normal folder collapse semantics
+ *  intact; Pierre's internal search expands matching ancestors after each
+ *  row click, which makes filtered folders impossible to collapse. */
 type FileTreeSearchProjection = {
   projectedPaths: string[];
+  expandedPathsOnReset: string[] | null;
   pierreSearchQuery: string | null;
 };
 
@@ -30,19 +31,46 @@ function pathContainsTokensInOrder(
   return true;
 }
 
+function getAncestorDirectoryPaths(path: string): string[] {
+  const normalizedPath = path.endsWith("/") ? path.slice(0, -1) : path;
+  if (normalizedPath.length === 0) return [];
+
+  const segments = normalizedPath.split("/");
+  return segments
+    .slice(0, -1)
+    .map((_, index) => `${segments.slice(0, index + 1).join("/")}/`);
+}
+
+function getExpandedPathsForMatches(paths: readonly string[]): string[] {
+  const expandedPaths = new Set<string>();
+  for (const path of paths) {
+    for (const ancestorPath of getAncestorDirectoryPaths(path)) {
+      expandedPaths.add(ancestorPath);
+    }
+  }
+  return [...expandedPaths];
+}
+
 export function projectFileTreeSearch(
   paths: string[],
   query: string,
 ): FileTreeSearchProjection {
   const tokens = normalizePathSearchText(query).split(/\s+/).filter(Boolean);
-  if (tokens.length <= 1) {
-    return { projectedPaths: paths, pierreSearchQuery: query };
+  if (tokens.length === 0) {
+    return {
+      projectedPaths: paths,
+      expandedPathsOnReset: null,
+      pierreSearchQuery: null,
+    };
   }
 
+  const projectedPaths = paths.filter((path) =>
+    pathContainsTokensInOrder(path, tokens),
+  );
+
   return {
-    projectedPaths: paths.filter((path) =>
-      pathContainsTokensInOrder(path, tokens),
-    ),
-    pierreSearchQuery: tokens.at(-1) ?? null,
+    projectedPaths,
+    expandedPathsOnReset: getExpandedPathsForMatches(projectedPaths),
+    pierreSearchQuery: null,
   };
 }

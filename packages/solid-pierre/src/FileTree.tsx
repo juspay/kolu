@@ -48,6 +48,11 @@ export type FileTreeProps = {
    *  toggling its parent `<Show when>`) to apply a new value. Defaults to
    *  `"closed"`. */
   initialExpansion?: FileTreeInitialExpansion;
+  /** Explicit directories to open when constructing or resetting `paths`.
+   *  Hosts that filter by projecting `paths` can pass matching ancestors
+   *  here so children are initially visible while normal folder collapse
+   *  remains under the user's control after reset. */
+  expandedPathsOnReset?: readonly string[] | null;
   /** Collapse single-child directory chains (e.g. `packages/client/src` →
    *  one row). Default `true`. */
   flattenEmptyDirectories?: boolean;
@@ -96,11 +101,19 @@ export const FileTree: Component<FileTreeProps> = (props) => {
     }
   };
 
+  const resetPathOptions = (
+    expandedPathsOnReset: readonly string[] | null | undefined,
+  ) =>
+    expandedPathsOnReset == null
+      ? undefined
+      : { initialExpandedPaths: expandedPathsOnReset };
+
   onMount(() => {
     try {
       tree = new FileTreeClass({
         paths: props.paths,
         initialExpansion: props.initialExpansion ?? "closed",
+        initialExpandedPaths: props.expandedPathsOnReset ?? undefined,
         flattenEmptyDirectories: props.flattenEmptyDirectories ?? true,
         stickyFolders: props.stickyFolders ?? true,
         icons: props.icons,
@@ -174,10 +187,10 @@ export const FileTree: Component<FileTreeProps> = (props) => {
 
   createEffect(
     on(
-      () => props.paths,
-      (paths) => {
+      [() => props.paths, () => props.expandedPathsOnReset],
+      ([paths, expandedPathsOnReset]) => {
         try {
-          tree?.resetPaths(paths);
+          tree?.resetPaths(paths, resetPathOptions(expandedPathsOnReset));
         } catch (e) {
           props.onError(toError(e));
         }

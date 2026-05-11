@@ -117,14 +117,10 @@ Feature: Code tab (review + browse)
     When I click the changed file "note.txt" in the Code tab
     Then the Code tab should render a diff view
 
-  # Regression for #817: Pierre's row-click handler unconditionally calls
-  # `controller.closeSearch()` after firing selection (verified at
-  # @pierre/trees/dist/render/FileTreeView.js around the row-click plan,
-  # where `closeSearch: isSearchOpen` is hardcoded). The solid-pierre
-  # wrapper re-applies the host's `searchQuery` on the next microtask so
-  # the host-controlled filter survives clicks. Re-click step covers
-  # Pierre's selectionVersion gate that suppresses `onSelectionChange`
-  # but still runs `closeSearch()`.
+  # Regression for #817: clicking a filtered result must not clear the Code
+  # tab filter or reveal non-matching rows. The Code tab owns filtering as a
+  # Kolu-side path projection so the input value and visible tree stay stable
+  # across Pierre row clicks, including re-clicks of the already-selected row.
   Scenario Outline: Filter survives clicking a filtered result [<mode>]
     Given a Code tab in "<mode>" mode showing files:
       | path      | content |
@@ -256,6 +252,20 @@ Feature: Code tab (review + browse)
     Then the file browser should show a directory "lib"
     When I click the directory "lib" in the file browser
     Then the file browser should show a file "lib/util.ts"
+
+  Scenario: File browser can collapse a directory while filtered
+    When I run "git init /tmp/kolu-browse-filter-collapse && cd /tmp/kolu-browse-filter-collapse"
+    And I run "mkdir -p pkg && printf 'x\n' > pkg/alpha.ts && printf 'y\n' > pkg/beta.ts"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    When I type "alpha" into the Code tab filter
+    Then the file browser should show a directory "pkg"
+    And the file browser should show a file "pkg/alpha.ts"
+    And the file browser should not show a file "pkg/beta.ts"
+    When I click the directory "pkg" in the file browser
+    Then the Code tab filter input should contain "alpha"
+    And the file browser should not show a file "pkg/alpha.ts"
 
   # ── Pierre file/diff viewer right-click menu (Copy path:line) ──
 

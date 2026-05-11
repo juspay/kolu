@@ -1,8 +1,7 @@
 /** Free-text search input that filters the file tree by path. Hosts
- *  read the value back through `onChange` and forward it into the tree
- *  (e.g. via `PierreFileTree`'s `searchQuery` prop). The input is
- *  controlled so callers can clear or programmatically reset it
- *  (e.g. on view change). */
+ *  read the value back through `onChange` and apply the filter to their
+ *  path projection. The input is controlled so callers can clear or
+ *  programmatically reset it (e.g. on view change). */
 
 import { type Component, Show } from "solid-js";
 import { CloseIcon, SearchIcon } from "../ui/Icons";

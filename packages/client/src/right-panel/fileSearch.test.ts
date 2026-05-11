@@ -8,32 +8,50 @@ describe("projectFileTreeSearch", () => {
     "packages/client/src/index.tsx",
   ];
 
-  it("leaves single-token queries to Pierre", () => {
-    expect(projectFileTreeSearch(paths, "index")).toEqual({
+  it("leaves blank queries unfiltered", () => {
+    expect(projectFileTreeSearch(paths, "")).toEqual({
       projectedPaths: paths,
-      pierreSearchQuery: "index",
+      expandedPathsOnReset: null,
+      pierreSearchQuery: null,
     });
-    expect(projectFileTreeSearch(paths, "index").projectedPaths).toBe(paths);
+    expect(projectFileTreeSearch(paths, "").projectedPaths).toBe(paths);
+  });
+
+  it("projects single-token queries", () => {
+    expect(projectFileTreeSearch(paths, "index")).toEqual({
+      projectedPaths: ["common/src/index.tsx", "packages/client/src/index.tsx"],
+      expandedPathsOnReset: [
+        "common/",
+        "common/src/",
+        "packages/",
+        "packages/client/",
+        "packages/client/src/",
+      ],
+      pierreSearchQuery: null,
+    });
   });
 
   it("matches whitespace-separated path tokens in order", () => {
     expect(projectFileTreeSearch(paths, "common index.ts")).toEqual({
       projectedPaths: ["common/src/index.tsx"],
-      pierreSearchQuery: "index.ts",
+      expandedPathsOnReset: ["common/", "common/src/"],
+      pierreSearchQuery: null,
     });
   });
 
   it("normalizes backslashes and case", () => {
     expect(projectFileTreeSearch(paths, "COMMON\\src button")).toEqual({
       projectedPaths: ["common/src/Button.tsx"],
-      pierreSearchQuery: "button",
+      expandedPathsOnReset: ["common/", "common/src/"],
+      pierreSearchQuery: null,
     });
   });
 
   it("does not match tokens out of order", () => {
     expect(projectFileTreeSearch(paths, "index common")).toEqual({
       projectedPaths: [],
-      pierreSearchQuery: "common",
+      expandedPathsOnReset: [],
+      pierreSearchQuery: null,
     });
   });
 });
