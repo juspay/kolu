@@ -41,7 +41,6 @@ import { client } from "../wire";
 import { isExpectedCleanupError } from "../rpc/streamCleanup";
 import { createScrollLock } from "../scrollLock";
 import { requestCodeOpen } from "../right-panel/codeNavigation";
-import { useRightPanel } from "../right-panel/useRightPanel";
 import { preferences } from "../wire";
 import { isTouch } from "../useMobile";
 import { createFileRefLinkProvider } from "./fileRefLinkProvider";
@@ -161,7 +160,6 @@ const Terminal: Component<{
   const [searchAddon, setSearchAddon] = createSignal<SearchAddon | null>(null);
   const scrollLock = createScrollLock(() => preferences().scrollLock);
   const terminalStore = useTerminalStore();
-  const rightPanel = useRightPanel();
   let fitRaf = 0;
 
   /** Debounce fit() to one call per animation frame — ResizeObserver fires rapidly. */
@@ -469,8 +467,10 @@ const Terminal: Component<{
                   terminalStore.getMetadata(props.terminalId)?.git?.repoRoot ??
                   null;
                 if (!repoRoot) return;
-                rightPanel.expandPanel();
-                rightPanel.showCode("browse");
+                // Publish the intent only; CodeTab observes the
+                // signal and orchestrates panel state. Keeping the
+                // click→browse transition in one reactive site
+                // (hickey F2 / lowy A).
                 requestCodeOpen({
                   repoRoot,
                   rawPath: ref.path,
