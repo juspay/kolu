@@ -178,7 +178,13 @@ export function subscribeGitInfo(
   }
 
   async function resolve(): Promise<void> {
-    const result = await resolveGitInfo(currentCwd, log);
+    const cwdAtStart = currentCwd;
+    const result = await resolveGitInfo(cwdAtStart, log);
+    // Discard the result if cwd flipped during the await — a fresh resolve
+    // is already in flight for the new cwd and will publish the right
+    // state. Acting on a stale cwd here would re-swap watchers and emit a
+    // GitInfo for a directory we're no longer in.
+    if (cwdAtStart !== currentCwd) return;
     const next: GitInfo | null = result.ok ? result.value : null;
     if (!result.ok && result.error.code !== "NOT_A_REPO") {
       log?.error(
