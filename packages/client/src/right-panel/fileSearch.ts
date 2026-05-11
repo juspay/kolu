@@ -1,13 +1,12 @@
 /** Search projection for Pierre's current substring-only FileTree API.
  *
- *  `projectedPaths` is Kolu's visibility filter. Keeping Code-tab search as
- *  a path-list projection leaves Pierre's normal folder collapse semantics
- *  intact; Pierre's internal search expands matching ancestors after each
- *  row click, which makes filtered folders impossible to collapse. */
+ *  `paths` is Kolu's visibility filter. Keeping Code-tab search as a path
+ *  projection leaves Pierre's normal folder collapse semantics intact;
+ *  Pierre's internal search expands matching ancestors after each row click,
+ *  which makes filtered folders impossible to collapse. */
 type FileTreeSearchProjection = {
-  projectedPaths: string[];
-  expandedPathsOnReset: string[] | null;
-  pierreSearchQuery: string | null;
+  paths: string[];
+  initialExpandedPaths?: string[];
 };
 
 function normalizePathSearchText(value: string): string {
@@ -57,20 +56,15 @@ export function projectFileTreeSearch(
 ): FileTreeSearchProjection {
   const tokens = normalizePathSearchText(query).split(/\s+/).filter(Boolean);
   if (tokens.length === 0) {
-    return {
-      projectedPaths: paths,
-      expandedPathsOnReset: null,
-      pierreSearchQuery: null,
-    };
+    return { paths };
   }
 
-  const projectedPaths = paths.filter((path) =>
+  const matchingPaths = paths.filter((path) =>
     pathContainsTokensInOrder(path, tokens),
   );
 
   return {
-    projectedPaths,
-    expandedPathsOnReset: getExpandedPathsForMatches(projectedPaths),
-    pierreSearchQuery: null,
+    paths: matchingPaths,
+    initialExpandedPaths: getExpandedPathsForMatches(matchingPaths),
   };
 }
