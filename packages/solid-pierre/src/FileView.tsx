@@ -49,12 +49,11 @@ export type FileViewProps = {
   /** Fires on every selection commit (single-line click or drag end);
    *  `null` on deselect. */
   onLineSelected?: (range: SelectedLineRange | null) => void;
-  /** When set, push this range into Pierre's selection on mount and
-   *  whenever the `key` ticks; also scroll the line into view. The
-   *  `key` field is a caller-defined identity courier — Pierre treats
-   *  it opaquely; consumers use it to force the apply-on-change effect
-   *  to re-fire when two requests share identical `start`/`end`. */
-  selectedRange?: (SelectedLineRange & { key: number | string }) | null;
+  /** Push this range into Pierre's selection state and scroll the
+   *  start line into view. Consumers typically wire this to a
+   *  line-selection controller signal so user drags and external
+   *  navigation requests both flow through the same source of truth. */
+  selectedLines?: SelectedLineRange | null;
   /** Surface construction and render throws. Required because silent
    *  failures here produce a blank pane indistinguishable from "loading". */
   onError: (err: Error) => void;
@@ -212,7 +211,7 @@ const FileView: Component<FileViewProps> = (props) => {
 
   const applySelection = () => {
     if (!renderer) return;
-    const r = props.selectedRange ?? null;
+    const r = props.selectedLines ?? null;
     try {
       renderer.setSelectedLines(r);
       if (r) {
@@ -265,12 +264,13 @@ const FileView: Component<FileViewProps> = (props) => {
 
   createEffect(on(fileContents, (file) => safeRender(file), { defer: true }));
 
-  // Re-apply selection when only the request key changes (same file
-  // and content, caller bumped the dedup token). The content-change
-  // path already calls `applySelection` from inside `safeRender`.
+  // Re-apply selection when the controller's range ticks (user drag,
+  // external navigation request). The content-change path already
+  // calls `applySelection` from inside `safeRender`. Pierre dedups
+  // identical ranges internally, so user drags don't double-apply.
   createEffect(
     on(
-      () => props.selectedRange?.key ?? null,
+      () => props.selectedLines,
       () => applySelection(),
       { defer: true },
     ),

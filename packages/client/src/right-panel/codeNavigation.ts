@@ -12,6 +12,10 @@ export interface CodeOpenRequest {
    *  relative). Absolute paths beneath this root are also accepted —
    *  the consumer normalizes both shapes. */
   repoRoot: string;
+  /** Terminal cwd at the time of click. Drives the "user typed
+   *  `bar.ts:42` while standing in a subdirectory of the repo" case;
+   *  undefined falls back to repo-relative interpretation only. */
+  cwd: string | undefined;
   /** Path as it appeared in the terminal. May be absolute or
    *  repo-relative. */
   rawPath: string;

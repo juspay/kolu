@@ -17,6 +17,9 @@ import type { CodeContextMenuItem } from "./CodeContextMenu";
 import { formatLineRef } from "./lineRef";
 
 export type LineSelection = {
+  /** Current selection range — bind to Pierre's `selectedLines` prop
+   *  so the visual highlight tracks the controller. */
+  range: Accessor<SelectedLineRange | null>;
   /** Bind to Pierre's `onLineSelected` — the renderer fires this on every
    *  selection commit (single-line click or drag end). */
   handleSelect: (range: SelectedLineRange | null) => void;
@@ -25,14 +28,43 @@ export type LineSelection = {
   buildItems: () => CodeContextMenuItem[];
 };
 
-export function useLineSelection(path: Accessor<string>): LineSelection {
-  const [range, setRange] = createSignal<SelectedLineRange | null>(null);
+export interface LineSelectionOptions {
+  /** Externally-driven initial range — caller updates this when a new
+   *  navigation request lands (e.g. terminal `path:line` click). The
+   *  effect below pushes it into the controller's range, which means
+   *  the right-click menu and the Pierre highlight stay in sync. */
+  initialRange?: Accessor<SelectedLineRange | null | undefined>;
+}
 
-  // A new file replaces the old selection scope — drop it so a stale
-  // "Copy path:N" menu entry from the previous file can't surface.
-  createEffect(on(path, () => setRange(null), { defer: true }));
+export function useLineSelection(
+  path: Accessor<string>,
+  options: LineSelectionOptions = {},
+): LineSelection {
+  const [range, setRange] = createSignal<SelectedLineRange | null>(
+    options.initialRange?.() ?? null,
+  );
+
+  // A new file replaces the old selection scope — fall back to the
+  // initial range (if any) so a stale "Copy path:N" menu entry from
+  // the previous file can't surface while still honoring a fresh
+  // navigation request that lands together with the path change.
+  createEffect(
+    on(path, () => setRange(options.initialRange?.() ?? null), {
+      defer: true,
+    }),
+  );
+
+  // External range updates (terminal click bumps the request memo).
+  createEffect(
+    on(
+      () => options.initialRange?.() ?? null,
+      (initial) => setRange(initial),
+      { defer: true },
+    ),
+  );
 
   return {
+    range,
     handleSelect: (r) => setRange(r),
     buildItems: () => {
       const items: CodeContextMenuItem[] = [

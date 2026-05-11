@@ -467,9 +467,8 @@ const Terminal: Component<{
           linkProviderDisposable = term.registerLinkProvider(
             createFileRefLinkProvider(term, {
               onActivate: (ref) => {
-                const repoRoot =
-                  terminalStore.getMetadata(props.terminalId)?.git?.repoRoot ??
-                  null;
+                const meta = terminalStore.getMetadata(props.terminalId);
+                const repoRoot = meta?.git?.repoRoot ?? null;
                 if (!repoRoot) return;
                 // Issue both writes in the same DOM-event tick: the
                 // panel-mode change and the click request invalidate
@@ -482,6 +481,7 @@ const Terminal: Component<{
                 rightPanel.openCodeBrowser();
                 requestCodeOpen({
                   repoRoot,
+                  cwd: meta?.cwd,
                   rawPath: ref.path,
                   startLine: ref.startLine,
                   endLine: ref.endLine,

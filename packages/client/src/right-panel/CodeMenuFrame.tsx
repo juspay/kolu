@@ -5,6 +5,7 @@
  *  threaded into the inner viewer via the children render fn so the
  *  selection range stays in sync with what the menu offers. */
 
+import type { SelectedLineRange } from "@kolu/solid-pierre";
 import type { Component, JSX } from "solid-js";
 import {
   CodeContextMenu,
@@ -20,11 +21,17 @@ export type CodeMenuFrameProps = {
   /** Render the inner Pierre viewer. Pass `selection.handleSelect` to its
    *  `onLineSelected` prop so range updates reach the menu. */
   children: (selection: LineSelection) => JSX.Element;
+  /** Externally-supplied initial range — seeds the line-selection
+   *  controller so a terminal `path:line` click drives both the
+   *  Pierre highlight AND the right-click menu's "Copy path:N" item. */
+  initialSelectedLines?: SelectedLineRange | null;
 };
 
 export const CodeMenuFrame: Component<CodeMenuFrameProps> = (props) => {
   let menuCtrl: CodeContextMenuController | undefined;
-  const selection = useLineSelection(() => props.path);
+  const selection = useLineSelection(() => props.path, {
+    initialRange: () => props.initialSelectedLines,
+  });
   return (
     <div
       // Attach contextmenu via addEventListener so the host div doesn't

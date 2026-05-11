@@ -1,62 +1,15 @@
-/** xterm.js link provider that linkifies file references like
- *  `packages/foo/bar.ts:123`, `src/Type.hs:42-58`, or
- *  `/abs/path.rs:10:4`. Clicking a link opens the file in the right
- *  panel's Code tab at the referenced line(s).
- *
- *  The regex accepts two path shapes:
- *    1. Slash-containing — `(maybe-leading-/)(seg/)+seg`.
- *    2. Bare filename with letter-led extension — `Type.hs`,
- *       `package.json`. Requiring the extension to start with a
- *       letter keeps IPv4-style `192.168.1.1:8080` and version
- *       strings like `1.2.3:5` from getting linkified.
- *
- *  Allowed path chars: word + `.`, `+`, `@`, `~`, `-`. Column suffix
- *  (`:N:M`) is consumed but discarded — only the line range is used. */
+/** xterm.js link provider that linkifies `path:line[:col][-end]`
+ *  references in terminal output. Parsing semantics + the regex live
+ *  in `ui/lineRef.ts` — this module is just the xterm adapter:
+ *  buffer-line → `parseLineRefs` → `ILink[]`. */
 
 import type { ILink, ILinkProvider, Terminal } from "@xterm/xterm";
+import { type LineRef, parseLineRefs } from "../ui/lineRef";
 
-export interface FileRef {
-  /** Path as it appeared in the terminal. Absolute (`/…`) or
-   *  repo-relative (`packages/…`). Caller resolves against repoRoot. */
-  path: string;
-  /** First line of the reference (1-based, inclusive). */
-  startLine: number;
-  /** Last line. Equal to startLine when no range was given. */
-  endLine: number;
-}
-
-const FILE_REF_RE =
-  /(\/?(?:[\w.+@~-]+\/)+[\w.+@~-]+|[\w.+@~-]+\.[A-Za-z]\w*):(\d+)(?::\d+|-(\d+))?/g;
-
-interface ParsedMatch {
-  ref: FileRef;
-  index: number;
-  text: string;
-}
-
-export function parseFileRefs(line: string): ParsedMatch[] {
-  const out: ParsedMatch[] = [];
-  FILE_REF_RE.lastIndex = 0;
-  let m: RegExpExecArray | null;
-  m = FILE_REF_RE.exec(line);
-  while (m !== null) {
-    const path = m[1];
-    const start = Number(m[2]);
-    const end = m[3] !== undefined ? Number(m[3]) : start;
-    if (path && start >= 1 && end >= start) {
-      out.push({
-        ref: { path, startLine: start, endLine: end },
-        index: m.index,
-        text: m[0],
-      });
-    }
-    m = FILE_REF_RE.exec(line);
-  }
-  return out;
-}
+export type { LineRef };
 
 export interface FileRefLinkOpts {
-  onActivate: (ref: FileRef, event: MouseEvent) => void;
+  onActivate: (ref: LineRef, event: MouseEvent) => void;
 }
 
 export function createFileRefLinkProvider(
@@ -80,18 +33,26 @@ export function createFileRefLinkProvider(
         callback(undefined);
         return;
       }
-      const matches = parseFileRefs(text);
+      const matches = parseLineRefs(text);
       if (matches.length === 0) {
         callback(undefined);
         return;
       }
-      const links: ILink[] = matches.map(({ ref, index, text: linkText }) => ({
+      const links: ILink[] = matches.map((match) => ({
         range: {
-          start: { x: index + 1, y: bufferLineNumber },
-          end: { x: index + linkText.length, y: bufferLineNumber },
+          start: { x: match.index + 1, y: bufferLineNumber },
+          end: { x: match.index + match.text.length, y: bufferLineNumber },
         },
-        text: linkText,
-        activate: (event) => opts.onActivate(ref, event),
+        text: match.text,
+        activate: (event) =>
+          opts.onActivate(
+            {
+              path: match.path,
+              startLine: match.startLine,
+              endLine: match.endLine,
+            },
+            event,
+          ),
       }));
       callback(links);
     },

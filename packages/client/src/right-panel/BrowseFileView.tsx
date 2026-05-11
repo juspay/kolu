@@ -20,10 +20,11 @@ export type BrowseFileViewProps = {
   repoPath: string;
   filePath: string;
   theme: "light" | "dark";
-  /** Initial line range to highlight (and scroll to). The `key`
-   *  field forces re-application when consecutive requests share the
-   *  same `start`/`end` — Solid would otherwise dedupe by value. */
-  selectedRange?: (SelectedLineRange & { key: number }) | null;
+  /** Initial line range to highlight (and scroll to). Set when the
+   *  caller opens the file at a specific range — e.g. a terminal
+   *  `path:line` click. Goes through the line-selection controller
+   *  so the right-click "Copy path:N" menu reflects the highlight. */
+  initialSelectedLines?: SelectedLineRange | null;
 };
 
 const BrowseFileView: Component<BrowseFileViewProps> = (props) => {
@@ -49,7 +50,10 @@ const BrowseFileView: Component<BrowseFileViewProps> = (props) => {
                 File truncated (exceeds 1 MB)
               </div>
             </Show>
-            <CodeMenuFrame path={props.filePath}>
+            <CodeMenuFrame
+              path={props.filePath}
+              initialSelectedLines={props.initialSelectedLines}
+            >
               {(selection) => (
                 // `<Virtualizer>` upgrades `<FileView>` to Pierre's
                 // `VirtualizedFile` for very large files
@@ -66,7 +70,7 @@ const BrowseFileView: Component<BrowseFileViewProps> = (props) => {
                     overflow="wrap"
                     enableLineSelection
                     onLineSelected={selection.handleSelect}
-                    selectedRange={props.selectedRange ?? null}
+                    selectedLines={selection.range()}
                     onError={(err) =>
                       toast.error(`File render failed: ${err.message}`)
                     }

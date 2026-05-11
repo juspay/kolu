@@ -39,6 +39,7 @@ import {
   pierreIconConfig,
   pierreTreesStyle,
 } from "../ui/pierreTheme";
+import { resolveLineRefPath } from "../ui/lineRef";
 import BrowseFileView from "./BrowseFileView";
 import { pendingCodeOpen } from "./codeNavigation";
 import CodeMenuFrame from "./CodeMenuFrame";
@@ -69,18 +70,6 @@ const BinaryFileHint: Component<{ fileName: string | null }> = (props) => (
     <span class="text-[10px] text-fg-3/30">{props.fileName}</span>
   </div>
 );
-
-/** Resolve a terminal-supplied path against the terminal's git root.
- *  Absolute paths must live beneath `repoRoot`; relative paths are
- *  returned as-is. Returns `null` when the absolute path is outside
- *  the repo (Pierre's tree wouldn't know about it). */
-function resolveRepoRelative(rawPath: string, repoRoot: string): string | null {
-  if (!rawPath.startsWith("/")) return rawPath;
-  const prefix = repoRoot.endsWith("/") ? repoRoot : `${repoRoot}/`;
-  if (rawPath === repoRoot) return null;
-  if (rawPath.startsWith(prefix)) return rawPath.slice(prefix.length);
-  return null;
-}
 
 const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
   const { themeTypeLiteral: diffTheme } = useColorScheme();
@@ -198,24 +187,45 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
     ),
   );
 
-  // Honor terminal file-ref clicks. We react only when the request
-  // names *this* tab's repo — a tile-switch can still happen between
-  // click and effect tick, so resolving here (against `repoPath()` at
-  // the time the effect runs) is what keeps the click from leaking
-  // into the wrong worktree. The terminal click handler is the sole
-  // site that flips the panel to browse mode; this effect only sets
+  // Last `req.token` we've already acted on (success or not-found).
+  // Without this, an `allPaths` value tick after the request would
+  // re-fire the effect and re-toast on every reconcile.
+  const [handledToken, setHandledToken] = createSignal<number | null>(null);
+
+  // Honor terminal file-ref clicks. The effect waits for the live
+  // `fsListAll` stream to settle so resolution can validate against
+  // a complete file list — otherwise a request fired during boot
+  // would toast "not found" on a path that just hasn't been
+  // enumerated yet. The terminal click handler is the sole site that
+  // flips the panel to browse mode; this effect only sets
   // `selectedPath`. See Terminal.tsx for why orchestration lives
   // there (resetKey-vs-pendingCodeOpen effect ordering).
   createEffect(
     on(
-      pendingCodeOpen,
-      (req) => {
+      () => {
+        const req = pendingCodeOpen();
+        const paths = treePaths();
+        const isPending = allPaths.pending();
+        return { req, repo: repoPath(), paths, isPending };
+      },
+      ({ req, repo, paths, isPending }) => {
         if (!req) return;
-        const repo = repoPath();
+        if (handledToken() === req.token) return;
         if (repo === null || repo !== req.repoRoot) return;
-        const rel = resolveRepoRelative(req.rawPath, repo);
-        if (rel === null || rel === "") return;
+        if (view() !== "browse" || isPending) return;
+        const rel = resolveLineRefPath({
+          rawPath: req.rawPath,
+          repoRoot: repo,
+          cwd: req.cwd,
+          repoPaths: paths,
+        });
+        if (rel === null) {
+          toast.error(`File reference not found: ${req.rawPath}`);
+          setHandledToken(req.token);
+          return;
+        }
         setSelectedPath(rel);
+        setHandledToken(req.token);
       },
       { defer: true },
     ),
@@ -228,18 +238,34 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
   const selectedRange = createMemo<{
     start: number;
     end: number;
-    key: number;
-  } | null>(() => {
-    const req = pendingCodeOpen();
-    if (!req) return null;
-    const repo = repoPath();
-    if (repo === null || repo !== req.repoRoot) return null;
-    const sel = selectedPath();
-    if (!sel) return null;
-    const rel = resolveRepoRelative(req.rawPath, repo);
-    if (rel !== sel) return null;
-    return { start: req.startLine, end: req.endLine, key: req.token };
-  });
+  } | null>(
+    () => {
+      const req = pendingCodeOpen();
+      if (!req) return null;
+      if (handledToken() !== req.token) return null;
+      const repo = repoPath();
+      if (repo === null || repo !== req.repoRoot) return null;
+      const sel = selectedPath();
+      if (!sel) return null;
+      const rel = resolveLineRefPath({
+        rawPath: req.rawPath,
+        repoRoot: repo,
+        cwd: req.cwd,
+        repoPaths: treePaths(),
+      });
+      if (rel !== sel) return null;
+      return { start: req.startLine, end: req.endLine };
+    },
+    null,
+    {
+      // Same-value re-emits cause the line-selection controller to
+      // re-fire its initial-range effect with an identical object.
+      // Equality-gating here keeps the controller stable when the
+      // request hasn't actually changed.
+      equals: (a, b) =>
+        a === b || (!!a && !!b && a.start === b.start && a.end === b.end),
+    },
+  );
 
   const treePaths = createMemo(() => {
     if (view() === "browse") return allPaths()?.paths ?? [];
@@ -524,7 +550,7 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
                         repoPath={repo}
                         filePath={path}
                         theme={diffTheme()}
-                        selectedRange={selectedRange()}
+                        initialSelectedLines={selectedRange()}
                       />
                     );
                   })()}
