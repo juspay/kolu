@@ -204,9 +204,10 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
   // names *this* tab's repo — a tile-switch can still happen between
   // click and effect tick, so resolving here (against `repoPath()` at
   // the time the effect runs) is what keeps the click from leaking
-  // into the wrong worktree. Panel orchestration lives only here so
-  // CodeTab is the single reactive site that knows the click→browse
-  // transition (hickey F2 / lowy A).
+  // into the wrong worktree. The terminal click handler is the sole
+  // site that flips the panel to browse mode; this effect only sets
+  // `selectedPath`. See Terminal.tsx for why orchestration lives
+  // there (resetKey-vs-pendingCodeOpen effect ordering).
   createEffect(
     on(
       pendingCodeOpen,
@@ -216,7 +217,6 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
         if (repo === null || repo !== req.repoRoot) return;
         const rel = resolveRepoRelative(req.rawPath, repo);
         if (rel === null || rel === "") return;
-        rightPanel.openCodeBrowser();
         setSelectedPath(rel);
       },
       { defer: true },

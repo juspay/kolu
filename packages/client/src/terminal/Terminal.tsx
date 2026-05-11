@@ -41,6 +41,7 @@ import { client } from "../wire";
 import { isExpectedCleanupError } from "../rpc/streamCleanup";
 import { createScrollLock } from "../scrollLock";
 import { requestCodeOpen } from "../right-panel/codeNavigation";
+import { useRightPanel } from "../right-panel/useRightPanel";
 import { preferences } from "../wire";
 import { isTouch } from "../useMobile";
 import { createFileRefLinkProvider } from "./fileRefLinkProvider";
@@ -160,6 +161,7 @@ const Terminal: Component<{
   const [searchAddon, setSearchAddon] = createSignal<SearchAddon | null>(null);
   const scrollLock = createScrollLock(() => preferences().scrollLock);
   const terminalStore = useTerminalStore();
+  const rightPanel = useRightPanel();
   let fitRaf = 0;
 
   /** Debounce fit() to one call per animation frame — ResizeObserver fires rapidly. */
@@ -467,10 +469,17 @@ const Terminal: Component<{
                   terminalStore.getMetadata(props.terminalId)?.git?.repoRoot ??
                   null;
                 if (!repoRoot) return;
-                // Publish the intent only; CodeTab observes the
-                // signal and orchestrates panel state. Keeping the
-                // click→browse transition in one reactive site
-                // (hickey F2 / lowy A).
+                // Both writes happen in the same DOM-event tick so
+                // CodeTab's `resetKey` effect (which clears
+                // `selectedPath` on view change) and the
+                // `pendingCodeOpen` effect (which sets it) both see
+                // the same final state and run in registration order
+                // — resetKey first, then pendingCodeOpen — leaving
+                // `selectedPath = rel`. Moving `openCodeBrowser`
+                // *inside* CodeTab's effect would lose this race: the
+                // view-change-induced resetKey would fire AFTER my
+                // setSelectedPath and null it.
+                rightPanel.openCodeBrowser();
                 requestCodeOpen({
                   repoRoot,
                   rawPath: ref.path,
