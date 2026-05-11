@@ -254,7 +254,7 @@ Feature: Code tab (review + browse)
     Then the file browser should show a file "lib/util.ts"
 
   Scenario: File browser can collapse a directory while filtered
-    When I run "git init /tmp/kolu-browse-filter-collapse && cd /tmp/kolu-browse-filter-collapse"
+    When I run "rm -rf /tmp/kolu-browse-filter-collapse && git init /tmp/kolu-browse-filter-collapse && cd /tmp/kolu-browse-filter-collapse"
     And I run "mkdir -p pkg && printf 'x\n' > pkg/alpha.ts && printf 'y\n' > pkg/beta.ts"
     And I run "git add . && git commit -m init"
     And I click the Code tab
