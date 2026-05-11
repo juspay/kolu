@@ -70,7 +70,7 @@ export type FileViewProps = {
 type FileRenderer = {
   render(file: FileContents): void;
   setThemeType(theme: "light" | "dark"): void;
-  setSelectedLines(range: SelectedLineRange | null): void;
+  selectAndReveal(range: SelectedLineRange | null): void;
   cleanUp(): void;
 };
 
@@ -142,7 +142,14 @@ const createFileRenderer = (
         instance.render({ fileContainer, file });
       },
       setThemeType: (t) => instance?.setThemeType(t),
-      setSelectedLines: (range) => instance?.setSelectedLines(range),
+      selectAndReveal: (range) => {
+        instance?.setSelectedLines(range);
+        if (range) {
+          scrollSelectedLineIntoView(container, range, () =>
+            instance?.setSelectedLines(range),
+          );
+        }
+      },
       cleanUp: () => {
         instance?.cleanUp();
         fileContainer?.remove();
@@ -157,7 +164,14 @@ const createFileRenderer = (
   return {
     render: (file) => instance.render({ containerWrapper: container, file }),
     setThemeType: (t) => instance.setThemeType(t),
-    setSelectedLines: (range) => instance.setSelectedLines(range),
+    selectAndReveal: (range) => {
+      instance.setSelectedLines(range);
+      if (range) {
+        scrollSelectedLineIntoView(container, range, () =>
+          instance.setSelectedLines(range),
+        );
+      }
+    },
     cleanUp: () => instance.cleanUp(),
   };
 };
@@ -245,12 +259,7 @@ const FileView: Component<FileViewProps> = (props) => {
     if (!renderer) return;
     const selected = range ?? null;
     try {
-      renderer.setSelectedLines(selected);
-      if (selected) {
-        scrollSelectedLineIntoView(container, selected, () =>
-          renderer?.setSelectedLines(selected),
-        );
-      }
+      renderer.selectAndReveal(selected);
     } catch (e) {
       props.onError(toError(e));
     }
