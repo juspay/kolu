@@ -34,6 +34,15 @@ import {
 import { toError } from "./toError";
 import { useVirtualizer } from "./Virtualizer";
 
+/** Initial line range to push into Pierre's selection state — used by
+ *  callers that open the file *at* a specific line range (e.g. a
+ *  terminal `path:line` click in kolu). The `key` field disambiguates
+ *  two consecutive requests with identical `start`/`end` so a repeat
+ *  click re-applies the highlight + scroll. */
+export type SelectedLineRangeWithKey = SelectedLineRange & {
+  key: number | string;
+};
+
 export type FileViewProps = {
   /** Display name (drives language inference for syntax highlighting). */
   name: string;
@@ -49,6 +58,9 @@ export type FileViewProps = {
   /** Fires on every selection commit (single-line click or drag end);
    *  `null` on deselect. */
   onLineSelected?: (range: SelectedLineRange | null) => void;
+  /** When set, push this range into Pierre's selection on mount and
+   *  whenever the `key` ticks; also scroll the line into view. */
+  selectedRange?: SelectedLineRangeWithKey | null;
   /** Surface construction and render throws. Required because silent
    *  failures here produce a blank pane indistinguishable from "loading". */
   onError: (err: Error) => void;
@@ -67,6 +79,11 @@ export type FileViewProps = {
 type FileRenderer = {
   render(file: FileContents): void;
   setThemeType(theme: "light" | "dark"): void;
+  setSelectedLines(range: SelectedLineRange | null): void;
+  /** Best-effort: find the line element by its `data-line-index` and
+   *  scroll it into view. No-op when the element isn't in the DOM yet
+   *  (virtualized files only render a windowed range). */
+  scrollToLine(lineNumber: number): void;
   cleanUp(): void;
 };
 
@@ -138,6 +155,19 @@ const createFileRenderer = (
         instance.render({ fileContainer, file });
       },
       setThemeType: (t) => instance?.setThemeType(t),
+      setSelectedLines: (range) => instance?.setSelectedLines(range),
+      scrollToLine: (lineNumber) => {
+        // Pierre's virtualized renderer parents the file content in a
+        // shadow root attached to the `<diffs-container>` custom
+        // element. Out-of-viewport lines aren't in the shadow DOM
+        // until the user scrolls there, so a query miss is expected
+        // for deep references on long files.
+        const root = fileContainer?.shadowRoot;
+        const el = root?.querySelector(`[data-line-index="${lineNumber - 1}"]`);
+        if (el instanceof HTMLElement) {
+          el.scrollIntoView({ block: "center" });
+        }
+      },
       cleanUp: () => {
         instance?.cleanUp();
         fileContainer?.remove();
@@ -152,6 +182,15 @@ const createFileRenderer = (
   return {
     render: (file) => instance.render({ containerWrapper: container, file }),
     setThemeType: (t) => instance.setThemeType(t),
+    setSelectedLines: (range) => instance.setSelectedLines(range),
+    scrollToLine: (lineNumber) => {
+      const el = container.querySelector(
+        `[data-line-index="${lineNumber - 1}"]`,
+      );
+      if (el instanceof HTMLElement) {
+        el.scrollIntoView({ block: "center" });
+      }
+    },
     cleanUp: () => instance.cleanUp(),
   };
 };
@@ -179,10 +218,30 @@ const FileView: Component<FileViewProps> = (props) => {
     },
   );
 
+  const applySelection = () => {
+    if (!renderer) return;
+    const r = props.selectedRange ?? null;
+    try {
+      renderer.setSelectedLines(r);
+      if (r) {
+        // One frame deferral so Pierre's render has actually committed
+        // the gutter/content DOM that `scrollToLine` queries against.
+        requestAnimationFrame(() => renderer?.scrollToLine(r.start));
+      }
+    } catch (e) {
+      props.onError(toError(e));
+    }
+  };
+
   const safeRender = (file: FileContents) => {
     if (!renderer) return;
     try {
       renderer.render(file);
+      // The virtualized renderer rebuilds its Pierre instance on
+      // every content swap — Pierre's prior selection state lives on
+      // the discarded instance, so we re-push the consumer-driven
+      // range onto the fresh one.
+      applySelection();
     } catch (e) {
       props.onError(toError(e));
     }
@@ -208,6 +267,19 @@ const FileView: Component<FileViewProps> = (props) => {
   });
 
   createEffect(on(fileContents, (file) => safeRender(file), { defer: true }));
+
+  // Re-apply selection when only the request key changes (same file,
+  // user clicked another `path:line` in the terminal). The
+  // content-change path already calls `applySelection` from inside
+  // `safeRender`, so we don't fire on those ticks. Track `null` too
+  // so transitioning to "no range" clears Pierre's prior selection.
+  createEffect(
+    on(
+      () => props.selectedRange?.key ?? null,
+      () => applySelection(),
+      { defer: true },
+    ),
+  );
 
   createEffect(
     on(

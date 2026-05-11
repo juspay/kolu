@@ -40,12 +40,16 @@ import { streamCall } from "@kolu/surface/solid";
 import { client } from "../wire";
 import { isExpectedCleanupError } from "../rpc/streamCleanup";
 import { createScrollLock } from "../scrollLock";
+import { requestCodeOpen } from "../right-panel/codeNavigation";
+import { useRightPanel } from "../right-panel/useRightPanel";
 import { preferences } from "../wire";
 import { isTouch } from "../useMobile";
+import { createFileRefLinkProvider } from "./fileRefLinkProvider";
 import ScrollToBottom from "./ScrollToBottom";
 import SearchBar from "./SearchBar";
 import { registerTerminalRefs, unregisterTerminalRefs } from "./terminalRefs";
 import { registerDiagnostics } from "./useTerminalDiagnostics";
+import { useTerminalStore } from "./useTerminalStore";
 import {
   trackCreate,
   trackDispose,
@@ -156,6 +160,8 @@ const Terminal: Component<{
   let fitAddon: FitAddon | null = null;
   const [searchAddon, setSearchAddon] = createSignal<SearchAddon | null>(null);
   const scrollLock = createScrollLock(() => preferences().scrollLock);
+  const terminalStore = useTerminalStore();
+  const rightPanel = useRightPanel();
   let fitRaf = 0;
 
   /** Debounce fit() to one call per animation frame — ResizeObserver fires rapidly. */
@@ -451,6 +457,29 @@ const Terminal: Component<{
           fitAddon = new FitAddon();
           term.loadAddon(fitAddon);
           term.loadAddon(new WebLinksAddon());
+          // Linkify `path:line[:col][-end]` references in terminal
+          // output (#861). The link provider needs the terminal's
+          // live repoRoot — read it via the terminal store on click,
+          // not at mount, so a terminal's cwd-switch updates which
+          // repo a given click resolves against.
+          term.registerLinkProvider(
+            createFileRefLinkProvider(term, {
+              onActivate: (ref) => {
+                const repoRoot =
+                  terminalStore.getMetadata(props.terminalId)?.git?.repoRoot ??
+                  null;
+                if (!repoRoot) return;
+                rightPanel.expandPanel();
+                rightPanel.showCode("browse");
+                requestCodeOpen({
+                  repoRoot,
+                  rawPath: ref.path,
+                  startLine: ref.startLine,
+                  endLine: ref.endLine,
+                });
+              },
+            }),
+          );
           const search = new SearchAddon();
           term.loadAddon(search);
           setSearchAddon(search);

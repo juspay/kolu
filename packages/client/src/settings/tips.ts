@@ -91,4 +91,8 @@ export const AMBIENT_TIPS: readonly Tip[] = [
     id: "amb-pwa-install",
     text: "Install kolu as a native app from your browser menu — unlocks ⌘T, ⌃Tab and friends",
   },
+  {
+    id: "amb-file-ref-link",
+    text: "Click a `packages/foo/bar.ts:42` path in any terminal to open it in the right panel at that line",
+  },
 ];

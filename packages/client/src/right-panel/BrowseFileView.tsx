@@ -5,7 +5,11 @@
  *  the snapshot via `reconcile` (inside `useStream`'s underlying primitive)
  *  avoids stomping scroll position on no-op ticks. */
 
-import { FileView, Virtualizer } from "@kolu/solid-pierre";
+import {
+  FileView,
+  type SelectedLineRangeWithKey,
+  Virtualizer,
+} from "@kolu/solid-pierre";
 import { type Component, Match, Show, Switch } from "solid-js";
 import { toast } from "solid-sonner";
 import { pierreDiffsStyle } from "../ui/pierreTheme";
@@ -16,6 +20,11 @@ export type BrowseFileViewProps = {
   repoPath: string;
   filePath: string;
   theme: "light" | "dark";
+  /** Initial line range to highlight (and scroll to). Set when the
+   *  user opened this file via a terminal file-ref click; the `key`
+   *  ensures re-clicks on the same `path:line` re-apply the highlight
+   *  even when start/end happen to be identical to the prior call. */
+  selectedRange?: SelectedLineRangeWithKey | null;
 };
 
 const BrowseFileView: Component<BrowseFileViewProps> = (props) => {
@@ -58,6 +67,7 @@ const BrowseFileView: Component<BrowseFileViewProps> = (props) => {
                     overflow="wrap"
                     enableLineSelection
                     onLineSelected={selection.handleSelect}
+                    selectedRange={props.selectedRange ?? null}
                     onError={(err) =>
                       toast.error(`File render failed: ${err.message}`)
                     }

@@ -40,6 +40,7 @@ import {
   pierreTreesStyle,
 } from "../ui/pierreTheme";
 import BrowseFileView from "./BrowseFileView";
+import { pendingCodeOpen } from "./codeNavigation";
 import CodeMenuFrame from "./CodeMenuFrame";
 import { projectFileTreeSearch } from "./fileSearch";
 import FileSearchInput from "./FileSearchInput";
@@ -69,10 +70,34 @@ const BinaryFileHint: Component<{ fileName: string | null }> = (props) => (
   </div>
 );
 
+/** Resolve a terminal-supplied path against the terminal's git root.
+ *  Absolute paths must live beneath `repoRoot`; relative paths are
+ *  returned as-is. Returns `null` when the absolute path is outside
+ *  the repo (Pierre's tree wouldn't know about it). */
+function resolveRepoRelative(rawPath: string, repoRoot: string): string | null {
+  if (!rawPath.startsWith("/")) return rawPath;
+  const prefix = repoRoot.endsWith("/") ? repoRoot : `${repoRoot}/`;
+  if (rawPath === repoRoot) return null;
+  if (rawPath.startsWith(prefix)) return rawPath.slice(prefix.length);
+  return null;
+}
+
 const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
   const { themeTypeLiteral: diffTheme } = useColorScheme();
   const rightPanel = useRightPanel();
   const [selectedPath, setSelectedPath] = createSignal<string | null>(null);
+  /** Externally-supplied initial line range — set when a terminal
+   *  file-ref click opens this file; ignored when the user later
+   *  selects a different file in the tree. Tracking `path` here lets
+   *  the range stay attached to the file it was meant for rather than
+   *  bleeding onto the next selection. The token survives re-clicks
+   *  with identical start/end (signals would otherwise dedupe). */
+  const [pendingRange, setPendingRange] = createSignal<{
+    path: string;
+    start: number;
+    end: number;
+    token: number;
+  } | null>(null);
 
   // Read `codeMode` directly rather than projecting it from `activeTab`.
   // CodeTab now stays mounted across the Inspector tab toggle (#818); a
@@ -180,6 +205,39 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
       () => {
         setSelectedPath(null);
         setSearchQuery("");
+        setPendingRange(null);
+      },
+      { defer: true },
+    ),
+  );
+
+  // Honor terminal file-ref clicks (#861). The request lands on a
+  // module-level signal so a CanvasTile's terminal can talk to the
+  // right-panel without prop drilling. We react only when the request
+  // names *this* tab's repo — a tile-switch can still happen between
+  // click and effect tick, so resolving here (against `repoPath()` at
+  // the time the effect runs) is what keeps the click from leaking
+  // into the wrong worktree.
+  createEffect(
+    on(
+      pendingCodeOpen,
+      (req) => {
+        if (!req) return;
+        const repo = repoPath();
+        if (repo === null || repo !== req.repoRoot) return;
+        const rel = resolveRepoRelative(req.rawPath, repo);
+        if (rel === null || rel === "") return;
+        // `showCode("browse")` already ran on the terminal side, but
+        // the user could have flipped to diff mode between the click
+        // and this tick — force browse so the file actually renders.
+        if (view() !== "browse") rightPanel.showCode("browse");
+        setSelectedPath(rel);
+        setPendingRange({
+          path: rel,
+          start: req.startLine,
+          end: req.endLine,
+          token: req.token,
+        });
       },
       { defer: true },
     ),
@@ -232,7 +290,13 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
     // ignore null and only honor explicit non-null selections. Keeping
     // the previous signal value through Pierre's internal churn lets the
     // selected file survive right-panel tab toggles (#818).
-    if (path !== null) setSelectedPath(path);
+    if (path === null) return;
+    // User navigated away from the file a terminal file-ref click
+    // had armed — drop the pending range so the highlight doesn't
+    // resurrect if they navigate back later.
+    const r = pendingRange();
+    if (r && r.path !== path) setPendingRange(null);
+    setSelectedPath(path);
   };
 
   const treeError = (): Error | undefined =>
@@ -468,6 +532,15 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
                         repoPath={repo}
                         filePath={path}
                         theme={diffTheme()}
+                        // Only forward the pending range when it
+                        // targets *this* file — a stale range left
+                        // from clicking foo.ts:5 would otherwise
+                        // re-highlight line 5 inside bar.ts.
+                        selectedRange={(() => {
+                          const r = pendingRange();
+                          if (!r || r.path !== path) return null;
+                          return { start: r.start, end: r.end, key: r.token };
+                        })()}
                       />
                     );
                   })()}

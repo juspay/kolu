@@ -8,7 +8,7 @@ export type { FileTreeProps } from "./FileTree";
 export { FileDiff } from "./FileDiff";
 export type { FileDiffProps } from "./FileDiff";
 export { FileView } from "./FileView";
-export type { FileViewProps } from "./FileView";
+export type { FileViewProps, SelectedLineRangeWithKey } from "./FileView";
 export { Virtualizer, useVirtualizer } from "./Virtualizer";
 export type { VirtualizerProps } from "./Virtualizer";
 
