@@ -40,10 +40,3 @@ export function requestCodeOpen(
   setPending(full);
   return full;
 }
-
-/** Reset for tests. Production callers don't need this — latest
- *  request wins by token. */
-export function _resetCodeOpenForTests(): void {
-  setPending(null);
-  nextToken = 1;
-}
