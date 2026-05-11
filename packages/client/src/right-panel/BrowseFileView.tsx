@@ -7,7 +7,7 @@
 
 import {
   FileView,
-  type SelectedLineRangeWithKey,
+  type SelectedLineRange,
   Virtualizer,
 } from "@kolu/solid-pierre";
 import { type Component, Match, Show, Switch } from "solid-js";
@@ -23,8 +23,10 @@ export type BrowseFileViewProps = {
   /** Initial line range to highlight (and scroll to). Set when the
    *  user opened this file via a terminal file-ref click; the `key`
    *  ensures re-clicks on the same `path:line` re-apply the highlight
-   *  even when start/end happen to be identical to the prior call. */
-  selectedRange?: SelectedLineRangeWithKey | null;
+   *  even when start/end happen to be identical to the prior call.
+   *  Kolu-specific identity-courier; `@kolu/solid-pierre` itself
+   *  doesn't model the dedup concern. */
+  selectedRange?: (SelectedLineRange & { key: number }) | null;
 };
 
 const BrowseFileView: Component<BrowseFileViewProps> = (props) => {

@@ -34,15 +34,6 @@ import {
 import { toError } from "./toError";
 import { useVirtualizer } from "./Virtualizer";
 
-/** Initial line range to push into Pierre's selection state — used by
- *  callers that open the file *at* a specific line range (e.g. a
- *  terminal `path:line` click in kolu). The `key` field disambiguates
- *  two consecutive requests with identical `start`/`end` so a repeat
- *  click re-applies the highlight + scroll. */
-export type SelectedLineRangeWithKey = SelectedLineRange & {
-  key: number | string;
-};
-
 export type FileViewProps = {
   /** Display name (drives language inference for syntax highlighting). */
   name: string;
@@ -59,8 +50,11 @@ export type FileViewProps = {
    *  `null` on deselect. */
   onLineSelected?: (range: SelectedLineRange | null) => void;
   /** When set, push this range into Pierre's selection on mount and
-   *  whenever the `key` ticks; also scroll the line into view. */
-  selectedRange?: SelectedLineRangeWithKey | null;
+   *  whenever the `key` ticks; also scroll the line into view. The
+   *  `key` field is a caller-defined identity courier — Pierre treats
+   *  it opaquely; consumers use it to force the apply-on-change effect
+   *  to re-fire when two requests share identical `start`/`end`. */
+  selectedRange?: (SelectedLineRange & { key: number | string }) | null;
   /** Surface construction and render throws. Required because silent
    *  failures here produce a blank pane indistinguishable from "loading". */
   onError: (err: Error) => void;
