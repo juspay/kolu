@@ -56,6 +56,14 @@ Feature: Git context in header and workspace switcher
     And the workspace switcher branch should contain "test-branch"
     And there should be no page errors
 
+  Scenario: Git context updates when .git appears in cwd without an OSC 7 re-emit
+    When I run "rm -rf /tmp/kolu-osc7-less-init && mkdir -p /tmp/kolu-osc7-less-init && cd /tmp/kolu-osc7-less-init"
+    Then the header should not show git context
+    When a git repo is initialized externally in "/tmp/kolu-osc7-less-init"
+    Then the header should show a branch name
+    And the workspace switcher should show a branch name
+    And there should be no page errors
+
   Scenario: Clicking the terminal title branch copies the branch name
     When I run "rm -rf /tmp/kolu-git-copy && git init /tmp/kolu-git-copy && cd /tmp/kolu-git-copy && git checkout -b copy-branch"
     Then the workspace switcher branch should contain "copy-branch"
