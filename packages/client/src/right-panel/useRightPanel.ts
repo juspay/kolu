@@ -42,6 +42,14 @@ export function useRightPanel() {
           ...(mode !== undefined && { codeMode: mode }),
         },
       }),
+    showCodeExpanded: (mode?: CodeTabView) =>
+      updatePreferences({
+        rightPanel: {
+          collapsed: false,
+          activeTab: "code",
+          ...(mode !== undefined && { codeMode: mode }),
+        },
+      }),
     /** Change the sub-mode within the Code tab. */
     setCodeMode: (mode: CodeTabView) =>
       updatePreferences({ rightPanel: { codeMode: mode } }),

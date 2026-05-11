@@ -1,7 +1,7 @@
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import { createSignal } from "solid-js";
 import type { LineRef } from "../ui/lineRef";
-import { updatePreferences } from "../wire";
+import { useRightPanel } from "./useRightPanel";
 
 export type CodeReferenceRequest = {
   id: number;
@@ -24,9 +24,7 @@ export function openCodeReference(input: {
   const repoRoot = input.metadata.git?.repoRoot;
   if (!repoRoot) return false;
 
-  updatePreferences({
-    rightPanel: { collapsed: false, activeTab: "code", codeMode: "browse" },
-  });
+  useRightPanel().showCodeExpanded("browse");
   setRequest({
     id: ++nextRequestId,
     terminalId: input.terminalId,
