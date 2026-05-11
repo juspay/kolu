@@ -44,21 +44,15 @@ export function useLineSelection(
     options.initialRange?.() ?? null,
   );
 
-  // A new file replaces the old selection scope — fall back to the
-  // initial range (if any) so a stale "Copy path:N" menu entry from
-  // the previous file can't surface while still honoring a fresh
-  // navigation request that lands together with the path change.
-  createEffect(
-    on(path, () => setRange(options.initialRange?.() ?? null), {
-      defer: true,
-    }),
-  );
-
-  // External range updates (terminal click bumps the request memo).
+  // Reseed the controller on either trigger — a new file replaces the
+  // selection scope (a stale "Copy path:N" entry must not survive),
+  // and an external request ticks `initialRange` with the new target.
+  // Both seed from the same source, so one effect with a combined
+  // dep tuple suffices.
   createEffect(
     on(
-      () => options.initialRange?.() ?? null,
-      (initial) => setRange(initial),
+      () => [path(), options.initialRange?.() ?? null] as const,
+      ([, initial]) => setRange(initial),
       { defer: true },
     ),
   );
