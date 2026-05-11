@@ -6,8 +6,6 @@
 import type { ILink, ILinkProvider, Terminal } from "@xterm/xterm";
 import { type LineRef, parseLineRefs } from "../ui/lineRef";
 
-export type { LineRef };
-
 export interface FileRefLinkOpts {
   onActivate: (ref: LineRef, event: MouseEvent) => void;
 }
