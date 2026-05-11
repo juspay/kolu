@@ -40,8 +40,7 @@ When(
           | null;
         const term = container?.__xterm;
         if (!term) return null;
-        const providers =
-          term._core?._linkProviderService?.linkProviders ?? [];
+        const providers = term._core?._linkProviderService?.linkProviders ?? [];
         if (providers.length === 0) return null;
         const length = term.buffer.active.length;
         for (let y = 1; y <= length; y++) {
