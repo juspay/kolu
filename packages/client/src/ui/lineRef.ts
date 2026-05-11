@@ -1,18 +1,18 @@
-/** Format a `path:line` (single line) or `path:start-end` (range) reference
- *  the way most editors and code tools accept (VS Code, Vim's `:e file:N`,
- *  GitHub URL fragments, Linear-style snippets). */
+/** Parsed source reference with a path and inclusive one-based line range. */
 export type LineRef = {
   path: string;
   start: number;
   end: number;
 };
 
+/** A `LineRef` plus source-string match metadata for xterm link ranges. */
 export type LineRefMatch = LineRef & {
   text: string;
   startIndex: number;
   endIndex: number;
 };
 
+/** Inputs needed to turn a terminal-visible path into a repo-relative path. */
 export type LineRefPathResolutionInput = {
   rawPath: string;
   repoRoot: string;
@@ -25,6 +25,9 @@ const LINE_REF_RE =
 
 const PATH_CHAR_RE = /[A-Za-z0-9._@+~/-]/;
 
+/** Format a `path:line` (single line) or `path:start-end` (range) reference
+ *  the way most editors and code tools accept (VS Code, Vim's `:e file:N`,
+ *  GitHub URL fragments, Linear-style snippets). */
 export function formatLineRef(
   path: string,
   start: number,
@@ -33,6 +36,7 @@ export function formatLineRef(
   return start === end ? `${path}:${start}` : `${path}:${start}-${end}`;
 }
 
+/** Parse a string that should contain exactly one complete line reference. */
 export function parseLineRef(text: string): LineRef | null {
   const matches = findLineRefs(text.trim());
   if (matches.length !== 1) return null;
@@ -43,6 +47,7 @@ export function parseLineRef(text: string): LineRef | null {
     : null;
 }
 
+/** Find file line references embedded in terminal output. */
 export function findLineRefs(text: string): LineRefMatch[] {
   const refs: LineRefMatch[] = [];
   for (const match of text.matchAll(LINE_REF_RE)) {
@@ -76,6 +81,7 @@ export function findLineRefs(text: string): LineRefMatch[] {
   return refs;
 }
 
+/** Resolve a parsed terminal path against git's repo file list. */
 export function resolveLineRefPath({
   rawPath,
   repoRoot,

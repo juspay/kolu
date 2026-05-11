@@ -1,8 +1,10 @@
 import type { IDisposable, ILink, ILinkProvider, Terminal } from "@xterm/xterm";
 import { findLineRefs, type LineRef } from "../ui/lineRef";
 
+/** Callback invoked when a terminal file-reference link is activated. */
 export type FileReferenceLinkHandler = (ref: LineRef) => void;
 
+/** Register an xterm link provider for repo file references like `src/app.ts:4`. */
 export function registerFileReferenceLinks(
   terminal: Terminal,
   onOpen: FileReferenceLinkHandler,
