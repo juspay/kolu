@@ -158,6 +158,7 @@ const Terminal: Component<{
   let containerRef!: HTMLDivElement;
   let terminal: XTerm | null = null;
   let fitAddon: FitAddon | null = null;
+  let linkProviderDisposable: { dispose(): void } | null = null;
   const [searchAddon, setSearchAddon] = createSignal<SearchAddon | null>(null);
   const scrollLock = createScrollLock(() => preferences().scrollLock);
   const terminalStore = useTerminalStore();
@@ -386,6 +387,8 @@ const Terminal: Component<{
     disposeDiagnostics?.();
     disposeDiagnostics = null;
     unloadWebgl();
+    linkProviderDisposable?.dispose();
+    linkProviderDisposable = null;
     terminal?.dispose();
     terminal = null;
     // Null out the other addon slots on this component's Context. xterm
@@ -462,7 +465,7 @@ const Terminal: Component<{
           // live repoRoot — read it via the terminal store on click,
           // not at mount, so a terminal's cwd-switch updates which
           // repo a given click resolves against.
-          term.registerLinkProvider(
+          linkProviderDisposable = term.registerLinkProvider(
             createFileRefLinkProvider(term, {
               onActivate: (ref) => {
                 const repoRoot =
