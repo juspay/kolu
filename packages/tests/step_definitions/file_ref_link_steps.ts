@@ -21,21 +21,8 @@ When(
               __xterm?: {
                 buffer: { active: { length: number } };
                 _core?: {
-                  linkifier?: {
-                    _linkProviders?: Array<{
-                      provideLinks: (
-                        line: number,
-                        cb: (
-                          links?: Array<{
-                            text: string;
-                            activate: (e: Event, t: string) => void;
-                          }>,
-                        ) => void,
-                      ) => void;
-                    }>;
-                  };
-                  _linkifier?: {
-                    _linkProviders?: Array<{
+                  _linkProviderService?: {
+                    linkProviders?: Array<{
                       provideLinks: (
                         line: number,
                         cb: (
@@ -54,9 +41,7 @@ When(
         const term = container?.__xterm;
         if (!term) return null;
         const providers =
-          term._core?.linkifier?._linkProviders ??
-          term._core?._linkifier?._linkProviders ??
-          [];
+          term._core?._linkProviderService?.linkProviders ?? [];
         if (providers.length === 0) return null;
         const length = term.buffer.active.length;
         for (let y = 1; y <= length; y++) {
