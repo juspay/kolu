@@ -80,18 +80,46 @@ type FileRenderer = {
   cleanUp(): void;
 };
 
-/** Find Pierre's row element for `lineNumber` (1-based) inside `root`
- *  and centre-scroll it into view. No-op when the element isn't in
- *  the DOM yet — virtualized files only render a windowed range, so
- *  deep references on long files miss until Pierre catches up. */
+/** Find Pierre's row for `lineNumber` (1-based) inside `root` and
+ *  centre-scroll it into view. When the row isn't in the DOM yet —
+ *  virtualized files only render a windowed range — fall back to
+ *  estimating line height from a rendered sibling and scrolling the
+ *  Virtualizer's scroll container directly, then retry the precise
+ *  scroll on the next frame once Pierre has re-rendered. */
 const scrollToLineIndex = (
   root: ParentNode | null | undefined,
   lineNumber: number,
+  fallback?: HTMLElement,
 ): void => {
-  const el = root?.querySelector(`[data-line-index="${lineNumber - 1}"]`);
-  if (el instanceof HTMLElement) {
-    el.scrollIntoView({ block: "center" });
+  const selector = `[data-line-index="${lineNumber - 1}"]`;
+  const direct = root?.querySelector(selector);
+  if (direct instanceof HTMLElement) {
+    direct.scrollIntoView({ block: "center" });
+    return;
   }
+  if (!fallback) return;
+  // No row in the DOM — estimate scroll target from any rendered row's
+  // height, jump the outer scroller, then refine on the next frame.
+  const scroller = fallback.closest<HTMLElement>(
+    '[data-testid="pierre-virtualizer"]',
+  );
+  if (!scroller) return;
+  const sample = root?.querySelector<HTMLElement>("[data-line-index]");
+  const lineHeight =
+    sample?.getBoundingClientRect().height ||
+    Number.parseFloat(getComputedStyle(scroller).lineHeight) ||
+    Number.parseFloat(getComputedStyle(scroller).fontSize) * 1.4 ||
+    18;
+  scroller.scrollTop = Math.max(
+    0,
+    (lineNumber - 1) * lineHeight - scroller.clientHeight / 2,
+  );
+  requestAnimationFrame(() => {
+    const retry = root?.querySelector(selector);
+    if (retry instanceof HTMLElement) {
+      retry.scrollIntoView({ block: "center" });
+    }
+  });
 };
 
 const createFileRenderer = (
@@ -164,7 +192,11 @@ const createFileRenderer = (
       setThemeType: (t) => instance?.setThemeType(t),
       setSelectedLines: (range) => instance?.setSelectedLines(range),
       scrollToLine: (lineNumber) =>
-        scrollToLineIndex(fileContainer?.shadowRoot, lineNumber),
+        scrollToLineIndex(
+          fileContainer?.shadowRoot,
+          lineNumber,
+          fileContainer ?? undefined,
+        ),
       cleanUp: () => {
         instance?.cleanUp();
         fileContainer?.remove();
@@ -180,7 +212,8 @@ const createFileRenderer = (
     render: (file) => instance.render({ containerWrapper: container, file }),
     setThemeType: (t) => instance.setThemeType(t),
     setSelectedLines: (range) => instance.setSelectedLines(range),
-    scrollToLine: (lineNumber) => scrollToLineIndex(container, lineNumber),
+    scrollToLine: (lineNumber) =>
+      scrollToLineIndex(container, lineNumber, container),
     cleanUp: () => instance.cleanUp(),
   };
 };
