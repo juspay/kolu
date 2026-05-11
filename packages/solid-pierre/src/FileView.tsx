@@ -81,6 +81,20 @@ type FileRenderer = {
   cleanUp(): void;
 };
 
+/** Find Pierre's row element for `lineNumber` (1-based) inside `root`
+ *  and centre-scroll it into view. No-op when the element isn't in
+ *  the DOM yet — virtualized files only render a windowed range, so
+ *  deep references on long files miss until Pierre catches up. */
+const scrollToLineIndex = (
+  root: ParentNode | null | undefined,
+  lineNumber: number,
+): void => {
+  const el = root?.querySelector(`[data-line-index="${lineNumber - 1}"]`);
+  if (el instanceof HTMLElement) {
+    el.scrollIntoView({ block: "center" });
+  }
+};
+
 const createFileRenderer = (
   buildOptions: () => FileOptions<undefined>,
   container: HTMLDivElement,
@@ -150,18 +164,8 @@ const createFileRenderer = (
       },
       setThemeType: (t) => instance?.setThemeType(t),
       setSelectedLines: (range) => instance?.setSelectedLines(range),
-      scrollToLine: (lineNumber) => {
-        // Pierre's virtualized renderer parents the file content in a
-        // shadow root attached to the `<diffs-container>` custom
-        // element. Out-of-viewport lines aren't in the shadow DOM
-        // until the user scrolls there, so a query miss is expected
-        // for deep references on long files.
-        const root = fileContainer?.shadowRoot;
-        const el = root?.querySelector(`[data-line-index="${lineNumber - 1}"]`);
-        if (el instanceof HTMLElement) {
-          el.scrollIntoView({ block: "center" });
-        }
-      },
+      scrollToLine: (lineNumber) =>
+        scrollToLineIndex(fileContainer?.shadowRoot, lineNumber),
       cleanUp: () => {
         instance?.cleanUp();
         fileContainer?.remove();
@@ -177,14 +181,7 @@ const createFileRenderer = (
     render: (file) => instance.render({ containerWrapper: container, file }),
     setThemeType: (t) => instance.setThemeType(t),
     setSelectedLines: (range) => instance.setSelectedLines(range),
-    scrollToLine: (lineNumber) => {
-      const el = container.querySelector(
-        `[data-line-index="${lineNumber - 1}"]`,
-      );
-      if (el instanceof HTMLElement) {
-        el.scrollIntoView({ block: "center" });
-      }
-    },
+    scrollToLine: (lineNumber) => scrollToLineIndex(container, lineNumber),
     cleanUp: () => instance.cleanUp(),
   };
 };
