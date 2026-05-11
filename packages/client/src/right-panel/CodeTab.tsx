@@ -327,7 +327,20 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
     // ignore null and only honor explicit non-null selections. Keeping
     // the previous signal value through Pierre's internal churn lets the
     // selected file survive right-panel tab toggles (#818).
-    if (path !== null) setSelectedPath(path);
+    if (path === null) return;
+    // Tree-click to a different file ends the click-targeted-highlight
+    // session — otherwise navigating back to the originally-targeted
+    // file in the tree would resurrect the line range, surprising the
+    // user who treated their tree click as a fresh intent. Same-file
+    // tree-clicks don't trip this branch (Pierre fires `onSelect(rel)`
+    // after our own programmatic `setSelectedPath(rel)` and the path
+    // equals `handled.resolvedPath` in that case — leaving the highlight
+    // intact for the lifetime of the request).
+    const h = handled();
+    if (h && h.resolvedPath !== null && h.resolvedPath !== path) {
+      setHandled(null);
+    }
+    setSelectedPath(path);
   };
 
   const treeError = (): Error | undefined =>
