@@ -36,6 +36,12 @@ const VirtualizerContext = createContext<VirtualizerClass | undefined>(
   undefined,
 );
 
+/** Package-internal attribute marking Pierre's scroll container. Used
+ *  by sibling wrappers (`FileView` scroll-into-view fallback) instead
+ *  of the test-only `data-testid`, which is testing vocabulary and
+ *  shouldn't be a production coupling target. */
+export const VIRTUALIZER_SCROLLER_ATTR = "data-pierre-scroller";
+
 /** Returns the Pierre `Virtualizer` instance for the nearest enclosing
  *  `<Virtualizer>`, or `undefined` if there isn't one. `<FileDiff>` and
  *  `<FileView>` use this internally to switch on virtualization; host
@@ -112,6 +118,7 @@ export const Virtualizer: Component<VirtualizerProps> = (props) => {
         class={props.class}
         style={props.style}
         data-testid="pierre-virtualizer"
+        {...{ [VIRTUALIZER_SCROLLER_ATTR]: "" }}
       >
         <div class={props.contentClass} style={props.contentStyle}>
           {props.children}

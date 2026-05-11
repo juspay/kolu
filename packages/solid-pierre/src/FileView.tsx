@@ -32,7 +32,7 @@ import {
   onMount,
 } from "solid-js";
 import { toError } from "./toError";
-import { useVirtualizer } from "./Virtualizer";
+import { useVirtualizer, VIRTUALIZER_SCROLLER_ATTR } from "./Virtualizer";
 
 export type FileViewProps = {
   /** Display name (drives language inference for syntax highlighting). */
@@ -85,11 +85,16 @@ type FileRenderer = {
  *  virtualized files only render a windowed range — fall back to
  *  estimating line height from a rendered sibling and scrolling the
  *  Virtualizer's scroll container directly, then retry the precise
- *  scroll on the next frame once Pierre has re-rendered. */
+ *  scroll on the next frame once Pierre has re-rendered.
+ *
+ *  `virtualizerAnchor` is the file's host element (the `<diffs-container>`
+ *  custom element for virtualized files, or the wrapper div for vanilla);
+ *  the fallback path walks up from it to find the enclosing `<Virtualizer>`
+ *  scroll container via `VIRTUALIZER_SCROLLER_ATTR`. */
 const scrollToLineIndex = (
   root: ParentNode | null | undefined,
   lineNumber: number,
-  fallback?: HTMLElement,
+  virtualizerAnchor?: HTMLElement,
 ): void => {
   const selector = `[data-line-index="${lineNumber - 1}"]`;
   const direct = root?.querySelector(selector);
@@ -97,11 +102,11 @@ const scrollToLineIndex = (
     direct.scrollIntoView({ block: "center" });
     return;
   }
-  if (!fallback) return;
+  if (!virtualizerAnchor) return;
   // No row in the DOM — estimate scroll target from any rendered row's
   // height, jump the outer scroller, then refine on the next frame.
-  const scroller = fallback.closest<HTMLElement>(
-    '[data-testid="pierre-virtualizer"]',
+  const scroller = virtualizerAnchor.closest<HTMLElement>(
+    `[${VIRTUALIZER_SCROLLER_ATTR}]`,
   );
   if (!scroller) return;
   const sample = root?.querySelector<HTMLElement>("[data-line-index]");
