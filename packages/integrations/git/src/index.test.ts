@@ -939,10 +939,10 @@ describe("subscribeGitInfo watcher churn", () => {
     expect(counter.retires).toBe(1);
   });
 
-  // Issue #813: `git init` in the same cwd that a terminal is already
-  // sitting in must propagate to the Code browser and the path pill. The
-  // shell never re-emits OSC 7 (cwd didn't change), so the provider has to
-  // notice on its own — that's what the cwd-entry watcher is for.
+  // `git init` in the cwd a terminal is already sitting in must reach the
+  // Code browser and path pill — but the shell doesn't re-emit OSC 7 when
+  // cwd hasn't changed, so the provider can't rely on `setCwd` to learn
+  // about the new `.git`.
   it("detects `git init` in the current cwd without an OSC 7 setCwd", async () => {
     const dir = path.join(tmpDir, "git-init-osc7-less");
     fs.mkdirSync(dir, { recursive: true });
