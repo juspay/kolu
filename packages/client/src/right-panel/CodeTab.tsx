@@ -75,11 +75,6 @@ const BinaryFileHint: Component<{ fileName: string | null }> = (props) => (
   </div>
 );
 
-type SelectedFile = {
-  path: string;
-  selectedLines?: SelectedLineRange | null;
-};
-
 type PendingCodeRef = {
   id: number;
   ref: LineRef;
@@ -96,15 +91,14 @@ type CodeBrowseTarget = {
 const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
   const { themeTypeLiteral: diffTheme } = useColorScheme();
   const rightPanel = useRightPanel();
-  const [diffSelectedFile, setDiffSelectedFile] =
-    createSignal<SelectedFile | null>(null);
+  const [diffSelectedPath, setDiffSelectedPath] = createSignal<string | null>(
+    null,
+  );
   const [browseTarget, setBrowseTarget] = createSignal<CodeBrowseTarget | null>(
     null,
   );
   const selectedPath = () =>
-    isDiffView()
-      ? (diffSelectedFile()?.path ?? null)
-      : (browseTarget()?.selectedPath ?? null);
+    isDiffView() ? diffSelectedPath() : (browseTarget()?.selectedPath ?? null);
   const selectedLines = () =>
     isDiffView() ? null : (browseTarget()?.selectedLines ?? null);
 
@@ -227,7 +221,7 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
     on(
       resetKey,
       () => {
-        setDiffSelectedFile(null);
+        setDiffSelectedPath(null);
         if (!codeReferenceRequest()) setBrowseTarget(null);
         setSearchQuery("");
       },
@@ -265,7 +259,7 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
       ([path, pathExists]) => {
         if (path && !pathExists) {
           if (isDiffView()) {
-            setDiffSelectedFile(null);
+            setDiffSelectedPath(null);
           } else {
             setBrowseTarget((current) =>
               current
@@ -294,7 +288,7 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
     // selected file survive right-panel tab toggles (#818).
     if (path === null) return;
     if (isDiffView()) {
-      setDiffSelectedFile({ path });
+      setDiffSelectedPath(path);
       return;
     }
     const repo = repoPath();
