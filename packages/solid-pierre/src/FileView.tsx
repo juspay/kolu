@@ -189,6 +189,7 @@ const createFileRenderer = (
 const FileView: Component<FileViewProps> = (props) => {
   let container!: HTMLDivElement;
   let renderer: FileRenderer | undefined;
+  let scrollRaf = 0;
 
   // Captured once at setup; see FileDiff for the rationale.
   const virtualizer = useVirtualizer();
@@ -217,7 +218,12 @@ const FileView: Component<FileViewProps> = (props) => {
       if (r) {
         // One frame deferral so Pierre's render has actually committed
         // the gutter/content DOM that `scrollToLine` queries against.
-        requestAnimationFrame(() => renderer?.scrollToLine(r.start));
+        // Cancel any prior queued frame so rapid click-spam doesn't
+        // stack scrollIntoView calls with stale targets.
+        cancelAnimationFrame(scrollRaf);
+        scrollRaf = requestAnimationFrame(() =>
+          renderer?.scrollToLine(r.start),
+        );
       }
     } catch (e) {
       props.onError(toError(e));
@@ -297,7 +303,10 @@ const FileView: Component<FileViewProps> = (props) => {
     ),
   );
 
-  onCleanup(() => renderer?.cleanUp());
+  onCleanup(() => {
+    cancelAnimationFrame(scrollRaf);
+    renderer?.cleanUp();
+  });
 
   return (
     <div
