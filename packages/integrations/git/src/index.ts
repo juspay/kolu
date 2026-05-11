@@ -18,9 +18,6 @@ export {
 export { err, type GitError, type GitResult, ok } from "./errors.ts";
 // HEAD watcher (refcounted shared singleton)
 export { watchGitHead } from "./head-watcher.ts";
-// cwd-entry watcher — fires on `.git` appearing/disappearing in a cwd
-// (mirror of HEAD watcher for the out-of-repo case).
-export { watchCwdForGitDir } from "./cwd-git-watcher.ts";
 // Index watcher (refcounted shared singleton, axis 3)
 export { watchGitIndex } from "./index-watcher.ts";
 // Reflog watcher (refcounted shared singleton, axis 2)
