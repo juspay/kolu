@@ -9,6 +9,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { Logger } from "kolu-shared";
 import { simpleGit } from "simple-git";
+import { watchCwdForGitDir } from "./cwd-git-watcher.ts";
 import { err, type GitResult, ok } from "./errors.ts";
 import { watchGitHead } from "./head-watcher.ts";
 import type { GitInfo } from "./schemas.ts";
@@ -125,19 +126,21 @@ export function gitInfoEqual(a: GitInfo | null, b: GitInfo | null): boolean {
 
 /**
  * Subscribe to the GitInfo stream for a cwd. Owns the full resolve + watch
- * + re-resolve loop: initial resolve, `.git/HEAD` watcher, debounced re-
- * resolve on HEAD change, dedup via `gitInfoEqual`, and `git init` detection
- * (a same-cwd `setCwd` call on a not-yet-a-repo checks `.git` existence and
- * re-resolves if it appeared since the last resolve).
+ * + re-resolve loop: initial resolve, dedup via `gitInfoEqual`, and the
+ * two watcher modes — `.git/HEAD` while in a repo, the cwd entry watcher
+ * while out, swapping as the resolved state flips. The cwd watcher is what
+ * makes `git init` in the current shell cwd reach the client without an
+ * OSC 7 re-emit (the shell doesn't re-emit because cwd didn't change).
  *
  * `onChange` fires once per actual change — never for a dedup miss. Initial
- * resolve is best-effort: if the cwd isn't a git repo at start, the watcher
- * sits idle (HEAD watch is a no-op on non-git dirs per `watchGitHead`) until
- * `setCwd` tells it to re-check.
+ * resolve is best-effort: if the cwd isn't a git repo at start, the cwd
+ * watcher sits waiting for `.git` to appear; the HEAD watcher takes over
+ * once it does.
  *
  * Callers are the sole source of truth for current GitInfo — never re-read
  * the value elsewhere to drive control flow. The returned handle's `stop()`
- * tears down the HEAD watcher; `setCwd(next)` swaps the watched directory.
+ * tears down whichever watcher is active; `setCwd(next)` swaps the watched
+ * directory.
  */
 export function subscribeGitInfo(
   initialCwd: string,
@@ -146,10 +149,43 @@ export function subscribeGitInfo(
 ): { setCwd(next: string): void; stop(): void } {
   let currentCwd = initialCwd;
   let currentInfo: GitInfo | null = null;
-  let stopHead = watchGitHead(currentCwd, handleHeadChange, log);
+  // Exactly one of these is non-null at any time. Head fires on .git/HEAD
+  // changes (in-repo case); cwd fires on the `.git` entry itself appearing
+  // or disappearing in cwd (out-of-repo case).
+  let stopHead: (() => void) | null = null;
+  let stopCwd: (() => void) | null = null;
 
-  function handleHeadChange(): void {
+  function handleWatcherEvent(): void {
     void resolve();
+  }
+
+  function ensureHeadWatcher(): void {
+    if (stopHead) return;
+    if (stopCwd) {
+      stopCwd();
+      stopCwd = null;
+    }
+    stopHead = watchGitHead(currentCwd, handleWatcherEvent, log);
+  }
+
+  function ensureCwdWatcher(): void {
+    if (stopCwd) return;
+    if (stopHead) {
+      stopHead();
+      stopHead = null;
+    }
+    stopCwd = watchCwdForGitDir(currentCwd, handleWatcherEvent, log);
+  }
+
+  function tearDownWatchers(): void {
+    if (stopHead) {
+      stopHead();
+      stopHead = null;
+    }
+    if (stopCwd) {
+      stopCwd();
+      stopCwd = null;
+    }
   }
 
   async function resolve(): Promise<void> {
@@ -161,36 +197,39 @@ export function subscribeGitInfo(
         "git resolution failed",
       );
     }
+    // Watchers track the resolved state. Idempotent: a no-op when the right
+    // one is already running.
+    if (next !== null) ensureHeadWatcher();
+    else ensureCwdWatcher();
     if (gitInfoEqual(next, currentInfo)) return;
     currentInfo = next;
     onChange(next);
   }
 
-  // Initial resolve — covers repos that exist at subscribe time.
+  // Sync best-effort install before first resolve so a `.git` appearing
+  // during the resolve window can't slip past.
+  if (hasGitDir(currentCwd)) ensureHeadWatcher();
+  else ensureCwdWatcher();
   void resolve();
 
   return {
     setCwd(next: string): void {
       if (next === currentCwd) {
-        // Same cwd — only act if the repo state might have changed from
-        // outside. Today that's exactly one case: we thought this dir wasn't
-        // a repo and `.git` has since appeared (e.g. `git init`). The
-        // existing `stopHead` is a no-op (install failed for a non-git dir),
-        // so re-install here so the new repo's HEAD changes propagate.
-        if (currentInfo === null && hasGitDir(next)) {
-          stopHead();
-          stopHead = watchGitHead(next, handleHeadChange, log);
-          void resolve();
-        }
+        // Same cwd — the cwd watcher catches `.git` appearing. This is a
+        // belt-and-braces re-resolve for platforms or filesystems where the
+        // watcher might miss the event (e.g. polling fallback under a
+        // bind-mounted container fs).
+        if (currentInfo === null && hasGitDir(next)) void resolve();
         return;
       }
       currentCwd = next;
-      stopHead();
-      stopHead = watchGitHead(next, handleHeadChange, log);
+      tearDownWatchers();
+      if (hasGitDir(next)) ensureHeadWatcher();
+      else ensureCwdWatcher();
       void resolve();
     },
     stop(): void {
-      stopHead();
+      tearDownWatchers();
     },
   };
 }
