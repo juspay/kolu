@@ -152,10 +152,8 @@ export function subscribeGitInfo(
 ): { setCwd(next: string): void; stop(): void } {
   let currentCwd = initialCwd;
   let currentInfo: GitInfo | null = null;
-  // The head watcher fires on `.git/HEAD` changes (in-repo case); the cwd
-  // watcher fires on the `.git` entry itself appearing or disappearing
-  // (out-of-repo case). The two are mutually exclusive — `WatcherSlot`
-  // makes "neither" and "both" unrepresentable.
+  // Head mode watches `.git/HEAD` (in-repo); cwd mode watches the parent
+  // for `.git` appearing (out-of-repo). The two are mutually exclusive.
   let watcher: WatcherSlot | null = null;
 
   function handleWatcherEvent(): void {
@@ -188,16 +186,14 @@ export function subscribeGitInfo(
         "git resolution failed",
       );
     }
-    // Watchers track the resolved state. Idempotent: a no-op when the right
-    // one is already running.
     ensureMode(next !== null ? "head" : "cwd");
     if (gitInfoEqual(next, currentInfo)) return;
     currentInfo = next;
     onChange(next);
   }
 
-  // Sync best-effort install before first resolve so a `.git` appearing
-  // during the resolve window can't slip past.
+  // Install synchronously so fs events during the first `resolve()` await
+  // aren't dropped on the floor.
   ensureMode(hasGitDir(currentCwd) ? "head" : "cwd");
   void resolve();
 
