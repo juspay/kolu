@@ -265,22 +265,9 @@ const FileView: Component<FileViewProps> = (props) => {
 
   createEffect(on(fileContents, (file) => safeRender(file), { defer: true }));
 
-  // `applySelection` fires from three sites and the split is structural,
-  // not redundant. Each handles a distinct trigger:
-  //
-  //   1. `onMount` (line above)            — initial render
-  //   2. `createEffect on fileContents`     — content live-update (the
-  //      virtualized branch rebuilds its Pierre instance on every
-  //      content swap and that loses prior selection state)
-  //   3. This effect, on `selectedRange.key` — same file, user clicked
-  //      another `path:line`; we need to re-apply even when start/end
-  //      are identical to the prior request, so we key on the dedup
-  //      token rather than the range itself.
-  //
-  // Trigger 2 is wired inside `safeRender` (hidden from this surface);
-  // trigger 1 calls `safeRender` from `onMount`. This effect owns only
-  // trigger 3. Tracking `null` keeps the "no range" transition from
-  // silently leaving Pierre's selection in the previous state.
+  // Re-apply selection when only the request key changes (same file
+  // and content, caller bumped the dedup token). The content-change
+  // path already calls `applySelection` from inside `safeRender`.
   createEffect(
     on(
       () => props.selectedRange?.key ?? null,

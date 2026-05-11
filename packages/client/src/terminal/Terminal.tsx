@@ -461,10 +461,9 @@ const Terminal: Component<{
           term.loadAddon(fitAddon);
           term.loadAddon(new WebLinksAddon());
           // Linkify `path:line[:col][-end]` references in terminal
-          // output (#861). The link provider needs the terminal's
-          // live repoRoot — read it via the terminal store on click,
-          // not at mount, so a terminal's cwd-switch updates which
-          // repo a given click resolves against.
+          // output. The link provider reads repoRoot from the
+          // terminal store at click time (not at mount) so a cwd
+          // change keeps subsequent clicks anchored to the new repo.
           linkProviderDisposable = term.registerLinkProvider(
             createFileRefLinkProvider(term, {
               onActivate: (ref) => {
@@ -472,16 +471,14 @@ const Terminal: Component<{
                   terminalStore.getMetadata(props.terminalId)?.git?.repoRoot ??
                   null;
                 if (!repoRoot) return;
-                // Both writes happen in the same DOM-event tick so
-                // CodeTab's `resetKey` effect (which clears
-                // `selectedPath` on view change) and the
-                // `pendingCodeOpen` effect (which sets it) both see
-                // the same final state and run in registration order
-                // — resetKey first, then pendingCodeOpen — leaving
-                // `selectedPath = rel`. Moving `openCodeBrowser`
-                // *inside* CodeTab's effect would lose this race: the
-                // view-change-induced resetKey would fire AFTER my
-                // setSelectedPath and null it.
+                // Issue both writes in the same DOM-event tick: the
+                // panel-mode change and the click request invalidate
+                // CodeTab's `resetKey` and `pendingCodeOpen` effects
+                // together, and Solid runs them in registration order
+                // (resetKey clears, then pendingCodeOpen sets), so
+                // `selectedPath` lands on the click's target. Moving
+                // `openCodeBrowser` inside CodeTab's effect would
+                // invert that ordering and null the path.
                 rightPanel.openCodeBrowser();
                 requestCodeOpen({
                   repoRoot,

@@ -20,12 +20,9 @@ export type BrowseFileViewProps = {
   repoPath: string;
   filePath: string;
   theme: "light" | "dark";
-  /** Initial line range to highlight (and scroll to). Set when the
-   *  user opened this file via a terminal file-ref click; the `key`
-   *  ensures re-clicks on the same `path:line` re-apply the highlight
-   *  even when start/end happen to be identical to the prior call.
-   *  Kolu-specific identity-courier; `@kolu/solid-pierre` itself
-   *  doesn't model the dedup concern. */
+  /** Initial line range to highlight (and scroll to). The `key`
+   *  field forces re-application when consecutive requests share the
+   *  same `start`/`end` — Solid would otherwise dedupe by value. */
   selectedRange?: (SelectedLineRange & { key: number }) | null;
 };
 

@@ -198,9 +198,7 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
     ),
   );
 
-  // Honor terminal file-ref clicks (#861). The request lands on a
-  // module-level signal so a CanvasTile's terminal can talk to the
-  // right-panel without prop drilling. We react only when the request
+  // Honor terminal file-ref clicks. We react only when the request
   // names *this* tab's repo — a tile-switch can still happen between
   // click and effect tick, so resolving here (against `repoPath()` at
   // the time the effect runs) is what keeps the click from leaking
@@ -226,8 +224,7 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
   // Derive the highlight range straight from the request. The memo
   // returns non-null only when the request still names the file
   // currently rendered — `selectedPath` changing (user tree-click,
-  // resetKey clear) auto-invalidates this without a hand-rolled
-  // `pendingRange` mirror + three clearing sites (hickey F1).
+  // resetKey clear) auto-invalidates it.
   const selectedRange = createMemo<{
     start: number;
     end: number;

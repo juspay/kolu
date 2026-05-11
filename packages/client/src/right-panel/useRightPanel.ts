@@ -44,8 +44,8 @@ export function useRightPanel() {
       }),
     /** Atomic "open the code browser at this file" — uncollapse the
      *  panel, switch to Code, force browse mode. Single patch so the
-     *  UI ticks once instead of three times when callers (terminal
-     *  file-ref clicks, #861) need all three transitions together. */
+     *  UI ticks once instead of three times when callers need all
+     *  three transitions together. */
     openCodeBrowser: () =>
       updatePreferences({
         rightPanel: {

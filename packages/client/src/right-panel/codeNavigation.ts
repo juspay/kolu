@@ -2,12 +2,7 @@
  *
  *  Terminal link-click handlers (and any future caller that needs to
  *  open a file from outside the right panel) publish a request here;
- *  `CodeTab` observes the signal and reacts — switches to browse mode,
- *  sets `selectedPath`, and forwards the line range to the file view.
- *
- *  The signal is a SolidJS `createSignal` at module scope (no
- *  `createRoot` needed — the value is a plain immutable record, and
- *  the subscribers live inside component owners). Latest request wins;
+ *  `CodeTab` observes the signal and reacts. Latest request wins;
  *  callers don't need to clear it. */
 
 import { createSignal } from "solid-js";
