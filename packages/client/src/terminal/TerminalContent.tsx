@@ -8,6 +8,7 @@ import Resizable from "@corvu/resizable";
 import type { ITheme } from "@xterm/xterm";
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import { type Component, For, Show } from "solid-js";
+import type { LineRef } from "../ui/lineRef";
 import SubPanelTabBar from "./SubPanelTabBar";
 import Terminal from "./Terminal";
 import { useSubPanel } from "./useSubPanel";
@@ -32,6 +33,7 @@ const TerminalContent: Component<{
   /** Called when user focuses any terminal in this pane (click, keyboard).
    *  Canvas mode uses this to set the active tile. */
   onFocus?: () => void;
+  onOpenCodeReference?: (terminalId: TerminalId, ref: LineRef) => void;
 }> = (props) => {
   const subPanel = useSubPanel();
 
@@ -89,6 +91,7 @@ const TerminalContent: Component<{
           searchOpen={props.searchOpen}
           onSearchOpenChange={props.onSearchOpenChange}
           onFocus={handleMainFocus}
+          onOpenCodeReference={props.onOpenCodeReference}
         />
       </Resizable.Panel>
 
@@ -141,6 +144,7 @@ const TerminalContent: Component<{
                 searchOpen={false}
                 onSearchOpenChange={() => {}}
                 onFocus={handleSubFocus}
+                onOpenCodeReference={props.onOpenCodeReference}
                 isSub
               />
             )}

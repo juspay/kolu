@@ -17,6 +17,7 @@ import type { CodeContextMenuItem } from "./CodeContextMenu";
 import { formatLineRef } from "./lineRef";
 
 export type LineSelection = {
+  range: Accessor<SelectedLineRange | null>;
   /** Bind to Pierre's `onLineSelected` — the renderer fires this on every
    *  selection commit (single-line click or drag end). */
   handleSelect: (range: SelectedLineRange | null) => void;
@@ -25,20 +26,42 @@ export type LineSelection = {
   buildItems: () => CodeContextMenuItem[];
 };
 
-export function useLineSelection(path: Accessor<string>): LineSelection {
+export type LineSelectionOptions = {
+  range?: Accessor<SelectedLineRange | null | undefined>;
+  onRangeChange?: (range: SelectedLineRange | null) => void;
+};
+
+export function useLineSelection(
+  path: Accessor<string>,
+  options: LineSelectionOptions = {},
+): LineSelection {
   const [range, setRange] = createSignal<SelectedLineRange | null>(null);
+  const currentRange = () => options.range?.() ?? range();
 
   // A new file replaces the old selection scope — drop it so a stale
   // "Copy path:N" menu entry from the previous file can't surface.
-  createEffect(on(path, () => setRange(null), { defer: true }));
+  createEffect(
+    on(
+      path,
+      () => {
+        setRange(null);
+        options.onRangeChange?.(null);
+      },
+      { defer: true },
+    ),
+  );
 
   return {
-    handleSelect: (r) => setRange(r),
+    range: currentRange,
+    handleSelect: (r) => {
+      setRange(r);
+      options.onRangeChange?.(r);
+    },
     buildItems: () => {
       const items: CodeContextMenuItem[] = [
         { label: "Copy path", textToCopy: path() },
       ];
-      const r = range();
+      const r = currentRange();
       if (r) {
         const ref = formatLineRef(path(), r.start, r.end);
         items.push({ label: `Copy ${ref}`, textToCopy: ref });

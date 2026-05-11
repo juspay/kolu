@@ -15,7 +15,7 @@ import { SerializeAddon } from "@xterm/addon-serialize";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
-import { type ITheme, Terminal as XTerm } from "@xterm/xterm";
+import { type IDisposable, type ITheme, Terminal as XTerm } from "@xterm/xterm";
 import {
   type Component,
   createEffect,
@@ -42,8 +42,10 @@ import { isExpectedCleanupError } from "../rpc/streamCleanup";
 import { createScrollLock } from "../scrollLock";
 import { preferences } from "../wire";
 import { isTouch } from "../useMobile";
+import type { LineRef } from "../ui/lineRef";
 import ScrollToBottom from "./ScrollToBottom";
 import SearchBar from "./SearchBar";
+import { registerFileReferenceLinks } from "./fileReferenceLinks";
 import { registerTerminalRefs, unregisterTerminalRefs } from "./terminalRefs";
 import { registerDiagnostics } from "./useTerminalDiagnostics";
 import {
@@ -145,6 +147,8 @@ const Terminal: Component<{
   onSearchOpenChange: (open: boolean) => void;
   /** Fired when the user interacts with this terminal (click/keyboard focus). */
   onFocus?: () => void;
+  /** Fired when terminal output contains a clicked `path:line` reference. */
+  onOpenCodeReference?: (terminalId: TerminalId, ref: LineRef) => void;
   /** When true, this terminal lives in a sub-panel — it owns its own grid
    *  (its container is independent of the main viewport) and stays out of
    *  the viewport signal. Also used for e2e test selectors. */
@@ -171,6 +175,7 @@ const Terminal: Component<{
   let webglCanvas: HTMLCanvasElement | null = null;
   let webglTrackerId: number | null = null;
   let disposeDiagnostics: (() => void) | null = null;
+  let fileReferenceLinks: IDisposable | null = null;
   /** True once this component's reactive owner has been disposed. Set by the
    *  synchronously-registered `onCleanup` below. The async `onMount` body
    *  checks this after each `await` and bails rather than creating xterm /
@@ -379,6 +384,8 @@ const Terminal: Component<{
     unregisterTerminalRefs(props.terminalId);
     disposeDiagnostics?.();
     disposeDiagnostics = null;
+    fileReferenceLinks?.dispose();
+    fileReferenceLinks = null;
     unloadWebgl();
     terminal?.dispose();
     terminal = null;
@@ -451,6 +458,11 @@ const Terminal: Component<{
           fitAddon = new FitAddon();
           term.loadAddon(fitAddon);
           term.loadAddon(new WebLinksAddon());
+          if (props.onOpenCodeReference) {
+            fileReferenceLinks = registerFileReferenceLinks(term, (ref) =>
+              props.onOpenCodeReference?.(props.terminalId, ref),
+            );
+          }
           const search = new SearchAddon();
           term.loadAddon(search);
           setSearchAddon(search);

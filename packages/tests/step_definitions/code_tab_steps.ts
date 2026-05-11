@@ -1,4 +1,5 @@
 import { Given, Then, When } from "@cucumber/cucumber";
+import { ACTIVE_TERMINAL, waitForBufferContains } from "../support/buffer.ts";
 import { pollFor } from "../support/poll.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
@@ -144,6 +145,81 @@ async function rightClickViewRoot(world: KoluWorld, root: string) {
   await view.click({ button: "right" });
   await world.waitForFrame();
 }
+
+type TerminalRefPoint = { x: number; y: number } | null;
+
+async function findTerminalRefPoint(
+  world: KoluWorld,
+  ref: string,
+): Promise<TerminalRefPoint> {
+  return world.page.evaluate(
+    ({ sel, refText }) => {
+      type BufferLine = { translateToString(trimRight?: boolean): string };
+      type XtermForClick = {
+        cols: number;
+        rows: number;
+        buffer: {
+          active: {
+            viewportY: number;
+            getLine(index: number): BufferLine | undefined;
+          };
+        };
+        _core?: {
+          _renderService?: {
+            dimensions?: { css?: { cell?: { width: number; height: number } } };
+          };
+        };
+      };
+      const container = document.querySelector(sel) as
+        | (HTMLElement & { __xterm?: XtermForClick })
+        | null;
+      const term = container?.__xterm;
+      const screen = container?.querySelector(".xterm-screen");
+      if (!container || !term || !screen) return null;
+
+      const { active } = term.buffer;
+      const viewportTop = active.viewportY;
+      for (let row = viewportTop; row < viewportTop + term.rows; row++) {
+        const line = active.getLine(row)?.translateToString(true) ?? "";
+        const col = line.indexOf(refText);
+        if (col < 0) continue;
+
+        const rect = screen.getBoundingClientRect();
+        const cell = term._core?._renderService?.dimensions?.css?.cell;
+        const cellWidth = cell?.width ?? rect.width / term.cols;
+        const cellHeight = cell?.height ?? rect.height / term.rows;
+        return {
+          x: rect.left + (col + 0.5) * cellWidth,
+          y: rect.top + (row - viewportTop + 0.5) * cellHeight,
+        };
+      }
+      return null;
+    },
+    { sel: ACTIVE_TERMINAL, refText: ref },
+  );
+}
+
+When(
+  "I click the terminal file reference {string}",
+  async function (this: KoluWorld, ref: string) {
+    await waitForBufferContains(this.page, ref);
+    const point = await pollFor({
+      observe: () => findTerminalRefPoint(this, ref),
+      isDone: (p) => p !== null,
+      onTimeout: (last, ms) =>
+        new Error(
+          `terminal reference ${ref} had no clickable point after ${ms}ms (last=${JSON.stringify(last)})`,
+        ),
+      timeoutMs: POLL_TIMEOUT,
+      intervalMs: 50,
+    });
+    if (point === null) throw new Error("unreachable: missing ref point");
+    await this.page.mouse.move(point.x, point.y);
+    await this.waitForFrame();
+    await this.page.mouse.click(point.x, point.y);
+    await this.waitForFrame();
+  },
+);
 
 When(
   "I click the line number {int} in the file content",
@@ -387,6 +463,42 @@ Then(
   "the file content should contain {string}",
   async function (this: KoluWorld, expected: string) {
     await waitForViewText(this, "pierre-file-view", expected);
+  },
+);
+
+Then(
+  "line {int} in the file content should be selected",
+  async function (this: KoluWorld, line: number) {
+    await this.page.waitForFunction(
+      (lineNumber) => {
+        const root = document.querySelector('[data-testid="pierre-file-view"]');
+        if (!root) return false;
+        const stack: Node[] = [root];
+        while (stack.length) {
+          const node = stack.pop();
+          if (!node || node.nodeType !== 1) continue;
+          const el = node as Element;
+          const shadow = (el as HTMLElement).shadowRoot;
+          if (shadow) for (const ch of shadow.childNodes) stack.push(ch);
+          for (const ch of el.childNodes) stack.push(ch);
+
+          if (el.getAttribute("data-column-number") !== String(lineNumber)) {
+            continue;
+          }
+          let parent: Element | null = el;
+          for (let depth = 0; parent && depth < 4; depth++) {
+            if (parent.hasAttribute("data-selected-line")) return true;
+            parent = parent.parentElement;
+          }
+          if (el.parentElement?.querySelector("[data-selected-line]")) {
+            return true;
+          }
+        }
+        return false;
+      },
+      line,
+      { timeout: POLL_TIMEOUT },
+    );
   },
 );
 

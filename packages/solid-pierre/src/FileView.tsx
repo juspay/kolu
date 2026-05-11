@@ -49,6 +49,9 @@ export type FileViewProps = {
   /** Fires on every selection commit (single-line click or drag end);
    *  `null` on deselect. */
   onLineSelected?: (range: SelectedLineRange | null) => void;
+  /** Programmatically selected line/range. Used by callers that open a
+   *  `path:line` reference directly rather than via gutter interaction. */
+  selectedLines?: SelectedLineRange | null;
   /** Surface construction and render throws. Required because silent
    *  failures here produce a blank pane indistinguishable from "loading". */
   onError: (err: Error) => void;
@@ -67,6 +70,7 @@ export type FileViewProps = {
 type FileRenderer = {
   render(file: FileContents): void;
   setThemeType(theme: "light" | "dark"): void;
+  setSelectedLines(range: SelectedLineRange | null): void;
   cleanUp(): void;
 };
 
@@ -138,6 +142,7 @@ const createFileRenderer = (
         instance.render({ fileContainer, file });
       },
       setThemeType: (t) => instance?.setThemeType(t),
+      setSelectedLines: (range) => instance?.setSelectedLines(range),
       cleanUp: () => {
         instance?.cleanUp();
         fileContainer?.remove();
@@ -152,9 +157,57 @@ const createFileRenderer = (
   return {
     render: (file) => instance.render({ containerWrapper: container, file }),
     setThemeType: (t) => instance.setThemeType(t),
+    setSelectedLines: (range) => instance.setSelectedLines(range),
     cleanUp: () => instance.cleanUp(),
   };
 };
+
+function findDeep(root: ParentNode, selector: string): Element | null {
+  const direct = root.querySelector(selector);
+  if (direct) return direct;
+  const elements = root.querySelectorAll("*");
+  for (const el of elements) {
+    const shadow = (el as HTMLElement).shadowRoot;
+    if (!shadow) continue;
+    const found = findDeep(shadow, selector);
+    if (found) return found;
+  }
+  return null;
+}
+
+function scrollSelectedLineIntoView(
+  container: HTMLElement,
+  range: SelectedLineRange,
+  afterScroll: () => void,
+) {
+  requestAnimationFrame(() => {
+    const selector = `[data-column-number="${range.start}"]`;
+    const existing = findDeep(container, selector);
+    if (existing) {
+      existing.scrollIntoView({ block: "center" });
+      afterScroll();
+      return;
+    }
+
+    const scroller = container.closest(
+      '[data-testid="pierre-virtualizer"]',
+    ) as HTMLElement | null;
+    if (!scroller) return;
+
+    const lineHeight =
+      Number.parseFloat(getComputedStyle(scroller).lineHeight) ||
+      Number.parseFloat(getComputedStyle(scroller).fontSize) * 1.4 ||
+      18;
+    scroller.scrollTop = Math.max(
+      0,
+      (range.start - 1) * lineHeight - scroller.clientHeight / 2,
+    );
+    requestAnimationFrame(() => {
+      afterScroll();
+      findDeep(container, selector)?.scrollIntoView({ block: "center" });
+    });
+  });
+}
 
 const FileView: Component<FileViewProps> = (props) => {
   let container!: HTMLDivElement;
@@ -188,6 +241,21 @@ const FileView: Component<FileViewProps> = (props) => {
     }
   };
 
+  const applySelectedLines = (range: SelectedLineRange | null | undefined) => {
+    if (!renderer) return;
+    const selected = range ?? null;
+    try {
+      renderer.setSelectedLines(selected);
+      if (selected) {
+        scrollSelectedLineIntoView(container, selected, () =>
+          renderer?.setSelectedLines(selected),
+        );
+      }
+    } catch (e) {
+      props.onError(toError(e));
+    }
+  };
+
   // Closed over for the virtualized recreate path so each fresh
   // instance picks up the current `props.theme`.
   const buildOptions = (): FileOptions<undefined> => ({
@@ -202,12 +270,30 @@ const FileView: Component<FileViewProps> = (props) => {
     try {
       renderer = createFileRenderer(buildOptions, container, virtualizer);
       safeRender(fileContents());
+      applySelectedLines(props.selectedLines);
     } catch (e) {
       props.onError(toError(e));
     }
   });
 
-  createEffect(on(fileContents, (file) => safeRender(file), { defer: true }));
+  createEffect(
+    on(
+      fileContents,
+      (file) => {
+        safeRender(file);
+        applySelectedLines(props.selectedLines);
+      },
+      { defer: true },
+    ),
+  );
+
+  createEffect(
+    on(
+      () => props.selectedLines,
+      (range) => applySelectedLines(range),
+      { defer: true },
+    ),
+  );
 
   createEffect(
     on(

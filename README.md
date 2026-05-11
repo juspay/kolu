@@ -34,7 +34,7 @@ Open http://127.0.0.1:7681 (or the address you chose above).
 - Create, switch, and kill terminals — every terminal renders as a draggable tile on the canvas, with a floating workspace switcher for at-a-glance navigation
 - Split terminals — <kbd>Ctrl+&#96;</kbd> splits a bottom pane per terminal; <kbd>Ctrl+Shift+&#96;</kbd> adds tabs, <kbd>Ctrl+PageDown</kbd> / <kbd>Ctrl+PageUp</kbd> cycles
 - Font zoom (<kbd>Cmd/Ctrl</kbd> <kbd>+</kbd>/<kbd>-</kbd>), persisted per terminal across sessions
-- WebGL rendering with canvas fallback, clickable URLs, Unicode 11, inline images (sixel, iTerm2, kitty)
+- WebGL rendering with canvas fallback, clickable URLs and repo file references, Unicode 11, inline images (sixel, iTerm2, kitty)
 - Lazy attach — late-joining clients receive serialized screen state (~4KB) instead of replaying raw buffer
 - Mobile key bar — on coarse-pointer devices, a thin row above the terminal sends the keys soft keyboards lack (<kbd>Esc</kbd>, <kbd>Tab</kbd>, arrows, <kbd>Ctrl+C</kbd>) plus an IME-bypassing <kbd>Enter</kbd> for Android chat keyboards, with a haptic tick on every tap. Touch-swipe inside the terminal scrolls the scrollback buffer
 

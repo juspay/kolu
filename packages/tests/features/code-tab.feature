@@ -237,6 +237,17 @@ Feature: Code tab (review + browse)
     When I click the file "greeting.txt" in the file browser
     Then the file content should contain "hello world"
 
+  Scenario: Terminal file reference opens the file browser at the line
+    When I run "git init /tmp/kolu-terminal-code-ref && cd /tmp/kolu-terminal-code-ref"
+    And I run "mkdir -p src && printf 'alpha\nbeta\ngamma\n' > src/app.ts"
+    And I run "git add . && git commit -m init"
+    And I run "echo src/app.ts:2"
+    When I click the terminal file reference "src/app.ts:2"
+    Then the Code tab should be active
+    And the Code tab mode should be "browse"
+    And the file content should contain "beta"
+    And line 2 in the file content should be selected
+
   Scenario: File browser wraps long lines by default
     When I run "git init /tmp/kolu-browse-wrap && cd /tmp/kolu-browse-wrap"
     And I run "printf 'prefix-' > long.txt && printf '%*s' 240 '' | tr ' ' x >> long.txt && printf '\n' >> long.txt"

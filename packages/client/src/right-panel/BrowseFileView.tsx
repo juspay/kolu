@@ -6,6 +6,7 @@
  *  avoids stomping scroll position on no-op ticks. */
 
 import { FileView, Virtualizer } from "@kolu/solid-pierre";
+import type { SelectedLineRange } from "@pierre/diffs";
 import { type Component, Match, Show, Switch } from "solid-js";
 import { toast } from "solid-sonner";
 import { pierreDiffsStyle } from "../ui/pierreTheme";
@@ -16,6 +17,8 @@ export type BrowseFileViewProps = {
   repoPath: string;
   filePath: string;
   theme: "light" | "dark";
+  selectedLines?: SelectedLineRange | null;
+  onLineSelected?: (range: SelectedLineRange | null) => void;
 };
 
 const BrowseFileView: Component<BrowseFileViewProps> = (props) => {
@@ -41,7 +44,11 @@ const BrowseFileView: Component<BrowseFileViewProps> = (props) => {
                 File truncated (exceeds 1 MB)
               </div>
             </Show>
-            <CodeMenuFrame path={props.filePath}>
+            <CodeMenuFrame
+              path={props.filePath}
+              selectedLines={props.selectedLines}
+              onLineSelected={props.onLineSelected}
+            >
               {(selection) => (
                 // `<Virtualizer>` upgrades `<FileView>` to Pierre's
                 // `VirtualizedFile` for very large files
@@ -57,6 +64,7 @@ const BrowseFileView: Component<BrowseFileViewProps> = (props) => {
                     theme={props.theme}
                     overflow="wrap"
                     enableLineSelection
+                    selectedLines={props.selectedLines}
                     onLineSelected={selection.handleSelect}
                     onError={(err) =>
                       toast.error(`File render failed: ${err.message}`)

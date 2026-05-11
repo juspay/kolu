@@ -42,6 +42,7 @@ import MobileKeyBar from "./MobileKeyBar";
 import MobileTileView from "./MobileTileView";
 import { useRecorder } from "./recorder/useRecorder";
 import WebcamOverlay from "./recorder/WebcamOverlay";
+import { openCodeReference } from "./right-panel/codeReferenceNavigation";
 import RightPanelLayout from "./right-panel/RightPanelLayout";
 import { useRightPanel } from "./right-panel/useRightPanel";
 import { client } from "./wire";
@@ -55,6 +56,7 @@ import TerminalContent from "./terminal/TerminalContent";
 import TerminalMeta from "./terminal/TerminalMeta";
 import { useSubPanel } from "./terminal/useSubPanel";
 import { useTerminals } from "./terminal/useTerminals";
+import type { LineRef } from "./ui/lineRef";
 import ModalDialog, { refocusTerminal } from "./ui/ModalDialog";
 import { isMobile } from "./useMobile";
 import { useThemeManager } from "./useThemeManager";
@@ -176,6 +178,14 @@ const App: Component = () => {
     if (isMobile()) return;
     const id = store.activeId();
     if (id) store.activate(id);
+  }
+
+  function handleOpenCodeReference(terminalId: TerminalId, ref: LineRef) {
+    const meta = store.getMetadata(terminalId);
+    if (!meta) return;
+    if (openCodeReference({ terminalId, metadata: meta, ref })) {
+      store.setActiveSilently(meta.parentId ?? terminalId);
+    }
   }
 
   const arrange = useCanvasArrange({
@@ -318,6 +328,7 @@ const App: Component = () => {
         onCloseTerminal={closeTerminal}
         activeMeta={store.activeMeta()}
         onFocus={() => store.setActiveSilently(id)}
+        onOpenCodeReference={handleOpenCodeReference}
       />
     );
   }
@@ -340,6 +351,7 @@ const App: Component = () => {
         }
         onCloseTerminal={closeTerminal}
         activeMeta={store.activeMeta()}
+        onOpenCodeReference={handleOpenCodeReference}
       />
     );
   }
