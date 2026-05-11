@@ -20,7 +20,7 @@ Feature: File-ref autolinking in terminal
   Scenario: Clicking a line-range file-ref opens the file
     When I run "git init /tmp/kolu-file-ref-861-range && cd /tmp/kolu-file-ref-861-range"
     And I run "git commit --allow-empty -m init"
-    And I run "printf 'one\ntwo\nthree\nfour\nfive\nsix\n' > out.log"
-    And I run "echo 'block at out.log:2-4 needs attention'"
-    And I trigger the terminal file-ref link "out.log:2-4"
+    And I run "printf 'one\ntwo\nthree\nfour\nfive\nsix\n' > range.txt"
+    And I run "echo 'block at range.txt:2-4 needs attention'"
+    And I trigger the terminal file-ref link "range.txt:2-4"
     Then the selected file should show content "three"
