@@ -6,21 +6,19 @@
  *  callers don't need to clear it. */
 
 import { createSignal } from "solid-js";
+import type { LineRef } from "../ui/lineRef";
 
 export interface CodeOpenRequest {
-  /** Per-terminal git repo root that the path is relative to (when
+  /** Parsed `path:line[-end]` the user clicked. */
+  ref: LineRef;
+  /** Per-terminal git repo root that `ref.path` is relative to (when
    *  relative). Absolute paths beneath this root are also accepted —
-   *  the consumer normalizes both shapes. */
+   *  the resolver normalizes both shapes. */
   repoRoot: string;
   /** Terminal cwd at the time of click. Drives the "user typed
    *  `bar.ts:42` while standing in a subdirectory of the repo" case;
    *  undefined falls back to repo-relative interpretation only. */
   cwd: string | undefined;
-  /** Path as it appeared in the terminal. May be absolute or
-   *  repo-relative. */
-  rawPath: string;
-  startLine: number;
-  endLine: number;
   /** Token incremented on every request so two clicks on the same
    *  `path:line` re-trigger the effect (signals dedupe by reference;
    *  identical content with a new token compares unequal). */

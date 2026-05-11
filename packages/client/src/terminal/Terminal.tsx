@@ -479,13 +479,7 @@ const Terminal: Component<{
                 // `openCodeBrowser` inside CodeTab's effect would
                 // invert that ordering and null the path.
                 rightPanel.openCodeBrowser();
-                requestCodeOpen({
-                  repoRoot,
-                  cwd: meta?.cwd,
-                  rawPath: ref.path,
-                  startLine: ref.startLine,
-                  endLine: ref.endLine,
-                });
+                requestCodeOpen({ ref, repoRoot, cwd: meta?.cwd });
               },
             }),
           );

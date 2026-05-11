@@ -214,13 +214,13 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
         if (repo === null || repo !== req.repoRoot) return;
         if (view() !== "browse" || isPending) return;
         const rel = resolveLineRefPath({
-          rawPath: req.rawPath,
+          rawPath: req.ref.path,
           repoRoot: repo,
           cwd: req.cwd,
           repoPaths: paths,
         });
         if (rel === null) {
-          toast.error(`File reference not found: ${req.rawPath}`);
+          toast.error(`File reference not found: ${req.ref.path}`);
           setHandledToken(req.token);
           return;
         }
@@ -248,13 +248,13 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
       const sel = selectedPath();
       if (!sel) return null;
       const rel = resolveLineRefPath({
-        rawPath: req.rawPath,
+        rawPath: req.ref.path,
         repoRoot: repo,
         cwd: req.cwd,
         repoPaths: treePaths(),
       });
       if (rel !== sel) return null;
-      return { start: req.startLine, end: req.endLine };
+      return { start: req.ref.startLine, end: req.ref.endLine };
     },
     null,
     {

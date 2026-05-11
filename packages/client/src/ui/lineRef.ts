@@ -19,19 +19,6 @@ export interface LineRefMatch extends LineRef {
   index: number;
 }
 
-export interface ResolveLineRefInput {
-  rawPath: string;
-  repoRoot: string;
-  /** Terminal cwd when the click happened — drives the "user typed
-   *  `bar.ts:42` while standing in a subdirectory" case. Undefined
-   *  falls back to repo-relative interpretation only. */
-  cwd: string | undefined;
-  /** Live `fsListAll` paths — repo-relative, no leading `/`. The
-   *  resolver only returns a path that's actually in this set so a
-   *  missed click surfaces as a toast instead of a blank pane. */
-  repoPaths: readonly string[];
-}
-
 /** Format a `path:line` (single line) or `path:start-end` (range)
  *  reference the way most editors and code tools accept (VS Code,
  *  Vim's `:e file:N`, GitHub URL fragments, Linear-style snippets). */
@@ -108,17 +95,35 @@ function hasRefBoundary(text: string, index: number): boolean {
 
 /** Resolve a terminal-supplied path to a repo-relative path that
  *  exists in `repoPaths`. Returns null when no candidate matches —
- *  the click should surface a toast rather than open a blank file. */
-export function resolveLineRefPath(input: ResolveLineRefInput): string | null {
-  const set = new Set(input.repoPaths);
-  for (const candidate of candidates(input)) {
+ *  the click should surface a toast rather than open a blank file.
+ *
+ *  - `rawPath`: as it appeared in the terminal (absolute or relative).
+ *  - `repoRoot`: the terminal's git worktree root.
+ *  - `cwd`: terminal cwd at click time — drives the "user typed
+ *    `bar.ts:42` while standing in a subdirectory" case. Undefined
+ *    falls back to repo-relative interpretation only.
+ *  - `repoPaths`: live `fsListAll` paths — repo-relative, no leading
+ *    `/`. The resolver only returns a path that's actually in this
+ *    set. */
+export function resolveLineRefPath(args: {
+  rawPath: string;
+  repoRoot: string;
+  cwd: string | undefined;
+  repoPaths: readonly string[];
+}): string | null {
+  const set = new Set(args.repoPaths);
+  for (const candidate of candidates(args)) {
     if (set.has(candidate)) return candidate;
   }
   return null;
 }
 
-function* candidates(input: ResolveLineRefInput): Generator<string> {
-  const { rawPath, repoRoot, cwd } = input;
+function* candidates(args: {
+  rawPath: string;
+  repoRoot: string;
+  cwd: string | undefined;
+}): Generator<string> {
+  const { rawPath, repoRoot, cwd } = args;
   if (rawPath.startsWith("/")) {
     // Absolute path — must live under repoRoot.
     const rel = stripRepoPrefix(rawPath, repoRoot);
