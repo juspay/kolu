@@ -180,17 +180,37 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
     on(
       resetKey,
       () => {
-        setSelectedPath(null);
         setSearchQuery("");
+        // Skip the selectedPath clear when an incoming request is
+        // about to land in the new mode — the resetKey effect runs
+        // before the pendingCodeOpen effect (registration order), and
+        // an unconditional clear would null what we're about to set.
+        // Reading `req.targetMode` (not `view()`) makes the guard
+        // robust to user-driven mode flips that race the click.
+        const req = pendingCodeOpen();
+        if (
+          req &&
+          req.repoRoot === repoPath() &&
+          req.targetMode === view() &&
+          handled()?.token !== req.token
+        ) {
+          return;
+        }
+        setSelectedPath(null);
       },
       { defer: true },
     ),
   );
 
-  // Last `req.token` we've already acted on (success or not-found).
-  // Without this, an `allPaths` value tick after the request would
-  // re-fire the effect and re-toast on every reconcile.
-  const [handledToken, setHandledToken] = createSignal<number | null>(null);
+  // Consume-once record for the latest pendingCodeOpen tick.
+  // Storing the resolved path here lets `selectedRange` derive its
+  // value without re-running `resolveLineRefPath` (single resolution
+  // site per request) and lets `resetKey` know whether a pending
+  // request has already been applied.
+  const [handled, setHandled] = createSignal<{
+    token: number;
+    resolvedPath: string | null;
+  } | null>(null);
 
   // Honor terminal file-ref clicks. The effect waits for the live
   // `fsListAll` stream to settle so resolution can validate against
@@ -198,8 +218,8 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
   // would toast "not found" on a path that just hasn't been
   // enumerated yet. The terminal click handler is the sole site that
   // flips the panel to browse mode; this effect only sets
-  // `selectedPath`. See Terminal.tsx for why orchestration lives
-  // there (resetKey-vs-pendingCodeOpen effect ordering).
+  // `selectedPath`. The `resetKey` effect above guards against
+  // clearing selectedPath when this effect is about to set it.
   createEffect(
     on(
       () => {
@@ -210,9 +230,9 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
       },
       ({ req, repo, paths, isPending }) => {
         if (!req) return;
-        if (handledToken() === req.token) return;
+        if (handled()?.token === req.token) return;
         if (repo === null || repo !== req.repoRoot) return;
-        if (view() !== "browse" || isPending) return;
+        if (view() !== req.targetMode || isPending) return;
         const rel = resolveLineRefPath({
           rawPath: req.ref.path,
           repoRoot: repo,
@@ -221,20 +241,22 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
         });
         if (rel === null) {
           toast.error(`File reference not found: ${req.ref.path}`);
-          setHandledToken(req.token);
+          setHandled({ token: req.token, resolvedPath: null });
           return;
         }
         setSelectedPath(rel);
-        setHandledToken(req.token);
+        setHandled({ token: req.token, resolvedPath: rel });
       },
       { defer: true },
     ),
   );
 
-  // Derive the highlight range straight from the request. The memo
-  // returns non-null only when the request still names the file
-  // currently rendered — `selectedPath` changing (user tree-click,
-  // resetKey clear) auto-invalidates it.
+  // Highlight range derives from the consume-once record: if the
+  // latest handled token matches the latest request AND its resolved
+  // path is still the rendered file, surface the line range. Any
+  // navigation away (user tree-click, mode switch) flips
+  // `selectedPath` and naturally invalidates the memo — no second
+  // resolution call.
   const selectedRange = createMemo<{
     start: number;
     end: number;
@@ -242,18 +264,9 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
     () => {
       const req = pendingCodeOpen();
       if (!req) return null;
-      if (handledToken() !== req.token) return null;
-      const repo = repoPath();
-      if (repo === null || repo !== req.repoRoot) return null;
-      const sel = selectedPath();
-      if (!sel) return null;
-      const rel = resolveLineRefPath({
-        rawPath: req.ref.path,
-        repoRoot: repo,
-        cwd: req.cwd,
-        repoPaths: treePaths(),
-      });
-      if (rel !== sel) return null;
+      const h = handled();
+      if (!h || h.token !== req.token || h.resolvedPath === null) return null;
+      if (h.resolvedPath !== selectedPath()) return null;
       return { start: req.ref.startLine, end: req.ref.endLine };
     },
     null,

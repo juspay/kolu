@@ -19,6 +19,12 @@ export interface CodeOpenRequest {
    *  `bar.ts:42` while standing in a subdirectory of the repo" case;
    *  undefined falls back to repo-relative interpretation only. */
   cwd: string | undefined;
+  /** Code-tab mode the request expects to land in. Today only
+   *  `"browse"` makes sense (highlighting a line in a diff doesn't
+   *  generalize), but encoding the assumption on the type lets the
+   *  consumer guard explicitly instead of relying on the click
+   *  handler having pre-called `openCodeBrowser` in the right order. */
+  targetMode: "browse";
   /** Token incremented on every request so two clicks on the same
    *  `path:line` re-trigger the effect (signals dedupe by reference;
    *  identical content with a new token compares unequal). */
