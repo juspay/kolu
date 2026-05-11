@@ -73,6 +73,13 @@ export function createFileRefLinkProvider(
         return;
       }
       const text = lineObj.translateToString(true);
+      // `:` is the cheapest necessary condition for the pattern;
+      // skipping the regex on plain prompts / output is a meaningful
+      // win on a hot-path that fires per hover-cell.
+      if (text.indexOf(":") < 0) {
+        callback(undefined);
+        return;
+      }
       const matches = parseFileRefs(text);
       if (matches.length === 0) {
         callback(undefined);
