@@ -199,6 +199,10 @@ const CanvasMinimap: Component<{
           {(id) => {
             const layout = () => props.layouts[id];
             const theme = () => tileTheme(id);
+            // Per-tile display info, resolved once and shared by the
+            // geometry memo and the badge-state memo. Without this both
+            // walked the store's keyed map independently.
+            const info = createMemo(() => store.getDisplayInfo(id));
             // Single accessor that yields all the per-tile data the
             // rectangle needs, or null when the tile isn't ready yet
             // (no layout, or metadata still arriving). The `Show` below
@@ -206,8 +210,8 @@ const CanvasMinimap: Component<{
             // `getDisplayInfo` per field.
             const tile = createMemo(() => {
               const l = layout();
-              const info = store.getDisplayInfo(id);
-              if (!l || !info) return null;
+              const i = info();
+              if (!l || !i) return null;
               const s = minimapScale();
               const p = toMinimap(l.x, l.y, s);
               return {
@@ -215,7 +219,7 @@ const CanvasMinimap: Component<{
                 y: p.y,
                 w: l.w * s,
                 h: l.h * s,
-                repoColor: info.repoColor,
+                repoColor: i.repoColor,
               };
             });
             // Reactive accessor: bucket classification (awaiting / working /
@@ -224,11 +228,11 @@ const CanvasMinimap: Component<{
             // rectangle geometry — only the badge surface re-runs. Memoized
             // because the JSX reads it 7× per tile per tick.
             const state = createMemo(() => {
-              const info = store.getDisplayInfo(id);
-              if (!info) return { bucket: "none" as const, parked: false };
+              const i = info();
+              if (!i) return { bucket: "none" as const, parked: false };
               return {
-                bucket: agentBucket(info.meta.agent),
-                parked: isStale(info.meta.lastActivityAt),
+                bucket: agentBucket(i.meta.agent),
+                parked: isStale(i.meta.lastActivityAt),
               };
             });
             // Demoted to a ghost marker when the user opted to hide parked
