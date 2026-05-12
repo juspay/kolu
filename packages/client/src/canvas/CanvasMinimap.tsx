@@ -13,7 +13,7 @@ import {
 import type { TileLayout } from "./TileLayout";
 import { useTileTheme } from "./useTileTheme";
 import { useCanvasViewport } from "./viewport/useCanvasViewport";
-import { agentBucket } from "./workspace-switcher";
+import { agentBucket, bucketDescriptor } from "./workspace-switcher";
 
 /** Minimap target dimensions in pixels. */
 const MAP_W = 180;
@@ -313,19 +313,20 @@ const CanvasMinimap: Component<{
                       onPointerDown={handleTilePointerDown}
                       onClick={handleTileClick}
                     >
-                      {/* Bucket badge — one Show keeps the parked-suppression
-                          rule and the badge geometry in a single place; the
-                          bucket key drives both the data-testid and the color
-                          class. Adding a third bucket is one entry here. */}
+                      {/* Bucket badge — color sourced from the bucket
+                          descriptor in workspace-switcher/model so adding or
+                          recoloring a bucket is a one-file edit. Parked tiles
+                          never paint a badge: attention can't outlive the
+                          attention it earned. */}
                       <Show
                         when={!state().parked && state().bucket !== "none"}
                       >
                         <span
                           data-testid={`minimap-${state().bucket}-dot`}
                           class="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full pointer-events-none"
-                          classList={{
-                            "bg-alert": state().bucket === "awaiting",
-                            "bg-accent": state().bucket === "working",
+                          style={{
+                            "background-color": bucketDescriptor(state().bucket)
+                              .accentVar,
                           }}
                         />
                       </Show>
