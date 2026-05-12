@@ -180,18 +180,11 @@ Then(
         ${SHADOW_DFS_FN_SRC}
         const root = document.querySelector('${FILE_VIEW}');
         if (!root) return false;
-        let found = false;
-        shadowDfs(root, (node) => {
-          if (
-            node.nodeType === 1 &&
-            node.hasAttribute('data-selected-line') &&
-            node.getAttribute('data-column-number') === '${line}'
-          ) {
-            found = true;
-            return true;
-          }
-        });
-        return found;
+        return shadowDfs(root, (node) =>
+          node.nodeType === 1 &&
+          node.hasAttribute('data-selected-line') &&
+          node.getAttribute('data-column-number') === '${line}'
+        ) === true;
       })()`,
       undefined,
       { timeout: POLL_TIMEOUT },
@@ -390,15 +383,16 @@ Then(
 // attribute walks need an explicit traversal that descends through each
 // `shadowRoot.childNodes`. Defined as a string so callers can splice it
 // into `page.waitForFunction` evaluators — `page.evaluate` arg functions
-// crash on tsx's `__name` injection. `visit(node)` returns `true` to
-// short-circuit (predicate walks); accumulator walks mutate closure
-// state and return `undefined`.
+// crash on tsx's `__name` injection. A truthy return from `visit(node)`
+// short-circuits the walk and bubbles back as the helper's return value;
+// accumulator walks mutate closure state and return `undefined`.
 const SHADOW_DFS_FN_SRC = `
 function shadowDfs(root, visit) {
   const stack = [root];
   while (stack.length) {
     const node = stack.pop();
-    if (visit(node) === true) return;
+    const r = visit(node);
+    if (r) return r;
     if (node.nodeType === 1) {
       if (node.shadowRoot) for (const ch of node.shadowRoot.childNodes) stack.push(ch);
       for (const ch of node.childNodes) stack.push(ch);
