@@ -238,9 +238,12 @@ const CommandPalette: Component<{
   });
 
   // Reserve a leading icon gutter for the whole list when ANY row carries
-  // an icon, so rows with and without icons stay aligned. Without this
-  // check, palettes that never set `icon` would gain useless empty space.
-  const hasAnyIcon = createMemo(() => filtered().some((cmd) => cmd.icon));
+  // an icon, so rows with and without icons stay aligned. Driven by the
+  // unfiltered command tree, not the typed-query subset, so the gutter
+  // doesn't appear/disappear as the user types.
+  const hasAnyIcon = createMemo(() =>
+    partitioned().interactive.some((cmd) => cmd.icon),
+  );
 
   function drillInto(cmd: PaletteGroup | PaletteValueInput) {
     setPath((p) => [...p, cmd]);
