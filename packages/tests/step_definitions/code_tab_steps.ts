@@ -170,34 +170,30 @@ When("I right-click the diff view", async function (this: KoluWorld) {
 // Pierre marks selected gutter + content rows with `data-selected-line`
 // (see @pierre/diffs InteractionManager.renderSelectedLines). The gutter
 // element also carries `data-column-number`, so we can pinpoint the line
-// number from outside Pierre's shadow root via a combined attribute
-// selector. Walks open shadow roots because Pierre mounts the gutter
-// inside its `<pre>` shadow tree.
+// number via a combined attribute selector. The traversal goes through
+// Pierre's open shadow tree — see `SHADOW_DFS_FN_SRC` below.
 Then(
   "line {int} should be selected in the file content",
   async function (this: KoluWorld, line: number) {
     await this.page.waitForFunction(
-      ({ sel, ln }) => {
-        const root = document.querySelector(sel);
+      `(() => {
+        ${SHADOW_DFS_FN_SRC}
+        const root = document.querySelector('${FILE_VIEW}');
         if (!root) return false;
-        const stack: Node[] = [root];
-        while (stack.length) {
-          const n = stack.pop() as Node;
-          if (n.nodeType !== 1) continue;
-          const el = n as Element;
-          const sh = (el as unknown as { shadowRoot?: ShadowRoot }).shadowRoot;
-          if (sh) for (const ch of sh.childNodes) stack.push(ch);
-          for (const ch of el.childNodes) stack.push(ch);
+        let found = false;
+        shadowDfs(root, (node) => {
           if (
-            el.hasAttribute("data-selected-line") &&
-            el.getAttribute("data-column-number") === String(ln)
+            node.nodeType === 1 &&
+            node.hasAttribute('data-selected-line') &&
+            node.getAttribute('data-column-number') === '${line}'
           ) {
+            found = true;
             return true;
           }
-        }
-        return false;
-      },
-      { sel: FILE_VIEW, ln: line },
+        });
+        return found;
+      })()`,
+      undefined,
       { timeout: POLL_TIMEOUT },
     );
   },
@@ -388,11 +384,28 @@ Then(
   },
 );
 
-// Pierre's File / FileDiff renderers mount highlighted code inside a
-// shadow root. `Element.textContent` does NOT cross shadow boundaries,
-// so we walk the tree (including each `shadowRoot`) and stitch the text.
-// Inlined as a string-evaluate to dodge tsx's `__name` injection, which
-// crashes inside `page.evaluate` arg functions.
+// Browser-side shadow-aware DFS, shared by every Pierre-DOM assertion in
+// this file. Pierre mounts its rendered content inside an open shadow
+// root; ordinary descendant CSS queries pierce it, but `textContent` and
+// attribute walks need an explicit traversal that descends through each
+// `shadowRoot.childNodes`. Defined as a string so callers can splice it
+// into `page.waitForFunction` evaluators — `page.evaluate` arg functions
+// crash on tsx's `__name` injection. `visit(node)` returns `true` to
+// short-circuit (predicate walks); accumulator walks mutate closure
+// state and return `undefined`.
+const SHADOW_DFS_FN_SRC = `
+function shadowDfs(root, visit) {
+  const stack = [root];
+  while (stack.length) {
+    const node = stack.pop();
+    if (visit(node) === true) return;
+    if (node.nodeType === 1) {
+      if (node.shadowRoot) for (const ch of node.shadowRoot.childNodes) stack.push(ch);
+      for (const ch of node.childNodes) stack.push(ch);
+    }
+  }
+}`;
+
 async function waitForViewText(
   world: KoluWorld,
   testid: string,
@@ -400,18 +413,13 @@ async function waitForViewText(
 ) {
   await world.page.waitForFunction(
     `(() => {
+      ${SHADOW_DFS_FN_SRC}
       const root = document.querySelector('[data-testid="${testid}"]');
       if (!root) return false;
-      const stack = [root];
       let text = '';
-      while (stack.length) {
-        const node = stack.pop();
+      shadowDfs(root, (node) => {
         if (node.nodeType === 3) text += node.nodeValue || '';
-        if (node.nodeType === 1) {
-          if (node.shadowRoot) for (const ch of node.shadowRoot.childNodes) stack.push(ch);
-          for (const ch of node.childNodes) stack.push(ch);
-        }
-      }
+      });
       return text.includes(${JSON.stringify(expected)});
     })()`,
     undefined,
