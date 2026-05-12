@@ -34,7 +34,6 @@ const [pending, setPending] = createSignal<CodeOpenRequest | null>(null);
 
 export const pendingCodeOpen = pending;
 
-export function requestCodeOpen(req: CodeOpenRequest): CodeOpenRequest {
+export function requestCodeOpen(req: CodeOpenRequest): void {
   setPending(req);
-  return req;
 }
