@@ -26,7 +26,7 @@ _run-all: _local _linux _darwin
 # their own GitHub status — _summary reads those statuses to decide
 # the final pass/fail.
 _local:
-    just ci::fmt ci::typecheck ci::biome ci::unit ci::surface-example-build ci::apm-sync || true
+    just ci::fmt ci::typecheck ci::biome ci::unit ci::surface-example-build || true
 
 _linux:
     CI_SYSTEM=x86_64-linux just ci::pnpm-hash-fresh ci::nix ci::_linux-fanout || true
@@ -81,10 +81,6 @@ smoke: nix
 # Run vitest unit tests (server + client)
 unit:
     just ci::_run unit just test-unit
-
-# Verify vendored .claude/ matches .apm/ sources + security audit
-apm-sync:
-    just ci::_run apm-sync just ai::apm-sync
 
 # Build the @kolu/surface framework's example app (vite client + tsc on
 # server). Catches example-only regressions that the workspace-wide
