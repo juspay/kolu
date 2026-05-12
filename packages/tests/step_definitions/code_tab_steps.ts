@@ -167,6 +167,42 @@ When("I right-click the diff view", async function (this: KoluWorld) {
   await rightClickViewRoot(this, DIFF_VIEW);
 });
 
+// Pierre marks selected gutter + content rows with `data-selected-line`
+// (see @pierre/diffs InteractionManager.renderSelectedLines). The gutter
+// element also carries `data-column-number`, so we can pinpoint the line
+// number from outside Pierre's shadow root via a combined attribute
+// selector. Walks open shadow roots because Pierre mounts the gutter
+// inside its `<pre>` shadow tree.
+Then(
+  "line {int} should be selected in the file content",
+  async function (this: KoluWorld, line: number) {
+    await this.page.waitForFunction(
+      ({ sel, ln }) => {
+        const root = document.querySelector(sel);
+        if (!root) return false;
+        const stack: Node[] = [root];
+        while (stack.length) {
+          const n = stack.pop() as Node;
+          if (n.nodeType !== 1) continue;
+          const el = n as Element;
+          const sh = (el as unknown as { shadowRoot?: ShadowRoot }).shadowRoot;
+          if (sh) for (const ch of sh.childNodes) stack.push(ch);
+          for (const ch of el.childNodes) stack.push(ch);
+          if (
+            el.hasAttribute("data-selected-line") &&
+            el.getAttribute("data-column-number") === String(ln)
+          ) {
+            return true;
+          }
+        }
+        return false;
+      },
+      { sel: FILE_VIEW, ln: line },
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
 // Asserts the exact set of items in the Pierre diff/file context menu,
 // in order, joined with " | ". Stronger than `I click the context menu
 // item {string}` because it catches "wrong items present" regressions

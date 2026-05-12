@@ -257,28 +257,27 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
   // navigation away (user tree-click, mode switch) flips
   // `selectedPath` and naturally invalidates the memo — no second
   // resolution call.
+  //
+  // No `equals` override: each click bumps `req.token`, but two clicks
+  // on the same `path:line` produce structurally identical
+  // `{start,end}`. Gating on content equality would suppress the
+  // second emit and leave the line-selection controller stuck on
+  // whatever range it last held (including `null`, if a Pierre
+  // tear-down between clicks cleared it). Pierre's
+  // `InteractionManager.setSelectedLines` dedups identical ranges
+  // internally, so re-emitting per click is a no-op when the
+  // selection is already correct, and a re-seed when it isn't.
   const selectedRange = createMemo<{
     start: number;
     end: number;
-  } | null>(
-    () => {
-      const req = pendingCodeOpen();
-      if (!req) return null;
-      const h = handled();
-      if (!h || h.token !== req.token || h.resolvedPath === null) return null;
-      if (h.resolvedPath !== selectedPath()) return null;
-      return { start: req.ref.startLine, end: req.ref.endLine };
-    },
-    null,
-    {
-      // Same-value re-emits cause the line-selection controller to
-      // re-fire its initial-range effect with an identical object.
-      // Equality-gating here keeps the controller stable when the
-      // request hasn't actually changed.
-      equals: (a, b) =>
-        a === b || (!!a && !!b && a.start === b.start && a.end === b.end),
-    },
-  );
+  } | null>(() => {
+    const req = pendingCodeOpen();
+    if (!req) return null;
+    const h = handled();
+    if (!h || h.token !== req.token || h.resolvedPath === null) return null;
+    if (h.resolvedPath !== selectedPath()) return null;
+    return { start: req.ref.startLine, end: req.ref.endLine };
+  });
 
   const treePaths = createMemo(() => {
     if (view() === "browse") return allPaths()?.paths ?? [];
