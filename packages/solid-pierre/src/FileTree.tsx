@@ -175,22 +175,24 @@ export const FileTree: Component<FileTreeProps> = (props) => {
       // in `"open"` initial-expansion mode, where pre-search expanded
       // paths include the folder), force a collapse — now safe because
       // search is null and `#refreshActiveSearchState` won't fire.
-      const handleTreeRowClick = (event: MouseEvent) => {
-        let rowPath: string | undefined;
-        let rowWasExpanded = false;
-        for (const target of event.composedPath()) {
+      const findClickedRow = (path: readonly EventTarget[]) => {
+        for (const target of path) {
           if (
             target instanceof HTMLElement &&
             target.dataset.itemPath !== undefined
           ) {
-            rowPath = target.dataset.itemPath;
-            rowWasExpanded = target.getAttribute("aria-expanded") === "true";
-            break;
+            return {
+              path: target.dataset.itemPath,
+              wasExpanded: target.getAttribute("aria-expanded") === "true",
+            } as const;
           }
         }
-        if (rowPath === undefined) return;
-        const clickedPath = rowPath;
-        const isFolder = !fileSet().has(clickedPath);
+        return null;
+      };
+      const handleTreeRowClick = (event: MouseEvent) => {
+        const row = findClickedRow(event.composedPath());
+        if (row === null) return;
+        const isFolder = !fileSet().has(row.path);
         queueMicrotask(() => {
           const q = untrack(() => props.searchQuery);
           if (normalizeSearchQuery(q) === null) return;
@@ -199,8 +201,8 @@ export const FileTree: Component<FileTreeProps> = (props) => {
             return;
           }
           props.onSearchClearedByRowClick?.();
-          if (rowWasExpanded && tree != null) {
-            const item = tree.getItem(clickedPath);
+          if (row.wasExpanded && tree != null) {
+            const item = tree.getItem(row.path);
             if (
               item != null &&
               "isExpanded" in item &&
