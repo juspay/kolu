@@ -147,53 +147,40 @@ export const FileTree: Component<FileTreeProps> = (props) => {
       // `onSelectionChange`-based hook would silently miss the re-click
       // case while Pierre wipes the filter anyway.
       //
-      // Detection uses the `data-item-path` and `aria-expanded`
-      // attributes Pierre stamps on every row, read by walking
-      // `event.composedPath()` to pierce the shadow root. File-vs-folder
-      // discrimination reuses `fileSet` — the same Set that gates
-      // `onSelectionChange`, since directories never appear in
-      // `props.paths`. The listener runs in capture phase so reads happen
-      // *before* Pierre's bubble-phase row handler mutates state — folder
-      // rows need the pre-click expansion to reconstruct user intent.
-      // Invariants this depends on:
+      // Detection uses the `data-item-path` attribute Pierre stamps on
+      // every row, read by walking `event.composedPath()` to pierce the
+      // shadow root. File-vs-folder discrimination reuses `fileSet` —
+      // the same Set that gates `onSelectionChange`, since directories
+      // never appear in `props.paths`. Invariants this depends on:
       //   1. Pierre's row-click handler stays synchronous (so the
       //      microtask runs *after* `closeSearch` has fired, not before).
-      //   2. Pierre keeps emitting `data-item-path` and `aria-expanded`
-      //      on row elements.
+      //   2. Pierre keeps emitting `data-item-path` on row elements.
       // Both are true today; both would silently break this re-apply if
       // Pierre changes them, so they're worth the comment.
       //
-      // File rows: re-apply the host's search so the filter survives
-      // Pierre's `closeSearch()`.
-      //
-      // Folder rows: `hide-non-matches` mode auto-expands every match
+      // Folder branch: `hide-non-matches` mode auto-expands every match
       // ancestor on each store event (FileTreeController `#subscribe` ->
       // `#refreshActiveSearchState`), so a `setSearch` re-apply would
-      // immediately revert the user's collapse. Skip the re-apply and
-      // hand the host an `onSearchCleared` signal so its input
-      // clears to match the tree state. If the row was expanded
-      // pre-click but Pierre's `closeSearch` left it expanded (happens
-      // in `"open"` initial-expansion mode, where pre-search expanded
-      // paths include the folder), force a collapse — now safe because
-      // search is null and `#refreshActiveSearchState` won't fire.
-      const findClickedRow = (path: readonly EventTarget[]) => {
+      // immediately revert the user's collapse. Skip it and force-
+      // collapse if Pierre's `closeSearch` left the row expanded — only
+      // happens in `"open"` initial-expansion mode (pre-search expanded
+      // paths include the folder), and is now safe because search is
+      // null and the subscribe handler short-circuits.
+      const findClickedRowPath = (path: readonly EventTarget[]) => {
         for (const target of path) {
           if (
             target instanceof HTMLElement &&
             target.dataset.itemPath !== undefined
           ) {
-            return {
-              path: target.dataset.itemPath,
-              wasExpanded: target.getAttribute("aria-expanded") === "true",
-            } as const;
+            return target.dataset.itemPath;
           }
         }
         return null;
       };
       const handleTreeRowClick = (event: MouseEvent) => {
-        const row = findClickedRow(event.composedPath());
-        if (row === null) return;
-        const isFolder = !fileSet().has(row.path);
+        const rowPath = findClickedRowPath(event.composedPath());
+        if (rowPath === null) return;
+        const isFolder = !fileSet().has(rowPath);
         queueMicrotask(() => {
           const q = untrack(() => props.searchQuery);
           if (normalizeSearchQuery(q) === null) return;
@@ -202,30 +189,24 @@ export const FileTree: Component<FileTreeProps> = (props) => {
             return;
           }
           props.onSearchCleared?.();
-          if (row.wasExpanded && tree != null) {
-            const item = tree.getItem(row.path);
-            if (
-              item != null &&
-              "isExpanded" in item &&
-              "collapse" in item &&
-              item.isExpanded()
-            ) {
-              try {
-                item.collapse();
-              } catch (e) {
-                props.onError(toError(e));
-              }
+          const item = tree?.getItem(rowPath);
+          if (
+            item != null &&
+            "isExpanded" in item &&
+            "collapse" in item &&
+            item.isExpanded()
+          ) {
+            try {
+              item.collapse();
+            } catch (e) {
+              props.onError(toError(e));
             }
           }
         });
       };
-      container.addEventListener("click", handleTreeRowClick, {
-        capture: true,
-      });
+      container.addEventListener("click", handleTreeRowClick);
       onCleanup(() =>
-        container.removeEventListener("click", handleTreeRowClick, {
-          capture: true,
-        }),
+        container.removeEventListener("click", handleTreeRowClick),
       );
 
       // Apply an initial searchQuery if it was already non-empty at mount —
