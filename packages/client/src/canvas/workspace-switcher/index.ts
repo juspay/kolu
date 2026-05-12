@@ -10,7 +10,6 @@ export {
   bucketDescriptor,
   buildWorkspaceEntries,
   buildWorkspaceSwitcherModel,
-  isAwaitingAttention,
   sortBySwitcherOrder,
   type WorkspaceSwitcherRepoGroup,
   type WorkspaceSwitcherSourceEntry,

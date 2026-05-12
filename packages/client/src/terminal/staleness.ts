@@ -8,9 +8,9 @@
  *
  *  The threshold is a constant; if a preference knob ever becomes useful,
  *  it lands in `Preferences` and flows through this module without
- *  consumers changing. Consumers compose via `useStaleCheck` (or via
- *  `isAwaitingAttention` in the workspace-switcher model when the
- *  conjunction with awaiting state is the actual concept). */
+ *  consumers changing. Consumers compose via `useStaleCheck` and then
+ *  combine with `agentBucket()` from the workspace-switcher model when
+ *  the conjunction with bucket state is the actual concept. */
 
 import { type Accessor, createRoot, createSignal, onCleanup } from "solid-js";
 
