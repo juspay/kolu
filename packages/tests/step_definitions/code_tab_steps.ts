@@ -689,31 +689,20 @@ Then(
   "the selected file should show content {string}",
   async function (this: KoluWorld, expected: string) {
     await this.page.waitForFunction(
-      (exp) => {
-        for (const sel of [
-          '[data-testid="pierre-diff-view"]',
-          '[data-testid="pierre-file-view"]',
-        ]) {
+      `(() => {
+        ${SHADOW_DFS_FN_SRC}
+        for (const sel of ['${DIFF_VIEW}', '${FILE_VIEW}']) {
           const root = document.querySelector(sel);
           if (!root) continue;
-          const stack: Node[] = [root];
-          let text = "";
-          while (stack.length) {
-            const n = stack.pop() as Node;
-            if (n.nodeType === 3) text += (n as Text).nodeValue || "";
-            if (n.nodeType === 1) {
-              const el = n as Element;
-              const sh = (el as unknown as { shadowRoot?: ShadowRoot })
-                .shadowRoot;
-              if (sh) for (const ch of sh.childNodes) stack.push(ch);
-              for (const ch of el.childNodes) stack.push(ch);
-            }
-          }
-          if (text.includes(exp)) return true;
+          let text = '';
+          shadowDfs(root, (node) => {
+            if (node.nodeType === 3) text += node.nodeValue || '';
+          });
+          if (text.includes(${JSON.stringify(expected)})) return true;
         }
         return false;
-      },
-      expected,
+      })()`,
+      undefined,
       { timeout: POLL_TIMEOUT },
     );
   },
