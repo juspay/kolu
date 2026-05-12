@@ -42,16 +42,10 @@ export type FileTreeProps = {
    *  `setSearch()`. Useful when search lives in the caller's chrome
    *  rather than the tree header. Pass empty string or `null` to clear. */
   searchQuery?: string | null;
-  /** Notified when the wrapper's filter state has gone to null
-   *  independently of the host's `searchQuery` prop, leaving the host's
-   *  input out of sync with the tree. Today the only trigger is a
-   *  folder-row click during an active query — Pierre's
-   *  `hide-non-matches` mode auto-expands every ancestor of a match on
-   *  each store event, so a collapse can only stick after the filter is
-   *  released; the wrapper takes Pierre's own `closeSearch()` as the
-   *  user's exit cue. Hosts should resync their search input (typically
-   *  by clearing it) when this fires. Only invoked when `searchQuery`
-   *  was non-empty at the time of clearing. */
+  /** Fired when the tree's filter has gone to null independently of
+   *  `searchQuery`, leaving the host's input out of sync. Hosts should
+   *  resync (typically by clearing the input). Only invoked when
+   *  `searchQuery` was non-empty at the time of clearing. */
   onSearchCleared?: () => void;
   /** Initial folder expansion — captured at construction and **not
    *  reactive**. Pierre takes this once in its constructor; later prop
