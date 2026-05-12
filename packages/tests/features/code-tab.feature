@@ -155,6 +155,30 @@ Feature: Code tab (review + browse)
       | branch |
       | browse |
 
+  # Regression: with an active filter, Pierre's `hide-non-matches` mode
+  # auto-expands every ancestor of a match on each store event — meaning
+  # `item.toggle()` collapse is reverted by the controller's subscribe
+  # handler before the click finishes, and the wrapper's `setSearch`
+  # re-apply expands it again. Net effect: chevron clicks on folders did
+  # nothing while a filter was active. Fix: on folder-row clicks during
+  # search the wrapper skips the re-apply and hands a clear-search signal
+  # back to the host so the input and tree resync — the user's collapse
+  # then sticks, with the filter cleared (matching Pierre's native
+  # closeSearch-on-row-click semantics).
+  Scenario: Folder collapse during active filter takes effect (browse)
+    Given a Code tab in "browse" mode showing files:
+      | path          | content |
+      | src/alpha.txt | a       |
+      | src/beta.txt  | b       |
+      | other.txt     | o       |
+    When I type "alpha" into the Code tab filter
+    Then the Code tab should show file "src/alpha.txt"
+    And the Code tab should not show file "other.txt"
+    When I click the directory node "src" in the Code tab
+    Then the Code tab should not show file "src/alpha.txt"
+    And the Code tab filter input should contain ""
+    And the Code tab should show file "other.txt"
+
   Scenario Outline: Filter matches files by path tokens [<mode>]
     Given a Code tab in "<mode>" mode showing files:
       | path                          | content |

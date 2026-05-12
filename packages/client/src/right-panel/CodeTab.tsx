@@ -463,6 +463,7 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
                   initialExpansion={isDiffView() ? "open" : "closed"}
                   search={false}
                   searchQuery={treeSearch().pierreSearchQuery}
+                  onSearchClearedByRowClick={() => setSearchQuery("")}
                   icons={pierreIconConfig}
                   contextMenu={{
                     enabled: true,

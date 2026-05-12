@@ -42,6 +42,16 @@ export type FileTreeProps = {
    *  `setSearch()`. Useful when search lives in the caller's chrome
    *  rather than the tree header. Pass empty string or `null` to clear. */
   searchQuery?: string | null;
+  /** Notified when a folder-row click implicitly ended the active
+   *  filter. Pierre's `hide-non-matches` mode auto-expands every
+   *  ancestor of a match on each store event, so a folder collapse
+   *  cannot stick while a query is in effect — the wrapper takes
+   *  Pierre's own `closeSearch()` as the user's exit cue and forwards
+   *  it here so the host can clear its search input to match. Without
+   *  it the tree clears, the input doesn't, and the next keystroke
+   *  re-filters against stale intent. Only fires when `searchQuery`
+   *  was non-empty at click time. */
+  onSearchClearedByRowClick?: () => void;
   /** Initial folder expansion — captured at construction and **not
    *  reactive**. Pierre takes this once in its constructor; later prop
    *  changes are silently ignored. Re-mount the component (e.g. by
@@ -136,31 +146,81 @@ export const FileTree: Component<FileTreeProps> = (props) => {
       // `onSelectionChange`-based hook would silently miss the re-click
       // case while Pierre wipes the filter anyway.
       //
-      // Detection uses the `data-item-path` attribute Pierre stamps on
-      // every row, found by walking `event.composedPath()` to pierce the
-      // shadow root. Invariants this depends on:
+      // Detection uses the `data-item-path`, `data-item-type`, and
+      // `aria-expanded` attributes Pierre stamps on every row, read by
+      // walking `event.composedPath()` to pierce the shadow root. The
+      // listener runs in capture phase so reads happen *before* Pierre's
+      // bubble-phase row handler mutates state — folder rows need the
+      // pre-click expansion to reconstruct user intent. Invariants this
+      // depends on:
       //   1. Pierre's row-click handler stays synchronous (so the
       //      microtask runs *after* `closeSearch` has fired, not before).
-      //   2. Pierre keeps emitting `data-item-path` on row elements.
+      //   2. Pierre keeps emitting `data-item-path`, `data-item-type`,
+      //      and `aria-expanded` on row elements.
       // Both are true today; both would silently break this re-apply if
       // Pierre changes them, so they're worth the comment.
-      const reapplySearchAfterRowClick = (event: MouseEvent) => {
-        const clickedTreeRow = event
-          .composedPath()
-          .some(
-            (target) =>
-              target instanceof HTMLElement &&
-              target.dataset.itemPath !== undefined,
-          );
-        if (!clickedTreeRow) return;
+      //
+      // File rows: re-apply the host's search so the filter survives
+      // Pierre's `closeSearch()`.
+      //
+      // Folder rows: `hide-non-matches` mode auto-expands every match
+      // ancestor on each store event (FileTreeController `#subscribe` ->
+      // `#refreshActiveSearchState`), so a `setSearch` re-apply would
+      // immediately revert the user's collapse. Skip the re-apply and
+      // hand the host an `onSearchClearedByRowClick` signal so its input
+      // clears to match the tree state. If the row was expanded
+      // pre-click but Pierre's `closeSearch` left it expanded (happens
+      // in `"open"` initial-expansion mode, where pre-search expanded
+      // paths include the folder), force a collapse — now safe because
+      // search is null and `#refreshActiveSearchState` won't fire.
+      const handleTreeRowClick = (event: MouseEvent) => {
+        let rowPath: string | undefined;
+        let rowType: string | undefined;
+        let rowWasExpanded = false;
+        for (const target of event.composedPath()) {
+          if (
+            target instanceof HTMLElement &&
+            target.dataset.itemPath !== undefined
+          ) {
+            rowPath = target.dataset.itemPath;
+            rowType = target.dataset.itemType;
+            rowWasExpanded = target.getAttribute("aria-expanded") === "true";
+            break;
+          }
+        }
+        if (rowPath === undefined) return;
         queueMicrotask(() => {
           const q = untrack(() => props.searchQuery);
-          if (normalizeSearchQuery(q) !== null) applySearchQuery(q);
+          if (normalizeSearchQuery(q) === null) return;
+          if (rowType !== "folder") {
+            applySearchQuery(q);
+            return;
+          }
+          props.onSearchClearedByRowClick?.();
+          if (rowWasExpanded && tree != null) {
+            const item = tree.getItem(rowPath);
+            if (
+              item != null &&
+              "isExpanded" in item &&
+              "collapse" in item &&
+              item.isExpanded()
+            ) {
+              try {
+                item.collapse();
+              } catch (e) {
+                props.onError(toError(e));
+              }
+            }
+          }
         });
       };
-      container.addEventListener("click", reapplySearchAfterRowClick);
+      container.addEventListener("click", handleTreeRowClick, {
+        capture: true,
+      });
       onCleanup(() =>
-        container.removeEventListener("click", reapplySearchAfterRowClick),
+        container.removeEventListener("click", handleTreeRowClick, {
+          capture: true,
+        }),
       );
 
       // Apply an initial searchQuery if it was already non-empty at mount —
