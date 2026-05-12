@@ -155,22 +155,12 @@ Feature: Code tab (review + browse)
       | branch |
       | browse |
 
-  # Regression: with an active filter, Pierre's `hide-non-matches` mode
-  # auto-expands every ancestor of a match on each store event — meaning
-  # `item.toggle()` collapse is reverted by the controller's subscribe
-  # handler before the click finishes, and the wrapper's `setSearch`
-  # re-apply expands it again. Net effect: chevron clicks on folders did
-  # nothing while a filter was active. Fix: on folder-row clicks during
-  # search the wrapper skips the re-apply and hands a clear-search signal
-  # back to the host so the input and tree resync — the user's collapse
-  # then sticks, with the filter cleared (matching Pierre's native
-  # closeSearch-on-row-click semantics).
-  #
-  # Runs across all three modes because `initialExpansion` differs:
-  # `"open"` for `local`/`branch` (Pierre's `closeSearch` leaves the
-  # folder expanded via `restoreSearchExpandedPaths`, so the wrapper
-  # force-collapses) vs `"closed"` for `browse` (the folder lands
-  # collapsed naturally). Both paths must behave identically.
+  # Regression: folder-chevron clicks did nothing while a filter was
+  # active. Runs across all three modes because `initialExpansion`
+  # diverges (`"open"` for diff modes exercises the wrapper's force-
+  # collapse branch; `"closed"` for browse lands collapsed naturally),
+  # and both paths must produce the same user-visible result. Wrapper-
+  # side rationale lives in FileTree.tsx alongside the fix.
   Scenario Outline: Folder collapse during active filter takes effect [<mode>]
     Given a Code tab in "<mode>" mode showing files:
       | path          | content |
