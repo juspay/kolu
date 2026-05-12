@@ -4,9 +4,6 @@
       "type": "local",
       "enabled": true,
       "command": [
-        "nix-shell",
-        ".agents/skills/mcp-chrome-devtools/shell.nix",
-        "--run",
         ".agents/skills/mcp-chrome-devtools/bin/serve"
       ]
     }

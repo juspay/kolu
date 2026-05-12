@@ -1,21 +1,23 @@
 #!/usr/bin/env bash
-# Launch chrome-devtools-mcp using a Chrome-for-Testing binary from
-# $PLAYWRIGHT_BROWSERS_PATH. Works on Linux and macOS — first matching layout
-# wins. The caller is responsible for setting $PLAYWRIGHT_BROWSERS_PATH (e.g.
-# via `nix develop .#e2e --command` or the bundled shell.nix).
+# Launch chrome-devtools-mcp using a Chrome-for-Testing binary resolved via
+# Nix. Self-contained — no surrounding devshell required. Requires flakes
+# (`experimental-features = nix-command flakes` in nix.conf).
+#
+# Override the nixpkgs source per invocation:
+#   NIXPKGS_FLAKE=github:NixOS/nixpkgs/<rev> .../bin/serve
+# Or system-wide via `nix registry pin nixpkgs <flake-ref>`.
 
 set -euo pipefail
 shopt -s nullglob
 
-if [[ -z "${PLAYWRIGHT_BROWSERS_PATH:-}" ]]; then
-    echo "mcp-chrome-devtools: \$PLAYWRIGHT_BROWSERS_PATH is unset — invoke inside a shell that provides Playwright's bundled Chrome" >&2
-    exit 1
-fi
+nixpkgs="${NIXPKGS_FLAKE:-nixpkgs}"
+
+browsers=$(nix build --no-link --print-out-paths "${nixpkgs}#playwright-driver.browsers")
 
 chrome=""
 for c in \
-    "$PLAYWRIGHT_BROWSERS_PATH"/chromium-*/chrome-linux64/chrome \
-    "$PLAYWRIGHT_BROWSERS_PATH"/chromium-*/chrome-mac-*/"Google Chrome for Testing.app"/Contents/MacOS/"Google Chrome for Testing"; do
+    "$browsers"/chromium-*/chrome-linux64/chrome \
+    "$browsers"/chromium-*/chrome-mac-*/"Google Chrome for Testing.app"/Contents/MacOS/"Google Chrome for Testing"; do
     if [[ -x "$c" ]]; then
         chrome="$c"
         break
@@ -23,11 +25,12 @@ for c in \
 done
 
 if [[ -z "$chrome" ]]; then
-    echo "mcp-chrome-devtools: no Chrome binary found under $PLAYWRIGHT_BROWSERS_PATH" >&2
+    echo "mcp-chrome-devtools: no Chrome binary found under $browsers" >&2
     exit 1
 fi
 
-exec npx -y chrome-devtools-mcp@0.26.0 \
+exec nix shell "${nixpkgs}#nodejs" --command \
+    npx -y chrome-devtools-mcp@0.26.0 \
     --headless=true \
     --isolated=true \
     --executable-path="$chrome"

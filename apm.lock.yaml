@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-05-12T20:03:56.006305+00:00'
+generated_at: '2026-05-12T21:39:13.521865+00:00'
 apm_version: 0.13.0
 dependencies:
 - repo_url: _local/mcp-chrome-devtools
@@ -89,12 +89,8 @@ mcp_configs:
   chrome-devtools:
     name: chrome-devtools
     transport: stdio
-    args:
-    - .agents/skills/mcp-chrome-devtools/shell.nix
-    - --run
-    - .agents/skills/mcp-chrome-devtools/bin/serve
     registry: false
-    command: nix-shell
+    command: .agents/skills/mcp-chrome-devtools/bin/serve
 local_deployed_files:
 - .agents/skills/ci
 - .agents/skills/hk

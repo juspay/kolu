@@ -1,60 +1,33 @@
 ---
 name: mcp-chrome-devtools
-description: Launch chrome-devtools-mcp from a Nix devshell, sharing Playwright's bundled Chrome-for-Testing. Ships an executable launcher (bin/serve) keyed off $PLAYWRIGHT_BROWSERS_PATH plus an opt-in shell.nix for projects that don't already have Playwright in their devshell.
+description: Launch chrome-devtools-mcp from any Nix-using project. Ships a single executable launcher (bin/serve) that resolves Playwright's bundled Chrome-for-Testing and Node.js directly via Nix — no surrounding devshell required.
 user-invocable: false
 ---
 
 # chrome-devtools-mcp launcher
 
-Drop-in artifacts for declaring [`chrome-devtools-mcp`](https://github.com/ChromeDevTools/chrome-devtools-mcp) as an MCP server in any Nix-using project.
+Drop-in launcher for declaring [`chrome-devtools-mcp`](https://github.com/ChromeDevTools/chrome-devtools-mcp) as an MCP server in any Nix-using project. One bash file resolves all inputs through `nix build` / `nix shell` — no `shell.nix`, no `flake.nix`, no `nix-shell` wrapper in the MCP command.
 
-## Files
+## What this ships
 
 | Path | Purpose |
 |---|---|
-| `bin/serve` | Resolves Chrome under `$PLAYWRIGHT_BROWSERS_PATH` (Linux + macOS layouts) and execs `npx -y chrome-devtools-mcp@<version>`. Reads only the env var — no Nix logic. |
-| `shell.nix` | Optional convenience devshell that pins Playwright's Chrome-for-Testing. Override `pkgs` to use your own nixpkgs revision. |
+| `bin/serve` | Self-contained launcher. Calls `nix build nixpkgs#playwright-driver.browsers` to resolve Chrome, then `nix shell nixpkgs#nodejs --command npx ...` to run a pinned `chrome-devtools-mcp` version. |
 
-The seam between them is `$PLAYWRIGHT_BROWSERS_PATH`. Any shell that sets the env var can drive `bin/serve` — including a project's existing e2e devshell, in which case `shell.nix` is unused.
+The apm.yml `mcp:` entry points directly at `bin/serve` (deployed to `.agents/skills/mcp-chrome-devtools/bin/serve` — APM's [cross-tool convergence path](https://microsoft.github.io/apm/reference/targets-matrix/#skills-convergence)). No `command: nix-shell ...` wrapping required.
 
-## Usage A — reuse an existing Playwright devshell (zero duplication)
+## Requirements
 
-If your project already has a devshell that sets `PLAYWRIGHT_BROWSERS_PATH` (e.g. `nix develop .#e2e`), point your MCP config at `bin/serve` directly:
+- Nix with flakes enabled (`experimental-features = nix-command flakes`).
+- The consumer's flake registry resolves `nixpkgs` to something usable — true by default on any new-style Nix install.
 
-```yaml
-# apm.yml
-dependencies:
-  mcp:
-    - name: chrome-devtools
-      transport: stdio
-      command: nix
-      args:
-        - develop
-        - .#e2e
-        - --command
-        - .agents/skills/mcp-chrome-devtools/bin/serve
-```
+## Overriding the nixpkgs source
 
-No second Chrome in the Nix store; the e2e suite and MCP server share one binary.
+`bin/serve` reads `$NIXPKGS_FLAKE` (default `nixpkgs`). Per-consumer override options:
 
-## Usage B — use the bundled shell.nix (fresh projects)
-
-If your project does not have Playwright wired into Nix yet:
-
-```yaml
-# apm.yml
-dependencies:
-  mcp:
-    - name: chrome-devtools
-      transport: stdio
-      command: nix-shell
-      args:
-        - .agents/skills/mcp-chrome-devtools/shell.nix
-        - --run
-        - .agents/skills/mcp-chrome-devtools/bin/serve
-```
-
-To override the bundled nixpkgs pin, edit `shell.nix` to import your project's nixpkgs.
+- **Per process**: set `NIXPKGS_FLAKE=github:NixOS/nixpkgs/<rev>` in the consumer's environment before the MCP client launches the server.
+- **System-wide**: `nix registry pin nixpkgs github:NixOS/nixpkgs/<rev>`.
+- **Project-local pin**: in the consumer's root `apm.yml`, declare an overriding `mcp:` entry for `chrome-devtools` (root deps win the dedupe — see `apm-cli` `integration/mcp_integrator.py:159-182`). Pass any flake ref as the env var or hardcode args.
 
 ## Chrome version compatibility
 
@@ -64,4 +37,4 @@ To override the bundled nixpkgs pin, edit `shell.nix` to import your project's n
 
 1. `curl -s https://registry.npmjs.org/chrome-devtools-mcp/latest | jq -r .version` to see the current release.
 2. Update the pinned version in `bin/serve`.
-3. Test against your project's Chrome — start the MCP server, exercise the tools that matter to you.
+3. Test against your project's Chrome.
