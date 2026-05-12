@@ -135,29 +135,3 @@ agent *args: apm
     just prepare
     {{ env('AI_AGENT', 'claude --dangerously-skip-permissions') }} {{ args }}
 
-# Launch chrome-devtools-mcp server over stdio.
-#
-# Today the checked-in project-local MCP entrypoints are:
-# - Claude Code: `.mcp.json`
-# - Codex CLI: `.codex/config.toml` (only for trusted projects)
-#
-# The top-level `apm.yml` mirrors the same server for runtimes APM can
-# configure natively today. Codex project-scoped MCP is tracked upstream
-# in microsoft/apm#803; once that lands, `.codex/config.toml` should
-# become APM-managed like the other generated runtime config.
-#
-# All paths shell out via `nix develop .#e2e --command just
-# ai::mcp-chrome-devtools` so agent runtimes that start outside the nix
-# devshell still get Playwright's Chrome-for-Testing.
-# Chrome binary resolved from Playwright's nix-provided Chrome-for-Testing
-# across platforms: `chrome-linux64/chrome` on Linux and
-# `chrome-mac-*/Google Chrome for Testing.app/.../Google Chrome for Testing`
-# on macOS. `find` picks either layout; a miss fails loud downstream
-# (empty --executable-path → MCP server errors out visibly).
-mcp-chrome-devtools:
-    bash -c 'shopt -s nullglob; \
-      for c in "$PLAYWRIGHT_BROWSERS_PATH"/chromium-*/chrome-linux64/chrome \
-               "$PLAYWRIGHT_BROWSERS_PATH"/chromium-*/chrome-mac-*/"Google Chrome for Testing.app"/Contents/MacOS/"Google Chrome for Testing"; do \
-        [[ -x "$c" ]] && chrome="$c" && break; \
-      done; \
-      exec npx -y chrome-devtools-mcp@latest --headless=true --isolated=true --executable-path="$chrome"'

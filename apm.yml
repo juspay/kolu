@@ -34,5 +34,4 @@ dependencies:
         - develop
         - .#e2e
         - --command
-        - just
-        - ai::mcp-chrome-devtools
+        - .agents/skills/mcp-chrome-devtools/bin/serve

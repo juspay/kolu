@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# Launch chrome-devtools-mcp using a Chrome-for-Testing binary from
+# $PLAYWRIGHT_BROWSERS_PATH. Works on Linux and macOS — first matching layout
+# wins. The caller is responsible for setting $PLAYWRIGHT_BROWSERS_PATH (e.g.
+# via `nix develop .#e2e --command` or the bundled shell.nix).
+
+set -euo pipefail
+shopt -s nullglob
+
+if [[ -z "${PLAYWRIGHT_BROWSERS_PATH:-}" ]]; then
+    echo "mcp-chrome-devtools: \$PLAYWRIGHT_BROWSERS_PATH is unset — invoke inside a shell that provides Playwright's bundled Chrome" >&2
+    exit 1
+fi
+
+chrome=""
+for c in \
+    "$PLAYWRIGHT_BROWSERS_PATH"/chromium-*/chrome-linux64/chrome \
+    "$PLAYWRIGHT_BROWSERS_PATH"/chromium-*/chrome-mac-*/"Google Chrome for Testing.app"/Contents/MacOS/"Google Chrome for Testing"; do
+    if [[ -x "$c" ]]; then
+        chrome="$c"
+        break
+    fi
+done
+
+if [[ -z "$chrome" ]]; then
+    echo "mcp-chrome-devtools: no Chrome binary found under $PLAYWRIGHT_BROWSERS_PATH" >&2
+    exit 1
+fi
+
+exec npx -y chrome-devtools-mcp@0.26.0 \
+    --headless=true \
+    --isolated=true \
+    --executable-path="$chrome"
