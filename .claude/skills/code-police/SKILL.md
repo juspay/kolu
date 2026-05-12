@@ -58,11 +58,11 @@ Collections, buffers, and listeners that grow with usage must have a bound or a 
 
 _Rationale_: LLM-generated code defaults to the simplest correct implementation, which is often O(n) in session lifetime. These patterns silently degrade performance over hours/days and surface as "the app got slow" with no obvious cause. The fix is almost always straightforward (cap, debounce, stream, share) but must be applied at write time — it's rarely caught in review because the code is functionally correct.
 
-### comments-only-for-non-obvious
+### comment-the-non-obvious
 
-Default to writing NO comments. Add one only when the **why** is non-obvious to a reader who can already see the code — a hidden constraint, a subtle invariant, a workaround for a specific bug, behavior that would surprise.
+Write a comment when a reader who didn't write the code can't tell, at first glance, **what it does** or **why it's structured this way**. The comment supplies whichever is missing — design intent (why this shape over the conventional one), control-flow semantics (what the cascade actually dispatches), or a hidden constraint the type system doesn't carry.
 
-If removing the comment wouldn't confuse a future reader, don't write it.
+This is a positive prompt, applied per block: at every non-trivial declaration or block, ask the question. A "obvious to me because I just wrote it" reflex is the failure mode — reviewers and writers both pattern-match on what they already understand and skip the question.
 
 ## Pass 1: Rule checklist
 
@@ -74,7 +74,7 @@ Present a table with **every rule above**:
 Every "No" requires a **`Checked by:`** field whose content is one of:
 
 - For purely-negative rules (e.g. `no-dead-code`, `no-silent-error-swallowing`): the grep that confirmed absence — _"grep'd for `head`, `tail`, `fromJust`, `(!!)`, `Map.!`, `error`, `undefined`; zero matches."_
-- For bidirectional rules (e.g. `comments-only-for-non-obvious`, `prefer-focused-library`): the enumeration of positive candidates ruled out — _"enumerated `am`, `keep`, guard branches, `G.stars`/`G.reachable` calls; for each, named why a fresh reader decodes the why from code alone."_
+- For bidirectional rules (e.g. `comment-the-non-obvious`, `prefer-focused-library`): the enumeration of positive candidates ruled out — _"enumerated `am`, `keep`, guard branches, `G.stars`/`G.reachable` calls; for each, named why a fresh reader decodes the why from code alone."_
 
 A "No" without `Checked by:` is malformed and must be rewritten. Every rule must appear in the table — no skipping.
 
