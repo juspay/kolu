@@ -165,8 +165,14 @@ Feature: Code tab (review + browse)
   # back to the host so the input and tree resync — the user's collapse
   # then sticks, with the filter cleared (matching Pierre's native
   # closeSearch-on-row-click semantics).
-  Scenario: Folder collapse during active filter takes effect (browse)
-    Given a Code tab in "browse" mode showing files:
+  #
+  # Runs across all three modes because `initialExpansion` differs:
+  # `"open"` for `local`/`branch` (Pierre's `closeSearch` leaves the
+  # folder expanded via `restoreSearchExpandedPaths`, so the wrapper
+  # force-collapses) vs `"closed"` for `browse` (the folder lands
+  # collapsed naturally). Both paths must behave identically.
+  Scenario Outline: Folder collapse during active filter takes effect [<mode>]
+    Given a Code tab in "<mode>" mode showing files:
       | path          | content |
       | src/alpha.txt | a       |
       | src/beta.txt  | b       |
@@ -178,6 +184,12 @@ Feature: Code tab (review + browse)
     Then the Code tab should not show file "src/alpha.txt"
     And the Code tab filter input should contain ""
     And the Code tab should show file "other.txt"
+
+    Examples:
+      | mode   |
+      | local  |
+      | branch |
+      | browse |
 
   Scenario Outline: Filter matches files by path tokens [<mode>]
     Given a Code tab in "<mode>" mode showing files:
