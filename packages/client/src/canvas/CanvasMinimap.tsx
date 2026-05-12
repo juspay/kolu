@@ -313,23 +313,20 @@ const CanvasMinimap: Component<{
                       onPointerDown={handleTilePointerDown}
                       onClick={handleTileClick}
                     >
-                      {/* Bucket badge — alert for "needs you", accent for
-                          "agent working". Suppressed on parked tiles so the
-                          alert dot can't outlive the attention it earned. */}
+                      {/* Bucket badge — one Show keeps the parked-suppression
+                          rule and the badge geometry in a single place; the
+                          bucket key drives both the data-testid and the color
+                          class. Adding a third bucket is one entry here. */}
                       <Show
-                        when={!state().parked && state().bucket === "awaiting"}
+                        when={!state().parked && state().bucket !== "none"}
                       >
                         <span
-                          data-testid="minimap-awaiting-dot"
-                          class="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-alert pointer-events-none"
-                        />
-                      </Show>
-                      <Show
-                        when={!state().parked && state().bucket === "working"}
-                      >
-                        <span
-                          data-testid="minimap-working-dot"
-                          class="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-accent pointer-events-none"
+                          data-testid={`minimap-${state().bucket}-dot`}
+                          class="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full pointer-events-none"
+                          classList={{
+                            "bg-alert": state().bucket === "awaiting",
+                            "bg-accent": state().bucket === "working",
+                          }}
                         />
                       </Show>
                     </div>
