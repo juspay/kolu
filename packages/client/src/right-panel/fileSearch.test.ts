@@ -18,10 +18,7 @@ describe("projectFileTreeSearch", () => {
 
   it("matches a single token against the path string", () => {
     expect(projectFileTreeSearch(paths, "index")).toEqual({
-      projectedPaths: [
-        "common/src/index.tsx",
-        "packages/client/src/index.tsx",
-      ],
+      projectedPaths: ["common/src/index.tsx", "packages/client/src/index.tsx"],
       expandedAncestors: [
         "common/",
         "common/src/",
