@@ -144,6 +144,39 @@ const AGENT_RESUME: Record<
 };
 
 /**
+ * Discriminator literals used by `AgentInfoSchema` in kolu-common. Lives
+ * here (not in kolu-common) because the basename→kind bridge below also
+ * lives here — kolu-common depends on anyagent, so anyagent has to own
+ * the kind vocabulary that its own helpers return. Structurally identical
+ * to `AgentInfo["kind"]`; TypeScript treats them as the same union.
+ */
+export type AgentKind = "claude-code" | "codex" | "opencode";
+
+/** Maps the agent binary basename to the discriminator used by
+ *  `AgentInfoSchema` in kolu-common. Only the icon-capable agents have
+ *  entries — detection-only agents in `STABLE_FLAGS` (aider/goose/gemini/
+ *  cursor-agent) intentionally return `null` because they have no
+ *  AgentInfo discriminator. The basename axis (`claude`/`codex`/`opencode`)
+ *  and the kind axis (`claude-code`/`codex`/`opencode`) differ only for
+ *  Claude; this is the single bridge between them. */
+const BASENAME_TO_KIND: Record<string, AgentKind> = {
+  claude: "claude-code",
+  codex: "codex",
+  opencode: "opencode",
+};
+
+/**
+ * Resolve the `AgentKind` discriminator for a command string (typically
+ * the normalized output of `parseAgentCommand`, but raw command strings
+ * with a path prefix are handled too via `basename`). Returns `null` for
+ * unrecognized commands and for detection-only agents.
+ */
+export function agentKindFromCommand(command: string): AgentKind | null {
+  const head = command.trim().split(/\s+/, 1)[0] ?? "";
+  return BASENAME_TO_KIND[basename(head)] ?? null;
+}
+
+/**
  * Parse a raw command line. Returns the normalized agent invocation
  * string (e.g. `"claude --model sonnet"`) if the first token resolves
  * to a known agent binary, or `null` otherwise.

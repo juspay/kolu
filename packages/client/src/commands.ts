@@ -14,8 +14,9 @@ import type {
   PaletteLabel,
   PaletteValueInput,
 } from "./CommandPalette";
+import { agentKindFromCommand } from "anyagent/cli";
 import { type ActionContext, actionPaletteCommand } from "./input/actions";
-import { agentIcons, agentKindFromCommand } from "./ui/agentDisplay";
+import { agentIcons } from "./ui/agentDisplay";
 import { TerminalIcon } from "./ui/Icons";
 import { client } from "./wire";
 import { recentAgents, recentRepos } from "./wire";
