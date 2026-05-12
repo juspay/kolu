@@ -14,9 +14,8 @@ import type {
   PaletteLabel,
   PaletteValueInput,
 } from "./CommandPalette";
-import { agentKindFromCommand } from "anyagent/cli";
 import { type ActionContext, actionPaletteCommand } from "./input/actions";
-import { agentIcons } from "./ui/agentDisplay";
+import { iconForCommand } from "./ui/agentDisplay";
 import { TerminalIcon } from "./ui/Icons";
 import { client } from "./wire";
 import { recentAgents, recentRepos } from "./wire";
@@ -38,15 +37,14 @@ function agentItems(
   agents: RecentAgent[],
   onPick: (command: string) => void,
 ): PaletteItem[] {
-  return agents.map((a): PaletteAction => {
-    const kind = agentKindFromCommand(a.command);
-    return {
+  return agents.map(
+    (a): PaletteAction => ({
       kind: "action",
       name: a.command,
       onSelect: () => onPick(a.command),
-      icon: kind ? agentIcons[kind] : undefined,
-    };
-  });
+      icon: iconForCommand(a.command),
+    }),
+  );
 }
 
 /** Children of the worktree-naming leaf. Each row's `data` is the agent
@@ -63,15 +61,14 @@ function worktreeAgentOptions(
       data: undefined,
       icon: TerminalIcon,
     },
-    ...agents.map((a): PaletteLabel => {
-      const kind = agentKindFromCommand(a.command);
-      return {
+    ...agents.map(
+      (a): PaletteLabel => ({
         kind: "label",
         name: a.command,
         data: a.command,
-        icon: kind ? agentIcons[kind] : undefined,
-      };
-    }),
+        icon: iconForCommand(a.command),
+      }),
+    ),
   ];
 }
 
