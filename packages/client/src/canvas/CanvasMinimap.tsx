@@ -217,15 +217,16 @@ const CanvasMinimap: Component<{
             // Reactive accessor: bucket classification (awaiting / working /
             // none) plus auto-park staleness. Split from `tile()` so the
             // minute-by-minute staleness tick doesn't invalidate the
-            // rectangle geometry — only the badge surface re-runs.
-            const state = () => {
+            // rectangle geometry — only the badge surface re-runs. Memoized
+            // because the JSX reads it 7× per tile per tick.
+            const state = createMemo(() => {
               const info = store.getDisplayInfo(id);
               if (!info) return { bucket: "none" as const, parked: false };
               return {
                 bucket: agentBucket(info.meta.agent),
                 parked: isStale(info.meta.lastActivityAt),
               };
-            };
+            });
             // Demoted to a ghost marker when the user opted to hide parked
             // tiles and this one is currently parked.
             const ghosted = () =>
