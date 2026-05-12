@@ -1,5 +1,6 @@
 /** Canvas minimap — spatial overview of all tiles + integrated zoom controls. */
 
+import { makePersisted } from "@solid-primitives/storage";
 import {
   type Component,
   createMemo,
@@ -11,7 +12,6 @@ import {
 import { useStaleCheck } from "../terminal/staleness";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { GridIcon, MoonIcon } from "../ui/Icons";
-import { preferences, updatePreferences } from "../wire";
 import {
   handleMinimapClick,
   startTileDrag,
@@ -87,9 +87,13 @@ const CanvasMinimap: Component<{
   const isStale = useStaleCheck();
   const [hoveringViewport, setHoveringViewport] = createSignal(false);
   const [draggingViewport, setDraggingViewport] = createSignal(false);
-  // Narrow the four reactive reads in the toggle button down to one
-  // subscription on the single field — `preferences()` is the whole cell.
-  const hideParked = createMemo(() => preferences().minimapHideParked);
+  // Per-device toggle — viewing preference, not workflow state, so it stays
+  // in localStorage rather than syncing through server preferences.
+  const [hideParked, setHideParked] = makePersisted(createSignal(false), {
+    name: "kolu-minimap-hide-parked",
+    serialize: String,
+    deserialize: (raw) => raw === "true",
+  });
 
   // ── Bounding box of all tiles ──
   const bounds = createMemo(() => {
@@ -437,9 +441,7 @@ const CanvasMinimap: Component<{
           }
           icon={<MoonIcon class="w-3.5 h-3.5" />}
           active={hideParked()}
-          onClick={() =>
-            updatePreferences({ minimapHideParked: !hideParked() })
-          }
+          onClick={() => setHideParked((prev) => !prev)}
         />
       </div>
     </div>

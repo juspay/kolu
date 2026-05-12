@@ -98,7 +98,7 @@ type PersistedState = z.infer<typeof PersistedStateSchema>;
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.22.0";
+const SCHEMA_VERSION = "1.21.0";
 
 // Callers must pass an explicit directory via KOLU_STATE_DIR. A bare launch
 // with no env would silently clobber whatever happens to live at conf's
@@ -409,19 +409,6 @@ export const store = new Conf<PersistedState>({
         ...t,
       })) as typeof session.terminals;
       store.set("session", { ...session, terminals });
-    },
-    // minimapHideParked preference added — default to false so existing users
-    // see the same all-tiles minimap until they opt in to the moon-icon
-    // toggle. Without this seed, the post-load Zod parse rejects pre-1.22
-    // preference blobs (the field is non-optional).
-    "1.22.0": (store: Conf<PersistedState>) => {
-      const current = store.get("preferences") as Record<string, unknown>;
-      if (current.minimapHideParked === undefined) {
-        store.set("preferences", {
-          ...current,
-          minimapHideParked: false,
-        } as Preferences);
-      }
     },
   },
 });

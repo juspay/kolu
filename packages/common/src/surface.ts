@@ -319,11 +319,6 @@ export const PreferencesSchema = z.object({
    *  many terminals). `dom` forces DOM everywhere, eliminating the font-
    *  rendering shift on focus swap at the cost of WebGL throughput. */
   terminalRenderer: z.enum(["auto", "webgl", "dom"]),
-  /** When true, the canvas minimap demotes auto-parked (stale) terminals to
-   *  small ghost markers instead of full rectangles, so attention lands on
-   *  the agents that still matter. The parked tiles stay reachable (click
-   *  the ghost to focus). */
-  minimapHideParked: z.boolean(),
   rightPanel: RightPanelPrefsSchema,
 });
 
@@ -395,7 +390,6 @@ export const DEFAULT_PREFERENCES: z.infer<typeof PreferencesSchema> = {
   activityAlerts: true,
   colorScheme: "dark",
   terminalRenderer: "auto",
-  minimapHideParked: false,
   rightPanel: {
     collapsed: true,
     size: 0.25,
