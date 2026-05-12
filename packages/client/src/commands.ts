@@ -31,18 +31,22 @@ function validateWorktreeName(name: string): string | null {
 }
 
 /** PaletteItems listing each recent agent command. Used by the Debug →
- *  "Recent agents" entry (phase 1 prefill flow). */
+ *  "Recent agents" entry (phase 1 prefill flow). Icons mirror the
+ *  worktree-naming leaf below so the same recent agents render with the
+ *  same visual treatment in both palettes. */
 function agentItems(
   agents: RecentAgent[],
   onPick: (command: string) => void,
 ): PaletteItem[] {
-  return agents.map(
-    (a): PaletteAction => ({
+  return agents.map((a): PaletteAction => {
+    const kind = agentKindFromCommand(a.command);
+    return {
       kind: "action",
       name: a.command,
       onSelect: () => onPick(a.command),
-    }),
-  );
+      icon: kind ? agentIcons[kind] : undefined,
+    };
+  });
 }
 
 /** Children of the worktree-naming leaf. Each row's `data` is the agent
