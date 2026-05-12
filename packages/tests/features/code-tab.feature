@@ -156,24 +156,27 @@ Feature: Code tab (review + browse)
       | browse |
 
   # Regression: folder-chevron clicks did nothing while a filter was
-  # active. Runs across all three modes because `initialExpansion`
-  # diverges (`"open"` for diff modes exercises the wrapper's force-
-  # collapse branch; `"closed"` for browse lands collapsed naturally),
-  # and both paths must produce the same user-visible result. Wrapper-
-  # side rationale lives in FileTree.tsx alongside the fix.
-  Scenario Outline: Folder collapse during active filter takes effect [<mode>]
+  # active because Pierre's `hide-non-matches` controller re-expands
+  # every match ancestor on each store event. Fix: filter on Kolu's side
+  # (`fileSearch.ts`) so Pierre never sees the query, and ask the
+  # wrapper to ensure match ancestors are expanded via `expandPaths`.
+  # The user can now collapse a folder freely, and the filter stays
+  # active until they explicitly change it.
+  Scenario Outline: Folder collapse during active filter persists the filter [<mode>]
     Given a Code tab in "<mode>" mode showing files:
-      | path          | content |
-      | src/alpha.txt | a       |
-      | src/beta.txt  | b       |
-      | other.txt     | o       |
+      | path              | content |
+      | src/alpha-one.txt | a1      |
+      | src/alpha-two.txt | a2      |
+      | other.txt         | o       |
     When I type "alpha" into the Code tab filter
-    Then the Code tab should show file "src/alpha.txt"
+    Then the Code tab should show file "src/alpha-one.txt"
+    And the Code tab should show file "src/alpha-two.txt"
     And the Code tab should not show file "other.txt"
     When I click the directory node "src" in the Code tab
-    Then the Code tab should not show file "src/alpha.txt"
-    And the Code tab filter input should contain ""
-    And the Code tab should show file "other.txt"
+    Then the Code tab should not show file "src/alpha-one.txt"
+    And the Code tab should not show file "src/alpha-two.txt"
+    And the Code tab filter input should contain "alpha"
+    And the Code tab should not show file "other.txt"
 
     Examples:
       | mode   |
