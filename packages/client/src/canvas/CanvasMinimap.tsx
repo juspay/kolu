@@ -1,6 +1,13 @@
 /** Canvas minimap — spatial overview of all tiles + integrated zoom controls. */
 
-import { type Component, createMemo, createSignal, For, Show } from "solid-js";
+import {
+  type Component,
+  createMemo,
+  createSignal,
+  For,
+  type JSX,
+  Show,
+} from "solid-js";
 import { useStaleCheck } from "../terminal/staleness";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { GridIcon, MoonIcon } from "../ui/Icons";
@@ -24,6 +31,33 @@ const MAP_PAD = 100;
  *  user has hidden them. Big enough to click/drag without being visually
  *  loud. */
 const GHOST_PX = 6;
+
+/** Icon button rendered in the right half of the minimap zoom bar — sits
+ *  after the zoom controls behind a left divider. The `active` prop lights
+ *  the icon in the accent color (used by stateful toggles); plain action
+ *  buttons (arrange) leave it `false` and render in the default muted tone. */
+const ZoomBarButton: Component<{
+  testId: string;
+  title: string;
+  icon: JSX.Element;
+  onClick: () => void;
+  active?: boolean;
+}> = (props) => (
+  <button
+    type="button"
+    data-testid={props.testId}
+    data-enabled={props.active ? "" : undefined}
+    class="flex items-center justify-center w-7 h-8 hover:bg-surface-3/60 transition-colors cursor-pointer border-l border-edge/40"
+    classList={{
+      "text-fg-3 hover:text-fg": !props.active,
+      "text-accent": props.active,
+    }}
+    title={props.title}
+    onClick={props.onClick}
+  >
+    {props.icon}
+  </button>
+);
 
 const CanvasMinimap: Component<{
   tileIds: string[];
@@ -387,34 +421,26 @@ const CanvasMinimap: Component<{
           +
         </button>
         <Show when={props.onAutoArrange && props.tileIds.length > 1}>
-          <button
-            type="button"
-            data-testid="minimap-arrange"
-            class="flex items-center justify-center w-7 h-8 text-fg-3 hover:text-fg hover:bg-surface-3/60 transition-colors cursor-pointer border-l border-edge/40"
+          <ZoomBarButton
+            testId="minimap-arrange"
             title="Arrange canvas by repo"
+            icon={<GridIcon class="w-3.5 h-3.5" />}
             onClick={() => props.onAutoArrange?.()}
-          >
-            <GridIcon class="w-3.5 h-3.5" />
-          </button>
+          />
         </Show>
-        <button
-          type="button"
-          data-testid="minimap-hide-parked-toggle"
-          data-enabled={hideParked() ? "" : undefined}
-          class="flex items-center justify-center w-7 h-8 hover:bg-surface-3/60 transition-colors cursor-pointer border-l border-edge/40"
-          classList={{
-            "text-fg-3 hover:text-fg": !hideParked(),
-            "text-accent": hideParked(),
-          }}
+        <ZoomBarButton
+          testId="minimap-hide-parked-toggle"
           title={
             hideParked()
               ? "Showing only active terminals — click to show parked"
               : "Showing all terminals — click to hide parked"
           }
-          onClick={() => updatePreferences({ minimapHideParked: !hideParked() })}
-        >
-          <MoonIcon class="w-3.5 h-3.5" />
-        </button>
+          icon={<MoonIcon class="w-3.5 h-3.5" />}
+          active={hideParked()}
+          onClick={() =>
+            updatePreferences({ minimapHideParked: !hideParked() })
+          }
+        />
       </div>
     </div>
   );
