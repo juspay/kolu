@@ -41,7 +41,7 @@ import {
 } from "../ui/pierreTheme";
 import { resolveLineRefPath } from "../ui/lineRef";
 import BrowseFileView from "./BrowseFileView";
-import { pendingCodeOpen } from "./codeNavigation";
+import { type CodeOpenRequest, pendingCodeOpen } from "./codeNavigation";
 import CodeMenuFrame from "./CodeMenuFrame";
 import { projectFileTreeSearch } from "./fileSearch";
 import FileSearchInput from "./FileSearchInput";
@@ -192,7 +192,7 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
           req &&
           req.repoRoot === repoPath() &&
           req.targetMode === view() &&
-          handled()?.token !== req.token
+          handled()?.request !== req
         ) {
           return;
         }
@@ -202,13 +202,16 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
     ),
   );
 
-  // Consume-once record for the latest pendingCodeOpen tick.
-  // Storing the resolved path here lets `selectedRange` derive its
-  // value without re-running `resolveLineRefPath` (single resolution
-  // site per request) and lets `resetKey` know whether a pending
-  // request has already been applied.
+  // Consume-once record for the latest pendingCodeOpen tick. Holds
+  // the full request object (reference identity discriminates two
+  // structurally-identical clicks — `requestCodeOpen` mints a fresh
+  // object per call) alongside the resolved path. Storing the
+  // request here lets `selectedRange` derive its value without
+  // re-running `resolveLineRefPath` (single resolution site per
+  // request) and lets `resetKey` know whether a pending request
+  // has already been applied.
   const [handled, setHandled] = createSignal<{
-    token: number;
+    request: CodeOpenRequest;
     resolvedPath: string | null;
   } | null>(null);
 
@@ -230,7 +233,7 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
       },
       ({ req, repo, paths, isPending }) => {
         if (!req) return;
-        if (handled()?.token === req.token) return;
+        if (handled()?.request === req) return;
         if (repo === null || repo !== req.repoRoot) return;
         if (view() !== req.targetMode || isPending) return;
         const rel = resolveLineRefPath({
@@ -241,32 +244,33 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
         });
         if (rel === null) {
           toast.error(`File reference not found: ${req.ref.path}`);
-          setHandled({ token: req.token, resolvedPath: null });
+          setHandled({ request: req, resolvedPath: null });
           return;
         }
         setSelectedPath(rel);
-        setHandled({ token: req.token, resolvedPath: rel });
+        setHandled({ request: req, resolvedPath: rel });
       },
       { defer: true },
     ),
   );
 
   // Highlight range derives from the consume-once record: if the
-  // latest handled token matches the latest request AND its resolved
-  // path is still the rendered file, surface the line range. Any
-  // navigation away (user tree-click, mode switch) flips
+  // request we last handled matches the latest pending one AND its
+  // resolved path is still the rendered file, surface the line
+  // range. Any navigation away (user tree-click, mode switch) flips
   // `selectedPath` and naturally invalidates the memo — no second
   // resolution call.
   //
-  // No `equals` override: each click bumps `req.token`, but two clicks
-  // on the same `path:line` produce structurally identical
-  // `{start,end}`. Gating on content equality would suppress the
-  // second emit and leave the line-selection controller stuck on
-  // whatever range it last held (including `null`, if a Pierre
-  // tear-down between clicks cleared it). Pierre's
-  // `InteractionManager.setSelectedLines` dedups identical ranges
-  // internally, so re-emitting per click is a no-op when the
-  // selection is already correct, and a re-seed when it isn't.
+  // No `equals` override: two clicks on the same `path:line` produce
+  // structurally identical `{start, end}` but distinct request
+  // objects (`requestCodeOpen` mints a fresh one per call), so the
+  // memo emits a fresh value on every click. Pierre's
+  // `InteractionManager.setSelection` re-renders when the selection
+  // is "dirty" — and tearing down the gutter (panel collapse,
+  // virtualizer recreate) leaves `renderedSelectionRange === null`,
+  // which dirties it. Re-emitting per click is what re-paints the
+  // highlight in that case; the same content equality the old
+  // override gated on would silently drop the re-paint.
   const selectedRange = createMemo<{
     start: number;
     end: number;
@@ -274,7 +278,7 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
     const req = pendingCodeOpen();
     if (!req) return null;
     const h = handled();
-    if (!h || h.token !== req.token || h.resolvedPath === null) return null;
+    if (!h || h.request !== req || h.resolvedPath === null) return null;
     if (h.resolvedPath !== selectedPath()) return null;
     return { start: req.ref.startLine, end: req.ref.endLine };
   });
