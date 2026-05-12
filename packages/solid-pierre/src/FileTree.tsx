@@ -146,17 +146,19 @@ export const FileTree: Component<FileTreeProps> = (props) => {
       // `onSelectionChange`-based hook would silently miss the re-click
       // case while Pierre wipes the filter anyway.
       //
-      // Detection uses the `data-item-path`, `data-item-type`, and
-      // `aria-expanded` attributes Pierre stamps on every row, read by
-      // walking `event.composedPath()` to pierce the shadow root. The
-      // listener runs in capture phase so reads happen *before* Pierre's
-      // bubble-phase row handler mutates state — folder rows need the
-      // pre-click expansion to reconstruct user intent. Invariants this
-      // depends on:
+      // Detection uses the `data-item-path` and `aria-expanded`
+      // attributes Pierre stamps on every row, read by walking
+      // `event.composedPath()` to pierce the shadow root. File-vs-folder
+      // discrimination reuses `fileSet` — the same Set that gates
+      // `onSelectionChange`, since directories never appear in
+      // `props.paths`. The listener runs in capture phase so reads happen
+      // *before* Pierre's bubble-phase row handler mutates state — folder
+      // rows need the pre-click expansion to reconstruct user intent.
+      // Invariants this depends on:
       //   1. Pierre's row-click handler stays synchronous (so the
       //      microtask runs *after* `closeSearch` has fired, not before).
-      //   2. Pierre keeps emitting `data-item-path`, `data-item-type`,
-      //      and `aria-expanded` on row elements.
+      //   2. Pierre keeps emitting `data-item-path` and `aria-expanded`
+      //      on row elements.
       // Both are true today; both would silently break this re-apply if
       // Pierre changes them, so they're worth the comment.
       //
@@ -175,7 +177,6 @@ export const FileTree: Component<FileTreeProps> = (props) => {
       // search is null and `#refreshActiveSearchState` won't fire.
       const handleTreeRowClick = (event: MouseEvent) => {
         let rowPath: string | undefined;
-        let rowType: string | undefined;
         let rowWasExpanded = false;
         for (const target of event.composedPath()) {
           if (
@@ -183,22 +184,23 @@ export const FileTree: Component<FileTreeProps> = (props) => {
             target.dataset.itemPath !== undefined
           ) {
             rowPath = target.dataset.itemPath;
-            rowType = target.dataset.itemType;
             rowWasExpanded = target.getAttribute("aria-expanded") === "true";
             break;
           }
         }
         if (rowPath === undefined) return;
+        const clickedPath = rowPath;
+        const isFolder = !fileSet().has(clickedPath);
         queueMicrotask(() => {
           const q = untrack(() => props.searchQuery);
           if (normalizeSearchQuery(q) === null) return;
-          if (rowType !== "folder") {
+          if (!isFolder) {
             applySearchQuery(q);
             return;
           }
           props.onSearchClearedByRowClick?.();
           if (rowWasExpanded && tree != null) {
-            const item = tree.getItem(rowPath);
+            const item = tree.getItem(clickedPath);
             if (
               item != null &&
               "isExpanded" in item &&
