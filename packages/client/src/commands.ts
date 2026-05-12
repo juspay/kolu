@@ -15,6 +15,8 @@ import type {
   PaletteValueInput,
 } from "./CommandPalette";
 import { type ActionContext, actionPaletteCommand } from "./input/actions";
+import { agentIcons, agentKindFromCommand } from "./ui/agentDisplay";
+import { TerminalIcon } from "./ui/Icons";
 import { client } from "./wire";
 import { recentAgents, recentRepos } from "./wire";
 
@@ -50,14 +52,21 @@ function worktreeAgentOptions(
   agents: RecentAgent[],
 ): (PaletteLabel | PaletteHint)[] {
   return [
-    { kind: "label", name: "Plain shell", data: undefined },
-    ...agents.map(
-      (a): PaletteLabel => ({
+    {
+      kind: "label",
+      name: "Plain shell",
+      data: undefined,
+      icon: TerminalIcon,
+    },
+    ...agents.map((a): PaletteLabel => {
+      const kind = agentKindFromCommand(a.command);
+      return {
         kind: "label",
         name: a.command,
         data: a.command,
-      }),
-    ),
+        icon: kind ? agentIcons[kind] : undefined,
+      };
+    }),
   ];
 }
 

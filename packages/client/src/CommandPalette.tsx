@@ -22,6 +22,7 @@ import {
   on,
   Show,
 } from "solid-js";
+import { Dynamic } from "solid-js/web";
 import { match } from "ts-pattern";
 import { formatKeybind, type Keybind } from "./input/keyboard";
 import { useTips } from "./settings/useTips";
@@ -37,6 +38,9 @@ interface PaletteBase {
    *  back via `onSubmit` so callers can identify the chosen option
    *  without string-matching on `name`. */
   data?: unknown;
+  /** Optional leading icon — rendered before `name`. The palette stays
+   *  agnostic: callers pass the component, the palette renders it. */
+  icon?: Component<{ class?: string }>;
   /** Keyboard shortcut(s) to display alongside the command name. */
   keybind?: Keybind | Keybind[];
   /** Called when this item becomes the highlighted item during navigation. */
@@ -232,6 +236,11 @@ const CommandPalette: Component<{
         cmd.description?.toLowerCase().includes(q),
     );
   });
+
+  // Reserve a leading icon gutter for the whole list when ANY row carries
+  // an icon, so rows with and without icons stay aligned. Without this
+  // check, palettes that never set `icon` would gain useless empty space.
+  const hasAnyIcon = createMemo(() => filtered().some((cmd) => cmd.icon));
 
   function drillInto(cmd: PaletteGroup | PaletteValueInput) {
     setPath((p) => [...p, cmd]);
@@ -540,6 +549,15 @@ const CommandPalette: Component<{
                       }
                     }}
                   >
+                    <Show when={hasAnyIcon()}>
+                      <span class="shrink-0 mr-2 w-3 inline-flex items-center justify-center text-fg-3">
+                        <Show when={cmd.icon}>
+                          {(icon) => (
+                            <Dynamic component={icon()} class="w-3 h-3" />
+                          )}
+                        </Show>
+                      </span>
+                    </Show>
                     <span class="truncate">
                       {cmd.name}
                       <Show when={cmd.description}>
