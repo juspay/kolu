@@ -9,6 +9,16 @@ When("I press the toggle inspector shortcut", async function (this: KoluWorld) {
   await this.waitForFrame();
 });
 
+When("I collapse the right panel", async function (this: KoluWorld) {
+  // RightPanel's chrome-bar collapse button — clicking it from the
+  // expanded state toggles `rightPanel.collapsed` to true (Resizable
+  // shrinks the panel to ~0 width while the DOM stays mounted).
+  const btn = this.page.locator('button[aria-label="Collapse panel"]');
+  await btn.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  await btn.click();
+  await this.waitForFrame();
+});
+
 When(
   "I click the inspector toggle icon in the header",
   async function (this: KoluWorld) {

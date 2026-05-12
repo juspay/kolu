@@ -3,7 +3,10 @@
  *  Terminal link-click handlers (and any future caller that needs to
  *  open a file from outside the right panel) publish a request here;
  *  `CodeTab` observes the signal and reacts. Latest request wins;
- *  callers don't need to clear it. */
+ *  callers don't need to clear it. Each call mints a fresh request
+ *  object, so two clicks on the same `path:line` are distinct by
+ *  reference — that's what lets `CodeTab` tell them apart even when
+ *  their `ref` content matches. */
 
 import { createSignal } from "solid-js";
 import type { LineRef } from "../ui/lineRef";
@@ -25,21 +28,12 @@ export interface CodeOpenRequest {
    *  consumer guard explicitly instead of relying on the click
    *  handler having pre-called `openCodeBrowser` in the right order. */
   targetMode: "browse";
-  /** Token incremented on every request so two clicks on the same
-   *  `path:line` re-trigger the effect (signals dedupe by reference;
-   *  identical content with a new token compares unequal). */
-  token: number;
 }
 
-let nextToken = 1;
 const [pending, setPending] = createSignal<CodeOpenRequest | null>(null);
 
 export const pendingCodeOpen = pending;
 
-export function requestCodeOpen(
-  req: Omit<CodeOpenRequest, "token">,
-): CodeOpenRequest {
-  const full: CodeOpenRequest = { ...req, token: nextToken++ };
-  setPending(full);
-  return full;
+export function requestCodeOpen(req: CodeOpenRequest): void {
+  setPending(req);
 }
