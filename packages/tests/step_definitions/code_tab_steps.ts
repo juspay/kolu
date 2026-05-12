@@ -167,6 +167,31 @@ When("I right-click the diff view", async function (this: KoluWorld) {
   await rightClickViewRoot(this, DIFF_VIEW);
 });
 
+// Pierre marks selected gutter + content rows with `data-selected-line`
+// (see @pierre/diffs InteractionManager.renderSelectedLines). The gutter
+// element also carries `data-column-number`, so we can pinpoint the line
+// number via a combined attribute selector. The traversal goes through
+// Pierre's open shadow tree — see `SHADOW_DFS_FN_SRC` below.
+Then(
+  "line {int} should be selected in the file content",
+  async function (this: KoluWorld, line: number) {
+    await this.page.waitForFunction(
+      `(() => {
+        ${SHADOW_DFS_FN_SRC}
+        const root = document.querySelector('${FILE_VIEW}');
+        if (!root) return false;
+        return shadowDfs(root, (node) =>
+          node.nodeType === 1 &&
+          node.hasAttribute('data-selected-line') &&
+          node.getAttribute('data-column-number') === '${line}'
+        ) === true;
+      })()`,
+      undefined,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
 // Asserts the exact set of items in the Pierre diff/file context menu,
 // in order, joined with " | ". Stronger than `I click the context menu
 // item {string}` because it catches "wrong items present" regressions
@@ -352,11 +377,29 @@ Then(
   },
 );
 
-// Pierre's File / FileDiff renderers mount highlighted code inside a
-// shadow root. `Element.textContent` does NOT cross shadow boundaries,
-// so we walk the tree (including each `shadowRoot`) and stitch the text.
-// Inlined as a string-evaluate to dodge tsx's `__name` injection, which
-// crashes inside `page.evaluate` arg functions.
+// Browser-side shadow-aware DFS, shared by every Pierre-DOM assertion in
+// this file. Pierre mounts its rendered content inside an open shadow
+// root; ordinary descendant CSS queries pierce it, but `textContent` and
+// attribute walks need an explicit traversal that descends through each
+// `shadowRoot.childNodes`. Defined as a string so callers can splice it
+// into `page.waitForFunction` evaluators — `page.evaluate` arg functions
+// crash on tsx's `__name` injection. A truthy return from `visit(node)`
+// short-circuits the walk and bubbles back as the helper's return value;
+// accumulator walks mutate closure state and return `undefined`.
+const SHADOW_DFS_FN_SRC = `
+function shadowDfs(root, visit) {
+  const stack = [root];
+  while (stack.length) {
+    const node = stack.pop();
+    const r = visit(node);
+    if (r) return r;
+    if (node.nodeType === 1) {
+      if (node.shadowRoot) for (const ch of node.shadowRoot.childNodes) stack.push(ch);
+      for (const ch of node.childNodes) stack.push(ch);
+    }
+  }
+}`;
+
 async function waitForViewText(
   world: KoluWorld,
   testid: string,
@@ -364,18 +407,13 @@ async function waitForViewText(
 ) {
   await world.page.waitForFunction(
     `(() => {
+      ${SHADOW_DFS_FN_SRC}
       const root = document.querySelector('[data-testid="${testid}"]');
       if (!root) return false;
-      const stack = [root];
       let text = '';
-      while (stack.length) {
-        const node = stack.pop();
+      shadowDfs(root, (node) => {
         if (node.nodeType === 3) text += node.nodeValue || '';
-        if (node.nodeType === 1) {
-          if (node.shadowRoot) for (const ch of node.shadowRoot.childNodes) stack.push(ch);
-          for (const ch of node.childNodes) stack.push(ch);
-        }
-      }
+      });
       return text.includes(${JSON.stringify(expected)});
     })()`,
     undefined,
@@ -651,31 +689,20 @@ Then(
   "the selected file should show content {string}",
   async function (this: KoluWorld, expected: string) {
     await this.page.waitForFunction(
-      (exp) => {
-        for (const sel of [
-          '[data-testid="pierre-diff-view"]',
-          '[data-testid="pierre-file-view"]',
-        ]) {
+      `(() => {
+        ${SHADOW_DFS_FN_SRC}
+        for (const sel of ['${DIFF_VIEW}', '${FILE_VIEW}']) {
           const root = document.querySelector(sel);
           if (!root) continue;
-          const stack: Node[] = [root];
-          let text = "";
-          while (stack.length) {
-            const n = stack.pop() as Node;
-            if (n.nodeType === 3) text += (n as Text).nodeValue || "";
-            if (n.nodeType === 1) {
-              const el = n as Element;
-              const sh = (el as unknown as { shadowRoot?: ShadowRoot })
-                .shadowRoot;
-              if (sh) for (const ch of sh.childNodes) stack.push(ch);
-              for (const ch of el.childNodes) stack.push(ch);
-            }
-          }
-          if (text.includes(exp)) return true;
+          let text = '';
+          shadowDfs(root, (node) => {
+            if (node.nodeType === 3) text += node.nodeValue || '';
+          });
+          if (text.includes(${JSON.stringify(expected)})) return true;
         }
         return false;
-      },
-      expected,
+      })()`,
+      undefined,
       { timeout: POLL_TIMEOUT },
     );
   },
