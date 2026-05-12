@@ -20,6 +20,10 @@ const MAP_W = 180;
 const MAP_H = 120;
 /** Padding around tile bounding box in canvas-space units. */
 const MAP_PAD = 100;
+/** Diameter (px) of the ghost marker rendered for parked tiles when the
+ *  user has hidden them. Big enough to click/drag without being visually
+ *  loud. */
+const GHOST_PX = 6;
 
 const CanvasMinimap: Component<{
   tileIds: string[];
@@ -256,9 +260,6 @@ const CanvasMinimap: Component<{
                 },
               });
             };
-            // Ghost diameter (px). Big enough to click/drag without being
-            // visually loud.
-            const GHOST = 6;
             return (
               <Show when={tile()}>
                 {(t) => (
@@ -273,10 +274,10 @@ const CanvasMinimap: Component<{
                           "ring-1 ring-accent/60": store.activeId() === id,
                         }}
                         style={{
-                          left: `${t().x + t().w / 2 - GHOST / 2}px`,
-                          top: `${t().y + t().h / 2 - GHOST / 2}px`,
-                          width: `${GHOST}px`,
-                          height: `${GHOST}px`,
+                          left: `${t().x + t().w / 2 - GHOST_PX / 2}px`,
+                          top: `${t().y + t().h / 2 - GHOST_PX / 2}px`,
+                          width: `${GHOST_PX}px`,
+                          height: `${GHOST_PX}px`,
                         }}
                         title={`${id} (parked)`}
                         onPointerDown={handleTilePointerDown}
