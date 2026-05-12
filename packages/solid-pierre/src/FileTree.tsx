@@ -37,13 +37,11 @@ export type FileTreeProps = {
    *  Set to `false` when the host renders its own search input and
    *  drives the tree by projecting `paths` directly. */
   search?: boolean;
-  /** Directories the wrapper should keep expanded on top of whatever
-   *  Pierre's own expansion logic decides. Re-applied whenever this
-   *  prop or `paths` changes; never *collapses* a path that's no
-   *  longer listed, so a user's manual collapse on an unrelated
-   *  directory survives. Pierre's controller does not fight these
-   *  expansions because there is no active `setSearch` to drive
-   *  `#refreshActiveSearchState`. */
+  /** Directories Pierre should open whenever the path projection
+   *  resets — forwarded as `initialExpandedPaths` to the constructor
+   *  and to each `resetPaths` call. Pierre opens these atomically with
+   *  the rebuild; expansion never falls out of sync with a path swap,
+   *  and the wrapper holds no separate per-path expansion state. */
   expandPaths?: readonly string[];
   /** Initial folder expansion — captured at construction and **not
    *  reactive**. Pierre takes this once in its constructor; later prop
@@ -82,35 +80,12 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   // membership in this set is a reliable file-vs-folder discriminator.
   const fileSet = createMemo(() => new Set(props.paths));
 
-  // Pierre's `getItem` returns a `FileHandle | FolderHandle | undefined`
-  // union; only folders expose `expand`/`isExpanded`. Structural narrowing
-  // here is the typed access path — there is no exported guard.
-  const expandIfFolder = (path: string) => {
-    const item = tree?.getItem(path);
-    if (
-      item != null &&
-      "expand" in item &&
-      "isExpanded" in item &&
-      !item.isExpanded()
-    ) {
-      try {
-        item.expand();
-      } catch (e) {
-        props.onError(toError(e));
-      }
-    }
-  };
-
-  const applyExpansions = (paths: readonly string[] | undefined) => {
-    if (paths == null || tree == null) return;
-    for (const path of paths) expandIfFolder(path);
-  };
-
   onMount(() => {
     try {
       tree = new FileTreeClass({
         paths: props.paths,
         initialExpansion: props.initialExpansion ?? "closed",
+        initialExpandedPaths: props.expandPaths,
         flattenEmptyDirectories: props.flattenEmptyDirectories ?? true,
         stickyFolders: props.stickyFolders ?? true,
         icons: props.icons,
@@ -128,38 +103,26 @@ export const FileTree: Component<FileTreeProps> = (props) => {
         },
       });
       tree.render({ containerWrapper: container });
-      applyExpansions(props.expandPaths);
     } catch (e) {
       props.onError(toError(e));
     }
   });
 
-  // Pierre's `resetPaths` rebuilds the path projection; whether it
-  // preserves expansion for surviving paths is an implementation detail
-  // we don't depend on. The expansion effect below re-applies expansion
-  // requests after every paths change, which is idempotent (no-op when
-  // the dir is already open).
+  // `resetPaths` takes the new path inventory and the directories to
+  // open in one call (Pierre's `FileTreeResetOptions.initialExpandedPaths`).
+  // Tracking both inputs in the same effect means a paths-and-ancestors
+  // swap lands atomically — no second effect, no ordering invariant
+  // between "rebuild tree" and "open ancestors".
   createEffect(
     on(
-      () => props.paths,
-      (paths) => {
+      [() => props.paths, () => props.expandPaths],
+      ([paths, expandPaths]) => {
         try {
-          tree?.resetPaths(paths);
+          tree?.resetPaths(paths, { initialExpandedPaths: expandPaths });
         } catch (e) {
           props.onError(toError(e));
         }
       },
-      { defer: true },
-    ),
-  );
-
-  // Registration order matters: the paths effect above runs first when
-  // both change in the same tick, so Pierre's tree is rebuilt before we
-  // ask it to expand ancestors of the freshly projected paths.
-  createEffect(
-    on(
-      [() => props.paths, () => props.expandPaths],
-      ([, expandPaths]) => applyExpansions(expandPaths),
       { defer: true },
     ),
   );
