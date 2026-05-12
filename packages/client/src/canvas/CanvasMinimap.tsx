@@ -318,9 +318,7 @@ const CanvasMinimap: Component<{
                           recoloring a bucket is a one-file edit. Parked tiles
                           never paint a badge: attention can't outlive the
                           attention it earned. */}
-                      <Show
-                        when={!state().parked && state().bucket !== "none"}
-                      >
+                      <Show when={!state().parked && state().bucket !== "none"}>
                         <span
                           data-testid={`minimap-${state().bucket}-dot`}
                           class="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full pointer-events-none"
