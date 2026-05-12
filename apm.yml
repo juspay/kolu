@@ -25,13 +25,15 @@ dependencies:
     - juspay/skills/skills/nix-justfile
     - juspay/skills/skills/nix-typescript
     - anthropics/skills/skills/frontend-design
+    - ./mcp-chrome-devtools
+  # Mirrors mcp-chrome-devtools/apm.yml — APM does not auto-aggregate mcp
+  # entries from local-path deps, so we restate the canonical entry here.
   mcp:
     - name: chrome-devtools
       registry: false
       transport: stdio
-      command: nix
+      command: nix-shell
       args:
-        - develop
-        - .#e2e
-        - --command
+        - .agents/skills/mcp-chrome-devtools/shell.nix
+        - --run
         - .agents/skills/mcp-chrome-devtools/bin/serve

@@ -1,11 +1,10 @@
 {
   "mcpServers": {
     "chrome-devtools": {
-      "command": "nix",
+      "command": "nix-shell",
       "args": [
-        "develop",
-        ".#e2e",
-        "--command",
+        ".agents/skills/mcp-chrome-devtools/shell.nix",
+        "--run",
         ".agents/skills/mcp-chrome-devtools/bin/serve"
       ],
       "type": "stdio"

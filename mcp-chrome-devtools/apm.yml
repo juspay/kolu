@@ -1,0 +1,20 @@
+name: mcp-chrome-devtools
+version: 0.1.0
+description: chrome-devtools-mcp launcher — Nix devshell + bash launcher that drive chrome-devtools-mcp through Playwright's bundled Chrome-for-Testing.
+type: hybrid
+
+# Canonical MCP server entry for this package. Consumers must mirror this
+# block in their root apm.yml — APM does not aggregate `mcp:` from
+# local-path or virtual-subdir dependencies (see apm-cli
+# packages/apm-cli/src/apm_cli/install/pipeline.py: only the root manifest's
+# get_mcp_dependencies() is read).
+dependencies:
+  mcp:
+    - name: chrome-devtools
+      registry: false
+      transport: stdio
+      command: nix-shell
+      args:
+        - .agents/skills/mcp-chrome-devtools/shell.nix
+        - --run
+        - .agents/skills/mcp-chrome-devtools/bin/serve

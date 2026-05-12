@@ -1,7 +1,14 @@
 lockfile_version: '1'
-generated_at: '2026-05-12T19:45:36.571545+00:00'
+generated_at: '2026-05-12T20:03:56.006305+00:00'
 apm_version: 0.13.0
 dependencies:
+- repo_url: _local/mcp-chrome-devtools
+  package_type: apm_package
+  deployed_files:
+  - .agents/skills/mcp-chrome-devtools
+  - .claude/skills/mcp-chrome-devtools
+  source: local
+  local_path: ./mcp-chrome-devtools
 - repo_url: anthropics/skills
   host: github.com
   resolved_commit: 12ab35c2eb5668c95810e6a6066f40f4218adc39
@@ -83,16 +90,14 @@ mcp_configs:
     name: chrome-devtools
     transport: stdio
     args:
-    - develop
-    - .#e2e
-    - --command
+    - .agents/skills/mcp-chrome-devtools/shell.nix
+    - --run
     - .agents/skills/mcp-chrome-devtools/bin/serve
     registry: false
-    command: nix
+    command: nix-shell
 local_deployed_files:
 - .agents/skills/ci
 - .agents/skills/hk
-- .agents/skills/mcp-chrome-devtools
 - .agents/skills/parcel
 - .agents/skills/perf-diagnose
 - .agents/skills/pierre
@@ -110,7 +115,6 @@ local_deployed_files:
 - .claude/rules/toast-conventions.md
 - .claude/skills/ci
 - .claude/skills/hk
-- .claude/skills/mcp-chrome-devtools
 - .claude/skills/parcel
 - .claude/skills/perf-diagnose
 - .claude/skills/pierre
