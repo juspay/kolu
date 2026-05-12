@@ -53,6 +53,9 @@ const CanvasMinimap: Component<{
   const isStale = useStaleCheck();
   const [hoveringViewport, setHoveringViewport] = createSignal(false);
   const [draggingViewport, setDraggingViewport] = createSignal(false);
+  // Narrow the four reactive reads in the toggle button down to one
+  // subscription on the single field — `preferences()` is the whole cell.
+  const hideParked = createMemo(() => preferences().minimapHideParked);
 
   // ── Bounding box of all tiles ──
   const bounds = createMemo(() => {
@@ -237,8 +240,7 @@ const CanvasMinimap: Component<{
             });
             // Demoted to a ghost marker when the user opted to hide parked
             // tiles and this one is currently parked.
-            const ghosted = () =>
-              preferences().minimapHideParked && state().parked;
+            const ghosted = () => hideParked() && state().parked;
             const handleTileClick = (e: MouseEvent) => {
               // Don't let this also trigger the background pan-to-point.
               e.stopPropagation();
@@ -398,22 +400,18 @@ const CanvasMinimap: Component<{
         <button
           type="button"
           data-testid="minimap-hide-parked-toggle"
-          data-enabled={preferences().minimapHideParked ? "" : undefined}
+          data-enabled={hideParked() ? "" : undefined}
           class="flex items-center justify-center w-7 h-8 hover:bg-surface-3/60 transition-colors cursor-pointer border-l border-edge/40"
           classList={{
-            "text-fg-3 hover:text-fg": !preferences().minimapHideParked,
-            "text-accent": preferences().minimapHideParked,
+            "text-fg-3 hover:text-fg": !hideParked(),
+            "text-accent": hideParked(),
           }}
           title={
-            preferences().minimapHideParked
+            hideParked()
               ? "Showing only active terminals — click to show parked"
               : "Showing all terminals — click to hide parked"
           }
-          onClick={() =>
-            updatePreferences({
-              minimapHideParked: !preferences().minimapHideParked,
-            })
-          }
+          onClick={() => updatePreferences({ minimapHideParked: !hideParked() })}
         >
           <MoonIcon class="w-3.5 h-3.5" />
         </button>
