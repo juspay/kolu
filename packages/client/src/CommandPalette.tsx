@@ -550,12 +550,8 @@ const CommandPalette: Component<{
                     }}
                   >
                     <Show when={hasAnyIcon()}>
-                      <span class="shrink-0 mr-2 w-3 inline-flex items-center justify-center text-fg-3">
-                        <Show when={cmd.icon}>
-                          {(icon) => (
-                            <Dynamic component={icon()} class="w-3 h-3" />
-                          )}
-                        </Show>
+                      <span class="shrink-0 mr-2 w-3 inline-flex items-center justify-center">
+                        <Dynamic component={cmd.icon} class="w-3 h-3" />
                       </span>
                     </Show>
                     <span class="truncate">
