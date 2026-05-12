@@ -366,6 +366,63 @@ When("I click the minimap arrange button", async function (this: KoluWorld) {
   await this.waitForFrame();
 });
 
+const HIDE_PARKED_TOGGLE_SELECTOR =
+  '[data-testid="minimap-hide-parked-toggle"]';
+
+Then(
+  "the minimap hide-parked toggle should be visible",
+  async function (this: KoluWorld) {
+    await this.page
+      .locator(HIDE_PARKED_TOGGLE_SELECTOR)
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+Then(
+  /^the minimap hide-parked toggle should be (on|off)$/,
+  async function (this: KoluWorld, expected: string) {
+    const enabled = expected === "on";
+    await this.page.waitForFunction(
+      ({ sel, want }: { sel: string; want: boolean }) => {
+        const el = document.querySelector(sel) as HTMLElement | null;
+        if (!el) return false;
+        return el.hasAttribute("data-enabled") === want;
+      },
+      { sel: HIDE_PARKED_TOGGLE_SELECTOR, want: enabled },
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+When(
+  "I click the minimap hide-parked toggle",
+  async function (this: KoluWorld) {
+    const button = this.page.locator(HIDE_PARKED_TOGGLE_SELECTOR);
+    await button.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await button.click();
+    await this.waitForFrame();
+  },
+);
+
+Then(
+  /^minimap tile (\d+) should be in the "(awaiting|working|none)" bucket$/,
+  async function (this: KoluWorld, index: number, bucket: string) {
+    const i = Number(index) - 1;
+    await this.page.waitForFunction(
+      ({ i, want }: { i: number; want: string }) => {
+        const rects = document.querySelectorAll(
+          '[data-testid="minimap-tile-rect"]',
+        );
+        const rect = rects[i] as HTMLElement | undefined;
+        if (!rect) return false;
+        return rect.getAttribute("data-bucket") === want;
+      },
+      { i, want: bucket },
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
 Then("no two canvas tiles should overlap", async function (this: KoluWorld) {
   await this.page.waitForFunction(
     (sel: string) => {

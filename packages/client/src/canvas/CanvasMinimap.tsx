@@ -3,7 +3,8 @@
 import { type Component, createMemo, createSignal, For, Show } from "solid-js";
 import { useStaleCheck } from "../terminal/staleness";
 import { useTerminalStore } from "../terminal/useTerminalStore";
-import { GridIcon } from "../ui/Icons";
+import { GridIcon, MoonIcon } from "../ui/Icons";
+import { preferences, updatePreferences } from "../wire";
 import {
   handleMinimapClick,
   startTileDrag,
@@ -12,7 +13,7 @@ import {
 import type { TileLayout } from "./TileLayout";
 import { useTileTheme } from "./useTileTheme";
 import { useCanvasViewport } from "./viewport/useCanvasViewport";
-import { isAwaitingAttention } from "./workspace-switcher";
+import { agentBucket } from "./workspace-switcher";
 
 /** Minimap target dimensions in pixels. */
 const MAP_W = 180;
@@ -213,12 +214,22 @@ const CanvasMinimap: Component<{
                 repoColor: info.repoColor,
               };
             });
-            // Split from `tile()` so the staleness tick doesn't
-            // invalidate the rectangle — only the awaiting span re-runs.
-            const awaiting = () => {
+            // Reactive accessor: bucket classification (awaiting / working /
+            // none) plus auto-park staleness. Split from `tile()` so the
+            // minute-by-minute staleness tick doesn't invalidate the
+            // rectangle geometry — only the badge surface re-runs.
+            const state = () => {
               const info = store.getDisplayInfo(id);
-              return info ? isAwaitingAttention(info.meta, isStale) : false;
+              if (!info) return { bucket: "none" as const, parked: false };
+              return {
+                bucket: agentBucket(info.meta.agent),
+                parked: isStale(info.meta.lastActivityAt),
+              };
             };
+            // Demoted to a ghost marker when the user opted to hide parked
+            // tiles and this one is currently parked.
+            const ghosted = () =>
+              preferences().minimapHideParked && state().parked;
             const handleTileClick = (e: MouseEvent) => {
               // Don't let this also trigger the background pan-to-point.
               e.stopPropagation();
@@ -244,37 +255,83 @@ const CanvasMinimap: Component<{
                 },
               });
             };
+            // Ghost diameter (px). Big enough to click/drag without being
+            // visually loud.
+            const GHOST = 6;
             return (
               <Show when={tile()}>
                 {(t) => (
-                  <div
-                    data-testid="minimap-tile-rect"
-                    data-tile-id={id}
-                    class="absolute rounded-sm transition-opacity cursor-pointer hover:opacity-100 hover:ring-1 hover:ring-accent/40"
-                    classList={{
-                      "opacity-100 ring-1 ring-accent/60":
-                        store.activeId() === id,
-                      "opacity-70": store.activeId() !== id,
-                    }}
-                    style={{
-                      left: `${t().x}px`,
-                      top: `${t().y}px`,
-                      width: `${t().w}px`,
-                      height: `${t().h}px`,
-                      "background-color": theme().bg,
-                      border: `1px solid ${t().repoColor}`,
-                    }}
-                    title={id}
-                    onPointerDown={handleTilePointerDown}
-                    onClick={handleTileClick}
-                  >
-                    <Show when={awaiting()}>
-                      <span
-                        data-testid="minimap-awaiting-dot"
-                        class="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-alert pointer-events-none"
+                  <Show
+                    when={!ghosted()}
+                    fallback={
+                      <div
+                        data-testid="minimap-parked-ghost"
+                        data-tile-id={id}
+                        class="absolute rounded-full bg-fg-3/40 hover:bg-fg-3/80 transition-colors cursor-pointer"
+                        classList={{
+                          "ring-1 ring-accent/60": store.activeId() === id,
+                        }}
+                        style={{
+                          left: `${t().x + t().w / 2 - GHOST / 2}px`,
+                          top: `${t().y + t().h / 2 - GHOST / 2}px`,
+                          width: `${GHOST}px`,
+                          height: `${GHOST}px`,
+                        }}
+                        title={`${id} (parked)`}
+                        onPointerDown={handleTilePointerDown}
+                        onClick={handleTileClick}
                       />
-                    </Show>
-                  </div>
+                    }
+                  >
+                    <div
+                      data-testid="minimap-tile-rect"
+                      data-tile-id={id}
+                      data-bucket={state().bucket}
+                      data-parked={state().parked ? "" : undefined}
+                      class="absolute rounded-sm transition-opacity cursor-pointer hover:opacity-100 hover:ring-1 hover:ring-accent/40"
+                      classList={{
+                        "opacity-100 ring-1 ring-accent/60":
+                          store.activeId() === id,
+                        "opacity-70":
+                          store.activeId() !== id && !state().parked,
+                        // Parked-but-shown: fades into the background so
+                        // non-parked tiles still own the visual weight even
+                        // in show-all mode.
+                        "opacity-30": store.activeId() !== id && state().parked,
+                      }}
+                      style={{
+                        left: `${t().x}px`,
+                        top: `${t().y}px`,
+                        width: `${t().w}px`,
+                        height: `${t().h}px`,
+                        "background-color": theme().bg,
+                        border: `1px solid ${t().repoColor}`,
+                      }}
+                      title={id}
+                      onPointerDown={handleTilePointerDown}
+                      onClick={handleTileClick}
+                    >
+                      {/* Bucket badge — alert for "needs you", accent for
+                          "agent working". Suppressed on parked tiles so the
+                          alert dot can't outlive the attention it earned. */}
+                      <Show
+                        when={!state().parked && state().bucket === "awaiting"}
+                      >
+                        <span
+                          data-testid="minimap-awaiting-dot"
+                          class="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-alert pointer-events-none"
+                        />
+                      </Show>
+                      <Show
+                        when={!state().parked && state().bucket === "working"}
+                      >
+                        <span
+                          data-testid="minimap-working-dot"
+                          class="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-accent pointer-events-none"
+                        />
+                      </Show>
+                    </div>
+                  </Show>
                 )}
               </Show>
             );
@@ -336,6 +393,28 @@ const CanvasMinimap: Component<{
             <GridIcon class="w-3.5 h-3.5" />
           </button>
         </Show>
+        <button
+          type="button"
+          data-testid="minimap-hide-parked-toggle"
+          data-enabled={preferences().minimapHideParked ? "" : undefined}
+          class="flex items-center justify-center w-7 h-8 hover:bg-surface-3/60 transition-colors cursor-pointer border-l border-edge/40"
+          classList={{
+            "text-fg-3 hover:text-fg": !preferences().minimapHideParked,
+            "text-accent": preferences().minimapHideParked,
+          }}
+          title={
+            preferences().minimapHideParked
+              ? "Showing only active terminals — click to show parked"
+              : "Showing all terminals — click to hide parked"
+          }
+          onClick={() =>
+            updatePreferences({
+              minimapHideParked: !preferences().minimapHideParked,
+            })
+          }
+        >
+          <MoonIcon class="w-3.5 h-3.5" />
+        </button>
       </div>
     </div>
   );
