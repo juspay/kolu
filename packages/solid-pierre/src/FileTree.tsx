@@ -42,16 +42,17 @@ export type FileTreeProps = {
    *  `setSearch()`. Useful when search lives in the caller's chrome
    *  rather than the tree header. Pass empty string or `null` to clear. */
   searchQuery?: string | null;
-  /** Notified when a folder-row click implicitly ended the active
-   *  filter. Pierre's `hide-non-matches` mode auto-expands every
-   *  ancestor of a match on each store event, so a folder collapse
-   *  cannot stick while a query is in effect — the wrapper takes
-   *  Pierre's own `closeSearch()` as the user's exit cue and forwards
-   *  it here so the host can clear its search input to match. Without
-   *  it the tree clears, the input doesn't, and the next keystroke
-   *  re-filters against stale intent. Only fires when `searchQuery`
-   *  was non-empty at click time. */
-  onSearchClearedByRowClick?: () => void;
+  /** Notified when the wrapper's filter state has gone to null
+   *  independently of the host's `searchQuery` prop, leaving the host's
+   *  input out of sync with the tree. Today the only trigger is a
+   *  folder-row click during an active query — Pierre's
+   *  `hide-non-matches` mode auto-expands every ancestor of a match on
+   *  each store event, so a collapse can only stick after the filter is
+   *  released; the wrapper takes Pierre's own `closeSearch()` as the
+   *  user's exit cue. Hosts should resync their search input (typically
+   *  by clearing it) when this fires. Only invoked when `searchQuery`
+   *  was non-empty at the time of clearing. */
+  onSearchCleared?: () => void;
   /** Initial folder expansion — captured at construction and **not
    *  reactive**. Pierre takes this once in its constructor; later prop
    *  changes are silently ignored. Re-mount the component (e.g. by
@@ -169,7 +170,7 @@ export const FileTree: Component<FileTreeProps> = (props) => {
       // ancestor on each store event (FileTreeController `#subscribe` ->
       // `#refreshActiveSearchState`), so a `setSearch` re-apply would
       // immediately revert the user's collapse. Skip the re-apply and
-      // hand the host an `onSearchClearedByRowClick` signal so its input
+      // hand the host an `onSearchCleared` signal so its input
       // clears to match the tree state. If the row was expanded
       // pre-click but Pierre's `closeSearch` left it expanded (happens
       // in `"open"` initial-expansion mode, where pre-search expanded
@@ -200,7 +201,7 @@ export const FileTree: Component<FileTreeProps> = (props) => {
             applySearchQuery(q);
             return;
           }
-          props.onSearchClearedByRowClick?.();
+          props.onSearchCleared?.();
           if (row.wasExpanded && tree != null) {
             const item = tree.getItem(row.path);
             if (
