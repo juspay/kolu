@@ -11,7 +11,7 @@ If you've ever wanted your AI coding agent to actually **see your app running** 
 
 Wiring it into your project used to be irritating — you needed a Chrome binary, a launcher script, and a per-runtime config block (one for Claude Code, another for Codex, another for OpenCode). This guide gets you to a working setup by leaning on two tools you may not yet be using together: **Nix** and **APM**.
 
-> One-sentence pitches: **Nix** gives you reproducible binaries — Chrome, Node, anything — without manual installers. **APM** is the package manager for AI agent context: like `npm`, but the things you install are skills and MCP servers rather than libraries.
+> One-sentence pitches: **[Nix](https://nixos.org/)** gives you reproducible binaries — Chrome, Node, anything — without manual installers. **[APM](https://microsoft.github.io/apm/)** is the package manager for AI agent context: like `npm`, but the things you install are skills and MCP servers rather than libraries.
 
 ## Step 1 — Install Nix
 
