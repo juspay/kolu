@@ -41,9 +41,17 @@ const MAP_PAD = 100;
  *  loud. */
 const GHOST_PX = 6;
 /** Duration + easing for the morph between full rect and ghost. Shared by
- *  the tile (transition-all) and the bucket badge (transition-opacity) so
- *  the geometry change and the badge fade always run on the same clock. */
+ *  the tile and the bucket badge so the geometry change and the badge fade
+ *  always run on the same clock. */
 const MORPH_TRANSITION = "duration-300 ease-out";
+/** Focused transition property list for the morphing tile. `transition-all`
+ *  would force the browser to watch every animatable property — including
+ *  hover-induced ring/shadow shifts and inherited color cascades — across
+ *  every minimap tile on every reactive tick (pan, zoom, staleness check).
+ *  Naming the four properties we actually animate lets the compositor
+ *  short-circuit the rest. */
+const TILE_TRANSITION_PROPS =
+  "transition-[left,top,width,height,background-color,border-color,border-radius]";
 
 /** Build the hover tooltip for a minimap tile. Closes #870: the previous
  *  `title={id}` showed the opaque terminal id; now it shows the same
@@ -412,7 +420,7 @@ const CanvasMinimap: Component<{
                     data-tile-id={id}
                     data-bucket={state().bucket}
                     data-parked={parked() ? "" : undefined}
-                    class={`absolute cursor-pointer transition-all ${MORPH_TRANSITION} hover:ring-1 hover:ring-accent/40`}
+                    class={`absolute cursor-pointer ${TILE_TRANSITION_PROPS} ${MORPH_TRANSITION} hover:ring-1 hover:ring-accent/40`}
                     classList={{
                       "rounded-full bg-fg-3/40": parked(),
                       "rounded-sm hover:opacity-100": !parked(),
