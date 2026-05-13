@@ -1,5 +1,5 @@
 ---
-name: mcp-chrome-devtools
+name: nix-chrome-devtools-mcp
 description: Launch chrome-devtools-mcp from any Nix-using project. Ships a single executable launcher (bin/serve) that resolves Playwright's bundled Chrome-for-Testing and Node.js directly via Nix — no surrounding devshell required.
 user-invocable: false
 ---
@@ -14,7 +14,7 @@ Drop-in launcher for declaring [`chrome-devtools-mcp`](https://github.com/Chrome
 |---|---|
 | `bin/serve` | Self-contained launcher. Calls `nix build nixpkgs#playwright-driver.browsers` to resolve Chrome, then `nix shell nixpkgs#nodejs --command npx ...` to run a pinned `chrome-devtools-mcp` version. |
 
-The apm.yml `mcp:` entry points directly at `bin/serve` (deployed to `.agents/skills/mcp-chrome-devtools/bin/serve` — APM's [cross-tool convergence path](https://microsoft.github.io/apm/reference/targets-matrix/#skills-convergence)). No `command: nix-shell ...` wrapping required.
+The apm.yml `mcp:` entry points directly at `bin/serve` (deployed to `.agents/skills/nix-chrome-devtools-mcp/bin/serve` — APM's [cross-tool convergence path](https://microsoft.github.io/apm/reference/targets-matrix/#skills-convergence)). No `command: nix-shell ...` wrapping required.
 
 ## Requirements
 

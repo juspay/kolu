@@ -4,7 +4,7 @@
       "type": "local",
       "enabled": true,
       "command": [
-        ".agents/skills/mcp-chrome-devtools/bin/serve"
+        ".agents/skills/nix-chrome-devtools-mcp/bin/serve"
       ]
     }
   }

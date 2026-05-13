@@ -1,4 +1,4 @@
-name: mcp-chrome-devtools
+name: nix-chrome-devtools-mcp
 version: 0.1.0
 description: chrome-devtools-mcp launcher — a single bash launcher that resolves Playwright's bundled Chrome-for-Testing and Node.js directly through Nix. No devshell required.
 type: hybrid
@@ -15,4 +15,4 @@ dependencies:
       # `.agents/skills/<name>/` is APM's converged cross-tool skill deploy
       # path — every target maps `.apm/skills/<name>/` here.
       # https://microsoft.github.io/apm/reference/targets-matrix/#skills-convergence
-      command: .agents/skills/mcp-chrome-devtools/bin/serve
+      command: .agents/skills/nix-chrome-devtools-mcp/bin/serve

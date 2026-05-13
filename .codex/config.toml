@@ -1,5 +1,5 @@
 [mcp_servers.chrome-devtools]
-command = ".agents/skills/mcp-chrome-devtools/bin/serve"
+command = ".agents/skills/nix-chrome-devtools-mcp/bin/serve"
 args = []
 id = ""
 

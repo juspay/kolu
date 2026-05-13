@@ -25,4 +25,4 @@ dependencies:
     - juspay/skills/skills/nix-justfile
     - juspay/skills/skills/nix-typescript
     - anthropics/skills/skills/frontend-design
-    - ./mcp-chrome-devtools
+    - ./nix-chrome-devtools-mcp

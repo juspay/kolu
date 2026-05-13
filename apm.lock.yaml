@@ -1,14 +1,14 @@
 lockfile_version: '1'
-generated_at: '2026-05-12T23:59:50.821511+00:00'
+generated_at: '2026-05-13T00:05:31.977405+00:00'
 apm_version: 0.13.0
 dependencies:
-- repo_url: _local/mcp-chrome-devtools
+- repo_url: _local/nix-chrome-devtools-mcp
   package_type: apm_package
   deployed_files:
-  - .agents/skills/mcp-chrome-devtools
-  - .claude/skills/mcp-chrome-devtools
+  - .agents/skills/nix-chrome-devtools-mcp
+  - .claude/skills/nix-chrome-devtools-mcp
   source: local
-  local_path: ./mcp-chrome-devtools
+  local_path: ./nix-chrome-devtools-mcp
 - repo_url: anthropics/skills
   host: github.com
   resolved_commit: 12ab35c2eb5668c95810e6a6066f40f4218adc39
@@ -90,7 +90,7 @@ mcp_configs:
     name: chrome-devtools
     transport: stdio
     registry: false
-    command: .agents/skills/mcp-chrome-devtools/bin/serve
+    command: .agents/skills/nix-chrome-devtools-mcp/bin/serve
 local_deployed_files:
 - .agents/skills/ci
 - .agents/skills/hk

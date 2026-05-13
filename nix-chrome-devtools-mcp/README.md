@@ -1,4 +1,4 @@
-# mcp-chrome-devtools
+# nix-chrome-devtools-mcp
 
 A drop-in launcher for the [Chrome DevTools MCP server](https://github.com/ChromeDevTools/chrome-devtools-mcp), packaged for [APM](https://microsoft.github.io/apm/).
 
@@ -12,7 +12,7 @@ Add as a local-path APM dependency:
 # your-project/apm.yml
 dependencies:
   apm:
-    - ./mcp-chrome-devtools
+    - ./nix-chrome-devtools-mcp
 ```
 
 `apm install` aggregates the MCP entry from this package's `apm.yml` into your runtime configs (`.mcp.json`, `.codex/config.toml`, `opencode.json`).
@@ -23,4 +23,4 @@ Nix with flakes enabled (`experimental-features = nix-command flakes`).
 
 ## Details
 
-See [`.apm/skills/mcp-chrome-devtools/SKILL.md`](./.apm/skills/mcp-chrome-devtools/SKILL.md) for the override mechanisms, the Chrome ⇔ Puppeteer version-drift caveat, and the upgrade procedure.
+See [`.apm/skills/nix-chrome-devtools-mcp/SKILL.md`](./.apm/skills/nix-chrome-devtools-mcp/SKILL.md) for the override mechanisms, the Chrome ⇔ Puppeteer version-drift caveat, and the upgrade procedure.
