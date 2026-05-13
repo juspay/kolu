@@ -358,6 +358,39 @@ const CanvasMinimap: Component<{
             // the staleness threshold over time.
             const parked = () => state().parked;
             const isActive = () => store.activeId() === id;
+            // Full styling for the morphing tile — geometry, background, and
+            // border in one place. When parked geometry or aesthetics change
+            // (e.g. a different ghost size, a new dim color), this helper is
+            // the only edit site. Background goes through inline style for
+            // both states (one mechanism), matching the `bg-fg-3/40` token via
+            // `color-mix` so the parked branch stays themable.
+            const tileStyle = (t: {
+              x: number;
+              y: number;
+              w: number;
+              h: number;
+              repoColor: string;
+            }): JSX.CSSProperties => {
+              if (parked()) {
+                return {
+                  left: `${t.x + t.w / 2 - GHOST_PX / 2}px`,
+                  top: `${t.y + t.h / 2 - GHOST_PX / 2}px`,
+                  width: `${GHOST_PX}px`,
+                  height: `${GHOST_PX}px`,
+                  "background-color":
+                    "color-mix(in oklab, var(--color-fg-3) 40%, transparent)",
+                  border: "1px solid transparent",
+                };
+              }
+              return {
+                left: `${t.x}px`,
+                top: `${t.y}px`,
+                width: `${t.w}px`,
+                height: `${t.h}px`,
+                "background-color": theme().bg,
+                border: `1px solid ${t.repoColor}`,
+              };
+            };
             return (
               <Show when={tile()}>
                 {(t) => (
@@ -372,7 +405,7 @@ const CanvasMinimap: Component<{
                     data-parked={parked() ? "" : undefined}
                     class={`absolute cursor-pointer transition-all ${MORPH_TRANSITION} hover:ring-1 hover:ring-accent/40`}
                     classList={{
-                      "rounded-full bg-fg-3/40 hover:bg-fg-3/80": parked(),
+                      "rounded-full": parked(),
                       "rounded-sm hover:opacity-100": !parked(),
                       "ring-1 ring-accent/60": isActive(),
                       // Active and parked tiles stay at full opacity so the
@@ -382,19 +415,7 @@ const CanvasMinimap: Component<{
                       "opacity-100": isActive() || parked(),
                       "opacity-70": !isActive() && !parked(),
                     }}
-                    style={{
-                      left: `${parked() ? t().x + t().w / 2 - GHOST_PX / 2 : t().x}px`,
-                      top: `${parked() ? t().y + t().h / 2 - GHOST_PX / 2 : t().y}px`,
-                      width: `${parked() ? GHOST_PX : t().w}px`,
-                      height: `${parked() ? GHOST_PX : t().h}px`,
-                      // When parked, leave background-color unset so the
-                      // `bg-fg-3/40` class wins; otherwise paint the themed
-                      // rect bg. Either way the value transitions smoothly.
-                      "background-color": parked() ? undefined : theme().bg,
-                      border: parked()
-                        ? "1px solid transparent"
-                        : `1px solid ${t().repoColor}`,
-                    }}
+                    style={tileStyle(t())}
                     title={tooltip()}
                     onPointerDown={handleTilePointerDown}
                     onClick={handleTileClick}
