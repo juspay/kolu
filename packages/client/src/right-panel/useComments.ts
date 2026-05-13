@@ -136,27 +136,25 @@ export function useComments(repoRoot: Accessor<string | null>): CommentsApi {
     const r = repoRoot();
     return r ? bucket(r).comments() : empty;
   };
+  // No-op when no repoRoot is bound — the persisted bucket is keyed
+  // by worktree, so writes outside a worktree have no target.
+  const withBucket = (fn: (b: Bucket) => void): void => {
+    const r = repoRoot();
+    if (r) fn(bucket(r));
+  };
   return {
     comments: list,
-    addComment: (input) => {
-      const r = repoRoot();
-      if (!r) return;
-      const b = bucket(r);
-      b.setComments((prev) => [
-        ...prev,
-        { id: crypto.randomUUID(), createdAt: Date.now(), ...input },
-      ]);
-    },
-    removeComment: (id) => {
-      const r = repoRoot();
-      if (!r) return;
-      const b = bucket(r);
-      b.setComments((prev) => prev.filter((c) => c.id !== id));
-    },
-    clear: () => {
-      const r = repoRoot();
-      if (!r) return;
-      bucket(r).setComments([]);
-    },
+    addComment: (input) =>
+      withBucket((b) =>
+        b.setComments((prev) => [
+          ...prev,
+          { id: crypto.randomUUID(), createdAt: Date.now(), ...input },
+        ]),
+      ),
+    removeComment: (id) =>
+      withBucket((b) =>
+        b.setComments((prev) => prev.filter((c) => c.id !== id)),
+      ),
+    clear: () => withBucket((b) => b.setComments([])),
   };
 }
