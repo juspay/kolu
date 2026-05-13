@@ -3,14 +3,16 @@
 # Nix. Self-contained — no surrounding devshell required. Requires flakes
 # (`experimental-features = nix-command flakes` in nix.conf).
 #
-# Override the nixpkgs source per invocation:
-#   NIXPKGS_FLAKE=github:NixOS/nixpkgs/<rev> .../bin/serve
-# Or system-wide via `nix registry pin nixpkgs <flake-ref>`.
+# Override knobs (env vars):
+#   NIXPKGS_FLAKE                 — flake-ref for nixpkgs (default: `nixpkgs`)
+#   CHROME_DEVTOOLS_MCP_VERSION   — npm version of chrome-devtools-mcp
+#                                   (default: `latest`)
 
 set -euo pipefail
 shopt -s nullglob
 
 nixpkgs="${NIXPKGS_FLAKE:-nixpkgs}"
+mcp_version="${CHROME_DEVTOOLS_MCP_VERSION:-latest}"
 
 browsers=$(nix build --no-link --print-out-paths "${nixpkgs}#playwright-driver.browsers")
 
@@ -25,12 +27,12 @@ for c in \
 done
 
 if [[ -z "$chrome" ]]; then
-    echo "mcp-chrome-devtools: no Chrome binary found under $browsers" >&2
+    echo "nix-chrome-devtools-mcp: no Chrome binary found under $browsers" >&2
     exit 1
 fi
 
 exec nix shell "${nixpkgs}#nodejs" --command \
-    npx -y chrome-devtools-mcp@0.26.0 \
+    npx -y "chrome-devtools-mcp@${mcp_version}" \
     --headless=true \
     --isolated=true \
     --executable-path="$chrome"

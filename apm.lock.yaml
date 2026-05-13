@@ -1,14 +1,7 @@
 lockfile_version: '1'
-generated_at: '2026-05-13T00:05:31.977405+00:00'
+generated_at: '2026-05-13T00:22:08.313754+00:00'
 apm_version: 0.13.0
 dependencies:
-- repo_url: _local/nix-chrome-devtools-mcp
-  package_type: apm_package
-  deployed_files:
-  - .agents/skills/nix-chrome-devtools-mcp
-  - .claude/skills/nix-chrome-devtools-mcp
-  source: local
-  local_path: ./nix-chrome-devtools-mcp
 - repo_url: anthropics/skills
   host: github.com
   resolved_commit: 12ab35c2eb5668c95810e6a6066f40f4218adc39
@@ -19,6 +12,15 @@ dependencies:
   - .agents/skills/frontend-design
   - .claude/skills/frontend-design
   content_hash: sha256:063a0e6448123cd359ad0044cc46b0e490cc7964d45ef4bb9fd842bd2ffbca67
+- repo_url: juspay/nix-chrome-devtools-mcp
+  host: github.com
+  resolved_commit: 876ca0609193abf48336a2990e9d12eaf62b3183
+  resolved_ref: add-package
+  package_type: apm_package
+  deployed_files:
+  - .agents/skills/nix-chrome-devtools-mcp
+  - .claude/skills/nix-chrome-devtools-mcp
+  content_hash: sha256:80738251dd3e2fa09141c16f43244c19ee96a36930946bb94ab58684b129ee30
 - repo_url: juspay/skills
   host: github.com
   resolved_commit: 6e2df2d9ab3a4031e89598b50aa1074c3fd87748
