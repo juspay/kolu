@@ -16,7 +16,7 @@ import {
   WINDOW_OPTIONS,
   windowOption,
 } from "../terminal/activityWindow";
-import { isStale, useNowTicker } from "../terminal/staleness";
+import { useStaleCheckWith } from "../terminal/staleness";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { GridIcon, MoonIcon } from "../ui/Icons";
 import {
@@ -91,7 +91,6 @@ const CanvasMinimap: Component<{
   const viewport = useCanvasViewport();
   const store = useTerminalStore();
   const tileTheme = useTileTheme();
-  const now = useNowTicker();
   const [hoveringViewport, setHoveringViewport] = createSignal(false);
   const [draggingViewport, setDraggingViewport] = createSignal(false);
   // Per-device viewing preference — stays in localStorage rather than
@@ -104,7 +103,9 @@ const CanvasMinimap: Component<{
       deserialize: (raw) => (isMinimapWindow(raw) ? raw : "all"),
     },
   );
-  const thresholdMs = createMemo(() => windowOption(windowSel()).thresholdMs);
+  const isParked = useStaleCheckWith(
+    () => windowOption(windowSel()).thresholdMs,
+  );
   const [menuOpen, setMenuOpen] = createSignal(false);
   let triggerRef: HTMLButtonElement | undefined;
   let menuRef: HTMLDivElement | undefined;
@@ -299,7 +300,7 @@ const CanvasMinimap: Component<{
               if (!i) return { bucket: "none" as const, parked: false };
               return {
                 bucket: agentBucket(i.meta.agent),
-                parked: isStale(i.meta.lastActivityAt, now(), thresholdMs()),
+                parked: isParked(i.meta.lastActivityAt),
               };
             });
             // Demoted to a ghost marker whenever the tile falls outside the

@@ -70,9 +70,14 @@ export function useStaleCheck(): (lastActivityAt: number) => boolean {
     isStale(lastActivityAt, tick(), STALE_THRESHOLD_MS);
 }
 
-/** Direct access to the shared 60s now-ticker for consumers that compose
- *  staleness against a user-configurable threshold (e.g. the minimap's
- *  per-window selector). Subscribes the caller to the same global tick. */
-export function useNowTicker(): Accessor<number> {
-  return getNowTicker();
+/** Reactive stale check with a caller-supplied threshold accessor. Same
+ *  composition shape as `useStaleCheck`, but the consumer drives the
+ *  threshold (e.g. the minimap's user-selected activity window). Passing
+ *  `null` from the accessor disables the check — every input is fresh. */
+export function useStaleCheckWith(
+  thresholdMs: Accessor<number | null>,
+): (lastActivityAt: number) => boolean {
+  const tick = getNowTicker();
+  return (lastActivityAt: number) =>
+    isStale(lastActivityAt, tick(), thresholdMs());
 }
