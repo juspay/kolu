@@ -362,8 +362,8 @@ const CanvasMinimap: Component<{
             // when `parked()` flips instead of popping.
             const parked = () => state().parked;
             const isActive = () => store.activeId() === id;
-            const hasBucket = () => state().bucket !== "none";
-            const badgeVisible = () => hasBucket() && !parked();
+            const hasAgent = () => state().bucket !== "none";
+            const badgeVisible = () => hasAgent() && !parked();
             // Parked-bg comes from the `bg-fg-3/40` class (see classList) so a
             // theme or Tailwind-color-space change flows through. Inline bg
             // is for non-parked only — `theme().bg` is a dynamic per-repo
@@ -422,7 +422,7 @@ const CanvasMinimap: Component<{
                   >
                     {/* Mount-gate stays open while parked so a bucket→none
                         flip mid-park doesn't cut the opacity fade short. */}
-                    <Show when={hasBucket() || parked()}>
+                    <Show when={hasAgent() || parked()}>
                       <span
                         data-testid={`minimap-${state().bucket}-dot`}
                         class={`absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full pointer-events-none transition-opacity ${MORPH_TRANSITION}`}
