@@ -25,8 +25,5 @@
       "@xterm/xterm": "github:juspay/xterm.js#fix/kolu-xterm-fixes-built",
       "@xterm/addon-webgl": "github:juspay/xterm.js#fix/kolu-xterm-fixes-built&path:/addons/addon-webgl"
     }
-  },
-  "devDependencies": {
-    "@biomejs/biome": "^2.4.13"
   }
 }

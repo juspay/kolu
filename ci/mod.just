@@ -95,4 +95,4 @@ fmt:
 # Biome lint — recommended preset with each currently-noisy rule explicitly
 # off in biome.jsonc. Each disabled rule has a follow-up PR slot (#710).
 biome:
-    just ci::_run biome "pnpm exec biome lint ."
+    just ci::_run biome "biome lint ."

@@ -4,7 +4,7 @@
 // sites in `canvas/CanvasMinimap.tsx` and `canvas/CanvasTile.tsx` keep
 // the rules off via overrides — see the bottom of this file for why.
 {
-  "$schema": "https://biomejs.dev/schemas/2.4.13/schema.json",
+  "$schema": "https://biomejs.dev/schemas/2.4.7/schema.json",
   "vcs": {
     "enabled": true,
     "clientKind": "git",

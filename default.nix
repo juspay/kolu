@@ -45,7 +45,7 @@ let
     # hash-fresh` enforces this stays in sync with pnpm-lock.yaml by forcing
     # fetchPnpmDeps to re-execute (--rebuild), so stale artifacts in the
     # binary cache can't silently satisfy a hash that no longer matches.
-    hash = "sha256-aNst7abAlRAcMVnChoHwn6eDa2xsegN3RvO0jSUMpwQ=";
+    hash = "sha256-kEFpKzoY/9NhP+P8oTJurCBZqsn++q1hbkXJyiXsc9E=";
     fetcherVersion = 3;
   };
 
@@ -99,7 +99,7 @@ let
       # of 395MB, halving the I/O and Nix NAR hashing time.
       rm -rf packages/client/src packages/client/node_modules
       pushd node_modules/.pnpm
-      rm -rf typescript@* @esbuild* esbuild@* @biomejs* \
+      rm -rf typescript@* @esbuild* esbuild@* \
              lightningcss* rollup@* @rollup* \
              vitest@* @vitest* \
              vite@* vitefu@* vite-plugin-* @tailwindcss* tailwindcss@* \

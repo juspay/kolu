@@ -42,11 +42,11 @@ _dev-parallel: server client
 
 # Run TypeScript type checking + Biome lint across all packages — fast static-correctness gate
 check: install
-    {{ nix_shell }} sh -c 'pnpm typecheck && pnpm exec biome lint .'
+    {{ nix_shell }} sh -c 'pnpm typecheck && biome lint .'
 
 # Biome lint only — mirrors ci::biome. Format stays on Prettier for now (see biome.jsonc).
 lint: install
-    {{ nix_shell }} pnpm exec biome lint .
+    {{ nix_shell }} biome lint .
 
 # Run server with auto-reload
 server:
@@ -110,11 +110,11 @@ clean:
 
 # Format all files in-place
 fmt: install
-    {{ nix_shell }} sh -c 'pnpm exec biome format --write . && nixpkgs-fmt *.nix nix/**/*.nix website/*.nix'
+    {{ nix_shell }} sh -c 'biome format --write . && nixpkgs-fmt *.nix nix/**/*.nix website/*.nix'
 
 # Check formatting without modifying files (used by CI)
 fmt-check: install
-    {{ nix_shell }} sh -c 'pnpm exec biome format . && nixpkgs-fmt --check *.nix nix/**/*.nix website/*.nix'
+    {{ nix_shell }} sh -c 'biome format . && nixpkgs-fmt --check *.nix nix/**/*.nix website/*.nix'
 
 # Nix build (server + client)
 build:
