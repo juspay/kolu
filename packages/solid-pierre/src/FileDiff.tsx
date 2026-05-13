@@ -49,6 +49,12 @@ export type FileDiffProps = {
   /** Fires on every selection commit (single-line click or drag end);
    *  `null` on deselect. */
   onLineSelected?: (range: SelectedLineRange | null) => void;
+  /** Programmatic selection — when set, Pierre highlights this range
+   *  via `setSelectedLines` and stamps `[data-selected-line]` on the
+   *  content row. Mirrors `FileView.selectedLines`; consumers push to
+   *  it from tray jump / pencil flows so the inline composer popover
+   *  has an anchor in diff mode too. */
+  selectedLines?: SelectedLineRange | null;
   /** Surface construction, parse, and render throws. Required because
    *  silently swallowing a parse failure leaves a blank pane that looks
    *  identical to an empty diff. */
@@ -73,6 +79,7 @@ const parseFirstFile = (raw: string): FileDiffMetadata | undefined => {
 type DiffRenderer = {
   render(fileDiff: FileDiffMetadata | undefined): void;
   setThemeType(theme: "light" | "dark"): void;
+  setSelectedLines(range: SelectedLineRange | null): void;
   cleanUp(): void;
 };
 
@@ -122,6 +129,7 @@ const createDiffRenderer = (
         instance.render({ fileContainer, fileDiff });
       },
       setThemeType: (t) => instance?.setThemeType(t),
+      setSelectedLines: (range) => instance?.setSelectedLines(range),
       cleanUp: () => {
         instance?.cleanUp();
         fileContainer?.remove();
@@ -138,6 +146,7 @@ const createDiffRenderer = (
     render: (fileDiff) =>
       instance.render({ containerWrapper: container, fileDiff }),
     setThemeType: (t) => instance.setThemeType(t),
+    setSelectedLines: (range) => instance.setSelectedLines(range),
     cleanUp: () => instance.cleanUp(),
   };
 };
@@ -198,6 +207,24 @@ const FileDiff: Component<FileDiffProps> = (props) => {
       (t) => {
         try {
           renderer?.setThemeType(t);
+        } catch (e) {
+          props.onError(toError(e));
+        }
+      },
+      { defer: true },
+    ),
+  );
+
+  // Programmatic selection — pushes the prop's range through Pierre's
+  // `setSelectedLines`, which stamps `[data-selected-line]` on the
+  // matching content row. Used by the tray jump / pencil flows so the
+  // inline popover has a DOM anchor in diff mode (matches FileView).
+  createEffect(
+    on(
+      () => props.selectedLines,
+      (range) => {
+        try {
+          renderer?.setSelectedLines(range ?? null);
         } catch (e) {
           props.onError(toError(e));
         }

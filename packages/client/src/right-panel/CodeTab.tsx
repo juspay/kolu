@@ -212,9 +212,15 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
   // through the same pipeline the terminal `path:line` click uses.
   // The pencil additionally opens the popover in edit mode; jump
   // just navigates and selects.
+  // Tray jump / pencil — stay in whatever mode the user picked
+  // (`browse` / `local` / `branch`). All three modes now push
+  // `initialSelectedLines` through CodeMenuFrame and forward
+  // `selectedLines` to Pierre (FileDiff + FileView both honor it),
+  // so the popover anchors regardless of which view is active. Forcing
+  // a flip to "browse" was a bandaid for the older FileDiff wrapper
+  // that didn't expose `setSelectedLines`.
   const handleTrayJumpTo = (c: Comment) => {
     setSelectedPath(c.path);
-    if (view() === "branch" || view() === "local") setView("browse");
     setPendingEditSeed({
       path: c.path,
       start: c.startLine,
@@ -223,7 +229,6 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
   };
   const handleTrayEdit = (c: Comment) => {
     setSelectedPath(c.path);
-    if (view() === "branch" || view() === "local") setView("browse");
     setPendingEditSeed({
       path: c.path,
       start: c.startLine,
@@ -776,6 +781,7 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
                       {(d) => (
                         <CodeMenuFrame
                           path={path}
+                          initialSelectedLines={selectedRange()}
                           onSelectionChange={handleSelectionChange}
                           onAddComment={handleAddComment}
                         >
@@ -796,6 +802,7 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
                                 theme={diffTheme()}
                                 enableLineSelection
                                 onLineSelected={selection.handleSelect}
+                                selectedLines={selection.range()}
                                 onError={(err) =>
                                   toast.error(
                                     `Diff render failed: ${err.message}`,

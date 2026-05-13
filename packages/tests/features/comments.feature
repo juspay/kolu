@@ -153,3 +153,83 @@ Feature: Comment mode (inline composer + tray roll-up)
     Then the inline add-comment bubble should not be visible
     When I click the right panel tab "code"
     Then the inline add-comment bubble should be visible
+
+  # ── Bubbles in diff modes (local + branch) ─────────────────────
+  #
+  # Browse, local, and branch share the same wiring: CodeMenuFrame
+  # receives `initialSelectedLines={selectedRange()}`, Pierre's FileView
+  # AND FileDiff both honor `selectedLines` (via `setSelectedLines`),
+  # so the popover anchor (`[data-selected-line]`) and the bubble
+  # anchor (`[data-line="N"]`) work uniformly. These outlines lock that
+  # in — adding "browse" to the Examples row would duplicate earlier
+  # coverage so it's omitted.
+
+  Scenario Outline: + bubble flow works in diff mode [<mode>]
+    Given a Code tab in "<mode>" mode showing files:
+      | path     | content |
+      | a.ts     | a       |
+      | b.ts     | b       |
+    When I click the changed file "a.ts" in the Code tab
+    Then the Code tab should render a diff view
+    When I enable comment mode
+    And I click the line number 1 in the diff view
+    Then the inline add-comment bubble should be visible
+    When I click the inline add-comment bubble
+    Then the inline comment popover should be visible
+    When I type "diff-mode note" into the inline comment composer
+    And I press Enter to submit the inline comment
+    Then the comments tray should list 1 comment
+    And the inline add-comment bubble should not be visible
+    And the inline existing-comment bubble should be visible
+
+    Examples:
+      | mode   |
+      | local  |
+      | branch |
+
+  Scenario Outline: 💬 bubble click opens edit popover in diff mode [<mode>]
+    Given a Code tab in "<mode>" mode showing files:
+      | path     | content |
+      | a.ts     | a       |
+      | b.ts     | b       |
+    When I click the changed file "a.ts" in the Code tab
+    Then the Code tab should render a diff view
+    When I enable comment mode
+    And I click the line number 1 in the diff view
+    And I click the inline add-comment bubble
+    And I type "first" into the inline comment composer
+    And I press Enter to submit the inline comment
+    Then the inline existing-comment bubble should be visible
+    When I click the inline existing-comment bubble
+    Then the inline comment popover should be visible
+    When I type "edited" into the inline comment composer
+    And I press Enter to submit the inline comment
+    When I click the Copy-to-clipboard button
+    Then the clipboard text should contain "edited"
+
+    Examples:
+      | mode   |
+      | local  |
+      | branch |
+
+  # ── Tray edit stays in current mode (no force-to-browse) ──
+  #
+  # Previously, clicking the tray pencil while in a diff view forced a
+  # flip to "browse". That was a bandaid for the older FileDiff wrapper
+  # that didn't expose `setSelectedLines`. With the wrapper fixed, the
+  # pencil should stay in whatever mode the user picked.
+
+  Scenario: tray pencil edit preserves the current diff mode
+    Given a Code tab in "local" mode showing files:
+      | path | content |
+      | a.ts | a       |
+    When I click the changed file "a.ts" in the Code tab
+    Then the Code tab should render a diff view
+    When I enable comment mode
+    And I click the line number 1 in the diff view
+    And I click the inline add-comment bubble
+    And I type "first" into the inline comment composer
+    And I press Enter to submit the inline comment
+    When I click the edit pencil on comment 1
+    Then the inline comment popover should be visible
+    And the Code tab should render a diff view
