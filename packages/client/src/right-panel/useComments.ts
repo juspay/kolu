@@ -29,6 +29,38 @@ type Bucket = {
 
 const buckets = new Map<string, Bucket>();
 
+/** Persisted envelope for a per-worktree bucket. Wrapping the raw
+ *  `Comment[]` in `{ v: 1, comments }` lets future field renames bump
+ *  the version with an explicit migration step instead of silently
+ *  corrupting existing buckets. The clipboard payload in
+ *  `commentSerialize.ts` already carries a `[kolu comments v1]`
+ *  header — this mirrors that discipline at the persistence layer. */
+type PersistedBucketV1 = { v: 1; comments: Comment[] };
+
+function serializeBucket(comments: readonly Comment[]): string {
+  const envelope: PersistedBucketV1 = { v: 1, comments: [...comments] };
+  return JSON.stringify(envelope);
+}
+
+function deserializeBucket(raw: string): Comment[] {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      const env = parsed as { v?: unknown; comments?: unknown };
+      if (env.v === 1 && Array.isArray(env.comments)) {
+        return env.comments as Comment[];
+      }
+    }
+    // Legacy bare-array shape from earlier local builds before the
+    // envelope landed. Tolerated on read so existing users don't lose
+    // their queue on the upgrade; writes always emit the envelope.
+    if (Array.isArray(parsed)) return parsed as Comment[];
+    return [];
+  } catch {
+    return [];
+  }
+}
+
 function bucket(repoRoot: string): Bucket {
   const cached = buckets.get(repoRoot);
   if (cached) return cached;
@@ -36,15 +68,8 @@ function bucket(repoRoot: string): Bucket {
     createSignal<readonly Comment[]>([]),
     {
       name: `kolu-comments:${repoRoot}`,
-      serialize: (v) => JSON.stringify(v),
-      deserialize: (raw) => {
-        try {
-          const parsed = JSON.parse(raw);
-          return Array.isArray(parsed) ? (parsed as Comment[]) : [];
-        } catch {
-          return [];
-        }
-      },
+      serialize: serializeBucket,
+      deserialize: deserializeBucket,
     },
   );
   const b = { comments, setComments } satisfies Bucket;
