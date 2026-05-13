@@ -62,11 +62,21 @@ export type WorkspaceAgentBucket = "awaiting" | "working" | "idle" | "none";
  *  presentation reads from this record rather than re-deriving the
  *  same mapping in each component.
  *
- *  Idle sits between Working and No agent — it collects terminals whose
- *  last agent transition is older than the auto-park threshold (4h),
- *  regardless of current agent state. "No agent" stays narrow: plain
- *  shells that have *never* hosted an agent (`lastActivityAt === 0`). */
+ *  Idle leads the row — it's the triage column the user opens the
+ *  switcher to scan first. Then live attention (Awaiting, Working),
+ *  with "No agent" trailing as the narrow plain-shells bucket
+ *  (`lastActivityAt === 0`, never hosted an agent). */
 export const WORKSPACE_AGENT_BUCKETS = [
+  {
+    key: "idle",
+    label: "Idle",
+    empty: "No parked terminals",
+    textClass: "text-fg-3",
+    accentVar: "var(--color-fg-3)",
+    borderClass: "",
+    // Crescent moon — same vocabulary as the minimap's parked tiles.
+    glyph: "☾",
+  },
   {
     key: "awaiting",
     label: "Awaiting you",
@@ -84,16 +94,6 @@ export const WORKSPACE_AGENT_BUCKETS = [
     accentVar: "var(--color-accent)",
     borderClass: "pill-border pill-border-working",
     glyph: "▸",
-  },
-  {
-    key: "idle",
-    label: "Idle",
-    empty: "No parked terminals",
-    textClass: "text-fg-3",
-    accentVar: "var(--color-fg-3)",
-    borderClass: "",
-    // Crescent moon — same vocabulary as the minimap's parked tiles.
-    glyph: "☾",
   },
   {
     key: "none",

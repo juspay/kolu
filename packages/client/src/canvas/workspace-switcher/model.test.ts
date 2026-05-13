@@ -322,14 +322,15 @@ describe("buildWorkspaceSwitcherModel", () => {
     const model = modelFor(entries);
 
     expect(model.columns.map((column) => column.key)).toEqual([
+      "idle",
       "awaiting",
       "working",
-      "idle",
       "none",
     ]);
-    expect(model.columns[0]?.entries.map((entry) => entry.id)).toEqual(["t1"]);
-    expect(model.columns[1]?.entries.map((entry) => entry.id)).toEqual(["t2"]);
-    expect(model.columns[2]?.entries).toHaveLength(0);
+    // Idle leads, but is empty in this fixture (no isStale supplied).
+    expect(model.columns[0]?.entries).toHaveLength(0);
+    expect(model.columns[1]?.entries.map((entry) => entry.id)).toEqual(["t1"]);
+    expect(model.columns[2]?.entries.map((entry) => entry.id)).toEqual(["t2"]);
     expect(model.columns[3]?.entries.map((entry) => entry.id)).toEqual([
       "t3",
       "t4",
@@ -369,12 +370,12 @@ describe("buildWorkspaceSwitcherModel", () => {
       idleClassifier: (lastActivityAt) =>
         lastActivityAt === 1 ? "4h-12h" : null,
     });
+    // Idle leads — picks up t1 (was awaiting) and t3 (was none).
+    expect(m.columns[0]?.entries.map((e) => e.id).sort()).toEqual(["t1", "t3"]);
     // Awaiting now empty — t1 routed to Idle.
-    expect(m.columns[0]?.entries).toHaveLength(0);
+    expect(m.columns[1]?.entries).toHaveLength(0);
     // Working still holds t2.
-    expect(m.columns[1]?.entries.map((e) => e.id)).toEqual(["t2"]);
-    // Idle picks up t1 (was awaiting) and t3 (was none).
-    expect(m.columns[2]?.entries.map((e) => e.id).sort()).toEqual(["t1", "t3"]);
+    expect(m.columns[2]?.entries.map((e) => e.id)).toEqual(["t2"]);
     // No agent shrinks to t4 (lastActivityAt === 0 → classifier returns
     // null → stays).
     expect(m.columns[3]?.entries.map((e) => e.id)).toEqual(["t4"]);

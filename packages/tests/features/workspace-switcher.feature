@@ -142,7 +142,7 @@ Feature: Workspace switcher
     # only when something is wrong.
     When I hover the workspace switcher
     Then the workspace switcher panel should be visible
-    And the workspace switcher should show buckets "awaiting, working, idle, none"
+    And the workspace switcher should show buckets "idle, awaiting, working, none"
     And the workspace switcher idle column should show sub-buckets "4h-12h, 12h-24h, 24h-48h, 48h+"
     And there should be no page errors
 
