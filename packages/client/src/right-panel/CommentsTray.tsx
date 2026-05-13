@@ -99,9 +99,20 @@ const CommentsTray: Component<CommentsTrayProps> = (props) => {
         </button>
         <button
           type="button"
-          class="p-1 rounded text-fg-3/70 hover:text-fg-2 hover:bg-surface-1"
+          class="p-1 rounded text-fg-3/70 hover:text-fg-2 hover:bg-surface-1 disabled:opacity-40 disabled:cursor-not-allowed"
+          // Tray visibility is `commentMode OR comments.length > 0`. With
+          // queued comments, disabling comment-mode would no-op (the
+          // second arm keeps the tray open) — the click would silently
+          // do nothing. Disable the button instead, so the user clears
+          // or copy-and-clears first.
+          disabled={props.api.comments().length > 0}
           onClick={props.onClose}
           aria-label="Close comments tray"
+          title={
+            props.api.comments().length > 0
+              ? "Clear or copy comments before closing the tray"
+              : "Close comments tray"
+          }
           data-testid="comments-close"
         >
           <CloseIcon class="w-3 h-3" />
