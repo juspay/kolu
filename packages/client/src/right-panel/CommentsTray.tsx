@@ -18,6 +18,25 @@ import { CloseIcon } from "../ui/Icons";
 import { formatLineRange, serializeComments } from "./commentSerialize";
 import type { CommentsApi } from "./useComments";
 
+/** Test-id surface for `CommentsTray`. Centralizes the strings the
+ *  markup writes so a typo lands as a TypeScript error rather than a
+ *  silently-skipped Playwright locator. E2e step files mirror the
+ *  values as literal strings (the tests package doesn't import client
+ *  internals) — drift surfaces as an e2e failure. */
+export const commentsTestIds = {
+  tray: "comments-tray",
+  composer: "comments-composer",
+  target: "comments-target",
+  add: "comments-add",
+  copy: "comments-copy",
+  close: "comments-close",
+  list: "comments-list",
+  item: "comments-item",
+} as const;
+
+const TRAY_PRIMARY_BUTTON_CLASS =
+  "px-2 h-5 rounded text-[10px] bg-accent/80 text-bg-0 hover:bg-accent disabled:opacity-40 disabled:cursor-not-allowed";
+
 export type CommentsTrayProps = {
   api: CommentsApi;
   /** Path of the file currently open in the viewer, or null when no
@@ -86,7 +105,7 @@ const CommentsTray: Component<CommentsTrayProps> = (props) => {
   return (
     <div
       class="shrink-0 flex flex-col border-t border-edge bg-surface-1/30 text-[11px] max-h-[40%]"
-      data-testid="comments-tray"
+      data-testid={commentsTestIds.tray}
     >
       <div class="flex items-center h-7 px-2 border-b border-edge shrink-0 gap-2">
         <span class="font-medium text-fg-2">
@@ -95,10 +114,10 @@ const CommentsTray: Component<CommentsTrayProps> = (props) => {
         <div class="flex-1" />
         <button
           type="button"
-          class="px-2 h-5 rounded text-[10px] bg-accent/80 text-bg-0 hover:bg-accent disabled:opacity-40 disabled:cursor-not-allowed"
+          class={TRAY_PRIMARY_BUTTON_CLASS}
           disabled={props.api.comments().length === 0}
           onClick={copyAndClear}
-          data-testid="comments-copy"
+          data-testid={commentsTestIds.copy}
         >
           Copy to clipboard
         </button>
@@ -118,7 +137,7 @@ const CommentsTray: Component<CommentsTrayProps> = (props) => {
               ? "Clear or copy comments before closing the tray"
               : "Close comments tray"
           }
-          data-testid="comments-close"
+          data-testid={commentsTestIds.close}
         >
           <CloseIcon class="w-3 h-3" />
         </button>
@@ -137,7 +156,7 @@ const CommentsTray: Component<CommentsTrayProps> = (props) => {
             <div class="flex flex-col gap-1.5">
               <div
                 class="font-mono text-[10px] text-fg-3 truncate"
-                data-testid="comments-target"
+                data-testid={commentsTestIds.target}
               >
                 {label()}
               </div>
@@ -154,15 +173,15 @@ const CommentsTray: Component<CommentsTrayProps> = (props) => {
                     submit();
                   }
                 }}
-                data-testid="comments-composer"
+                data-testid={commentsTestIds.composer}
               />
               <div class="flex justify-end">
                 <button
                   type="button"
-                  class="px-2 h-5 rounded text-[10px] bg-accent/80 text-bg-0 hover:bg-accent disabled:opacity-40 disabled:cursor-not-allowed"
+                  class={TRAY_PRIMARY_BUTTON_CLASS}
                   disabled={!canAdd()}
                   onClick={submit}
-                  data-testid="comments-add"
+                  data-testid={commentsTestIds.add}
                 >
                   Add comment
                 </button>
@@ -172,7 +191,10 @@ const CommentsTray: Component<CommentsTrayProps> = (props) => {
         </Show>
       </div>
 
-      <div class="flex-1 min-h-0 overflow-auto" data-testid="comments-list">
+      <div
+        class="flex-1 min-h-0 overflow-auto"
+        data-testid={commentsTestIds.list}
+      >
         <Show
           when={props.api.comments().length > 0}
           fallback={
@@ -186,7 +208,7 @@ const CommentsTray: Component<CommentsTrayProps> = (props) => {
               {(c) => (
                 <li
                   class="flex flex-col gap-0.5 px-2 py-1.5 border-b border-edge/40 last:border-b-0"
-                  data-testid="comments-item"
+                  data-testid={commentsTestIds.item}
                   data-path={c.path}
                 >
                   <div class="flex items-baseline gap-1.5">

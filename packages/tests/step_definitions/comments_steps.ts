@@ -1,6 +1,11 @@
 import { Then, When } from "@cucumber/cucumber";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
+// Selectors mirror `commentsTestIds` exported from
+// `packages/client/src/right-panel/CommentsTray.tsx`. Cross-package
+// imports from `tests` into `client` aren't wired (and shouldn't be —
+// the tests treat the rendered DOM as the contract). If the strings
+// drift, e2e fails loudly here.
 const TRAY = '[data-testid="comments-tray"]';
 const TOGGLE = '[data-testid="comment-mode-toggle"]';
 const COMPOSER = '[data-testid="comments-composer"]';
