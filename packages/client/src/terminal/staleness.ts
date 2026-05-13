@@ -72,21 +72,23 @@ export function useStaleCheck(): (lastActivityAt: number) => boolean {
 }
 
 /** Reactive idle classifier — returns the matching idle sub-bucket for
- *  a `lastActivityAt`, or `null` when the terminal is still live. The
- *  same once-a-minute tick that drives `useStaleCheck` is read here, so
- *  the switcher's sub-row classification stays consistent with stale
- *  fading and re-runs at the same cadence. The `lastActivityAt === 0`
- *  guard preserves the "plain shells stay in No agent" invariant.
+ *  a `lastActivityAt`, or `null` when the terminal is still live.
  *
- *  This collapses what would otherwise be two clock inputs into the
- *  switcher model (a `boolean` stale predicate + raw `now`) into one. */
+ *  Routes through `isStale` first so the "is parked" boundary is
+ *  identical to `useStaleCheck`'s — without this, `isStale` (strict `>`)
+ *  and `idleBucketFor` (inclusive `>=` on the first bucket) would
+ *  disagree at the exact `now - lastActivityAt === STALE_THRESHOLD_MS`
+ *  tick: the Collapsed pill would still read live while the switcher
+ *  panel had moved the entry into the Idle column. The shared gate
+ *  also picks up the `lastActivityAt === 0` plain-shell exclusion. */
 export function useIdleClassifier(): (
   lastActivityAt: number,
 ) => IdleBucketKey | null {
   const tick = getNowTicker();
   return (lastActivityAt: number) => {
-    if (lastActivityAt === 0) return null;
-    return idleBucketFor(tick() - lastActivityAt);
+    const now = tick();
+    if (!isStale(lastActivityAt, now, STALE_THRESHOLD_MS)) return null;
+    return idleBucketFor(now - lastActivityAt);
   };
 }
 
