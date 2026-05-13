@@ -94,7 +94,11 @@ The 90% use case for this MCP in our own workflow isn't ad-hoc browser automatio
 
 Our [`/do`](https://agency.srid.ca/) workflow (from [`srid/agency`](https://github.com/srid/agency)) ends with an `evidence` step: spawn a dev server on a free port, point `chrome-devtools-mcp` at the relevant routes, run `take_screenshot`, upload to a long-lived [`evidence-assets`](https://github.com/juspay/kolu/releases/tag/evidence-assets) GitHub release, embed the URLs in the PR comment. The reviewer sees exactly what changed without checking out the branch.
 
-Two recent examples from Kolu PRs:
+Three recent examples from Kolu PRs:
+
+[**#835 — Worktree-naming leaf**](https://github.com/juspay/kolu/pull/835#issuecomment-4393613826). The agent captured the new pre-filled name input that appears between "New terminal → kolu" and the actual worktree spawn:
+
+![Worktree-naming leaf with prefilled `peaked-rank` suggestion](https://github.com/juspay/kolu/releases/download/evidence-assets/kolu-evidence-worktree-name-leaf.png)
 
 [**#866 — Show agent icons in New terminal command palette**](https://github.com/juspay/kolu/pull/866#issuecomment-4430710269). The agent took before/after of two distinct palettes that share the icon builder:
 
