@@ -248,16 +248,20 @@ Then(
   "the workspace switcher should show buckets {string}",
   async function (this: KoluWorld, expected: string) {
     const wanted = expected.split(",").map((s) => s.trim());
-    await this.page
-      .locator(COLUMN_SELECTOR)
-      .first()
-      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    const buckets = await this.page
-      .locator(COLUMN_SELECTOR)
-      .evaluateAll((cols) =>
-        cols.map((col) => col.getAttribute("data-agent-bucket")),
-      );
-    assert.deepStrictEqual(buckets, wanted);
+    // Poll instead of single-shot read: SolidJS columns mount via a
+    // reactive Index, so a `evaluateAll` after `waitFor("first")` can
+    // race with later columns appearing in the same tick on slower
+    // machines (per .agency/code-police.md → e2e-poll-async-state).
+    await this.page.waitForFunction(
+      ({ selector, exp }) => {
+        const got = Array.from(document.querySelectorAll(selector)).map((el) =>
+          el.getAttribute("data-agent-bucket"),
+        );
+        return got.length === exp.length && got.every((v, i) => v === exp[i]);
+      },
+      { selector: COLUMN_SELECTOR, exp: wanted },
+      { timeout: POLL_TIMEOUT },
+    );
   },
 );
 
@@ -265,16 +269,16 @@ Then(
   "the workspace switcher idle column should show sub-buckets {string}",
   async function (this: KoluWorld, expected: string) {
     const wanted = expected.split(",").map((s) => s.trim());
-    await this.page
-      .locator(IDLE_SUB_SELECTOR)
-      .first()
-      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    const subs = await this.page
-      .locator(IDLE_SUB_SELECTOR)
-      .evaluateAll((rows) =>
-        rows.map((row) => row.getAttribute("data-idle-sub")),
-      );
-    assert.deepStrictEqual(subs, wanted);
+    await this.page.waitForFunction(
+      ({ selector, exp }) => {
+        const got = Array.from(document.querySelectorAll(selector)).map((el) =>
+          el.getAttribute("data-idle-sub"),
+        );
+        return got.length === exp.length && got.every((v, i) => v === exp[i]);
+      },
+      { selector: IDLE_SUB_SELECTOR, exp: wanted },
+      { timeout: POLL_TIMEOUT },
+    );
   },
 );
 
