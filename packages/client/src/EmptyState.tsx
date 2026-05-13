@@ -55,6 +55,7 @@ function groupSavedTerminals(terminals: readonly SavedTerminal[]): RepoGroup[] {
 
 interface EmptyStateProps {
   savedSession?: SavedSession;
+  restoring?: boolean;
   onRestore?: (options: { resumeIds: ReadonlySet<string> }) => void;
 }
 
@@ -161,11 +162,13 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
                 <button
                   type="button"
                   data-testid="restore-session"
-                  class="mt-4 w-full px-3 py-2 text-sm rounded-xl bg-accent text-surface-1 font-medium hover:brightness-110 transition-all"
+                  disabled={props.restoring}
+                  class="mt-4 w-full px-3 py-2 text-sm rounded-xl bg-accent text-surface-1 font-medium hover:brightness-110 disabled:opacity-70 disabled:cursor-wait transition-all"
                   onClick={handleRestore}
                 >
-                  Restore {session().terminals.length} terminal
-                  {session().terminals.length > 1 ? "s" : ""}
+                  {props.restoring
+                    ? "Restoring..."
+                    : `Restore ${session().terminals.length} terminal${session().terminals.length > 1 ? "s" : ""}`}
                   <Show when={resumeCount() > 0}>
                     <span class="opacity-80">
                       {" · resume "}

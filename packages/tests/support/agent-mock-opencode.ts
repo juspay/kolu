@@ -85,10 +85,10 @@ export function writeOpenCodeFixture(opts: {
       sessionId,
       opts.cwd,
     );
-    db.prepare("DELETE FROM message WHERE session_id = ?").run(sessionId);
     db.prepare(
       "DELETE FROM part WHERE message_id IN (SELECT id FROM message WHERE session_id = ?)",
     ).run(sessionId);
+    db.prepare("DELETE FROM message WHERE session_id = ?").run(sessionId);
     db.prepare("DELETE FROM todo WHERE session_id = ?").run(sessionId);
 
     const now = Date.now();

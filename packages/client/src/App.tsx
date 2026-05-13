@@ -344,8 +344,10 @@ const App: Component = () => {
     );
   }
 
+  // Empty means the server list is empty. Metadata can lag the list briefly
+  // after reload; treating that lag as empty invites duplicate terminals.
   const showEmpty = () =>
-    !session.isLoading() && store.terminalIds().length === 0;
+    !session.isLoading() && (store.listSub()?.length ?? 0) === 0;
 
   return (
     <div
@@ -510,6 +512,7 @@ const App: Component = () => {
                 <CanvasWatermark text={appTitle()} />
                 <EmptyState
                   savedSession={session.savedSession() ?? undefined}
+                  restoring={session.isRestoring()}
                   onRestore={(opts) => void session.handleRestoreSession(opts)}
                 />
               </div>

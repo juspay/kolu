@@ -23,9 +23,12 @@
  *
  * The parent-directory fallback handles the window between a thread
  * being created (row inserted in the main DB file) and the first WAL
- * frame being flushed (so the WAL file exists). When the dir watcher
- * sees the WAL appear, it promotes to a direct WAL watcher and tears
- * itself down.
+ * frame being flushed (so the WAL file exists). The parent-directory
+ * watcher stays alive even after a direct WAL watcher is installed,
+ * because SQLite may checkpoint, delete, and recreate the `-wal` file
+ * under a new inode after the last writer closes. A direct `fs.watch`
+ * on the old inode will never see the replacement; the directory watch
+ * detects the recreate and rearms the direct watch.
  */
 
 import fs from "node:fs";
@@ -156,43 +159,89 @@ function tryWatchWal(
   }
 }
 
-/** Install a single fs.watch on the WAL file, falling back to the
- *  parent directory if the WAL doesn't exist yet. When the directory
- *  watcher fires and the WAL file has appeared, promotes itself to a
- *  direct WAL watcher and tears down the directory watcher. */
+function walIdentity(
+  config: WalSubscriptionConfig,
+  log?: Logger,
+): string | null {
+  try {
+    const stat = fs.statSync(config.walPath);
+    return `${stat.dev}:${stat.ino}`;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+      log?.error(
+        { err, path: config.walPath, label: config.label },
+        "WAL stat failed",
+      );
+    }
+    return null;
+  }
+}
+
+function isWalDirEvent(
+  filename: string | Buffer | null,
+  config: WalSubscriptionConfig,
+): boolean {
+  return (
+    filename === null || filename.toString() === path.basename(config.walPath)
+  );
+}
+
+/** Install a direct fs.watch on the WAL file plus a parent-directory
+ *  watcher that keeps the direct watch attached to the current WAL inode.
+ *  SQLite can delete/recreate the WAL during checkpoint, especially in
+ *  tests where the mock writer opens and closes the DB per state update. */
 function installWalWatcher(
   onChange: () => void,
   config: WalSubscriptionConfig,
   log?: Logger,
 ): () => void {
-  const direct = tryWatchWal(onChange, config, log);
-  if (direct) return direct;
+  let directCleanup: (() => void) | null = null;
+  let directIdentity: string | null = null;
 
-  // WAL doesn't exist yet — watch the parent directory and promote
-  // to the WAL file once it appears.
-  let promoted: (() => void) | null = null;
+  const closeDirect = () => {
+    directCleanup?.();
+    directCleanup = null;
+    directIdentity = null;
+  };
+
+  const armDirect = (): boolean => {
+    const nextIdentity = walIdentity(config, log);
+    if (!nextIdentity) {
+      closeDirect();
+      return false;
+    }
+    if (directCleanup && directIdentity === nextIdentity) return true;
+    const nextCleanup = tryWatchWal(onChange, config, log);
+    if (!nextCleanup) {
+      closeDirect();
+      return false;
+    }
+    closeDirect();
+    directCleanup = nextCleanup;
+    directIdentity = nextIdentity;
+    return true;
+  };
+
+  armDirect();
+
   let dirWatcher: fs.FSWatcher | null = null;
   const dir = path.dirname(config.dbPath);
   try {
-    dirWatcher = fs.watch(dir, () => {
-      if (promoted) return;
-      const walCleanup = tryWatchWal(onChange, config, log);
-      if (!walCleanup) return;
-      promoted = walCleanup;
-      dirWatcher?.close();
-      dirWatcher = null;
-      // Kick — WAL may already have data written between our first
-      // attempt and the directory event.
-      onChange();
+    dirWatcher = fs.watch(dir, (_event, filename) => {
+      if (!isWalDirEvent(filename, config)) return;
+      const hadDirect = directCleanup !== null;
+      const hasDirect = armDirect();
+      if (hadDirect || hasDirect) onChange();
     });
   } catch (err) {
     // Same rationale as tryWatchWal's non-ENOENT branch: a watch
-    // failure on the parent directory means we can never promote,
-    // so every future state update is silently lost. Error-level.
+    // failure on the parent directory means we can never recover from
+    // WAL replacement, so future state updates can silently disappear.
+    // Error-level.
     log?.error({ err, dir, label: config.label }, "db dir fs.watch failed");
   }
   return () => {
     dirWatcher?.close();
-    promoted?.();
+    closeDirect();
   };
 }

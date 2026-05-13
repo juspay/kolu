@@ -42,6 +42,7 @@ export function useSessionRestore(deps: {
   const [savedSession, setSavedSession] = createSignal<SavedSession | null>(
     null,
   );
+  const [isRestoring, setIsRestoring] = createSignal(false);
 
   // Hydrate from server state on initial load.
   let hydrated = false;
@@ -147,9 +148,12 @@ export function useSessionRestore(deps: {
   async function handleRestoreSession(
     options: { resumeIds?: ReadonlySet<string> } = {},
   ) {
+    if (isRestoring()) return;
     const session = savedSession();
     if (!session) return;
-    setSavedSession(null);
+    // Keep the card mounted until create succeeds so the click target
+    // doesn't disappear during slow restore startup.
+    setIsRestoring(true);
     const resumeIds = options.resumeIds;
     const id = toast.loading(
       `Restoring ${session.terminals.length} terminals…`,
@@ -211,15 +215,19 @@ export function useSessionRestore(deps: {
         resumed > 0
           ? `Restored ${session.terminals.length} terminals, resumed ${resumed} agent${resumed > 1 ? "s" : ""}`
           : "Session restored";
+      setSavedSession(null);
       toast.success(summary, { id });
     } catch (err) {
       toast.error(`Restore failed: ${(err as Error).message}`, { id });
       throw err;
+    } finally {
+      setIsRestoring(false);
     }
   }
 
   return {
     isLoading: () => store.listSub.pending(),
+    isRestoring,
     savedSession,
     handleRestoreSession,
   };
