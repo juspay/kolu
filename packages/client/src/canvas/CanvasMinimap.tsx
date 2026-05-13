@@ -357,25 +357,17 @@ const CanvasMinimap: Component<{
                 },
               });
             };
-            // A single morphing element handles both the full rect and the
-            // 6 px parked-ghost. The CSS `transition-all` then animates the
-            // geometry, color, and border-radius between the two states so a
-            // tile glides into / out of its ghost form (300 ms) instead of
-            // popping when `state().parked` flips — either because the user
-            // picked a stricter activity window or because a tile crossed
-            // the staleness threshold over time.
+            // One morphing element covers both the full rect and the 6 px
+            // parked-ghost; CSS interpolates between them so the tile glides
+            // when `parked()` flips instead of popping.
             const parked = () => state().parked;
             const isActive = () => store.activeId() === id;
             const hasBucket = () => state().bucket !== "none";
             const badgeVisible = () => hasBucket() && !parked();
-            // Geometry + repo-color border for the morphing tile. Parked tiles
-            // get their dim background from the `bg-fg-3/40` Tailwind class
-            // (see classList below) — keeping the design-system token as the
-            // single source of truth for parked color so a theme change or a
-            // Tailwind colour-space upgrade flows through automatically. The
-            // inline `theme().bg` is for the non-parked branch only, where
-            // the bg is a dynamic per-repo color that can't be a Tailwind
-            // token.
+            // Parked-bg comes from the `bg-fg-3/40` class (see classList) so a
+            // theme or Tailwind-color-space change flows through. Inline bg
+            // is for non-parked only — `theme().bg` is a dynamic per-repo
+            // color that can't be a static Tailwind token.
             const tileStyle = (t: {
               x: number;
               y: number;
@@ -405,10 +397,8 @@ const CanvasMinimap: Component<{
               <Show when={tile()}>
                 {(t) => (
                   <div
-                    // Stable across the parking morph — the element's identity
-                    // doesn't change just because its size and color do.
-                    // Consumers (e2e selectors, dev-tools inspection) that
-                    // care about parked-ness read `data-parked`.
+                    // Identity stable across the morph; parked-ness queried
+                    // via `data-parked`, not by swapping the testid.
                     data-testid="minimap-tile-rect"
                     data-tile-id={id}
                     data-bucket={state().bucket}
@@ -418,11 +408,10 @@ const CanvasMinimap: Component<{
                       "rounded-full bg-fg-3/40": parked(),
                       "rounded-sm hover:opacity-100": !parked(),
                       "ring-1 ring-accent/60": isActive(),
-                      // Active and parked tiles stay at full opacity (active
-                      // needs solid chrome behind its ring; parked already
-                      // conveys low attention via dim color so dropping
-                      // opacity would double-dim). Inactive non-parked rects
-                      // fade to 70 % so badges + the active tile pop.
+                      // Active needs solid chrome behind its ring; parked is
+                      // already dim from bg-color so don't double-dim. Other
+                      // inactive tiles fade to 70 % so the badge + active
+                      // tile dominate.
                       "opacity-100": isActive() || parked(),
                       "opacity-70": !isActive() && !parked(),
                     }}
@@ -431,13 +420,8 @@ const CanvasMinimap: Component<{
                     onPointerDown={handleTilePointerDown}
                     onClick={handleTileClick}
                   >
-                    {/* Bucket badge — color sourced from the bucket descriptor
-                        in workspace-switcher/model so adding or recoloring a
-                        bucket is a one-file edit. Parked tiles never paint a
-                        badge at steady state; mount-gate keeps the badge
-                        alive whenever it might be visible OR mid-fade during
-                        a parking transition, so a bucket→none flip mid-park
-                        doesn't cut the opacity fade short. */}
+                    {/* Mount-gate stays open while parked so a bucket→none
+                        flip mid-park doesn't cut the opacity fade short. */}
                     <Show when={hasBucket() || parked()}>
                       <span
                         data-testid={`minimap-${state().bucket}-dot`}
