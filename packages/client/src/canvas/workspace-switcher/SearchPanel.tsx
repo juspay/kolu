@@ -6,7 +6,6 @@ import { CloseIcon } from "../../ui/Icons";
 import { useTileTheme } from "../useTileTheme";
 import { agentLabel, metaLine, prSummary, tokenLine } from "./chrome";
 import {
-  agentBucket,
   bucketDescriptor,
   type WorkspaceSwitcherColumn,
   type WorkspaceSwitcherEntry,
@@ -328,7 +327,11 @@ const WorkspaceCard: Component<{
   const agent = () => props.entry.info.meta.agent;
   const pr = () => prSummary(props.entry);
   const tokens = () => tokenLine(agent());
-  const bucketInfo = () => bucketDescriptor(agentBucket(agent()));
+  // Read the bucket the model assigned, not the raw agent state — an idle
+  // entry that was previously "awaiting" must not paint a red ⏵ glyph
+  // on a card that's been parked for hours, or it screams for attention
+  // that no longer applies.
+  const bucketInfo = () => bucketDescriptor(props.entry.bucket);
   const lastActive = () => formatTimeAgo(props.entry.info.meta.lastActivityAt);
   const idle = () => props.entry.bucket === "idle";
 
