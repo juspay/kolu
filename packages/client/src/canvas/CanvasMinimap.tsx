@@ -16,7 +16,8 @@ import {
   WINDOW_VALUES,
   windowOption,
 } from "../terminal/activityWindow";
-import { useStaleCheckWith } from "../terminal/staleness";
+import { formatTimeAgo, useStaleCheckWith } from "../terminal/staleness";
+import type { TerminalDisplayInfo } from "../terminal/terminalDisplay";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { GridIcon } from "../ui/Icons";
 import { useAnchoredPopover } from "../ui/useAnchoredPopover";
@@ -39,6 +40,23 @@ const MAP_PAD = 100;
  *  user has hidden them. Big enough to click/drag without being visually
  *  loud. */
 const GHOST_PX = 6;
+
+/** Build the hover tooltip for a minimap tile. Closes #870: the previous
+ *  `title={id}` showed the opaque terminal id; now it shows the same
+ *  identity pair the workspace switcher uses (`repo · branch[ #suffix]`)
+ *  plus the last-active duration. Multi-line via `\n` — supported in
+ *  modern browsers' `title` attribute. */
+function tileTooltip(info: TerminalDisplayInfo, parked: boolean): string {
+  const { group, label, suffix } = info.key;
+  const headParts: string[] = [group];
+  if (label && label !== group) headParts.push(label);
+  if (suffix) headParts.push(suffix);
+  const head = headParts.join(" · ");
+  const ago = formatTimeAgo(info.meta.lastActivityAt);
+  const lines = [head];
+  if (ago) lines.push(parked ? `Parked — last active ${ago}` : `Active ${ago}`);
+  return lines.join("\n");
+}
 
 /** Icon button rendered in the right half of the minimap zoom bar — sits
  *  after the zoom controls behind a left divider. Today only used by the
@@ -293,6 +311,15 @@ const CanvasMinimap: Component<{
                 parked: isParked(i.meta.lastActivityAt),
               };
             });
+            // Hover tooltip — repo · branch[ #suffix] + last-active duration,
+            // sourced from the same identity key the workspace switcher uses.
+            // Falls back to the bare id when display info hasn't arrived yet
+            // (Show guards prevent ever rendering that case, but the accessor
+            // stays total).
+            const tooltip = () => {
+              const i = info();
+              return i ? tileTooltip(i, state().parked) : id;
+            };
             // Demoted to a ghost marker whenever the tile falls outside the
             // user's activity window. With `windowSel() === "all"`, threshold
             // is null → `isStale` returns false → nothing is ever ghosted.
@@ -341,7 +368,7 @@ const CanvasMinimap: Component<{
                           width: `${GHOST_PX}px`,
                           height: `${GHOST_PX}px`,
                         }}
-                        title={`${id} (parked)`}
+                        title={tooltip()}
                         onPointerDown={handleTilePointerDown}
                         onClick={handleTileClick}
                       />
@@ -371,7 +398,7 @@ const CanvasMinimap: Component<{
                         "background-color": theme().bg,
                         border: `1px solid ${t().repoColor}`,
                       }}
-                      title={id}
+                      title={tooltip()}
                       onPointerDown={handleTilePointerDown}
                       onClick={handleTileClick}
                     >

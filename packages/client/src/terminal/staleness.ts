@@ -81,3 +81,18 @@ export function useStaleCheckWith(
   return (lastActivityAt: number) =>
     isStale(lastActivityAt, tick(), thresholdMs());
 }
+
+/** Compact "5m ago" / "2h ago" / "3d ago" — empty string for `0`
+ *  (= "no agent transition observed yet"). Plain `Date.now()` read,
+ *  not reactive: tooltips and hover panels recompute on mount, which is
+ *  finer-grained than the 60s tick anyway. */
+export function formatTimeAgo(ts: number): string {
+  if (ts === 0) return "";
+  const sec = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+  if (sec < 60) return "just now";
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  return `${Math.floor(hr / 24)}d ago`;
+}

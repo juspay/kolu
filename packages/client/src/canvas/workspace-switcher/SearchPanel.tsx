@@ -1,24 +1,10 @@
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, createEffect, Index, Show } from "solid-js";
+import { formatTimeAgo } from "../../terminal/staleness";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { CloseIcon } from "../../ui/Icons";
 import { useTileTheme } from "../useTileTheme";
 import { agentLabel, metaLine, prSummary, tokenLine } from "./chrome";
-
-/** Compact "5m ago" / "2h ago" / "3d ago". Empty string for `0`
- *  (= "no agent transition observed yet"). Computed at render time —
- *  the panel only mounts on hover, so the staleness ceiling is one
- *  hover apart. */
-function formatTimeAgo(ts: number): string {
-  if (ts === 0) return "";
-  const sec = Math.max(0, Math.floor((Date.now() - ts) / 1000));
-  if (sec < 60) return "just now";
-  const min = Math.floor(sec / 60);
-  if (min < 60) return `${min}m ago`;
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr}h ago`;
-  return `${Math.floor(hr / 24)}d ago`;
-}
 import {
   agentBucket,
   bucketDescriptor,
