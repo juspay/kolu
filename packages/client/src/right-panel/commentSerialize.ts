@@ -1,8 +1,11 @@
 /** Clipboard payload — `[kolu comments v1]` envelope is the stable
- *  contract; agents parse the version to dispatch. Sorted by
- *  (path, startLine) so the paste reads as a repo walk. */
+ *  contract; agents parse the version to dispatch. Body is a Markdown
+ *  bullet list (`- \`path:Lrange\` — text`) so the same payload renders
+ *  cleanly in GitHub / Slack / chat surfaces while staying mechanical
+ *  enough for an agent to regex out. Sorted by (path, startLine) so the
+ *  paste reads as a repo walk. */
 
-import { formatRange } from "../ui/lineRef";
+import { formatLPathRef } from "../ui/lineRef";
 
 export type Comment = {
   id: string;
@@ -15,10 +18,6 @@ export type Comment = {
 
 const HEADER = "[kolu comments v1]";
 
-export function formatLineRange(startLine: number, endLine: number): string {
-  return `L${formatRange(startLine, endLine)}`;
-}
-
 export function serializeComments(comments: readonly Comment[]): string {
   const sorted = [...comments].sort((a, b) => {
     if (a.path !== b.path) return a.path.localeCompare(b.path);
@@ -27,8 +26,8 @@ export function serializeComments(comments: readonly Comment[]): string {
   const body = sorted
     .map(
       (c) =>
-        `${c.path}  ${formatLineRange(c.startLine, c.endLine)}\n  > ${c.text}`,
+        `- \`${formatLPathRef(c.path, c.startLine, c.endLine)}\` — ${c.text}`,
     )
-    .join("\n\n");
+    .join("\n");
   return `${HEADER}\n\n${body}\n`;
 }

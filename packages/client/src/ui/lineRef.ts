@@ -36,6 +36,18 @@ export function formatLineRef(
   return `${path}:${formatRange(start, end)}`;
 }
 
+/** Format an L-prefixed path reference (`foo.ts:L42` / `foo.ts:L12-18`) —
+ *  GitHub-permalink-flavored. Distinct from `formatLineRef` (which omits
+ *  the `L` for VS Code / Vim / compiler-error compatibility). Used by
+ *  the comment-tray's clipboard payload and tray-list display. */
+export function formatLPathRef(
+  path: string,
+  start: number,
+  end: number,
+): string {
+  return `${path}:L${formatRange(start, end)}`;
+}
+
 // Path char class: word + `.`, `+`, `@`, `-`. `~` is deliberately
 // excluded — home-relative refs can't be resolved against the
 // terminal's worktree without a resolver contract this module

@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  type Comment,
-  formatLineRange,
-  serializeComments,
-} from "./commentSerialize";
+import { type Comment, serializeComments } from "./commentSerialize";
 
 const sample = (overrides: Partial<Comment> = {}): Comment => ({
   id: "c1",
@@ -15,27 +11,24 @@ const sample = (overrides: Partial<Comment> = {}): Comment => ({
   ...overrides,
 });
 
-describe("formatLineRange", () => {
-  it("emits Lstart when start == end (single line)", () => {
-    expect(formatLineRange(42, 42)).toBe("L42");
-  });
-  it("emits Lstart-end when start < end (range)", () => {
-    expect(formatLineRange(12, 18)).toBe("L12-18");
-  });
-});
-
 describe("serializeComments", () => {
   it("wraps with the versioned header so agents can detect the payload shape", () => {
     const out = serializeComments([sample()]);
     expect(out.startsWith("[kolu comments v1]\n\n")).toBe(true);
   });
 
-  it("renders one block per comment with path, range, and quoted text", () => {
+  it("renders a Markdown bullet per comment with a code-spanned path:Lrange ref", () => {
     expect(
       serializeComments([
         sample({ startLine: 12, endLine: 18, text: "shorten" }),
       ]),
-    ).toBe("[kolu comments v1]\n\nsrc/foo.ts  L12-18\n  > shorten\n");
+    ).toBe("[kolu comments v1]\n\n- `src/foo.ts:L12-18` — shorten\n");
+  });
+
+  it("emits single-line refs as Lstart (no -end suffix)", () => {
+    expect(serializeComments([sample({ startLine: 42, endLine: 42 })])).toBe(
+      "[kolu comments v1]\n\n- `src/foo.ts:L42` — tighten this\n",
+    );
   });
 
   it("sorts by (path, startLine) so the paste reads as a repo walk, not click order", () => {
@@ -62,9 +55,8 @@ describe("serializeComments", () => {
         text: "A",
       }),
     ]);
-    const body = out.slice("[kolu comments v1]\n\n".length).trimEnd();
-    expect(body).toBe(
-      "src/aaa.ts  L7\n  > A\n\nsrc/aaa.ts  L100\n  > C\n\nsrc/zzz.ts  L5\n  > B",
+    expect(out).toBe(
+      "[kolu comments v1]\n\n- `src/aaa.ts:L7` — A\n- `src/aaa.ts:L100` — C\n- `src/zzz.ts:L5` — B\n",
     );
   });
 

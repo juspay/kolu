@@ -7,7 +7,8 @@ import { type Component, createMemo, createSignal, For, Show } from "solid-js";
 import { toast } from "solid-sonner";
 import { writeTextToClipboard } from "../terminal/clipboard";
 import { CloseIcon } from "../ui/Icons";
-import { formatLineRange, serializeComments } from "./commentSerialize";
+import { formatLPathRef } from "../ui/lineRef";
+import { serializeComments } from "./commentSerialize";
 import type { CommentsApi } from "./useComments";
 
 /** Test-id surface for `CommentsTray`. Centralizes the strings the
@@ -58,7 +59,7 @@ const CommentsTray: Component<CommentsTrayProps> = (props) => {
     const p = props.currentPath();
     const r = props.currentRange();
     if (!p || !r) return null;
-    return `${p}  ${formatLineRange(r.start, r.end)}`;
+    return formatLPathRef(p, r.start, r.end);
   };
 
   const submit = () => {
@@ -202,7 +203,7 @@ const CommentsTray: Component<CommentsTrayProps> = (props) => {
                 >
                   <div class="flex items-baseline gap-1.5">
                     <span class="font-mono text-[10px] text-fg-3 truncate flex-1">
-                      {c.path} {formatLineRange(c.startLine, c.endLine)}
+                      {formatLPathRef(c.path, c.startLine, c.endLine)}
                     </span>
                     <button
                       type="button"

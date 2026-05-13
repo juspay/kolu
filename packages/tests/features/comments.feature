@@ -37,7 +37,7 @@ Feature: Comment mode (annotate files, copy to clipboard)
     Then the comments tray should list 1 comment
     When I click the Copy-to-clipboard button
     Then the clipboard text should match the kolu-comments-v1 envelope
-    And the clipboard text should contain "a.ts  L1"
+    And the clipboard text should contain "`a.ts:L1`"
     And the clipboard text should contain "tighten this"
     And the comments tray should list 0 comments
 

@@ -161,7 +161,7 @@ Annotate any file the agent wrote (or any file at all — code, markdown, config
 - **Comment mode** — toggle 💬 in the Code-tab toolbar. While on, a tray opens at the bottom of the panel: composer at the top, queued comments below, "Copy to clipboard" at the right
 - **Pinpoint targets** — Pierre's existing line-selection (click a line, drag for a range) drives the composer's target chip; works uniformly across browse mode and the local/branch diff modes, so `.md`, `.ts`, and any other text file all accept comments without per-kind logic
 - **Cross-file accumulation** — comments collect across every file you visit; the tray sorts by (path, startLine) so a paste reads as a coherent walk through the repo, not click order
-- **Versioned clipboard payload** — flushed text starts with `[kolu comments v1]` so an agent reading the paste can detect the format. Each entry is one block: `path  L<range>` followed by the quoted note
+- **Versioned Markdown clipboard payload** — flushed text starts with `[kolu comments v1]` so an agent reading the paste can detect the format. Each entry is a Markdown bullet with a code-spanned GitHub-style line ref: `` - `path:Lstart-end` — note `` — renders cleanly when pasted into agent terminals, GitHub issues, or chat
 - **Copy-and-clear** — "Copy to clipboard" is destructive by design (issue [#878](https://github.com/juspay/kolu/issues/878)): users want the tray empty for the next review pass once feedback has been pasted into an agent prompt
 - **Per-worktree persistence** — the in-progress queue is keyed by `repoRoot` in localStorage via `makePersisted`, so an accidental reload doesn't lose work and switching between worktree terminals shows each worktree's own tray
 
