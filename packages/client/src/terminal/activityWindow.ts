@@ -9,30 +9,39 @@ import { HOUR_MS } from "./staleness";
 export type MinimapWindow = "all" | "4h" | "12h" | "24h" | "48h";
 
 export interface WindowOption {
-  value: MinimapWindow;
   label: string;
   /** `null` disables the filter — every tile renders as a full rect. */
   thresholdMs: number | null;
 }
 
-export const WINDOW_OPTIONS: readonly WindowOption[] = [
-  { value: "all", label: "All terminals", thresholdMs: null },
-  { value: "4h", label: "Active in last 4h", thresholdMs: 4 * HOUR_MS },
-  { value: "12h", label: "Active in last 12h", thresholdMs: 12 * HOUR_MS },
-  { value: "24h", label: "Active in last 24h", thresholdMs: 24 * HOUR_MS },
-  { value: "48h", label: "Active in last 48h", thresholdMs: 48 * HOUR_MS },
+/** Single source of truth — a fresh `Record<MinimapWindow, …>` literal is
+ *  already exhaustive at the type level: TS's required-property check
+ *  fires if a `MinimapWindow` literal is added to the union without a row
+ *  here, and excess-property check fires if a row is added without a
+ *  matching union member. No casts, no non-null asserts. */
+const WINDOWS: Record<MinimapWindow, WindowOption> = {
+  all: { label: "All terminals", thresholdMs: null },
+  "4h": { label: "Active in last 4h", thresholdMs: 4 * HOUR_MS },
+  "12h": { label: "Active in last 12h", thresholdMs: 12 * HOUR_MS },
+  "24h": { label: "Active in last 24h", thresholdMs: 24 * HOUR_MS },
+  "48h": { label: "Active in last 48h", thresholdMs: 48 * HOUR_MS },
+};
+
+/** Display-order list for the popover menu. Object iteration order is the
+ *  declaration order above for string keys, but encode it once here so a
+ *  reader doesn't have to rely on that invariant at every consumer. */
+export const WINDOW_VALUES: readonly MinimapWindow[] = [
+  "all",
+  "4h",
+  "12h",
+  "24h",
+  "48h",
 ];
 
-/** Lookup table keyed by `MinimapWindow` for O(1) reads. Derived from
- *  `WINDOW_OPTIONS` so the array stays the source of truth. */
-const BY_VALUE: Record<MinimapWindow, WindowOption> = Object.fromEntries(
-  WINDOW_OPTIONS.map((o) => [o.value, o]),
-) as Record<MinimapWindow, WindowOption>;
-
 export function isMinimapWindow(value: string): value is MinimapWindow {
-  return value in BY_VALUE;
+  return value in WINDOWS;
 }
 
 export function windowOption(w: MinimapWindow): WindowOption {
-  return BY_VALUE[w];
+  return WINDOWS[w];
 }

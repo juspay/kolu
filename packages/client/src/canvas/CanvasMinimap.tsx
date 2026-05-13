@@ -13,7 +13,7 @@ import { Portal } from "solid-js/web";
 import {
   isMinimapWindow,
   type MinimapWindow,
-  WINDOW_OPTIONS,
+  WINDOW_VALUES,
   windowOption,
 } from "../terminal/activityWindow";
 import { useStaleCheckWith } from "../terminal/staleness";
@@ -481,24 +481,24 @@ const CanvasMinimap: Component<{
             class="fixed z-50 flex flex-col bg-surface-1 border border-edge rounded-lg shadow-lg shadow-black/40 p-1 min-w-[160px]"
             style={menuPanelStyle()}
           >
-            <For each={WINDOW_OPTIONS}>
-              {(opt) => (
+            <For each={WINDOW_VALUES}>
+              {(value) => (
                 <button
                   type="button"
-                  data-testid={`minimap-window-option-${opt.value}`}
-                  data-selected={windowSel() === opt.value ? "" : undefined}
+                  data-testid={`minimap-window-option-${value}`}
+                  data-selected={windowSel() === value ? "" : undefined}
                   class="text-left text-xs px-2 py-1.5 rounded-md transition-colors cursor-pointer"
                   classList={{
-                    "bg-accent/20 text-accent": windowSel() === opt.value,
+                    "bg-accent/20 text-accent": windowSel() === value,
                     "text-fg-2 hover:bg-surface-3 hover:text-fg":
-                      windowSel() !== opt.value,
+                      windowSel() !== value,
                   }}
                   onClick={() => {
-                    setWindowSel(opt.value);
+                    setWindowSel(value);
                     setMenuOpen(false);
                   }}
                 >
-                  {opt.label}
+                  {windowOption(value).label}
                 </button>
               )}
             </For>
