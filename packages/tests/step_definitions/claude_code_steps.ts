@@ -282,15 +282,21 @@ Then(
 Then(
   "the tile chrome should show task progress {string}",
   async function (this: KoluWorld, expected: string) {
-    await this.page.waitForFunction(
-      (txt) => {
+    const start = Date.now();
+    let last: string | null = null;
+    while (Date.now() - start < POLL_TIMEOUT) {
+      nudgeMockFiles();
+      last = await this.page.evaluate(() => {
         const el = document.querySelector(
           '[data-testid="agent-task-progress"]',
         );
-        return el?.textContent?.includes(txt) ?? false;
-      },
-      expected,
-      { timeout: POLL_TIMEOUT },
+        return el?.textContent ?? null;
+      });
+      if (last?.includes(expected)) return;
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    throw new Error(
+      `Expected task progress "${expected}", got "${last}" after ${POLL_TIMEOUT}ms`,
     );
   },
 );
@@ -377,6 +383,7 @@ When(
     }
     // Append task lines to existing transcript
     fs.appendFileSync(mockTranscriptPath, buildTaskLines(tasks));
+    nudgeMockFiles();
   },
 );
 

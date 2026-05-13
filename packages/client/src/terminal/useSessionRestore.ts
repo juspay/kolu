@@ -140,7 +140,12 @@ export function useSessionRestore(deps: {
   createEffect(() => {
     if (lifecycle().kind === "restarted") return;
     const fromServer = serverSavedSession();
-    if (store.terminalIds().length === 0 && hydrated) {
+    const existing = store.listSub();
+    if (existing !== undefined && existing.length === 0 && hydrated) {
+      // Once a restore offer is visible, keep that local snapshot stable. A
+      // late empty autosave can still publish null while the user is moving to
+      // click the button; replacing the offer with null detaches the target.
+      if (!fromServer && savedSession()) return;
       setSavedSession(fromServer);
     }
   });

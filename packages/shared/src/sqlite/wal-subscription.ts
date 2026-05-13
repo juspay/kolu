@@ -35,6 +35,12 @@ import fs from "node:fs";
 import path from "node:path";
 import type { Logger } from "../log.ts";
 
+/** Coalesce parent-directory events before statting the WAL path. Direct WAL
+ *  events already flow through the integration-level debounce; this timer keeps
+ *  the replacement-detection path cheap if the OS also reports file writes as
+ *  directory events. */
+const WAL_REARM_DEBOUNCE_MS = 50;
+
 /** Per-listener record tracked in the singleton's Set. */
 interface WalListener {
   cb: () => void;
@@ -224,14 +230,24 @@ function installWalWatcher(
 
   armDirect();
 
+  let rearmTimer: NodeJS.Timeout | null = null;
+  const runRearm = () => {
+    rearmTimer = null;
+    const hadDirect = directCleanup !== null;
+    const hasDirect = armDirect();
+    if (hadDirect || hasDirect) onChange();
+  };
+  const scheduleRearm = () => {
+    if (rearmTimer) clearTimeout(rearmTimer);
+    rearmTimer = setTimeout(runRearm, WAL_REARM_DEBOUNCE_MS);
+  };
+
   let dirWatcher: fs.FSWatcher | null = null;
   const dir = path.dirname(config.dbPath);
   try {
     dirWatcher = fs.watch(dir, (_event, filename) => {
       if (!isWalDirEvent(filename, config)) return;
-      const hadDirect = directCleanup !== null;
-      const hasDirect = armDirect();
-      if (hadDirect || hasDirect) onChange();
+      scheduleRearm();
     });
   } catch (err) {
     // Same rationale as tryWatchWal's non-ENOENT branch: a watch
@@ -241,6 +257,10 @@ function installWalWatcher(
     log?.error({ err, dir, label: config.label }, "db dir fs.watch failed");
   }
   return () => {
+    if (rearmTimer) {
+      clearTimeout(rearmTimer);
+      rearmTimer = null;
+    }
     dirWatcher?.close();
     closeDirect();
   };
