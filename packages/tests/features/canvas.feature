@@ -233,6 +233,29 @@ Feature: Canvas workspace
     And the active canvas tile should be centered in the viewport
     And there should be no page errors
 
+  Scenario: Minimap window menu defaults to "all"
+    Then the minimap window trigger should be visible
+    And the minimap window should be "all"
+    And there should be no page errors
+
+  Scenario: Picking a minimap window option persists across reload
+    When I click the minimap window trigger
+    And I pick the minimap window option "4h"
+    Then the minimap window should be "4h"
+    When I reload the page and wait for ready
+    Then the minimap window should be "4h"
+    When I click the minimap window trigger
+    And I pick the minimap window option "all"
+    Then the minimap window should be "all"
+    And there should be no page errors
+
+  Scenario: Minimap tile carries its agent bucket as a data attribute
+    # The renderer tags each rectangle with its bucket so attention-drawing
+    # is testable without scraping CSS classes. A plain shell with no agent
+    # attached lands in the "none" bucket.
+    Then minimap tile 1 should be in the "none" bucket
+    And there should be no page errors
+
   Scenario: Minimap arrange button repositions tiles
     Given I create a terminal
     Then there should be 2 canvas tiles

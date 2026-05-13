@@ -208,6 +208,25 @@ export const GridIcon: Component<{ class?: string }> = (props) => (
   </svg>
 );
 
+/** Crescent-moon glyph — represents the "parked" / sleeping state of stale
+ *  terminals. Used as the minimap toggle for hiding parked tiles. */
+export const MoonIcon: Component<{ class?: string }> = (props) => (
+  <svg
+    class={props.class ?? "w-4 h-4"}
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+    aria-hidden="true"
+  >
+    <path
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      stroke-width="2"
+      d="M20 14.5A8 8 0 019.5 4 8 8 0 1020 14.5z"
+    />
+  </svg>
+);
+
 export const MenuIcon: Component<{ class?: string }> = (props) => (
   <svg
     class={props.class ?? "w-5 h-5"}

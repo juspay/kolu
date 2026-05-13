@@ -366,6 +366,69 @@ When("I click the minimap arrange button", async function (this: KoluWorld) {
   await this.waitForFrame();
 });
 
+const WINDOW_TRIGGER_SELECTOR = '[data-testid="minimap-window-trigger"]';
+
+Then(
+  "the minimap window trigger should be visible",
+  async function (this: KoluWorld) {
+    await this.page
+      .locator(WINDOW_TRIGGER_SELECTOR)
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+Then(
+  /^the minimap window should be "(all|4h|12h|24h|48h)"$/,
+  async function (this: KoluWorld, expected: string) {
+    await this.page.waitForFunction(
+      ({ sel, want }: { sel: string; want: string }) => {
+        const el = document.querySelector(sel) as HTMLElement | null;
+        return el?.getAttribute("data-window") === want;
+      },
+      { sel: WINDOW_TRIGGER_SELECTOR, want: expected },
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+When("I click the minimap window trigger", async function (this: KoluWorld) {
+  const button = this.page.locator(WINDOW_TRIGGER_SELECTOR);
+  await button.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  await button.click();
+  await this.waitForFrame();
+});
+
+When(
+  /^I pick the minimap window option "(all|4h|12h|24h|48h)"$/,
+  async function (this: KoluWorld, value: string) {
+    const opt = this.page.locator(
+      `[data-testid="minimap-window-option-${value}"]`,
+    );
+    await opt.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await opt.click();
+    await this.waitForFrame();
+  },
+);
+
+Then(
+  /^minimap tile (\d+) should be in the "(awaiting|working|none)" bucket$/,
+  async function (this: KoluWorld, index: number, bucket: string) {
+    const i = Number(index) - 1;
+    await this.page.waitForFunction(
+      ({ i, want }: { i: number; want: string }) => {
+        const rects = document.querySelectorAll(
+          '[data-testid="minimap-tile-rect"]',
+        );
+        const rect = rects[i] as HTMLElement | undefined;
+        if (!rect) return false;
+        return rect.getAttribute("data-bucket") === want;
+      },
+      { i, want: bucket },
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
 Then("no two canvas tiles should overlap", async function (this: KoluWorld) {
   await this.page.waitForFunction(
     (sel: string) => {

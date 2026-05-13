@@ -8,13 +8,13 @@
  *
  *  The threshold is a constant; if a preference knob ever becomes useful,
  *  it lands in `Preferences` and flows through this module without
- *  consumers changing. Consumers compose via `useStaleCheck` (or via
- *  `isAwaitingAttention` in the workspace-switcher model when the
- *  conjunction with awaiting state is the actual concept). */
+ *  consumers changing. Consumers compose via `useStaleCheck` and then
+ *  combine with `agentBucket()` from the workspace-switcher model when
+ *  the conjunction with bucket state is the actual concept. */
 
 import { type Accessor, createRoot, createSignal, onCleanup } from "solid-js";
 
-const HOUR_MS = 60 * 60 * 1000;
+export const HOUR_MS = 60 * 60 * 1000;
 const TICK_MS = 60_000;
 
 /** Auto-park threshold. Hardcoded for now; consumers go through the module
@@ -68,4 +68,31 @@ export function useStaleCheck(): (lastActivityAt: number) => boolean {
   const tick = getNowTicker();
   return (lastActivityAt: number) =>
     isStale(lastActivityAt, tick(), STALE_THRESHOLD_MS);
+}
+
+/** Reactive stale check with a caller-supplied threshold accessor. Same
+ *  composition shape as `useStaleCheck`, but the consumer drives the
+ *  threshold (e.g. the minimap's user-selected activity window). Passing
+ *  `null` from the accessor disables the check — every input is fresh. */
+export function useStaleCheckWith(
+  thresholdMs: Accessor<number | null>,
+): (lastActivityAt: number) => boolean {
+  const tick = getNowTicker();
+  return (lastActivityAt: number) =>
+    isStale(lastActivityAt, tick(), thresholdMs());
+}
+
+/** Compact "5m ago" / "2h ago" / "3d ago" — empty string for `0`
+ *  (= "no agent transition observed yet"). Plain `Date.now()` read,
+ *  not reactive: tooltips and hover panels recompute on mount, which is
+ *  finer-grained than the 60s tick anyway. */
+export function formatTimeAgo(ts: number): string {
+  if (ts === 0) return "";
+  const sec = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+  if (sec < 60) return "just now";
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  return `${Math.floor(hr / 24)}d ago`;
 }

@@ -7,9 +7,9 @@
 export { default } from "./WorkspaceSwitcher";
 export {
   agentBucket,
+  bucketDescriptor,
   buildWorkspaceEntries,
   buildWorkspaceSwitcherModel,
-  isAwaitingAttention,
   sortBySwitcherOrder,
   type WorkspaceSwitcherRepoGroup,
   type WorkspaceSwitcherSourceEntry,
