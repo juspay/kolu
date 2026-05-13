@@ -28,5 +28,10 @@
     "canvaskit-wasm": "^0.41.1",
     "tailwindcss": "^4.0.6",
     "typescript": "^5.7.3"
+  },
+  "pnpm": {
+    "overrides": {
+      "fast-uri": "3.1.2"
+    }
   }
 }
