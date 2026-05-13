@@ -29,10 +29,10 @@ experimental-features = nix-command flakes
 
 ## Step 2 — Drop one dep into apm.yml
 
-APM is a Python tool; run it through [`uvx`](https://docs.astral.sh/uv/) so no global install is needed:
+APM is a Python tool. You don't need to install it — Nix can pull [`uvx`](https://docs.astral.sh/uv/) on demand, and `uvx` in turn fetches APM from its Python package on first run:
 
 ```sh
-uvx --from apm-cli apm --version
+nix shell nixpkgs#uv --command uvx --from apm-cli apm --version
 ```
 
 In your project root, create `apm.yml`:
@@ -53,7 +53,7 @@ dependencies:
 Keep only the `targets` you actually use. Then install:
 
 ```sh
-uvx --from apm-cli apm install --target claude,codex,opencode
+nix shell nixpkgs#uv --command uvx --from apm-cli apm install --target claude,codex,opencode
 ```
 
 APM clones [`juspay/nix-chrome-devtools-mcp`](https://github.com/juspay/nix-chrome-devtools-mcp), deploys its launcher into `.agents/skills/nix-chrome-devtools-mcp/bin/serve`, and writes a per-runtime MCP config for each target — `.mcp.json` for Claude Code, `.codex/config.toml` for Codex, `opencode.json` for OpenCode.
