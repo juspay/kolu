@@ -98,11 +98,9 @@ Three recent examples from Kolu PRs:
 
 [**#835 — Worktree-naming leaf**](https://github.com/juspay/kolu/pull/835#issuecomment-4393613826). The agent captured the new pre-filled name input that appears between "New terminal → kolu" and the actual worktree spawn:
 
-![Worktree-naming leaf with prefilled `peaked-rank` suggestion](https://github.com/juspay/kolu/releases/download/evidence-assets/kolu-evidence-worktree-name-leaf.png)
+![Worktree-naming leaf with prefilled `peaked-rank` suggestion](/blog/kolu-evidence-worktree-name-leaf.png)
 
-[**#866 — Show agent icons in New terminal command palette**](https://github.com/juspay/kolu/pull/866#issuecomment-4430710269). The agent took before/after of two distinct palettes that share the icon builder:
-
-![Worktree-naming leaf agent picker — icons leading each row](https://github.com/juspay/kolu/releases/download/evidence-assets/kolu-evidence-worktree-picker.png)
+[**#866 — Show agent icons in New terminal command palette**](https://github.com/juspay/kolu/pull/866#issuecomment-4430710269). The agent took before/after of two distinct palettes that share the same icon builder, confirming both palettes render identically.
 
 [**#867 — Let folders collapse while the Code tab filter stays active**](https://github.com/juspay/kolu/pull/867#issuecomment-4432265073). The agent reproduced a folder-collapse bug and built a three-step diagnostic table comparing `master` vs the fix, screenshots inline at each step. (Worth reading the comment — the structure is half the value.)
 
