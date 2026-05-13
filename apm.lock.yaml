@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-05-13T00:22:08.313754+00:00'
+generated_at: '2026-05-13T00:25:15.660317+00:00'
 apm_version: 0.13.0
 dependencies:
 - repo_url: anthropics/skills
@@ -14,8 +14,7 @@ dependencies:
   content_hash: sha256:063a0e6448123cd359ad0044cc46b0e490cc7964d45ef4bb9fd842bd2ffbca67
 - repo_url: juspay/nix-chrome-devtools-mcp
   host: github.com
-  resolved_commit: 876ca0609193abf48336a2990e9d12eaf62b3183
-  resolved_ref: add-package
+  resolved_commit: 9c28516075f1a22e2cfd8986976ccb4b59bc60ed
   package_type: apm_package
   deployed_files:
   - .agents/skills/nix-chrome-devtools-mcp
