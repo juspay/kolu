@@ -114,9 +114,6 @@ export const WORKSPACE_AGENT_BUCKETS = [
   glyph: string;
 }[];
 
-/** Common fields shared by every searchable switcher entry. The bucket
- *  arm extensions below add the bucket-specific payload (e.g. the idle
- *  sub-bucket key) on top of this base. */
 type WorkspaceSwitcherEntryBase = {
   id: TerminalId;
   repoName: string;
