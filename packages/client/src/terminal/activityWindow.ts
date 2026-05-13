@@ -24,12 +24,15 @@ export interface WindowOption {
   thresholdMs: number | null;
 }
 
-/** Single source of truth — a fresh `Record<MinimapWindow, …>` literal is
- *  already exhaustive at the type level: TS's required-property check
- *  fires if a `MinimapWindow` literal is added to the union without a row
- *  here, and excess-property check fires if a row is added without a
- *  matching union member. No casts, no non-null asserts. */
-const WINDOWS: Record<MinimapWindow, WindowOption> = {
+/** Single source of truth — `as const satisfies Record<MinimapWindow, …>`
+ *  preserves each row's per-key narrowing while still enforcing
+ *  exhaustiveness against the union. The `all` row's `thresholdMs`
+ *  type-narrows to `null`; every other row narrows to `number`. Internal
+ *  consumers (e.g. `IDLE_BUCKETS` boundaries) read `WINDOWS[key].thresholdMs`
+ *  directly and get the narrowed type without any unwrap helper or
+ *  `as number` cast — pushing the invariant to the type at its source per
+ *  the `no-untyped-escape-hatches` rule. */
+const WINDOWS = {
   all: { short: "All", label: "All terminals", thresholdMs: null },
   "4h": { short: "4h", label: "Active in last 4h", thresholdMs: 4 * HOUR_MS },
   "12h": {
@@ -47,7 +50,7 @@ const WINDOWS: Record<MinimapWindow, WindowOption> = {
     label: "Active in last 48h",
     thresholdMs: 48 * HOUR_MS,
   },
-};
+} as const satisfies Record<MinimapWindow, WindowOption>;
 
 /** Display-order list for the popover menu. Object iteration order is the
  *  declaration order above for string keys, but encode it once here so a
@@ -83,26 +86,20 @@ export interface IdleBucket {
   maxMs: number | null;
 }
 
-/** Convenience: the threshold of a non-"all" window, asserted non-null
- *  at the type boundary so callers don't pay an `as number` tax for
- *  what is structurally guaranteed in `WINDOWS` above. */
+/** Windows whose `thresholdMs` is structurally `number` (not `null`) —
+ *  i.e. every member of `MinimapWindow` except `"all"`. Used by
+ *  `IDLE_BUCKETS` to reference window boundaries via their literal keys
+ *  while still reading `WINDOWS[k].thresholdMs` as a non-nullable
+ *  `number` (no `!`, no unwrap helper, no throw). */
 type FiniteWindow = Exclude<MinimapWindow, "all">;
-function thresholdOf(w: FiniteWindow): number {
-  const t = WINDOWS[w].thresholdMs;
-  // All non-"all" windows are constructed with a numeric threshold;
-  // this is a structural invariant of the literal above. The check is a
-  // belt-and-braces guard against a future edit dropping the threshold.
-  if (t === null)
-    throw new Error(`MinimapWindow "${w}" is missing a thresholdMs`);
-  return t;
-}
 
 /** Idle sub-bucket boundaries, expressed as pairs of `MinimapWindow`
  *  keys. Each row's `minWindow`/`maxWindow` references — typed as
- *  `MinimapWindow` literals — make the derivation real: removing the
+ *  `FiniteWindow` literals — make the derivation real: removing the
  *  `"24h"` window from `WINDOWS` becomes a type error here, not a
  *  silent runtime drift. The first row's `minWindow` is `"4h"` because
- *  `STALE_THRESHOLD_MS === thresholdOf("4h")` by construction. */
+ *  the auto-park threshold lives at the same horizon as the `"4h"`
+ *  window by construction. */
 const SUB_BUCKET_SPECS = [
   { key: "4h-12h", label: "4–12h", minWindow: "4h", maxWindow: "12h" },
   { key: "12h-24h", label: "12–24h", minWindow: "12h", maxWindow: "24h" },
@@ -120,13 +117,17 @@ const SUB_BUCKET_SPECS = [
  *  (freshest at the top). Boundaries are looked up live from `WINDOWS`
  *  via the `minWindow`/`maxWindow` references in `SUB_BUCKET_SPECS`, so
  *  changing a window's threshold ripples here automatically and removing
- *  a window surfaces as a type error rather than silent drift. */
+ *  a window surfaces as a type error rather than silent drift.
+ *
+ *  `WINDOWS[spec.minWindow].thresholdMs` is statically `number` (the
+ *  `as const satisfies` on `WINDOWS` narrows the `"all"` arm's `null`
+ *  away from every other arm), so there is no unwrap step here. */
 export const IDLE_BUCKETS: readonly IdleBucket[] = SUB_BUCKET_SPECS.map(
   (spec) => ({
     key: spec.key,
     label: spec.label,
-    minMs: thresholdOf(spec.minWindow),
-    maxMs: spec.maxWindow === null ? null : thresholdOf(spec.maxWindow),
+    minMs: WINDOWS[spec.minWindow].thresholdMs,
+    maxMs: spec.maxWindow === null ? null : WINDOWS[spec.maxWindow].thresholdMs,
   }),
 );
 
