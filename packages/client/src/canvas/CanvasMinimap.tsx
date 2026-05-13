@@ -358,9 +358,11 @@ const CanvasMinimap: Component<{
               <Show when={tile()}>
                 {(t) => (
                   <div
-                    data-testid={
-                      parked() ? "minimap-parked-ghost" : "minimap-tile-rect"
-                    }
+                    // Stable across the parking morph — the element's identity
+                    // doesn't change just because its size and color do.
+                    // Consumers (e2e selectors, dev-tools inspection) that
+                    // care about parked-ness read `data-parked`.
+                    data-testid="minimap-tile-rect"
                     data-tile-id={id}
                     data-bucket={state().bucket}
                     data-parked={parked() ? "" : undefined}
