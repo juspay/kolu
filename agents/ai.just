@@ -3,8 +3,7 @@ set working-directory := '..'
 
 # Enter nix develop only when not already inside it — mirrors the root
 # justfile's pattern. `uvx` lives in the devshell (see shell.nix), so
-# these recipes need to enter it when invoked from a bare shell (e.g.
-# `just ci` → `just ai::apm-sync`).
+# these recipes need to enter it when invoked from a bare shell.
 nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop --accept-flake-config -c' }
 
 apm_cmd := nix_shell + ' uvx --from apm-cli apm'
@@ -34,130 +33,9 @@ apm-update *packages:
     {{ apm_cmd }} deps update --target {{ apm_targets }} {{ packages }}
     {{ just_executable() }} ai apm
 
-# Audit APM packages for security issues and lockfile consistency.
-# Drift is verified by apm-sync's repo-aware scratch diff below.
-apm-audit:
-    {{ apm_cmd }} audit --ci --no-drift
-
-# Verify APM-managed outputs match sources + security audit
-#
-# Must NOT mutate the live .claude/ tree — concurrent Claude Code
-# sessions in the same worktree would see stop hooks / rules / skills
-# disappear mid-CI and crash. See #468. Instead we stage a fresh tree
-# in a scratch dir and diff. The `apm` recipe above is destructive and
-# stays a dev-only action. This workaround can be removed if upstream
-# adds content verification to `apm audit --ci`: microsoft/apm#684.
-apm-sync: apm-audit
-    #!/usr/bin/env bash
-    set -euo pipefail
-    scratch=$(mktemp -d)
-    trap 'rm -rf "$scratch"' EXIT
-    # Distributed `apm compile` placement depends on the real repo layout, so
-    # mirror the worktree into scratch while excluding runtime/generated trees.
-    # `apm install` rewrites apm.lock.yaml's `generated_at` on every run, which
-    # is fine here because the scratch copy is disposable.
-    # Anchor `/CLAUDE.md` with a leading slash so only the project-root
-    # generated file is stripped — `apm_modules/<dep>/CLAUDE.md` is a
-    # shipped file inside vendored dependencies, and dropping it makes
-    # `apm install` re-verify against an incomplete tree and fail with a
-    # spurious content-hash mismatch.
-    rsync -a \
-        --exclude='.git/' \
-        --exclude='node_modules/' \
-        --exclude='.direnv/' \
-        --exclude='.logs/' \
-        --exclude='.claude/' \
-        --exclude='.codex/' \
-        --exclude='.agents/' \
-        --exclude='.opencode/' \
-        --exclude='/CLAUDE.md' \
-        "$PWD/" "$scratch/"
-    # Mirror the runtime folders that drive target detection for install.
-    # Compile is explicit so we only emit `AGENTS.md` for Codex/OpenCode.
-    mkdir -p "$scratch/.claude" "$scratch/.codex" "$scratch/.opencode" "$scratch/.agents"
-    # Keep user-owned runtime inputs in the scratch tree too. APM compile
-    # placement is file-layout sensitive, so omitting checked-in files that
-    # are present during local `just ai::apm` can produce a false sync diff.
-    [[ ! -e .claude/launch.json ]] || cp .claude/launch.json "$scratch/.claude/launch.json"
-    (cd "$scratch" && {{ apm_cmd }} install --target {{ apm_targets }})
-    (cd "$scratch" && {{ apm_cmd }} compile --target {{ apm_compile_targets }})
-    # Exclude files that apm doesn't manage: launch.json is user-owned,
-    # `.apm-pin` is install metadata, and `.claude/*` entries in .gitignore
-    # are runtime state written by Claude Code itself (worktree bookkeeping,
-    # local settings, session lockfiles). Keep this list in sync with
-    # .gitignore — if a new runtime file appears in .claude/, add it to
-    # .gitignore and here.
-    if ! diff -r \
-        -x .apm-pin \
-        -x launch.json \
-        -x worktrees \
-        -x settings.local.json \
-        -x scheduled_tasks.lock \
-        .claude "$scratch/.claude"; then
-        echo "ERROR: .claude/ out of sync with sources — run: just ai::apm" >&2
-        exit 1
-    fi
-    if ! diff -r \
-        -x .apm-pin \
-        .codex "$scratch/.codex"; then
-        echo "ERROR: .codex/ out of sync with sources — run: just ai::apm" >&2
-        exit 1
-    fi
-    if ! diff -r -x .apm-pin .agents "$scratch/.agents"; then
-        echo "ERROR: .agents/ out of sync with sources — run: just ai::apm" >&2
-        exit 1
-    fi
-    if ! diff -r \
-        -x .apm-pin \
-        -x .gitignore \
-        -x node_modules \
-        -x package-lock.json \
-        -x package.json \
-        .opencode "$scratch/.opencode"; then
-        echo "ERROR: .opencode/ out of sync with sources — run: just ai::apm" >&2
-        exit 1
-    fi
-    if [[ -e opencode.json || -e "$scratch/opencode.json" ]]; then
-        if [[ ! -e opencode.json || ! -e "$scratch/opencode.json" ]] || \
-           ! diff <(jq -S . opencode.json) <(jq -S . "$scratch/opencode.json"); then
-            echo "ERROR: opencode.json out of sync with sources — run: just ai::apm" >&2
-            exit 1
-        fi
-    fi
-    if ! diff AGENTS.md "$scratch/AGENTS.md"; then
-        echo "ERROR: AGENTS.md out of sync with sources — run: just ai::apm" >&2
-        exit 1
-    fi
-
 # Install APM config and launch coding agent (AI_AGENT overrides default)
 [default]
 agent *args: apm
     just prepare
     {{ env('AI_AGENT', 'claude --dangerously-skip-permissions') }} {{ args }}
 
-# Launch chrome-devtools-mcp server over stdio.
-#
-# Today the checked-in project-local MCP entrypoints are:
-# - Claude Code: `.mcp.json`
-# - Codex CLI: `.codex/config.toml` (only for trusted projects)
-#
-# The top-level `apm.yml` mirrors the same server for runtimes APM can
-# configure natively today. Codex project-scoped MCP is tracked upstream
-# in microsoft/apm#803; once that lands, `.codex/config.toml` should
-# become APM-managed like the other generated runtime config.
-#
-# All paths shell out via `nix develop .#e2e --command just
-# ai::mcp-chrome-devtools` so agent runtimes that start outside the nix
-# devshell still get Playwright's Chrome-for-Testing.
-# Chrome binary resolved from Playwright's nix-provided Chrome-for-Testing
-# across platforms: `chrome-linux64/chrome` on Linux and
-# `chrome-mac-*/Google Chrome for Testing.app/.../Google Chrome for Testing`
-# on macOS. `find` picks either layout; a miss fails loud downstream
-# (empty --executable-path → MCP server errors out visibly).
-mcp-chrome-devtools:
-    bash -c 'shopt -s nullglob; \
-      for c in "$PLAYWRIGHT_BROWSERS_PATH"/chromium-*/chrome-linux64/chrome \
-               "$PLAYWRIGHT_BROWSERS_PATH"/chromium-*/chrome-mac-*/"Google Chrome for Testing.app"/Contents/MacOS/"Google Chrome for Testing"; do \
-        [[ -x "$c" ]] && chrome="$c" && break; \
-      done; \
-      exec npx -y chrome-devtools-mcp@latest --headless=true --isolated=true --executable-path="$chrome"'

@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-05-12T20:14:18.997453+00:00'
+generated_at: '2026-05-13T00:31:02.186455+00:00'
 apm_version: 0.13.0
 dependencies:
 - repo_url: anthropics/skills
@@ -12,6 +12,14 @@ dependencies:
   - .agents/skills/frontend-design
   - .claude/skills/frontend-design
   content_hash: sha256:063a0e6448123cd359ad0044cc46b0e490cc7964d45ef4bb9fd842bd2ffbca67
+- repo_url: juspay/nix-chrome-devtools-mcp
+  host: github.com
+  resolved_commit: 9c28516075f1a22e2cfd8986976ccb4b59bc60ed
+  package_type: apm_package
+  deployed_files:
+  - .agents/skills/nix-chrome-devtools-mcp
+  - .claude/skills/nix-chrome-devtools-mcp
+  content_hash: sha256:80738251dd3e2fa09141c16f43244c19ee96a36930946bb94ab58684b129ee30
 - repo_url: juspay/skills
   host: github.com
   resolved_commit: 6e2df2d9ab3a4031e89598b50aa1074c3fd87748
@@ -82,14 +90,8 @@ mcp_configs:
   chrome-devtools:
     name: chrome-devtools
     transport: stdio
-    args:
-    - develop
-    - .#e2e
-    - --command
-    - just
-    - ai::mcp-chrome-devtools
     registry: false
-    command: nix
+    command: .agents/skills/nix-chrome-devtools-mcp/bin/serve
 local_deployed_files:
 - .agents/skills/ci
 - .agents/skills/hk
@@ -118,7 +120,7 @@ local_deployed_files:
 local_deployed_file_hashes:
   .claude/commands/whatchanged.md: sha256:283ce7bfddb6213172b2a89259c2b89b65d063c6f1d156dd6ee2b98760183f69
   .claude/rules/apm-sources.md: sha256:90626875e2a63e5658f0b5e77524c9c4f949f4ce890bd1f1ce9a2663d4fc8ea7
-  .claude/rules/apm-workflow.md: sha256:7174a90e3480de8f7413fb64a44f6a3fc54ab847d83f49b0d56b454d80c687ab
+  .claude/rules/apm-workflow.md: sha256:16f4fed3d8fe9b1e334444b8885443c2ac26963270d3df0f3505075cc3bd604d
   .claude/rules/architecture.md: sha256:0f47ba876432c25a2cd54e3ed7995e8bbbb8b383fe3b790b0b3e252949c18032
   .claude/rules/conventions.md: sha256:d5db7128cfe0ba1a8a65259f56d180891d4e46a1007c273d73a14e4767349960
   .claude/rules/e2e-testing.md: sha256:ecac44a197b0e2f73f2a85fc1b79e21b6ef1670275de0a9debdd54de1848f0af
