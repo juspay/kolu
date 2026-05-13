@@ -2,7 +2,7 @@
  *
  *  Single source of truth: each option carries its display label and its
  *  staleness threshold (or `null` for "no filter"). Adding a new window is
- *  one entry in `WINDOW_OPTIONS` and zero edits elsewhere. */
+ *  one entry in `WINDOWS` plus one in `WINDOW_VALUES` for display order. */
 
 import { HOUR_MS } from "./staleness";
 
