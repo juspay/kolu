@@ -366,40 +366,46 @@ When("I click the minimap arrange button", async function (this: KoluWorld) {
   await this.waitForFrame();
 });
 
-const HIDE_PARKED_TOGGLE_SELECTOR =
-  '[data-testid="minimap-hide-parked-toggle"]';
+const WINDOW_TRIGGER_SELECTOR = '[data-testid="minimap-window-trigger"]';
 
 Then(
-  "the minimap hide-parked toggle should be visible",
+  "the minimap window trigger should be visible",
   async function (this: KoluWorld) {
     await this.page
-      .locator(HIDE_PARKED_TOGGLE_SELECTOR)
+      .locator(WINDOW_TRIGGER_SELECTOR)
       .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },
 );
 
 Then(
-  /^the minimap hide-parked toggle should be (on|off)$/,
+  /^the minimap window should be "(all|4h|12h|24h|48h)"$/,
   async function (this: KoluWorld, expected: string) {
-    const enabled = expected === "on";
     await this.page.waitForFunction(
-      ({ sel, want }: { sel: string; want: boolean }) => {
+      ({ sel, want }: { sel: string; want: string }) => {
         const el = document.querySelector(sel) as HTMLElement | null;
-        if (!el) return false;
-        return el.hasAttribute("data-enabled") === want;
+        return el?.getAttribute("data-window") === want;
       },
-      { sel: HIDE_PARKED_TOGGLE_SELECTOR, want: enabled },
+      { sel: WINDOW_TRIGGER_SELECTOR, want: expected },
       { timeout: POLL_TIMEOUT },
     );
   },
 );
 
+When("I click the minimap window trigger", async function (this: KoluWorld) {
+  const button = this.page.locator(WINDOW_TRIGGER_SELECTOR);
+  await button.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  await button.click();
+  await this.waitForFrame();
+});
+
 When(
-  "I click the minimap hide-parked toggle",
-  async function (this: KoluWorld) {
-    const button = this.page.locator(HIDE_PARKED_TOGGLE_SELECTOR);
-    await button.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    await button.click();
+  /^I pick the minimap window option "(all|4h|12h|24h|48h)"$/,
+  async function (this: KoluWorld, value: string) {
+    const opt = this.page.locator(
+      `[data-testid="minimap-window-option-${value}"]`,
+    );
+    await opt.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await opt.click();
     await this.waitForFrame();
   },
 );

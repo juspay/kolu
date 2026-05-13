@@ -1,5 +1,6 @@
 /** Canvas minimap — spatial overview of all tiles + integrated zoom controls. */
 
+import { createEventListener } from "@solid-primitives/event-listener";
 import { makePersisted } from "@solid-primitives/storage";
 import {
   type Component,
@@ -9,7 +10,7 @@ import {
   type JSX,
   Show,
 } from "solid-js";
-import { useStaleCheck } from "../terminal/staleness";
+import { isStale, useNowTicker } from "../terminal/staleness";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { GridIcon, MoonIcon } from "../ui/Icons";
 import {
@@ -31,6 +32,34 @@ const MAP_PAD = 100;
  *  user has hidden them. Big enough to click/drag without being visually
  *  loud. */
 const GHOST_PX = 6;
+
+const HOUR_MS = 60 * 60 * 1000;
+
+/** User-selectable activity window — tiles whose `lastActivityAt` falls
+ *  outside the chosen window are demoted to ghost markers. `"all"` disables
+ *  the filter entirely; plain shells (`lastActivityAt === 0`) always render
+ *  as full rects since they have no history to be stale against. */
+export type MinimapWindow = "all" | "4h" | "12h" | "24h" | "48h";
+
+const WINDOW_OPTIONS: readonly { value: MinimapWindow; label: string }[] = [
+  { value: "all", label: "All terminals" },
+  { value: "4h", label: "Active in last 4h" },
+  { value: "12h", label: "Active in last 12h" },
+  { value: "24h", label: "Active in last 24h" },
+  { value: "48h", label: "Active in last 48h" },
+];
+
+const WINDOW_THRESHOLD_MS: Record<MinimapWindow, number | null> = {
+  all: null,
+  "4h": 4 * HOUR_MS,
+  "12h": 12 * HOUR_MS,
+  "24h": 24 * HOUR_MS,
+  "48h": 48 * HOUR_MS,
+};
+
+function isMinimapWindow(value: string): value is MinimapWindow {
+  return value in WINDOW_THRESHOLD_MS;
+}
 
 /** Icon button rendered in the right half of the minimap zoom bar — sits
  *  after the zoom controls behind a left divider. The `active` prop lights
@@ -84,16 +113,37 @@ const CanvasMinimap: Component<{
   const viewport = useCanvasViewport();
   const store = useTerminalStore();
   const tileTheme = useTileTheme();
-  const isStale = useStaleCheck();
+  const now = useNowTicker();
   const [hoveringViewport, setHoveringViewport] = createSignal(false);
   const [draggingViewport, setDraggingViewport] = createSignal(false);
-  // Per-device toggle — viewing preference, not workflow state, so it stays
-  // in localStorage rather than syncing through server preferences.
-  const [hideParked, setHideParked] = makePersisted(createSignal(false), {
-    name: "kolu-minimap-hide-parked",
-    serialize: String,
-    deserialize: (raw) => raw === "true",
+  // Per-device viewing preference — stays in localStorage rather than
+  // syncing through server preferences.
+  const [windowSel, setWindowSel] = makePersisted(
+    createSignal<MinimapWindow>("all"),
+    {
+      name: "kolu-minimap-window",
+      serialize: (v) => v,
+      deserialize: (raw) => (isMinimapWindow(raw) ? raw : "all"),
+    },
+  );
+  const thresholdMs = createMemo(() => WINDOW_THRESHOLD_MS[windowSel()]);
+  const [menuOpen, setMenuOpen] = createSignal(false);
+  let triggerRef: HTMLButtonElement | undefined;
+  let menuRef: HTMLDivElement | undefined;
+  // Outside-click + Escape dismiss for the window menu. Listeners attach
+  // only while the menu is open — passing `undefined` as the target detaches.
+  const menuTarget = () => (menuOpen() ? document : undefined);
+  createEventListener(menuTarget, "mousedown", (e) => {
+    const node = e.target as Node;
+    if (menuRef?.contains(node) || triggerRef?.contains(node)) return;
+    setMenuOpen(false);
   });
+  createEventListener(menuTarget, "keydown", (e) => {
+    if (e.key === "Escape") setMenuOpen(false);
+  });
+  const currentWindowLabel = () =>
+    WINDOW_OPTIONS.find((o) => o.value === windowSel())?.label ??
+    "All terminals";
 
   // ── Bounding box of all tiles ──
   const bounds = createMemo(() => {
@@ -264,7 +314,7 @@ const CanvasMinimap: Component<{
               };
             });
             // Reactive accessor: bucket classification (awaiting / working /
-            // none) plus auto-park staleness. Split from `tile()` so the
+            // none) plus user-window staleness. Split from `tile()` so the
             // minute-by-minute staleness tick doesn't invalidate the
             // rectangle geometry — only the badge surface re-runs. Memoized
             // because the JSX reads it 7× per tile per tick.
@@ -273,12 +323,13 @@ const CanvasMinimap: Component<{
               if (!i) return { bucket: "none" as const, parked: false };
               return {
                 bucket: agentBucket(i.meta.agent),
-                parked: isStale(i.meta.lastActivityAt),
+                parked: isStale(i.meta.lastActivityAt, now(), thresholdMs()),
               };
             });
-            // Demoted to a ghost marker when the user opted to hide parked
-            // tiles and this one is currently parked.
-            const ghosted = () => hideParked() && state().parked;
+            // Demoted to a ghost marker whenever the tile falls outside the
+            // user's activity window. With `windowSel() === "all"`, threshold
+            // is null → `isStale` returns false → nothing is ever ghosted.
+            const ghosted = () => state().parked;
             const handleTileClick = (e: MouseEvent) => {
               // Don't let this also trigger the background pan-to-point.
               e.stopPropagation();
@@ -432,18 +483,56 @@ const CanvasMinimap: Component<{
             onClick={() => props.onAutoArrange?.()}
           />
         </Show>
-        <ZoomBarButton
-          testId="minimap-hide-parked-toggle"
-          title={
-            hideParked()
-              ? "Showing only active terminals — click to show parked"
-              : "Showing all terminals — click to hide parked"
-          }
-          icon={<MoonIcon class="w-3.5 h-3.5" />}
-          active={hideParked()}
-          onClick={() => setHideParked((prev) => !prev)}
-        />
+        <button
+          type="button"
+          ref={triggerRef}
+          data-testid="minimap-window-trigger"
+          data-enabled={windowSel() !== "all" ? "" : undefined}
+          data-window={windowSel()}
+          class="flex items-center justify-center w-7 h-8 hover:bg-surface-3/60 transition-colors cursor-pointer border-l border-edge/40"
+          classList={{
+            "text-fg-3 hover:text-fg": windowSel() === "all",
+            "text-accent": windowSel() !== "all",
+          }}
+          title={`Minimap: ${currentWindowLabel()} — click to change`}
+          onClick={() => setMenuOpen((prev) => !prev)}
+        >
+          <MoonIcon class="w-3.5 h-3.5" />
+        </button>
       </div>
+      {/* Window menu — sibling of the zoom bar so the zoom bar's
+          `overflow-hidden` (which clips the rounded corners) can't clip the
+          popover. Anchored `right-0 bottom-full` against the canvas-minimap
+          container, which puts it just above the moon trigger. */}
+      <Show when={menuOpen()}>
+        <div
+          ref={menuRef}
+          data-testid="minimap-window-menu"
+          class="absolute right-0 bottom-full mb-1 z-30 flex flex-col bg-surface-1 border border-edge rounded-lg shadow-lg shadow-black/40 p-1 min-w-[160px]"
+        >
+          <For each={WINDOW_OPTIONS}>
+            {(opt) => (
+              <button
+                type="button"
+                data-testid={`minimap-window-option-${opt.value}`}
+                data-selected={windowSel() === opt.value ? "" : undefined}
+                class="text-left text-xs px-2 py-1.5 rounded-md transition-colors cursor-pointer"
+                classList={{
+                  "bg-accent/20 text-accent": windowSel() === opt.value,
+                  "text-fg-2 hover:bg-surface-3 hover:text-fg":
+                    windowSel() !== opt.value,
+                }}
+                onClick={() => {
+                  setWindowSel(opt.value);
+                  setMenuOpen(false);
+                }}
+              >
+                {opt.label}
+              </button>
+            )}
+          </For>
+        </div>
+      </Show>
     </div>
   );
 };

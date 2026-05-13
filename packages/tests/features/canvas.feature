@@ -233,18 +233,20 @@ Feature: Canvas workspace
     And the active canvas tile should be centered in the viewport
     And there should be no page errors
 
-  Scenario: Minimap hide-parked toggle is visible by default
-    Then the minimap hide-parked toggle should be visible
-    And the minimap hide-parked toggle should be off
+  Scenario: Minimap window menu defaults to "all"
+    Then the minimap window trigger should be visible
+    And the minimap window should be "all"
     And there should be no page errors
 
-  Scenario: Clicking the minimap hide-parked toggle persists the preference
-    When I click the minimap hide-parked toggle
-    Then the minimap hide-parked toggle should be on
+  Scenario: Picking a minimap window option persists across reload
+    When I click the minimap window trigger
+    And I pick the minimap window option "4h"
+    Then the minimap window should be "4h"
     When I reload the page and wait for ready
-    Then the minimap hide-parked toggle should be on
-    When I click the minimap hide-parked toggle
-    Then the minimap hide-parked toggle should be off
+    Then the minimap window should be "4h"
+    When I click the minimap window trigger
+    And I pick the minimap window option "all"
+    Then the minimap window should be "all"
     And there should be no page errors
 
   Scenario: Minimap tile carries its agent bucket as a data attribute

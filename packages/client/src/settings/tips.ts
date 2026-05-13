@@ -96,7 +96,7 @@ export const AMBIENT_TIPS: readonly Tip[] = [
     text: "Click a `packages/foo/bar.ts:42` path in any terminal to open it in the right panel at that line",
   },
   {
-    id: "amb-minimap-hide-parked",
-    text: "Click the moon icon on the minimap to hide auto-parked terminals so attention stays on the agents still in play",
+    id: "amb-minimap-window",
+    text: "Click the moon icon on the minimap to pick an activity window (4h/12h/24h/48h) — older tiles collapse to small ghost markers so attention stays on what's still in play",
   },
 ];
