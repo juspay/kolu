@@ -1,6 +1,6 @@
 name: mcp-chrome-devtools
 version: 0.1.0
-description: chrome-devtools-mcp launcher — Nix devshell + bash launcher that drive chrome-devtools-mcp through Playwright's bundled Chrome-for-Testing.
+description: chrome-devtools-mcp launcher — a single bash launcher that resolves Playwright's bundled Chrome-for-Testing and Node.js directly through Nix. No devshell required.
 type: hybrid
 
 # Canonical MCP server entry for this package. APM aggregates this into

@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-05-12T21:39:13.521865+00:00'
+generated_at: '2026-05-12T23:59:50.821511+00:00'
 apm_version: 0.13.0
 dependencies:
 - repo_url: _local/mcp-chrome-devtools
