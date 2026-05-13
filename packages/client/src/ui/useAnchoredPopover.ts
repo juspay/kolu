@@ -1,10 +1,11 @@
-/** Shared scaffold for "popover anchored beneath a trigger element."
+/** Shared scaffold for "popover anchored to a trigger element."
  *
  *  Returns a `panelRef` callback and a reactive `panelStyle` accessor;
  *  the caller renders the panel via `<Portal>` and binds both. The hook
  *  owns:
- *    - viewport-clamped positioning (`bottom-start` left-anchored or
- *      `bottom-end` right-anchored, recomputed on open/trigger change),
+ *    - viewport-clamped positioning (`bottom-start` left-anchored,
+ *      `bottom-end` right-anchored, or `top-end` right-anchored above the
+ *      trigger — recomputed on open/trigger change),
  *    - document-level outside-click dismiss (active only while open),
  *    - Escape-key dismiss (same).
  *
@@ -15,7 +16,7 @@
 import { createEventListener } from "@solid-primitives/event-listener";
 import { createEffect, createSignal, type JSX } from "solid-js";
 
-export type AnchorSide = "bottom-start" | "bottom-end";
+export type AnchorSide = "bottom-start" | "bottom-end" | "top-end";
 
 export type UseAnchoredPopoverOpts = {
   /** Accessor for the trigger element. Allows signal-backed refs that
@@ -50,16 +51,28 @@ export function useAnchoredPopover(
 ): UseAnchoredPopover {
   let panelEl: HTMLElement | undefined;
   const [pos, setPos] = createSignal<{
-    top: number;
+    top?: number;
+    bottom?: number;
     left?: number;
     right?: number;
-  }>({ top: 0 });
+  }>({});
 
   const updatePos = () => {
     const t = opts.triggerRef();
     if (!t) return;
     const r = t.getBoundingClientRect();
-    const top = r.bottom + (opts.offset ?? 4);
+    const offset = opts.offset ?? 4;
+    if (opts.anchor === "top-end") {
+      // Anchor the panel's bottom edge to the trigger's top edge (with
+      // gap) by setting `bottom` in viewport coordinates — no panel-height
+      // measurement needed.
+      setPos({
+        bottom: window.innerHeight - r.top + offset,
+        right: window.innerWidth - r.right,
+      });
+      return;
+    }
+    const top = r.bottom + offset;
     if (opts.anchor === "bottom-end") {
       setPos({ top, right: window.innerWidth - r.right });
       return;
@@ -96,9 +109,12 @@ export function useAnchoredPopover(
 
   const panelStyle = (): JSX.CSSProperties => {
     const p = pos();
-    return p.right !== undefined
-      ? { top: `${p.top}px`, right: `${p.right}px` }
-      : { top: `${p.top}px`, left: `${p.left}px` };
+    const css: JSX.CSSProperties = {};
+    if (p.top !== undefined) css.top = `${p.top}px`;
+    if (p.bottom !== undefined) css.bottom = `${p.bottom}px`;
+    if (p.left !== undefined) css.left = `${p.left}px`;
+    if (p.right !== undefined) css.right = `${p.right}px`;
+    return css;
   };
 
   return { panelRef, panelStyle };

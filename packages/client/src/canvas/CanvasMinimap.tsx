@@ -1,6 +1,5 @@
 /** Canvas minimap — spatial overview of all tiles + integrated zoom controls. */
 
-import { createEventListener } from "@solid-primitives/event-listener";
 import { makePersisted } from "@solid-primitives/storage";
 import {
   type Component,
@@ -10,6 +9,7 @@ import {
   type JSX,
   Show,
 } from "solid-js";
+import { Portal } from "solid-js/web";
 import {
   isMinimapWindow,
   type MinimapWindow,
@@ -19,6 +19,7 @@ import {
 import { useStaleCheckWith } from "../terminal/staleness";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { GridIcon, MoonIcon } from "../ui/Icons";
+import { useAnchoredPopover } from "../ui/useAnchoredPopover";
 import {
   handleMinimapClick,
   startTileDrag,
@@ -107,19 +108,14 @@ const CanvasMinimap: Component<{
     () => windowOption(windowSel()).thresholdMs,
   );
   const [menuOpen, setMenuOpen] = createSignal(false);
-  let triggerRef: HTMLButtonElement | undefined;
-  let menuRef: HTMLDivElement | undefined;
-  // Outside-click + Escape dismiss for the window menu. Listeners attach
-  // only while the menu is open — passing `undefined` as the target detaches.
-  const menuTarget = () => (menuOpen() ? document : undefined);
-  createEventListener(menuTarget, "mousedown", (e) => {
-    const node = e.target as Node;
-    if (menuRef?.contains(node) || triggerRef?.contains(node)) return;
-    setMenuOpen(false);
-  });
-  createEventListener(menuTarget, "keydown", (e) => {
-    if (e.key === "Escape") setMenuOpen(false);
-  });
+  const [triggerRef, setTriggerRef] = createSignal<HTMLButtonElement>();
+  const { panelRef: menuPanelRef, panelStyle: menuPanelStyle } =
+    useAnchoredPopover({
+      triggerRef,
+      open: menuOpen,
+      onDismiss: () => setMenuOpen(false),
+      anchor: "top-end",
+    });
   const currentWindowLabel = createMemo(() => windowOption(windowSel()).label);
 
   // ── Bounding box of all tiles ──
@@ -462,7 +458,7 @@ const CanvasMinimap: Component<{
         </Show>
         <button
           type="button"
-          ref={triggerRef}
+          ref={setTriggerRef}
           data-testid="minimap-window-trigger"
           data-enabled={windowSel() !== "all" ? "" : undefined}
           data-window={windowSel()}
@@ -477,38 +473,37 @@ const CanvasMinimap: Component<{
           <MoonIcon class="w-3.5 h-3.5" />
         </button>
       </div>
-      {/* Window menu — sibling of the zoom bar so the zoom bar's
-          `overflow-hidden` (which clips the rounded corners) can't clip the
-          popover. Anchored `right-0 bottom-full` against the canvas-minimap
-          container, which puts it just above the moon trigger. */}
       <Show when={menuOpen()}>
-        <div
-          ref={menuRef}
-          data-testid="minimap-window-menu"
-          class="absolute right-0 bottom-full mb-1 z-30 flex flex-col bg-surface-1 border border-edge rounded-lg shadow-lg shadow-black/40 p-1 min-w-[160px]"
-        >
-          <For each={WINDOW_OPTIONS}>
-            {(opt) => (
-              <button
-                type="button"
-                data-testid={`minimap-window-option-${opt.value}`}
-                data-selected={windowSel() === opt.value ? "" : undefined}
-                class="text-left text-xs px-2 py-1.5 rounded-md transition-colors cursor-pointer"
-                classList={{
-                  "bg-accent/20 text-accent": windowSel() === opt.value,
-                  "text-fg-2 hover:bg-surface-3 hover:text-fg":
-                    windowSel() !== opt.value,
-                }}
-                onClick={() => {
-                  setWindowSel(opt.value);
-                  setMenuOpen(false);
-                }}
-              >
-                {opt.label}
-              </button>
-            )}
-          </For>
-        </div>
+        <Portal>
+          <div
+            ref={menuPanelRef}
+            data-testid="minimap-window-menu"
+            class="fixed z-50 flex flex-col bg-surface-1 border border-edge rounded-lg shadow-lg shadow-black/40 p-1 min-w-[160px]"
+            style={menuPanelStyle()}
+          >
+            <For each={WINDOW_OPTIONS}>
+              {(opt) => (
+                <button
+                  type="button"
+                  data-testid={`minimap-window-option-${opt.value}`}
+                  data-selected={windowSel() === opt.value ? "" : undefined}
+                  class="text-left text-xs px-2 py-1.5 rounded-md transition-colors cursor-pointer"
+                  classList={{
+                    "bg-accent/20 text-accent": windowSel() === opt.value,
+                    "text-fg-2 hover:bg-surface-3 hover:text-fg":
+                      windowSel() !== opt.value,
+                  }}
+                  onClick={() => {
+                    setWindowSel(opt.value);
+                    setMenuOpen(false);
+                  }}
+                >
+                  {opt.label}
+                </button>
+              )}
+            </For>
+          </div>
+        </Portal>
       </Show>
     </div>
   );
