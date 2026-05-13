@@ -1,4 +1,9 @@
 import type { AgentInfo, TerminalId } from "kolu-common/surface";
+import {
+  type IdleBucket,
+  IDLE_BUCKETS,
+  type IdleBucketKey,
+} from "../../terminal/activityWindow";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import type { TileLayout } from "../TileLayout";
 
@@ -46,7 +51,7 @@ export function sortBySwitcherOrder(
   });
 }
 
-export type WorkspaceAgentBucket = "awaiting" | "working" | "none";
+export type WorkspaceAgentBucket = "awaiting" | "working" | "idle" | "none";
 
 /** Stable agent-state buckets shown as columns in the expanded switcher.
  *
@@ -55,16 +60,23 @@ export type WorkspaceAgentBucket = "awaiting" | "working" | "none";
  *  the animated `pill-border-*` class set, and the status glyph used
  *  on cards. Adding or renaming a bucket is a single edit here;
  *  presentation reads from this record rather than re-deriving the
- *  same mapping in each component. */
-export const WORKSPACE_AGENT_BUCKETS: readonly {
-  key: WorkspaceAgentBucket;
-  label: string;
-  empty: string;
-  textClass: string;
-  accentVar: string;
-  borderClass: string;
-  glyph: string;
-}[] = [
+ *  same mapping in each component.
+ *
+ *  Idle leads the row — it's the triage column the user opens the
+ *  switcher to scan first. Then live attention (Awaiting, Working),
+ *  with "No agent" trailing as the narrow plain-shells bucket
+ *  (`lastActivityAt === 0`, never hosted an agent). */
+export const WORKSPACE_AGENT_BUCKETS = [
+  {
+    key: "idle",
+    label: "Idle",
+    empty: "No parked terminals",
+    textClass: "text-fg-3",
+    accentVar: "var(--color-fg-3)",
+    borderClass: "",
+    // Crescent moon — same vocabulary as the minimap's parked tiles.
+    glyph: "☾",
+  },
   {
     key: "awaiting",
     label: "Awaiting you",
@@ -92,18 +104,37 @@ export const WORKSPACE_AGENT_BUCKETS: readonly {
     borderClass: "",
     glyph: "·",
   },
-];
+] as const satisfies readonly {
+  key: WorkspaceAgentBucket;
+  label: string;
+  empty: string;
+  textClass: string;
+  accentVar: string;
+  borderClass: string;
+  glyph: string;
+}[];
 
-/** Searchable live-terminal entry used by the expanded switcher panel. */
-export type WorkspaceSwitcherEntry = {
+type WorkspaceSwitcherEntryBase = {
   id: TerminalId;
   repoName: string;
   label: string;
   suffix?: string;
-  bucket: WorkspaceAgentBucket;
   info: TerminalDisplayInfo;
   searchText: string;
 };
+
+/** Searchable live-terminal entry. Discriminated on `bucket`: only the
+ *  Idle arm carries `idleSub`, so a consumer that narrows on
+ *  `entry.bucket === "idle"` reads the sub-bucket key without an
+ *  optional dance — and a non-idle entry cannot accidentally carry one. */
+export type WorkspaceSwitcherEntry =
+  | (WorkspaceSwitcherEntryBase & {
+      bucket: "idle";
+      idleSub: IdleBucketKey;
+    })
+  | (WorkspaceSwitcherEntryBase & {
+      bucket: Exclude<WorkspaceAgentBucket, "idle">;
+    });
 
 /** Compact row item rendered under a repo heading. */
 export type WorkspaceSwitcherCompactItem = {
@@ -127,16 +158,38 @@ export type WorkspaceRepoFacet = {
   color: string;
 };
 
+/** Idle column sub-row. Empty buckets stay in the array so the column
+ *  always shows the full ladder (4–12h, 12–24h, 24–48h, 48h+) — empty
+ *  ranges read as a positive signal ("nothing parked here yet"). */
+export type WorkspaceSwitcherIdleSubBucket = IdleBucket & {
+  entries: WorkspaceSwitcherEntry[];
+};
+
+/** Bucket descriptor narrowed to a specific column key — preserves the
+ *  per-key invariant in the descriptor table (label, glyph, etc.) so the
+ *  discriminated `WorkspaceSwitcherColumn` arms below stay tight to
+ *  their own descriptor row. */
+type DescriptorFor<K extends WorkspaceAgentBucket> = Extract<
+  (typeof WORKSPACE_AGENT_BUCKETS)[number],
+  { key: K }
+>;
+
 /** Agent bucket plus the entries currently visible in that column.
- *  `nonStaleCount` is the active subset — entries whose last observed
- *  agent transition is recent enough to count toward the visible badge.
- *  When the model is built without an `isStale` predicate, every entry is
- *  counted as live (so legacy callers see `entries.length`). */
+ *
+ *  Discriminated on `key`: only the Idle arm carries `idleSubBuckets`
+ *  (always populated, always the full 4-rung ladder). Other arms have
+ *  no sub-bucket field at all — so a renderer narrowing on
+ *  `column.key === "idle"` reads sub-rows without an optional dance,
+ *  and the type system refuses to construct an idle column without
+ *  the ladder or an awaiting/working/none column with one. */
 export type WorkspaceSwitcherColumn =
-  (typeof WORKSPACE_AGENT_BUCKETS)[number] & {
-    entries: WorkspaceSwitcherEntry[];
-    nonStaleCount: number;
-  };
+  | (DescriptorFor<"idle"> & {
+      entries: WorkspaceSwitcherEntry[];
+      idleSubBuckets: WorkspaceSwitcherIdleSubBucket[];
+    })
+  | (DescriptorFor<Exclude<WorkspaceAgentBucket, "idle">> & {
+      entries: WorkspaceSwitcherEntry[];
+    });
 
 /** Complete derived model for collapsed and expanded switcher renderers. */
 export type WorkspaceSwitcherModel = {
@@ -148,10 +201,14 @@ export type WorkspaceSwitcherModel = {
   columns: WorkspaceSwitcherColumn[];
 };
 
-/** Classify live agent metadata into the switcher's fixed column set. */
+/** Classify live agent metadata into the agent-state buckets. Pure — does
+ *  not consider staleness. Callers that have a staleness signal should
+ *  prefer `entryBucket()` so parked terminals route to the Idle column;
+ *  this function stays exported for the minimap badge, which colors tiles
+ *  by agent state regardless of age. */
 export function agentBucket(
   agent: AgentInfo | null | undefined,
-): WorkspaceAgentBucket {
+): Exclude<WorkspaceAgentBucket, "idle"> {
   switch (agent?.state) {
     case "waiting":
       return "awaiting";
@@ -161,6 +218,21 @@ export function agentBucket(
     case undefined:
       return "none";
   }
+}
+
+/** Classify a terminal into a switcher column. Parked terminals (last
+ *  agent transition older than the auto-park threshold, surfaced via the
+ *  idle classifier as a non-null sub-bucket key) route to "idle"
+ *  regardless of current agent state — the unified mental model is
+ *  "anything parked goes to one place". A `null` classifier result keeps
+ *  the entry on its agent-state column; the classifier itself is what
+ *  enforces the `lastActivityAt === 0` plain-shell exclusion. */
+export function entryBucket(
+  info: TerminalDisplayInfo,
+  idleClassifier?: (lastActivityAt: number) => IdleBucketKey | null,
+): WorkspaceAgentBucket {
+  if (idleClassifier?.(info.meta.lastActivityAt)) return "idle";
+  return agentBucket(info.meta.agent);
 }
 
 const BUCKET_BY_KEY: Record<
@@ -325,8 +397,12 @@ function compactGroupsFor(
  *  compact groups) from one live-terminal entry list. Owns the ordering
  *  pipeline — when `getRecency` is provided, applies `sortBySwitcherOrder`
  *  internally so callers can't feed unsorted entries into the grouping.
- *  When `isStale` is provided, each column's `nonStaleCount` excludes
- *  parked-by-inactivity entries; otherwise every entry counts as live. */
+ *  When `idleClassifier` is provided, parked-by-inactivity entries route
+ *  to the Idle column with a populated `idleSub` and the column emits
+ *  `idleSubBuckets` (4–12h, 12–24h, 24–48h, 48h+). The classifier is the
+ *  sole clock-aware input — there is no separate `now` parameter and no
+ *  separate stale predicate, so the model can't end up with two
+ *  inconsistent views of the same tick. */
 export function buildWorkspaceSwitcherModel(
   sources: WorkspaceSwitcherSourceEntry[],
   options: {
@@ -334,24 +410,30 @@ export function buildWorkspaceSwitcherModel(
     repoFilter?: string | null;
     activeId?: TerminalId | null;
     getRecency?: (id: TerminalId) => number;
-    isStale?: (lastActivityAt: number) => boolean;
+    idleClassifier?: (lastActivityAt: number) => IdleBucketKey | null;
   } = {},
 ): WorkspaceSwitcherModel {
   const ordered = options.getRecency
     ? sortBySwitcherOrder(sources, options.getRecency)
     : sources;
+  const idleClassifier = options.idleClassifier;
   const entries: WorkspaceSwitcherEntry[] = ordered.map((source) => {
-    const base = {
+    const baseFields = {
       id: source.id,
       repoName: source.info.key.group,
       label: source.info.key.label,
       suffix: source.info.key.suffix,
-      bucket: agentBucket(source.info.meta.agent),
       info: source.info,
     };
+    const searchText = searchTextFor(baseFields);
+    const idleSub = idleClassifier?.(source.info.meta.lastActivityAt) ?? null;
+    if (idleSub !== null) {
+      return { ...baseFields, searchText, bucket: "idle" as const, idleSub };
+    }
     return {
-      ...base,
-      searchText: searchTextFor(base),
+      ...baseFields,
+      searchText,
+      bucket: agentBucket(source.info.meta.agent),
     };
   });
 
@@ -361,19 +443,38 @@ export function buildWorkspaceSwitcherModel(
     options.repoFilter ?? null,
   );
 
-  const isStale = options.isStale;
-  const columns = WORKSPACE_AGENT_BUCKETS.map((bucket) => {
-    const bucketEntries = visibleEntries.filter(
-      (entry) => entry.bucket === bucket.key,
-    );
-    const nonStaleCount = isStale
-      ? bucketEntries.reduce(
-          (n, entry) => (isStale(entry.info.meta.lastActivityAt) ? n : n + 1),
-          0,
-        )
-      : bucketEntries.length;
-    return { ...bucket, entries: bucketEntries, nonStaleCount };
-  });
+  // Single pass: bucket every visible entry (and, for idle entries,
+  // sub-bucket them) in one walk instead of N×M filters.
+  const byBucket: Record<WorkspaceAgentBucket, WorkspaceSwitcherEntry[]> = {
+    awaiting: [],
+    working: [],
+    idle: [],
+    none: [],
+  };
+  const byIdleSub: Record<IdleBucketKey, WorkspaceSwitcherEntry[]> = {
+    "4h-12h": [],
+    "12h-24h": [],
+    "24h-48h": [],
+    "48h+": [],
+  };
+  for (const entry of visibleEntries) {
+    byBucket[entry.bucket].push(entry);
+    if (entry.bucket === "idle") byIdleSub[entry.idleSub].push(entry);
+  }
+  const columns: WorkspaceSwitcherColumn[] = WORKSPACE_AGENT_BUCKETS.map(
+    (bucket) => {
+      const bucketEntries = byBucket[bucket.key];
+      if (bucket.key !== "idle") {
+        return { ...bucket, entries: bucketEntries };
+      }
+      // The ladder is always rendered in full so empty rows read as a
+      // positive "nothing parked here yet" signal rather than disappearing.
+      const idleSubBuckets: WorkspaceSwitcherIdleSubBucket[] = IDLE_BUCKETS.map(
+        (sub) => ({ ...sub, entries: byIdleSub[sub.key] }),
+      );
+      return { ...bucket, entries: bucketEntries, idleSubBuckets };
+    },
+  );
 
   return {
     entries,

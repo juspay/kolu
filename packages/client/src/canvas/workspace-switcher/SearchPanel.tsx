@@ -1,13 +1,13 @@
 import type { TerminalId } from "kolu-common/surface";
-import { type Component, createEffect, Index, Show } from "solid-js";
+import { type Component, createEffect, For, Index, Show } from "solid-js";
 import { formatTimeAgo } from "../../terminal/staleness";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { CloseIcon } from "../../ui/Icons";
 import { useTileTheme } from "../useTileTheme";
 import { agentLabel, metaLine, prSummary, tokenLine } from "./chrome";
 import {
-  agentBucket,
   bucketDescriptor,
+  type WorkspaceSwitcherColumn,
   type WorkspaceSwitcherEntry,
   type WorkspaceSwitcherModel,
 } from "./model";
@@ -22,15 +22,12 @@ const WorkspaceSearchPanel: Component<{
   model: WorkspaceSwitcherModel;
   query: string;
   focusSearch: boolean;
-  isStale: (lastActivityAt: number) => boolean;
   onQueryChange: (query: string) => void;
   onSearchFocused: () => void;
   onRepoFilterChange: (repoName: string | null) => void;
   onSelect: (id: TerminalId) => void;
   onClose: () => void;
 }> = (props) => {
-  const store = useTerminalStore();
-  const tileTheme = useTileTheme();
   const columnCount = () => Math.max(1, props.model.columns.length);
   const totalCount = () =>
     props.model.repoFacets.reduce((sum, facet) => sum + facet.count, 0);
@@ -137,53 +134,7 @@ const WorkspaceSearchPanel: Component<{
           >
             <Index each={props.model.columns}>
               {(column) => (
-                <div
-                  data-testid="workspace-switcher-column"
-                  data-agent-bucket={column().key}
-                  class="min-w-0"
-                >
-                  <div
-                    class="flex items-center justify-between gap-2 mb-2 pb-1.5 border-b"
-                    style={{
-                      "border-color": `color-mix(in oklch, ${column().accentVar} 22%, var(--color-edge))`,
-                    }}
-                  >
-                    <div
-                      class={`font-mono text-[0.65rem] font-semibold uppercase tracking-[0.2em] ${column().textClass}`}
-                    >
-                      {column().label}
-                    </div>
-                    <div class="font-mono text-[0.65rem] text-fg-3 tabular-nums">
-                      {column().nonStaleCount.toString().padStart(2, "0")}
-                    </div>
-                  </div>
-                  <div class="flex flex-col gap-2">
-                    <Show
-                      when={column().entries.length > 0}
-                      fallback={
-                        <div class="font-mono text-[0.7rem] text-fg-3/70 tracking-wide py-3 text-center">
-                          ── {column().empty} ──
-                        </div>
-                      }
-                    >
-                      <Index each={column().entries}>
-                        {(entry) => (
-                          <WorkspaceCard
-                            entry={entry()}
-                            active={store.activeId() === entry().id}
-                            unread={store.isUnread(entry().id)}
-                            stale={props.isStale(
-                              entry().info.meta.lastActivityAt,
-                            )}
-                            tileBg={tileTheme(entry().id).bg}
-                            tileFg={tileTheme(entry().id).fg}
-                            onSelect={() => props.onSelect(entry().id)}
-                          />
-                        )}
-                      </Index>
-                    </Show>
-                  </div>
-                </div>
+                <ColumnView column={column()} onSelect={props.onSelect} />
               )}
             </Index>
           </div>
@@ -194,6 +145,123 @@ const WorkspaceSearchPanel: Component<{
           </Show>
         </section>
       </div>
+    </div>
+  );
+};
+
+/** Column body — handles both the flat agent-state columns and the Idle
+ *  column's age sub-rows. Branches on `idleSubBuckets` so the renderer
+ *  doesn't have to special-case the column key in every JSX block; the
+ *  model already decided whether sub-rows are appropriate. */
+const ColumnView: Component<{
+  column: WorkspaceSwitcherColumn;
+  onSelect: (id: TerminalId) => void;
+}> = (props) => (
+  <div
+    data-testid="workspace-switcher-column"
+    data-agent-bucket={props.column.key}
+    class="min-w-0"
+  >
+    <div
+      class="flex items-center justify-between gap-2 mb-2 pb-1.5 border-b"
+      style={{
+        "border-color": `color-mix(in oklch, ${props.column.accentVar} 22%, var(--color-edge))`,
+      }}
+    >
+      <div
+        class={`font-mono text-[0.65rem] font-semibold uppercase tracking-[0.2em] ${props.column.textClass}`}
+      >
+        {props.column.label}
+      </div>
+      <div class="font-mono text-[0.65rem] text-fg-3 tabular-nums">
+        {props.column.entries.length.toString().padStart(2, "0")}
+      </div>
+    </div>
+    <Show
+      when={
+        props.column.key === "idle" ? props.column.idleSubBuckets : undefined
+      }
+      fallback={
+        <EntryList
+          entries={props.column.entries}
+          empty={props.column.empty}
+          onSelect={props.onSelect}
+        />
+      }
+    >
+      {(subBuckets) => (
+        <div class="flex flex-col gap-3">
+          <For each={subBuckets()}>
+            {(sub) => (
+              <div
+                data-testid="workspace-switcher-idle-sub"
+                data-idle-sub={sub.key}
+                class="flex flex-col gap-2"
+              >
+                <div class="flex items-center justify-between gap-2 px-1">
+                  <div class="font-mono text-[0.6rem] uppercase tracking-[0.18em] text-fg-3">
+                    {sub.label}
+                  </div>
+                  <div class="font-mono text-[0.6rem] text-fg-3/70 tabular-nums">
+                    {sub.entries.length.toString().padStart(2, "0")}
+                  </div>
+                </div>
+                <EntryList
+                  entries={sub.entries}
+                  empty="empty"
+                  onSelect={props.onSelect}
+                  compactEmpty
+                />
+              </div>
+            )}
+          </For>
+        </div>
+      )}
+    </Show>
+  </div>
+);
+
+/** Entry-list body — shared by flat columns and Idle sub-rows. Owns the
+ *  store/tileTheme reads so reactivity flows correctly through `Index`
+ *  (the row callback only re-mounts on identity change; per-row updates
+ *  are tracked through the `store.activeId()` etc. accessors). */
+const EntryList: Component<{
+  entries: readonly WorkspaceSwitcherEntry[];
+  empty: string;
+  compactEmpty?: boolean;
+  onSelect: (id: TerminalId) => void;
+}> = (props) => {
+  const store = useTerminalStore();
+  const tileTheme = useTileTheme();
+  return (
+    <div class="flex flex-col gap-2">
+      <Show
+        when={props.entries.length > 0}
+        fallback={
+          <div
+            class={
+              props.compactEmpty
+                ? "font-mono text-[0.65rem] text-fg-3/40 tracking-wide pl-1"
+                : "font-mono text-[0.7rem] text-fg-3/70 tracking-wide py-3 text-center"
+            }
+          >
+            ── {props.empty} ──
+          </div>
+        }
+      >
+        <Index each={props.entries}>
+          {(entry) => (
+            <WorkspaceCard
+              entry={entry()}
+              active={store.activeId() === entry().id}
+              unread={store.isUnread(entry().id)}
+              tileBg={tileTheme(entry().id).bg}
+              tileFg={tileTheme(entry().id).fg}
+              onSelect={() => props.onSelect(entry().id)}
+            />
+          )}
+        </Index>
+      </Show>
     </div>
   );
 };
@@ -245,12 +313,13 @@ const RepoFacetButton: Component<{
 
 /** Single workspace card — eyebrow / headline / status / meta. Agent
  *  state lives on inactive card borders; active state uses a left rail so
- *  focus remains distinguishable even when the terminal is awaiting input. */
+ *  focus remains distinguishable even when the terminal is awaiting input.
+ *  The Idle column hosts parked entries directly; cards inside it skip the
+ *  breathing agent-state border and fade so live work reads louder. */
 const WorkspaceCard: Component<{
   entry: WorkspaceSwitcherEntry;
   active: boolean;
   unread: boolean;
-  stale: boolean;
   tileBg: string;
   tileFg: string;
   onSelect: () => void;
@@ -258,8 +327,13 @@ const WorkspaceCard: Component<{
   const agent = () => props.entry.info.meta.agent;
   const pr = () => prSummary(props.entry);
   const tokens = () => tokenLine(agent());
-  const bucketInfo = () => bucketDescriptor(agentBucket(agent()));
+  // Read the bucket the model assigned, not the raw agent state — an idle
+  // entry that was previously "awaiting" must not paint a red ⏵ glyph
+  // on a card that's been parked for hours, or it screams for attention
+  // that no longer applies.
+  const bucketInfo = () => bucketDescriptor(props.entry.bucket);
   const lastActive = () => formatTimeAgo(props.entry.info.meta.lastActivityAt);
+  const idle = () => props.entry.bucket === "idle";
 
   return (
     <button
@@ -269,18 +343,13 @@ const WorkspaceCard: Component<{
       data-repo-name={props.entry.repoName}
       data-agent-bucket={props.entry.bucket}
       data-active={props.active ? "" : undefined}
-      data-stale={props.stale ? "" : undefined}
-      // Active uses geometry, not fill color. Inactive cards keep the
-      // agent-state border; the focused card gets a branch-colored rail.
-      // Stale also drops the agent-state border so a parked awaiting
-      // terminal doesn't keep breathing for attention.
-      class={`relative rounded-lg border p-2.5 text-left cursor-pointer transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 ${props.active || props.stale ? "" : bucketInfo().borderClass}`}
+      class={`relative rounded-lg border p-2.5 text-left cursor-pointer transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 ${props.active || idle() ? "" : bucketInfo().borderClass}`}
       classList={{
         "border-edge-bright/70 bg-surface-0/60 shadow-[0_0_0_1px_color-mix(in_oklch,var(--card-color)_22%,transparent)]":
           props.active,
         "border-edge/60 bg-surface-0/60 hover:bg-surface-2/70 hover:border-edge-bright/70":
           !props.active,
-        "opacity-60": props.stale && !props.active,
+        "opacity-60": idle() && !props.active,
       }}
       style={{
         "--card-color": props.entry.info.repoColor,

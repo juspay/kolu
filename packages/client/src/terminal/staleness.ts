@@ -13,8 +13,8 @@
  *  the conjunction with bucket state is the actual concept. */
 
 import { type Accessor, createRoot, createSignal, onCleanup } from "solid-js";
+import { HOUR_MS, type IdleBucketKey, idleBucketFor } from "./activityWindow";
 
-export const HOUR_MS = 60 * 60 * 1000;
 const TICK_MS = 60_000;
 
 /** Auto-park threshold. Hardcoded for now; consumers go through the module
@@ -68,6 +68,27 @@ export function useStaleCheck(): (lastActivityAt: number) => boolean {
   const tick = getNowTicker();
   return (lastActivityAt: number) =>
     isStale(lastActivityAt, tick(), STALE_THRESHOLD_MS);
+}
+
+/** Reactive idle classifier — returns the matching idle sub-bucket for
+ *  a `lastActivityAt`, or `null` when the terminal is still live.
+ *
+ *  Routes through `isStale` first so the "is parked" boundary is
+ *  identical to `useStaleCheck`'s — without this, `isStale` (strict `>`)
+ *  and `idleBucketFor` (inclusive `>=` on the first bucket) would
+ *  disagree at the exact `now - lastActivityAt === STALE_THRESHOLD_MS`
+ *  tick: the Collapsed pill would still read live while the switcher
+ *  panel had moved the entry into the Idle column. The shared gate
+ *  also picks up the `lastActivityAt === 0` plain-shell exclusion. */
+export function useIdleClassifier(): (
+  lastActivityAt: number,
+) => IdleBucketKey | null {
+  const tick = getNowTicker();
+  return (lastActivityAt: number) => {
+    const now = tick();
+    if (!isStale(lastActivityAt, now, STALE_THRESHOLD_MS)) return null;
+    return idleBucketFor(now - lastActivityAt);
+  };
 }
 
 /** Reactive stale check with a caller-supplied threshold accessor. Same

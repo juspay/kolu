@@ -8,6 +8,8 @@ const PANEL_SELECTOR = '[data-testid="workspace-switcher-panel"]';
 const SEARCH_SELECTOR = '[data-testid="workspace-switcher-search"]';
 const CARD_SELECTOR = '[data-testid="workspace-switcher-card"]';
 const REPO_SELECTOR = '[data-testid="workspace-switcher-repo"]';
+const COLUMN_SELECTOR = '[data-testid="workspace-switcher-column"]';
+const IDLE_SUB_SELECTOR = '[data-testid="workspace-switcher-idle-sub"]';
 
 Then(
   "the workspace switcher should be visible",
@@ -239,6 +241,44 @@ Then(
         cards.map((card) => card.getAttribute("data-repo-name")),
       );
     assert.deepStrictEqual(repos, [repoName]);
+  },
+);
+
+Then(
+  "the workspace switcher should show buckets {string}",
+  async function (this: KoluWorld, expected: string) {
+    const wanted = expected.split(",").map((s) => s.trim());
+    // Poll instead of single-shot read: SolidJS columns mount via a
+    // reactive Index, so a `evaluateAll` after `waitFor("first")` can
+    // race with later columns appearing in the same tick on slower
+    // machines (per .agency/code-police.md → e2e-poll-async-state).
+    await this.page.waitForFunction(
+      ({ selector, exp }) => {
+        const got = Array.from(document.querySelectorAll(selector)).map((el) =>
+          el.getAttribute("data-agent-bucket"),
+        );
+        return got.length === exp.length && got.every((v, i) => v === exp[i]);
+      },
+      { selector: COLUMN_SELECTOR, exp: wanted },
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+Then(
+  "the workspace switcher idle column should show sub-buckets {string}",
+  async function (this: KoluWorld, expected: string) {
+    const wanted = expected.split(",").map((s) => s.trim());
+    await this.page.waitForFunction(
+      ({ selector, exp }) => {
+        const got = Array.from(document.querySelectorAll(selector)).map((el) =>
+          el.getAttribute("data-idle-sub"),
+        );
+        return got.length === exp.length && got.every((v, i) => v === exp[i]);
+      },
+      { selector: IDLE_SUB_SELECTOR, exp: wanted },
+      { timeout: POLL_TIMEOUT },
+    );
   },
 );
 
