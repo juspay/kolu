@@ -53,9 +53,13 @@ import { resolveLineRefPath } from "../ui/lineRef";
 import BrowseFileView from "./BrowseFileView";
 import { type CodeOpenRequest, pendingCodeOpen } from "./codeNavigation";
 import CodeMenuFrame from "./CodeMenuFrame";
+import type { Comment } from "./commentSerialize";
 import CommentsTray from "./CommentsTray";
 import { projectFileTreeSearch } from "./fileSearch";
 import FileSearchInput from "./FileSearchInput";
+import InlineCommentPopover, {
+  type InlineEditTarget,
+} from "./InlineCommentPopover";
 import ModeChipPicker, { type ModeOption } from "./ModeChipPicker";
 import { useRightPanel } from "./useRightPanel";
 import {
@@ -93,34 +97,141 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
   const rightPanel = useRightPanel();
   const [selectedPath, setSelectedPath] = createSignal<string | null>(null);
 
-  // Comment-tray state — `repoRoot` keys the persisted bucket so two
-  // worktrees don't share a tray. `currentRange` mirrors the in-viewer
-  // line selection (forwarded by `CodeMenuFrame.onSelectionChange`) so
-  // the composer's "Add comment" button binds to what Pierre is
-  // showing. Draft text is lifted here so it survives the tray
-  // remounting when comment mode briefly toggles off.
+  // Comment state — `repoRoot` keys the persisted bucket so two
+  // worktrees don't share a tray. The inline popover (`editTarget`) is
+  // the only compose surface; the tray is a read-only roll-up. Three
+  // entry points feed `editTarget`:
+  //   1. Selection-commit in comment mode (user clicks a line) → "new"
+  //   2. Right-click "Add comment on path:Lrange" → "new"
+  //   3. Tray pencil → "edit" (also drives a file/selection push so
+  //      Pierre highlights the comment's line, which is what the
+  //      popover anchors to via `[data-selected-line]`).
   const commentsApi = useComments(() => props.meta?.git?.repoRoot ?? null);
-  const [currentRange, setCurrentRange] =
-    createSignal<SelectedLineRange | null>(null);
+  const [editTarget, setEditTarget] = createSignal<InlineEditTarget | null>(
+    null,
+  );
+  // Viewer-root ref — scoped target for the popover's
+  // `querySelector("[data-selected-line]")` so a future second viewer
+  // in the same DOM doesn't poach the lookup.
+  let viewerEl: HTMLDivElement | undefined;
   // The OR's second arm keeps the tray visible on reload when the user has
   // queued comments but never toggled mode back on.
   const trayVisible = () =>
     commentModeEnabled() || commentsApi.comments().length > 0;
 
-  // Right-click "Add comment on path:Lrange" → enable mode (no-op if
-  // already on) and focus the composer. The currentRange signal is
-  // already wired via onSelectionChange, so by the time the user
-  // right-clicks an already-selected line, the composer's target chip
-  // is correct without any extra plumbing.
-  const handleAddComment = () => {
+  // Right-click "Add comment on path:Lrange" → ensure mode is on +
+  // open the popover anchored at the (already-selected) line.
+  const handleAddComment = (range: SelectedLineRange) => {
+    const path = selectedPath();
+    if (!path) return;
     if (!commentModeEnabled()) toggleCommentMode();
-    queueMicrotask(() => {
-      const ta = document.querySelector<HTMLTextAreaElement>(
-        '[data-testid="comments-composer"]',
-      );
-      ta?.focus();
+    setEditTarget({
+      kind: "new",
+      path,
+      startLine: range.start,
+      endLine: range.end,
     });
   };
+
+  // Selection-commit handler. In comment mode every non-null commit
+  // opens the inline popover in "new" mode; nulls (file switches,
+  // tear-down) close any open new-mode popover. We never override an
+  // active "edit" target — that lets the tray's edit-from-pencil flow
+  // push Pierre's selection without the resulting onChange seed flipping
+  // us back to "new".
+  const handleSelectionChange = (range: SelectedLineRange | null) => {
+    if (!commentModeEnabled()) return;
+    const current = editTarget();
+    if (range === null) {
+      if (current?.kind === "new") setEditTarget(null);
+      return;
+    }
+    if (current?.kind === "edit") return;
+    const path = selectedPath();
+    if (!path) return;
+    setEditTarget({
+      kind: "new",
+      path,
+      startLine: range.start,
+      endLine: range.end,
+    });
+  };
+
+  const handlePopoverSubmit = (text: string) => {
+    const t = editTarget();
+    if (!t) return;
+    if (t.kind === "edit") {
+      commentsApi.updateComment(t.comment.id, text);
+    } else {
+      commentsApi.addComment({
+        path: t.path,
+        startLine: t.startLine,
+        endLine: t.endLine,
+        text,
+      });
+    }
+    setEditTarget(null);
+  };
+  const handlePopoverClose = () => setEditTarget(null);
+
+  // Tray pencil/jump dispatch — both push the comment's file + range
+  // through the same pipeline the terminal `path:line` click uses
+  // (`pendingEditSeed` below). The pencil additionally opens the
+  // popover in edit mode; jump just navigates and selects.
+  // Path-scoped so a stale seed from file A doesn't re-apply when the
+  // user later opens file B (CodeMenuFrame remounts and re-reads the
+  // initial range — if the seed weren't scoped, it would highlight
+  // line N of the WRONG file).
+  const [pendingEditSeed, setPendingEditSeed] = createSignal<{
+    path: string;
+    start: number;
+    end: number;
+  } | null>(null);
+  const handleTrayJumpTo = (c: Comment) => {
+    setSelectedPath(c.path);
+    if (view() === "branch" || view() === "local") setView("browse");
+    setPendingEditSeed({
+      path: c.path,
+      start: c.startLine,
+      end: c.endLine,
+    });
+  };
+  const handleTrayEdit = (c: Comment) => {
+    setSelectedPath(c.path);
+    if (view() === "branch" || view() === "local") setView("browse");
+    setPendingEditSeed({
+      path: c.path,
+      start: c.startLine,
+      end: c.endLine,
+    });
+    setEditTarget({ kind: "edit", comment: c });
+    if (!commentModeEnabled()) toggleCommentMode();
+  };
+
+  // Close the popover when comment mode is toggled off — the user's
+  // intent was "stop annotating", so leaving the composer open would
+  // contradict that. Editing an existing comment from the tray
+  // re-enables mode, so this branch only fires when the user
+  // explicitly disables it.
+  createEffect(() => {
+    if (!commentModeEnabled()) setEditTarget(null);
+  });
+
+  // Set of paths that carry comments, for file-tree decoration. Wrap
+  // in a memo so the renderer closure below gets a fresh identity each
+  // time the set changes — that's the signal solid-pierre's wrapper
+  // watches to nudge Pierre into re-rendering decorations.
+  const commentedPaths = createMemo(
+    () => new Set(commentsApi.comments().map((c) => c.path)),
+  );
+  const renderFileRowDecoration = createMemo(() => {
+    const set = commentedPaths();
+    if (set.size === 0) return undefined;
+    return (ctx: { row: { path: string } }) =>
+      set.has(ctx.row.path)
+        ? { text: "●", title: "Has comments queued" }
+        : null;
+  });
 
   // Read `codeMode` directly rather than projecting it from `activeTab`.
   // CodeTab now stays mounted across the Inspector tab toggle (#818); a
@@ -321,6 +432,13 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
     start: number;
     end: number;
   } | null>(() => {
+    // Tray-driven navigation (jump / edit pencil) wins over the
+    // terminal-click flow — it's the more recent user intent. Scoped to
+    // path so a stale seed doesn't smear into a later-opened file.
+    const seed = pendingEditSeed();
+    if (seed && seed.path === selectedPath()) {
+      return { start: seed.start, end: seed.end };
+    }
     const req = pendingCodeOpen();
     if (!req) return null;
     const h = handled();
@@ -530,6 +648,7 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
                     triggerMode: "both",
                     render: renderTreeContextMenu,
                   }}
+                  renderRowDecoration={renderFileRowDecoration()}
                   onError={(err) =>
                     toast.error(`File tree render failed: ${err.message}`)
                   }
@@ -542,6 +661,7 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
         </div>
 
         <div
+          ref={viewerEl}
           class="flex-1 min-h-0 overflow-auto"
           data-testid="diff-content"
           classList={{ "border-b border-edge": trayVisible() }}
@@ -602,7 +722,7 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
                       {(d) => (
                         <CodeMenuFrame
                           path={path}
-                          onSelectionChange={setCurrentRange}
+                          onSelectionChange={handleSelectionChange}
                           onAddComment={handleAddComment}
                         >
                           {(selection) => (
@@ -644,7 +764,7 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
                       <CodeMenuFrame
                         path={path}
                         initialSelectedLines={selectedRange()}
-                        onSelectionChange={setCurrentRange}
+                        onSelectionChange={handleSelectionChange}
                         onAddComment={handleAddComment}
                       >
                         {(selection) => (
@@ -666,11 +786,17 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
         <Show when={trayVisible()}>
           <CommentsTray
             api={commentsApi}
-            currentPath={selectedPath}
-            currentRange={currentRange}
+            onJumpTo={handleTrayJumpTo}
+            onEdit={handleTrayEdit}
             onClose={disableCommentMode}
           />
         </Show>
+        <InlineCommentPopover
+          viewerEl={() => viewerEl ?? null}
+          target={editTarget}
+          onSubmit={handlePopoverSubmit}
+          onClose={handlePopoverClose}
+        />
       </div>
     </Show>
   );

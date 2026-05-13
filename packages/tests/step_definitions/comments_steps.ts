@@ -2,16 +2,18 @@ import { Then, When } from "@cucumber/cucumber";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
 // Selectors mirror `commentsTestIds` exported from
-// `packages/client/src/right-panel/CommentsTray.tsx`. Cross-package
-// imports from `tests` into `client` aren't wired (and shouldn't be —
-// the tests treat the rendered DOM as the contract). If the strings
-// drift, e2e fails loudly here.
+// `packages/client/src/right-panel/CommentsTray.tsx` and
+// `composerTestIds` from `CommentComposer.tsx`. Cross-package imports
+// from `tests` into `client` aren't wired (and shouldn't be — the
+// tests treat the rendered DOM as the contract). If the strings drift,
+// e2e fails loudly here.
 const TRAY = '[data-testid="comments-tray"]';
 const TOGGLE = '[data-testid="comment-mode-toggle"]';
-const COMPOSER = '[data-testid="comments-composer"]';
-const ADD_BTN = '[data-testid="comments-add"]';
 const COPY_BTN = '[data-testid="comments-copy"]';
 const ITEM = '[data-testid="comments-item"]';
+const EDIT_BTN = '[data-testid="comments-edit"]';
+const POPOVER = '[data-testid="inline-comment-popover"]';
+const POPOVER_TEXTAREA = '[data-testid="comment-composer-textarea"]';
 
 // ── Actions ──
 
@@ -26,21 +28,43 @@ When("I enable comment mode", async function (this: KoluWorld) {
 });
 
 When(
-  "I type {string} into the comment composer",
+  "I type {string} into the inline comment composer",
   async function (this: KoluWorld, text: string) {
-    const composer = this.page.locator(COMPOSER);
-    await composer.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    await composer.fill(text);
+    const ta = this.page.locator(POPOVER_TEXTAREA);
+    await ta.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    // `fill` replaces existing content — works for both new (empty)
+    // and edit (prefilled) flows.
+    await ta.fill(text);
     await this.waitForFrame();
   },
 );
 
-When("I click the Add-comment button", async function (this: KoluWorld) {
-  const btn = this.page.locator(ADD_BTN);
-  await btn.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-  await btn.click();
-  await this.waitForFrame();
-});
+When(
+  "I press Enter to submit the inline comment",
+  async function (this: KoluWorld) {
+    const ta = this.page.locator(POPOVER_TEXTAREA);
+    await ta.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    // Plain Enter (no modifier) submits — Shift+Enter would just add a
+    // newline. `press("Enter")` mirrors what a user types.
+    await ta.press("Enter");
+    await this.waitForFrame();
+  },
+);
+
+When(
+  "I click the edit pencil on comment {int}",
+  async function (this: KoluWorld, oneBasedIndex: number) {
+    // Locator-by-index is 0-based; the feature reads 1-based for
+    // natural language ("comment 1").
+    const btn = this.page
+      .locator(ITEM)
+      .nth(oneBasedIndex - 1)
+      .locator(EDIT_BTN);
+    await btn.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await btn.click();
+    await this.waitForFrame();
+  },
+);
 
 When("I click the Copy-to-clipboard button", async function (this: KoluWorld) {
   const btn = this.page.locator(COPY_BTN);
@@ -63,6 +87,14 @@ Then("the comments tray should be hidden", async function (this: KoluWorld) {
   const tray = this.page.locator(TRAY);
   await tray.waitFor({ state: "detached", timeout: POLL_TIMEOUT });
 });
+
+Then(
+  "the inline comment popover should be visible",
+  async function (this: KoluWorld) {
+    const pop = this.page.locator(POPOVER);
+    await pop.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
 
 async function assertCommentCount(world: KoluWorld, expected: number) {
   await world.page.waitForFunction(
@@ -100,6 +132,3 @@ Then(
     );
   },
 );
-
-// Suppress unused-import lint when item selector is reused locally.
-void ITEM;

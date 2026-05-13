@@ -1,30 +1,33 @@
-/** Copy-to-clipboard is destructive by design (#878): the tray clears
- *  once the payload is on the clipboard so the next review session
- *  starts empty. */
+/** Read-only roll-up of the queued comments. The compose flow lives in
+ *  `InlineCommentPopover` (anchored at the selected line); this tray is
+ *  the discovery + bulk-action surface:
+ *
+ *    - Click a line ref → jump back to that file/line (calls `onJumpTo`).
+ *    - Pencil → re-open the composer in edit mode at that comment.
+ *    - Trash → drop one comment.
+ *    - Copy → serialise + clear (destructive by design, #878).
+ *
+ *  The header bar gets an accent fill when count > 0 so the user
+ *  doesn't accidentally ignore the queue. */
 
-import type { SelectedLineRange } from "@kolu/solid-pierre";
-import { type Component, createMemo, createSignal, For, Show } from "solid-js";
+import { type Component, createMemo, For, Show } from "solid-js";
 import { toast } from "solid-sonner";
 import { writeTextToClipboard } from "../terminal/clipboard";
 import { CloseIcon } from "../ui/Icons";
 import { formatLPathRef } from "../ui/lineRef";
+import type { Comment } from "./commentSerialize";
 import { serializeComments } from "./commentSerialize";
 import type { CommentsApi } from "./useComments";
 
-/** Test-id surface for `CommentsTray`. Centralizes the strings the
- *  markup writes so a typo lands as a TypeScript error rather than a
- *  silently-skipped Playwright locator. E2e step files mirror the
- *  values as literal strings (the tests package doesn't import client
- *  internals) — drift surfaces as an e2e failure. */
 export const commentsTestIds = {
   tray: "comments-tray",
-  composer: "comments-composer",
-  target: "comments-target",
-  add: "comments-add",
   copy: "comments-copy",
   close: "comments-close",
   list: "comments-list",
   item: "comments-item",
+  jump: "comments-jump",
+  edit: "comments-edit",
+  remove: "comments-remove",
 } as const;
 
 const TRAY_PRIMARY_BUTTON_CLASS =
@@ -32,57 +35,30 @@ const TRAY_PRIMARY_BUTTON_CLASS =
 
 export type CommentsTrayProps = {
   api: CommentsApi;
-  /** Path of the file currently open in the viewer, or null when no
-   *  file is selected. Drives the composer's target chip. */
-  currentPath: () => string | null;
-  /** Pierre's current line selection inside the viewer, or null when
-   *  nothing is selected. Drives the composer's target chip + the
-   *  "Add" button enablement. */
-  currentRange: () => SelectedLineRange | null;
-  /** Toggle comment mode off — closes the tray when there are no queued
-   *  comments. */
+  /** Jump-to-line — called when the user clicks a comment's line ref.
+   *  Caller should switch to the comment's file (browse mode) and
+   *  push Pierre's selection to the range so the line is highlighted. */
+  onJumpTo: (comment: Comment) => void;
+  /** Edit request — opens the inline popover in edit mode at the
+   *  comment's line. Caller orchestrates the file switch + selection
+   *  push, same as `onJumpTo`, plus the popover open. */
+  onEdit: (comment: Comment) => void;
+  /** Toggle comment mode off — only meaningful when the queue is
+   *  empty; the close button is disabled otherwise so the user can't
+   *  hide a populated tray by accident. */
   onClose: () => void;
 };
 
 const CommentsTray: Component<CommentsTrayProps> = (props) => {
-  const [draft, setDraft] = createSignal("");
   // Memoize so each render and child binding shares one tracked read,
   // not six fresh subscriptions through the bucket Map.
   const comments = createMemo(() => props.api.comments());
-
-  const canAdd = () =>
-    props.currentPath() !== null &&
-    props.currentRange() !== null &&
-    draft().trim().length > 0;
-
-  const targetLabel = () => {
-    const p = props.currentPath();
-    const r = props.currentRange();
-    if (!p || !r) return null;
-    return formatLPathRef(p, r.start, r.end);
-  };
-
-  const submit = () => {
-    if (!canAdd()) return;
-    const p = props.currentPath();
-    const r = props.currentRange();
-    if (!p || !r) return;
-    props.api.addComment({
-      path: p,
-      startLine: r.start,
-      endLine: r.end,
-      text: draft().trim(),
-    });
-    setDraft("");
-  };
 
   const copyAndClear = async () => {
     const list = comments();
     if (list.length === 0) return;
     const payload = serializeComments(list);
     try {
-      // writeTextToClipboard falls back to document.execCommand("copy")
-      // when navigator.clipboard is unavailable (non-secure context).
       await writeTextToClipboard(payload);
       const n = list.length;
       props.api.clear();
@@ -95,20 +71,36 @@ const CommentsTray: Component<CommentsTrayProps> = (props) => {
     }
   };
 
+  const hasItems = () => comments().length > 0;
+
   return (
     <div
       class="shrink-0 flex flex-col border-t border-edge bg-surface-1/30 text-[11px] max-h-[40%]"
       data-testid={commentsTestIds.tray}
     >
-      <div class="flex items-center h-7 px-2 border-b border-edge shrink-0 gap-2">
-        <span class="font-medium text-fg-2">
+      <div
+        // Accent stripe on the header bar when the queue is non-empty
+        // so the user can't accidentally ignore it. `richColors` on the
+        // Toaster doesn't apply here; we paint the tray ourselves.
+        class="flex items-center h-7 px-2 border-b border-edge shrink-0 gap-2 transition-colors"
+        classList={{
+          "bg-accent/15 border-accent/40": hasItems(),
+        }}
+      >
+        <span
+          class="font-medium"
+          classList={{
+            "text-accent": hasItems(),
+            "text-fg-2": !hasItems(),
+          }}
+        >
           Comments ({comments().length})
         </span>
         <div class="flex-1" />
         <button
           type="button"
           class={TRAY_PRIMARY_BUTTON_CLASS}
-          disabled={comments().length === 0}
+          disabled={!hasItems()}
           onClick={copyAndClear}
           data-testid={commentsTestIds.copy}
         >
@@ -117,13 +109,11 @@ const CommentsTray: Component<CommentsTrayProps> = (props) => {
         <button
           type="button"
           class="p-1 rounded text-fg-3/70 hover:text-fg-2 hover:bg-surface-1 disabled:opacity-40 disabled:cursor-not-allowed"
-          // Disable when queued — `disableCommentMode` is no-op'd by
-          // the OR-arm of `trayVisible`, so the click would silently fail.
-          disabled={comments().length > 0}
+          disabled={hasItems()}
           onClick={props.onClose}
           aria-label="Close comments tray"
           title={
-            comments().length > 0
+            hasItems()
               ? "Clear or copy comments before closing the tray"
               : "Close comments tray"
           }
@@ -133,63 +123,15 @@ const CommentsTray: Component<CommentsTrayProps> = (props) => {
         </button>
       </div>
 
-      <div class="px-2 py-2 border-b border-edge shrink-0">
-        <Show
-          when={targetLabel()}
-          fallback={
-            <div class="text-fg-3/50 italic text-[10px]">
-              Select lines in the file viewer to attach a comment.
-            </div>
-          }
-        >
-          {(label) => (
-            <div class="flex flex-col gap-1.5">
-              <div
-                class="font-mono text-[10px] text-fg-3 truncate"
-                data-testid={commentsTestIds.target}
-              >
-                {label()}
-              </div>
-              <textarea
-                class="w-full min-h-[40px] max-h-[120px] resize-y rounded border border-edge bg-bg-0 px-2 py-1 text-fg-2 placeholder:text-fg-3/40 focus:outline-none focus:border-accent"
-                placeholder="Note for the agent…"
-                value={draft()}
-                onInput={(e) => setDraft(e.currentTarget.value)}
-                onKeyDown={(e) => {
-                  // Cmd/Ctrl+Enter submits — newline by default so multi-line
-                  // notes stay easy to write.
-                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                    e.preventDefault();
-                    submit();
-                  }
-                }}
-                data-testid={commentsTestIds.composer}
-              />
-              <div class="flex justify-end">
-                <button
-                  type="button"
-                  class={TRAY_PRIMARY_BUTTON_CLASS}
-                  disabled={!canAdd()}
-                  onClick={submit}
-                  data-testid={commentsTestIds.add}
-                >
-                  Add comment
-                </button>
-              </div>
-            </div>
-          )}
-        </Show>
-      </div>
-
       <div
         class="flex-1 min-h-0 overflow-auto"
         data-testid={commentsTestIds.list}
       >
         <Show
-          when={comments().length > 0}
+          when={hasItems()}
           fallback={
             <div class="px-2 py-3 text-fg-3/40 text-center text-[10px]">
-              No comments yet.
+              Select a line in comment mode to add a note.
             </div>
           }
         >
@@ -202,14 +144,31 @@ const CommentsTray: Component<CommentsTrayProps> = (props) => {
                   data-path={c.path}
                 >
                   <div class="flex items-baseline gap-1.5">
-                    <span class="font-mono text-[10px] text-fg-3 truncate flex-1">
+                    <button
+                      type="button"
+                      class="font-mono text-[10px] text-fg-3 truncate flex-1 text-left hover:text-accent hover:underline"
+                      onClick={() => props.onJumpTo(c)}
+                      title="Jump to this line"
+                      data-testid={commentsTestIds.jump}
+                    >
                       {formatLPathRef(c.path, c.startLine, c.endLine)}
-                    </span>
+                    </button>
+                    <button
+                      type="button"
+                      class="p-0.5 rounded text-fg-3/60 hover:text-accent hover:bg-surface-1"
+                      onClick={() => props.onEdit(c)}
+                      aria-label="Edit comment"
+                      title="Edit"
+                      data-testid={commentsTestIds.edit}
+                    >
+                      ✎
+                    </button>
                     <button
                       type="button"
                       class="p-0.5 rounded text-fg-3/60 hover:text-danger hover:bg-surface-1"
                       onClick={() => props.api.removeComment(c.id)}
                       aria-label="Remove comment"
+                      data-testid={commentsTestIds.remove}
                     >
                       <CloseIcon class="w-2.5 h-2.5" />
                     </button>

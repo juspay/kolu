@@ -11,6 +11,7 @@ import {
   FileTree as FileTreeClass,
   type FileTreeIconConfig,
   type FileTreeInitialExpansion,
+  type FileTreeRowDecorationRenderer,
   type GitStatusEntry,
 } from "@pierre/trees";
 import {
@@ -60,6 +61,16 @@ export type FileTreeProps = {
   icons?: FileTreeIconConfig;
   /** Pierre's typed contextmenu hook. */
   contextMenu?: FileTreeContextMenu;
+  /** Per-row decoration callback — Pierre invokes this on every visible
+   *  row to ask for a tiny text/icon badge (e.g. a bullet for "this
+   *  file has comments"). Pierre captures the function at construction
+   *  and has no `setRenderRowDecoration` mutator, so we route prop
+   *  identity changes through a stable wrapper that reads a mutable
+   *  ref, and nudge Pierre to re-render by calling `setGitStatus`
+   *  with the current value (the only public mutator that triggers a
+   *  full row re-render — see `render/FileTree.js`'s `setGitStatus`,
+   *  which delegates to `renderFileTreeRoot`). */
+  renderRowDecoration?: FileTreeRowDecorationRenderer;
   /** Surface construction or render throws to the host. Required because
    *  silent failure produces a blank pane indistinguishable from "no
    *  files" — bad UX, hard to debug. */
@@ -80,6 +91,15 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   // membership in this set is a reliable file-vs-folder discriminator.
   const fileSet = createMemo(() => new Set(props.paths));
 
+  // Stable indirection for the decoration renderer — Pierre captures
+  // its `renderRowDecoration` at construction, but we want the prop to
+  // remain reactive (so the caller can flip "is this file commented?"
+  // without rebuilding the whole tree). The wrapper reads the latest
+  // prop on each invocation; an effect below nudges Pierre to re-render
+  // when the prop's identity changes.
+  const stableDecorationRenderer: FileTreeRowDecorationRenderer = (ctx) =>
+    props.renderRowDecoration?.(ctx) ?? null;
+
   onMount(() => {
     try {
       tree = new FileTreeClass({
@@ -94,6 +114,9 @@ export const FileTree: Component<FileTreeProps> = (props) => {
         initialSelectedPaths: props.selectedPath ? [props.selectedPath] : [],
         composition: props.contextMenu
           ? { contextMenu: props.contextMenu }
+          : undefined,
+        renderRowDecoration: props.renderRowDecoration
+          ? stableDecorationRenderer
           : undefined,
         onSelectionChange: (paths) => {
           // Pierre fires with all selected paths; we model single-select.
@@ -133,6 +156,27 @@ export const FileTree: Component<FileTreeProps> = (props) => {
       (g) => {
         try {
           tree?.setGitStatus(g);
+        } catch (e) {
+          props.onError(toError(e));
+        }
+      },
+      { defer: true },
+    ),
+  );
+
+  // Pierre exposes no `setRenderRowDecoration` mutator; the captured
+  // wrapper reads `props.renderRowDecoration` every call, but Pierre
+  // only re-invokes it when something else triggers a row re-render.
+  // Piggyback on `setGitStatus(currentValue)` — its implementation
+  // unconditionally re-renders the tree root — so a decoration data
+  // change (caller swaps the prop's function identity) immediately
+  // reflects in the UI without forcing a `resetPaths` rebuild.
+  createEffect(
+    on(
+      () => props.renderRowDecoration,
+      () => {
+        try {
+          tree?.setGitStatus(props.gitStatus);
         } catch (e) {
           props.onError(toError(e));
         }

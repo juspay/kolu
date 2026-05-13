@@ -85,6 +85,7 @@ export type CommentInput = {
 export type CommentsApi = {
   comments: Accessor<readonly Comment[]>;
   addComment: (input: CommentInput) => void;
+  updateComment: (id: string, text: string) => void;
   removeComment: (id: string) => void;
   clear: () => void;
 };
@@ -137,6 +138,12 @@ export function useComments(repoRoot: Accessor<string | null>): CommentsApi {
           ...prev,
           { id: crypto.randomUUID(), createdAt: Date.now(), ...input },
         ]),
+      ),
+    updateComment: (id, text) =>
+      withBucket((b) =>
+        b.setComments((prev) =>
+          prev.map((c) => (c.id === id ? { ...c, text } : c)),
+        ),
       ),
     removeComment: (id) =>
       withBucket((b) =>

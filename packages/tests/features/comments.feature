@@ -1,10 +1,10 @@
-Feature: Comment mode (annotate files, copy to clipboard)
-  The Code tab's comment-mode toggle reveals a comments tray. Selecting
-  lines in any file viewer lets the user attach a free-text note, which
-  accumulates across files. "Copy to clipboard" serializes the queue to a
-  versioned text block and automatically clears the tray, so the next
-  review session starts empty. The queue is persisted per-worktree via
-  localStorage so an accidental reload doesn't lose in-progress notes.
+Feature: Comment mode (inline composer + tray roll-up)
+  The Code tab's comment-mode toggle reveals a read-only comments tray;
+  authoring happens in a line-anchored inline popover that opens when
+  the user clicks a line. The tray accumulates comments across files,
+  highlights itself when non-empty, and lets the user jump to / edit /
+  delete each entry. Copy-to-clipboard serializes the queue to Markdown
+  and clears the tray.
 
   Background:
     Given the terminal is ready
@@ -19,28 +19,48 @@ Feature: Comment mode (annotate files, copy to clipboard)
     When I enable comment mode
     Then the comments tray should be visible
 
-  # ── End-to-end: select, compose, add, copy, auto-discard ──
+  # ── End-to-end: select line, type in inline popover, copy, auto-discard ──
   #
   # The file viewer is mounted before enabling comment mode so Pierre's
-  # VirtualizedFile measures its viewport at full height. Toggling the
-  # tray after a file is rendered shrinks the viewport but Pierre keeps
-  # already-rendered rows in the DOM — the line-2 gutter selector
-  # resolves regardless.
+  # VirtualizedFile measures its viewport at full height. The popover
+  # anchors to the selected line's `[data-selected-line]` element — so
+  # the click on line 1 must happen AFTER comment mode is on, otherwise
+  # the resulting selection commit doesn't trigger popover open.
 
-  Scenario: add a code comment, copy to clipboard, tray clears
+  Scenario: add a code comment via the inline popover, copy, tray clears
     Given a Code tab in "browse" mode showing file "a.ts" with content "alpha\nbeta\ngamma\n"
     When I open file "a.ts" in the Code tab
     And I enable comment mode
     And I click the line number 1 in the file content
-    And I type "tighten this" into the comment composer
-    And I click the Add-comment button
+    Then the inline comment popover should be visible
+    When I type "tighten this" into the inline comment composer
+    And I press Enter to submit the inline comment
     Then the comments tray should list 1 comment
     When I click the Copy-to-clipboard button
     Then the clipboard text should contain "`a.ts:L1`"
     And the clipboard text should contain "tighten this"
     And the comments tray should list 0 comments
 
-  # ── Persistence across reload (phase 4) ──
+  # ── Edit an existing comment via tray pencil ──
+
+  Scenario: edit a queued comment from the tray pencil
+    Given a Code tab in "browse" mode showing file "a.ts" with content "alpha\nbeta\ngamma\n"
+    When I open file "a.ts" in the Code tab
+    And I enable comment mode
+    And I click the line number 1 in the file content
+    Then the inline comment popover should be visible
+    When I type "first pass" into the inline comment composer
+    And I press Enter to submit the inline comment
+    Then the comments tray should list 1 comment
+    When I click the edit pencil on comment 1
+    Then the inline comment popover should be visible
+    When I type "revised" into the inline comment composer
+    And I press Enter to submit the inline comment
+    Then the comments tray should list 1 comment
+    When I click the Copy-to-clipboard button
+    Then the clipboard text should contain "revised"
+
+  # ── Persistence across reload ──
   #
   # The right panel and comment-mode toggle are persisted, so after
   # reload the panel restores itself and the toggle stays on. No second
@@ -52,8 +72,9 @@ Feature: Comment mode (annotate files, copy to clipboard)
     When I open file "a.ts" in the Code tab
     And I enable comment mode
     And I click the line number 1 in the file content
-    And I type "persisted note" into the comment composer
-    And I click the Add-comment button
+    Then the inline comment popover should be visible
+    When I type "persisted note" into the inline comment composer
+    And I press Enter to submit the inline comment
     Then the comments tray should list 1 comment
     When I reload the page and wait for ready
     Then the comments tray should be visible
