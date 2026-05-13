@@ -1,6 +1,7 @@
 import type { AgentInfo, TerminalMetadata } from "kolu-common/surface";
 import type { GitInfo } from "kolu-git/schemas";
 import { describe, expect, it } from "vitest";
+import type { IdleBucketKey } from "../../terminal/activityWindow";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import type { TileLayout } from "../TileLayout";
 import {
@@ -351,8 +352,8 @@ describe("buildWorkspaceSwitcherModel", () => {
 
   it("routes stale entries into the Idle column regardless of agent state", () => {
     // Seed t1 (awaiting) and t3 (none) with lastActivityAt=1 so the
-    // predicate marks them stale; t2 and t4 stay at the default (0) and
-    // remain live.
+    // classifier marks them parked; t2 and t4 stay at the default (0)
+    // and remain live.
     const seeded = entries.map((entry) =>
       entry.id === "t1" || entry.id === "t3"
         ? {
@@ -365,7 +366,8 @@ describe("buildWorkspaceSwitcherModel", () => {
         : entry,
     );
     const m = modelFor(seeded, {
-      isStale: (lastActivityAt) => lastActivityAt === 1,
+      idleClassifier: (lastActivityAt) =>
+        lastActivityAt === 1 ? "4h-12h" : null,
     });
     // Awaiting now empty — t1 routed to Idle.
     expect(m.columns[0]?.entries).toHaveLength(0);
@@ -373,7 +375,8 @@ describe("buildWorkspaceSwitcherModel", () => {
     expect(m.columns[1]?.entries.map((e) => e.id)).toEqual(["t2"]);
     // Idle picks up t1 (was awaiting) and t3 (was none).
     expect(m.columns[2]?.entries.map((e) => e.id).sort()).toEqual(["t1", "t3"]);
-    // No agent shrinks to t4 (lastActivityAt === 0 → not stale → stays).
+    // No agent shrinks to t4 (lastActivityAt === 0 → classifier returns
+    // null → stays).
     expect(m.columns[3]?.entries.map((e) => e.id)).toEqual(["t4"]);
     // Each entry knows its bucket so consumers don't re-derive it.
     expect(m.entries.find((e) => e.id === "t1")?.bucket).toBe("idle");
@@ -381,25 +384,23 @@ describe("buildWorkspaceSwitcherModel", () => {
   });
 
   it("groups Idle entries by age into the 4-rung sub-bucket ladder", () => {
-    // Anchor `now` so age math is deterministic. lastActivityAt encodes
-    // each terminal's age relative to `now` in hours.
-    const HOUR = 60 * 60 * 1000;
-    const now = 100 * HOUR;
+    // Each terminal's lastActivityAt names the bucket the test expects
+    // it to land in — the classifier reads it back as a literal lookup
+    // so we don't need an injected clock.
     const sources: WorkspaceSwitcherSourceEntry[] = [
-      // 6h old → 4h-12h
-      source("fresh", { lastActivityAt: now - 6 * HOUR }),
-      // 18h old → 12h-24h
-      source("dayish", { lastActivityAt: now - 18 * HOUR }),
-      // 36h old → 24h-48h
-      source("yesterday", { lastActivityAt: now - 36 * HOUR }),
-      // 72h old → 48h+
-      source("weekago", { lastActivityAt: now - 72 * HOUR }),
+      source("fresh", { lastActivityAt: 1 }),
+      source("dayish", { lastActivityAt: 2 }),
+      source("yesterday", { lastActivityAt: 3 }),
+      source("weekago", { lastActivityAt: 4 }),
     ];
-    const FOUR_HOURS = 4 * HOUR;
+    const byMarker: Record<number, IdleBucketKey | null> = {
+      1: "4h-12h",
+      2: "12h-24h",
+      3: "24h-48h",
+      4: "48h+",
+    };
     const m = buildWorkspaceSwitcherModel(sources, {
-      isStale: (lastActivityAt) =>
-        lastActivityAt > 0 && now - lastActivityAt > FOUR_HOURS,
-      now: () => now,
+      idleClassifier: (lastActivityAt) => byMarker[lastActivityAt] ?? null,
     });
     const idle = m.columns.find((c) => c.key === "idle");
     const subEntries = (key: string) =>

@@ -3,7 +3,6 @@ import {
   type IdleBucket,
   IDLE_BUCKETS,
   type IdleBucketKey,
-  idleBucketFor,
 } from "../../terminal/activityWindow";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import type { TileLayout } from "../TileLayout";
@@ -201,16 +200,18 @@ export function agentBucket(
   }
 }
 
-/** Classify a terminal into a switcher column. Stale terminals (last
- *  agent transition older than the auto-park threshold) route to "idle"
+/** Classify a terminal into a switcher column. Parked terminals (last
+ *  agent transition older than the auto-park threshold, surfaced via the
+ *  idle classifier as a non-null sub-bucket key) route to "idle"
  *  regardless of current agent state — the unified mental model is
- *  "anything parked goes to one place". The `lastActivityAt === 0`
- *  guard inside `isStale` keeps plain shells in "none". */
+ *  "anything parked goes to one place". A `null` classifier result keeps
+ *  the entry on its agent-state column; the classifier itself is what
+ *  enforces the `lastActivityAt === 0` plain-shell exclusion. */
 export function entryBucket(
   info: TerminalDisplayInfo,
-  isStale?: (lastActivityAt: number) => boolean,
+  idleClassifier?: (lastActivityAt: number) => IdleBucketKey | null,
 ): WorkspaceAgentBucket {
-  if (isStale?.(info.meta.lastActivityAt)) return "idle";
+  if (idleClassifier?.(info.meta.lastActivityAt)) return "idle";
   return agentBucket(info.meta.agent);
 }
 
@@ -376,10 +377,12 @@ function compactGroupsFor(
  *  compact groups) from one live-terminal entry list. Owns the ordering
  *  pipeline — when `getRecency` is provided, applies `sortBySwitcherOrder`
  *  internally so callers can't feed unsorted entries into the grouping.
- *  When `isStale` is provided, parked-by-inactivity entries route to the
- *  Idle column and the model emits `idleSubBuckets` (4–12h, 12–24h,
- *  24–48h, 48h+) for that column; the `now` accessor supplies the clock
- *  used for sub-bucketing and defaults to `Date.now`. */
+ *  When `idleClassifier` is provided, parked-by-inactivity entries route
+ *  to the Idle column with a populated `idleSub` and the column emits
+ *  `idleSubBuckets` (4–12h, 12–24h, 24–48h, 48h+). The classifier is the
+ *  sole clock-aware input — there is no separate `now` parameter and no
+ *  separate stale predicate, so the model can't end up with two
+ *  inconsistent views of the same tick. */
 export function buildWorkspaceSwitcherModel(
   sources: WorkspaceSwitcherSourceEntry[],
   options: {
@@ -387,21 +390,19 @@ export function buildWorkspaceSwitcherModel(
     repoFilter?: string | null;
     activeId?: TerminalId | null;
     getRecency?: (id: TerminalId) => number;
-    isStale?: (lastActivityAt: number) => boolean;
-    now?: () => number;
+    idleClassifier?: (lastActivityAt: number) => IdleBucketKey | null;
   } = {},
 ): WorkspaceSwitcherModel {
   const ordered = options.getRecency
     ? sortBySwitcherOrder(sources, options.getRecency)
     : sources;
-  const isStale = options.isStale;
-  const now = options.now ?? Date.now;
+  const idleClassifier = options.idleClassifier;
   const entries: WorkspaceSwitcherEntry[] = ordered.map((source) => {
-    const bucket = entryBucket(source.info, isStale);
     const idleSub =
-      bucket === "idle"
-        ? (idleBucketFor(now() - source.info.meta.lastActivityAt) ?? undefined)
-        : undefined;
+      idleClassifier?.(source.info.meta.lastActivityAt) ?? undefined;
+    const bucket: WorkspaceAgentBucket = idleSub
+      ? "idle"
+      : agentBucket(source.info.meta.agent);
     const base = {
       id: source.id,
       repoName: source.info.key.group,

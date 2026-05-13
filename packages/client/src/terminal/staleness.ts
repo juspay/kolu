@@ -13,6 +13,7 @@
  *  the conjunction with bucket state is the actual concept. */
 
 import { type Accessor, createRoot, createSignal, onCleanup } from "solid-js";
+import { type IdleBucketKey, idleBucketFor } from "./activityWindow";
 
 export const HOUR_MS = 60 * 60 * 1000;
 const TICK_MS = 60_000;
@@ -70,12 +71,23 @@ export function useStaleCheck(): (lastActivityAt: number) => boolean {
     isStale(lastActivityAt, tick(), STALE_THRESHOLD_MS);
 }
 
-/** Reactive `now` accessor — same once-a-minute tick that drives the stale
- *  check. Read inside a tracking context to subscribe to age advancing.
- *  Use this when a consumer needs raw `now` (e.g. age-bucketing into the
- *  switcher's Idle sub-rows) rather than a binary stale predicate. */
-export function useNow(): Accessor<number> {
-  return getNowTicker();
+/** Reactive idle classifier — returns the matching idle sub-bucket for
+ *  a `lastActivityAt`, or `null` when the terminal is still live. The
+ *  same once-a-minute tick that drives `useStaleCheck` is read here, so
+ *  the switcher's sub-row classification stays consistent with stale
+ *  fading and re-runs at the same cadence. The `lastActivityAt === 0`
+ *  guard preserves the "plain shells stay in No agent" invariant.
+ *
+ *  This collapses what would otherwise be two clock inputs into the
+ *  switcher model (a `boolean` stale predicate + raw `now`) into one. */
+export function useIdleClassifier(): (
+  lastActivityAt: number,
+) => IdleBucketKey | null {
+  const tick = getNowTicker();
+  return (lastActivityAt: number) => {
+    if (lastActivityAt === 0) return null;
+    return idleBucketFor(tick() - lastActivityAt);
+  };
 }
 
 /** Reactive stale check with a caller-supplied threshold accessor. Same
