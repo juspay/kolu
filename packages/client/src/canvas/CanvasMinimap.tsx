@@ -367,12 +367,14 @@ const CanvasMinimap: Component<{
             // bucket badge and the active tile pop visually.
             const tileOpacity = () =>
               isActive() || parked() ? "opacity-100" : "opacity-70";
-            // Full styling for the morphing tile — geometry, background, and
-            // border in one place. When parked geometry or aesthetics change
-            // (e.g. a different ghost size, a new dim color), this helper is
-            // the only edit site. Background goes through inline style for
-            // both states (one mechanism), matching the `bg-fg-3/40` token via
-            // `color-mix` so the parked branch stays themable.
+            // Geometry + repo-color border for the morphing tile. Parked tiles
+            // get their dim background from the `bg-fg-3/40` Tailwind class
+            // (see classList below) — keeping the design-system token as the
+            // single source of truth for parked color so a theme change or a
+            // Tailwind colour-space upgrade flows through automatically. The
+            // inline `theme().bg` is for the non-parked branch only, where
+            // the bg is a dynamic per-repo color that can't be a Tailwind
+            // token.
             const tileStyle = (t: {
               x: number;
               y: number;
@@ -386,8 +388,6 @@ const CanvasMinimap: Component<{
                   top: `${t.y + t.h / 2 - GHOST_PX / 2}px`,
                   width: `${GHOST_PX}px`,
                   height: `${GHOST_PX}px`,
-                  "background-color":
-                    "color-mix(in oklab, var(--color-fg-3) 40%, transparent)",
                   border: "1px solid transparent",
                 };
               }
@@ -414,7 +414,7 @@ const CanvasMinimap: Component<{
                     data-parked={parked() ? "" : undefined}
                     class={`absolute cursor-pointer transition-all ${MORPH_TRANSITION} hover:ring-1 hover:ring-accent/40`}
                     classList={{
-                      "rounded-full": parked(),
+                      "rounded-full bg-fg-3/40": parked(),
                       "rounded-sm hover:opacity-100": !parked(),
                       "ring-1 ring-accent/60": isActive(),
                       [tileOpacity()]: true,
