@@ -9,7 +9,7 @@ targets:
 
 # Generated AGENTS.md files are runtime outputs, not source inputs. Excluding
 # them keeps distributed compilation from treating stale generated files as
-# additional placement anchors when checking a scratch tree in ai::apm-sync.
+# additional placement anchors on subsequent `apm compile` runs.
 compilation:
   exclude:
     - AGENTS.md
@@ -25,14 +25,4 @@ dependencies:
     - juspay/skills/skills/nix-justfile
     - juspay/skills/skills/nix-typescript
     - anthropics/skills/skills/frontend-design
-  mcp:
-    - name: chrome-devtools
-      registry: false
-      transport: stdio
-      command: nix
-      args:
-        - develop
-        - .#e2e
-        - --command
-        - just
-        - ai::mcp-chrome-devtools
+    - juspay/nix-chrome-devtools-mcp

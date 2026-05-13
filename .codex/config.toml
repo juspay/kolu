@@ -1,6 +1,6 @@
 [mcp_servers.chrome-devtools]
-command = "nix"
-args = [ "develop", ".#e2e", "--command", "just", "ai::mcp-chrome-devtools",]
+command = ".agents/skills/nix-chrome-devtools-mcp/bin/serve"
+args = []
 id = ""
 
 [mcp_servers.chrome-devtools.env]

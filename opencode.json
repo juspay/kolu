@@ -4,12 +4,7 @@
       "type": "local",
       "enabled": true,
       "command": [
-        "nix",
-        "develop",
-        ".#e2e",
-        "--command",
-        "just",
-        "ai::mcp-chrome-devtools"
+        ".agents/skills/nix-chrome-devtools-mcp/bin/serve"
       ]
     }
   }

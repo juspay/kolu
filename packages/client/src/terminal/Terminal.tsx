@@ -28,12 +28,13 @@ import {
   Show,
 } from "solid-js";
 import { match } from "ts-pattern";
-import { SafeClipboardProvider } from "./clipboard";
+import { copyTextWithToast, SafeClipboardProvider } from "./clipboard";
 import "@xterm/xterm/css/xterm.css";
 import type { TerminalId } from "kolu-common/surface";
 import { DEFAULT_SCROLLBACK } from "kolu-common/config";
 import { FONT_FAMILY } from "terminal-themes";
-import { matchesAnyShortcut } from "../input/actions";
+import { ACTIONS, matchesAnyShortcut } from "../input/actions";
+import { matchesKeybind } from "../input/keyboard";
 import { createZoom } from "../input/zoom";
 import { refitOnTabVisible } from "../refitOnTabVisible";
 import { streamCall } from "@kolu/surface/solid";
@@ -581,6 +582,24 @@ const Terminal: Component<{
             // Let browser handle Ctrl+V so it fires a paste event. Our capture-phase
             // paste listener uploads images; xterm's own paste handler covers text.
             if (e.ctrlKey && e.key === "v") return false;
+
+            // Ctrl+Shift+C — Linux/Windows terminal copy chord. Without
+            // preventDefault, Chromium hijacks the chord to open DevTools'
+            // Inspect Element picker. xterm's selection isn't reflected in
+            // the textarea either, so we copy via getSelection() ourselves.
+            // Must come before the matchesAnyShortcut check below, since
+            // copySelection is registered there for ShortcutsHelp visibility
+            // but dispatched here.
+            if (matchesKeybind(e, ACTIONS.copySelection.keybind)) {
+              e.preventDefault();
+              const selection = term.getSelection();
+              if (selection)
+                void copyTextWithToast(selection, {
+                  success: "Copied selection to clipboard",
+                  failure: "Failed to copy selection",
+                });
+              return false;
+            }
 
             // Let any registered app shortcut bubble through to the capture-phase dispatcher
             if (matchesAnyShortcut(e)) return false;

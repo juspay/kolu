@@ -144,12 +144,15 @@ describe("matchesAnyShortcut", () => {
     ).toBe(true);
   });
 
-  it("does not match Ctrl/Cmd+Shift+C", () => {
+  it("matches Ctrl+Shift+C (copy selection — physical Ctrl)", () => {
     expect(
       matchesAnyShortcut(
         makeEvent({ key: "C", code: "KeyC", ctrlKey: true, shiftKey: true }),
       ),
-    ).toBe(false);
+    ).toBe(true);
+  });
+
+  it("does not match Cmd+Shift+C (copy chord requires physical Ctrl)", () => {
     expect(
       matchesAnyShortcut(
         makeEvent({ key: "C", code: "KeyC", metaKey: true, shiftKey: true }),

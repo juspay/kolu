@@ -207,13 +207,27 @@ const _ACTIONS = {
   },
   shuffleTheme: {
     label: "Shuffle theme",
-    keybind: { key: "j", mod: true },
+    // Mod+Shift+J — bare Mod+J on Linux collided with Claude Code's
+    // in-PTY newline shortcut (Ctrl+J). The shifted chord stays
+    // memorable, frees Ctrl+J to reach the PTY, and matches the
+    // Mod+Shift+<letter> convention used by openWorkspaceSwitcher
+    // and screenshotTerminal. Closes #873.
+    keybind: { key: "J", code: "KeyJ", mod: true, shift: true },
     handler: (ctx) => ctx.handleShuffleTheme(),
   },
   screenshotTerminal: {
     label: "Screenshot terminal",
     keybind: { key: "S", code: "KeyS", mod: true, shift: true },
     handler: (ctx) => ctx.handleScreenshotTerminal(),
+  },
+  copySelection: {
+    label: "Copy selection",
+    // Physical Ctrl (not platform mod) — Linux/Windows terminal chord.
+    // Dispatch is xterm-handler-local (Terminal.tsx) because xterm's
+    // selection lives outside the textarea, so the action only makes
+    // sense with a live xterm ref. Registered here for ShortcutsHelp
+    // visibility and so matchesAnyShortcut sees it.
+    keybind: { key: "C", code: "KeyC", ctrl: true, shift: true },
   },
   toggleRightPanel: {
     label: "Toggle inspector panel",

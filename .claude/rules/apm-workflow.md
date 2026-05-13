@@ -9,4 +9,3 @@ APM is not a global CLI — it runs via `uvx` through justfile recipes in `agent
 
 - **Install/regenerate** agent runtime directories from sources: `just ai::apm`
 - **Update a dependency** to its latest ref: `just ai::apm-update <package>` (e.g. `just ai::apm-update srid/agency`)
-- **Verify** generated runtime directories match sources (CI-safe, non-destructive): `just ai::apm-sync`
