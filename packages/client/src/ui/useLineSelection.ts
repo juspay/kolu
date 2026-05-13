@@ -53,15 +53,8 @@ export function useLineSelection(
     options.onChange?.(r);
   };
 
-  // Seed the controller on mount AND reseed on every (path, initialRange)
-  // change — both through `setAndForward` so external observers see the
-  // file-switch reset in the same frame the file changes. The earlier
-  // version split these into `createSignal(initialRange())` + a
-  // `{ defer: true }` effect, which meant the initial value never flowed
-  // through `onChange`: after `<Show keyed>` remounted CodeMenuFrame on
-  // file switch, the parent's observer signal retained the previous
-  // file's range, and a fast Ctrl+Enter on the composer would file a
-  // comment anchored to lines in the wrong file.
+  // Seed + reseed through `setAndForward` so file-switch resets reach
+  // external observers in the same frame the file changes (not deferred).
   createEffect(
     on(
       () => [path(), options.initialRange?.() ?? null] as const,

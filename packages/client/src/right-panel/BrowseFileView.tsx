@@ -1,14 +1,8 @@
 /** File content viewer for the Code tab's browse mode. Subscribes to the
  *  server's live file-content stream so editor saves and branch checkouts
- *  reflect without a manual refresh. The wrapper around `@kolu/solid-pierre`'s
- *  `FileView` provides shiki-powered syntax highlighting; equality-gating
- *  the snapshot via `reconcile` (inside `useStream`'s underlying primitive)
- *  avoids stomping scroll position on no-op ticks.
- *
- *  Line-selection wiring lives one level up in `CodeTab` so both this
- *  browse path and the diff path wrap a single `CodeMenuFrame` at the
- *  same depth (symmetric forwarding to the comments-tray composer). The
- *  caller passes the `LineSelection` controller in via props. */
+ *  reflect without a manual refresh. The `LineSelection` controller is
+ *  owned one level up so this view and the diff view share a single
+ *  `CodeMenuFrame` wrap. */
 
 import { FileView, Virtualizer } from "@kolu/solid-pierre";
 import { type Component, Match, Show, Switch } from "solid-js";

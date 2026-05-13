@@ -1,14 +1,6 @@
-/** Comments tray — the bottom strip of the Code tab when comment mode is
- *  active OR the user has comments queued from a previous session.
- *
- *  Composer wires the active file's selected line range into "Add comment".
- *  The list groups by path (sorted via `serializeComments` semantics) so
- *  what the user sees mirrors what gets pasted.
- *
- *  Copy-to-clipboard is destructive by design (per #878): users want the
- *  tray to clear once the comments are pasted into an agent prompt, so
- *  the next review session starts empty. A solid-sonner toast confirms
- *  the count and provides feedback if `navigator.clipboard` rejects.  */
+/** Copy-to-clipboard is destructive by design (#878): the tray clears
+ *  once the payload is on the clipboard so the next review session
+ *  starts empty. */
 
 import type { SelectedLineRange } from "@kolu/solid-pierre";
 import { type Component, createMemo, createSignal, For, Show } from "solid-js";
@@ -52,9 +44,6 @@ export type CommentsTrayProps = {
 };
 
 const CommentsTray: Component<CommentsTrayProps> = (props) => {
-  // Draft text is internal to the tray. Losing it on close-with-no-queue
-  // is acceptable: at that point the user has neither selection nor
-  // any committed comments, and the close gesture is itself a discard.
   const [draft, setDraft] = createSignal("");
   // Memoize so each render and child binding shares one tracked read,
   // not six fresh subscriptions through the bucket Map.
@@ -127,11 +116,8 @@ const CommentsTray: Component<CommentsTrayProps> = (props) => {
         <button
           type="button"
           class="p-1 rounded text-fg-3/70 hover:text-fg-2 hover:bg-surface-1 disabled:opacity-40 disabled:cursor-not-allowed"
-          // Tray visibility is `commentMode OR comments.length > 0`. With
-          // queued comments, disabling comment-mode would no-op (the
-          // second arm keeps the tray open) — the click would silently
-          // do nothing. Disable the button instead, so the user clears
-          // or copy-and-clears first.
+          // Disable when queued — `disableCommentMode` is no-op'd by
+          // the OR-arm of `trayVisible`, so the click would silently fail.
           disabled={comments().length > 0}
           onClick={props.onClose}
           aria-label="Close comments tray"

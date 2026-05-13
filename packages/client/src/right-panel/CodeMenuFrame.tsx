@@ -32,11 +32,6 @@ export type CodeMenuFrameProps = {
 
 export const CodeMenuFrame: Component<CodeMenuFrameProps> = (props) => {
   let menuCtrl: CodeContextMenuController | undefined;
-  // Forwarding goes through `useLineSelection.onChange` — synchronous,
-  // fires inside the same call that mutates the internal range. A
-  // deferred `createEffect` forwarder would let one frame's worth of
-  // stale range survive a keyed file switch and let a fast Ctrl+Enter
-  // submit a comment anchored to the wrong file.
   const selection = useLineSelection(() => props.path, {
     initialRange: () => props.initialSelectedLines,
     onChange: (range) => props.onSelectionChange?.(range),

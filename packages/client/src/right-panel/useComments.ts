@@ -1,16 +1,7 @@
-/** Comment-tray state — singleton, keyed by worktree repoRoot, persisted via
- *  `makePersisted` (localStorage) so an accidental reload doesn't lose
- *  in-progress feedback. Each repoRoot gets its own bucket: switching the
- *  active terminal to a different worktree shows that worktree's tray, not
- *  a global pile.
- *
- *  Module-singleton cache mirrors `useRightPanel` shape — first call per
- *  repoRoot creates the persisted signal; later calls reuse it. Without
- *  the cache, each consumer would mint a fresh signal with the same
- *  localStorage key and their writes would race.
- *
- *  The global comment-mode toggle lives in `./useCommentMode.ts` — that's
- *  a session-wide UI preference, not per-worktree content. */
+/** Per-worktree comment buckets, persisted to localStorage. The
+ *  module-level Map caches one signal per repoRoot so concurrent
+ *  consumers share writes instead of racing through duplicate
+ *  `makePersisted` instances at the same key. */
 
 import { makePersisted } from "@solid-primitives/storage";
 import {
@@ -30,12 +21,8 @@ type Bucket = {
 
 const buckets = new Map<string, Bucket>();
 
-/** Persisted envelope for a per-worktree bucket. Wrapping the raw
- *  `Comment[]` in `{ v: 1, comments }` lets future field renames bump
- *  the version with an explicit migration step instead of silently
- *  corrupting existing buckets. The clipboard payload in
- *  `commentSerialize.ts` already carries a `[kolu comments v1]`
- *  header — this mirrors that discipline at the persistence layer. */
+/** Versioned wrapper so future field renames bump `v` with an explicit
+ *  migration step instead of silently corrupting existing buckets. */
 type PersistedBucketV1 = { v: 1; comments: Comment[] };
 
 function serializeBucket(comments: readonly Comment[]): string {

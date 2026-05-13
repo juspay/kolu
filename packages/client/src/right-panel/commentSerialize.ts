@@ -1,10 +1,6 @@
-/** Comment-tray clipboard payload — versioned text format an agent paste
- *  parses back into structured feedback. The envelope (`[kolu comments
- *  v1]`) is the only stable contract; the body shape can evolve under a
- *  bumped version without breaking deployed agent prompts.
- *
- *  Sorted by (path, startLine) so a paste reads as a coherent walk through
- *  the repo, not the chronological order of clicks. */
+/** Clipboard payload — `[kolu comments v1]` envelope is the stable
+ *  contract; agents parse the version to dispatch. Sorted by
+ *  (path, startLine) so the paste reads as a repo walk. */
 
 import { formatRange } from "../ui/lineRef";
 
