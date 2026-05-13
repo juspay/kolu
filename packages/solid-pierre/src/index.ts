@@ -11,6 +11,11 @@ export { FileView } from "./FileView";
 export type { FileViewProps } from "./FileView";
 export { Virtualizer, useVirtualizer } from "./Virtualizer";
 export type { VirtualizerProps } from "./Virtualizer";
+export { deepQuerySelector, usePierreLineAnchor } from "./lineAnchor";
+export type {
+  LineAnchorPos,
+  UsePierreLineAnchorOptions,
+} from "./lineAnchor";
 
 // Re-export Pierre types consumers commonly need to type prop callbacks
 // without reaching into `@pierre/*` directly.

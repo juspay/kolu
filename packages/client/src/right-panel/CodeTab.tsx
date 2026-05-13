@@ -14,6 +14,7 @@
  * Pierre lifecycle; this component is just data flow + chrome. */
 
 import {
+  deepQuerySelector,
   FileDiff,
   FileTree,
   type SelectedLineRange,
@@ -41,6 +42,7 @@ import {
   FileDiffIcon,
   GitBranchIcon,
 } from "../ui/Icons";
+import { formatLPathRef, resolveLineRefPath } from "../ui/lineRef";
 import {
   renderTreeContextMenu,
   toGitStatusEntries,
@@ -50,18 +52,14 @@ import {
   pierreIconConfig,
   pierreTreesStyle,
 } from "../ui/pierreTheme";
-import { resolveLineRefPath } from "../ui/lineRef";
 import BrowseFileView from "./BrowseFileView";
 import { type CodeOpenRequest, pendingCodeOpen } from "./codeNavigation";
 import CodeMenuFrame from "./CodeMenuFrame";
-import type { Comment } from "./commentSerialize";
 import CommentsTray from "./CommentsTray";
 import { projectFileTreeSearch } from "./fileSearch";
 import FileSearchInput from "./FileSearchInput";
-import InlineCommentPopover, {
-  type InlineEditTarget,
-} from "./InlineCommentPopover";
-import LineCommentMarker, { deepQuerySelector } from "./LineCommentMarker";
+import InlineCommentPopover from "./InlineCommentPopover";
+import LineCommentMarker from "./LineCommentMarker";
 import ModeChipPicker, { type ModeOption } from "./ModeChipPicker";
 import { useRightPanel } from "./useRightPanel";
 import {
@@ -69,7 +67,7 @@ import {
   disableCommentMode,
   toggleCommentMode,
 } from "./useCommentMode";
-import { useComments } from "./useComments";
+import { useCommentInteraction } from "./useCommentInteraction";
 
 const EMPTY_STATE: Record<GitDiffMode, string> = {
   local: "No local changes",
@@ -99,198 +97,57 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
   const rightPanel = useRightPanel();
   const [selectedPath, setSelectedPath] = createSignal<string | null>(null);
 
-  // Comment state — `repoRoot` keys the persisted bucket so two
-  // worktrees don't share a tray. UI surfaces:
-  //   • `currentRange` — Pierre's latest line selection; drives the
-  //     "+" bubble next to the selected line.
-  //   • `editTarget` — the open composer popover. Set when the user
-  //     clicks the "+" bubble (new), a "💬" bubble (edit existing),
-  //     the right-click "Add comment" menu item, or the tray pencil.
-  //   • Existing comments render as "💬" bubbles at their lines
-  //     (filtered to the currently-shown file, since other files'
-  //     line DOM doesn't exist).
-  const commentsApi = useComments(() => props.meta?.git?.repoRoot ?? null);
-  const [editTarget, setEditTarget] = createSignal<InlineEditTarget | null>(
-    null,
-  );
-  const [currentRange, setCurrentRange] = createSignal<{
-    start: number;
-    end: number;
-  } | null>(null);
-  // Tray/bubble-driven navigation seed — declared early so the bubble
-  // and tray handlers can write to it without TDZ headaches. Pushed
-  // through `selectedRange` below into `initialSelectedLines` so Pierre
-  // commits a fresh selection at the target line. Path-scoped so a
-  // stale seed from file A doesn't re-apply when the user opens file
-  // B (CodeMenuFrame remounts and re-reads the initial range).
-  const [pendingEditSeed, setPendingEditSeed] = createSignal<{
-    path: string;
-    start: number;
-    end: number;
-  } | null>(null);
+  // Comment state — all wiring lives in `useCommentInteraction`. One
+  // discriminated `intent` carries "open new composer", "edit existing",
+  // and "jump only" so seed-and-target derive from one source. The hook
+  // also owns orphan-clear effects (mode toggle, tab switch, repoRoot
+  // change). Bubble visibility and the file-row decoration are
+  // composed below from the hook's outputs.
+  const comments = useCommentInteraction({
+    repoRoot: () => props.meta?.git?.repoRoot ?? null,
+    selectedPath,
+    setSelectedPath,
+    activeTabKind: () => rightPanel.activeTab().kind,
+  });
   // Viewer-root ref — scoped target for `querySelector` lookups so a
   // future second viewer in the same DOM doesn't poach the search.
   let viewerEl: HTMLDivElement | undefined;
   // The OR's second arm keeps the tray visible on reload when the user has
   // queued comments but never toggled mode back on.
   const trayVisible = () =>
-    commentModeEnabled() || commentsApi.comments().length > 0;
+    commentModeEnabled() || comments.api.comments().length > 0;
 
-  // Right-click "Add comment on path:Lrange" → bypass the bubble,
-  // open the composer directly. The user already made an explicit
-  // choice through the menu, so requiring a second click would be
-  // theater.
-  const handleAddComment = (range: SelectedLineRange) => {
-    const path = selectedPath();
-    if (!path) return;
-    if (!commentModeEnabled()) toggleCommentMode();
-    setEditTarget({
-      kind: "new",
-      path,
-      startLine: range.start,
-      endLine: range.end,
-    });
-  };
-
-  // Selection-commit handler. Tracks the latest range for the
-  // selected-line bubble; doesn't open the composer (user clicks the
-  // bubble to commit, the bubble is the discoverable affordance).
-  // Null commits (file switch, tear-down) clear both signals so a
-  // stale "+" doesn't float over the new file.
-  const handleSelectionChange = (range: SelectedLineRange | null) => {
-    if (range === null) {
-      setCurrentRange(null);
-      if (editTarget()?.kind === "new") setEditTarget(null);
-      return;
-    }
-    setCurrentRange({ start: range.start, end: range.end });
-  };
-
-  const handleBubbleAddNew = () => {
-    const path = selectedPath();
-    const range = currentRange();
-    if (!path || !range) return;
-    setEditTarget({
-      kind: "new",
-      path,
-      startLine: range.start,
-      endLine: range.end,
-    });
-  };
-
-  const handleBubbleEdit = (comment: Comment) => {
-    setEditTarget({ kind: "edit", comment });
-    // Push Pierre's selection to the comment's range so the popover
-    // anchor lands on the right line. Falls into the existing
-    // pendingEditSeed pipeline below.
-    setPendingEditSeed({
-      path: comment.path,
-      start: comment.startLine,
-      end: comment.endLine,
-    });
-    if (!commentModeEnabled()) toggleCommentMode();
-  };
-
-  const handlePopoverSubmit = (text: string) => {
-    const t = editTarget();
-    if (!t) return;
-    if (t.kind === "edit") {
-      commentsApi.updateComment(t.comment.id, text);
-    } else {
-      commentsApi.addComment({
-        path: t.path,
-        startLine: t.startLine,
-        endLine: t.endLine,
-        text,
-      });
-    }
-    setEditTarget(null);
-  };
-  const handlePopoverClose = () => setEditTarget(null);
-
-  // Tray pencil/jump dispatch — both push the comment's file + range
-  // through the same pipeline the terminal `path:line` click uses.
-  // The pencil additionally opens the popover in edit mode; jump
-  // just navigates and selects.
-  // Tray jump / pencil — stay in whatever mode the user picked
-  // (`browse` / `local` / `branch`). All three modes now push
-  // `initialSelectedLines` through CodeMenuFrame and forward
-  // `selectedLines` to Pierre (FileDiff + FileView both honor it),
-  // so the popover anchors regardless of which view is active. Forcing
-  // a flip to "browse" was a bandaid for the older FileDiff wrapper
-  // that didn't expose `setSelectedLines`.
-  const handleTrayJumpTo = (c: Comment) => {
-    setSelectedPath(c.path);
-    setPendingEditSeed({
-      path: c.path,
-      start: c.startLine,
-      end: c.endLine,
-    });
-  };
-  const handleTrayEdit = (c: Comment) => {
-    setSelectedPath(c.path);
-    setPendingEditSeed({
-      path: c.path,
-      start: c.startLine,
-      end: c.endLine,
-    });
-    setEditTarget({ kind: "edit", comment: c });
-    if (!commentModeEnabled()) toggleCommentMode();
-  };
-
-  // Close the popover when comment mode is toggled off — the user's
-  // intent was "stop annotating", so leaving the composer open would
-  // contradict that. Editing an existing comment from the tray
-  // re-enables mode, so this branch only fires when the user
-  // explicitly disables it.
-  createEffect(() => {
-    if (!commentModeEnabled()) setEditTarget(null);
+  // Per-file bubble list, memoized so a no-op `comments()`/`selectedPath()`
+  // tick doesn't churn the `<For>` and remount existing markers.
+  const fileBubbles = createMemo(() => {
+    const p = selectedPath();
+    if (!p) return [];
+    return comments.api.comments().filter((c) => c.path === p);
   });
 
-  // Orphan guards. CodeTab stays mounted across right-panel tab
-  // toggles and panel collapse (#818), and the popover lives in a
-  // Portal mounted to `<body>`. Without these guards, the composer
-  // (or the bubbles) would float over the canvas after the user
-  // switches to the Inspector tab or to a different worktree
-  // terminal.
-  //
-  // Tab switch closes any open composer (user changed context) but
-  // does NOT clear `currentRange` — that lets the "+" bubble
-  // reappear at the same line when the user returns to the Code tab
-  // without a re-click. The bubble's own `key` check gates on
-  // `rightPanel.activeTab().kind === "code"`, so it stays hidden
-  // while Inspector is active.
-  //
-  // Terminal switch (`repoRoot` change) is a harder reset: the file
-  // tree, selection, and any in-flight compose state belong to the
-  // old worktree, so we wipe them.
-  createEffect(() => {
-    if (rightPanel.activeTab().kind !== "code") {
-      setEditTarget(null);
-    }
-  });
-  createEffect(() => {
-    void props.meta?.git?.repoRoot;
-    setEditTarget(null);
-    setCurrentRange(null);
-    setPendingEditSeed(null);
-  });
-
-  // Set of paths that carry comments, for file-tree decoration. Wrap
-  // in a memo so the renderer closure below gets a fresh identity each
-  // time the set changes — that's the signal solid-pierre's wrapper
-  // watches to nudge Pierre into re-rendering decorations.
-  const commentedPaths = createMemo(
-    () => new Set(commentsApi.comments().map((c) => c.path)),
-  );
   const renderFileRowDecoration = createMemo(() => {
-    const set = commentedPaths();
+    const set = comments.commentedPaths();
     if (set.size === 0) return undefined;
     return (ctx: { row: { path: string } }) =>
       set.has(ctx.row.path)
         ? { text: "●", title: "Has comments queued" }
         : null;
   });
+
+  // Right-click "Add comment on path:Lrange" — generic `extraMenuItems`
+  // contract on `CodeMenuFrame`, so neither `useLineSelection` nor the
+  // frame knows about comments. CodeTab supplies the comment-specific
+  // entry here.
+  const commentMenuItems =
+    (path: string) => (range: SelectedLineRange | null) => {
+      if (!range) return [];
+      return [
+        {
+          label: `Add comment on ${formatLPathRef(path, range.start, range.end)}`,
+          onClick: () => comments.handleAddComment(range),
+        },
+      ];
+    };
 
   // Read `codeMode` directly rather than projecting it from `activeTab`.
   // CodeTab now stays mounted across the Inspector tab toggle (#818); a
@@ -491,10 +348,11 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
     start: number;
     end: number;
   } | null>(() => {
-    // Tray-driven navigation (jump / edit pencil) wins over the
-    // terminal-click flow — it's the more recent user intent. Scoped to
-    // path so a stale seed doesn't smear into a later-opened file.
-    const seed = pendingEditSeed();
+    // Comment-intent-driven navigation (jump / edit pencil / bubble
+    // edit) wins over the terminal-click flow — it's the more recent
+    // user intent. Scoped to path so a stale seed doesn't smear into a
+    // later-opened file.
+    const seed = comments.navSeed();
     if (seed && seed.path === selectedPath()) {
       return { start: seed.start, end: seed.end };
     }
@@ -782,8 +640,8 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
                         <CodeMenuFrame
                           path={path}
                           initialSelectedLines={selectedRange()}
-                          onSelectionChange={handleSelectionChange}
-                          onAddComment={handleAddComment}
+                          onSelectionChange={comments.handleSelectionChange}
+                          extraMenuItems={commentMenuItems(path)}
                         >
                           {(selection) => (
                             // `<Virtualizer>` is the scroll container —
@@ -825,8 +683,8 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
                       <CodeMenuFrame
                         path={path}
                         initialSelectedLines={selectedRange()}
-                        onSelectionChange={handleSelectionChange}
-                        onAddComment={handleAddComment}
+                        onSelectionChange={comments.handleSelectionChange}
+                        extraMenuItems={commentMenuItems(path)}
                       >
                         {(selection) => (
                           <BrowseFileView
@@ -846,93 +704,83 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
         </div>
         <Show when={trayVisible()}>
           <CommentsTray
-            api={commentsApi}
-            onJumpTo={handleTrayJumpTo}
-            onEdit={handleTrayEdit}
+            api={comments.api}
+            onJumpTo={comments.handleTrayJumpTo}
+            onEdit={comments.handleTrayEdit}
             onClose={disableCommentMode}
           />
         </Show>
         <InlineCommentPopover
           viewerEl={() => viewerEl ?? null}
-          target={editTarget}
-          onSubmit={handlePopoverSubmit}
-          onClose={handlePopoverClose}
+          target={comments.composerTarget}
+          onSubmit={comments.handlePopoverSubmit}
+          onClose={comments.handlePopoverClose}
         />
         {/* "+" bubble at the selected line — comment-mode discoverable
-            affordance, replaces the old auto-popover-on-click. Visible
-            only while: comment-mode is on, the Code tab is the active
+            affordance. Visible only while: comment-mode is on, no
+            composer is already open, the Code tab is the active
             right-panel tab, a file is selected with a non-null range,
-            no composer is already open, and the selected line doesn't
-            already carry a comment (in that case the "💬" bubble from
-            the For loop below takes over — mutually exclusive at the
-            same line). Encoding every orphan-guard condition into the
-            `key` accessor makes the bubble disappear reactively the
-            instant any of them flips, regardless of which effect runs
-            first. */}
+            and the selected line doesn't already carry a comment (in
+            that case the "💬" bubble from the For loop below takes
+            over). Encoding all guards into the `active` accessor makes
+            the bubble disappear reactively the instant any flips. */}
         <LineCommentMarker
           viewerEl={() => viewerEl ?? null}
-          key={() => {
-            if (!commentModeEnabled()) return null;
-            if (editTarget() !== null) return null;
-            if (rightPanel.activeTab().kind !== "code") return null;
-            if (!repoPath()) return null;
-            const r = currentRange();
+          active={() => {
+            if (!commentModeEnabled()) return false;
+            if (comments.composerTarget() !== null) return false;
+            if (rightPanel.activeTab().kind !== "code") return false;
+            if (!repoPath()) return false;
+            const r = comments.currentRange();
             const p = selectedPath();
-            if (!r || !p) return null;
-            const existing = commentsApi
+            if (!r || !p) return false;
+            const existing = comments.api
               .comments()
               .some(
                 (c) =>
                   c.path === p && c.startLine <= r.start && c.endLine >= r.end,
               );
-            if (existing) return null;
-            return `new:${p}:${r.start}-${r.end}`;
+            return !existing;
           }}
-          resolveLine={() => {
-            if (!viewerEl) return null;
-            return deepQuerySelector(viewerEl, "[data-selected-line]");
-          }}
+          resolveLine={() =>
+            viewerEl
+              ? deepQuerySelector(viewerEl, "[data-selected-line]")
+              : null
+          }
           label="+"
           title="Add comment on this line"
           testid="inline-add-bubble"
-          onClick={handleBubbleAddNew}
+          onClick={comments.handleBubbleAddNew}
         />
         {/* "💬" bubbles for each comment in the currently-shown file.
             Visible regardless of comment mode so the user always sees
             "this line has notes". Pierre virtualizes lines off-screen,
             so the resolver may return null for scrolled-out comments;
-            the marker hides itself in that case. The `key` returns
-            null when an orphan condition fires (panel collapsed, no
-            file shown, etc.) so the bubble disappears reactively. */}
-        <For
-          each={commentsApi.comments().filter((c) => c.path === selectedPath())}
-        >
+            the marker hides itself in that case. */}
+        <For each={fileBubbles()}>
           {(c) => (
             <LineCommentMarker
               viewerEl={() => viewerEl ?? null}
-              key={() => {
-                if (rightPanel.activeTab().kind !== "code") return null;
-                if (!repoPath()) return null;
-                if (selectedPath() !== c.path) return null;
-                return `cmt:${c.id}:${c.startLine}`;
-              }}
-              resolveLine={() => {
-                if (!viewerEl) return null;
+              active={() =>
+                rightPanel.activeTab().kind === "code" &&
+                !!repoPath() &&
+                selectedPath() === c.path
+              }
+              resolveLine={() =>
                 // Pierre's `data-line` attribute holds the actual file
                 // line number; `data-line-index` is its internal
                 // render-position index (0-based, skips diff context),
                 // which only matches line numbers by coincidence in
                 // browse mode and never in diff mode. Use `data-line`
                 // — works uniformly across browse / local / branch.
-                return deepQuerySelector(
-                  viewerEl,
-                  `[data-line="${c.startLine}"]`,
-                );
-              }}
+                viewerEl
+                  ? deepQuerySelector(viewerEl, `[data-line="${c.startLine}"]`)
+                  : null
+              }
               label="💬"
               title={`Edit comment: ${c.text}`}
               testid="inline-comment-bubble"
-              onClick={() => handleBubbleEdit(c)}
+              onClick={() => comments.handleBubbleEdit(c)}
             />
           )}
         </For>
