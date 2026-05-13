@@ -19,6 +19,12 @@ export interface LineRefMatch extends LineRef {
   index: number;
 }
 
+/** Render a 1-based line range as `start` (single line) or `start-end`
+ *  (range). Shared by every prefix style — `path:N`, `LN`, `#LN`. */
+export function formatRange(start: number, end: number): string {
+  return start === end ? `${start}` : `${start}-${end}`;
+}
+
 /** Format a `path:line` (single line) or `path:start-end` (range)
  *  reference the way most editors and code tools accept (VS Code,
  *  Vim's `:e file:N`, GitHub URL fragments, Linear-style snippets). */
@@ -27,7 +33,7 @@ export function formatLineRef(
   start: number,
   end: number,
 ): string {
-  return start === end ? `${path}:${start}` : `${path}:${start}-${end}`;
+  return `${path}:${formatRange(start, end)}`;
 }
 
 // Path char class: word + `.`, `+`, `@`, `-`. `~` is deliberately

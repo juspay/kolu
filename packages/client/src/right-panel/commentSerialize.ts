@@ -6,6 +6,8 @@
  *  Sorted by (path, startLine) so a paste reads as a coherent walk through
  *  the repo, not the chronological order of clicks. */
 
+import { formatRange } from "../ui/lineRef";
+
 export type Comment = {
   id: string;
   path: string;
@@ -18,7 +20,7 @@ export type Comment = {
 const HEADER = "[kolu comments v1]";
 
 export function formatLineRange(startLine: number, endLine: number): string {
-  return startLine === endLine ? `L${startLine}` : `L${startLine}-${endLine}`;
+  return `L${formatRange(startLine, endLine)}`;
 }
 
 export function serializeComments(comments: readonly Comment[]): string {
