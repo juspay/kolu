@@ -3,31 +3,26 @@
  *  reflect without a manual refresh. The wrapper around `@kolu/solid-pierre`'s
  *  `FileView` provides shiki-powered syntax highlighting; equality-gating
  *  the snapshot via `reconcile` (inside `useStream`'s underlying primitive)
- *  avoids stomping scroll position on no-op ticks. */
+ *  avoids stomping scroll position on no-op ticks.
+ *
+ *  Line-selection wiring lives one level up in `CodeTab` so both this
+ *  browse path and the diff path wrap a single `CodeMenuFrame` at the
+ *  same depth (symmetric forwarding to the comments-tray composer). The
+ *  caller passes the `LineSelection` controller in via props. */
 
-import {
-  FileView,
-  type SelectedLineRange,
-  Virtualizer,
-} from "@kolu/solid-pierre";
+import { FileView, Virtualizer } from "@kolu/solid-pierre";
 import { type Component, Match, Show, Switch } from "solid-js";
 import { toast } from "solid-sonner";
 import { pierreDiffsStyle } from "../ui/pierreTheme";
+import type { LineSelection } from "../ui/useLineSelection";
 import { app } from "../wire";
-import CodeMenuFrame from "./CodeMenuFrame";
 
 export type BrowseFileViewProps = {
   repoPath: string;
   filePath: string;
   theme: "light" | "dark";
-  /** Initial line range to highlight (and scroll to). Set when the
-   *  caller opens the file at a specific range — e.g. a terminal
-   *  `path:line` click. Goes through the line-selection controller
-   *  so the right-click "Copy path:N" menu reflects the highlight. */
-  initialSelectedLines?: SelectedLineRange | null;
-  /** Forward Pierre's line selection up to the parent — used by the
-   *  Code tab's comments tray to drive the composer target. */
-  onSelectionChange?: (range: SelectedLineRange | null) => void;
+  /** Line-selection controller owned by the parent `CodeMenuFrame`. */
+  selection: LineSelection;
 };
 
 const BrowseFileView: Component<BrowseFileViewProps> = (props) => {
@@ -49,40 +44,32 @@ const BrowseFileView: Component<BrowseFileViewProps> = (props) => {
         {(fc) => (
           <>
             <Show when={fc().truncated}>
-              <div class="px-2 py-1 text-warning text-[10px] border-b border-edge bg-surface-1/30">
+              <div class="px-2 py-1 text-warning text-[10px] border-b border-edge bg-surface-1/30 shrink-0">
                 File truncated (exceeds 1 MB)
               </div>
             </Show>
-            <CodeMenuFrame
-              path={props.filePath}
-              initialSelectedLines={props.initialSelectedLines}
-              onSelectionChange={props.onSelectionChange}
+            {/* `<Virtualizer>` upgrades `<FileView>` to Pierre's
+             *  `VirtualizedFile` for very large files
+             *  (#809 / #514 Phase 8). Without it, `<FileView>` uses
+             *  the vanilla `File` class — same behavior as before. */}
+            <Virtualizer
+              class="flex-1 min-h-0 overflow-auto"
+              style={pierreDiffsStyle}
             >
-              {(selection) => (
-                // `<Virtualizer>` upgrades `<FileView>` to Pierre's
-                // `VirtualizedFile` for very large files
-                // (#809 / #514 Phase 8). Without it, `<FileView>` uses
-                // the vanilla `File` class — same behavior as before.
-                <Virtualizer
-                  class="h-full w-full overflow-auto"
-                  style={pierreDiffsStyle}
-                >
-                  <FileView
-                    name={props.filePath}
-                    contents={fc().content}
-                    theme={props.theme}
-                    overflow="wrap"
-                    enableLineSelection
-                    onLineSelected={selection.handleSelect}
-                    selectedLines={selection.range()}
-                    onError={(err) =>
-                      toast.error(`File render failed: ${err.message}`)
-                    }
-                    class="w-full"
-                  />
-                </Virtualizer>
-              )}
-            </CodeMenuFrame>
+              <FileView
+                name={props.filePath}
+                contents={fc().content}
+                theme={props.theme}
+                overflow="wrap"
+                enableLineSelection
+                onLineSelected={props.selection.handleSelect}
+                selectedLines={props.selection.range()}
+                onError={(err) =>
+                  toast.error(`File render failed: ${err.message}`)
+                }
+                class="w-full"
+              />
+            </Virtualizer>
           </>
         )}
       </Match>

@@ -47,7 +47,7 @@ export const CodeMenuFrame: Component<CodeMenuFrameProps> = (props) => {
       // carry interactive JSX props — the inner Pierre canvas is the
       // actual interactive surface; the host is layout only.
       ref={(el) => el.addEventListener("contextmenu", (e) => menuCtrl?.open(e))}
-      class="h-full w-full"
+      class="flex flex-col h-full w-full"
     >
       {props.children(selection)}
       <CodeContextMenu

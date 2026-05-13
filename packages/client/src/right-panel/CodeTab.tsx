@@ -624,13 +624,20 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
                     const repo = repoPath();
                     if (repo === null) return null;
                     return (
-                      <BrowseFileView
-                        repoPath={repo}
-                        filePath={path}
-                        theme={diffTheme()}
+                      <CodeMenuFrame
+                        path={path}
                         initialSelectedLines={selectedRange()}
                         onSelectionChange={setCurrentRange}
-                      />
+                      >
+                        {(selection) => (
+                          <BrowseFileView
+                            repoPath={repo}
+                            filePath={path}
+                            theme={diffTheme()}
+                            selection={selection}
+                          />
+                        )}
+                      </CodeMenuFrame>
                     );
                   })()}
                 </Match>
