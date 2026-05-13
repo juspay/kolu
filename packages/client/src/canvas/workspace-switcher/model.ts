@@ -446,26 +446,34 @@ export function buildWorkspaceSwitcherModel(
     options.repoFilter ?? null,
   );
 
+  // Single pass: bucket every visible entry (and, for idle entries,
+  // sub-bucket them) in one walk instead of N×M filters.
+  const byBucket: Record<WorkspaceAgentBucket, WorkspaceSwitcherEntry[]> = {
+    awaiting: [],
+    working: [],
+    idle: [],
+    none: [],
+  };
+  const byIdleSub: Record<IdleBucketKey, WorkspaceSwitcherEntry[]> = {
+    "4h-12h": [],
+    "12h-24h": [],
+    "24h-48h": [],
+    "48h+": [],
+  };
+  for (const entry of visibleEntries) {
+    byBucket[entry.bucket].push(entry);
+    if (entry.bucket === "idle") byIdleSub[entry.idleSub].push(entry);
+  }
   const columns: WorkspaceSwitcherColumn[] = WORKSPACE_AGENT_BUCKETS.map(
     (bucket) => {
-      const bucketEntries = visibleEntries.filter(
-        (entry) => entry.bucket === bucket.key,
-      );
+      const bucketEntries = byBucket[bucket.key];
       if (bucket.key !== "idle") {
         return { ...bucket, entries: bucketEntries };
       }
-      // Pre-grouped sub-buckets keep the renderer dumb: it iterates the
-      // ladder once and prints whatever's there. The ladder is constant
-      // (always 4 rows) so empty sub-buckets render an empty-state hint
-      // rather than disappearing — the column reads as a triage view,
-      // not a "what was there yesterday" surprise.
+      // The ladder is always rendered in full so empty rows read as a
+      // positive "nothing parked here yet" signal rather than disappearing.
       const idleSubBuckets: WorkspaceSwitcherIdleSubBucket[] = IDLE_BUCKETS.map(
-        (sub) => ({
-          ...sub,
-          entries: bucketEntries.filter(
-            (entry) => entry.bucket === "idle" && entry.idleSub === sub.key,
-          ),
-        }),
+        (sub) => ({ ...sub, entries: byIdleSub[sub.key] }),
       );
       return { ...bucket, entries: bucketEntries, idleSubBuckets };
     },
