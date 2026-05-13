@@ -1,9 +1,26 @@
 /** Canvas minimap — spatial overview of all tiles + integrated zoom controls. */
 
-import { type Component, createMemo, createSignal, For, Show } from "solid-js";
-import { useStaleCheck } from "../terminal/staleness";
+import { makePersisted } from "@solid-primitives/storage";
+import {
+  type Component,
+  createMemo,
+  createSignal,
+  For,
+  type JSX,
+  Show,
+} from "solid-js";
+import { Portal } from "solid-js/web";
+import {
+  isMinimapWindow,
+  type MinimapWindow,
+  WINDOW_VALUES,
+  windowOption,
+} from "../terminal/activityWindow";
+import { formatTimeAgo, useStaleCheckWith } from "../terminal/staleness";
+import type { TerminalDisplayInfo } from "../terminal/terminalDisplay";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { GridIcon } from "../ui/Icons";
+import { useAnchoredPopover } from "../ui/useAnchoredPopover";
 import {
   handleMinimapClick,
   startTileDrag,
@@ -12,13 +29,55 @@ import {
 import type { TileLayout } from "./TileLayout";
 import { useTileTheme } from "./useTileTheme";
 import { useCanvasViewport } from "./viewport/useCanvasViewport";
-import { isAwaitingAttention } from "./workspace-switcher";
+import { agentBucket, bucketDescriptor } from "./workspace-switcher";
 
 /** Minimap target dimensions in pixels. */
 const MAP_W = 180;
 const MAP_H = 120;
 /** Padding around tile bounding box in canvas-space units. */
 const MAP_PAD = 100;
+/** Diameter (px) of the ghost marker rendered for parked tiles when the
+ *  user has hidden them. Big enough to click/drag without being visually
+ *  loud. */
+const GHOST_PX = 6;
+
+/** Build the hover tooltip for a minimap tile. Closes #870: the previous
+ *  `title={id}` showed the opaque terminal id; now it shows the same
+ *  identity pair the workspace switcher uses (`repo · branch[ #suffix]`)
+ *  plus the last-active duration. Multi-line via `\n` — supported in
+ *  modern browsers' `title` attribute. */
+function tileTooltip(info: TerminalDisplayInfo, parked: boolean): string {
+  const { group, label, suffix } = info.key;
+  const headParts: string[] = [group];
+  if (label && label !== group) headParts.push(label);
+  if (suffix) headParts.push(suffix);
+  const head = headParts.join(" · ");
+  const ago = formatTimeAgo(info.meta.lastActivityAt);
+  const lines = [head];
+  if (ago) lines.push(parked ? `Parked — last active ${ago}` : `Active ${ago}`);
+  return lines.join("\n");
+}
+
+/** Icon button rendered in the right half of the minimap zoom bar — sits
+ *  after the zoom controls behind a left divider. Today only used by the
+ *  arrange button; the window-selector trigger renders compact text instead
+ *  (matching the zoom-reset button style). */
+const ZoomBarButton: Component<{
+  testId: string;
+  title: string;
+  icon: JSX.Element;
+  onClick: () => void;
+}> = (props) => (
+  <button
+    type="button"
+    data-testid={props.testId}
+    class="flex items-center justify-center w-7 h-8 text-fg-3 hover:text-fg hover:bg-surface-3/60 transition-colors cursor-pointer border-l border-edge/40"
+    title={props.title}
+    onClick={props.onClick}
+  >
+    {props.icon}
+  </button>
+);
 
 const CanvasMinimap: Component<{
   tileIds: string[];
@@ -45,9 +104,31 @@ const CanvasMinimap: Component<{
   const viewport = useCanvasViewport();
   const store = useTerminalStore();
   const tileTheme = useTileTheme();
-  const isStale = useStaleCheck();
   const [hoveringViewport, setHoveringViewport] = createSignal(false);
   const [draggingViewport, setDraggingViewport] = createSignal(false);
+  // Per-device viewing preference — stays in localStorage rather than
+  // syncing through server preferences.
+  const [windowSel, setWindowSel] = makePersisted(
+    createSignal<MinimapWindow>("all"),
+    {
+      name: "kolu-minimap-window",
+      serialize: (v) => v,
+      deserialize: (raw) => (isMinimapWindow(raw) ? raw : "all"),
+    },
+  );
+  const isParked = useStaleCheckWith(
+    () => windowOption(windowSel()).thresholdMs,
+  );
+  const [menuOpen, setMenuOpen] = createSignal(false);
+  const [triggerRef, setTriggerRef] = createSignal<HTMLButtonElement>();
+  const { panelRef: menuPanelRef, panelStyle: menuPanelStyle } =
+    useAnchoredPopover({
+      triggerRef,
+      open: menuOpen,
+      onDismiss: () => setMenuOpen(false),
+      anchor: "top-end",
+    });
+  const currentWindowLabel = createMemo(() => windowOption(windowSel()).label);
 
   // ── Bounding box of all tiles ──
   const bounds = createMemo(() => {
@@ -194,6 +275,10 @@ const CanvasMinimap: Component<{
           {(id) => {
             const layout = () => props.layouts[id];
             const theme = () => tileTheme(id);
+            // Per-tile display info, resolved once and shared by the
+            // geometry memo and the badge-state memo. Without this both
+            // walked the store's keyed map independently.
+            const info = createMemo(() => store.getDisplayInfo(id));
             // Single accessor that yields all the per-tile data the
             // rectangle needs, or null when the tile isn't ready yet
             // (no layout, or metadata still arriving). The `Show` below
@@ -201,8 +286,8 @@ const CanvasMinimap: Component<{
             // `getDisplayInfo` per field.
             const tile = createMemo(() => {
               const l = layout();
-              const info = store.getDisplayInfo(id);
-              if (!l || !info) return null;
+              const i = info();
+              if (!l || !i) return null;
               const s = minimapScale();
               const p = toMinimap(l.x, l.y, s);
               return {
@@ -210,15 +295,35 @@ const CanvasMinimap: Component<{
                 y: p.y,
                 w: l.w * s,
                 h: l.h * s,
-                repoColor: info.repoColor,
+                repoColor: i.repoColor,
               };
             });
-            // Split from `tile()` so the staleness tick doesn't
-            // invalidate the rectangle — only the awaiting span re-runs.
-            const awaiting = () => {
-              const info = store.getDisplayInfo(id);
-              return info ? isAwaitingAttention(info.meta, isStale) : false;
+            // Reactive accessor: bucket classification (awaiting / working /
+            // none) plus user-window staleness. Split from `tile()` so the
+            // minute-by-minute staleness tick doesn't invalidate the
+            // rectangle geometry — only the badge surface re-runs. Memoized
+            // because the JSX reads it 7× per tile per tick.
+            const state = createMemo(() => {
+              const i = info();
+              if (!i) return { bucket: "none" as const, parked: false };
+              return {
+                bucket: agentBucket(i.meta.agent),
+                parked: isParked(i.meta.lastActivityAt),
+              };
+            });
+            // Hover tooltip — repo · branch[ #suffix] + last-active duration,
+            // sourced from the same identity key the workspace switcher uses.
+            // Falls back to the bare id when display info hasn't arrived yet
+            // (Show guards prevent ever rendering that case, but the accessor
+            // stays total).
+            const tooltip = () => {
+              const i = info();
+              return i ? tileTooltip(i, state().parked) : id;
             };
+            // Demoted to a ghost marker whenever the tile falls outside the
+            // user's activity window. With `windowSel() === "all"`, threshold
+            // is null → `isStale` returns false → nothing is ever ghosted.
+            const ghosted = () => state().parked;
             const handleTileClick = (e: MouseEvent) => {
               // Don't let this also trigger the background pan-to-point.
               e.stopPropagation();
@@ -247,34 +352,73 @@ const CanvasMinimap: Component<{
             return (
               <Show when={tile()}>
                 {(t) => (
-                  <div
-                    data-testid="minimap-tile-rect"
-                    data-tile-id={id}
-                    class="absolute rounded-sm transition-opacity cursor-pointer hover:opacity-100 hover:ring-1 hover:ring-accent/40"
-                    classList={{
-                      "opacity-100 ring-1 ring-accent/60":
-                        store.activeId() === id,
-                      "opacity-70": store.activeId() !== id,
-                    }}
-                    style={{
-                      left: `${t().x}px`,
-                      top: `${t().y}px`,
-                      width: `${t().w}px`,
-                      height: `${t().h}px`,
-                      "background-color": theme().bg,
-                      border: `1px solid ${t().repoColor}`,
-                    }}
-                    title={id}
-                    onPointerDown={handleTilePointerDown}
-                    onClick={handleTileClick}
-                  >
-                    <Show when={awaiting()}>
-                      <span
-                        data-testid="minimap-awaiting-dot"
-                        class="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-alert pointer-events-none"
+                  <Show
+                    when={!ghosted()}
+                    fallback={
+                      <div
+                        data-testid="minimap-parked-ghost"
+                        data-tile-id={id}
+                        class="absolute rounded-full bg-fg-3/40 hover:bg-fg-3/80 transition-colors cursor-pointer"
+                        classList={{
+                          "ring-1 ring-accent/60": store.activeId() === id,
+                        }}
+                        style={{
+                          left: `${t().x + t().w / 2 - GHOST_PX / 2}px`,
+                          top: `${t().y + t().h / 2 - GHOST_PX / 2}px`,
+                          width: `${GHOST_PX}px`,
+                          height: `${GHOST_PX}px`,
+                        }}
+                        title={tooltip()}
+                        onPointerDown={handleTilePointerDown}
+                        onClick={handleTileClick}
                       />
-                    </Show>
-                  </div>
+                    }
+                  >
+                    <div
+                      data-testid="minimap-tile-rect"
+                      data-tile-id={id}
+                      data-bucket={state().bucket}
+                      data-parked={state().parked ? "" : undefined}
+                      class="absolute rounded-sm transition-opacity cursor-pointer hover:opacity-100 hover:ring-1 hover:ring-accent/40"
+                      classList={{
+                        "opacity-100 ring-1 ring-accent/60":
+                          store.activeId() === id,
+                        "opacity-70":
+                          store.activeId() !== id && !state().parked,
+                        // Parked-but-shown: fades into the background so
+                        // non-parked tiles still own the visual weight even
+                        // in show-all mode.
+                        "opacity-30": store.activeId() !== id && state().parked,
+                      }}
+                      style={{
+                        left: `${t().x}px`,
+                        top: `${t().y}px`,
+                        width: `${t().w}px`,
+                        height: `${t().h}px`,
+                        "background-color": theme().bg,
+                        border: `1px solid ${t().repoColor}`,
+                      }}
+                      title={tooltip()}
+                      onPointerDown={handleTilePointerDown}
+                      onClick={handleTileClick}
+                    >
+                      {/* Bucket badge — color sourced from the bucket
+                          descriptor in workspace-switcher/model so adding or
+                          recoloring a bucket is a one-file edit. Parked tiles
+                          never paint a badge: attention can't outlive the
+                          attention it earned. */}
+                      <Show when={!state().parked && state().bucket !== "none"}>
+                        <span
+                          data-testid={`minimap-${state().bucket}-dot`}
+                          class="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full pointer-events-none"
+                          style={{
+                            "background-color": bucketDescriptor(state().bucket)
+                              .accentVar,
+                          }}
+                        />
+                      </Show>
+                    </div>
+                  </Show>
                 )}
               </Show>
             );
@@ -326,17 +470,62 @@ const CanvasMinimap: Component<{
           +
         </button>
         <Show when={props.onAutoArrange && props.tileIds.length > 1}>
-          <button
-            type="button"
-            data-testid="minimap-arrange"
-            class="flex items-center justify-center w-7 h-8 text-fg-3 hover:text-fg hover:bg-surface-3/60 transition-colors cursor-pointer border-l border-edge/40"
+          <ZoomBarButton
+            testId="minimap-arrange"
             title="Arrange canvas by repo"
+            icon={<GridIcon class="w-3.5 h-3.5" />}
             onClick={() => props.onAutoArrange?.()}
-          >
-            <GridIcon class="w-3.5 h-3.5" />
-          </button>
+          />
         </Show>
+        <button
+          type="button"
+          ref={setTriggerRef}
+          data-testid="minimap-window-trigger"
+          data-enabled={windowSel() !== "all" ? "" : undefined}
+          data-window={windowSel()}
+          class="flex items-center justify-center min-w-[2.5rem] h-8 px-1 hover:bg-surface-3/60 transition-colors cursor-pointer border-l border-edge/40 text-xs tabular-nums"
+          classList={{
+            "text-fg-2 hover:text-fg": windowSel() === "all",
+            "text-accent": windowSel() !== "all",
+          }}
+          title={`Minimap: ${currentWindowLabel()} — click to change`}
+          onClick={() => setMenuOpen((prev) => !prev)}
+        >
+          {windowOption(windowSel()).short}
+        </button>
       </div>
+      <Show when={menuOpen()}>
+        <Portal>
+          <div
+            ref={menuPanelRef}
+            data-testid="minimap-window-menu"
+            class="fixed z-50 flex flex-col bg-surface-1 border border-edge rounded-lg shadow-lg shadow-black/40 p-1 min-w-[160px]"
+            style={menuPanelStyle()}
+          >
+            <For each={WINDOW_VALUES}>
+              {(value) => (
+                <button
+                  type="button"
+                  data-testid={`minimap-window-option-${value}`}
+                  data-selected={windowSel() === value ? "" : undefined}
+                  class="text-left text-xs px-2 py-1.5 rounded-md transition-colors cursor-pointer"
+                  classList={{
+                    "bg-accent/20 text-accent": windowSel() === value,
+                    "text-fg-2 hover:bg-surface-3 hover:text-fg":
+                      windowSel() !== value,
+                  }}
+                  onClick={() => {
+                    setWindowSel(value);
+                    setMenuOpen(false);
+                  }}
+                >
+                  {windowOption(value).label}
+                </button>
+              )}
+            </For>
+          </div>
+        </Portal>
+      </Show>
     </div>
   );
 };
