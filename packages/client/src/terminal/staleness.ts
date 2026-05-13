@@ -13,9 +13,8 @@
  *  the conjunction with bucket state is the actual concept. */
 
 import { type Accessor, createRoot, createSignal, onCleanup } from "solid-js";
-import { type IdleBucketKey, idleBucketFor } from "./activityWindow";
+import { HOUR_MS, type IdleBucketKey, idleBucketFor } from "./activityWindow";
 
-export const HOUR_MS = 60 * 60 * 1000;
 const TICK_MS = 60_000;
 
 /** Auto-park threshold. Hardcoded for now; consumers go through the module

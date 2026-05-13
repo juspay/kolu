@@ -11,7 +11,14 @@
  *  `24–48h` / `48h+` sub-rows in the switcher's Idle column. One vocab,
  *  two surfaces. */
 
-import { HOUR_MS } from "./staleness";
+/** One hour in milliseconds. Lives here (and not in `staleness.ts`) so
+ *  the threshold ladder used by `WINDOWS` and `STALE_THRESHOLD_MS` has a
+ *  single source with a one-direction import — `staleness.ts` reads it
+ *  from this module rather than the other way around, breaking the
+ *  module-init cycle that would otherwise leave `HOUR_MS` in TDZ when
+ *  `activityWindow.ts` evaluates first under the bundler's resolution
+ *  order. */
+export const HOUR_MS = 60 * 60 * 1000;
 
 export type MinimapWindow = "all" | "4h" | "12h" | "24h" | "48h";
 
