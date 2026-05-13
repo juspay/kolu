@@ -88,6 +88,22 @@ Under the hood the agent calls `mcp__chrome-devtools__new_page`, then `mcp__chro
 
 > **Tip — more skills.** Now that you have `apm.yml`, browse [`juspay/skills`](https://github.com/juspay/skills) for ready-made skills you can drop in next: `nix-flake`, `nix-haskell`, `nix-typescript`, `nix-playwright`, `vhs`, and more. Each is a one-liner under `dependencies.apm:` the same way `nix-chrome-devtools-mcp` is.
 
+## What we actually use it for
+
+The 90% use case for this MCP in our own workflow isn't ad-hoc browser automation — it's **PR evidence screenshots**, captured automatically when an agent ships UI work.
+
+Our [`/do`](https://agency.srid.ca/) workflow (from [`srid/agency`](https://github.com/srid/agency)) ends with an `evidence` step: spawn a dev server on a free port, point `chrome-devtools-mcp` at the relevant routes, run `take_screenshot`, upload to a long-lived [`evidence-assets`](https://github.com/juspay/kolu/releases/tag/evidence-assets) GitHub release, embed the URLs in the PR comment. The reviewer sees exactly what changed without checking out the branch.
+
+Two recent examples from Kolu PRs:
+
+[**#866 — Show agent icons in New terminal command palette**](https://github.com/juspay/kolu/pull/866#issuecomment-4430710269). The agent took before/after of two distinct palettes that share the icon builder:
+
+![Worktree-naming leaf agent picker — icons leading each row](https://github.com/juspay/kolu/releases/download/evidence-assets/kolu-evidence-worktree-picker.png)
+
+[**#867 — Let folders collapse while the Code tab filter stays active**](https://github.com/juspay/kolu/pull/867#issuecomment-4432265073). The agent reproduced a folder-collapse bug and built a three-step diagnostic table comparing `master` vs the fix, screenshots inline at each step. (Worth reading the comment — the structure is half the value.)
+
+In both cases the agent invokes `mcp__chrome-devtools__new_page`, `mcp__chrome-devtools__take_screenshot`, and the rest of the tool list — the harness just sees those as additional capabilities. No human had to run a screenshot tool by hand or remember which routes to capture.
+
 ## Overrides (optional)
 
 The launcher honours two env vars, set before you launch the agent:
