@@ -1,72 +1,108 @@
 ---
-title: "chrome-devtools MCP for Nix-based AI agents, in one line"
-description: "Drop one dep into apm.yml and apm install wires chrome-devtools-mcp into every runtime — Claude Code, Codex, OpenCode. Chrome and Node resolve via Nix. No devshell required."
+title: "Give your coding agent a browser, on Nix"
+description: "A practical setup guide: install Nix, add one dep to apm.yml, your AI agent (Claude Code / Codex / OpenCode) gets DOM inspection, screenshots, network traces, and heap snapshots."
 pubDate: 2026-05-12
 author: "Sridhar Ratnakumar"
 ---
 
-_Drop one dep into apm.yml and `apm install` wires `chrome-devtools-mcp` into every runtime — Claude Code, Codex, OpenCode. Chrome and Node resolve through Nix. No devshell required._
+_Install Nix, add one APM dep, and your agent — Claude Code, Codex, or OpenCode — gets a real Chrome to drive: DOM inspection, screenshots, network traces, heap snapshots._
 
-[`chrome-devtools-mcp`](https://github.com/ChromeDevTools/chrome-devtools-mcp) is the official MCP server for AI agents that need to drive a real Chrome — DOM inspection, network capture, heap snapshots, performance traces. It's what powers [Kolu](https://kolu.dev)'s `/perf-diagnose` skill — the one that caught the [WebGL leak](/blog/xtermjs-perf/) a few weeks back.
+If you've ever wanted your AI coding agent to actually **see your app running** — take a screenshot, dump the DOM, check the network panel, snapshot the JS heap — Google ships an MCP server for exactly that: [`chrome-devtools-mcp`](https://github.com/ChromeDevTools/chrome-devtools-mcp). It speaks the [Model Context Protocol](https://modelcontextprotocol.io/), so any compliant agent harness can plug into it.
 
-The official install path is `npx -y chrome-devtools-mcp@latest --executable-path=…`. That `--executable-path` flag is mandatory in headless / containerized / Nix environments where Puppeteer's auto-download doesn't fly. So every consumer who wanted this MCP had to:
+Wiring it into your project used to be irritating — you needed a Chrome binary, a launcher script, and a per-runtime config block (one for Claude Code, another for Codex, another for OpenCode). This guide gets you to a working setup by leaning on two tools you may not yet be using together: **Nix** and **APM**.
 
-1. Get a Chrome-for-Testing binary onto disk somehow.
-2. Hand-write a launcher in bash (because Chrome's filesystem layout differs across Linux + macOS).
-3. Mirror the launcher invocation across `.mcp.json` (Claude Code), `.codex/config.toml` (Codex), `opencode.json` (OpenCode), and any new runtime that ships next month.
+> One-sentence pitches: **Nix** gives you reproducible binaries — Chrome, Node, anything — without manual installers. **APM** is the package manager for AI agent context: like `npm`, but the things you install are skills and MCP servers rather than libraries.
 
-Three copies of the same thing, each one stale-prone. That was Kolu's setup until last week.
+## Step 1 — Install Nix
 
-## The new shape
+Follow [nixos.asia/en/install](https://nixos.asia/en/install). The installer takes a minute on macOS or Linux. Verify:
 
-[**`juspay/nix-chrome-devtools-mcp`**](https://github.com/juspay/nix-chrome-devtools-mcp) packages all three concerns — Chrome resolution, the launcher, the multi-runtime config wiring — into a single [APM](https://microsoft.github.io/apm/) dep. Consumer side, the entire integration is one line in [`apm.yml`](https://microsoft.github.io/apm/reference/manifest-schema/):
+```sh
+nix --version
+```
+
+If you used the nixos.asia path, flakes are already enabled. If you installed Nix some other way, add this to `~/.config/nix/nix.conf`:
+
+```ini
+experimental-features = nix-command flakes
+```
+
+## Step 2 — Drop one dep into apm.yml
+
+APM is a Python tool; run it through [`uvx`](https://docs.astral.sh/uv/) so no global install is needed:
+
+```sh
+uvx --from apm-cli apm --version
+```
+
+In your project root, create `apm.yml`:
 
 ```yaml
+name: my-project
+version: 0.1.0
+targets:
+  - claude     # for Claude Code
+  - codex      # for OpenAI Codex CLI
+  - opencode   # for OpenCode CLI
+
 dependencies:
   apm:
     - juspay/nix-chrome-devtools-mcp
 ```
 
-`apm install` does the rest. The launcher gets deployed to `.agents/skills/nix-chrome-devtools-mcp/bin/serve` (a path checked into your repo, so it's available immediately after `git clone` — no install-step race for new contributors). The MCP server declaration in the package's own `apm.yml` is aggregated into every supported runtime's native config via APM's [transitive MCP collection](https://github.com/microsoft/apm/blob/main/src/apm_cli/integration/mcp_integrator.py).
+Keep only the `targets` you actually use. Then install:
 
-You write one line. APM emits `.mcp.json`, `.codex/config.toml`, `opencode.json`, and whatever new harness adds itself to the matrix.
-
-## How the launcher resolves Chrome
-
-`bin/serve` is twenty lines of bash. It calls Nix directly — no `shell.nix`, no `flake.nix` on the consumer's side:
-
-```bash
-nixpkgs="${NIXPKGS_FLAKE:-nixpkgs}"
-mcp_version="${CHROME_DEVTOOLS_MCP_VERSION:-latest}"
-
-browsers=$(nix build --no-link --print-out-paths \
-    "${nixpkgs}#playwright-driver.browsers")
-
-# locate Chrome:
-#   Linux: chrome-linux64/chrome
-#   macOS: chrome-mac-*/Google Chrome for Testing.app/Contents/MacOS/...
-
-exec nix shell "${nixpkgs}#nodejs" --command \
-    npx -y "chrome-devtools-mcp@${mcp_version}" \
-    --headless=true --isolated=true \
-    --executable-path="$chrome"
+```sh
+uvx --from apm-cli apm install --target claude,codex,opencode
 ```
 
-The Chrome binary comes from [`pkgs.playwright-driver.browsers`](https://search.nixos.org/packages?query=playwright-driver) — a nixpkgs attribute that ships a known-good Chrome-for-Testing under a deterministic store path. `nix build --print-out-paths` realises the store path (cached after first run) and prints it. `nix shell --command` makes Node available on PATH and execs the MCP server with the resolved Chrome.
+APM clones [`juspay/nix-chrome-devtools-mcp`](https://github.com/juspay/nix-chrome-devtools-mcp), deploys its launcher into `.agents/skills/nix-chrome-devtools-mcp/bin/serve`, and writes a per-runtime MCP config for each target — `.mcp.json` for Claude Code, `.codex/config.toml` for Codex, `opencode.json` for OpenCode.
 
-Two env vars are the override surface:
+## Step 3 — Verify
+
+Open `.mcp.json` (or your runtime's equivalent). You should see a `chrome-devtools` server entry:
+
+```json
+{
+  "mcpServers": {
+    "chrome-devtools": {
+      "command": ".agents/skills/nix-chrome-devtools-mcp/bin/serve",
+      "args": [],
+      "type": "stdio"
+    }
+  }
+}
+```
+
+Launch your agent and ask:
+
+> Open https://kolu.dev in a fresh page and tell me what's in the H1.
+
+Under the hood the agent calls `mcp__chrome-devtools__new_page`, then `mcp__chrome-devtools__take_snapshot`, and inspects the DOM tree. A non-exhaustive shopping list of what's now available:
+
+- `new_page`, `navigate_page`, `close_page` — page lifecycle
+- `take_snapshot`, `take_screenshot` — DOM + image capture
+- `evaluate_script` — run arbitrary JS, get the result back
+- `list_console_messages`, `list_network_requests` — observability panes
+- `take_memory_snapshot`, `performance_start_trace` — perf + heap
+
+## Overrides (optional)
+
+The launcher honours two env vars, set before you launch the agent:
 
 | Var | Default | Effect |
 |---|---|---|
-| `NIXPKGS_FLAKE` | `nixpkgs` | flake-ref for the Chrome + Node toolchain. Override to bump the Chrome milestone (Lighthouse-sensitive workflows). |
-| `CHROME_DEVTOOLS_MCP_VERSION` | `latest` | npm dist-tag or version of the MCP server. Pin to a specific version (e.g. `0.26.0`) when you need reproducibility. |
+| `NIXPKGS_FLAKE` | `nixpkgs` | which `nixpkgs` to pull Chrome + Node from. Override to bump the Chrome milestone — e.g. `NIXPKGS_FLAKE=github:NixOS/nixpkgs/nixpkgs-unstable`. |
+| `CHROME_DEVTOOLS_MCP_VERSION` | `latest` | npm version of the MCP server itself. Pin to `0.26.0` (or any release) when you need reproducibility. |
 
-The whole launcher is **self-contained** in the sense that matters — no surrounding `nix develop` or `nix-shell` wrapping required. The MCP client just executes `.agents/skills/nix-chrome-devtools-mcp/bin/serve` from your project root and the launcher resolves everything else through `nix build` / `nix shell`.
+## What's actually happening
 
-## Try it
+`bin/serve` is twenty lines of bash. It runs `nix build nixpkgs#playwright-driver.browsers` to materialise Chrome-for-Testing (the same Chrome binary the Playwright project bundles), then `nix shell nixpkgs#nodejs --command npx -y chrome-devtools-mcp@latest --executable-path=$chrome` to start the server. All inputs are resolved through Nix; nothing gets dropped into your project tree as a side-effect.
 
-Add the dep to your project's `apm.yml`, run `apm install` (or your project's wrapper — `just ai::apm` in Kolu's case), and your next agent session will have a `chrome-devtools` MCP server ready to drive Chrome on demand. Probe it: ask the agent to open a page, take a screenshot, dump the console, snapshot the heap.
+> **Aside on provenance.** This package was extracted from [Kolu](https://kolu.dev)'s own `/perf-diagnose` skill — see [the WebGL-leak debugging post](/blog/xtermjs-perf/) for what we use it for. After iterating on the shape inside Kolu, we lifted it into its own repo under Apache 2.0 ([juspay/nix-chrome-devtools-mcp#1](https://github.com/juspay/nix-chrome-devtools-mcp/pull/1)) so any Nix-using AI-agent project can drop it in.
 
-Requirements: Nix with flakes enabled (`experimental-features = nix-command flakes`). If you need to get there, [nixos.asia/en/install](https://nixos.asia/en/install) is the path.
+## Where next
 
-Repo: <https://github.com/juspay/nix-chrome-devtools-mcp>.
+- [`juspay/nix-chrome-devtools-mcp`](https://github.com/juspay/nix-chrome-devtools-mcp) — the package itself, plus README.
+- [APM's docs](https://microsoft.github.io/apm/) — `apm.yml` schema, install / compile semantics.
+- [`chrome-devtools-mcp` docs](https://github.com/ChromeDevTools/chrome-devtools-mcp#readme) — full tool list, configuration flags, troubleshooting.
