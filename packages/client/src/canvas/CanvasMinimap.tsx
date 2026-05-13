@@ -43,18 +43,25 @@ const GHOST_PX = 6;
 /** Icon button rendered in the right half of the minimap zoom bar — sits
  *  after the zoom controls behind a left divider. The `active` prop lights
  *  the icon in the accent color (used by stateful toggles); plain action
- *  buttons (arrange) leave it `false` and render in the default muted tone. */
+ *  buttons (arrange) leave it `false` and render in the default muted tone.
+ *  `ref` lets popover triggers participate in `useAnchoredPopover`; `extra`
+ *  carries arbitrary data-attributes a stateful toggle needs (e.g. the
+ *  window menu's `data-window`). */
 const ZoomBarButton: Component<{
   testId: string;
   title: string;
   icon: JSX.Element;
   onClick: () => void;
   active?: boolean;
+  ref?: (el: HTMLButtonElement) => void;
+  extra?: Record<string, string>;
 }> = (props) => (
   <button
     type="button"
+    ref={props.ref}
     data-testid={props.testId}
     data-enabled={props.active ? "" : undefined}
+    {...(props.extra ?? {})}
     class="flex items-center justify-center w-7 h-8 hover:bg-surface-3/60 transition-colors cursor-pointer border-l border-edge/40"
     classList={{
       "text-fg-3 hover:text-fg": !props.active,
@@ -456,22 +463,15 @@ const CanvasMinimap: Component<{
             onClick={() => props.onAutoArrange?.()}
           />
         </Show>
-        <button
-          type="button"
+        <ZoomBarButton
+          testId="minimap-window-trigger"
           ref={setTriggerRef}
-          data-testid="minimap-window-trigger"
-          data-enabled={windowSel() !== "all" ? "" : undefined}
-          data-window={windowSel()}
-          class="flex items-center justify-center w-7 h-8 hover:bg-surface-3/60 transition-colors cursor-pointer border-l border-edge/40"
-          classList={{
-            "text-fg-3 hover:text-fg": windowSel() === "all",
-            "text-accent": windowSel() !== "all",
-          }}
+          extra={{ "data-window": windowSel() }}
           title={`Minimap: ${currentWindowLabel()} — click to change`}
+          icon={<MoonIcon class="w-3.5 h-3.5" />}
+          active={windowSel() !== "all"}
           onClick={() => setMenuOpen((prev) => !prev)}
-        >
-          <MoonIcon class="w-3.5 h-3.5" />
-        </button>
+        />
       </div>
       <Show when={menuOpen()}>
         <Portal>
