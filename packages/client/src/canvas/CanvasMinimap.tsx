@@ -428,15 +428,18 @@ const CanvasMinimap: Component<{
                         in workspace-switcher/model so adding or recoloring a
                         bucket is a one-file edit. Parked tiles never paint a
                         badge at steady state (attention can't outlive the
-                        attention it earned); the 300 ms opacity fade keeps the
-                        tile-morph coherent across the parking transition. */}
-                    <Show when={state().bucket !== "none"}>
+                        attention it earned). The mount gate keeps the badge
+                        alive whenever it has something to show OR is fading
+                        out during a parking transition — without this, a
+                        bucket→none flip mid-park would unmount instantly and
+                        cut the opacity fade short. */}
+                    <Show when={state().bucket !== "none" || parked()}>
                       <span
                         data-testid={`minimap-${state().bucket}-dot`}
                         class={`absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full pointer-events-none transition-opacity ${MORPH_TRANSITION}`}
                         classList={{
-                          "opacity-0": parked(),
-                          "opacity-100": !parked(),
+                          "opacity-0": parked() || state().bucket === "none",
+                          "opacity-100": !parked() && state().bucket !== "none",
                         }}
                         style={{
                           "background-color": bucketDescriptor(state().bucket)
