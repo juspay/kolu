@@ -11,7 +11,7 @@
  *  `24–48h` / `48h+` sub-rows in the switcher's Idle column. One vocab,
  *  two surfaces. */
 
-import { HOUR_MS, STALE_THRESHOLD_MS } from "./staleness";
+import { HOUR_MS } from "./staleness";
 
 export type MinimapWindow = "all" | "4h" | "12h" | "24h" | "48h";
 
@@ -83,26 +83,52 @@ export interface IdleBucket {
   maxMs: number | null;
 }
 
+/** Convenience: the threshold of a non-"all" window, asserted non-null
+ *  at the type boundary so callers don't pay an `as number` tax for
+ *  what is structurally guaranteed in `WINDOWS` above. */
+type FiniteWindow = Exclude<MinimapWindow, "all">;
+function thresholdOf(w: FiniteWindow): number {
+  const t = WINDOWS[w].thresholdMs;
+  // All non-"all" windows are constructed with a numeric threshold;
+  // this is a structural invariant of the literal above. The check is a
+  // belt-and-braces guard against a future edit dropping the threshold.
+  if (t === null)
+    throw new Error(`MinimapWindow "${w}" is missing a thresholdMs`);
+  return t;
+}
+
+/** Idle sub-bucket boundaries, expressed as pairs of `MinimapWindow`
+ *  keys. Each row's `minWindow`/`maxWindow` references — typed as
+ *  `MinimapWindow` literals — make the derivation real: removing the
+ *  `"24h"` window from `WINDOWS` becomes a type error here, not a
+ *  silent runtime drift. The first row's `minWindow` is `"4h"` because
+ *  `STALE_THRESHOLD_MS === thresholdOf("4h")` by construction. */
+const SUB_BUCKET_SPECS = [
+  { key: "4h-12h", label: "4–12h", minWindow: "4h", maxWindow: "12h" },
+  { key: "12h-24h", label: "12–24h", minWindow: "12h", maxWindow: "24h" },
+  { key: "24h-48h", label: "24–48h", minWindow: "24h", maxWindow: "48h" },
+  { key: "48h+", label: "48h+", minWindow: "48h", maxWindow: null },
+] as const satisfies readonly {
+  key: IdleBucketKey;
+  label: string;
+  minWindow: FiniteWindow;
+  maxWindow: FiniteWindow | null;
+}[];
+
 /** Idle sub-buckets — the workspace switcher's "Idle" column groups parked
  *  terminals by age into these four ranges. Ordering matches display order
- *  (freshest at the top). The boundaries (4/12/24/48 hours) come from the
- *  same threshold ladder the minimap window picker uses, so picking `12h`
- *  on the minimap is the same horizon as the `12h-24h` and older sub-rows.
- *
- *  Derived from `STALE_THRESHOLD_MS` and the minimap window thresholds so
- *  shifting the auto-park threshold (or adding a window) ripples here in
- *  one edit, not four. */
-export const IDLE_BUCKETS: readonly IdleBucket[] = [
-  {
-    key: "4h-12h",
-    label: "4–12h",
-    minMs: STALE_THRESHOLD_MS,
-    maxMs: 12 * HOUR_MS,
-  },
-  { key: "12h-24h", label: "12–24h", minMs: 12 * HOUR_MS, maxMs: 24 * HOUR_MS },
-  { key: "24h-48h", label: "24–48h", minMs: 24 * HOUR_MS, maxMs: 48 * HOUR_MS },
-  { key: "48h+", label: "48h+", minMs: 48 * HOUR_MS, maxMs: null },
-];
+ *  (freshest at the top). Boundaries are looked up live from `WINDOWS`
+ *  via the `minWindow`/`maxWindow` references in `SUB_BUCKET_SPECS`, so
+ *  changing a window's threshold ripples here automatically and removing
+ *  a window surfaces as a type error rather than silent drift. */
+export const IDLE_BUCKETS: readonly IdleBucket[] = SUB_BUCKET_SPECS.map(
+  (spec) => ({
+    key: spec.key,
+    label: spec.label,
+    minMs: thresholdOf(spec.minWindow),
+    maxMs: spec.maxWindow === null ? null : thresholdOf(spec.maxWindow),
+  }),
+);
 
 /** Classify an age (in ms since last activity) into an idle sub-bucket.
  *  Returns `null` when `ageMs` is below the auto-park threshold — i.e. the
