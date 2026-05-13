@@ -911,11 +911,15 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
               }}
               resolveLine={() => {
                 if (!viewerEl) return null;
-                // Pierre's per-line attribute uses 0-based index;
-                // our `startLine` is 1-based.
+                // Pierre's `data-line` attribute holds the actual file
+                // line number; `data-line-index` is its internal
+                // render-position index (0-based, skips diff context),
+                // which only matches line numbers by coincidence in
+                // browse mode and never in diff mode. Use `data-line`
+                // — works uniformly across browse / local / branch.
                 return deepQuerySelector(
                   viewerEl,
-                  `[data-line][data-line-index="${c.startLine - 1}"]`,
+                  `[data-line="${c.startLine}"]`,
                 );
               }}
               label="💬"
