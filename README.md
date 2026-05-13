@@ -158,7 +158,8 @@ Detects [OpenCode](https://github.com/anomalyco/opencode) sessions and shows the
 
 Annotate any file the agent wrote (or any file at all — code, markdown, configs) directly from the Code tab and flush the queue to your clipboard. Paste the resulting block into whichever agent terminal makes sense; no per-agent wiring, no `kolu artifact` CLI, no server-side delivery.
 
-- **Comment mode** — toggle 💬 in the Code-tab toolbar. While on, a tray opens at the bottom of the panel: composer at the top, queued comments below, "Copy to clipboard" at the right
+- **Four ways to start** — 💬 chip in the Code-tab toolbar, <kbd>Cmd/Ctrl+Shift+/</kbd> keybind, command palette entry, or right-click any selected line and pick *Add comment on `path:Lrange`*. The chrome bar also surfaces a `💬 N` count badge whenever the active worktree has queued comments, so you don't have to remember the queue is there
+- **Comment mode tray** — composer at the top, queued comments below, "Copy to clipboard" at the right
 - **Pinpoint targets** — Pierre's existing line-selection (click a line, drag for a range) drives the composer's target chip; works uniformly across browse mode and the local/branch diff modes, so `.md`, `.ts`, and any other text file all accept comments without per-kind logic
 - **Cross-file accumulation** — comments collect across every file you visit; the tray sorts by (path, startLine) so a paste reads as a coherent walk through the repo, not click order
 - **Versioned Markdown clipboard payload** — flushed text starts with `[kolu comments v1]` so an agent reading the paste can detect the format. Each entry is a Markdown bullet with a code-spanned GitHub-style line ref: `` - `path:Lstart-end` — note `` — renders cleanly when pasted into agent terminals, GitHub issues, or chat
