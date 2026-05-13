@@ -366,15 +366,6 @@ const CanvasMinimap: Component<{
             // the staleness threshold over time.
             const parked = () => state().parked;
             const isActive = () => store.activeId() === id;
-            // Tile opacity is governed by two independent reasons:
-            //   - Active → 100 %: the focused tile must read as the focused
-            //     tile (its ring needs solid chrome behind it).
-            //   - Parked → 100 %: the dim color already conveys low
-            //     attention, so dropping opacity on top would double-dim.
-            // Anything else (inactive, non-parked) fades to 70 % so the
-            // bucket badge and the active tile pop visually.
-            const tileOpacity = () =>
-              isActive() || parked() ? "opacity-100" : "opacity-70";
             // Geometry + repo-color border for the morphing tile. Parked tiles
             // get their dim background from the `bg-fg-3/40` Tailwind class
             // (see classList below) — keeping the design-system token as the
@@ -425,7 +416,13 @@ const CanvasMinimap: Component<{
                       "rounded-full bg-fg-3/40": parked(),
                       "rounded-sm hover:opacity-100": !parked(),
                       "ring-1 ring-accent/60": isActive(),
-                      [tileOpacity()]: true,
+                      // Active and parked tiles stay at full opacity (active
+                      // needs solid chrome behind its ring; parked already
+                      // conveys low attention via dim color so dropping
+                      // opacity would double-dim). Inactive non-parked rects
+                      // fade to 70 % so badges + the active tile pop.
+                      "opacity-100": isActive() || parked(),
+                      "opacity-70": !isActive() && !parked(),
                     }}
                     style={tileStyle(t())}
                     title={tooltip()}
