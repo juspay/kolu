@@ -14,7 +14,7 @@
 
 import { type Accessor, createRoot, createSignal, onCleanup } from "solid-js";
 
-const HOUR_MS = 60 * 60 * 1000;
+export const HOUR_MS = 60 * 60 * 1000;
 const TICK_MS = 60_000;
 
 /** Auto-park threshold. Hardcoded for now; consumers go through the module

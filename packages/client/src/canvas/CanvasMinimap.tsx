@@ -10,6 +10,12 @@ import {
   type JSX,
   Show,
 } from "solid-js";
+import {
+  isMinimapWindow,
+  type MinimapWindow,
+  WINDOW_OPTIONS,
+  windowOption,
+} from "../terminal/activityWindow";
 import { isStale, useNowTicker } from "../terminal/staleness";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { GridIcon, MoonIcon } from "../ui/Icons";
@@ -32,34 +38,6 @@ const MAP_PAD = 100;
  *  user has hidden them. Big enough to click/drag without being visually
  *  loud. */
 const GHOST_PX = 6;
-
-const HOUR_MS = 60 * 60 * 1000;
-
-/** User-selectable activity window — tiles whose `lastActivityAt` falls
- *  outside the chosen window are demoted to ghost markers. `"all"` disables
- *  the filter entirely; plain shells (`lastActivityAt === 0`) always render
- *  as full rects since they have no history to be stale against. */
-export type MinimapWindow = "all" | "4h" | "12h" | "24h" | "48h";
-
-const WINDOW_OPTIONS: readonly { value: MinimapWindow; label: string }[] = [
-  { value: "all", label: "All terminals" },
-  { value: "4h", label: "Active in last 4h" },
-  { value: "12h", label: "Active in last 12h" },
-  { value: "24h", label: "Active in last 24h" },
-  { value: "48h", label: "Active in last 48h" },
-];
-
-const WINDOW_THRESHOLD_MS: Record<MinimapWindow, number | null> = {
-  all: null,
-  "4h": 4 * HOUR_MS,
-  "12h": 12 * HOUR_MS,
-  "24h": 24 * HOUR_MS,
-  "48h": 48 * HOUR_MS,
-};
-
-function isMinimapWindow(value: string): value is MinimapWindow {
-  return value in WINDOW_THRESHOLD_MS;
-}
 
 /** Icon button rendered in the right half of the minimap zoom bar — sits
  *  after the zoom controls behind a left divider. The `active` prop lights
@@ -126,7 +104,7 @@ const CanvasMinimap: Component<{
       deserialize: (raw) => (isMinimapWindow(raw) ? raw : "all"),
     },
   );
-  const thresholdMs = createMemo(() => WINDOW_THRESHOLD_MS[windowSel()]);
+  const thresholdMs = createMemo(() => windowOption(windowSel()).thresholdMs);
   const [menuOpen, setMenuOpen] = createSignal(false);
   let triggerRef: HTMLButtonElement | undefined;
   let menuRef: HTMLDivElement | undefined;
@@ -141,9 +119,7 @@ const CanvasMinimap: Component<{
   createEventListener(menuTarget, "keydown", (e) => {
     if (e.key === "Escape") setMenuOpen(false);
   });
-  const currentWindowLabel = () =>
-    WINDOW_OPTIONS.find((o) => o.value === windowSel())?.label ??
-    "All terminals";
+  const currentWindowLabel = createMemo(() => windowOption(windowSel()).label);
 
   // ── Bounding box of all tiles ──
   const bounds = createMemo(() => {
