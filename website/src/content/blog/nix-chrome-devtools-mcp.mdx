@@ -5,6 +5,8 @@ pubDate: 2026-05-12
 author: "Sridhar Ratnakumar"
 ---
 
+import Tip from "../../components/Tip.astro";
+
 _Install Nix, add one APM dep, and your agent — Claude Code, Codex, or OpenCode — gets a real Chrome to drive: DOM inspection, screenshots, network traces, heap snapshots._
 
 If you've ever wanted your AI coding agent to actually **see your app running** — take a screenshot, dump the DOM, check the network panel, snapshot the JS heap — Google ships an MCP server for exactly that: [`chrome-devtools-mcp`](https://github.com/ChromeDevTools/chrome-devtools-mcp). It speaks the [Model Context Protocol](https://modelcontextprotocol.io/), so any compliant agent harness can plug into it.
@@ -86,25 +88,21 @@ Under the hood the agent calls `mcp__chrome-devtools__new_page`, then `mcp__chro
 - `list_console_messages`, `list_network_requests` — observability panes
 - `take_memory_snapshot`, `performance_start_trace` — perf + heap
 
-> **Tip — more skills.** Now that you have `apm.yml`, browse [`juspay/skills`](https://github.com/juspay/skills) for ready-made skills you can drop in next: `nix-flake`, `nix-haskell`, `nix-typescript`, `nix-playwright`, `vhs`, and more. Each is a one-liner under `dependencies.apm:` the same way `nix-chrome-devtools-mcp` is.
+<Tip title="More skills">
+  Now that you have `apm.yml`, browse [`juspay/skills`](https://github.com/juspay/skills) for ready-made skills you can drop in next: `nix-flake`, `nix-haskell`, `nix-typescript`, `nix-playwright`, `vhs`, and more. Each is a one-liner under `dependencies.apm:` the same way `nix-chrome-devtools-mcp` is.
+</Tip>
 
 ## What we actually use it for
 
-The 90% use case for this MCP in our own workflow isn't ad-hoc browser automation — it's **PR evidence screenshots**, captured automatically when an agent ships UI work.
+The first use is **iteration**. The agent opens the page it just changed, takes a snapshot or screenshot, sees whether the output matches what it intended, and adjusts before moving on. It pulls console errors with `list_console_messages`, runs assertions through `evaluate_script`, checks network behavior with `list_network_requests` — the same DevTools panels a human would reach for, the agent reaches for too, on its own work. The feedback loop closes inside the agent's own turn.
 
-Our [`/do`](https://agency.srid.ca/) workflow (from [`srid/agency`](https://github.com/srid/agency)) ends with an `evidence` step: spawn a dev server on a free port, point `chrome-devtools-mcp` at the relevant routes, run `take_screenshot`, upload to a long-lived [`evidence-assets`](https://github.com/juspay/kolu/releases/tag/evidence-assets) GitHub release, embed the URLs in the PR comment. The reviewer sees exactly what changed without checking out the branch.
+The second use is **PR evidence**. Our [`/do`](https://agency.srid.ca/) workflow (from [`srid/agency`](https://github.com/srid/agency)) ends with an `evidence` step: spawn a dev server on a free port, point `chrome-devtools-mcp` at the relevant routes, run `take_screenshot`, upload to a long-lived [`evidence-assets`](https://github.com/juspay/kolu/releases/tag/evidence-assets) GitHub release, embed the URLs in the PR comment. The reviewer sees exactly what changed without checking out the branch.
 
-Three recent examples from Kolu PRs:
-
-[**#835 — Worktree-naming leaf**](https://github.com/juspay/kolu/pull/835#issuecomment-4393613826). The agent captured the new pre-filled name input that appears between "New terminal → kolu" and the actual worktree spawn:
+Here's what an evidence comment looks like, lifted from [Kolu PR #835](https://github.com/juspay/kolu/pull/835#issuecomment-4393613826):
 
 ![Worktree-naming leaf with prefilled `peaked-rank` suggestion](/blog/kolu-evidence-worktree-name-leaf.png)
 
-[**#866 — Show agent icons in New terminal command palette**](https://github.com/juspay/kolu/pull/866#issuecomment-4430710269). The agent took before/after of two distinct palettes that share the same icon builder, confirming both palettes render identically.
-
-[**#867 — Let folders collapse while the Code tab filter stays active**](https://github.com/juspay/kolu/pull/867#issuecomment-4432265073). The agent reproduced a folder-collapse bug and built a three-step diagnostic table comparing `master` vs the fix, screenshots inline at each step. (Worth reading the comment — the structure is half the value.)
-
-In both cases the agent invokes `mcp__chrome-devtools__new_page`, `mcp__chrome-devtools__take_screenshot`, and the rest of the tool list — the harness just sees those as additional capabilities. No human had to run a screenshot tool by hand or remember which routes to capture.
+(See also [#866](https://github.com/juspay/kolu/pull/866#issuecomment-4430710269) for a cross-palette icon check, and [#867](https://github.com/juspay/kolu/pull/867#issuecomment-4432265073) for a three-step diagnostic table comparing `master` vs the fix.)
 
 ## Overrides (optional)
 
@@ -119,7 +117,9 @@ The launcher honours two env vars, set before you launch the agent:
 
 `bin/serve` is twenty lines of bash. It runs `nix build nixpkgs#playwright-driver.browsers` to materialise Chrome-for-Testing (the same Chrome binary the Playwright project bundles), then `nix shell nixpkgs#nodejs --command npx -y chrome-devtools-mcp@latest --executable-path=$chrome` to start the server. All inputs are resolved through Nix; nothing gets dropped into your project tree as a side-effect.
 
-> **Aside on provenance.** This package was extracted from [Kolu](https://kolu.dev)'s own `/perf-diagnose` skill — see [the WebGL-leak debugging post](/blog/xtermjs-perf/) for what we use it for. After iterating on the shape inside Kolu, we lifted it into its own repo under Apache 2.0 ([juspay/nix-chrome-devtools-mcp#1](https://github.com/juspay/nix-chrome-devtools-mcp/pull/1)) so any Nix-using AI-agent project can drop it in.
+<Tip title="Provenance">
+  This package was extracted from [Kolu](https://kolu.dev)'s own `/perf-diagnose` skill — see [the WebGL-leak debugging post](/blog/xtermjs-perf/) for what we use it for. After iterating on the shape inside Kolu, we lifted it into its own repo under Apache 2.0 ([juspay/nix-chrome-devtools-mcp#1](https://github.com/juspay/nix-chrome-devtools-mcp/pull/1)) so any Nix-using AI-agent project can drop it in.
+</Tip>
 
 ## Where next
 

@@ -1,0 +1,13 @@
+---
+interface Props {
+  title?: string;
+}
+const { title = "Tip" } = Astro.props;
+---
+
+<aside class="tip">
+  <p class="tip-label eyebrow">{title}</p>
+  <div class="tip-body">
+    <slot />
+  </div>
+</aside>

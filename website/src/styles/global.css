@@ -388,6 +388,29 @@ body {
   margin-bottom: 1.5em;
 }
 
+/* Tip / callout component — `<Tip title="…">` in MDX posts. Amber
+   accent + a faint amber-tinted background separates it from a regular
+   pull-quote blockquote without going full GitHub-admonition. */
+.prose-editorial .tip {
+  border-left: 3px solid var(--color-amber);
+  background: color-mix(in srgb, var(--color-amber) 8%, transparent);
+  border-radius: 0 0.5rem 0.5rem 0;
+  padding: 0.9rem 1.15rem;
+  margin: 2em 0;
+  font-style: normal;
+  color: var(--color-ink);
+}
+.prose-editorial .tip .tip-label {
+  color: var(--color-amber);
+  margin: 0 0 0.4em;
+}
+.prose-editorial .tip .tip-body > :first-child {
+  margin-top: 0;
+}
+.prose-editorial .tip .tip-body > :last-child {
+  margin-bottom: 0;
+}
+
 .prose-editorial blockquote p {
   margin-top: 0.6em;
   margin-bottom: 0.6em;
