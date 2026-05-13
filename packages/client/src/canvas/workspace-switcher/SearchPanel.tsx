@@ -179,7 +179,9 @@ const ColumnView: Component<{
       </div>
     </div>
     <Show
-      when={props.column.idleSubBuckets}
+      when={
+        props.column.key === "idle" ? props.column.idleSubBuckets : undefined
+      }
       fallback={
         <EntryList
           entries={props.column.entries}

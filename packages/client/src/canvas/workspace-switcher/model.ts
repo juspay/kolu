@@ -66,15 +66,7 @@ export type WorkspaceAgentBucket = "awaiting" | "working" | "idle" | "none";
  *  last agent transition is older than the auto-park threshold (4h),
  *  regardless of current agent state. "No agent" stays narrow: plain
  *  shells that have *never* hosted an agent (`lastActivityAt === 0`). */
-export const WORKSPACE_AGENT_BUCKETS: readonly {
-  key: WorkspaceAgentBucket;
-  label: string;
-  empty: string;
-  textClass: string;
-  accentVar: string;
-  borderClass: string;
-  glyph: string;
-}[] = [
+export const WORKSPACE_AGENT_BUCKETS = [
   {
     key: "awaiting",
     label: "Awaiting you",
@@ -112,7 +104,15 @@ export const WORKSPACE_AGENT_BUCKETS: readonly {
     borderClass: "",
     glyph: "·",
   },
-];
+] as const satisfies readonly {
+  key: WorkspaceAgentBucket;
+  label: string;
+  empty: string;
+  textClass: string;
+  accentVar: string;
+  borderClass: string;
+  glyph: string;
+}[];
 
 /** Common fields shared by every searchable switcher entry. The bucket
  *  arm extensions below add the bucket-specific payload (e.g. the idle
@@ -168,17 +168,31 @@ export type WorkspaceSwitcherIdleSubBucket = IdleBucket & {
   entries: WorkspaceSwitcherEntry[];
 };
 
+/** Bucket descriptor narrowed to a specific column key — preserves the
+ *  per-key invariant in the descriptor table (label, glyph, etc.) so the
+ *  discriminated `WorkspaceSwitcherColumn` arms below stay tight to
+ *  their own descriptor row. */
+type DescriptorFor<K extends WorkspaceAgentBucket> = Extract<
+  (typeof WORKSPACE_AGENT_BUCKETS)[number],
+  { key: K }
+>;
+
 /** Agent bucket plus the entries currently visible in that column.
  *
- *  `idleSubBuckets` is populated only on the Idle column (the freshest
- *  parked entries first); for every other column it is `undefined`.
- *  Callers can branch on `column.key === "idle"` without re-deriving
- *  age ranges from the entry list. */
+ *  Discriminated on `key`: only the Idle arm carries `idleSubBuckets`
+ *  (always populated, always the full 4-rung ladder). Other arms have
+ *  no sub-bucket field at all — so a renderer narrowing on
+ *  `column.key === "idle"` reads sub-rows without an optional dance,
+ *  and the type system refuses to construct an idle column without
+ *  the ladder or an awaiting/working/none column with one. */
 export type WorkspaceSwitcherColumn =
-  (typeof WORKSPACE_AGENT_BUCKETS)[number] & {
-    entries: WorkspaceSwitcherEntry[];
-    idleSubBuckets?: WorkspaceSwitcherIdleSubBucket[];
-  };
+  | (DescriptorFor<"idle"> & {
+      entries: WorkspaceSwitcherEntry[];
+      idleSubBuckets: WorkspaceSwitcherIdleSubBucket[];
+    })
+  | (DescriptorFor<Exclude<WorkspaceAgentBucket, "idle">> & {
+      entries: WorkspaceSwitcherEntry[];
+    });
 
 /** Complete derived model for collapsed and expanded switcher renderers. */
 export type WorkspaceSwitcherModel = {
@@ -432,28 +446,30 @@ export function buildWorkspaceSwitcherModel(
     options.repoFilter ?? null,
   );
 
-  const columns = WORKSPACE_AGENT_BUCKETS.map((bucket) => {
-    const bucketEntries = visibleEntries.filter(
-      (entry) => entry.bucket === bucket.key,
-    );
-    if (bucket.key !== "idle") {
-      return { ...bucket, entries: bucketEntries };
-    }
-    // Pre-grouped sub-buckets keep the renderer dumb: it iterates the
-    // ladder once and prints whatever's there. The ladder is constant
-    // (always 4 rows) so empty sub-buckets render an empty-state hint
-    // rather than disappearing — the column reads as a triage view, not
-    // a "what was there yesterday" surprise.
-    const idleSubBuckets: WorkspaceSwitcherIdleSubBucket[] = IDLE_BUCKETS.map(
-      (sub) => ({
-        ...sub,
-        entries: bucketEntries.filter(
-          (entry) => entry.bucket === "idle" && entry.idleSub === sub.key,
-        ),
-      }),
-    );
-    return { ...bucket, entries: bucketEntries, idleSubBuckets };
-  });
+  const columns: WorkspaceSwitcherColumn[] = WORKSPACE_AGENT_BUCKETS.map(
+    (bucket) => {
+      const bucketEntries = visibleEntries.filter(
+        (entry) => entry.bucket === bucket.key,
+      );
+      if (bucket.key !== "idle") {
+        return { ...bucket, entries: bucketEntries };
+      }
+      // Pre-grouped sub-buckets keep the renderer dumb: it iterates the
+      // ladder once and prints whatever's there. The ladder is constant
+      // (always 4 rows) so empty sub-buckets render an empty-state hint
+      // rather than disappearing — the column reads as a triage view,
+      // not a "what was there yesterday" surprise.
+      const idleSubBuckets: WorkspaceSwitcherIdleSubBucket[] = IDLE_BUCKETS.map(
+        (sub) => ({
+          ...sub,
+          entries: bucketEntries.filter(
+            (entry) => entry.bucket === "idle" && entry.idleSub === sub.key,
+          ),
+        }),
+      );
+      return { ...bucket, entries: bucketEntries, idleSubBuckets };
+    },
+  );
 
   return {
     entries,
