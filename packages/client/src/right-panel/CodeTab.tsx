@@ -483,7 +483,11 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
           </Switch>
         </div>
 
-        <div class="flex-1 min-h-0 overflow-auto" data-testid="diff-content">
+        <div
+          class="flex-1 min-h-0 overflow-auto"
+          data-testid="diff-content"
+          data-selected-path={selectedPath() ?? undefined}
+        >
           <Show
             when={selectedPath()}
             keyed

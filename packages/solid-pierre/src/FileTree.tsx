@@ -127,6 +127,34 @@ export const FileTree: Component<FileTreeProps> = (props) => {
     ),
   );
 
+  // Treat `selectedPath` as controlled state. Pierre's `resetPaths`
+  // can clear internal selection during live tree refreshes; the host
+  // selection is still authoritative and should be restored after the
+  // path inventory settles.
+  createEffect(
+    on(
+      [() => props.selectedPath, () => props.paths],
+      ([selectedPath]) => {
+        try {
+          const selected = tree?.getSelectedPaths() ?? [];
+          if (!selectedPath) {
+            for (const p of selected) tree?.getItem(p)?.deselect();
+            return;
+          }
+          if (!fileSet().has(selectedPath)) return;
+          if (selected.length === 1 && selected[0] === selectedPath) return;
+          for (const p of selected) {
+            if (p !== selectedPath) tree?.getItem(p)?.deselect();
+          }
+          tree?.getItem(selectedPath)?.select();
+        } catch (e) {
+          props.onError(toError(e));
+        }
+      },
+      { defer: true },
+    ),
+  );
+
   createEffect(
     on(
       () => props.gitStatus,

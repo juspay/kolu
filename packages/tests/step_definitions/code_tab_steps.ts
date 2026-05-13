@@ -42,6 +42,32 @@ async function waitForChangedFile(world: KoluWorld, path: string) {
     .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
 }
 
+async function selectedCodePath(world: KoluWorld): Promise<string | null> {
+  return world.page
+    .locator('[data-testid="diff-content"]')
+    .getAttribute("data-selected-path");
+}
+
+async function clickFileAndWaitSelected(world: KoluWorld, path: string) {
+  const item = world.page.locator(fileRow(path));
+  await item.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  await pollFor({
+    observe: () => selectedCodePath(world),
+    isDone: (selected) => selected === path,
+    onTick: async () => {
+      if ((await selectedCodePath(world)) === path) return;
+      await item.click({ timeout: 1_000 }).catch(() => undefined);
+      await world.waitForFrame();
+    },
+    onTimeout: (last, ms) =>
+      new Error(
+        `Expected Code tab selection "${path}", got "${last}" after ${ms}ms`,
+      ),
+    timeoutMs: POLL_TIMEOUT,
+    intervalMs: 100,
+  });
+}
+
 // ── Actions ──
 
 When("I click the Code tab", async function (this: KoluWorld) {
@@ -54,10 +80,7 @@ When("I click the Code tab", async function (this: KoluWorld) {
 When(
   "I click the changed file {string} in the Code tab",
   async function (this: KoluWorld, path: string) {
-    const item = this.page.locator(fileRow(path));
-    await item.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    await item.click();
-    await this.waitForFrame();
+    await clickFileAndWaitSelected(this, path);
   },
 );
 
@@ -320,10 +343,7 @@ Then(
 When(
   "I click the file {string} in the file browser",
   async function (this: KoluWorld, path: string) {
-    const item = this.page.locator(fileRow(path));
-    await item.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    await item.click();
-    await this.waitForFrame();
+    await clickFileAndWaitSelected(this, path);
   },
 );
 
@@ -655,10 +675,7 @@ Given(
 When(
   "I open file {string} in the Code tab",
   async function (this: KoluWorld, path: string) {
-    const item = this.page.locator(fileRow(path));
-    await item.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    await item.click();
-    await this.waitForFrame();
+    await clickFileAndWaitSelected(this, path);
   },
 );
 

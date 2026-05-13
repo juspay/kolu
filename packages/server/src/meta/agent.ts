@@ -6,6 +6,9 @@
  * Reads the terminal's observable state (foreground pid, foreground
  * basename, cwd), delegates session matching to the integration's
  * `AgentProvider`, and owns the watcher lifecycle + metadata publish loop.
+ * Reconciles on every input that can change that state: title/preexec
+ * boundaries for foreground process, cwd updates for directory-scoped
+ * agents, and provider-owned external signals such as SQLite WAL writes.
  * Adding a new agent CLI is a new `AgentProvider` instance and one line in
  * `startProviders` — no edits to this file.
  */
@@ -268,8 +271,17 @@ export function startAgentProvider<Session, Info extends AgentInfoShape>(
   }
 
   // Title events — fired by OSC 2 preexec hook. Every shell command
-  // boundary is a potential session-match change.
-  const cleanup = terminalChannels.title(terminalId).consume({
+  // boundary is a potential foreground-process change.
+  const cleanupTitle = terminalChannels.title(terminalId).consume({
+    onEvent: () => reconcile(),
+    onError: (err) => plog.error({ err }, "publisher subscription failed"),
+  });
+
+  // CWD events — session lookup for directory-scoped agents (Codex,
+  // OpenCode) keys on the terminal cwd. Without this edge, a `cd` OSC 7
+  // that lands after the command title event leaves matching dependent on
+  // a later external tick.
+  const cleanupCwd = terminalChannels.cwd(terminalId).consume({
     onEvent: () => reconcile(),
     onError: (err) => plog.error({ err }, "publisher subscription failed"),
   });
@@ -278,7 +290,8 @@ export function startAgentProvider<Session, Info extends AgentInfoShape>(
   reconcile();
 
   return () => {
-    cleanup();
+    cleanupTitle();
+    cleanupCwd();
     if (registeredForExternal) {
       activations.get(provider.kind)?.reconcilers.delete(reconcile);
     }
