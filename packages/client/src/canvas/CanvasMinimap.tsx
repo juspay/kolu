@@ -366,6 +366,8 @@ const CanvasMinimap: Component<{
             // the staleness threshold over time.
             const parked = () => state().parked;
             const isActive = () => store.activeId() === id;
+            const hasBucket = () => state().bucket !== "none";
+            const badgeVisible = () => hasBucket() && !parked();
             // Geometry + repo-color border for the morphing tile. Parked tiles
             // get their dim background from the `bg-fg-3/40` Tailwind class
             // (see classList below) — keeping the design-system token as the
@@ -432,19 +434,17 @@ const CanvasMinimap: Component<{
                     {/* Bucket badge — color sourced from the bucket descriptor
                         in workspace-switcher/model so adding or recoloring a
                         bucket is a one-file edit. Parked tiles never paint a
-                        badge at steady state (attention can't outlive the
-                        attention it earned). The mount gate keeps the badge
-                        alive whenever it has something to show OR is fading
-                        out during a parking transition — without this, a
-                        bucket→none flip mid-park would unmount instantly and
-                        cut the opacity fade short. */}
-                    <Show when={state().bucket !== "none" || parked()}>
+                        badge at steady state; mount-gate keeps the badge
+                        alive whenever it might be visible OR mid-fade during
+                        a parking transition, so a bucket→none flip mid-park
+                        doesn't cut the opacity fade short. */}
+                    <Show when={hasBucket() || parked()}>
                       <span
                         data-testid={`minimap-${state().bucket}-dot`}
                         class={`absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full pointer-events-none transition-opacity ${MORPH_TRANSITION}`}
                         classList={{
-                          "opacity-0": parked() || state().bucket === "none",
-                          "opacity-100": !parked() && state().bucket !== "none",
+                          "opacity-0": !badgeVisible(),
+                          "opacity-100": badgeVisible(),
                         }}
                         style={{
                           "background-color": bucketDescriptor(state().bucket)
