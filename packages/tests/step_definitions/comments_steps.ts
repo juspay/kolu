@@ -86,24 +86,28 @@ Then(
 Then(
   "the clipboard text should match the kolu-comments-v1 envelope",
   async function (this: KoluWorld) {
-    const text = await this.page.evaluate(() => navigator.clipboard.readText());
-    if (!text.startsWith("[kolu comments v1]\n")) {
-      throw new Error(
-        `Clipboard payload did not start with the v1 envelope. Got: ${text.slice(0, 80)}`,
-      );
-    }
+    // Poll: the clipboard write is async, and on slower runners the
+    // read can outrun it. waitForFunction retries until the condition
+    // holds or POLL_TIMEOUT expires.
+    await this.page.waitForFunction(
+      () =>
+        navigator.clipboard
+          .readText()
+          .then((t) => t.startsWith("[kolu comments v1]\n")),
+      undefined,
+      { timeout: POLL_TIMEOUT },
+    );
   },
 );
 
 Then(
   "the clipboard text should contain {string}",
   async function (this: KoluWorld, needle: string) {
-    const text = await this.page.evaluate(() => navigator.clipboard.readText());
-    if (!text.includes(needle)) {
-      throw new Error(
-        `Clipboard payload did not contain ${JSON.stringify(needle)}. Got: ${text.slice(0, 200)}`,
-      );
-    }
+    await this.page.waitForFunction(
+      (n) => navigator.clipboard.readText().then((t) => t.includes(n)),
+      needle,
+      { timeout: POLL_TIMEOUT },
+    );
   },
 );
 
