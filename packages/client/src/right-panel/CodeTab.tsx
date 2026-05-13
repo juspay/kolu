@@ -55,7 +55,7 @@ import ModeChipPicker, { type ModeOption } from "./ModeChipPicker";
 import { useRightPanel } from "./useRightPanel";
 import {
   commentModeEnabled,
-  setCommentMode_,
+  disableCommentMode,
   toggleCommentMode,
   useComments,
 } from "./useComments";
@@ -645,7 +645,7 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
             currentRange={currentRange}
             draft={draft}
             setDraft={setDraft}
-            onClose={() => setCommentMode_(false)}
+            onClose={disableCommentMode}
           />
         </Show>
       </div>

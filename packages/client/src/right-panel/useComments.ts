@@ -24,8 +24,11 @@ const [commentMode, setCommentMode] = makePersisted(createSignal(false), {
 });
 
 export const commentModeEnabled: Accessor<boolean> = commentMode;
-export function setCommentMode_(value: boolean): void {
-  setCommentMode(value);
+/** Symmetric with `toggleCommentMode` — there is no `enable` because the only
+ *  way to enable today is the toolbar toggle, and there is no `setMode(bool)`
+ *  because no caller needs to drive the raw value. */
+export function disableCommentMode(): void {
+  setCommentMode(false);
 }
 export function toggleCommentMode(): void {
   setCommentMode((v) => !v);
