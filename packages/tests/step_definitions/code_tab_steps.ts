@@ -51,17 +51,23 @@ async function selectedCodePath(world: KoluWorld): Promise<string | null> {
 async function clickFileAndWaitSelected(world: KoluWorld, path: string) {
   const item = world.page.locator(fileRow(path));
   await item.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  let lastClickError: unknown;
   await pollFor({
     observe: () => selectedCodePath(world),
     isDone: (selected) => selected === path,
     onTick: async () => {
       if ((await selectedCodePath(world)) === path) return;
-      await item.click({ timeout: 1_000 }).catch(() => undefined);
+      try {
+        await item.click({ timeout: 1_000 });
+        lastClickError = undefined;
+      } catch (err) {
+        lastClickError = err;
+      }
       await world.waitForFrame();
     },
     onTimeout: (last, ms) =>
       new Error(
-        `Expected Code tab selection "${path}", got "${last}" after ${ms}ms`,
+        `Expected Code tab selection "${path}", got "${last}" after ${ms}ms${lastClickError instanceof Error ? ` (last click failed: ${lastClickError.message})` : ""}`,
       ),
     timeoutMs: POLL_TIMEOUT,
     intervalMs: 100,
