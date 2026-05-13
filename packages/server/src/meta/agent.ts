@@ -6,9 +6,10 @@
  * Reads the terminal's observable state (foreground pid, foreground
  * basename, cwd), delegates session matching to the integration's
  * `AgentProvider`, and owns the watcher lifecycle + metadata publish loop.
- * Reconciles on every input that can change that state: title/preexec
- * boundaries for foreground process, cwd updates for directory-scoped
- * agents, and provider-owned external signals such as SQLite WAL writes.
+ * Reconciles on every input that can change that state: command-run marks,
+ * title/preexec boundaries for foreground process, cwd updates for
+ * directory-scoped agents, and provider-owned external signals such as
+ * SQLite WAL writes.
  * Adding a new agent CLI is a new `AgentProvider` instance and one line in
  * `startProviders` — no edits to this file.
  */
@@ -170,6 +171,13 @@ interface ExternalChangesActivation {
 }
 const activations = new Map<string, ExternalChangesActivation>();
 
+/** Preexec (`commandRun`) arrives while the shell still owns the foreground
+ *  process group, then the agent binary takes over a few ticks later. Queue
+ *  a short burst of reconciles so the per-terminal preexec stash maintained
+ *  by `agent-command.ts` is sampled both immediately after the tracker writes
+ *  it and after POSIX foreground ownership has settled. */
+const COMMAND_RUN_RECONCILE_DELAYS_MS = [0, 75, 300, 1000] as const;
+
 function getActivation(kind: string): ExternalChangesActivation {
   let entry = activations.get(kind);
   if (!entry) {
@@ -181,10 +189,10 @@ function getActivation(kind: string): ExternalChangesActivation {
 
 /**
  * Start the provider's agent-detection loop for one terminal. Subscribes
- * to title events and — lazily, on first `isPresent` match — joins the
- * process-wide external-change fan-out for this provider; on each signal,
- * re-resolves the matching session and replaces the running watcher iff
- * the `sessionKey` changed.
+ * to command-run, title, and cwd events and — lazily, on first `isPresent`
+ * match — joins the process-wide external-change fan-out for this provider;
+ * on each signal, re-resolves the matching session and replaces the running
+ * watcher iff the `sessionKey` changed.
  *
  * Returns a cleanup function that tears down every subscription + the
  * current watcher.
@@ -198,6 +206,8 @@ export function startAgentProvider<Session, Info extends AgentInfoShape>(
 
   let current: { watcher: AgentWatcher; key: string } | null = null;
   let registeredForExternal = false;
+  let stopped = false;
+  let commandRunTimers: ReturnType<typeof setTimeout>[] = [];
 
   plog.debug("started");
 
@@ -270,6 +280,27 @@ export function startAgentProvider<Session, Info extends AgentInfoShape>(
     };
   }
 
+  function clearCommandRunTimers() {
+    for (const timer of commandRunTimers) clearTimeout(timer);
+    commandRunTimers = [];
+  }
+
+  function reconcileFromCommandRun() {
+    if (stopped) return;
+    try {
+      reconcile();
+    } catch (err) {
+      plog.error({ err }, "command-run reconcile failed");
+    }
+  }
+
+  function scheduleCommandRunReconciles() {
+    clearCommandRunTimers();
+    commandRunTimers = COMMAND_RUN_RECONCILE_DELAYS_MS.map((delay) =>
+      setTimeout(reconcileFromCommandRun, delay),
+    );
+  }
+
   // Title events — fired by OSC 2 preexec hook. Every shell command
   // boundary is a potential foreground-process change.
   const cleanupTitle = terminalChannels.title(terminalId).consume({
@@ -286,12 +317,23 @@ export function startAgentProvider<Session, Info extends AgentInfoShape>(
     onError: (err) => plog.error({ err }, "publisher subscription failed"),
   });
 
+  // Command-run events — fired by OSC 633;E preexec marks. They update the
+  // per-terminal agent-command stash, then this delayed reconcile samples it
+  // after foreground process ownership catches up.
+  const cleanupCommandRun = terminalChannels.commandRun(terminalId).consume({
+    onEvent: () => scheduleCommandRunReconciles(),
+    onError: (err) => plog.error({ err }, "publisher subscription failed"),
+  });
+
   // Initial reconcile — covers terminals that already host a session.
   reconcile();
 
   return () => {
+    stopped = true;
+    clearCommandRunTimers();
     cleanupTitle();
     cleanupCwd();
+    cleanupCommandRun();
     if (registeredForExternal) {
       activations.get(provider.kind)?.reconcilers.delete(reconcile);
     }

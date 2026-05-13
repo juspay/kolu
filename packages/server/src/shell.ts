@@ -113,10 +113,10 @@ export const OSC7_FN = `__kolu_osc7() { printf '\\033]7;file://%s%s\\033\\\\' "$
  *     Linux and macOS.
  *
  *  Emission order is not load-bearing. Preexec fires while the shell is
- *  still at its prompt, so any reconcile triggered here would be gated
- *  out by `shellIdle` in `snapshotTerminalState` anyway — the agent
- *  match actually fires once the agent has taken over the foreground
- *  and emits a later signal (WAL write for codex, TUI OSC 2 title). */
+ *  still at its prompt, so the agent provider samples `commandRun` through
+ *  a short delayed reconcile burst: the first tick observes the freshly
+ *  parsed command stash, later ticks observe it after the agent has taken
+ *  foreground ownership. */
 export const OSC2_PREEXEC_FN = `__kolu_preexec() { printf '\\033]2;%s\\033\\\\' "$1"; printf '\\033]633;E;%s\\033\\\\' "$1"; }`;
 
 /** Bash-specific preexec dispatch — uses a ready flag armed at the end of

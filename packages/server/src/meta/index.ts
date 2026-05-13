@@ -5,7 +5,7 @@
  *   cwd:<id>  →  git provider  →  git:<id>  →  github provider
  *                                                    ↓
  *   title:<id>  →  process provider  ────────→  metadata:<id>
- *   title:<id> + cwd:<id> + agent external-change signal
+ *   title:<id> + cwd:<id> + commandRun:<id> + agent external-change signal
  *                                                →  agent provider (×N)  →  metadata:<id>
  *   commandRun:<id>  →  agent-command tracker  →  lastAgentCommandName stash
  *                                                 + metadata:<id> (lastAgentCommand)
