@@ -1,10 +1,17 @@
-/** Activity-window vocabulary used by the canvas minimap's window selector.
+/** Activity-window vocabulary shared by the canvas minimap's window selector
+ *  and the workspace switcher's Idle column.
  *
- *  Single source of truth: each option carries its display label and its
+ *  Single source of truth: each window carries its display label and its
  *  staleness threshold (or `null` for "no filter"). Adding a new window is
- *  one entry in `WINDOWS` plus one in `WINDOW_VALUES` for display order. */
+ *  one entry in `WINDOWS` plus one in `WINDOW_VALUES` for display order.
+ *
+ *  The same threshold ladder (4h, 12h, 24h, 48h) drives the switcher's
+ *  Idle sub-buckets — `IDLE_BUCKETS` derives directly from `WINDOWS`, so
+ *  picking `12h` on the minimap is the same horizon as the `12–24h` /
+ *  `24–48h` / `48h+` sub-rows in the switcher's Idle column. One vocab,
+ *  two surfaces. */
 
-import { HOUR_MS } from "./staleness";
+import { HOUR_MS, STALE_THRESHOLD_MS } from "./staleness";
 
 export type MinimapWindow = "all" | "4h" | "12h" | "24h" | "48h";
 
@@ -59,4 +66,52 @@ export function isMinimapWindow(value: string): value is MinimapWindow {
 
 export function windowOption(w: MinimapWindow): WindowOption {
   return WINDOWS[w];
+}
+
+/** Idle sub-bucket keys, ordered most-recent → oldest. The "4h-12h" entry
+ *  is the freshest slice of the parked set: terminals that crossed the
+ *  4h auto-park threshold but are still inside the 12h window. */
+export type IdleBucketKey = "4h-12h" | "12h-24h" | "24h-48h" | "48h+";
+
+export interface IdleBucket {
+  key: IdleBucketKey;
+  /** Compact range label rendered next to the sub-row (e.g. "4–12h"). */
+  label: string;
+  /** Inclusive lower bound on age (ms-since-last-activity). */
+  minMs: number;
+  /** Exclusive upper bound on age, or `null` for the open-ended `48h+`. */
+  maxMs: number | null;
+}
+
+/** Idle sub-buckets — the workspace switcher's "Idle" column groups parked
+ *  terminals by age into these four ranges. Ordering matches display order
+ *  (freshest at the top). The boundaries (4/12/24/48 hours) come from the
+ *  same threshold ladder the minimap window picker uses, so picking `12h`
+ *  on the minimap is the same horizon as the `12h-24h` and older sub-rows.
+ *
+ *  Derived from `STALE_THRESHOLD_MS` and the minimap window thresholds so
+ *  shifting the auto-park threshold (or adding a window) ripples here in
+ *  one edit, not four. */
+export const IDLE_BUCKETS: readonly IdleBucket[] = [
+  {
+    key: "4h-12h",
+    label: "4–12h",
+    minMs: STALE_THRESHOLD_MS,
+    maxMs: 12 * HOUR_MS,
+  },
+  { key: "12h-24h", label: "12–24h", minMs: 12 * HOUR_MS, maxMs: 24 * HOUR_MS },
+  { key: "24h-48h", label: "24–48h", minMs: 24 * HOUR_MS, maxMs: 48 * HOUR_MS },
+  { key: "48h+", label: "48h+", minMs: 48 * HOUR_MS, maxMs: null },
+];
+
+/** Classify an age (in ms since last activity) into an idle sub-bucket.
+ *  Returns `null` when `ageMs` is below the auto-park threshold — i.e. the
+ *  terminal is still live and shouldn't be in the Idle column at all. */
+export function idleBucketFor(ageMs: number): IdleBucketKey | null {
+  for (const bucket of IDLE_BUCKETS) {
+    const aboveMin = ageMs >= bucket.minMs;
+    const belowMax = bucket.maxMs === null || ageMs < bucket.maxMs;
+    if (aboveMin && belowMax) return bucket.key;
+  }
+  return null;
 }

@@ -70,6 +70,14 @@ export function useStaleCheck(): (lastActivityAt: number) => boolean {
     isStale(lastActivityAt, tick(), STALE_THRESHOLD_MS);
 }
 
+/** Reactive `now` accessor — same once-a-minute tick that drives the stale
+ *  check. Read inside a tracking context to subscribe to age advancing.
+ *  Use this when a consumer needs raw `now` (e.g. age-bucketing into the
+ *  switcher's Idle sub-rows) rather than a binary stale predicate. */
+export function useNow(): Accessor<number> {
+  return getNowTicker();
+}
+
 /** Reactive stale check with a caller-supplied threshold accessor. Same
  *  composition shape as `useStaleCheck`, but the consumer drives the
  *  threshold (e.g. the minimap's user-selected activity window). Passing

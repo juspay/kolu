@@ -134,6 +134,18 @@ Feature: Workspace switcher
     Then the active terminal should show "hover-crossing"
     And there should be no page errors
 
+  Scenario: Expanded panel shows all four agent-state columns
+    # The Idle column lives between Working and No agent and surfaces the
+    # parked-by-inactivity entries the minimap window picker dims. Even on
+    # a fresh workspace (no parked terminals) the column is rendered so the
+    # ladder reads as a triage scaffold rather than a feature that appears
+    # only when something is wrong.
+    When I hover the workspace switcher
+    Then the workspace switcher panel should be visible
+    And the workspace switcher should show buckets "awaiting, working, idle, none"
+    And the workspace switcher idle column should show sub-buckets "4h-12h, 12h-24h, 24h-48h, 48h+"
+    And there should be no page errors
+
   @mobile
   Scenario: Desktop workspace switcher is not rendered on mobile
     Then the workspace switcher should not be visible

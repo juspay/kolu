@@ -30,7 +30,7 @@ import {
 } from "solid-js";
 import { ChevronDownIcon } from "../../ui/Icons";
 import { useViewPosture } from "../useViewPosture";
-import { useStaleCheck } from "../../terminal/staleness";
+import { useNow, useStaleCheck } from "../../terminal/staleness";
 import CollapsedWorkspaceSwitcher from "./Collapsed";
 import WorkspaceSearchPanel from "./SearchPanel";
 import {
@@ -56,6 +56,7 @@ const WorkspaceSwitcher: Component<{
 }> = (props) => {
   const posture = useViewPosture();
   const isStale = useStaleCheck();
+  const now = useNow();
   const [query, setQuery] = createSignal("");
   const [repoFilter, setRepoFilter] = createSignal<string | null>(null);
   const [hover, setHover] = createSignal(false);
@@ -70,6 +71,7 @@ const WorkspaceSwitcher: Component<{
       activeId: props.activeId,
       getRecency: props.getRecency,
       isStale,
+      now,
     }),
   );
 
@@ -211,7 +213,6 @@ const WorkspaceSwitcher: Component<{
             model={switcher()}
             query={query()}
             focusSearch={focusSearchOnOpen()}
-            isStale={isStale}
             onQueryChange={setQuery}
             onSearchFocused={() => setFocusSearchOnOpen(false)}
             onRepoFilterChange={setRepoFilter}

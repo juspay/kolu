@@ -8,6 +8,8 @@ const PANEL_SELECTOR = '[data-testid="workspace-switcher-panel"]';
 const SEARCH_SELECTOR = '[data-testid="workspace-switcher-search"]';
 const CARD_SELECTOR = '[data-testid="workspace-switcher-card"]';
 const REPO_SELECTOR = '[data-testid="workspace-switcher-repo"]';
+const COLUMN_SELECTOR = '[data-testid="workspace-switcher-column"]';
+const IDLE_SUB_SELECTOR = '[data-testid="workspace-switcher-idle-sub"]';
 
 Then(
   "the workspace switcher should be visible",
@@ -239,6 +241,40 @@ Then(
         cards.map((card) => card.getAttribute("data-repo-name")),
       );
     assert.deepStrictEqual(repos, [repoName]);
+  },
+);
+
+Then(
+  "the workspace switcher should show buckets {string}",
+  async function (this: KoluWorld, expected: string) {
+    const wanted = expected.split(",").map((s) => s.trim());
+    await this.page
+      .locator(COLUMN_SELECTOR)
+      .first()
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const buckets = await this.page
+      .locator(COLUMN_SELECTOR)
+      .evaluateAll((cols) =>
+        cols.map((col) => col.getAttribute("data-agent-bucket")),
+      );
+    assert.deepStrictEqual(buckets, wanted);
+  },
+);
+
+Then(
+  "the workspace switcher idle column should show sub-buckets {string}",
+  async function (this: KoluWorld, expected: string) {
+    const wanted = expected.split(",").map((s) => s.trim());
+    await this.page
+      .locator(IDLE_SUB_SELECTOR)
+      .first()
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const subs = await this.page
+      .locator(IDLE_SUB_SELECTOR)
+      .evaluateAll((rows) =>
+        rows.map((row) => row.getAttribute("data-idle-sub")),
+      );
+    assert.deepStrictEqual(subs, wanted);
   },
 );
 
