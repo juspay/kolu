@@ -9,6 +9,9 @@ import { HOUR_MS } from "./staleness";
 export type MinimapWindow = "all" | "4h" | "12h" | "24h" | "48h";
 
 export interface WindowOption {
+  /** Compact label shown inside the minimap trigger button. */
+  short: string;
+  /** Long label shown in the popover menu and tooltip. */
   label: string;
   /** `null` disables the filter — every tile renders as a full rect. */
   thresholdMs: number | null;
@@ -20,11 +23,23 @@ export interface WindowOption {
  *  here, and excess-property check fires if a row is added without a
  *  matching union member. No casts, no non-null asserts. */
 const WINDOWS: Record<MinimapWindow, WindowOption> = {
-  all: { label: "All terminals", thresholdMs: null },
-  "4h": { label: "Active in last 4h", thresholdMs: 4 * HOUR_MS },
-  "12h": { label: "Active in last 12h", thresholdMs: 12 * HOUR_MS },
-  "24h": { label: "Active in last 24h", thresholdMs: 24 * HOUR_MS },
-  "48h": { label: "Active in last 48h", thresholdMs: 48 * HOUR_MS },
+  all: { short: "All", label: "All terminals", thresholdMs: null },
+  "4h": { short: "4h", label: "Active in last 4h", thresholdMs: 4 * HOUR_MS },
+  "12h": {
+    short: "12h",
+    label: "Active in last 12h",
+    thresholdMs: 12 * HOUR_MS,
+  },
+  "24h": {
+    short: "24h",
+    label: "Active in last 24h",
+    thresholdMs: 24 * HOUR_MS,
+  },
+  "48h": {
+    short: "48h",
+    label: "Active in last 48h",
+    thresholdMs: 48 * HOUR_MS,
+  },
 };
 
 /** Display-order list for the popover menu. Object iteration order is the

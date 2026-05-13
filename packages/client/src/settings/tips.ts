@@ -97,6 +97,6 @@ export const AMBIENT_TIPS: readonly Tip[] = [
   },
   {
     id: "amb-minimap-window",
-    text: "Click the moon icon on the minimap to pick an activity window (4h/12h/24h/48h) — older tiles collapse to small ghost markers so attention stays on what's still in play",
+    text: "Click the `All` chip in the minimap's zoom bar to pick an activity window (4h/12h/24h/48h) — older tiles collapse to small ghost markers so attention stays on what's still in play",
   },
 ];

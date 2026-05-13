@@ -18,7 +18,7 @@ import {
 } from "../terminal/activityWindow";
 import { useStaleCheckWith } from "../terminal/staleness";
 import { useTerminalStore } from "../terminal/useTerminalStore";
-import { GridIcon, MoonIcon } from "../ui/Icons";
+import { GridIcon } from "../ui/Icons";
 import { useAnchoredPopover } from "../ui/useAnchoredPopover";
 import {
   handleMinimapClick,
@@ -41,32 +41,19 @@ const MAP_PAD = 100;
 const GHOST_PX = 6;
 
 /** Icon button rendered in the right half of the minimap zoom bar — sits
- *  after the zoom controls behind a left divider. The `active` prop lights
- *  the icon in the accent color (used by stateful toggles); plain action
- *  buttons (arrange) leave it `false` and render in the default muted tone.
- *  `ref` lets popover triggers participate in `useAnchoredPopover`; `extra`
- *  carries arbitrary data-attributes a stateful toggle needs (e.g. the
- *  window menu's `data-window`). */
+ *  after the zoom controls behind a left divider. Today only used by the
+ *  arrange button; the window-selector trigger renders compact text instead
+ *  (matching the zoom-reset button style). */
 const ZoomBarButton: Component<{
   testId: string;
   title: string;
   icon: JSX.Element;
   onClick: () => void;
-  active?: boolean;
-  ref?: (el: HTMLButtonElement) => void;
-  extra?: Record<string, string>;
 }> = (props) => (
   <button
     type="button"
-    ref={props.ref}
     data-testid={props.testId}
-    data-enabled={props.active ? "" : undefined}
-    {...(props.extra ?? {})}
-    class="flex items-center justify-center w-7 h-8 hover:bg-surface-3/60 transition-colors cursor-pointer border-l border-edge/40"
-    classList={{
-      "text-fg-3 hover:text-fg": !props.active,
-      "text-accent": props.active,
-    }}
+    class="flex items-center justify-center w-7 h-8 text-fg-3 hover:text-fg hover:bg-surface-3/60 transition-colors cursor-pointer border-l border-edge/40"
     title={props.title}
     onClick={props.onClick}
   >
@@ -463,15 +450,22 @@ const CanvasMinimap: Component<{
             onClick={() => props.onAutoArrange?.()}
           />
         </Show>
-        <ZoomBarButton
-          testId="minimap-window-trigger"
+        <button
+          type="button"
           ref={setTriggerRef}
-          extra={{ "data-window": windowSel() }}
+          data-testid="minimap-window-trigger"
+          data-enabled={windowSel() !== "all" ? "" : undefined}
+          data-window={windowSel()}
+          class="flex items-center justify-center min-w-[2.5rem] h-8 px-1 hover:bg-surface-3/60 transition-colors cursor-pointer border-l border-edge/40 text-xs tabular-nums"
+          classList={{
+            "text-fg-2 hover:text-fg": windowSel() === "all",
+            "text-accent": windowSel() !== "all",
+          }}
           title={`Minimap: ${currentWindowLabel()} — click to change`}
-          icon={<MoonIcon class="w-3.5 h-3.5" />}
-          active={windowSel() !== "all"}
           onClick={() => setMenuOpen((prev) => !prev)}
-        />
+        >
+          {windowOption(windowSel()).short}
+        </button>
       </div>
       <Show when={menuOpen()}>
         <Portal>
