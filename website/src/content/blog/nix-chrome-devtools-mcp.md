@@ -32,7 +32,7 @@ experimental-features = nix-command flakes
 APM is a Python tool. You don't need to install it — Nix can pull [`uvx`](https://docs.astral.sh/uv/) on demand, and `uvx` in turn fetches APM from its Python package on first run:
 
 ```sh
-nix shell nixpkgs#uv --command uvx --from apm-cli apm --version
+nix shell nixpkgs#uv -c uvx --from apm-cli apm --version
 ```
 
 In your project root, create `apm.yml`:
@@ -53,7 +53,7 @@ dependencies:
 Keep only the `targets` you actually use. Then install:
 
 ```sh
-nix shell nixpkgs#uv --command uvx --from apm-cli apm install --target claude,codex,opencode
+nix shell nixpkgs#uv -c uvx --from apm-cli apm install --target claude,codex,opencode
 ```
 
 APM clones [`juspay/nix-chrome-devtools-mcp`](https://github.com/juspay/nix-chrome-devtools-mcp), deploys its launcher into `.agents/skills/nix-chrome-devtools-mcp/bin/serve`, and writes a per-runtime MCP config for each target — `.mcp.json` for Claude Code, `.codex/config.toml` for Codex, `opencode.json` for OpenCode.
@@ -85,6 +85,8 @@ Under the hood the agent calls `mcp__chrome-devtools__new_page`, then `mcp__chro
 - `evaluate_script` — run arbitrary JS, get the result back
 - `list_console_messages`, `list_network_requests` — observability panes
 - `take_memory_snapshot`, `performance_start_trace` — perf + heap
+
+> **Tip — more skills.** Now that you have `apm.yml`, browse [`juspay/skills`](https://github.com/juspay/skills) for ready-made skills you can drop in next: `nix-flake`, `nix-haskell`, `nix-typescript`, `nix-playwright`, `vhs`, and more. Each is a one-liner under `dependencies.apm:` the same way `nix-chrome-devtools-mcp` is.
 
 ## Overrides (optional)
 
