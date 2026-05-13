@@ -53,7 +53,7 @@ Then(
 );
 
 When("I press the shuffle theme shortcut", async function (this: KoluWorld) {
-  await this.page.keyboard.press(`${MOD_KEY}+j`);
+  await this.page.keyboard.press(`${MOD_KEY}+Shift+J`);
   await this.waitForFrame();
 });
 
@@ -70,7 +70,7 @@ When(
     this.shuffleHistory = [initial];
     for (let i = 0; i < count; i++) {
       const before = this.shuffleHistory.at(-1) ?? "";
-      await this.page.keyboard.press(`${MOD_KEY}+j`);
+      await this.page.keyboard.press(`${MOD_KEY}+Shift+J`);
       // Wait until the theme name actually changes — shuffle is async (RPC
       // round-trip + subscription tick), so reading immediately after the
       // keypress would race and capture the prior theme.
