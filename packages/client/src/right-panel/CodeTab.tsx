@@ -107,6 +107,21 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
   const trayVisible = () =>
     commentModeEnabled() || commentsApi.comments().length > 0;
 
+  // Right-click "Add comment on path:Lrange" → enable mode (no-op if
+  // already on) and focus the composer. The currentRange signal is
+  // already wired via onSelectionChange, so by the time the user
+  // right-clicks an already-selected line, the composer's target chip
+  // is correct without any extra plumbing.
+  const handleAddComment = () => {
+    if (!commentModeEnabled()) toggleCommentMode();
+    queueMicrotask(() => {
+      const ta = document.querySelector<HTMLTextAreaElement>(
+        '[data-testid="comments-composer"]',
+      );
+      ta?.focus();
+    });
+  };
+
   // Read `codeMode` directly rather than projecting it from `activeTab`.
   // CodeTab now stays mounted across the Inspector tab toggle (#818); a
   // projection-with-fallback (`activeTab.kind === "code" ? mode : "local"`)
@@ -588,6 +603,7 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
                         <CodeMenuFrame
                           path={path}
                           onSelectionChange={setCurrentRange}
+                          onAddComment={handleAddComment}
                         >
                           {(selection) => (
                             // `<Virtualizer>` is the scroll container —
@@ -629,6 +645,7 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
                         path={path}
                         initialSelectedLines={selectedRange()}
                         onSelectionChange={setCurrentRange}
+                        onAddComment={handleAddComment}
                       >
                         {(selection) => (
                           <BrowseFileView

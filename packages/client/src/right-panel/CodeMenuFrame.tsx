@@ -28,13 +28,22 @@ export type CodeMenuFrameProps = {
   /** Forward selection changes to a parent (e.g. CodeTab's comments
    *  tray composer). Fires on every commit, including null. */
   onSelectionChange?: (range: SelectedLineRange | null) => void;
+  /** When set, the context menu offers "Add comment on path:Lrange" —
+   *  fires with the live range so the parent can enable comment mode. */
+  onAddComment?: (range: SelectedLineRange) => void;
 };
 
 export const CodeMenuFrame: Component<CodeMenuFrameProps> = (props) => {
   let menuCtrl: CodeContextMenuController | undefined;
+  // Only forward `onAddComment` when the parent actually supplied one —
+  // `useLineSelection.buildItems` uses the option's truthiness as the
+  // gate for emitting the "Add comment" menu entry.
   const selection = useLineSelection(() => props.path, {
     initialRange: () => props.initialSelectedLines,
     onChange: (range) => props.onSelectionChange?.(range),
+    ...(props.onAddComment
+      ? { onAddComment: (range) => props.onAddComment?.(range) }
+      : {}),
   });
   return (
     <div

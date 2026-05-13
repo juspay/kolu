@@ -330,7 +330,7 @@ Feature: Code tab (review + browse)
     Then the diff view should contain "b-one"
     When I click the line number 1 in the diff view
     And I right-click the diff view
-    Then the context menu items should be "Copy path | Copy file-b.txt:1"
+    Then the context menu items should be "Copy path | Copy file-b.txt:1 | Add comment on file-b.txt:L1"
     When I click the context menu item "Copy file-b.txt:1"
     Then the clipboard should contain "file-b.txt:1"
     And the clipboard should not contain "file-a.txt"

@@ -14,7 +14,7 @@
 import type { SelectedLineRange } from "@pierre/diffs";
 import { type Accessor, createEffect, createSignal, on } from "solid-js";
 import type { CodeContextMenuItem } from "./CodeContextMenu";
-import { formatLineRef } from "./lineRef";
+import { formatLineRef, formatLPathRef } from "./lineRef";
 
 export type LineSelection = {
   /** Current selection range — bind to Pierre's `selectedLines` prop
@@ -40,6 +40,11 @@ export interface LineSelectionOptions {
    *  one frame's worth of stale range survive a file switch and let a
    *  fast Ctrl+Enter submit a comment anchored to the wrong file. */
   onChange?: (range: SelectedLineRange | null) => void;
+  /** When set, the context menu offers an "Add comment on path:Lrange"
+   *  entry whenever a range is selected. Called with the live range so
+   *  the caller can enable comment mode and the composer renders with
+   *  the right target. */
+  onAddComment?: (range: SelectedLineRange) => void;
 }
 
 export function useLineSelection(
@@ -73,6 +78,16 @@ export function useLineSelection(
       if (r) {
         const ref = formatLineRef(path(), r.start, r.end);
         items.push({ label: `Copy ${ref}`, textToCopy: ref });
+        if (options.onAddComment) {
+          const lref = formatLPathRef(path(), r.start, r.end);
+          items.push({
+            label: `Add comment on ${lref}`,
+            // Closure captures the live accessor; `options.onAddComment`
+            // is read at click time so a parent that toggles its
+            // callback identity doesn't strand a stale binding.
+            onClick: () => options.onAddComment?.(r),
+          });
+        }
       }
       return items;
     },

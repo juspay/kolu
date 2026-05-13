@@ -10,11 +10,19 @@ import { type Component, createSignal, For, onCleanup, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import { toast } from "solid-sonner";
 
-export type CodeContextMenuItem = {
-  label: string;
-  /** Returned text gets copied; success toast names the item. */
-  textToCopy: string;
-};
+export type CodeContextMenuItem =
+  | {
+      label: string;
+      /** Returned text gets copied; success toast names the item. */
+      textToCopy: string;
+    }
+  | {
+      label: string;
+      /** Imperative action — fires when the user clicks the item.
+       *  No toast; the action is expected to surface its own feedback
+       *  (composer mounted, mode toggled, etc.). */
+      onClick: () => void;
+    };
 
 export type CodeContextMenuController = {
   /** Bind to a host element's `oncontextmenu`. */
@@ -67,6 +75,11 @@ export const CodeContextMenu: Component<{
   });
 
   const handleItem = (item: CodeContextMenuItem) => {
+    if ("onClick" in item) {
+      item.onClick();
+      close();
+      return;
+    }
     navigator.clipboard
       .writeText(item.textToCopy)
       .then(() => toast.success(`Copied: ${item.textToCopy}`))
