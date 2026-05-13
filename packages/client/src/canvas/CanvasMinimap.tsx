@@ -40,6 +40,10 @@ const MAP_PAD = 100;
  *  user has hidden them. Big enough to click/drag without being visually
  *  loud. */
 const GHOST_PX = 6;
+/** Duration + easing for the morph between full rect and ghost. Shared by
+ *  the tile (transition-all) and the bucket badge (transition-opacity) so
+ *  the geometry change and the badge fade always run on the same clock. */
+const MORPH_TRANSITION = "duration-300 ease-out";
 
 /** Build the hover tooltip for a minimap tile. Closes #870: the previous
  *  `title={id}` showed the opaque terminal id; now it shows the same
@@ -366,7 +370,7 @@ const CanvasMinimap: Component<{
                     data-tile-id={id}
                     data-bucket={state().bucket}
                     data-parked={parked() ? "" : undefined}
-                    class="absolute cursor-pointer transition-all duration-300 ease-out hover:ring-1 hover:ring-accent/40"
+                    class={`absolute cursor-pointer transition-all ${MORPH_TRANSITION} hover:ring-1 hover:ring-accent/40`}
                     classList={{
                       "rounded-full bg-fg-3/40 hover:bg-fg-3/80": parked(),
                       "rounded-sm hover:opacity-100": !parked(),
@@ -404,7 +408,7 @@ const CanvasMinimap: Component<{
                     <Show when={state().bucket !== "none"}>
                       <span
                         data-testid={`minimap-${state().bucket}-dot`}
-                        class="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full pointer-events-none transition-opacity duration-300"
+                        class={`absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full pointer-events-none transition-opacity ${MORPH_TRANSITION}`}
                         classList={{
                           "opacity-0": parked(),
                           "opacity-100": !parked(),
