@@ -20,6 +20,7 @@ import {
   onCleanup,
   type Setter,
 } from "solid-js";
+import { toast } from "solid-sonner";
 import type { Comment } from "./commentSerialize";
 
 type Bucket = {
@@ -42,7 +43,7 @@ function serializeBucket(comments: readonly Comment[]): string {
   return JSON.stringify(envelope);
 }
 
-function deserializeBucket(raw: string): Comment[] {
+function deserializeBucket(raw: string, repoRoot: string): Comment[] {
   try {
     const parsed = JSON.parse(raw) as unknown;
     if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
@@ -55,8 +56,18 @@ function deserializeBucket(raw: string): Comment[] {
     // envelope landed. Tolerated on read so existing users don't lose
     // their queue on the upgrade; writes always emit the envelope.
     if (Array.isArray(parsed)) return parsed as Comment[];
+    // Shape we don't recognize — surface so the user can tell "fresh
+    // worktree" apart from "the bucket on disk got into a state we
+    // can't read", and decide whether to clear it manually.
+    toast.error(
+      `Comments bucket for ${repoRoot} has an unrecognized shape — starting empty. Inspect localStorage key "kolu-comments:${repoRoot}" if this is unexpected.`,
+    );
     return [];
-  } catch {
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    toast.error(
+      `Could not parse persisted comments for ${repoRoot}: ${message}. Starting with an empty tray.`,
+    );
     return [];
   }
 }
@@ -69,7 +80,7 @@ function bucket(repoRoot: string): Bucket {
     {
       name: `kolu-comments:${repoRoot}`,
       serialize: serializeBucket,
-      deserialize: deserializeBucket,
+      deserialize: (raw) => deserializeBucket(raw, repoRoot),
     },
   );
   const b = { comments, setComments } satisfies Bucket;
