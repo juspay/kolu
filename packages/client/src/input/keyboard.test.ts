@@ -152,6 +152,39 @@ describe("matchesAnyShortcut", () => {
     ).toBe(true);
   });
 
+  it("matches next/previous terminal with physical Ctrl+Shift brackets", () => {
+    expect(
+      matchesAnyShortcut(
+        makeEvent({
+          code: "BracketRight",
+          ctrlKey: true,
+          shiftKey: true,
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      matchesAnyShortcut(
+        makeEvent({
+          code: "BracketLeft",
+          ctrlKey: true,
+          shiftKey: true,
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("does not require platform Mod for next/previous terminal", () => {
+    expect(
+      matchesAnyShortcut(
+        makeEvent({
+          code: "BracketRight",
+          metaKey: true,
+          shiftKey: true,
+        }),
+      ),
+    ).toBe(false);
+  });
+
   it("does not match Cmd+Shift+C (copy chord requires physical Ctrl)", () => {
     expect(
       matchesAnyShortcut(

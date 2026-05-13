@@ -17,11 +17,11 @@ When(
 );
 
 When("I press the next terminal shortcut", async function (this: KoluWorld) {
-  await this.page.keyboard.press(`${MOD_KEY}+Shift+BracketRight`);
+  await this.page.keyboard.press("Control+Shift+BracketRight");
 });
 
 When("I press the prev terminal shortcut", async function (this: KoluWorld) {
-  await this.page.keyboard.press(`${MOD_KEY}+Shift+BracketLeft`);
+  await this.page.keyboard.press("Control+Shift+BracketLeft");
 });
 
 When("I jump to the previous terminal", async function (this: KoluWorld) {

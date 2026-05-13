@@ -123,12 +123,14 @@ const _ACTIONS = {
   },
   nextTerminal: {
     label: "Next terminal",
-    keybind: { key: "]", code: "BracketRight", mod: true, shift: true },
+    // Physical Ctrl, not platform Mod: Cmd+Shift+[ / ] is a browser tab
+    // navigation chord in macOS Chrome, so it is not reliable app input.
+    keybind: { key: "]", code: "BracketRight", ctrl: true, shift: true },
     handler: (ctx) => cycleTerminalByPosition(ctx, 1),
   },
   prevTerminal: {
     label: "Previous terminal",
-    keybind: { key: "[", code: "BracketLeft", mod: true, shift: true },
+    keybind: { key: "[", code: "BracketLeft", ctrl: true, shift: true },
     handler: (ctx) => cycleTerminalByPosition(ctx, -1),
   },
   cycleTerminalMru: {
