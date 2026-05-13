@@ -23,6 +23,17 @@ import type { KoluWorld } from "./world.ts";
 
 const workerId = parseInt(process.env.CUCUMBER_WORKER_ID || "0", 10);
 
+/** Fixtures scaffold real git repos in /tmp and run `git commit` against
+ *  them. On a pristine NixOS host with no `~/.gitconfig`, git aborts with
+ *  "Author identity unknown" and 31 scenarios fail (see #887). Pin a test
+ *  identity here so every fixture — current and future — inherits one.
+ *  `??=` lets a host with `git config --global` set still take precedence
+ *  when developers run locally. */
+process.env.GIT_AUTHOR_NAME ??= "kolu-test";
+process.env.GIT_AUTHOR_EMAIL ??= "test@kolu.dev";
+process.env.GIT_COMMITTER_NAME ??= "kolu-test";
+process.env.GIT_COMMITTER_EMAIL ??= "test@kolu.dev";
+
 /** One base $TMPDIR per worker holds everything this test run creates:
  *  the kolu server's state dir and the Claude Code mock harness's
  *  sessions/projects dirs. Nesting keeps /tmp tidy (one entry per run
@@ -280,11 +291,21 @@ BeforeAll(async () => {
     const port = await getPort();
     baseUrl = `http://localhost:${port}`;
     console.log(`[worker:${workerId}] Starting server on port ${port}...`);
+    // Extend the default nix-shell env whitelist (see shell.ts:31) with
+    // GIT_AUTHOR_*/GIT_COMMITTER_* so PTY shells in fixtures like
+    // `code-tab.feature` (which run `git init && git commit` inside the
+    // terminal under test) inherit the same identity set on process.env
+    // above. Without this, the whitelist filter strips them and those
+    // scenarios fail on pristine hosts.
+    const envWhitelist = [
+      "HOME,USER,PATH,TERM,LANG,LC_ALL,LOGNAME,DISPLAY,COLORTERM,TERM_PROGRAM",
+      "GIT_AUTHOR_NAME,GIT_AUTHOR_EMAIL,GIT_COMMITTER_NAME,GIT_COMMITTER_EMAIL",
+    ].join(",");
     serverProcess = spawn(
       koluServer,
       [
         "--allow-nix-shell-with-env-whitelist",
-        "default",
+        envWhitelist,
         "--port",
         String(port),
       ],
