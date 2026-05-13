@@ -247,12 +247,21 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
   // Portal mounted to `<body>`. Without these guards, the composer
   // (or the bubbles) would float over the canvas after the user
   // switches to the Inspector tab or to a different worktree
-  // terminal. Both effects clear UI state on transition; the actual
-  // queued comments survive (per-repoRoot in `useComments`).
+  // terminal.
+  //
+  // Tab switch closes any open composer (user changed context) but
+  // does NOT clear `currentRange` — that lets the "+" bubble
+  // reappear at the same line when the user returns to the Code tab
+  // without a re-click. The bubble's own `key` check gates on
+  // `rightPanel.activeTab().kind === "code"`, so it stays hidden
+  // while Inspector is active.
+  //
+  // Terminal switch (`repoRoot` change) is a harder reset: the file
+  // tree, selection, and any in-flight compose state belong to the
+  // old worktree, so we wipe them.
   createEffect(() => {
     if (rightPanel.activeTab().kind !== "code") {
       setEditTarget(null);
-      setCurrentRange(null);
     }
   });
   createEffect(() => {
@@ -844,16 +853,32 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
         />
         {/* "+" bubble at the selected line — comment-mode discoverable
             affordance, replaces the old auto-popover-on-click. Visible
-            only while comment-mode is on, the user has a line
-            selected, and no composer is already open. */}
+            only while: comment-mode is on, the Code tab is the active
+            right-panel tab, a file is selected with a non-null range,
+            no composer is already open, and the selected line doesn't
+            already carry a comment (in that case the "💬" bubble from
+            the For loop below takes over — mutually exclusive at the
+            same line). Encoding every orphan-guard condition into the
+            `key` accessor makes the bubble disappear reactively the
+            instant any of them flips, regardless of which effect runs
+            first. */}
         <LineCommentMarker
           viewerEl={() => viewerEl ?? null}
           key={() => {
             if (!commentModeEnabled()) return null;
             if (editTarget() !== null) return null;
+            if (rightPanel.activeTab().kind !== "code") return null;
+            if (!repoPath()) return null;
             const r = currentRange();
             const p = selectedPath();
             if (!r || !p) return null;
+            const existing = commentsApi
+              .comments()
+              .some(
+                (c) =>
+                  c.path === p && c.startLine <= r.start && c.endLine >= r.end,
+              );
+            if (existing) return null;
             return `new:${p}:${r.start}-${r.end}`;
           }}
           resolveLine={() => {
@@ -869,14 +894,21 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
             Visible regardless of comment mode so the user always sees
             "this line has notes". Pierre virtualizes lines off-screen,
             so the resolver may return null for scrolled-out comments;
-            the marker hides itself in that case. */}
+            the marker hides itself in that case. The `key` returns
+            null when an orphan condition fires (panel collapsed, no
+            file shown, etc.) so the bubble disappears reactively. */}
         <For
           each={commentsApi.comments().filter((c) => c.path === selectedPath())}
         >
           {(c) => (
             <LineCommentMarker
               viewerEl={() => viewerEl ?? null}
-              key={() => `cmt:${c.id}:${c.startLine}`}
+              key={() => {
+                if (rightPanel.activeTab().kind !== "code") return null;
+                if (!repoPath()) return null;
+                if (selectedPath() !== c.path) return null;
+                return `cmt:${c.id}:${c.startLine}`;
+              }}
               resolveLine={() => {
                 if (!viewerEl) return null;
                 // Pierre's per-line attribute uses 0-based index;

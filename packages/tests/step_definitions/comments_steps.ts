@@ -15,6 +15,7 @@ const EDIT_BTN = '[data-testid="comments-edit"]';
 const POPOVER = '[data-testid="inline-comment-popover"]';
 const POPOVER_TEXTAREA = '[data-testid="comment-composer-textarea"]';
 const ADD_BUBBLE = '[data-testid="inline-add-bubble"]';
+const COMMENT_BUBBLE = '[data-testid="inline-comment-bubble"]';
 
 // ── Actions ──
 
@@ -111,6 +112,45 @@ When("I click the inline add-comment bubble", async function (this: KoluWorld) {
   await bubble.click();
   await this.waitForFrame();
 });
+
+When(
+  "I click the inline existing-comment bubble",
+  async function (this: KoluWorld) {
+    const bubble = this.page.locator(COMMENT_BUBBLE).first();
+    await bubble.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await bubble.click();
+    await this.waitForFrame();
+  },
+);
+
+When("I disable comment mode", async function (this: KoluWorld) {
+  const btn = this.page.locator(TOGGLE);
+  await btn.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  const pressed = await btn.getAttribute("aria-pressed");
+  if (pressed === "true") {
+    await btn.click();
+    await this.waitForFrame();
+  }
+});
+
+Then(
+  "the inline existing-comment bubble should be visible",
+  async function (this: KoluWorld) {
+    const bubble = this.page.locator(COMMENT_BUBBLE).first();
+    await bubble.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+Then(
+  "the inline add-comment bubble should not be visible",
+  async function (this: KoluWorld) {
+    // `<Show>` removes the node from the tree when `pos()` is null;
+    // wait for full detachment rather than just `hidden` so a stale
+    // mid-transition node doesn't pass the assertion.
+    const bubble = this.page.locator(ADD_BUBBLE);
+    await bubble.waitFor({ state: "detached", timeout: POLL_TIMEOUT });
+  },
+);
 
 async function assertCommentCount(world: KoluWorld, expected: number) {
   await world.page.waitForFunction(

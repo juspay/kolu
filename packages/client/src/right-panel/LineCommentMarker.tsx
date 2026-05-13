@@ -88,37 +88,50 @@ const LineCommentMarker: Component<LineCommentMarkerProps> = (props) => {
       return;
     }
     const lineRect = line.getBoundingClientRect();
-    const range = document.createRange();
-    range.selectNodeContents(line);
-    const textRect = range.getBoundingClientRect();
-    range.detach();
-    const anchorRight = textRect.width > 0 ? textRect.right : lineRect.left + 8;
+    // The `<code>` line's `Range.getBoundingClientRect` returns a
+    // zero-width rect for Pierre's tokenized inline content (each
+    // syntax token is a separate span; the Range collapses
+    // unpredictably across browsers). Iterate the actual child rects
+    // and take the rightmost edge — robust for grid-rendered diff
+    // lines AND plain file-view lines.
+    let anchorRight = lineRect.left;
+    for (const child of Array.from(line.children)) {
+      const r = (child as HTMLElement).getBoundingClientRect();
+      if (r.right > anchorRight) anchorRight = r.right;
+    }
+    // Empty lines have no children — fall back to a small inset from
+    // the line's left edge so the bubble is still discoverable.
+    if (anchorRight === lineRect.left) anchorRight = lineRect.left + 8;
+    // Hide when the line scrolled out of the viewer (virtualizer
+    // unmounted it OR it's clipped above/below). Otherwise the marker
+    // floats over the toolbar / tray.
+    if (lineRect.bottom < vrect.top || lineRect.top > vrect.bottom) {
+      setPos(null);
+      return;
+    }
     setPos({ left: anchorRight + 8, top: lineRect.top });
   };
 
-  // Re-measure when the key changes (selected line moved, comment
-  // added/removed, file switched). Pierre's selection DOM commits
-  // through `requestAnimationFrame`; retry a handful of frames so we
-  // don't race the rAF.
+  // Continuous rAF loop while the marker is open. Pierre's
+  // virtualizer uses `transform: translateY` for scrolling, which
+  // doesn't fire `scroll` events on the document — capturing scrolls
+  // on the window misses transform-driven reflows. Per-frame
+  // re-measure costs one rect read; cheap, bulletproof.
   createEffect(() => {
     props.key();
-    let tries = 0;
-    const attempt = () => {
-      if (props.key() === null) return;
+    let raf: number | undefined;
+    const loop = () => {
+      if (props.key() === null) {
+        setPos(null);
+        return;
+      }
       measure();
-      if (pos() !== null) return;
-      if (tries++ > 10) return;
-      requestAnimationFrame(attempt);
+      raf = requestAnimationFrame(loop);
     };
-    attempt();
-  });
-
-  const onScroll = () => measure();
-  window.addEventListener("scroll", onScroll, true);
-  window.addEventListener("resize", onScroll);
-  onCleanup(() => {
-    window.removeEventListener("scroll", onScroll, true);
-    window.removeEventListener("resize", onScroll);
+    loop();
+    onCleanup(() => {
+      if (raf !== undefined) cancelAnimationFrame(raf);
+    });
   });
 
   return (

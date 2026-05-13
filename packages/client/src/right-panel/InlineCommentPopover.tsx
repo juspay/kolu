@@ -66,11 +66,21 @@ const InlineCommentPopover: Component<InlineCommentPopoverProps> = (props) => {
     // "to the right of the line". A DOM Range over the content gives
     // a tight box around just the text.
     const lineRect = sel.getBoundingClientRect();
-    const range = document.createRange();
-    range.selectNodeContents(sel);
-    const textRect = range.getBoundingClientRect();
-    range.detach();
-    const anchorRight = textRect.width > 0 ? textRect.right : lineRect.left + 8;
+    // Pierre's tokenized inline content makes `Range.getBoundingClientRect`
+    // unreliable (zero-width across browsers). Iterate child rects for
+    // the rightmost edge — works for both grid-rendered diff lines and
+    // plain file-view lines.
+    let anchorRight = lineRect.left;
+    for (const child of Array.from(sel.children)) {
+      const r = (child as HTMLElement).getBoundingClientRect();
+      if (r.right > anchorRight) anchorRight = r.right;
+    }
+    if (anchorRight === lineRect.left) anchorRight = lineRect.left + 8;
+    // Hide when the line scrolled out (above OR below the viewer).
+    if (lineRect.bottom < vrect.top || lineRect.top > vrect.bottom) {
+      setPos(null);
+      return;
+    }
     // Clamp to viewport so a long line doesn't push past the right
     // edge. POPOVER_WIDTH matches CommentComposer's `w-[280px]`.
     const POPOVER_WIDTH = 280;
@@ -79,25 +89,25 @@ const InlineCommentPopover: Component<InlineCommentPopoverProps> = (props) => {
     setPos({ left, top: lineRect.top });
   };
 
+  // Continuous rAF while open — Pierre virtualizes via
+  // `transform: translateY`, which doesn't fire `scroll` events, so a
+  // one-shot measure + scroll-listener combo misses transform-driven
+  // reflows. One rect read per frame is cheap.
   createEffect(() => {
     props.target();
-    let tries = 0;
-    const attempt = () => {
-      if (props.target() === null) return;
+    let raf: number | undefined;
+    const loop = () => {
+      if (props.target() === null) {
+        setPos(null);
+        return;
+      }
       measure();
-      if (pos() !== null) return;
-      if (tries++ > 10) return;
-      requestAnimationFrame(attempt);
+      raf = requestAnimationFrame(loop);
     };
-    attempt();
-  });
-
-  const onScroll = () => measure();
-  window.addEventListener("scroll", onScroll, true);
-  window.addEventListener("resize", onScroll);
-  onCleanup(() => {
-    window.removeEventListener("scroll", onScroll, true);
-    window.removeEventListener("resize", onScroll);
+    loop();
+    onCleanup(() => {
+      if (raf !== undefined) cancelAnimationFrame(raf);
+    });
   });
 
   return (

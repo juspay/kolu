@@ -85,3 +85,71 @@ Feature: Comment mode (inline composer + tray roll-up)
     When I reload the page and wait for ready
     Then the comments tray should be visible
     And the comments tray should list 1 comment
+
+  # ── + bubble flips to 💬 once the line has a queued comment ──
+  #
+  # The "+" affordance and the "💬" indicator are mutually exclusive
+  # at the same line: after submit, the line carries a comment, so
+  # the For-loop renders "💬" and the "+" key check sees the existing
+  # comment and returns null. Verifies the user's "after I add a
+  # comment, still shows + instead of 💬" feedback.
+
+  Scenario: + bubble becomes 💬 once the line carries a queued comment
+    Given a Code tab in "browse" mode showing file "a.ts" with content "alpha\nbeta\ngamma\n"
+    When I open file "a.ts" in the Code tab
+    And I enable comment mode
+    And I click the line number 1 in the file content
+    Then the inline add-comment bubble should be visible
+    When I click the inline add-comment bubble
+    And I type "first note" into the inline comment composer
+    And I press Enter to submit the inline comment
+    Then the comments tray should list 1 comment
+    And the inline add-comment bubble should not be visible
+    And the inline existing-comment bubble should be visible
+
+  # ── 💬 visible regardless of comment mode (discovery surface) ──
+
+  Scenario: existing-comment bubble stays visible after disabling comment mode
+    Given a Code tab in "browse" mode showing file "a.ts" with content "alpha\nbeta\ngamma\n"
+    When I open file "a.ts" in the Code tab
+    And I enable comment mode
+    And I click the line number 1 in the file content
+    Then the inline add-comment bubble should be visible
+    When I click the inline add-comment bubble
+    And I type "discoverable" into the inline comment composer
+    And I press Enter to submit the inline comment
+    Then the inline existing-comment bubble should be visible
+    When I disable comment mode
+    Then the inline existing-comment bubble should be visible
+    And the inline add-comment bubble should not be visible
+
+  # ── 💬 click opens edit popover, prefilled ──
+
+  Scenario: clicking 💬 bubble opens the composer in edit mode
+    Given a Code tab in "browse" mode showing file "a.ts" with content "alpha\nbeta\ngamma\n"
+    When I open file "a.ts" in the Code tab
+    And I enable comment mode
+    And I click the line number 1 in the file content
+    When I click the inline add-comment bubble
+    And I type "to be revised" into the inline comment composer
+    And I press Enter to submit the inline comment
+    Then the inline existing-comment bubble should be visible
+    When I click the inline existing-comment bubble
+    Then the inline comment popover should be visible
+    When I type "revised content" into the inline comment composer
+    And I press Enter to submit the inline comment
+    When I click the Copy-to-clipboard button
+    Then the clipboard text should contain "revised content"
+
+  # ── Bubbles disappear on right-panel tab switch (orphan guard) ──
+
+  Scenario: bubbles disappear when switching to the inspector tab
+    Given a Code tab in "browse" mode showing file "a.ts" with content "alpha\nbeta\ngamma\n"
+    When I open file "a.ts" in the Code tab
+    And I enable comment mode
+    And I click the line number 1 in the file content
+    Then the inline add-comment bubble should be visible
+    When I click the right panel tab "inspector"
+    Then the inline add-comment bubble should not be visible
+    When I click the right panel tab "code"
+    Then the inline add-comment bubble should be visible
