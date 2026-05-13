@@ -25,6 +25,9 @@ export type BrowseFileViewProps = {
    *  `path:line` click. Goes through the line-selection controller
    *  so the right-click "Copy path:N" menu reflects the highlight. */
   initialSelectedLines?: SelectedLineRange | null;
+  /** Forward Pierre's line selection up to the parent — used by the
+   *  Code tab's comments tray to drive the composer target. */
+  onSelectionChange?: (range: SelectedLineRange | null) => void;
 };
 
 const BrowseFileView: Component<BrowseFileViewProps> = (props) => {
@@ -53,6 +56,7 @@ const BrowseFileView: Component<BrowseFileViewProps> = (props) => {
             <CodeMenuFrame
               path={props.filePath}
               initialSelectedLines={props.initialSelectedLines}
+              onSelectionChange={props.onSelectionChange}
             >
               {(selection) => (
                 // `<Virtualizer>` upgrades `<FileView>` to Pierre's

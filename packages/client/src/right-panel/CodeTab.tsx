@@ -13,7 +13,12 @@
  * via `FileTree.searchQuery`. `@kolu/solid-pierre` owns the imperative
  * Pierre lifecycle; this component is just data flow + chrome. */
 
-import { FileDiff, FileTree, Virtualizer } from "@kolu/solid-pierre";
+import {
+  FileDiff,
+  FileTree,
+  type SelectedLineRange,
+  Virtualizer,
+} from "@kolu/solid-pierre";
 import type { GitDiffMode } from "kolu-git/schemas";
 import type { TerminalMetadata } from "kolu-common/surface";
 import {
@@ -43,10 +48,17 @@ import { resolveLineRefPath } from "../ui/lineRef";
 import BrowseFileView from "./BrowseFileView";
 import { type CodeOpenRequest, pendingCodeOpen } from "./codeNavigation";
 import CodeMenuFrame from "./CodeMenuFrame";
+import CommentsTray from "./CommentsTray";
 import { projectFileTreeSearch } from "./fileSearch";
 import FileSearchInput from "./FileSearchInput";
 import ModeChipPicker, { type ModeOption } from "./ModeChipPicker";
 import { useRightPanel } from "./useRightPanel";
+import {
+  commentModeEnabled,
+  setCommentMode_,
+  toggleCommentMode,
+  useComments,
+} from "./useComments";
 
 const EMPTY_STATE: Record<GitDiffMode, string> = {
   local: "No local changes",
@@ -75,6 +87,22 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
   const { themeTypeLiteral: diffTheme } = useColorScheme();
   const rightPanel = useRightPanel();
   const [selectedPath, setSelectedPath] = createSignal<string | null>(null);
+
+  // Comment-tray state — `repoRoot` keys the persisted bucket so two
+  // worktrees don't share a tray. `currentRange` mirrors the in-viewer
+  // line selection (forwarded by `CodeMenuFrame.onSelectionChange`) so
+  // the composer's "Add comment" button binds to what Pierre is
+  // showing. Draft text is lifted here so it survives the tray
+  // remounting when comment mode briefly toggles off.
+  const commentsApi = useComments(() => props.meta?.git?.repoRoot ?? null);
+  const [currentRange, setCurrentRange] =
+    createSignal<SelectedLineRange | null>(null);
+  const [draft, setDraft] = createSignal("");
+  // Tray is visible whenever the user is in comment mode OR they have
+  // queued comments from a previous session. The second arm prevents
+  // a reload from hiding the tray while preserving the data.
+  const trayVisible = () =>
+    commentModeEnabled() || commentsApi.comments().length > 0;
 
   // Read `codeMode` directly rather than projecting it from `activeTab`.
   // CodeTab now stays mounted across the Inspector tab toggle (#818); a
@@ -429,6 +457,20 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
             modes={modeOptions()}
           />
           <FileSearchInput value={searchQuery()} onChange={setSearchQuery} />
+          <button
+            type="button"
+            class={`px-1.5 h-5 rounded text-[10px] border ${
+              commentModeEnabled()
+                ? "border-accent text-accent bg-accent/10"
+                : "border-edge text-fg-3/70 hover:text-fg-2 hover:bg-surface-1"
+            }`}
+            onClick={toggleCommentMode}
+            aria-pressed={commentModeEnabled()}
+            data-testid="comment-mode-toggle"
+            title="Toggle comment mode (annotate lines, copy to clipboard)"
+          >
+            💬 {commentModeEnabled() ? "On" : "Off"}
+          </button>
         </div>
 
         <div
@@ -483,7 +525,11 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
           </Switch>
         </div>
 
-        <div class="flex-1 min-h-0 overflow-auto" data-testid="diff-content">
+        <div
+          class="flex-1 min-h-0 overflow-auto"
+          data-testid="diff-content"
+          classList={{ "border-b border-edge": trayVisible() }}
+        >
           <Show
             when={selectedPath()}
             keyed
@@ -538,7 +584,10 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
                     </Match>
                     <Match when={diff()}>
                       {(d) => (
-                        <CodeMenuFrame path={path}>
+                        <CodeMenuFrame
+                          path={path}
+                          onSelectionChange={setCurrentRange}
+                        >
                           {(selection) => (
                             // `<Virtualizer>` is the scroll container —
                             // `<FileDiff>` consumes its context and
@@ -580,6 +629,7 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
                         filePath={path}
                         theme={diffTheme()}
                         initialSelectedLines={selectedRange()}
+                        onSelectionChange={setCurrentRange}
                       />
                     );
                   })()}
@@ -588,6 +638,16 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
             )}
           </Show>
         </div>
+        <Show when={trayVisible()}>
+          <CommentsTray
+            api={commentsApi}
+            currentPath={selectedPath}
+            currentRange={currentRange}
+            draft={draft}
+            setDraft={setDraft}
+            onClose={() => setCommentMode_(false)}
+          />
+        </Show>
       </div>
     </Show>
   );

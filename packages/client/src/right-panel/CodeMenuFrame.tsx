@@ -6,7 +6,7 @@
  *  selection range stays in sync with what the menu offers. */
 
 import type { SelectedLineRange } from "@kolu/solid-pierre";
-import type { Component, JSX } from "solid-js";
+import { type Component, createEffect, type JSX, on } from "solid-js";
 import {
   CodeContextMenu,
   type CodeContextMenuController,
@@ -25,6 +25,9 @@ export type CodeMenuFrameProps = {
    *  controller so a terminal `path:line` click drives both the
    *  Pierre highlight AND the right-click menu's "Copy path:N" item. */
   initialSelectedLines?: SelectedLineRange | null;
+  /** Forward selection changes to a parent (e.g. CodeTab's comments
+   *  tray composer). Fires on every commit, including null. */
+  onSelectionChange?: (range: SelectedLineRange | null) => void;
 };
 
 export const CodeMenuFrame: Component<CodeMenuFrameProps> = (props) => {
@@ -32,6 +35,13 @@ export const CodeMenuFrame: Component<CodeMenuFrameProps> = (props) => {
   const selection = useLineSelection(() => props.path, {
     initialRange: () => props.initialSelectedLines,
   });
+  // Forwarding effect lives on the frame, not the renderer, so both Pierre
+  // call sites (diff + browse) inherit it without per-callsite wiring.
+  createEffect(
+    on(selection.range, (range) => props.onSelectionChange?.(range), {
+      defer: true,
+    }),
+  );
   return (
     <div
       // Attach contextmenu via addEventListener so the host div doesn't

@@ -154,6 +154,17 @@ Detects [OpenCode](https://github.com/anomalyco/opencode) sessions and shows the
 
 - <kbd>Ctrl+V</kbd> pastes images into any agent that accepts paste-as-file-path (Claude Code, codex, …) — the server saves the browser's clipboard image and bracketed-pastes its path into the PTY
 
+### Comments
+
+Annotate any file the agent wrote (or any file at all — code, markdown, configs) directly from the Code tab and flush the queue to your clipboard. Paste the resulting block into whichever agent terminal makes sense; no per-agent wiring, no `kolu artifact` CLI, no server-side delivery.
+
+- **Comment mode** — toggle 💬 in the Code-tab toolbar. While on, a tray opens at the bottom of the panel: composer at the top, queued comments below, "Copy to clipboard" at the right
+- **Pinpoint targets** — Pierre's existing line-selection (click a line, drag for a range) drives the composer's target chip; works uniformly across browse mode and the local/branch diff modes, so `.md`, `.ts`, and any other text file all accept comments without per-kind logic
+- **Cross-file accumulation** — comments collect across every file you visit; the tray sorts by (path, startLine) so a paste reads as a coherent walk through the repo, not click order
+- **Versioned clipboard payload** — flushed text starts with `[kolu comments v1]` so an agent reading the paste can detect the format. Each entry is one block: `path  L<range>` followed by the quoted note
+- **Copy-and-clear** — "Copy to clipboard" is destructive by design (issue [#878](https://github.com/juspay/kolu/issues/878)): users want the tray empty for the next review pass once feedback has been pasted into an agent prompt
+- **Per-worktree persistence** — the in-progress queue is keyed by `repoRoot` in localStorage via `makePersisted`, so an accidental reload doesn't lose work and switching between worktree terminals shows each worktree's own tray
+
 ### Screen recording
 
 Record the Kolu tab — whole canvas or a single maximized terminal — with microphone and optional webcam PiP, straight to a local `.webm` file. Chromium-only (uses the File System Access API).
