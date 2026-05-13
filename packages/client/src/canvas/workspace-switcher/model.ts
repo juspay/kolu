@@ -114,21 +114,30 @@ export const WORKSPACE_AGENT_BUCKETS: readonly {
   },
 ];
 
-/** Searchable live-terminal entry used by the expanded switcher panel.
- *
- *  `idleSub` is set only when `bucket === "idle"`; consumers can rely on
- *  the implication and don't need a tagged-union dance to reach the
- *  sub-bucket key. */
-export type WorkspaceSwitcherEntry = {
+/** Common fields shared by every searchable switcher entry. The bucket
+ *  arm extensions below add the bucket-specific payload (e.g. the idle
+ *  sub-bucket key) on top of this base. */
+type WorkspaceSwitcherEntryBase = {
   id: TerminalId;
   repoName: string;
   label: string;
   suffix?: string;
-  bucket: WorkspaceAgentBucket;
-  idleSub?: IdleBucketKey;
   info: TerminalDisplayInfo;
   searchText: string;
 };
+
+/** Searchable live-terminal entry. Discriminated on `bucket`: only the
+ *  Idle arm carries `idleSub`, so a consumer that narrows on
+ *  `entry.bucket === "idle"` reads the sub-bucket key without an
+ *  optional dance — and a non-idle entry cannot accidentally carry one. */
+export type WorkspaceSwitcherEntry =
+  | (WorkspaceSwitcherEntryBase & {
+      bucket: "idle";
+      idleSub: IdleBucketKey;
+    })
+  | (WorkspaceSwitcherEntryBase & {
+      bucket: Exclude<WorkspaceAgentBucket, "idle">;
+    });
 
 /** Compact row item rendered under a repo heading. */
 export type WorkspaceSwitcherCompactItem = {
@@ -398,23 +407,22 @@ export function buildWorkspaceSwitcherModel(
     : sources;
   const idleClassifier = options.idleClassifier;
   const entries: WorkspaceSwitcherEntry[] = ordered.map((source) => {
-    const idleSub =
-      idleClassifier?.(source.info.meta.lastActivityAt) ?? undefined;
-    const bucket: WorkspaceAgentBucket = idleSub
-      ? "idle"
-      : agentBucket(source.info.meta.agent);
-    const base = {
+    const baseFields = {
       id: source.id,
       repoName: source.info.key.group,
       label: source.info.key.label,
       suffix: source.info.key.suffix,
-      bucket,
-      idleSub,
       info: source.info,
     };
+    const searchText = searchTextFor(baseFields);
+    const idleSub = idleClassifier?.(source.info.meta.lastActivityAt) ?? null;
+    if (idleSub !== null) {
+      return { ...baseFields, searchText, bucket: "idle" as const, idleSub };
+    }
     return {
-      ...base,
-      searchText: searchTextFor(base),
+      ...baseFields,
+      searchText,
+      bucket: agentBucket(source.info.meta.agent),
     };
   });
 
@@ -439,7 +447,9 @@ export function buildWorkspaceSwitcherModel(
     const idleSubBuckets: WorkspaceSwitcherIdleSubBucket[] = IDLE_BUCKETS.map(
       (sub) => ({
         ...sub,
-        entries: bucketEntries.filter((entry) => entry.idleSub === sub.key),
+        entries: bucketEntries.filter(
+          (entry) => entry.bucket === "idle" && entry.idleSub === sub.key,
+        ),
       }),
     );
     return { ...bucket, entries: bucketEntries, idleSubBuckets };

@@ -337,7 +337,9 @@ const WorkspaceCard: Component<{
       data-terminal-id={props.entry.id}
       data-repo-name={props.entry.repoName}
       data-agent-bucket={props.entry.bucket}
-      data-idle-sub={props.entry.idleSub}
+      data-idle-sub={
+        props.entry.bucket === "idle" ? props.entry.idleSub : undefined
+      }
       data-active={props.active ? "" : undefined}
       class={`relative rounded-lg border p-2.5 text-left cursor-pointer transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 ${props.active || idle() ? "" : bucketInfo().borderClass}`}
       classList={{
