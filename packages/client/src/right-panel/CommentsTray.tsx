@@ -13,6 +13,7 @@
 import type { SelectedLineRange } from "@kolu/solid-pierre";
 import { type Component, createSignal, For, Show } from "solid-js";
 import { toast } from "solid-sonner";
+import { writeTextToClipboard } from "../terminal/clipboard";
 import { CloseIcon } from "../ui/Icons";
 import { formatLineRange, serializeComments } from "./commentSerialize";
 import type { CommentsApi } from "./useComments";
@@ -68,7 +69,9 @@ const CommentsTray: Component<CommentsTrayProps> = (props) => {
     if (list.length === 0) return;
     const payload = serializeComments(list);
     try {
-      await navigator.clipboard.writeText(payload);
+      // writeTextToClipboard falls back to document.execCommand("copy")
+      // when navigator.clipboard is unavailable (non-secure context).
+      await writeTextToClipboard(payload);
       const n = list.length;
       props.api.clear();
       toast.success(
