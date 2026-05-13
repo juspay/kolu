@@ -18,6 +18,7 @@ const HELP_ORDER: readonly { id: ActionId; label?: string }[] = [
   { id: "cycleTerminalMru" },
   { id: "switchTo1", label: "Switch to terminal 1–9" },
   { id: "findInTerminal" },
+  { id: "copySelection" },
   { id: "zoomIn" },
   { id: "zoomOut" },
   { id: "zoomReset" },

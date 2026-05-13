@@ -215,6 +215,15 @@ const _ACTIONS = {
     keybind: { key: "S", code: "KeyS", mod: true, shift: true },
     handler: (ctx) => ctx.handleScreenshotTerminal(),
   },
+  copySelection: {
+    label: "Copy selection",
+    // Physical Ctrl (not platform mod) — Linux/Windows terminal chord.
+    // Dispatch is xterm-handler-local (Terminal.tsx) because xterm's
+    // selection lives outside the textarea, so the action only makes
+    // sense with a live xterm ref. Registered here for ShortcutsHelp
+    // visibility and so matchesAnyShortcut sees it.
+    keybind: { key: "C", code: "KeyC", ctrl: true, shift: true },
+  },
   toggleRightPanel: {
     label: "Toggle inspector panel",
     keybind: { key: "b", code: "KeyB", mod: true, alt: true },

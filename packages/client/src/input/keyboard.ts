@@ -11,15 +11,6 @@ export function isPlatformModifier(e: KeyboardEvent): boolean {
   return isMac ? e.metaKey : e.ctrlKey;
 }
 
-/** Terminal-style copy chord (Ctrl+Shift+C) on Linux/Windows. Always false
- *  on macOS — Cmd+C is the platform copy chord there. Chromium binds this
- *  chord to DevTools' "Inspect Element" picker globally, so the page must
- *  call `preventDefault()` to keep it as a copy shortcut. */
-export function isCopySelectionChord(e: KeyboardEvent): boolean {
-  if (isMac) return false;
-  return e.ctrlKey && e.shiftKey && e.code === "KeyC";
-}
-
 /** Zoom key deltas: maps key to font-size change direction. */
 export const ZOOM_KEYS: Record<string, 1 | -1> = { "=": 1, "+": 1, "-": -1 };
 

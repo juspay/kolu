@@ -28,13 +28,13 @@ import {
   Show,
 } from "solid-js";
 import { match } from "ts-pattern";
-import { SafeClipboardProvider, writeTextToClipboard } from "./clipboard";
+import { copyTextWithToast, SafeClipboardProvider } from "./clipboard";
 import "@xterm/xterm/css/xterm.css";
 import type { TerminalId } from "kolu-common/surface";
 import { DEFAULT_SCROLLBACK } from "kolu-common/config";
 import { FONT_FAMILY } from "terminal-themes";
-import { matchesAnyShortcut } from "../input/actions";
-import { isCopySelectionChord } from "../input/keyboard";
+import { ACTIONS, matchesAnyShortcut } from "../input/actions";
+import { matchesKeybind } from "../input/keyboard";
 import { createZoom } from "../input/zoom";
 import { refitOnTabVisible } from "../refitOnTabVisible";
 import { streamCall } from "@kolu/surface/solid";
@@ -587,13 +587,17 @@ const Terminal: Component<{
             // preventDefault, Chromium hijacks the chord to open DevTools'
             // Inspect Element picker. xterm's selection isn't reflected in
             // the textarea either, so we copy via getSelection() ourselves.
-            if (isCopySelectionChord(e)) {
+            // Must come before the matchesAnyShortcut check below, since
+            // copySelection is registered there for ShortcutsHelp visibility
+            // but dispatched here.
+            if (matchesKeybind(e, ACTIONS.copySelection.keybind)) {
               e.preventDefault();
               const selection = term.getSelection();
               if (selection)
-                void writeTextToClipboard(selection).catch((err: Error) =>
-                  console.error("Failed to copy selection:", err),
-                );
+                void copyTextWithToast(selection, {
+                  success: "Copied selection to clipboard",
+                  failure: "Failed to copy selection",
+                });
               return false;
             }
 
