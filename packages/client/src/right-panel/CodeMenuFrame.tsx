@@ -11,6 +11,7 @@ import {
   CodeContextMenu,
   type CodeContextMenuController,
 } from "../ui/CodeContextMenu";
+import type { LineRef } from "../ui/lineRef";
 import { type LineSelection, useLineSelection } from "../ui/useLineSelection";
 
 export type CodeMenuFrameProps = {
@@ -25,12 +26,18 @@ export type CodeMenuFrameProps = {
    *  controller so a terminal `path:line` click drives both the
    *  Pierre highlight AND the right-click menu's "Copy path:N" item. */
   initialSelectedLines?: SelectedLineRange | null;
+  /** When provided, adds an "Open <path>:<line>" entry to the context
+   *  menu that dispatches the selected ref to the host (typically a
+   *  call to `openInCodeTab`). Omit for viewers where "open" is a
+   *  no-op (the file is already on screen at line precision). */
+  onOpen?: (ref: LineRef) => void;
 };
 
 export const CodeMenuFrame: Component<CodeMenuFrameProps> = (props) => {
   let menuCtrl: CodeContextMenuController | undefined;
   const selection = useLineSelection(() => props.path, {
     initialRange: () => props.initialSelectedLines,
+    onOpen: () => props.onOpen,
   });
   return (
     <div

@@ -41,8 +41,7 @@ import { streamCall } from "@kolu/surface/solid";
 import { client } from "../wire";
 import { isExpectedCleanupError } from "../rpc/streamCleanup";
 import { createScrollLock } from "../scrollLock";
-import { requestCodeOpen } from "../right-panel/codeNavigation";
-import { useRightPanel } from "../right-panel/useRightPanel";
+import { openInCodeTab } from "../right-panel/openInCodeTab";
 import { preferences } from "../wire";
 import { isTouch } from "../useMobile";
 import { createFileRefLinkProvider } from "./fileRefLinkProvider";
@@ -163,7 +162,6 @@ const Terminal: Component<{
   const [searchAddon, setSearchAddon] = createSignal<SearchAddon | null>(null);
   const scrollLock = createScrollLock(() => preferences().scrollLock);
   const terminalStore = useTerminalStore();
-  const rightPanel = useRightPanel();
   let fitRaf = 0;
 
   /** Debounce fit() to one call per animation frame — ResizeObserver fires rapidly. */
@@ -471,16 +469,7 @@ const Terminal: Component<{
                 const meta = terminalStore.getMetadata(props.terminalId);
                 const repoRoot = meta?.git?.repoRoot ?? null;
                 if (!repoRoot) return;
-                // Issue both writes in the same DOM-event tick: the
-                // panel-mode change and the click request invalidate
-                // CodeTab's `resetKey` and `pendingCodeOpen` effects
-                // together, and Solid runs them in registration order
-                // (resetKey clears, then pendingCodeOpen sets), so
-                // `selectedPath` lands on the click's target. Moving
-                // `openCodeBrowser` inside CodeTab's effect would
-                // invert that ordering and null the path.
-                rightPanel.openCodeBrowser();
-                requestCodeOpen({
+                openInCodeTab({
                   ref,
                   repoRoot,
                   cwd: meta?.cwd,

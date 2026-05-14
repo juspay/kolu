@@ -330,10 +330,30 @@ Feature: Code tab (review + browse)
     Then the diff view should contain "b-one"
     When I click the line number 1 in the diff view
     And I right-click the diff view
-    Then the context menu items should be "Copy path | Copy file-b.txt:1"
+    Then the context menu items should be "Copy path | Copy file-b.txt:1 | Open file-b.txt:1"
     When I click the context menu item "Copy file-b.txt:1"
     Then the clipboard should contain "file-b.txt:1"
     And the clipboard should not contain "file-a.txt"
+
+  # ── Right-click "Open" jumps from diff to full file (#881 phase 0) ──
+  # Reviewing a diff and wanting full-file context at the same line was
+  # previously two manual steps: copy `path:N`, switch to browse mode,
+  # paste-navigate. The "Open path:N" context-menu entry dispatches via
+  # the same `openInCodeTab` front door the terminal-link click uses.
+  Scenario: Right-click "Open path:N" in diff view jumps to browse at that line
+    When I run "git init /tmp/kolu-open-from-diff && cd /tmp/kolu-open-from-diff"
+    And I run "git commit --allow-empty -m init"
+    And I run "printf 'first\nsecond\nthird\n' > notes.txt"
+    And I click the Code tab
+    Then the Code tab should list a changed file "notes.txt"
+    When I click the changed file "notes.txt" in the Code tab
+    Then the diff view should contain "second"
+    When I click the line number 2 in the diff view
+    And I right-click the diff view
+    And I click the context menu item "Open notes.txt:2"
+    Then the Code tab mode should be "browse"
+    And the selected file should show content "second"
+    And line 2 should be selected in the file content
 
   # ── Live updates: filesystem changes propagate without manual refresh ──
   # The Code view subscribes to a watcher that observes four axes (HEAD,

@@ -41,8 +41,12 @@ import {
 } from "../ui/pierreTheme";
 import { resolveLineRefPath } from "../ui/lineRef";
 import BrowseFileView from "./BrowseFileView";
-import { type CodeOpenRequest, pendingCodeOpen } from "./codeNavigation";
 import CodeMenuFrame from "./CodeMenuFrame";
+import {
+  openInCodeTab,
+  type OpenInCodeTabRequest,
+  pendingOpen,
+} from "./openInCodeTab";
 import { projectFileTreeSearch } from "./fileSearch";
 import FileSearchInput from "./FileSearchInput";
 import ModeChipPicker, { type ModeOption } from "./ModeChipPicker";
@@ -183,11 +187,11 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
         setSearchQuery("");
         // Skip the selectedPath clear when an incoming request is
         // about to land in the new mode — the resetKey effect runs
-        // before the pendingCodeOpen effect (registration order), and
-        // an unconditional clear would null what we're about to set.
+        // before the pendingOpen effect (registration order), and an
+        // unconditional clear would null what we're about to set.
         // Reading `req.targetMode` (not `view()`) makes the guard
         // robust to user-driven mode flips that race the click.
-        const req = pendingCodeOpen();
+        const req = pendingOpen();
         if (
           req &&
           req.repoRoot === repoPath() &&
@@ -202,31 +206,32 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
     ),
   );
 
-  // Consume-once record for the latest pendingCodeOpen tick. Holds
-  // the full request object (reference identity discriminates two
-  // structurally-identical clicks — `requestCodeOpen` mints a fresh
+  // Consume-once record for the latest pendingOpen tick. Holds the
+  // full request object (reference identity discriminates two
+  // structurally-identical clicks — `openInCodeTab` mints a fresh
   // object per call) alongside the resolved path. Storing the
   // request here lets `selectedRange` derive its value without
   // re-running `resolveLineRefPath` (single resolution site per
   // request) and lets `resetKey` know whether a pending request
   // has already been applied.
   const [handled, setHandled] = createSignal<{
-    request: CodeOpenRequest;
+    request: OpenInCodeTabRequest;
     resolvedPath: string | null;
   } | null>(null);
 
-  // Honor terminal file-ref clicks. The effect waits for the live
-  // `fsListAll` stream to settle so resolution can validate against
-  // a complete file list — otherwise a request fired during boot
-  // would toast "not found" on a path that just hasn't been
-  // enumerated yet. The terminal click handler is the sole site that
-  // flips the panel to browse mode; this effect only sets
+  // Honor every `openInCodeTab` request — terminal file-ref clicks,
+  // right-click "Open path:N" entries, and any future producer. The
+  // effect waits for the live `fsListAll` stream to settle so
+  // resolution can validate against a complete file list — otherwise
+  // a request fired during boot would toast "not found" on a path
+  // that just hasn't been enumerated yet. `openInCodeTab` flips the
+  // panel to browse mode itself; this effect only sets
   // `selectedPath`. The `resetKey` effect above guards against
   // clearing selectedPath when this effect is about to set it.
   createEffect(
     on(
       () => {
-        const req = pendingCodeOpen();
+        const req = pendingOpen();
         const paths = treePaths();
         const isPending = allPaths.pending();
         return { req, repo: repoPath(), paths, isPending };
@@ -263,7 +268,7 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
   //
   // No `equals` override: two clicks on the same `path:line` produce
   // structurally identical `{start, end}` but distinct request
-  // objects (`requestCodeOpen` mints a fresh one per call), so the
+  // objects (`openInCodeTab` mints a fresh one per call), so the
   // memo emits a fresh value on every click. Pierre's
   // `InteractionManager.setSelection` re-renders when the selection
   // is "dirty" — and tearing down the gutter (panel collapse,
@@ -275,7 +280,7 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
     start: number;
     end: number;
   } | null>(() => {
-    const req = pendingCodeOpen();
+    const req = pendingOpen();
     if (!req) return null;
     const h = handled();
     if (!h || h.request !== req || h.resolvedPath === null) return null;
@@ -538,7 +543,22 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
                     </Match>
                     <Match when={diff()}>
                       {(d) => (
-                        <CodeMenuFrame path={path}>
+                        <CodeMenuFrame
+                          path={path}
+                          onOpen={(ref) => {
+                            // Diff path is already repo-relative; cwd is
+                            // irrelevant. Same dispatch as a terminal-link
+                            // click — `openInCodeTab` flips the panel to
+                            // browse mode and surfaces the line range.
+                            const repo = repoPath();
+                            if (repo === null) return;
+                            openInCodeTab({
+                              ref,
+                              repoRoot: repo,
+                              targetMode: "browse",
+                            });
+                          }}
+                        >
                           {(selection) => (
                             // `<Virtualizer>` is the scroll container —
                             // `<FileDiff>` consumes its context and

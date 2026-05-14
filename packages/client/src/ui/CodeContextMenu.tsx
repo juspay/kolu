@@ -10,11 +10,23 @@ import { type Component, createSignal, For, onCleanup, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import { toast } from "solid-sonner";
 
-export type CodeContextMenuItem = {
-  label: string;
-  /** Returned text gets copied; success toast names the item. */
-  textToCopy: string;
-};
+/** Two verbs over the same selection noun: copy a string to the clipboard,
+ *  or invoke an action callback. The discriminator keeps the dispatch
+ *  explicit so adding a third verb (e.g. "share") doesn't tempt the
+ *  handler into reading every field on every item. */
+export type CodeContextMenuItem =
+  | {
+      kind: "copy";
+      label: string;
+      /** Text written to the clipboard; success toast names the item. */
+      textToCopy: string;
+    }
+  | {
+      kind: "action";
+      label: string;
+      /** Fired on click. The item is closed regardless of completion. */
+      onActivate: () => void;
+    };
 
 export type CodeContextMenuController = {
   /** Bind to a host element's `oncontextmenu`. */
@@ -67,10 +79,14 @@ export const CodeContextMenu: Component<{
   });
 
   const handleItem = (item: CodeContextMenuItem) => {
-    navigator.clipboard
-      .writeText(item.textToCopy)
-      .then(() => toast.success(`Copied: ${item.textToCopy}`))
-      .catch((err: Error) => toast.error(`Failed to copy: ${err.message}`));
+    if (item.kind === "copy") {
+      navigator.clipboard
+        .writeText(item.textToCopy)
+        .then(() => toast.success(`Copied: ${item.textToCopy}`))
+        .catch((err: Error) => toast.error(`Failed to copy: ${err.message}`));
+    } else {
+      item.onActivate();
+    }
     close();
   };
 
