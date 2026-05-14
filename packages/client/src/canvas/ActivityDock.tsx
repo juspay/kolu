@@ -265,7 +265,6 @@ const AwaitingCardBody: Component<{
     e.preventDefault();
     const text = value().trim();
     if (text.length === 0) return;
-    setValue("");
     // INVARIANT: TUI agents that ship distinct parsers for text and
     // CR (Codex Ratatui is the known case) require text+CR to arrive
     // as TWO separate PTY writes spaced ≥50ms apart. A single
@@ -280,7 +279,10 @@ const AwaitingCardBody: Component<{
         toast.error(`Failed to send input: ${err.message}`);
         return false;
       });
+    // Clear only after confirming the write succeeded — if it failed
+    // the user's text is still in the field so they can retry.
     if (!ok) return;
+    setValue("");
     setTimeout(() => {
       void client.terminal
         .sendInput({ id: props.id, data: "\r" })
