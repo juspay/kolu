@@ -33,6 +33,7 @@ import {
 } from "solid-js";
 import { useStaleCheck } from "../terminal/staleness";
 import { useTerminalStore } from "../terminal/useTerminalStore";
+import AwaitingDock from "./AwaitingDock";
 import CanvasMinimap from "./CanvasMinimap";
 import CanvasTile from "./CanvasTile";
 import CanvasWatermark from "./CanvasWatermark";
@@ -430,6 +431,13 @@ const TerminalCanvas: Component<{
             </>
           );
         })()}
+
+        {/* Awaiting dock: ambient strip surfacing terminals whose agent is
+         *  blocked on user input — auto-hides when empty so the canvas
+         *  stays calm in the no-attention case. */}
+        <Show when={!posture.maximized()}>
+          <AwaitingDock />
+        </Show>
 
         {/* Minimap: spatial dashboard; hides in fullscreen-single-tile mode
          *  since there's nothing spatial to summarize. */}

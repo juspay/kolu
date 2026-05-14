@@ -36,6 +36,10 @@ export const CONTEXTUAL_TIPS = {
     id: "theme-switch",
     text: `Tip: ${formatKeybind(ACTIONS.shuffleTheme.keybind)} cycles through terminal themes`,
   },
+  awaitingDock: {
+    id: "awaiting-dock-reply",
+    text: "Tip: hit Enter to send your reply straight to the agent",
+  },
 } as const satisfies Record<string, Tip>;
 
 export const AMBIENT_TIPS: readonly Tip[] = [
