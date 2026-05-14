@@ -57,23 +57,45 @@ import {
   trackLoseContextCalled,
 } from "./webglTracker";
 
-/** Suppress the browser defaults that conflict with xterm's input model on
- *  the terminal container — context menu so right-click reaches xterm's
- *  mouse tracking, and X11 primary-selection paste on middle-click (which
- *  would otherwise land in xterm's hidden textarea and get relayed to the
- *  PTY). The mousedown listener runs in capture phase so it beats xterm's
- *  own handlers, and covers middle-click drag because the paste fires on
- *  mousedown, not on the eventual mouseup. */
-function suppressXtermBrowserDefaults(container: HTMLElement) {
-  makeEventListener(container, "contextmenu", (e: Event) => e.preventDefault());
-  makeEventListener(
-    container,
+let middleClickPasteGuardInstalled = false;
+
+/** Suppress X11 primary-selection paste on middle-click for xterm
+ *  textareas. Linux Chromium pastes the primary selection into the
+ *  focused editable element on middle-click, regardless of where the
+ *  click landed — a middle-click on the canvas, the title bar, or the
+ *  right panel dumps the primary selection straight into a focused
+ *  xterm. Guard sits on `document` (capture phase) so it catches clicks
+ *  anywhere on the page and beats xterm's own listeners; preventDefaults
+ *  only when the focused element is an xterm helper textarea, leaving
+ *  middle-click paste in other inputs and middle-button gestures on the
+ *  canvas untouched. mousedown (not click) covers middle-click drag —
+ *  the paste fires on press. Installed once per page; subsequent calls
+ *  are no-ops, so the listener cost stays O(1) in terminal count. */
+function ensureXtermMiddleClickPasteGuard() {
+  if (middleClickPasteGuardInstalled) return;
+  middleClickPasteGuardInstalled = true;
+  document.addEventListener(
     "mousedown",
-    (e: MouseEvent) => {
-      if (e.button === 1) e.preventDefault();
+    (e) => {
+      if (e.button !== 1) return;
+      const active = document.activeElement;
+      if (active?.classList.contains("xterm-helper-textarea")) {
+        e.preventDefault();
+      }
     },
     { capture: true },
   );
+}
+
+/** Suppress the browser defaults that conflict with xterm's input model.
+ *  Two distinct boundaries: `contextmenu` is container-scoped (right-
+ *  click on this terminal reaches xterm's mouse tracking); the
+ *  middle-click paste guard is global (the paste action targets the
+ *  focused element regardless of where the click landed, so the click
+ *  may land outside any terminal). */
+function suppressXtermBrowserDefaults(container: HTMLElement) {
+  makeEventListener(container, "contextmenu", (e: Event) => e.preventDefault());
+  ensureXtermMiddleClickPasteGuard();
 }
 
 /** Sum `byteLength` of every BufferLine's `Uint32Array` in xterm's primary
