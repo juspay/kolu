@@ -72,34 +72,40 @@ export function useLineSelection(
     range,
     handleSelect: (r) => setRange(r),
     buildItems: () => {
-      // Snapshot `path()` once so the label, copy text, and onActivate
+      // The menu is line-anchored: every entry refers to a specific
+      // `path:line` ref, so a build without a selected range returns
+      // empty. `<CodeContextMenu>`'s `open()` short-circuits on empty
+      // items, which means the right-click on whitespace produces no
+      // menu — the path-only menu was actionable noise (just one
+      // "Copy path" item, redundant with the in-menu Copy entries
+      // that ALSO copy the path bundled with the line).
+      const r = range();
+      if (!r) return [];
+      // Snapshot `path()` once so label, copy text, and onActivate
       // capture all agree. Reading the accessor inside `onActivate`
       // would resolve at click time and could disagree with the
-      // already-rendered label if Pierre remounts onto a different
-      // file between menu-open and click.
+      // rendered label if Pierre remounts to a different file between
+      // menu-open and click.
       const p = path();
+      const refStr = formatLineRef(p, r.start, r.end);
       const items: CodeContextMenuItem[] = [
         { kind: "copy", label: "Copy path", icon: CopyIcon, textToCopy: p },
-      ];
-      const r = range();
-      if (r) {
-        const refStr = formatLineRef(p, r.start, r.end);
-        items.push({
+        {
           kind: "copy",
           label: `Copy ${refStr}`,
           icon: CopyIcon,
           textToCopy: refStr,
+        },
+      ];
+      const onOpen = options.onOpen?.();
+      if (onOpen) {
+        items.push({
+          kind: "action",
+          label: `Open ${refStr}`,
+          icon: OpenIcon,
+          onActivate: () =>
+            onOpen({ path: p, startLine: r.start, endLine: r.end }),
         });
-        const onOpen = options.onOpen?.();
-        if (onOpen) {
-          items.push({
-            kind: "action",
-            label: `Open ${refStr}`,
-            icon: OpenIcon,
-            onActivate: () =>
-              onOpen({ path: p, startLine: r.start, endLine: r.end }),
-          });
-        }
       }
       return items;
     },

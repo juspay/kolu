@@ -156,6 +156,44 @@ When("I right-click the file content", async function (this: KoluWorld) {
   await rightClickViewRoot(this, FILE_VIEW);
 });
 
+// Right-click on a specific gutter line — selects the line and opens
+// the context menu in one gesture (the host's `contextmenu` handler
+// in `CodeMenuFrame` derives the line from the click target). Replaces
+// the old two-step "click line then right-click viewer root" idiom.
+async function rightClickLineIn(world: KoluWorld, root: string, line: number) {
+  const lineEl = world.page.locator(`${root} [data-column-number="${line}"]`);
+  await lineEl.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  const box = await pollFor({
+    observe: () => lineEl.first().boundingBox(),
+    isDone: (b) => !!b && b.width > 0 && b.height > 0,
+    onTimeout: (last, ms) =>
+      new Error(
+        `gutter ${root} [data-column-number="${line}"] has no usable bounding box after ${ms}ms (last=${JSON.stringify(last)})`,
+      ),
+    timeoutMs: POLL_TIMEOUT,
+    intervalMs: 50,
+  });
+  if (!box) throw new Error("unreachable: pollFor returned without box");
+  await world.page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await world.page.mouse.down({ button: "right" });
+  await world.page.mouse.up({ button: "right" });
+  await world.waitForFrame();
+}
+
+When(
+  "I right-click line {int} in the diff view",
+  async function (this: KoluWorld, line: number) {
+    await rightClickLineIn(this, DIFF_VIEW, line);
+  },
+);
+
+When(
+  "I right-click line {int} in the file content",
+  async function (this: KoluWorld, line: number) {
+    await rightClickLineIn(this, FILE_VIEW, line);
+  },
+);
+
 When(
   "I click the line number {int} in the diff view",
   async function (this: KoluWorld, line: number) {
