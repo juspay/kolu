@@ -29,10 +29,8 @@ export interface OpenInCodeTabRequest {
    *  `bar.ts:42` while standing in a subdirectory of the repo" case;
    *  undefined falls back to repo-relative interpretation only. */
   cwd?: string;
-  /** Which Code-tab sub-mode the request expects to land in. Today
-   *  every producer passes `"browse"`; later phases may route a
-   *  comment-revisit click back to the diff mode the comment was
-   *  authored in. */
+  /** Which Code-tab sub-mode the request expects to land in.
+   *  Producers that don't track an authoring mode pass `"browse"`. */
   targetMode: CodeTabView;
 }
 
