@@ -1,11 +1,11 @@
 import type { AgentInfo, TerminalId } from "kolu-common/surface";
+import { match } from "ts-pattern";
 import {
   type IdleBucket,
   IDLE_BUCKETS,
   type IdleBucketKey,
 } from "../../terminal/activityWindow";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
-import { isAttentionState } from "../../ui/agentDisplay";
 import type { TileLayout } from "../TileLayout";
 
 /** Live-terminal source row before a presentation-specific order is applied. */
@@ -210,10 +210,15 @@ export type WorkspaceSwitcherModel = {
 export function agentBucket(
   agent: AgentInfo | null | undefined,
 ): Exclude<WorkspaceAgentBucket, "idle"> {
-  const state = agent?.state;
-  if (state === undefined) return "none";
-  if (isAttentionState(state)) return "awaiting";
-  return "working";
+  // The `waiting | awaiting_user` pair is the same equivalence class
+  // surfaced runtime-side by `isAttentionState` in `agentDisplay.ts` —
+  // ts-pattern is used here instead so `.exhaustive()` flags any future
+  // state literal that lands in `AgentInfo["state"]` without a bucket.
+  return match(agent?.state)
+    .with(undefined, () => "none" as const)
+    .with("waiting", "awaiting_user", () => "awaiting" as const)
+    .with("thinking", "tool_use", () => "working" as const)
+    .exhaustive();
 }
 
 /** Classify a terminal into a switcher column. Parked terminals (last
