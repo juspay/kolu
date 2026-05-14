@@ -17,9 +17,14 @@ export { TaskProgressSchema };
 export const ClaudeCodeInfoSchema = z.object({
   kind: z.literal("claude-code"),
   /** Current state derived from session JSONL.
-   *  - `awaiting_user`: agent stopped to ask the human (e.g. `AskUserQuestion`,
-   *    `ExitPlanMode`). Visually distinct from `tool_use` because no work is
-   *    in flight — the spinner would be a lie. */
+   *  - `awaiting_user`: agent stopped to ask the human via `AskUserQuestion`
+   *    or `ExitPlanMode`. The state literal is kept here for shape uniformity
+   *    with `CodexInfo` / `OpenCodeInfo` and so `deriveState`'s
+   *    `toolUseOrAwaitingUser` helper compiles, but in practice the Claude
+   *    Agent SDK buffers `requiresUserInteraction` tools' assistant messages
+   *    until the user resolves them — the `tool_use` block isn't on disk
+   *    while the prompt is pending, so this case never fires under the
+   *    current SDK. Fix tracked in #905 (PreToolUse hook side-channel). */
   state: z.enum(["thinking", "tool_use", "waiting", "awaiting_user"]),
   /** Session UUID from ~/.claude/sessions/. */
   sessionId: z.string(),

@@ -75,18 +75,17 @@ Detects [Claude Code](https://docs.anthropic.com/en/docs/claude-code) sessions r
 
 **What we detect:**
 
-| State          | Indicator          | Meaning                                                                    |
-| -------------- | ------------------ | -------------------------------------------------------------------------- |
-| Thinking       | Pulsing accent dot | API call in flight — Claude is generating a response                       |
-| Tool use       | Pulsing yellow dot | Claude is executing tools                                                  |
-| Awaiting input | Pulsing warning    | Claude called `AskUserQuestion` / `ExitPlanMode` — blocked on a human reply |
-| Waiting        | Dim dot            | Claude finished responding, waiting for user input                         |
+| State    | Indicator          | Meaning                                              |
+| -------- | ------------------ | ---------------------------------------------------- |
+| Thinking | Pulsing accent dot | API call in flight — Claude is generating a response |
+| Tool use | Pulsing yellow dot | Claude is executing tools                            |
+| Waiting  | Dim dot            | Claude finished responding, waiting for user input   |
 
 **How it works:** asks each terminal for its current foreground process pid via `tcgetpgrp(fd)` (exposed by node-pty's `foregroundPid` accessor), then checks whether `~/.claude/sessions/<fgpid>.json` exists. If it does, that terminal is running claude-code — we tail the session's JSONL transcript to derive state from the last message. Cross-platform (Linux + macOS) since `tcgetpgrp` is POSIX. Each card also surfaces the session's display title (custom title › auto-generated summary › first prompt) via the [Claude Agent SDK](https://platform.claude.com/docs/en/api/agent-sdk/typescript)'s `getSessionInfo()`, refreshed best-effort on each transcript change. The tile chrome also shows a running token count (compact, e.g. `47K`) summed from the latest assistant entry's `message.usage` — `input_tokens + cache_creation_input_tokens + cache_read_input_tokens`. Raw count only; window size isn't inferable from the JSONL (1M beta strips its suffix, so a `%` would lie), and the raw number is the useful signal anyway.
 
 **What we can't detect:**
 
-- **Permission prompts** — Claude's permission-MCP requests aren't surfaced in the rollout JSONL, so they still register as "tool use" rather than "awaiting input". `AskUserQuestion` and `ExitPlanMode` are detected (their tool-use blocks appear directly in the assistant turn) but the implicit permission gate around a `Bash` / `Edit` call is not
+- **`AskUserQuestion` / `ExitPlanMode` / permission prompts — anything that blocks waiting for the user.** Claude Code's SDK buffers the in-flight assistant message for tools that declare `requiresUserInteraction(){return true}` (the two named tools) and never persists the `tool_use` block to JSONL until the user resolves the prompt. By that point the question is answered and the state has moved on. The integration's state machine carries an `awaiting_user` case (codeshare with Codex/OpenCode where the on-disk signal does exist), but for Claude Code it never fires under the current SDK. Tracked in #905 — fix requires a `PreToolUse` hook side-channel (cmux-style)
 - **Streaming progress** — intermediate thinking tokens aren't tracked, only final state transitions
 - **Wrapped invocations** — if claude-code is launched via a wrapper (e.g. `script -q out.log claude`), the foreground pid is the wrapper, not claude itself, so the session lookup misses
 - **Sub-agents** — nested agent spawns appear as tool use, not as separate tracked sessions
