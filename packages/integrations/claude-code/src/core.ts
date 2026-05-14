@@ -365,35 +365,51 @@ function snippetFromText(text: string): string {
     : flowed;
 }
 
-/** Render a tool_use block as a compact "Tool(arg)" summary. Picks the
- *  most identifying field from the typed input — `file_path` for file
- *  ops, `command` for Bash, `pattern` for Grep — and falls back to just
- *  the tool name when none of those are present. Inputs are arbitrary
- *  objects from the model so the typing is loose; defensive narrowing
- *  is intentional. */
-function snippetFromToolUse(name: string, input: unknown): string {
-  if (input !== null && typeof input === "object") {
-    const o = input as Record<string, unknown>;
-    if (typeof o.file_path === "string" && o.file_path.length > 0) {
-      return `${name}(${path.basename(o.file_path)})`;
-    }
-    if (typeof o.command === "string" && o.command.length > 0) {
-      const head = o.command.split(/\s+/, 1)[0] ?? "";
+/** Priority-ordered table of identifying tool_use input fields. The
+ *  first field on a given tool call's input wins — `file_path` for
+ *  Edit/Read/Write, `command` for Bash, `pattern` for Grep, etc. Each
+ *  entry pairs the field name with its presentation, so adding a new
+ *  identifier (or changing how one renders) is one table row instead
+ *  of a new branch in an if-chain. */
+const TOOL_INPUT_FIELDS: ReadonlyArray<{
+  key: string;
+  render: (name: string, value: string) => string;
+}> = [
+  {
+    key: "file_path",
+    render: (name, value) => `${name}(${path.basename(value)})`,
+  },
+  {
+    key: "command",
+    render: (name, value) => {
+      const head = value.split(/\s+/, 1)[0] ?? "";
       return head.length > 0 ? `${name}: ${head}` : name;
-    }
-    if (typeof o.pattern === "string" && o.pattern.length > 0) {
-      return `${name}(${o.pattern})`;
-    }
-    if (typeof o.url === "string" && o.url.length > 0) {
-      return `${name}(${o.url})`;
-    }
-    if (typeof o.description === "string" && o.description.length > 0) {
-      const head =
-        o.description.length > 60
-          ? `${o.description.slice(0, 59)}…`
-          : o.description;
+    },
+  },
+  { key: "pattern", render: (name, value) => `${name}(${value})` },
+  { key: "url", render: (name, value) => `${name}(${value})` },
+  {
+    key: "description",
+    render: (name, value) => {
+      const head = value.length > 60 ? `${value.slice(0, 59)}…` : value;
       return `${name}: ${head}`;
-    }
+    },
+  },
+];
+
+/** Render a tool_use block as a compact "Tool(arg)" summary. Walks the
+ *  `TOOL_INPUT_FIELDS` priority table in order and returns the first
+ *  match's rendering; falls back to just the tool name when none of
+ *  the identifying fields are present. Inputs are arbitrary objects
+ *  from the model so the typing is loose — defensive narrowing on
+ *  each field. */
+function snippetFromToolUse(name: string, input: unknown): string {
+  if (input === null || typeof input !== "object") return name;
+  const o = input as Record<string, unknown>;
+  for (const { key, render } of TOOL_INPUT_FIELDS) {
+    const value = o[key];
+    if (typeof value === "string" && value.length > 0)
+      return render(name, value);
   }
   return name;
 }
