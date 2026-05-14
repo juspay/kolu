@@ -9,6 +9,7 @@
 import { type Component, createSignal, For, onCleanup, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import { toast } from "solid-sonner";
+import { match } from "ts-pattern";
 
 /** Two verbs over the same selection noun: copy a string to the clipboard,
  *  or invoke an action callback. The discriminator keeps the dispatch
@@ -79,14 +80,15 @@ export const CodeContextMenu: Component<{
   });
 
   const handleItem = (item: CodeContextMenuItem) => {
-    if (item.kind === "copy") {
-      navigator.clipboard
-        .writeText(item.textToCopy)
-        .then(() => toast.success(`Copied: ${item.textToCopy}`))
-        .catch((err: Error) => toast.error(`Failed to copy: ${err.message}`));
-    } else {
-      item.onActivate();
-    }
+    match(item)
+      .with({ kind: "copy" }, ({ textToCopy }) => {
+        navigator.clipboard
+          .writeText(textToCopy)
+          .then(() => toast.success(`Copied: ${textToCopy}`))
+          .catch((err: Error) => toast.error(`Failed to copy: ${err.message}`));
+      })
+      .with({ kind: "action" }, ({ onActivate }) => onActivate())
+      .exhaustive();
     close();
   };
 
