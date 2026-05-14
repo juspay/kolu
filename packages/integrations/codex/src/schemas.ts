@@ -16,8 +16,11 @@ export { TaskProgressSchema };
 
 export const CodexInfoSchema = z.object({
   kind: z.literal("codex"),
-  /** Current state derived from the rollout JSONL's event stream. */
-  state: z.enum(["thinking", "tool_use", "waiting"]),
+  /** Current state derived from the rollout JSONL's event stream.
+   *  - `awaiting_user`: agent issued `request_user_input` (or another
+   *    user-input tool) and is blocked on a reply. Distinct from `tool_use`
+   *    so the UI can stop pretending the spinner is doing work. */
+  state: z.enum(["thinking", "tool_use", "waiting", "awaiting_user"]),
   /** Thread id from Codex's `threads` table (e.g. "019db605-..."). */
   sessionId: z.string(),
   /** Model identifier from the DB (e.g. "gpt-5.4"). Null until Codex

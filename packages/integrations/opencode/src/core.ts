@@ -205,36 +205,55 @@ export function getLatestAssistantContextTokens(
 
 // --- Tool detection ---
 
-/**
- * Check whether the given message has any tool parts currently in the
- * "running" state. Scoped to one message (the current assistant turn)
- * rather than the entire session — a session with thousands of completed
- * tool parts from prior turns only needs to check the handful of parts
- * belonging to the latest message.
+/** Classifier for the running tool parts on the current message:
+ *   - `none`         — no tools in flight; let the base state stand
+ *   - `tool_use`     — at least one real-work tool is running
+ *   - `awaiting_user` — every running part is OpenCode's `question` tool
  *
- * Uses the `part_message_id_id_idx` index for an O(parts-in-message)
- * scan, not O(all-parts-in-session).
+ *  OpenCode's permission/question flow lives in process memory (see
+ *  upstream `Question.Service`), but the built-in `question` tool *does*
+ *  persist a part row with `state.status = "running"` while it waits on
+ *  the user. Discriminating by `tool === "question"` is therefore the
+ *  only signal SQLite carries that distinguishes "blocked on human" from
+ *  "shell command in flight". */
+export type RunningToolsBucket = "none" | "tool_use" | "awaiting_user";
+
+/**
+ * Classify the tool parts currently in the "running" state for one
+ * message (the current assistant turn) — scoped per-message rather than
+ * per-session so a transcript with thousands of completed tool parts
+ * stays cheap to scan.
+ *
+ * One SQL pass splits running tools into "all are `question`" vs. "at
+ * least one is real work" by counting both totals; the discriminator
+ * lives in TS so the SQL stays trivially indexable on
+ * `part_message_id_id_idx`.
  */
-export function hasRunningTools(
+export function runningToolsBucket(
   messageId: string,
   log?: Logger,
   db?: DatabaseSync,
-): boolean {
+): RunningToolsBucket {
   return (
     withDb(
       (conn) => {
         const row = conn
           .prepare(
-            "SELECT COUNT(*) AS n FROM part WHERE message_id = ? AND json_extract(data, '$.type') = 'tool' AND json_extract(data, '$.state.status') = 'running'",
+            "SELECT COUNT(*) AS total, SUM(CASE WHEN json_extract(data, '$.tool') = 'question' THEN 1 ELSE 0 END) AS awaiting FROM part WHERE message_id = ? AND json_extract(data, '$.type') = 'tool' AND json_extract(data, '$.state.status') = 'running'",
           )
-          .get(messageId) as { n: number } | undefined;
-        return (row?.n ?? 0) > 0;
+          .get(messageId) as
+          | { total: number; awaiting: number | null }
+          | undefined;
+        const total = row?.total ?? 0;
+        if (total === 0) return "none";
+        const awaiting = row?.awaiting ?? 0;
+        return awaiting === total ? "awaiting_user" : "tool_use";
       },
       "opencode running-tools query failed",
       { messageId },
       log,
       db,
-    ) ?? false
+    ) ?? "none"
   );
 }
 

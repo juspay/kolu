@@ -77,7 +77,15 @@ export function useTerminalAlerts(deps: {
     prev: string | undefined,
     next: string | undefined,
   ) {
-    if (!activityAlerts() || next !== "waiting" || prev === "waiting") return;
+    if (!activityAlerts()) return;
+    // Both `waiting` (turn ended cleanly) and `awaiting_user` (agent
+    // blocked on a question) mean "user attention needed now" — fire on
+    // either transition. Treat the two as a single "needs-attention"
+    // class so we don't double-alert when the agent flips between them
+    // within one session.
+    const isAttention = (s: string | undefined) =>
+      s === "waiting" || s === "awaiting_user";
+    if (!isAttention(next) || isAttention(prev)) return;
     alertForTerminal(id);
   }
 

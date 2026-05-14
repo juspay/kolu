@@ -21,6 +21,7 @@ const stateConfig: Record<
   thinking: { color: BUSY_COLOR, animation: "animate-pulse" },
   tool_use: { color: BUSY_COLOR, animation: "animate-spin" },
   waiting: { color: "text-warning", animation: "animate-pulse" },
+  awaiting_user: { color: "text-warning", animation: "animate-pulse" },
 };
 
 /** "47392" → "47K", "1183456" → "1.2M". Single call site; no helper module

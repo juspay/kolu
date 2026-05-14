@@ -211,6 +211,7 @@ export function agentBucket(
 ): Exclude<WorkspaceAgentBucket, "idle"> {
   switch (agent?.state) {
     case "waiting":
+    case "awaiting_user":
       return "awaiting";
     case "thinking":
     case "tool_use":

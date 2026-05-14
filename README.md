@@ -75,17 +75,18 @@ Detects [Claude Code](https://docs.anthropic.com/en/docs/claude-code) sessions r
 
 **What we detect:**
 
-| State    | Indicator          | Meaning                                              |
-| -------- | ------------------ | ---------------------------------------------------- |
-| Thinking | Pulsing accent dot | API call in flight — Claude is generating a response |
-| Tool use | Pulsing yellow dot | Claude is executing tools or waiting for permission  |
-| Waiting  | Dim dot            | Claude finished responding, waiting for user input   |
+| State          | Indicator          | Meaning                                                                    |
+| -------------- | ------------------ | -------------------------------------------------------------------------- |
+| Thinking       | Pulsing accent dot | API call in flight — Claude is generating a response                       |
+| Tool use       | Pulsing yellow dot | Claude is executing tools                                                  |
+| Awaiting input | Pulsing warning    | Claude called `AskUserQuestion` / `ExitPlanMode` — blocked on a human reply |
+| Waiting        | Dim dot            | Claude finished responding, waiting for user input                         |
 
 **How it works:** asks each terminal for its current foreground process pid via `tcgetpgrp(fd)` (exposed by node-pty's `foregroundPid` accessor), then checks whether `~/.claude/sessions/<fgpid>.json` exists. If it does, that terminal is running claude-code — we tail the session's JSONL transcript to derive state from the last message. Cross-platform (Linux + macOS) since `tcgetpgrp` is POSIX. Each card also surfaces the session's display title (custom title › auto-generated summary › first prompt) via the [Claude Agent SDK](https://platform.claude.com/docs/en/api/agent-sdk/typescript)'s `getSessionInfo()`, refreshed best-effort on each transcript change. The tile chrome also shows a running token count (compact, e.g. `47K`) summed from the latest assistant entry's `message.usage` — `input_tokens + cache_creation_input_tokens + cache_read_input_tokens`. Raw count only; window size isn't inferable from the JSONL (1M beta strips its suffix, so a `%` would lie), and the raw number is the useful signal anyway.
 
 **What we can't detect:**
 
-- **Permission prompts vs tool execution** — both show as "tool use" since the JSONL doesn't distinguish them
+- **Permission prompts** — Claude's permission-MCP requests aren't surfaced in the rollout JSONL, so they still register as "tool use" rather than "awaiting input". `AskUserQuestion` and `ExitPlanMode` are detected (their tool-use blocks appear directly in the assistant turn) but the implicit permission gate around a `Bash` / `Edit` call is not
 - **Streaming progress** — intermediate thinking tokens aren't tracked, only final state transitions
 - **Wrapped invocations** — if claude-code is launched via a wrapper (e.g. `script -q out.log claude`), the foreground pid is the wrapper, not claude itself, so the session lookup misses
 - **Sub-agents** — nested agent spawns appear as tool use, not as separate tracked sessions
@@ -106,11 +107,12 @@ Detects [Codex](https://github.com/openai/codex) TUI sessions and surfaces their
 
 **What we detect:**
 
-| State    | Indicator          | How                                                                                                                                        |
-| -------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| Thinking | Pulsing accent dot | Latest lifecycle event is `task_started`, with no open `function_call` scoped to the current turn                                          |
-| Tool use | Spinning yellow    | Latest lifecycle event is `task_started`, with at least one `function_call` opened since that `task_started` and no matching `_output` yet |
-| Waiting  | Dim dot            | Latest lifecycle event is `task_complete`                                                                                                  |
+| State          | Indicator          | How                                                                                                                                                          |
+| -------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Thinking       | Pulsing accent dot | Latest lifecycle event is `task_started`, with no open `function_call` scoped to the current turn                                                            |
+| Tool use       | Spinning yellow    | Latest lifecycle event is `task_started`, with at least one open `function_call` that isn't a known awaiting-user tool                                       |
+| Awaiting input | Pulsing warning    | Every open `function_call` on the current turn names a known awaiting-user tool (`request_user_input`) — Codex is blocked on the user, not running compute |
+| Waiting        | Dim dot            | Latest lifecycle event is `task_complete`                                                                                                                    |
 
 Open-call tracking is scoped per-turn: a `function_call` with no matching `_output` that straddles a `task_started` boundary (user aborted a prior tool-using turn) does not pin the next turn to `tool_use`.
 
@@ -131,11 +133,12 @@ Detects [OpenCode](https://github.com/anomalyco/opencode) sessions and shows the
 
 **What we detect:**
 
-| State    | Indicator          | How                                                                     |
-| -------- | ------------------ | ----------------------------------------------------------------------- |
-| Thinking | Pulsing accent dot | Latest assistant message has no `time.completed`                        |
-| Tool use | Spinning yellow    | Thinking + any `part` with `type: "tool"` and `state.status: "running"` |
-| Waiting  | Dim dot            | Latest assistant message has `time.completed` set and `finish: "stop"`  |
+| State          | Indicator          | How                                                                                                          |
+| -------------- | ------------------ | ------------------------------------------------------------------------------------------------------------ |
+| Thinking       | Pulsing accent dot | Latest assistant message has no `time.completed`                                                             |
+| Tool use       | Spinning yellow    | Thinking + at least one `part` with `state.status: "running"` whose `tool` field is anything but `question`  |
+| Awaiting input | Pulsing warning    | Thinking + every running `part`'s `tool` is OpenCode's built-in `question` tool — blocked on a human reply   |
+| Waiting        | Dim dot            | Latest assistant message has `time.completed` set and `finish: "stop"`                                       |
 
 **What we can't detect (yet):**
 

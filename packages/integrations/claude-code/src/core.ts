@@ -177,6 +177,27 @@ type UsageShape = {
   cache_read_input_tokens?: number;
 };
 
+/** Built-in tools whose pending invocation means the agent is blocked on
+ *  the human, not running compute. `AskUserQuestion` is the structured
+ *  question prompt; `ExitPlanMode` is the plan-approval gate. When the
+ *  last assistant turn stopped with `stop_reason: "tool_use"` and every
+ *  pending tool call is in this set, the agent is awaiting a reply —
+ *  rendering "Running tools" would mislead. */
+const AWAITING_USER_TOOLS = new Set(["AskUserQuestion", "ExitPlanMode"]);
+
+function toolUseOrAwaitingUser(
+  content: Array<{ type?: string; name?: string }> | undefined,
+): "tool_use" | "awaiting_user" {
+  if (!Array.isArray(content)) return "tool_use";
+  let sawToolUse = false;
+  for (const block of content) {
+    if (block.type !== "tool_use") continue;
+    sawToolUse = true;
+    if (!block.name || !AWAITING_USER_TOOLS.has(block.name)) return "tool_use";
+  }
+  return sawToolUse ? "awaiting_user" : "tool_use";
+}
+
 /** Derive Claude Code state from the last relevant JSONL message.
  *
  *  Walks backwards once, tracking two independent signals with different
@@ -210,6 +231,7 @@ export function deriveState(lines: string[]): {
           stop_reason?: string | null;
           model?: string | null;
           usage?: UsageShape;
+          content?: Array<{ type?: string; name?: string }>;
         };
       } = JSON.parse(raw);
 
@@ -229,7 +251,7 @@ export function deriveState(lines: string[]): {
             model,
           }))
           .with({ type: "assistant", stopReason: "tool_use" }, () => ({
-            state: "tool_use" as const,
+            state: toolUseOrAwaitingUser(entry.message?.content),
             model,
           }))
           .with({ type: "assistant" }, () => ({

@@ -16,8 +16,11 @@ export { TaskProgressSchema };
 
 export const OpenCodeInfoSchema = z.object({
   kind: z.literal("opencode"),
-  /** Current state derived from the latest session message. */
-  state: z.enum(["thinking", "tool_use", "waiting"]),
+  /** Current state derived from the latest session message.
+   *  - `awaiting_user`: the only running tool part is OpenCode's `question`
+   *    tool (blocked on user reply). Distinct from `tool_use` so the UI can
+   *    stop pretending the spinner is doing work. */
+  state: z.enum(["thinking", "tool_use", "waiting", "awaiting_user"]),
   /** Session ID from OpenCode's database (e.g. "ses_..."). */
   sessionId: z.string(),
   /** Model identifier if available (e.g. "litellm/glm-latest"). */

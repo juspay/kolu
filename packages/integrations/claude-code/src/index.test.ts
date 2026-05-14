@@ -34,6 +34,64 @@ describe("deriveState", () => {
     });
   });
 
+  it("returns awaiting_user when the only pending tool is AskUserQuestion", () => {
+    const line = JSON.stringify({
+      type: "assistant",
+      message: {
+        stop_reason: "tool_use",
+        model: "claude-opus-4-7",
+        content: [
+          { type: "text", text: "Need a decision before I proceed." },
+          { type: "tool_use", name: "AskUserQuestion", id: "tu_1" },
+        ],
+      },
+    });
+    expect(deriveState([line])).toEqual({
+      state: "awaiting_user",
+      model: "claude-opus-4-7",
+      contextTokens: null,
+    });
+  });
+
+  it("returns awaiting_user for ExitPlanMode (plan approval gate)", () => {
+    const line = JSON.stringify({
+      type: "assistant",
+      message: {
+        stop_reason: "tool_use",
+        model: "claude-opus-4-7",
+        content: [{ type: "tool_use", name: "ExitPlanMode", id: "tu_1" }],
+      },
+    });
+    expect(deriveState([line])).toMatchObject({ state: "awaiting_user" });
+  });
+
+  it("stays tool_use when AskUserQuestion is mixed with a real tool call", () => {
+    // Mixed batch: the human-input prompt is real, but so is the Read —
+    // there's compute in flight, so "Running tools" is honest.
+    const line = JSON.stringify({
+      type: "assistant",
+      message: {
+        stop_reason: "tool_use",
+        model: "claude-opus-4-7",
+        content: [
+          { type: "tool_use", name: "AskUserQuestion", id: "tu_1" },
+          { type: "tool_use", name: "Read", id: "tu_2" },
+        ],
+      },
+    });
+    expect(deriveState([line])).toMatchObject({ state: "tool_use" });
+  });
+
+  it("falls back to tool_use when content is missing on a tool_use stop", () => {
+    // Synthetic transcripts (e.g. `claude -c` replays) may omit content;
+    // we can't tell what's pending so treat it as the conservative case.
+    const line = JSON.stringify({
+      type: "assistant",
+      message: { stop_reason: "tool_use", model: "claude-opus-4-7" },
+    });
+    expect(deriveState([line])).toMatchObject({ state: "tool_use" });
+  });
+
   it("returns thinking for assistant with missing stop_reason", () => {
     const line = JSON.stringify({
       type: "assistant",

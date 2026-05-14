@@ -2,7 +2,7 @@ import type { AgentInfo } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
 import { shouldBumpRecencyForAgentChange } from "./agent.ts";
 
-function claude(state: "thinking" | "tool_use" | "waiting"): AgentInfo {
+function claude(state: AgentInfo["state"]): AgentInfo {
   return {
     kind: "claude-code",
     state,

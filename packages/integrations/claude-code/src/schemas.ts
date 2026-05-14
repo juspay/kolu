@@ -16,8 +16,11 @@ export { TaskProgressSchema };
 
 export const ClaudeCodeInfoSchema = z.object({
   kind: z.literal("claude-code"),
-  /** Current state derived from session JSONL. */
-  state: z.enum(["thinking", "tool_use", "waiting"]),
+  /** Current state derived from session JSONL.
+   *  - `awaiting_user`: agent stopped to ask the human (e.g. `AskUserQuestion`,
+   *    `ExitPlanMode`). Visually distinct from `tool_use` because no work is
+   *    in flight — the spinner would be a lie. */
+  state: z.enum(["thinking", "tool_use", "waiting", "awaiting_user"]),
   /** Session UUID from ~/.claude/sessions/. */
   sessionId: z.string(),
   /** Model name if available (e.g. "claude-opus-4-6"). */

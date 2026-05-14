@@ -19,9 +19,9 @@ import {
   getLatestAssistantContextTokens,
   getSessionTaskProgress,
   getSessionTitle,
-  hasRunningTools,
   type OpenCodeSession,
   openDb,
+  runningToolsBucket,
 } from "./core.ts";
 import type { OpenCodeInfo } from "./schemas.ts";
 import { subscribeOpenCodeDb } from "./wal-watcher.ts";
@@ -67,14 +67,17 @@ export function createOpenCodeWatcher(
     }
 
     // When the assistant is actively generating (state === "thinking"),
-    // check whether the current message has any tool parts in the
-    // "running" state to distinguish tool execution from LLM generation.
-    // Scoped to derived.messageId (the latest message) — not the entire
-    // session — so we only scan the handful of current-turn parts.
+    // classify the current message's running tool parts to distinguish
+    // tool execution from LLM generation — and within tool execution,
+    // separate "blocked on user question" from real compute. Scoped to
+    // derived.messageId (the latest message) — not the entire session —
+    // so we only scan the handful of current-turn parts.
     const state =
-      derived.state === "thinking" &&
-      hasRunningTools(derived.messageId, log, db)
-        ? ("tool_use" as const)
+      derived.state === "thinking"
+        ? (() => {
+            const bucket = runningToolsBucket(derived.messageId, log, db);
+            return bucket === "none" ? derived.state : bucket;
+          })()
         : derived.state;
 
     const taskProgress = getSessionTaskProgress(session.id, log, db);

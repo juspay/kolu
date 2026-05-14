@@ -25,6 +25,7 @@ export const stateLabels: Record<AgentInfo["state"], string> = {
   thinking: "Thinking",
   tool_use: "Running tools",
   waiting: "Waiting for input",
+  awaiting_user: "Awaiting input",
 };
 
 /** Resolve the icon for a raw agent command string (e.g. `"claude --model

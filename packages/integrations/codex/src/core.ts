@@ -253,6 +253,10 @@ interface RolloutLine {
     turn_id?: string;
     /** On `response_item` payloads for function_call/function_call_output. */
     call_id?: string;
+    /** On `response_item:function_call` — the tool name (e.g. `shell`,
+     *  `request_user_input`, `update_plan`). Captured so the state machine
+     *  can route blocked-on-human tools to `awaiting_user`. */
+    name?: string;
     /** On `token_count` event_msgs. Nested because Codex envelopes the
      *  accounting under `.info` alongside rate-limit metadata. */
     info?: {
@@ -305,9 +309,16 @@ interface RolloutLine {
  *
  * Pure function — unit-testable without touching the filesystem.
  */
+/** Built-in Codex tools whose pending invocation means the agent is
+ *  blocked on the human. `request_user_input` is Codex's structured
+ *  question prompt (the `AskUserQuestion` analog). When every open call
+ *  on the current turn is in this set, the agent isn't computing — it's
+ *  waiting for a reply. */
+const AWAITING_USER_TOOLS = new Set(["request_user_input"]);
+
 export function parseRolloutState(lines: string[]): CodexInfo["state"] | null {
   let lastLifecycle: "started" | "completed" | null = null;
-  const openCalls = new Set<string>();
+  const openCalls = new Map<string, string>();
 
   for (const line of lines) {
     let entry: RolloutLine;
@@ -331,7 +342,7 @@ export function parseRolloutState(lines: string[]): CodexInfo["state"] | null {
       }
     } else if (outer === "response_item") {
       if (inner === "function_call" && entry.payload?.call_id) {
-        openCalls.add(entry.payload.call_id);
+        openCalls.set(entry.payload.call_id, entry.payload.name ?? "");
       } else if (inner === "function_call_output" && entry.payload?.call_id) {
         openCalls.delete(entry.payload.call_id);
       }
@@ -340,8 +351,11 @@ export function parseRolloutState(lines: string[]): CodexInfo["state"] | null {
 
   if (lastLifecycle === null) return null;
   if (lastLifecycle === "completed") return "waiting";
-  if (openCalls.size > 0) return "tool_use";
-  return "thinking";
+  if (openCalls.size === 0) return "thinking";
+  for (const name of openCalls.values()) {
+    if (!AWAITING_USER_TOOLS.has(name)) return "tool_use";
+  }
+  return "awaiting_user";
 }
 
 /**
