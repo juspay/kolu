@@ -25,6 +25,7 @@ export function useTerminals() {
 
   const alerts = useTerminalAlerts({
     activeId: store.activeId,
+    activate: store.activate,
     getMetadata: store.getMetadata,
     hasBadgeAttention: store.hasBadgeAttention,
     clearBadgeAttention: store.clearBadgeAttention,

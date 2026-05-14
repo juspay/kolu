@@ -98,6 +98,37 @@ When(
   },
 );
 
+Then(
+  "a {string} toast should appear",
+  async function (this: KoluWorld, fragment: string) {
+    const toast = this.page
+      .locator("[data-sonner-toast]")
+      .filter({ hasText: fragment });
+    await toast.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+Then(
+  "the toast should expose a {string} action",
+  async function (this: KoluWorld, label: string) {
+    const action = this.page.locator(
+      `[data-sonner-toast] [data-button]:not([data-cancel])`,
+    );
+    await action.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const text = (await action.first().textContent())?.trim();
+    assert.strictEqual(text, label, `Expected action label '${label}'`);
+  },
+);
+
+When("I click the toast Switch action", async function (this: KoluWorld) {
+  const action = this.page.locator(
+    `[data-sonner-toast] [data-button]:not([data-cancel])`,
+  );
+  await action.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  await action.first().click();
+  await this.waitForFrame();
+});
+
 When("I stub the Badging API", async function (this: KoluWorld) {
   await this.page.evaluate(() => {
     window.__badgeCalls = [];

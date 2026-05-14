@@ -13,6 +13,7 @@ import {
 
 export function useTerminalAlerts(deps: {
   activeId: Accessor<TerminalId | null>;
+  activate: (id: TerminalId) => void;
   getMetadata: (id: TerminalId) => TerminalMetadata | undefined;
   hasBadgeAttention: (id: TerminalId) => boolean;
   clearBadgeAttention: () => void;
@@ -87,7 +88,7 @@ export function useTerminalAlerts(deps: {
       deps.markBadgeAttention(id);
     }
     if (isBackground || document.hidden)
-      fireActivityAlert(deps.terminalLabel(id));
+      fireActivityAlert(deps.terminalLabel(id), () => deps.activate(id));
   }
 
   function simulateAlert(options?: { target?: "active" | "inactive" }) {

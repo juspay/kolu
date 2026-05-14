@@ -1,4 +1,8 @@
-/** Activity alerts — audio + browser notification when a background terminal finishes. */
+/** Activity alerts — audio + browser notification + in-app toast when a
+ *  background terminal's agent finishes. All output channels live here so
+ *  `useTerminalAlerts` stays focused on "decide who to alert". */
+
+import { toast } from "solid-sonner";
 
 /** Play the notification sound (pre-recorded mp3 in public/sounds/). */
 function playSound() {
@@ -15,12 +19,27 @@ export function requestNotificationPermission() {
   }
 }
 
-/** Fire audio + browser notification for a terminal that finished. */
-export function fireActivityAlert(label: string) {
+/** Fire audio + in-app toast + (when tab is hidden) browser notification
+ *  for a terminal that finished. `onSwitch` activates the terminal — used
+ *  by the toast's Switch action and the native notification's click. */
+export function fireActivityAlert(label: string, onSwitch: () => void) {
   playSound();
-  if (document.hidden) {
-    if ("Notification" in window && Notification.permission === "granted") {
-      new Notification(`${label} finished`, { icon: "/favicon.svg" });
-    }
+  toast.success(`${label} finished`, {
+    duration: 8000,
+    action: { label: "Switch", onClick: onSwitch },
+  });
+  if (
+    document.hidden &&
+    "Notification" in window &&
+    Notification.permission === "granted"
+  ) {
+    const notif = new Notification(`${label} finished`, {
+      icon: "/favicon.svg",
+    });
+    notif.onclick = () => {
+      window.focus();
+      onSwitch();
+      notif.close();
+    };
   }
 }
