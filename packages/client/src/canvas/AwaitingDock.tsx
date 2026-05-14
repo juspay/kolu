@@ -1,16 +1,23 @@
-/** Awaiting dock — a top-right stack of cards, one per terminal whose
- *  agent is currently waiting on user input.
+/** Awaiting dock — top-right column of cards/pills surfacing every
+ *  active agent that needs you (full cards) or is busy (compact pills).
  *
- *  Each card shows the last few non-empty lines of that terminal's xterm
- *  buffer (read live via `getTerminalRefs`) plus a reply input that pipes
- *  straight to the PTY via `terminal.sendInput`. The dock auto-hides when
- *  no terminals are awaiting.
+ *  Two tiers, top to bottom:
+ *  1. **Awaiting cards** — full cards for terminals whose agent is in
+ *     `waiting` state. Show the last few non-chrome lines of the xterm
+ *     buffer (via `tailBuffer`) plus a reply input that pipes to the
+ *     PTY. The whole repo+branch+tail region is a click target that
+ *     activates the underlying terminal; the input form is a sibling
+ *     so focusing it doesn't switch tiles away.
+ *  2. **Working pills** — single-row pills for terminals whose agent is
+ *     `thinking`/`tool_use`. Just repo + branch, click to jump.
  *
- *  Lives top-right so it doesn't collide with the bottom-right toast
- *  stack or the bottom-left minimap. Cards stack downward; the whole card
- *  is a click target that activates its terminal — except the reply
- *  input, which stops propagation so focusing it doesn't switch tiles
- *  away from whatever the user was looking at. */
+ *  Parked (auto-stale, `lastActivityAt > STALE_THRESHOLD_MS`)
+ *  terminals are filtered out of both tiers — once an agent's been
+ *  idle for hours, the dock should stop pointing at it.
+ *
+ *  Lives below the ChromeBar (top-14) so the workspace-chrome controls
+ *  (record, panel, settings, ⌘K) stay clickable. Auto-hides when both
+ *  tiers are empty. */
 
 import type { TerminalId } from "kolu-common/surface";
 import {
@@ -22,30 +29,38 @@ import {
   onCleanup,
 } from "solid-js";
 import { tailBuffer } from "../terminal/bufferTail";
+import { useStaleCheck } from "../terminal/staleness";
 import { getTerminalRefs } from "../terminal/terminalRefs";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { client } from "../wire";
 import { agentBucket } from "./workspace-switcher/model";
 
-const TAIL_LINES = 4;
+const TAIL_LINES = 3;
 const PEEK_REFRESH_MS = 250;
 
 const AwaitingDock: Component = () => {
   const store = useTerminalStore();
+  const isStale = useStaleCheck();
 
-  const awaitingIds = createMemo(() =>
-    store
-      .terminalIds()
-      .filter((id) => agentBucket(store.getMetadata(id)?.agent) === "awaiting"),
-  );
+  const liveIds = (bucket: "awaiting" | "working") =>
+    store.terminalIds().filter((id) => {
+      const meta = store.getMetadata(id);
+      if (!meta) return false;
+      if (isStale(meta.lastActivityAt)) return false;
+      return agentBucket(meta.agent) === bucket;
+    });
+
+  const awaitingIds = createMemo(() => liveIds("awaiting"));
+  const workingIds = createMemo(() => liveIds("working"));
 
   return (
-    <Show when={awaitingIds().length > 0}>
+    <Show when={awaitingIds().length + workingIds().length > 0}>
       <div
         data-testid="awaiting-dock"
-        class="absolute top-4 right-4 z-20 flex flex-col gap-2 items-end"
+        class="absolute top-14 right-4 z-20 flex flex-col gap-2 items-end"
       >
         <For each={awaitingIds()}>{(id) => <AwaitingCard id={id} />}</For>
+        <For each={workingIds()}>{(id) => <WorkingPill id={id} />}</For>
       </div>
     </Show>
   );
@@ -106,18 +121,23 @@ const AwaitingCard: Component<{ id: TerminalId }> = (props) => {
               >
                 {displayInfo().key.group}
               </span>
-              <span class="text-[0.75rem] font-semibold truncate min-w-0 text-fg-1">
+              <span
+                class="text-[0.75rem] font-semibold truncate min-w-0"
+                style={{ color: displayInfo().branchColor }}
+              >
                 {displayInfo().key.label}
               </span>
             </div>
-            <div
-              data-testid="awaiting-dock-tail"
-              class="font-mono text-[0.7rem] text-fg-2 leading-snug whitespace-pre-wrap break-all h-[3.6em] overflow-hidden w-full"
-            >
-              <For each={tail()}>
-                {(line) => <div class="truncate">{line || " "}</div>}
-              </For>
-            </div>
+            <Show when={tail().length > 0}>
+              <div
+                data-testid="awaiting-dock-tail"
+                class="font-mono text-[0.7rem] text-fg-2 leading-snug whitespace-pre-wrap break-all w-full"
+              >
+                <For each={tail()}>
+                  {(line) => <div class="truncate">{line}</div>}
+                </For>
+              </div>
+            </Show>
           </button>
           <form onSubmit={submit}>
             <input
@@ -133,6 +153,40 @@ const AwaitingCard: Component<{ id: TerminalId }> = (props) => {
             />
           </form>
         </div>
+      )}
+    </Show>
+  );
+};
+
+const WorkingPill: Component<{ id: TerminalId }> = (props) => {
+  const store = useTerminalStore();
+  const info = createMemo(() => store.getDisplayInfo(props.id));
+
+  return (
+    <Show when={info()}>
+      {(displayInfo) => (
+        <button
+          type="button"
+          data-testid="awaiting-dock-working"
+          data-terminal-id={props.id}
+          onClick={() => store.activate(props.id)}
+          class="pill-border pill-border-working rounded-lg border border-edge/40 bg-surface-0/75 backdrop-blur-sm px-2.5 py-1 flex items-baseline gap-2 w-[280px] cursor-pointer hover:bg-surface-1/70 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+          style={{ "--pill-border-radius": "calc(0.5rem + 2px)" }}
+          title="Jump to this terminal"
+        >
+          <span
+            class="font-mono text-[0.55rem] font-bold uppercase tracking-[0.16em] truncate"
+            style={{ color: displayInfo().repoColor }}
+          >
+            {displayInfo().key.group}
+          </span>
+          <span
+            class="text-[0.7rem] font-medium truncate"
+            style={{ color: displayInfo().branchColor }}
+          >
+            {displayInfo().key.label}
+          </span>
+        </button>
       )}
     </Show>
   );
