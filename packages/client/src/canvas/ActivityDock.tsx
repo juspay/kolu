@@ -153,9 +153,7 @@ const DockRow: Component<{ id: TerminalId; tailLines: number }> = (props) => {
     const m = store.getMetadata(props.id);
     return i && m ? { info: i, meta: m } : null;
   });
-  const bucket = createMemo(() =>
-    agentBucket(store.getMetadata(props.id)?.agent),
-  );
+  const bucket = createMemo(() => agentBucket(combined()?.meta.agent));
   return (
     <Show when={combined()}>
       {(c) => (
