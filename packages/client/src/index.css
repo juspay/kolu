@@ -71,9 +71,12 @@ body {
  *      agent-state ring on the outside.
  *
  *   2. Agent-state — driven by `--pill-state-color` (bucket accent
- *      from `WORKSPACE_AGENT_BUCKETS`). `.pill-border-awaiting`
- *      breathes; `.pill-border-working` is a static ring; idle has
- *      no class.
+ *      from `WORKSPACE_AGENT_BUCKETS`). Both live states pulse so
+ *      motion conveys "alive"; cadence + intensity distinguishes
+ *      them. `.pill-border-awaiting` breathes faster (1.6s) and
+ *      deeper (20%↔90%) to read as alarm-like; `.pill-border-working`
+ *      pulses slower (2.4s) and shallower (35%↔80%) to read as calm
+ *      activity. Idle has no class.
  *
  * The two channels never read the same CSS variable, so a card that
  * is both active and has an agent renders an outer bucket-colored
@@ -126,11 +129,24 @@ body {
 }
 
 .pill-border-working::before {
-  background: color-mix(
-    in oklch,
-    var(--pill-state-color, var(--color-accent)) 70%,
-    transparent
-  );
+  animation: pill-working-pulse 2.4s ease-in-out infinite;
+}
+@keyframes pill-working-pulse {
+  0%,
+  100% {
+    background: color-mix(
+      in oklch,
+      var(--pill-state-color, var(--color-accent)) 35%,
+      transparent
+    );
+  }
+  50% {
+    background: color-mix(
+      in oklch,
+      var(--pill-state-color, var(--color-accent)) 80%,
+      transparent
+    );
+  }
 }
 
 /* Honour the user's motion preference: collapse the breathe to a
@@ -144,6 +160,14 @@ body {
     background: color-mix(
       in oklch,
       var(--pill-state-color, var(--color-alert)) 80%,
+      transparent
+    );
+  }
+  .pill-border-working::before {
+    animation: none;
+    background: color-mix(
+      in oklch,
+      var(--pill-state-color, var(--color-accent)) 60%,
       transparent
     );
   }
