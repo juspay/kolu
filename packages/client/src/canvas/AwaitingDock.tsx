@@ -1,14 +1,16 @@
-/** Awaiting dock — a bottom-edge strip surfacing every terminal whose
+/** Awaiting dock — a top-right stack of cards, one per terminal whose
  *  agent is currently waiting on user input.
  *
  *  Each card shows the last few non-empty lines of that terminal's xterm
  *  buffer (read live via `getTerminalRefs`) plus a reply input that pipes
  *  straight to the PTY via `terminal.sendInput`. The dock auto-hides when
- *  no terminals are awaiting, so it costs zero pixels in the calm case.
+ *  no terminals are awaiting.
  *
- *  Mounted as a sibling of `CanvasMinimap` inside `TerminalCanvas`. Ambient
- *  visibility means the user never has to open the workspace switcher to
- *  notice an agent is blocked on them. */
+ *  Lives top-right so it doesn't collide with the bottom-right toast
+ *  stack or the bottom-left minimap. Cards stack downward; the whole card
+ *  is a click target that activates its terminal — except the reply
+ *  input, which stops propagation so focusing it doesn't switch tiles
+ *  away from whatever the user was looking at. */
 
 import type { TerminalId } from "kolu-common/surface";
 import {
@@ -19,8 +21,6 @@ import {
   createSignal,
   onCleanup,
 } from "solid-js";
-import { CONTEXTUAL_TIPS } from "../settings/tips";
-import { useTips } from "../settings/useTips";
 import { tailBuffer } from "../terminal/bufferTail";
 import { getTerminalRefs } from "../terminal/terminalRefs";
 import { useTerminalStore } from "../terminal/useTerminalStore";
@@ -43,7 +43,7 @@ const AwaitingDock: Component = () => {
     <Show when={awaitingIds().length > 0}>
       <div
         data-testid="awaiting-dock"
-        class="absolute bottom-4 right-4 z-20 flex gap-2 max-w-[60vw] overflow-x-auto justify-end"
+        class="absolute top-4 right-4 z-20 flex flex-col gap-2 items-end"
       >
         <For each={awaitingIds()}>{(id) => <AwaitingCard id={id} />}</For>
       </div>
@@ -53,7 +53,6 @@ const AwaitingDock: Component = () => {
 
 const AwaitingCard: Component<{ id: TerminalId }> = (props) => {
   const store = useTerminalStore();
-  const tips = useTips();
   const info = createMemo(() => store.getDisplayInfo(props.id));
   const [tail, setTail] = createSignal<string[]>([]);
   const [value, setValue] = createSignal("");
@@ -91,40 +90,41 @@ const AwaitingCard: Component<{ id: TerminalId }> = (props) => {
         <div
           data-testid="awaiting-dock-card"
           data-terminal-id={props.id}
-          class="pill-border pill-border-awaiting rounded-lg border border-edge/60 bg-surface-0/85 backdrop-blur-sm p-2.5 w-[280px] flex flex-col gap-1.5 shadow-lg shrink-0"
+          class="pill-border pill-border-awaiting rounded-lg border border-edge/60 bg-surface-0/85 backdrop-blur-sm p-2.5 w-[280px] flex flex-col gap-1.5 shadow-lg"
           style={{ "--pill-border-radius": "calc(0.5rem + 2px)" }}
         >
           <button
             type="button"
-            class="flex items-baseline justify-between gap-2 text-left min-w-0 cursor-pointer hover:opacity-80"
             onClick={() => store.activate(props.id)}
+            class="flex flex-col gap-1.5 text-left cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 rounded"
             title="Jump to this terminal"
           >
-            <span
-              class="font-mono text-[0.6rem] font-bold uppercase tracking-[0.16em] truncate"
-              style={{ color: displayInfo().repoColor }}
+            <div class="flex items-baseline justify-between gap-2 min-w-0">
+              <span
+                class="font-mono text-[0.6rem] font-bold uppercase tracking-[0.16em] truncate min-w-0"
+                style={{ color: displayInfo().repoColor }}
+              >
+                {displayInfo().key.group}
+              </span>
+              <span class="text-[0.75rem] font-semibold truncate min-w-0 text-fg-1">
+                {displayInfo().key.label}
+              </span>
+            </div>
+            <div
+              data-testid="awaiting-dock-tail"
+              class="font-mono text-[0.7rem] text-fg-2 leading-snug whitespace-pre-wrap break-all h-[3.6em] overflow-hidden w-full"
             >
-              {displayInfo().key.group}
-            </span>
-            <span class="text-[0.75rem] font-semibold truncate text-fg-1">
-              {displayInfo().key.label}
-            </span>
+              <For each={tail()}>
+                {(line) => <div class="truncate">{line || " "}</div>}
+              </For>
+            </div>
           </button>
-          <div
-            data-testid="awaiting-dock-tail"
-            class="font-mono text-[0.7rem] text-fg-2 leading-snug whitespace-pre-wrap break-all h-[3.6em] overflow-hidden"
-          >
-            <For each={tail()}>
-              {(line) => <div class="truncate">{line || " "}</div>}
-            </For>
-          </div>
           <form onSubmit={submit}>
             <input
               type="text"
               data-testid="awaiting-dock-reply"
               value={value()}
               onInput={(e) => setValue(e.currentTarget.value)}
-              onFocus={() => tips.showTipOnce(CONTEXTUAL_TIPS.awaitingDock)}
               placeholder="Reply…"
               class="w-full bg-surface-2/60 border border-edge/40 rounded px-2 py-1 text-[0.8rem] focus:outline-none focus:border-accent/60"
               autocomplete="off"
