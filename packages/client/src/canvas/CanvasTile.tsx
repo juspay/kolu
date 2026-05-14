@@ -66,18 +66,11 @@ const CanvasTile: Component<{
 
   const bg = () => props.theme.bg;
 
-  // Active stays full-strength regardless of dimmed — the user is looking
-  // right at it. Inactive defaults to 0.92; dimmed inactive drops to 0.55
-  // so a parked tile recedes without disappearing.
-  const inactiveOpacity = () => (props.dimmed ? 0.55 : 0.92);
-  // Parked tiles get a grayscale + slight brightness drop on top of the
-  // opacity dim, so the repo-color border and theme background mute out
-  // rather than just fading uniformly. Echoes the minimap's "inert" ghost
-  // treatment without collapsing the tile. Active dimmed tiles skip the
-  // filter for the same reason they skip the opacity drop — the user is
-  // looking right at them.
-  const tileFilter = () =>
-    props.dimmed && !props.active ? "grayscale(0.7) brightness(0.85)" : "none";
+  // Active stays full-strength even when stale — the user is looking right
+  // at it — so the parked treatment is gated on `!active`. Opacity and
+  // filter both read this predicate so a future third condition lands in
+  // one place.
+  const parked = () => props.dimmed && !props.active;
 
   // While maximized: ignore drag transform and pin to viewport. While
   // tiled: absolute-positioned at layout(), drag transform follows.
@@ -96,11 +89,14 @@ const CanvasTile: Component<{
         ? "var(--color-accent)"
         : props.repoColor,
     "z-index": props.active ? 10 : 1,
-    opacity: props.active ? 1 : inactiveOpacity(),
+    opacity: parked() ? 0.55 : props.active ? 1 : 0.92,
     "box-shadow": props.active
       ? `0 8px 32px rgba(0,0,0,0.4), 0 0 0 1px var(--color-accent)`
       : `0 2px 8px rgba(0,0,0,0.2)`,
-    filter: tileFilter(),
+    // Desaturate so the repo-color border and theme background mute out
+    // rather than fading uniformly — echoes the minimap's ghost treatment
+    // without collapsing the tile.
+    filter: parked() ? "grayscale(0.7) brightness(0.85)" : "none",
     // Drag transform is screen-space — divide by zoom so the tile
     // moves at the correct rate in the scaled canvas coordinate system.
     transform: `translate(${draggable.transform.x / props.zoom()}px, ${draggable.transform.y / props.zoom()}px)`,
