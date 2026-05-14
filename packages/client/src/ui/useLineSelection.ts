@@ -14,6 +14,7 @@
 import type { SelectedLineRange } from "@pierre/diffs";
 import { type Accessor, createEffect, createSignal, on } from "solid-js";
 import type { CodeContextMenuItem } from "./CodeContextMenu";
+import { CopyIcon, OpenIcon } from "./Icons";
 import { formatLineRef, type LineRef } from "./lineRef";
 
 export type LineSelection = {
@@ -78,7 +79,7 @@ export function useLineSelection(
       // file between menu-open and click.
       const p = path();
       const items: CodeContextMenuItem[] = [
-        { kind: "copy", label: "Copy path", textToCopy: p },
+        { kind: "copy", label: "Copy path", icon: CopyIcon, textToCopy: p },
       ];
       const r = range();
       if (r) {
@@ -86,6 +87,7 @@ export function useLineSelection(
         items.push({
           kind: "copy",
           label: `Copy ${refStr}`,
+          icon: CopyIcon,
           textToCopy: refStr,
         });
         const onOpen = options.onOpen?.();
@@ -93,6 +95,7 @@ export function useLineSelection(
           items.push({
             kind: "action",
             label: `Open ${refStr}`,
+            icon: OpenIcon,
             onActivate: () =>
               onOpen({ path: p, startLine: r.start, endLine: r.end }),
           });
