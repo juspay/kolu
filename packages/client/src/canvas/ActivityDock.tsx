@@ -29,7 +29,6 @@
  *  free for the inspector panel and the bottom-left minimap gets a
  *  reserved zone via `max-h`. Auto-hides when no agents are active. */
 
-import { makeEventListener } from "@solid-primitives/event-listener";
 import { makePersisted } from "@solid-primitives/storage";
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import {
@@ -39,7 +38,6 @@ import {
   createMemo,
   createSignal,
   onCleanup,
-  onMount,
 } from "solid-js";
 import AgentIndicator from "../terminal/AgentIndicator";
 import { tailBuffer } from "../terminal/bufferTail";
@@ -77,9 +75,19 @@ function tailLinesFor(viewportPx: number, numCards: number): number {
   );
 }
 
+// Module-scope viewport height + resize listener. Lifecycle matches the
+// signal itself (browser session) rather than `ActivityDock`'s mount —
+// otherwise a resize while the dock is auto-hidden (no live agents)
+// would leave `viewportHeight` stale, and the next mount on a different
+// screen size would compute `tailLinesFor` against pre-resize height.
 const [viewportHeight, setViewportHeight] = createSignal(
   typeof window === "undefined" ? 1000 : window.innerHeight,
 );
+if (typeof window !== "undefined") {
+  window.addEventListener("resize", () =>
+    setViewportHeight(window.innerHeight),
+  );
+}
 
 /** Collapsed = narrow strip of per-agent dots; expanded = full
  *  cards/pills. Per-device localStorage so a user's choice survives
@@ -96,12 +104,6 @@ const [dockCollapsed, setDockCollapsed] = makePersisted(createSignal(true), {
 const ActivityDock: Component = () => {
   const store = useTerminalStore();
   const isStale = useStaleCheck();
-  onMount(() => {
-    setViewportHeight(window.innerHeight);
-    makeEventListener(window, "resize", () =>
-      setViewportHeight(window.innerHeight),
-    );
-  });
   const liveIds = createMemo(() =>
     store
       .terminalIds()
