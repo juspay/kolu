@@ -5,6 +5,7 @@ import {
   createSignal,
   For,
   Index,
+  onCleanup,
   Show,
 } from "solid-js";
 import { toast } from "solid-sonner";
@@ -545,6 +546,15 @@ const WorkspaceCard: Component<{
 const AwaitingReplyInput: Component<{ terminalId: TerminalId }> = (props) => {
   const [value, setValue] = createSignal("");
   const [sending, setSending] = createSignal(false);
+  // Tracks whether the component is still mounted. The 50 ms gap in
+  // `submit()` straddles a microtask boundary; if the user switches
+  // terminals (or the awaiting bucket clears) during that gap, we
+  // skip the trailing CR write and the post-submit `setValue("")` so
+  // we don't write to a torn-down reactive owner.
+  let disposed = false;
+  onCleanup(() => {
+    disposed = true;
+  });
 
   async function submit() {
     const text = value().trim();
@@ -570,15 +580,16 @@ const AwaitingReplyInput: Component<{ terminalId: TerminalId }> = (props) => {
       // intermittently raced on a busy event loop in dogfooding; higher
       // values feel laggy on the human side.
       await new Promise((resolve) => setTimeout(resolve, 50));
+      if (disposed) return;
       await client.terminal.sendInput({
         id: props.terminalId,
         data: "\r",
       });
-      setValue("");
+      if (!disposed) setValue("");
     } catch (err) {
       toast.error(`Failed to send reply: ${(err as Error).message}`);
     } finally {
-      setSending(false);
+      if (!disposed) setSending(false);
     }
   }
 
