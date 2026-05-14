@@ -29,14 +29,18 @@ type Composition = NonNullable<FileTreeOptions["composition"]>;
 type FileTreeContextMenu = NonNullable<Composition["contextMenu"]>;
 
 /** Directory paths that contain `path`, formatted with the trailing
- *  slash Pierre uses for folder keys (`src/`, `src/right-panel/`). The
- *  list is leaf-first → root, which is the order Pierre's
- *  `initialExpandedPaths` walks. */
-function ancestorsOf(path: string): string[] {
-  const parts = path.split("/").filter(Boolean);
+ *  slash Pierre uses for folder keys (`src/`, `src/right-panel/`).
+ *  Tolerates an input that already carries a trailing slash (folder
+ *  path) by stripping it before splitting. Mirrors the shape Pierre's
+ *  internal `getAncestorDirectoryPaths` walks so the result can be
+ *  fed back as `initialExpandedPaths` without surprises. */
+export function ancestorDirectoryPaths(path: string): string[] {
+  const normalized = path.endsWith("/") ? path.slice(0, -1) : path;
+  if (normalized.length === 0) return [];
+  const segments = normalized.split("/").filter(Boolean);
   const out: string[] = [];
-  for (let i = 1; i < parts.length; i++) {
-    out.push(`${parts.slice(0, i).join("/")}/`);
+  for (let i = 1; i < segments.length; i += 1) {
+    out.push(`${segments.slice(0, i).join("/")}/`);
   }
   return out;
 }
@@ -119,7 +123,7 @@ export const FileTree: Component<FileTreeProps> = (props) => {
       // ancestors expanded because of the snapshot here, NOT the
       // deferred effect (which skips its initial run).
       const selectedAncestors = props.selectedPath
-        ? ancestorsOf(props.selectedPath)
+        ? ancestorDirectoryPaths(props.selectedPath)
         : [];
       tree = new FileTreeClass({
         paths: props.paths,
@@ -169,7 +173,9 @@ export const FileTree: Component<FileTreeProps> = (props) => {
       ],
       ([paths, expandPaths, selectedPath]) => {
         try {
-          const ancestors = selectedPath ? ancestorsOf(selectedPath) : [];
+          const ancestors = selectedPath
+            ? ancestorDirectoryPaths(selectedPath)
+            : [];
           const expanded = [...(expandPaths ?? []), ...ancestors];
           tree?.resetPaths(paths, { initialExpandedPaths: expanded });
         } catch (e) {

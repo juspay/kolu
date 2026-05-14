@@ -3,7 +3,7 @@
  *  and routes Pierre throws through a required `onError` prop so silent
  *  failures can't escape into a blank pane. */
 
-export { FileTree } from "./FileTree";
+export { ancestorDirectoryPaths, FileTree } from "./FileTree";
 export type { FileTreeProps } from "./FileTree";
 export { FileDiff } from "./FileDiff";
 export type { FileDiffProps } from "./FileDiff";
