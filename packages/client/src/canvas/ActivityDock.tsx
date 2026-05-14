@@ -159,28 +159,28 @@ const ActivityDock: Component = () => {
  *  vertical stripe with color sections per terminal. */
 const DockRow: Component<{ id: TerminalId; tailLines: number }> = (props) => {
   const store = useTerminalStore();
+  // Single source of truth for the row's render preconditions: info,
+  // meta, AND a narrowed bucket. Folding the bucket into the gate
+  // means there's no separate memo that could hold a stale or
+  // unreachable value — if the agent bucket is anything other than
+  // awaiting/working the row simply doesn't render.
   const combined = createMemo(() => {
-    const i = store.getDisplayInfo(props.id);
-    const m = store.getMetadata(props.id);
-    return i && m ? { info: i, meta: m } : null;
-  });
-  // `liveIds` already filters to "awaiting"/"working" before rendering
-  // this row, so the "none" return from `agentBucket` is unreachable at
-  // runtime. Narrow here so `RailSegment.bucket` stays exhaustively
-  // typed across its rail-class ternary.
-  const bucket = createMemo<"awaiting" | "working">(() => {
-    const b = agentBucket(combined()?.meta.agent);
-    return b === "awaiting" ? "awaiting" : "working";
+    const info = store.getDisplayInfo(props.id);
+    const meta = store.getMetadata(props.id);
+    if (!info || !meta) return null;
+    const b = agentBucket(meta.agent);
+    if (b !== "awaiting" && b !== "working") return null;
+    return { info, meta, bucket: b };
   });
   return (
     <Show when={combined()}>
       {(c) => (
         <div class="flex flex-row items-stretch border-b border-edge/15 last:border-b-0">
-          <RailSegment repoColor={c().info.repoColor} bucket={bucket()} />
+          <RailSegment repoColor={c().info.repoColor} bucket={c().bucket} />
           <Show when={!dockCollapsed()}>
             <div class="flex-1 min-w-0">
               <Show
-                when={bucket() === "awaiting"}
+                when={c().bucket === "awaiting"}
                 fallback={
                   <WorkingPillBody
                     id={props.id}
