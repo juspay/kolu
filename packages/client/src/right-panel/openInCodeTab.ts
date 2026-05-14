@@ -34,6 +34,12 @@ export interface OpenInCodeTabRequest {
   targetMode: CodeTabView;
 }
 
+// Module-level singleton. Right-panel state is a singleton in Kolu —
+// one panel, one CodeTab — and the navigation request is meant for
+// the unique consumer. If kolu ever mounts multiple CodeTab instances
+// (split panels, multi-window), this signal must move into a
+// SolidJS context or scope to a per-panel store, otherwise concurrent
+// consumers will race on each other's pending requests.
 const [pending, setPending] = createSignal<OpenInCodeTabRequest | null>(null);
 
 export const pendingOpen = pending;
