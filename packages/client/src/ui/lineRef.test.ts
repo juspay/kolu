@@ -194,12 +194,6 @@ describe("resolveLineRefPath", () => {
     ).toBe("nested/src/app.ts");
   });
 
-  // ── Basename fallback (#898) ───────────────────────────────────────
-  // Compiler output frequently prints just `Foo.hs:42` without the
-  // `src/lib/` prefix; the path-first candidates miss, so the resolver
-  // falls back to the unique repo path that ends in that basename.
-  // Ambiguity (multiple files share the basename) stays null — opening
-  // the wrong file is worse than the toast.
   it("resolves a bare filename whose basename is unique in the repo", () => {
     expect(
       resolveLineRefPath({
@@ -212,8 +206,6 @@ describe("resolveLineRefPath", () => {
   });
 
   it("returns null when the basename is ambiguous", () => {
-    // Both `src/app.ts` and `nested/src/app.ts` end in `app.ts` and
-    // neither path candidate hits when cwd is the repo root.
     expect(
       resolveLineRefPath({
         rawPath: "app.ts",
@@ -225,8 +217,6 @@ describe("resolveLineRefPath", () => {
   });
 
   it("falls back to basename when a slash-containing path doesn't match", () => {
-    // User-printed `wrong/Main.hs` doesn't exist in the repo, but the
-    // basename `Main.hs` is unique — open it rather than toast.
     expect(
       resolveLineRefPath({
         rawPath: "wrong/Main.hs",
@@ -238,8 +228,6 @@ describe("resolveLineRefPath", () => {
   });
 
   it("prefers an exact path candidate over the basename fallback", () => {
-    // `src/app.ts` matches as a repo-relative candidate; the resolver
-    // must not fall through to basename ambiguity-checking and discard it.
     expect(
       resolveLineRefPath({
         rawPath: "src/app.ts",

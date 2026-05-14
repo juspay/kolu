@@ -25,10 +25,6 @@ Feature: File-ref autolinking in terminal
     And I trigger the terminal file-ref link "range.txt:2-4"
     Then the selected file should show content "three"
 
-  # Compiler output frequently emits just `Foo.hs:42` without the
-  # `src/lib/` prefix. The path-based candidates miss, so the resolver
-  # falls back to the unique repo path that ends in that basename
-  # (#898). Ambiguous matches stay null and are covered by unit tests.
   Scenario: Bare filename resolves when its basename is unique in the repo
     When I run "git init /tmp/kolu-file-ref-898 && cd /tmp/kolu-file-ref-898"
     And I run "git commit --allow-empty -m init"
