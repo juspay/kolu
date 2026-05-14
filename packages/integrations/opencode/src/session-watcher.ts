@@ -72,11 +72,10 @@ export function createOpenCodeWatcher(
     // separate "blocked on user question" from real compute. Scoped to
     // derived.messageId (the latest message) — not the entire session —
     // so we only scan the handful of current-turn parts.
-    const bucket =
+    const state =
       derived.state === "thinking"
-        ? runningToolsBucket(derived.messageId, log, db)
-        : "none";
-    const state = bucket === "none" ? derived.state : bucket;
+        ? (runningToolsBucket(derived.messageId, log, db) ?? derived.state)
+        : derived.state;
 
     const taskProgress = getSessionTaskProgress(session.id, log, db);
     // Re-read title on each refresh so mid-conversation title changes

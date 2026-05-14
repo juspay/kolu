@@ -206,35 +206,22 @@ export function getLatestAssistantContextTokens(
 
 // --- Tool detection ---
 
-/** Classifier for the running tool parts on the current message:
- *   - `none`         — no tools in flight; let the base state stand
- *   - `tool_use`     — at least one real-work tool is running
- *   - `awaiting_user` — every running part is OpenCode's `question` tool
+/** Classify the tool parts currently in the "running" state for one
+ *  message (the current assistant turn) — scoped per-message rather
+ *  than per-session so a transcript with thousands of completed tool
+ *  parts stays cheap to scan.
  *
- *  OpenCode's permission/question flow lives in process memory (see
- *  upstream `Question.Service`), but the built-in `question` tool *does*
- *  persist a part row with `state.status = "running"` while it waits on
- *  the user. Discriminating by `tool === "question"` is therefore the
- *  only signal SQLite carries that distinguishes "blocked on human" from
- *  "shell command in flight". */
-export type RunningToolsBucket = "none" | "tool_use" | "awaiting_user";
-
-/**
- * Classify the tool parts currently in the "running" state for one
- * message (the current assistant turn) — scoped per-message rather than
- * per-session so a transcript with thousands of completed tool parts
- * stays cheap to scan.
- *
- * One SQL pass splits running tools into "all are `question`" vs. "at
- * least one is real work" by counting both totals; the discriminator
- * lives in TS so the SQL stays trivially indexable on
- * `part_message_id_id_idx`.
- */
+ *  Returns `null` when no tools are running (the caller keeps its base
+ *  state), `"tool_use"` when at least one real-work tool is in flight,
+ *  and `"awaiting_user"` when every running part is OpenCode's built-in
+ *  `question` tool — the only SQLite signal that distinguishes
+ *  "blocked on human" from "shell command in flight". One SQL pass
+ *  counts total + awaiting using the `part_message_id_id_idx` index. */
 export function runningToolsBucket(
   messageId: string,
   log?: Logger,
   db?: DatabaseSync,
-): RunningToolsBucket {
+): "tool_use" | "awaiting_user" | null {
   return (
     withDb(
       (conn) => {
@@ -246,14 +233,14 @@ export function runningToolsBucket(
           | { total: number; awaiting: number | null }
           | undefined;
         const total = row?.total ?? 0;
-        if (total === 0) return "none";
+        if (total === 0) return null;
         return classifyByAwaiting(row?.awaiting ?? 0, total);
       },
       "opencode running-tools query failed",
       { messageId },
       log,
       db,
-    ) ?? "none"
+    ) ?? null
   );
 }
 

@@ -30,7 +30,6 @@ export {
   openDb,
   type ParsedMessageState,
   parseMessageState,
-  type RunningToolsBucket,
   runningToolsBucket,
 } from "./core.ts";
 export {

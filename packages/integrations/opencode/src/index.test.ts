@@ -12,7 +12,7 @@ CREATE INDEX part_message_id_id_idx ON part(message_id, id);
 `;
 
 function withParts(
-  rows: Array<{ tool?: string; status: string }>,
+  rows: Array<{ tool: string | null; status: string }>,
 ): DatabaseSync {
   const db = new DatabaseSync(":memory:");
   db.exec(PART_SCHEMA);
@@ -22,7 +22,7 @@ function withParts(
       "m1",
       JSON.stringify({
         type: "tool",
-        ...(row.tool !== undefined && { tool: row.tool }),
+        ...(row.tool !== null && { tool: row.tool }),
         state: { status: row.status },
       }),
     );
@@ -106,9 +106,9 @@ describe("parseMessageState", () => {
 });
 
 describe("runningToolsBucket", () => {
-  it("returns none when no parts are running", () => {
+  it("returns null when no parts are running", () => {
     const db = withParts([]);
-    expect(runningToolsBucket("m1", undefined, db)).toBe("none");
+    expect(runningToolsBucket("m1", undefined, db)).toBeNull();
   });
 
   it("returns tool_use for a running shell tool", () => {
@@ -142,7 +142,7 @@ describe("runningToolsBucket", () => {
     // field) write parts without `$.tool`. Those must keep counting as
     // real work — the conservative bucket — not be promoted to
     // awaiting_user just because they aren't named `question`.
-    const db = withParts([{ status: "running" }]);
+    const db = withParts([{ tool: null, status: "running" }]);
     expect(runningToolsBucket("m1", undefined, db)).toBe("tool_use");
   });
 });
