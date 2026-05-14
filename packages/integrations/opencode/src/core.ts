@@ -206,6 +206,17 @@ export function getLatestAssistantContextTokens(
 
 // --- Tool detection ---
 
+/** OpenCode built-in tools whose pending invocation means the agent is
+ *  awaiting the human. Both call `Question.Service.ask` and write a
+ *  `part` row with `state.status = "running"` while blocking on the
+ *  user's reply (upstream verification:
+ *  `packages/opencode/src/tool/question.ts:24` and
+ *  `packages/opencode/src/tool/plan.ts:29`). Other interactive flows
+ *  (`ctx.ask` permission prompts inside `shell`/`edit`/`write`/etc.)
+ *  don't surface a distinct `tool` value — the part stays `shell`/etc.
+ *  and is indistinguishable from a real-work tool. */
+const AWAITING_USER_TOOLS = ["question", "plan_exit"] as const;
+
 /** Classify the tool parts currently in the "running" state for one
  *  message (the current assistant turn) — scoped per-message rather
  *  than per-session so a transcript with thousands of completed tool
@@ -213,23 +224,26 @@ export function getLatestAssistantContextTokens(
  *
  *  Returns `null` when no tools are running (the caller keeps its base
  *  state), `"tool_use"` when at least one real-work tool is in flight,
- *  and `"awaiting_user"` when every running part is OpenCode's built-in
- *  `question` tool — the only SQLite signal that distinguishes
- *  "blocked on human" from "shell command in flight". One SQL pass
- *  counts total + awaiting using the `part_message_id_id_idx` index. */
+ *  and `"awaiting_user"` when every running part is in
+ *  `AWAITING_USER_TOOLS`. One SQL pass counts total + awaiting using
+ *  the `part_message_id_id_idx` index. */
 export function runningToolsBucket(
   messageId: string,
   log?: Logger,
   db?: DatabaseSync,
 ): "tool_use" | "awaiting_user" | null {
+  // SQLite's parameter binding doesn't accept arrays for `IN (...)`,
+  // so the placeholder list is constructed inline from a constant —
+  // safe because every value is a hard-coded literal, not user input.
+  const placeholders = AWAITING_USER_TOOLS.map(() => "?").join(", ");
   return (
     withDb(
       (conn) => {
         const row = conn
           .prepare(
-            "SELECT COUNT(*) AS total, SUM(CASE WHEN json_extract(data, '$.tool') = 'question' THEN 1 ELSE 0 END) AS awaiting FROM part WHERE message_id = ? AND json_extract(data, '$.type') = 'tool' AND json_extract(data, '$.state.status') = 'running'",
+            `SELECT COUNT(*) AS total, SUM(CASE WHEN json_extract(data, '$.tool') IN (${placeholders}) THEN 1 ELSE 0 END) AS awaiting FROM part WHERE message_id = ? AND json_extract(data, '$.type') = 'tool' AND json_extract(data, '$.state.status') = 'running'`,
           )
-          .get(messageId) as
+          .get(...AWAITING_USER_TOOLS, messageId) as
           | { total: number; awaiting: number | null }
           | undefined;
         const total = row?.total ?? 0;

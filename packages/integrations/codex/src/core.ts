@@ -310,8 +310,24 @@ interface RolloutLine {
  * Pure function — unit-testable without touching the filesystem.
  */
 /** Codex function-call names whose pending invocation means the agent
- *  is awaiting the human. Policy lives in `classifyByAwaiting`. */
-const AWAITING_USER_TOOLS = new Set(["request_user_input"]);
+ *  is awaiting the human. All three handlers `await session.<…>(…)` on
+ *  the user before resolving:
+ *   - `request_user_input` — structured multi-choice prompt (Plan mode
+ *     only by default; gated on the `DefaultModeRequestUserInput`
+ *     feature flag for Default mode — see
+ *     `codex-rs/protocol/src/config_types.rs:593-595`).
+ *   - `request_permissions` — model asks to escalate sandbox or
+ *     filesystem permissions; available in all modes
+ *     (`codex-rs/core/src/tools/handlers/request_permissions.rs:64`).
+ *   - `request_plugin_install` — MCP-elicitation prompt to install a
+ *     connector/plugin
+ *     (`codex-rs/core/src/tools/handlers/request_plugin_install.rs:157`).
+ *  Policy lives in `classifyByAwaiting`. */
+const AWAITING_USER_TOOLS = new Set([
+  "request_user_input",
+  "request_permissions",
+  "request_plugin_install",
+]);
 
 export function parseRolloutState(lines: string[]): CodexInfo["state"] | null {
   let lastLifecycle: "started" | "completed" | null = null;

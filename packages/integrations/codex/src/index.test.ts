@@ -147,10 +147,20 @@ describe("parseRolloutState", () => {
     expect(parseRolloutState(lines)).toBeNull();
   });
 
-  it("returns awaiting_user when the only open call is request_user_input", () => {
+  it.each([
+    "request_user_input",
+    "request_permissions",
+    "request_plugin_install",
+  ])("returns awaiting_user when the only open call is %s", (toolName) => {
+    const lines = [taskStarted("turn-1"), funcCall("call-A", toolName)];
+    expect(parseRolloutState(lines)).toBe("awaiting_user");
+  });
+
+  it("returns awaiting_user when every open call is some awaiting-user tool", () => {
     const lines = [
       taskStarted("turn-1"),
       funcCall("call-A", "request_user_input"),
+      funcCall("call-B", "request_permissions"),
     ];
     expect(parseRolloutState(lines)).toBe("awaiting_user");
   });

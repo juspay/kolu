@@ -109,10 +109,10 @@ Detects [Codex](https://github.com/openai/codex) TUI sessions and surfaces their
 
 | State          | Indicator          | How                                                                                                                                                          |
 | -------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Thinking       | Pulsing accent dot | Latest lifecycle event is `task_started`, with no open `function_call` scoped to the current turn                                                            |
-| Tool use       | Spinning yellow    | Latest lifecycle event is `task_started`, with at least one open `function_call` that isn't a known awaiting-user tool                                       |
-| Awaiting input | Pulsing warning    | Every open `function_call` on the current turn names a known awaiting-user tool (`request_user_input`) — Codex is blocked on the user, not running compute |
-| Waiting        | Dim dot            | Latest lifecycle event is `task_complete`                                                                                                                    |
+| Thinking       | Pulsing accent dot | Latest lifecycle event is `task_started`, with no open `function_call` scoped to the current turn                                                                                                                              |
+| Tool use       | Spinning yellow    | Latest lifecycle event is `task_started`, with at least one open `function_call` that isn't a known awaiting-user tool                                                                                                         |
+| Awaiting input | Pulsing warning    | Every open `function_call` names a known awaiting-user tool — `request_user_input` (Plan mode), `request_permissions` (all modes), or `request_plugin_install`. Codex is blocked on the user, not running compute |
+| Waiting        | Dim dot            | Latest lifecycle event is `task_complete`                                                                                                                                                                                      |
 
 Open-call tracking is scoped per-turn: a `function_call` with no matching `_output` that straddles a `task_started` boundary (user aborted a prior tool-using turn) does not pin the next turn to `tool_use`.
 
@@ -135,10 +135,10 @@ Detects [OpenCode](https://github.com/anomalyco/opencode) sessions and shows the
 
 | State          | Indicator          | How                                                                                                          |
 | -------------- | ------------------ | ------------------------------------------------------------------------------------------------------------ |
-| Thinking       | Pulsing accent dot | Latest assistant message has no `time.completed`                                                             |
-| Tool use       | Spinning yellow    | Thinking + at least one `part` with `state.status: "running"` whose `tool` field is anything but `question`  |
-| Awaiting input | Pulsing warning    | Thinking + every running `part`'s `tool` is OpenCode's built-in `question` tool — blocked on a human reply   |
-| Waiting        | Dim dot            | Latest assistant message has `time.completed` set and `finish: "stop"`                                       |
+| Thinking       | Pulsing accent dot | Latest assistant message has no `time.completed`                                                                                                   |
+| Tool use       | Spinning yellow    | Thinking + at least one `part` with `state.status: "running"` whose `tool` field is neither `question` nor `plan_exit`                             |
+| Awaiting input | Pulsing warning    | Thinking + every running `part`'s `tool` is `question` (structured prompt) or `plan_exit` (plan-mode approval gate) — blocked on a human reply     |
+| Waiting        | Dim dot            | Latest assistant message has `time.completed` set and `finish: "stop"`                                                                             |
 
 **What we can't detect (yet):**
 
