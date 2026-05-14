@@ -67,9 +67,7 @@ const CanvasTile: Component<{
   const bg = () => props.theme.bg;
 
   // Active stays full-strength even when stale — the user is looking right
-  // at it — so the parked treatment is gated on `!active`. Opacity and
-  // filter both read this predicate so a future third condition lands in
-  // one place.
+  // at it — so the parked treatment is gated on `!active`.
   const parked = () => props.dimmed && !props.active;
 
   // While maximized: ignore drag transform and pin to viewport. While
@@ -93,9 +91,8 @@ const CanvasTile: Component<{
     "box-shadow": props.active
       ? `0 8px 32px rgba(0,0,0,0.4), 0 0 0 1px var(--color-accent)`
       : `0 2px 8px rgba(0,0,0,0.2)`,
-    // Desaturate so the repo-color border and theme background mute out
-    // rather than fading uniformly — echoes the minimap's ghost treatment
-    // without collapsing the tile.
+    // Mute the repo-color border and theme background so the tile recedes
+    // visually, not just by opacity.
     filter: parked() ? "grayscale(0.7) brightness(0.85)" : "none",
     // Drag transform is screen-space — divide by zoom so the tile
     // moves at the correct rate in the scaled canvas coordinate system.
