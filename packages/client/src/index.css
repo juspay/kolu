@@ -259,6 +259,17 @@ body {
   background-clip: padding-box;
 }
 
+/* `.scrollbar-none` keeps `overflow-y: auto` semantics — wheel / trackpad /
+ * keyboard scroll all still work — but suppresses the visible track + thumb
+ * entirely. Useful for ambient surfaces (the awaiting dock) where the
+ * scrollbar would be more visual noise than navigation. */
+.scrollbar-none {
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
 /* ── Canvas grid background ─────────────────────────────────── */
 /* Fine line grid gives spatial grounding to the freeform canvas.
    Lines use the edge color at low opacity so they adapt to light/dark themes. */

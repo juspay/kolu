@@ -46,7 +46,7 @@ import { agentBucket } from "./workspace-switcher/model";
 
 const PEEK_REFRESH_MS = 250;
 const MIN_TAIL_LINES = 2;
-const MAX_TAIL_LINES = 10;
+const MAX_TAIL_LINES = 7;
 /** Per-card tail budget shrinks as the dock fills.
  *
  *  Each card has ~120px of fixed chrome (eyebrow + agent row + reply
@@ -107,7 +107,7 @@ const AwaitingDock: Component = () => {
     <Show when={liveIds().length > 0}>
       <div
         data-testid="awaiting-dock"
-        class="absolute top-14 left-4 z-20 flex flex-col gap-2 items-start overflow-y-auto overflow-x-hidden max-h-[calc(100vh-18rem)]"
+        class="absolute top-14 left-4 z-20 flex flex-col gap-2 items-start overflow-y-auto overflow-x-hidden scrollbar-none max-h-[calc(100vh-18rem)]"
       >
         <For each={liveIds()}>
           {(id) => <DockItem id={id} tailLines={tailLines()} />}
