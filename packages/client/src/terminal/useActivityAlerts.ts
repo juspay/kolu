@@ -20,18 +20,17 @@ export function requestNotificationPermission() {
 }
 
 /** Fire audio + in-app toast + (when tab is hidden) browser notification
- *  for a terminal that finished. The toast only renders when the finished
- *  terminal is not already the active one — a "Switch" affordance to the
- *  current terminal would be a no-op. `onSwitch` activates the terminal. */
-export function fireActivityAlert(
-  label: string,
-  opts: { isBackground: boolean; onSwitch: () => void },
-) {
+ *  for a terminal that finished. `onSwitch` (when provided) activates the
+ *  terminal and gates the in-app toast — omit it when the finished terminal
+ *  is already active, since a "Switch" affordance to the current tile is a
+ *  no-op. The sound + native Notification still fire (they target a user
+ *  who isn't looking, not a specific tile). */
+export function fireActivityAlert(label: string, onSwitch?: () => void) {
   playSound();
-  if (opts.isBackground) {
+  if (onSwitch) {
     toast.success(`${label} finished`, {
       duration: Number.POSITIVE_INFINITY,
-      action: { label: "Switch", onClick: opts.onSwitch },
+      action: { label: "Switch", onClick: onSwitch },
     });
   }
   if (
@@ -44,7 +43,7 @@ export function fireActivityAlert(
     });
     notif.onclick = () => {
       window.focus();
-      if (opts.isBackground) opts.onSwitch();
+      onSwitch?.();
       notif.close();
     };
   }
