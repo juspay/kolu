@@ -46,15 +46,11 @@ export const pendingOpen = pending;
 
 /** Open the right panel's Code tab at `req.targetMode` showing `req.ref`.
  *  The two reactive writes (preferences patch + pending-request signal)
- *  are wrapped in `batch()` so SolidJS defers all dependent effects
- *  until both have committed. Without the batch, the preferences
- *  optimistic update ticks `view()` first, which fires `CodeTab`'s
- *  `resetKey` effect — at that moment `pendingOpen()` is still null
- *  (setPending hasn't run yet), the guard fails, and selectedPath gets
- *  cleared. The Terminal call site used to escape this by being inside
- *  a JSX click handler (Solid's event delegation auto-batches), but
- *  once the writes moved into a standalone function the implicit batch
- *  was lost. */
+ *  are wrapped in `batch()` so SolidJS defers dependent effects until
+ *  both have committed. Without the batch, the preferences optimistic
+ *  update ticks `view()` first, fires `CodeTab`'s `resetKey` effect
+ *  when `pendingOpen()` is still null, the guard fails, and the
+ *  selectedPath the user navigated to gets cleared. */
 export function openInCodeTab(req: OpenInCodeTabRequest): void {
   batch(() => {
     useRightPanel().openCodeAt(req.targetMode);
