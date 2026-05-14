@@ -45,17 +45,28 @@ import { useTileTheme } from "./useTileTheme";
 import { agentBucket } from "./workspace-switcher/model";
 
 const PEEK_REFRESH_MS = 250;
-const MIN_TAIL_LINES = 3;
+const MIN_TAIL_LINES = 2;
 const MAX_TAIL_LINES = 10;
-/** Approximate per-line height budget: each card needs eyebrow + agent
- *  row + reply input + padding (~120px) before tail lines start, plus
- *  ~18px per tail line at the current font size. The dock leaves room
- *  for its top offset and a comfortable bottom margin (~6rem). */
-function tailLinesForViewport(viewportPx: number): number {
-  const usable = Math.max(0, viewportPx - 200);
+/** Per-card tail budget shrinks as the dock fills.
+ *
+ *  Each card has ~120px of fixed chrome (eyebrow + agent row + reply
+ *  input + padding); tail lines add ~18px each. Subtract a top-offset
+ *  + bottom-margin reserve (~200px), divide the remaining height
+ *  across the visible cards, then floor to a line count. So a single
+ *  card on a tall viewport gets ~10 lines; ten cards on the same
+ *  viewport collapse to the 2-line floor. Working pills don't show
+ *  a tail, but they still occupy ~40px of vertical space, so they
+ *  count against the budget too. */
+function tailLinesFor(viewportPx: number, numCards: number): number {
+  if (numCards === 0) return MIN_TAIL_LINES;
+  const reserved = 200;
+  const cardBase = 120;
+  const tailLineHeight = 18;
+  const available = Math.max(0, viewportPx - reserved - cardBase * numCards);
+  const perCardTailPx = available / numCards;
   return Math.max(
     MIN_TAIL_LINES,
-    Math.min(MAX_TAIL_LINES, Math.floor(usable / 80)),
+    Math.min(MAX_TAIL_LINES, Math.floor(perCardTailPx / tailLineHeight)),
   );
 }
 
@@ -72,8 +83,6 @@ const AwaitingDock: Component = () => {
       setViewportHeight(window.innerHeight),
     );
   });
-  const tailLines = createMemo(() => tailLinesForViewport(viewportHeight()));
-
   const liveIds = createMemo(() =>
     store
       .terminalIds()
@@ -90,12 +99,15 @@ const AwaitingDock: Component = () => {
         return tb - ta;
       }),
   );
+  const tailLines = createMemo(() =>
+    tailLinesFor(viewportHeight(), liveIds().length),
+  );
 
   return (
     <Show when={liveIds().length > 0}>
       <div
         data-testid="awaiting-dock"
-        class="absolute top-14 left-4 z-20 flex flex-col gap-2 items-start overflow-y-auto max-h-[calc(100vh-18rem)]"
+        class="absolute top-14 left-4 z-20 flex flex-col gap-2 items-start overflow-y-auto overflow-x-hidden max-h-[calc(100vh-18rem)]"
       >
         <For each={liveIds()}>
           {(id) => <DockItem id={id} tailLines={tailLines()} />}
