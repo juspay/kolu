@@ -36,6 +36,7 @@
  */
 
 import { DatabaseSync } from "node:sqlite";
+import { classifyByAwaiting } from "anyagent";
 import type { Logger } from "kolu-shared";
 import { withDb as sharedWithDb } from "kolu-shared/sqlite";
 import { CODEX_DB_PATH } from "./config.ts";
@@ -311,9 +312,10 @@ interface RolloutLine {
  */
 /** Built-in Codex tools whose pending invocation means the agent is
  *  blocked on the human. `request_user_input` is Codex's structured
- *  question prompt (the `AskUserQuestion` analog). When every open call
- *  on the current turn is in this set, the agent isn't computing — it's
- *  waiting for a reply. */
+ *  question prompt (the `AskUserQuestion` analog). The set itself is
+ *  Codex-specific (function_call names from `codex-rs`), but the rule
+ *  "all-or-nothing → awaiting_user" is shared — see `classifyByAwaiting`
+ *  in `anyagent`. */
 const AWAITING_USER_TOOLS = new Set(["request_user_input"]);
 
 export function parseRolloutState(lines: string[]): CodexInfo["state"] | null {
@@ -352,10 +354,11 @@ export function parseRolloutState(lines: string[]): CodexInfo["state"] | null {
   if (lastLifecycle === null) return null;
   if (lastLifecycle === "completed") return "waiting";
   if (openCalls.size === 0) return "thinking";
+  let awaiting = 0;
   for (const name of openCalls.values()) {
-    if (!AWAITING_USER_TOOLS.has(name)) return "tool_use";
+    if (AWAITING_USER_TOOLS.has(name)) awaiting++;
   }
-  return "awaiting_user";
+  return classifyByAwaiting(awaiting, openCalls.size);
 }
 
 /**

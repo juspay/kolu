@@ -25,6 +25,7 @@
  */
 
 import { DatabaseSync } from "node:sqlite";
+import { classifyByAwaiting } from "anyagent";
 import type { Logger } from "kolu-shared";
 import { withDb as sharedWithDb } from "kolu-shared/sqlite";
 import { match } from "ts-pattern";
@@ -246,8 +247,7 @@ export function runningToolsBucket(
           | undefined;
         const total = row?.total ?? 0;
         if (total === 0) return "none";
-        const awaiting = row?.awaiting ?? 0;
-        return awaiting === total ? "awaiting_user" : "tool_use";
+        return classifyByAwaiting(row?.awaiting ?? 0, total);
       },
       "opencode running-tools query failed",
       { messageId },

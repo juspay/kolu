@@ -24,6 +24,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { getSessionInfo } from "@anthropic-ai/claude-agent-sdk";
+import { classifyByAwaiting } from "anyagent";
 import { type Logger, readTailLines } from "kolu-shared";
 import { match } from "ts-pattern";
 import type { ClaudeCodeInfo, TaskProgress } from "./schemas.ts";
@@ -179,23 +180,24 @@ type UsageShape = {
 
 /** Built-in tools whose pending invocation means the agent is blocked on
  *  the human, not running compute. `AskUserQuestion` is the structured
- *  question prompt; `ExitPlanMode` is the plan-approval gate. When the
- *  last assistant turn stopped with `stop_reason: "tool_use"` and every
- *  pending tool call is in this set, the agent is awaiting a reply —
- *  rendering "Running tools" would mislead. */
+ *  question prompt; `ExitPlanMode` is the plan-approval gate. The
+ *  set itself is protocol-specific (Claude API names), but the rule
+ *  "all-or-nothing → awaiting_user" is shared — see
+ *  `classifyByAwaiting` in `anyagent`. */
 const AWAITING_USER_TOOLS = new Set(["AskUserQuestion", "ExitPlanMode"]);
 
 function toolUseOrAwaitingUser(
   content: Array<{ type?: string; name?: string }> | undefined,
 ): "tool_use" | "awaiting_user" {
   if (!Array.isArray(content)) return "tool_use";
-  let sawToolUse = false;
+  let total = 0;
+  let awaiting = 0;
   for (const block of content) {
     if (block.type !== "tool_use") continue;
-    sawToolUse = true;
-    if (!block.name || !AWAITING_USER_TOOLS.has(block.name)) return "tool_use";
+    total++;
+    if (block.name && AWAITING_USER_TOOLS.has(block.name)) awaiting++;
   }
-  return sawToolUse ? "awaiting_user" : "tool_use";
+  return classifyByAwaiting(awaiting, total);
 }
 
 /** Derive Claude Code state from the last relevant JSONL message.

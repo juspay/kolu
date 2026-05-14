@@ -17,4 +17,5 @@ export {
   agentInfoEqual,
   matchesAgent,
 } from "./agent-provider.ts";
+export { classifyByAwaiting } from "./lifecycle.ts";
 export { type TaskProgress, TaskProgressSchema } from "./schemas.ts";
