@@ -1,8 +1,13 @@
-/** Activity alerts — audio + browser notification + in-app toast when a
- *  background terminal's agent finishes. All output channels live here so
- *  `useTerminalAlerts` stays focused on "decide who to alert". */
+/** Activity alerts — audio + (hidden-tab) browser notification when a
+ *  background terminal's agent finishes. The on-canvas AwaitingDock
+ *  surfaces the same transition ambiently with full repo/branch context
+ *  and a reply input, so the redundant in-app toast was retired — the
+ *  channels left here cover the case the dock can't: the user isn't
+ *  looking at the kolu window at all.
+ *
+ *  All output channels live here so `useTerminalAlerts` stays focused
+ *  on "decide who to alert". */
 
-import { toast } from "solid-sonner";
 import type { TerminalSubject } from "./terminalSubject";
 
 /** Play the notification sound (pre-recorded mp3 in public/sounds/). */
@@ -20,33 +25,20 @@ export function requestNotificationPermission() {
   }
 }
 
-/** Fire audio + in-app toast + (when tab is hidden) browser notification
- *  for a terminal that finished. `onSwitch` (when provided) activates the
- *  terminal and gates the in-app toast — omit it when the finished terminal
- *  is already active, since a "Switch" affordance to the current tile is a
- *  no-op. The sound + native Notification still fire (they target a user
- *  who isn't looking, not a specific tile). */
+/** Fire audio + (when tab is hidden) browser notification for a
+ *  terminal that finished. The on-canvas dock handles the in-window
+ *  case — these channels are only for when the user isn't looking. */
 export function fireActivityAlert(
   subject: TerminalSubject,
-  toastId: string,
   onSwitch?: () => void,
 ) {
   playSound();
-  const headline = `${subject.title} finished`;
-  if (onSwitch) {
-    toast.success(headline, {
-      id: toastId,
-      description: subject.description,
-      duration: Number.POSITIVE_INFINITY,
-      action: { label: "Switch", onClick: onSwitch },
-    });
-  }
   if (
     document.hidden &&
     "Notification" in window &&
     Notification.permission === "granted"
   ) {
-    const notif = new Notification(headline, {
+    const notif = new Notification(`${subject.title} finished`, {
       body: subject.description,
       icon: "/favicon.svg",
     });

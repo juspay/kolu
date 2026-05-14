@@ -23,6 +23,7 @@
  *  (record, panel, settings, ⌘K) stay clickable. Auto-hides when both
  *  tiers are empty. */
 
+import { makeEventListener } from "@solid-primitives/event-listener";
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import {
   type Component,
@@ -31,6 +32,7 @@ import {
   createMemo,
   createSignal,
   onCleanup,
+  onMount,
 } from "solid-js";
 import AgentIndicator from "../terminal/AgentIndicator";
 import { tailBuffer } from "../terminal/bufferTail";
@@ -38,14 +40,38 @@ import { formatTimeAgo, useStaleCheck } from "../terminal/staleness";
 import { getTerminalRefs } from "../terminal/terminalRefs";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { client } from "../wire";
+import { useTileTheme } from "./useTileTheme";
 import { agentBucket } from "./workspace-switcher/model";
 
-const TAIL_LINES = 3;
 const PEEK_REFRESH_MS = 250;
+const MIN_TAIL_LINES = 3;
+const MAX_TAIL_LINES = 10;
+/** Approximate per-line height budget: each card needs eyebrow + agent
+ *  row + reply input + padding (~120px) before tail lines start, plus
+ *  ~18px per tail line at the current font size. The dock leaves room
+ *  for its top offset and a comfortable bottom margin (~6rem). */
+function tailLinesForViewport(viewportPx: number): number {
+  const usable = Math.max(0, viewportPx - 200);
+  return Math.max(
+    MIN_TAIL_LINES,
+    Math.min(MAX_TAIL_LINES, Math.floor(usable / 80)),
+  );
+}
+
+const [viewportHeight, setViewportHeight] = createSignal(
+  typeof window === "undefined" ? 1000 : window.innerHeight,
+);
 
 const AwaitingDock: Component = () => {
   const store = useTerminalStore();
   const isStale = useStaleCheck();
+  onMount(() => {
+    setViewportHeight(window.innerHeight);
+    makeEventListener(window, "resize", () =>
+      setViewportHeight(window.innerHeight),
+    );
+  });
+  const tailLines = createMemo(() => tailLinesForViewport(viewportHeight()));
 
   const liveIds = (bucket: "awaiting" | "working") =>
     store
@@ -69,17 +95,22 @@ const AwaitingDock: Component = () => {
     <Show when={awaitingIds().length + workingIds().length > 0}>
       <div
         data-testid="awaiting-dock"
-        class="absolute top-14 right-4 z-20 flex flex-col gap-2 items-end"
+        class="absolute top-14 right-4 bottom-4 z-20 flex flex-col gap-2 items-end overflow-y-auto"
       >
-        <For each={awaitingIds()}>{(id) => <AwaitingCard id={id} />}</For>
+        <For each={awaitingIds()}>
+          {(id) => <AwaitingCard id={id} tailLines={tailLines()} />}
+        </For>
         <For each={workingIds()}>{(id) => <WorkingPill id={id} />}</For>
       </div>
     </Show>
   );
 };
 
-const AwaitingCard: Component<{ id: TerminalId }> = (props) => {
+const AwaitingCard: Component<{ id: TerminalId; tailLines: number }> = (
+  props,
+) => {
   const store = useTerminalStore();
+  const tileTheme = useTileTheme();
   const combined = createMemo(() => {
     const i = store.getDisplayInfo(props.id);
     const m = store.getMetadata(props.id);
@@ -94,7 +125,7 @@ const AwaitingCard: Component<{ id: TerminalId }> = (props) => {
       setTail([]);
       return;
     }
-    setTail(tailBuffer(xterm, TAIL_LINES));
+    setTail(tailBuffer(xterm, props.tailLines));
   };
 
   refresh();
@@ -124,8 +155,13 @@ const AwaitingCard: Component<{ id: TerminalId }> = (props) => {
           <div
             data-testid="awaiting-dock-card"
             data-terminal-id={props.id}
-            class="pill-border pill-border-awaiting rounded-lg border border-edge/60 bg-surface-0/85 backdrop-blur-sm p-2.5 w-[280px] flex flex-col gap-1.5 shadow-lg"
-            style={{ "--pill-border-radius": "calc(0.5rem + 2px)" }}
+            class="pill-border pill-border-awaiting rounded-lg p-2.5 w-[280px] flex flex-col gap-1.5 shadow-lg"
+            style={{
+              "--pill-border-radius": "calc(0.5rem + 2px)",
+              "background-color": tileTheme(props.id).bg,
+              color: tileTheme(props.id).fg,
+              border: `1px solid ${displayInfo.repoColor}`,
+            }}
           >
             <button
               type="button"
@@ -148,6 +184,7 @@ const AwaitingCard: Component<{ id: TerminalId }> = (props) => {
                 </span>
               </div>
               <DockMetaRow meta={m} />
+              <PrLine meta={m} />
               <Show when={tail().length > 0}>
                 <div
                   data-testid="awaiting-dock-tail"
@@ -181,6 +218,7 @@ const AwaitingCard: Component<{ id: TerminalId }> = (props) => {
 
 const WorkingPill: Component<{ id: TerminalId }> = (props) => {
   const store = useTerminalStore();
+  const tileTheme = useTileTheme();
   const combined = createMemo(() => {
     const i = store.getDisplayInfo(props.id);
     const m = store.getMetadata(props.id);
@@ -198,8 +236,13 @@ const WorkingPill: Component<{ id: TerminalId }> = (props) => {
             data-testid="awaiting-dock-working"
             data-terminal-id={props.id}
             onClick={() => store.activate(props.id)}
-            class="pill-border pill-border-working rounded-lg border border-edge/40 bg-surface-0/75 backdrop-blur-sm px-2.5 py-1 flex flex-col gap-0.5 w-[280px] cursor-pointer hover:bg-surface-1/70 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 text-left"
-            style={{ "--pill-border-radius": "calc(0.5rem + 2px)" }}
+            class="pill-border pill-border-working rounded-lg px-2.5 py-1 flex flex-col gap-0.5 w-[280px] cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 text-left"
+            style={{
+              "--pill-border-radius": "calc(0.5rem + 2px)",
+              "background-color": tileTheme(props.id).bg,
+              color: tileTheme(props.id).fg,
+              border: `1px solid ${displayInfo.repoColor}`,
+            }}
             title="Jump to this terminal"
           >
             <div class="flex items-baseline justify-between gap-2 min-w-0">
@@ -217,9 +260,30 @@ const WorkingPill: Component<{ id: TerminalId }> = (props) => {
               </span>
             </div>
             <DockMetaRow meta={m} />
+            <PrLine meta={m} />
           </button>
         );
       }}
+    </Show>
+  );
+};
+
+/** GitHub PR summary line (when one is resolved). Reads `meta.pr` —
+ *  the same source the workspace switcher uses — so the kinds it
+ *  accepts stay aligned: only `kind === "ok"` renders, the
+ *  `absent`/`pending`/`unavailable` cases collapse to nothing. */
+const PrLine: Component<{ meta: TerminalMetadata }> = (props) => {
+  const pr = () => (props.meta.pr.kind === "ok" ? props.meta.pr.value : null);
+  return (
+    <Show when={pr()}>
+      {(p) => (
+        <div class="flex items-baseline gap-1.5 min-w-0 text-[0.65rem] text-fg-2">
+          <span class="font-mono tabular-nums text-fg-3 shrink-0">
+            #{p().number}
+          </span>
+          <span class="truncate min-w-0">{p().title}</span>
+        </div>
+      )}
     </Show>
   );
 };
