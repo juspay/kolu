@@ -1,7 +1,12 @@
 /** Awaiting dock — top-right column of cards/pills surfacing every
- *  active agent that needs you (full cards) or is busy (compact pills).
+ *  active agent. **One list, sorted strictly by `lastActivityAt`
+ *  descending** so the most recent transition is always at the top
+ *  regardless of which state it lands in. A working agent that just
+ *  started outranks an awaiting agent from an hour ago, and vice
+ *  versa — the dock answers "what just changed?" first, "what's
+ *  blocking me?" second.
  *
- *  Two tiers, top to bottom:
+ *  Two render shapes share the same sort:
  *  1. **Awaiting cards** — full cards for terminals whose agent is in
  *     `waiting` state. Show the last few non-chrome lines of the xterm
  *     buffer (via `tailBuffer`) plus a reply input that pipes to the
@@ -12,16 +17,12 @@
  *     `thinking`/`tool_use`. Repo + branch + animated agent indicator,
  *     click to jump.
  *
- *  Each tier is sorted by `lastActivityAt` descending — the most
- *  recently transitioned agent sits at the top so a glance lands on
- *  what just happened.
- *
  *  Parked (auto-stale, `lastActivityAt > STALE_THRESHOLD_MS`)
- *  terminals are filtered out of both tiers.
+ *  terminals are filtered out entirely.
  *
  *  Lives below the ChromeBar (top-14) so the workspace-chrome controls
- *  (record, panel, settings, ⌘K) stay clickable. Auto-hides when both
- *  tiers are empty. */
+ *  (record, panel, settings, ⌘K) stay clickable. Auto-hides when no
+ *  agents are active. */
 
 import { makeEventListener } from "@solid-primitives/event-listener";
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
@@ -73,35 +74,51 @@ const AwaitingDock: Component = () => {
   });
   const tailLines = createMemo(() => tailLinesForViewport(viewportHeight()));
 
-  const liveIds = (bucket: "awaiting" | "working") =>
+  const liveIds = createMemo(() =>
     store
       .terminalIds()
       .filter((id) => {
         const meta = store.getMetadata(id);
         if (!meta) return false;
         if (isStale(meta.lastActivityAt)) return false;
-        return agentBucket(meta.agent) === bucket;
+        const bucket = agentBucket(meta.agent);
+        return bucket === "awaiting" || bucket === "working";
       })
       .sort((a, b) => {
         const ta = store.getMetadata(a)?.lastActivityAt ?? 0;
         const tb = store.getMetadata(b)?.lastActivityAt ?? 0;
         return tb - ta;
-      });
-
-  const awaitingIds = createMemo(() => liveIds("awaiting"));
-  const workingIds = createMemo(() => liveIds("working"));
+      }),
+  );
 
   return (
-    <Show when={awaitingIds().length + workingIds().length > 0}>
+    <Show when={liveIds().length > 0}>
       <div
         data-testid="awaiting-dock"
         class="absolute top-14 right-4 bottom-4 z-20 flex flex-col gap-2 items-end overflow-y-auto"
       >
-        <For each={awaitingIds()}>
-          {(id) => <AwaitingCard id={id} tailLines={tailLines()} />}
+        <For each={liveIds()}>
+          {(id) => <DockItem id={id} tailLines={tailLines()} />}
         </For>
-        <For each={workingIds()}>{(id) => <WorkingPill id={id} />}</For>
       </div>
+    </Show>
+  );
+};
+
+/** Picks the right shape for a terminal based on its current bucket.
+ *  Reactive so a thinking → waiting transition swaps the pill for the
+ *  full card in place. */
+const DockItem: Component<{ id: TerminalId; tailLines: number }> = (props) => {
+  const store = useTerminalStore();
+  const bucket = createMemo(() =>
+    agentBucket(store.getMetadata(props.id)?.agent),
+  );
+  return (
+    <Show
+      when={bucket() === "awaiting"}
+      fallback={<WorkingPill id={props.id} />}
+    >
+      <AwaitingCard id={props.id} tailLines={props.tailLines} />
     </Show>
   );
 };
