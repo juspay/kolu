@@ -114,12 +114,11 @@ When(
 // diff viewer (`DIFF_VIEW`) wrap the same Pierre primitive, so the
 // gutter selector and mouse dance are identical — only the host
 // element's CSS root changes.
-// One shared interaction for any mouse button on a gutter line. The
-// virtualizer-bounding-box race (Pierre's `VirtualizedFileDiff` is
-// keyed on path; switching files makes the element pass
-// `waitFor(visible)` and then return a null bounding box on the very
-// next call as the virtualizer re-measures) is identical between
-// left- and right-click — only the button differs.
+//
+// Poll the bounding box because Pierre's `VirtualizedFileDiff` is keyed
+// on path; switching files makes the element pass `waitFor(visible)`
+// and then return a null bounding box on the very next call as the
+// virtualizer re-measures.
 async function interactWithGutterLine(
   world: KoluWorld,
   root: string,
@@ -152,10 +151,9 @@ When(
   },
 );
 
-// Right-click on a specific gutter line — selects the line and opens
-// the context menu in one gesture (the host's `contextmenu` handler
-// in `CodeMenuFrame` derives the line from the click target). Replaces
-// the old two-step "click line then right-click viewer root" idiom.
+// Right-click on a gutter line: `CodeMenuFrame`'s contextmenu handler
+// reads the line from `event.composedPath()` and opens a 3-item menu
+// scoped to that line. Selection + menu-open in one gesture.
 
 When(
   "I right-click line {int} in the diff view",
