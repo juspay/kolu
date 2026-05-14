@@ -104,6 +104,7 @@ Scan for known structural patterns plus **any additional patterns the project ha
 | "Convention: update X when Y changes" maintained by memory | A rule into documentation or code review discipline | Structure so the coupling is mechanical, not memorized |
 | Duplicated derivations (same value computed in N places) | One computation into N copies | Compute once, read N times |
 | Config or data split across files/modules by accident of history | A concept into shards held together by cross-reference | Collapse into the one file or module that owns the concept |
+| Shared helper placed in whichever module first imported it (rather than the module that owns the underlying concept) | The helper's natural home into an authoring-order accident | **Alternative-placement test.** For every cross-module helper / type / constant the diff introduces or relocates, name the modules that consume it, then ask which placement leaves the more cohesive module behind. The default home is the module that owns the concept's *generative side* (filesystem layout, data store, identity, lifecycle), not the consumer that happens to read it first. "Primary consumer is X" is a tautology if the helper currently lives in X — try placing it in each alternative and compare which alternative leaves the chosen module with fewer interleaved concerns. |
 
 When you find a catalog match in either half, **do not dismiss it**. Design the concrete alternative first (Layer 7), then evaluate whether the current approach is actually justified. The proof burden is on the current code, not on you to prove it's wrong. Hickey: _"what matters are the artifacts not the authoring."_
 
@@ -161,8 +162,9 @@ After completing all layers, **invoke `/fact-check` on your own output**. The fa
 - _"this is a convention, not a constraint"_ — conventions are fragmentation dressed as discipline.
 - _"we agree to update both"_ / _"we remember to clear X when Y changes"_ — discipline is not a type system.
 - _"lift X to be shared"_ — if you're lifting X to make it shared, X wants to *be* shared at its home, not projected from elsewhere.
+- _"X is the natural home for Y"_ / _"Y's primary consumer is X"_ / _"X already imports the surrounding context, so Y belongs there"_ — these are circular if Y currently lives in X. Run the alternative-placement test from the Layer 4 fragmentation catalog: name each module that consumes Y, place Y in each one in turn, compare which placement leaves the more cohesive module behind. "Primary consumer" determined without trying the alternatives is the question you stopped before answering.
 
-These catch fragmentation (Layer 2) that the reviewer glossed over. The prosecutor stance applies equally to findings never made and findings made-then-dismissed.
+These catch fragmentation (Layer 2) and placement misses (Layer 4) that the reviewer glossed over. The prosecutor stance applies equally to findings never made and findings made-then-dismissed.
 
 If fact-check finds issues with your evaluation, revise before presenting to the user.
 
