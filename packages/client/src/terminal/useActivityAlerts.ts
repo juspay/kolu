@@ -25,10 +25,15 @@ export function requestNotificationPermission() {
  *  is already active, since a "Switch" affordance to the current tile is a
  *  no-op. The sound + native Notification still fire (they target a user
  *  who isn't looking, not a specific tile). */
-export function fireActivityAlert(label: string, onSwitch?: () => void) {
+export function fireActivityAlert(
+  label: string,
+  toastId: string,
+  onSwitch?: () => void,
+) {
   playSound();
   if (onSwitch) {
     toast.success(`${label} finished`, {
+      id: toastId,
       duration: Number.POSITIVE_INFINITY,
       action: { label: "Switch", onClick: onSwitch },
     });

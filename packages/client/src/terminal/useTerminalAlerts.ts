@@ -90,6 +90,7 @@ export function useTerminalAlerts(deps: {
     if (isBackground || document.hidden)
       fireActivityAlert(
         deps.terminalLabel(id),
+        `terminal-finished-${id}`,
         isBackground ? () => deps.activate(id) : undefined,
       );
   }
