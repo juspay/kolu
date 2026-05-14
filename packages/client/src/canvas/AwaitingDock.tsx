@@ -220,7 +220,14 @@ const AwaitingCard: Component<{ id: TerminalId; tailLines: number }> = (
                 value={value()}
                 onInput={(e) => setValue(e.currentTarget.value)}
                 placeholder="Reply…"
-                class="w-full bg-surface-2/60 border border-edge/40 rounded px-2 py-1 text-[0.8rem] focus:outline-none focus:border-accent/60"
+                class="w-full rounded px-2 py-1 text-[0.8rem] focus:outline-none focus:ring-2 focus:ring-accent/40 placeholder:opacity-60"
+                style={{
+                  color: "inherit",
+                  "background-color":
+                    "color-mix(in oklch, currentColor 8%, transparent)",
+                  border:
+                    "1px solid color-mix(in oklch, currentColor 25%, transparent)",
+                }}
                 autocomplete="off"
                 autocorrect="off"
                 spellcheck={false}
