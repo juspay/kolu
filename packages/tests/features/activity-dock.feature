@@ -10,12 +10,14 @@ Feature: Activity dock
   Scenario: Dock surfaces awaiting Claude session as a full card
     When a Claude Code session is mocked with state "waiting"
     Then the awaiting dock should be visible
-    And the awaiting dock should show 1 card
+    When the awaiting dock is expanded
+    Then the awaiting dock should show 1 card
 
   Scenario: Dock surfaces working Claude session as a compact pill
     When a Claude Code session is mocked with state "thinking"
     Then the awaiting dock should be visible
-    And the awaiting dock should show 0 cards
+    When the awaiting dock is expanded
+    Then the awaiting dock should show 0 cards
     And the awaiting dock should show 1 working pill
 
   Scenario: Dock hides when no agent is active
