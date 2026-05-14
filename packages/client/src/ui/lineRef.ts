@@ -104,7 +104,13 @@ function hasRefBoundary(text: string, index: number): boolean {
  *    falls back to repo-relative interpretation only.
  *  - `repoPaths`: live `fsListAll` paths — repo-relative, no leading
  *    `/`. The resolver only returns a path that's actually in this
- *    set. */
+ *    set.
+ *
+ *  When path-based candidates miss, falls back to a basename match —
+ *  compiler output often prints just `Foo.hs:42` without the
+ *  `src/lib/` prefix (#898). The fallback only fires when the
+ *  basename is unique in the repo; ambiguous matches stay null since
+ *  opening the wrong file is worse than the toast. */
 export function resolveLineRefPath(args: {
   rawPath: string;
   repoRoot: string;
@@ -115,7 +121,27 @@ export function resolveLineRefPath(args: {
   for (const candidate of candidates(args)) {
     if (set.has(candidate)) return candidate;
   }
-  return null;
+  return resolveByBasename(args.rawPath, args.repoPaths);
+}
+
+function resolveByBasename(
+  rawPath: string,
+  repoPaths: readonly string[],
+): string | null {
+  const target = basename(rawPath);
+  if (target === "") return null;
+  let unique: string | null = null;
+  for (const p of repoPaths) {
+    if (basename(p) !== target) continue;
+    if (unique !== null) return null;
+    unique = p;
+  }
+  return unique;
+}
+
+function basename(path: string): string {
+  const i = path.lastIndexOf("/");
+  return i < 0 ? path : path.slice(i + 1);
 }
 
 function* candidates(args: {
