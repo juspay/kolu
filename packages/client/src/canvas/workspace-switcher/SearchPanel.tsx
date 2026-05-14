@@ -288,7 +288,13 @@ const EntryList: Component<{
       >
         <Index each={props.entries}>
           {(entry) => (
-            <div data-testid="workspace-switcher-entry">
+            // `flex flex-col` so the inner button stretches to the
+            // column width — without it, the button defaults to
+            // inline-block content width and a long peek snippet
+            // forces the card past the column boundary into the
+            // neighbour. The parent grid column is the only width
+            // authority; the wrapper just preserves stretch.
+            <div data-testid="workspace-switcher-entry" class="flex flex-col">
               <WorkspaceCard
                 entry={entry()}
                 active={store.activeId() === entry().id}
