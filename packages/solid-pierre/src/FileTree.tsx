@@ -93,6 +93,16 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   // membership in this set is a reliable file-vs-folder discriminator.
   const fileSet = createMemo(() => new Set(props.paths));
 
+  // Known limitation: Pierre's vanilla `FileTree` doesn't expose a
+  // public `scrollToPath`. Its `scrollFocusedRowIntoView` (in
+  // `dist/render/FileTreeView.js`) is gated on `shouldOwnDomFocus`,
+  // which is set only by user-initiated handlers (row click, keyboard
+  // nav). Programmatic selection via `initialSelectedPaths` /
+  // `getItem(path)?.select()` marks the row `aria-selected="true"` but
+  // does NOT scroll the virtualizer to reveal it. For small trees the
+  // row happens to sit in the visible window; for large worktrees the
+  // selected row stays virtualized off-screen until the user scrolls.
+  // Filed upstream: https://github.com/pierrecomputer/pierre/issues/676
   onMount(() => {
     try {
       const selectedAncestors = props.selectedPath
