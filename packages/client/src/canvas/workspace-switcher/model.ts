@@ -454,16 +454,13 @@ export function buildWorkspaceSwitcherModel(
   });
 
   const reviewReadyOnly = options.reviewReadyOnly ?? false;
-  const { repoFacets, selectedRepo, visibleEntries } = searchResults(
-    entries,
-    options.query ?? "",
-    options.repoFilter ?? null,
-    reviewReadyOnly,
-  );
-  let reviewReadyCount = 0;
-  for (const entry of entries) {
-    if (entry.info.meta.pr.kind === "ok") reviewReadyCount++;
-  }
+  const { repoFacets, selectedRepo, visibleEntries, reviewReadyCount } =
+    searchResults(
+      entries,
+      options.query ?? "",
+      options.repoFilter ?? null,
+      reviewReadyOnly,
+    );
 
   // Single pass: bucket every visible entry (and, for idle entries,
   // sub-bucket them) in one walk instead of N×M filters.
@@ -525,8 +522,19 @@ function searchResults(
   repoFacets: WorkspaceRepoFacet[];
   selectedRepo: string | null;
   visibleEntries: WorkspaceSwitcherEntry[];
+  reviewReadyCount: number;
 } {
   const tokens = queryTokens(query);
+
+  // Single walk: collect query matches AND tally the review-ready
+  // population in one pass. The badge count counts over the *unfiltered*
+  // entries (so the chip reflects total population, not query result),
+  // so this loop also peeks at the full input set's `pr.kind` regardless
+  // of token matching.
+  let reviewReadyCount = 0;
+  for (const entry of entries) {
+    if (entry.info.meta.pr.kind === "ok") reviewReadyCount++;
+  }
   const queryMatches =
     tokens.length === 0
       ? entries
@@ -567,5 +575,5 @@ function searchResults(
     );
   }
 
-  return { repoFacets, selectedRepo, visibleEntries };
+  return { repoFacets, selectedRepo, visibleEntries, reviewReadyCount };
 }
