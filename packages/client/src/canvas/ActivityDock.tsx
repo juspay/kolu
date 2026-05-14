@@ -30,6 +30,7 @@
  *  reserved zone via `max-h`. Auto-hides when no agents are active. */
 
 import { makePersisted } from "@solid-primitives/storage";
+import { toast } from "solid-sonner";
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import {
   type Component,
@@ -272,7 +273,11 @@ const AwaitingCardBody: Component<{
     // TUI's input dispatcher. Do NOT inline the carriage return into
     // the first write or shrink this timeout without first verifying
     // every supported TUI agent handles the combined form.
-    await client.terminal.sendInput({ id: props.id, data: text });
+    await client.terminal
+      .sendInput({ id: props.id, data: text })
+      .catch((err: Error) => {
+        toast.error(`Failed to send input: ${err.message}`);
+      });
     setTimeout(() => {
       void client.terminal.sendInput({ id: props.id, data: "\r" });
     }, 50);
