@@ -401,6 +401,22 @@ Then(
   },
 );
 
+// Pierre marks selected rows with `aria-selected="true"` (and a boolean
+// `data-item-selected` that may serialize as `""` or `"true"` depending
+// on the renderer — `aria-selected` is the reliable string form). The
+// row must also be VISIBLE — collapsed-ancestor descendants fail
+// `state: "visible"` even when marked selected, so this step implicitly
+// verifies ancestor expansion too.
+Then(
+  "the file {string} should be selected in the file browser",
+  async function (this: KoluWorld, path: string) {
+    const item = this.page.locator(
+      `${TREE} [data-item-path="${path}"][data-item-type="file"][aria-selected="true"]:not([data-file-tree-sticky-row])`,
+    );
+    await item.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
 Then(
   "the Code tab content should show the select hint {string}",
   async function (this: KoluWorld, expected: string) {

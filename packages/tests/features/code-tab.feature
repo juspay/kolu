@@ -351,6 +351,7 @@ Feature: Code tab (review + browse)
     And the selected file should show content "second"
     And line 2 should be selected in the file content
     And the file browser should show a file "docs/notes.txt"
+    And the file "docs/notes.txt" should be selected in the file browser
 
   # ── Live updates: filesystem changes propagate without manual refresh ──
   # The Code view subscribes to a watcher that observes four axes (HEAD,

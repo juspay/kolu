@@ -12,7 +12,7 @@
  *  their `ref` content matches and re-paint the highlight. */
 
 import type { CodeTabView } from "kolu-common/surface";
-import { createSignal } from "solid-js";
+import { batch, createSignal } from "solid-js";
 import type { LineRef } from "../ui/lineRef";
 import { useRightPanel } from "./useRightPanel";
 
@@ -40,10 +40,18 @@ export const pendingOpen = pending;
 
 /** Open the right panel's Code tab at `req.targetMode` showing `req.ref`.
  *  The two reactive writes (preferences patch + pending-request signal)
- *  fire inside the same call, so `CodeTab`'s `resetKey` effect and
- *  `pendingOpen` effect both observe the request on the tick the view
- *  changes — no call-site ordering discipline required. */
+ *  are wrapped in `batch()` so SolidJS defers all dependent effects
+ *  until both have committed. Without the batch, the preferences
+ *  optimistic update ticks `view()` first, which fires `CodeTab`'s
+ *  `resetKey` effect — at that moment `pendingOpen()` is still null
+ *  (setPending hasn't run yet), the guard fails, and selectedPath gets
+ *  cleared. The Terminal call site used to escape this by being inside
+ *  a JSX click handler (Solid's event delegation auto-batches), but
+ *  once the writes moved into a standalone function the implicit batch
+ *  was lost. */
 export function openInCodeTab(req: OpenInCodeTabRequest): void {
-  useRightPanel().openCodeAt(req.targetMode);
-  setPending(req);
+  batch(() => {
+    useRightPanel().openCodeAt(req.targetMode);
+    setPending(req);
+  });
 }
