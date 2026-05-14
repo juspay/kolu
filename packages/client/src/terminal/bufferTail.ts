@@ -25,8 +25,17 @@ import type { Terminal as XTerm } from "@xterm/xterm";
 
 const STRIP_LEADING_CHROME = /^[\s─-╿*✱⏺•·⏵»>›\-=*~]+/;
 const CLAUDE_HINT = /^bypass permissions on/i;
-const CLAUDE_TIMER =
-  /^(Cooked|Cogitated|Tinkering|Pondering|Ruminating|Brewing|Hatching|Conjuring|Smoldering|Stewing|Working|Crunching|Forging|Thinking|Musing|Reasoning|Deliberating|Contemplating|Synthesizing|Processing|Simmering|Marinating|Mulling|Percolating|Wrestling) for \d/;
+/** Claude Code's thinking-timer chatter — any capitalized verb in past
+ *  tense (-ed) or gerund (-ing) form followed by ` for <duration>`.
+ *  Generalized from the enumerated verb list because Claude's vocab
+ *  rotates (Cooked / Cogitated / Baked / Churned / Pondered / …) and
+ *  the explicit list was already lagging two new ones at the time of
+ *  the last addition. */
+const CLAUDE_TIMER = /^[A-Z][a-z]+(ed|ing) for \d/;
+/** Agency-tool recap marker line ("* recap: …"). The text after the
+ *  marker is the actual recap content, which we want to see — only
+ *  the marker line itself is chrome. */
+const CLAUDE_RECAP = /^recap:/;
 
 const DEFAULT_SEARCH_DEPTH = 120;
 
@@ -35,6 +44,7 @@ function isChrome(text: string): boolean {
   if (stripped.length === 0) return true;
   if (CLAUDE_HINT.test(stripped)) return true;
   if (CLAUDE_TIMER.test(stripped)) return true;
+  if (CLAUDE_RECAP.test(stripped)) return true;
   return false;
 }
 
