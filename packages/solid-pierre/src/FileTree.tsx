@@ -105,6 +105,19 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   // Filed upstream: https://github.com/pierrecomputer/pierre/issues/676
   onMount(() => {
     try {
+      // `props.selectedPath` is read once here as a snapshot, then
+      // again reactively in the deferred resetPaths effect below. The
+      // two sites encapsulate two distinct lifecycle moments — initial
+      // construction state vs. subsequent reactive state — and Pierre
+      // doesn't expose a hook to re-feed `initialExpandedPaths` after
+      // the constructor. Today's only call site (`CodeTab`) initializes
+      // `selectedPath` to `null` (CodeTab.tsx) and updates it via the
+      // pendingOpen effect AFTER the FileTree's paths stream settles,
+      // so this snapshot is always `null` at mount — the deferred
+      // effect handles the real cases. A future caller that passes a
+      // non-null `selectedPath` on first render would also see its
+      // ancestors expanded because of the snapshot here, NOT the
+      // deferred effect (which skips its initial run).
       const selectedAncestors = props.selectedPath
         ? ancestorsOf(props.selectedPath)
         : [];
