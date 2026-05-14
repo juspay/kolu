@@ -54,23 +54,30 @@ export function shouldBumpRecencyForAgentChange(
   return !isReDetectionAfterRestore;
 }
 
-/** Single write-site for `m.agent`. The provider's watcher emits at
- *  ~150ms cadence while an agent is streaming; only a small fraction
- *  of those emits cross the recency-bump threshold (transitions on
- *  `kind`/`sessionId`/`state`). Sub-info refreshes — `contextTokens`,
- *  `summary`, `taskProgress` — share the live `agent` slot but don't
- *  bump.
+/** Write-site for `m.agent` (session-state axis). The provider's
+ *  watcher emits at ~150ms cadence while an agent is streaming; only
+ *  a small fraction of those emits cross the recency-bump threshold
+ *  (transitions on `kind`/`sessionId`/`state`). Sub-info refreshes —
+ *  `contextTokens`, `summary`, `taskProgress` — share the live `agent`
+ *  slot but don't bump.
  *
- *  Every tick writes `m.agent` via the live variant (no dirty signal,
+ *  Every call writes `m.agent` via the live variant (no dirty signal,
  *  no autosave). On a bump, a second call writes `m.lastActivityAt`
  *  via the persisting variant. The two-call shape is forced by the
  *  bidirectional type fence in `state.ts`; the second publish is
- *  cheap and only happens on transitions. */
-function setAgentMetadata(
+ *  cheap and only happens on transitions.
+ *
+ *  Paired with `setAgentSnippet` below as separate write-sites for two
+ *  independent volatility axes — session-state transitions (this fn)
+ *  vs. streaming peek-text ticks (the snippet fn). They share the
+ *  `terminals:dirty` broadcast policy, but that's a publish-policy
+ *  commonality, not a volatility commonality; collapsing them into
+ *  one writer would force every future high-cadence agent field to
+ *  ride the wrong cadence's name. */
+function setAgentState(
   entry: TerminalProcess,
   terminalId: string,
   nextAgent: AgentInfo | null,
-  nextSnippet: AgentSnippet | null,
 ): void {
   const bump = shouldBumpRecencyForAgentChange(
     entry.meta.agent,
@@ -84,13 +91,30 @@ function setAgentMetadata(
   // of the structural fence, paid only on transitions (sparse).
   updateServerLiveMetadata(entry, terminalId, (m) => {
     m.agent = nextAgent;
-    m.agentSnippet = nextSnippet;
   });
   if (bump) {
     updateServerMetadata(entry, terminalId, (m) => {
       m.lastActivityAt = Date.now();
     });
   }
+}
+
+/** Write-site for `m.agentSnippet` (peek-text axis). Streams at the
+ *  transcript-tail cadence (~150ms during active token generation);
+ *  no recency bump, no persistence, no dirty signal. Lives separate
+ *  from `setAgentState` because the two volatilities don't share a
+ *  source (provider session-state vs. transcript-tail derivation)
+ *  and don't share a gate (`agentInfoEqual` vs. `snippetEqual` —
+ *  both already checked at the call site, inside each integration's
+ *  session-watcher closure). */
+function setAgentSnippet(
+  entry: TerminalProcess,
+  terminalId: string,
+  nextSnippet: AgentSnippet | null,
+): void {
+  updateServerLiveMetadata(entry, terminalId, (m) => {
+    m.agentSnippet = nextSnippet;
+  });
 }
 
 /** node-pty may return a full path (e.g. `/nix/store/.../bin/opencode` on
@@ -246,7 +270,8 @@ export function startAgentProvider<Session, Info extends AgentInfoShape>(
       // Only clear metadata if the terminal's agent is ours to clear.
       // Other providers of different kinds share the same `m.agent` slot.
       if (entry.meta.agent?.kind === provider.kind) {
-        setAgentMetadata(entry, terminalId, null, null);
+        setAgentState(entry, terminalId, null);
+        setAgentSnippet(entry, terminalId, null);
       }
       return;
     }
@@ -263,12 +288,8 @@ export function startAgentProvider<Session, Info extends AgentInfoShape>(
           // at the sole metadata-write site for agent info, so widening
           // is confined to this one line rather than smeared across
           // every provider.
-          setAgentMetadata(
-            entry,
-            terminalId,
-            info as unknown as AgentInfo,
-            snippet,
-          );
+          setAgentState(entry, terminalId, info as unknown as AgentInfo);
+          setAgentSnippet(entry, terminalId, snippet);
         },
         plog,
       ),
