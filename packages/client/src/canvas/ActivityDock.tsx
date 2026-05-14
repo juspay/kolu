@@ -165,7 +165,14 @@ const DockRow: Component<{ id: TerminalId; tailLines: number }> = (props) => {
     const m = store.getMetadata(props.id);
     return i && m ? { info: i, meta: m } : null;
   });
-  const bucket = createMemo(() => agentBucket(combined()?.meta.agent));
+  // `liveIds` already filters to "awaiting"/"working" before rendering
+  // this row, so the "none" return from `agentBucket` is unreachable at
+  // runtime. Narrow here so `RailSegment.bucket` stays exhaustively
+  // typed across its rail-class ternary.
+  const bucket = createMemo<"awaiting" | "working">(() => {
+    const b = agentBucket(combined()?.meta.agent);
+    return b === "awaiting" ? "awaiting" : "working";
+  });
   return (
     <Show when={combined()}>
       {(c) => (
@@ -205,9 +212,10 @@ const DockRow: Component<{ id: TerminalId; tailLines: number }> = (props) => {
  *  swatches when there's no card next to it. A `dock-rail-*` filter
  *  animation cycles the segment's brightness so state-cadence
  *  (breathe / pulse) survives the unified-surface treatment. */
-const RailSegment: Component<{ repoColor: string; bucket: string }> = (
-  props,
-) => {
+const RailSegment: Component<{
+  repoColor: string;
+  bucket: "awaiting" | "working";
+}> = (props) => {
   return (
     <button
       type="button"
