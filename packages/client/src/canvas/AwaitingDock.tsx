@@ -125,7 +125,7 @@ const AwaitingDock: Component = () => {
       <div
         data-testid="awaiting-dock"
         data-collapsed={dockCollapsed() ? "" : undefined}
-        class="absolute top-14 left-4 z-20 flex flex-col gap-1.5 items-start overflow-y-auto overflow-x-hidden scrollbar-none max-h-[calc(100vh-18rem)]"
+        class="absolute top-20 left-4 z-20 flex flex-col gap-1.5 items-start overflow-y-auto overflow-x-hidden scrollbar-none p-1 max-h-[calc(100vh-22rem)]"
       >
         <ChevronToggle />
         <Show
