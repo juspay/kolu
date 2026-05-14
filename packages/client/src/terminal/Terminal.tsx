@@ -59,32 +59,40 @@ import {
 
 let middleClickPasteGuardInstalled = false;
 
-/** Suppress X11 primary-selection paste on middle-click for xterm
- *  textareas. Linux Chromium pastes the primary selection into the
- *  focused editable element on middle-click, regardless of where the
- *  click landed — a middle-click on the canvas, the title bar, or the
- *  right panel dumps the primary selection straight into a focused
- *  xterm. Guard sits on `document` (capture phase) so it catches clicks
- *  anywhere on the page and beats xterm's own listeners; preventDefaults
- *  only when the focused element is an xterm helper textarea, leaving
- *  middle-click paste in other inputs and middle-button gestures on the
- *  canvas untouched. mousedown (not click) covers middle-click drag —
- *  the paste fires on press. Installed once per page; subsequent calls
- *  are no-ops, so the listener cost stays O(1) in terminal count. */
+/** Suppress middle-click X11 primary-selection paste app-wide. Linux
+ *  Chromium pastes the primary selection into the focused editable
+ *  element on middle-button mousedown, regardless of where the click
+ *  landed — and the only event that blocks it is `preventDefault` on
+ *  `mousedown`/`pointerdown` (auxclick fires too late, after the paste
+ *  is already in flight; MDN auxclick docs confirm).
+ *
+ *  Earlier revisions of this guard gated on
+ *  `document.activeElement?.classList.contains("xterm-helper-textarea")`
+ *  to leave middle-click paste in other inputs alone. That gate is too
+ *  fragile in practice — Chromium may briefly move focus to the click
+ *  target's nearest focusable ancestor between mousedown's dispatch and
+ *  the capture-phase handler's `activeElement` read, so a click on the
+ *  canvas with xterm focused doesn't always present xterm as
+ *  activeElement. Kolu is a terminal-first app where the primary-
+ *  selection paste hazard far exceeds the convenience of middle-click
+ *  paste in incidental inputs; suppress unconditionally and use
+ *  Ctrl+V everywhere.
+ *
+ *  Belt-and-suspenders: handle both `pointerdown` (modern dispatch
+ *  path) and `mousedown` (legacy, also still fires on most platforms).
+ *  `preventDefault` blocks the *default action* (paste, autoscroll)
+ *  but not other event listeners — canvas middle-button gestures and
+ *  any custom handlers remain free to react.
+ *
+ *  Installed once per page; subsequent calls are no-ops. */
 function ensureXtermMiddleClickPasteGuard() {
   if (middleClickPasteGuardInstalled) return;
   middleClickPasteGuardInstalled = true;
-  document.addEventListener(
-    "mousedown",
-    (e) => {
-      if (e.button !== 1) return;
-      const active = document.activeElement;
-      if (active?.classList.contains("xterm-helper-textarea")) {
-        e.preventDefault();
-      }
-    },
-    { capture: true },
-  );
+  const suppress = (e: MouseEvent | PointerEvent) => {
+    if (e.button === 1) e.preventDefault();
+  };
+  document.addEventListener("pointerdown", suppress, { capture: true });
+  document.addEventListener("mousedown", suppress, { capture: true });
 }
 
 /** Suppress the browser defaults that conflict with xterm's input model.
