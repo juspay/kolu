@@ -254,9 +254,8 @@ interface RolloutLine {
     turn_id?: string;
     /** On `response_item` payloads for function_call/function_call_output. */
     call_id?: string;
-    /** On `response_item:function_call` — the tool name (e.g. `shell`,
-     *  `request_user_input`, `update_plan`). Captured so the state machine
-     *  can route blocked-on-human tools to `awaiting_user`. */
+    /** Function-call name on `response_item:function_call` payloads
+     *  (e.g. `shell`, `request_user_input`, `update_plan`). */
     name?: string;
     /** On `token_count` event_msgs. Nested because Codex envelopes the
      *  accounting under `.info` alongside rate-limit metadata. */
@@ -310,12 +309,8 @@ interface RolloutLine {
  *
  * Pure function — unit-testable without touching the filesystem.
  */
-/** Built-in Codex tools whose pending invocation means the agent is
- *  blocked on the human. `request_user_input` is Codex's structured
- *  question prompt (the `AskUserQuestion` analog). The set itself is
- *  Codex-specific (function_call names from `codex-rs`), but the rule
- *  "all-or-nothing → awaiting_user" is shared — see `classifyByAwaiting`
- *  in `anyagent`. */
+/** Codex function-call names whose pending invocation means the agent
+ *  is awaiting the human. Policy lives in `classifyByAwaiting`. */
 const AWAITING_USER_TOOLS = new Set(["request_user_input"]);
 
 export function parseRolloutState(lines: string[]): CodexInfo["state"] | null {

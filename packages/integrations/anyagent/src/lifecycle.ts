@@ -1,23 +1,15 @@
-/** Shared lifecycle helpers used by every agent integration's state
- *  derivation. Lives here so the *policy* (e.g. "how does a mixed batch
- *  of pending tool calls map to a state?") has one home, even though
- *  the *detection mechanics* (parsing JSONL content blocks vs. JSONL
- *  function_call entries vs. SQLite tool parts) are necessarily
- *  per-integration. */
+/** Shared lifecycle helpers across the per-integration state derivers.
+ *  Detection mechanics differ (Claude JSONL content blocks vs. Codex
+ *  function_call entries vs. OpenCode SQLite tool parts) but the policy
+ *  decisions they make live here. */
 
-/** Decide between `tool_use` and `awaiting_user` given how many pending
- *  tool invocations are awaiting-user-flavored vs. how many are pending
- *  in total.
- *
- *  Rule: only emit `awaiting_user` when *every* pending invocation is
- *  awaiting-user. A mixed batch (e.g. Claude calls `AskUserQuestion`
- *  alongside a `Read`) stays `tool_use` because real compute is in
- *  flight — pretending the UI is just "awaiting" would hide that. The
- *  conservative bucket wins.
- *
- *  Single-source-of-truth so a future policy change (e.g. "show
- *  awaiting_user even in mixed batches, the human gate is the
- *  bottleneck") touches one site instead of N. */
+/** Pick `awaiting_user` over `tool_use` only when *every* pending tool
+ *  invocation is awaiting-user-flavored. A mixed batch — e.g. Claude
+ *  calls `AskUserQuestion` alongside a `Read` — stays `tool_use`
+ *  because real compute is in flight; flipping to `awaiting_user`
+ *  would hide that. Centralized so the policy has one home for a
+ *  future change ("the human gate is the bottleneck, show
+ *  awaiting_user even in mixed batches") to touch. */
 export function classifyByAwaiting(
   awaiting: number,
   total: number,
