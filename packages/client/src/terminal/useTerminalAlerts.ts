@@ -2,8 +2,13 @@
  *  Watches metadata subscriptions for agent state changes (any AI coding agent). */
 
 import { makeEventListener } from "@solid-primitives/event-listener";
-import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
+import type {
+  AgentInfo,
+  TerminalId,
+  TerminalMetadata,
+} from "kolu-common/surface";
 import { type Accessor, createEffect, on } from "solid-js";
+import { isAttentionState } from "../ui/agentDisplay";
 import { preferences } from "../wire";
 import { useStaleCheck } from "./staleness";
 import type { TerminalSubject } from "./terminalSubject";
@@ -78,14 +83,12 @@ export function useTerminalAlerts(deps: {
     next: string | undefined,
   ) {
     if (!activityAlerts()) return;
-    // Both `waiting` (turn ended cleanly) and `awaiting_user` (agent
-    // blocked on a question) mean "user attention needed now" — fire on
-    // either transition. Treat the two as a single "needs-attention"
-    // class so we don't double-alert when the agent flips between them
-    // within one session.
-    const isAttention = (s: string | undefined) =>
-      s === "waiting" || s === "awaiting_user";
-    if (!isAttention(next) || isAttention(prev)) return;
+    // Fire on entry into the "needs-attention" class (waiting or
+    // awaiting_user). Treating the two as one class means we don't
+    // double-alert when the agent flips between them in one session.
+    const nextAttn = isAttentionState(next as AgentInfo["state"] | undefined);
+    const prevAttn = isAttentionState(prev as AgentInfo["state"] | undefined);
+    if (!nextAttn || prevAttn) return;
     alertForTerminal(id);
   }
 

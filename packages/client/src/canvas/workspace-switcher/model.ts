@@ -5,6 +5,7 @@ import {
   type IdleBucketKey,
 } from "../../terminal/activityWindow";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
+import { isAttentionState } from "../../ui/agentDisplay";
 import type { TileLayout } from "../TileLayout";
 
 /** Live-terminal source row before a presentation-specific order is applied. */
@@ -209,16 +210,10 @@ export type WorkspaceSwitcherModel = {
 export function agentBucket(
   agent: AgentInfo | null | undefined,
 ): Exclude<WorkspaceAgentBucket, "idle"> {
-  switch (agent?.state) {
-    case "waiting":
-    case "awaiting_user":
-      return "awaiting";
-    case "thinking":
-    case "tool_use":
-      return "working";
-    case undefined:
-      return "none";
-  }
+  const state = agent?.state;
+  if (state === undefined) return "none";
+  if (isAttentionState(state)) return "awaiting";
+  return "working";
 }
 
 /** Classify a terminal into a switcher column. Parked terminals (last
