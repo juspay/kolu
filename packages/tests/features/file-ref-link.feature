@@ -25,6 +25,17 @@ Feature: File-ref autolinking in terminal
     And I trigger the terminal file-ref link "range.txt:2-4"
     Then the selected file should show content "three"
 
+  Scenario: Bare filename resolves when its basename is unique in the repo
+    When I run "git init /tmp/kolu-file-ref-898 && cd /tmp/kolu-file-ref-898"
+    And I run "git commit --allow-empty -m init"
+    And I run "mkdir -p src/lib && printf 'alpha\nbeta\ngamma\n' > src/lib/notes.txt"
+    And I run "echo 'see notes.txt:2 for the line'"
+    And I trigger the terminal file-ref link "notes.txt:2"
+    Then the right panel should be visible
+    And the Code tab should be active
+    And the Code tab mode should be "browse"
+    And the selected file should show content "beta"
+
   Scenario: Re-clicking the same file-ref after closing the panel re-selects the line
     When I run "git init /tmp/kolu-file-ref-861-reclick && cd /tmp/kolu-file-ref-861-reclick"
     And I run "git commit --allow-empty -m init"
