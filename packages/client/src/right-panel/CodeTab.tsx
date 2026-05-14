@@ -546,10 +546,7 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
                         <CodeMenuFrame
                           path={path}
                           onOpen={(ref) => {
-                            // Diff path is already repo-relative; cwd is
-                            // irrelevant. Same dispatch as a terminal-link
-                            // click — `openInCodeTab` flips the panel to
-                            // browse mode and surfaces the line range.
+                            // Diff paths are repo-relative; cwd is irrelevant.
                             const repo = repoPath();
                             if (repo === null) return;
                             openInCodeTab({
