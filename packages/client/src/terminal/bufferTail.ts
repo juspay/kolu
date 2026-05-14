@@ -26,12 +26,14 @@ import type { Terminal as XTerm } from "@xterm/xterm";
 const STRIP_LEADING_CHROME = /^[\s─-╿*✱⏺•·⏵»>›\-=*~]+/;
 const CLAUDE_HINT = /^bypass permissions on/i;
 /** Claude Code's thinking-timer chatter — any capitalized verb in past
- *  tense (-ed) or gerund (-ing) form followed by ` for <duration>`.
+ *  tense (-ed) or gerund (-ing) form followed by ` for <duration><unit>`.
+ *  Requires the time unit (s/m/h) to avoid false-positives on ordinary
+ *  agent output ("Named for project X", "Working for review", etc.).
  *  Generalized from the enumerated verb list because Claude's vocab
  *  rotates (Cooked / Cogitated / Baked / Churned / Pondered / …) and
  *  the explicit list was already lagging two new ones at the time of
  *  the last addition. */
-const CLAUDE_TIMER = /^[A-Z][a-z]+(ed|ing) for \d/;
+const CLAUDE_TIMER = /^[A-Z][a-z]+(ed|ing) for \d+[smh]/;
 /** Agency-tool recap marker line ("* recap: …"). The text after the
  *  marker is the actual recap content, which we want to see — only
  *  the marker line itself is chrome. */
