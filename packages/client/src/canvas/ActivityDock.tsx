@@ -273,13 +273,20 @@ const AwaitingCardBody: Component<{
     // TUI's input dispatcher. Do NOT inline the carriage return into
     // the first write or shrink this timeout without first verifying
     // every supported TUI agent handles the combined form.
-    await client.terminal
+    const ok = await client.terminal
       .sendInput({ id: props.id, data: text })
+      .then(() => true)
       .catch((err: Error) => {
         toast.error(`Failed to send input: ${err.message}`);
+        return false;
       });
+    if (!ok) return;
     setTimeout(() => {
-      void client.terminal.sendInput({ id: props.id, data: "\r" });
+      void client.terminal
+        .sendInput({ id: props.id, data: "\r" })
+        .catch((err: Error) => {
+          toast.error(`Failed to send CR: ${err.message}`);
+        });
     }, 50);
   }
 
