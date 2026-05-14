@@ -178,16 +178,18 @@ type UsageShape = {
   cache_read_input_tokens?: number;
 };
 
-/** Built-in tools whose pending invocation means the agent is blocked on
- *  the human, not running compute. `AskUserQuestion` is the structured
- *  question prompt; `ExitPlanMode` is the plan-approval gate. The
- *  set itself is protocol-specific (Claude API names), but the rule
- *  "all-or-nothing → awaiting_user" is shared — see
- *  `classifyByAwaiting` in `anyagent`. */
+/** Minimal assistant `message.content[]` block shape — only the two
+ *  fields state derivation reads. The transcript layer carries the full
+ *  union (text, thinking, tool_use, etc.); live state derivation just
+ *  needs to ask "is this a `tool_use` block and which tool". */
+type ContentBlock = { type?: string; name?: string };
+
+/** Claude tool names whose pending invocation means the agent is
+ *  awaiting the human. Policy lives in `classifyByAwaiting`. */
 const AWAITING_USER_TOOLS = new Set(["AskUserQuestion", "ExitPlanMode"]);
 
 function toolUseOrAwaitingUser(
-  content: Array<{ type?: string; name?: string }> | undefined,
+  content: ContentBlock[] | undefined,
 ): "tool_use" | "awaiting_user" {
   if (!Array.isArray(content)) return "tool_use";
   let total = 0;
@@ -233,7 +235,7 @@ export function deriveState(lines: string[]): {
           stop_reason?: string | null;
           model?: string | null;
           usage?: UsageShape;
-          content?: Array<{ type?: string; name?: string }>;
+          content?: ContentBlock[];
         };
       } = JSON.parse(raw);
 

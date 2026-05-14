@@ -53,7 +53,7 @@ describe("deriveState", () => {
     });
   });
 
-  it("returns awaiting_user for ExitPlanMode (plan approval gate)", () => {
+  it("returns awaiting_user when ExitPlanMode is the only pending tool", () => {
     const line = JSON.stringify({
       type: "assistant",
       message: {
