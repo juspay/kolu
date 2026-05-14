@@ -36,6 +36,7 @@ export function createMetadata(cwd: string): TerminalMetadata {
     git: null,
     pr: { kind: "pending" },
     agent: null,
+    agentSnippet: null,
     foreground: null,
     lastActivityAt: 0,
   };

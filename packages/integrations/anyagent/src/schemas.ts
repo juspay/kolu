@@ -14,3 +14,21 @@ export const TaskProgressSchema = z.object({
 });
 
 export type TaskProgress = z.infer<typeof TaskProgressSchema>;
+
+/** Most-recent assistant utterance or tool call for a session — the peek
+ *  surface shown next to each terminal in the workspace switcher. Lives
+ *  as a peer of `agent` on `LiveTerminalFieldsSchema` (not inside it)
+ *  because its update cadence is a streaming-token feed; folding it into
+ *  the `AgentInfo` equality gate would either thrash the gate for every
+ *  other field or carve out a per-field exception. */
+export const AgentSnippetSchema = z.object({
+  /** Whether the latest signal is assistant prose or a tool invocation. */
+  kind: z.enum(["assistant", "tool_use"]),
+  /** Truncated preview text — assistant prose first line, or tool name
+   *  with a compact summary of inputs. */
+  text: z.string(),
+  /** Epoch-millis the underlying transcript entry landed. */
+  ts: z.number(),
+});
+
+export type AgentSnippet = z.infer<typeof AgentSnippetSchema>;

@@ -42,6 +42,7 @@ function makeMeta(overrides: Partial<TerminalMetadata> = {}): TerminalMetadata {
     git: makeGit(),
     pr: { kind: "absent" },
     agent: null,
+    agentSnippet: null,
     foreground: null,
     lastActivityAt: 0,
     ...overrides,
@@ -464,5 +465,65 @@ describe("buildWorkspaceSwitcherModel", () => {
     expect(
       modelFor(entries, { query: "claude sonnet" }).visibleEntries,
     ).toHaveLength(1);
+  });
+
+  it("counts review-ready entries from pr.kind === 'ok' regardless of filter", () => {
+    const sources = [
+      source("ready1", {
+        pr: {
+          kind: "ok",
+          value: {
+            number: 42,
+            url: "https://example.com/pulls/42",
+            state: "open",
+            title: "Feature flag rollout",
+            checks: "pass",
+          },
+        },
+      }),
+      source("ready2", {
+        pr: {
+          kind: "ok",
+          value: {
+            number: 7,
+            url: "https://example.com/pulls/7",
+            state: "open",
+            title: "Refactor query layer",
+            checks: null,
+          },
+        },
+      }),
+      source("noPr", { pr: { kind: "absent" } }),
+    ];
+    const model = modelFor(sources);
+    expect(model.reviewReadyCount).toBe(2);
+    expect(model.reviewReadyOnly).toBe(false);
+    expect(model.visibleEntries.map((e) => e.id)).toEqual([
+      "ready1",
+      "ready2",
+      "noPr",
+    ]);
+  });
+
+  it("filters visible entries to PR-ok rows when reviewReadyOnly is set", () => {
+    const sources = [
+      source("ready", {
+        pr: {
+          kind: "ok",
+          value: {
+            number: 11,
+            url: "https://example.com/pulls/11",
+            state: "open",
+            title: "Migrate to Pierre file tree",
+            checks: "pass",
+          },
+        },
+      }),
+      source("pending", { pr: { kind: "pending" } }),
+      source("absent", { pr: { kind: "absent" } }),
+    ];
+    const model = modelFor(sources, { reviewReadyOnly: true });
+    expect(model.reviewReadyOnly).toBe(true);
+    expect(model.visibleEntries.map((e) => e.id)).toEqual(["ready"]);
   });
 });

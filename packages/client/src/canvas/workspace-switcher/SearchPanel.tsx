@@ -1,8 +1,17 @@
 import type { TerminalId } from "kolu-common/surface";
-import { type Component, createEffect, For, Index, Show } from "solid-js";
+import {
+  type Component,
+  createEffect,
+  createSignal,
+  For,
+  Index,
+  Show,
+} from "solid-js";
+import { toast } from "solid-sonner";
 import { formatTimeAgo } from "../../terminal/staleness";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { CloseIcon } from "../../ui/Icons";
+import { client } from "../../wire";
 import { useTileTheme } from "../useTileTheme";
 import { agentLabel, metaLine, prSummary, tokenLine } from "./chrome";
 import {
@@ -25,6 +34,7 @@ const WorkspaceSearchPanel: Component<{
   onQueryChange: (query: string) => void;
   onSearchFocused: () => void;
   onRepoFilterChange: (repoName: string | null) => void;
+  onReviewReadyChange: (active: boolean) => void;
   onSelect: (id: TerminalId) => void;
   onClose: () => void;
 }> = (props) => {
@@ -71,6 +81,32 @@ const WorkspaceSearchPanel: Component<{
           spellcheck={false}
           autocomplete="off"
         />
+        <button
+          type="button"
+          data-testid="workspace-switcher-review-ready"
+          data-active={props.model.reviewReadyOnly ? "" : undefined}
+          class="shrink-0 inline-flex items-center gap-1.5 h-6 px-2 rounded-md text-[0.65rem] font-mono uppercase tracking-[0.14em] transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+          classList={{
+            "bg-accent/15 text-accent border border-accent/40":
+              props.model.reviewReadyOnly,
+            "text-fg-3 border border-edge/60 hover:text-fg hover:bg-surface-2 hover:border-edge-bright/60":
+              !props.model.reviewReadyOnly,
+          }}
+          aria-pressed={props.model.reviewReadyOnly ? "true" : "false"}
+          title={
+            props.model.reviewReadyOnly
+              ? "Showing only terminals with an open PR — click to clear"
+              : "Filter to terminals with an open PR (ready for review)"
+          }
+          onClick={() =>
+            props.onReviewReadyChange(!props.model.reviewReadyOnly)
+          }
+        >
+          <span aria-hidden="true">PR</span>
+          <span class="tabular-nums opacity-80">
+            {props.model.reviewReadyCount}
+          </span>
+        </button>
         <button
           type="button"
           data-testid="workspace-switcher-close"
@@ -251,14 +287,19 @@ const EntryList: Component<{
       >
         <Index each={props.entries}>
           {(entry) => (
-            <WorkspaceCard
-              entry={entry()}
-              active={store.activeId() === entry().id}
-              unread={store.isUnread(entry().id)}
-              tileBg={tileTheme(entry().id).bg}
-              tileFg={tileTheme(entry().id).fg}
-              onSelect={() => props.onSelect(entry().id)}
-            />
+            <div data-testid="workspace-switcher-entry">
+              <WorkspaceCard
+                entry={entry()}
+                active={store.activeId() === entry().id}
+                unread={store.isUnread(entry().id)}
+                tileBg={tileTheme(entry().id).bg}
+                tileFg={tileTheme(entry().id).fg}
+                onSelect={() => props.onSelect(entry().id)}
+              />
+              <Show when={entry().bucket === "awaiting"}>
+                <AwaitingReplyInput terminalId={entry().id} />
+              </Show>
+            </div>
           )}
         </Index>
       </Show>
@@ -325,6 +366,7 @@ const WorkspaceCard: Component<{
   onSelect: () => void;
 }> = (props) => {
   const agent = () => props.entry.info.meta.agent;
+  const snippet = () => props.entry.info.meta.agentSnippet;
   const pr = () => prSummary(props.entry);
   const tokens = () => tokenLine(agent());
   // Read the bucket the model assigned, not the raw agent state — an idle
@@ -434,6 +476,27 @@ const WorkspaceCard: Component<{
         </Show>
       </div>
 
+      {/* Peek snippet — most-recent assistant utterance or active tool
+       *  call. Tool calls render in mono for typographic distinction
+       *  ("Edit(foo.ts)" reads as code); assistant prose reads as text.
+       *  Two-line clamp keeps the card a stable scan-target even when
+       *  the snippet is long. */}
+      <Show when={!idle() ? snippet() : null}>
+        {(s) => (
+          <div
+            data-testid="workspace-switcher-card-snippet"
+            data-snippet-kind={s().kind}
+            class="mt-1.5 text-[0.7rem] leading-snug text-fg-2/90 line-clamp-2"
+            classList={{
+              "font-mono text-fg-3": s().kind === "tool_use",
+            }}
+            title={s().text}
+          >
+            {s().text}
+          </div>
+        )}
+      </Show>
+
       {/* Meta line: cwd or foreground process — a quiet trailing whisper.
        *  Recency badge sits to the right when an agent semantic-key
        *  transition has been observed (lastActivityAt > 0). */}
@@ -470,6 +533,71 @@ const WorkspaceCard: Component<{
         )}
       </Show>
     </button>
+  );
+};
+
+/** Inline reply input — appears under awaiting cards so the user can
+ *  answer a prompt without focusing the terminal. Submits with Enter,
+ *  forwarding the typed text plus a trailing `\r` to the agent's PTY
+ *  via `terminal.sendInput`. Held outside the parent card's `<button>`
+ *  element to keep HTML valid (no nested interactive controls) and to
+ *  ensure click+keypress events don't bubble to the card's onSelect. */
+const AwaitingReplyInput: Component<{ terminalId: TerminalId }> = (props) => {
+  const [value, setValue] = createSignal("");
+  const [sending, setSending] = createSignal(false);
+
+  async function submit() {
+    const text = value().trim();
+    if (text.length === 0 || sending()) return;
+    setSending(true);
+    try {
+      await client.terminal.sendInput({
+        id: props.terminalId,
+        data: `${text}\r`,
+      });
+      setValue("");
+    } catch (err) {
+      toast.error(`Failed to send reply: ${(err as Error).message}`);
+    } finally {
+      setSending(false);
+    }
+  }
+
+  return (
+    <div
+      class="mt-1.5 flex items-center gap-1.5 px-2 py-1 rounded-md border border-edge/60 bg-surface-0/80"
+      data-testid="workspace-switcher-reply"
+      data-terminal-id={props.terminalId}
+    >
+      <span
+        aria-hidden="true"
+        class="font-mono text-[0.75rem] leading-none text-warning select-none"
+      >
+        ⏵
+      </span>
+      <input
+        data-testid="workspace-switcher-reply-input"
+        type="text"
+        value={value()}
+        disabled={sending()}
+        onInput={(e) => setValue(e.currentTarget.value)}
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => {
+          // Stop propagation so the search bar and global shortcuts don't
+          // capture keystrokes while the reply is focused.
+          e.stopPropagation();
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            void submit();
+          }
+        }}
+        class="flex-1 min-w-0 bg-transparent border-0 outline-none font-mono text-[0.72rem] text-fg placeholder:text-fg-3/60 caret-warning disabled:opacity-60"
+        placeholder="Reply…"
+        aria-label="Reply to agent"
+        spellcheck={false}
+        autocomplete="off"
+      />
+    </div>
   );
 };
 

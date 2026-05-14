@@ -14,6 +14,7 @@ import path from "node:path";
 import type {
   AgentInfoShape,
   AgentProvider,
+  AgentSnippet,
   AgentTerminalState,
   AgentWatcher,
 } from "anyagent";
@@ -69,6 +70,7 @@ function setAgentMetadata(
   entry: TerminalProcess,
   terminalId: string,
   nextAgent: AgentInfo | null,
+  nextSnippet: AgentSnippet | null,
 ): void {
   const bump = shouldBumpRecencyForAgentChange(
     entry.meta.agent,
@@ -82,6 +84,7 @@ function setAgentMetadata(
   // of the structural fence, paid only on transitions (sparse).
   updateServerLiveMetadata(entry, terminalId, (m) => {
     m.agent = nextAgent;
+    m.agentSnippet = nextSnippet;
   });
   if (bump) {
     updateServerMetadata(entry, terminalId, (m) => {
@@ -243,7 +246,7 @@ export function startAgentProvider<Session, Info extends AgentInfoShape>(
       // Only clear metadata if the terminal's agent is ours to clear.
       // Other providers of different kinds share the same `m.agent` slot.
       if (entry.meta.agent?.kind === provider.kind) {
-        setAgentMetadata(entry, terminalId, null);
+        setAgentMetadata(entry, terminalId, null, null);
       }
       return;
     }
@@ -253,14 +256,19 @@ export function startAgentProvider<Session, Info extends AgentInfoShape>(
       key: nextKey,
       watcher: provider.createWatcher(
         next,
-        (info) => {
+        (info, snippet) => {
           // Widen Info to AgentInfo — every concrete Info variant is a
           // member of the AgentInfo discriminated union by construction
           // (its schema is one of the union's branches). The cast lives
           // at the sole metadata-write site for agent info, so widening
           // is confined to this one line rather than smeared across
           // every provider.
-          setAgentMetadata(entry, terminalId, info as unknown as AgentInfo);
+          setAgentMetadata(
+            entry,
+            terminalId,
+            info as unknown as AgentInfo,
+            snippet,
+          );
         },
         plog,
       ),

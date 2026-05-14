@@ -59,6 +59,7 @@ const WorkspaceSwitcher: Component<{
   const idleClassifier = useIdleClassifier();
   const [query, setQuery] = createSignal("");
   const [repoFilter, setRepoFilter] = createSignal<string | null>(null);
+  const [reviewReadyOnly, setReviewReadyOnly] = createSignal(false);
   const [hover, setHover] = createSignal(false);
   const [dismissed, setDismissed] = createSignal(false);
   const [latched, setLatched] = createSignal(false);
@@ -68,6 +69,7 @@ const WorkspaceSwitcher: Component<{
     buildWorkspaceSwitcherModel(props.entries, {
       query: query(),
       repoFilter: repoFilter(),
+      reviewReadyOnly: reviewReadyOnly(),
       activeId: props.activeId,
       getRecency: props.getRecency,
       idleClassifier,
@@ -215,6 +217,7 @@ const WorkspaceSwitcher: Component<{
             onQueryChange={setQuery}
             onSearchFocused={() => setFocusSearchOnOpen(false)}
             onRepoFilterChange={setRepoFilter}
+            onReviewReadyChange={setReviewReadyOnly}
             onSelect={selectAndClose}
             onClose={closePanel}
           />

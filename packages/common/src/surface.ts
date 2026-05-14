@@ -26,7 +26,7 @@
  */
 
 import { defineSurface, type SurfaceTypes } from "@kolu/surface/define";
-import { TaskProgressSchema } from "anyagent/schemas";
+import { AgentSnippetSchema, TaskProgressSchema } from "anyagent/schemas";
 import { ClaudeCodeInfoSchema } from "kolu-claude-code/schemas";
 import { CodexInfoSchema } from "kolu-codex/schemas";
 import {
@@ -155,6 +155,11 @@ export const LiveTerminalFieldsSchema = z.object({
   pr: PrResultSchema,
   /** AI coding agent status (Claude Code, OpenCode, etc.). */
   agent: AgentInfoSchema.nullable(),
+  /** Latest assistant utterance or active tool call — the peek surface
+   *  rendered in the workspace switcher. Decoupled from `agent` because
+   *  the snippet updates on streaming-token cadence while session info
+   *  updates on state transitions; one equality gate cannot serve both. */
+  agentSnippet: AgentSnippetSchema.nullable(),
   /** Foreground process name — detected via OSC 2 title change events. */
   foreground: ForegroundSchema.nullable(),
 });

@@ -18,7 +18,7 @@
  */
 
 import type { Logger } from "kolu-shared";
-import type { TaskProgress } from "./schemas.ts";
+import type { AgentSnippet, TaskProgress } from "./schemas.ts";
 
 /** Snapshot of a terminal's observable state, passed to `resolveSession`.
  *  Fields are the inputs every agent's session-matching logic can draw from;
@@ -91,12 +91,17 @@ export interface AgentProvider<Session, Info extends AgentInfoShape> {
   sessionKey(session: Session): string;
 
   /** Start a watcher for a matched session. `onChange` fires whenever the
-   *  derived `Info` changes. The returned handle's `destroy()` must tear
-   *  down every resource the watcher owns (fs.watch handles, DB connections,
+   *  derived `Info` changes — or whenever the `snippet` changes, which
+   *  bypasses `agentInfoEqual` on purpose: snippet text streams at ~150ms
+   *  cadence while info fields update on session-state transitions, so
+   *  they share the wire but not the equality gate. Providers without
+   *  snippet derivation pass `null`; the orchestrator writes both fields
+   *  on every call. The returned handle's `destroy()` must tear down
+   *  every resource the watcher owns (fs.watch handles, DB connections,
    *  debounce timers, in-flight async work). */
   createWatcher(
     session: Session,
-    onChange: (info: Info) => void,
+    onChange: (info: Info, snippet: AgentSnippet | null) => void,
     log: Logger,
   ): AgentWatcher;
 

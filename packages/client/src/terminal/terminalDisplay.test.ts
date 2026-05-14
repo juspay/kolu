@@ -9,6 +9,7 @@ function makeMeta(overrides: Partial<TerminalMetadata> = {}): TerminalMetadata {
     git: null,
     pr: { kind: "pending" },
     agent: null,
+    agentSnippet: null,
     foreground: null,
     lastActivityAt: 0,
     ...overrides,

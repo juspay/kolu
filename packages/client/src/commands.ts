@@ -72,6 +72,61 @@ function worktreeAgentOptions(
   ];
 }
 
+/** Shared children for the "New terminal" and "Launch in background"
+ *  groups. The two groups carry identical surface — current-directory
+ *  shell + per-repo worktree creation — and differ only in whether the
+ *  newly created terminal grabs focus. Passing `background: true`
+ *  threads `{ background: true }` through `handleCreate` and
+ *  `handleCreateWorktree`, which suppress the auto-activate side
+ *  effect; the new tile lands on the canvas without panning the view
+ *  or stealing keyboard focus from the user's current session. */
+function newTerminalChildren(
+  deps: Pick<
+    CommandDeps,
+    "handleCreate" | "handleCreateWorktree" | "activeMeta"
+  >,
+  options: { background: boolean },
+): PaletteItem[] {
+  const repos = recentRepos();
+  return [
+    {
+      kind: "action",
+      name: options.background
+        ? "In current directory (no focus)"
+        : "In current directory",
+      onSelect: () =>
+        deps.handleCreate(deps.activeMeta()?.cwd, undefined, options),
+    },
+    ...repos.map(
+      (r): PaletteValueInput => ({
+        kind: "value",
+        name: r.repoName,
+        description: options.background
+          ? `New worktree in ${r.repoRoot} (background)`
+          : `New worktree in ${r.repoRoot}`,
+        prefill: randomName,
+        placeholder: "Worktree name",
+        validate: validateWorktreeName,
+        onSubmit: (name, selected) => {
+          const agentCmd =
+            typeof selected.data === "string" ? selected.data : undefined;
+          deps.handleCreateWorktree(r.repoRoot, name.trim(), agentCmd, options);
+        },
+        children: (): (PaletteLabel | PaletteHint)[] =>
+          worktreeAgentOptions(recentAgents()),
+      }),
+    ),
+    ...(repos.length === 0
+      ? [
+          {
+            kind: "hint" as const,
+            text: "Repos you cd into will appear here",
+          },
+        ]
+      : []),
+  ];
+}
+
 /** Palette-only dependencies — anything `ActionContext` doesn't already
  *  provide for the keyboard dispatcher. */
 export interface CommandDeps extends ActionContext {
@@ -96,6 +151,7 @@ export interface CommandDeps extends ActionContext {
     repoPath: string,
     name: string,
     initialCommand?: string,
+    options?: { background?: boolean },
   ) => void;
   handleClose: () => void;
   // Debug
@@ -108,41 +164,16 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
     {
       kind: "group",
       name: "New terminal",
-      children: (): PaletteItem[] => {
-        const repos = recentRepos();
-        return [
-          {
-            kind: "action",
-            name: "In current directory",
-            onSelect: () => deps.handleCreate(deps.activeMeta()?.cwd),
-          },
-          ...repos.map(
-            (r): PaletteValueInput => ({
-              kind: "value",
-              name: r.repoName,
-              description: `New worktree in ${r.repoRoot}`,
-              prefill: randomName,
-              placeholder: "Worktree name",
-              validate: validateWorktreeName,
-              onSubmit: (name, selected) => {
-                const agentCmd =
-                  typeof selected.data === "string" ? selected.data : undefined;
-                deps.handleCreateWorktree(r.repoRoot, name.trim(), agentCmd);
-              },
-              children: (): (PaletteLabel | PaletteHint)[] =>
-                worktreeAgentOptions(recentAgents()),
-            }),
-          ),
-          ...(repos.length === 0
-            ? [
-                {
-                  kind: "hint" as const,
-                  text: "Repos you cd into will appear here",
-                },
-              ]
-            : []),
-        ];
-      },
+      children: (): PaletteItem[] =>
+        newTerminalChildren(deps, { background: false }),
+    },
+    {
+      kind: "group",
+      name: "Launch in background",
+      description:
+        "Spawn a new terminal without taking focus — useful for kicking off long-running agent work while keeping your current session in view",
+      children: (): PaletteItem[] =>
+        newTerminalChildren(deps, { background: true }),
     },
     ...(deps.activeId() !== null
       ? [

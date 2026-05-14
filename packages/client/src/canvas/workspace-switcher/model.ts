@@ -199,6 +199,15 @@ export type WorkspaceSwitcherModel = {
   selectedRepo: string | null;
   repoFacets: WorkspaceRepoFacet[];
   columns: WorkspaceSwitcherColumn[];
+  /** Total count of entries whose `pr.kind === "ok"` — the population a
+   *  "Ready for review" toggle would surface, regardless of whether the
+   *  filter is currently engaged. Lets the chip render its count badge
+   *  without re-walking entries in the renderer. */
+  reviewReadyCount: number;
+  /** True when the caller asked for the review-ready filter. The flag
+   *  echoes back so the renderer can highlight the chip without
+   *  threading its own state. */
+  reviewReadyOnly: boolean;
 };
 
 /** Classify live agent metadata into the agent-state buckets. Pure — does
@@ -408,6 +417,13 @@ export function buildWorkspaceSwitcherModel(
   options: {
     query?: string;
     repoFilter?: string | null;
+    /** When true, restrict `visibleEntries` (and therefore every column)
+     *  to entries whose `pr.kind === "ok"` — a "ready for review"
+     *  triage view. Composed orthogonally with `repoFilter` and the
+     *  agent-state bucket columns; PR readiness is a separate axis
+     *  from agent activity (an agent can be `working` on follow-up
+     *  commits while its PR is open and reviewable). */
+    reviewReadyOnly?: boolean;
     activeId?: TerminalId | null;
     getRecency?: (id: TerminalId) => number;
     idleClassifier?: (lastActivityAt: number) => IdleBucketKey | null;
@@ -437,11 +453,17 @@ export function buildWorkspaceSwitcherModel(
     };
   });
 
+  const reviewReadyOnly = options.reviewReadyOnly ?? false;
   const { repoFacets, selectedRepo, visibleEntries } = searchResults(
     entries,
     options.query ?? "",
     options.repoFilter ?? null,
+    reviewReadyOnly,
   );
+  let reviewReadyCount = 0;
+  for (const entry of entries) {
+    if (entry.info.meta.pr.kind === "ok") reviewReadyCount++;
+  }
 
   // Single pass: bucket every visible entry (and, for idle entries,
   // sub-bucket them) in one walk instead of N×M filters.
@@ -483,6 +505,8 @@ export function buildWorkspaceSwitcherModel(
     selectedRepo,
     repoFacets,
     columns,
+    reviewReadyCount,
+    reviewReadyOnly,
   };
 }
 
@@ -496,6 +520,7 @@ function searchResults(
   entries: WorkspaceSwitcherEntry[],
   query: string,
   repoFilter: string | null,
+  reviewReadyOnly: boolean,
 ): {
   repoFacets: WorkspaceRepoFacet[];
   selectedRepo: string | null;
@@ -529,9 +554,18 @@ function searchResults(
 
   const selectedRepo =
     repoFilter && facetCounts.has(repoFilter) ? repoFilter : null;
-  const visibleEntries = selectedRepo
+  let visibleEntries = selectedRepo
     ? queryMatches.filter((entry) => entry.repoName === selectedRepo)
     : queryMatches;
+  // Review-ready filter composes after query+repo so the repo facets
+  // (which the renderer shows as side-bar choices) reflect the broader
+  // population. Engaging the chip narrows the entry list without
+  // re-keying the facet counts.
+  if (reviewReadyOnly) {
+    visibleEntries = visibleEntries.filter(
+      (entry) => entry.info.meta.pr.kind === "ok",
+    );
+  }
 
   return { repoFacets, selectedRepo, visibleEntries };
 }

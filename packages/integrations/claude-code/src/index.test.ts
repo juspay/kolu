@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
+  deriveLatestSnippet,
   deriveState,
   deriveTaskProgress,
   encodeProjectPath,
@@ -422,5 +423,150 @@ describe("deriveTaskProgress", () => {
       ["4", "pending"],
     ]);
     expect(deriveTaskProgress(tasks)).toEqual({ total: 4, completed: 2 });
+  });
+});
+
+describe("deriveLatestSnippet", () => {
+  const ts = "2026-05-14T10:00:00.000Z";
+  const tsMs = Date.parse(ts);
+
+  it("returns null when no assistant entries exist", () => {
+    const line = JSON.stringify({
+      type: "user",
+      timestamp: ts,
+      message: { content: "hello" },
+    });
+    expect(deriveLatestSnippet([line])).toBeNull();
+  });
+
+  it("returns the last text block in the last assistant entry", () => {
+    const line = JSON.stringify({
+      type: "assistant",
+      timestamp: ts,
+      message: {
+        content: [{ type: "text", text: "Hello there\n\nSecond paragraph." }],
+      },
+    });
+    expect(deriveLatestSnippet([line])).toEqual({
+      kind: "assistant",
+      text: "Hello there",
+      ts: tsMs,
+    });
+  });
+
+  it("collapses single newlines and trims whitespace", () => {
+    const line = JSON.stringify({
+      type: "assistant",
+      timestamp: ts,
+      message: {
+        content: [{ type: "text", text: "  one\nstill\nfirst para  " }],
+      },
+    });
+    expect(deriveLatestSnippet([line])?.text).toBe("one still first para");
+  });
+
+  it("truncates long text with an ellipsis", () => {
+    const long = "x".repeat(500);
+    const line = JSON.stringify({
+      type: "assistant",
+      timestamp: ts,
+      message: { content: [{ type: "text", text: long }] },
+    });
+    const snippet = deriveLatestSnippet([line]);
+    expect(snippet?.kind).toBe("assistant");
+    expect(snippet?.text.length).toBe(200);
+    expect(snippet?.text.endsWith("…")).toBe(true);
+  });
+
+  it("returns a tool_use snippet with file basename for file ops", () => {
+    const line = JSON.stringify({
+      type: "assistant",
+      timestamp: ts,
+      message: {
+        content: [
+          {
+            type: "tool_use",
+            name: "Edit",
+            input: { file_path: "/abs/path/to/source.ts" },
+          },
+        ],
+      },
+    });
+    expect(deriveLatestSnippet([line])).toEqual({
+      kind: "tool_use",
+      text: "Edit(source.ts)",
+      ts: tsMs,
+    });
+  });
+
+  it("returns command head for Bash tool_use", () => {
+    const line = JSON.stringify({
+      type: "assistant",
+      timestamp: ts,
+      message: {
+        content: [
+          {
+            type: "tool_use",
+            name: "Bash",
+            input: { command: "git status --porcelain" },
+          },
+        ],
+      },
+    });
+    expect(deriveLatestSnippet([line])?.text).toBe("Bash: git");
+  });
+
+  it("prefers the last content block when both text and tool_use exist", () => {
+    const line = JSON.stringify({
+      type: "assistant",
+      timestamp: ts,
+      message: {
+        content: [
+          { type: "text", text: "I'll edit the file." },
+          { type: "tool_use", name: "Edit", input: { file_path: "x.ts" } },
+        ],
+      },
+    });
+    expect(deriveLatestSnippet([line])?.kind).toBe("tool_use");
+  });
+
+  it("walks back past empty-content assistant entries", () => {
+    const earlier = JSON.stringify({
+      type: "assistant",
+      timestamp: "2026-05-14T09:00:00.000Z",
+      message: { content: [{ type: "text", text: "earlier reply" }] },
+    });
+    const empty = JSON.stringify({
+      type: "assistant",
+      timestamp: ts,
+      message: { content: [] },
+    });
+    expect(deriveLatestSnippet([earlier, empty])?.text).toBe("earlier reply");
+  });
+
+  it("ignores user/tool_result entries when picking the most recent", () => {
+    const assistant = JSON.stringify({
+      type: "assistant",
+      timestamp: "2026-05-14T09:00:00.000Z",
+      message: { content: [{ type: "text", text: "agent reply" }] },
+    });
+    const userEcho = JSON.stringify({
+      type: "user",
+      timestamp: ts,
+      message: { content: "another user prompt" },
+    });
+    expect(deriveLatestSnippet([assistant, userEcho])?.text).toBe(
+      "agent reply",
+    );
+  });
+
+  it("survives malformed JSON lines", () => {
+    const broken = "{not-json}";
+    const line = JSON.stringify({
+      type: "assistant",
+      timestamp: ts,
+      message: { content: [{ type: "text", text: "ok" }] },
+    });
+    expect(deriveLatestSnippet([broken, line])?.text).toBe("ok");
   });
 });

@@ -10,9 +10,10 @@
  */
 
 import fs from "node:fs";
-import { agentInfoEqual } from "anyagent";
+import { type AgentSnippet, agentInfoEqual } from "anyagent";
 import { match } from "ts-pattern";
 import {
+  deriveLatestSnippet,
   deriveState,
   deriveTaskProgress,
   encodeProjectPath,
@@ -92,11 +93,12 @@ export interface SessionWatcher {
  */
 export function createSessionWatcher(
   session: SessionFile,
-  onUpdate: (info: ClaudeCodeInfo) => void,
+  onUpdate: (info: ClaudeCodeInfo, snippet: AgentSnippet | null) => void,
   plog: Logger,
 ): SessionWatcher {
   let transcriptWatching: TranscriptWatching = { kind: "none" };
   let lastInfo: ClaudeCodeInfo | null = null;
+  let lastSnippet: AgentSnippet | null = null;
   let lastSummary: string | null = null;
   const taskMap = new Map<string, "pending" | "in_progress" | "completed">();
   let taskScanOffset = 0;
@@ -213,13 +215,22 @@ export function createSessionWatcher(
       contextTokens: derived.contextTokens,
     };
 
-    if (!agentInfoEqual(info, lastInfo)) {
+    const snippet = deriveLatestSnippet(lines);
+    const infoChanged = !agentInfoEqual(info, lastInfo);
+    const snippetChanged = !snippetEqual(snippet, lastSnippet);
+    if (infoChanged || snippetChanged) {
       plog.debug(
-        { state: info.state, model: info.model, session: info.sessionId },
+        {
+          state: info.state,
+          model: info.model,
+          session: info.sessionId,
+          snippetKind: snippet?.kind ?? null,
+        },
         "claude code state updated",
       );
       lastInfo = info;
-      onUpdate(info);
+      lastSnippet = snippet;
+      onUpdate(info, snippet);
     }
 
     // Fire-and-forget: refreshSummary owns its try/catch/finally and
@@ -303,12 +314,27 @@ export function createSessionWatcher(
       );
       const updated: ClaudeCodeInfo = { ...lastInfo, summary };
       lastInfo = updated;
-      onUpdate(updated);
+      // Carry the cached snippet through summary refreshes — only the
+      // info changed here, and emitting `null` would erase the peek
+      // surface for the duration between SDK responses (#snippet-bypass-gate).
+      onUpdate(updated, lastSnippet);
     } catch (err) {
       plog.debug({ err, session: session.sessionId }, "getSessionInfo failed");
     } finally {
       pendingSummaryFetches--;
     }
+  }
+
+  /** Structural equality on the snippet shape. Pure helper kept inside
+   *  the closure so the comparator and the only field set that uses it
+   *  evolve together — adding a snippet field is one edit. */
+  function snippetEqual(
+    a: AgentSnippet | null,
+    b: AgentSnippet | null,
+  ): boolean {
+    if (a === b) return true;
+    if (!a || !b) return false;
+    return a.kind === b.kind && a.text === b.text && a.ts === b.ts;
   }
 
   // --- Start watching ---

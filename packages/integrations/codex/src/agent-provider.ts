@@ -36,7 +36,10 @@ export const codexProvider: AgentProvider<CodexSession, CodexInfo> = {
   },
 
   createWatcher(session, onChange, log) {
-    return createCodexWatcher(session, onChange, log);
+    // Codex doesn't derive a peek-snippet yet — pass `null` so the
+    // orchestrator clears `agentSnippet` alongside info updates and the
+    // snippet doesn't shadow stale state from a previous integration.
+    return createCodexWatcher(session, (info) => onChange(info, null), log);
   },
 
   externalChanges: {

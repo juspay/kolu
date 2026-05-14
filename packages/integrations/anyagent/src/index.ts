@@ -17,4 +17,9 @@ export {
   agentInfoEqual,
   matchesAgent,
 } from "./agent-provider.ts";
-export { type TaskProgress, TaskProgressSchema } from "./schemas.ts";
+export {
+  type AgentSnippet,
+  AgentSnippetSchema,
+  type TaskProgress,
+  TaskProgressSchema,
+} from "./schemas.ts";

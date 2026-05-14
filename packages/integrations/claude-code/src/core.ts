@@ -24,7 +24,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { getSessionInfo } from "@anthropic-ai/claude-agent-sdk";
+import type { AgentSnippet } from "anyagent";
 import { type Logger, readTailLines } from "kolu-shared";
+import { parseIsoTimestamp } from "kolu-transcript-core";
 import { match } from "ts-pattern";
 import type { ClaudeCodeInfo, TaskProgress } from "./schemas.ts";
 
@@ -278,6 +280,122 @@ function sumUsageTokens(usage: UsageShape | undefined): number | null {
     (usage.cache_creation_input_tokens ?? 0) +
     (usage.cache_read_input_tokens ?? 0)
   );
+}
+
+// --- Peek snippet derivation ---
+
+/** Max characters retained for a snippet preview. Workspace-switcher
+ *  cards clamp to ~2 lines visually; the wire cap is generous enough
+ *  to give a hover tooltip more text without flooding the metadata
+ *  channel with multi-KB strings on every transcript tick. */
+const SNIPPET_MAX_LEN = 200;
+
+/** Derive the most-recent assistant utterance or tool call from a tail
+ *  window of JSONL lines. Walks backward to the latest `assistant` entry,
+ *  then picks the last text or tool_use block within it — that's "what
+ *  the agent is doing right now" when state is `tool_use`, or "what it
+ *  last said" when state is `waiting`. Returns null when the window
+ *  contains no assistant content (early in a session, or all content is
+ *  empty `thinking` blocks). */
+export function deriveLatestSnippet(lines: string[]): AgentSnippet | null {
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const raw = lines[i];
+    if (raw === undefined) continue;
+    let entry: {
+      type?: string;
+      timestamp?: string;
+      message?: {
+        content?: Array<{
+          type?: string;
+          text?: string;
+          name?: string;
+          input?: unknown;
+        }>;
+      };
+    };
+    try {
+      entry = JSON.parse(raw);
+    } catch {
+      continue;
+    }
+    if (entry.type !== "assistant") continue;
+    const content = entry.message?.content;
+    if (!Array.isArray(content) || content.length === 0) continue;
+
+    // `timestamp` is best-effort — synthetic/replay entries occasionally
+    // omit it. Default to 0 instead of skipping the snippet entirely so
+    // the peek surface still renders; the ts field is informational
+    // ("when did this land") and never participates in equality or sort.
+    const ts = parseIsoTimestamp(entry.timestamp) ?? 0;
+    for (let j = content.length - 1; j >= 0; j--) {
+      const block = content[j];
+      if (!block) continue;
+      if (
+        block.type === "text" &&
+        typeof block.text === "string" &&
+        block.text.trim().length > 0
+      ) {
+        return { kind: "assistant", text: snippetFromText(block.text), ts };
+      }
+      if (block.type === "tool_use" && typeof block.name === "string") {
+        return {
+          kind: "tool_use",
+          text: snippetFromToolUse(block.name, block.input),
+          ts,
+        };
+      }
+    }
+  }
+  return null;
+}
+
+/** Trim a multi-paragraph assistant reply to a single short preview.
+ *  Keeps the first paragraph (assistant prose is paragraph-structured)
+ *  and caps overall length so streaming-token updates don't pump giant
+ *  strings through the wire on every keystroke. */
+function snippetFromText(text: string): string {
+  const trimmed = text.trim();
+  const firstPara = trimmed.split(/\n\s*\n/, 1)[0] ?? trimmed;
+  // Collapse single newlines inside the first paragraph to spaces — the
+  // workspace card clamps to 2 lines visually, so the snippet flows as
+  // one continuous prose blurb rather than carrying mid-paragraph breaks.
+  const flowed = firstPara.replace(/\s+/g, " ").trim();
+  return flowed.length > SNIPPET_MAX_LEN
+    ? `${flowed.slice(0, SNIPPET_MAX_LEN - 1)}…`
+    : flowed;
+}
+
+/** Render a tool_use block as a compact "Tool(arg)" summary. Picks the
+ *  most identifying field from the typed input — `file_path` for file
+ *  ops, `command` for Bash, `pattern` for Grep — and falls back to just
+ *  the tool name when none of those are present. Inputs are arbitrary
+ *  objects from the model so the typing is loose; defensive narrowing
+ *  is intentional. */
+function snippetFromToolUse(name: string, input: unknown): string {
+  if (input !== null && typeof input === "object") {
+    const o = input as Record<string, unknown>;
+    if (typeof o.file_path === "string" && o.file_path.length > 0) {
+      return `${name}(${path.basename(o.file_path)})`;
+    }
+    if (typeof o.command === "string" && o.command.length > 0) {
+      const head = o.command.split(/\s+/, 1)[0] ?? "";
+      return head.length > 0 ? `${name}: ${head}` : name;
+    }
+    if (typeof o.pattern === "string" && o.pattern.length > 0) {
+      return `${name}(${o.pattern})`;
+    }
+    if (typeof o.url === "string" && o.url.length > 0) {
+      return `${name}(${o.url})`;
+    }
+    if (typeof o.description === "string" && o.description.length > 0) {
+      const head =
+        o.description.length > 60
+          ? `${o.description.slice(0, 59)}…`
+          : o.description;
+      return `${name}: ${head}`;
+    }
+  }
+  return name;
 }
 
 // --- Task extraction ---

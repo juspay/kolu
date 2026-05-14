@@ -352,7 +352,7 @@ Concrete inventory — what every server-pushed reactive surface in Kolu maps to
 
 | Descriptor | Backs | Mutation |
 |---|---|---|
-| `terminalMetadataCollection` | Per-terminal metadata (cwd, git, PR, agent state, foreground process, last-activity timestamp for switcher recency) — each terminal's tile chrome and inspector reads its own key | _server-only_ (providers under `meta/*.ts` route writes through `updateServerMetadata` for persisted fields and `updateServerLiveMetadata` for live-only fields — `pr`, `agent`, `foreground` — so the high-frequency agent-stream watcher doesn't fire `terminals:dirty` and trigger no-op session autosaves; the agent provider switches to the persisting variant on each semantic-key transition that bumps `lastActivityAt`) |
+| `terminalMetadataCollection` | Per-terminal metadata (cwd, git, PR, agent state, agent peek snippet, foreground process, last-activity timestamp for switcher recency) — each terminal's tile chrome and inspector reads its own key | _server-only_ (providers under `meta/*.ts` route writes through `updateServerMetadata` for persisted fields and `updateServerLiveMetadata` for live-only fields — `pr`, `agent`, `agentSnippet`, `foreground` — so the high-frequency agent-stream watcher doesn't fire `terminals:dirty` and trigger no-op session autosaves; `agentSnippet` lives outside `AgentInfo` so its ~150ms streaming-token cadence bypasses `agentInfoEqual`; the agent provider switches to the persisting variant on each semantic-key transition that bumps `lastActivityAt`) |
 
 ### Streams
 

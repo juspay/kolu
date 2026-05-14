@@ -193,7 +193,8 @@ const App: Component = () => {
     activate: store.activate,
     mruOrder: store.mruOrder,
     activeMeta: store.activeMeta,
-    handleCreate: (cwd?: string) => void crud.handleCreate(cwd),
+    handleCreate: (cwd, initial, options) =>
+      void crud.handleCreate(cwd, initial, options),
     handleCreateSubTerminal: (parentId, cwd) =>
       void crud.handleCreateSubTerminal(parentId, cwd),
     openNewTerminalMenu: () => openPaletteGroup("New terminal"),
@@ -270,8 +271,13 @@ const App: Component = () => {
     handleSetTheme,
     setAboutOpen,
     setDiagnosticInfoOpen,
-    handleCreateWorktree: (repoPath, name, initialCommand) =>
-      void worktree.handleCreateWorktree(repoPath, name, initialCommand),
+    handleCreateWorktree: (repoPath, name, initialCommand, options) =>
+      void worktree.handleCreateWorktree(
+        repoPath,
+        name,
+        initialCommand,
+        options,
+      ),
     handleClose: () => {
       const id = store.activeId();
       if (id) closeTerminal(id);

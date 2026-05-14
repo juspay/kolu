@@ -96,15 +96,20 @@ export function useTerminalCrud(deps: {
     }
   }
 
-  /** Create a new terminal on the server and make it active.
+  /** Create a new terminal on the server and (by default) make it active.
    *  Returns the new terminal ID (for session restore mapping).
    *  `initial` carries client-owned metadata to seed atomically on the
    *  server — used by session restore so the first `terminal.list`
    *  yield already carries the saved theme / canvas layout / sub-panel
-   *  state, closing the race with the canvas cascade effect (#642). */
+   *  state, closing the race with the canvas cascade effect (#642).
+   *  Pass `options.background: true` to suppress the auto-activate
+   *  side effect — used by "Launch in background" flows where the new
+   *  terminal should land on the canvas without stealing the user's
+   *  current focus. */
   async function handleCreate(
     cwd?: string,
     initial?: InitialTerminalMetadata,
+    options?: { background?: boolean },
   ): Promise<TerminalId> {
     if (store.activeMeta()?.git) showTipOnce(CONTEXTUAL_TIPS.worktree);
 
@@ -137,7 +142,9 @@ export function useTerminalCrud(deps: {
     // `setActiveSilently`: the canvas's cascade-placement effect bumps
     // the centering signal once the new tile's pending layout is set —
     // calling `activate` here would race the layout and read undefined.
-    store.setActiveSilently(info.id);
+    // Suppressed for `background: true` callers so the existing active
+    // terminal keeps focus and the canvas doesn't pan to the new tile.
+    if (!options?.background) store.setActiveSilently(info.id);
     deps.subscribeExit(info.id);
     showTipOnce(CONTEXTUAL_TIPS.themeSwitch);
     return info.id;
