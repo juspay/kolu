@@ -689,6 +689,22 @@ const Terminal: Component<{
             e.preventDefault(),
           );
 
+          // Suppress X11 primary-selection paste on Linux. Middle-click in a
+          // focused text input pastes the primary selection; xterm's hidden
+          // textarea is that focused input, so the bytes get relayed to the
+          // PTY as if typed. Capture phase + preventDefault on mousedown
+          // blocks the browser's paste before xterm's own listeners run, and
+          // catches middle-click drag too — the paste fires on mousedown,
+          // not on the drag's eventual mouseup.
+          makeEventListener(
+            containerRef,
+            "mousedown",
+            (e: MouseEvent) => {
+              if (e.button === 1) e.preventDefault();
+            },
+            { capture: true },
+          );
+
           // Touch-scroll the scrollback. xterm.js 6.0.0 declares
           // IViewport.handleTouchStart/Move types but Viewport.ts has zero
           // touch wiring, and the WebGL canvas eats touch events on the way
