@@ -1,11 +1,11 @@
-/** Awaiting dock — step definitions. */
+/** Activity dock — step definitions. */
 
 import { Then } from "@cucumber/cucumber";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
-const DOCK_SELECTOR = '[data-testid="awaiting-dock"]';
-const CARD_SELECTOR = '[data-testid="awaiting-dock-card"]';
-const WORKING_SELECTOR = '[data-testid="awaiting-dock-working"]';
+const DOCK_SELECTOR = '[data-testid="activity-dock"]';
+const CARD_SELECTOR = '[data-testid="activity-dock-card"]';
+const WORKING_SELECTOR = '[data-testid="activity-dock-working"]';
 
 Then("the awaiting dock should be visible", async function (this: KoluWorld) {
   await this.page

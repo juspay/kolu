@@ -1,4 +1,4 @@
-/** Awaiting dock — top-left column surfacing every active agent.
+/** Activity dock — top-left column surfacing every active agent.
  *  **One list, sorted strictly by `lastActivityAt` descending** so the
  *  most recent transition is always at the top regardless of which
  *  state it lands in. The dock answers "what just changed?" first,
@@ -88,12 +88,12 @@ const [viewportHeight, setViewportHeight] = createSignal(
  *  collapsed — ambient peripheral signal first, full context on
  *  demand via the rail toggle. */
 const [dockCollapsed, setDockCollapsed] = makePersisted(createSignal(true), {
-  name: "kolu-awaiting-dock-collapsed",
+  name: "kolu-activity-dock-collapsed",
   serialize: (v) => (v ? "1" : "0"),
   deserialize: (raw) => raw === "1",
 });
 
-const AwaitingDock: Component = () => {
+const ActivityDock: Component = () => {
   const store = useTerminalStore();
   const isStale = useStaleCheck();
   onMount(() => {
@@ -125,7 +125,7 @@ const AwaitingDock: Component = () => {
   return (
     <Show when={liveIds().length > 0}>
       <div
-        data-testid="awaiting-dock"
+        data-testid="activity-dock"
         data-collapsed={dockCollapsed() ? "" : undefined}
         class={`absolute top-20 left-4 z-20 rounded-2xl overflow-hidden shadow-2xl shadow-black/40 flex flex-col max-h-[calc(100vh-22rem)] ${dockCollapsed() ? "" : "w-72"}`}
       >
@@ -195,7 +195,7 @@ const RailSegment: Component<{ repoColor: string; bucket: string }> = (
   return (
     <button
       type="button"
-      data-testid="awaiting-dock-toggle"
+      data-testid="activity-dock-toggle"
       data-agent-bucket={props.bucket}
       onClick={() => setDockCollapsed((v) => !v)}
       class={`shrink-0 cursor-pointer transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 ${
@@ -213,7 +213,7 @@ const RailSegment: Component<{ repoColor: string; bucket: string }> = (
 };
 
 /** Awaiting card body — content for an awaiting row. No own chrome
- *  (rounding, border, shadow, width) — the unified `<AwaitingDock>`
+ *  (rounding, border, shadow, width) — the unified `<ActivityDock>`
  *  outer surface provides all of those; the body just fills its grid
  *  cell with the tile-themed bg/fg + content layout. */
 const AwaitingCardBody: Component<{
@@ -256,7 +256,7 @@ const AwaitingCardBody: Component<{
 
   return (
     <div
-      data-testid="awaiting-dock-card"
+      data-testid="activity-dock-card"
       data-terminal-id={props.id}
       class="px-2.5 py-2.5 flex flex-col gap-1.5"
       style={{
@@ -288,7 +288,7 @@ const AwaitingCardBody: Component<{
         <PrLine meta={props.meta} />
         <Show when={tail().length > 0}>
           <div
-            data-testid="awaiting-dock-tail"
+            data-testid="activity-dock-tail"
             class="font-mono text-[0.7rem] text-fg-2 leading-snug whitespace-pre-wrap break-all w-full mt-0.5"
           >
             <For each={tail()}>
@@ -300,7 +300,7 @@ const AwaitingCardBody: Component<{
       <form onSubmit={submit}>
         <input
           type="text"
-          data-testid="awaiting-dock-reply"
+          data-testid="activity-dock-reply"
           value={value()}
           onInput={(e) => setValue(e.currentTarget.value)}
           placeholder="Reply…"
@@ -333,7 +333,7 @@ const WorkingPillBody: Component<{
   return (
     <button
       type="button"
-      data-testid="awaiting-dock-working"
+      data-testid="activity-dock-working"
       data-terminal-id={props.id}
       onClick={() => store.activate(props.id)}
       class="w-full px-2.5 py-1 flex flex-col gap-0.5 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 text-left"
@@ -385,7 +385,7 @@ const PrLine: Component<{ meta: TerminalMetadata }> = (props) => {
 
 /** Shared "agent indicator (left) + lastActive (right)" sub-line used
  *  on both the full card and the compact pill. Renders nothing when
- *  the terminal has no agent — `<AwaitingDock>` only mounts these
+ *  the terminal has no agent — `<ActivityDock>` only mounts these
  *  components when `agentBucket` is awaiting/working, but the
  *  `Show` keeps the render shape honest. */
 const DockMetaRow: Component<{ meta: TerminalMetadata }> = (props) => {
@@ -404,4 +404,4 @@ const DockMetaRow: Component<{ meta: TerminalMetadata }> = (props) => {
   );
 };
 
-export default AwaitingDock;
+export default ActivityDock;

@@ -1,5 +1,5 @@
 @claude-mock
-Feature: Awaiting dock
+Feature: Activity dock
   Top-right column surfacing active agents. Awaiting agents get full
   cards with a tail preview + reply input; working agents get compact
   pills. Parked (stale) agents are filtered out.
