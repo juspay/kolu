@@ -71,12 +71,18 @@ export function useLineSelection(
     range,
     handleSelect: (r) => setRange(r),
     buildItems: () => {
+      // Snapshot `path()` once so the label, copy text, and onActivate
+      // capture all agree. Reading the accessor inside `onActivate`
+      // would resolve at click time and could disagree with the
+      // already-rendered label if Pierre remounts onto a different
+      // file between menu-open and click.
+      const p = path();
       const items: CodeContextMenuItem[] = [
-        { kind: "copy", label: "Copy path", textToCopy: path() },
+        { kind: "copy", label: "Copy path", textToCopy: p },
       ];
       const r = range();
       if (r) {
-        const refStr = formatLineRef(path(), r.start, r.end);
+        const refStr = formatLineRef(p, r.start, r.end);
         items.push({
           kind: "copy",
           label: `Copy ${refStr}`,
@@ -88,7 +94,7 @@ export function useLineSelection(
             kind: "action",
             label: `Open ${refStr}`,
             onActivate: () =>
-              onOpen({ path: path(), startLine: r.start, endLine: r.end }),
+              onOpen({ path: p, startLine: r.start, endLine: r.end }),
           });
         }
       }
