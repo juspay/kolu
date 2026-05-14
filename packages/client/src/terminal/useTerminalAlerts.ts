@@ -88,7 +88,10 @@ export function useTerminalAlerts(deps: {
       deps.markBadgeAttention(id);
     }
     if (isBackground || document.hidden)
-      fireActivityAlert(deps.terminalLabel(id), () => deps.activate(id));
+      fireActivityAlert(deps.terminalLabel(id), {
+        isBackground,
+        onSwitch: () => deps.activate(id),
+      });
   }
 
   function simulateAlert(options?: { target?: "active" | "inactive" }) {

@@ -20,14 +20,20 @@ export function requestNotificationPermission() {
 }
 
 /** Fire audio + in-app toast + (when tab is hidden) browser notification
- *  for a terminal that finished. `onSwitch` activates the terminal — used
- *  by the toast's Switch action and the native notification's click. */
-export function fireActivityAlert(label: string, onSwitch: () => void) {
+ *  for a terminal that finished. The toast only renders when the finished
+ *  terminal is not already the active one — a "Switch" affordance to the
+ *  current terminal would be a no-op. `onSwitch` activates the terminal. */
+export function fireActivityAlert(
+  label: string,
+  opts: { isBackground: boolean; onSwitch: () => void },
+) {
   playSound();
-  toast.success(`${label} finished`, {
-    duration: Number.POSITIVE_INFINITY,
-    action: { label: "Switch", onClick: onSwitch },
-  });
+  if (opts.isBackground) {
+    toast.success(`${label} finished`, {
+      duration: Number.POSITIVE_INFINITY,
+      action: { label: "Switch", onClick: opts.onSwitch },
+    });
+  }
   if (
     document.hidden &&
     "Notification" in window &&
@@ -38,7 +44,7 @@ export function fireActivityAlert(label: string, onSwitch: () => void) {
     });
     notif.onclick = () => {
       window.focus();
-      onSwitch();
+      if (opts.isBackground) opts.onSwitch();
       notif.close();
     };
   }
