@@ -35,9 +35,10 @@ import {
   type Component,
   For,
   Show,
+  createEffect,
   createMemo,
+  createRoot,
   createSignal,
-  onCleanup,
 } from "solid-js";
 import AgentIndicator from "../terminal/AgentIndicator";
 import { tailBuffer } from "../terminal/bufferTail";
@@ -87,6 +88,17 @@ if (typeof window !== "undefined") {
   window.addEventListener("resize", () =>
     setViewportHeight(window.innerHeight),
   );
+}
+
+// Shared peek-tick — every awaiting card refreshes its xterm tail on
+// the same cadence, so one app-scoped timer fans out to N consumers
+// instead of N independent timers. `createRoot` keeps the timer
+// owner-detached so disposing any single card doesn't stop the tick.
+const [peekTick, setPeekTick] = createSignal(0);
+if (typeof window !== "undefined") {
+  createRoot(() => {
+    setInterval(() => setPeekTick((n) => n + 1), PEEK_REFRESH_MS);
+  });
 }
 
 /** Collapsed = narrow strip of per-agent dots; expanded = full
@@ -231,18 +243,15 @@ const AwaitingCardBody: Component<{
   const [tail, setTail] = createSignal<string[]>([]);
   const [value, setValue] = createSignal("");
 
-  const refresh = () => {
+  createEffect(() => {
+    peekTick();
     const xterm = getTerminalRefs(props.id)?.xterm;
     if (!xterm) {
       setTail([]);
       return;
     }
     setTail(tailBuffer(xterm, props.tailLines));
-  };
-
-  refresh();
-  const interval = setInterval(refresh, PEEK_REFRESH_MS);
-  onCleanup(() => clearInterval(interval));
+  });
 
   async function submit(e: SubmitEvent) {
     e.preventDefault();
