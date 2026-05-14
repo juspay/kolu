@@ -246,6 +246,7 @@ const AwaitingCardBody: Component<{
 }> = (props) => {
   const store = useTerminalStore();
   const tileTheme = useTileTheme();
+  const theme = createMemo(() => tileTheme(props.id));
   const [tail, setTail] = createSignal<string[]>([]);
   const [value, setValue] = createSignal("");
 
@@ -283,8 +284,8 @@ const AwaitingCardBody: Component<{
       data-terminal-id={props.id}
       class="px-2.5 py-2.5 flex flex-col gap-1.5"
       style={{
-        "background-color": tileTheme(props.id).bg,
-        color: tileTheme(props.id).fg,
+        "background-color": theme().bg,
+        color: theme().fg,
       }}
     >
       <button
@@ -353,6 +354,7 @@ const WorkingPillBody: Component<{
 }> = (props) => {
   const store = useTerminalStore();
   const tileTheme = useTileTheme();
+  const theme = createMemo(() => tileTheme(props.id));
   return (
     <button
       type="button"
@@ -361,8 +363,8 @@ const WorkingPillBody: Component<{
       onClick={() => store.activate(props.id)}
       class="w-full px-2.5 py-1 flex flex-col gap-0.5 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 text-left"
       style={{
-        "background-color": tileTheme(props.id).bg,
-        color: tileTheme(props.id).fg,
+        "background-color": theme().bg,
+        color: theme().fg,
       }}
       title="Jump to this terminal"
     >
