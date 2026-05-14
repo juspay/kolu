@@ -119,18 +119,16 @@ const ActivityDock: Component = () => {
   const liveIds = createMemo(() =>
     store
       .terminalIds()
-      .filter((id) => {
+      .flatMap((id) => {
         const meta = store.getMetadata(id);
-        if (!meta) return false;
-        if (isStale(meta.lastActivityAt)) return false;
+        if (!meta) return [];
+        if (isStale(meta.lastActivityAt)) return [];
         const bucket = agentBucket(meta.agent);
-        return bucket === "awaiting" || bucket === "working";
+        if (bucket !== "awaiting" && bucket !== "working") return [];
+        return [{ id, ts: meta.lastActivityAt }];
       })
-      .sort((a, b) => {
-        const ta = store.getMetadata(a)?.lastActivityAt ?? 0;
-        const tb = store.getMetadata(b)?.lastActivityAt ?? 0;
-        return tb - ta;
-      }),
+      .sort((a, b) => b.ts - a.ts)
+      .map((e) => e.id),
   );
   const tailLines = createMemo(() =>
     tailLinesFor(viewportHeight(), liveIds().length),
