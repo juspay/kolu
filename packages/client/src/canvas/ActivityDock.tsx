@@ -49,7 +49,7 @@ import { getTerminalRefs } from "../terminal/terminalRefs";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { client } from "../wire";
 import { useTileTheme } from "./useTileTheme";
-import { agentBucket } from "./workspace-switcher/model";
+import { agentBucket } from "./workspace-switcher";
 
 const PEEK_REFRESH_MS = 250;
 const MIN_TAIL_LINES = 2;
@@ -164,7 +164,11 @@ const DockRow: Component<{ id: TerminalId; tailLines: number }> = (props) => {
               <Show
                 when={bucket() === "awaiting"}
                 fallback={
-                  <WorkingPillBody id={props.id} info={c().info} meta={c().meta} />
+                  <WorkingPillBody
+                    id={props.id}
+                    info={c().info}
+                    meta={c().meta}
+                  />
                 }
               >
                 <AwaitingCardBody
