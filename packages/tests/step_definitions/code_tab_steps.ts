@@ -114,13 +114,20 @@ When(
 // diff viewer (`DIFF_VIEW`) wrap the same Pierre primitive, so the
 // gutter selector and mouse dance are identical — only the host
 // element's CSS root changes.
-async function clickLineGutterIn(world: KoluWorld, root: string, line: number) {
+// One shared interaction for any mouse button on a gutter line. The
+// virtualizer-bounding-box race (Pierre's `VirtualizedFileDiff` is
+// keyed on path; switching files makes the element pass
+// `waitFor(visible)` and then return a null bounding box on the very
+// next call as the virtualizer re-measures) is identical between
+// left- and right-click — only the button differs.
+async function interactWithGutterLine(
+  world: KoluWorld,
+  root: string,
+  line: number,
+  button: "left" | "right",
+): Promise<void> {
   const lineEl = world.page.locator(`${root} [data-column-number="${line}"]`);
   await lineEl.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-  // Switching files re-mounts Pierre's `VirtualizedFileDiff` (FileDiff
-  // is keyed on path), so the line element can pass `waitFor(visible)`
-  // and then return a null bounding box on the very next call as the
-  // virtualizer re-measures. Poll until the box is stable.
   const box = await pollFor({
     observe: () => lineEl.first().boundingBox(),
     isDone: (b) => !!b && b.width > 0 && b.height > 0,
@@ -133,8 +140,8 @@ async function clickLineGutterIn(world: KoluWorld, root: string, line: number) {
   });
   if (!box) throw new Error("unreachable: pollFor returned without box");
   await world.page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-  await world.page.mouse.down();
-  await world.page.mouse.up();
+  await world.page.mouse.down({ button });
+  await world.page.mouse.up({ button });
   await world.waitForFrame();
 }
 
@@ -148,7 +155,7 @@ async function rightClickViewRoot(world: KoluWorld, root: string) {
 When(
   "I click the line number {int} in the file content",
   async function (this: KoluWorld, line: number) {
-    await clickLineGutterIn(this, FILE_VIEW, line);
+    await interactWithGutterLine(this, FILE_VIEW, line, "left");
   },
 );
 
@@ -160,44 +167,25 @@ When("I right-click the file content", async function (this: KoluWorld) {
 // the context menu in one gesture (the host's `contextmenu` handler
 // in `CodeMenuFrame` derives the line from the click target). Replaces
 // the old two-step "click line then right-click viewer root" idiom.
-async function rightClickLineIn(world: KoluWorld, root: string, line: number) {
-  const lineEl = world.page.locator(`${root} [data-column-number="${line}"]`);
-  await lineEl.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-  const box = await pollFor({
-    observe: () => lineEl.first().boundingBox(),
-    isDone: (b) => !!b && b.width > 0 && b.height > 0,
-    onTimeout: (last, ms) =>
-      new Error(
-        `gutter ${root} [data-column-number="${line}"] has no usable bounding box after ${ms}ms (last=${JSON.stringify(last)})`,
-      ),
-    timeoutMs: POLL_TIMEOUT,
-    intervalMs: 50,
-  });
-  if (!box) throw new Error("unreachable: pollFor returned without box");
-  await world.page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-  await world.page.mouse.down({ button: "right" });
-  await world.page.mouse.up({ button: "right" });
-  await world.waitForFrame();
-}
 
 When(
   "I right-click line {int} in the diff view",
   async function (this: KoluWorld, line: number) {
-    await rightClickLineIn(this, DIFF_VIEW, line);
+    await interactWithGutterLine(this, DIFF_VIEW, line, "right");
   },
 );
 
 When(
   "I right-click line {int} in the file content",
   async function (this: KoluWorld, line: number) {
-    await rightClickLineIn(this, FILE_VIEW, line);
+    await interactWithGutterLine(this, FILE_VIEW, line, "right");
   },
 );
 
 When(
   "I click the line number {int} in the diff view",
   async function (this: KoluWorld, line: number) {
-    await clickLineGutterIn(this, DIFF_VIEW, line);
+    await interactWithGutterLine(this, DIFF_VIEW, line, "left");
   },
 );
 
