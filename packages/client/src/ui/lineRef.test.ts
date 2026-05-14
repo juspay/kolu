@@ -193,4 +193,48 @@ describe("resolveLineRefPath", () => {
       }),
     ).toBe("nested/src/app.ts");
   });
+
+  it("resolves a bare filename whose basename is unique in the repo", () => {
+    expect(
+      resolveLineRefPath({
+        rawPath: "Main.hs",
+        repoRoot,
+        cwd: repoRoot,
+        repoPaths,
+      }),
+    ).toBe("packages/a/src/Main.hs");
+  });
+
+  it("returns null when the basename is ambiguous", () => {
+    expect(
+      resolveLineRefPath({
+        rawPath: "app.ts",
+        repoRoot,
+        cwd: repoRoot,
+        repoPaths,
+      }),
+    ).toBeNull();
+  });
+
+  it("falls back to basename when a slash-containing path doesn't match", () => {
+    expect(
+      resolveLineRefPath({
+        rawPath: "wrong/Main.hs",
+        repoRoot,
+        cwd: repoRoot,
+        repoPaths,
+      }),
+    ).toBe("packages/a/src/Main.hs");
+  });
+
+  it("prefers an exact path candidate over the basename fallback", () => {
+    expect(
+      resolveLineRefPath({
+        rawPath: "src/app.ts",
+        repoRoot,
+        cwd: repoRoot,
+        repoPaths,
+      }),
+    ).toBe("src/app.ts");
+  });
 });
