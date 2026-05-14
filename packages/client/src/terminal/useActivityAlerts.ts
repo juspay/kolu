@@ -25,7 +25,7 @@ export function requestNotificationPermission() {
 export function fireActivityAlert(label: string, onSwitch: () => void) {
   playSound();
   toast.success(`${label} finished`, {
-    duration: 8000,
+    duration: Number.POSITIVE_INFINITY,
     action: { label: "Switch", onClick: onSwitch },
   });
   if (
