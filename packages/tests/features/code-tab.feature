@@ -343,17 +343,18 @@ Feature: Code tab (review + browse)
   Scenario: Right-click "Open path:N" in diff view jumps to browse at that line
     When I run "git init /tmp/kolu-open-from-diff && cd /tmp/kolu-open-from-diff"
     And I run "git commit --allow-empty -m init"
-    And I run "printf 'first\nsecond\nthird\n' > notes.txt"
+    And I run "mkdir -p docs && printf 'first\nsecond\nthird\n' > docs/notes.txt"
     And I click the Code tab
-    Then the Code tab should list a changed file "notes.txt"
-    When I click the changed file "notes.txt" in the Code tab
+    Then the Code tab should list a changed file "docs/notes.txt"
+    When I click the changed file "docs/notes.txt" in the Code tab
     Then the diff view should contain "second"
     When I click the line number 2 in the diff view
     And I right-click the diff view
-    And I click the context menu item "Open notes.txt:2"
+    And I click the context menu item "Open docs/notes.txt:2"
     Then the Code tab mode should be "browse"
     And the selected file should show content "second"
     And line 2 should be selected in the file content
+    And the file browser should show a file "docs/notes.txt"
 
   # ── Live updates: filesystem changes propagate without manual refresh ──
   # The Code view subscribes to a watcher that observes four axes (HEAD,

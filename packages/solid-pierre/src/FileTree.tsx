@@ -28,6 +28,19 @@ type FileTreeOptions = ConstructorParameters<typeof FileTreeClass>[0];
 type Composition = NonNullable<FileTreeOptions["composition"]>;
 type FileTreeContextMenu = NonNullable<Composition["contextMenu"]>;
 
+/** Directory paths that contain `path`, formatted with the trailing
+ *  slash Pierre uses for folder keys (`src/`, `src/right-panel/`). The
+ *  list is leaf-first → root, which is the order Pierre's
+ *  `initialExpandedPaths` walks. */
+function ancestorsOf(path: string): string[] {
+  const parts = path.split("/").filter(Boolean);
+  const out: string[] = [];
+  for (let i = 1; i < parts.length; i++) {
+    out.push(`${parts.slice(0, i).join("/")}/`);
+  }
+  return out;
+}
+
 export type FileTreeProps = {
   paths: string[];
   gitStatus?: GitStatusEntry[];
@@ -110,15 +123,26 @@ export const FileTree: Component<FileTreeProps> = (props) => {
 
   // `resetPaths` takes the new path inventory and the directories to
   // open in one call (Pierre's `FileTreeResetOptions.initialExpandedPaths`).
-  // Tracking both inputs in the same effect means a paths-and-ancestors
+  // Tracking the inputs in the same effect means a paths-and-ancestors
   // swap lands atomically — no second effect, no ordering invariant
-  // between "rebuild tree" and "open ancestors".
+  // between "rebuild tree" and "open ancestors". The selected path's
+  // ancestors are merged in too: when an external caller drives selection
+  // (e.g. a terminal `path:line` click resolving into a nested file),
+  // the parents must be expanded for the row to be visible. Pierre's
+  // public surface doesn't expose `expandDirectory` directly, so the
+  // expand-on-select is routed through this same `resetPaths` call.
   createEffect(
     on(
-      [() => props.paths, () => props.expandPaths],
-      ([paths, expandPaths]) => {
+      [
+        () => props.paths,
+        () => props.expandPaths,
+        () => props.selectedPath ?? null,
+      ],
+      ([paths, expandPaths, selectedPath]) => {
         try {
-          tree?.resetPaths(paths, { initialExpandedPaths: expandPaths });
+          const ancestors = selectedPath ? ancestorsOf(selectedPath) : [];
+          const expanded = [...(expandPaths ?? []), ...ancestors];
+          tree?.resetPaths(paths, { initialExpandedPaths: expanded });
         } catch (e) {
           props.onError(toError(e));
         }
