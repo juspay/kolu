@@ -150,8 +150,11 @@ const ChevronToggle: Component = () => {
       type="button"
       data-testid="awaiting-dock-toggle"
       onClick={() => setDockCollapsed((v) => !v)}
-      class="w-5 h-5 flex items-center justify-center rounded text-fg-3 hover:text-fg-1 hover:bg-surface-2/60 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 text-[0.7rem] leading-none"
+      class="w-6 h-6 flex items-center justify-center rounded-md bg-surface-1/85 border border-edge/60 backdrop-blur-sm text-fg-1 hover:bg-surface-2/90 hover:border-edge-bright/70 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 text-[0.85rem] leading-none shadow-sm"
       title={
+        dockCollapsed() ? "Expand awaiting dock" : "Collapse awaiting dock"
+      }
+      aria-label={
         dockCollapsed() ? "Expand awaiting dock" : "Collapse awaiting dock"
       }
     >
