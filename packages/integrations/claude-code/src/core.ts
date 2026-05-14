@@ -316,6 +316,10 @@ export function deriveLatestSnippet(lines: string[]): AgentSnippet | null {
     try {
       entry = JSON.parse(raw);
     } catch {
+      // Skip malformed lines — same posture as `deriveState`'s
+      // tail-parser. The transcript is best-effort: a single corrupt
+      // line shouldn't sink the whole walk, and the next watcher
+      // tick will retry over a tail that may have grown past it.
       continue;
     }
     if (entry.type !== "assistant") continue;
