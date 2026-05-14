@@ -288,7 +288,7 @@ Feature: Code tab (review + browse)
 
   # ── Pierre file/diff viewer right-click menu (Copy path:line) ──
 
-  Scenario: Right-click on file content with a selected line copies "path:line"
+  Scenario: Right-click on a file content line copies "path:line"
     When I run "git init /tmp/kolu-browse-ctx && cd /tmp/kolu-browse-ctx"
     And I run "printf 'alpha\nbeta\ngamma\n' > letters.txt"
     And I run "git add . && git commit -m init"
@@ -296,8 +296,7 @@ Feature: Code tab (review + browse)
     And I click the Code tab mode "browse"
     When I click the file "letters.txt" in the file browser
     Then the file content should contain "beta"
-    When I click the line number 2 in the file content
-    And I right-click the file content
+    When I right-click line 2 in the file content
     And I click the context menu item "Copy letters.txt:2"
     Then the clipboard should contain "letters.txt:2"
 
@@ -322,18 +321,37 @@ Feature: Code tab (review + browse)
     And the Code tab should list a changed file "file-b.txt"
     When I click the changed file "file-a.txt" in the Code tab
     Then the diff view should contain "a-one"
-    When I click the line number 1 in the diff view
-    And I right-click the diff view
+    When I right-click line 1 in the diff view
     And I click the context menu item "Copy file-a.txt:1"
     Then the clipboard should contain "file-a.txt:1"
     When I click the changed file "file-b.txt" in the Code tab
     Then the diff view should contain "b-one"
-    When I click the line number 1 in the diff view
-    And I right-click the diff view
-    Then the context menu items should be "Copy path | Copy file-b.txt:1"
+    When I right-click line 1 in the diff view
+    Then the context menu items should be "Copy path | Copy file-b.txt:1 | Open file-b.txt:1"
     When I click the context menu item "Copy file-b.txt:1"
     Then the clipboard should contain "file-b.txt:1"
     And the clipboard should not contain "file-a.txt"
+
+  # ── Right-click "Open" jumps from diff to full file (#881 phase 0) ──
+  # Reviewing a diff and wanting full-file context at the same line was
+  # previously two manual steps: copy `path:N`, switch to browse mode,
+  # paste-navigate. The "Open path:N" context-menu entry dispatches via
+  # the same `openInCodeTab` front door the terminal-link click uses.
+  Scenario: Right-click "Open path:N" in diff view jumps to browse at that line
+    When I run "git init /tmp/kolu-open-from-diff && cd /tmp/kolu-open-from-diff"
+    And I run "git commit --allow-empty -m init"
+    And I run "mkdir -p docs && printf 'first\nsecond\nthird\n' > docs/notes.txt"
+    And I click the Code tab
+    Then the Code tab should list a changed file "docs/notes.txt"
+    When I click the changed file "docs/notes.txt" in the Code tab
+    Then the diff view should contain "second"
+    When I right-click line 2 in the diff view
+    And I click the context menu item "Open docs/notes.txt:2"
+    Then the Code tab mode should be "browse"
+    And the selected file should show content "second"
+    And line 2 should be selected in the file content
+    And the file browser should show a file "docs/notes.txt"
+    And the file "docs/notes.txt" should be selected in the file browser
 
   # ── Live updates: filesystem changes propagate without manual refresh ──
   # The Code view subscribes to a watcher that observes four axes (HEAD,

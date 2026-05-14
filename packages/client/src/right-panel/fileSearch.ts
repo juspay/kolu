@@ -13,6 +13,8 @@
  *  the directories the wrapper should ensure are open so matches don't
  *  hide behind a collapsed parent on first paint. */
 
+import { ancestorDirectoryPaths } from "@kolu/solid-pierre";
+
 type FileTreeSearchProjection = {
   projectedPaths: string[];
   expandedAncestors: string[];
@@ -37,21 +39,6 @@ function pathContainsTokensInOrder(
     offset = index + token.length;
   }
   return true;
-}
-
-/** Pierre uses `getAncestorDirectoryPaths` internally to drive
- *  expansion in `hide-non-matches` mode. Mirror that exact shape so
- *  the wrapper's expansion request reaches every dir Pierre infers
- *  from the projected paths. */
-function ancestorDirectoryPaths(path: string): string[] {
-  const normalized = path.endsWith("/") ? path.slice(0, -1) : path;
-  if (normalized.length === 0) return [];
-  const segments = normalized.split("/");
-  const out: string[] = [];
-  for (let i = 1; i < segments.length; i += 1) {
-    out.push(`${segments.slice(0, i).join("/")}/`);
-  }
-  return out;
 }
 
 export function projectFileTreeSearch(

@@ -7,14 +7,32 @@
  *  line selection — items can return null to omit themselves. */
 
 import { type Component, createSignal, For, onCleanup, Show } from "solid-js";
-import { Portal } from "solid-js/web";
+import { Dynamic, Portal } from "solid-js/web";
 import { toast } from "solid-sonner";
+import { match } from "ts-pattern";
 
-export type CodeContextMenuItem = {
-  label: string;
-  /** Returned text gets copied; success toast names the item. */
-  textToCopy: string;
-};
+/** Two verbs over the same selection noun: copy a string to the clipboard,
+ *  or invoke an action callback. The discriminator keeps the dispatch
+ *  explicit so adding a third verb (e.g. "share") doesn't tempt the
+ *  handler into reading every field on every item. Every item carries
+ *  a leading icon — verbs like "Copy" and "Open" share the same label
+ *  shape (`<verb> path:N`) and disambiguate poorly when only the first
+ *  word differs; the glyph makes the verb readable at a glance. */
+export type CodeContextMenuItem =
+  | {
+      kind: "copy";
+      label: string;
+      icon: Component<{ class?: string }>;
+      /** Text written to the clipboard; success toast names the item. */
+      textToCopy: string;
+    }
+  | {
+      kind: "action";
+      label: string;
+      icon: Component<{ class?: string }>;
+      /** Fired on click. The item is closed regardless of completion. */
+      onActivate: () => void;
+    };
 
 export type CodeContextMenuController = {
   /** Bind to a host element's `oncontextmenu`. */
@@ -67,10 +85,15 @@ export const CodeContextMenu: Component<{
   });
 
   const handleItem = (item: CodeContextMenuItem) => {
-    navigator.clipboard
-      .writeText(item.textToCopy)
-      .then(() => toast.success(`Copied: ${item.textToCopy}`))
-      .catch((err: Error) => toast.error(`Failed to copy: ${err.message}`));
+    match(item)
+      .with({ kind: "copy" }, ({ textToCopy }) => {
+        navigator.clipboard
+          .writeText(textToCopy)
+          .then(() => toast.success(`Copied: ${textToCopy}`))
+          .catch((err: Error) => toast.error(`Failed to copy: ${err.message}`));
+      })
+      .with({ kind: "action" }, ({ onActivate }) => onActivate())
+      .exhaustive();
     close();
   };
 
@@ -88,10 +111,14 @@ export const CodeContextMenu: Component<{
               <button
                 type="button"
                 role="menuitem"
-                class="block w-full cursor-pointer rounded px-2 py-1 text-left hover:bg-surface-2"
+                class="flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1 text-left hover:bg-surface-2"
                 onClick={() => handleItem(item)}
               >
-                {item.label}
+                <Dynamic
+                  component={item.icon}
+                  class="w-3.5 h-3.5 shrink-0 opacity-70"
+                />
+                <span>{item.label}</span>
               </button>
             )}
           </For>

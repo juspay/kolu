@@ -42,18 +42,26 @@ export function useRightPanel() {
           ...(mode !== undefined && { codeMode: mode }),
         },
       }),
-    /** Atomic "open the code browser at this file" — uncollapse the
-     *  panel, switch to Code, force browse mode. Single patch so the
-     *  UI ticks once instead of three times when callers need all
-     *  three transitions together. */
-    openCodeBrowser: () =>
+    /** Atomic "open the Code tab at `mode`" — uncollapse the panel,
+     *  switch to Code, set the requested sub-mode. Single preferences
+     *  patch so the UI ticks once instead of three times when callers
+     *  need all three transitions together. Skips the patch when the
+     *  panel is already in the target state (every diff→browse and
+     *  browse→browse `openInCodeTab` would otherwise round-trip a
+     *  three-field preferences write to the server). */
+    openCodeAt: (mode: CodeTabView) => {
+      const cur = rp();
+      if (!cur.collapsed && cur.activeTab === "code" && cur.codeMode === mode) {
+        return;
+      }
       updatePreferences({
         rightPanel: {
           collapsed: false,
           activeTab: "code",
-          codeMode: "browse",
+          codeMode: mode,
         },
-      }),
+      });
+    },
     /** Change the sub-mode within the Code tab. */
     setCodeMode: (mode: CodeTabView) =>
       updatePreferences({ rightPanel: { codeMode: mode } }),

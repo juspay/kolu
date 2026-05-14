@@ -114,13 +114,19 @@ When(
 // diff viewer (`DIFF_VIEW`) wrap the same Pierre primitive, so the
 // gutter selector and mouse dance are identical — only the host
 // element's CSS root changes.
-async function clickLineGutterIn(world: KoluWorld, root: string, line: number) {
+//
+// Poll the bounding box because Pierre's `VirtualizedFileDiff` is keyed
+// on path; switching files makes the element pass `waitFor(visible)`
+// and then return a null bounding box on the very next call as the
+// virtualizer re-measures.
+async function interactWithGutterLine(
+  world: KoluWorld,
+  root: string,
+  line: number,
+  button: "left" | "right",
+): Promise<void> {
   const lineEl = world.page.locator(`${root} [data-column-number="${line}"]`);
   await lineEl.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-  // Switching files re-mounts Pierre's `VirtualizedFileDiff` (FileDiff
-  // is keyed on path), so the line element can pass `waitFor(visible)`
-  // and then return a null bounding box on the very next call as the
-  // virtualizer re-measures. Poll until the box is stable.
   const box = await pollFor({
     observe: () => lineEl.first().boundingBox(),
     isDone: (b) => !!b && b.width > 0 && b.height > 0,
@@ -133,39 +139,42 @@ async function clickLineGutterIn(world: KoluWorld, root: string, line: number) {
   });
   if (!box) throw new Error("unreachable: pollFor returned without box");
   await world.page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-  await world.page.mouse.down();
-  await world.page.mouse.up();
-  await world.waitForFrame();
-}
-
-async function rightClickViewRoot(world: KoluWorld, root: string) {
-  const view = world.page.locator(root);
-  await view.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-  await view.click({ button: "right" });
+  await world.page.mouse.down({ button });
+  await world.page.mouse.up({ button });
   await world.waitForFrame();
 }
 
 When(
   "I click the line number {int} in the file content",
   async function (this: KoluWorld, line: number) {
-    await clickLineGutterIn(this, FILE_VIEW, line);
+    await interactWithGutterLine(this, FILE_VIEW, line, "left");
   },
 );
 
-When("I right-click the file content", async function (this: KoluWorld) {
-  await rightClickViewRoot(this, FILE_VIEW);
-});
+// Right-click on a gutter line: `CodeMenuFrame`'s contextmenu handler
+// reads the line from `event.composedPath()` and opens a 3-item menu
+// scoped to that line. Selection + menu-open in one gesture.
+
+When(
+  "I right-click line {int} in the diff view",
+  async function (this: KoluWorld, line: number) {
+    await interactWithGutterLine(this, DIFF_VIEW, line, "right");
+  },
+);
+
+When(
+  "I right-click line {int} in the file content",
+  async function (this: KoluWorld, line: number) {
+    await interactWithGutterLine(this, FILE_VIEW, line, "right");
+  },
+);
 
 When(
   "I click the line number {int} in the diff view",
   async function (this: KoluWorld, line: number) {
-    await clickLineGutterIn(this, DIFF_VIEW, line);
+    await interactWithGutterLine(this, DIFF_VIEW, line, "left");
   },
 );
-
-When("I right-click the diff view", async function (this: KoluWorld) {
-  await rightClickViewRoot(this, DIFF_VIEW);
-});
 
 // Pierre marks selected gutter + content rows with `data-selected-line`
 // (see @pierre/diffs InteractionManager.renderSelectedLines). The gutter
@@ -360,6 +369,22 @@ Then(
   async function (this: KoluWorld, path: string) {
     const item = this.page.locator(fileRow(path));
     await item.waitFor({ state: "detached", timeout: POLL_TIMEOUT });
+  },
+);
+
+// Pierre marks selected rows with `aria-selected="true"` (and a boolean
+// `data-item-selected` that may serialize as `""` or `"true"` depending
+// on the renderer — `aria-selected` is the reliable string form). The
+// row must also be VISIBLE — collapsed-ancestor descendants fail
+// `state: "visible"` even when marked selected, so this step implicitly
+// verifies ancestor expansion too.
+Then(
+  "the file {string} should be selected in the file browser",
+  async function (this: KoluWorld, path: string) {
+    const item = this.page.locator(
+      `${TREE} [data-item-path="${path}"][data-item-type="file"][aria-selected="true"]:not([data-file-tree-sticky-row])`,
+    );
+    await item.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },
 );
 

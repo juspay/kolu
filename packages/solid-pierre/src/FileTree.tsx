@@ -28,6 +28,23 @@ type FileTreeOptions = ConstructorParameters<typeof FileTreeClass>[0];
 type Composition = NonNullable<FileTreeOptions["composition"]>;
 type FileTreeContextMenu = NonNullable<Composition["contextMenu"]>;
 
+/** Directory paths that contain `path`, formatted with the trailing
+ *  slash Pierre uses for folder keys (`src/`, `src/right-panel/`).
+ *  Tolerates an input that already carries a trailing slash (folder
+ *  path) by stripping it before splitting. Mirrors the shape Pierre's
+ *  internal `getAncestorDirectoryPaths` walks so the result can be
+ *  fed back as `initialExpandedPaths` without surprises. */
+export function ancestorDirectoryPaths(path: string): string[] {
+  const normalized = path.endsWith("/") ? path.slice(0, -1) : path;
+  if (normalized.length === 0) return [];
+  const segments = normalized.split("/").filter(Boolean);
+  const out: string[] = [];
+  for (let i = 1; i < segments.length; i += 1) {
+    out.push(`${segments.slice(0, i).join("/")}/`);
+  }
+  return out;
+}
+
 export type FileTreeProps = {
   paths: string[];
   gitStatus?: GitStatusEntry[];
@@ -80,12 +97,33 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   // membership in this set is a reliable file-vs-folder discriminator.
   const fileSet = createMemo(() => new Set(props.paths));
 
+  // Known limitation: Pierre's vanilla `FileTree` doesn't expose a
+  // public `scrollToPath`. Its `scrollFocusedRowIntoView` (in
+  // `dist/render/FileTreeView.js`) is gated on `shouldOwnDomFocus`,
+  // which is set only by user-initiated handlers (row click, keyboard
+  // nav). Programmatic selection via `initialSelectedPaths` /
+  // `getItem(path)?.select()` marks the row `aria-selected="true"` but
+  // does NOT scroll the virtualizer to reveal it. For small trees the
+  // row happens to sit in the visible window; for large worktrees the
+  // selected row stays virtualized off-screen until the user scrolls.
+  // Filed upstream: https://github.com/pierrecomputer/pierre/issues/676
   onMount(() => {
     try {
+      // Snapshot read of `props.selectedPath` for `initialExpandedPaths`.
+      // The deferred resetPaths effect below reads it reactively for
+      // subsequent changes — Pierre doesn't expose a hook to re-feed
+      // `initialExpandedPaths` after the constructor, so initial and
+      // reactive paths are unavoidably two sites.
+      const selectedAncestors = props.selectedPath
+        ? ancestorDirectoryPaths(props.selectedPath)
+        : [];
       tree = new FileTreeClass({
         paths: props.paths,
         initialExpansion: props.initialExpansion ?? "closed",
-        initialExpandedPaths: props.expandPaths,
+        initialExpandedPaths: [
+          ...(props.expandPaths ?? []),
+          ...selectedAncestors,
+        ],
         flattenEmptyDirectories: props.flattenEmptyDirectories ?? true,
         stickyFolders: props.stickyFolders ?? true,
         icons: props.icons,
@@ -110,15 +148,28 @@ export const FileTree: Component<FileTreeProps> = (props) => {
 
   // `resetPaths` takes the new path inventory and the directories to
   // open in one call (Pierre's `FileTreeResetOptions.initialExpandedPaths`).
-  // Tracking both inputs in the same effect means a paths-and-ancestors
+  // Tracking the inputs in the same effect means a paths-and-ancestors
   // swap lands atomically — no second effect, no ordering invariant
-  // between "rebuild tree" and "open ancestors".
+  // between "rebuild tree" and "open ancestors". The selected path's
+  // ancestors are merged in too: when an external caller drives selection
+  // (e.g. a terminal `path:line` click resolving into a nested file),
+  // the parents must be expanded for the row to be visible. Pierre's
+  // public surface doesn't expose `expandDirectory` directly, so the
+  // expand-on-select is routed through this same `resetPaths` call.
   createEffect(
     on(
-      [() => props.paths, () => props.expandPaths],
-      ([paths, expandPaths]) => {
+      [
+        () => props.paths,
+        () => props.expandPaths,
+        () => props.selectedPath ?? null,
+      ],
+      ([paths, expandPaths, selectedPath]) => {
         try {
-          tree?.resetPaths(paths, { initialExpandedPaths: expandPaths });
+          const ancestors = selectedPath
+            ? ancestorDirectoryPaths(selectedPath)
+            : [];
+          const expanded = [...(expandPaths ?? []), ...ancestors];
+          tree?.resetPaths(paths, { initialExpandedPaths: expanded });
         } catch (e) {
           props.onError(toError(e));
         }
