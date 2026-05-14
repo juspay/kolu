@@ -180,26 +180,34 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
   // absolute path or `null`, never the empty string that would alias
   // null.
   const resetKey = createMemo(() => `${repoPath() ?? ""}::${view()}`);
+
+  /** The resetKey effect runs BEFORE the pendingOpen effect by
+   *  registration order. When a navigation request is about to land in
+   *  the new (repo, mode) — same repoRoot, target mode equals the
+   *  freshly-ticked `view()`, and the request hasn't already been
+   *  consumed by `handled()` — the resetKey effect must skip its clear,
+   *  or the pendingOpen effect would null what we're about to set.
+   *  This predicate names the cross-effect temporal coupling so the
+   *  guard isn't a wall of inline conjunctions a future editor has to
+   *  re-derive. The `batch()` in `openInCodeTab` ensures both writes
+   *  (`view` and `pendingOpen`) commit before either effect fires; the
+   *  registration-order discipline survives ABOVE that. */
+  const isPendingOpenAboutToLand = (): boolean => {
+    const req = pendingOpen();
+    return (
+      req !== null &&
+      req.repoRoot === repoPath() &&
+      req.targetMode === view() &&
+      handled()?.request !== req
+    );
+  };
+
   createEffect(
     on(
       resetKey,
       () => {
         setSearchQuery("");
-        // Skip the selectedPath clear when an incoming request is
-        // about to land in the new mode — the resetKey effect runs
-        // before the pendingOpen effect (registration order), and an
-        // unconditional clear would null what we're about to set.
-        // Reading `req.targetMode` (not `view()`) makes the guard
-        // robust to user-driven mode flips that race the click.
-        const req = pendingOpen();
-        if (
-          req &&
-          req.repoRoot === repoPath() &&
-          req.targetMode === view() &&
-          handled()?.request !== req
-        ) {
-          return;
-        }
+        if (isPendingOpenAboutToLand()) return;
         setSelectedPath(null);
       },
       { defer: true },
