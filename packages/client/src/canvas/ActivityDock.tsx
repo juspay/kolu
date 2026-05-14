@@ -226,10 +226,10 @@ const RailSegment: Component<{
       } ${props.bucket === "awaiting" ? "dock-rail-awaiting" : "dock-rail-working"}`}
       style={{ "background-color": props.repoColor }}
       title={
-        dockCollapsed() ? "Expand awaiting dock" : "Collapse awaiting dock"
+        dockCollapsed() ? "Expand activity dock" : "Collapse activity dock"
       }
       aria-label={
-        dockCollapsed() ? "Expand awaiting dock" : "Collapse awaiting dock"
+        dockCollapsed() ? "Expand activity dock" : "Collapse activity dock"
       }
     />
   );
