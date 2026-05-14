@@ -188,13 +188,13 @@ const AwaitingCard: Component<{ id: TerminalId; tailLines: number }> = (
             >
               <div class="flex items-baseline justify-between gap-2 min-w-0">
                 <span
-                  class="font-mono text-[0.6rem] font-bold uppercase tracking-[0.16em] truncate min-w-0"
+                  class="font-mono text-[0.7rem] font-bold uppercase tracking-[0.14em] truncate min-w-0"
                   style={{ color: displayInfo.repoColor }}
                 >
                   {displayInfo.key.group}
                 </span>
                 <span
-                  class="text-[0.75rem] font-semibold truncate min-w-0"
+                  class="text-[0.95rem] font-semibold leading-tight truncate min-w-0"
                   style={{ color: displayInfo.branchColor }}
                 >
                   {displayInfo.key.label}
@@ -271,13 +271,13 @@ const WorkingPill: Component<{ id: TerminalId }> = (props) => {
           >
             <div class="flex items-baseline justify-between gap-2 min-w-0">
               <span
-                class="font-mono text-[0.55rem] font-bold uppercase tracking-[0.16em] truncate min-w-0"
+                class="font-mono text-[0.65rem] font-bold uppercase tracking-[0.14em] truncate min-w-0"
                 style={{ color: displayInfo.repoColor }}
               >
                 {displayInfo.key.group}
               </span>
               <span
-                class="text-[0.7rem] font-medium truncate min-w-0"
+                class="text-[0.85rem] font-semibold leading-tight truncate min-w-0"
                 style={{ color: displayInfo.branchColor }}
               >
                 {displayInfo.key.label}
