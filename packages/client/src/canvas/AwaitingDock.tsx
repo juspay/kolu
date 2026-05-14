@@ -1,21 +1,26 @@
-/** Awaiting dock — top-right column of cards/pills surfacing every
- *  active agent. **One list, sorted strictly by `lastActivityAt`
- *  descending** so the most recent transition is always at the top
- *  regardless of which state it lands in. A working agent that just
- *  started outranks an awaiting agent from an hour ago, and vice
- *  versa — the dock answers "what just changed?" first, "what's
- *  blocking me?" second.
+/** Awaiting dock — top-left column surfacing every active agent.
+ *  **One list, sorted strictly by `lastActivityAt` descending** so the
+ *  most recent transition is always at the top regardless of which
+ *  state it lands in. The dock answers "what just changed?" first,
+ *  "what's blocking me?" second.
  *
- *  Two render shapes share the same sort:
- *  1. **Awaiting cards** — full cards for terminals whose agent is in
- *     `waiting` state. Show the last few non-chrome lines of the xterm
- *     buffer (via `tailBuffer`) plus a reply input that pipes to the
- *     PTY. The repo+branch+tail region is a click target that activates
- *     the underlying terminal; the input form is a sibling so focusing
- *     it doesn't switch tiles away.
- *  2. **Working pills** — single-row pills for terminals whose agent is
- *     `thinking`/`tool_use`. Repo + branch + animated agent indicator,
- *     click to jump.
+ *  Two view modes, switched by the chevron at the top (or by clicking
+ *  it — `dockCollapsed` persists per-device in localStorage):
+ *
+ *  1. **Expanded** (default) — full cards / compact pills:
+ *     - *Awaiting cards*: tail of xterm buffer (via `tailBuffer`) +
+ *       reply input wired straight to the PTY. The repo+branch+tail
+ *       region is the click target that activates the underlying
+ *       terminal; the input form is a sibling so focusing it doesn't
+ *       switch tiles away.
+ *     - *Working pills*: repo + branch + animated agent indicator,
+ *       click to jump.
+ *  2. **Collapsed** — narrow strip of per-agent dots. Each dot is
+ *     `repoColor`-filled with a `pill-border-{awaiting,working}` ring
+ *     so the state-cadence (breathe / pulse) survives the collapse.
+ *     Hover → tooltip with repo/branch/state/time; click → jump.
+ *     Trades full context for a 20px-wide footprint so 13" screens
+ *     reclaim the left rail.
  *
  *  Parked (auto-stale, `lastActivityAt > STALE_THRESHOLD_MS`)
  *  terminals are filtered out entirely.
@@ -25,6 +30,7 @@
  *  reserved zone via `max-h`. Auto-hides when no agents are active. */
 
 import { makeEventListener } from "@solid-primitives/event-listener";
+import { makePersisted } from "@solid-primitives/storage";
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import {
   type Component,
@@ -40,6 +46,7 @@ import { tailBuffer } from "../terminal/bufferTail";
 import { formatTimeAgo, useStaleCheck } from "../terminal/staleness";
 import { getTerminalRefs } from "../terminal/terminalRefs";
 import { useTerminalStore } from "../terminal/useTerminalStore";
+import { stateLabels } from "../ui/agentDisplay";
 import { client } from "../wire";
 import { useTileTheme } from "./useTileTheme";
 import { agentBucket } from "./workspace-switcher/model";
@@ -74,6 +81,16 @@ const [viewportHeight, setViewportHeight] = createSignal(
   typeof window === "undefined" ? 1000 : window.innerHeight,
 );
 
+/** Collapsed = narrow strip of per-agent dots; expanded = full
+ *  cards/pills. Per-device localStorage so a user's choice survives
+ *  reloads but doesn't sync across machines (a 13" laptop might want
+ *  collapsed while a 27" desktop stays expanded). */
+const [dockCollapsed, setDockCollapsed] = makePersisted(createSignal(false), {
+  name: "kolu-awaiting-dock-collapsed",
+  serialize: (v) => (v ? "1" : "0"),
+  deserialize: (raw) => raw === "1",
+});
+
 const AwaitingDock: Component = () => {
   const store = useTerminalStore();
   const isStale = useStaleCheck();
@@ -107,12 +124,82 @@ const AwaitingDock: Component = () => {
     <Show when={liveIds().length > 0}>
       <div
         data-testid="awaiting-dock"
-        class="absolute top-14 left-4 z-20 flex flex-col gap-2 items-start overflow-y-auto overflow-x-hidden scrollbar-none max-h-[calc(100vh-18rem)]"
+        data-collapsed={dockCollapsed() ? "" : undefined}
+        class="absolute top-14 left-4 z-20 flex flex-col gap-1.5 items-start overflow-y-auto overflow-x-hidden scrollbar-none max-h-[calc(100vh-18rem)]"
       >
-        <For each={liveIds()}>
-          {(id) => <DockItem id={id} tailLines={tailLines()} />}
-        </For>
+        <ChevronToggle />
+        <Show
+          when={!dockCollapsed()}
+          fallback={<For each={liveIds()}>{(id) => <DockDot id={id} />}</For>}
+        >
+          <For each={liveIds()}>
+            {(id) => <DockItem id={id} tailLines={tailLines()} />}
+          </For>
+        </Show>
       </div>
+    </Show>
+  );
+};
+
+/** Tiny chevron toggle between collapsed and expanded modes. Sits at
+ *  the top of the dock; same anchor in both modes so the user's eye
+ *  doesn't have to chase it across the canvas. */
+const ChevronToggle: Component = () => {
+  return (
+    <button
+      type="button"
+      data-testid="awaiting-dock-toggle"
+      onClick={() => setDockCollapsed((v) => !v)}
+      class="w-5 h-5 flex items-center justify-center rounded text-fg-3 hover:text-fg-1 hover:bg-surface-2/60 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 text-[0.7rem] leading-none"
+      title={
+        dockCollapsed() ? "Expand awaiting dock" : "Collapse awaiting dock"
+      }
+    >
+      {dockCollapsed() ? "▸" : "◂"}
+    </button>
+  );
+};
+
+/** Collapsed-mode dot: one per active agent. Filled with `repoColor`,
+ *  ringed by the same animated `pill-border-{awaiting,working}` channel
+ *  as the expanded cards so the state-cadence carries over. Click → jump
+ *  to that terminal; hover → tooltip with repo / branch / state / time. */
+const DockDot: Component<{ id: TerminalId }> = (props) => {
+  const store = useTerminalStore();
+  const combined = createMemo(() => {
+    const i = store.getDisplayInfo(props.id);
+    const m = store.getMetadata(props.id);
+    return i && m ? { info: i, meta: m } : null;
+  });
+  return (
+    <Show when={combined()}>
+      {(c) => {
+        const displayInfo = c().info;
+        const m = c().meta;
+        const bucket = agentBucket(m.agent);
+        const stateText = m.agent ? stateLabels[m.agent.state] : "";
+        const tooltip = `${displayInfo.key.group} / ${displayInfo.key.label} · ${stateText} · ${formatTimeAgo(m.lastActivityAt)}`;
+        return (
+          <button
+            type="button"
+            data-testid="awaiting-dock-dot"
+            data-terminal-id={props.id}
+            data-agent-bucket={bucket}
+            onClick={() => store.activate(props.id)}
+            class={`pill-border ${bucket === "awaiting" ? "pill-border-awaiting" : "pill-border-working"} w-3.5 h-3.5 rounded-full cursor-pointer hover:scale-110 transition-transform focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40`}
+            style={{
+              "background-color": displayInfo.repoColor,
+              "--pill-border-radius": "9999px",
+              "--pill-state-color":
+                bucket === "awaiting"
+                  ? "var(--color-alert)"
+                  : "var(--color-accent)",
+            }}
+            title={tooltip}
+            aria-label={tooltip}
+          />
+        );
+      }}
     </Show>
   );
 };
