@@ -3,6 +3,7 @@
  *  `useTerminalAlerts` stays focused on "decide who to alert". */
 
 import { toast } from "solid-sonner";
+import type { TerminalSubject } from "./terminalSubject";
 
 /** Play the notification sound (pre-recorded mp3 in public/sounds/). */
 function playSound() {
@@ -26,14 +27,16 @@ export function requestNotificationPermission() {
  *  no-op. The sound + native Notification still fire (they target a user
  *  who isn't looking, not a specific tile). */
 export function fireActivityAlert(
-  label: string,
+  subject: TerminalSubject,
   toastId: string,
   onSwitch?: () => void,
 ) {
   playSound();
+  const headline = `${subject.title} finished`;
   if (onSwitch) {
-    toast.success(`${label} finished`, {
+    toast.success(headline, {
       id: toastId,
+      description: subject.description,
       duration: Number.POSITIVE_INFINITY,
       action: { label: "Switch", onClick: onSwitch },
     });
@@ -43,7 +46,8 @@ export function fireActivityAlert(
     "Notification" in window &&
     Notification.permission === "granted"
   ) {
-    const notif = new Notification(`${label} finished`, {
+    const notif = new Notification(headline, {
+      body: subject.description,
       icon: "/favicon.svg",
     });
     notif.onclick = () => {

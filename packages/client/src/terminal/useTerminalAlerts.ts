@@ -6,6 +6,7 @@ import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import { type Accessor, createEffect, on } from "solid-js";
 import { preferences } from "../wire";
 import { useStaleCheck } from "./staleness";
+import type { TerminalSubject } from "./terminalSubject";
 import {
   fireActivityAlert,
   requestNotificationPermission,
@@ -15,12 +16,12 @@ export function useTerminalAlerts(deps: {
   activeId: Accessor<TerminalId | null>;
   activate: (id: TerminalId) => void;
   getMetadata: (id: TerminalId) => TerminalMetadata | undefined;
+  getSubject: (id: TerminalId) => TerminalSubject;
   hasBadgeAttention: (id: TerminalId) => boolean;
   clearBadgeAttention: () => void;
   markUnread: (id: TerminalId) => void;
   markBadgeAttention: (id: TerminalId) => void;
   terminalIds: Accessor<TerminalId[]>;
-  terminalLabel: (id: TerminalId) => string;
 }) {
   const activityAlerts = () => preferences().activityAlerts;
   const isStale = useStaleCheck();
@@ -89,7 +90,7 @@ export function useTerminalAlerts(deps: {
     }
     if (isBackground || document.hidden)
       fireActivityAlert(
-        deps.terminalLabel(id),
+        deps.getSubject(id),
         `terminal-finished-${id}`,
         isBackground ? () => deps.activate(id) : undefined,
       );
