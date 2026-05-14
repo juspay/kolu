@@ -44,9 +44,9 @@ import {
 import AgentIndicator from "../terminal/AgentIndicator";
 import { tailBuffer } from "../terminal/bufferTail";
 import { formatTimeAgo, useStaleCheck } from "../terminal/staleness";
+import type { TerminalDisplayInfo } from "../terminal/terminalDisplay";
 import { getTerminalRefs } from "../terminal/terminalRefs";
 import { useTerminalStore } from "../terminal/useTerminalStore";
-import { stateLabels } from "../ui/agentDisplay";
 import { client } from "../wire";
 import { useTileTheme } from "./useTileTheme";
 import { agentBucket } from "./workspace-switcher/model";
@@ -125,116 +125,103 @@ const AwaitingDock: Component = () => {
       <div
         data-testid="awaiting-dock"
         data-collapsed={dockCollapsed() ? "" : undefined}
-        class="absolute top-20 left-4 z-20 flex flex-col gap-1.5 items-start overflow-y-auto overflow-x-hidden scrollbar-none p-1 max-h-[calc(100vh-22rem)]"
+        class={`absolute top-20 left-4 z-20 rounded-2xl overflow-hidden shadow-2xl shadow-black/40 flex flex-col max-h-[calc(100vh-22rem)] ${dockCollapsed() ? "" : "w-72"}`}
       >
-        <ChevronToggle />
-        <Show
-          when={!dockCollapsed()}
-          fallback={<For each={liveIds()}>{(id) => <DockDot id={id} />}</For>}
-        >
+        <div class="flex flex-col overflow-y-auto overflow-x-hidden scrollbar-none">
           <For each={liveIds()}>
-            {(id) => <DockItem id={id} tailLines={tailLines()} />}
+            {(id) => <DockRow id={id} tailLines={tailLines()} />}
           </For>
-        </Show>
+        </div>
       </div>
     </Show>
   );
 };
 
-/** Tiny chevron toggle between collapsed and expanded modes. Sits at
- *  the top of the dock; same anchor in both modes so the user's eye
- *  doesn't have to chase it across the canvas. */
-const ChevronToggle: Component = () => {
+/** A row in the unified dock surface: rail-segment on the left
+ *  (per-card `repoColor`, also the click target for collapse/expand)
+ *  + content on the right (full card / working pill / nothing if
+ *  collapsed). Rows stack with no gap so the rails form a continuous
+ *  vertical stripe with color sections per terminal. */
+const DockRow: Component<{ id: TerminalId; tailLines: number }> = (props) => {
+  const store = useTerminalStore();
+  const combined = createMemo(() => {
+    const i = store.getDisplayInfo(props.id);
+    const m = store.getMetadata(props.id);
+    return i && m ? { info: i, meta: m } : null;
+  });
+  const bucket = createMemo(() =>
+    agentBucket(store.getMetadata(props.id)?.agent),
+  );
+  return (
+    <Show when={combined()}>
+      {(c) => (
+        <div class="flex flex-row items-stretch border-b border-edge/15 last:border-b-0">
+          <RailSegment repoColor={c().info.repoColor} bucket={bucket()} />
+          <Show when={!dockCollapsed()}>
+            <div class="flex-1 min-w-0">
+              <Show
+                when={bucket() === "awaiting"}
+                fallback={
+                  <WorkingPillBody id={props.id} info={c().info} meta={c().meta} />
+                }
+              >
+                <AwaitingCardBody
+                  id={props.id}
+                  info={c().info}
+                  meta={c().meta}
+                  tailLines={props.tailLines}
+                />
+              </Show>
+            </div>
+          </Show>
+        </div>
+      )}
+    </Show>
+  );
+};
+
+/** Colored rail segment — one per dock row. Clicking ANY segment
+ *  toggles the dock between collapsed and expanded; that's why the
+ *  separate chevron button is gone. The rail is wider in collapsed
+ *  mode to give a comfortable click target and to read as identity
+ *  swatches when there's no card next to it. A `dock-rail-*` filter
+ *  animation cycles the segment's brightness so state-cadence
+ *  (breathe / pulse) survives the unified-surface treatment. */
+const RailSegment: Component<{ repoColor: string; bucket: string }> = (
+  props,
+) => {
   return (
     <button
       type="button"
       data-testid="awaiting-dock-toggle"
+      data-agent-bucket={props.bucket}
       onClick={() => setDockCollapsed((v) => !v)}
-      class="w-6 h-6 flex items-center justify-center rounded-md bg-surface-1/85 border border-edge/60 backdrop-blur-sm text-fg-1 hover:bg-surface-2/90 hover:border-edge-bright/70 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 text-[0.85rem] leading-none shadow-sm"
+      class={`shrink-0 cursor-pointer transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 ${
+        dockCollapsed() ? "w-6 h-6" : "w-1.5"
+      } ${props.bucket === "awaiting" ? "dock-rail-awaiting" : "dock-rail-working"}`}
+      style={{ "background-color": props.repoColor }}
       title={
         dockCollapsed() ? "Expand awaiting dock" : "Collapse awaiting dock"
       }
       aria-label={
         dockCollapsed() ? "Expand awaiting dock" : "Collapse awaiting dock"
       }
-    >
-      {dockCollapsed() ? "▸" : "◂"}
-    </button>
+    />
   );
 };
 
-/** Collapsed-mode dot: one per active agent. Filled with `repoColor`,
- *  ringed by the same animated `pill-border-{awaiting,working}` channel
- *  as the expanded cards so the state-cadence carries over. Click → jump
- *  to that terminal; hover → tooltip with repo / branch / state / time. */
-const DockDot: Component<{ id: TerminalId }> = (props) => {
-  const store = useTerminalStore();
-  const combined = createMemo(() => {
-    const i = store.getDisplayInfo(props.id);
-    const m = store.getMetadata(props.id);
-    return i && m ? { info: i, meta: m } : null;
-  });
-  return (
-    <Show when={combined()}>
-      {(c) => {
-        const displayInfo = c().info;
-        const m = c().meta;
-        const bucket = agentBucket(m.agent);
-        const stateText = m.agent ? stateLabels[m.agent.state] : "";
-        const tooltip = `${displayInfo.key.group} / ${displayInfo.key.label} · ${stateText} · ${formatTimeAgo(m.lastActivityAt)}`;
-        return (
-          <button
-            type="button"
-            data-testid="awaiting-dock-dot"
-            data-terminal-id={props.id}
-            data-agent-bucket={bucket}
-            onClick={() => store.activate(props.id)}
-            class={`pill-border ${bucket === "awaiting" ? "pill-border-awaiting" : "pill-border-working"} w-3.5 h-3.5 rounded-full cursor-pointer hover:scale-110 transition-transform focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40`}
-            style={{
-              "background-color": displayInfo.repoColor,
-              "--pill-border-radius": "9999px",
-              "--pill-state-color":
-                bucket === "awaiting"
-                  ? "var(--color-alert)"
-                  : "var(--color-accent)",
-            }}
-            title={tooltip}
-            aria-label={tooltip}
-          />
-        );
-      }}
-    </Show>
-  );
-};
-
-/** Picks the right shape for a terminal based on its current bucket.
- *  Reactive so a thinking → waiting transition swaps the pill for the
- *  full card in place. */
-const DockItem: Component<{ id: TerminalId; tailLines: number }> = (props) => {
-  const store = useTerminalStore();
-  const bucket = createMemo(() =>
-    agentBucket(store.getMetadata(props.id)?.agent),
-  );
-  return (
-    <Show
-      when={bucket() === "awaiting"}
-      fallback={<WorkingPill id={props.id} />}
-    >
-      <AwaitingCard id={props.id} tailLines={props.tailLines} />
-    </Show>
-  );
-};
-
-const AwaitingCard: Component<{ id: TerminalId; tailLines: number }> = (
-  props,
-) => {
+/** Awaiting card body — content for an awaiting row. No own chrome
+ *  (rounding, border, shadow, width) — the unified `<AwaitingDock>`
+ *  outer surface provides all of those; the body just fills its grid
+ *  cell with the tile-themed bg/fg + content layout. */
+const AwaitingCardBody: Component<{
+  id: TerminalId;
+  info: TerminalDisplayInfo;
+  meta: TerminalMetadata;
+  tailLines: number;
+}> = (props) => {
   const store = useTerminalStore();
   const tileTheme = useTileTheme();
-  const combined = createMemo(() => {
-    const i = store.getDisplayInfo(props.id);
-    const m = store.getMetadata(props.id);
-    return i && m ? { info: i, meta: m } : null;
-  });
   const [tail, setTail] = createSignal<string[]>([]);
   const [value, setValue] = createSignal("");
 
@@ -266,131 +253,111 @@ const AwaitingCard: Component<{ id: TerminalId; tailLines: number }> = (
   }
 
   return (
-    <Show when={combined()}>
-      {(c) => {
-        const displayInfo = c().info;
-        const m = c().meta;
-        return (
-          <div
-            data-testid="awaiting-dock-card"
-            data-terminal-id={props.id}
-            class="pill-border pill-border-awaiting rounded-lg p-2.5 w-[280px] flex flex-col gap-1.5 shadow-lg"
-            style={{
-              "--pill-border-radius": "calc(0.5rem + 2px)",
-              "background-color": tileTheme(props.id).bg,
-              color: tileTheme(props.id).fg,
-              border: `1px solid ${displayInfo.repoColor}`,
-            }}
-          >
-            <button
-              type="button"
-              onClick={() => store.activate(props.id)}
-              class="flex flex-col gap-1 text-left cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 rounded"
-              title="Jump to this terminal"
-            >
-              <div class="flex items-baseline justify-between gap-2 min-w-0">
-                <span
-                  class="font-mono text-[0.7rem] font-bold uppercase tracking-[0.14em] truncate min-w-0"
-                  style={{ color: displayInfo.repoColor }}
-                >
-                  {displayInfo.key.group}
-                </span>
-                <span
-                  class="text-[0.95rem] font-semibold leading-tight truncate min-w-0"
-                  style={{ color: displayInfo.branchColor }}
-                >
-                  {displayInfo.key.label}
-                </span>
-              </div>
-              <DockMetaRow meta={m} />
-              <PrLine meta={m} />
-              <Show when={tail().length > 0}>
-                <div
-                  data-testid="awaiting-dock-tail"
-                  class="font-mono text-[0.7rem] text-fg-2 leading-snug whitespace-pre-wrap break-all w-full mt-0.5"
-                >
-                  <For each={tail()}>
-                    {(line) => <div class="truncate">{line}</div>}
-                  </For>
-                </div>
-              </Show>
-            </button>
-            <form onSubmit={submit}>
-              <input
-                type="text"
-                data-testid="awaiting-dock-reply"
-                value={value()}
-                onInput={(e) => setValue(e.currentTarget.value)}
-                placeholder="Reply…"
-                class="w-full rounded px-2 py-1 text-[0.8rem] focus:outline-none focus:ring-2 focus:ring-accent/40 placeholder:opacity-60"
-                style={{
-                  color: "inherit",
-                  "background-color":
-                    "color-mix(in oklch, currentColor 8%, transparent)",
-                  border:
-                    "1px solid color-mix(in oklch, currentColor 25%, transparent)",
-                }}
-                autocomplete="off"
-                autocorrect="off"
-                spellcheck={false}
-              />
-            </form>
-          </div>
-        );
+    <div
+      data-testid="awaiting-dock-card"
+      data-terminal-id={props.id}
+      class="px-2.5 py-2.5 flex flex-col gap-1.5"
+      style={{
+        "background-color": tileTheme(props.id).bg,
+        color: tileTheme(props.id).fg,
       }}
-    </Show>
+    >
+      <button
+        type="button"
+        onClick={() => store.activate(props.id)}
+        class="flex flex-col gap-1 text-left cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 rounded"
+        title="Jump to this terminal"
+      >
+        <div class="flex items-baseline justify-between gap-2 min-w-0">
+          <span
+            class="font-mono text-[0.7rem] font-bold uppercase tracking-[0.14em] truncate min-w-0"
+            style={{ color: props.info.repoColor }}
+          >
+            {props.info.key.group}
+          </span>
+          <span
+            class="text-[0.95rem] font-semibold leading-tight truncate min-w-0"
+            style={{ color: props.info.branchColor }}
+          >
+            {props.info.key.label}
+          </span>
+        </div>
+        <DockMetaRow meta={props.meta} />
+        <PrLine meta={props.meta} />
+        <Show when={tail().length > 0}>
+          <div
+            data-testid="awaiting-dock-tail"
+            class="font-mono text-[0.7rem] text-fg-2 leading-snug whitespace-pre-wrap break-all w-full mt-0.5"
+          >
+            <For each={tail()}>
+              {(line) => <div class="truncate">{line}</div>}
+            </For>
+          </div>
+        </Show>
+      </button>
+      <form onSubmit={submit}>
+        <input
+          type="text"
+          data-testid="awaiting-dock-reply"
+          value={value()}
+          onInput={(e) => setValue(e.currentTarget.value)}
+          placeholder="Reply…"
+          class="w-full rounded px-2 py-1 text-[0.8rem] focus:outline-none focus:ring-2 focus:ring-accent/40 placeholder:opacity-60"
+          style={{
+            color: "inherit",
+            "background-color":
+              "color-mix(in oklch, currentColor 8%, transparent)",
+            border:
+              "1px solid color-mix(in oklch, currentColor 25%, transparent)",
+          }}
+          autocomplete="off"
+          autocorrect="off"
+          spellcheck={false}
+        />
+      </form>
+    </div>
   );
 };
 
-const WorkingPill: Component<{ id: TerminalId }> = (props) => {
+/** Working pill body — compact row content for a `thinking`/`tool_use`
+ *  terminal. Same no-own-chrome contract as the awaiting card body. */
+const WorkingPillBody: Component<{
+  id: TerminalId;
+  info: TerminalDisplayInfo;
+  meta: TerminalMetadata;
+}> = (props) => {
   const store = useTerminalStore();
   const tileTheme = useTileTheme();
-  const combined = createMemo(() => {
-    const i = store.getDisplayInfo(props.id);
-    const m = store.getMetadata(props.id);
-    return i && m ? { info: i, meta: m } : null;
-  });
-
   return (
-    <Show when={combined()}>
-      {(c) => {
-        const displayInfo = c().info;
-        const m = c().meta;
-        return (
-          <button
-            type="button"
-            data-testid="awaiting-dock-working"
-            data-terminal-id={props.id}
-            onClick={() => store.activate(props.id)}
-            class="pill-border pill-border-working rounded-lg px-2.5 py-1 flex flex-col gap-0.5 w-[280px] cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 text-left"
-            style={{
-              "--pill-border-radius": "calc(0.5rem + 2px)",
-              "background-color": tileTheme(props.id).bg,
-              color: tileTheme(props.id).fg,
-              border: `1px solid ${displayInfo.repoColor}`,
-            }}
-            title="Jump to this terminal"
-          >
-            <div class="flex items-baseline justify-between gap-2 min-w-0">
-              <span
-                class="font-mono text-[0.65rem] font-bold uppercase tracking-[0.14em] truncate min-w-0"
-                style={{ color: displayInfo.repoColor }}
-              >
-                {displayInfo.key.group}
-              </span>
-              <span
-                class="text-[0.85rem] font-semibold leading-tight truncate min-w-0"
-                style={{ color: displayInfo.branchColor }}
-              >
-                {displayInfo.key.label}
-              </span>
-            </div>
-            <DockMetaRow meta={m} />
-            <PrLine meta={m} />
-          </button>
-        );
+    <button
+      type="button"
+      data-testid="awaiting-dock-working"
+      data-terminal-id={props.id}
+      onClick={() => store.activate(props.id)}
+      class="w-full px-2.5 py-1 flex flex-col gap-0.5 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 text-left"
+      style={{
+        "background-color": tileTheme(props.id).bg,
+        color: tileTheme(props.id).fg,
       }}
-    </Show>
+      title="Jump to this terminal"
+    >
+      <div class="flex items-baseline justify-between gap-2 min-w-0">
+        <span
+          class="font-mono text-[0.65rem] font-bold uppercase tracking-[0.14em] truncate min-w-0"
+          style={{ color: props.info.repoColor }}
+        >
+          {props.info.key.group}
+        </span>
+        <span
+          class="text-[0.85rem] font-semibold leading-tight truncate min-w-0"
+          style={{ color: props.info.branchColor }}
+        >
+          {props.info.key.label}
+        </span>
+      </div>
+      <DockMetaRow meta={props.meta} />
+      <PrLine meta={props.meta} />
+    </button>
   );
 };
 

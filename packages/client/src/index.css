@@ -270,6 +270,45 @@ body {
   display: none;
 }
 
+/* ── Awaiting-dock rail animation ────────────────────────────
+ * The dock's left rail segments carry per-card identity via `repoColor`
+ * as their background. To also convey agent state (so the cadence
+ * survives the collapsed-only view), the brightness of the segment
+ * cycles — faster + sharper for "awaiting" (act now), slower + softer
+ * for "working" (in motion). Tracks the cadence of `.pill-border-*`
+ * for visual coherence with the rest of the app's state language. */
+.dock-rail-awaiting {
+  animation: dock-rail-breathe 1.6s ease-in-out infinite;
+}
+.dock-rail-working {
+  animation: dock-rail-pulse 2.4s ease-in-out infinite;
+}
+@keyframes dock-rail-breathe {
+  0%,
+  100% {
+    filter: brightness(0.55) saturate(0.85);
+  }
+  50% {
+    filter: brightness(1.15);
+  }
+}
+@keyframes dock-rail-pulse {
+  0%,
+  100% {
+    filter: brightness(0.75) saturate(0.9);
+  }
+  50% {
+    filter: brightness(1.05);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dock-rail-awaiting,
+  .dock-rail-working {
+    animation: none;
+    filter: brightness(1);
+  }
+}
+
 /* ── Canvas grid background ─────────────────────────────────── */
 /* Fine line grid gives spatial grounding to the freeform canvas.
    Lines use the edge color at low opacity so they adapt to light/dark themes. */
