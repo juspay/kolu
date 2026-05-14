@@ -33,10 +33,12 @@ export const stateLabels: Record<AgentInfo["state"], string> = {
  *  `awaiting_user` (agent blocked on a question) into one predicate so
  *  the alert layer and the switcher bucket agree on the equivalence
  *  class. Add a new state here when it joins the attention class;
- *  miss this and one consumer fires while the other ignores it. */
-export function isAttentionState(
-  state: AgentInfo["state"] | undefined,
-): boolean {
+ *  miss this and one consumer fires while the other ignores it.
+ *
+ *  Accepts `string | undefined` because callers reading from reactive
+ *  history (`createEffect`'s previous-value tracking) lose the literal
+ *  type — equality comparisons inside still narrow correctly. */
+export function isAttentionState(state: string | undefined): boolean {
   return state === "waiting" || state === "awaiting_user";
 }
 
