@@ -145,23 +145,12 @@ async function interactWithGutterLine(
   await world.waitForFrame();
 }
 
-async function rightClickViewRoot(world: KoluWorld, root: string) {
-  const view = world.page.locator(root);
-  await view.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-  await view.click({ button: "right" });
-  await world.waitForFrame();
-}
-
 When(
   "I click the line number {int} in the file content",
   async function (this: KoluWorld, line: number) {
     await interactWithGutterLine(this, FILE_VIEW, line, "left");
   },
 );
-
-When("I right-click the file content", async function (this: KoluWorld) {
-  await rightClickViewRoot(this, FILE_VIEW);
-});
 
 // Right-click on a specific gutter line — selects the line and opens
 // the context menu in one gesture (the host's `contextmenu` handler
@@ -188,10 +177,6 @@ When(
     await interactWithGutterLine(this, DIFF_VIEW, line, "left");
   },
 );
-
-When("I right-click the diff view", async function (this: KoluWorld) {
-  await rightClickViewRoot(this, DIFF_VIEW);
-});
 
 // Pierre marks selected gutter + content rows with `data-selected-line`
 // (see @pierre/diffs InteractionManager.renderSelectedLines). The gutter
