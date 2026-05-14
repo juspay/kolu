@@ -40,7 +40,7 @@ Feature: Activity Alerts
     When I create a terminal
     And I create a terminal
     And I simulate an activity alert
-    Then a "finished" toast should appear
+    Then a toast should appear with text "finished"
     And the toast should expose a "Switch" action
     And there should be no page errors
 

@@ -102,16 +102,6 @@ const TOAST_ACTION_SELECTOR =
   "[data-sonner-toast] [data-button]:not([data-cancel])";
 
 Then(
-  "a {string} toast should appear",
-  async function (this: KoluWorld, fragment: string) {
-    const toast = this.page
-      .locator("[data-sonner-toast]")
-      .filter({ hasText: fragment });
-    await toast.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-  },
-);
-
-Then(
   "the toast should expose a {string} action",
   async function (this: KoluWorld, label: string) {
     const action = this.page.locator(TOAST_ACTION_SELECTOR);
