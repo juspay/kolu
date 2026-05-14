@@ -95,10 +95,16 @@ export const FileTree: Component<FileTreeProps> = (props) => {
 
   onMount(() => {
     try {
+      const selectedAncestors = props.selectedPath
+        ? ancestorsOf(props.selectedPath)
+        : [];
       tree = new FileTreeClass({
         paths: props.paths,
         initialExpansion: props.initialExpansion ?? "closed",
-        initialExpandedPaths: props.expandPaths,
+        initialExpandedPaths: [
+          ...(props.expandPaths ?? []),
+          ...selectedAncestors,
+        ],
         flattenEmptyDirectories: props.flattenEmptyDirectories ?? true,
         stickyFolders: props.stickyFolders ?? true,
         icons: props.icons,
