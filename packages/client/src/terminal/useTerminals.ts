@@ -14,6 +14,7 @@ import { createRoot } from "solid-js";
 import { toast } from "solid-sonner";
 import { isExpectedCleanupError } from "../rpc/streamCleanup";
 import { app } from "../wire";
+import { terminalSubject } from "./terminalSubject";
 import { useSessionRestore } from "./useSessionRestore";
 import { useTerminalAlerts } from "./useTerminalAlerts";
 import { useTerminalCrud } from "./useTerminalCrud";
@@ -23,15 +24,19 @@ import { useWorktreeOps } from "./useWorktreeOps";
 export function useTerminals() {
   const store = useTerminalStore();
 
+  const getSubject = (id: TerminalId) =>
+    terminalSubject(store.getDisplayInfo(id), store.terminalLabel(id));
+
   const alerts = useTerminalAlerts({
     activeId: store.activeId,
+    activate: store.activate,
     getMetadata: store.getMetadata,
+    getSubject,
     hasBadgeAttention: store.hasBadgeAttention,
     clearBadgeAttention: store.clearBadgeAttention,
     markUnread: store.markUnread,
     markBadgeAttention: store.markBadgeAttention,
     terminalIds: store.terminalIds,
-    terminalLabel: store.terminalLabel,
   });
 
   /** Subscribe to exit events for a terminal (one-shot action, not queryable state).
@@ -53,12 +58,14 @@ export function useTerminals() {
       app.events.terminalExit.use(
         () => ({ id }),
         (code) => {
-          const label = store.terminalLabel(id);
-          if (code === 0) {
-            toast(`${label} exited`);
-          } else {
-            toast.warning(`${label} exited with code ${code}`);
-          }
+          const subject = getSubject(id);
+          const headline =
+            code === 0
+              ? `${subject.title} exited`
+              : `${subject.title} exited with code ${code}`;
+          const opts = { description: subject.description };
+          if (code === 0) toast(headline, opts);
+          else toast.warning(headline, opts);
           crud.removeAndAutoSwitch(id);
         },
         {

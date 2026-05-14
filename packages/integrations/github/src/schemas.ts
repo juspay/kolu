@@ -133,6 +133,12 @@ export function prValue(pr: PrResult): GitHubPrInfo | null {
   return pr.kind === "ok" ? pr.value : null;
 }
 
+/** Single source of truth for the `#123 Title` PR label used in
+ *  notification text, tooltips, and any other plain-string surface. */
+export function prLabel(pr: GitHubPrInfo): string {
+  return `#${pr.number} ${pr.title}`;
+}
+
 /** Extract the display reason when `kind === "unavailable"`, else `null`. */
 export function prUnavailableReason(pr: PrResult): string | null {
   return pr.kind === "unavailable" ? reasonForSource(pr.source) : null;

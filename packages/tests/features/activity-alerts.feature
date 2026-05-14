@@ -36,6 +36,23 @@ Feature: Activity Alerts
     Then no workspace switcher branch should be notified
     And there should be no page errors
 
+  Scenario: Simulated alert shows a toast with a Switch action
+    When I create a terminal
+    And I create a terminal
+    And I simulate an activity alert
+    Then a toast should appear with text "finished"
+    And the toast should expose a "Switch" action
+    And there should be no page errors
+
+  Scenario: Clicking the toast Switch action visits the background terminal
+    When I create a terminal
+    And I create a terminal
+    And I simulate an activity alert
+    Then a workspace switcher branch should be notified
+    When I click the toast Switch action
+    Then no workspace switcher branch should be notified
+    And there should be no page errors
+
   Scenario: Hidden active terminal badges the PWA dock icon
     When I stub the Badging API
     And I simulate the Kolu tab being hidden

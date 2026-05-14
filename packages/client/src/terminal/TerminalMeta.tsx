@@ -10,7 +10,7 @@
  *  separate components, with shared bits (skeleton, agent progress)
  *  exported below for reuse. */
 
-import { prUnavailableSource, prValue } from "kolu-github/schemas";
+import { prLabel, prUnavailableSource, prValue } from "kolu-github/schemas";
 import { type Component, Show } from "solid-js";
 import { PrStateIcon, WorktreeIcon } from "../ui/Icons";
 import Tip from "../ui/Tip";
@@ -114,7 +114,7 @@ const TerminalMeta: Component<{
                     <span
                       class="flex items-center gap-1 text-fg-2 truncate min-w-0"
                       data-testid="terminal-meta-pr"
-                      title={`#${pr().number} ${pr().title}`}
+                      title={prLabel(pr())}
                     >
                       <PrStateIcon state={pr().state} class="w-3 h-3" />
                       <Show when={pr().checks}>
@@ -187,7 +187,7 @@ export const TerminalMetaCompact: Component<{
                 target="_blank"
                 rel="noopener noreferrer"
                 class="text-xs font-mono text-fg-3 hover:text-accent shrink-0"
-                title={`#${pr().number} ${pr().title}`}
+                title={prLabel(pr())}
                 onClick={(e) => e.stopPropagation()}
                 onPointerDown={(e) => e.stopPropagation()}
               >
