@@ -266,9 +266,13 @@ const AwaitingCardBody: Component<{
     const text = value().trim();
     if (text.length === 0) return;
     setValue("");
-    // TUI agents (e.g. Codex Ratatui) drop text+CR when delivered in a
-    // single PTY write; split the carriage return into a second write so
-    // the input parser sees it as a discrete event.
+    // INVARIANT: TUI agents that ship distinct parsers for text and
+    // CR (Codex Ratatui is the known case) require text+CR to arrive
+    // as TWO separate PTY writes spaced ≥50ms apart. A single
+    // combined write OR a sub-50ms gap is silently dropped by the
+    // TUI's input dispatcher. Do NOT inline the carriage return into
+    // the first write or shrink this timeout without first verifying
+    // every supported TUI agent handles the combined form.
     await client.terminal.sendInput({ id: props.id, data: text });
     setTimeout(() => {
       void client.terminal.sendInput({ id: props.id, data: "\r" });
