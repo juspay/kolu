@@ -91,7 +91,11 @@ export function useTerminalAlerts(deps: {
     if (isBackground || document.hidden)
       fireActivityAlert(
         deps.getSubject(id),
-        isBackground ? () => deps.activate(id) : undefined,
+        // The only consumer of `onSwitch` is `Notification.onclick`,
+        // which only fires when `document.hidden` is true — passing a
+        // callback while the tab is visible captures a closure that
+        // never runs. Tie the payload to the channel's precondition.
+        document.hidden ? () => deps.activate(id) : undefined,
       );
   }
 
