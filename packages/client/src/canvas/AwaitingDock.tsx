@@ -86,14 +86,9 @@ const [viewportHeight, setViewportHeight] = createSignal(
  *  reloads but doesn't sync across machines (a 13" laptop might want
  *  collapsed while a 27" desktop stays expanded). Defaults to
  *  collapsed — ambient peripheral signal first, full context on
- *  demand.
- *
- *  Key bumped to `-v2` so the new collapsed-by-default applies to
- *  existing users too (the v1 key persisted the old expanded-by-
- *  default state). The orphaned v1 entry stays in localStorage but
- *  is never read again. */
+ *  demand via the rail toggle. */
 const [dockCollapsed, setDockCollapsed] = makePersisted(createSignal(true), {
-  name: "kolu-awaiting-dock-collapsed-v2",
+  name: "kolu-awaiting-dock-collapsed",
   serialize: (v) => (v ? "1" : "0"),
   deserialize: (raw) => raw === "1",
 });
