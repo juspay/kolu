@@ -20,9 +20,9 @@
  *  Parked (auto-stale, `lastActivityAt > STALE_THRESHOLD_MS`)
  *  terminals are filtered out entirely.
  *
- *  Lives below the ChromeBar (top-14) so the workspace-chrome controls
- *  (record, panel, settings, ⌘K) stay clickable. Auto-hides when no
- *  agents are active. */
+ *  Anchored top-left (below the ChromeBar) so the right edge stays
+ *  free for the inspector panel and the bottom-left minimap gets a
+ *  reserved zone via `max-h`. Auto-hides when no agents are active. */
 
 import { makeEventListener } from "@solid-primitives/event-listener";
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
@@ -95,7 +95,7 @@ const AwaitingDock: Component = () => {
     <Show when={liveIds().length > 0}>
       <div
         data-testid="awaiting-dock"
-        class="absolute top-14 right-4 bottom-4 z-20 flex flex-col gap-2 items-end overflow-y-auto"
+        class="absolute top-14 left-4 z-20 flex flex-col gap-2 items-start overflow-y-auto max-h-[calc(100vh-18rem)]"
       >
         <For each={liveIds()}>
           {(id) => <DockItem id={id} tailLines={tailLines()} />}
