@@ -42,7 +42,10 @@ _guard:
         exit 1
     fi
 
-# Look up SSH host for current system, prompting on first use. Saved to .ci.json.
+# Look up SSH command for current system, prompting on first use. Saved to .ci.json.
+# The stored value is the full command prefix used to reach the remote — e.g.
+# "ssh srid1" or "pu connect srid1". A bare hostname is treated as "ssh <host>"
+# for backward compatibility.
 _host:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -52,9 +55,13 @@ _host:
     fi
     host=$(jq -r ".hosts.\"{{ system }}\" // empty" "$config")
     if [[ -z "$host" ]]; then
-        read -p "Enter SSH hostname for {{ system }}: " host
+        read -p "Enter SSH command for {{ system }} (e.g. 'ssh hostname' or 'pu connect hostname'): " host
         jq ".hosts.\"{{ system }}\" = \"$host\"" "$config" > "$config.tmp" && mv "$config.tmp" "$config"
         echo "Saved to $config" >&2
+    fi
+    # Backward compat: bare hostname → 'ssh <hostname>'
+    if [[ "$host" != *" "* ]]; then
+        host="ssh $host"
     fi
     echo "$host"
 
@@ -105,14 +112,16 @@ _run name +cmd:
         echo "▶ ${colored}"
         (cd "{{ root }}" && {{ cmd }}) 2>&1 | tee "$logfile" | sed "s|^|[${colored}] |"
     else
+        # $host is a full command prefix (e.g. "ssh srid1" or "pu connect srid1");
+        # left unquoted so word-splitting passes the parts as separate argv to exec.
         host=$(just ci::_host)
         echo "▶ ${colored} ($host)"
-        tmp=$(ssh "$host" mktemp -d)
-        trap 'ssh "$host" "rm -rf '"$tmp"'"; elapsed=$(( SECONDS - start )); just ci::_signoff "$context" failure "${user} · failed after ${elapsed}s · ${logrel}"' ERR
+        tmp=$($host mktemp -d)
+        trap '$host "rm -rf '"$tmp"'"; elapsed=$(( SECONDS - start )); just ci::_signoff "$context" failure "${user} · failed after ${elapsed}s · ${logrel}"' ERR
         # Clone full repo (not git archive) so remote has .git — needed for nix builds that read git revision
-        git bundle create - --all 2>/dev/null | ssh "$host" "cat > $tmp/repo.bundle && git clone --quiet $tmp/repo.bundle $tmp/src && cd $tmp/src && git -c advice.detachedHead=false checkout --quiet {{ sha }}"
-        ssh "$host" "cd $tmp/src && {{ cmd }}" 2>&1 | tee "$logfile" | sed "s|^|[${colored}] |"
-        ssh "$host" "rm -rf $tmp"
+        git bundle create - --all 2>/dev/null | $host "cat > $tmp/repo.bundle && git clone --quiet $tmp/repo.bundle $tmp/src && cd $tmp/src && git -c advice.detachedHead=false checkout --quiet {{ sha }}"
+        $host "cd $tmp/src && {{ cmd }}" 2>&1 | tee "$logfile" | sed "s|^|[${colored}] |"
+        $host "rm -rf $tmp"
     fi
     elapsed=$(( SECONDS - start ))
     just ci::_signoff "$context" success "${user} · ${elapsed}s · ${logrel}"
