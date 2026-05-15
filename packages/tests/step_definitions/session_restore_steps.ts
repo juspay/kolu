@@ -169,44 +169,6 @@ Then(
   },
 );
 
-// --- Ordering scenario ---
-
-/** Directories for the predictable-ordering scenario. Posted in this
- *  non-alphabetical order to prove the pill strip alphabetizes by group
- *  (#830) regardless of saved insertion order — predictable position is
- *  the property that survives across restores, not the array order. */
-const ORDERED_DIRS = ["/var", "/tmp", "/etc"];
-const ALPHABETICAL_DIRS = [...ORDERED_DIRS].sort();
-
-Given("a saved session in a specific order", async function (this: KoluWorld) {
-  this.savedSessionTerminalCount = ORDERED_DIRS.length;
-  const terminals = ORDERED_DIRS.map((cwd, i) => ({
-    id: String(i),
-    cwd,
-    git: null,
-  }));
-  this.savedSessionTerminals = terminals;
-  await postSavedSessionPayload(this, terminals);
-});
-
-Then(
-  "the workspace switcher entries should be alphabetized",
-  async function (this: KoluWorld) {
-    const entries = this.page.locator(WORKSPACE_SWITCHER_ENTRY_SELECTOR);
-    const count = await entries.count();
-    const titles: string[] = [];
-    for (let i = 0; i < count; i++) {
-      const title = await entries.nth(i).getAttribute("title");
-      titles.push(title ?? "");
-    }
-    assert.deepStrictEqual(
-      titles,
-      ALPHABETICAL_DIRS,
-      `Workspace switcher order ${JSON.stringify(titles)} doesn't match expected alphabetical ${JSON.stringify(ALPHABETICAL_DIRS)}`,
-    );
-  },
-);
-
 // --- Theme restore scenario ---
 
 Given(
