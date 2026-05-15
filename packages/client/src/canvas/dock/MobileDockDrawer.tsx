@@ -22,17 +22,7 @@ import { type Component, For, Show, createMemo } from "solid-js";
 import AgentIndicator from "../../terminal/AgentIndicator";
 import { formatTimeAgo, useStaleCheck } from "../../terminal/staleness";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
-import { agentBucket } from "../dockModel";
-
-type MobileDockBucket = "awaiting" | "working" | "idle" | "parked" | "none";
-
-const BUCKET_PRIORITY: Record<MobileDockBucket, number> = {
-  awaiting: 0,
-  working: 1,
-  idle: 2,
-  parked: 3,
-  none: 4,
-};
+import { type DockRowBucket, rankDockRows } from "./dockRowRanking";
 
 const MobileDockDrawer: Component<{
   onSelect: (id: TerminalId) => void;
@@ -41,31 +31,9 @@ const MobileDockDrawer: Component<{
   const store = useTerminalStore();
   const isStale = useStaleCheck();
 
-  const ranked = createMemo(() => {
-    const rows: {
-      id: TerminalId;
-      bucket: MobileDockBucket;
-      ts: number;
-    }[] = [];
-    for (const id of store.terminalIds()) {
-      const meta = store.getMetadata(id);
-      if (!meta) continue;
-      const parked = isStale(meta.lastActivityAt);
-      const agent = agentBucket(meta.agent);
-      let bucket: MobileDockBucket;
-      if (parked) bucket = "parked";
-      else if (agent === "none") bucket = "none";
-      else if (agent === "awaiting") bucket = "awaiting";
-      else bucket = "working";
-      if (bucket === "none" && meta.lastActivityAt > 0) bucket = "idle";
-      rows.push({ id, bucket, ts: meta.lastActivityAt });
-    }
-    rows.sort((a, b) => {
-      if (a.ts !== b.ts) return b.ts - a.ts;
-      return BUCKET_PRIORITY[a.bucket] - BUCKET_PRIORITY[b.bucket];
-    });
-    return rows;
-  });
+  const ranked = createMemo(() =>
+    rankDockRows(store.terminalIds(), store.getMetadata, isStale),
+  );
 
   function handleSelect(id: TerminalId) {
     props.onSelect(id);
@@ -100,13 +68,13 @@ const MobileDockDrawer: Component<{
  *  hierarchy; the cap is `lastActivityAt > 4h ago` (i.e. parked)
  *  routing the row to the quiet variant regardless of prior agent
  *  state, same as `useStaleCheck` enforces in the ranking step. */
-function isLive(bucket: MobileDockBucket): boolean {
+function isLive(bucket: DockRowBucket): boolean {
   return bucket === "awaiting" || bucket === "working";
 }
 
 const Row: Component<{
   id: TerminalId;
-  bucket: MobileDockBucket;
+  bucket: DockRowBucket;
   onSelect: (id: TerminalId) => void;
 }> = (props) => {
   const store = useTerminalStore();
