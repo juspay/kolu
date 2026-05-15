@@ -130,10 +130,15 @@ describe("matchesAnyShortcut", () => {
     );
   });
 
-  it("does not capture Ctrl+B", () => {
+  it("matches Ctrl+B (toggle dock)", () => {
+    // Mod+B on Linux/Windows (resolves to ctrlKey) triggers `toggleDock`.
+    // Mirrors VS Code's primary-sidebar shortcut; the dock is Kolu's
+    // primary navigator so it gets the short chord. (Was previously
+    // released back to the terminal in #821; reclaimed when the dock
+    // shipped as canonical in #903.)
     expect(
       matchesAnyShortcut(makeEvent({ key: "b", code: "KeyB", ctrlKey: true })),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("matches Ctrl+Alt+B (toggle inspector)", () => {
