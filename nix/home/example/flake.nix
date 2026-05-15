@@ -98,10 +98,12 @@
           )
 
           # Poll until kolu's HTTP listener binds — systemd reports
-          # "active" before the port is open.
+          # "active" before the port is open. 120s headroom for hosts
+          # without KVM acceleration (qemu TCG fallback inflates kolu's
+          # node startup from ~2s to ~22s).
           machine.wait_until_succeeds(
               "curl --fail --silent http://127.0.0.1:7681/ > /dev/null",
-              timeout=30,
+              timeout=120,
           )
         '';
       };

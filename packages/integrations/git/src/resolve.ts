@@ -155,6 +155,10 @@ export function subscribeGitInfo(
   // Head mode watches `.git/HEAD` (in-repo); cwd mode watches the parent
   // for `.git` appearing (out-of-repo). The two are mutually exclusive.
   let watcher: WatcherSlot | null = null;
+  // Set by `stop()` so an in-flight `resolve()` that resumes after teardown
+  // can't re-install a watcher via `ensureMode` — the resulting orphan
+  // would leak past the subscription's lifetime.
+  let stopped = false;
 
   function handleWatcherEvent(): void {
     void resolve();
@@ -180,6 +184,10 @@ export function subscribeGitInfo(
   async function resolve(): Promise<void> {
     const cwdAtStart = currentCwd;
     const result = await resolveGitInfo(cwdAtStart, log);
+    // Discard the result if the subscription was stopped during the await:
+    // `ensureMode` would otherwise install a fresh watcher with no path to
+    // retire it, and `onChange` would fire past the caller's stop barrier.
+    if (stopped) return;
     // Discard the result if cwd flipped during the await — a fresh resolve
     // is already in flight for the new cwd and will publish the right
     // state. Acting on a stale cwd here would re-swap watchers and emit a
@@ -205,6 +213,7 @@ export function subscribeGitInfo(
 
   return {
     setCwd(next: string): void {
+      if (stopped) return;
       if (next === currentCwd) {
         // Same cwd — the cwd watcher catches `.git` appearing. This is a
         // belt-and-braces re-resolve for platforms or filesystems where the
@@ -219,6 +228,7 @@ export function subscribeGitInfo(
       void resolve();
     },
     stop(): void {
+      stopped = true;
       tearDownWatchers();
     },
   };
