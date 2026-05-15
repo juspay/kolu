@@ -1,17 +1,29 @@
 /** MobileTileView — single fullscreen tile with swipe navigation.
  *
- *  On mobile the canvas (pan/zoom) and the desktop workspace switcher are
+ *  On mobile the canvas (pan/zoom) and the desktop activity dock are
  *  disabled per #622. The active terminal fills the viewport; swipe-
- *  left/right cycles between terminals in workspace-switcher order. A pull-handle
- *  row at the top is always visible (drag-bar + identity + connection
- *  dot); tapping it opens `MobileChromeSheet`, which mirrors the desktop
- *  ChromeBar for touch — logo, vertical pill list, controls. */
+ *  left/right cycles between terminals in workspace-switcher order.
+ *
+ *  Two chrome drawers mirror the desktop split (#903):
+ *  - **Top pull-down** (`MobileChromeSheet`): global controls — palette,
+ *    settings, inspector toggle. Trigger is the always-visible
+ *    pull-handle row at the top of the terminal.
+ *  - **Left swipe** (`MobileDockDrawer`): live-terminal navigator. The
+ *    mobile mirror of the desktop activity dock; trigger is a thin
+ *    handle pinned to the left edge.
+ *
+ *  Both Corvu `Drawer`s live as siblings (not nested) so each has its
+ *  own clean context — nesting put the chrome trigger inside the dock
+ *  drawer's context, breaking the chrome-tap-to-open path. Plain
+ *  buttons drive `open` state setters directly; the chrome handle
+ *  keeps its drag-down-to-open behavior via a manual touchmove
+ *  handler. */
 
 import Drawer from "@corvu/drawer";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, createSignal, For, type JSX, Show } from "solid-js";
-import type { WorkspaceSwitcherRepoGroup } from "./canvas/workspace-switcher";
 import MobileChromeSheet from "./MobileChromeSheet";
+import MobileDockDrawer from "./MobileDockDrawer";
 import type { WsStatus } from "./rpc/rpc";
 import { TerminalMetaCompact } from "./terminal/TerminalMeta";
 import { useTerminalStore } from "./terminal/useTerminalStore";
@@ -21,19 +33,17 @@ const SWIPE_THRESHOLD = 60;
 /** Vertical drift cap — if the user moved more vertically than horizontally,
  *  treat the gesture as a scroll, not a swipe. */
 const VERTICAL_TOLERANCE_RATIO = 0.7;
-/** Minimum downward pull (px) on the handle before the drawer commits to
- *  opening. Sits above the browser's tap-slop (≈10px so no click fires once
- *  we cross it) and below a casual finger jitter so a real tap still opens
- *  via `Drawer.Trigger`'s click path. */
+/** Minimum downward pull (px) on the chrome handle before the drawer
+ *  commits to opening. Sits above the browser's tap-slop (≈10px) and
+ *  below a casual finger jitter so a real tap still opens via the
+ *  click handler. */
 const PULL_OPEN_THRESHOLD = 24;
 
 const MobileTileView: Component<{
-  /** Workspace-switcher-ordered ids — same source as the desktop switcher, so swipe
-   *  order matches what the user would see if they switched to desktop. */
+  /** Workspace-switcher-ordered ids — same source as the desktop dock, so
+   *  swipe order matches what the user would see if they switched to
+   *  desktop. */
   orderedIds: TerminalId[];
-  /** Chrome sheet props. Passed through to MobileChromeSheet when the
-   *  user opens the drawer. */
-  groups: WorkspaceSwitcherRepoGroup[];
   status: WsStatus;
   appTitle: string;
   onOpenPalette: () => void;
@@ -47,9 +57,10 @@ const MobileTileView: Component<{
     x: number;
     y: number;
   } | null>(null);
-  const [sheetOpen, setSheetOpen] = createSignal(false);
-  // Pull-handle drag state. Not reactive — only `onPullTouch*` reads it.
-  // `null` when no active pull gesture; otherwise the starting clientY.
+  const [chromeOpen, setChromeOpen] = createSignal(false);
+  const [dockOpen, setDockOpen] = createSignal(false);
+  // Pull-handle drag state for the chrome (top) drawer. Not reactive —
+  // only the touch handlers read it.
   let pullStartY: number | null = null;
 
   function navigate(direction: 1 | -1) {
@@ -89,40 +100,35 @@ const MobileTileView: Component<{
   };
 
   return (
-    <Drawer side="top" open={sheetOpen()} onOpenChange={setSheetOpen}>
+    <>
       <div
         data-testid="mobile-tile-view"
         class="flex-1 min-h-0 flex flex-col relative"
-        // Listen for swipes on the wrapper so xterm's own pointer handling
-        // is unaffected — touchstart bubbles even when xterm consumes pointer
-        // events internally.
         onTouchStart={onTouchStart}
         onTouchEnd={onTouchEnd}
       >
-        {/* Pull-handle row — drag-bar + compact identity strip. Tap to
-         *  open the drawer (Corvu's Trigger); downward-drag past
-         *  `PULL_OPEN_THRESHOLD` also opens, matching the affordance the
-         *  drag-grip suggests. `onTouchStart` stopPropagation keeps the
-         *  wrapper's horizontal-swipe handler from treating a tap on the
-         *  handle as a tile-cycle gesture. */}
-        <Drawer.Trigger
+        {/* Top pull-handle — opens the chrome drawer on tap or
+         *  downward-drag past `PULL_OPEN_THRESHOLD`. */}
+        <button
+          type="button"
           data-testid="mobile-pull-handle"
           class="flex flex-col items-center gap-1 px-3 py-1.5 shrink-0 border-b border-edge bg-surface-1 cursor-pointer active:bg-surface-2 transition-colors"
           aria-label="Open navigation"
+          onClick={() => setChromeOpen(true)}
           onTouchStart={(e: TouchEvent) => {
             e.stopPropagation();
             const t = e.touches[0];
             pullStartY = t ? t.clientY : null;
           }}
           onTouchMove={(e: TouchEvent) => {
-            if (pullStartY === null || sheetOpen()) return;
+            if (pullStartY === null || chromeOpen()) return;
             const t = e.touches[0];
             if (!t) return;
             if (t.clientY - pullStartY >= PULL_OPEN_THRESHOLD) {
-              // preventDefault suppresses the synthesized click that would
-              // otherwise re-toggle the drawer closed via Drawer.Trigger.
+              // preventDefault suppresses the synthesized click that
+              // would otherwise re-toggle the drawer closed.
               e.preventDefault();
-              setSheetOpen(true);
+              setChromeOpen(true);
               pullStartY = null;
             }
           }}
@@ -143,7 +149,19 @@ const MobileTileView: Component<{
               )}
             </Show>
           </div>
-        </Drawer.Trigger>
+        </button>
+
+        {/* Left-edge dock handle — opens the dock drawer on tap. */}
+        <button
+          type="button"
+          data-testid="mobile-dock-handle"
+          class="absolute top-1/2 left-0 -translate-y-1/2 z-10 w-2 h-16 rounded-r bg-fg-3/30 active:bg-fg-3/60 transition-colors cursor-pointer"
+          aria-label="Open activity dock"
+          onClick={() => setDockOpen(true)}
+          // Don't let the wrapper's horizontal-swipe handler claim
+          // an edge-grab as a tile cycle gesture.
+          onTouchStart={(e: TouchEvent) => e.stopPropagation()}
+        />
 
         {/* Body container — relative so per-terminal absolutely-positioned
          *  search overlays anchor here, not the dvh root. */}
@@ -165,23 +183,40 @@ const MobileTileView: Component<{
         {props.bottomBar}
       </div>
 
-      <Drawer.Portal>
-        <Drawer.Overlay
-          data-testid="mobile-chrome-backdrop"
-          class="fixed inset-0 z-40 bg-black/40 opacity-0 transition-opacity duration-200 data-open:opacity-100"
-        />
-        <Drawer.Content class="fixed top-0 left-0 right-0 z-50 bg-surface-1 border-b border-edge shadow-xl max-h-[70vh] overflow-y-auto">
-          <MobileChromeSheet
-            status={props.status}
-            appTitle={props.appTitle}
-            onOpenPalette={props.onOpenPalette}
-            groups={props.groups}
-            onSelect={store.setActiveSilently}
-            onClose={() => setSheetOpen(false)}
+      {/* Chrome (top pull-down) drawer — global controls. */}
+      <Drawer side="top" open={chromeOpen()} onOpenChange={setChromeOpen}>
+        <Drawer.Portal>
+          <Drawer.Overlay
+            data-testid="mobile-chrome-backdrop"
+            class="fixed inset-0 z-40 bg-black/40 opacity-0 transition-opacity duration-200 data-open:opacity-100"
           />
-        </Drawer.Content>
-      </Drawer.Portal>
-    </Drawer>
+          <Drawer.Content class="fixed top-0 left-0 right-0 z-50 bg-surface-1 border-b border-edge shadow-xl max-h-[70vh] overflow-y-auto">
+            <MobileChromeSheet
+              status={props.status}
+              appTitle={props.appTitle}
+              onOpenPalette={props.onOpenPalette}
+              onClose={() => setChromeOpen(false)}
+            />
+          </Drawer.Content>
+        </Drawer.Portal>
+      </Drawer>
+
+      {/* Dock (left swipe) drawer — terminal navigator. */}
+      <Drawer side="left" open={dockOpen()} onOpenChange={setDockOpen}>
+        <Drawer.Portal>
+          <Drawer.Overlay
+            data-testid="mobile-dock-backdrop"
+            class="fixed inset-0 z-40 bg-black/40 opacity-0 transition-opacity duration-200 data-open:opacity-100"
+          />
+          <Drawer.Content class="fixed top-0 left-0 bottom-0 z-50 w-[78vw] max-w-[20rem] bg-surface-1 border-r border-edge shadow-xl">
+            <MobileDockDrawer
+              onSelect={store.setActiveSilently}
+              onClose={() => setDockOpen(false)}
+            />
+          </Drawer.Content>
+        </Drawer.Portal>
+      </Drawer>
+    </>
   );
 };
 

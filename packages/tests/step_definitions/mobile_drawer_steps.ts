@@ -2,27 +2,28 @@ import * as assert from "node:assert";
 import { Then, When } from "@cucumber/cucumber";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
+// ── Chrome (top pull-down) drawer ─────────────────────────────────────
 const PULL_HANDLE = '[data-testid="mobile-pull-handle"]';
-const SHEET = '[data-testid="mobile-chrome-sheet"]';
-const BACKDROP = '[data-testid="mobile-chrome-backdrop"]';
-const PILL_BRANCH = '[data-testid="mobile-pill-branch"]';
+const CHROME_SHEET = '[data-testid="mobile-chrome-sheet"]';
+const CHROME_BACKDROP = '[data-testid="mobile-chrome-backdrop"]';
 // MobileChromeSheet reuses the same `palette-trigger` testid as the desktop
 // ChromeBar's palette button. Scope to the open sheet to disambiguate.
-const PALETTE_BTN = `${SHEET} [data-testid="palette-trigger"]`;
+const PALETTE_BTN = `${CHROME_SHEET} [data-testid="palette-trigger"]`;
+
+// ── Dock (left swipe) drawer ──────────────────────────────────────────
+const DOCK_HANDLE = '[data-testid="mobile-dock-handle"]';
+const DOCK_SHEET = '[data-testid="mobile-dock-sheet"]';
+const DOCK_BACKDROP = '[data-testid="mobile-dock-backdrop"]';
+const DOCK_ROW = '[data-testid="mobile-dock-row"]';
+
+// ── Chrome drawer steps ───────────────────────────────────────────────
 
 When("I tap the mobile pull handle", async function (this: KoluWorld) {
   await this.page.locator(PULL_HANDLE).tap();
 });
 
 When("I tap the mobile chrome backdrop", async function (this: KoluWorld) {
-  await this.page.locator(BACKDROP).tap();
-});
-
-When("I tap the inactive mobile pill branch", async function (this: KoluWorld) {
-  // The drawer always shows every terminal; one carries `data-active`. The
-  // other(s) are tap targets to switch. With the two-terminal background
-  // (one auto + one explicit create) there is exactly one inactive pill.
-  await this.page.locator(`${PILL_BRANCH}:not([data-active])`).first().tap();
+  await this.page.locator(CHROME_BACKDROP).tap();
 });
 
 When(
@@ -36,7 +37,7 @@ Then(
   "the mobile chrome sheet should be visible",
   async function (this: KoluWorld) {
     await this.page
-      .locator(SHEET)
+      .locator(CHROME_SHEET)
       .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },
 );
@@ -45,7 +46,7 @@ Then(
   "the mobile chrome sheet should not be visible",
   async function (this: KoluWorld) {
     await this.page
-      .locator(SHEET)
+      .locator(CHROME_SHEET)
       .waitFor({ state: "hidden", timeout: POLL_TIMEOUT });
   },
 );
@@ -102,7 +103,7 @@ When(
     // `touchend` listeners live on `document`, picking up bubbled events.
     // For `side="top"`, the dismiss direction is upward — drag the sheet
     // most of its height to land on the "closed" snap point.
-    const box = await this.page.locator(SHEET).boundingBox();
+    const box = await this.page.locator(CHROME_SHEET).boundingBox();
     assert.ok(box, "Mobile chrome sheet has no bounding box");
     // Anchor the drag near the top of the sheet (the drag-grip area) so the
     // touch target is draggable per Corvu's `locationIsDraggable` walk —
@@ -120,7 +121,7 @@ When(
     }
     const src = `
       (() => {
-        const target = document.querySelector(${JSON.stringify(SHEET)});
+        const target = document.querySelector(${JSON.stringify(CHROME_SHEET)});
         if (!target) throw new Error("mobile chrome sheet not found");
         const mkTouch = (y) => new Touch({
           identifier: 1, target, clientX: ${x}, clientY: y,
@@ -156,5 +157,51 @@ When(
     `;
     await this.page.evaluate(src);
     await this.waitForFrame();
+  },
+);
+
+// ── Dock drawer steps ─────────────────────────────────────────────────
+
+When("I tap the mobile dock handle", async function (this: KoluWorld) {
+  await this.page.locator(DOCK_HANDLE).tap();
+});
+
+When("I tap the mobile dock backdrop", async function (this: KoluWorld) {
+  // The dock drawer is `side="left"` and covers the left ~78vw. The
+  // backdrop spans the full viewport but Drawer.Content (z-50) sits on
+  // top of it across the drawer's bounding box. Tap on the *right*
+  // edge of the viewport where only the backdrop is visible — the
+  // default `.tap()` center-of-element lands inside the drawer content
+  // and is consumed by it, not the backdrop.
+  const backdrop = this.page.locator(DOCK_BACKDROP);
+  const box = await backdrop.boundingBox();
+  assert.ok(box, "Dock backdrop has no bounding box");
+  await backdrop.tap({
+    position: { x: box.width - 20, y: box.height / 2 },
+  });
+});
+
+When("I tap the inactive mobile dock row", async function (this: KoluWorld) {
+  // The drawer always shows every terminal; one carries `data-active`. The
+  // other(s) are tap targets to switch. With the two-terminal background
+  // (one auto + one explicit create) there is exactly one inactive row.
+  await this.page.locator(`${DOCK_ROW}:not([data-active])`).first().tap();
+});
+
+Then(
+  "the mobile dock sheet should be visible",
+  async function (this: KoluWorld) {
+    await this.page
+      .locator(DOCK_SHEET)
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+Then(
+  "the mobile dock sheet should not be visible",
+  async function (this: KoluWorld) {
+    await this.page
+      .locator(DOCK_SHEET)
+      .waitFor({ state: "hidden", timeout: POLL_TIMEOUT });
   },
 );

@@ -518,7 +518,6 @@ const App: Component = () => {
                 .with(true, () => (
                   <MobileTileView
                     orderedIds={orderedIds()}
-                    groups={mobileWorkspaceModel().compactGroups}
                     status={wsStatus()}
                     appTitle={appTitle()}
                     onOpenPalette={() => openPalette()}
