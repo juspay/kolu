@@ -128,21 +128,24 @@ if (typeof window !== "undefined") {
 }
 
 /** Tri-state mode persisted per-device. `"cards"` is the default — the
- *  dock surfaces real context first, ambient compression on opt-in. */
+ *  dock surfaces real context first, ambient compression on opt-in.
+ *  Mega is a transient search affordance and deliberately doesn't
+ *  round-trip: if the user closes the dock from mega and reloads,
+ *  they should land back on rail/cards, not in the search overlay
+ *  staring at an unfocused input. */
 export const [dockMode, setDockMode] = makePersisted(
   createSignal<DockMode>("cards"),
   {
     name: "kolu-activity-dock-mode",
     serialize: (v) => v,
-    deserialize: (raw): DockMode =>
-      raw === "rail" || raw === "mega" ? raw : "cards",
+    deserialize: (raw): DockMode => (raw === "rail" ? raw : "cards"),
   },
 );
 
-/** Remember which non-mega mode we came from so closing mega returns to
- *  it. Plain in-memory signal — surviving a reload to mega isn't useful
- *  (mega is a transient search affordance), and dockMode itself is
- *  already persisted, so the next reload reads from there. */
+/** Remember which non-mega mode we came from so closing mega returns
+ *  to it. Plain in-memory signal: the persisted `dockMode` only stores
+ *  rail/cards (mega never round-trips), so this is the only place that
+ *  tracks the pre-mega level. */
 const [previousMode, setPreviousMode] =
   createSignal<Exclude<DockMode, "mega">>("cards");
 
