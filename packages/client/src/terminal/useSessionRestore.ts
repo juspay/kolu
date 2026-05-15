@@ -171,7 +171,35 @@ export function useSessionRestore(deps: {
       const oldToNew = new Map<string, TerminalId>();
       // Array order is the ordering — the server wrote terminals in Map
       // insertion order, and that order round-trips verbatim through disk.
-      const topLevel = session.terminals.filter((t) => !t.parentId);
+      //
+      // Active-first scheduling: the canvas first-mount fallback effect
+      // (`TerminalCanvas.tsx:331`) fires on the *first* terminal-list
+      // snapshot and falls through to bbox-of-tiles centering whenever
+      // `activeId` is null at that moment. Once the bbox pan lands, the
+      // viewport is no longer at default and the effect won't re-center
+      // when `setActiveSilently` later lands. Push the active terminal
+      // to the front of the create order so it's the first one created,
+      // `setActiveSilently` fires before the canvas mounts, and the
+      // effect takes the active branch on its first run.
+      //
+      // Display order is unaffected: tile canvas layouts are saved
+      // verbatim so position doesn't depend on create order, and the
+      // workspace switcher pill strip sorts by `terminalKey().group`.
+      const topLevelInSavedOrder = session.terminals.filter((t) => !t.parentId);
+      const topLevel =
+        session.activeTerminalId !== undefined
+          ? (() => {
+              const activeIdx = topLevelInSavedOrder.findIndex(
+                (t) => t.id === session.activeTerminalId,
+              );
+              if (activeIdx <= 0) return topLevelInSavedOrder;
+              return [
+                topLevelInSavedOrder[activeIdx]!,
+                ...topLevelInSavedOrder.slice(0, activeIdx),
+                ...topLevelInSavedOrder.slice(activeIdx + 1),
+              ];
+            })()
+          : topLevelInSavedOrder;
       // Type predicate so the body of the loop below sees `parentId`
       // narrowed to `string` instead of `string | undefined`.
       const subTerminals = session.terminals.filter(
