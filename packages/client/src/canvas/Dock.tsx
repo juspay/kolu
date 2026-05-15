@@ -561,7 +561,7 @@ const RailSegment: Component<{
       data-agent-bucket={props.bucket}
       onClick={() => store.activate(props.id)}
       class={`shrink-0 cursor-pointer transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 ${
-        props.mode === "rail" ? "w-6 h-6" : "w-1.5"
+        props.mode === "rail" ? "w-full h-6" : "w-1.5"
       } ${animClass()}`}
       classList={{
         "opacity-50": props.bucket === "parked" || props.bucket === "none",
