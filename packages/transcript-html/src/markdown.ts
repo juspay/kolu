@@ -25,27 +25,34 @@ import { Marked, type Tokens } from "marked";
 
 import { renderCodeBlock } from "./pierre.ts";
 
-interface PierreCodeToken extends Tokens.Code {
-  pierreHtml?: string;
-}
-
 function makeMarked(options: { breaks: boolean }): Marked {
+  // Pierre's SSR is async, marked's `code` renderer is sync; we bridge
+  // the two by stashing the async result in a closure-captured WeakMap
+  // keyed by the code token. The async `walkTokens` pass writes;
+  // the sync `code` renderer reads on the same token instance.
+  // WeakMap keeps `marked`'s token objects untouched (no foreign-field
+  // mutation, no cast) and lets the cache GC alongside the parse AST.
+  const pierreCache = new WeakMap<Tokens.Code, string>();
   return new Marked({
     gfm: true,
     async: true,
     breaks: options.breaks,
     walkTokens: async (token) => {
       if (token.type === "code") {
-        const t = token as PierreCodeToken;
-        t.pierreHtml = await renderCodeBlock(t.text, t.lang);
+        // marked's `walkTokens` types `token` as the full token union,
+        // and the `type === "code"` guard doesn't narrow it to `Code`
+        // (the union includes `Generic` with an open `type` string).
+        // The cast is the same one the upstream marked types expect.
+        const code = token as Tokens.Code;
+        pierreCache.set(code, await renderCodeBlock(code.text, code.lang));
       }
     },
     renderer: {
       code(token) {
-        const t = token as PierreCodeToken;
-        if (typeof t.pierreHtml === "string") return t.pierreHtml;
+        const rendered = pierreCache.get(token);
+        if (rendered !== undefined) return rendered;
         // Fallback only fires if walkTokens was bypassed — keep it safe.
-        return `<pre class="md-code"><code>${escapeHtml(t.text)}</code></pre>`;
+        return `<pre class="md-code"><code>${escapeHtml(token.text)}</code></pre>`;
       },
       heading(token) {
         const text = this.parser.parseInline(token.tokens);
