@@ -77,7 +77,13 @@ const MIN_TAIL_LINES = 2;
 const MAX_TAIL_LINES = 7;
 const RAIL_WIDTH_PX = 28;
 const CARDS_WIDTH_PX = 288;
-const MEGA_WIDTH_PX = 560;
+// Mega has a 12rem (192px) repo sidebar plus four agent-state columns.
+// 560px squeezed the column labels into wraps ("Awaiting / you",
+// "Working / 00", "No / agent"). 960px gives each column ~180px of
+// minimum width — enough for the column header + a single card per
+// row without truncation, matching the breathing room the retired
+// chrome-bar workspace switcher had.
+const MEGA_WIDTH_PX = 960;
 
 /** Sort priority for rows that share `lastActivityAt` (most commonly
  *  several plain shells at `ts === 0`). Lower comes first. Module-scope
