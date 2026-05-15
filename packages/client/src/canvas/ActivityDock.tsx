@@ -310,10 +310,13 @@ const ActivityDock: Component<{
         classList={{
           // Tiled: floating panel under the chrome bar. Stays clear of
           // the right side so the minimap and inspector have room.
-          "top-20 left-4 max-h-[calc(100vh-22rem)] rounded-2xl overflow-hidden shadow-2xl shadow-black/40":
+          "top-20 left-4 rounded-2xl overflow-hidden shadow-2xl shadow-black/40":
+            !posture.maximized(),
+          // Mega in tiled mode gets more vertical room than cards/rail —
+          // no reply inputs to fill, but a 4-column grid of cards.
+          "max-h-[calc(100vh-22rem)]":
             !posture.maximized() && dockMode() !== "mega",
-          // Mega in tiled mode is the same float, just wider.
-          "top-20 left-4 max-h-[calc(100vh-6rem)] rounded-2xl overflow-hidden shadow-2xl shadow-black/40":
+          "max-h-[calc(100vh-6rem)]":
             !posture.maximized() && dockMode() === "mega",
           // Maximized: flush sidebar, no rounding, opaque background.
           "inset-y-0 left-0 border-r border-edge bg-surface-1":
