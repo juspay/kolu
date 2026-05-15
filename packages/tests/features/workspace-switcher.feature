@@ -1,5 +1,5 @@
-Feature: Workspace switcher (activity dock as canonical navigator)
-  The activity dock is now the canonical live-terminal navigator (#903).
+Feature: Workspace switcher (dock as canonical navigator)
+  The dock is now the canonical live-terminal navigator (#903).
   Each dock row stands in for a terminal entry; the dock's mega mode
   hosts the search + repo facets + agent-state columns that used to
   live in the chrome-bar workspace switcher.
@@ -7,7 +7,7 @@ Feature: Workspace switcher (activity dock as canonical navigator)
   Background:
     Given the terminal is ready
 
-  Scenario: Workspace switcher (activity dock) appears on the canvas
+  Scenario: Workspace switcher (dock) appears on the canvas
     Then the workspace switcher should be visible
     And there should be no page errors
 
@@ -115,6 +115,6 @@ Feature: Workspace switcher (activity dock as canonical navigator)
     And there should be no page errors
 
   @mobile
-  Scenario: Activity dock is not rendered on mobile
+  Scenario: Dock is not rendered on mobile
     Then the workspace switcher should not be visible
     And there should be no page errors

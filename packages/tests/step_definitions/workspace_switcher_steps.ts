@@ -6,7 +6,7 @@
  *  cutting feature files don't need to be rewritten everywhere) but
  *  resolve to the dock's surface:
  *
- *  - "branch pill" → dock row (`activity-dock-row`)
+ *  - "branch pill" → dock row (`dock-row`)
  *  - "hover the switcher" → switch the dock to mega mode (no hover-to-open)
  *  - "switcher toggle" → dock's mega-toggle button
  *  - "panel" → dock's mega body, which mounts `WorkspaceSearchPanel`
@@ -20,9 +20,9 @@ import * as assert from "node:assert";
 import { Then, When } from "@cucumber/cucumber";
 import { type KoluWorld, MOD_KEY, POLL_TIMEOUT } from "../support/world.ts";
 
-const DOCK_SELECTOR = '[data-testid="activity-dock"]';
-const DOCK_ROW_SELECTOR = '[data-testid="activity-dock-row"]';
-const MEGA_TOGGLE_SELECTOR = '[data-testid="activity-dock-mega-toggle"]';
+const DOCK_SELECTOR = '[data-testid="dock"]';
+const DOCK_ROW_SELECTOR = '[data-testid="dock-row"]';
+const MEGA_TOGGLE_SELECTOR = '[data-testid="dock-mega-toggle"]';
 const PANEL_SELECTOR = '[data-testid="workspace-switcher-panel"]';
 const SEARCH_SELECTOR = '[data-testid="workspace-switcher-search"]';
 const CARD_SELECTOR = '[data-testid="workspace-switcher-card"]';
@@ -45,7 +45,7 @@ Then(
     const count = await dock.count();
     if (count === 0) return;
     const visible = await dock.first().isVisible();
-    assert.ok(!visible, "Expected activity dock to not be visible");
+    assert.ok(!visible, "Expected dock to not be visible");
   },
 );
 

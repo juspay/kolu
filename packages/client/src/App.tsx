@@ -29,7 +29,7 @@ import {
   buildWorkspaceEntries,
   buildWorkspaceSwitcherModel,
 } from "./canvas/workspace-switcher";
-import { toggleRailCards } from "./canvas/ActivityDock";
+import { toggleRailCards } from "./canvas/Dock";
 import TerminalCanvas from "./canvas/TerminalCanvas";
 import TileTitleActions from "./canvas/TileTitleActions";
 import { createCommands } from "./commands";
@@ -122,7 +122,7 @@ const App: Component = () => {
   // Shortcuts help overlay state
   const [shortcutsHelpOpen, setShortcutsHelpOpen] = createSignal(false);
 
-  // Impulse signal — Mod+Shift+K bumps it; the activity dock listens and
+  // Impulse signal — Mod+Shift+K bumps it; the dock listens and
   // opens its mega level (search + repo facets + columns). Replaces the
   // chrome-bar workspace switcher's open-request wiring.
   const [dockMegaOpenRequest, setDockMegaOpenRequest] = createSignal(0);
@@ -467,7 +467,7 @@ const App: Component = () => {
       />
       {/* Desktop chrome — docked top bar carrying identity and global
        *  controls. The workspace switcher retired in favor of the
-       *  activity dock's mega level (#903). Mobile has its own
+       *  dock's mega level (#903). Mobile has its own
        *  pull-down sheet (see MobileTileView) and does not render this
        *  band. */}
       <Show when={!isMobile()}>

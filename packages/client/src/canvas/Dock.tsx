@@ -1,4 +1,4 @@
-/** Activity dock — left-edge canonical live-terminal navigator.
+/** Dock — left-edge canonical live-terminal navigator.
  *
  *  Three progressive levels of detail, toggled in place. Per-device
  *  `dockMode` persists across reloads so a 13" laptop can stay on the
@@ -127,7 +127,7 @@ function tailLinesFor(viewportPx: number, numCards: number): number {
 }
 
 // Module-scope viewport height + resize listener. Lifecycle matches the
-// signal itself (browser session) rather than `ActivityDock`'s mount —
+// signal itself (browser session) rather than `Dock`'s mount —
 // otherwise a resize while the dock is auto-hidden (no terminals) would
 // leave `viewportHeight` stale.
 const [viewportHeight, setViewportHeight] = createSignal(
@@ -157,7 +157,7 @@ if (typeof window !== "undefined") {
 export const [dockMode, setDockMode] = makePersisted(
   createSignal<DockMode>("cards"),
   {
-    name: "kolu-activity-dock-mode",
+    name: "kolu-dock-mode",
     serialize: (v) => v,
     deserialize: (raw): DockMode => (raw === "rail" ? raw : "cards"),
   },
@@ -197,7 +197,7 @@ export function toggleRailCards(): void {
  *  pip so the icon reflects current state. */
 export const dockExpanded = (): boolean => dockMode() !== "rail";
 
-const ActivityDock: Component<{
+const Dock: Component<{
   entries: WorkspaceSwitcherSourceEntry[];
   activeId: TerminalId | null;
   getRecency: (id: TerminalId) => number;
@@ -263,7 +263,7 @@ const ActivityDock: Component<{
   // `openMegaRequest` and re-focuses the search input on every impulse
   // (mount or subsequent shortcut while mega is already open). Keeping
   // the open + focus halves co-located inside the mega component keeps
-  // the mega activity's volatility encapsulated; ActivityDock just
+  // the mega activity's volatility encapsulated; Dock just
   // orchestrates the rail/cards/mega level transitions.
   createEffect(
     on(
@@ -308,7 +308,7 @@ const ActivityDock: Component<{
         ref={(el) => {
           containerRef = el;
         }}
-        data-testid="activity-dock"
+        data-testid="dock"
         data-mode={dockMode()}
         data-maximized={posture.maximized() ? "" : undefined}
         // Open flag mirrors the chrome-bar switcher's `data-open` —
@@ -415,7 +415,7 @@ const DockHeader: Component<{
     >
       <button
         type="button"
-        data-testid="activity-dock-new"
+        data-testid="dock-new"
         onClick={props.onCreate}
         class="group/new flex items-center justify-center w-6 h-6 rounded-md cursor-pointer text-fg-3 hover:text-fg hover:bg-surface-2/70 active:bg-surface-2 transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
         aria-label="New terminal"
@@ -425,7 +425,7 @@ const DockHeader: Component<{
       </button>
       <button
         type="button"
-        data-testid="activity-dock-mega-toggle"
+        data-testid="dock-mega-toggle"
         onClick={props.onOpenMega}
         class="flex items-center justify-center w-6 h-6 rounded-md cursor-pointer text-fg-3 hover:text-fg hover:bg-surface-2/70 active:bg-surface-2 transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
         aria-label="Search workspaces"
@@ -435,7 +435,7 @@ const DockHeader: Component<{
       </button>
       <button
         type="button"
-        data-testid="activity-dock-mode-toggle"
+        data-testid="dock-mode-toggle"
         onClick={toggleRailCards}
         class="flex items-center justify-center w-6 h-6 rounded-md cursor-pointer text-fg-3 hover:text-fg hover:bg-surface-2/70 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
         classList={{ "ml-auto": !railLayout() }}
@@ -487,7 +487,7 @@ const DockRow: Component<{
       {(c) => (
         <div
           class="flex flex-row items-stretch border-b border-edge/15 last:border-b-0 relative"
-          data-testid="activity-dock-row"
+          data-testid="dock-row"
           data-terminal-id={props.id}
           data-bucket={props.bucket}
           data-agent-state={c().meta.agent?.state}
@@ -557,7 +557,7 @@ const RailSegment: Component<{
   return (
     <button
       type="button"
-      data-testid="activity-dock-rail"
+      data-testid="dock-rail"
       data-agent-bucket={props.bucket}
       onClick={() => store.activate(props.id)}
       class={`shrink-0 cursor-pointer transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 ${
@@ -660,7 +660,7 @@ const AwaitingCardBody: Component<{
 
   return (
     <div
-      data-testid="activity-dock-card"
+      data-testid="dock-card"
       data-terminal-id={props.id}
       class="px-2.5 py-2.5 flex flex-col gap-1.5"
       style={{
@@ -692,7 +692,7 @@ const AwaitingCardBody: Component<{
         <PrLine meta={props.meta} />
         <Show when={tail().length > 0}>
           <div
-            data-testid="activity-dock-tail"
+            data-testid="dock-tail"
             class="font-mono text-[0.7rem] text-fg-2 leading-snug whitespace-pre-wrap break-all w-full mt-0.5"
           >
             <For each={tail()}>
@@ -704,7 +704,7 @@ const AwaitingCardBody: Component<{
       <form onSubmit={submit}>
         <input
           type="text"
-          data-testid="activity-dock-reply"
+          data-testid="dock-reply"
           value={value()}
           onInput={(e) => setValue(e.currentTarget.value)}
           placeholder="Reply…"
@@ -738,7 +738,7 @@ const WorkingPillBody: Component<{
   return (
     <button
       type="button"
-      data-testid="activity-dock-working"
+      data-testid="dock-working"
       data-terminal-id={props.id}
       onClick={() => store.activate(props.id)}
       class="w-full px-2.5 py-1 flex flex-col gap-0.5 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 text-left"
@@ -780,7 +780,7 @@ const QuietRowBody: Component<{
   return (
     <button
       type="button"
-      data-testid="activity-dock-quiet"
+      data-testid="dock-quiet"
       data-terminal-id={props.id}
       data-bucket={props.bucket}
       onClick={() => store.activate(props.id)}
@@ -846,7 +846,7 @@ const DockMetaRow: Component<{ meta: TerminalMetadata }> = (props) => {
 };
 
 /** Mega level body — owns the search query, repo filter, and the
- *  focus-on-open impulse. ActivityDock's only responsibility for mega
+ *  focus-on-open impulse. Dock's only responsibility for mega
  *  is mounting this component (mode transition) and providing
  *  `onSelect` / `onClose` callbacks; the search activity's volatility
  *  stays here. `openRequest` bumps re-focus the search input on every
@@ -904,4 +904,4 @@ const MegaBody: Component<{
   );
 };
 
-export default ActivityDock;
+export default Dock;

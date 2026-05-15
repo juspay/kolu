@@ -1,5 +1,5 @@
-Feature: Mobile activity-dock drawer
-  Mobile mirror of the desktop activity dock. A thin left-edge handle
+Feature: Mobile dock drawer
+  Mobile mirror of the desktop dock. A thin left-edge handle
   opens a left-side swipe drawer (`MobileDockDrawer`) with the
   recency-sorted terminal list. Tapping a row switches the active
   terminal and dismisses the drawer.

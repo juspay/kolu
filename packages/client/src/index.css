@@ -242,7 +242,7 @@ body {
 
 /* `.scrollbar-none` keeps `overflow-y: auto` semantics — wheel / trackpad /
  * keyboard scroll all still work — but suppresses the visible track + thumb
- * entirely. Useful for ambient surfaces (the awaiting dock) where the
+ * entirely. Useful for ambient surfaces (the dock) where the
  * scrollbar would be more visual noise than navigation. */
 .scrollbar-none {
   scrollbar-width: none;

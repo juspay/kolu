@@ -8,7 +8,7 @@
  *
  *  The chrome-bar `WorkspaceSwitcher` controller and `Collapsed` pill
  *  strip retired with #903 — the canonical live-terminal navigator now
- *  lives in `ActivityDock`, which mounts `SearchPanel` directly as its
+ *  lives in `Dock`, which mounts `SearchPanel` directly as its
  *  mega level. */
 export {
   agentBucket,

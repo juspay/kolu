@@ -3,7 +3,7 @@
  *  Carries app identity (logo + connection dot) on the left and the
  *  global control cluster (recorder, inspector, settings, command
  *  palette) on the right. The live-terminal navigator moved to the
- *  activity dock at the canvas's left edge (#903), so the chrome bar
+ *  dock at the canvas's left edge (#903), so the chrome bar
  *  no longer hosts a workspace switcher slot.
  *
  *  Two positioning modes, switched on `canvasMaximized`:
@@ -21,7 +21,7 @@
  *  `MobileChromeSheet` and `MobileTileView`. */
 
 import { type Component, createSignal } from "solid-js";
-import { dockExpanded, toggleRailCards } from "./canvas/ActivityDock";
+import { dockExpanded, toggleRailCards } from "./canvas/Dock";
 import { useViewPosture } from "./canvas/useViewPosture";
 import { ACTIONS } from "./input/actions";
 import { formatKeybind } from "./input/keyboard";
@@ -108,7 +108,7 @@ const ChromeBar: Component<{
 
       {/* Middle spacer — pointer-events pass through to whatever the
        *  canvas or right panel is showing underneath. The workspace
-       *  switcher used to live here; with the activity dock owning the
+       *  switcher used to live here; with the dock owning the
        *  navigator, the chrome bar is just identity + global controls. */}
       <div class="flex-1 min-w-0 pointer-events-none" />
 
@@ -119,7 +119,7 @@ const ChromeBar: Component<{
       <div class="flex items-center gap-2 shrink-0">
         <RecordButton />
         <Tip
-          label={`Toggle activity dock (${formatKeybind(ACTIONS.toggleDock.keybind)})`}
+          label={`Toggle dock (${formatKeybind(ACTIONS.toggleDock.keybind)})`}
         >
           <button
             type="button"
@@ -131,7 +131,7 @@ const ChromeBar: Component<{
             }}
             data-active={dockExpanded() ? "" : undefined}
             onClick={toggleRailCards}
-            aria-label="Toggle activity dock"
+            aria-label="Toggle dock"
           >
             <DockToggleIcon active={dockExpanded()} />
           </button>

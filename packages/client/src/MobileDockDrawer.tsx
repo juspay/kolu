@@ -1,7 +1,7 @@
-/** MobileDockDrawer — left-edge swipe drawer carrying the activity-dock
+/** MobileDockDrawer — left-edge swipe drawer carrying the dock
  *  terminal list on mobile.
  *
- *  Mobile mirror of the desktop activity dock (#903): the dock is the
+ *  Mobile mirror of the desktop dock (#903): the dock is the
  *  canonical live-terminal navigator, so on mobile it gets the standard
  *  iOS/Android "navigation drawer" gesture — swipe from the left edge,
  *  or tap the thin left-edge handle, to reveal the terminal list.

@@ -110,7 +110,7 @@ const CanvasTile: Component<{
       classList={{
         // Maximized stays `absolute` so it fills the canvas container —
         // NOT `fixed`, because the transformed pan/zoom wrapper would
-        // otherwise become its containing block. The activity dock sits
+        // otherwise become its containing block. The dock sits
         // outside this container as a flex sibling in maximized posture
         // (TerminalCanvas), so the tile naturally fills the remaining
         // viewport without needing a left-inset (#904).

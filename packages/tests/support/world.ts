@@ -26,12 +26,11 @@ export const MOD_KEY = process.platform === "darwin" ? "Meta" : "Control";
 const SETTLED_SELECTOR =
   '[data-visible] .xterm-screen, [data-testid="empty-state"]';
 /** Canonical "list of terminals" affordance — one row per terminal in
- *  the activity dock. Replaced the chrome-bar workspace-switcher pill
+ *  the dock. Replaced the chrome-bar workspace-switcher pill
  *  strip with #903; the surface is different, the semantics are the
  *  same (one entry per live terminal with `data-terminal-id`,
  *  `data-active`, `data-unread`, etc.). */
-export const WORKSPACE_SWITCHER_ENTRY_SELECTOR =
-  '[data-testid="activity-dock-row"]';
+export const WORKSPACE_SWITCHER_ENTRY_SELECTOR = '[data-testid="dock-row"]';
 /** Per-tile elements on the canvas — one per top-level terminal. Mobile
  *  uses the mobile-tile-view body to enumerate terminals instead. */
 export const CANVAS_TILE_SELECTOR = '[data-testid="canvas-tile"]';

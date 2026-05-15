@@ -236,9 +236,9 @@ const _ACTIONS = {
     handler: (ctx) => ctx.toggleRightPanel(),
   },
   toggleDock: {
-    label: "Toggle activity dock (rail / cards)",
+    label: "Toggle dock (rail / cards)",
     // Mirror of VS Code's primary-sidebar shortcut. The right-panel
-    // toggle takes `Mod+Alt+B`; the activity dock (left panel) gets the
+    // toggle takes `Mod+Alt+B`; the dock (left panel) gets the
     // shorter `Mod+B`, since the dock is the primary navigator.
     keybind: { key: "b", code: "KeyB", mod: true },
     handler: (ctx) => ctx.toggleDock(),

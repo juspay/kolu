@@ -1,15 +1,15 @@
-/** Activity dock — step definitions. */
+/** Dock — step definitions. */
 
 import { Then, When } from "@cucumber/cucumber";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
-const DOCK_SELECTOR = '[data-testid="activity-dock"]';
-const RAIL_SELECTOR = '[data-testid="activity-dock-rail"]';
-const MODE_TOGGLE_SELECTOR = '[data-testid="activity-dock-mode-toggle"]';
-const CARD_SELECTOR = '[data-testid="activity-dock-card"]';
-const WORKING_SELECTOR = '[data-testid="activity-dock-working"]';
+const DOCK_SELECTOR = '[data-testid="dock"]';
+const RAIL_SELECTOR = '[data-testid="dock-rail"]';
+const MODE_TOGGLE_SELECTOR = '[data-testid="dock-mode-toggle"]';
+const CARD_SELECTOR = '[data-testid="dock-card"]';
+const WORKING_SELECTOR = '[data-testid="dock-working"]';
 
-Then("the awaiting dock should be visible", async function (this: KoluWorld) {
+Then("the dock should be visible", async function (this: KoluWorld) {
   await this.page
     .locator(DOCK_SELECTOR)
     .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
@@ -20,7 +20,7 @@ Then("the awaiting dock should be visible", async function (this: KoluWorld) {
 // dock is not in rail mode, clicking the header chevron to expand if
 // needed. Mega mode counts as "expanded enough" for assertions that
 // only check for the presence of cards/pills.
-When("the awaiting dock is expanded", async function (this: KoluWorld) {
+When("the dock is expanded", async function (this: KoluWorld) {
   const dock = this.page.locator(DOCK_SELECTOR);
   await dock.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   if ((await dock.getAttribute("data-mode")) === "rail") {
@@ -34,17 +34,14 @@ When("the awaiting dock is expanded", async function (this: KoluWorld) {
   );
 });
 
-Then(
-  "the awaiting dock should not be visible",
-  async function (this: KoluWorld) {
-    await this.page
-      .locator(DOCK_SELECTOR)
-      .waitFor({ state: "detached", timeout: POLL_TIMEOUT });
-  },
-);
+Then("the dock should not be visible", async function (this: KoluWorld) {
+  await this.page
+    .locator(DOCK_SELECTOR)
+    .waitFor({ state: "detached", timeout: POLL_TIMEOUT });
+});
 
 Then(
-  "the awaiting dock should show {int} card(s)",
+  "the dock should show {int} card(s)",
   async function (this: KoluWorld, expected: number) {
     await this.page.waitForFunction(
       ({ selector, count }) =>
@@ -56,7 +53,7 @@ Then(
 );
 
 Then(
-  "the awaiting dock should show {int} working pill(s)",
+  "the dock should show {int} working pill(s)",
   async function (this: KoluWorld, expected: number) {
     await this.page.waitForFunction(
       ({ selector, count }) =>
@@ -67,20 +64,17 @@ Then(
   },
 );
 
-Then(
-  "the awaiting dock should default to cards mode",
-  async function (this: KoluWorld) {
-    const dock = this.page.locator(DOCK_SELECTOR);
-    await dock.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    const mode = await dock.getAttribute("data-mode");
-    if (mode !== "cards") {
-      throw new Error(`Expected dock mode "cards", got "${mode}"`);
-    }
-  },
-);
+Then("the dock should default to cards mode", async function (this: KoluWorld) {
+  const dock = this.page.locator(DOCK_SELECTOR);
+  await dock.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  const mode = await dock.getAttribute("data-mode");
+  if (mode !== "cards") {
+    throw new Error(`Expected dock mode "cards", got "${mode}"`);
+  }
+});
 
 Then(
-  "the awaiting dock should be in {string} mode",
+  "the dock should be in {string} mode",
   async function (this: KoluWorld, expected: string) {
     await this.page.waitForFunction(
       ({ selector, mode }) =>
@@ -91,7 +85,7 @@ Then(
   },
 );
 
-When("I collapse the awaiting dock to rail", async function (this: KoluWorld) {
+When("I collapse the dock to rail", async function (this: KoluWorld) {
   await this.page.locator(MODE_TOGGLE_SELECTOR).click();
   await this.page.waitForFunction(
     (selector) =>

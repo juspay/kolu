@@ -8,7 +8,7 @@
  *
  *  Terminal navigation moved out of this sheet to its own left-edge
  *  swipe drawer — see `MobileDockDrawer`. The split mirrors the
- *  desktop: the activity dock owns the live-terminal navigator, the
+ *  desktop: the dock owns the live-terminal navigator, the
  *  chrome bar owns global controls.
  *
  *  Sheet machinery (open state, drag-to-dismiss, overlay, portal) is

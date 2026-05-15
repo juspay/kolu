@@ -33,7 +33,7 @@ import {
 } from "solid-js";
 import { useStaleCheck } from "../terminal/staleness";
 import { useTerminalStore } from "../terminal/useTerminalStore";
-import ActivityDock from "./ActivityDock";
+import Dock from "./Dock";
 import CanvasMinimap from "./CanvasMinimap";
 import type { WorkspaceSwitcherSourceEntry } from "./workspace-switcher";
 import CanvasTile from "./CanvasTile";
@@ -105,7 +105,7 @@ const TerminalCanvas: Component<{
   onLayoutChange: (id: TerminalId, layout: TileLayout) => void;
   onSelect: (id: TerminalId) => void;
   onClose: (id: TerminalId) => void;
-  /** Live-terminal entries fed to the activity dock's mega-level search. */
+  /** Live-terminal entries fed to the dock's mega-level search. */
   workspaceEntries: WorkspaceSwitcherSourceEntry[];
   /** Per-terminal recency accessor (epoch-ms) used by the dock's
    *  recency-sorted ranking and the mega-level model. */
@@ -383,7 +383,7 @@ const TerminalCanvas: Component<{
        *  invisible until full page reload after enough toggles
        *  (#909 follow-up bug report). */}
       <div class="flex-1 min-h-0 overflow-hidden flex relative">
-        <ActivityDock
+        <Dock
           entries={props.workspaceEntries}
           activeId={store.activeId()}
           getRecency={props.getRecency}

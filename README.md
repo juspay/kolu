@@ -31,7 +31,7 @@ Open http://127.0.0.1:7681 (or the address you chose above).
 
 ### Terminals
 
-- Create, switch, and kill terminals — every terminal renders as a draggable tile on the canvas, with the left-edge **activity dock** as the canonical at-a-glance navigator (rail / cards / mega levels)
+- Create, switch, and kill terminals — every terminal renders as a draggable tile on the canvas, with the left-edge **dock** as the canonical at-a-glance navigator (rail / cards / mega levels)
 - Split terminals — <kbd>Ctrl+&#96;</kbd> splits a bottom pane per terminal; <kbd>Ctrl+Shift+&#96;</kbd> adds tabs, <kbd>Ctrl+PageDown</kbd> / <kbd>Ctrl+PageUp</kbd> cycles
 - Font zoom (<kbd>Cmd/Ctrl</kbd> <kbd>+</kbd>/<kbd>-</kbd>), persisted per terminal across sessions
 - WebGL rendering with canvas fallback, clickable URLs, Unicode 11, inline images (sixel, iTerm2, kitty)
@@ -42,19 +42,19 @@ Open http://127.0.0.1:7681 (or the address you chose above).
 ### Navigation
 
 - Command palette (<kbd>Cmd/Ctrl+K</kbd>) — search terminals, switch themes, run actions
-- Worktree-naming flow — drilling into `New terminal → <recent repo>` opens a leaf with the worktree name pre-filled (random ADJ-NOUN, auto-selected) and an agent picker below; type a custom name and hit Enter to land in a freshly-branched worktree, or pick an agent to launch it in one step. The typed name becomes the branch name and surfaces verbatim on the activity dock row, so worktrees stay identifiable at a glance
+- Worktree-naming flow — drilling into `New terminal → <recent repo>` opens a leaf with the worktree name pre-filled (random ADJ-NOUN, auto-selected) and an agent picker below; type a custom name and hit Enter to land in a freshly-branched worktree, or pick an agent to launch it in one step. The typed name becomes the branch name and surfaces verbatim on the dock row, so worktrees stay identifiable at a glance
 - Agent-aware command palette — once you've run a known agent CLI (`claude`, `aider`, `opencode`, `codex`, `goose`, `gemini`, `cursor-agent`) in any kolu terminal, it surfaces in two places: as a row in the worktree-naming leaf above (so the same Enter creates the worktree and launches the agent), and under `Debug → Recent agents` as a prefill-into-active-terminal affordance. Prompt/message flag values (`-p`/`--prompt`/`-m`/`--message`) are stripped before storage so ephemeral prompt text never lands in the persisted MRU
-- Activity dock pings — when an agent is waiting on you (or has finished with an unread completion), its dock row pulses an alert dot so you can spot it without panning. A simultaneous toast names the terminal that finished and carries a **Switch** action that pans the canvas to it; when the tab is backgrounded the OS notification does the same on click. <kbd>Ctrl+Tab</kbd> (or <kbd>Alt+Tab</kbd>) cycles terminals in MRU order: hold the modifier, press Tab to advance, release to commit
+- Dock pings — when an agent is waiting on you (or has finished with an unread completion), its dock row pulses an alert dot so you can spot it without panning. A simultaneous toast names the terminal that finished and carries a **Switch** action that pans the canvas to it; when the tab is backgrounded the OS notification does the same on click. <kbd>Ctrl+Tab</kbd> (or <kbd>Alt+Tab</kbd>) cycles terminals in MRU order: hold the modifier, press Tab to advance, release to commit
 - Keyboard-driven — <kbd>Cmd+T</kbd> new terminal, <kbd>Cmd+1</kbd>…<kbd>Cmd+9</kbd> jump, <kbd>Cmd+Shift+[</kbd> / <kbd>Cmd+Shift+]</kbd> cycle, <kbd>Cmd+/</kbd> shortcuts help
 
 ### Canvas workspace
 
-The desktop workspace is mode-less — every terminal renders as a draggable, resizable tile on an infinite 2D canvas. Per-terminal chrome (theme pill, agent indicator, screenshot, split toggle, find) lives on each tile's title bar. A transparent **chrome bar** floats at the top carrying logo, command palette, settings, and inspector toggle; the canvas grid reads through it. The left edge hosts the **activity dock** — the canonical live-terminal navigator. When a tile is maximized or the inspector panel is open, the chrome bar docks above and the activity dock renders as a flush left sidebar so the maximized terminal reflows next to it.
+The desktop workspace is mode-less — every terminal renders as a draggable, resizable tile on an infinite 2D canvas. Per-terminal chrome (theme pill, agent indicator, screenshot, split toggle, find) lives on each tile's title bar. A transparent **chrome bar** floats at the top carrying logo, command palette, settings, and inspector toggle; the canvas grid reads through it. The left edge hosts the **dock** — the canonical live-terminal navigator. When a tile is maximized or the inspector panel is open, the chrome bar docks above and the dock renders as a flush left sidebar so the maximized terminal reflows next to it.
 
 - **Infinite pan & zoom** — two-finger scroll / trackpad to pan, pinch or <kbd>Ctrl+scroll</kbd> to zoom. Hold <kbd>Shift</kbd> to force pan even with the cursor over a terminal tile (hand-tool style). No boundaries — the canvas extends freely in every direction via CSS `transform: translate() scale()` (Figma/Excalidraw model)
 - **Snap-to-grid** — tiles snap to a 24px grid on drag and resize for tidy layouts
 - **Maximize a tile** — double-click any tile's title bar (or click the maximize button) to fill the viewport; the maximized posture persists across reload via localStorage so you land back where you left off
-- **Activity dock — three-level navigator** — the left-edge dock is the canonical live-terminal surface, with three progressive levels of detail (#903):
+- **Dock — three-level navigator** — the left-edge dock is the canonical live-terminal surface, with three progressive levels of detail (#903):
   - **Rail** — a narrow strip of repo-colored swatches, one per terminal. Ambient peripheral signal; click any swatch to jump to that terminal.
   - **Cards** (default) — recency-sorted rows: awaiting terminals get full cards with a tail of xterm buffer + a reply input wired straight to the PTY, working terminals get compact pills, idle terminals get faded one-liners, parked terminals get the tiniest dim row.
   - **Mega** — search + repo facets + agent-state columns (`Idle`, `Awaiting you`, `Working`, `No agent`). The `Idle` column leads and sub-groups by age (`4–12h`, `12–24h`, `24–48h`, `48h+`), the same threshold ladder the minimap window picker uses, so picking `12h` on the minimap and scanning the mega's `12–24h` sub-row are the same triage view in two surfaces. Open with the dock's chevron-up affordance or <kbd>Cmd+Shift+K</kbd> (search auto-focused).
@@ -63,20 +63,20 @@ The desktop workspace is mode-less — every terminal renders as a draggable, re
 - **Dock row border encodes state** — each row's left rail doubles as identity (repo color) and live status: a conic-gradient sweep while the agent is `thinking`/`tool_use`, a breathing pulse while `waiting`, and a flat fade when the terminal is idle/parked
 - **Auto-park stale terminals** — when a terminal's last observed agent transition is more than 4 hours old, the dock routes it into the parked bucket (regardless of its prior agent state), the row fades and drops its agent-state border, and the canvas tile fades too — so a wall of "awaiting" tiles you parked yesterday doesn't drown out the one that genuinely needs you now. Parked terminals also stop counting toward the awaiting bucket and are dropped from the OS/PWA dock badge. Any fresh agent transition unparks automatically — pure derivation off `lastActivityAt`, no persisted state
 - **Minimap heatmap & activity window** — the canvas minimap dots any tile whose agent is currently `waiting` (alert color) or `thinking`/`tool_use` (accent color), suppressed once the tile falls outside the active window, so you can scan a 20-tile workspace for "who needs me" or "who is making progress" without opening the switcher. A compact pill in the zoom bar shows the current window (`All` by default) and opens a five-option picker — _All / Active in last 4h / 12h / 24h / 48h_; tiles outside the window collapse to small ghost markers so visual weight shifts onto what's still in play. The choice lives in localStorage (per-device)
-- **Identity-collision suffix** — when two terminals share the same repo+branch (or cwd, for non-git), the server assigns each a stable 4-char id suffix (`#a3f2`) so the activity dock and tile chrome can disambiguate them at a glance
+- **Identity-collision suffix** — when two terminals share the same repo+branch (or cwd, for non-git), the server assigns each a stable 4-char id suffix (`#a3f2`) so the dock and tile chrome can disambiguate them at a glance
 - **Canvas navigation** — the command palette can center the active tile when panning has moved it out of view, or arrange the canvas by repo to cluster each repo's tiles into a square-ish island while preserving every tile's current size. New tiles join their repo's cluster in the same square-ish layout automatically — opening many worktree terminals fills out a 2×2, 3×2, … grid instead of a 1×N row
 - **Per-tile theming** — title bars and pill swatches derive their colors from each terminal's theme for guaranteed contrast
-- **Mobile** — the canvas, pan/zoom, and the desktop activity dock are disabled; the active tile fills the viewport and swipe-left/right cycles between terminals in compact switcher order. A pull-down chrome sheet at the top reveals the same logo + vertical switcher list + controls as a touch-sized drawer
+- **Mobile** — the canvas, pan/zoom, and the desktop dock are disabled; the active tile fills the viewport and swipe-left/right cycles between terminals in compact switcher order. A pull-down chrome sheet at the top reveals the same logo + vertical switcher list + controls as a touch-sized drawer
 
 ### Git & GitHub
 
 - Auto-detected repo name, branch, and working directory (via OSC 7 + `.git/HEAD` watcher)
 - GitHub PR detection — shows PR number, title, and CI check status (pass/pending/fail) on the tile chrome and inspector
-- Per-repo color coding on the activity dock, tile chrome, canvas tile border, and minimap via golden-angle hue spacing — the same hue echoes across every surface so a repo reads as one identity at a glance
+- Per-repo color coding on the dock, tile chrome, canvas tile border, and minimap via golden-angle hue spacing — the same hue echoes across every surface so a repo reads as one identity at a glance
 
 ### Claude Code Status
 
-Detects [Claude Code](https://docs.anthropic.com/en/docs/claude-code) sessions running in any terminal and surfaces their state on the tile's chrome and in the activity dock.
+Detects [Claude Code](https://docs.anthropic.com/en/docs/claude-code) sessions running in any terminal and surfaces their state on the tile's chrome and in the dock.
 
 **What we detect:**
 
@@ -225,7 +225,7 @@ flowchart TB
     User((User)):::user
     Xterm["xterm.js\nrender + input"]:::client
     Subs["createSubscription\nsignals"]:::cache
-    UI["UI components\nactivity dock · tile chrome · chrome bar · palette"]:::client
+    UI["UI components\ndock · tile chrome · chrome bar · palette"]:::client
   end
 
   subgraph Server["Server (Hono)"]

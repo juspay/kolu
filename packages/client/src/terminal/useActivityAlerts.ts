@@ -1,5 +1,5 @@
 /** Activity alerts — audio + (hidden-tab) browser notification when a
- *  background terminal's agent finishes. The on-canvas ActivityDock
+ *  background terminal's agent finishes. The on-canvas Dock
  *  surfaces the same transition ambiently with full repo/branch context
  *  and a reply input, so the redundant in-app toast was retired — the
  *  channels left here cover the case the dock can't: the user isn't

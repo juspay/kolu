@@ -562,7 +562,7 @@ export const InspectorToggleIcon: Component<{ active?: boolean }> = (props) => (
   </svg>
 );
 
-/** Dock (activity dock) toggle — mirror of InspectorToggleIcon for the
+/** Dock (dock) toggle — mirror of InspectorToggleIcon for the
  *  left-edge panel. Filled-left when active = dock is expanded (cards
  *  or mega); empty-left = dock is in rail (collapsed) mode. */
 export const DockToggleIcon: Component<{ active?: boolean }> = (props) => (

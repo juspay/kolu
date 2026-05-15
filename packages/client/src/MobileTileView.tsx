@@ -1,6 +1,6 @@
 /** MobileTileView — single fullscreen tile with swipe navigation.
  *
- *  On mobile the canvas (pan/zoom) and the desktop activity dock are
+ *  On mobile the canvas (pan/zoom) and the desktop dock are
  *  disabled per #622. The active terminal fills the viewport; swipe-
  *  left/right cycles between terminals in workspace-switcher order.
  *
@@ -9,7 +9,7 @@
  *    settings, inspector toggle. Trigger is the always-visible
  *    pull-handle row at the top of the terminal.
  *  - **Left swipe** (`MobileDockDrawer`): live-terminal navigator. The
- *    mobile mirror of the desktop activity dock; trigger is a thin
+ *    mobile mirror of the desktop dock; trigger is a thin
  *    handle pinned to the left edge.
  *
  *  Both Corvu `Drawer`s live as siblings (not nested) so each has its
@@ -156,7 +156,7 @@ const MobileTileView: Component<{
           type="button"
           data-testid="mobile-dock-handle"
           class="absolute top-1/2 left-0 -translate-y-1/2 z-10 w-2 h-16 rounded-r bg-fg-3/30 active:bg-fg-3/60 transition-colors cursor-pointer"
-          aria-label="Open activity dock"
+          aria-label="Open dock"
           onClick={() => setDockOpen(true)}
           // Don't let the wrapper's horizontal-swipe handler claim
           // an edge-grab as a tile cycle gesture.
