@@ -891,12 +891,6 @@ body[data-hide-reasoning="true"] .event--reasoning {
   overflow-x: auto;
 }
 
-/* Generic plain pre (used for user / reasoning) */
-.card-text {
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
 /* Details/summary chrome */
 details summary {
   cursor: pointer;
