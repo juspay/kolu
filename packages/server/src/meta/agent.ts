@@ -171,13 +171,18 @@ const activations = new Map<string, ExternalChangesActivation>();
  *  process group, so a synchronous reconcile reads `state.foregroundPid =
  *  shell.pid` and `snapshotTerminalState` forces `lastAgentCommandName =
  *  null` (the `shellIdle` gate). The matched agent binary takes over a few
- *  ticks later. Queue a short burst of reconciles at increasing delays so
- *  the per-terminal preexec stash maintained by `agent-command.ts` is
- *  sampled both immediately (cheap, covers the lucky-fast case where
- *  exec has already landed) and after POSIX foreground ownership has
- *  settled — closes the bootstrap window that previously left the codex
- *  provider with no registered reconciler for this terminal until a
- *  later WAL event happened to land at the right state. */
+ *  ticks later. Retry the reconcile at increasing delays so the per-terminal
+ *  preexec stash maintained by `agent-command.ts` is sampled both immediately
+ *  (cheap, covers the lucky-fast case where exec has already landed) and
+ *  after POSIX foreground ownership has settled — closes the bootstrap
+ *  window that previously left the codex provider with no registered
+ *  reconciler for this terminal until a later WAL event happened to land
+ *  at the right state.
+ *
+ *  Retries chain (not fan out): each attempt only schedules the next if
+ *  the prior attempt didn't already match a session. Stops as soon as
+ *  `current !== null`, so a fast match doesn't pay for additional
+ *  `resolveSession` reads (which hit SQLite for codex/opencode). */
 const COMMAND_RUN_RECONCILE_DELAYS_MS = [0, 75, 300, 1000] as const;
 
 function getActivation(kind: string): ExternalChangesActivation {
@@ -287,20 +292,35 @@ export function startAgentProvider<Session, Info extends AgentInfoShape>(
     commandRunTimers = [];
   }
 
-  function reconcileFromCommandRun() {
+  /** Run reconcile attempt `idx` in the commandRun retry chain (sampled
+   *  at `COMMAND_RUN_RECONCILE_DELAYS_MS[idx]` ms after commandRun), then
+   *  schedule the next attempt only if this one didn't match a session.
+   *  Early-out on success means a lucky-fast match pays for one
+   *  reconcile instead of all four — each reconcile is a
+   *  `resolveSession` call that hits SQLite for codex/opencode. */
+  function reconcileFromCommandRun(idx: number) {
     if (stopped) return;
     try {
       reconcile();
     } catch (err) {
       plog.error({ err }, "command-run reconcile failed");
     }
+    if (current !== null) return;
+    const nextIdx = idx + 1;
+    const next = COMMAND_RUN_RECONCILE_DELAYS_MS[nextIdx];
+    const cur = COMMAND_RUN_RECONCILE_DELAYS_MS[idx];
+    if (next === undefined || cur === undefined) return;
+    commandRunTimers.push(
+      setTimeout(() => reconcileFromCommandRun(nextIdx), next - cur),
+    );
   }
 
   function scheduleCommandRunReconciles() {
     clearCommandRunTimers();
-    commandRunTimers = COMMAND_RUN_RECONCILE_DELAYS_MS.map((delay) =>
-      setTimeout(reconcileFromCommandRun, delay),
-    );
+    // First attempt (idx=0) fires synchronously — `DELAYS_MS[0] === 0`.
+    // Catches the lucky-fast case where the agent exec has already
+    // landed by the time commandRun is published.
+    reconcileFromCommandRun(0);
   }
 
   // Title events — fired by OSC 2 preexec hook. Every shell command

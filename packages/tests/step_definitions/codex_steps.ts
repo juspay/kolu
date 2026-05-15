@@ -70,30 +70,28 @@ async function startFakeAgent(world: KoluWorld): Promise<void> {
   // (comm→"sleep"), breaking the foreground-basename check. A compound
   // command forces bash to stay resident so comm stays "codex".
   //
-  // Emit OSC 2 several times from inside the body — every title event
-  // drives one reconcile in the server's `startAgentProvider`, and the
-  // codex provider only joins the WAL external-changes fan-out the
-  // first reconcile where `isPresent` matches (foreground basename =
-  // "codex" OR `lastAgentCommandName === "codex"`). Under 4-worker
-  // load the body title event can be delayed past the test's first
-  // poll iteration; a single emission leaves the per-iteration
-  // `nudgeCodex` WAL bump with no registered reconciler for this
-  // terminal (the `activations.reconcilers` set is empty), so the
-  // indicator stays at null/null until the deadline.
+  // Emit one OSC 2 from inside the subshell body (after the kernel has
+  // moved the foreground process group to the subshell) so the title
+  // event reconcile in `agent.ts` reads a settled foregroundPid and
+  // `readForegroundBasename() === "codex"`. The trailing `:` keeps bash
+  // resident as the foreground after the body's last command — without
+  // it, bash's `-c` optimisation execve-replaces itself with the final
+  // simple command and the kernel basename flips to `sleep`, breaking
+  // the foreground-basename check.
   //
-  // Three emits ~150 ms apart make the bootstrap robust on remote
-  // linux without modifying server-side reconcile triggers. The
-  // trailing `:` is load-bearing: it keeps bash resident as the
-  // foreground after the loop so the kernel-level basename check
-  // stays "codex" — see the prior comment about bash's `-c`
-  // execve optimization on a single simple command.
+  // The complementary server-side bootstrap is `agent.ts`'s
+  // `commandRun` retry chain at [0, 75, 300, 1000] ms — that's the
+  // load-bearing piece for the npm-shimmed-CLI race where the kernel
+  // basename is `node` and detection rides entirely on
+  // `lastAgentCommandName`. The body OSC 2 here is the simpler
+  // foreground-basename path, which production agents would emit too.
   //
   // `terminal/killAll` in hooks.ts:Before tears the pty down between
   // scenarios, which SIGKILLs the whole tree.
   const bin = process.env.KOLU_FAKE_CODEX_BIN;
   if (!bin) throw new Error("KOLU_FAKE_CODEX_BIN must be set");
   await world.page.keyboard.type(
-    `${bin} -c "for i in 1 2 3; do printf '\\033]0;codex\\007'; sleep 0.15; done; sleep 99999 ; :"`,
+    `${bin} -c "printf '\\033]0;codex\\007'; sleep 99999 ; :"`,
   );
   await world.page.keyboard.press("Enter");
 }
@@ -116,7 +114,7 @@ async function startShimmedAgent(world: KoluWorld): Promise<void> {
   // subshell already running is what lets matchesAgent succeed via
   // the preexec-hint branch.
   await world.page.keyboard.type(
-    `codex() { ( for i in 1 2 3; do printf '\\033]0;codex\\007'; sleep 0.15; done; sleep 99999 ; :); }`,
+    `codex() { ( printf '\\033]0;codex\\007'; sleep 99999 ; :); }`,
   );
   await world.page.keyboard.press("Enter");
   await world.page.keyboard.type("codex");
