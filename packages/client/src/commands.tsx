@@ -133,6 +133,17 @@ export interface CommandDeps extends ActionContext {
 }
 
 export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
+  // Stable component reference — created once per `createCommands` call so
+  // the `body` slot identity doesn't change on every reactive re-run of the
+  // memo below. A changing `body` reference would cause SolidJS's `<Dynamic>`
+  // to unmount/remount `WorkspaceGrid` on every terminal update, losing its
+  // `repoFilter` signal and scroll position.
+  const workspacesBody = workspaceGridBody(
+    deps.workspaceEntries,
+    deps.recencyOf,
+    deps.activate,
+  );
+
   return createMemo((): PaletteCommand[] => [
     {
       kind: "group",
@@ -235,11 +246,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
             kind: "group" as const,
             name: "Search workspaces",
             description: "Switch to a live terminal",
-            body: workspaceGridBody(
-              deps.workspaceEntries,
-              deps.recencyOf,
-              deps.activate,
-            ),
+            body: workspacesBody,
             bodyHint: "Pick a workspace to switch",
             children: [],
           },
