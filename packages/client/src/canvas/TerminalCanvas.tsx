@@ -36,7 +36,6 @@ import { useTerminalStore } from "../terminal/useTerminalStore";
 import { savedSessionSub } from "../wire";
 import Dock from "./dock/Dock";
 import CanvasMinimap from "./CanvasMinimap";
-import type { DockSourceEntry } from "./dockModel";
 import CanvasTile from "./CanvasTile";
 import CanvasWatermark from "./CanvasWatermark";
 import { applyResize, type ResizeDirection } from "./resizeGeometry";
@@ -106,13 +105,10 @@ const TerminalCanvas: Component<{
   onLayoutChange: (id: TerminalId, layout: TileLayout) => void;
   onSelect: (id: TerminalId) => void;
   onClose: (id: TerminalId) => void;
-  /** Live-terminal entries fed to the dock's mega-level search. */
-  workspaceEntries: DockSourceEntry[];
-  /** Per-terminal recency accessor (epoch-ms) used by the dock's
-   *  recency-sorted ranking and the mega-level model. */
-  getRecency: (id: TerminalId) => number;
-  /** Incremented by `Mod+Shift+K` to open the dock's mega level. */
-  openMegaRequest: number;
+  /** Invoked when the dock's search-icon button is clicked. Opens the
+   *  command palette pre-drilled into the "Search workspaces" group —
+   *  the same surface `Mod+Shift+K` reaches. */
+  onOpenWorkspaceSearch: () => void;
   /** Open the "new terminal" flow — wired into the dock header's `+`. */
   onCreate: () => void;
   renderTileTitle: (id: TerminalId) => JSX.Element;
@@ -395,9 +391,7 @@ const TerminalCanvas: Component<{
        *  (#909 follow-up bug report). */}
       <div class="flex-1 min-h-0 overflow-hidden flex relative">
         <Dock
-          entries={props.workspaceEntries}
-          getRecency={props.getRecency}
-          openMegaRequest={props.openMegaRequest}
+          onOpenWorkspaceSearch={props.onOpenWorkspaceSearch}
           onCreate={props.onCreate}
         />
         <div

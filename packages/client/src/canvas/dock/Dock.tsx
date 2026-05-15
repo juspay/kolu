@@ -1,6 +1,6 @@
 /** Dock — left-edge canonical live-terminal navigator.
  *
- *  Three progressive levels of detail, toggled in place. Per-device
+ *  Two progressive levels of detail, toggled in place. Per-device
  *  `dockMode` persists across reloads so a 13" laptop can stay on the
  *  rail while a 27" desktop sits on cards.
  *
@@ -12,10 +12,11 @@
  *     terminals get full cards with xterm-buffer tail + reply input;
  *     working terminals get compact pills; idle terminals get a faded
  *     row; parked (`isStale`) terminals get a tiny dimmed row.
- *  3. **mega** — search + repo-facets + agent-state columns. Same
- *     content the chrome-bar workspace switcher used to host, now
- *     anchored to the dock. Opens on `Mod+Shift+K` (the openRequest
- *     impulse) and on the chevron-up affordance from cards.
+ *
+ *  Workspace search lives in the unified command palette (#912) — the
+ *  dock's search-icon button delegates to `onOpenWorkspaceSearch`,
+ *  which opens the palette pre-drilled into "Search workspaces".
+ *  `Mod+Shift+K` reaches the same surface.
  *
  *  In maximized-tile mode the dock renders as a flush left-edge sidebar
  *  with opaque background, full canvas height, separator on the right.
@@ -39,18 +40,11 @@ import {
   createMemo,
   createRoot,
   createSignal,
-  on,
-  onCleanup,
-  onMount,
 } from "solid-js";
 import { toast } from "solid-sonner";
 import AgentIndicator from "../../terminal/AgentIndicator";
 import { tailBuffer } from "../../terminal/bufferTail";
-import {
-  formatTimeAgo,
-  useIdleClassifier,
-  useStaleCheck,
-} from "../../terminal/staleness";
+import { formatTimeAgo, useStaleCheck } from "../../terminal/staleness";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import { getTerminalRefs } from "../../terminal/terminalRefs";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
@@ -59,12 +53,10 @@ import { client } from "../../wire";
 import { isPlatformModifier } from "../../input/keyboard";
 import { useTileTheme } from "../useTileTheme";
 import { useViewPosture } from "../useViewPosture";
-import { buildDockModel, type DockSourceEntry } from "../dockModel";
-import DockMega from "./DockMega";
 import { resolvedPr } from "./dockRowChrome";
 import { type DockRowBucket, rankDockRows } from "./dockRowRanking";
 
-export type DockMode = "rail" | "cards" | "mega";
+export type DockMode = "rail" | "cards";
 
 const PEEK_REFRESH_MS = 250;
 const MIN_TAIL_LINES = 2;
@@ -73,21 +65,12 @@ const MAX_TAIL_LINES = 7;
 // fit without overflowing the rail's outer width.
 const RAIL_WIDTH_PX = 40;
 const CARDS_WIDTH_PX = 288;
-// Mega has a 12rem (192px) repo sidebar plus four agent-state columns.
-// 560px squeezed the column labels into wraps ("Awaiting / you",
-// "Working / 00", "No / agent"). 960px gives each column ~180px of
-// minimum width — enough for the column header + a single card per
-// row without truncation, matching the breathing room the retired
-// chrome-bar workspace switcher had.
-const MEGA_WIDTH_PX = 960;
 
 /** Width in pixels for a given mode. Drives both the outer aside's
  *  inline `width` style and (in maximized posture) the dock's flex
  *  footprint as a left-panel sibling of the canvas. */
 function dockWidth(mode: DockMode): number {
-  if (mode === "rail") return RAIL_WIDTH_PX;
-  if (mode === "mega") return MEGA_WIDTH_PX;
-  return CARDS_WIDTH_PX;
+  return mode === "rail" ? RAIL_WIDTH_PX : CARDS_WIDTH_PX;
 }
 
 /** Per-card tail budget shrinks as the dock fills.
@@ -151,12 +134,8 @@ if (typeof window !== "undefined") {
   document.addEventListener("visibilitychange", clear);
 }
 
-/** Tri-state mode persisted per-device. `"cards"` is the default — the
- *  dock surfaces real context first, ambient compression on opt-in.
- *  Mega is a transient search affordance and deliberately doesn't
- *  round-trip: if the user closes the dock from mega and reloads,
- *  they should land back on rail/cards, not in the search overlay
- *  staring at an unfocused input. */
+/** Two-state mode persisted per-device. `"cards"` is the default — the
+ *  dock surfaces real context first, ambient compression on opt-in. */
 export const [dockMode, setDockMode] = makePersisted(
   createSignal<DockMode>("cards"),
   {
@@ -166,45 +145,23 @@ export const [dockMode, setDockMode] = makePersisted(
   },
 );
 
-/** Remember which non-mega mode we came from so closing mega returns
- *  to it. Plain in-memory signal: the persisted `dockMode` only stores
- *  rail/cards (mega never round-trips), so this is the only place that
- *  tracks the pre-mega level. */
-const [previousMode, setPreviousMode] =
-  createSignal<Exclude<DockMode, "mega">>("cards");
-
-function openMega(): void {
-  const current = dockMode();
-  if (current !== "mega") setPreviousMode(current as Exclude<DockMode, "mega">);
-  setDockMode("mega");
-}
-
-function closeMega(): void {
-  setDockMode(previousMode());
-}
-
 /** Toggle the dock between rail (collapsed) and cards (expanded).
- *  Mega mode closes back to its prior level first. Exported so the
- *  chrome-bar dock-toggle button and the `Cmd+B` keyboard shortcut
- *  can drive the same lifecycle as the dock-header chevron. */
+ *  Exported so the chrome-bar dock-toggle button and the `Cmd+B`
+ *  keyboard shortcut can drive the same lifecycle as the dock-header
+ *  chevron. */
 export function toggleRailCards(): void {
-  if (dockMode() === "mega") {
-    closeMega();
-    return;
-  }
   setDockMode(dockMode() === "rail" ? "cards" : "rail");
 }
 
 /** Read-only accessor for "is the dock expanded?" — true when in
- *  cards or mega. Drives the chrome-bar toggle button's `active`
- *  pip so the icon reflects current state. */
+ *  cards. Drives the chrome-bar toggle button's `active` pip so the
+ *  icon reflects current state. */
 export const dockExpanded = (): boolean => dockMode() !== "rail";
 
 const Dock: Component<{
-  entries: DockSourceEntry[];
-  getRecency: (id: TerminalId) => number;
-  /** Increments to request mega open (Mod+Shift+K from anywhere). */
-  openMegaRequest: number;
+  /** Opens the command palette pre-drilled into "Search workspaces" —
+   *  invoked by the dock's search-icon button. */
+  onOpenWorkspaceSearch: () => void;
   onCreate: () => void;
 }> = (props) => {
   const store = useTerminalStore();
@@ -229,74 +186,21 @@ const Dock: Component<{
     tailLinesFor(viewportHeight(), awaitingCount()),
   );
 
-  // Shortcut opens mega. Focus-on-open is owned by MegaBody — it reads
-  // `openMegaRequest` and re-focuses the search input on every impulse
-  // (mount or subsequent shortcut while mega is already open). Keeping
-  // the open + focus halves co-located inside the mega component keeps
-  // the mega activity's volatility encapsulated; Dock just
-  // orchestrates the rail/cards/mega level transitions.
-  createEffect(
-    on(
-      () => props.openMegaRequest,
-      () => openMega(),
-      { defer: true },
-    ),
-  );
-
-  // Esc closes mega; click outside (mousedown) closes mega. Same
-  // dismissal grammar the chrome-bar switcher used.
-  let containerRef: HTMLElement | undefined;
-  onMount(() => {
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && dockMode() === "mega") {
-        closeMega();
-        e.preventDefault();
-      }
-    };
-    const handleMouseDown = (e: MouseEvent) => {
-      if (dockMode() !== "mega" || !containerRef) return;
-      if (!containerRef.contains(e.target as Node)) closeMega();
-    };
-    document.addEventListener("keydown", handleKey);
-    document.addEventListener("mousedown", handleMouseDown);
-    onCleanup(() => {
-      document.removeEventListener("keydown", handleKey);
-      document.removeEventListener("mousedown", handleMouseDown);
-    });
-  });
-
-  const selectAndClose = (id: TerminalId) => {
-    store.activate(id);
-    closeMega();
-  };
-
   // Maximized = flush sidebar; tiled = floating overlay. Two distinct
   // shells share the same inner body so rendering logic stays singular.
   return (
     <Show when={liveIds().length > 0}>
       <aside
-        ref={(el) => {
-          containerRef = el;
-        }}
         data-testid="dock"
         data-mode={dockMode()}
         data-maximized={posture.maximized() ? "" : undefined}
-        // Open flag mirrors the chrome-bar switcher's `data-open` —
-        // CSS hooks (chrome-bar surface emergence, etc.) keep working
-        // unchanged on consumers that filter on `[data-open]`.
-        data-open={dockMode() === "mega" ? "" : undefined}
         class="flex flex-col select-none overflow-hidden"
         classList={{
           // Tiled: absolute float inside the canvas; positions over
           // tiles rather than reflowing them.
           "absolute z-30 top-20 left-4 rounded-2xl shadow-2xl shadow-black/40":
             !posture.maximized(),
-          // Tiled-mode height budget — mega gets more room (4-column
-          // card grid), cards/rail stays compact.
-          "max-h-[calc(100vh-22rem)]":
-            !posture.maximized() && dockMode() !== "mega",
-          "max-h-[calc(100vh-6rem)]":
-            !posture.maximized() && dockMode() === "mega",
+          "max-h-[calc(100vh-22rem)]": !posture.maximized(),
           // Maximized: real left-panel flex sibling of the canvas. The
           // canvas takes the remaining space via `flex-1` next to us
           // (see TerminalCanvas). Full canvas height comes from the
@@ -308,27 +212,14 @@ const Dock: Component<{
         }}
         style={{ width: `${dockWidth(dockMode())}px` }}
       >
-        <Show
-          when={dockMode() === "mega"}
-          fallback={
-            <RailOrCards
-              mode={dockMode() as Exclude<DockMode, "mega">}
-              liveIds={liveIds()}
-              bucketOf={bucketOf()}
-              tailLines={tailLines()}
-              onCreate={props.onCreate}
-              onOpenMega={openMega}
-            />
-          }
-        >
-          <MegaBody
-            entries={props.entries}
-            getRecency={props.getRecency}
-            openRequest={props.openMegaRequest}
-            onSelect={selectAndClose}
-            onClose={closeMega}
-          />
-        </Show>
+        <RailOrCards
+          mode={dockMode()}
+          liveIds={liveIds()}
+          bucketOf={bucketOf()}
+          tailLines={tailLines()}
+          onCreate={props.onCreate}
+          onOpenWorkspaceSearch={props.onOpenWorkspaceSearch}
+        />
       </aside>
     </Show>
   );
@@ -337,19 +228,19 @@ const Dock: Component<{
 /** Rail / cards body — vertical stack of dock rows preceded by a header
  *  with the `+` new-terminal button and the mode chevron. */
 const RailOrCards: Component<{
-  mode: Exclude<DockMode, "mega">;
+  mode: DockMode;
   liveIds: TerminalId[];
   bucketOf: Map<TerminalId, DockRowBucket>;
   tailLines: number;
   onCreate: () => void;
-  onOpenMega: () => void;
+  onOpenWorkspaceSearch: () => void;
 }> = (props) => {
   return (
     <div class="flex flex-col w-full min-h-0">
       <DockHeader
         mode={props.mode}
         onCreate={props.onCreate}
-        onOpenMega={props.onOpenMega}
+        onOpenWorkspaceSearch={props.onOpenWorkspaceSearch}
       />
       <div class="flex flex-col overflow-y-auto overflow-x-hidden scrollbar-none flex-1 min-h-0">
         <For each={props.liveIds}>
@@ -368,14 +259,14 @@ const RailOrCards: Component<{
   );
 };
 
-/** Dock header — `+` new terminal, mega-search trigger, and the rail
- *  ↔ cards mode toggle. Layout is row in cards mode (icons sit on one
- *  line at the top), column in rail mode (stacked vertically inside
- *  the narrow rail width). */
+/** Dock header — `+` new terminal, workspace-search trigger, and the
+ *  rail ↔ cards mode toggle. Layout is row in cards mode (icons sit on
+ *  one line at the top), column in rail mode (stacked vertically
+ *  inside the narrow rail width). */
 const DockHeader: Component<{
-  mode: Exclude<DockMode, "mega">;
+  mode: DockMode;
   onCreate: () => void;
-  onOpenMega: () => void;
+  onOpenWorkspaceSearch: () => void;
 }> = (props) => {
   const railLayout = () => props.mode === "rail";
   return (
@@ -395,8 +286,8 @@ const DockHeader: Component<{
       </button>
       <button
         type="button"
-        data-testid="dock-mega-toggle"
-        onClick={props.onOpenMega}
+        data-testid="dock-search"
+        onClick={props.onOpenWorkspaceSearch}
         class="flex items-center justify-center w-6 h-6 rounded-md cursor-pointer text-fg-3 hover:text-fg hover:bg-surface-2/70 active:bg-surface-2 transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
         aria-label="Search workspaces"
         title="Search workspaces (⌘⇧K)"
@@ -440,7 +331,7 @@ const DockHeader: Component<{
 const DockRow: Component<{
   id: TerminalId;
   bucket: DockRowBucket;
-  mode: Exclude<DockMode, "mega">;
+  mode: DockMode;
   tailLines: number;
   /** Zero-based row index in the recency-sorted list. Used to paint
    *  the `Cmd+1..9` hint on the first nine rows while Alt is held. */
@@ -536,7 +427,7 @@ const RailSegment: Component<{
   id: TerminalId;
   repoColor: string;
   bucket: DockRowBucket;
-  mode: Exclude<DockMode, "mega">;
+  mode: DockMode;
 }> = (props) => {
   const store = useTerminalStore();
   // The breath/pulse animation belongs only to live attention states.
@@ -866,63 +757,6 @@ const DockMetaRow: Component<{ meta: TerminalMetadata }> = (props) => {
         </div>
       )}
     </Show>
-  );
-};
-
-/** Mega level body — owns the search query, repo filter, and the
- *  focus-on-open impulse. Dock's only responsibility for mega
- *  is mounting this component (mode transition) and providing
- *  `onSelect` / `onClose` callbacks; the search activity's volatility
- *  stays here. `openRequest` bumps re-focus the search input on every
- *  impulse, so pressing the shortcut while mega is already open
- *  re-anchors the cursor in the search field. */
-const MegaBody: Component<{
-  entries: DockSourceEntry[];
-  getRecency: (id: TerminalId) => number;
-  openRequest: number;
-  onSelect: (id: TerminalId) => void;
-  onClose: () => void;
-}> = (props) => {
-  const idleClassifier = useIdleClassifier();
-  const [query, setQuery] = createSignal("");
-  const [repoFilter, setRepoFilter] = createSignal<string | null>(null);
-  // Initially true so the search input picks up focus on first mount
-  // (the transition from rail/cards → mega). Re-focus on subsequent
-  // impulses below.
-  const [focusSearch, setFocusSearch] = createSignal(true);
-  const model = createMemo(() =>
-    buildDockModel(props.entries, {
-      query: query(),
-      repoFilter: repoFilter(),
-      getRecency: props.getRecency,
-      idleClassifier,
-    }),
-  );
-
-  // External impulse → re-focus. `defer: true` skips the initial
-  // synchronous fire so the mount-time `focusSearch=true` default
-  // owns first-mount focus instead of fighting with this effect.
-  createEffect(
-    on(
-      () => props.openRequest,
-      () => setFocusSearch(true),
-      { defer: true },
-    ),
-  );
-
-  return (
-    <div class="w-full">
-      <DockMega
-        model={model()}
-        query={query()}
-        focusSearch={focusSearch()}
-        onQueryChange={setQuery}
-        onSearchFocused={() => setFocusSearch(false)}
-        onRepoFilterChange={setRepoFilter}
-        onSelect={props.onSelect}
-        onClose={props.onClose}
-      />
-    </div>
   );
 };
 

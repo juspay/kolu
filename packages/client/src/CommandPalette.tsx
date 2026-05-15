@@ -25,6 +25,7 @@ import {
 import { Dynamic } from "solid-js/web";
 import { match } from "ts-pattern";
 import { formatKeybind, type Keybind } from "./input/keyboard";
+import { matchesAllTokens, tokenize } from "./search";
 import { useTips } from "./settings/useTips";
 import Kbd from "./ui/Kbd";
 import ModalDialog from "./ui/ModalDialog";
@@ -34,6 +35,12 @@ interface PaletteBase {
   name: string;
   /** Secondary text shown after the name, de-emphasized. */
   description?: string;
+  /** Extra searchable text that is **not** rendered. Used by rich rows
+   *  (e.g. workspace entries) whose human-readable description is a
+   *  short summary but whose search corpus is much wider — repo paths,
+   *  PR titles, agent metadata, etc. The filter checks `name`,
+   *  `description`, and `searchText` together with AND-token semantics. */
+  searchText?: string;
   /** Opaque payload — palette never interprets `data`; it just hands it
    *  back via `onSubmit` so callers can identify the chosen option
    *  without string-matching on `name`. */
@@ -224,17 +231,22 @@ const CommandPalette: Component<{
 
   /** Interactive rows at the current level (filter is bypassed in value
    *  mode). Filter mode produces `PaletteCommand[]`; value mode produces
-   *  `PaletteLabel[]` — the union covers both without dynamic typing. */
+   *  `PaletteLabel[]` — the union covers both without dynamic typing.
+   *
+   *  AND-token semantics: the query is split on whitespace; every token
+   *  must appear in at least one of `name`, `description`, or `searchText`
+   *  (the latter is invisible — rich rows like workspace entries use it
+   *  to carry their full 20-field corpus). */
   const filtered = createMemo((): (PaletteCommand | PaletteLabel)[] => {
     const items = partitioned().interactive;
     if (mode().kind === "value") return items;
-    const q = query().toLowerCase();
-    return items.filter(
-      (cmd) =>
-        !q ||
-        cmd.name.toLowerCase().includes(q) ||
-        cmd.description?.toLowerCase().includes(q),
-    );
+    const tokens = tokenize(query());
+    if (tokens.length === 0) return items;
+    return items.filter((cmd) => {
+      const haystack =
+        cmd.name + " " + (cmd.description ?? "") + " " + (cmd.searchText ?? "");
+      return matchesAllTokens(haystack, tokens);
+    });
   });
 
   // Reserve a leading icon gutter for the whole list when ANY row carries

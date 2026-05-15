@@ -7,6 +7,24 @@
 import { type Component, Show } from "solid-js";
 import { Dynamic } from "solid-js/web";
 
+/** Solid-color circular swatch — factory that captures the color in a
+ *  closure so callers can pass a colored dot wherever a `Component<{
+ *  class?: string }>` icon is expected (e.g. the command palette's
+ *  per-row icon slot). The `class` prop wins for sizing; the inline
+ *  style only sets the color and the rounded shape. */
+export function repoColorDot(color: string): Component<{ class?: string }> {
+  return (props) => (
+    <span
+      aria-hidden="true"
+      class={props.class ?? "inline-block w-3 h-3"}
+      style={{
+        "background-color": color,
+        "border-radius": "9999px",
+      }}
+    />
+  );
+}
+
 export const ChevronDownIcon: Component<{ class?: string }> = (props) => (
   <svg
     class={props.class ?? "w-3.5 h-3.5"}

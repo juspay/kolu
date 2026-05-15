@@ -1,11 +1,19 @@
 /** Command palette registry — declarative list of all app-level actions. */
 
-import type { RecentAgent } from "kolu-common/surface";
+import type { RecentAgent, TerminalId } from "kolu-common/surface";
 import { WorktreeNameSchema } from "kolu-git/schemas";
 import { randomName } from "memorable-names";
 import type { Accessor } from "solid-js";
 import { batch, createMemo } from "solid-js";
 import { availableThemes } from "terminal-themes";
+import {
+  agentBucket,
+  bucketDescriptor,
+  type DockEntry,
+  type DockSourceEntry,
+  searchWorkspaceEntries,
+} from "./canvas/dockModel";
+import { resolvedPr } from "./canvas/dock/dockRowChrome";
 import type {
   PaletteAction,
   PaletteCommand,
@@ -15,10 +23,67 @@ import type {
   PaletteValueInput,
 } from "./CommandPalette";
 import { type ActionContext, actionPaletteCommand } from "./input/actions";
-import { iconForCommand } from "./ui/agentDisplay";
-import { TerminalIcon } from "./ui/Icons";
+import { agentNames, iconForCommand, stateLabels } from "./ui/agentDisplay";
+import { repoColorDot, TerminalIcon } from "./ui/Icons";
+import { formatTimeAgo } from "./terminal/staleness";
 import { client } from "./wire";
 import { recentAgents, recentRepos } from "./wire";
+
+/** Workspace-row name — drop the empty branch label that pure-shell
+ *  terminals carry so the row still reads as "the cwd you're in"
+ *  rather than a blank line followed by a long description. */
+function workspaceRowName(entry: DockEntry): string {
+  const label = entry.label.trim();
+  if (label.length > 0)
+    return entry.suffix ? `${label} ${entry.suffix}` : label;
+  // No git label — fall back to the cwd basename, which is what the
+  // dock row eyebrow shows in the same situation.
+  const cwd = entry.info.meta.cwd;
+  const basename = cwd.split("/").filter(Boolean).at(-1) ?? cwd;
+  return basename;
+}
+
+/** Compact metadata string for the workspace row's secondary text. Keeps
+ *  the line short enough to fit alongside the branch name without
+ *  truncating to nothing — full 20-field text lives in `searchText` so
+ *  the filter can still see it. */
+function workspaceRowDescription(entry: DockEntry): string {
+  const parts: string[] = [entry.repoName];
+  const pr = resolvedPr(entry.info.meta.pr);
+  if (pr) parts.push(`#${pr.number}`);
+  const agent = entry.info.meta.agent;
+  const bucket = agentBucket(agent);
+  const glyph = bucketDescriptor(bucket).glyph;
+  if (agent) {
+    parts.push(
+      `${glyph} ${agentNames[agent.kind]} · ${stateLabels[agent.state]}`,
+    );
+  } else {
+    const fg = entry.info.meta.foreground;
+    if (fg?.title) parts.push(fg.title);
+    else if (fg?.name) parts.push(fg.name);
+  }
+  const recency = formatTimeAgo(entry.info.meta.lastActivityAt);
+  if (recency) parts.push(recency);
+  return parts.join(" · ");
+}
+
+/** Map a live-terminal entry to a palette action — the engine handles
+ *  highlight / selection / filter; this function just hands over the
+ *  presentation fields plus the searchable text. */
+function workspacePaletteAction(
+  entry: DockEntry,
+  activate: (id: TerminalId) => void,
+): PaletteAction {
+  return {
+    kind: "action",
+    name: workspaceRowName(entry),
+    description: workspaceRowDescription(entry),
+    searchText: entry.searchText,
+    icon: repoColorDot(entry.info.repoColor),
+    onSelect: () => activate(entry.id),
+  };
+}
 
 /** Live worktree-name validator — reuses the server schema so the rule
  *  has one source of truth. Returns the first issue's message, or null
@@ -98,6 +163,10 @@ export interface CommandDeps extends ActionContext {
     initialCommand?: string,
   ) => void;
   handleClose: () => void;
+  // Workspace search — the live-terminal source list and recency
+  // accessor the "Search workspaces" group walks to populate its rows.
+  workspaceEntries: Accessor<DockSourceEntry[]>;
+  recencyOf: (id: TerminalId) => number;
   // Debug
   simulateAlert: () => void;
   handleCloseAll: () => void;
@@ -204,25 +273,12 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
       ? [
           {
             kind: "group" as const,
-            name: "Switch terminal",
+            name: "Search workspaces",
+            description: "Switch to a live terminal",
             children: () =>
-              deps.terminalIds().map(
-                (id, i): PaletteAction =>
-                  i < 9
-                    ? {
-                        ...actionPaletteCommand(
-                          `switchTo${(i + 1) as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9}`,
-                          deps,
-                          { name: `Switch to terminal ${i + 1}` },
-                        ),
-                        onSelect: () => deps.activate(id),
-                      }
-                    : {
-                        kind: "action",
-                        name: `Switch to terminal ${i + 1}`,
-                        onSelect: () => deps.activate(id),
-                      },
-              ),
+              searchWorkspaceEntries(deps.workspaceEntries(), {
+                getRecency: deps.recencyOf,
+              }).map((entry) => workspacePaletteAction(entry, deps.activate)),
           },
         ]
       : []),

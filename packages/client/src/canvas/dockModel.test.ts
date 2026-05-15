@@ -1,14 +1,13 @@
 import type { AgentInfo, TerminalMetadata } from "kolu-common/surface";
 import type { GitInfo } from "kolu-git/schemas";
 import { describe, expect, it } from "vitest";
-import type { IdleBucketKey } from "../terminal/activityWindow";
 import type { TerminalDisplayInfo } from "../terminal/terminalDisplay";
 import type { TileLayout } from "./TileLayout";
 import {
   agentBucket,
-  buildDockModel,
-  sortDockEntriesByRecency,
   type DockSourceEntry,
+  searchWorkspaceEntries,
+  sortDockEntriesByRecency,
 } from "./dockModel";
 
 function makeGit(overrides: Partial<GitInfo> = {}): GitInfo {
@@ -82,13 +81,6 @@ function layout(x: number, y: number, w = 4, h = 3): TileLayout {
   return { x, y, w, h };
 }
 
-function modelFor(
-  entries: DockSourceEntry[],
-  options?: Parameters<typeof buildDockModel>[1],
-) {
-  return buildDockModel(entries, options);
-}
-
 describe("agentBucket", () => {
   it("maps waiting agents to awaiting", () => {
     expect(agentBucket(makeAgent({ state: "waiting" }))).toBe("awaiting");
@@ -159,7 +151,7 @@ describe("sortDockEntriesByRecency", () => {
   });
 });
 
-describe("buildDockModel", () => {
+describe("searchWorkspaceEntries", () => {
   const entries: DockSourceEntry[] = [
     source("t1", {
       agent: makeAgent({ state: "waiting" }),
@@ -196,151 +188,48 @@ describe("buildDockModel", () => {
     }),
   ];
 
-  it("buckets visible terminals by live agent state", () => {
-    const model = modelFor(entries);
-
-    expect(model.columns.map((column) => column.key)).toEqual([
-      "idle",
-      "awaiting",
-      "working",
-      "none",
-    ]);
-    // Idle leads, but is empty in this fixture (no isStale supplied).
-    expect(model.columns[0]?.entries).toHaveLength(0);
-    expect(model.columns[1]?.entries.map((entry) => entry.id)).toEqual(["t1"]);
-    expect(model.columns[2]?.entries.map((entry) => entry.id)).toEqual(["t2"]);
-    expect(model.columns[3]?.entries.map((entry) => entry.id)).toEqual([
-      "t3",
-      "t4",
-    ]);
-  });
-
-  it("emits an empty Idle column when no isStale predicate is supplied", () => {
-    const model = modelFor(entries);
-    const idle = model.columns.find((c) => c.key === "idle");
-    expect(idle?.entries).toHaveLength(0);
-    // Idle column always carries its sub-bucket ladder so the renderer
-    // can iterate it once even when nothing is parked.
-    expect(idle?.idleSubBuckets?.map((s) => s.key)).toEqual([
-      "4h-12h",
-      "12h-24h",
-      "24h-48h",
-      "48h+",
-    ]);
-  });
-
-  it("routes stale entries into the Idle column regardless of agent state", () => {
-    // Seed t1 (awaiting) and t3 (none) with lastActivityAt=1 so the
-    // classifier marks them parked; t2 and t4 stay at the default (0)
-    // and remain live.
-    const seeded = entries.map((entry) =>
-      entry.id === "t1" || entry.id === "t3"
-        ? {
-            ...entry,
-            info: {
-              ...entry.info,
-              meta: { ...entry.info.meta, lastActivityAt: 1 },
-            },
-          }
-        : entry,
-    );
-    const m = modelFor(seeded, {
-      idleClassifier: (lastActivityAt) =>
-        lastActivityAt === 1 ? "4h-12h" : null,
+  it("returns every entry in recency order when no query is supplied", () => {
+    const recency: Record<string, number> = { t1: 4, t2: 3, t3: 2, t4: 1 };
+    const result = searchWorkspaceEntries(entries, {
+      getRecency: (id) => recency[id] ?? 0,
     });
-    // Idle leads — picks up t1 (was awaiting) and t3 (was none).
-    expect(m.columns[0]?.entries.map((e) => e.id).sort()).toEqual(["t1", "t3"]);
-    // Awaiting now empty — t1 routed to Idle.
-    expect(m.columns[1]?.entries).toHaveLength(0);
-    // Working still holds t2.
-    expect(m.columns[2]?.entries.map((e) => e.id)).toEqual(["t2"]);
-    // No agent shrinks to t4 (lastActivityAt === 0 → classifier returns
-    // null → stays).
-    expect(m.columns[3]?.entries.map((e) => e.id)).toEqual(["t4"]);
-    // Each entry knows its bucket so consumers don't re-derive it.
-    expect(m.entries.find((e) => e.id === "t1")?.bucket).toBe("idle");
-    expect(m.entries.find((e) => e.id === "t3")?.bucket).toBe("idle");
+    expect(result.map((e) => e.id)).toEqual(["t1", "t2", "t3", "t4"]);
   });
 
-  it("groups Idle entries by age into the 4-rung sub-bucket ladder", () => {
-    // Each terminal's lastActivityAt names the bucket the test expects
-    // it to land in — the classifier reads it back as a literal lookup
-    // so we don't need an injected clock.
-    const sources: DockSourceEntry[] = [
-      source("fresh", { lastActivityAt: 1 }),
-      source("dayish", { lastActivityAt: 2 }),
-      source("yesterday", { lastActivityAt: 3 }),
-      source("weekago", { lastActivityAt: 4 }),
-    ];
-    const byMarker: Record<number, IdleBucketKey | null> = {
-      1: "4h-12h",
-      2: "12h-24h",
-      3: "24h-48h",
-      4: "48h+",
-    };
-    const m = buildDockModel(sources, {
-      idleClassifier: (lastActivityAt) => byMarker[lastActivityAt] ?? null,
-    });
-    const idle = m.columns.find((c) => c.key === "idle");
-    const subEntries = (key: string) =>
-      idle?.idleSubBuckets
-        ?.find((s) => s.key === key)
-        ?.entries.map((e) => e.id) ?? [];
-    expect(subEntries("4h-12h")).toEqual(["fresh"]);
-    expect(subEntries("12h-24h")).toEqual(["dayish"]);
-    expect(subEntries("24h-48h")).toEqual(["yesterday"]);
-    expect(subEntries("48h+")).toEqual(["weekago"]);
-  });
-
-  it("builds repo facets from the same query-matched entry set", () => {
-    const model = modelFor(entries, { query: "api" });
-
-    expect(model.repoFacets).toEqual([
-      { repoName: "kolu", count: 1, color: "oklch(0.75 0.14 20)" },
-    ]);
-    expect(model.visibleEntries.map((entry) => entry.id)).toEqual(["t2"]);
-  });
-
-  it("filters visible entries by repo facet without changing search counts", () => {
-    const model = modelFor(entries, { repoFilter: "emanote" });
-
-    expect(model.repoFacets).toEqual([
-      { repoName: "kolu", count: 2, color: "oklch(0.75 0.14 20)" },
-      { repoName: "emanote", count: 1, color: "oklch(0.75 0.14 20)" },
-      { repoName: "nogit", count: 1, color: "oklch(0.75 0.14 20)" },
-    ]);
-    expect(model.visibleEntries.map((entry) => entry.id)).toEqual(["t3"]);
-    expect(model.selectedRepo).toBe("emanote");
-  });
-
-  it("drops a selected repo when the current query has no matching facet", () => {
-    const model = modelFor(entries, {
-      query: "api",
-      repoFilter: "emanote",
-    });
-
-    expect(model.repoFacets).toEqual([
-      { repoName: "kolu", count: 1, color: "oklch(0.75 0.14 20)" },
-    ]);
-    expect(model.selectedRepo).toBeNull();
-    expect(model.visibleEntries.map((entry) => entry.id)).toEqual(["t2"]);
-  });
-
-  it("searches foreground, pull request, agent, cwd, and command metadata", () => {
+  it("filters by repo or branch substrings", () => {
     expect(
-      modelFor(entries, { query: "vim readme" }).visibleEntries,
+      searchWorkspaceEntries(entries, { query: "emanote" }).map((e) => e.id),
+    ).toEqual(["t3"]);
+    expect(
+      searchWorkspaceEntries(entries, { query: "api-refactor" }).map(
+        (e) => e.id,
+      ),
+    ).toEqual(["t2"]);
+  });
+
+  it("requires every token to match (AND semantics)", () => {
+    // Both tokens must hit the same entry's searchText.
+    expect(
+      searchWorkspaceEntries(entries, { query: "vim readme" }).map((e) => e.id),
+    ).toEqual(["t3"]);
+    // "kolu" appears in t1 and t2's repo; "api" only narrows to t2.
+    expect(
+      searchWorkspaceEntries(entries, { query: "kolu api" }).map((e) => e.id),
+    ).toEqual(["t2"]);
+  });
+
+  it("searches foreground, PR, agent, cwd, and command metadata", () => {
+    expect(
+      searchWorkspaceEntries(entries, { query: "parallelization" }),
     ).toHaveLength(1);
     expect(
-      modelFor(entries, { query: "parallelization" }).visibleEntries,
+      searchWorkspaceEntries(entries, { query: "flaky checkout" }),
     ).toHaveLength(1);
     expect(
-      modelFor(entries, { query: "flaky checkout" }).visibleEntries,
+      searchWorkspaceEntries(entries, { query: "scratch-space" }),
     ).toHaveLength(1);
     expect(
-      modelFor(entries, { query: "scratch-space" }).visibleEntries,
-    ).toHaveLength(1);
-    expect(
-      modelFor(entries, { query: "claude sonnet" }).visibleEntries,
+      searchWorkspaceEntries(entries, { query: "claude sonnet" }),
     ).toHaveLength(1);
   });
 });

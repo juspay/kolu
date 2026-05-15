@@ -1,8 +1,8 @@
-Feature: Workspace switcher (dock as canonical navigator)
-  The dock is now the canonical live-terminal navigator (#903).
-  Each dock row stands in for a terminal entry; the dock's mega mode
-  hosts the search + repo facets + agent-state columns that used to
-  live in the chrome-bar workspace switcher.
+Feature: Workspace switcher (unified palette navigator)
+  The dock is the canonical live-terminal navigator (#903); the
+  workspace search surface unified with the command palette (#912).
+  `Mod+Shift+K` and the dock's search-icon button both open the
+  palette pre-drilled into the "Search workspaces" group.
 
   Background:
     Given the terminal is ready
@@ -33,7 +33,7 @@ Feature: Workspace switcher (dock as canonical navigator)
     Then the active terminal should show "first-pill"
     And there should be no page errors
 
-  Scenario: Mega level search filters live terminal metadata
+  Scenario: Palette search filters live terminal metadata
     Given I create a terminal
     When I run "cd /tmp"
     And I hover the workspace switcher
@@ -42,39 +42,32 @@ Feature: Workspace switcher (dock as canonical navigator)
     Then the workspace switcher should show 1 card
     And there should be no page errors
 
-  Scenario: Mod+Shift+K opens mega level with search focused
+  Scenario: Mod+Shift+K opens palette on workspaces with search focused
     When I press the workspace switcher shortcut
     Then the workspace switcher panel should be visible
     And the workspace switcher search should be focused
     And there should be no page errors
 
-  Scenario: Mega-toggle button latches mega open
+  Scenario: Dock search-icon button opens the palette on workspaces
     When I click the workspace switcher toggle
     Then the workspace switcher panel should be visible
     And there should be no page errors
 
-  Scenario: Close button dismisses mega
-    When I click the workspace switcher toggle
-    Then the workspace switcher panel should be visible
-    When I click the workspace switcher close button
-    Then the workspace switcher panel should not be visible
-    And there should be no page errors
-
-  Scenario: Escape dismisses mega
+  Scenario: Escape dismisses the palette
     When I click the workspace switcher toggle
     Then the workspace switcher panel should be visible
     When I press Escape
     Then the workspace switcher panel should not be visible
     And there should be no page errors
 
-  Scenario: Clicking outside dismisses mega
+  Scenario: Clicking outside dismisses the palette
     When I click the workspace switcher toggle
     Then the workspace switcher panel should be visible
     When I click outside the workspace switcher
     Then the workspace switcher panel should not be visible
     And there should be no page errors
 
-  Scenario: Selecting a mega card closes the panel
+  Scenario: Selecting a workspace row closes the palette
     Given I run "echo dismiss-after-select"
     And I create a terminal
     When I click the workspace switcher toggle
@@ -84,34 +77,12 @@ Feature: Workspace switcher (dock as canonical navigator)
     And the active terminal should show "dismiss-after-select"
     And there should be no page errors
 
-  Scenario: Repo facet keeps mega open
-    Given I create a terminal
-    When I run "cd /tmp"
-    And I hover the workspace switcher
-    And I click workspace switcher repo "tmp"
-    Then the workspace switcher panel should be visible
-    And the workspace switcher should show 1 card
-    And the workspace switcher should show only repo "tmp" cards
-    And there should be no page errors
-
-  Scenario: Selecting a mega card switches the active terminal
+  Scenario: Selecting a workspace row switches the active terminal
     Given I run "echo first-workspace-card"
     And I create a terminal
     When I hover the workspace switcher
     And I click workspace switcher card 1
     Then the active terminal should show "first-workspace-card"
-    And there should be no page errors
-
-  Scenario: Mega columns enumerate every agent state bucket
-    # The Idle column lives between Working and No agent and surfaces the
-    # parked-by-inactivity entries the minimap window picker dims. Even on
-    # a fresh workspace (no parked terminals) the column is rendered so the
-    # ladder reads as a triage scaffold rather than a feature that appears
-    # only when something is wrong.
-    When I hover the workspace switcher
-    Then the workspace switcher panel should be visible
-    And the workspace switcher should show buckets "idle, awaiting, working, none"
-    And the workspace switcher idle column should show sub-buckets "4h-12h, 12h-24h, 24h-48h, 48h+"
     And there should be no page errors
 
   @mobile

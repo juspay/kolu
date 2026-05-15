@@ -80,10 +80,10 @@ const App: Component = () => {
   const rightPanel = useRightPanel();
   const { colorScheme } = useColorScheme();
 
-  // Workspace-switcher feeds — desktop and mobile share the same
-  // accessors. The mega-level model lives in `buildDockModel` (consumed
-  // inside `Dock`); row order is shared via `rankDockRows` so the
-  // `Cmd+1..9` shortcut targets the same row the dock paints.
+  // Workspace search feeds — the live-terminal source list and recency
+  // accessor consumed by the unified command palette's "Search
+  // workspaces" group. `rankDockRows` shares row order with the dock
+  // so the `Cmd+1..9` shortcut targets the same row the dock paints.
   const workspaceEntries = createMemo(() =>
     buildWorkspaceEntries(
       store.terminalIds(),
@@ -119,11 +119,6 @@ const App: Component = () => {
 
   // Shortcuts help overlay state
   const [shortcutsHelpOpen, setShortcutsHelpOpen] = createSignal(false);
-
-  // Impulse signal — Mod+Shift+K bumps it; the dock listens and
-  // opens its mega level (search + repo facets + columns). Replaces the
-  // chrome-bar workspace switcher's open-request wiring.
-  const [dockMegaOpenRequest, setDockMegaOpenRequest] = createSignal(0);
 
   // About dialog state
   const [aboutOpen, setAboutOpen] = createSignal(false);
@@ -200,7 +195,7 @@ const App: Component = () => {
       void crud.handleCreateSubTerminal(parentId, cwd),
     openNewTerminalMenu: () => openPaletteGroup("New terminal"),
     openWorkspaceSwitcher: () => {
-      if (!isMobile()) setDockMegaOpenRequest((n) => n + 1);
+      if (!isMobile()) openPaletteGroup("Search workspaces");
     },
     setPaletteOpen,
     setShortcutsHelpOpen,
@@ -284,6 +279,8 @@ const App: Component = () => {
     isMobile,
     canvasCenterActive: handleCanvasCenterActive,
     canvasAutoArrange: arrange.handleCanvasAutoArrange,
+    workspaceEntries,
+    recencyOf,
   });
 
   // Reset state on close and return focus to terminal
@@ -535,9 +532,9 @@ const App: Component = () => {
                     onAutoArrange={arrange.handleCanvasAutoArrange}
                     onSelect={store.setActiveSilently}
                     onClose={(id) => closeTerminal(id)}
-                    workspaceEntries={workspaceEntries()}
-                    getRecency={recencyOf}
-                    openMegaRequest={dockMegaOpenRequest()}
+                    onOpenWorkspaceSearch={() =>
+                      openPaletteGroup("Search workspaces")
+                    }
                     onCreate={() => openPaletteGroup("New terminal")}
                     renderTileTitle={(id) => (
                       <TerminalMeta info={store.getDisplayInfo(id)} />
