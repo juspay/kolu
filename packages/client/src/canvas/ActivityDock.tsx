@@ -1,36 +1,33 @@
-/** Activity dock — top-left column surfacing every active agent.
- *  **One list, sorted strictly by `lastActivityAt` descending** so the
- *  most recent transition is always at the top regardless of which
- *  state it lands in. The dock answers "what just changed?" first,
- *  "what's blocking me?" second.
+/** Activity dock — left-edge canonical live-terminal navigator.
  *
- *  Two view modes, switched by the chevron at the top (or by clicking
- *  it — `dockCollapsed` persists per-device in localStorage):
+ *  Three progressive levels of detail, toggled in place. Per-device
+ *  `dockMode` persists across reloads so a 13" laptop can stay on the
+ *  rail while a 27" desktop sits on cards.
  *
- *  1. **Expanded** (default) — full cards / compact pills:
- *     - *Awaiting cards*: tail of xterm buffer (via `tailBuffer`) +
- *       reply input wired straight to the PTY. The repo+branch+tail
- *       region is the click target that activates the underlying
- *       terminal; the input form is a sibling so focusing it doesn't
- *       switch tiles away.
- *     - *Working pills*: repo + branch + animated agent indicator,
- *       click to jump.
- *  2. **Collapsed** — narrow strip of per-agent dots. Each dot is
- *     `repoColor`-filled with a `pill-border-{awaiting,working}` ring
- *     so the state-cadence (breathe / pulse) survives the collapse.
- *     Hover → tooltip with repo/branch/state/time; click → jump.
- *     Trades full context for a 20px-wide footprint so 13" screens
- *     reclaim the left rail.
+ *  1. **rail** — narrow strip of repo-colored swatches, one per live
+ *     terminal. State-cadenced (breathe / pulse) via `dock-rail-*`
+ *     animations. Click any swatch to expand; click the chevron at the
+ *     top to switch to cards.
+ *  2. **cards** (default) — recency-sorted variant rows: awaiting
+ *     terminals get full cards with xterm-buffer tail + reply input;
+ *     working terminals get compact pills; idle terminals get a faded
+ *     row; parked (`isStale`) terminals get a tiny dimmed row.
+ *  3. **mega** — search + repo-facets + agent-state columns. Same
+ *     content the chrome-bar workspace switcher used to host, now
+ *     anchored to the dock. Opens on `Mod+Shift+K` (the openRequest
+ *     impulse) and on the chevron-up affordance from cards.
  *
- *  Parked (auto-stale, `lastActivityAt > STALE_THRESHOLD_MS`)
- *  terminals are filtered out entirely.
+ *  In maximized-tile mode the dock renders as a flush left-edge sidebar
+ *  with opaque background, full canvas height, separator on the right.
+ *  The maximized tile reflows next to it (CanvasTile reads
+ *  `dockMaximizedWidth`). In tiled mode the dock floats over the canvas
+ *  with the existing radius/shadow surface.
  *
- *  Anchored top-left (below the ChromeBar) so the right edge stays
- *  free for the inspector panel and the bottom-left minimap gets a
- *  reserved zone via `max-h`. Auto-hides when no agents are active. */
+ *  Auto-hides only when the workspace has no terminals — once the user
+ *  has any terminal at all, the dock stays on screen, since it is the
+ *  primary navigator. */
 
 import { makePersisted } from "@solid-primitives/storage";
-import { toast } from "solid-sonner";
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import {
   type Component,
@@ -40,30 +37,61 @@ import {
   createMemo,
   createRoot,
   createSignal,
+  on,
+  onCleanup,
+  onMount,
 } from "solid-js";
+import { toast } from "solid-sonner";
 import AgentIndicator from "../terminal/AgentIndicator";
 import { tailBuffer } from "../terminal/bufferTail";
-import { formatTimeAgo, useStaleCheck } from "../terminal/staleness";
+import {
+  formatTimeAgo,
+  useIdleClassifier,
+  useStaleCheck,
+} from "../terminal/staleness";
 import type { TerminalDisplayInfo } from "../terminal/terminalDisplay";
 import { getTerminalRefs } from "../terminal/terminalRefs";
 import { useTerminalStore } from "../terminal/useTerminalStore";
+import { ChevronDownIcon, PlusIcon } from "../ui/Icons";
 import { client } from "../wire";
 import { useTileTheme } from "./useTileTheme";
-import { agentBucket } from "./workspace-switcher";
+import { useViewPosture } from "./useViewPosture";
+import {
+  agentBucket,
+  buildWorkspaceSwitcherModel,
+  type WorkspaceSwitcherSourceEntry,
+} from "./workspace-switcher";
+import WorkspaceSearchPanel from "./workspace-switcher/SearchPanel";
+
+export type DockMode = "rail" | "cards" | "mega";
+
+/** Per-card render variant. `parked` is its own bucket (not folded into
+ *  idle) because it carries a different visual treatment (faded, tinier
+ *  row) and routes through staleness, not the idle-bucket classifier. */
+type DockBucket = "awaiting" | "working" | "idle" | "parked" | "none";
 
 const PEEK_REFRESH_MS = 250;
 const MIN_TAIL_LINES = 2;
 const MAX_TAIL_LINES = 7;
+const RAIL_WIDTH_PX = 28;
+const CARDS_WIDTH_PX = 288;
+const MEGA_WIDTH_PX = 560;
+
+/** Width contributed by the dock to the maximized tile's left inset.
+ *  Mega overlays the surface (does not reflow the maximized tile any
+ *  wider than cards) so callers can pick either {rail, cards} to drive
+ *  CSS layout. Tiled mode does not reflow at all. */
+export function dockMaximizedWidth(mode: DockMode): number {
+  if (mode === "rail") return RAIL_WIDTH_PX;
+  return CARDS_WIDTH_PX;
+}
+
 /** Per-card tail budget shrinks as the dock fills.
  *
  *  Each card has ~120px of fixed chrome (eyebrow + agent row + reply
  *  input + padding); tail lines add ~18px each. Subtract a top-offset
  *  + bottom-margin reserve (~200px), divide the remaining height
- *  across the visible cards, then floor to a line count. So a single
- *  card on a tall viewport gets ~10 lines; ten cards on the same
- *  viewport collapse to the 2-line floor. Working pills don't show
- *  a tail, but they still occupy ~40px of vertical space, so they
- *  count against the budget too. */
+ *  across the visible cards, then floor to a line count. */
 function tailLinesFor(viewportPx: number, numCards: number): number {
   if (numCards === 0) return MIN_TAIL_LINES;
   const reserved = 200;
@@ -79,9 +107,8 @@ function tailLinesFor(viewportPx: number, numCards: number): number {
 
 // Module-scope viewport height + resize listener. Lifecycle matches the
 // signal itself (browser session) rather than `ActivityDock`'s mount —
-// otherwise a resize while the dock is auto-hidden (no live agents)
-// would leave `viewportHeight` stale, and the next mount on a different
-// screen size would compute `tailLinesFor` against pre-resize height.
+// otherwise a resize while the dock is auto-hidden (no terminals) would
+// leave `viewportHeight` stale.
 const [viewportHeight, setViewportHeight] = createSignal(
   typeof window === "undefined" ? 1000 : window.innerHeight,
 );
@@ -92,9 +119,7 @@ if (typeof window !== "undefined") {
 }
 
 // Shared peek-tick — every awaiting card refreshes its xterm tail on
-// the same cadence, so one app-scoped timer fans out to N consumers
-// instead of N independent timers. `createRoot` keeps the timer
-// owner-detached so disposing any single card doesn't stop the tick.
+// the same cadence, so one app-scoped timer fans out to N consumers.
 const [peekTick, setPeekTick] = createSignal(0);
 if (typeof window !== "undefined") {
   createRoot(() => {
@@ -102,100 +127,388 @@ if (typeof window !== "undefined") {
   });
 }
 
-/** Collapsed = narrow strip of per-agent dots; expanded = full
- *  cards/pills. Per-device localStorage so a user's choice survives
- *  reloads but doesn't sync across machines (a 13" laptop might want
- *  collapsed while a 27" desktop stays expanded). Defaults to
- *  collapsed — ambient peripheral signal first, full context on
- *  demand via the rail toggle. */
-const [dockCollapsed, setDockCollapsed] = makePersisted(createSignal(true), {
-  name: "kolu-activity-dock-collapsed",
-  serialize: (v) => (v ? "1" : "0"),
-  deserialize: (raw) => raw === "1",
-});
+/** Tri-state mode persisted per-device. `"cards"` is the default — the
+ *  dock surfaces real context first, ambient compression on opt-in. */
+export const [dockMode, setDockMode] = makePersisted(
+  createSignal<DockMode>("cards"),
+  {
+    name: "kolu-activity-dock-mode",
+    serialize: (v) => v,
+    deserialize: (raw): DockMode =>
+      raw === "rail" || raw === "mega" ? raw : "cards",
+  },
+);
 
-const ActivityDock: Component = () => {
+/** Remember which non-mega mode we came from so closing mega returns to
+ *  it. Plain in-memory signal — surviving a reload to mega isn't useful
+ *  (mega is a transient search affordance), and dockMode itself is
+ *  already persisted, so the next reload reads from there. */
+const [previousMode, setPreviousMode] =
+  createSignal<Exclude<DockMode, "mega">>("cards");
+
+function openMega(): void {
+  const current = dockMode();
+  if (current !== "mega") setPreviousMode(current as Exclude<DockMode, "mega">);
+  setDockMode("mega");
+}
+
+function closeMega(): void {
+  setDockMode(previousMode());
+}
+
+function toggleRailCards(): void {
+  if (dockMode() === "mega") {
+    closeMega();
+    return;
+  }
+  setDockMode(dockMode() === "rail" ? "cards" : "rail");
+}
+
+const ActivityDock: Component<{
+  entries: WorkspaceSwitcherSourceEntry[];
+  activeId: TerminalId | null;
+  getRecency: (id: TerminalId) => number;
+  /** Increments to request mega open (Mod+Shift+K from anywhere). */
+  openMegaRequest: number;
+  onCreate: () => void;
+}> = (props) => {
   const store = useTerminalStore();
   const isStale = useStaleCheck();
-  const liveIds = createMemo(() =>
-    store
-      .terminalIds()
-      .flatMap((id) => {
-        const meta = store.getMetadata(id);
-        if (!meta) return [];
-        if (isStale(meta.lastActivityAt)) return [];
-        const bucket = agentBucket(meta.agent);
-        if (bucket !== "awaiting" && bucket !== "working") return [];
-        return [{ id, ts: meta.lastActivityAt }];
-      })
-      .sort((a, b) => b.ts - a.ts)
-      .map((e) => e.id),
+  const idleClassifier = useIdleClassifier();
+  const posture = useViewPosture();
+
+  const ranked = createMemo(() => {
+    const result: {
+      id: TerminalId;
+      bucket: DockBucket;
+      ts: number;
+    }[] = [];
+    for (const id of store.terminalIds()) {
+      const meta = store.getMetadata(id);
+      if (!meta) continue;
+      const parked = isStale(meta.lastActivityAt);
+      const agent = agentBucket(meta.agent);
+      // Parked is its own bucket. An "awaiting" agent that's been
+      // parked for hours is no longer "awaiting" in any actionable
+      // sense — route it to parked so the row reads dim and small.
+      let bucket: DockBucket;
+      if (parked) bucket = "parked";
+      else if (agent === "none") bucket = "none";
+      else if (agent === "awaiting") bucket = "awaiting";
+      else bucket = "working";
+      // Idle vs none: a terminal that *has* an agent but no live
+      // attention state (none) reads as "idle" in the dock — a quieter
+      // row than a working pill. Plain shells (`lastActivityAt === 0`)
+      // route to `none`.
+      if (bucket === "none" && meta.lastActivityAt > 0) bucket = "idle";
+      result.push({ id, bucket, ts: meta.lastActivityAt });
+    }
+    // Recency descending; secondary sort by bucket priority so
+    // never-touched plain shells don't outrank an idle terminal with
+    // the same `ts === 0`.
+    const priority: Record<DockBucket, number> = {
+      awaiting: 0,
+      working: 1,
+      idle: 2,
+      parked: 3,
+      none: 4,
+    };
+    result.sort((a, b) => {
+      if (a.ts !== b.ts) return b.ts - a.ts;
+      return priority[a.bucket] - priority[b.bucket];
+    });
+    return result;
+  });
+
+  const liveIds = createMemo(() => ranked().map((r) => r.id));
+  const bucketOf = createMemo(() => {
+    const map = new Map<TerminalId, DockBucket>();
+    for (const r of ranked()) map.set(r.id, r.bucket);
+    return map;
+  });
+
+  const awaitingCount = createMemo(
+    () => ranked().filter((r) => r.bucket === "awaiting").length,
   );
   const tailLines = createMemo(() =>
-    tailLinesFor(viewportHeight(), liveIds().length),
+    tailLinesFor(viewportHeight(), awaitingCount()),
   );
 
+  // Mega state lives here so the dock can drive its lifecycle, including
+  // focus-on-open and reset-on-close. The mega level mounts the existing
+  // WorkspaceSearchPanel — same model, same testids.
+  const [query, setQuery] = createSignal("");
+  const [repoFilter, setRepoFilter] = createSignal<string | null>(null);
+  const [focusSearchOnOpen, setFocusSearchOnOpen] = createSignal(false);
+  const megaModel = createMemo(() =>
+    buildWorkspaceSwitcherModel(props.entries, {
+      query: query(),
+      repoFilter: repoFilter(),
+      activeId: props.activeId,
+      getRecency: props.getRecency,
+      idleClassifier,
+    }),
+  );
+
+  // Shortcut opens mega and focuses the search.
+  createEffect(
+    on(
+      () => props.openMegaRequest,
+      () => {
+        openMega();
+        setFocusSearchOnOpen(true);
+      },
+      { defer: true },
+    ),
+  );
+
+  // Esc closes mega; click outside (mousedown) closes mega. Same
+  // dismissal grammar the chrome-bar switcher used.
+  let containerRef: HTMLElement | undefined;
+  onMount(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && dockMode() === "mega") {
+        closeMega();
+        e.preventDefault();
+      }
+    };
+    const handleMouseDown = (e: MouseEvent) => {
+      if (dockMode() !== "mega" || !containerRef) return;
+      if (!containerRef.contains(e.target as Node)) closeMega();
+    };
+    document.addEventListener("keydown", handleKey);
+    document.addEventListener("mousedown", handleMouseDown);
+    onCleanup(() => {
+      document.removeEventListener("keydown", handleKey);
+      document.removeEventListener("mousedown", handleMouseDown);
+    });
+  });
+
+  const selectAndClose = (id: TerminalId) => {
+    store.activate(id);
+    closeMega();
+  };
+
+  // Maximized = flush sidebar; tiled = floating overlay. Two distinct
+  // shells share the same inner body so rendering logic stays singular.
   return (
     <Show when={liveIds().length > 0}>
-      <div
+      <aside
+        ref={(el) => {
+          containerRef = el;
+        }}
         data-testid="activity-dock"
-        data-collapsed={dockCollapsed() ? "" : undefined}
-        class={`absolute top-20 left-4 z-20 rounded-2xl overflow-hidden shadow-2xl shadow-black/40 flex flex-col max-h-[calc(100vh-22rem)] ${dockCollapsed() ? "" : "w-72"}`}
+        data-mode={dockMode()}
+        data-maximized={posture.maximized() ? "" : undefined}
+        // Open flag mirrors the chrome-bar switcher's `data-open` —
+        // CSS hooks (chrome-bar surface emergence, etc.) keep working
+        // unchanged on consumers that filter on `[data-open]`.
+        data-open={dockMode() === "mega" ? "" : undefined}
+        class="absolute z-30 flex select-none"
+        classList={{
+          // Tiled: floating panel under the chrome bar. Stays clear of
+          // the right side so the minimap and inspector have room.
+          "top-20 left-4 max-h-[calc(100vh-22rem)] rounded-2xl overflow-hidden shadow-2xl shadow-black/40":
+            !posture.maximized() && dockMode() !== "mega",
+          // Mega in tiled mode is the same float, just wider.
+          "top-20 left-4 max-h-[calc(100vh-6rem)] rounded-2xl overflow-hidden shadow-2xl shadow-black/40":
+            !posture.maximized() && dockMode() === "mega",
+          // Maximized: flush sidebar, no rounding, opaque background.
+          "inset-y-0 left-0 border-r border-edge bg-surface-1":
+            posture.maximized(),
+        }}
+        style={{
+          width: `${
+            dockMode() === "rail"
+              ? RAIL_WIDTH_PX
+              : dockMode() === "mega"
+                ? MEGA_WIDTH_PX
+                : CARDS_WIDTH_PX
+          }px`,
+        }}
       >
-        <div class="flex flex-col overflow-y-auto overflow-x-hidden scrollbar-none">
-          <For each={liveIds()}>
-            {(id) => <DockRow id={id} tailLines={tailLines()} />}
-          </For>
-        </div>
-      </div>
+        <Show
+          when={dockMode() === "mega"}
+          fallback={
+            <RailOrCards
+              mode={dockMode() as Exclude<DockMode, "mega">}
+              liveIds={liveIds()}
+              bucketOf={bucketOf()}
+              tailLines={tailLines()}
+              onCreate={props.onCreate}
+              onOpenMega={openMega}
+            />
+          }
+        >
+          <MegaBody
+            model={megaModel()}
+            query={query()}
+            focusSearch={focusSearchOnOpen()}
+            onQueryChange={setQuery}
+            onSearchFocused={() => setFocusSearchOnOpen(false)}
+            onRepoFilterChange={setRepoFilter}
+            onSelect={selectAndClose}
+            onClose={closeMega}
+          />
+        </Show>
+      </aside>
     </Show>
+  );
+};
+
+/** Rail / cards body — vertical stack of dock rows preceded by a header
+ *  with the `+` new-terminal button and the mode chevron. */
+const RailOrCards: Component<{
+  mode: Exclude<DockMode, "mega">;
+  liveIds: TerminalId[];
+  bucketOf: Map<TerminalId, DockBucket>;
+  tailLines: number;
+  onCreate: () => void;
+  onOpenMega: () => void;
+}> = (props) => {
+  return (
+    <div class="flex flex-col w-full min-h-0">
+      <DockHeader
+        mode={props.mode}
+        onCreate={props.onCreate}
+        onOpenMega={props.onOpenMega}
+      />
+      <div class="flex flex-col overflow-y-auto overflow-x-hidden scrollbar-none flex-1 min-h-0">
+        <For each={props.liveIds}>
+          {(id) => (
+            <DockRow
+              id={id}
+              bucket={props.bucketOf.get(id) ?? "none"}
+              mode={props.mode}
+              tailLines={props.tailLines}
+            />
+          )}
+        </For>
+      </div>
+    </div>
+  );
+};
+
+/** Dock header — `+` new terminal, mega-search trigger, and the rail
+ *  ↔ cards mode toggle. Layout is row in cards mode (icons sit on one
+ *  line at the top), column in rail mode (stacked vertically inside
+ *  the narrow rail width). */
+const DockHeader: Component<{
+  mode: Exclude<DockMode, "mega">;
+  onCreate: () => void;
+  onOpenMega: () => void;
+}> = (props) => {
+  const railLayout = () => props.mode === "rail";
+  return (
+    <div
+      class="flex items-center gap-1 px-1 py-1 border-b border-edge/40 shrink-0"
+      classList={{ "flex-col": railLayout() }}
+    >
+      <button
+        type="button"
+        data-testid="activity-dock-new"
+        onClick={props.onCreate}
+        class="group/new flex items-center justify-center w-6 h-6 rounded-md cursor-pointer text-fg-3 hover:text-fg hover:bg-surface-2/70 active:bg-surface-2 transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+        aria-label="New terminal"
+        title="New terminal"
+      >
+        <PlusIcon class="w-3.5 h-3.5 transition-transform duration-200 group-hover/new:rotate-90" />
+      </button>
+      <button
+        type="button"
+        data-testid="activity-dock-mega-toggle"
+        onClick={props.onOpenMega}
+        class="flex items-center justify-center w-6 h-6 rounded-md cursor-pointer text-fg-3 hover:text-fg hover:bg-surface-2/70 active:bg-surface-2 transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+        aria-label="Search workspaces"
+        title="Search workspaces (⌘⇧K)"
+      >
+        <span class="font-mono text-[0.85rem] leading-none text-accent">⏵</span>
+      </button>
+      <button
+        type="button"
+        data-testid="activity-dock-mode-toggle"
+        onClick={toggleRailCards}
+        class="flex items-center justify-center w-6 h-6 rounded-md cursor-pointer text-fg-3 hover:text-fg hover:bg-surface-2/70 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+        classList={{ "ml-auto": !railLayout() }}
+        aria-label={railLayout() ? "Expand to cards" : "Collapse to rail"}
+        title={railLayout() ? "Expand to cards" : "Collapse to rail"}
+      >
+        <span
+          class="inline-flex"
+          classList={{
+            "rotate-90": !railLayout(),
+            "-rotate-90": railLayout(),
+          }}
+        >
+          <ChevronDownIcon class="w-3.5 h-3.5" />
+        </span>
+      </button>
+    </div>
   );
 };
 
 /** A row in the unified dock surface: rail-segment on the left
  *  (per-card `repoColor`, also the click target for collapse/expand)
- *  + content on the right (full card / working pill / nothing if
- *  collapsed). Rows stack with no gap so the rails form a continuous
- *  vertical stripe with color sections per terminal. */
-const DockRow: Component<{ id: TerminalId; tailLines: number }> = (props) => {
+ *  + content on the right (full card / pill / idle row / parked row /
+ *  nothing if rail).
+ *
+ *  Carries the surface-agnostic "list of live terminals" semantics that
+ *  the chrome-bar workspace-switcher pill row used to own: same
+ *  `data-active` / `data-unread` / `data-agent-state` attributes so
+ *  step definitions and the activity-alerts pipeline can keep treating
+ *  the dock row as "the entry for this terminal" without caring which
+ *  surface hosts it. */
+const DockRow: Component<{
+  id: TerminalId;
+  bucket: DockBucket;
+  mode: Exclude<DockMode, "mega">;
+  tailLines: number;
+}> = (props) => {
   const store = useTerminalStore();
-  // Single source of truth for the row's render preconditions: info,
-  // meta, AND a narrowed bucket. Folding the bucket into the gate
-  // means there's no separate memo that could hold a stale or
-  // unreachable value — if the agent bucket is anything other than
-  // awaiting/working the row simply doesn't render.
   const combined = createMemo(() => {
     const info = store.getDisplayInfo(props.id);
     const meta = store.getMetadata(props.id);
     if (!info || !meta) return null;
-    const b = agentBucket(meta.agent);
-    if (b !== "awaiting" && b !== "working") return null;
-    return { info, meta, bucket: b };
+    return { info, meta };
   });
+  const active = () => store.activeId() === props.id;
+  const unread = () => store.isUnread(props.id);
   return (
     <Show when={combined()}>
       {(c) => (
-        <div class="flex flex-row items-stretch border-b border-edge/15 last:border-b-0">
-          <RailSegment repoColor={c().info.repoColor} bucket={c().bucket} />
-          <Show when={!dockCollapsed()}>
+        <div
+          class="flex flex-row items-stretch border-b border-edge/15 last:border-b-0 relative"
+          data-testid="activity-dock-row"
+          data-terminal-id={props.id}
+          data-bucket={props.bucket}
+          data-agent-state={c().meta.agent?.state}
+          data-active={active() ? "" : undefined}
+          data-unread={unread() ? "" : undefined}
+        >
+          <Show when={unread()}>
+            <span
+              class="absolute -top-1 right-1 inline-flex h-2 w-2"
+              aria-hidden="true"
+            >
+              <span class="absolute inline-flex h-full w-full rounded-full bg-alert opacity-75 animate-ping" />
+              <span class="relative inline-flex rounded-full h-2 w-2 bg-alert" />
+            </span>
+          </Show>
+          <RailSegment
+            id={props.id}
+            repoColor={c().info.repoColor}
+            bucket={props.bucket}
+            mode={props.mode}
+          />
+          <Show when={props.mode === "cards"}>
             <div class="flex-1 min-w-0">
-              <Show
-                when={c().bucket === "awaiting"}
-                fallback={
-                  <WorkingPillBody
-                    id={props.id}
-                    info={c().info}
-                    meta={c().meta}
-                  />
-                }
-              >
-                <AwaitingCardBody
-                  id={props.id}
-                  info={c().info}
-                  meta={c().meta}
-                  tailLines={props.tailLines}
-                />
-              </Show>
+              <RowBody
+                id={props.id}
+                bucket={props.bucket}
+                info={c().info}
+                meta={c().meta}
+                tailLines={props.tailLines}
+              />
             </div>
           </Show>
         </div>
@@ -204,41 +517,90 @@ const DockRow: Component<{ id: TerminalId; tailLines: number }> = (props) => {
   );
 };
 
-/** Colored rail segment — one per dock row. Clicking ANY segment
- *  toggles the dock between collapsed and expanded; that's why the
- *  separate chevron button is gone. The rail is wider in collapsed
- *  mode to give a comfortable click target and to read as identity
- *  swatches when there's no card next to it. A `dock-rail-*` filter
- *  animation cycles the segment's brightness so state-cadence
- *  (breathe / pulse) survives the unified-surface treatment. */
+/** Colored rail segment — one per dock row. Clicking the segment
+ *  activates the corresponding terminal (in rail mode this is the only
+ *  visible click target for the row; in cards mode the body has its
+ *  own activator and the rail is a slim affordance to the side). The
+ *  rail/cards mode toggle lives on the header chevron, not here. A
+ *  `dock-rail-*` filter animation cycles the segment's brightness so
+ *  state-cadence (breathe / pulse) survives the unified-surface
+ *  treatment. */
 const RailSegment: Component<{
+  id: TerminalId;
   repoColor: string;
-  bucket: "awaiting" | "working";
+  bucket: DockBucket;
+  mode: Exclude<DockMode, "mega">;
 }> = (props) => {
+  const store = useTerminalStore();
+  // The breath/pulse animation belongs only to live attention states.
+  // Idle/parked/none rails stay flat so the visual budget reads "live
+  // signal here" without false positives.
+  const animClass =
+    props.bucket === "awaiting"
+      ? "dock-rail-awaiting"
+      : props.bucket === "working"
+        ? "dock-rail-working"
+        : "";
   return (
     <button
       type="button"
-      data-testid="activity-dock-toggle"
+      data-testid="activity-dock-rail"
       data-agent-bucket={props.bucket}
-      onClick={() => setDockCollapsed((v) => !v)}
+      onClick={() => store.activate(props.id)}
       class={`shrink-0 cursor-pointer transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 ${
-        dockCollapsed() ? "w-6 h-6" : "w-1.5"
-      } ${props.bucket === "awaiting" ? "dock-rail-awaiting" : "dock-rail-working"}`}
+        props.mode === "rail" ? "w-6 h-6" : "w-1.5"
+      } ${animClass}`}
+      classList={{
+        "opacity-50": props.bucket === "parked" || props.bucket === "none",
+      }}
       style={{ "background-color": props.repoColor }}
-      title={
-        dockCollapsed() ? "Expand activity dock" : "Collapse activity dock"
-      }
-      aria-label={
-        dockCollapsed() ? "Expand activity dock" : "Collapse activity dock"
-      }
+      title="Jump to this terminal"
+      aria-label="Jump to this terminal"
     />
   );
 };
 
-/** Awaiting card body — content for an awaiting row. No own chrome
- *  (rounding, border, shadow, width) — the unified `<ActivityDock>`
- *  outer surface provides all of those; the body just fills its grid
- *  cell with the tile-themed bg/fg + content layout. */
+/** Dispatches each row to its variant body. Bundling the variant switch
+ *  in one place keeps `DockRow` shape uniform — every bucket has the
+ *  same outer "rail + body" geometry regardless of which variant the
+ *  body renders. */
+const RowBody: Component<{
+  id: TerminalId;
+  bucket: DockBucket;
+  info: TerminalDisplayInfo;
+  meta: TerminalMetadata;
+  tailLines: number;
+}> = (props) => {
+  return (
+    <Show
+      when={props.bucket === "awaiting"}
+      fallback={
+        <Show
+          when={props.bucket === "working"}
+          fallback={
+            <QuietRowBody
+              id={props.id}
+              info={props.info}
+              meta={props.meta}
+              bucket={props.bucket}
+            />
+          }
+        >
+          <WorkingPillBody id={props.id} info={props.info} meta={props.meta} />
+        </Show>
+      }
+    >
+      <AwaitingCardBody
+        id={props.id}
+        info={props.info}
+        meta={props.meta}
+        tailLines={props.tailLines}
+      />
+    </Show>
+  );
+};
+
+/** Awaiting card body — content for an awaiting row. */
 const AwaitingCardBody: Component<{
   id: TerminalId;
   info: TerminalDisplayInfo;
@@ -267,11 +629,7 @@ const AwaitingCardBody: Component<{
     if (text.length === 0) return;
     // INVARIANT: TUI agents that ship distinct parsers for text and
     // CR (Codex Ratatui is the known case) require text+CR to arrive
-    // as TWO separate PTY writes spaced ≥50ms apart. A single
-    // combined write OR a sub-50ms gap is silently dropped by the
-    // TUI's input dispatcher. Do NOT inline the carriage return into
-    // the first write or shrink this timeout without first verifying
-    // every supported TUI agent handles the combined form.
+    // as TWO separate PTY writes spaced ≥50ms apart.
     const ok = await client.terminal
       .sendInput({ id: props.id, data: text })
       .then(() => true)
@@ -279,8 +637,6 @@ const AwaitingCardBody: Component<{
         toast.error(`Failed to send input: ${err.message}`);
         return false;
       });
-    // Clear only after confirming the write succeeded — if it failed
-    // the user's text is still in the field so they can retry.
     if (!ok) return;
     setValue("");
     setTimeout(() => {
@@ -360,7 +716,7 @@ const AwaitingCardBody: Component<{
 };
 
 /** Working pill body — compact row content for a `thinking`/`tool_use`
- *  terminal. Same no-own-chrome contract as the awaiting card body. */
+ *  terminal. */
 const WorkingPillBody: Component<{
   id: TerminalId;
   info: TerminalDisplayInfo;
@@ -402,10 +758,50 @@ const WorkingPillBody: Component<{
   );
 };
 
-/** GitHub PR summary line (when one is resolved). Reads `meta.pr` —
- *  the same source the workspace switcher uses — so the kinds it
- *  accepts stay aligned: only `kind === "ok"` renders, the
- *  `absent`/`pending`/`unavailable` cases collapse to nothing. */
+/** Quiet row — idle / parked / none. Smallest variant; one-liner with
+ *  repo · branch, faded for parked. No tail, no PR, no reply input. */
+const QuietRowBody: Component<{
+  id: TerminalId;
+  info: TerminalDisplayInfo;
+  meta: TerminalMetadata;
+  bucket: DockBucket;
+}> = (props) => {
+  const store = useTerminalStore();
+  return (
+    <button
+      type="button"
+      data-testid="activity-dock-quiet"
+      data-terminal-id={props.id}
+      data-bucket={props.bucket}
+      onClick={() => store.activate(props.id)}
+      class="w-full px-2.5 py-1 flex items-baseline gap-2 min-w-0 cursor-pointer text-left bg-surface-1/40 hover:bg-surface-2/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+      classList={{ "opacity-60": props.bucket === "parked" }}
+      title={props.info.meta.cwd}
+    >
+      <span
+        class="font-mono text-[0.6rem] font-bold uppercase tracking-[0.14em] truncate min-w-0"
+        style={{ color: props.info.repoColor }}
+      >
+        {props.info.key.group}
+      </span>
+      <span
+        class="text-[0.75rem] truncate min-w-0"
+        style={{ color: props.info.branchColor }}
+      >
+        {props.info.key.label}
+      </span>
+      <Show when={formatTimeAgo(props.meta.lastActivityAt)}>
+        {(label) => (
+          <span class="ml-auto font-mono text-[0.55rem] tabular-nums text-fg-3 shrink-0">
+            {label()}
+          </span>
+        )}
+      </Show>
+    </button>
+  );
+};
+
+/** GitHub PR summary line (when one is resolved). */
 const PrLine: Component<{ meta: TerminalMetadata }> = (props) => {
   const pr = () => (props.meta.pr.kind === "ok" ? props.meta.pr.value : null);
   return (
@@ -422,11 +818,7 @@ const PrLine: Component<{ meta: TerminalMetadata }> = (props) => {
   );
 };
 
-/** Shared "agent indicator (left) + lastActive (right)" sub-line used
- *  on both the full card and the compact pill. Renders nothing when
- *  the terminal has no agent — `<ActivityDock>` only mounts these
- *  components when `agentBucket` is awaiting/working, but the
- *  `Show` keeps the render shape honest. */
+/** Shared "agent indicator (left) + lastActive (right)" sub-line. */
 const DockMetaRow: Component<{ meta: TerminalMetadata }> = (props) => {
   const lastActive = () => formatTimeAgo(props.meta.lastActivityAt);
   return (
@@ -440,6 +832,35 @@ const DockMetaRow: Component<{ meta: TerminalMetadata }> = (props) => {
         </div>
       )}
     </Show>
+  );
+};
+
+/** Mega level body — embeds the workspace search panel. Lives inside
+ *  the dock's outer aside so the same z-index / dismissal grammar
+ *  applies to all three levels. */
+const MegaBody: Component<{
+  model: ReturnType<typeof buildWorkspaceSwitcherModel>;
+  query: string;
+  focusSearch: boolean;
+  onQueryChange: (q: string) => void;
+  onSearchFocused: () => void;
+  onRepoFilterChange: (repoName: string | null) => void;
+  onSelect: (id: TerminalId) => void;
+  onClose: () => void;
+}> = (props) => {
+  return (
+    <div class="w-full">
+      <WorkspaceSearchPanel
+        model={props.model}
+        query={props.query}
+        focusSearch={props.focusSearch}
+        onQueryChange={props.onQueryChange}
+        onSearchFocused={props.onSearchFocused}
+        onRepoFilterChange={props.onRepoFilterChange}
+        onSelect={props.onSelect}
+        onClose={props.onClose}
+      />
+    </div>
   );
 };
 

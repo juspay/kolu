@@ -35,6 +35,7 @@ import { useStaleCheck } from "../terminal/staleness";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import ActivityDock from "./ActivityDock";
 import CanvasMinimap from "./CanvasMinimap";
+import type { WorkspaceSwitcherSourceEntry } from "./workspace-switcher";
 import CanvasTile from "./CanvasTile";
 import CanvasWatermark from "./CanvasWatermark";
 import { applyResize, type ResizeDirection } from "./resizeGeometry";
@@ -104,6 +105,15 @@ const TerminalCanvas: Component<{
   onLayoutChange: (id: TerminalId, layout: TileLayout) => void;
   onSelect: (id: TerminalId) => void;
   onClose: (id: TerminalId) => void;
+  /** Live-terminal entries fed to the activity dock's mega-level search. */
+  workspaceEntries: WorkspaceSwitcherSourceEntry[];
+  /** Per-terminal recency accessor (epoch-ms) used by the dock's
+   *  recency-sorted ranking and the mega-level model. */
+  getRecency: (id: TerminalId) => number;
+  /** Incremented by `Mod+Shift+K` to open the dock's mega level. */
+  openMegaRequest: number;
+  /** Open the "new terminal" flow — wired into the dock header's `+`. */
+  onCreate: () => void;
   renderTileTitle: (id: TerminalId) => JSX.Element;
   /** Optional title-bar actions injected between the title and the close
    *  button — e.g. the screenshot button, theme pill, agent indicator. */
@@ -407,24 +417,36 @@ const TerminalCanvas: Component<{
           return (
             <>
               {/* Tiled canvas — tiles live inside the pan/zoom transform.
-               *  Hidden entirely when maximized; no reason to paint
-               *  tiles the user can't see. */}
-              <Show when={!posture.maximized()}>
-                <div
-                  data-testid="canvas-transform"
-                  style={{
-                    "transform-origin": "0 0",
-                    transform: viewport.canvasTransform(),
-                  }}
+               *  Stays mounted in maximized mode (hidden behind the
+               *  maximized tile's z-40 cover) so non-active xterm
+               *  instances keep consuming the PTY stream and the dock's
+               *  buffer previews remain populated (#904). The active
+               *  terminal is filtered out in maximized mode so it
+               *  doesn't double-mount alongside the maximized branch
+               *  below — `terminalRefs` is keyed by id and the second
+               *  registration would race the first's cleanup. */}
+              <div
+                data-testid="canvas-transform"
+                aria-hidden={posture.maximized() ? "true" : undefined}
+                style={{
+                  "transform-origin": "0 0",
+                  transform: viewport.canvasTransform(),
+                  visibility: posture.maximized() ? "hidden" : "visible",
+                }}
+              >
+                <For
+                  each={props.tileIds.filter(
+                    (id) => !posture.maximized() || store.activeId() !== id,
+                  )}
                 >
-                  <For each={props.tileIds}>
-                    {(id) => renderTile(id, false)}
-                  </For>
-                </div>
-              </Show>
+                  {(id) => renderTile(id, false)}
+                </For>
+              </div>
 
               {/* Maximized view — only the active tile, outside any
-               *  transform, covering the canvas via `absolute inset-0`. */}
+               *  transform, covering the canvas. The maximized tile is
+               *  inset by the dock's reserved sidebar width so the dock
+               *  reads as a true sidebar (#904 part 1). */}
               <Show when={posture.maximized() && store.activeId()} keyed>
                 {(id) => renderTile(id, true)}
               </Show>
@@ -432,12 +454,17 @@ const TerminalCanvas: Component<{
           );
         })()}
 
-        {/* Activity dock: ambient strip surfacing terminals whose agent is
-         *  blocked on user input — auto-hides when empty so the canvas
-         *  stays calm in the no-attention case. */}
-        <Show when={!posture.maximized()}>
-          <ActivityDock />
-        </Show>
+        {/* Activity dock: canonical live-terminal navigator. Visible in
+         *  both tiled and maximized modes — in maximized mode it renders
+         *  as a flush left-edge sidebar (#904), and the maximized tile
+         *  above reflows next to it via `style.left = dockMaximizedWidth`. */}
+        <ActivityDock
+          entries={props.workspaceEntries}
+          activeId={store.activeId()}
+          getRecency={props.getRecency}
+          openMegaRequest={props.openMegaRequest}
+          onCreate={props.onCreate}
+        />
 
         {/* Minimap: spatial dashboard; hides in fullscreen-single-tile mode
          *  since there's nothing spatial to summarize. */}

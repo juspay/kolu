@@ -1,9 +1,10 @@
 /** ChromeBar — the always-visible workspace chrome band.
  *
- *  Replaces the pre-#622 global Header. Carries app identity (logo +
- *  connection dot) on the left, the workspace switcher in the middle, and the
- *  global control cluster (inspector toggle, settings, command palette)
- *  on the right.
+ *  Carries app identity (logo + connection dot) on the left and the
+ *  global control cluster (recorder, inspector, settings, command
+ *  palette) on the right. The live-terminal navigator moved to the
+ *  activity dock at the canvas's left edge (#903), so the chrome bar
+ *  no longer hosts a workspace switcher slot.
  *
  *  Two positioning modes, switched on `canvasMaximized`:
  *  - Canvas mode (default): absolute overlay above the canvas. Pure
@@ -19,7 +20,7 @@
  *  Mobile uses a different chrome surface — a pull-down sheet — see
  *  `MobileChromeSheet` and `MobileTileView`. */
 
-import { type Component, createSignal, type JSX } from "solid-js";
+import { type Component, createSignal } from "solid-js";
 import { useViewPosture } from "./canvas/useViewPosture";
 import { ACTIONS } from "./input/actions";
 import { formatKeybind } from "./input/keyboard";
@@ -40,10 +41,6 @@ const statusStyles: Record<WsStatus, string> = {
 const ChromeBar: Component<{
   status: WsStatus;
   onOpenPalette: () => void;
-  /** Workspace switcher slot — caller composes the live-terminal navigator.
-   *  ChromeBar is a layout host (logo + switcher + controls); it doesn't need
-   *  to know the switcher's prop shape, just where to drop it. */
-  workspaceSwitcher: JSX.Element;
 }> = (props) => {
   const rightPanel = useRightPanel();
   const posture = useViewPosture();
@@ -108,14 +105,11 @@ const ChromeBar: Component<{
         </Tip>
       </div>
 
-      {/* Workspace switcher — fills the middle, wraps as needed.
-       *  pointer-events-none here so the empty middle space (no pills,
-       *  or padding around them) lets clicks pass through to the right
-       *  panel / canvas underneath; the switcher's own outer wrapper
-       *  re-enables pointer events on the actual pill elements. */}
-      <div class="flex-1 min-w-0 flex justify-center pointer-events-none">
-        {props.workspaceSwitcher}
-      </div>
+      {/* Middle spacer — pointer-events pass through to whatever the
+       *  canvas or right panel is showing underneath. The workspace
+       *  switcher used to live here; with the activity dock owning the
+       *  navigator, the chrome bar is just identity + global controls. */}
+      <div class="flex-1 min-w-0 pointer-events-none" />
 
       {/* Control cluster: inspector → settings → ⌘K. Cluster wrapper
        *  itself stays pointer-events-none so the gap-2 spaces and any

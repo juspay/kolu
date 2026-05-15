@@ -63,7 +63,7 @@ Then(
   "a workspace switcher branch should be notified",
   async function (this: KoluWorld) {
     const notified = this.page.locator(
-      '[data-testid="workspace-switcher-pill"][data-unread]',
+      '[data-testid="activity-dock-row"][data-unread]',
     );
     await notified.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },
@@ -76,7 +76,7 @@ Then(
     await this.waitForFrame();
     await this.waitForFrame();
     const count = await this.page
-      .locator('[data-testid="workspace-switcher-pill"][data-unread]')
+      .locator('[data-testid="activity-dock-row"][data-unread]')
       .count();
     assert.strictEqual(
       count,
@@ -90,7 +90,7 @@ When(
   "I click the notified workspace switcher branch",
   async function (this: KoluWorld) {
     const notified = this.page.locator(
-      '[data-testid="workspace-switcher-pill"][data-unread]',
+      '[data-testid="activity-dock-row"][data-unread]',
     );
     await notified.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     await notified.first().click();

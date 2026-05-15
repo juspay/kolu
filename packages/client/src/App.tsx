@@ -25,7 +25,7 @@ import CommandPalette from "./CommandPalette";
 import "kolu-common/test-hooks";
 import CanvasWatermark from "./canvas/CanvasWatermark";
 import { useCanvasArrange } from "./canvas/useCanvasArrange";
-import WorkspaceSwitcher, {
+import {
   buildWorkspaceEntries,
   buildWorkspaceSwitcherModel,
 } from "./canvas/workspace-switcher";
@@ -121,8 +121,10 @@ const App: Component = () => {
   // Shortcuts help overlay state
   const [shortcutsHelpOpen, setShortcutsHelpOpen] = createSignal(false);
 
-  const [workspaceSwitcherOpenRequest, setWorkspaceSwitcherOpenRequest] =
-    createSignal(0);
+  // Impulse signal — Mod+Shift+K bumps it; the activity dock listens and
+  // opens its mega level (search + repo facets + columns). Replaces the
+  // chrome-bar workspace switcher's open-request wiring.
+  const [dockMegaOpenRequest, setDockMegaOpenRequest] = createSignal(0);
 
   // About dialog state
   const [aboutOpen, setAboutOpen] = createSignal(false);
@@ -198,7 +200,7 @@ const App: Component = () => {
       void crud.handleCreateSubTerminal(parentId, cwd),
     openNewTerminalMenu: () => openPaletteGroup("New terminal"),
     openWorkspaceSwitcher: () => {
-      if (!isMobile()) setWorkspaceSwitcherOpenRequest((n) => n + 1);
+      if (!isMobile()) setDockMegaOpenRequest((n) => n + 1);
     },
     setPaletteOpen,
     setShortcutsHelpOpen,
@@ -461,24 +463,13 @@ const App: Component = () => {
           if (target) void worktree.handleKillWorktree(target.id);
         }}
       />
-      {/* Desktop chrome — docked top bar carrying workspace switcher, identity,
-       *  and global controls. Mobile has its own pull-down sheet (see
-       *  MobileTileView) and does not render this band. */}
+      {/* Desktop chrome — docked top bar carrying identity and global
+       *  controls. The workspace switcher retired in favor of the
+       *  activity dock's mega level (#903). Mobile has its own
+       *  pull-down sheet (see MobileTileView) and does not render this
+       *  band. */}
       <Show when={!isMobile()}>
-        <ChromeBar
-          status={wsStatus()}
-          onOpenPalette={() => openPalette()}
-          workspaceSwitcher={
-            <WorkspaceSwitcher
-              entries={workspaceEntries()}
-              activeId={store.activeId()}
-              getRecency={recencyOf}
-              openRequest={workspaceSwitcherOpenRequest()}
-              onSelect={store.activate}
-              onCreate={() => openPaletteGroup("New terminal")}
-            />
-          }
-        />
+        <ChromeBar status={wsStatus()} onOpenPalette={() => openPalette()} />
       </Show>
       {/* relative: anchor for overlay panels.
        *  --active-terminal-{bg,fg} published here so child components
@@ -543,6 +534,10 @@ const App: Component = () => {
                     onAutoArrange={arrange.handleCanvasAutoArrange}
                     onSelect={store.setActiveSilently}
                     onClose={(id) => closeTerminal(id)}
+                    workspaceEntries={workspaceEntries()}
+                    getRecency={recencyOf}
+                    openMegaRequest={dockMegaOpenRequest()}
+                    onCreate={() => openPaletteGroup("New terminal")}
                     renderTileTitle={(id) => (
                       <TerminalMeta info={store.getDisplayInfo(id)} />
                     )}

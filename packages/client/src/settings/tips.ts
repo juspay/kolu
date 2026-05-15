@@ -13,16 +13,6 @@ export interface Tip {
   text: string;
 }
 
-/** Built when the user clicks a compact switcher pill — surfaces the
- *  numeric switch shortcut so they learn the keyboard path. */
-export function workspaceSwitcherSwitchTip(index: number): Tip {
-  const key = (index + 1) as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
-  return {
-    id: "workspace-switcher-switch",
-    text: `Tip: ${formatKeybind(ACTIONS[`switchTo${key}`].keybind)} switches directly`,
-  };
-}
-
 export const CONTEXTUAL_TIPS = {
   themeFromPalette: {
     id: "theme-palette",

@@ -1,10 +1,15 @@
 /** Workspace switcher public boundary.
  *
- *  Importers outside this folder should depend on the controller component,
- *  the live-entry builders, and the model types exported here. Internal
- *  renderer files stay private so the collapsed form can be replaced later
- *  without spreading import churn across the client. */
-export { default } from "./WorkspaceSwitcher";
+ *  Importers outside this folder depend on the model (live-entry
+ *  builders, agent-bucket classifier, types). The renderers
+ *  (`SearchPanel`) are imported by their concrete file path so the
+ *  module's surface stays bucket-classification-oriented rather than
+ *  presentation-oriented.
+ *
+ *  The chrome-bar `WorkspaceSwitcher` controller and `Collapsed` pill
+ *  strip retired with #903 — the canonical live-terminal navigator now
+ *  lives in `ActivityDock`, which mounts `SearchPanel` directly as its
+ *  mega level. */
 export {
   agentBucket,
   bucketDescriptor,

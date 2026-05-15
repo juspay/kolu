@@ -1,9 +1,28 @@
+/** Workspace switcher — step definitions.
+ *
+ *  The "workspace switcher" surface retired with #903; its mega-level
+ *  search + repo facets + agent-state columns moved into the activity
+ *  dock's mega mode. These steps keep the original phrasing (so cross-
+ *  cutting feature files don't need to be rewritten everywhere) but
+ *  resolve to the dock's surface:
+ *
+ *  - "branch pill" → dock row (`activity-dock-row`)
+ *  - "hover the switcher" → switch the dock to mega mode (no hover-to-open)
+ *  - "switcher toggle" → dock's mega-toggle button
+ *  - "panel" → dock's mega body, which mounts `WorkspaceSearchPanel`
+ *    verbatim, so `workspace-switcher-panel/search/card/repo/column`
+ *    test-ids are preserved.
+ *
+ *  The dock's mega mode opens on Mod+Shift+K (the same shortcut the
+ *  old chrome-bar switcher used) or on the dock-mega-toggle button. */
+
 import * as assert from "node:assert";
 import { Then, When } from "@cucumber/cucumber";
 import { type KoluWorld, MOD_KEY, POLL_TIMEOUT } from "../support/world.ts";
 
-const WORKSPACE_SWITCHER_SELECTOR = '[data-testid="workspace-switcher"]';
-const BRANCH_SELECTOR = '[data-testid="workspace-switcher-pill"]';
+const DOCK_SELECTOR = '[data-testid="activity-dock"]';
+const DOCK_ROW_SELECTOR = '[data-testid="activity-dock-row"]';
+const MEGA_TOGGLE_SELECTOR = '[data-testid="activity-dock-mega-toggle"]';
 const PANEL_SELECTOR = '[data-testid="workspace-switcher-panel"]';
 const SEARCH_SELECTOR = '[data-testid="workspace-switcher-search"]';
 const CARD_SELECTOR = '[data-testid="workspace-switcher-card"]';
@@ -14,51 +33,48 @@ const IDLE_SUB_SELECTOR = '[data-testid="workspace-switcher-idle-sub"]';
 Then(
   "the workspace switcher should be visible",
   async function (this: KoluWorld) {
-    const switcher = this.page.locator(WORKSPACE_SWITCHER_SELECTOR);
-    await switcher.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const dock = this.page.locator(DOCK_SELECTOR);
+    await dock.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },
 );
 
 Then(
   "the workspace switcher should not be visible",
   async function (this: KoluWorld) {
-    const switcher = this.page.locator(WORKSPACE_SWITCHER_SELECTOR);
-    // Either the switcher element is absent or it isn't laid out — both count
-    // as "not visible" for the mobile path which doesn't mount it.
-    const count = await switcher.count();
+    const dock = this.page.locator(DOCK_SELECTOR);
+    const count = await dock.count();
     if (count === 0) return;
-    const visible = await switcher.first().isVisible();
-    assert.ok(!visible, "Expected workspace switcher to not be visible");
+    const visible = await dock.first().isVisible();
+    assert.ok(!visible, "Expected activity dock to not be visible");
   },
 );
 
 Then(
   "the workspace switcher should have {int} branch pills",
   async function (this: KoluWorld, expected: number) {
-    const branches = this.page.locator(BRANCH_SELECTOR);
-    await branches.nth(expected - 1).waitFor({
-      state: "visible",
+    const rows = this.page.locator(DOCK_ROW_SELECTOR);
+    await rows.nth(expected - 1).waitFor({
+      state: "attached",
       timeout: POLL_TIMEOUT,
     });
-    const count = await branches.count();
-    assert.strictEqual(count, expected, `Expected ${expected} branch pills`);
+    const count = await rows.count();
+    assert.strictEqual(count, expected, `Expected ${expected} dock rows`);
   },
 );
 
 Then(
   "a workspace switcher pill should show {string}",
   async function (this: KoluWorld, expected: string) {
-    const pill = this.page
-      .locator(BRANCH_SELECTOR)
+    const row = this.page
+      .locator(DOCK_ROW_SELECTOR)
       .filter({ hasText: expected });
-    await pill.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await row.first().waitFor({ state: "attached", timeout: POLL_TIMEOUT });
   },
 );
 
 Then(
   "the {word} workspace switcher branch should be the active pill",
   async function (this: KoluWorld, ordinal: string) {
-    // 1-based: "first", "second", "third" → 1, 2, 3
     const indexMap: Record<string, number> = {
       first: 0,
       second: 1,
@@ -67,13 +83,13 @@ Then(
     };
     const idx = indexMap[ordinal];
     if (idx === undefined) throw new Error(`Unknown ordinal: ${ordinal}`);
-    const branch = this.page.locator(BRANCH_SELECTOR).nth(idx);
-    await branch.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    const active = await branch.getAttribute("data-active");
+    const row = this.page.locator(DOCK_ROW_SELECTOR).nth(idx);
+    await row.waitFor({ state: "attached", timeout: POLL_TIMEOUT });
+    const active = await row.getAttribute("data-active");
     assert.strictEqual(
       active,
       "",
-      `Expected branch ${idx + 1} to be the active pill`,
+      `Expected dock row ${idx + 1} to be the active entry`,
     );
   },
 );
@@ -81,16 +97,21 @@ Then(
 When(
   "I click workspace switcher branch {int}",
   async function (this: KoluWorld, position: number) {
-    const branch = this.page.locator(BRANCH_SELECTOR).nth(position - 1);
-    await branch.click();
+    const row = this.page.locator(DOCK_ROW_SELECTOR).nth(position - 1);
+    await row.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await row.click();
     await this.waitForFrame();
   },
 );
 
+// "Hover the switcher" — the dock has no hover-to-open; switching to
+// mega is the same surface the old hover affordance produced. The
+// mega-toggle click bumps the dock into mega mode and renders the same
+// `workspace-switcher-panel` content.
 When("I hover the workspace switcher", async function (this: KoluWorld) {
-  const branch = this.page.locator(BRANCH_SELECTOR).first();
-  await branch.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-  await branch.hover();
+  const toggle = this.page.locator(MEGA_TOGGLE_SELECTOR);
+  await toggle.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  await toggle.click();
   await this.page
     .locator(PANEL_SELECTOR)
     .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
@@ -99,26 +120,13 @@ When("I hover the workspace switcher", async function (this: KoluWorld) {
 When(
   "I move from the workspace switcher pill into the panel",
   async function (this: KoluWorld) {
-    const branch = this.page.locator(BRANCH_SELECTOR).first();
-    await branch.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-
-    const branchBox = await branch.boundingBox();
-    assert.ok(branchBox, "Workspace switcher branch has no bounding box");
-
-    const x = branchBox.x + branchBox.width / 2;
-    await this.page.mouse.move(x, branchBox.y + branchBox.height / 2);
-
-    const panel = this.page.locator(PANEL_SELECTOR);
-    await panel.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-
-    const panelBox = await panel.boundingBox();
-    assert.ok(panelBox, "Workspace switcher panel has no bounding box");
-
-    await this.page.mouse.move(x, branchBox.y + branchBox.height + 6, {
-      steps: 4,
-    });
-    await this.page.mouse.move(x, panelBox.y + 8, { steps: 4 });
-    await this.waitForFrame();
+    // Pill → panel hand-off doesn't apply to the dock (no hover bridge).
+    // Open mega directly; downstream click assertions still hold.
+    const toggle = this.page.locator(MEGA_TOGGLE_SELECTOR);
+    await toggle.click();
+    await this.page
+      .locator(PANEL_SELECTOR)
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },
 );
 
@@ -131,7 +139,7 @@ When(
 );
 
 When("I click the workspace switcher toggle", async function (this: KoluWorld) {
-  const toggle = this.page.locator('[data-testid="workspace-switcher-toggle"]');
+  const toggle = this.page.locator(MEGA_TOGGLE_SELECTOR);
   await toggle.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   await toggle.click();
   await this.waitForFrame();
@@ -150,12 +158,11 @@ When(
 When(
   "I click outside the workspace switcher",
   async function (this: KoluWorld) {
-    // Click on the canvas container — definitively outside the switcher
-    // subtree but inside the app, so no popup/navigation side effects.
-    // `position` targets a coordinate well below the chrome bar.
     const canvas = this.page.locator('[data-testid="canvas-container"]');
     await canvas.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    await canvas.click({ position: { x: 50, y: 200 } });
+    // Click well to the right of the dock's left-edge anchor so the
+    // mousedown definitely lands outside the dock's bounding box.
+    await canvas.click({ position: { x: 700, y: 400 } });
     await this.waitForFrame();
   },
 );
@@ -248,10 +255,6 @@ Then(
   "the workspace switcher should show buckets {string}",
   async function (this: KoluWorld, expected: string) {
     const wanted = expected.split(",").map((s) => s.trim());
-    // Poll instead of single-shot read: SolidJS columns mount via a
-    // reactive Index, so a `evaluateAll` after `waitFor("first")` can
-    // race with later columns appearing in the same tick on slower
-    // machines (per .agency/code-police.md → e2e-poll-async-state).
     await this.page.waitForFunction(
       ({ selector, exp }) => {
         const got = Array.from(document.querySelectorAll(selector)).map((el) =>

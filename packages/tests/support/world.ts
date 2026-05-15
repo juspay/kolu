@@ -25,10 +25,13 @@ export const MOD_KEY = process.platform === "darwin" ? "Meta" : "Control";
 /** Locator for the app's settled state: either a visible terminal screen or the empty state tip. */
 const SETTLED_SELECTOR =
   '[data-visible] .xterm-screen, [data-testid="empty-state"]';
-/** Workspace switcher compact entries (one per terminal) — the canonical
- *  "list of terminals" affordance. */
+/** Canonical "list of terminals" affordance — one row per terminal in
+ *  the activity dock. Replaced the chrome-bar workspace-switcher pill
+ *  strip with #903; the surface is different, the semantics are the
+ *  same (one entry per live terminal with `data-terminal-id`,
+ *  `data-active`, `data-unread`, etc.). */
 export const WORKSPACE_SWITCHER_ENTRY_SELECTOR =
-  '[data-testid="workspace-switcher-pill"]';
+  '[data-testid="activity-dock-row"]';
 /** Per-tile elements on the canvas — one per top-level terminal. Mobile
  *  uses the mobile-tile-view body to enumerate terminals instead. */
 export const CANVAS_TILE_SELECTOR = '[data-testid="canvas-tile"]';

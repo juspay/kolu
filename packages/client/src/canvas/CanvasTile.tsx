@@ -14,6 +14,7 @@ import { createDraggable } from "@thisbeyond/solid-dnd";
 import { type Component, For, type JSX, Show } from "solid-js";
 import { CHROME_ICON_BUTTON_CLASS } from "../ui/chromeSpacing";
 import { MaximizeIcon, RestoreIcon } from "../ui/Icons";
+import { dockMaximizedWidth, dockMode } from "./ActivityDock";
 import { RESIZE_HANDLES, type ResizeDirection } from "./resizeGeometry";
 import type { TileLayout } from "./TileLayout";
 import {
@@ -108,21 +109,25 @@ const CanvasTile: Component<{
       data-dimmed={props.dimmed ? "true" : undefined}
       class="flex flex-col overflow-hidden border transition-shadow duration-200"
       classList={{
-        // Maximized stays `absolute inset-0` so it fills the canvas
-        // container — NOT `fixed`, because the transformed pan/zoom
-        // wrapper would otherwise become its containing block (CSS
-        // makes `position: fixed` resolve to the nearest transformed
-        // ancestor, not the viewport). Caller must render maximized
-        // tiles outside that wrapper. Rounding is gated on the same
-        // axis: a maximized tile butts edge-to-edge against the canvas
-        // container, so rounded corners would leave a grid-bg sliver.
+        // Maximized stays `absolute` so it fills the canvas container —
+        // NOT `fixed`, because the transformed pan/zoom wrapper would
+        // otherwise become its containing block. Inset reserves space
+        // on the left for the activity-dock sidebar so the maximized
+        // tile reflows next to it instead of underneath (#904).
         absolute: true,
-        "inset-0 z-40": props.maximized,
+        "top-0 right-0 bottom-0 z-40": props.maximized,
         "rounded-xl": !props.maximized,
         "shadow-xl": props.active && !props.maximized,
         "border-transparent": props.maximized,
       }}
-      style={props.maximized ? { "background-color": bg() } : tiledStyle()}
+      style={
+        props.maximized
+          ? {
+              "background-color": bg(),
+              left: `${dockMaximizedWidth(dockMode())}px`,
+            }
+          : tiledStyle()
+      }
       onMouseDown={() => props.onSelect()}
     >
       {/* Title bar — uses tile foreground at low opacity for guaranteed
