@@ -83,10 +83,19 @@ const MEGA_WIDTH_PX = 560;
  *  Mega overlays the surface (does not reflow the maximized tile any
  *  wider than cards) so callers can pick either {rail, cards} to drive
  *  CSS layout. Tiled mode does not reflow at all. */
-export function dockMaximizedWidth(mode: DockMode): number {
+function dockMaximizedWidth(mode: DockMode): number {
   if (mode === "rail") return RAIL_WIDTH_PX;
   return CARDS_WIDTH_PX;
 }
+
+/** Reactive left-inset accessor for siblings that need to reflow next
+ *  to the dock (today: the maximized canvas tile). The mode-to-pixel
+ *  policy stays opaque inside this module — `CanvasTile` knows "the
+ *  dock takes this many pixels", not "the dock is in rail mode" or
+ *  "rail is 28px wide". A future policy change (user-resizable
+ *  sidebar, density-responsive widths, …) lands here without touching
+ *  any tile-layout code. */
+export const dockTileInset = (): number => dockMaximizedWidth(dockMode());
 
 /** Per-card tail budget shrinks as the dock fills.
  *

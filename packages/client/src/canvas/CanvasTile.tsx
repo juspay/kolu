@@ -14,7 +14,7 @@ import { createDraggable } from "@thisbeyond/solid-dnd";
 import { type Component, For, type JSX, Show } from "solid-js";
 import { CHROME_ICON_BUTTON_CLASS } from "../ui/chromeSpacing";
 import { MaximizeIcon, RestoreIcon } from "../ui/Icons";
-import { dockMaximizedWidth, dockMode } from "./ActivityDock";
+import { dockTileInset } from "./ActivityDock";
 import { RESIZE_HANDLES, type ResizeDirection } from "./resizeGeometry";
 import type { TileLayout } from "./TileLayout";
 import {
@@ -124,7 +124,7 @@ const CanvasTile: Component<{
         props.maximized
           ? {
               "background-color": bg(),
-              left: `${dockMaximizedWidth(dockMode())}px`,
+              left: `${dockTileInset()}px`,
             }
           : tiledStyle()
       }
