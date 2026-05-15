@@ -85,16 +85,27 @@ export interface CellHandlerDeps<T, P = T> {
    *  value equals the current one. See `CellSpec.equals` in `define.ts`
    *  for the rationale. */
   equals?: (a: T, b: T) => boolean;
-  /** Optional pre-mutation hook — runs before persist+publish. Use for
-   *  domain logging or invariant checks. */
+  /** Optional pre-mutation hook. Receives the *raw* patch / input value
+   *  `P` (i.e. before `deps.patch` is applied) and the *current* stored
+   *  value `T`. Fires on `set` and `patch` from the wire, *before* the
+   *  `equals` dedup gate — i.e. fires even for no-op writes. Does **not**
+   *  fire for `test__set` or for the server-internal
+   *  `ctx.cells.<key>.set/patch`. Use for client-action audit logging
+   *  and invariant checks that depend on the unresolved patch shape.
+   *
+   *  Compare `onWrite`: post-merge `T` payload, fires after the `equals`
+   *  gate (no-ops skipped), fires on every write path including
+   *  `test__set` and `ctx.cells.<key>.set`. */
   onMutate?: (patch: P, current: T) => void;
   /** Optional fire-and-forget side effect that runs synchronously on
    *  every successful write — `set`, `patch`, `test__set`, and the
-   *  server-internal `ctx.cells.<key>.set`. Runs after `equals` (no-op
-   *  writes don't fire `onWrite`) and after `onMutate`, just before
-   *  persist+publish. Use for cross-cell invariants the cell write
-   *  must atomically establish (e.g. cancelling a competing autosave
-   *  timer when an external write lands on the session cell). */
+   *  server-internal `ctx.cells.<key>.set`. Receives the resolved
+   *  post-merge value `T`. Runs *after* the `equals` gate (no-op writes
+   *  don't fire `onWrite`), just before `store.set` / `bus.publish`.
+   *  Use for cross-cell invariants the cell write must atomically
+   *  establish (e.g. cancelling a competing autosave timer when an
+   *  external write lands on the session cell). Contrast with
+   *  `onMutate`'s pre-merge `P` payload and wire-only fan-out. */
   onWrite?: (next: T) => void;
 }
 
@@ -802,6 +813,18 @@ export function implementSurface<const S extends SurfaceSpec>(
     // through the same atomicity contract (e.g. an in-app
     // `setSavedSession` cancels the autosave timer via `onWrite`, and
     // a no-op republish is suppressed by `equals`).
+    //
+    // Intentionally does NOT call `onMutate`: that hook is the
+    // wire-only client-action audit point, scoped to `set`/`patch`
+    // verbs. Server-internal callers are domain code and don't have
+    // a meaningful "patch payload before merge" to log — they already
+    // know what they're writing.
+    //
+    // Mirrors the equals→onWrite→store.set→bus.publish sequence in
+    // `cellHandlers.applyAndPublish`. Kept duplicated rather than
+    // extracted to a shared helper so the two paths diverge loudly
+    // (TypeScript errors / test failures) if anyone adds a step to
+    // only one side.
     const store = cellDeps.store;
     function ctxApply(next: unknown): void {
       if (equalsFn?.(store.get(), next)) return;

@@ -206,13 +206,16 @@ function installWalWatcher(
   config: WalSubscriptionConfig,
   log?: Logger,
 ): () => void {
-  let directCleanup: (() => void) | null = null;
-  let directIdentity: string | null = null;
+  // The currently armed direct `fs.watch` on the WAL inode, or null
+  // if no live direct watcher (WAL gone, or never armed). The `cleanup`
+  // and `identity` fields are always set and cleared together — keeping
+  // them in one nullable structure makes "armed vs not-armed" structural
+  // rather than a paired-field convention.
+  let direct: { cleanup: () => void; identity: string } | null = null;
 
   function closeDirect(): void {
-    directCleanup?.();
-    directCleanup = null;
-    directIdentity = null;
+    direct?.cleanup();
+    direct = null;
   }
 
   /** Ensure the direct WAL watcher is attached to the current inode.
@@ -224,26 +227,31 @@ function installWalWatcher(
       closeDirect();
       return false;
     }
-    if (directCleanup && directIdentity === nextIdentity) return true;
+    if (direct && direct.identity === nextIdentity) return true;
     const nextCleanup = tryWatchWal(onChange, config, log);
     if (!nextCleanup) {
       closeDirect();
       return false;
     }
     closeDirect();
-    directCleanup = nextCleanup;
-    directIdentity = nextIdentity;
+    direct = { cleanup: nextCleanup, identity: nextIdentity };
     return true;
   }
 
   armDirect();
 
-  // Coalesce parent-directory events so a flurry of file writes
-  // reported through the directory inode doesn't re-stat per event.
+  // Coalesce parent-directory events at `WAL_REARM_DEBOUNCE_MS` (50 ms)
+  // so a flurry of file writes reported through the directory inode
+  // doesn't re-stat per event. This is independent of, and shorter
+  // than, the integration-level debounce that the callers (e.g.
+  // `createDebounceWatcher` at 150 ms) layer on top: in the common case
+  // both the direct WAL watcher and this dir-event path fire on the
+  // same write, the integration-level debounce collapses both into one
+  // `onChange` payload.
   let rearmTimer: NodeJS.Timeout | null = null;
   function runRearm(): void {
     rearmTimer = null;
-    const hadDirect = directCleanup !== null;
+    const hadDirect = direct !== null;
     const hasDirect = armDirect();
     // Kick — between the prior watcher closing and the new one
     // arming, WAL writes may have been missed. The integration-level

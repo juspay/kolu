@@ -299,6 +299,14 @@ export function startAgentProvider<Session, Info extends AgentInfoShape>(
    *  reconcile instead of all four — each reconcile is a
    *  `resolveSession` call that hits SQLite for codex/opencode. */
   function reconcileFromCommandRun(idx: number) {
+    // `stopped` guard is unique to this code path: title/cwd/commandRun
+    // channel subscriptions are torn down synchronously by their
+    // `consume()` cleanup, so they can't fire post-stop. The
+    // commandRun-driven retry chain schedules `setTimeout` callbacks
+    // that outlive cleanup — `clearCommandRunTimers()` clears the
+    // current set, but a callback already removed from `commandRunTimers`
+    // and in the event loop's pending queue still runs. This guard
+    // makes that runaway no-op.
     if (stopped) return;
     try {
       reconcile();
@@ -308,8 +316,12 @@ export function startAgentProvider<Session, Info extends AgentInfoShape>(
     if (current !== null) return;
     const nextIdx = idx + 1;
     const next = COMMAND_RUN_RECONCILE_DELAYS_MS[nextIdx];
-    const cur = COMMAND_RUN_RECONCILE_DELAYS_MS[idx];
-    if (next === undefined || cur === undefined) return;
+    if (next === undefined) return;
+    // `cur` is in range by construction — `scheduleCommandRunReconciles`
+    // enters at `idx=0` and we only recurse from `idx` to `idx+1` after
+    // the in-range check on `next` above, so `idx` is always a valid
+    // index. The non-null assertion narrows for `next - cur`.
+    const cur = COMMAND_RUN_RECONCILE_DELAYS_MS[idx]!;
     commandRunTimers.push(
       setTimeout(() => reconcileFromCommandRun(nextIdx), next - cur),
     );

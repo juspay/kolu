@@ -169,23 +169,46 @@ export function useSessionRestore(deps: {
     );
     try {
       const oldToNew = new Map<string, TerminalId>();
+      // ── Active-terminal restore protocol — three interdependent steps ──
+      //
+      // The saved `activeTerminalId` must end up as `store.activeId()`
+      // AND the canvas viewport must center on its tile. Two upstream
+      // constraints force the protocol shape:
+      //
+      //   (a) `TerminalCanvas.tsx:331` first-mount fallback effect fires
+      //       on the *first* terminal-list snapshot. If `activeId` is
+      //       null at that moment, it falls through to bbox-of-tiles
+      //       centering, pans the viewport off-default, and won't
+      //       re-center on a later `setActiveSilently`.
+      //   (b) `useTerminalCrud.handleCreate` itself calls
+      //       `store.setActiveSilently(info.id)` for every new terminal
+      //       it creates — so whichever terminal is created *last*
+      //       wins the active slot unless we reassert.
+      //
+      // The protocol:
+      //   1. **Order**: put the saved active terminal first in
+      //      `topLevel` so it's the first `handleCreate`.
+      //   2. **In-loop assert**: synchronously after the matching
+      //      `handleCreate`, call `setActiveSilently(newId)` so the
+      //      first-mount canvas effect sees the right active when the
+      //      empty-state→canvas swap fires.
+      //   3. **Post-loop reassert**: re-set the captured `newId` at the
+      //      end so the per-iteration `handleCreate` auto-set on later
+      //      iterations doesn't leave the wrong terminal active. (Falls
+      //      back to looking up by saved id for sessions whose active
+      //      was a sub-terminal — `topLevel` filtered it out, but
+      //      `oldToNew` still has the mapping.)
+      //
+      // Display order is unaffected by step 1: tile layouts are saved
+      // verbatim (per-tile `canvasLayout`), and the workspace switcher
+      // pill strip sorts by `terminalKey().group` rather than insertion
+      // order. The whole protocol collapses to step 2 alone the day
+      // `handleCreate` accepts an `activate: false` flag (TODO).
+
       // Array order is the ordering — the server wrote terminals in Map
       // insertion order, and that order round-trips verbatim through disk.
-      //
-      // Active-first scheduling: the canvas first-mount fallback effect
-      // (`TerminalCanvas.tsx:331`) fires on the *first* terminal-list
-      // snapshot and falls through to bbox-of-tiles centering whenever
-      // `activeId` is null at that moment. Once the bbox pan lands, the
-      // viewport is no longer at default and the effect won't re-center
-      // when `setActiveSilently` later lands. Push the active terminal
-      // to the front of the create order so it's the first one created,
-      // `setActiveSilently` fires before the canvas mounts, and the
-      // effect takes the active branch on its first run.
-      //
-      // Display order is unaffected: tile canvas layouts are saved
-      // verbatim so position doesn't depend on create order, and the
-      // workspace switcher pill strip sorts by `terminalKey().group`.
       const topLevelInSavedOrder = session.terminals.filter((t) => !t.parentId);
+      // Step 1: active-first reorder.
       const topLevel =
         session.activeTerminalId !== undefined
           ? (() => {
@@ -194,7 +217,9 @@ export function useSessionRestore(deps: {
               );
               if (activeIdx <= 0) return topLevelInSavedOrder;
               return [
-                topLevelInSavedOrder[activeIdx]!,
+                // slice(activeIdx, activeIdx + 1) avoids the `!` non-null assertion
+                // that `[activeIdx]` would require; activeIdx > 0 is proven above.
+                ...topLevelInSavedOrder.slice(activeIdx, activeIdx + 1),
                 ...topLevelInSavedOrder.slice(0, activeIdx),
                 ...topLevelInSavedOrder.slice(activeIdx + 1),
               ];
@@ -206,13 +231,7 @@ export function useSessionRestore(deps: {
         (t): t is typeof t & { parentId: string } => t.parentId !== undefined,
       );
       let resumed = 0;
-      // The new id of the saved `activeTerminalId`. Captured on the
-      // matching `handleCreate` so we can reassert it both inside the
-      // loop (for the canvas first-mount effect — see active-first
-      // scheduling note above) and *after* the loop (because
-      // `handleCreate` itself calls `setActiveSilently(info.id)` on
-      // every invocation, so the last terminal created would otherwise
-      // win the active slot).
+      /** New id of the saved active terminal — captured in step 2, used in step 3. */
       let restoredActiveId: TerminalId | null = null;
       // Seed each new terminal with its saved metadata atomically at create
       // time — the server embeds it into the first `terminal.list` snapshot,
@@ -226,14 +245,9 @@ export function useSessionRestore(deps: {
           lastActivityAt: t.lastActivityAt,
         });
         oldToNew.set(t.id, newId);
+        // Step 2: in-loop assert. Combined with step 1, this puts the
+        // intended active in place before the first canvas mount.
         if (t.id === session.activeTerminalId) {
-          // Synchronously after `handleCreate` so the canvas's
-          // first-mount fallback effect (`TerminalCanvas.tsx:331`)
-          // sees `activeId` populated when the empty-state→canvas
-          // swap fires on the first terminal-list snapshot. Combined
-          // with active-first scheduling above, this puts the
-          // intended active in place before the very first canvas
-          // mount, so the effect takes the active branch.
           restoredActiveId = newId;
           store.setActiveSilently(newId);
         }
@@ -262,16 +276,7 @@ export function useSessionRestore(deps: {
         const newParentId = oldToNew.get(t.parentId);
         if (newParentId) await deps.handleCreateSubTerminal(newParentId, t.cwd);
       }
-      // Reassert the saved active terminal at end of restore.
-      // `handleCreate` itself calls `setActiveSilently(info.id)` for every
-      // new terminal it creates, so by the end of the loop the *last*
-      // created terminal owns the active slot rather than the intended
-      // one. (The viewport-centering correctness was already handled by
-      // the in-loop `setActiveSilently` plus active-first scheduling;
-      // this final assertion is purely to leave `activeId` matching
-      // what the user saved.) Falls back to looking up by saved id for
-      // sessions whose active was a sub-terminal — `topLevel` filtered
-      // it out, but `oldToNew` still has the mapping.
+      // Step 3: post-loop reassert (see protocol block above).
       if (restoredActiveId !== null) {
         store.setActiveSilently(restoredActiveId);
       } else if (session.activeTerminalId) {
