@@ -396,6 +396,19 @@ Before(async function (this: KoluWorld, scenario) {
     postJSON(`${baseUrl}/rpc/surface/session/test__set`, { json: null }),
   ]);
 
+  // Drain the autosave loop's pending timer. `terminal/killAll` above fires
+  // `terminalsDirtyChannel` events that arm a 500 ms `saveSession([])` timer
+  // (see `initSessionAutoSave` in `packages/server/src/session.ts`). The
+  // *named* `setSavedSession` cancels it, but the surface `test__set` verb
+  // we use to reset the session cell does not — so without this wait, the
+  // timer can fire 500 ms after a scenario's `Given a saved session` POST
+  // and clobber the test's session with `null`, briefly hiding the restore
+  // card and detaching the restore button mid-click. The 600 ms cushion is
+  // 100 ms longer than the timer to absorb scheduler jitter. Test-side
+  // workaround for the test__set/autosave race — does not change app
+  // behaviour for production callers (which use the named setSavedSession).
+  await new Promise((r) => setTimeout(r, 600));
+
   // @mobile tag → emulate a touch phone (flips `(pointer: coarse)` to true,
   // mounts the mobile drag handle). Without the tag, scenarios run in the
   // desktop context unchanged.
