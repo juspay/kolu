@@ -185,6 +185,7 @@ const App: Component = () => {
   // dialog setters, debug, etc.) are added below in the createCommands call.
   const actionContext: ActionContext = {
     terminalIds: store.terminalIds,
+    dockOrderedIds: orderedIds,
     activeId: store.activeId,
     activate: store.activate,
     mruOrder: store.mruOrder,

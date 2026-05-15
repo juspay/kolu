@@ -148,6 +148,25 @@ if (typeof window !== "undefined") {
   });
 }
 
+// Holding Alt/Option reveals numeric hints over the first nine dock
+// rows so the user can see what `Cmd+1..9` will target — the
+// shortcuts target dock row order (recency-sorted), and that order
+// shifts as agents transition, so the visible mapping needs to be on-
+// demand rather than always painted. Module-scope so a single pair of
+// window listeners fans out to every DockRow.
+const [altHeld, setAltHeld] = createSignal(false);
+if (typeof window !== "undefined") {
+  const refresh = (e: KeyboardEvent) => setAltHeld(e.altKey);
+  const clear = () => setAltHeld(false);
+  window.addEventListener("keydown", refresh);
+  window.addEventListener("keyup", refresh);
+  // Tab-away can drop the keyup that would otherwise reset state; the
+  // hint would visibly stick to "Alt held" until the user re-focused
+  // and pressed Alt again. Blur and visibility-change both reset.
+  window.addEventListener("blur", clear);
+  document.addEventListener("visibilitychange", clear);
+}
+
 /** Tri-state mode persisted per-device. `"cards"` is the default — the
  *  dock surfaces real context first, ambient compression on opt-in.
  *  Mega is a transient search affordance and deliberately doesn't
@@ -382,12 +401,13 @@ const RailOrCards: Component<{
       />
       <div class="flex flex-col overflow-y-auto overflow-x-hidden scrollbar-none flex-1 min-h-0">
         <For each={props.liveIds}>
-          {(id) => (
+          {(id, index) => (
             <DockRow
               id={id}
               bucket={props.bucketOf.get(id) ?? "none"}
               mode={props.mode}
               tailLines={props.tailLines}
+              index={index()}
             />
           )}
         </For>
@@ -470,6 +490,9 @@ const DockRow: Component<{
   bucket: DockBucket;
   mode: Exclude<DockMode, "mega">;
   tailLines: number;
+  /** Zero-based row index in the recency-sorted list. Used to paint
+   *  the `Cmd+1..9` hint on the first nine rows while Alt is held. */
+  index: number;
 }> = (props) => {
   const store = useTerminalStore();
   const combined = createMemo(() => {
@@ -480,6 +503,10 @@ const DockRow: Component<{
   });
   const active = () => store.activeId() === props.id;
   const unread = () => store.isUnread(props.id);
+  // First nine rows get a Cmd+i hint while Alt is held. The mapping
+  // matches `switchTo1..9` in `actions.ts`, which targets the same
+  // recency-sorted order this row's `index` belongs to.
+  const showShortcutHint = () => altHeld() && props.index < 9;
   return (
     <Show when={combined()}>
       {(c) => (
@@ -499,6 +526,15 @@ const DockRow: Component<{
             >
               <span class="absolute inline-flex h-full w-full rounded-full bg-alert opacity-75 animate-ping" />
               <span class="relative inline-flex rounded-full h-2 w-2 bg-alert" />
+            </span>
+          </Show>
+          <Show when={showShortcutHint()}>
+            <span
+              data-testid="dock-row-shortcut-hint"
+              class="absolute top-1 left-1 z-10 inline-flex items-center justify-center h-4 min-w-4 px-1 rounded bg-accent text-surface-1 font-mono text-[0.6rem] font-bold tabular-nums pointer-events-none"
+              aria-hidden="true"
+            >
+              {props.index + 1}
             </span>
           </Show>
           <RailSegment

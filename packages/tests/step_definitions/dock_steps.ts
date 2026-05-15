@@ -134,6 +134,51 @@ Then("the dock should be in maximized mode", async function (this: KoluWorld) {
   );
 });
 
+When("I press and hold Alt", async function (this: KoluWorld) {
+  await this.page.keyboard.down("Alt");
+  await this.waitForFrame();
+});
+
+When("I release Alt", async function (this: KoluWorld) {
+  await this.page.keyboard.up("Alt");
+  await this.waitForFrame();
+});
+
+When(
+  "I press shortcut {string}",
+  async function (this: KoluWorld, chord: string) {
+    // Translate the cucumber-friendly "Mod+..." into the platform-
+    // specific Cmd/Ctrl that Playwright understands.
+    const resolved = chord.replace(/\bMod\b/g, MOD_KEY);
+    await this.page.keyboard.press(resolved);
+    await this.waitForFrame();
+  },
+);
+
+const SHORTCUT_HINT_SELECTOR = '[data-testid="dock-row-shortcut-hint"]';
+
+Then(
+  "no dock-row shortcut hints should be visible",
+  async function (this: KoluWorld) {
+    await this.page.waitForFunction(
+      (sel) => document.querySelectorAll(sel).length === 0,
+      SHORTCUT_HINT_SELECTOR,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+Then(
+  "the dock should show {int} shortcut hints",
+  async function (this: KoluWorld, expected: number) {
+    await this.page.waitForFunction(
+      ({ sel, count }) => document.querySelectorAll(sel).length === count,
+      { sel: SHORTCUT_HINT_SELECTOR, count: expected },
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
 Then(
   "the dock should show {int} foreground row containing {string}",
   async function (this: KoluWorld, expected: number, fragment: string) {

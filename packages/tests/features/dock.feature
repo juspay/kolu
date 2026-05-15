@@ -67,3 +67,25 @@ Feature: Dock
     # from `meta.foreground.title || .name`.
     When I run "sleep 5"
     Then the dock should show 1 foreground row containing "sleep"
+
+  Scenario: Cmd+1 activates the first dock row (recency-sorted)
+    # `Cmd+1..9` targets dock row order, not store insertion order.
+    # The background terminal is t0; running echo populates its buffer
+    # and lifts its recency above any new terminal. After creating a
+    # second terminal (now active), Cmd+1 returns focus to t0 since it
+    # leads the recency-sorted dock order.
+    Given I run "echo first-dock-row"
+    And I create a terminal
+    When I press shortcut "Mod+1"
+    Then the active terminal should show "first-dock-row"
+
+  Scenario: Alt held reveals numeric shortcut hints on dock rows
+    # Holding Alt/Option paints a `Cmd+N` hint on the first nine dock
+    # rows so the user can see what the positional shortcut will
+    # target. Releasing Alt removes the hints.
+    Given I create a terminal
+    Then no dock-row shortcut hints should be visible
+    When I press and hold Alt
+    Then the dock should show 2 shortcut hints
+    When I release Alt
+    Then no dock-row shortcut hints should be visible
