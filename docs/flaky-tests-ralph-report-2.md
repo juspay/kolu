@@ -48,7 +48,7 @@ This is a follow-up to the prior run captured in
 
 | Cycle | Target | Classification | Change | Re-measure |
 | ----- | ------ | -------------- | ------ | ---------- |
-| _pending_ | | | | |
+| 1 | `codex.feature` indicator null/null (2/5 baseline) | Bootstrap race: `startAgentProvider` only registers for the WAL external-changes fan-out when a reconcile sees `isPresent` true, and reconciles in master are triggered only by title events. Under 4-worker load the body printf OSC 2 can be delayed past the test's first `nudgeWal` tick. | `codex_steps.ts::startFakeAgent` + `startShimmedAgent`: replace single body `printf '\033]0;codex\007'` with `for i in 1 2 3; do printf …; sleep 0.15; done`. Mirror in `opencode_steps.ts`. Tests-only — no app behaviour changes. | 5 runs: 4 pass / 1 fail. **Codex flake observed 0/5**. New observation: `session-restore.feature:61` failed 2/5 (`restore button should mention "resume 2 agents"` waiting on `[data-testid="restore-session"]` 20 s). Move to cycle 2. |
 
 ## Findings
 
