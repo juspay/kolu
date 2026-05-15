@@ -94,13 +94,33 @@ Then(
 Then(
   "the restore button should mention {string}",
   async function (this: KoluWorld, text: string) {
-    const btn = this.page.locator('[data-testid="restore-session"]');
-    await btn.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    const content = await btn.textContent();
-    assert.ok(
-      content?.includes(text),
-      `Expected restore button to contain "${text}", got "${content}"`,
-    );
+    // Same hydration race the visibility + agent-command steps already guard:
+    // the EmptyState's `<Show when={props.savedSession}>{(session) => …}` is
+    // the keyed form, so each new SavedSession reference unmount/remounts the
+    // restore card (including this button). The preceding "restore card
+    // should show agent command" step re-POSTs on every poll tick to drive
+    // recovery; the last few POSTs can still be in flight when we land here,
+    // so the button can appear, vanish during a remount, and reappear with
+    // an outdated text in a brief window. Mirror the same self-heal pattern.
+    await pollFor({
+      observe: () =>
+        this.page.evaluate(
+          () =>
+            document.querySelector('[data-testid="restore-session"]')
+              ?.textContent ?? null,
+        ),
+      isDone: (content) => content?.includes(text) ?? false,
+      onTick: async () => {
+        if (this.savedSessionTerminals) {
+          await postSavedSessionPayload(this, this.savedSessionTerminals);
+        }
+      },
+      onTimeout: (last, ms) =>
+        new Error(
+          `Restore button never mentioned "${text}" within ${ms}ms (last="${last}")`,
+        ),
+      timeoutMs: POLL_TIMEOUT,
+    });
   },
 );
 
