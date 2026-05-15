@@ -17,7 +17,7 @@
  *  "what just changed?" as the first row regardless of which repo it
  *  belongs to. */
 
-import type { TerminalId } from "kolu-common/surface";
+import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import { type Component, For, Show, createMemo } from "solid-js";
 import AgentIndicator from "./terminal/AgentIndicator";
 import { formatTimeAgo, useStaleCheck } from "./terminal/staleness";
@@ -90,6 +90,20 @@ const MobileDockDrawer: Component<{
   );
 };
 
+/** Live-attention buckets (awaiting/working) get a richer row — taller
+ *  padding, bigger headline type, an agent/time meta line, and a PR
+ *  line when one is resolved. Idle/parked/none stay as compact
+ *  one-liners — they're the "navigate to it later" bucket, not the
+ *  "needs you now" bucket, so they don't earn the extra height.
+ *
+ *  Mirrors the desktop dock's awaiting-card / working-pill / quiet-row
+ *  hierarchy; the cap is `lastActivityAt > 4h ago` (i.e. parked)
+ *  routing the row to the quiet variant regardless of prior agent
+ *  state, same as `useStaleCheck` enforces in the ranking step. */
+function isLive(bucket: MobileDockBucket): boolean {
+  return bucket === "awaiting" || bucket === "working";
+}
+
 const Row: Component<{
   id: TerminalId;
   bucket: MobileDockBucket;
@@ -100,6 +114,7 @@ const Row: Component<{
   const meta = () => store.getMetadata(props.id);
   const active = () => store.activeId() === props.id;
   const unread = () => store.isUnread(props.id);
+  const live = () => isLive(props.bucket);
   return (
     <Show when={info() && meta()}>
       <button
@@ -113,15 +128,17 @@ const Row: Component<{
         // drag-to-dismiss from claiming the tap.
         onPointerDown={(e) => e.stopPropagation()}
         onClick={() => props.onSelect(props.id)}
-        class="w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors cursor-pointer active:bg-surface-2 border-b border-edge/15"
+        class="w-full flex items-stretch gap-3 px-3 text-left transition-colors cursor-pointer active:bg-surface-2 border-b border-edge/15"
         classList={{
+          "py-3": live(),
+          "py-2": !live(),
           "bg-accent/15": active(),
           "opacity-60": props.bucket === "parked" && !active(),
         }}
       >
         <span
           aria-hidden="true"
-          class="w-1 h-8 rounded-full shrink-0"
+          class="w-1 rounded-full shrink-0 self-stretch"
           style={{ "background-color": info()?.repoColor }}
         />
         <div class="flex-1 min-w-0 flex flex-col gap-0.5">
@@ -133,15 +150,19 @@ const Row: Component<{
               {info()?.key.group}
             </span>
             <span
-              class="text-[0.85rem] font-medium leading-tight truncate min-w-0"
+              class="font-medium leading-tight truncate min-w-0"
+              classList={{
+                "text-[0.95rem]": live(),
+                "text-[0.8rem]": !live(),
+              }}
               style={{ color: info()?.branchColor }}
             >
               {info()?.key.label}
             </span>
           </div>
-          <Show when={meta()?.agent}>
+          <Show when={live() && meta()?.agent}>
             {(agent) => (
-              <div class="flex items-center justify-between gap-2 min-w-0 text-[0.6rem] text-fg-3">
+              <div class="flex items-center justify-between gap-2 min-w-0 text-[0.65rem] text-fg-3">
                 <AgentIndicator agent={agent()} />
                 <Show when={formatTimeAgo(meta()?.lastActivityAt ?? 0)}>
                   {(label) => (
@@ -151,11 +172,39 @@ const Row: Component<{
               </div>
             )}
           </Show>
+          <Show when={live()}>
+            <PrLine meta={meta()} />
+          </Show>
         </div>
         <Show when={unread()}>
-          <span class="w-2 h-2 rounded-full bg-alert shrink-0" />
+          <span class="w-2 h-2 mt-1 rounded-full bg-alert shrink-0" />
         </Show>
       </button>
+    </Show>
+  );
+};
+
+/** PR summary line — `#N title` — rendered when the terminal's PR is
+ *  in the resolved `ok` state. Mirrors the desktop dock's `PrLine` so
+ *  the awaiting/working rows on mobile carry the same identity rung
+ *  the desktop cards do. Returns null for `absent` / `pending` /
+ *  `unavailable` PR kinds so the row collapses cleanly. */
+const PrLine: Component<{ meta: TerminalMetadata | undefined }> = (props) => {
+  const pr = () => {
+    const m = props.meta;
+    if (!m) return null;
+    return m.pr.kind === "ok" ? m.pr.value : null;
+  };
+  return (
+    <Show when={pr()}>
+      {(p) => (
+        <div class="flex items-baseline gap-1.5 min-w-0 text-[0.7rem] text-fg-2">
+          <span class="font-mono tabular-nums text-fg-3 shrink-0">
+            #{p().number}
+          </span>
+          <span class="truncate min-w-0">{p().title}</span>
+        </div>
+      )}
     </Show>
   );
 };
