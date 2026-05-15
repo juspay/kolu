@@ -54,7 +54,7 @@ import {
 } from "kolu-git";
 import { log } from "./log.ts";
 import { publisher } from "./publisher.ts";
-import { getSavedSession } from "./session.ts";
+import { cancelPendingAutosave, getSavedSession } from "./session.ts";
 import { store } from "./state.ts";
 import { getTerminal, listTerminals } from "./terminal-registry.ts";
 
@@ -142,7 +142,25 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
       session: {
         // Reads through `getSavedSession` to keep the "empty terminals = null"
         // legacy normalization at one site (`session.ts` owns that invariant).
-        store: { get: () => getSavedSession(), set: savedSessionStore.set },
+        //
+        // `set` wraps `savedSessionStore.set` with `cancelPendingAutosave` so
+        // every path through this cell — `set`, `patch`, `test__set`, and
+        // the server-internal `surfaceCtx.cells.session.set` reached by
+        // `writeSession` — kills the in-flight autosave timer before
+        // committing. Without this, the surface's `test__set` verb used by
+        // the e2e harness bypasses the named `setSavedSession` and a stale
+        // killAll-time `terminals:dirty` event can clobber a freshly
+        // POSTed session with `null` ~500 ms later. The cancel is a no-op
+        // on the autosave loop's own write path (the loop clears the timer
+        // synchronously before calling `saveSession`); future dirty events
+        // arrive after the cell write and arm a fresh timer normally.
+        store: {
+          get: () => getSavedSession(),
+          set: (v: SavedSession | null) => {
+            cancelPendingAutosave();
+            savedSessionStore.set(v);
+          },
+        },
       },
       terminalList: {
         // Live registry; the in-memory store has no persistent slot.

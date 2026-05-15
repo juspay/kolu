@@ -16,8 +16,36 @@ import { store } from "./state.ts";
 import { surfaceCtx } from "./surface.ts";
 
 /** Pending autosave timer — declared at module top so `setSavedSession`
- *  can cancel it (see comment on that function for the race). */
+ *  and the surface cell's `store.set` adapter can cancel it (see comment
+ *  on `cancelPendingAutosave` for the race). */
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
+
+/** Cancel any pending `saveSession([])` autosave callback that's been
+ *  armed by a recent `terminalsDirtyChannel` event but hasn't fired yet.
+ *
+ *  Called both from the named `setSavedSession` and from the surface
+ *  session cell's `store.set` adapter (see `surface.ts`). Wiring it into
+ *  the cell adapter is what extends the cancel to the surface's
+ *  `test__set` verb — which the e2e harness uses to seed scenarios,
+ *  and which would otherwise be clobbered ~500 ms later by a stale
+ *  killAll-time dirty event.
+ *
+ *  Harmless on the autosave loop's own write path: by the time the
+ *  loop's callback reaches `cells.session.set`, the callback has
+ *  already cleared `saveTimer` itself (see `initSessionAutoSave`), so
+ *  this is a no-op. Subsequent dirty events received after the callback
+ *  exits arm a fresh timer that is *not* cancelled — autosave keeps
+ *  working as designed.
+ *
+ *  See `initSessionAutoSave` for the autosave loop, and the original
+ *  e2e race description on `setSavedSession` (#320 / cycle 6 of
+ *  `docs/flaky-tests-ralph-report-2.md`). */
+export function cancelPendingAutosave(): void {
+  if (saveTimer) {
+    clearTimeout(saveTimer);
+    saveTimer = undefined;
+  }
+}
 
 /** Write the session blob (or clear it). The surface owns persist+publish. */
 function writeSession(next: SavedSession | null): void {
@@ -64,10 +92,7 @@ export function clearSavedSession(): void {
  *  terminal snapshot, and `saveSession([])` rewrites the session to null —
  *  the restore card disappears mid-scenario. */
 export function setSavedSession(session: SavedSession | null): void {
-  if (saveTimer) {
-    clearTimeout(saveTimer);
-    saveTimer = undefined;
-  }
+  cancelPendingAutosave();
   writeSession(session);
 }
 
