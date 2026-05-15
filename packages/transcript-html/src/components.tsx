@@ -579,21 +579,52 @@ const Eyebrow = (props: { transcript: Transcript }) => {
   );
 };
 
+/** Strip the most common markdown chrome from a single line so it
+ *  reads as prose: leading heading (`#`–`######`), list marker
+ *  (`-`/`*`/`+`/`1.`), or blockquote (`>`); inline emphasis pairs
+ *  (`**bold**`, `*em*`, `_em_`, `` `code` ``); and link syntax
+ *  (`[text](url)` → `text`). This is a heuristic, not a full
+ *  markdown parser — it covers the cases that surface in titles and
+ *  previews now that user prompts render as markdown. */
+export function plainFromMarkdownLine(line: string): string {
+  return line
+    .replace(/^\s*(?:#{1,6}\s+|[-*+]\s+|\d+\.\s+|>\s+)/, "")
+    .replace(/\*\*([^*\n]+)\*\*/g, "$1")
+    .replace(/\*([^*\n]+)\*/g, "$1")
+    .replace(/_([^_\n]+)_/g, "$1")
+    .replace(/`([^`\n]+)`/g, "$1")
+    .replace(/\[([^\]\n]+)\]\([^)\n]+\)/g, "$1")
+    .trim();
+}
+
+/** Find the first non-empty prose line in a markdown blob — walks
+ *  past blank lines, HR markers, and empty-after-strip lines so a
+ *  prompt that opens with `---` or `### ` still yields meaningful
+ *  preview text. */
+export function plainPreviewFromMarkdown(text: string): string {
+  for (const raw of text.split(/\r?\n/)) {
+    const cleaned = plainFromMarkdownLine(raw);
+    if (cleaned.length > 0) return cleaned;
+  }
+  return "";
+}
+
 /** Pick the displayed title for the document. Prefers the first user
- *  prompt (one-line, truncated). Claude Code's `summary` field comes
- *  from a rolling SDK summarizer that re-summarises on every turn, so
- *  on long sessions it drifts toward the LATEST prompt — exactly the
- *  opposite of what a session label should mean. The first prompt is
- *  the question that started the conversation and is the most useful
- *  one-line label across all three agents. */
+ *  prompt (one prose line, truncated). User prompts now render as
+ *  markdown, so the title walks past markdown chrome (heading marks,
+ *  list bullets, emphasis, link syntax) instead of pasting the raw
+ *  source into the document `<title>` and `<h1>`. Claude Code's
+ *  `summary` field is a rolling SDK summarizer that re-summarises on
+ *  every turn, so on long sessions it drifts toward the LATEST prompt
+ *  — exactly the opposite of what a session label should mean. The
+ *  first prompt is the question that started the conversation and is
+ *  the most useful one-line label across all three agents. */
 export function deriveDisplayTitle(transcript: Transcript): string {
   for (const ev of transcript.events) {
     if (ev.kind === "user") {
-      const firstLine = (ev.text.split(/\r?\n/)[0] ?? "").trim();
-      if (firstLine.length > 0) {
-        return firstLine.length > 120
-          ? `${firstLine.slice(0, 117)}…`
-          : firstLine;
+      const preview = plainPreviewFromMarkdown(ev.text);
+      if (preview.length > 0) {
+        return preview.length > 120 ? `${preview.slice(0, 117)}…` : preview;
       }
     }
   }
