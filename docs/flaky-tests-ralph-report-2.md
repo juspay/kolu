@@ -26,11 +26,23 @@ This is a follow-up to the prior run captured in
 - Tests counted: scenarios passed / total. A run is "green" only if all
   scenarios pass.
 
-## Baseline
+## Baseline (HEAD = `a8c24c59` master tip)
 
-| Run | Result | Failing scenarios | Notes |
-| --- | ------ | ----------------- | ----- |
-| _pending_ | | | |
+| Run | Result | Failing scenario | Step |
+| --- | ------ | ---------------- | ---- |
+| 1 | 303 / 304 | `code-tab.feature:184` (Folder collapse during active filter, **branch**) | `Given a Code tab in "branch" mode showing files:` — `locator.waitFor: 20000ms exceeded` on `[data-item-path="src/alpha-one.txt"]` |
+| 2 | 304 / 304 ✓ | — | — |
+| 3 | 304 / 304 ✓ | — | — |
+| 4 | 303 / 304 | `codex.feature:30` (Context tokens reflect input_tokens) | `Then the tile chrome should show a Codex indicator with state "thinking"` — `state="null" kind="null" after 20021ms` |
+| 5 | 303 / 304 | `codex.feature:49` (npm-shimmed Codex via OSC 633;E preexec hint) | `Then the tile chrome should show a Codex indicator with state "thinking"` — `state="null" kind="null" after 20231ms` |
+
+**Summary**: 2 / 5 runs failed. Two distinct flake classes:
+
+1. **`codex.feature` "indicator state null/null"** — observed on lines 30 and 49 (40% rate; both scenarios use the foreground-basename `startFakeAgent` path or shimmed `startShimmedAgent` path). Bootstrap race: the codex provider only joins the WAL external-changes fan-out once a reconcile sees `isPresent` true; in master, reconcile is only triggered by **title events** (preexec OSC 2 + body printf OSC 2). If the body printf event is dropped or delayed under 4-worker load, the per-iteration WAL nudge from `nudgeCodex` is wasted (no reconciler registered yet for this terminal in `activations.reconcilers`). This is the documented residual flake from commit `4738ea2b` ("test: revert debounce-watcher app-code change, nudge WAL from tests instead").
+
+2. **`code-tab.feature:184` (branch)** — observed 20% of the time. `waitForFixturePath` 20s timeout on the file row appearing in the Pierre tree after `git add .`. Plausible cause: under parallel-worker load the gitStatus subscription's debounce + git command latency together exceed 20s, or a missed `.git/index` watcher event leaves the diff stream stale.
+
+
 
 ## Optimization Log
 
