@@ -42,6 +42,10 @@ export function useSessionRestore(deps: {
   const [savedSession, setSavedSession] = createSignal<SavedSession | null>(
     null,
   );
+  /** True from the moment `handleRestoreSession` starts until it
+   *  resolves (success or failure). The restore card stays mounted
+   *  while this is true so the click target doesn't detach mid-flight. */
+  const [isRestoring, setIsRestoring] = createSignal(false);
 
   // Hydrate from server state on initial load.
   let hydrated = false;
@@ -147,9 +151,18 @@ export function useSessionRestore(deps: {
   async function handleRestoreSession(
     options: { resumeIds?: ReadonlySet<string> } = {},
   ) {
+    if (isRestoring()) return;
     const session = savedSession();
     if (!session) return;
-    setSavedSession(null);
+    // Keep the restore card mounted until terminal creation actually
+    // succeeds. Synchronously clearing `savedSession` before the async
+    // create loop runs detaches the click target mid-event — Playwright
+    // sees "element was detached from the DOM" retries on slow restores,
+    // and a fast human user sees an empty-state flicker between click
+    // and canvas reveal. The visible card during the restore window is
+    // gated below by `isRestoring()`; on success we clear `savedSession`
+    // before the toast, on failure we leave it set so the user can retry.
+    setIsRestoring(true);
     const resumeIds = options.resumeIds;
     const id = toast.loading(
       `Restoring ${session.terminals.length} terminals…`,
@@ -211,16 +224,20 @@ export function useSessionRestore(deps: {
         resumed > 0
           ? `Restored ${session.terminals.length} terminals, resumed ${resumed} agent${resumed > 1 ? "s" : ""}`
           : "Session restored";
+      setSavedSession(null);
       toast.success(summary, { id });
     } catch (err) {
       toast.error(`Restore failed: ${(err as Error).message}`, { id });
       throw err;
+    } finally {
+      setIsRestoring(false);
     }
   }
 
   return {
     isLoading: () => store.listSub.pending(),
     savedSession,
+    isRestoring,
     handleRestoreSession,
   };
 }
