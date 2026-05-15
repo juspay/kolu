@@ -365,32 +365,31 @@ const TerminalCanvas: Component<{
     });
   });
 
-  // Activity dock mount slot — packaged as a JSX value so the same
-  // component instance can render in either of two structural positions
-  // without duplicating its props. (Solid's <Show> would mount/unmount
-  // either branch separately; we want one persistent instance instead so
-  // the dock's internal effects/listeners don't churn on posture flips.)
-  const dock = (
-    <ActivityDock
-      entries={props.workspaceEntries}
-      activeId={store.activeId()}
-      getRecency={props.getRecency}
-      openMegaRequest={props.openMegaRequest}
-      onCreate={props.onCreate}
-    />
-  );
-
   return (
     <DragDropProvider onDragMove={handleDragMove} onDragEnd={handleDragEnd}>
       <DragDropSensors />
-      {/* Outer flex container — in maximized mode the dock is a real
-       *  left-panel flex sibling (like RightPanelLayout's right panel),
-       *  so the maximized terminal naturally takes the remaining space
-       *  via flex-1 and the rail/cards/mega widths are honored without
-       *  any explicit inset math on the tile (#904). In tiled mode the
-       *  dock floats inside the canvas instead — see below. */}
-      <div class="flex-1 min-h-0 overflow-hidden flex">
-        <Show when={posture.maximized()}>{dock}</Show>
+      {/* Outer flex container — single mount point for the activity
+       *  dock. The dock owns its own posture-conditional positioning:
+       *  in maximized mode it's `relative shrink-0` (real left-panel
+       *  flex sibling, like RightPanelLayout's right panel — the
+       *  canvas takes the remaining width via `flex-1`); in tiled
+       *  mode it's `absolute z-30 top-20 left-4` (floats over the
+       *  canvas). The wrapper is `relative` so the dock's absolute
+       *  coordinates in tiled mode resolve to the same `top: 5rem,
+       *  left: 1rem` they did when mounted inside the canvas div.
+       *  Mounting the dock once instead of toggling between two
+       *  `<Show>` branches avoids tearing down its reactive scope on
+       *  posture flips — the prior split-mount approach left the dock
+       *  invisible until full page reload after enough toggles
+       *  (#909 follow-up bug report). */}
+      <div class="flex-1 min-h-0 overflow-hidden flex relative">
+        <ActivityDock
+          entries={props.workspaceEntries}
+          activeId={store.activeId()}
+          getRecency={props.getRecency}
+          openMegaRequest={props.openMegaRequest}
+          onCreate={props.onCreate}
+        />
         <div
           ref={(el) => viewport.setContainerRef(el, isWheelTargetTerminal)}
           data-testid="canvas-container"
@@ -476,12 +475,6 @@ const TerminalCanvas: Component<{
               </>
             );
           })()}
-
-          {/* Activity dock — tiled posture: floats over the canvas as an
-           *  absolute overlay. Maximized posture renders the same dock
-           *  instance as a flex sibling above the canvas div (see top of
-           *  this component); only one mount point is active at a time. */}
-          <Show when={!posture.maximized()}>{dock}</Show>
 
           {/* Minimap: spatial dashboard; hides in fullscreen-single-tile mode
            *  since there's nothing spatial to summarize. */}
