@@ -1,18 +1,26 @@
 /** Workspace switcher — step definitions.
  *
- *  The "workspace switcher" surface unified with the command palette
- *  in #912: `Mod+Shift+K` (and the dock's search-icon button) opens
- *  the palette pre-drilled into the "Search workspaces" group. These
- *  steps keep the original phrasing (so cross-cutting feature files
- *  don't need re-writing everywhere) but resolve to:
+ *  The workspace-search surface unified with the command palette in
+ *  #912: `Mod+Shift+K` and the dock's search-icon button both open
+ *  the palette pre-drilled into the "Search workspaces" group, whose
+ *  body renders the same facet sidebar + agent-state column grid the
+ *  standalone mega level used to host.
+ *
+ *  These steps keep the original phrasing (so cross-cutting feature
+ *  files don't need re-writing everywhere) but resolve to:
  *
  *  - "branch pill" / "branch" → dock row (`dock-row`)
  *  - "switcher toggle" → dock's search-icon button (`dock-search`)
- *  - "hover the switcher" → click the dock's search-icon (the dock
- *    has no hover-to-open surface; the click reaches the same palette
- *    state the keyboard shortcut would)
- *  - "panel" / "search" / "card" → command palette (`command-palette`)
- *    with the breadcrumb showing the "Search workspaces" group */
+ *  - "hover the switcher" → click the dock's search-icon (no
+ *    hover-to-open surface; the click reaches the same palette state
+ *    the keyboard shortcut would)
+ *  - "panel" / "card" / "column" / "repo" / "idle-sub" →
+ *    `workspace-switcher-*` testids inside the WorkspaceGrid body,
+ *    which is mounted inside the command-palette dialog when the
+ *    "Search workspaces" group is drilled into.
+ *  - "switcher search" → the command palette's input
+ *  - "close button" → Press Escape (Raycast-style palette has no
+ *    dedicated close affordance) */
 
 import * as assert from "node:assert";
 import { Then, When } from "@cucumber/cucumber";
@@ -20,25 +28,14 @@ import { type KoluWorld, MOD_KEY, POLL_TIMEOUT } from "../support/world.ts";
 
 const DOCK_SELECTOR = '[data-testid="dock"]';
 const DOCK_ROW_SELECTOR = '[data-testid="dock-row"]';
-const SEARCH_BUTTON_SELECTOR = '[data-testid="dock-search"]';
+const DOCK_SEARCH_SELECTOR = '[data-testid="dock-search"]';
 const PALETTE_SELECTOR = '[data-testid="command-palette"]';
 const PALETTE_INPUT_SELECTOR = `${PALETTE_SELECTOR} input`;
-const PALETTE_OPTION_SELECTOR = `${PALETTE_SELECTOR} [role="option"]`;
-const PALETTE_BREADCRUMB_SELECTOR = `${PALETTE_SELECTOR} nav`;
-
-async function expectPaletteOnWorkspaces(world: KoluWorld): Promise<void> {
-  await world.page
-    .locator(PALETTE_SELECTOR)
-    .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-  await world.page.waitForFunction(
-    (sel) => {
-      const nav = document.querySelector(sel);
-      return nav?.textContent?.includes("Search workspaces") ?? false;
-    },
-    PALETTE_BREADCRUMB_SELECTOR,
-    { timeout: POLL_TIMEOUT },
-  );
-}
+const PANEL_SELECTOR = '[data-testid="workspace-switcher-panel"]';
+const CARD_SELECTOR = '[data-testid="workspace-switcher-card"]';
+const REPO_SELECTOR = '[data-testid="workspace-switcher-repo"]';
+const COLUMN_SELECTOR = '[data-testid="workspace-switcher-column"]';
+const IDLE_SUB_SELECTOR = '[data-testid="workspace-switcher-idle-sub"]';
 
 Then(
   "the workspace switcher should be visible",
@@ -114,23 +111,28 @@ When(
   },
 );
 
-// "Hover the switcher" — the dock has no hover-to-open. The
+// "Hover the switcher" — the dock has no hover-to-open. The dock's
 // search-icon click reaches the same palette state Mod+Shift+K would.
 When("I hover the workspace switcher", async function (this: KoluWorld) {
-  const toggle = this.page.locator(SEARCH_BUTTON_SELECTOR);
+  const toggle = this.page.locator(DOCK_SEARCH_SELECTOR);
   await toggle.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   await toggle.click();
-  await expectPaletteOnWorkspaces(this);
+  await this.page
+    .locator(PANEL_SELECTOR)
+    .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
 });
 
 When(
   "I move from the workspace switcher pill into the panel",
   async function (this: KoluWorld) {
-    // No hover bridge — open the palette directly via the icon. Any
-    // downstream click assertions still target the same option rows.
-    const toggle = this.page.locator(SEARCH_BUTTON_SELECTOR);
+    // Pill → panel hand-off doesn't apply (no hover bridge). Open
+    // the palette directly via the dock's search icon; the panel
+    // assertions still hold.
+    const toggle = this.page.locator(DOCK_SEARCH_SELECTOR);
     await toggle.click();
-    await expectPaletteOnWorkspaces(this);
+    await this.page
+      .locator(PANEL_SELECTOR)
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },
 );
 
@@ -143,14 +145,14 @@ When(
 );
 
 When("I click the workspace switcher toggle", async function (this: KoluWorld) {
-  const toggle = this.page.locator(SEARCH_BUTTON_SELECTOR);
+  const toggle = this.page.locator(DOCK_SEARCH_SELECTOR);
   await toggle.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   await toggle.click();
   await this.waitForFrame();
 });
 
-// Raycast-style palette closes on Escape, not via a dedicated close
-// button. Keep the phrasing — the binding now presses Escape.
+// Raycast-style palette closes on Escape rather than a dedicated
+// close button. Phrasing stays for cross-feature compatibility.
 When(
   "I click the workspace switcher close button",
   async function (this: KoluWorld) {
@@ -162,8 +164,8 @@ When(
 When(
   "I click outside the workspace switcher",
   async function (this: KoluWorld) {
-    // The palette overlay covers the viewport; clicking on the backdrop
-    // (well outside the dialog body) dismisses the palette.
+    // The palette overlay covers the viewport; clicking on the
+    // backdrop (well outside the dialog body) dismisses the palette.
     await this.page.mouse.click(5, 5);
     await this.waitForFrame();
   },
@@ -172,7 +174,9 @@ When(
 Then(
   "the workspace switcher panel should be visible",
   async function (this: KoluWorld) {
-    await expectPaletteOnWorkspaces(this);
+    await this.page
+      .locator(PANEL_SELECTOR)
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },
 );
 
@@ -180,7 +184,7 @@ Then(
   "the workspace switcher panel should not be visible",
   async function (this: KoluWorld) {
     await this.page
-      .locator(PALETTE_SELECTOR)
+      .locator(PANEL_SELECTOR)
       .waitFor({ state: "hidden", timeout: POLL_TIMEOUT });
   },
 );
@@ -209,19 +213,77 @@ When(
   },
 );
 
+When(
+  "I click workspace switcher repo {string}",
+  async function (this: KoluWorld, repoName: string) {
+    const repo = this.page.locator(
+      `${REPO_SELECTOR}[data-repo-name="${repoName}"]`,
+    );
+    await repo.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await repo.click();
+    await this.waitForFrame();
+  },
+);
+
 Then(
   "the workspace switcher should show {int} card(s)",
   async function (this: KoluWorld, expected: number) {
-    const options = this.page.locator(PALETTE_OPTION_SELECTOR);
+    const cards = this.page.locator(CARD_SELECTOR);
     if (expected > 0) {
-      await options
+      await cards
         .nth(expected - 1)
         .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     }
     await this.page.waitForFunction(
       ({ selector, count }) =>
         document.querySelectorAll(selector).length === count,
-      { selector: PALETTE_OPTION_SELECTOR, count: expected },
+      { selector: CARD_SELECTOR, count: expected },
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+Then(
+  "the workspace switcher should show only repo {string} cards",
+  async function (this: KoluWorld, repoName: string) {
+    const repos = await this.page
+      .locator(CARD_SELECTOR)
+      .evaluateAll((cards) =>
+        cards.map((card) => card.getAttribute("data-repo-name")),
+      );
+    assert.deepStrictEqual(repos, [repoName]);
+  },
+);
+
+Then(
+  "the workspace switcher should show buckets {string}",
+  async function (this: KoluWorld, expected: string) {
+    const wanted = expected.split(",").map((s) => s.trim());
+    await this.page.waitForFunction(
+      ({ selector, exp }) => {
+        const got = Array.from(document.querySelectorAll(selector)).map((el) =>
+          el.getAttribute("data-agent-bucket"),
+        );
+        return got.length === exp.length && got.every((v, i) => v === exp[i]);
+      },
+      { selector: COLUMN_SELECTOR, exp: wanted },
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+Then(
+  "the workspace switcher idle column should show sub-buckets {string}",
+  async function (this: KoluWorld, expected: string) {
+    const wanted = expected.split(",").map((s) => s.trim());
+    await this.page.waitForFunction(
+      ({ selector, exp }) => {
+        const got = Array.from(document.querySelectorAll(selector)).map((el) =>
+          el.getAttribute("data-idle-sub"),
+        );
+        return got.length === exp.length && got.every((v, i) => v === exp[i]);
+      },
+      { selector: IDLE_SUB_SELECTOR, exp: wanted },
       { timeout: POLL_TIMEOUT },
     );
   },
@@ -230,7 +292,7 @@ Then(
 When(
   "I click workspace switcher card {int}",
   async function (this: KoluWorld, position: number) {
-    const card = this.page.locator(PALETTE_OPTION_SELECTOR).nth(position - 1);
+    const card = this.page.locator(CARD_SELECTOR).nth(position - 1);
     await card.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     await card.click();
     await this.waitForFrame();

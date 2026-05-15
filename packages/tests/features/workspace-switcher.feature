@@ -1,8 +1,10 @@
 Feature: Workspace switcher (unified palette navigator)
   The dock is the canonical live-terminal navigator (#903); the
-  workspace search surface unified with the command palette (#912).
+  workspace-search surface unified with the command palette in #912 —
   `Mod+Shift+K` and the dock's search-icon button both open the
-  palette pre-drilled into the "Search workspaces" group.
+  palette pre-drilled into "Search workspaces", whose body renders
+  the same facet sidebar + agent-state column grid the standalone
+  mega level used to host.
 
   Background:
     Given the terminal is ready
@@ -33,7 +35,7 @@ Feature: Workspace switcher (unified palette navigator)
     Then the active terminal should show "first-pill"
     And there should be no page errors
 
-  Scenario: Palette search filters live terminal metadata
+  Scenario: Palette body search filters live terminal metadata
     Given I create a terminal
     When I run "cd /tmp"
     And I hover the workspace switcher
@@ -67,7 +69,7 @@ Feature: Workspace switcher (unified palette navigator)
     Then the workspace switcher panel should not be visible
     And there should be no page errors
 
-  Scenario: Selecting a workspace row closes the palette
+  Scenario: Selecting a workspace card closes the palette
     Given I run "echo dismiss-after-select"
     And I create a terminal
     When I click the workspace switcher toggle
@@ -77,12 +79,34 @@ Feature: Workspace switcher (unified palette navigator)
     And the active terminal should show "dismiss-after-select"
     And there should be no page errors
 
-  Scenario: Selecting a workspace row switches the active terminal
+  Scenario: Repo facet narrows visible cards
+    Given I create a terminal
+    When I run "cd /tmp"
+    And I hover the workspace switcher
+    And I click workspace switcher repo "tmp"
+    Then the workspace switcher panel should be visible
+    And the workspace switcher should show 1 card
+    And the workspace switcher should show only repo "tmp" cards
+    And there should be no page errors
+
+  Scenario: Selecting a workspace card switches the active terminal
     Given I run "echo first-workspace-card"
     And I create a terminal
     When I hover the workspace switcher
     And I click workspace switcher card 1
     Then the active terminal should show "first-workspace-card"
+    And there should be no page errors
+
+  Scenario: Workspace columns enumerate every agent state bucket
+    # The Idle column lives between Working and No agent and surfaces the
+    # parked-by-inactivity entries the minimap window picker dims. Even on
+    # a fresh workspace (no parked terminals) the column is rendered so the
+    # ladder reads as a triage scaffold rather than a feature that appears
+    # only when something is wrong.
+    When I hover the workspace switcher
+    Then the workspace switcher panel should be visible
+    And the workspace switcher should show buckets "idle, awaiting, working, none"
+    And the workspace switcher idle column should show sub-buckets "4h-12h, 12h-24h, 24h-48h, 48h+"
     And there should be no page errors
 
   @mobile
