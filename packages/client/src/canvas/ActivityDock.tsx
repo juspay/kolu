@@ -75,7 +75,9 @@ type DockBucket = "awaiting" | "working" | "idle" | "parked" | "none";
 const PEEK_REFRESH_MS = 250;
 const MIN_TAIL_LINES = 2;
 const MAX_TAIL_LINES = 7;
-const RAIL_WIDTH_PX = 28;
+// 40px so the 24px-wide header buttons (`w-6`) + 8px of `px-1` padding
+// fit without overflowing the rail's outer width.
+const RAIL_WIDTH_PX = 40;
 const CARDS_WIDTH_PX = 288;
 // Mega has a 12rem (192px) repo sidebar plus four agent-state columns.
 // 560px squeezed the column labels into wraps ("Awaiting / you",
@@ -96,23 +98,14 @@ const BUCKET_PRIORITY: Record<DockBucket, number> = {
   none: 4,
 };
 
-/** Width contributed by the dock to the maximized tile's left inset.
- *  Mega overlays the surface (does not reflow the maximized tile any
- *  wider than cards) so callers can pick either {rail, cards} to drive
- *  CSS layout. Tiled mode does not reflow at all. */
-function dockMaximizedWidth(mode: DockMode): number {
+/** Width in pixels for a given mode. Drives both the outer aside's
+ *  inline `width` style and (in maximized posture) the dock's flex
+ *  footprint as a left-panel sibling of the canvas. */
+function dockWidth(mode: DockMode): number {
   if (mode === "rail") return RAIL_WIDTH_PX;
+  if (mode === "mega") return MEGA_WIDTH_PX;
   return CARDS_WIDTH_PX;
 }
-
-/** Reactive left-inset accessor for siblings that need to reflow next
- *  to the dock (today: the maximized canvas tile). The mode-to-pixel
- *  policy stays opaque inside this module — `CanvasTile` knows "the
- *  dock takes this many pixels", not "the dock is in rail mode" or
- *  "rail is 28px wide". A future policy change (user-resizable
- *  sidebar, density-responsive widths, …) lands here without touching
- *  any tile-layout code. */
-export const dockTileInset = (): number => dockMaximizedWidth(dockMode());
 
 /** Per-card tail budget shrinks as the dock fills.
  *
@@ -312,31 +305,28 @@ const ActivityDock: Component<{
         // CSS hooks (chrome-bar surface emergence, etc.) keep working
         // unchanged on consumers that filter on `[data-open]`.
         data-open={dockMode() === "mega" ? "" : undefined}
-        class="absolute z-30 flex select-none"
+        class="flex flex-col select-none overflow-hidden"
         classList={{
-          // Tiled: floating panel under the chrome bar. Stays clear of
-          // the right side so the minimap and inspector have room.
-          "top-20 left-4 rounded-2xl overflow-hidden shadow-2xl shadow-black/40":
+          // Tiled: absolute float inside the canvas; positions over
+          // tiles rather than reflowing them.
+          "absolute z-30 top-20 left-4 rounded-2xl shadow-2xl shadow-black/40":
             !posture.maximized(),
-          // Mega in tiled mode gets more vertical room than cards/rail —
-          // no reply inputs to fill, but a 4-column grid of cards.
+          // Tiled-mode height budget — mega gets more room (4-column
+          // card grid), cards/rail stays compact.
           "max-h-[calc(100vh-22rem)]":
             !posture.maximized() && dockMode() !== "mega",
           "max-h-[calc(100vh-6rem)]":
             !posture.maximized() && dockMode() === "mega",
-          // Maximized: flush sidebar, no rounding, opaque background.
-          "inset-y-0 left-0 border-r border-edge bg-surface-1":
+          // Maximized: real left-panel flex sibling of the canvas. The
+          // canvas takes the remaining space via `flex-1` next to us
+          // (see TerminalCanvas). Full canvas height comes from the
+          // parent flex container (`stretch` is the default
+          // `align-items`); a right-edge separator reads as a hard
+          // panel boundary rather than a floating card.
+          "relative shrink-0 h-full border-r border-edge bg-surface-1":
             posture.maximized(),
         }}
-        style={{
-          width: `${
-            dockMode() === "rail"
-              ? RAIL_WIDTH_PX
-              : dockMode() === "mega"
-                ? MEGA_WIDTH_PX
-                : CARDS_WIDTH_PX
-          }px`,
-        }}
+        style={{ width: `${dockWidth(dockMode())}px` }}
       >
         <Show
           when={dockMode() === "mega"}

@@ -365,138 +365,156 @@ const TerminalCanvas: Component<{
     });
   });
 
+  // Activity dock mount slot — packaged as a JSX value so the same
+  // component instance can render in either of two structural positions
+  // without duplicating its props. (Solid's <Show> would mount/unmount
+  // either branch separately; we want one persistent instance instead so
+  // the dock's internal effects/listeners don't churn on posture flips.)
+  const dock = (
+    <ActivityDock
+      entries={props.workspaceEntries}
+      activeId={store.activeId()}
+      getRecency={props.getRecency}
+      openMegaRequest={props.openMegaRequest}
+      onCreate={props.onCreate}
+    />
+  );
+
   return (
     <DragDropProvider onDragMove={handleDragMove} onDragEnd={handleDragEnd}>
       <DragDropSensors />
-      <div
-        ref={(el) => viewport.setContainerRef(el, isWheelTargetTerminal)}
-        data-testid="canvas-container"
-        data-zoom={viewport.zoom()}
-        class="flex-1 min-h-0 overflow-hidden relative canvas-grid-bg"
-        style={{
-          "background-position": viewport.gridBgPosition(),
-          "background-size": viewport.gridBgSize(),
-        }}
-      >
-        <Show when={props.watermark}>
-          {(text) => <CanvasWatermark text={text()} />}
-        </Show>
-        {/* renderTile: one definition shared by tiled and maximized
-         *  branches — the only difference is the `maximized` boolean
-         *  and (for tiled) the active-state read derived from store. */}
-        {(() => {
-          const renderTile = (id: TerminalId, maximized: boolean) => (
-            <Show when={store.getDisplayInfo(id)}>
-              {(info) => (
-                <CanvasTile
-                  id={id}
-                  active={maximized || store.activeId() === id}
-                  maximized={maximized}
-                  dimmed={isStale(store.getMetadata(id)?.lastActivityAt ?? 0)}
-                  theme={tileTheme(id)}
-                  repoColor={info().repoColor}
-                  onSelect={() => props.onSelect(id)}
-                  onClose={() => props.onClose(id)}
-                  onToggleMaximize={posture.toggle}
-                  renderTitle={() => props.renderTileTitle(id)}
-                  renderTitleActions={
-                    props.renderTileTitleActions
-                      ? () => props.renderTileTitleActions?.(id)
-                      : undefined
-                  }
-                  renderBody={() =>
-                    props.renderTileBody(id, () => store.activeId() === id)
-                  }
-                  layouts={layouts()}
-                  startResize={startResize}
-                  zoom={viewport.zoom}
-                />
-              )}
-            </Show>
-          );
-          return (
-            <>
-              {/* Tiled canvas — tiles live inside the pan/zoom transform.
-               *  Stays mounted in maximized mode (hidden behind the
-               *  maximized tile's z-40 cover) so non-active xterm
-               *  instances keep consuming the PTY stream and the dock's
-               *  buffer previews remain populated (#904). The active
-               *  terminal is filtered out in maximized mode so it
-               *  doesn't double-mount alongside the maximized branch
-               *  below — `terminalRefs` is keyed by id and the second
-               *  registration would race the first's cleanup. */}
-              <div
-                data-testid="canvas-transform"
-                aria-hidden={posture.maximized() ? "true" : undefined}
-                style={{
-                  "transform-origin": "0 0",
-                  transform: viewport.canvasTransform(),
-                  visibility: posture.maximized() ? "hidden" : "visible",
-                }}
-              >
-                <For
-                  each={props.tileIds.filter(
-                    (id) => !posture.maximized() || store.activeId() !== id,
-                  )}
-                >
-                  {(id) => renderTile(id, false)}
-                </For>
-              </div>
-
-              {/* Maximized view — only the active tile, outside any
-               *  transform, covering the canvas. The maximized tile is
-               *  inset by the dock's reserved sidebar width so the dock
-               *  reads as a true sidebar (#904 part 1). */}
-              <Show when={posture.maximized() && store.activeId()} keyed>
-                {(id) => renderTile(id, true)}
+      {/* Outer flex container — in maximized mode the dock is a real
+       *  left-panel flex sibling (like RightPanelLayout's right panel),
+       *  so the maximized terminal naturally takes the remaining space
+       *  via flex-1 and the rail/cards/mega widths are honored without
+       *  any explicit inset math on the tile (#904). In tiled mode the
+       *  dock floats inside the canvas instead — see below. */}
+      <div class="flex-1 min-h-0 overflow-hidden flex">
+        <Show when={posture.maximized()}>{dock}</Show>
+        <div
+          ref={(el) => viewport.setContainerRef(el, isWheelTargetTerminal)}
+          data-testid="canvas-container"
+          data-zoom={viewport.zoom()}
+          class="flex-1 min-w-0 overflow-hidden relative canvas-grid-bg"
+          style={{
+            "background-position": viewport.gridBgPosition(),
+            "background-size": viewport.gridBgSize(),
+          }}
+        >
+          <Show when={props.watermark}>
+            {(text) => <CanvasWatermark text={text()} />}
+          </Show>
+          {/* renderTile: one definition shared by tiled and maximized
+           *  branches — the only difference is the `maximized` boolean
+           *  and (for tiled) the active-state read derived from store. */}
+          {(() => {
+            const renderTile = (id: TerminalId, maximized: boolean) => (
+              <Show when={store.getDisplayInfo(id)}>
+                {(info) => (
+                  <CanvasTile
+                    id={id}
+                    active={maximized || store.activeId() === id}
+                    maximized={maximized}
+                    dimmed={isStale(store.getMetadata(id)?.lastActivityAt ?? 0)}
+                    theme={tileTheme(id)}
+                    repoColor={info().repoColor}
+                    onSelect={() => props.onSelect(id)}
+                    onClose={() => props.onClose(id)}
+                    onToggleMaximize={posture.toggle}
+                    renderTitle={() => props.renderTileTitle(id)}
+                    renderTitleActions={
+                      props.renderTileTitleActions
+                        ? () => props.renderTileTitleActions?.(id)
+                        : undefined
+                    }
+                    renderBody={() =>
+                      props.renderTileBody(id, () => store.activeId() === id)
+                    }
+                    layouts={layouts()}
+                    startResize={startResize}
+                    zoom={viewport.zoom}
+                  />
+                )}
               </Show>
-            </>
-          );
-        })()}
+            );
+            return (
+              <>
+                {/* Tiled canvas — tiles live inside the pan/zoom transform.
+                 *  Stays mounted in maximized mode (hidden behind the
+                 *  maximized tile's z-40 cover) so non-active xterm
+                 *  instances keep consuming the PTY stream and the dock's
+                 *  buffer previews remain populated (#904). The active
+                 *  terminal is filtered out in maximized mode so it
+                 *  doesn't double-mount alongside the maximized branch
+                 *  below — `terminalRefs` is keyed by id and the second
+                 *  registration would race the first's cleanup. */}
+                <div
+                  data-testid="canvas-transform"
+                  aria-hidden={posture.maximized() ? "true" : undefined}
+                  style={{
+                    "transform-origin": "0 0",
+                    transform: viewport.canvasTransform(),
+                    visibility: posture.maximized() ? "hidden" : "visible",
+                  }}
+                >
+                  <For
+                    each={props.tileIds.filter(
+                      (id) => !posture.maximized() || store.activeId() !== id,
+                    )}
+                  >
+                    {(id) => renderTile(id, false)}
+                  </For>
+                </div>
 
-        {/* Activity dock: canonical live-terminal navigator. Visible in
-         *  both tiled and maximized modes — in maximized mode it renders
-         *  as a flush left-edge sidebar (#904), and the maximized tile
-         *  above reflows next to it via `style.left = dockMaximizedWidth`. */}
-        <ActivityDock
-          entries={props.workspaceEntries}
-          activeId={store.activeId()}
-          getRecency={props.getRecency}
-          openMegaRequest={props.openMegaRequest}
-          onCreate={props.onCreate}
-        />
+                {/* Maximized view — only the active tile, outside any
+                 *  transform, covering the canvas. The maximized tile is
+                 *  inset by the dock's reserved sidebar width so the dock
+                 *  reads as a true sidebar (#904 part 1). */}
+                <Show when={posture.maximized() && store.activeId()} keyed>
+                  {(id) => renderTile(id, true)}
+                </Show>
+              </>
+            );
+          })()}
 
-        {/* Minimap: spatial dashboard; hides in fullscreen-single-tile mode
-         *  since there's nothing spatial to summarize. */}
-        <Show when={!posture.maximized()}>
-          <CanvasMinimap
-            tileIds={props.tileIds}
-            layouts={layouts()}
-            onSelect={props.onSelect}
-            onAutoArrange={props.onAutoArrange}
-            onStartTileDrag={(id) => {
-              const origin = layoutOf(id);
-              if (!origin) return null;
-              return {
-                preview: (dx, dy) =>
-                  setPendingLayout(id, {
-                    ...origin,
-                    x: origin.x + dx,
-                    y: origin.y + dy,
-                  }),
-                commit: (dx, dy) => {
-                  const next: TileLayout = {
-                    ...origin,
-                    x: viewport.snapToGrid(origin.x + dx),
-                    y: viewport.snapToGrid(origin.y + dy),
-                  };
-                  setPendingLayout(id, next);
-                  props.onLayoutChange(id, next);
-                },
-              };
-            }}
-          />
-        </Show>
+          {/* Activity dock — tiled posture: floats over the canvas as an
+           *  absolute overlay. Maximized posture renders the same dock
+           *  instance as a flex sibling above the canvas div (see top of
+           *  this component); only one mount point is active at a time. */}
+          <Show when={!posture.maximized()}>{dock}</Show>
+
+          {/* Minimap: spatial dashboard; hides in fullscreen-single-tile mode
+           *  since there's nothing spatial to summarize. */}
+          <Show when={!posture.maximized()}>
+            <CanvasMinimap
+              tileIds={props.tileIds}
+              layouts={layouts()}
+              onSelect={props.onSelect}
+              onAutoArrange={props.onAutoArrange}
+              onStartTileDrag={(id) => {
+                const origin = layoutOf(id);
+                if (!origin) return null;
+                return {
+                  preview: (dx, dy) =>
+                    setPendingLayout(id, {
+                      ...origin,
+                      x: origin.x + dx,
+                      y: origin.y + dy,
+                    }),
+                  commit: (dx, dy) => {
+                    const next: TileLayout = {
+                      ...origin,
+                      x: viewport.snapToGrid(origin.x + dx),
+                      y: viewport.snapToGrid(origin.y + dy),
+                    };
+                    setPendingLayout(id, next);
+                    props.onLayoutChange(id, next);
+                  },
+                };
+              }}
+            />
+          </Show>
+        </div>
       </div>
     </DragDropProvider>
   );

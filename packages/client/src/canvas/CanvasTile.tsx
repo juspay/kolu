@@ -14,7 +14,6 @@ import { createDraggable } from "@thisbeyond/solid-dnd";
 import { type Component, For, type JSX, Show } from "solid-js";
 import { CHROME_ICON_BUTTON_CLASS } from "../ui/chromeSpacing";
 import { MaximizeIcon, RestoreIcon } from "../ui/Icons";
-import { dockTileInset } from "./ActivityDock";
 import { RESIZE_HANDLES, type ResizeDirection } from "./resizeGeometry";
 import type { TileLayout } from "./TileLayout";
 import {
@@ -111,23 +110,17 @@ const CanvasTile: Component<{
       classList={{
         // Maximized stays `absolute` so it fills the canvas container —
         // NOT `fixed`, because the transformed pan/zoom wrapper would
-        // otherwise become its containing block. Inset reserves space
-        // on the left for the activity-dock sidebar so the maximized
-        // tile reflows next to it instead of underneath (#904).
+        // otherwise become its containing block. The activity dock sits
+        // outside this container as a flex sibling in maximized posture
+        // (TerminalCanvas), so the tile naturally fills the remaining
+        // viewport without needing a left-inset (#904).
         absolute: true,
-        "top-0 right-0 bottom-0 z-40": props.maximized,
+        "inset-0 z-40": props.maximized,
         "rounded-xl": !props.maximized,
         "shadow-xl": props.active && !props.maximized,
         "border-transparent": props.maximized,
       }}
-      style={
-        props.maximized
-          ? {
-              "background-color": bg(),
-              left: `${dockTileInset()}px`,
-            }
-          : tiledStyle()
-      }
+      style={props.maximized ? { "background-color": bg() } : tiledStyle()}
       onMouseDown={() => props.onSelect()}
     >
       {/* Title bar — uses tile foreground at low opacity for guaranteed
