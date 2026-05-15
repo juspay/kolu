@@ -3,12 +3,10 @@
  *  hand-tuned prose CSS in `styles.css` keeps working) and routes
  *  fenced code blocks through Pierre via `walkTokens`.
  *
- *  Marked's async mode lets `walkTokens` be async — we mutate the
- *  fenced-code token to carry a `pierreHtml` field, and the
- *  synchronous `code` renderer just returns that field verbatim.
- *  This is the canonical async-renderer pattern in marked v18; the
- *  alternative (returning a Promise from a renderer) is not
- *  supported.
+ *  Marked's async mode lets `walkTokens` be async; the synchronous
+ *  `code` renderer reads Pierre's result from a per-parse WeakMap
+ *  keyed on the code token — no foreign-field mutation, no cast.
+ *  (Returning a Promise from a renderer is not supported in marked.)
  *
  *  Headings shift down by two so a single `#` in agent prose becomes
  *  `h3` — `h1`/`h2` are reserved for the document chrome
