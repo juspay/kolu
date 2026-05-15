@@ -79,6 +79,17 @@ const RAIL_WIDTH_PX = 28;
 const CARDS_WIDTH_PX = 288;
 const MEGA_WIDTH_PX = 560;
 
+/** Sort priority for rows that share `lastActivityAt` (most commonly
+ *  several plain shells at `ts === 0`). Lower comes first. Module-scope
+ *  so it isn't re-allocated on every `ranked()` recomputation. */
+const BUCKET_PRIORITY: Record<DockBucket, number> = {
+  awaiting: 0,
+  working: 1,
+  idle: 2,
+  parked: 3,
+  none: 4,
+};
+
 /** Width contributed by the dock to the maximized tile's left inset.
  *  Mega overlays the surface (does not reflow the maximized tile any
  *  wider than cards) so callers can pick either {rail, cards} to drive
@@ -219,16 +230,9 @@ const ActivityDock: Component<{
     // Recency descending; secondary sort by bucket priority so
     // never-touched plain shells don't outrank an idle terminal with
     // the same `ts === 0`.
-    const priority: Record<DockBucket, number> = {
-      awaiting: 0,
-      working: 1,
-      idle: 2,
-      parked: 3,
-      none: 4,
-    };
     result.sort((a, b) => {
       if (a.ts !== b.ts) return b.ts - a.ts;
-      return priority[a.bucket] - priority[b.bucket];
+      return BUCKET_PRIORITY[a.bucket] - BUCKET_PRIORITY[b.bucket];
     });
     return result;
   });
