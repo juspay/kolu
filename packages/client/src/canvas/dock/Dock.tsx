@@ -44,26 +44,26 @@ import {
   onMount,
 } from "solid-js";
 import { toast } from "solid-sonner";
-import AgentIndicator from "../terminal/AgentIndicator";
-import { tailBuffer } from "../terminal/bufferTail";
+import AgentIndicator from "../../terminal/AgentIndicator";
+import { tailBuffer } from "../../terminal/bufferTail";
 import {
   formatTimeAgo,
   useIdleClassifier,
   useStaleCheck,
-} from "../terminal/staleness";
-import type { TerminalDisplayInfo } from "../terminal/terminalDisplay";
-import { getTerminalRefs } from "../terminal/terminalRefs";
-import { useTerminalStore } from "../terminal/useTerminalStore";
-import { ChevronDownIcon, PlusIcon, SearchIcon } from "../ui/Icons";
-import { client } from "../wire";
-import { useTileTheme } from "./useTileTheme";
-import { useViewPosture } from "./useViewPosture";
+} from "../../terminal/staleness";
+import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
+import { getTerminalRefs } from "../../terminal/terminalRefs";
+import { useTerminalStore } from "../../terminal/useTerminalStore";
+import { ChevronDownIcon, PlusIcon, SearchIcon } from "../../ui/Icons";
+import { client } from "../../wire";
+import { useTileTheme } from "../useTileTheme";
+import { useViewPosture } from "../useViewPosture";
 import {
   agentBucket,
-  buildWorkspaceSwitcherModel,
-  type WorkspaceSwitcherSourceEntry,
-} from "./workspace-switcher";
-import WorkspaceSearchPanel from "./workspace-switcher/SearchPanel";
+  buildDockModel,
+  type DockSourceEntry,
+} from "../dockModel";
+import DockMega from "./DockMega";
 
 export type DockMode = "rail" | "cards" | "mega";
 
@@ -198,8 +198,7 @@ export function toggleRailCards(): void {
 export const dockExpanded = (): boolean => dockMode() !== "rail";
 
 const Dock: Component<{
-  entries: WorkspaceSwitcherSourceEntry[];
-  activeId: TerminalId | null;
+  entries: DockSourceEntry[];
   getRecency: (id: TerminalId) => number;
   /** Increments to request mega open (Mod+Shift+K from anywhere). */
   openMegaRequest: number;
@@ -353,7 +352,6 @@ const Dock: Component<{
         >
           <MegaBody
             entries={props.entries}
-            activeId={props.activeId}
             getRecency={props.getRecency}
             openRequest={props.openMegaRequest}
             onSelect={selectAndClose}
@@ -871,8 +869,7 @@ const DockMetaRow: Component<{ meta: TerminalMetadata }> = (props) => {
  *  impulse, so pressing the shortcut while mega is already open
  *  re-anchors the cursor in the search field. */
 const MegaBody: Component<{
-  entries: WorkspaceSwitcherSourceEntry[];
-  activeId: TerminalId | null;
+  entries: DockSourceEntry[];
   getRecency: (id: TerminalId) => number;
   openRequest: number;
   onSelect: (id: TerminalId) => void;
@@ -886,10 +883,9 @@ const MegaBody: Component<{
   // impulses below.
   const [focusSearch, setFocusSearch] = createSignal(true);
   const model = createMemo(() =>
-    buildWorkspaceSwitcherModel(props.entries, {
+    buildDockModel(props.entries, {
       query: query(),
       repoFilter: repoFilter(),
-      activeId: props.activeId,
       getRecency: props.getRecency,
       idleClassifier,
     }),
@@ -908,7 +904,7 @@ const MegaBody: Component<{
 
   return (
     <div class="w-full">
-      <WorkspaceSearchPanel
+      <DockMega
         model={model()}
         query={query()}
         focusSearch={focusSearch()}

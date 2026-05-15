@@ -25,11 +25,8 @@ import CommandPalette from "./CommandPalette";
 import "kolu-common/test-hooks";
 import CanvasWatermark from "./canvas/CanvasWatermark";
 import { useCanvasArrange } from "./canvas/useCanvasArrange";
-import {
-  buildWorkspaceEntries,
-  buildWorkspaceSwitcherModel,
-} from "./canvas/workspace-switcher";
-import { toggleRailCards } from "./canvas/Dock";
+import { buildWorkspaceEntries, buildDockModel } from "./canvas/dockModel";
+import { toggleRailCards } from "./canvas/dock/Dock";
 import TerminalCanvas from "./canvas/TerminalCanvas";
 import TileTitleActions from "./canvas/TileTitleActions";
 import { createCommands } from "./commands";
@@ -82,7 +79,7 @@ const App: Component = () => {
   const { colorScheme } = useColorScheme();
 
   // Workspace-switcher feeds — desktop and mobile share the same
-  // accessors; `buildWorkspaceSwitcherModel` owns the ordering pipeline.
+  // accessors; `buildDockModel` owns the ordering pipeline.
   const workspaceEntries = createMemo(() =>
     buildWorkspaceEntries(
       store.terminalIds(),
@@ -92,14 +89,10 @@ const App: Component = () => {
   );
   const recencyOf = (id: TerminalId): number =>
     store.getMetadata(id)?.lastActivityAt ?? 0;
-  const mobileWorkspaceModel = createMemo(() =>
-    buildWorkspaceSwitcherModel(workspaceEntries(), {
-      activeId: store.activeId(),
-      getRecency: recencyOf,
-    }),
-  );
   const orderedIds = createMemo(() =>
-    mobileWorkspaceModel().entries.map((entry) => entry.id),
+    buildDockModel(workspaceEntries(), { getRecency: recencyOf }).entries.map(
+      (entry) => entry.id,
+    ),
   );
 
   // Fetch server identity for document title, watermark, and PWA chrome color.

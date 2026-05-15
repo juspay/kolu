@@ -4,13 +4,13 @@ import { formatTimeAgo } from "../../terminal/staleness";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { CloseIcon } from "../../ui/Icons";
 import { useTileTheme } from "../useTileTheme";
-import { agentLabel, metaLine, prSummary, tokenLine } from "./chrome";
+import { agentLabel, metaLine, prSummary, tokenLine } from "./dockRowChrome";
 import {
   bucketDescriptor,
-  type WorkspaceSwitcherColumn,
-  type WorkspaceSwitcherEntry,
-  type WorkspaceSwitcherModel,
-} from "./model";
+  type DockColumn,
+  type DockEntry,
+  type DockModel,
+} from "../dockModel";
 
 /** Expanded hover panel with repo facets, search, and agent-state columns.
  *
@@ -18,8 +18,8 @@ import {
  *  not boxes-within-boxes. Repo identity (color) appears in the sidebar's
  *  selection bar, the card eyebrow, and the card border — three echoes of
  *  the same truth. */
-const WorkspaceSearchPanel: Component<{
-  model: WorkspaceSwitcherModel;
+const DockMega: Component<{
+  model: DockModel;
   query: string;
   focusSearch: boolean;
   onQueryChange: (query: string) => void;
@@ -154,7 +154,7 @@ const WorkspaceSearchPanel: Component<{
  *  doesn't have to special-case the column key in every JSX block; the
  *  model already decided whether sub-rows are appropriate. */
 const ColumnView: Component<{
-  column: WorkspaceSwitcherColumn;
+  column: DockColumn;
   onSelect: (id: TerminalId) => void;
 }> = (props) => (
   <div
@@ -226,7 +226,7 @@ const ColumnView: Component<{
  *  (the row callback only re-mounts on identity change; per-row updates
  *  are tracked through the `store.activeId()` etc. accessors). */
 const EntryList: Component<{
-  entries: readonly WorkspaceSwitcherEntry[];
+  entries: readonly DockEntry[];
   empty: string;
   compactEmpty?: boolean;
   onSelect: (id: TerminalId) => void;
@@ -317,7 +317,7 @@ const RepoFacetButton: Component<{
  *  The Idle column hosts parked entries directly; cards inside it skip the
  *  breathing agent-state border and fade so live work reads louder. */
 const WorkspaceCard: Component<{
-  entry: WorkspaceSwitcherEntry;
+  entry: DockEntry;
   active: boolean;
   unread: boolean;
   tileBg: string;
@@ -473,4 +473,4 @@ const WorkspaceCard: Component<{
   );
 };
 
-export default WorkspaceSearchPanel;
+export default DockMega;

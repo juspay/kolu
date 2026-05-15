@@ -1,25 +1,18 @@
 import type { AgentInfo } from "kolu-common/surface";
 import { agentNames, stateLabels } from "../../ui/agentDisplay";
-import type { WorkspaceSwitcherEntry } from "./model";
+import type { DockEntry } from "../dockModel";
 
 export function agentLabel(agent: AgentInfo | null | undefined): string {
   if (!agent) return "Plain shell";
   return `${agentNames[agent.kind]} · ${stateLabels[agent.state]}`;
 }
 
-export function metaLine(entry: WorkspaceSwitcherEntry): string {
+export function metaLine(entry: DockEntry): string {
   const { meta } = entry.info;
   if (meta.agent?.summary) return meta.agent.summary;
   if (meta.foreground?.title) return meta.foreground.title;
   if (meta.foreground?.name) return meta.foreground.name;
   return meta.cwd;
-}
-
-export function prLine(entry: WorkspaceSwitcherEntry): string | null {
-  const pr = entry.info.meta.pr;
-  if (pr.kind !== "ok") return null;
-  const checks = pr.value.checks ? ` · ${pr.value.checks}` : "";
-  return `#${pr.value.number} ${pr.value.title}${checks}`;
 }
 
 /** Structured PR summary for renderers that style number, title, checks
@@ -31,7 +24,7 @@ export type PrSummary = {
   checks: string | null;
 };
 
-export function prSummary(entry: WorkspaceSwitcherEntry): PrSummary | null {
+export function prSummary(entry: DockEntry): PrSummary | null {
   const pr = entry.info.meta.pr;
   if (pr.kind !== "ok") return null;
   return {

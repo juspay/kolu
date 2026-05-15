@@ -19,10 +19,10 @@
 
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import { type Component, For, Show, createMemo } from "solid-js";
-import AgentIndicator from "./terminal/AgentIndicator";
-import { formatTimeAgo, useStaleCheck } from "./terminal/staleness";
-import { useTerminalStore } from "./terminal/useTerminalStore";
-import { agentBucket } from "./canvas/workspace-switcher";
+import AgentIndicator from "../../terminal/AgentIndicator";
+import { formatTimeAgo, useStaleCheck } from "../../terminal/staleness";
+import { useTerminalStore } from "../../terminal/useTerminalStore";
+import { agentBucket } from "../dockModel";
 
 type MobileDockBucket = "awaiting" | "working" | "idle" | "parked" | "none";
 

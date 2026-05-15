@@ -4,12 +4,12 @@ import {
   type IdleBucket,
   IDLE_BUCKETS,
   type IdleBucketKey,
-} from "../../terminal/activityWindow";
-import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
-import type { TileLayout } from "../TileLayout";
+} from "../terminal/activityWindow";
+import type { TerminalDisplayInfo } from "../terminal/terminalDisplay";
+import type { TileLayout } from "./TileLayout";
 
 /** Live-terminal source row before a presentation-specific order is applied. */
-export interface WorkspaceSwitcherSourceEntry {
+export interface DockSourceEntry {
   id: TerminalId;
   info: TerminalDisplayInfo;
   layout?: TileLayout;
@@ -20,8 +20,8 @@ export function buildWorkspaceEntries(
   ids: TerminalId[],
   getDisplayInfo: (id: TerminalId) => TerminalDisplayInfo | undefined,
   getLayout?: (id: TerminalId) => TileLayout | undefined,
-): WorkspaceSwitcherSourceEntry[] {
-  const entries: WorkspaceSwitcherSourceEntry[] = [];
+): DockSourceEntry[] {
+  const entries: DockSourceEntry[] = [];
   for (const id of ids) {
     const info = getDisplayInfo(id);
     if (!info) continue;
@@ -35,10 +35,10 @@ export function buildWorkspaceEntries(
  *  recency value is plugged in via the accessor. The expanded panel
  *  re-buckets by agent state, so the visible effect there is
  *  recency-within-bucket. */
-export function sortBySwitcherOrder(
-  entries: WorkspaceSwitcherSourceEntry[],
+export function sortDockEntriesByRecency(
+  entries: DockSourceEntry[],
   getRecency: (id: TerminalId) => number,
-): WorkspaceSwitcherSourceEntry[] {
+): DockSourceEntry[] {
   return [...entries].sort((a, b) => {
     const ra = getRecency(a.id);
     const rb = getRecency(b.id);
@@ -52,7 +52,7 @@ export function sortBySwitcherOrder(
   });
 }
 
-export type WorkspaceAgentBucket = "awaiting" | "working" | "idle" | "none";
+export type AgentBucketKind = "awaiting" | "working" | "idle" | "none";
 
 /** Stable agent-state buckets shown as columns in the expanded switcher.
  *
@@ -67,7 +67,7 @@ export type WorkspaceAgentBucket = "awaiting" | "working" | "idle" | "none";
  *  switcher to scan first. Then live attention (Awaiting, Working),
  *  with "No agent" trailing as the narrow plain-shells bucket
  *  (`lastActivityAt === 0`, never hosted an agent). */
-export const WORKSPACE_AGENT_BUCKETS = [
+export const AGENT_BUCKETS = [
   {
     key: "idle",
     label: "Idle",
@@ -106,7 +106,7 @@ export const WORKSPACE_AGENT_BUCKETS = [
     glyph: "·",
   },
 ] as const satisfies readonly {
-  key: WorkspaceAgentBucket;
+  key: AgentBucketKind;
   label: string;
   empty: string;
   textClass: string;
@@ -115,7 +115,7 @@ export const WORKSPACE_AGENT_BUCKETS = [
   glyph: string;
 }[];
 
-type WorkspaceSwitcherEntryBase = {
+type DockEntryBase = {
   id: TerminalId;
   repoName: string;
   label: string;
@@ -128,32 +128,17 @@ type WorkspaceSwitcherEntryBase = {
  *  Idle arm carries `idleSub`, so a consumer that narrows on
  *  `entry.bucket === "idle"` reads the sub-bucket key without an
  *  optional dance — and a non-idle entry cannot accidentally carry one. */
-export type WorkspaceSwitcherEntry =
-  | (WorkspaceSwitcherEntryBase & {
+export type DockEntry =
+  | (DockEntryBase & {
       bucket: "idle";
       idleSub: IdleBucketKey;
     })
-  | (WorkspaceSwitcherEntryBase & {
-      bucket: Exclude<WorkspaceAgentBucket, "idle">;
+  | (DockEntryBase & {
+      bucket: Exclude<AgentBucketKind, "idle">;
     });
 
-/** Compact row item rendered under a repo heading. */
-export type WorkspaceSwitcherCompactItem = {
-  id: TerminalId;
-  label: string;
-  suffix?: string;
-  info: TerminalDisplayInfo;
-};
-
-/** Repo group used by the collapsed desktop switcher and mobile sheet. */
-export type WorkspaceSwitcherRepoGroup = {
-  repoName: string;
-  color: string;
-  items: WorkspaceSwitcherCompactItem[];
-};
-
 /** Repo facet derived from the current search result set. */
-export type WorkspaceRepoFacet = {
+export type RepoFacet = {
   repoName: string;
   count: number;
   color: string;
@@ -162,16 +147,16 @@ export type WorkspaceRepoFacet = {
 /** Idle column sub-row. Empty buckets stay in the array so the column
  *  always shows the full ladder (4–12h, 12–24h, 24–48h, 48h+) — empty
  *  ranges read as a positive signal ("nothing parked here yet"). */
-export type WorkspaceSwitcherIdleSubBucket = IdleBucket & {
-  entries: WorkspaceSwitcherEntry[];
+export type IdleSubBucket = IdleBucket & {
+  entries: DockEntry[];
 };
 
 /** Bucket descriptor narrowed to a specific column key — preserves the
  *  per-key invariant in the descriptor table (label, glyph, etc.) so the
- *  discriminated `WorkspaceSwitcherColumn` arms below stay tight to
+ *  discriminated `DockColumn` arms below stay tight to
  *  their own descriptor row. */
-type DescriptorFor<K extends WorkspaceAgentBucket> = Extract<
-  (typeof WORKSPACE_AGENT_BUCKETS)[number],
+type DescriptorFor<K extends AgentBucketKind> = Extract<
+  (typeof AGENT_BUCKETS)[number],
   { key: K }
 >;
 
@@ -183,23 +168,22 @@ type DescriptorFor<K extends WorkspaceAgentBucket> = Extract<
  *  `column.key === "idle"` reads sub-rows without an optional dance,
  *  and the type system refuses to construct an idle column without
  *  the ladder or an awaiting/working/none column with one. */
-export type WorkspaceSwitcherColumn =
+export type DockColumn =
   | (DescriptorFor<"idle"> & {
-      entries: WorkspaceSwitcherEntry[];
-      idleSubBuckets: WorkspaceSwitcherIdleSubBucket[];
+      entries: DockEntry[];
+      idleSubBuckets: IdleSubBucket[];
     })
-  | (DescriptorFor<Exclude<WorkspaceAgentBucket, "idle">> & {
-      entries: WorkspaceSwitcherEntry[];
+  | (DescriptorFor<Exclude<AgentBucketKind, "idle">> & {
+      entries: DockEntry[];
     });
 
-/** Complete derived model for collapsed and expanded switcher renderers. */
-export type WorkspaceSwitcherModel = {
-  entries: WorkspaceSwitcherEntry[];
-  compactGroups: WorkspaceSwitcherRepoGroup[];
-  visibleEntries: WorkspaceSwitcherEntry[];
+/** Complete derived model for the dock's mega-level renderer. */
+export type DockModel = {
+  entries: DockEntry[];
+  visibleEntries: DockEntry[];
   selectedRepo: string | null;
-  repoFacets: WorkspaceRepoFacet[];
-  columns: WorkspaceSwitcherColumn[];
+  repoFacets: RepoFacet[];
+  columns: DockColumn[];
 };
 
 /** Classify live agent metadata into the agent-state buckets. Pure — does
@@ -209,7 +193,7 @@ export type WorkspaceSwitcherModel = {
  *  by agent state regardless of age. */
 export function agentBucket(
   agent: AgentInfo | null | undefined,
-): Exclude<WorkspaceAgentBucket, "idle"> {
+): Exclude<AgentBucketKind, "idle"> {
   // The `waiting | awaiting_user` pair is the same equivalence class
   // surfaced runtime-side by `isAttentionState` in `agentDisplay.ts` —
   // ts-pattern is used here instead so `.exhaustive()` flags any future
@@ -231,27 +215,25 @@ export function agentBucket(
 export function entryBucket(
   info: TerminalDisplayInfo,
   idleClassifier?: (lastActivityAt: number) => IdleBucketKey | null,
-): WorkspaceAgentBucket {
+): AgentBucketKind {
   if (idleClassifier?.(info.meta.lastActivityAt)) return "idle";
   return agentBucket(info.meta.agent);
 }
 
-const BUCKET_BY_KEY: Record<
-  WorkspaceAgentBucket,
-  (typeof WORKSPACE_AGENT_BUCKETS)[number]
-> = WORKSPACE_AGENT_BUCKETS.reduce(
-  (acc, bucket) => {
-    acc[bucket.key] = bucket;
-    return acc;
-  },
-  {} as Record<WorkspaceAgentBucket, (typeof WORKSPACE_AGENT_BUCKETS)[number]>,
-);
+const BUCKET_BY_KEY: Record<AgentBucketKind, (typeof AGENT_BUCKETS)[number]> =
+  AGENT_BUCKETS.reduce(
+    (acc, bucket) => {
+      acc[bucket.key] = bucket;
+      return acc;
+    },
+    {} as Record<AgentBucketKind, (typeof AGENT_BUCKETS)[number]>,
+  );
 
 /** Look up a bucket descriptor by its key. Used by presentation code
  *  that has an entry's bucket and needs the matching label/color. */
 export function bucketDescriptor(
-  bucket: WorkspaceAgentBucket,
-): (typeof WORKSPACE_AGENT_BUCKETS)[number] {
+  bucket: AgentBucketKind,
+): (typeof AGENT_BUCKETS)[number] {
   return BUCKET_BY_KEY[bucket];
 }
 
@@ -322,103 +304,35 @@ function queryTokens(query: string): string[] {
   return query.toLowerCase().trim().split(/\s+/).filter(Boolean);
 }
 
-function matchesQuery(
-  entry: WorkspaceSwitcherEntry,
-  tokens: string[],
-): boolean {
+function matchesQuery(entry: DockEntry, tokens: string[]): boolean {
   return tokens.every((token) => entry.searchText.includes(token));
 }
 
-/** Cap on idle (no-agent, non-active) compact pills per repo. Pills that
- *  carry an active agent OR represent the user's active terminal bypass
- *  the cap entirely — both are guaranteed reachable from the pill strip
- *  no matter how many idle peers share the repo. */
-const IDLE_PILLS_PER_REPO = 5;
-
-/** Visible-pill count per repo in the collapsed strip. The model uses
- *  this to hoist the active terminal into the visible head when its
- *  natural position would be past the slice boundary, so the renderer
- *  can `slice(0, COMPACT_VISIBLE_PER_REPO)` without re-deriving active
- *  awareness. Single point of enforcement for "active is reachable". */
-export const COMPACT_VISIBLE_PER_REPO = 3;
-
-function compactGroupsFor(
-  entries: WorkspaceSwitcherEntry[],
-  activeId: TerminalId | null,
-): WorkspaceSwitcherRepoGroup[] {
-  const groups = new Map<string, WorkspaceSwitcherRepoGroup>();
-  const idleCounts = new Map<string, number>();
-  for (const entry of entries) {
-    let group = groups.get(entry.repoName);
-    if (!group) {
-      group = {
-        repoName: entry.repoName,
-        color: entry.info.repoColor,
-        items: [],
-      };
-      groups.set(entry.repoName, group);
-    }
-    // Idle-cap bypass: in-flight agent (salience) or active terminal
-    // (reachability). Names kept so a future divergence stays visible.
-    const hasAgent = entry.info.meta.agent !== null;
-    const isFocused = entry.id === activeId;
-    if (!hasAgent && !isFocused) {
-      const idle = idleCounts.get(entry.repoName) ?? 0;
-      if (idle >= IDLE_PILLS_PER_REPO) continue;
-      idleCounts.set(entry.repoName, idle + 1);
-    }
-    group.items.push({
-      id: entry.id,
-      label: entry.label,
-      suffix: entry.suffix,
-      info: entry.info,
-    });
-  }
-  // Hoist active into the visible prefix so `Collapsed.tsx`'s
-  // `slice(0, N)` cannot clip a focused-but-not-recent terminal into
-  // the `+N` overflow chip.
-  if (activeId !== null) {
-    for (const group of groups.values()) {
-      const idx = group.items.findIndex((item) => item.id === activeId);
-      if (idx >= COMPACT_VISIBLE_PER_REPO) {
-        // biome-ignore lint/style/noNonNullAssertion: idx came from findIndex on the same array, splice always yields the element.
-        const active = group.items.splice(idx, 1)[0]!;
-        group.items.splice(COMPACT_VISIBLE_PER_REPO - 1, 0, active);
-      }
-    }
-  }
-  // Stable repo slot via alphabetical; intra-repo recency comes from
-  // input order (set upstream by `sortBySwitcherOrder`).
-  return [...groups.values()].sort((a, b) =>
-    a.repoName.localeCompare(b.repoName),
-  );
-}
-
-/** Derive all switcher projections (search, facets, bucket columns,
- *  compact groups) from one live-terminal entry list. Owns the ordering
- *  pipeline — when `getRecency` is provided, applies `sortBySwitcherOrder`
- *  internally so callers can't feed unsorted entries into the grouping.
- *  When `idleClassifier` is provided, parked-by-inactivity entries route
- *  to the Idle column with a populated `idleSub` and the column emits
- *  `idleSubBuckets` (4–12h, 12–24h, 24–48h, 48h+). The classifier is the
- *  sole clock-aware input — there is no separate `now` parameter and no
- *  separate stale predicate, so the model can't end up with two
- *  inconsistent views of the same tick. */
-export function buildWorkspaceSwitcherModel(
-  sources: WorkspaceSwitcherSourceEntry[],
+/** Derive the dock mega-level projections (search, facets, bucket
+ *  columns) from one live-terminal entry list. Owns the ordering
+ *  pipeline — when `getRecency` is provided, applies
+ *  `sortDockEntriesByRecency` internally so callers can't feed unsorted
+ *  entries into the grouping. When `idleClassifier` is provided,
+ *  parked-by-inactivity entries route to the Idle column with a
+ *  populated `idleSub` and the column emits `idleSubBuckets` (4–12h,
+ *  12–24h, 24–48h, 48h+). The classifier is the sole clock-aware
+ *  input — there is no separate `now` parameter and no separate stale
+ *  predicate, so the model can't end up with two inconsistent views
+ *  of the same tick. */
+export function buildDockModel(
+  sources: DockSourceEntry[],
   options: {
     query?: string;
     repoFilter?: string | null;
-    activeId?: TerminalId | null;
     getRecency?: (id: TerminalId) => number;
     idleClassifier?: (lastActivityAt: number) => IdleBucketKey | null;
   } = {},
-): WorkspaceSwitcherModel {
+): DockModel {
   const ordered = options.getRecency
-    ? sortBySwitcherOrder(sources, options.getRecency)
+    ? sortDockEntriesByRecency(sources, options.getRecency)
     : sources;
   const idleClassifier = options.idleClassifier;
-  const entries: WorkspaceSwitcherEntry[] = ordered.map((source) => {
+  const entries: DockEntry[] = ordered.map((source) => {
     const baseFields = {
       id: source.id,
       repoName: source.info.key.group,
@@ -446,13 +360,13 @@ export function buildWorkspaceSwitcherModel(
 
   // Single pass: bucket every visible entry (and, for idle entries,
   // sub-bucket them) in one walk instead of N×M filters.
-  const byBucket: Record<WorkspaceAgentBucket, WorkspaceSwitcherEntry[]> = {
+  const byBucket: Record<AgentBucketKind, DockEntry[]> = {
     awaiting: [],
     working: [],
     idle: [],
     none: [],
   };
-  const byIdleSub: Record<IdleBucketKey, WorkspaceSwitcherEntry[]> = {
+  const byIdleSub: Record<IdleBucketKey, DockEntry[]> = {
     "4h-12h": [],
     "12h-24h": [],
     "24h-48h": [],
@@ -462,24 +376,22 @@ export function buildWorkspaceSwitcherModel(
     byBucket[entry.bucket].push(entry);
     if (entry.bucket === "idle") byIdleSub[entry.idleSub].push(entry);
   }
-  const columns: WorkspaceSwitcherColumn[] = WORKSPACE_AGENT_BUCKETS.map(
-    (bucket) => {
-      const bucketEntries = byBucket[bucket.key];
-      if (bucket.key !== "idle") {
-        return { ...bucket, entries: bucketEntries };
-      }
-      // The ladder is always rendered in full so empty rows read as a
-      // positive "nothing parked here yet" signal rather than disappearing.
-      const idleSubBuckets: WorkspaceSwitcherIdleSubBucket[] = IDLE_BUCKETS.map(
-        (sub) => ({ ...sub, entries: byIdleSub[sub.key] }),
-      );
-      return { ...bucket, entries: bucketEntries, idleSubBuckets };
-    },
-  );
+  const columns: DockColumn[] = AGENT_BUCKETS.map((bucket) => {
+    const bucketEntries = byBucket[bucket.key];
+    if (bucket.key !== "idle") {
+      return { ...bucket, entries: bucketEntries };
+    }
+    // The ladder is always rendered in full so empty rows read as a
+    // positive "nothing parked here yet" signal rather than disappearing.
+    const idleSubBuckets: IdleSubBucket[] = IDLE_BUCKETS.map((sub) => ({
+      ...sub,
+      entries: byIdleSub[sub.key],
+    }));
+    return { ...bucket, entries: bucketEntries, idleSubBuckets };
+  });
 
   return {
     entries,
-    compactGroups: compactGroupsFor(entries, options.activeId ?? null),
     visibleEntries,
     selectedRepo,
     repoFacets,
@@ -494,13 +406,13 @@ export function buildWorkspaceSwitcherModel(
  *  selected repo). Splitting them across separate locals invited a
  *  silent reordering bug. */
 function searchResults(
-  entries: WorkspaceSwitcherEntry[],
+  entries: DockEntry[],
   query: string,
   repoFilter: string | null,
 ): {
-  repoFacets: WorkspaceRepoFacet[];
+  repoFacets: RepoFacet[];
   selectedRepo: string | null;
-  visibleEntries: WorkspaceSwitcherEntry[];
+  visibleEntries: DockEntry[];
 } {
   const tokens = queryTokens(query);
   const queryMatches =

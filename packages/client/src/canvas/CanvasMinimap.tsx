@@ -29,7 +29,7 @@ import {
 import type { TileLayout } from "./TileLayout";
 import { useTileTheme } from "./useTileTheme";
 import { useCanvasViewport } from "./viewport/useCanvasViewport";
-import { agentBucket, bucketDescriptor } from "./workspace-switcher";
+import { agentBucket, bucketDescriptor } from "./dockModel";
 
 /** Minimap target dimensions in pixels. */
 const MAP_W = 180;

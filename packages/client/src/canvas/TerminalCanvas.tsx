@@ -34,9 +34,9 @@ import {
 import { useStaleCheck } from "../terminal/staleness";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { savedSessionSub } from "../wire";
-import Dock from "./Dock";
+import Dock from "./dock/Dock";
 import CanvasMinimap from "./CanvasMinimap";
-import type { WorkspaceSwitcherSourceEntry } from "./workspace-switcher";
+import type { DockSourceEntry } from "./dockModel";
 import CanvasTile from "./CanvasTile";
 import CanvasWatermark from "./CanvasWatermark";
 import { applyResize, type ResizeDirection } from "./resizeGeometry";
@@ -107,7 +107,7 @@ const TerminalCanvas: Component<{
   onSelect: (id: TerminalId) => void;
   onClose: (id: TerminalId) => void;
   /** Live-terminal entries fed to the dock's mega-level search. */
-  workspaceEntries: WorkspaceSwitcherSourceEntry[];
+  workspaceEntries: DockSourceEntry[];
   /** Per-terminal recency accessor (epoch-ms) used by the dock's
    *  recency-sorted ranking and the mega-level model. */
   getRecency: (id: TerminalId) => number;
@@ -396,7 +396,6 @@ const TerminalCanvas: Component<{
       <div class="flex-1 min-h-0 overflow-hidden flex relative">
         <Dock
           entries={props.workspaceEntries}
-          activeId={store.activeId()}
           getRecency={props.getRecency}
           openMegaRequest={props.openMegaRequest}
           onCreate={props.onCreate}

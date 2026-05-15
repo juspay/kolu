@@ -21,7 +21,7 @@
  *  `MobileChromeSheet` and `MobileTileView`. */
 
 import { type Component, createSignal } from "solid-js";
-import { dockExpanded, toggleRailCards } from "./canvas/Dock";
+import { dockExpanded, toggleRailCards } from "./canvas/dock/Dock";
 import { useViewPosture } from "./canvas/useViewPosture";
 import { ACTIONS } from "./input/actions";
 import { formatKeybind } from "./input/keyboard";

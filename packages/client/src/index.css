@@ -71,7 +71,7 @@ body {
  *      agent-state ring on the outside.
  *
  *   2. Agent-state — driven by `--pill-state-color` (bucket accent
- *      from `WORKSPACE_AGENT_BUCKETS`). Both live states pulse so
+ *      from `AGENT_BUCKETS`). Both live states pulse so
  *      motion conveys "alive"; cadence + intensity distinguishes
  *      them. `.pill-border-awaiting` breathes faster (1.6s) and
  *      deeper (20%↔90%) to read as alarm-like; `.pill-border-working`
