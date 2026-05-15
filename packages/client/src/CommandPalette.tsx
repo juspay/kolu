@@ -41,11 +41,6 @@ interface PaletteBase {
    *  PR titles, agent metadata, etc. The filter checks `name`,
    *  `description`, and `searchText` together with AND-token semantics. */
   searchText?: string;
-  /** Short right-aligned source classifier — "Command", "Workspace",
-   *  "Theme", "Group", etc. Renders as a muted chip after the keybind /
-   *  group-arrow slot, mirroring Raycast's per-row type label. Pure
-   *  decoration; the filter does NOT match against it. */
-  typeLabel?: string;
   /** Opaque payload — palette never interprets `data`; it just hands it
    *  back via `onSubmit` so callers can identify the chosen option
    *  without string-matching on `name`. */
@@ -233,6 +228,13 @@ const CommandPalette: Component<{
     if (last?.kind === "group" && last.body)
       return { kind: "body", leaf: last };
     return { kind: "filter" };
+  });
+
+  /** The active `PaletteGroup` when in body mode, else `undefined`.
+   *  Used by the body-render branch in JSX to avoid an inline IIFE. */
+  const bodyGroup = createMemo<PaletteGroup | undefined>(() => {
+    const m = mode();
+    return m.kind === "body" ? m.leaf : undefined;
   });
 
   /** Validation error for the current value-input query. `null` outside
@@ -558,10 +560,7 @@ const CommandPalette: Component<{
           )}
         </Show>
         <Show
-          when={(() => {
-            const m = mode();
-            return m.kind === "body" ? m.leaf : undefined;
-          })()}
+          when={bodyGroup()}
           fallback={
             <div
               ref={(el) => {
@@ -637,13 +636,6 @@ const CommandPalette: Component<{
                         </Show>
                         <Show when={isGroup(cmd)}>
                           <span class="shrink-0 text-xs text-fg-3">→</span>
-                        </Show>
-                        <Show when={cmd.typeLabel}>
-                          {(label) => (
-                            <span class="shrink-0 font-mono text-[0.6rem] uppercase tracking-[0.14em] text-fg-3/60 w-20 text-right">
-                              {label()}
-                            </span>
-                          )}
                         </Show>
                       </div>
                     )}
