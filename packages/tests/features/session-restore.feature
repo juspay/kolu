@@ -43,6 +43,25 @@ Feature: Session restore
     And the canvas tile should be at x=420 y=180 w=640 h=360
     And there should be no page errors
 
+  # Regression guard for the multi-tile restore-from-empty-state path:
+  # the saved `activeTerminalId` must survive `handleRestoreSession`
+  # (i.e. `setActiveSilently` runs after all terminals are created), and
+  # the canvas first-mount fallback effect (`TerminalCanvas.tsx:331`)
+  # must center on that active tile rather than on the bounding box of
+  # all tiles. The two saved tiles live at far-apart coordinates so the
+  # bbox centre is at (0,0), not on either tile — a fallback-path
+  # regression would leave the viewport at the bbox centre instead of
+  # following the active id.
+  Scenario: Restored multi-tile session preserves active terminal and centers viewport
+    Given a saved session with 2 tiles and the second tile marked active
+    When I open the app
+    Then the session restore card should be visible
+    When I click the restore button
+    Then there should be 2 workspace switcher entries
+    And the active canvas tile should match the saved-session second tile
+    And the active canvas tile should be centered in the viewport
+    And there should be no page errors
+
   Scenario: Active terminal persists across refresh
     When I open the app
     And I create a terminal

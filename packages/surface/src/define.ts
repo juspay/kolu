@@ -66,6 +66,21 @@ export interface CellSpec<T = unknown, P = T> {
    *  `useCell`'s `applyPatch` when a side legitimately needs a different
    *  merge (rare). */
   patch?: (current: T, patch: P) => T;
+  /** Optional equality predicate. When supplied, `set` / `patch` /
+   *  `test__set` and the server-internal `ctx.cells.<key>.set` skip the
+   *  store write and bus publish if `equals(prev, next)` returns true.
+   *
+   *  Defaults to no dedup (every mutation publishes), which preserves
+   *  the legacy "writer's intent = publish" contract. Opt in when a
+   *  cell's value comes from a source that re-serializes the same
+   *  content on every write (e.g. test harness re-POSTing the same
+   *  fixture, or a server-side write loop firing on every dirty tick)
+   *  and downstream consumers do work on each publish that would
+   *  otherwise be wasted — most importantly, SolidJS keyed `<Show>`
+   *  remounts driven by reactive object-identity changes. The
+   *  predicate runs on every mutation, so keep it cheap for hot cells
+   *  (terminalList et al. don't need it). */
+  equals?: (a: T, b: T) => boolean;
   verbs?: readonly CellVerb[];
 }
 

@@ -70,13 +70,21 @@ async function startFakeAgent(world: KoluWorld): Promise<void> {
   // (comm→"sleep"), breaking the foreground-basename check. A compound
   // command forces bash to stay resident so comm stays "codex".
   //
-  // Emitting OSC 2 from inside the body is a stability belt — the
-  // reconcile triggered by bash's preexec OSC 2 fires before the new
-  // process is actually in the foreground (Linux inotify coalescing +
-  // OSC 7 vs title event ordering under parallel-worker load), so we
-  // emit a second title event once the fake agent is definitively the
-  // foreground process. Without this the detection misses in ~5% of
-  // CI runs.
+  // Emit one OSC 2 from inside the subshell body (after the kernel has
+  // moved the foreground process group to the subshell) so the title
+  // event reconcile in `agent.ts` reads a settled foregroundPid and
+  // `readForegroundBasename() === "codex"`. The trailing `:` keeps bash
+  // resident as the foreground after the body's last command — without
+  // it, bash's `-c` optimisation execve-replaces itself with the final
+  // simple command and the kernel basename flips to `sleep`, breaking
+  // the foreground-basename check.
+  //
+  // The complementary server-side bootstrap is `agent.ts`'s
+  // `commandRun` retry chain at [0, 75, 300, 1000] ms — that's the
+  // load-bearing piece for the npm-shimmed-CLI race where the kernel
+  // basename is `node` and detection rides entirely on
+  // `lastAgentCommandName`. The body OSC 2 here is the simpler
+  // foreground-basename path, which production agents would emit too.
   //
   // `terminal/killAll` in hooks.ts:Before tears the pty down between
   // scenarios, which SIGKILLs the whole tree.

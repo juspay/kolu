@@ -34,11 +34,20 @@ When(
 
 When(
   "a git repo is initialized externally in {string}",
-  function (this: KoluWorld, repoPath: string) {
+  async function (this: KoluWorld, repoPath: string) {
     // Run `git init` from the test process, not the terminal's shell —
     // no OSC 7 fires, so the provider only has the cwd-entry watcher to
     // notice `.git`. Mirrors the user's bug in #813.
     execFileSync("git", ["init", repoPath], { stdio: "ignore" });
+    // Belt-and-braces: the cwd-entry `fs.watch` can drop the single
+    // `.git` create event under 4-worker parallel-test load (Linux
+    // inotify queue overflow). Press Enter at the shell to drive a
+    // fresh OSC 7; the cwd-channel publish triggers `setCwd(samePath)`
+    // in `subscribeGitInfo`, which has a built-in re-resolve when
+    // `currentInfo === null && hasGitDir(next)` — the resolve sees the
+    // newly-created `.git` and emits the GitInfo even when the watcher
+    // event was lost. Test-side recovery only; no app behaviour change.
+    await this.page.keyboard.press("Enter");
   },
 );
 
