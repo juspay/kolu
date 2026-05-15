@@ -79,13 +79,14 @@ Feature: Dock
     When I press shortcut "Mod+1"
     Then the active terminal should show "first-dock-row"
 
-  Scenario: Alt held reveals numeric shortcut hints on dock rows
-    # Holding Alt/Option paints a `Cmd+N` hint on the first nine dock
-    # rows so the user can see what the positional shortcut will
-    # target. Releasing Alt removes the hints.
+  Scenario: Mod held reveals numeric shortcut hints on dock rows
+    # Holding the platform modifier (Cmd on macOS, Ctrl elsewhere)
+    # paints a `Cmd+N` hint on the first nine dock rows — same modifier
+    # as the shortcut itself, so the hint discovery mirrors the chord.
+    # Releasing Mod removes the hints.
     Given I create a terminal
     Then no dock-row shortcut hints should be visible
-    When I press and hold Alt
+    When I press and hold Mod
     Then the dock should show 2 shortcut hints
-    When I release Alt
+    When I release Mod
     Then no dock-row shortcut hints should be visible

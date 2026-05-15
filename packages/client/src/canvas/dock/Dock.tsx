@@ -56,6 +56,7 @@ import { getTerminalRefs } from "../../terminal/terminalRefs";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { ChevronDownIcon, PlusIcon, SearchIcon } from "../../ui/Icons";
 import { client } from "../../wire";
+import { isPlatformModifier } from "../../input/keyboard";
 import { useTileTheme } from "../useTileTheme";
 import { useViewPosture } from "../useViewPosture";
 import { buildDockModel, type DockSourceEntry } from "../dockModel";
@@ -130,21 +131,22 @@ if (typeof window !== "undefined") {
   });
 }
 
-// Holding Alt/Option reveals numeric hints over the first nine dock
-// rows so the user can see what `Cmd+1..9` will target — the
-// shortcuts target dock row order (recency-sorted), and that order
-// shifts as agents transition, so the visible mapping needs to be on-
-// demand rather than always painted. Module-scope so a single pair of
+// Holding the platform modifier (Cmd on macOS, Ctrl elsewhere) reveals
+// numeric hints over the first nine dock rows so the user can see what
+// `Cmd+1..9` will target. Same modifier as the shortcut itself — the
+// hint and the chord that fires it share one key, so users learn the
+// mapping by holding-then-pressing without re-mapping a separate
+// discovery modifier in their head. Module-scope so a single pair of
 // window listeners fans out to every DockRow.
-const [altHeld, setAltHeld] = createSignal(false);
+const [modHeld, setModHeld] = createSignal(false);
 if (typeof window !== "undefined") {
-  const refresh = (e: KeyboardEvent) => setAltHeld(e.altKey);
-  const clear = () => setAltHeld(false);
+  const refresh = (e: KeyboardEvent) => setModHeld(isPlatformModifier(e));
+  const clear = () => setModHeld(false);
   window.addEventListener("keydown", refresh);
   window.addEventListener("keyup", refresh);
   // Tab-away can drop the keyup that would otherwise reset state; the
-  // hint would visibly stick to "Alt held" until the user re-focused
-  // and pressed Alt again. Blur and visibility-change both reset.
+  // hint would visibly stick to "mod held" until the user re-focused
+  // and pressed the modifier again. Blur and visibility-change both reset.
   window.addEventListener("blur", clear);
   document.addEventListener("visibilitychange", clear);
 }
@@ -453,10 +455,10 @@ const DockRow: Component<{
   });
   const active = () => store.activeId() === props.id;
   const unread = () => store.isUnread(props.id);
-  // First nine rows get a Cmd+i hint while Alt is held. The mapping
-  // matches `switchTo1..9` in `actions.ts`, which targets the same
-  // recency-sorted order this row's `index` belongs to.
-  const showShortcutHint = () => altHeld() && props.index < 9;
+  // First nine rows get a Cmd+i hint while the platform modifier is
+  // held. The mapping matches `switchTo1..9` in `actions.ts`, which
+  // targets the same dock row order this row's `index` belongs to.
+  const showShortcutHint = () => modHeld() && props.index < 9;
   return (
     <Show when={combined()}>
       {(c) => (

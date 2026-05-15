@@ -134,13 +134,13 @@ Then("the dock should be in maximized mode", async function (this: KoluWorld) {
   );
 });
 
-When("I press and hold Alt", async function (this: KoluWorld) {
-  await this.page.keyboard.down("Alt");
+When("I press and hold Mod", async function (this: KoluWorld) {
+  await this.page.keyboard.down(MOD_KEY);
   await this.waitForFrame();
 });
 
-When("I release Alt", async function (this: KoluWorld) {
-  await this.page.keyboard.up("Alt");
+When("I release Mod", async function (this: KoluWorld) {
+  await this.page.keyboard.up(MOD_KEY);
   await this.waitForFrame();
 });
 
