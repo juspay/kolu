@@ -28,7 +28,7 @@ export type DockRowBucket = "awaiting" | "working" | "idle" | "parked" | "none";
 
 /** Sort priority for rows that share `lastActivityAt` (most commonly
  *  several plain shells at `ts === 0`). Lower comes first. */
-export const DOCK_ROW_BUCKET_PRIORITY: Record<DockRowBucket, number> = {
+const DOCK_ROW_BUCKET_PRIORITY: Record<DockRowBucket, number> = {
   awaiting: 0,
   working: 1,
   idle: 2,
@@ -36,11 +36,7 @@ export const DOCK_ROW_BUCKET_PRIORITY: Record<DockRowBucket, number> = {
   none: 4,
 };
 
-/** Classify a terminal into its dock-row bucket. Pure — `parked` is
- *  passed in so the caller decides which staleness clock to consult
- *  (the canonical `useStaleCheck`, the minimap's user-selected window,
- *  etc.). */
-export function classifyDockRow(
+function classifyDockRow(
   meta: TerminalMetadata,
   parked: boolean,
 ): DockRowBucket {
