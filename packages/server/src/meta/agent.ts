@@ -167,6 +167,19 @@ interface ExternalChangesActivation {
 }
 const activations = new Map<string, ExternalChangesActivation>();
 
+/** Preexec (`commandRun`) arrives while the shell still owns the foreground
+ *  process group, so a synchronous reconcile reads `state.foregroundPid =
+ *  shell.pid` and `snapshotTerminalState` forces `lastAgentCommandName =
+ *  null` (the `shellIdle` gate). The matched agent binary takes over a few
+ *  ticks later. Queue a short burst of reconciles at increasing delays so
+ *  the per-terminal preexec stash maintained by `agent-command.ts` is
+ *  sampled both immediately (cheap, covers the lucky-fast case where
+ *  exec has already landed) and after POSIX foreground ownership has
+ *  settled — closes the bootstrap window that previously left the codex
+ *  provider with no registered reconciler for this terminal until a
+ *  later WAL event happened to land at the right state. */
+const COMMAND_RUN_RECONCILE_DELAYS_MS = [0, 75, 300, 1000] as const;
+
 function getActivation(kind: string): ExternalChangesActivation {
   let entry = activations.get(kind);
   if (!entry) {
@@ -178,10 +191,10 @@ function getActivation(kind: string): ExternalChangesActivation {
 
 /**
  * Start the provider's agent-detection loop for one terminal. Subscribes
- * to title events and — lazily, on first `isPresent` match — joins the
- * process-wide external-change fan-out for this provider; on each signal,
- * re-resolves the matching session and replaces the running watcher iff
- * the `sessionKey` changed.
+ * to title / cwd / commandRun events and — lazily, on first `isPresent`
+ * match — joins the process-wide external-change fan-out for this provider;
+ * on each signal, re-resolves the matching session and replaces the running
+ * watcher iff the `sessionKey` changed.
  *
  * Returns a cleanup function that tears down every subscription + the
  * current watcher.
@@ -195,6 +208,8 @@ export function startAgentProvider<Session, Info extends AgentInfoShape>(
 
   let current: { watcher: AgentWatcher; key: string } | null = null;
   let registeredForExternal = false;
+  let stopped = false;
+  let commandRunTimers: ReturnType<typeof setTimeout>[] = [];
 
   plog.debug("started");
 
@@ -267,10 +282,56 @@ export function startAgentProvider<Session, Info extends AgentInfoShape>(
     };
   }
 
+  function clearCommandRunTimers() {
+    for (const timer of commandRunTimers) clearTimeout(timer);
+    commandRunTimers = [];
+  }
+
+  function reconcileFromCommandRun() {
+    if (stopped) return;
+    try {
+      reconcile();
+    } catch (err) {
+      plog.error({ err }, "command-run reconcile failed");
+    }
+  }
+
+  function scheduleCommandRunReconciles() {
+    clearCommandRunTimers();
+    commandRunTimers = COMMAND_RUN_RECONCILE_DELAYS_MS.map((delay) =>
+      setTimeout(reconcileFromCommandRun, delay),
+    );
+  }
+
   // Title events — fired by OSC 2 preexec hook. Every shell command
-  // boundary is a potential session-match change.
-  const cleanup = terminalChannels.title(terminalId).consume({
+  // boundary is a potential foreground-process change.
+  const cleanupTitle = terminalChannels.title(terminalId).consume({
     onEvent: () => reconcile(),
+    onError: (err) => plog.error({ err }, "publisher subscription failed"),
+  });
+
+  // CWD events — session lookup for directory-scoped agents (Codex,
+  // OpenCode) keys on the terminal cwd. Without this edge, a `cd` OSC 7
+  // that lands after the command title event leaves matching dependent on
+  // a later external (WAL) tick. Real-world repro: `cd ~/proj && codex`
+  // in one line — the title event fires on the command boundary before
+  // the cwd has been published, so the codex provider sees a stale cwd
+  // and `findSessionByDirectory` returns null.
+  const cleanupCwd = terminalChannels.cwd(terminalId).consume({
+    onEvent: () => reconcile(),
+    onError: (err) => plog.error({ err }, "publisher subscription failed"),
+  });
+
+  // Command-run events — fired by OSC 633;E preexec marks. They update
+  // the per-terminal agent-command stash (`meta/agent-command.ts`), then
+  // a short burst of delayed reconciles samples state at increasing
+  // delays so at least one observes the post-exec foreground-process
+  // ownership. Closes the codex/opencode bootstrap window for
+  // interpreter-shimmed CLIs (kernel basename ≠ agent name) and the
+  // null/null indicator surface seen in `codex.feature:15/:20` under
+  // 4-worker contention.
+  const cleanupCommandRun = terminalChannels.commandRun(terminalId).consume({
+    onEvent: () => scheduleCommandRunReconciles(),
     onError: (err) => plog.error({ err }, "publisher subscription failed"),
   });
 
@@ -278,7 +339,11 @@ export function startAgentProvider<Session, Info extends AgentInfoShape>(
   reconcile();
 
   return () => {
-    cleanup();
+    stopped = true;
+    clearCommandRunTimers();
+    cleanupTitle();
+    cleanupCwd();
+    cleanupCommandRun();
     if (registeredForExternal) {
       activations.get(provider.kind)?.reconcilers.delete(reconcile);
     }
