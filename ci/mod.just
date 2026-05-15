@@ -87,7 +87,7 @@ unit:
 # typecheck doesn't see — broken Tailwind imports, JSX errors, missing
 # imports in the production bundle. Cheap (~1s).
 surface-example-build:
-    just ci::_run surface-example-build "pnpm --filter @kolu/surface-example build:client"
+    just ci::_run surface-example-build "sh -c 'pnpm install --frozen-lockfile && pnpm --filter @kolu/surface-example build:client'"
 
 fmt:
     just ci::_run fmt just fmt-check
