@@ -26,7 +26,7 @@ _run-all: _local _linux _darwin
 # their own GitHub status — _summary reads those statuses to decide
 # the final pass/fail.
 _local:
-    just ci::fmt ci::typecheck ci::biome ci::unit ci::surface-example-build || true
+    CI_SYSTEM=x86_64-linux just ci::fmt ci::typecheck ci::biome ci::unit ci::surface-example-build || true
 
 _linux:
     CI_SYSTEM=x86_64-linux just ci::pnpm-hash-fresh ci::nix ci::_linux-fanout || true
@@ -87,7 +87,7 @@ unit:
 # typecheck doesn't see — broken Tailwind imports, JSX errors, missing
 # imports in the production bundle. Cheap (~1s).
 surface-example-build:
-    just ci::_run surface-example-build "pnpm --filter @kolu/surface-example build:client"
+    just ci::_run surface-example-build "sh -c 'pnpm install --frozen-lockfile && pnpm --filter @kolu/surface-example build:client'"
 
 fmt:
     just ci::_run fmt just fmt-check

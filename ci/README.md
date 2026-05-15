@@ -17,7 +17,7 @@ ci/lib.just       →  reusable infra       (signoff, guard, ssh, prefix, summar
 - **`_preflight`** — asserts clean worktree, commit pushed to remote, resolves SSH hosts
 - **`_guard`** — re-checks worktree/HEAD per step (catches mid-run dirtying)
 - **`_run name +cmd`** — runs a command locally or via SSH, with colored prefixed output, GitHub status lifecycle (pending → success/failure), and timing
-- **`_host`** — prompts for SSH hostname on first use, caches in `~/.config/ci-hosts.json`
+- **`_host`** — prompts for the SSH command on first use, caches in `~/.config/ci-hosts.json`. The stored value is the full command prefix used to reach the remote (e.g. `ssh srid1` or `pu connect srid1` for an SSH proxy into an Incus cluster). A bare hostname is interpreted as `ssh <hostname>` for backward compatibility.
 - **`_devour-flake name +args`** — wraps `_run` for `nix build` via [devour-flake](https://github.com/srid/devour-flake)
 - **`_contexts`** — auto-derives all `step@system` pairs from the justfile structure
 - **`_summary`** — prints a pass/fail table by querying GitHub statuses for the known contexts
@@ -25,7 +25,7 @@ ci/lib.just       →  reusable infra       (signoff, guard, ssh, prefix, summar
 
 ### Local vs remote execution
 
-If `CI_SYSTEM` matches the local system, commands run directly (prefixed with `~`). Otherwise, the repo is `git bundle`-d over SSH to the remote host and commands run there (prefixed with `>`). The full `.git` is sent so nix can read git revision info.
+If `CI_SYSTEM` matches the local system, commands run directly (prefixed with `~`). Otherwise, the repo is `git bundle`-d over the configured SSH command to the remote host and commands run there (prefixed with `>`). The full `.git` is sent so nix can read git revision info. Any ssh-equivalent transport works — `ssh`, `pu connect` (Incus cluster proxy), etc.
 
 ### Parallel execution
 

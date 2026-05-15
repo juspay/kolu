@@ -16,6 +16,7 @@ import {
   worktreeCreate,
 } from "./index.ts";
 import { _sharedCwdGitWatcherCount } from "./cwd-git-watcher.ts";
+import { WATCHER_DEBOUNCE_MS } from "./git-dir.ts";
 import { _sharedHeadWatcherCount } from "./head-watcher.ts";
 
 // --- getDiff: renames ---
@@ -1049,5 +1050,44 @@ describe("subscribeGitInfo watcher churn", () => {
     // Initial install on a + retire on transition + install on b + retire on stop.
     expect(counter.installs).toBe(2);
     expect(counter.retires).toBe(2);
+  });
+
+  // Regression: an fs watcher event fires after the test's last awaited
+  // update but before `stop()`. The debounced listener calls `resolve()`,
+  // which awaits git subprocesses. If `stop()` runs while that resolve is
+  // in flight, the resume path would hit `ensureMode("head")` with the
+  // watcher slot already null and install a fresh watcher that nobody
+  // retires — leaking past the subscription's lifetime. Manifested as a
+  // flaky `_sharedHeadWatcherCount() === 0` afterEach failure under CI
+  // load.
+  it("stop() during an in-flight resolve does not reinstall the watcher", async () => {
+    const { dir, git } = await initRepo("stop-race");
+
+    const counter = makeLog();
+    const updates: (GitInfo | null)[] = [];
+    const sub = subscribeGitInfo(
+      dir,
+      (info) => {
+        updates.push(info);
+      },
+      counter.log,
+    );
+
+    await waitFor(() => updates.length >= 1);
+
+    // Rewrite .git/HEAD to schedule a debounced watcher event. After the
+    // debounce window, the listener will call `resolve()`, which then
+    // awaits its git subprocesses — that's the window where stop() must
+    // make subsequent ensureMode calls into no-ops.
+    await git.checkoutLocalBranch("other");
+    await new Promise((r) => setTimeout(r, WATCHER_DEBOUNCE_MS + 20));
+    sub.stop();
+
+    // Drain any in-flight resolve so a reinstalled watcher (without the
+    // stopped gate) would be observable here.
+    await new Promise((r) => setTimeout(r, 300));
+
+    expect(_sharedHeadWatcherCount()).toBe(0);
+    expect(counter.installs).toBe(counter.retires);
   });
 });
