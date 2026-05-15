@@ -188,7 +188,7 @@ describe("searchWorkspaceEntries", () => {
     }),
   ];
 
-  it("returns every entry in recency order when no query is supplied", () => {
+  it("returns every entry in recency order", () => {
     const recency: Record<string, number> = { t1: 4, t2: 3, t3: 2, t4: 1 };
     const result = searchWorkspaceEntries(entries, {
       getRecency: (id) => recency[id] ?? 0,
@@ -196,40 +196,27 @@ describe("searchWorkspaceEntries", () => {
     expect(result.map((e) => e.id)).toEqual(["t1", "t2", "t3", "t4"]);
   });
 
-  it("filters by repo or branch substrings", () => {
-    expect(
-      searchWorkspaceEntries(entries, { query: "emanote" }).map((e) => e.id),
-    ).toEqual(["t3"]);
-    expect(
-      searchWorkspaceEntries(entries, { query: "api-refactor" }).map(
-        (e) => e.id,
-      ),
-    ).toEqual(["t2"]);
+  // The palette filter (CommandPalette.tsx#filtered) tokenizes the row's
+  // `name + description + searchText` and applies AND semantics.
+  // `searchWorkspaceEntries` doesn't filter; its contract is that every
+  // candidate field a user might type is packed into `searchText` so the
+  // palette's filter can hit them. These tests assert that contract.
+  function searchTextFor(id: string): string {
+    const entry = searchWorkspaceEntries(entries).find((e) => e.id === id);
+    if (!entry) throw new Error(`Missing entry ${id}`);
+    return entry.searchText;
+  }
+
+  it("packs repo and branch into searchText", () => {
+    expect(searchTextFor("t3")).toContain("emanote");
+    expect(searchTextFor("t2")).toContain("api-refactor");
   });
 
-  it("requires every token to match (AND semantics)", () => {
-    // Both tokens must hit the same entry's searchText.
-    expect(
-      searchWorkspaceEntries(entries, { query: "vim readme" }).map((e) => e.id),
-    ).toEqual(["t3"]);
-    // "kolu" appears in t1 and t2's repo; "api" only narrows to t2.
-    expect(
-      searchWorkspaceEntries(entries, { query: "kolu api" }).map((e) => e.id),
-    ).toEqual(["t2"]);
-  });
-
-  it("searches foreground, PR, agent, cwd, and command metadata", () => {
-    expect(
-      searchWorkspaceEntries(entries, { query: "parallelization" }),
-    ).toHaveLength(1);
-    expect(
-      searchWorkspaceEntries(entries, { query: "flaky checkout" }),
-    ).toHaveLength(1);
-    expect(
-      searchWorkspaceEntries(entries, { query: "scratch-space" }),
-    ).toHaveLength(1);
-    expect(
-      searchWorkspaceEntries(entries, { query: "claude sonnet" }),
-    ).toHaveLength(1);
+  it("packs foreground, PR, agent, cwd, and command metadata into searchText", () => {
+    expect(searchTextFor("t4")).toContain("parallelization");
+    expect(searchTextFor("t1")).toContain("flaky checkout");
+    expect(searchTextFor("t4")).toContain("scratch-space");
+    expect(searchTextFor("t4")).toContain("claude --model sonnet");
+    expect(searchTextFor("t3")).toContain("vim readme.md");
   });
 });

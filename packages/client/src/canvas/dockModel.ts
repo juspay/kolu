@@ -1,6 +1,5 @@
 import type { AgentInfo, TerminalId } from "kolu-common/surface";
 import { match } from "ts-pattern";
-import { matchesAllTokens, tokenize } from "../search";
 import type { TerminalDisplayInfo } from "../terminal/terminalDisplay";
 import type { TileLayout } from "./TileLayout";
 
@@ -204,21 +203,22 @@ function searchTextFor(entry: {
   return values.join(" ").toLowerCase();
 }
 
-/** Sort live terminals by recency, hydrate each into a `DockEntry` with a
- *  precomputed `searchText`, then narrow by an AND-token query (every
- *  token must appear as a substring in `searchText`). When `query` is
- *  empty or omitted, returns every entry in recency order. */
+/** Sort live terminals by recency and hydrate each into a `DockEntry`
+ *  with a precomputed `searchText`. Filtering is the caller's
+ *  responsibility — the command palette's `filtered` memo runs the
+ *  AND-token match against the row's `name` + `description` +
+ *  `searchText`, so the workspace path stays consistent with every
+ *  other palette row. */
 export function searchWorkspaceEntries(
   sources: DockSourceEntry[],
   options: {
-    query?: string;
     getRecency?: (id: TerminalId) => number;
   } = {},
 ): DockEntry[] {
   const ordered = options.getRecency
     ? sortDockEntriesByRecency(sources, options.getRecency)
     : sources;
-  const entries: DockEntry[] = ordered.map((source) => {
+  return ordered.map((source) => {
     const baseFields = {
       id: source.id,
       repoName: source.info.key.group,
@@ -228,7 +228,4 @@ export function searchWorkspaceEntries(
     };
     return { ...baseFields, searchText: searchTextFor(baseFields) };
   });
-  const tokens = tokenize(options.query ?? "");
-  if (tokens.length === 0) return entries;
-  return entries.filter((entry) => matchesAllTokens(entry.searchText, tokens));
 }
