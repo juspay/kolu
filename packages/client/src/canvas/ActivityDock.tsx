@@ -182,10 +182,9 @@ function closeMega(): void {
 }
 
 function toggleRailCards(): void {
-  if (dockMode() === "mega") {
-    closeMega();
-    return;
-  }
+  // Only called from `DockHeader`'s mode chevron, and `DockHeader` is
+  // only mounted in the non-mega branch of the dock — so `dockMode()`
+  // is rail or cards at this point. No mega guard needed.
   setDockMode(dockMode() === "rail" ? "cards" : "rail");
 }
 
