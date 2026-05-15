@@ -54,7 +54,7 @@ async function startFakeAgent(world: KoluWorld): Promise<void> {
   const bin = process.env.KOLU_FAKE_OPENCODE_BIN;
   if (!bin) throw new Error("KOLU_FAKE_OPENCODE_BIN must be set");
   await world.page.keyboard.type(
-    `${bin} -c "for i in 1 2 3 4 5; do printf '\\033]0;opencode\\007'; sleep 0.2; done; sleep 99999 ; :"`,
+    `${bin} -c "for i in 1 2 3; do printf '\\033]0;opencode\\007'; sleep 0.15; done; sleep 99999 ; :"`,
   );
   await world.page.keyboard.press("Enter");
 }
@@ -62,7 +62,7 @@ async function startFakeAgent(world: KoluWorld): Promise<void> {
 async function startShimmedAgent(world: KoluWorld): Promise<void> {
   // See codex_steps.ts::startShimmedAgent for the full rationale.
   await world.page.keyboard.type(
-    `opencode() { ( for i in 1 2 3 4 5; do printf '\\033]0;opencode\\007'; sleep 0.2; done; sleep 99999 ; :); }`,
+    `opencode() { ( for i in 1 2 3; do printf '\\033]0;opencode\\007'; sleep 0.15; done; sleep 99999 ; :); }`,
   );
   await world.page.keyboard.press("Enter");
   await world.page.keyboard.type("opencode");

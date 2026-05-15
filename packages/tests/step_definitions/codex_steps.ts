@@ -81,10 +81,9 @@ async function startFakeAgent(world: KoluWorld): Promise<void> {
   // terminal (the `activations.reconcilers` set is empty), so the
   // indicator stays at null/null until the deadline.
   //
-  // Five emits over ~1 s give the bootstrap multiple chances even
-  // when the parent shell's `tcsetpgrp` → kernel `tcgetpgrp` →
-  // `/proc/<fg>/comm` chain settles late under 4-worker contention.
-  // The trailing `:` is load-bearing: it keeps bash resident as the
+  // Three emits ~150 ms apart make the bootstrap robust on remote
+  // linux without modifying server-side reconcile triggers. The
+  // trailing `:` is load-bearing: it keeps bash resident as the
   // foreground after the loop so the kernel-level basename check
   // stays "codex" — see the prior comment about bash's `-c`
   // execve optimization on a single simple command.
@@ -94,7 +93,7 @@ async function startFakeAgent(world: KoluWorld): Promise<void> {
   const bin = process.env.KOLU_FAKE_CODEX_BIN;
   if (!bin) throw new Error("KOLU_FAKE_CODEX_BIN must be set");
   await world.page.keyboard.type(
-    `${bin} -c "for i in 1 2 3 4 5; do printf '\\033]0;codex\\007'; sleep 0.2; done; sleep 99999 ; :"`,
+    `${bin} -c "for i in 1 2 3; do printf '\\033]0;codex\\007'; sleep 0.15; done; sleep 99999 ; :"`,
   );
   await world.page.keyboard.press("Enter");
 }
@@ -117,7 +116,7 @@ async function startShimmedAgent(world: KoluWorld): Promise<void> {
   // subshell already running is what lets matchesAgent succeed via
   // the preexec-hint branch.
   await world.page.keyboard.type(
-    `codex() { ( for i in 1 2 3 4 5; do printf '\\033]0;codex\\007'; sleep 0.2; done; sleep 99999 ; :); }`,
+    `codex() { ( for i in 1 2 3; do printf '\\033]0;codex\\007'; sleep 0.15; done; sleep 99999 ; :); }`,
   );
   await world.page.keyboard.press("Enter");
   await world.page.keyboard.type("codex");
