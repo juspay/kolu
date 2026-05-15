@@ -478,17 +478,17 @@ const CommandPalette: Component<{
       onOpenChange={props.onOpenChange}
       transparentOverlay={props.transparentOverlay}
       initialFocusEl={inputRef}
+      size="lg"
     >
       <Dialog.Content
         forceMount
         data-testid="command-palette"
-        class="bg-surface-1 border border-edge rounded-2xl shadow-2xl shadow-black/50 overflow-hidden flex flex-col"
+        class="w-full bg-surface-1 border border-edge rounded-2xl shadow-2xl shadow-black/50 overflow-hidden flex flex-col"
         style={{
           // Cap at 80vh so the dialog adapts to the workspace grid's
           // four-column body without forcing scroll for small dialogs;
           // 40rem keeps the chrome compact on tall monitors.
           height: "min(80vh, 40rem)",
-          width: "min(90vw, 44rem)",
           // Firefox workaround: bg-surface-1 utility intermittently fails
           // to apply to Corvu-portalled dialog content, leaving it
           // transparent. Inline style guarantees the background paints.
@@ -620,7 +620,7 @@ const CommandPalette: Component<{
                             </span>
                           </Show>
                         </div>
-                        <Show when={cmd.kind === "action" && cmd.keybind}>
+                        <Show when={cmd.keybind}>
                           {(keybind) => {
                             const kb = keybind();
                             return (

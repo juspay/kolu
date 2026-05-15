@@ -33,7 +33,15 @@ export function refocusTerminal() {
 // Width cap for the dialog. Applied to the flex-item wrapper (not Dialog.Content)
 // so the child's `w-full` resolves against a definite parent width — otherwise
 // `w-full` on a content-auto flex item collapses to min-content on desktop.
-const SIZE_CLASS = { sm: "max-w-sm", md: "max-w-md" } as const;
+const SIZE_CLASS = {
+  sm: "max-w-sm",
+  md: "max-w-md",
+  // `lg` is sized to fit the command palette's workspace-grid body:
+  // 12rem repo facet + 4 agent-state columns + breathing room. Smaller
+  // caps truncate card titles ("post-buil…") on the wider workspace
+  // columns.
+  lg: "max-w-3xl",
+} as const;
 
 const ModalDialog: Component<{
   open: boolean;
@@ -44,8 +52,11 @@ const ModalDialog: Component<{
   initialFocusEl?: HTMLElement;
   /** Disable Corvu's built-in focus trapping (for custom keyboard navigation). */
   trapFocus?: boolean;
-  /** Max width cap — "sm" (24rem) for confirms/help, "md" (28rem) for command palette. Defaults to "md". */
-  size?: "sm" | "md";
+  /** Max width cap — "sm" (24rem) for confirms/help, "md" (28rem) for
+   *  legacy palette callers, "lg" (48rem) for the unified command
+   *  palette whose workspace-grid body needs the extra room. Defaults
+   *  to "md". */
+  size?: "sm" | "md" | "lg";
   children: JSX.Element;
 }> = (props) => (
   <Dialog
