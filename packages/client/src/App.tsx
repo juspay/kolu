@@ -25,8 +25,9 @@ import CommandPalette from "./CommandPalette";
 import "kolu-common/test-hooks";
 import CanvasWatermark from "./canvas/CanvasWatermark";
 import { useCanvasArrange } from "./canvas/useCanvasArrange";
-import { buildWorkspaceEntries, buildDockModel } from "./canvas/dockModel";
+import { buildWorkspaceEntries } from "./canvas/dockModel";
 import { toggleRailCards } from "./canvas/dock/Dock";
+import { rankDockRows } from "./canvas/dock/dockRowRanking";
 import TerminalCanvas from "./canvas/TerminalCanvas";
 import TileTitleActions from "./canvas/TileTitleActions";
 import { createCommands } from "./commands";
@@ -49,6 +50,7 @@ import ShortcutsHelp from "./ShortcutsHelp";
 import { screenshotTerminal } from "./screenshotTerminal";
 import { useColorScheme } from "./settings/useColorScheme";
 import { useTips } from "./settings/useTips";
+import { useStaleCheck } from "./terminal/staleness";
 import TerminalContent from "./terminal/TerminalContent";
 import TerminalMeta from "./terminal/TerminalMeta";
 import { useSubPanel } from "./terminal/useSubPanel";
@@ -79,7 +81,9 @@ const App: Component = () => {
   const { colorScheme } = useColorScheme();
 
   // Workspace-switcher feeds — desktop and mobile share the same
-  // accessors; `buildDockModel` owns the ordering pipeline.
+  // accessors. The mega-level model lives in `buildDockModel` (consumed
+  // inside `Dock`); row order is shared via `rankDockRows` so the
+  // `Cmd+1..9` shortcut targets the same row the dock paints.
   const workspaceEntries = createMemo(() =>
     buildWorkspaceEntries(
       store.terminalIds(),
@@ -89,9 +93,10 @@ const App: Component = () => {
   );
   const recencyOf = (id: TerminalId): number =>
     store.getMetadata(id)?.lastActivityAt ?? 0;
+  const isStale = useStaleCheck();
   const orderedIds = createMemo(() =>
-    buildDockModel(workspaceEntries(), { getRecency: recencyOf }).entries.map(
-      (entry) => entry.id,
+    rankDockRows(store.terminalIds(), store.getMetadata, isStale).map(
+      (row) => row.id,
     ),
   );
 

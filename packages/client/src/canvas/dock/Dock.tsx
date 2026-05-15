@@ -58,19 +58,11 @@ import { ChevronDownIcon, PlusIcon, SearchIcon } from "../../ui/Icons";
 import { client } from "../../wire";
 import { useTileTheme } from "../useTileTheme";
 import { useViewPosture } from "../useViewPosture";
-import {
-  agentBucket,
-  buildDockModel,
-  type DockSourceEntry,
-} from "../dockModel";
+import { buildDockModel, type DockSourceEntry } from "../dockModel";
 import DockMega from "./DockMega";
+import { type DockRowBucket, rankDockRows } from "./dockRowRanking";
 
 export type DockMode = "rail" | "cards" | "mega";
-
-/** Per-card render variant. `parked` is its own bucket (not folded into
- *  idle) because it carries a different visual treatment (faded, tinier
- *  row) and routes through staleness, not the idle-bucket classifier. */
-type DockBucket = "awaiting" | "working" | "idle" | "parked" | "none";
 
 const PEEK_REFRESH_MS = 250;
 const MIN_TAIL_LINES = 2;
@@ -86,17 +78,6 @@ const CARDS_WIDTH_PX = 288;
 // row without truncation, matching the breathing room the retired
 // chrome-bar workspace switcher had.
 const MEGA_WIDTH_PX = 960;
-
-/** Sort priority for rows that share `lastActivityAt` (most commonly
- *  several plain shells at `ts === 0`). Lower comes first. Module-scope
- *  so it isn't re-allocated on every `ranked()` recomputation. */
-const BUCKET_PRIORITY: Record<DockBucket, number> = {
-  awaiting: 0,
-  working: 1,
-  idle: 2,
-  parked: 3,
-  none: 4,
-};
 
 /** Width in pixels for a given mode. Drives both the outer aside's
  *  inline `width` style and (in maximized posture) the dock's flex
@@ -227,45 +208,13 @@ const Dock: Component<{
   const isStale = useStaleCheck();
   const posture = useViewPosture();
 
-  const ranked = createMemo(() => {
-    const result: {
-      id: TerminalId;
-      bucket: DockBucket;
-      ts: number;
-    }[] = [];
-    for (const id of store.terminalIds()) {
-      const meta = store.getMetadata(id);
-      if (!meta) continue;
-      const parked = isStale(meta.lastActivityAt);
-      const agent = agentBucket(meta.agent);
-      // Parked is its own bucket. An "awaiting" agent that's been
-      // parked for hours is no longer "awaiting" in any actionable
-      // sense — route it to parked so the row reads dim and small.
-      let bucket: DockBucket;
-      if (parked) bucket = "parked";
-      else if (agent === "none") bucket = "none";
-      else if (agent === "awaiting") bucket = "awaiting";
-      else bucket = "working";
-      // Idle vs none: a terminal that *has* an agent but no live
-      // attention state (none) reads as "idle" in the dock — a quieter
-      // row than a working pill. Plain shells (`lastActivityAt === 0`)
-      // route to `none`.
-      if (bucket === "none" && meta.lastActivityAt > 0) bucket = "idle";
-      result.push({ id, bucket, ts: meta.lastActivityAt });
-    }
-    // Recency descending; secondary sort by bucket priority so
-    // never-touched plain shells don't outrank an idle terminal with
-    // the same `ts === 0`.
-    result.sort((a, b) => {
-      if (a.ts !== b.ts) return b.ts - a.ts;
-      return BUCKET_PRIORITY[a.bucket] - BUCKET_PRIORITY[b.bucket];
-    });
-    return result;
-  });
+  const ranked = createMemo(() =>
+    rankDockRows(store.terminalIds(), store.getMetadata, isStale),
+  );
 
   const liveIds = createMemo(() => ranked().map((r) => r.id));
   const bucketOf = createMemo(() => {
-    const map = new Map<TerminalId, DockBucket>();
+    const map = new Map<TerminalId, DockRowBucket>();
     for (const r of ranked()) map.set(r.id, r.bucket);
     return map;
   });
@@ -387,7 +336,7 @@ const Dock: Component<{
 const RailOrCards: Component<{
   mode: Exclude<DockMode, "mega">;
   liveIds: TerminalId[];
-  bucketOf: Map<TerminalId, DockBucket>;
+  bucketOf: Map<TerminalId, DockRowBucket>;
   tailLines: number;
   onCreate: () => void;
   onOpenMega: () => void;
@@ -487,7 +436,7 @@ const DockHeader: Component<{
  *  surface hosts it. */
 const DockRow: Component<{
   id: TerminalId;
-  bucket: DockBucket;
+  bucket: DockRowBucket;
   mode: Exclude<DockMode, "mega">;
   tailLines: number;
   /** Zero-based row index in the recency-sorted list. Used to paint
@@ -571,7 +520,7 @@ const DockRow: Component<{
 const RailSegment: Component<{
   id: TerminalId;
   repoColor: string;
-  bucket: DockBucket;
+  bucket: DockRowBucket;
   mode: Exclude<DockMode, "mega">;
 }> = (props) => {
   const store = useTerminalStore();
@@ -613,7 +562,7 @@ const RailSegment: Component<{
  *  body renders. */
 const RowBody: Component<{
   id: TerminalId;
-  bucket: DockBucket;
+  bucket: DockRowBucket;
   info: TerminalDisplayInfo;
   meta: TerminalMetadata;
   tailLines: number;
@@ -812,7 +761,7 @@ const QuietRowBody: Component<{
   id: TerminalId;
   info: TerminalDisplayInfo;
   meta: TerminalMetadata;
-  bucket: DockBucket;
+  bucket: DockRowBucket;
 }> = (props) => {
   const store = useTerminalStore();
   const foreground = () =>
