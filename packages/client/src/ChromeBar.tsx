@@ -21,6 +21,7 @@
  *  `MobileChromeSheet` and `MobileTileView`. */
 
 import { type Component, createSignal } from "solid-js";
+import { dockExpanded, toggleRailCards } from "./canvas/ActivityDock";
 import { useViewPosture } from "./canvas/useViewPosture";
 import { ACTIONS } from "./input/actions";
 import { formatKeybind } from "./input/keyboard";
@@ -28,7 +29,7 @@ import RecordButton from "./recorder/RecordButton";
 import { useRightPanel } from "./right-panel/useRightPanel";
 import type { WsStatus } from "./rpc/rpc";
 import SettingsPopover from "./settings/SettingsPopover";
-import { InspectorToggleIcon, SettingsIcon } from "./ui/Icons";
+import { DockToggleIcon, InspectorToggleIcon, SettingsIcon } from "./ui/Icons";
 import Kbd from "./ui/Kbd";
 import Tip from "./ui/Tip";
 
@@ -117,6 +118,24 @@ const ChromeBar: Component<{
        *  clicks through; each button re-enables pointer-events-auto. */}
       <div class="flex items-center gap-2 shrink-0">
         <RecordButton />
+        <Tip
+          label={`Toggle activity dock (${formatKeybind(ACTIONS.toggleDock.keybind)})`}
+        >
+          <button
+            type="button"
+            data-testid="dock-toggle"
+            class="pointer-events-auto hidden sm:flex items-center justify-center w-7 h-7 rounded-lg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+            classList={{
+              "bg-surface-2 text-fg": dockExpanded(),
+              "text-fg-3 hover:bg-surface-2 hover:text-fg": !dockExpanded(),
+            }}
+            data-active={dockExpanded() ? "" : undefined}
+            onClick={toggleRailCards}
+            aria-label="Toggle activity dock"
+          >
+            <DockToggleIcon active={dockExpanded()} />
+          </button>
+        </Tip>
         <Tip
           label={`Toggle inspector (${formatKeybind(ACTIONS.toggleRightPanel.keybind)})`}
         >

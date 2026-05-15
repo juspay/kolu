@@ -180,12 +180,22 @@ function closeMega(): void {
   setDockMode(previousMode());
 }
 
-function toggleRailCards(): void {
-  // Only called from `DockHeader`'s mode chevron, and `DockHeader` is
-  // only mounted in the non-mega branch of the dock — so `dockMode()`
-  // is rail or cards at this point. No mega guard needed.
+/** Toggle the dock between rail (collapsed) and cards (expanded).
+ *  Mega mode closes back to its prior level first. Exported so the
+ *  chrome-bar dock-toggle button and the `Cmd+B` keyboard shortcut
+ *  can drive the same lifecycle as the dock-header chevron. */
+export function toggleRailCards(): void {
+  if (dockMode() === "mega") {
+    closeMega();
+    return;
+  }
   setDockMode(dockMode() === "rail" ? "cards" : "rail");
 }
+
+/** Read-only accessor for "is the dock expanded?" — true when in
+ *  cards or mega. Drives the chrome-bar toggle button's `active`
+ *  pip so the icon reflects current state. */
+export const dockExpanded = (): boolean => dockMode() !== "rail";
 
 const ActivityDock: Component<{
   entries: WorkspaceSwitcherSourceEntry[];

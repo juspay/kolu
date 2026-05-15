@@ -562,6 +562,26 @@ export const InspectorToggleIcon: Component<{ active?: boolean }> = (props) => (
   </svg>
 );
 
+/** Dock (activity dock) toggle — mirror of InspectorToggleIcon for the
+ *  left-edge panel. Filled-left when active = dock is expanded (cards
+ *  or mega); empty-left = dock is in rail (collapsed) mode. */
+export const DockToggleIcon: Component<{ active?: boolean }> = (props) => (
+  <svg
+    class="w-3.5 h-3.5"
+    fill="none"
+    stroke="currentColor"
+    viewBox="0 0 24 24"
+    stroke-width="2"
+    aria-hidden="true"
+  >
+    <rect x="3" y="3" width="18" height="18" rx="2" />
+    <line x1="9" y1="3" x2="9" y2="21" />
+    <Show when={props.active}>
+      <rect x="3" y="3" width="6" height="18" rx="0" />
+    </Show>
+  </svg>
+);
+
 export const WorktreeIcon: Component<{ class?: string }> = (props) => (
   <svg
     class={props.class ?? "w-3 h-3"}

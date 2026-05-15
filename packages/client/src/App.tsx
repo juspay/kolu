@@ -29,6 +29,7 @@ import {
   buildWorkspaceEntries,
   buildWorkspaceSwitcherModel,
 } from "./canvas/workspace-switcher";
+import { toggleRailCards } from "./canvas/ActivityDock";
 import TerminalCanvas from "./canvas/TerminalCanvas";
 import TileTitleActions from "./canvas/TileTitleActions";
 import { createCommands } from "./commands";
@@ -215,6 +216,7 @@ const App: Component = () => {
     handleShuffleTheme,
     handleScreenshotTerminal: () => handleScreenshotTerminal(),
     toggleRightPanel: rightPanel.togglePanel,
+    toggleDock: toggleRailCards,
     toggleRecordingPause: () => useRecorder().togglePause(),
   };
 
