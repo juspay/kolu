@@ -54,7 +54,7 @@ import {
 import type { TerminalDisplayInfo } from "../terminal/terminalDisplay";
 import { getTerminalRefs } from "../terminal/terminalRefs";
 import { useTerminalStore } from "../terminal/useTerminalStore";
-import { ChevronDownIcon, PlusIcon } from "../ui/Icons";
+import { ChevronDownIcon, PlusIcon, SearchIcon } from "../ui/Icons";
 import { client } from "../wire";
 import { useTileTheme } from "./useTileTheme";
 import { useViewPosture } from "./useViewPosture";
@@ -431,7 +431,7 @@ const DockHeader: Component<{
         aria-label="Search workspaces"
         title="Search workspaces (⌘⇧K)"
       >
-        <span class="font-mono text-[0.85rem] leading-none text-accent">⏵</span>
+        <SearchIcon class="w-3.5 h-3.5" />
       </button>
       <button
         type="button"
@@ -768,8 +768,12 @@ const WorkingPillBody: Component<{
   );
 };
 
-/** Quiet row — idle / parked / none. Smallest variant; one-liner with
- *  repo · branch, faded for parked. No tail, no PR, no reply input. */
+/** Quiet row — idle / parked / none. Compact variant with repo +
+ *  branch on row 1; when the terminal is running a foreground process
+ *  (e.g. `pu connect srid1`, `nix build`, `npm run dev`), a second
+ *  row surfaces that title so plain shells aren't reduced to bare
+ *  `~ ~` labels. Falls back to the branch row alone when no
+ *  foreground is running. Faded for parked. */
 const QuietRowBody: Component<{
   id: TerminalId;
   info: TerminalDisplayInfo;
@@ -777,6 +781,8 @@ const QuietRowBody: Component<{
   bucket: DockBucket;
 }> = (props) => {
   const store = useTerminalStore();
+  const foreground = () =>
+    props.meta.foreground?.title ?? props.meta.foreground?.name ?? null;
   return (
     <button
       type="button"
@@ -784,26 +790,38 @@ const QuietRowBody: Component<{
       data-terminal-id={props.id}
       data-bucket={props.bucket}
       onClick={() => store.activate(props.id)}
-      class="w-full px-2.5 py-1 flex items-baseline gap-2 min-w-0 cursor-pointer text-left bg-surface-1/40 hover:bg-surface-2/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+      class="w-full px-2.5 py-1 flex flex-col gap-0.5 min-w-0 cursor-pointer text-left bg-surface-1/40 hover:bg-surface-2/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
       classList={{ "opacity-60": props.bucket === "parked" }}
       title={props.info.meta.cwd}
     >
-      <span
-        class="font-mono text-[0.6rem] font-bold uppercase tracking-[0.14em] truncate min-w-0"
-        style={{ color: props.info.repoColor }}
-      >
-        {props.info.key.group}
-      </span>
-      <span
-        class="text-[0.75rem] truncate min-w-0"
-        style={{ color: props.info.branchColor }}
-      >
-        {props.info.key.label}
-      </span>
-      <Show when={formatTimeAgo(props.meta.lastActivityAt)}>
-        {(label) => (
-          <span class="ml-auto font-mono text-[0.55rem] tabular-nums text-fg-3 shrink-0">
-            {label()}
+      <div class="flex items-baseline gap-2 min-w-0">
+        <span
+          class="font-mono text-[0.6rem] font-bold uppercase tracking-[0.14em] truncate min-w-0"
+          style={{ color: props.info.repoColor }}
+        >
+          {props.info.key.group}
+        </span>
+        <span
+          class="text-[0.75rem] truncate min-w-0"
+          style={{ color: props.info.branchColor }}
+        >
+          {props.info.key.label}
+        </span>
+        <Show when={formatTimeAgo(props.meta.lastActivityAt)}>
+          {(label) => (
+            <span class="ml-auto font-mono text-[0.55rem] tabular-nums text-fg-3 shrink-0">
+              {label()}
+            </span>
+          )}
+        </Show>
+      </div>
+      <Show when={foreground()}>
+        {(fg) => (
+          <span
+            data-testid="dock-quiet-foreground"
+            class="font-mono text-[0.65rem] text-fg-2 truncate min-w-0"
+          >
+            {fg()}
           </span>
         )}
       </Show>

@@ -175,11 +175,47 @@ const Row: Component<{
           <Show when={live()}>
             <PrLine meta={meta()} />
           </Show>
+          {/* Foreground process line — surfaced on quiet (non-live)
+           *  rows so plain shells aren't reduced to bare repo + branch
+           *  when they're running something like `pu connect srid1`
+           *  or `nix build`. The live rows have agent state +
+           *  optional PR carrying the same "what is this terminal
+           *  doing?" signal, so a foreground row there would be
+           *  redundant. */}
+          <Show when={!live()}>
+            <ForegroundLine meta={meta()} />
+          </Show>
         </div>
         <Show when={unread()}>
           <span class="w-2 h-2 mt-1 rounded-full bg-alert shrink-0" />
         </Show>
       </button>
+    </Show>
+  );
+};
+
+/** Foreground process line — e.g. `pu connect srid1`, `nix build`.
+ *  Pulled from `meta.foreground.title` (full command line) with
+ *  `.name` (executable) as fallback. Returns null when nothing is
+ *  running so the row stays compact. */
+const ForegroundLine: Component<{ meta: TerminalMetadata | undefined }> = (
+  props,
+) => {
+  const fg = () => {
+    const m = props.meta;
+    if (!m) return null;
+    return m.foreground?.title ?? m.foreground?.name ?? null;
+  };
+  return (
+    <Show when={fg()}>
+      {(label) => (
+        <span
+          data-testid="mobile-dock-foreground"
+          class="font-mono text-[0.7rem] text-fg-2 truncate min-w-0"
+        >
+          {label()}
+        </span>
+      )}
     </Show>
   );
 };
