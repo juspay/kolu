@@ -60,6 +60,7 @@ import { useTileTheme } from "../useTileTheme";
 import { useViewPosture } from "../useViewPosture";
 import { buildDockModel, type DockSourceEntry } from "../dockModel";
 import DockMega from "./DockMega";
+import { resolvedPr } from "./dockRowChrome";
 import { type DockRowBucket, rankDockRows } from "./dockRowRanking";
 
 export type DockMode = "rail" | "cards" | "mega";
@@ -814,7 +815,7 @@ const QuietRowBody: Component<{
 
 /** GitHub PR summary line (when one is resolved). */
 const PrLine: Component<{ meta: TerminalMetadata }> = (props) => {
-  const pr = () => (props.meta.pr.kind === "ok" ? props.meta.pr.value : null);
+  const pr = () => resolvedPr(props.meta.pr);
   return (
     <Show when={pr()}>
       {(p) => (

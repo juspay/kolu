@@ -22,6 +22,7 @@ import { type Component, For, Show, createMemo } from "solid-js";
 import AgentIndicator from "../../terminal/AgentIndicator";
 import { formatTimeAgo, useStaleCheck } from "../../terminal/staleness";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
+import { resolvedPr } from "./dockRowChrome";
 import { type DockRowBucket, rankDockRows } from "./dockRowRanking";
 
 const MobileDockDrawer: Component<{
@@ -197,7 +198,7 @@ const PrLine: Component<{ meta: TerminalMetadata | undefined }> = (props) => {
   const pr = () => {
     const m = props.meta;
     if (!m) return null;
-    return m.pr.kind === "ok" ? m.pr.value : null;
+    return resolvedPr(m.pr);
   };
   return (
     <Show when={pr()}>
