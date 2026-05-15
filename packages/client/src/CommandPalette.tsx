@@ -25,7 +25,6 @@ import {
 import { Dynamic } from "solid-js/web";
 import { match } from "ts-pattern";
 import { formatKeybind, type Keybind } from "./input/keyboard";
-import { matchesAllTokens, tokenize } from "./search";
 import { useTips } from "./settings/useTips";
 import Kbd from "./ui/Kbd";
 import ModalDialog from "./ui/ModalDialog";
@@ -258,19 +257,25 @@ const CommandPalette: Component<{
    *  value mode produces `PaletteLabel[]`; body mode skips the list
    *  entirely. The union covers all three without dynamic typing.
    *
-   *  AND-token semantics: the query is split on whitespace; every token
-   *  must appear in at least one of `name`, `description`, or `searchText`
-   *  (the latter is invisible — rich rows like workspace entries use it
-   *  to carry their full 20-field corpus). */
+   *  Substring semantics (case-insensitive) against the row's `name`,
+   *  `description`, or `searchText`. Substring was chosen over
+   *  AND-token because the palette also hosts close-name action
+   *  pairs like "Toggle terminal split" vs "Split terminal" — token
+   *  permutation matches both and clicks the wrong one. Workspace
+   *  search inside the column body runs its own AND-token filter on
+   *  the 20-field corpus (`searchWorkspaceEntries`), which is the
+   *  right semantics there. */
   const filtered = createMemo((): (PaletteCommand | PaletteLabel)[] => {
     const items = partitioned().interactive;
     if (mode().kind !== "filter") return items;
-    const tokens = tokenize(query());
-    if (tokens.length === 0) return items;
-    return items.filter((cmd) => {
-      const haystack = `${cmd.name} ${cmd.description ?? ""} ${cmd.searchText ?? ""}`;
-      return matchesAllTokens(haystack, tokens);
-    });
+    const q = query().toLowerCase();
+    if (!q) return items;
+    return items.filter(
+      (cmd) =>
+        cmd.name.toLowerCase().includes(q) ||
+        cmd.description?.toLowerCase().includes(q) ||
+        cmd.searchText?.toLowerCase().includes(q),
+    );
   });
 
   // Reserve a leading icon gutter for the whole list when ANY row carries
