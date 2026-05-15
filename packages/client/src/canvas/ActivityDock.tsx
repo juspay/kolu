@@ -32,7 +32,9 @@ import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import {
   type Component,
   For,
+  Match,
   Show,
+  Switch,
   createEffect,
   createMemo,
   createRoot,
@@ -579,31 +581,28 @@ const RowBody: Component<{
   tailLines: number;
 }> = (props) => {
   return (
-    <Show
-      when={props.bucket === "awaiting"}
+    <Switch
       fallback={
-        <Show
-          when={props.bucket === "working"}
-          fallback={
-            <QuietRowBody
-              id={props.id}
-              info={props.info}
-              meta={props.meta}
-              bucket={props.bucket}
-            />
-          }
-        >
-          <WorkingPillBody id={props.id} info={props.info} meta={props.meta} />
-        </Show>
+        <QuietRowBody
+          id={props.id}
+          info={props.info}
+          meta={props.meta}
+          bucket={props.bucket}
+        />
       }
     >
-      <AwaitingCardBody
-        id={props.id}
-        info={props.info}
-        meta={props.meta}
-        tailLines={props.tailLines}
-      />
-    </Show>
+      <Match when={props.bucket === "awaiting"}>
+        <AwaitingCardBody
+          id={props.id}
+          info={props.info}
+          meta={props.meta}
+          tailLines={props.tailLines}
+        />
+      </Match>
+      <Match when={props.bucket === "working"}>
+        <WorkingPillBody id={props.id} info={props.info} meta={props.meta} />
+      </Match>
+    </Switch>
   );
 };
 
