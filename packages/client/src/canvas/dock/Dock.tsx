@@ -624,11 +624,19 @@ const AwaitingCardBody: Component<{
   createEffect(() => {
     peekTick();
     const xterm = getTerminalRefs(props.id)?.xterm;
-    if (!xterm) {
-      setTail([]);
-      return;
-    }
-    setTail(tailBuffer(xterm, props.tailLines));
+    // Refs can be transiently absent during xterm fit/resize cycles
+    // (e.g. when this card's terminal becomes active and the tile
+    // reflows). Don't overwrite the cached tail in that window — the
+    // next tick will refill from the populated buffer.
+    if (!xterm) return;
+    const next = tailBuffer(xterm, props.tailLines);
+    // Alt-screen TUIs (agent prompts) momentarily yield an empty walk
+    // during the same fit/resize cycles — `buffer.active.length` is
+    // briefly small enough that every row reads as chrome. Treat an
+    // empty read as transient: hold the previously-cached tail rather
+    // than collapse the card to 0 lines and flash back next tick.
+    if (next.length === 0 && tail().length > 0) return;
+    setTail(next);
   });
 
   async function submit(e: SubmitEvent) {
