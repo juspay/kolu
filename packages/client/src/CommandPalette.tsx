@@ -390,49 +390,42 @@ const CommandPalette: Component<{
   // Capture phase: intercept before terminal's keydown handler
   makeEventListener(window, "keydown", handleKeyDown, { capture: true });
 
-  // Open: reset transient state. Close: fire onCancel for the drilled-in
-  // path unless the close was selection-initiated.
-  createEffect(
-    on(
-      () => props.open,
-      (isOpen) => {
-        if (isOpen) {
-          setQuery("");
-          setSelectedIndex(0);
-          setAmbientTip(randomAmbientTip());
-          setMouseActive(false);
-          setClosingForSelection(false);
-          // forceMount keeps the dialog in the DOM, so Corvu's initialFocusEl
-          // only fires on first mount. Re-focus explicitly on every open.
-          requestAnimationFrame(() =>
-            requestAnimationFrame(() => inputRef.focus()),
-          );
-        } else {
-          if (!closingForSelection()) {
-            for (const g of path()) g.onCancel?.();
-          }
-          setClosingForSelection(false);
-        }
-      },
-    ),
-  );
-
-  // Track initialGroup reactively: a caller changing the prop (or opening
-  // with a new value) re-targets the drilled level. Closing clears the path.
-  // Routes through `drillInto` rather than `setPath` directly so the
-  // value-input branch (prefill + auto-select) fires when initialGroup
-  // names a value-input leaf.
+  // Open/close lifecycle — one effect so the read of `path()` for
+  // `onCancel` propagation is ordered explicitly before the path
+  // reset. Splitting open-vs-initialGroup into two `on()` effects
+  // raced when both depended on `props.open` (the path-reset effect
+  // could fire first, clearing the segments the close branch was
+  // about to walk for cancellation).
   createEffect(
     on([() => props.open, () => props.initialGroup], ([isOpen, initial]) => {
-      setPath([]);
-      if (!isOpen || !initial) return;
-      const group = props
-        .commands()
-        .find(
-          (c): c is PaletteGroup | PaletteValueInput =>
-            isGroup(c) && c.name === initial,
+      if (isOpen) {
+        setQuery("");
+        setSelectedIndex(0);
+        setAmbientTip(randomAmbientTip());
+        setMouseActive(false);
+        setClosingForSelection(false);
+        setPath([]);
+        if (initial) {
+          const group = props
+            .commands()
+            .find(
+              (c): c is PaletteGroup | PaletteValueInput =>
+                isGroup(c) && c.name === initial,
+            );
+          if (group) drillInto(group);
+        }
+        // forceMount keeps the dialog in the DOM, so Corvu's initialFocusEl
+        // only fires on first mount. Re-focus explicitly on every open.
+        requestAnimationFrame(() =>
+          requestAnimationFrame(() => inputRef.focus()),
         );
-      if (group) drillInto(group);
+      } else {
+        if (!closingForSelection()) {
+          for (const g of path()) g.onCancel?.();
+        }
+        setClosingForSelection(false);
+        setPath([]);
+      }
     }),
   );
 
