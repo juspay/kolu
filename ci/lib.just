@@ -96,7 +96,24 @@ _run name +cmd:
     if [[ "$sys_color" == "$name_color" ]]; then
         sys_color=$(( (sys_color - 31 + 3) % 6 + 31 ))
     fi
-    if [[ "{{ system }}" == "{{ local_system }}" ]]; then
+    # Decide local vs remote.
+    # - Local-only steps (no CI_SYSTEM) always run locally.
+    # - Multi-system steps: if a host is configured for {{ system }} in
+    #   ci-hosts.json, run there even when system == local_system (so the
+    #   user can offload native builds to a dedicated builder, e.g. an Incus
+    #   container reached via `pu connect <host>`). Cross-arch steps without
+    #   a configured host fall back to _host's interactive prompt.
+    config="${XDG_CONFIG_HOME:-$HOME/.config}/ci-hosts.json"
+    configured_host=""
+    if [[ -n "${CI_SYSTEM:-}" && -f "$config" ]]; then
+        configured_host=$(jq -r ".hosts.\"{{ system }}\" // empty" "$config")
+    fi
+    if [[ -z "${CI_SYSTEM:-}" ]] || ([[ "{{ system }}" == "{{ local_system }}" ]] && [[ -z "$configured_host" ]]); then
+        run_remote=false
+    else
+        run_remote=true
+    fi
+    if [[ "$run_remote" == "false" ]]; then
         icon="~"
     else
         icon=">"
@@ -108,7 +125,7 @@ _run name +cmd:
     pad_len=$(( max_len - ${#label} ))
     trailing=$(printf "%${pad_len}s" "" 2>/dev/null || echo "")
     colored="${esc}[${name_color}m{{ name }}${esc}[0m@${esc}[${sys_color}m${icon} {{ system }}${esc}[0m${trailing}"
-    if [[ "{{ system }}" == "{{ local_system }}" ]]; then
+    if [[ "$run_remote" == "false" ]]; then
         echo "▶ ${colored}"
         (cd "{{ root }}" && {{ cmd }}) 2>&1 | tee "$logfile" | sed "s|^|[${colored}] |"
     else
