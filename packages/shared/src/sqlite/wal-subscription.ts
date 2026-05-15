@@ -21,16 +21,32 @@
  * the next listener unaffected. See the fault-isolation snapshot in
  * the dispatch loop for the why.
  *
- * The parent-directory fallback handles the window between a thread
- * being created (row inserted in the main DB file) and the first WAL
- * frame being flushed (so the WAL file exists). When the dir watcher
- * sees the WAL appear, it promotes to a direct WAL watcher and tears
- * itself down.
+ * The parent-directory watcher handles two concerns:
+ *
+ *   1. The startup window between a row being inserted in the main DB
+ *      file and the first WAL frame being flushed (so the WAL file
+ *      exists). The directory watcher sees the WAL appear and arms a
+ *      direct `fs.watch` on it.
+ *   2. SQLite WAL inode replacement. After the last writer closes,
+ *      SQLite can checkpoint, delete, and recreate the `-wal` file
+ *      under a new inode. A direct `fs.watch` on the *old* inode
+ *      silently never fires again. The directory watcher detects the
+ *      recreate and re-arms the direct watch on the new inode.
+ *
+ * The directory watcher therefore stays alive for the lifetime of the
+ * subscription, alongside the direct watcher — never torn down on
+ * promotion.
  */
 
 import fs from "node:fs";
 import path from "node:path";
 import type { Logger } from "../log.ts";
+
+/** Debounce window for parent-directory events before stat'ing the WAL
+ *  inode. Direct WAL events already flow through the integration-level
+ *  debounce; this timer keeps the inode-replacement detection path
+ *  cheap if the OS also reports file writes as directory events. */
+const WAL_REARM_DEBOUNCE_MS = 50;
 
 /** Per-listener record tracked in the singleton's Set. */
 interface WalListener {
@@ -156,43 +172,121 @@ function tryWatchWal(
   }
 }
 
-/** Install a single fs.watch on the WAL file, falling back to the
- *  parent directory if the WAL doesn't exist yet. When the directory
- *  watcher fires and the WAL file has appeared, promotes itself to a
- *  direct WAL watcher and tears down the directory watcher. */
+/** Stat the WAL file and return its `dev:inode` identity, or null if the
+ *  file doesn't exist. Used by the directory watcher to detect inode
+ *  replacement — a fresh WAL file with the same path but a different
+ *  inode means SQLite checkpointed and the previous direct `fs.watch`
+ *  is bound to a dead inode. */
+function walIdentity(
+  config: WalSubscriptionConfig,
+  log?: Logger,
+): string | null {
+  try {
+    const stat = fs.statSync(config.walPath);
+    return `${stat.dev}:${stat.ino}`;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+      log?.error(
+        { err, path: config.walPath, label: config.label },
+        "WAL stat failed",
+      );
+    }
+    return null;
+  }
+}
+
+/** Install a direct `fs.watch` on the WAL file plus a parent-directory
+ *  watcher that keeps the direct watch attached to the current WAL inode.
+ *  SQLite can delete and recreate the WAL during checkpoint (especially
+ *  in tests where the mock writer opens and closes the DB per state
+ *  update); the directory watcher detects the recreate and re-arms the
+ *  direct watch. */
 function installWalWatcher(
   onChange: () => void,
   config: WalSubscriptionConfig,
   log?: Logger,
 ): () => void {
-  const direct = tryWatchWal(onChange, config, log);
-  if (direct) return direct;
+  // The currently armed direct `fs.watch` on the WAL inode, or null
+  // if no live direct watcher (WAL gone, or never armed). The `cleanup`
+  // and `identity` fields are always set and cleared together — keeping
+  // them in one nullable structure makes "armed vs not-armed" structural
+  // rather than a paired-field convention.
+  let direct: { cleanup: () => void; identity: string } | null = null;
 
-  // WAL doesn't exist yet — watch the parent directory and promote
-  // to the WAL file once it appears.
-  let promoted: (() => void) | null = null;
+  function closeDirect(): void {
+    direct?.cleanup();
+    direct = null;
+  }
+
+  /** Ensure the direct WAL watcher is attached to the current inode.
+   *  Returns true if a watcher is now active, false if the WAL is
+   *  gone (the directory watcher will pick the next recreate up). */
+  function armDirect(): boolean {
+    const nextIdentity = walIdentity(config, log);
+    if (!nextIdentity) {
+      closeDirect();
+      return false;
+    }
+    if (direct && direct.identity === nextIdentity) return true;
+    const nextCleanup = tryWatchWal(onChange, config, log);
+    if (!nextCleanup) {
+      closeDirect();
+      return false;
+    }
+    closeDirect();
+    direct = { cleanup: nextCleanup, identity: nextIdentity };
+    return true;
+  }
+
+  armDirect();
+
+  // Coalesce parent-directory events at `WAL_REARM_DEBOUNCE_MS` (50 ms)
+  // so a flurry of file writes reported through the directory inode
+  // doesn't re-stat per event. This is independent of, and shorter
+  // than, the integration-level debounce that the callers (e.g.
+  // `createDebounceWatcher` at 150 ms) layer on top: in the common case
+  // both the direct WAL watcher and this dir-event path fire on the
+  // same write, the integration-level debounce collapses both into one
+  // `onChange` payload.
+  let rearmTimer: NodeJS.Timeout | null = null;
+  function runRearm(): void {
+    rearmTimer = null;
+    const hadDirect = direct !== null;
+    const hasDirect = armDirect();
+    // Kick — between the prior watcher closing and the new one
+    // arming, WAL writes may have been missed. The integration-level
+    // debounce absorbs duplicates if the direct watcher also fires.
+    if (hadDirect || hasDirect) onChange();
+  }
+  function scheduleRearm(): void {
+    if (rearmTimer) clearTimeout(rearmTimer);
+    rearmTimer = setTimeout(runRearm, WAL_REARM_DEBOUNCE_MS);
+  }
+
   let dirWatcher: fs.FSWatcher | null = null;
   const dir = path.dirname(config.dbPath);
+  const walBasename = path.basename(config.walPath);
   try {
-    dirWatcher = fs.watch(dir, () => {
-      if (promoted) return;
-      const walCleanup = tryWatchWal(onChange, config, log);
-      if (!walCleanup) return;
-      promoted = walCleanup;
-      dirWatcher?.close();
-      dirWatcher = null;
-      // Kick — WAL may already have data written between our first
-      // attempt and the directory event.
-      onChange();
+    dirWatcher = fs.watch(dir, (_event, filename) => {
+      // Some platforms / fs types report `null` filenames. Stat
+      // unconditionally on null; otherwise filter to WAL-related
+      // events to avoid restat'ing on every unrelated dir mutation.
+      if (filename !== null && filename.toString() !== walBasename) return;
+      scheduleRearm();
     });
   } catch (err) {
-    // Same rationale as tryWatchWal's non-ENOENT branch: a watch
-    // failure on the parent directory means we can never promote,
-    // so every future state update is silently lost. Error-level.
+    // A watch failure on the parent directory means we can never
+    // recover from WAL inode replacement, so future state updates
+    // can silently disappear once the current direct watcher's
+    // inode is reaped. Error-level.
     log?.error({ err, dir, label: config.label }, "db dir fs.watch failed");
   }
   return () => {
+    if (rearmTimer) {
+      clearTimeout(rearmTimer);
+      rearmTimer = null;
+    }
     dirWatcher?.close();
-    promoted?.();
+    closeDirect();
   };
 }

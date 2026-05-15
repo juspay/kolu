@@ -42,6 +42,10 @@ export function useSessionRestore(deps: {
   const [savedSession, setSavedSession] = createSignal<SavedSession | null>(
     null,
   );
+  /** True from the moment `handleRestoreSession` starts until it
+   *  resolves (success or failure). The restore card stays mounted
+   *  while this is true so the click target doesn't detach mid-flight. */
+  const [isRestoring, setIsRestoring] = createSignal(false);
 
   // Hydrate from server state on initial load.
   let hydrated = false;
@@ -147,24 +151,88 @@ export function useSessionRestore(deps: {
   async function handleRestoreSession(
     options: { resumeIds?: ReadonlySet<string> } = {},
   ) {
+    if (isRestoring()) return;
     const session = savedSession();
     if (!session) return;
-    setSavedSession(null);
+    // Keep the restore card mounted until terminal creation actually
+    // succeeds. Synchronously clearing `savedSession` before the async
+    // create loop runs detaches the click target mid-event — Playwright
+    // sees "element was detached from the DOM" retries on slow restores,
+    // and a fast human user sees an empty-state flicker between click
+    // and canvas reveal. The visible card during the restore window is
+    // gated below by `isRestoring()`; on success we clear `savedSession`
+    // before the toast, on failure we leave it set so the user can retry.
+    setIsRestoring(true);
     const resumeIds = options.resumeIds;
     const id = toast.loading(
       `Restoring ${session.terminals.length} terminals…`,
     );
     try {
       const oldToNew = new Map<string, TerminalId>();
+      // ── Active-terminal restore protocol — three interdependent steps ──
+      //
+      // The saved `activeTerminalId` must end up as `store.activeId()`
+      // AND the canvas viewport must center on its tile. Two upstream
+      // constraints force the protocol shape:
+      //
+      //   (a) `TerminalCanvas.tsx:331` first-mount fallback effect fires
+      //       on the *first* terminal-list snapshot. If `activeId` is
+      //       null at that moment, it falls through to bbox-of-tiles
+      //       centering, pans the viewport off-default, and won't
+      //       re-center on a later `setActiveSilently`.
+      //   (b) `useTerminalCrud.handleCreate` itself calls
+      //       `store.setActiveSilently(info.id)` for every new terminal
+      //       it creates — so whichever terminal is created *last*
+      //       wins the active slot unless we reassert.
+      //
+      // The protocol:
+      //   1. **Order**: put the saved active terminal first in
+      //      `topLevel` so it's the first `handleCreate`.
+      //   2. **In-loop assert**: synchronously after the matching
+      //      `handleCreate`, call `setActiveSilently(newId)` so the
+      //      first-mount canvas effect sees the right active when the
+      //      empty-state→canvas swap fires.
+      //   3. **Post-loop reassert**: re-set the captured `newId` at the
+      //      end so the per-iteration `handleCreate` auto-set on later
+      //      iterations doesn't leave the wrong terminal active. (Falls
+      //      back to looking up by saved id for sessions whose active
+      //      was a sub-terminal — `topLevel` filtered it out, but
+      //      `oldToNew` still has the mapping.)
+      //
+      // Display order is unaffected by step 1: tile layouts are saved
+      // verbatim (per-tile `canvasLayout`), and the workspace switcher
+      // pill strip sorts by `terminalKey().group` rather than insertion
+      // order. The whole protocol collapses to step 2 alone the day
+      // `handleCreate` accepts an `activate: false` flag (TODO).
+
       // Array order is the ordering — the server wrote terminals in Map
       // insertion order, and that order round-trips verbatim through disk.
-      const topLevel = session.terminals.filter((t) => !t.parentId);
+      const topLevelInSavedOrder = session.terminals.filter((t) => !t.parentId);
+      // Step 1: active-first reorder.
+      const topLevel =
+        session.activeTerminalId !== undefined
+          ? (() => {
+              const activeIdx = topLevelInSavedOrder.findIndex(
+                (t) => t.id === session.activeTerminalId,
+              );
+              if (activeIdx <= 0) return topLevelInSavedOrder;
+              return [
+                // slice(activeIdx, activeIdx + 1) avoids the `!` non-null assertion
+                // that `[activeIdx]` would require; activeIdx > 0 is proven above.
+                ...topLevelInSavedOrder.slice(activeIdx, activeIdx + 1),
+                ...topLevelInSavedOrder.slice(0, activeIdx),
+                ...topLevelInSavedOrder.slice(activeIdx + 1),
+              ];
+            })()
+          : topLevelInSavedOrder;
       // Type predicate so the body of the loop below sees `parentId`
       // narrowed to `string` instead of `string | undefined`.
       const subTerminals = session.terminals.filter(
         (t): t is typeof t & { parentId: string } => t.parentId !== undefined,
       );
       let resumed = 0;
+      /** New id of the saved active terminal — captured in step 2, used in step 3. */
+      let restoredActiveId: TerminalId | null = null;
       // Seed each new terminal with its saved metadata atomically at create
       // time — the server embeds it into the first `terminal.list` snapshot,
       // so the canvas cascade effect sees the saved layout on its first run
@@ -177,6 +245,12 @@ export function useSessionRestore(deps: {
           lastActivityAt: t.lastActivityAt,
         });
         oldToNew.set(t.id, newId);
+        // Step 2: in-loop assert. Combined with step 1, this puts the
+        // intended active in place before the first canvas mount.
+        if (t.id === session.activeTerminalId) {
+          restoredActiveId = newId;
+          store.setActiveSilently(newId);
+        }
         // Client-side sub-panel state (activeSubTab, focusTarget) isn't
         // server-persisted — seed it locally so the restored panel reopens
         // to the same tab. The server-persisted fields (collapsed, panelSize)
@@ -202,8 +276,10 @@ export function useSessionRestore(deps: {
         const newParentId = oldToNew.get(t.parentId);
         if (newParentId) await deps.handleCreateSubTerminal(newParentId, t.cwd);
       }
-      // Restore active terminal
-      if (session.activeTerminalId) {
+      // Step 3: post-loop reassert (see protocol block above).
+      if (restoredActiveId !== null) {
+        store.setActiveSilently(restoredActiveId);
+      } else if (session.activeTerminalId) {
         const newActiveId = oldToNew.get(session.activeTerminalId);
         if (newActiveId) store.setActiveSilently(newActiveId);
       }
@@ -211,16 +287,20 @@ export function useSessionRestore(deps: {
         resumed > 0
           ? `Restored ${session.terminals.length} terminals, resumed ${resumed} agent${resumed > 1 ? "s" : ""}`
           : "Session restored";
+      setSavedSession(null);
       toast.success(summary, { id });
     } catch (err) {
       toast.error(`Restore failed: ${(err as Error).message}`, { id });
       throw err;
+    } finally {
+      setIsRestoring(false);
     }
   }
 
   return {
     isLoading: () => store.listSub.pending(),
     savedSession,
+    isRestoring,
     handleRestoreSession,
   };
 }

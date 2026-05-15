@@ -80,9 +80,33 @@ export interface CellHandlerDeps<T, P = T> {
    *  (e.g. `PreferencesPatch`). When omitted, `set/patch` treat input as
    *  full-value `T`. */
   patch?: (current: T, p: P) => T;
-  /** Optional pre-mutation hook — runs before persist+publish. Use for
-   *  domain logging or invariant checks. */
+  /** Optional equality predicate. When supplied, `set` / `patch` /
+   *  `test__set` skip the store write and bus publish when the next
+   *  value equals the current one. See `CellSpec.equals` in `define.ts`
+   *  for the rationale. */
+  equals?: (a: T, b: T) => boolean;
+  /** Optional pre-mutation hook. Receives the *raw* patch / input value
+   *  `P` (i.e. before `deps.patch` is applied) and the *current* stored
+   *  value `T`. Fires on `set` and `patch` from the wire, *before* the
+   *  `equals` dedup gate — i.e. fires even for no-op writes. Does **not**
+   *  fire for `test__set` or for the server-internal
+   *  `ctx.cells.<key>.set/patch`. Use for client-action audit logging
+   *  and invariant checks that depend on the unresolved patch shape.
+   *
+   *  Compare `onWrite`: post-merge `T` payload, fires after the `equals`
+   *  gate (no-ops skipped), fires on every write path including
+   *  `test__set` and `ctx.cells.<key>.set`. */
   onMutate?: (patch: P, current: T) => void;
+  /** Optional fire-and-forget side effect that runs synchronously on
+   *  every successful write — `set`, `patch`, `test__set`, and the
+   *  server-internal `ctx.cells.<key>.set`. Receives the resolved
+   *  post-merge value `T`. Runs *after* the `equals` gate (no-op writes
+   *  don't fire `onWrite`), just before `store.set` / `bus.publish`.
+   *  Use for cross-cell invariants the cell write must atomically
+   *  establish (e.g. cancelling a competing autosave timer when an
+   *  external write lands on the session cell). Contrast with
+   *  `onMutate`'s pre-merge `P` payload and wire-only fan-out. */
+  onWrite?: (next: T) => void;
 }
 
 export interface CellHandlers<T, P = T> {
@@ -108,6 +132,12 @@ export function cellHandlers<Name extends string, T, P = T>(
   deps: CellHandlerDeps<T, P>,
 ): CellHandlers<T, P> {
   function applyAndPublish(next: T): void {
+    // Dedup gate: skip the store write and bus publish when the next
+    // value compares equal to the current one. Opt-in per cell via
+    // `CellSpec.equals` / `CellHandlerDeps.equals`. Default is "always
+    // publish" — see `CellSpec.equals` for the rationale.
+    if (deps.equals?.(deps.store.get(), next)) return;
+    deps.onWrite?.(next);
     deps.store.set(next);
     deps.bus.publish(next);
   }
@@ -471,12 +501,21 @@ export type CellImplDeps<S extends CellSpec<unknown, unknown>> = S extends {
        *  spec already declares `patch` (the spec wins; the framework
        *  errors at boot if neither is supplied). */
       patch?: (current: T, p: P) => T;
+      /** Optional equality predicate. Same resolution rule as `patch`:
+       *  spec-declared `equals` wins, deps may override. See
+       *  `CellSpec.equals` for semantics. */
+      equals?: (a: T, b: T) => boolean;
       onMutate?: (patch: P, current: T) => void;
+      /** Fire-and-forget side effect on every successful write. See
+       *  `CellHandlerDeps.onWrite`. */
+      onWrite?: (next: T) => void;
     }
   : S extends { schema: ZodType<infer T> }
     ? {
         store: CellStore<T>;
+        equals?: (a: T, b: T) => boolean;
         onMutate?: (next: T, current: T) => void;
+        onWrite?: (next: T) => void;
       }
     : never;
 
@@ -735,7 +774,9 @@ export function implementSurface<const S extends SurfaceSpec>(
       | {
           store: CellStore<unknown>;
           patch?: (c: unknown, p: unknown) => unknown;
+          equals?: (a: unknown, b: unknown) => boolean;
           onMutate?: (p: unknown, c: unknown) => void;
+          onWrite?: (next: unknown) => void;
         }
       | undefined;
     if (!cellDeps) {
@@ -750,6 +791,10 @@ export function implementSurface<const S extends SurfaceSpec>(
         `implementSurface: cell "${key}" has patchSchema but no patch fn (declare on spec or pass via deps)`,
       );
     }
+    // Spec-declared `equals` wins; deps may override (rare). Same
+    // resolution rule as `patch`.
+    const equalsFn = cellSpec.equals ?? cellDeps.equals;
+    const onWriteFn = cellDeps.onWrite;
     const handlers = cellHandlers(
       // biome-ignore lint/suspicious/noExplicitAny: see top of fn
       (surface.descriptors.cells as any)[key] as Cell<string, unknown>,
@@ -757,22 +802,43 @@ export function implementSurface<const S extends SurfaceSpec>(
         store: cellDeps.store,
         bus,
         patch: patchFn,
+        equals: equalsFn,
         onMutate: cellDeps.onMutate,
+        onWrite: onWriteFn,
       },
     );
 
+    // Server-internal `ctx.cells.<key>.set/patch` — same dedup/onWrite
+    // gates as the wire-facing handlers so an internal write goes
+    // through the same atomicity contract (e.g. an in-app
+    // `setSavedSession` cancels the autosave timer via `onWrite`, and
+    // a no-op republish is suppressed by `equals`).
+    //
+    // Intentionally does NOT call `onMutate`: that hook is the
+    // wire-only client-action audit point, scoped to `set`/`patch`
+    // verbs. Server-internal callers are domain code and don't have
+    // a meaningful "patch payload before merge" to log — they already
+    // know what they're writing.
+    //
+    // Mirrors the equals→onWrite→store.set→bus.publish sequence in
+    // `cellHandlers.applyAndPublish`. Kept duplicated rather than
+    // extracted to a shared helper so the two paths diverge loudly
+    // (TypeScript errors / test failures) if anyone adds a step to
+    // only one side.
+    const store = cellDeps.store;
+    function ctxApply(next: unknown): void {
+      if (equalsFn?.(store.get(), next)) return;
+      onWriteFn?.(next);
+      store.set(next);
+      bus.publish(next);
+    }
     cellsCtx[key] = {
-      get: () => cellDeps.store.get(),
-      set: (v: unknown) => {
-        cellDeps.store.set(v);
-        bus.publish(v);
-      },
+      get: () => store.get(),
+      set: ctxApply,
       ...(patchFn
         ? {
             patch: (p: unknown) => {
-              const next = patchFn(cellDeps.store.get(), p);
-              cellDeps.store.set(next);
-              bus.publish(next);
+              ctxApply(patchFn(store.get(), p));
             },
           }
         : {}),

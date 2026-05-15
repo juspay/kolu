@@ -54,7 +54,7 @@ import {
 } from "kolu-git";
 import { log } from "./log.ts";
 import { publisher } from "./publisher.ts";
-import { getSavedSession } from "./session.ts";
+import { cancelPendingAutosave, getSavedSession } from "./session.ts";
 import { store } from "./state.ts";
 import { getTerminal, listTerminals } from "./terminal-registry.ts";
 
@@ -143,6 +143,27 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
         // Reads through `getSavedSession` to keep the "empty terminals = null"
         // legacy normalization at one site (`session.ts` owns that invariant).
         store: { get: () => getSavedSession(), set: savedSessionStore.set },
+        // Content-level dedup. The surface cell otherwise publishes a fresh
+        // object reference on every set, including byte-identical re-saves
+        // from the autosave loop or test fixtures. Downstream that flips a
+        // SolidJS keyed `<Show when={savedSession()}>` in EmptyState and
+        // detaches the restore button mid-frame. `JSON.stringify` is fine
+        // for this cell — SavedSession is small (a handful of terminals
+        // and scalars) and sets are rare. See
+        // `docs/flaky-tests-ralph-report-2.md` cycles 3 / 5.
+        equals: (a, b) => JSON.stringify(a) === JSON.stringify(b),
+        // Atomic cross-cell invariant: every write to the session cell —
+        // `set`, `patch`, `test__set`, or the server-internal
+        // `surfaceCtx.cells.session.set` reached by `writeSession` —
+        // cancels any pending `saveSession([])` autosave callback armed by
+        // a recent `terminals:dirty` event. Without this, the surface
+        // `test__set` verb used by the e2e harness bypasses the named
+        // `setSavedSession` and a stale killAll-time dirty event can
+        // clobber a freshly POSTed session with `null` ~500 ms later
+        // (cycle 6). Harmless no-op on the autosave loop's own write path
+        // (the loop clears the timer synchronously before calling
+        // `saveSession`); future dirty events arm a fresh timer normally.
+        onWrite: () => cancelPendingAutosave(),
       },
       terminalList: {
         // Live registry; the in-memory store has no persistent slot.
