@@ -11,6 +11,7 @@ import {
 } from "../terminal/activityWindow";
 import type { TerminalDisplayInfo } from "../terminal/terminalDisplay";
 import type { TileLayout } from "./TileLayout";
+import { matchesAllTokens, tokenize } from "../search";
 
 type ResolvedPr = (TerminalMetadata["pr"] & { kind: "ok" })["value"];
 
@@ -314,12 +315,8 @@ function searchTextFor(entry: {
   return values.join(" ").toLowerCase();
 }
 
-function queryTokens(query: string): string[] {
-  return query.toLowerCase().trim().split(/\s+/).filter(Boolean);
-}
-
 function matchesQuery(entry: DockEntry, tokens: string[]): boolean {
-  return tokens.every((token) => entry.searchText.includes(token));
+  return matchesAllTokens(entry.searchText, tokens);
 }
 
 /** Derive the dock mega-level projections (search, facets, bucket
@@ -428,7 +425,7 @@ function searchResults(
   selectedRepo: string | null;
   visibleEntries: DockEntry[];
 } {
-  const tokens = queryTokens(query);
+  const tokens = tokenize(query);
   const queryMatches =
     tokens.length === 0
       ? entries
@@ -495,7 +492,7 @@ export function searchWorkspaceEntries(
       bucket: agentBucket(source.info.meta.agent),
     };
   });
-  const tokens = queryTokens(options.query ?? "");
+  const tokens = tokenize(options.query ?? "");
   if (tokens.length === 0) return entries;
   return entries.filter((entry) => matchesQuery(entry, tokens));
 }
