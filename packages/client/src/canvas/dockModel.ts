@@ -1,7 +1,21 @@
-import type { AgentInfo, TerminalId } from "kolu-common/surface";
+import type {
+  AgentInfo,
+  TerminalId,
+  TerminalMetadata,
+} from "kolu-common/surface";
 import { match } from "ts-pattern";
 import type { TerminalDisplayInfo } from "../terminal/terminalDisplay";
 import type { TileLayout } from "./TileLayout";
+
+type ResolvedPr = (TerminalMetadata["pr"] & { kind: "ok" })["value"];
+
+/** Narrow the PR carrier to its resolved value, or null for the
+ *  unresolved kinds (`absent`/`pending`/`unavailable`). The single
+ *  definition of "PR is resolved" — every surface reads through this
+ *  so a future kind added to the union forces one edit, not three. */
+export function resolvedPr(pr: TerminalMetadata["pr"]): ResolvedPr | null {
+  return pr.kind === "ok" ? pr.value : null;
+}
 
 /** Live-terminal source row before a presentation-specific order is applied. */
 export interface DockSourceEntry {
@@ -91,7 +105,7 @@ export const AGENT_BUCKETS = [
 /** Searchable live-terminal entry — the output shape of
  *  `searchWorkspaceEntries`. Carries the precomputed `searchText` so
  *  re-filtering as the user types stays cheap, plus the repo / label /
- *  suffix that `dockRowChrome` helpers and the workspace-palette row
+ *  suffix that the workspace-palette row
  *  read for presentation. */
 export type DockEntry = {
   id: TerminalId;

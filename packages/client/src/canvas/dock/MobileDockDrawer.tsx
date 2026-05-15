@@ -22,7 +22,7 @@ import { type Component, For, Show, createMemo } from "solid-js";
 import AgentIndicator from "../../terminal/AgentIndicator";
 import { formatTimeAgo, useStaleCheck } from "../../terminal/staleness";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
-import { resolvedPr } from "./dockRowChrome";
+import { resolvedPr } from "../dockModel";
 import { type DockRowBucket, rankDockRows } from "./dockRowRanking";
 
 const MobileDockDrawer: Component<{

@@ -53,7 +53,7 @@ import { client } from "../../wire";
 import { isPlatformModifier } from "../../input/keyboard";
 import { useTileTheme } from "../useTileTheme";
 import { useViewPosture } from "../useViewPosture";
-import { resolvedPr } from "./dockRowChrome";
+import { resolvedPr } from "../dockModel";
 import { type DockRowBucket, rankDockRows } from "./dockRowRanking";
 
 export type DockMode = "rail" | "cards";

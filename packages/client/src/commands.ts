@@ -11,9 +11,9 @@ import {
   bucketDescriptor,
   type DockEntry,
   type DockSourceEntry,
+  resolvedPr,
   searchWorkspaceEntries,
 } from "./canvas/dockModel";
-import { resolvedPr } from "./canvas/dock/dockRowChrome";
 import type {
   PaletteAction,
   PaletteCommand,

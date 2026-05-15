@@ -11,10 +11,9 @@
  *  send the keystroke to whichever terminal had the most recent
  *  `lastActivityAt` regardless of its dock position.
  *
- *  Kept sibling to `dockRowChrome.ts` rather than folded into
- *  `dockModel.ts`: the mega-level model uses a four-bucket scheme
- *  (`awaiting/working/idle/none`) that collapses parked-by-inactivity
- *  into `idle`, while rows use a five-bucket scheme with `parked` as
+ *  Kept separate from `dockModel.ts`: that module uses a four-bucket
+ *  scheme (`awaiting/working/idle/none`) that the canvas minimap also
+ *  reads, while dock rows use a five-bucket scheme with `parked` as
  *  its own visual treatment. Co-locating the two enums in one file
  *  would invite label-collision bugs. */
 
