@@ -1302,19 +1302,18 @@ When(
 
 Then(
   "canvas tile {int} should be maximized",
-  async function (this: KoluWorld, index: number) {
-    const tile = this.page.locator(TILE_SELECTOR).nth(index - 1);
-    await tile.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    await this.page.waitForFunction(
-      (sel: string) => {
-        const tiles = document.querySelectorAll(sel);
-        return [...tiles].some(
-          (t) => t.getAttribute("data-maximized") === "true",
-        );
-      },
-      TILE_SELECTOR,
-      { timeout: POLL_TIMEOUT },
+  async function (this: KoluWorld, _index: number) {
+    // The maximized tile lives in its own render branch; the tiled
+    // section keeps the other tiles mounted at `visibility: hidden` so
+    // their PTY streams keep filling their buffers (#904). `nth(index-1)`
+    // can resolve to a hidden tiled-section tile rather than the visible
+    // maximized one — match on `data-maximized="true"` instead.
+    const maximizedTile = this.page.locator(
+      `${TILE_SELECTOR}[data-maximized="true"]`,
     );
+    await maximizedTile
+      .first()
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },
 );
 
