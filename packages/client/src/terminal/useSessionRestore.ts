@@ -206,6 +206,14 @@ export function useSessionRestore(deps: {
         (t): t is typeof t & { parentId: string } => t.parentId !== undefined,
       );
       let resumed = 0;
+      // The new id of the saved `activeTerminalId`. Captured on the
+      // matching `handleCreate` so we can reassert it both inside the
+      // loop (for the canvas first-mount effect — see active-first
+      // scheduling note above) and *after* the loop (because
+      // `handleCreate` itself calls `setActiveSilently(info.id)` on
+      // every invocation, so the last terminal created would otherwise
+      // win the active slot).
+      let restoredActiveId: TerminalId | null = null;
       // Seed each new terminal with its saved metadata atomically at create
       // time — the server embeds it into the first `terminal.list` snapshot,
       // so the canvas cascade effect sees the saved layout on its first run
@@ -218,19 +226,15 @@ export function useSessionRestore(deps: {
           lastActivityAt: t.lastActivityAt,
         });
         oldToNew.set(t.id, newId);
-        // Set active *inside* the loop, before the next `handleCreate`,
-        // so the canvas's first-mount fallback effect
-        // (`TerminalCanvas.tsx:331`) sees `activeId` already populated
-        // when `terminalIds().length` first goes non-zero and the
-        // empty-state→canvas swap fires. Waiting until after the loop
-        // lets the effect fire with `activeId === null` between the
-        // first and second handleCreate, fall through to the bbox-of-
-        // all-tiles centering branch, pan there, and end up at a non-
-        // default viewport that the later `setActiveSilently` can't
-        // re-center. Covered by `session-restore.feature` "Restored
-        // multi-tile session preserves active terminal and centers
-        // viewport".
         if (t.id === session.activeTerminalId) {
+          // Synchronously after `handleCreate` so the canvas's
+          // first-mount fallback effect (`TerminalCanvas.tsx:331`)
+          // sees `activeId` populated when the empty-state→canvas
+          // swap fires on the first terminal-list snapshot. Combined
+          // with active-first scheduling above, this puts the
+          // intended active in place before the very first canvas
+          // mount, so the effect takes the active branch.
+          restoredActiveId = newId;
           store.setActiveSilently(newId);
         }
         // Client-side sub-panel state (activeSubTab, focusTarget) isn't
@@ -258,15 +262,19 @@ export function useSessionRestore(deps: {
         const newParentId = oldToNew.get(t.parentId);
         if (newParentId) await deps.handleCreateSubTerminal(newParentId, t.cwd);
       }
-      // Fallback: if `activeTerminalId` didn't match any saved top-level
-      // terminal (saved state from a session whose active was a
-      // sub-terminal, or pre-#854 sessions with no activeTerminalId at
-      // all), set it now so the first non-parent restored terminal
-      // becomes active.
-      if (
-        session.activeTerminalId &&
-        !topLevel.some((t) => t.id === session.activeTerminalId)
-      ) {
+      // Reassert the saved active terminal at end of restore.
+      // `handleCreate` itself calls `setActiveSilently(info.id)` for every
+      // new terminal it creates, so by the end of the loop the *last*
+      // created terminal owns the active slot rather than the intended
+      // one. (The viewport-centering correctness was already handled by
+      // the in-loop `setActiveSilently` plus active-first scheduling;
+      // this final assertion is purely to leave `activeId` matching
+      // what the user saved.) Falls back to looking up by saved id for
+      // sessions whose active was a sub-terminal — `topLevel` filtered
+      // it out, but `oldToNew` still has the mapping.
+      if (restoredActiveId !== null) {
+        store.setActiveSilently(restoredActiveId);
+      } else if (session.activeTerminalId) {
         const newActiveId = oldToNew.get(session.activeTerminalId);
         if (newActiveId) store.setActiveSilently(newActiveId);
       }
