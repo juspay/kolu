@@ -81,6 +81,16 @@ export function writeOpenCodeFixture(opts: {
     db.exec("PRAGMA journal_mode = WAL;");
     db.exec(OPENCODE_SCHEMA);
 
+    // Wrap the DELETE+INSERT sequence in BEGIN/COMMIT so a concurrent
+    // reader (the server's session-watcher refresh, fired by `nudgeWal`
+    // on each poll tick) sees either the old state or the new state —
+    // never a transient half-rewritten one where the session row is
+    // gone. Without this, on state-change scenarios the agent provider
+    // can observe "no session for cwd" mid-rewrite, destroy the matched
+    // watcher, and clear the indicator to null/null; the next reconcile
+    // sees the new row and re-matches, but on a busy x86_64-linux
+    // builder the window can outlast the test's 20 s poll budget.
+    db.exec("BEGIN IMMEDIATE;");
     db.prepare("DELETE FROM session WHERE id = ? OR directory = ?").run(
       sessionId,
       opts.cwd,
@@ -187,6 +197,8 @@ export function writeOpenCodeFixture(opts: {
         );
       }
     }
+
+    db.exec("COMMIT;");
   } finally {
     db.close();
   }
