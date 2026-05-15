@@ -534,8 +534,12 @@ const RailSegment: Component<{
   const store = useTerminalStore();
   // The breath/pulse animation belongs only to live attention states.
   // Idle/parked/none rails stay flat so the visual budget reads "live
-  // signal here" without false positives.
-  const animClass =
+  // signal here" without false positives. Accessor (not const) so the
+  // class re-evaluates when `props.bucket` changes — `props` is reactive,
+  // a plain `const` would capture the bucket at mount and the animation
+  // would stick to a stale state across awaiting → working → idle
+  // transitions.
+  const animClass = () =>
     props.bucket === "awaiting"
       ? "dock-rail-awaiting"
       : props.bucket === "working"
@@ -549,7 +553,7 @@ const RailSegment: Component<{
       onClick={() => store.activate(props.id)}
       class={`shrink-0 cursor-pointer transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 ${
         props.mode === "rail" ? "w-6 h-6" : "w-1.5"
-      } ${animClass}`}
+      } ${animClass()}`}
       classList={{
         "opacity-50": props.bucket === "parked" || props.bucket === "none",
       }}
