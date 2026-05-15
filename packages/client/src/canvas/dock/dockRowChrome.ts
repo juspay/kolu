@@ -1,6 +1,7 @@
-import type { AgentInfo, TerminalMetadata } from "kolu-common/surface";
+import type { AgentInfo } from "kolu-common/surface";
 import { agentNames, stateLabels } from "../../ui/agentDisplay";
 import type { DockEntry } from "../dockModel";
+import { resolvedPr } from "../dockModel";
 
 export function agentLabel(agent: AgentInfo | null | undefined): string {
   if (!agent) return "Plain shell";
@@ -13,16 +14,6 @@ export function metaLine(entry: DockEntry): string {
   if (meta.foreground?.title) return meta.foreground.title;
   if (meta.foreground?.name) return meta.foreground.name;
   return meta.cwd;
-}
-
-type ResolvedPr = (TerminalMetadata["pr"] & { kind: "ok" })["value"];
-
-/** Narrow the PR carrier to its resolved value, or null for the
- *  unresolved kinds (`absent`/`pending`/`unavailable`). The single
- *  definition of "PR is resolved" — every dock surface reads through
- *  this so a future kind added to the union forces one edit, not three. */
-export function resolvedPr(pr: TerminalMetadata["pr"]): ResolvedPr | null {
-  return pr.kind === "ok" ? pr.value : null;
 }
 
 /** Structured PR summary for renderers that style number, title, checks
