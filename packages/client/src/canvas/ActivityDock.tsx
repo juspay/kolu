@@ -188,7 +188,6 @@ const ActivityDock: Component<{
 }> = (props) => {
   const store = useTerminalStore();
   const isStale = useStaleCheck();
-  const idleClassifier = useIdleClassifier();
   const posture = useViewPosture();
 
   const ranked = createMemo(() => {
@@ -248,30 +247,16 @@ const ActivityDock: Component<{
     tailLinesFor(viewportHeight(), awaitingCount()),
   );
 
-  // Mega state lives here so the dock can drive its lifecycle, including
-  // focus-on-open and reset-on-close. The mega level mounts the existing
-  // WorkspaceSearchPanel — same model, same testids.
-  const [query, setQuery] = createSignal("");
-  const [repoFilter, setRepoFilter] = createSignal<string | null>(null);
-  const [focusSearchOnOpen, setFocusSearchOnOpen] = createSignal(false);
-  const megaModel = createMemo(() =>
-    buildWorkspaceSwitcherModel(props.entries, {
-      query: query(),
-      repoFilter: repoFilter(),
-      activeId: props.activeId,
-      getRecency: props.getRecency,
-      idleClassifier,
-    }),
-  );
-
-  // Shortcut opens mega and focuses the search.
+  // Shortcut opens mega. Focus-on-open is owned by MegaBody — it reads
+  // `openMegaRequest` and re-focuses the search input on every impulse
+  // (mount or subsequent shortcut while mega is already open). Keeping
+  // the open + focus halves co-located inside the mega component keeps
+  // the mega activity's volatility encapsulated; ActivityDock just
+  // orchestrates the rail/cards/mega level transitions.
   createEffect(
     on(
       () => props.openMegaRequest,
-      () => {
-        openMega();
-        setFocusSearchOnOpen(true);
-      },
+      () => openMega(),
       { defer: true },
     ),
   );
@@ -355,12 +340,10 @@ const ActivityDock: Component<{
           }
         >
           <MegaBody
-            model={megaModel()}
-            query={query()}
-            focusSearch={focusSearchOnOpen()}
-            onQueryChange={setQuery}
-            onSearchFocused={() => setFocusSearchOnOpen(false)}
-            onRepoFilterChange={setRepoFilter}
+            entries={props.entries}
+            activeId={props.activeId}
+            getRecency={props.getRecency}
+            openRequest={props.openMegaRequest}
             onSelect={selectAndClose}
             onClose={closeMega}
           />
@@ -850,28 +833,58 @@ const DockMetaRow: Component<{ meta: TerminalMetadata }> = (props) => {
   );
 };
 
-/** Mega level body — embeds the workspace search panel. Lives inside
- *  the dock's outer aside so the same z-index / dismissal grammar
- *  applies to all three levels. */
+/** Mega level body — owns the search query, repo filter, and the
+ *  focus-on-open impulse. ActivityDock's only responsibility for mega
+ *  is mounting this component (mode transition) and providing
+ *  `onSelect` / `onClose` callbacks; the search activity's volatility
+ *  stays here. `openRequest` bumps re-focus the search input on every
+ *  impulse, so pressing the shortcut while mega is already open
+ *  re-anchors the cursor in the search field. */
 const MegaBody: Component<{
-  model: ReturnType<typeof buildWorkspaceSwitcherModel>;
-  query: string;
-  focusSearch: boolean;
-  onQueryChange: (q: string) => void;
-  onSearchFocused: () => void;
-  onRepoFilterChange: (repoName: string | null) => void;
+  entries: WorkspaceSwitcherSourceEntry[];
+  activeId: TerminalId | null;
+  getRecency: (id: TerminalId) => number;
+  openRequest: number;
   onSelect: (id: TerminalId) => void;
   onClose: () => void;
 }> = (props) => {
+  const idleClassifier = useIdleClassifier();
+  const [query, setQuery] = createSignal("");
+  const [repoFilter, setRepoFilter] = createSignal<string | null>(null);
+  // Initially true so the search input picks up focus on first mount
+  // (the transition from rail/cards → mega). Re-focus on subsequent
+  // impulses below.
+  const [focusSearch, setFocusSearch] = createSignal(true);
+  const model = createMemo(() =>
+    buildWorkspaceSwitcherModel(props.entries, {
+      query: query(),
+      repoFilter: repoFilter(),
+      activeId: props.activeId,
+      getRecency: props.getRecency,
+      idleClassifier,
+    }),
+  );
+
+  // External impulse → re-focus. `defer: true` skips the initial
+  // synchronous fire so the mount-time `focusSearch=true` default
+  // owns first-mount focus instead of fighting with this effect.
+  createEffect(
+    on(
+      () => props.openRequest,
+      () => setFocusSearch(true),
+      { defer: true },
+    ),
+  );
+
   return (
     <div class="w-full">
       <WorkspaceSearchPanel
-        model={props.model}
-        query={props.query}
-        focusSearch={props.focusSearch}
-        onQueryChange={props.onQueryChange}
-        onSearchFocused={props.onSearchFocused}
-        onRepoFilterChange={props.onRepoFilterChange}
+        model={model()}
+        query={query()}
+        focusSearch={focusSearch()}
+        onQueryChange={setQuery}
+        onSearchFocused={() => setFocusSearch(false)}
+        onRepoFilterChange={setRepoFilter}
         onSelect={props.onSelect}
         onClose={props.onClose}
       />
