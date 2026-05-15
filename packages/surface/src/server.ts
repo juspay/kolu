@@ -80,9 +80,22 @@ export interface CellHandlerDeps<T, P = T> {
    *  (e.g. `PreferencesPatch`). When omitted, `set/patch` treat input as
    *  full-value `T`. */
   patch?: (current: T, p: P) => T;
+  /** Optional equality predicate. When supplied, `set` / `patch` /
+   *  `test__set` skip the store write and bus publish when the next
+   *  value equals the current one. See `CellSpec.equals` in `define.ts`
+   *  for the rationale. */
+  equals?: (a: T, b: T) => boolean;
   /** Optional pre-mutation hook — runs before persist+publish. Use for
    *  domain logging or invariant checks. */
   onMutate?: (patch: P, current: T) => void;
+  /** Optional fire-and-forget side effect that runs synchronously on
+   *  every successful write — `set`, `patch`, `test__set`, and the
+   *  server-internal `ctx.cells.<key>.set`. Runs after `equals` (no-op
+   *  writes don't fire `onWrite`) and after `onMutate`, just before
+   *  persist+publish. Use for cross-cell invariants the cell write
+   *  must atomically establish (e.g. cancelling a competing autosave
+   *  timer when an external write lands on the session cell). */
+  onWrite?: (next: T) => void;
 }
 
 export interface CellHandlers<T, P = T> {
@@ -108,6 +121,12 @@ export function cellHandlers<Name extends string, T, P = T>(
   deps: CellHandlerDeps<T, P>,
 ): CellHandlers<T, P> {
   function applyAndPublish(next: T): void {
+    // Dedup gate: skip the store write and bus publish when the next
+    // value compares equal to the current one. Opt-in per cell via
+    // `CellSpec.equals` / `CellHandlerDeps.equals`. Default is "always
+    // publish" — see `CellSpec.equals` for the rationale.
+    if (deps.equals?.(deps.store.get(), next)) return;
+    deps.onWrite?.(next);
     deps.store.set(next);
     deps.bus.publish(next);
   }
@@ -471,12 +490,21 @@ export type CellImplDeps<S extends CellSpec<unknown, unknown>> = S extends {
        *  spec already declares `patch` (the spec wins; the framework
        *  errors at boot if neither is supplied). */
       patch?: (current: T, p: P) => T;
+      /** Optional equality predicate. Same resolution rule as `patch`:
+       *  spec-declared `equals` wins, deps may override. See
+       *  `CellSpec.equals` for semantics. */
+      equals?: (a: T, b: T) => boolean;
       onMutate?: (patch: P, current: T) => void;
+      /** Fire-and-forget side effect on every successful write. See
+       *  `CellHandlerDeps.onWrite`. */
+      onWrite?: (next: T) => void;
     }
   : S extends { schema: ZodType<infer T> }
     ? {
         store: CellStore<T>;
+        equals?: (a: T, b: T) => boolean;
         onMutate?: (next: T, current: T) => void;
+        onWrite?: (next: T) => void;
       }
     : never;
 
@@ -735,7 +763,9 @@ export function implementSurface<const S extends SurfaceSpec>(
       | {
           store: CellStore<unknown>;
           patch?: (c: unknown, p: unknown) => unknown;
+          equals?: (a: unknown, b: unknown) => boolean;
           onMutate?: (p: unknown, c: unknown) => void;
+          onWrite?: (next: unknown) => void;
         }
       | undefined;
     if (!cellDeps) {
@@ -750,6 +780,10 @@ export function implementSurface<const S extends SurfaceSpec>(
         `implementSurface: cell "${key}" has patchSchema but no patch fn (declare on spec or pass via deps)`,
       );
     }
+    // Spec-declared `equals` wins; deps may override (rare). Same
+    // resolution rule as `patch`.
+    const equalsFn = cellSpec.equals ?? cellDeps.equals;
+    const onWriteFn = cellDeps.onWrite;
     const handlers = cellHandlers(
       // biome-ignore lint/suspicious/noExplicitAny: see top of fn
       (surface.descriptors.cells as any)[key] as Cell<string, unknown>,
@@ -757,22 +791,31 @@ export function implementSurface<const S extends SurfaceSpec>(
         store: cellDeps.store,
         bus,
         patch: patchFn,
+        equals: equalsFn,
         onMutate: cellDeps.onMutate,
+        onWrite: onWriteFn,
       },
     );
 
+    // Server-internal `ctx.cells.<key>.set/patch` — same dedup/onWrite
+    // gates as the wire-facing handlers so an internal write goes
+    // through the same atomicity contract (e.g. an in-app
+    // `setSavedSession` cancels the autosave timer via `onWrite`, and
+    // a no-op republish is suppressed by `equals`).
+    const store = cellDeps.store;
+    function ctxApply(next: unknown): void {
+      if (equalsFn?.(store.get(), next)) return;
+      onWriteFn?.(next);
+      store.set(next);
+      bus.publish(next);
+    }
     cellsCtx[key] = {
-      get: () => cellDeps.store.get(),
-      set: (v: unknown) => {
-        cellDeps.store.set(v);
-        bus.publish(v);
-      },
+      get: () => store.get(),
+      set: ctxApply,
       ...(patchFn
         ? {
             patch: (p: unknown) => {
-              const next = patchFn(cellDeps.store.get(), p);
-              cellDeps.store.set(next);
-              bus.publish(next);
+              ctxApply(patchFn(store.get(), p));
             },
           }
         : {}),

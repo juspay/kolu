@@ -63,26 +63,8 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
   // Default on — users almost always want their agents back.
   const [resumeAgents, setResumeAgents] = createSignal(true);
 
-  // Stabilize props.savedSession across no-op pushes so the keyed
-  // `<Show when={…}>{(session) => …}` below doesn't unmount/remount
-  // the entire restore card on every byte-identical re-publish.
-  // The surface cell yields a fresh object reference each time it
-  // sets, so without this memo the card (and its restore button)
-  // detaches/reattaches on background re-saves — Playwright clicks
-  // hit "element was detached from the DOM, retrying" loops, and
-  // a user catching the wrong frame mid-remount sees the same
-  // instability. Equality is JSON-deep: the SavedSession shape is
-  // small (terminals + a few scalars) and re-publishes are rare,
-  // so the stringify cost is in the noise.
-  const stableSession = createMemo<SavedSession | undefined>((prev) => {
-    const next = props.savedSession;
-    if (!next) return undefined;
-    if (prev && JSON.stringify(prev) === JSON.stringify(next)) return prev;
-    return next;
-  });
-
   const resumableIds = createMemo(() => {
-    const session = stableSession();
+    const session = props.savedSession;
     if (!session) return [] as string[];
     return session.terminals
       .filter((t) => !t.parentId && t.lastAgentCommand !== undefined)
@@ -104,7 +86,7 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
       class="flex items-center justify-center h-full"
     >
       <div class="bg-surface-1 border border-edge rounded-2xl shadow-2xl shadow-black/50 p-5 max-w-md w-full">
-        <Show when={stableSession()}>
+        <Show when={props.savedSession}>
           {(session) => {
             const subCount = () =>
               session().terminals.filter((t) => t.parentId).length;
