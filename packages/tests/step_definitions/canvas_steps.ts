@@ -1,5 +1,5 @@
 import * as assert from "node:assert";
-import { Then, When } from "@cucumber/cucumber";
+import { Given, Then, When } from "@cucumber/cucumber";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
 const CANVAS_SELECTOR = '[data-testid="canvas-container"]';
@@ -476,31 +476,116 @@ When("I save the active canvas tile id", async function (this: KoluWorld) {
   this.savedActiveTerminalId = id;
 });
 
+async function waitForSavedActiveTileStillActive(world: KoluWorld) {
+  const saved = world.savedActiveTerminalId;
+  if (!saved) throw new Error("No saved active canvas tile id");
+  await world.page.waitForFunction(
+    ({ sel, savedId }: { sel: string; savedId: string }) => {
+      // The active tile's CanvasTile wrapper carries data-active="true".
+      // Its inner Terminal element carries data-terminal-id. Walk down
+      // from the active wrapper rather than checking every tile —
+      // that makes "did active flip to a different tile" the failure
+      // mode, not "is savedId still in the DOM" (it always is).
+      const activeWrapper = document
+        .querySelector(sel)
+        ?.querySelector('[data-active="true"]');
+      if (!activeWrapper) return false;
+      const inner = activeWrapper.querySelector("[data-terminal-id]");
+      const activeId =
+        inner?.getAttribute("data-terminal-id") ??
+        activeWrapper.getAttribute("data-terminal-id");
+      return activeId === savedId;
+    },
+    { sel: CANVAS_SELECTOR, savedId: saved },
+    { timeout: POLL_TIMEOUT },
+  );
+}
+
 Then(
   "the saved active canvas tile should still be active",
   async function (this: KoluWorld) {
-    const saved = this.savedActiveTerminalId;
-    if (!saved) throw new Error("No saved active canvas tile id");
-    await this.page.waitForFunction(
-      ({ sel, savedId }: { sel: string; savedId: string }) => {
-        // The active tile's CanvasTile wrapper carries data-active="true".
-        // Its inner Terminal element carries data-terminal-id. Walk down
-        // from the active wrapper rather than checking every tile —
-        // that makes "did active flip to a different tile" the failure
-        // mode, not "is savedId still in the DOM" (it always is).
-        const activeWrapper = document
-          .querySelector(sel)
-          ?.querySelector('[data-active="true"]');
-        if (!activeWrapper) return false;
-        const inner = activeWrapper.querySelector("[data-terminal-id]");
-        const activeId =
-          inner?.getAttribute("data-terminal-id") ??
-          activeWrapper.getAttribute("data-terminal-id");
-        return activeId === savedId;
-      },
-      { sel: CANVAS_SELECTOR, savedId: saved },
-      { timeout: POLL_TIMEOUT },
-    );
+    await waitForSavedActiveTileStillActive(this);
+  },
+);
+
+// Deterministic race-forcer. Installs a Playwright init script that runs
+// before every subsequent navigation and patches `window.WebSocket` so the
+// first EVENT_ITERATOR yield for `/surface/session/get` is held for `ms`
+// before being dispatched. `terminalList.get`'s first yield reaches the
+// surface client unblocked, so the canvas first-mount centering effect
+// (`TerminalCanvas.tsx:331`) always observes a null `activeId`, takes the
+// bbox-fallback branch, pans the viewport, and the `isDefaultViewport()`
+// guard latches the bug for the rest of the session — exactly the
+// production race described in `useSessionRestore.ts:178-182`, made
+// deterministic. 500ms is overkill for the race window but cheap.
+Given(
+  "session.get's first yield is delayed by {int} ms to force the active-id race",
+  async function (this: KoluWorld, ms: number) {
+    // Plain-string init script: Playwright pipes function-form scripts
+    // through esbuild, which inserts `__name(fn, "…")` for name-preservation
+    // and crashes in the page context with `__name is not defined`. The
+    // hook itself isn't TypeScript-heavy enough to need transpilation, so
+    // a hand-written IIFE sidesteps the toolchain entirely.
+    await this.page.addInitScript(`(() => {
+      const Original = globalThis.WebSocket;
+      const SESSION_PATH = "/surface/session/get";
+      const DELAY_MS = ${ms};
+      function readJsonHeader(bytes) {
+        const delim = bytes.indexOf(255);
+        const jsonBytes = delim >= 0 ? bytes.subarray(0, delim) : bytes;
+        return JSON.parse(new TextDecoder().decode(jsonBytes));
+      }
+      function PatchedWebSocket(url, protocols) {
+        const ws = new Original(url, protocols);
+        if (!String(url).includes("/rpc/ws")) return ws;
+        const sessionIds = new Set();
+        const seenFirstYield = new Set();
+        const origSend = ws.send.bind(ws);
+        ws.send = (data) => {
+          try {
+            let msg = null;
+            if (data instanceof Uint8Array) msg = readJsonHeader(data);
+            else if (data instanceof ArrayBuffer) msg = readJsonHeader(new Uint8Array(data));
+            else if (typeof data === "string") msg = JSON.parse(data);
+            if (msg && typeof msg.p?.u === "string" && msg.p.u.includes(SESSION_PATH)) {
+              sessionIds.add(msg.i);
+            }
+          } catch {}
+          return origSend(data);
+        };
+        const origAdd = ws.addEventListener.bind(ws);
+        ws.addEventListener = (type, listener, options) => {
+          if (type !== "message" || typeof listener !== "function") {
+            return origAdd(type, listener, options);
+          }
+          const wrapped = async (event) => {
+            try {
+              const data = event.data;
+              let bytes = null;
+              if (data instanceof Blob) bytes = new Uint8Array(await data.arrayBuffer());
+              else if (data instanceof ArrayBuffer) bytes = new Uint8Array(data);
+              else if (typeof data === "string") bytes = new TextEncoder().encode(data);
+              if (bytes) {
+                const msg = readJsonHeader(bytes);
+                // EVENT_ITERATOR=3 (server pushing yields). Only delay the
+                // first one per session id — subsequent updates (session
+                // auto-save echoes) shouldn't be slowed.
+                if (msg && msg.t === 3 && sessionIds.has(msg.i) && !seenFirstYield.has(msg.i)) {
+                  seenFirstYield.add(msg.i);
+                  await new Promise((r) => setTimeout(r, DELAY_MS));
+                }
+              }
+            } catch {}
+            listener.call(ws, event);
+          };
+          return origAdd(type, wrapped, options);
+        };
+        return ws;
+      }
+      PatchedWebSocket.prototype = Original.prototype;
+      Object.setPrototypeOf(PatchedWebSocket, Original);
+      globalThis.WebSocket = PatchedWebSocket;
+    })();`);
   },
 );
 
@@ -1103,46 +1188,61 @@ Then(
   },
 );
 
+async function setCanvasLayoutById(
+  world: KoluWorld,
+  id: string,
+  x: number,
+  y: number,
+): Promise<void> {
+  const layout = { x, y, w: 700, h: 500 };
+  const resp = await world.page.request.fetch("/rpc/terminal/setCanvasLayout", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: JSON.stringify({ json: { id, layout } }),
+  });
+  assert.ok(resp.ok(), `terminal/setCanvasLayout failed: ${resp.status()}`);
+  // Wait for the tile to render at the new position — proves the metadata
+  // subscription delivered the update (the mechanism that must survive refresh).
+  await world.page.waitForFunction(
+    ({
+      sel,
+      tileId,
+      wantX,
+      wantY,
+    }: {
+      sel: string;
+      tileId: string;
+      wantX: number;
+      wantY: number;
+    }) => {
+      const tile = document
+        .querySelector(`${sel} [data-terminal-id="${tileId}"]`)
+        ?.closest("[style*='left']") as HTMLElement | null;
+      if (!tile) return false;
+      return (
+        Math.abs(parseFloat(tile.style.left) - wantX) < 1 &&
+        Math.abs(parseFloat(tile.style.top) - wantY) < 1
+      );
+    },
+    { sel: CANVAS_SELECTOR, tileId: id, wantX: x, wantY: y },
+    { timeout: POLL_TIMEOUT },
+  );
+}
+
 When(
   "I move the canvas tile to x={int} y={int}",
   async function (this: KoluWorld, x: number, y: number) {
     const { id } = await readFirstTilePosition(this);
-    const layout = { x, y, w: 700, h: 500 };
-    const resp = await this.page.request.fetch(
-      "/rpc/terminal/setCanvasLayout",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        data: JSON.stringify({ json: { id, layout } }),
-      },
-    );
-    assert.ok(resp.ok(), `terminal/setCanvasLayout failed: ${resp.status()}`);
-    // Wait for the tile to render at the new position — proves the metadata
-    // subscription delivered the update (the mechanism that must survive refresh).
-    await this.page.waitForFunction(
-      ({
-        sel,
-        tileId,
-        wantX,
-        wantY,
-      }: {
-        sel: string;
-        tileId: string;
-        wantX: number;
-        wantY: number;
-      }) => {
-        const tile = document
-          .querySelector(`${sel} [data-terminal-id="${tileId}"]`)
-          ?.closest("[style*='left']") as HTMLElement | null;
-        if (!tile) return false;
-        return (
-          Math.abs(parseFloat(tile.style.left) - wantX) < 1 &&
-          Math.abs(parseFloat(tile.style.top) - wantY) < 1
-        );
-      },
-      { sel: CANVAS_SELECTOR, tileId: id, wantX: x, wantY: y },
-      { timeout: POLL_TIMEOUT },
-    );
+    await setCanvasLayoutById(this, id, x, y);
+  },
+);
+
+When(
+  "I move canvas tile {int} to x={int} y={int}",
+  async function (this: KoluWorld, index: number, x: number, y: number) {
+    const id = this.createdTerminalIds[index - 1];
+    assert.ok(id, `No terminal created at index ${index} in this scenario`);
+    await setCanvasLayoutById(this, id, x, y);
   },
 );
 

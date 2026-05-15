@@ -33,6 +33,7 @@ import {
 } from "solid-js";
 import { useStaleCheck } from "../terminal/staleness";
 import { useTerminalStore } from "../terminal/useTerminalStore";
+import { savedSessionSub } from "../wire";
 import ActivityDock from "./ActivityDock";
 import CanvasMinimap from "./CanvasMinimap";
 import CanvasTile from "./CanvasTile";
@@ -331,6 +332,16 @@ const TerminalCanvas: Component<{
   createEffect(() => {
     const ids = props.tileIds;
     if (ids.length === 0 || !isDefaultViewport()) return;
+    // Wait for `session.get` to yield before deciding between "centre on
+    // saved active" and "bbox fallback". `terminalList.get` (which feeds
+    // `tileIds`) can win the race against `session.get` on cold load —
+    // running the bbox fallback now would pan the viewport off-default,
+    // and the `isDefaultViewport()` guard above would then block any
+    // re-centre once `useSessionRestore` calls `setActiveSilently` with
+    // the persisted id. Once `pending()` flips false, `useSessionRestore`'s
+    // hydration effect runs synchronously (registered earlier) and assigns
+    // the active id, so this effect re-runs and observes it.
+    if (savedSessionSub.pending() && store.activeId() === null) return;
     const active = store.activeId();
     const activeLayout = active ? layoutOf(active) : undefined;
     if (activeLayout) {
