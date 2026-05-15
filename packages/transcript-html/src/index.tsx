@@ -35,7 +35,7 @@ import {
   isEditClass,
   type RenderedEvent,
 } from "./components.tsx";
-import { renderMarkdown } from "./markdown.ts";
+import { renderMarkdown, renderUserMarkdown } from "./markdown.ts";
 import {
   buildPierreBootstrap,
   renderEdit,
@@ -101,8 +101,8 @@ async function renderEditBody(input: ToolInput): Promise<string> {
 /** Pre-resolve the async body for one event. The output is a string
  *  of HTML that the SolidJS component splats via `innerHTML`. Per
  *  kind:
- *  - user → escaped text in a `<pre>`, optionally wrapped in a
- *    collapse shell when the prompt is long
+ *  - user → marked output with hard line breaks, optionally wrapped
+ *    in a collapse shell when the prompt is long
  *  - assistant → marked output, optionally collapsed
  *  - reasoning → marked output (already nested inside a `<details>`,
  *    so no outer collapse)
@@ -113,8 +113,8 @@ async function preRenderEvent(
   event: TranscriptEvent,
 ): Promise<string | undefined> {
   if (event.kind === "user") {
-    const pre = `<pre class="card-text card-text--user">${escapeHtml(event.text)}</pre>`;
-    return maybeCollapse(pre, event.text.split("\n").length);
+    const body = `<div class="card-text card-text--user md">${await renderUserMarkdown(event.text)}</div>`;
+    return maybeCollapse(body, event.text.split("\n").length);
   }
   if (event.kind === "assistant") {
     const body = `<div class="card-text card-text--assistant md">${await renderMarkdown(event.text)}</div>`;
