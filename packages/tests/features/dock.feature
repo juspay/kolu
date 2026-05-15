@@ -31,3 +31,39 @@ Feature: Dock
     Then the dock should be in "rail" mode
     When the dock is expanded
     Then the dock should be in "cards" mode
+
+  Scenario: Cmd+B toggles the dock between rail and cards
+    # The keyboard shortcut should drive the same rail ↔ cards state
+    # the in-header chevron drives. Cards is the default, so the first
+    # press collapses to rail; the second expands back.
+    When I press the dock toggle shortcut
+    Then the dock should be in "rail" mode
+    When I press the dock toggle shortcut
+    Then the dock should be in "cards" mode
+
+  Scenario: Chrome-bar dock-toggle button toggles the dock
+    # The chrome bar carries a dock-toggle button mirroring the right-
+    # panel inspector toggle. Clicking it drives the same rail ↔ cards
+    # state as the keyboard shortcut.
+    When I click the chrome-bar dock toggle
+    Then the dock should be in "rail" mode
+    When I click the chrome-bar dock toggle
+    Then the dock should be in "cards" mode
+
+  Scenario: Dock stays visible in maximized-tile mode as a sidebar
+    # When a tile is maximized, the dock renders as a flush left-panel
+    # flex sibling (`data-maximized=""`) rather than the floating
+    # absolute overlay it uses in tiled mode. The terminal naturally
+    # takes the remaining width.
+    When I double-click the title bar of canvas tile 1
+    Then canvas tile 1 should be maximized
+    And the dock should be visible
+    And the dock should be in maximized mode
+
+  Scenario: Foreground process surfaces on non-agent dock rows
+    # Plain shells without an agent used to read as bare `repo · branch`
+    # — a `~ ~` home-dir shell was indistinguishable from any other.
+    # The quiet row now carries the foreground process title pulled
+    # from `meta.foreground.title || .name`.
+    When I run "sleep 5"
+    Then the dock should show 1 foreground row containing "sleep"
