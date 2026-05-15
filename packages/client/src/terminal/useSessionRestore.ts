@@ -39,8 +39,21 @@ export function useSessionRestore(deps: {
   const { store } = deps;
   const subPanel = useSubPanel();
 
+  // Custom `equals` so a no-op republish of the same SavedSession content
+  // (which the surface cell does on every `set`, including byte-identical
+  // re-saves from the autosave loop and test fixtures) does not retrigger
+  // downstream effects — most importantly, the EmptyState's keyed
+  // `<Show when={…}>{(session) => …}` would otherwise unmount/remount
+  // the restore card on every push and detach the restore button mid-frame.
+  // SavedSession is small and pushes are rare, so the stringify cost is in
+  // the noise.
   const [savedSession, setSavedSession] = createSignal<SavedSession | null>(
     null,
+    {
+      equals: (a, b) =>
+        a === b ||
+        (a !== null && b !== null && JSON.stringify(a) === JSON.stringify(b)),
+    },
   );
 
   // Hydrate from server state on initial load.
