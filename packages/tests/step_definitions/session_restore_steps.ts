@@ -30,18 +30,27 @@ async function postSavedSession(
 async function postSavedSessionPayload(
   world: KoluWorld,
   terminals: SavedTerminal[],
+  activeTerminalId?: string,
 ): Promise<void> {
   if (world.savedSessionSavedAt === undefined) {
     world.savedSessionSavedAt = Date.now();
   }
+  const payload: {
+    terminals: SavedTerminal[];
+    savedAt: number;
+    activeTerminalId?: string;
+  } = {
+    terminals,
+    savedAt: world.savedSessionSavedAt,
+  };
+  if (activeTerminalId !== undefined)
+    payload.activeTerminalId = activeTerminalId;
   const resp = await world.page.request.fetch(
     "/rpc/surface/session/test__set",
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      data: JSON.stringify({
-        json: { terminals, savedAt: world.savedSessionSavedAt },
-      }),
+      data: JSON.stringify({ json: payload }),
     },
   );
   assert.ok(resp.ok(), `surface/session/test__set failed: ${resp.status()}`);
@@ -249,6 +258,66 @@ Then(
         );
       },
       { x, y, w, h },
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+// --- Multi-tile restore preserves active + centers viewport ---
+
+Given(
+  "a saved session with 2 tiles and the second tile marked active",
+  async function (this: KoluWorld) {
+    // Two tiles at far-apart canvas coordinates so the test of
+    // viewport-centering on the persisted active id is unambiguous
+    // (the bbox center of both tiles is not the centre of either tile).
+    this.savedSessionTerminalCount = 2;
+    const terminals = [
+      {
+        id: "0",
+        cwd: os.homedir(),
+        git: null,
+        canvasLayout: { x: -1200, y: -800, w: 480, h: 320 },
+      },
+      {
+        id: "1",
+        cwd: os.tmpdir(),
+        git: null,
+        canvasLayout: { x: 1200, y: 800, w: 480, h: 320 },
+      },
+    ];
+    this.savedSessionTerminals = terminals;
+    await postSavedSessionPayload(this, terminals, "1");
+  },
+);
+
+Then(
+  "the active canvas tile should match the saved-session second tile",
+  async function (this: KoluWorld) {
+    // After restore, the server stamps new terminal ids, so we can't
+    // assert by saved id directly. Identify the second tile by its
+    // saved canvas-layout coordinates instead — load-bearing for this
+    // scenario, since the bug we're guarding against is "active id
+    // not preserved across restore". `canvasLayout` round-trips
+    // verbatim (covered by `session-restore.feature:37`), so matching
+    // on layout uniquely identifies the second saved tile.
+    await this.page.waitForFunction(
+      () => {
+        const tiles = document.querySelectorAll<HTMLElement>(
+          '[data-testid="canvas-tile"]',
+        );
+        for (const tile of tiles) {
+          if (
+            tile.style.left === "1200px" &&
+            tile.style.top === "800px" &&
+            tile.hasAttribute("data-active")
+          ) {
+            return true;
+          }
+        }
+        return false;
+      },
+      undefined,
       { timeout: POLL_TIMEOUT },
     );
   },
