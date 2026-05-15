@@ -26,28 +26,28 @@ Feature: Command Palette
     And there should be no page errors
 
   Scenario: Filter commands by typing
+    # Theme is a flat-list drill-in group — typing in the palette
+    # narrows its children via the engine's AND-token filter. Use a
+    # unique theme name to assert a single match.
     When I open the app
-    And I create a terminal
-    And I create a terminal
     And I open the command palette
-    And I select "Switch terminal" in the palette
-    And I type "Terminal 1" in the palette
+    And I select "Theme" in the palette
+    And I type "0x96f" in the palette
     Then the command palette should show 1 result
     And there should be no page errors
 
   Scenario: Switch terminal via command palette
-    When I open the app
-    And I create a terminal
-    And I run "echo palette-first"
-    And I create a terminal
-    And I run "echo palette-second"
-    And I open the command palette
-    And I select "Switch terminal" in the palette
-    # Terminal 1 is the Background terminal; Terminal 2 is the first explicitly created one
-    And I type "Terminal 2" in the palette
-    And I press Enter
+    # Search workspaces renders the column-grid body (#912); selecting
+    # a workspace card activates the terminal and closes the palette.
+    # Workspace-switcher scenarios cover the recency-based card
+    # ordering — here we just exercise the drill → click → close path.
+    Given I run "echo palette-only-terminal"
+    When I open the command palette
+    And I select "Search workspaces" in the palette
+    Then the workspace switcher panel should be visible
+    When I click workspace switcher card 1
     Then the command palette should not be visible
-    And the active terminal should show "palette-first"
+    And the active terminal should show "palette-only-terminal"
     And there should be no page errors
 
   Scenario: Arrow key navigation
@@ -109,20 +109,18 @@ Feature: Command Palette
 
   Scenario: Backspace drills out of nested group
     When I open the app
-    And I create a terminal
     And I open the command palette
-    And I select "Switch terminal" in the palette
-    Then the palette breadcrumb should show "Switch terminal"
+    And I select "Theme" in the palette
+    Then the palette breadcrumb should show "Theme"
     When I press Backspace
     Then the palette breadcrumb should not be visible
     And there should be no page errors
 
   Scenario: Breadcrumb click navigates back to root
     When I open the app
-    And I create a terminal
     And I open the command palette
-    And I select "Switch terminal" in the palette
-    Then the palette breadcrumb should show "Switch terminal"
+    And I select "Theme" in the palette
+    Then the palette breadcrumb should show "Theme"
     When I click breadcrumb "Commands" in the palette
     Then the palette breadcrumb should not be visible
     And there should be no page errors
@@ -135,14 +133,6 @@ Feature: Command Palette
   Scenario: Keyboard shortcut hints shown on commands
     When I open the command palette
     Then palette item "Keyboard shortcuts" should show shortcut "/"
-    And there should be no page errors
-
-  Scenario: Shortcut hints shown in nested group
-    When I open the app
-    And I create a terminal
-    And I open the command palette
-    And I select "Switch terminal" in the palette
-    Then palette item "Switch to terminal 1" should show shortcut "1"
     And there should be no page errors
 
   Scenario: Terminal retains focus after palette command
