@@ -137,7 +137,10 @@ _run name +cmd:
         trap '$host "rm -rf '"$tmp"'"; elapsed=$(( SECONDS - start )); just ci::_signoff "$context" failure "${user} · failed after ${elapsed}s · ${logrel}"' ERR
         # Clone full repo (not git archive) so remote has .git — needed for nix builds that read git revision
         git bundle create - --all 2>/dev/null | $host "cat > $tmp/repo.bundle && git clone --quiet $tmp/repo.bundle $tmp/src && cd $tmp/src && git -c advice.detachedHead=false checkout --quiet {{ sha }}"
-        $host "cd $tmp/src && {{ cmd }}" 2>&1 | tee "$logfile" | sed "s|^|[${colored}] |"
+        # Wrap cmd in `nix develop -c` so tools like just/pnpm/node resolve from
+        # the project flake — the remote may be a pristine NixOS box with only
+        # nix on PATH. Assumes the project has a flake.nix at its root.
+        $host "cd $tmp/src && nix develop --accept-flake-config -c {{ cmd }}" 2>&1 | tee "$logfile" | sed "s|^|[${colored}] |"
         $host "rm -rf $tmp"
     fi
     elapsed=$(( SECONDS - start ))
