@@ -480,6 +480,18 @@ const DockRow: Component<{
               <span class="relative inline-flex rounded-full h-2 w-2 bg-alert" />
             </span>
           </Show>
+          {/* Active-terminal indicator — a 2px accent strip pinned to the
+           *  row's left edge, visible in both rail and cards modes. The
+           *  strip sits *outside* the per-row body theming (which has its
+           *  own background-color), so it reads as "this is the active
+           *  terminal" against any tile theme. */}
+          <Show when={active()}>
+            <span
+              data-testid="dock-row-active-indicator"
+              aria-hidden="true"
+              class="absolute left-0 top-0 bottom-0 w-0.5 bg-accent z-20"
+            />
+          </Show>
           <Show when={showShortcutHint()}>
             <span
               data-testid="dock-row-shortcut-hint"

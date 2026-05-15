@@ -90,3 +90,10 @@ Feature: Dock
     Then the dock should show 2 shortcut hints
     When I release Mod
     Then no dock-row shortcut hints should be visible
+
+  Scenario: Active terminal carries a visible indicator on its dock row
+    # An accent strip pinned to the row's left edge reads as "this is
+    # the active terminal" against any tile theme — the row's body has
+    # its own bg color, so the strip sits outside the body chrome.
+    Given I create a terminal
+    Then the dock should show 1 active row indicator

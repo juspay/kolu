@@ -156,6 +156,18 @@ When(
 );
 
 const SHORTCUT_HINT_SELECTOR = '[data-testid="dock-row-shortcut-hint"]';
+const ACTIVE_INDICATOR_SELECTOR = '[data-testid="dock-row-active-indicator"]';
+
+Then(
+  "the dock should show {int} active row indicator",
+  async function (this: KoluWorld, expected: number) {
+    await this.page.waitForFunction(
+      ({ sel, count }) => document.querySelectorAll(sel).length === count,
+      { sel: ACTIVE_INDICATOR_SELECTOR, count: expected },
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
 
 Then(
   "no dock-row shortcut hints should be visible",
