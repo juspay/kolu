@@ -86,7 +86,7 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
   // projection-with-fallback (`activeTab.kind === "code" ? mode : "local"`)
   // would flip `view()` from the persisted mode (e.g. `"browse"`) to the
   // fallback `"local"` while Inspector is active, then back on return —
-  // a real value transition that fires the `resetKey` reset effect and
+  // a real value transition that fires the `slotKey` effect and
   // wipes selection on every Inspector round-trip in non-local modes.
   const view = rightPanel.codeMode;
   const setView = rightPanel.setCodeMode;
@@ -149,8 +149,8 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
   // (Repo / view transitions used to be a third churn source — the
   // resetKey effect cleared selection on every (repoPath, view) change.
   // Per-slot storage above makes that clear obsolete: the new slot's
-  // value is already correct without writing through. resetKey now only
-  // clears `searchQuery`, which is genuinely shared across slots.)
+  // value is already correct without writing through. slotKey effect now
+  // only clears `searchQuery`, which is genuinely shared across slots.)
 
   const status = app.streams.gitStatus.use(
     () => {
