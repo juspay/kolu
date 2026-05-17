@@ -60,47 +60,94 @@ const WorkspaceGrid: Component<{
   const totalCount = () =>
     model().repoFacets.reduce((sum, facet) => sum + facet.count, 0);
 
-  // Flat keyboard-nav order — DOM order across columns (column-major):
-  // first the Idle column's sub-buckets in age order (4-12h → 48h+),
-  // then Awaiting, Working, None. Matches what the user sees scanning
-  // left-to-right column by column.
-  const flatEntries = createMemo<DockEntry[]>(() => {
-    const flat: DockEntry[] = [];
-    for (const column of model().columns) {
+  // Per-column entry lists — the user sees agent-state columns
+  // (Idle, Awaiting, Working, No agent) side by side, so the
+  // keyboard cursor tracks `(column, row)` rather than a single
+  // linear index. Idle's sub-buckets (4-12h → 48h+) collapse into
+  // one flat column for nav purposes; the user just scans top to
+  // bottom inside the Idle column.
+  const columnEntries = createMemo<DockEntry[][]>(() =>
+    model().columns.map((column) => {
       if (column.key === "idle") {
+        const flat: DockEntry[] = [];
         for (const sub of column.idleSubBuckets) flat.push(...sub.entries);
-      } else {
-        flat.push(...column.entries);
+        return flat;
       }
-    }
-    return flat;
-  });
-  const [selectedIndex, setSelectedIndex] = createSignal(0);
+      return [...column.entries];
+    }),
+  );
+  const [selectedColumn, setSelectedColumn] = createSignal(0);
+  const [selectedRow, setSelectedRow] = createSignal(0);
 
-  // Reset selection when the visible set changes (typing narrows the
-  // grid, switching repo facet, the recency-sorted seed shifts). Keep
-  // the cursor stable when only metadata of the same set updates by
-  // tracking the id list rather than the array identity.
+  // Resolve the highlighted entry, falling back to the first
+  // non-empty column when the current selection has gone empty
+  // (typing narrowed the grid past it, repo facet flipped, …).
+  // Returns null when *no* column has entries.
+  const selectedEntry = createMemo<DockEntry | null>(() => {
+    const cols = columnEntries();
+    const col = cols[selectedColumn()];
+    if (col && col.length > 0) {
+      const row = Math.min(selectedRow(), col.length - 1);
+      return col[row] ?? null;
+    }
+    // Current column is empty — find any non-empty one to highlight
+    // so the user still sees a cursor (don't move the actual signals;
+    // the next nav keypress will reconcile them).
+    for (const candidate of cols) {
+      if (candidate.length > 0) return candidate[0] ?? null;
+    }
+    return null;
+  });
+
+  // Reset selection when the visible set changes. Track the id list
+  // so metadata-only updates don't perturb the cursor.
   createEffect(
     on(
-      () => flatEntries().map((e) => e.id),
-      () => setSelectedIndex(0),
+      () =>
+        columnEntries()
+          .flat()
+          .map((e) => e.id),
+      () => {
+        const firstFilled = columnEntries().findIndex((c) => c.length > 0);
+        if (firstFilled >= 0) {
+          setSelectedColumn(firstFilled);
+          setSelectedRow(0);
+        }
+      },
     ),
   );
 
-  function step(delta: number) {
-    const total = flatEntries().length;
-    if (total === 0) return;
-    setSelectedIndex((i) => {
-      const next = i + delta;
+  function stepRow(delta: 1 | -1) {
+    const cols = columnEntries();
+    const col = cols[selectedColumn()];
+    if (!col || col.length === 0) return;
+    setSelectedRow((r) => {
+      const next = r + delta;
       if (next < 0) return 0;
-      if (next >= total) return total - 1;
+      if (next >= col.length) return col.length - 1;
       return next;
     });
   }
 
+  function stepColumn(delta: 1 | -1) {
+    const cols = columnEntries();
+    let i = selectedColumn() + delta;
+    while (i >= 0 && i < cols.length) {
+      const next = cols[i];
+      if (next && next.length > 0) {
+        setSelectedColumn(i);
+        setSelectedRow((r) => Math.min(r, next.length - 1));
+        return;
+      }
+      i += delta;
+    }
+    // No non-empty column in that direction — leave the cursor where
+    // it is rather than wrapping (wrap would teleport the user across
+    // the grid in a way that breaks the spatial mental model).
+  }
+
   function activateSelected() {
-    const entry = flatEntries()[selectedIndex()];
+    const entry = selectedEntry();
     if (entry) props.onSelect(entry.id);
   }
 
@@ -113,13 +160,17 @@ const WorkspaceGrid: Component<{
       // `body`. Tab is intentionally NOT handled here — the input
       // still owns focus, and Tab inside a text input should keep
       // its default browser behaviour.
-      if (e.key === "ArrowDown" || e.key === "ArrowRight") {
-        step(1);
-      } else if (e.key === "ArrowUp" || e.key === "ArrowLeft") {
-        step(-1);
+      if (e.key === "ArrowDown") {
+        stepRow(1);
+      } else if (e.key === "ArrowUp") {
+        stepRow(-1);
+      } else if (e.key === "ArrowRight") {
+        stepColumn(1);
+      } else if (e.key === "ArrowLeft") {
+        stepColumn(-1);
       } else if (e.key === "Enter") {
         if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
-        if (flatEntries().length === 0) return;
+        if (!selectedEntry()) return;
         activateSelected();
       } else {
         return;
@@ -131,18 +182,16 @@ const WorkspaceGrid: Component<{
   );
 
   // Scroll the highlighted card into view as the user navigates.
-  // Driven by selectedIndex only — the cards' DOM identity is stable
-  // across query changes (each card has data-terminal-id), and the
-  // ResetSelection effect above already snaps the index back to 0
-  // when the visible set changes.
+  // Look up the card by id rather than by index so we don't depend
+  // on the column-major DOM order matching our (column, row) pair.
   createEffect(() => {
-    const idx = selectedIndex();
-    if (flatEntries().length === 0) return;
+    const entry = selectedEntry();
+    if (!entry) return;
     queueMicrotask(() => {
-      const cards = document.querySelectorAll<HTMLElement>(
-        '[data-testid="workspace-switcher-card"][data-in-grid="palette-body"]',
+      const card = document.querySelector<HTMLElement>(
+        `[data-testid="workspace-switcher-card"][data-in-grid="palette-body"][data-terminal-id="${entry.id}"]`,
       );
-      cards[idx]?.scrollIntoView({ block: "nearest", inline: "nearest" });
+      card?.scrollIntoView({ block: "nearest", inline: "nearest" });
     });
   });
 
@@ -202,7 +251,7 @@ const WorkspaceGrid: Component<{
               <ColumnView
                 column={column()}
                 onSelect={props.onSelect}
-                highlightedId={flatEntries()[selectedIndex()]?.id}
+                highlightedId={selectedEntry()?.id}
               />
             )}
           </Index>
