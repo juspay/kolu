@@ -16,7 +16,7 @@ function formatBody(body: string): string {
   // the list item stays one item under most Markdown renderers.
   const lines = body.split(/\r?\n/).map((l) => l.trimEnd());
   while (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
-  return lines.map((l, i) => (i === 0 ? `  ${l}` : `  ${l}`)).join("\n");
+  return lines.map((l) => `  ${l}`).join("\n");
 }
 
 export function formatMarkdown(comments: Comment[]): string {
