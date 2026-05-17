@@ -65,10 +65,10 @@ export default {
       name: "integrations-no-siblings",
       severity: "warn",
       comment:
-        "Integration packages (claude-code, codex, opencode, git, github) must stay independent. Shared agent contract lives in `anyagent`; shared utilities in `kolu-shared`.",
+        "Integration packages (claude-code, codex, opencode, git, github) must stay independent. Shared agent contract lives in `anyagent`; shared utilities in `kolu-shared`. The `$1` in `to.pathNot` is back-substituted from `from.path` so each integration is exempt from importing itself (without this, every intra-package edge fires).",
       from: { path: "^packages/integrations/([^/]+)/" },
       to: {
-        path: "^packages/integrations/([^/]+)/",
+        path: "^packages/integrations/[^/]+/",
         pathNot: [
           "^packages/integrations/$1/", // self
           "^packages/integrations/anyagent/", // shared contract is allowed
