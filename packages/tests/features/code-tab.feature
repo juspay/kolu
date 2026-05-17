@@ -106,6 +106,46 @@ Feature: Code tab (review + browse)
       | branch |
       | browse |
 
+  # Regression for #919's per-slot design under multi-terminal switching.
+  # Each terminal carries its own `repoRoot` via `props.meta?.git`; the
+  # `selectedFilesByKey` record is keyed by (repoRoot, view) and shared
+  # across terminals through localStorage, so switching the active
+  # terminal reactively rebinds `slotKey` and surfaces the right slot's
+  # pick without one terminal clobbering the other.
+  Scenario Outline: Selected file survives switching to another terminal and back [<mode>]
+    Given a Code tab in "<mode>" mode showing file "a.txt" with content "aaa"
+    When I open file "a.txt" in the Code tab
+    Then the selected file should show content "aaa"
+    When I create a terminal
+    And I run "rm -rf /tmp/kolu-codetab-otherdir && mkdir -p /tmp/kolu-codetab-otherdir && cd /tmp/kolu-codetab-otherdir"
+    And I select workspace switcher entry 1
+    Then the selected file should show content "aaa"
+
+    Examples:
+      | mode   |
+      | local  |
+      | branch |
+      | browse |
+
+  # Same-filename variant: both terminals are in valid git repos, and both
+  # have a file at the same relative path selected. The outer
+  # `<Show when={repoPath()}>` therefore stays in the truthy branch and
+  # cannot mask staleness via remount — the preview must follow
+  # `props.meta` reactively, so the displayed content has to flip between
+  # "from-A" and "from-B" as the active terminal changes.
+  Scenario: Browse preview follows the active terminal when two repos pick the same filename
+    Given a Code tab in "browse" mode showing file "shared.txt" with content "from-A"
+    When I open file "shared.txt" in the Code tab
+    Then the selected file should show content "from-A"
+    When I create a terminal
+    And a Code tab in "browse" mode showing file "shared.txt" with content "from-B"
+    And I open file "shared.txt" in the Code tab
+    Then the selected file should show content "from-B"
+    When I select workspace switcher entry 1
+    Then the selected file should show content "from-A"
+    When I select workspace switcher entry 2
+    Then the selected file should show content "from-B"
+
   # Regression: opening a file in the Code tab and refreshing the browser
   # used to lose the preview because `selectedPath` lived in a local
   # `createSignal` that died with the component. Selection is now backed
