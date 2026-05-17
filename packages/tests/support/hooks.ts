@@ -291,7 +291,7 @@ BeforeAll(async () => {
     const port = await getPort();
     baseUrl = `http://localhost:${port}`;
     console.log(`[worker:${workerId}] Starting server on port ${port}...`);
-    // Extend the default nix-shell env whitelist (see shell.ts:31) with
+    // Extend the default nix-shell env whitelist (see NIX_ENV_WHITELIST in shell.ts) with
     // GIT_AUTHOR_*/GIT_COMMITTER_* so PTY shells in fixtures like
     // `code-tab.feature` (which run `git init && git commit` inside the
     // terminal under test) inherit the same identity set on process.env
