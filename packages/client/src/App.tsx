@@ -516,6 +516,7 @@ const App: Component = () => {
             }
           >
             <RightPanelLayout
+              terminalId={store.activeId()}
               meta={store.activeMeta()}
               themeName={activeThemeName()}
               onThemeClick={() => openPaletteGroup("Theme")}

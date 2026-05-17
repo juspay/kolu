@@ -152,18 +152,66 @@ export const FsListAllOutputSchema = z.object({
 export type FsListAllOutput = z.infer<typeof FsListAllOutputSchema>;
 
 export const FsReadFileInputSchema = z.object({
+  /** Terminal that owns the URL handle for `kind: "binary"` outputs.
+   *  Text reads ignore this — the field is on the input because the URL
+   *  shape (`/api/terminals/<id>/file/...`) is constructed server-side
+   *  from this id, so the client doesn't have to know the route layout. */
+  terminalId: z.string().uuid(),
   /** Absolute path to the repo root. */
   repoPath: z.string(),
   /** Path relative to repo root. */
   filePath: z.string(),
 });
 
-export const FsReadFileOutputSchema = z.object({
-  content: z.string(),
-  /** True if the file exceeded the size limit and was truncated. */
-  truncated: z.boolean(),
-});
+/** Discriminated by `kind`. Text files yield their content; iframe-
+ *  previewable binaries yield a cache-busted URL the client points
+ *  an `<iframe>` at. Server picks the variant per file extension via
+ *  `isIframePreviewable` below. */
+export const FsReadFileOutputSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("text"),
+    content: z.string(),
+    /** True if the file exceeded the size limit and was truncated. */
+    truncated: z.boolean(),
+  }),
+  z.object({
+    kind: z.literal("binary"),
+    /** Server-constructed URL for the iframe `src`. Includes a `?v=<mtime>`
+     *  query so the stream re-yield on file change produces a new URL and
+     *  the iframe reloads via the same subscription path. */
+    url: z.string(),
+  }),
+]);
 export type FsReadFileOutput = z.infer<typeof FsReadFileOutputSchema>;
+
+/** Extensions whose contents the browser renders natively in an iframe.
+ *  `.html` and `.htm` are the primary use case (agent-generated artifacts);
+ *  `.svg` and `.pdf` come along for free because every browser handles them. */
+export const IFRAME_PREVIEWABLE_EXTENSIONS = [
+  ".html",
+  ".htm",
+  ".svg",
+  ".pdf",
+] as const;
+
+export function isIframePreviewable(filePath: string): boolean {
+  const lower = filePath.toLowerCase();
+  return IFRAME_PREVIEWABLE_EXTENSIONS.some((ext) => lower.endsWith(ext));
+}
+
+/** Canonical URL shape for the iframe-served file route, used in
+ *  `FsReadFileOutput.kind === "binary"` and matched by a Hono route in the
+ *  server's `index.ts`. Single source of truth so the two sides can't drift.
+ *  `mtimeMs` is rounded down so a stable file always produces the same URL
+ *  (browser caches the iframe content per URL). */
+export function buildIframePreviewUrl(
+  terminalId: string,
+  filePath: string,
+  mtimeMs: number,
+): string {
+  const encodedPath = filePath.split("/").map(encodeURIComponent).join("/");
+  return `/api/terminals/${terminalId}/file/${encodedPath}?v=${Math.floor(mtimeMs)}`;
+}
 
 // --- Derived types ---
 

@@ -484,6 +484,32 @@ Then(
   },
 );
 
+// ── Iframe preview (.html / .svg / .pdf in browse mode) ──
+
+Then(
+  "the file preview iframe should be visible",
+  async function (this: KoluWorld) {
+    const iframe = this.page.locator('[data-testid="browse-preview-iframe"]');
+    await iframe.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+Then(
+  "the file preview iframe should not be visible",
+  async function (this: KoluWorld) {
+    // `display:none` parents (inactive tabs, collapsed panel) still leave
+    // the iframe in the DOM. The text path is "not rendered at all" — assert
+    // count, not visibility, so the absence is read literally.
+    await this.page.waitForFunction(
+      () =>
+        document.querySelectorAll('[data-testid="browse-preview-iframe"]')
+          .length === 0,
+      undefined,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
 // ── Right-panel tab switching + filter input ──
 
 When(

@@ -72,5 +72,12 @@ export function fsReadFileOutputEqual(
   a: FsReadFileOutput,
   b: FsReadFileOutput,
 ): boolean {
-  return a.content === b.content && a.truncated === b.truncated;
+  if (a.kind !== b.kind) return false;
+  if (a.kind === "text" && b.kind === "text") {
+    return a.content === b.content && a.truncated === b.truncated;
+  }
+  if (a.kind === "binary" && b.kind === "binary") {
+    return a.url === b.url;
+  }
+  return false;
 }

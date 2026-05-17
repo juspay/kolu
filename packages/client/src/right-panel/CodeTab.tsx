@@ -15,7 +15,7 @@
 
 import { FileDiff, FileTree, Virtualizer } from "@kolu/solid-pierre";
 import type { GitDiffMode } from "kolu-git/schemas";
-import type { TerminalMetadata } from "kolu-common/surface";
+import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import {
   type Component,
   createEffect,
@@ -40,7 +40,7 @@ import {
   pierreTreesStyle,
 } from "../ui/pierreTheme";
 import { resolveLineRefPath } from "../ui/lineRef";
-import BrowseFileView from "./BrowseFileView";
+import BrowseFileDispatcher from "./BrowseFileDispatcher";
 import CodeMenuFrame from "./CodeMenuFrame";
 import {
   openInCodeTab,
@@ -75,7 +75,10 @@ const BinaryFileHint: Component<{ fileName: string | null }> = (props) => (
   </div>
 );
 
-const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
+const CodeTab: Component<{
+  terminalId: TerminalId | null;
+  meta: TerminalMetadata | null;
+}> = (props) => {
   const { themeTypeLiteral: diffTheme } = useColorScheme();
   const rightPanel = useRightPanel();
   const [selectedPath, setSelectedPath] = createSignal<string | null>(null);
@@ -598,9 +601,11 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
                 <Match when={!isDiffView()}>
                   {(() => {
                     const repo = repoPath();
-                    if (repo === null) return null;
+                    const tid = props.terminalId;
+                    if (repo === null || tid === null) return null;
                     return (
-                      <BrowseFileView
+                      <BrowseFileDispatcher
+                        terminalId={tid}
                         repoPath={repo}
                         filePath={path}
                         theme={diffTheme()}

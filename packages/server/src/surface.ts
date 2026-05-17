@@ -40,15 +40,19 @@ import { contract } from "kolu-common/contract";
 import { TerminalNotFoundError } from "kolu-common/errors";
 import { surface } from "kolu-common/surface";
 import {
+  buildIframePreviewUrl,
   fsListAllOutputEqual,
+  type FsReadFileOutput,
   fsReadFileOutputEqual,
   type GitResult,
   getDiff,
   getStatus,
   gitDiffOutputEqual,
   gitStatusOutputEqual,
+  isIframePreviewable,
   listAll,
   readFile,
+  statFileMtimeMs,
   subscribeFileChange,
   subscribeRepoChange,
 } from "kolu-git";
@@ -224,8 +228,25 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
         isEqual: fsListAllOutputEqual,
       },
       fsReadFile: {
-        read: async (input) =>
-          unwrapGit(await readFile(input.repoPath, input.filePath, log)),
+        read: async (input): Promise<FsReadFileOutput> => {
+          if (isIframePreviewable(input.filePath)) {
+            const mtimeMs = unwrapGit(
+              await statFileMtimeMs(input.repoPath, input.filePath, log),
+            );
+            return {
+              kind: "binary",
+              url: buildIframePreviewUrl(
+                input.terminalId,
+                input.filePath,
+                mtimeMs,
+              ),
+            };
+          }
+          const { content, truncated } = unwrapGit(
+            await readFile(input.repoPath, input.filePath, log),
+          );
+          return { kind: "text", content, truncated };
+        },
         install: (input, cb) =>
           subscribeFileChange(input.repoPath, input.filePath, cb, log),
         isEqual: fsReadFileOutputEqual,

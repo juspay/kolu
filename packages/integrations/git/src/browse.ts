@@ -5,7 +5,7 @@
  *  listing `node_modules/`, `.git/`, build artifacts, etc. */
 
 import { execFile } from "node:child_process";
-import { readFile as fsReadFile } from "node:fs/promises";
+import { readFile as fsReadFile, stat as fsStat } from "node:fs/promises";
 import { promisify } from "node:util";
 import type { Logger } from "kolu-shared";
 import { err, type GitResult, ok } from "./errors.ts";
@@ -69,5 +69,23 @@ export async function readFile(
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     return err({ code: "GIT_FAILED", message: `Failed to read file: ${msg}` });
+  }
+}
+
+/** Stat a file's mtime in ms-since-epoch, used to cache-bust the iframe URL
+ *  for binary previewable kinds. Same path-traversal guard as `readFile`. */
+export async function statFileMtimeMs(
+  repoPath: string,
+  filePath: string,
+  log?: Logger,
+): Promise<GitResult<number>> {
+  const resolved = resolveUnder(repoPath, filePath, log);
+  if (!resolved.ok) return resolved as GitResult<number>;
+  try {
+    const s = await fsStat(resolved.value.abs);
+    return ok(s.mtimeMs);
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return err({ code: "GIT_FAILED", message: `Failed to stat file: ${msg}` });
   }
 }

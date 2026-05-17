@@ -2,7 +2,11 @@
  *  Routes between Inspector and Code tabs via the DU view exposed by
  *  `useRightPanel().activeTab()`. */
 
-import type { RightPanelTabKind, TerminalMetadata } from "kolu-common/surface";
+import type {
+  RightPanelTabKind,
+  TerminalId,
+  TerminalMetadata,
+} from "kolu-common/surface";
 import { type Component, For } from "solid-js";
 import { CHROME_ICON_BUTTON_CLASS } from "../ui/chromeSpacing";
 import { ChevronRightIcon } from "../ui/Icons";
@@ -24,6 +28,7 @@ const TAB_LABEL: Record<RightPanelTabKind, string> = {
 };
 
 const RightPanel: Component<{
+  terminalId: TerminalId | null;
   meta: TerminalMetadata | null;
   onToggle: () => void;
   themeName?: string;
@@ -107,7 +112,7 @@ const RightPanel: Component<{
           class={rightPanel.activeTab().kind === "code" ? "h-full" : "hidden"}
           aria-hidden={rightPanel.activeTab().kind !== "code"}
         >
-          <CodeTab meta={props.meta} />
+          <CodeTab terminalId={props.terminalId} meta={props.meta} />
         </div>
       </div>
     </div>

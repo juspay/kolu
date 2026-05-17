@@ -6,7 +6,7 @@
 // Name generation
 export { randomName } from "memorable-names";
 // File tree browsing
-export { listAll, readFile } from "./browse.ts";
+export { listAll, readFile, statFileMtimeMs } from "./browse.ts";
 // Equality predicates for streamed snapshot dedup
 export {
   fsListAllOutputEqual,
@@ -38,11 +38,15 @@ export { getDiff, getStatus, parseNameStatus } from "./review.ts";
 export { resolveUnder } from "./safe-path.ts";
 // Schemas
 export {
+  buildIframePreviewUrl,
   FsListAllInputSchema,
   type FsListAllOutput,
   FsListAllOutputSchema,
   FsReadFileInputSchema,
+  type FsReadFileOutput,
   FsReadFileOutputSchema,
+  IFRAME_PREVIEWABLE_EXTENSIONS,
+  isIframePreviewable,
   type GitBaseRef,
   GitBaseRefSchema,
   type GitChangedFile,

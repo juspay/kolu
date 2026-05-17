@@ -361,7 +361,7 @@ Concrete inventory — what every server-pushed reactive surface in Kolu maps to
 | `gitStatusStream` | Code-view's Local/Branch mode file list (changed files) |
 | `gitDiffStream` | Code-view's unified diff for the selected file |
 | `fsListAllStream` | Code-view's All mode tree (full repo path list) |
-| `fsReadFileStream` | Code-view's All mode body (file content) |
+| `fsReadFileStream` | Code-view's All mode body — discriminated by `kind`: `text` yields the file content for Pierre's syntax-highlighted viewer; `binary` yields a cache-busted URL pointing at `/api/terminals/<id>/file/<path>?v=<mtime>` for the iframe-preview viewer (`.html`/`.svg`/`.pdf`). One subscription path; mtime bump on save re-yields a fresh URL so the iframe reloads. |
 
 ### Events
 

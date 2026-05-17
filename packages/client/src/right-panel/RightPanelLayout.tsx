@@ -4,7 +4,7 @@
  *  too narrow for a useful side panel. */
 
 import Resizable from "@corvu/resizable";
-import type { TerminalMetadata } from "kolu-common/surface";
+import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import { type Component, type JSX, Show } from "solid-js";
 import { isMobile } from "../useMobile";
 import RightPanel from "./RightPanel";
@@ -12,6 +12,9 @@ import { useRightPanel } from "./useRightPanel";
 
 const RightPanelLayout: Component<{
   children: JSX.Element;
+  /** Active terminal id. Used by the Code tab's iframe-preview path to
+   *  build the per-terminal file-serving URL. */
+  terminalId: TerminalId | null;
   meta: TerminalMetadata | null;
   themeName?: string;
   onThemeClick?: () => void;
@@ -71,6 +74,7 @@ const RightPanelLayout: Component<{
              *  shrinks this panel to zero width via sizes=[1,0] above. An
              *  inner <Show> would unmount and discard that state. */}
             <RightPanel
+              terminalId={props.terminalId}
               meta={props.meta}
               onToggle={rightPanel.togglePanel}
               themeName={props.themeName}

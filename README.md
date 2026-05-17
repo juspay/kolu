@@ -74,6 +74,7 @@ The desktop workspace is mode-less — every terminal renders as a draggable, re
 - Auto-detected repo name, branch, and working directory (via OSC 7 + `.git/HEAD` watcher)
 - GitHub PR detection — shows PR number, title, and CI check status (pass/pending/fail) on the tile chrome and inspector
 - Per-repo color coding on the dock, tile chrome, canvas tile border, and minimap via golden-angle hue spacing — the same hue echoes across every surface so a repo reads as one identity at a glance
+- Inline preview of agent-generated `.html` / `.svg` / `.pdf` artifacts — selecting one in the Code tab's browse mode renders it in a sandboxed iframe (`sandbox="allow-scripts"`, no `allow-same-origin` — page scripts run in an opaque origin and can't touch Kolu's cookies/localStorage; cross-origin `fetch()` from inside is blocked, which is fine for static artifacts) served from a per-terminal route under the terminal's repo root. The iframe live-reloads when the file changes (mtime bump on the URL) via the same `fsReadFile` subscription path as text
 
 ### Claude Code Status
 

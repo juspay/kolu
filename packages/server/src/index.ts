@@ -14,12 +14,14 @@ import pkg from "../package.json" with { type: "json" };
 import { getCacheControlHeader } from "./cacheControl.ts";
 import { startDiagnostics } from "./diagnostics.ts";
 import { serverHostname } from "./hostname.ts";
+import { resolvePreviewPath, serveResolvedFile } from "./iframePreviewRoute.ts";
 import { ensureKoluRoot, shutdownCleanup } from "./koluRoot.ts";
 import { log } from "./log.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import { appRouter } from "./router.ts";
 import { initSessionAutoSave } from "./session.ts";
 import { configureNixShellEnv } from "./shell.ts";
+import { getTerminal } from "./terminal-registry.ts";
 import { snapshotSession } from "./terminals.ts";
 import { resolveTlsOptions } from "./tls.ts";
 
@@ -147,6 +149,36 @@ process.on("unhandledRejection", (reason) => {
 
 // --- Health endpoint ---
 app.get("/api/health", (c) => c.text("kolu"));
+
+// --- Iframe preview file route ---
+// Serves repo files referenced by `FsReadFileOutput.kind === "binary"`.
+// URL contract lives in `kolu-git/schemas`'s `buildIframePreviewUrl`.
+// Registered before the static-serve catch-all so production builds don't
+// shadow this route with `serveStatic`'s `/*` matcher.
+app.get("/api/terminals/:terminalId/file/*", async (c) => {
+  const terminalId = c.req.param("terminalId");
+  const prefix = `/api/terminals/${terminalId}/file/`;
+  // Use the raw decoded path from req.url to keep our own URL-decoding
+  // pipeline (see `resolvePreviewPath`) in charge of segment parsing —
+  // anything Hono pre-decodes here would bypass the guard.
+  const rawTail = c.req.path.startsWith(prefix)
+    ? c.req.path.slice(prefix.length)
+    : "";
+
+  const term = getTerminal(terminalId);
+  const repoRoot = term?.meta.git?.repoRoot;
+  if (!repoRoot) return c.text("terminal has no repo", 404);
+
+  const res = await serveResolvedFile(resolvePreviewPath(repoRoot, rawTail));
+  // `Buffer` (subclass of `Uint8Array<ArrayBufferLike>`) is a runtime-valid
+  // `BodyInit` but the DOM-typed lib.dom.d.ts narrows `BodyInit` to
+  // `Uint8Array<ArrayBuffer>` — the unions don't align in TS even though
+  // node-server forwards the buffer unchanged. Cast at the boundary.
+  return new Response(res.body as BodyInit, {
+    status: res.status,
+    headers: res.headers,
+  });
+});
 
 // --- Dynamic PWA manifest (includes hostname) ---
 app.get("/manifest.webmanifest", (c) => {
