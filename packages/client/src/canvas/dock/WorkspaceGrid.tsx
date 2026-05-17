@@ -26,7 +26,6 @@ import {
 } from "solid-js";
 import { formatTimeAgo, useIdleClassifier } from "../../terminal/staleness";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
-import { useTileTheme } from "../useTileTheme";
 import {
   bucketDescriptor,
   buildDockModel,
@@ -373,7 +372,6 @@ const EntryList: Component<{
   highlightedId: TerminalId | undefined;
 }> = (props) => {
   const store = useTerminalStore();
-  const tileTheme = useTileTheme();
   return (
     <div class="flex flex-col gap-2">
       <Show
@@ -397,8 +395,6 @@ const EntryList: Component<{
               active={store.activeId() === entry().id}
               highlighted={props.highlightedId === entry().id}
               unread={store.isUnread(entry().id)}
-              tileBg={tileTheme(entry().id).bg}
-              tileFg={tileTheme(entry().id).fg}
               onSelect={() => props.onSelect(entry().id)}
             />
           )}
@@ -460,8 +456,6 @@ const WorkspaceCard: Component<{
    *  `active` (which uses the repo-color left rail). */
   highlighted: boolean;
   unread: boolean;
-  tileBg: string;
-  tileFg: string;
   onSelect: () => void;
 }> = (props) => {
   const agent = () => props.entry.info.meta.agent;
