@@ -719,7 +719,7 @@ const ActionBar: Component<{
     if (props.mode.kind === "value") return "Submit";
     const h = props.highlighted;
     if (!h) return "";
-    if (h.kind === "group" || h.kind === "value" || h.kind === "body-group") {
+    if (isDrillable(h)) {
       return "Open";
     }
     return "Run";
