@@ -1,6 +1,7 @@
 /** HTTP route serving repo files for the iframe-preview surface
- *  (`FsReadFileOutput.kind === "binary"`). URL contract lives in
- *  `kolu-git/schemas`'s `buildIframePreviewUrl` — keep the two in sync.
+ *  (`FsReadFileOutput.kind === "binary"`). URL contract (`buildIframePreviewUrl`,
+ *  `TERMINAL_FILE_ROUTE_BASE`, `TERMINAL_FILE_ROUTE_FILE_SEGMENT`) lives in
+ *  this module — `kolu-git/schemas` holds only the wire shape (`FsReadFileOutputSchema`).
  *
  *  Two-stage path-traversal guard:
  *    1. Inspect raw URL-decoded segments and reject `..` or empty parts
