@@ -192,6 +192,40 @@ export const FileTree: Component<FileTreeProps> = (props) => {
     ),
   );
 
+  // Push post-mount `props.selectedPath` changes into Pierre's
+  // selection state. Pierre's `initialSelectedPaths` is snapshot-only
+  // at construction; reactive prop changes after mount must be applied
+  // via `getItem(path)?.select()` / `deselect()` to mark
+  // `aria-selected="true"`. Without this, a host that drives selection
+  // through a reactive accessor (e.g. CodeTab's per-(repoRoot,view)
+  // slot map) leaves the tree out of sync whenever selection arrives
+  // after FileTree mount — the `Open path:N` flow from a diff is the
+  // canonical case. `onSelectionChange` re-fires when we call
+  // `select()`, so the host's `onSelect` handler must be idempotent on
+  // same-value writes (which it already is, as a SolidJS reactive
+  // setter on an equal value is a no-op).
+  createEffect(
+    on(
+      () => props.selectedPath ?? null,
+      (path) => {
+        try {
+          const current = tree?.getSelectedPaths()[0] ?? null;
+          if (current === path) return;
+          if (path === null) {
+            for (const p of tree?.getSelectedPaths() ?? []) {
+              tree?.getItem(p)?.deselect();
+            }
+          } else {
+            tree?.getItem(path)?.select();
+          }
+        } catch (e) {
+          props.onError(toError(e));
+        }
+      },
+      { defer: true },
+    ),
+  );
+
   onCleanup(() => tree?.cleanUp());
 
   return (

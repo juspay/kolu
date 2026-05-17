@@ -27,7 +27,6 @@ import {
   Show,
   Switch,
 } from "solid-js";
-import { createStore, produce } from "solid-js/store";
 import { toast } from "solid-sonner";
 import { useColorScheme } from "../settings/useColorScheme";
 import { app } from "../wire";
@@ -101,30 +100,39 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
   // right slot rather than clearing on transition, and a full browser
   // reload restores whichever slot is current. `::` is collision-safe:
   // `view()` is a typed enum so it can't contain `::`, and `repoPath()`
-  // is an absolute path or null. `createStore` (not `createSignal`) so
-  // that reads of the active slot are fine-grained — unrelated slot
-  // writes don't re-tick `selectedPath()` consumers (per project rule:
-  // `createStore` over `createSignal<Record>` for keyed state). The
-  // `slotKey` memo doubles as the source of truth for the search-reset
-  // effect below — same value, single derivation.
+  // is an absolute path or null. The `slotKey` memo doubles as the
+  // source of truth for the search-reset effect below — same value,
+  // single derivation.
+  //
+  // `createSignal<Record>` is deliberate against the project rule
+  // (`createStore` over `createSignal<Record>` for keyed state): the
+  // fine-grained read tracking createStore offers isn't actually
+  // observed here because Pierre's `FileTree` snapshots `selectedPath`
+  // at mount via `initialSelectedPaths` and the host re-mounts that
+  // subtree on view transitions. The synchronous, whole-record
+  // semantics of a signal match this lifecycle; `createStore`'s
+  // late-arriving notifications on a not-yet-seen key produce a
+  // remount race where the new slot's pick is set AFTER FileTree's
+  // constructor reads it (verified empirically against the
+  // "right-click Open jumps to browse" regression suite).
   const [selectedFilesByKey, setSelectedFilesByKey] = makePersisted(
-    createStore<Record<string, string>>({}),
+    createSignal<Record<string, string>>({}),
     { name: "kolu-codetab-selected-files" },
   );
   const slotKey = createMemo(() => `${repoPath() ?? ""}::${view()}`);
   const selectedPath = (): string | null =>
-    selectedFilesByKey[slotKey()] ?? null;
+    selectedFilesByKey()[slotKey()] ?? null;
   const setSelectedPath = (path: string | null) => {
     const key = slotKey();
-    if (path === null) {
-      setSelectedFilesByKey(
-        produce((s) => {
-          delete s[key];
-        }),
-      );
-    } else {
-      setSelectedFilesByKey(key, path);
-    }
+    setSelectedFilesByKey((prev) => {
+      if (path === null) {
+        if (!(key in prev)) return prev;
+        const { [key]: _, ...rest } = prev;
+        return rest;
+      }
+      if (prev[key] === path) return prev;
+      return { ...prev, [key]: path };
+    });
   };
 
   // Filename filter — drives Pierre's tree filter externally. Reset on
