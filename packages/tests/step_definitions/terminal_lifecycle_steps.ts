@@ -71,6 +71,7 @@ When(
     await this.page
       .locator(`[data-terminal-id="${id}"][data-visible]`)
       .waitFor({ state: "attached", timeout: POLL_TIMEOUT });
+    await this.waitForFrame();
   },
 );
 
