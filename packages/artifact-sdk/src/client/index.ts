@@ -13,6 +13,10 @@ export {
   type QuoteMatch,
 } from "../core/findQuote";
 export {
+  applyHighlights,
+  type HighlightInputComment,
+} from "../core/applyHighlights";
+export {
   COMMENT_HIGHLIGHT_BACKGROUND,
   COMMENT_HIGHLIGHT_UNDERLINE,
   COMMENT_HIGHLIGHT_STYLE,

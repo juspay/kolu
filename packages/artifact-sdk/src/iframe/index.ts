@@ -13,29 +13,13 @@
  *    3. Apply CSS Custom Highlights for the comment set the parent pushes
  *       via `RenderHighlightsMsg`. */
 
+import { applyHighlights } from "../core/applyHighlights";
 import { extractQuote } from "../core/extractQuote";
-import { findQuote, rangeFromOffsets } from "../core/findQuote";
 import { COMMENT_HIGHLIGHT_STYLE } from "../core/theme";
 import type { Locator, ParentToIframe, ReadyMsg, SelectMsg } from "../types";
 
 const HIGHLIGHT_NAME = "kolu-artifact-sdk-comment";
 const PILL_ID = "kolu-artifact-sdk-pill";
-
-declare global {
-  interface Window {
-    CSS: {
-      highlights?: {
-        set(name: string, highlight: unknown): void;
-        delete(name: string): void;
-      };
-    };
-    /** Custom Highlight API constructor — not yet in lib.dom in all TS
-     *  versions. Optional because pre-Chrome-105 browsers don't have it. */
-    Highlight?: new (
-      ...ranges: Range[]
-    ) => unknown;
-  }
-}
 
 let currentPath: string | null = null;
 let lastSelectionRange: Range | null = null;
@@ -130,25 +114,10 @@ function onSelectionChange(): void {
   }, 80);
 }
 
-function applyHighlights(
-  comments: Array<{ id: string; locator: Locator }>,
-): void {
-  const HighlightCtor = window.Highlight;
-  if (!HighlightCtor || !window.CSS.highlights) return;
-  const text = document.body?.textContent ?? "";
-  const ranges: Range[] = [];
-  for (const c of comments) {
-    const match = findQuote(text, c.locator);
-    if (!match) continue;
-    const range = rangeFromOffsets(document, match.start, match.end);
-    if (range) ranges.push(range);
-  }
-  if (ranges.length === 0) {
-    window.CSS.highlights.delete(HIGHLIGHT_NAME);
-    return;
-  }
-  window.CSS.highlights.set(HIGHLIGHT_NAME, new HighlightCtor(...ranges));
-}
+// Highlight rendering delegates to `core/applyHighlights` — same
+// algorithm the parent-side overlay uses, just rooted at this iframe's
+// document. The shared core function guards on browser support so
+// older browsers degrade silently.
 
 function ensureHighlightStyle(): void {
   if (document.getElementById("kolu-artifact-sdk-style")) return;
@@ -166,7 +135,7 @@ function onMessage(event: MessageEvent<ParentToIframe>): void {
       currentPath = msg.path;
       break;
     case "kolu-artifact-sdk:render-highlights":
-      applyHighlights(msg.comments);
+      applyHighlights(window, document, msg.comments, HIGHLIGHT_NAME);
       break;
   }
 }

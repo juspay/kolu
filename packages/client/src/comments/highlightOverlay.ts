@@ -1,33 +1,23 @@
 /** Parent-side overlay that highlights existing comments in-place on the
- *  currently-displayed file. Uses the CSS Custom Highlight API — no DOM
- *  mutation, doesn't interfere with Pierre's selection layer.
+ *  currently-displayed file. Delegates the re-find + register work to
+ *  `applyHighlights` in `@kolu/artifact-sdk/client` — the SAME function
+ *  the in-iframe SDK uses — so the behavior is bit-identical across
+ *  surfaces.
  *
  *  Browser support: Chrome 105+, Safari 17.2+, Firefox 140+. On older
  *  browsers, comments still appear in the tray; the in-place highlight
- *  silently degrades to nothing. */
+ *  silently degrades to nothing (the core function's `Highlight` guard
+ *  short-circuits). */
 
-import { createEffect, onCleanup, type Accessor } from "solid-js";
 import {
+  applyHighlights,
   COMMENT_HIGHLIGHT_STYLE,
-  findQuote,
-  rangeFromOffsets,
 } from "@kolu/artifact-sdk/client";
+import { type Accessor, createEffect, onCleanup } from "solid-js";
 import type { Comment } from "./types";
 
 const HIGHLIGHT_NAME = "kolu-comment";
 const STYLE_ELEMENT_ID = "kolu-comment-highlight-style";
-
-declare global {
-  interface Window {
-    Highlight?: new (...ranges: Range[]) => unknown;
-    CSS: {
-      highlights?: Map<string, unknown> & {
-        set(name: string, highlight: unknown): void;
-        delete(name: string): void;
-      };
-    };
-  }
-}
 
 function ensureStyle(): void {
   if (document.getElementById(STYLE_ELEMENT_ID)) return;
@@ -72,29 +62,9 @@ export function useHighlightOverlay(opts: OverlayOptions): void {
     const host = opts.host();
     const comments = opts.comments();
     opts.contentTick?.(); // dependency
-    if (!host || comments.length === 0) {
-      window.CSS.highlights?.delete(HIGHLIGHT_NAME);
-      return;
-    }
+    if (!host) return;
     const root = findHostRoot(host);
-    const text =
-      root instanceof Document
-        ? (root.body?.textContent ?? "")
-        : (root.textContent ?? "");
-    const ranges: Range[] = [];
-    for (const c of comments) {
-      const match = findQuote(text, c.locator);
-      if (!match) continue;
-      const r = rangeFromOffsets(root, match.start, match.end);
-      if (r) ranges.push(r);
-    }
-    if (ranges.length === 0) {
-      window.CSS.highlights?.delete(HIGHLIGHT_NAME);
-      return;
-    }
-    const HighlightCtor = window.Highlight;
-    if (!HighlightCtor) return;
-    window.CSS.highlights?.set(HIGHLIGHT_NAME, new HighlightCtor(...ranges));
+    applyHighlights(window, root, comments, HIGHLIGHT_NAME);
   });
 
   onCleanup(() => {
