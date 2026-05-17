@@ -13,6 +13,11 @@ export {
   type QuoteMatch,
 } from "../core/findQuote";
 export {
+  COMMENT_HIGHLIGHT_BACKGROUND,
+  COMMENT_HIGHLIGHT_UNDERLINE,
+  COMMENT_HIGHLIGHT_STYLE,
+} from "../core/theme";
+export {
   bindArtifactSdk,
   pushHighlightsTo,
   pushPathTo,

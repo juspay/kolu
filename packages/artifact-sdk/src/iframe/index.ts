@@ -15,6 +15,7 @@
 
 import { extractQuote } from "../core/extractQuote";
 import { findQuote, rangeFromOffsets } from "../core/findQuote";
+import { COMMENT_HIGHLIGHT_STYLE } from "../core/theme";
 import type { Locator, ParentToIframe, ReadyMsg, SelectMsg } from "../types";
 
 const HIGHLIGHT_NAME = "kolu-artifact-sdk-comment";
@@ -153,7 +154,7 @@ function ensureHighlightStyle(): void {
   if (document.getElementById("kolu-artifact-sdk-style")) return;
   const style = document.createElement("style");
   style.id = "kolu-artifact-sdk-style";
-  style.textContent = `::highlight(${HIGHLIGHT_NAME}) { background: #fff5e4; box-shadow: 0 1px 0 #b8431e; }`;
+  style.textContent = `::highlight(${HIGHLIGHT_NAME}) { ${COMMENT_HIGHLIGHT_STYLE} }`;
   document.head.appendChild(style);
 }
 

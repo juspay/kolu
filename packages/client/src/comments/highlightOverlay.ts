@@ -7,7 +7,11 @@
  *  silently degrades to nothing. */
 
 import { createEffect, onCleanup, type Accessor } from "solid-js";
-import { findQuote, rangeFromOffsets } from "@kolu/artifact-sdk/client";
+import {
+  COMMENT_HIGHLIGHT_STYLE,
+  findQuote,
+  rangeFromOffsets,
+} from "@kolu/artifact-sdk/client";
 import type { Comment } from "./types";
 
 const HIGHLIGHT_NAME = "kolu-comment";
@@ -29,7 +33,7 @@ function ensureStyle(): void {
   if (document.getElementById(STYLE_ELEMENT_ID)) return;
   const style = document.createElement("style");
   style.id = STYLE_ELEMENT_ID;
-  style.textContent = `::highlight(${HIGHLIGHT_NAME}) { background: #fff5e4; box-shadow: 0 1px 0 #b8431e; }`;
+  style.textContent = `::highlight(${HIGHLIGHT_NAME}) { ${COMMENT_HIGHLIGHT_STYLE} }`;
   document.head.appendChild(style);
 }
 
