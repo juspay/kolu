@@ -34,12 +34,6 @@ interface PaletteBase {
   name: string;
   /** Secondary text shown after the name, de-emphasized. */
   description?: string;
-  /** Extra searchable text that is **not** rendered. Used by rich rows
-   *  (e.g. workspace entries) whose human-readable description is a
-   *  short summary but whose search corpus is much wider — repo paths,
-   *  PR titles, agent metadata, etc. The filter checks `name`,
-   *  `description`, and `searchText` together with AND-token semantics. */
-  searchText?: string;
   /** Opaque payload — palette never interprets `data`; it just hands it
    *  back via `onSubmit` so callers can identify the chosen option
    *  without string-matching on `name`. */
@@ -257,14 +251,13 @@ const CommandPalette: Component<{
    *  value mode produces `PaletteLabel[]`; body mode skips the list
    *  entirely. The union covers all three without dynamic typing.
    *
-   *  Substring semantics (case-insensitive) against the row's `name`,
-   *  `description`, or `searchText`. Substring was chosen over
-   *  AND-token because the palette also hosts close-name action
-   *  pairs like "Toggle terminal split" vs "Split terminal" — token
-   *  permutation matches both and clicks the wrong one. Workspace
-   *  search inside the column body runs its own AND-token filter on
-   *  the 20-field corpus (`searchWorkspaceEntries`), which is the
-   *  right semantics there. */
+   *  Substring semantics (case-insensitive) against the row's `name`
+   *  or `description`. Substring was chosen over AND-token because the
+   *  palette also hosts close-name action pairs like "Toggle terminal
+   *  split" vs "Split terminal" — token permutation matches both and
+   *  clicks the wrong one. Workspace search inside the column body
+   *  runs its own AND-token filter on the 20-field corpus
+   *  (`buildDockModel`), which is the right semantics there. */
   const filtered = createMemo((): (PaletteCommand | PaletteLabel)[] => {
     const items = partitioned().interactive;
     if (mode().kind !== "filter") return items;
@@ -273,8 +266,7 @@ const CommandPalette: Component<{
     return items.filter(
       (cmd) =>
         cmd.name.toLowerCase().includes(q) ||
-        cmd.description?.toLowerCase().includes(q) ||
-        cmd.searchText?.toLowerCase().includes(q),
+        cmd.description?.toLowerCase().includes(q),
     );
   });
 
