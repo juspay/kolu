@@ -138,8 +138,8 @@ Feature: Code tab (review + browse)
     When I open file "shared.txt" in the Code tab
     Then the selected file should show content "from-A"
     When I create a terminal
-    And a Code tab in "browse" mode showing file "shared.txt" with content "from-B"
-    And I open file "shared.txt" in the Code tab
+    Given a Code tab in "browse" mode showing file "shared.txt" with content "from-B"
+    When I open file "shared.txt" in the Code tab
     Then the selected file should show content "from-B"
     When I select workspace switcher entry 1
     Then the selected file should show content "from-A"
