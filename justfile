@@ -127,9 +127,16 @@ depcruise-graph: install
         --config .dependency-cruiser.mjs --no-progress \
         -T json packages > "$tmp/cruise.json"
 
+    # Test files (.test.ts/.test.tsx) are orthogonal to the production
+    # architecture and just add noise to every graph — exclude from all
+    # mermaid renders. They still participate in the JSON cruise so
+    # `just depcruise` validation rules continue to apply to them.
+    exclude_tests='\.test\.[jt]sx?$'
+
     # Top-level: one node per workspace package.
     {{ nix_shell }} ./node_modules/.bin/depcruise-fmt -T mermaid \
         --collapse '^packages/(integrations/[^/]+|[^/]+)' \
+        --exclude "$exclude_tests" \
         "$tmp/cruise.json" > "$tmp/overview.mmd"
 
     # Per-package module graphs. Order matters for stable diffs.
@@ -158,11 +165,16 @@ depcruise-graph: install
         echo
         echo '## Module-level detail'
         echo
-        echo 'Each section below shows the internal `.ts` / `.tsx` files within one workspace package and the imports between them. Cross-package edges are excluded — those live in the overview above. Packages with a single source file are omitted.'
+        echo 'Each section below clusters the internal files of one workspace package by subfolder — `canvas/`, `dock/`, `input/`, etc. each become a single node, with edges aggregated. Top-level files (e.g. `App.tsx`) stay as themselves. Cross-package edges are excluded — those live in the overview above. Packages with no internal edges are omitted.'
         for pkg in $pkgs; do
             slug=$(echo "$pkg" | sed 's|^packages/||')
+            # --collapse '^<pkg>/src/[^/]+' folds each subfolder into one
+            # node; top-level files like `App.tsx` stay individual. Without
+            # this the client graph is unreadable spaghetti.
             {{ nix_shell }} ./node_modules/.bin/depcruise-fmt -T mermaid \
                 --include-only "^$pkg/" \
+                --collapse "^$pkg/src/[^/]+" \
+                --exclude "$exclude_tests" \
                 "$tmp/cruise.json" > "$tmp/pkg.mmd"
             # Skip packages with no internal edges — a single-node graph
             # is noise (e.g. `nonempty/src/index.ts` standing alone).
