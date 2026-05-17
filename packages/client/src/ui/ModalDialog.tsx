@@ -37,10 +37,12 @@ const SIZE_CLASS = {
   sm: "max-w-sm",
   md: "max-w-md",
   // `lg` is sized to fit the command palette's workspace-grid body:
-  // 12rem repo facet + 4 agent-state columns + breathing room. Smaller
-  // caps truncate card titles ("post-buil…") on the wider workspace
-  // columns.
-  lg: "max-w-3xl",
+  // 12rem repo facet + 4 agent-state columns + breathing room. The
+  // cap scales with the viewport so a 27" monitor doesn't render a
+  // tiny dialog in the middle of all that space, while a 13"
+  // laptop still gets the 95vw fallback. 80rem = 1280px caps the
+  // upper end on ultrawide displays.
+  lg: "max-w-[min(95vw,80rem)]",
 } as const;
 
 const ModalDialog: Component<{
