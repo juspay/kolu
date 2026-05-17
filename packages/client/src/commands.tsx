@@ -23,7 +23,6 @@ import {
 } from "./input/actions";
 import { iconForCommand } from "./ui/agentDisplay";
 import { TerminalIcon } from "./ui/Icons";
-import { client } from "./wire";
 import { recentAgents, recentRepos } from "./wire";
 
 /** Body component factory for the "Search workspaces" group. Captures
@@ -134,6 +133,8 @@ export interface CommandDeps extends ActionContext {
   // Debug
   simulateAlert: () => void;
   handleCloseAll: () => void;
+  handleTriggerServerError: () => void;
+  handleClearLocalStorage: () => void;
 }
 
 export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
@@ -331,12 +332,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
         {
           kind: "action",
           name: "Trigger server error",
-          onSelect: () =>
-            void client.terminal.resize({
-              id: "00000000-0000-0000-0000-000000000000",
-              cols: 1,
-              rows: 1,
-            }),
+          onSelect: () => deps.handleTriggerServerError(),
         },
         {
           kind: "action",
@@ -346,10 +342,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
         {
           kind: "action",
           name: "Clear localStorage",
-          onSelect: () => {
-            localStorage.clear();
-            location.reload();
-          },
+          onSelect: () => deps.handleClearLocalStorage(),
         },
       ],
     },

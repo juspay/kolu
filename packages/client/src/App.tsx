@@ -275,6 +275,16 @@ const App: Component = () => {
       if (id) closeTerminal(id);
     },
     handleCloseAll: () => void crud.handleCloseAll(),
+    handleTriggerServerError: () =>
+      void client.terminal.resize({
+        id: "00000000-0000-0000-0000-000000000000",
+        cols: 1,
+        rows: 1,
+      }),
+    handleClearLocalStorage: () => {
+      localStorage.clear();
+      location.reload();
+    },
     simulateAlert: alerts.simulateAlert,
     isMobile,
     canvasCenterActive: handleCanvasCenterActive,
