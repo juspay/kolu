@@ -192,7 +192,6 @@ const WorkspaceGrid: Component<{
         stepColumn(-1);
       } else if (e.key === "Enter") {
         if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
-        if (!selectedEntry()) return;
         activateSelected();
       } else {
         return;
