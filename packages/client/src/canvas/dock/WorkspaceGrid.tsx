@@ -36,6 +36,12 @@ import {
 } from "../dockModel";
 import { agentLabel, metaLine, prSummary, tokenLine } from "./dockRowChrome";
 
+/** Slot tag on each card. The scroll-into-view effect queries by this
+ *  value so the lookup stays scoped to *this* grid instance even if a
+ *  second mount point ever lands — declared once so the render-site
+ *  attribute and the query selector can't drift. */
+const WORKSPACE_GRID_SLOT = "palette-body" as const;
+
 const WorkspaceGrid: Component<{
   /** Live-terminal source rows the grid filters and buckets. */
   entries: DockSourceEntry[];
@@ -189,7 +195,7 @@ const WorkspaceGrid: Component<{
     if (!entry) return;
     queueMicrotask(() => {
       const card = document.querySelector<HTMLElement>(
-        `[data-testid="workspace-switcher-card"][data-in-grid="palette-body"][data-terminal-id="${entry.id}"]`,
+        `[data-testid="workspace-switcher-card"][data-in-grid="${WORKSPACE_GRID_SLOT}"][data-terminal-id="${entry.id}"]`,
       );
       card?.scrollIntoView({ block: "nearest", inline: "nearest" });
     });
@@ -452,7 +458,7 @@ const WorkspaceCard: Component<{
     <button
       type="button"
       data-testid="workspace-switcher-card"
-      data-in-grid="palette-body"
+      data-in-grid={WORKSPACE_GRID_SLOT}
       data-terminal-id={props.entry.id}
       data-repo-name={props.entry.repoName}
       data-agent-bucket={props.entry.bucket}
