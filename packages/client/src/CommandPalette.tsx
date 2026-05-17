@@ -239,12 +239,13 @@ const CommandPalette: Component<{
     return { kind: "filter" };
   });
 
-  /** The active `PaletteBodyGroup` when in body mode, else `undefined`.
-   *  Used by the body-render branch in JSX to avoid an inline IIFE. */
-  const bodyGroup = createMemo<PaletteBodyGroup | undefined>(() => {
+  /** Narrow `mode()` to the body leaf for the `<Show>` render branch.
+   *  Plain function — the only consumer is the JSX below, so a memo
+   *  would just add a signal node for one read site. */
+  function bodyLeaf(): PaletteBodyGroup | undefined {
     const m = mode();
     return m.kind === "body" ? m.leaf : undefined;
-  });
+  }
 
   /** Validation error for the current value-input query. `null` outside
    *  value mode or when the value passes. */
@@ -576,7 +577,7 @@ const CommandPalette: Component<{
           )}
         </Show>
         <Show
-          when={bodyGroup()}
+          when={bodyLeaf()}
           fallback={
             <div
               ref={(el) => {
