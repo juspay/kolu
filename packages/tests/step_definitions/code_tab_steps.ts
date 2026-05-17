@@ -774,3 +774,24 @@ Then(
     );
   },
 );
+
+// ── Comments tray (#881) ──
+//
+// Only the empty-tray assertion ships in e2e today — the full capture
+// flow (selectionchange → pill → composer → tray → copy) requires
+// driving DOM selection inside Pierre's shadow DOM, which the harness
+// doesn't yet support. Pure-logic coverage lives in
+// `packages/artifact-sdk/src/core/findQuote.test.ts`,
+// `packages/artifact-sdk/src/server/inject.test.ts`, and
+// `packages/client/src/comments/formatMarkdown.test.ts`.
+
+const COMMENTS_TRAY = '[data-testid="kolu-comments-tray"]';
+
+Then(
+  "the comments tray should not be visible",
+  async function (this: KoluWorld) {
+    await this.page
+      .locator(COMMENTS_TRAY)
+      .waitFor({ state: "detached", timeout: POLL_TIMEOUT });
+  },
+);

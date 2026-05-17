@@ -545,3 +545,25 @@ Feature: Code tab (review + browse)
     And I run "rm obsolete.txt"
     Then the file browser should not show a file "obsolete.txt"
     And the Code tab content should show the select hint "Select a file to view its content"
+
+  # ── Comments on files (#881) ──
+  #
+  # The visible behavior we can assert without driving a real
+  # selectionchange inside Pierre's shadow DOM is that the tray starts
+  # hidden in a fresh worktree. The full selection → pill → composer →
+  # tray → copy flow needs in-browser DOM-selection capture (Pierre's
+  # shadow DOM + the @solid-primitives/storage hook's same-tab sync
+  # behavior together defeat the obvious localStorage-seeding approach);
+  # adding that test infrastructure is its own follow-up. Pure-logic
+  # coverage lives in `packages/artifact-sdk/src/core/findQuote.test.ts`
+  # (anchor disambiguation), `packages/artifact-sdk/src/server/inject.test.ts`
+  # (HTML script splicing), and
+  # `packages/client/src/comments/formatMarkdown.test.ts` (clipboard
+  # payload shape).
+
+  Scenario: Comments tray is hidden when the queue is empty
+    When I run "rm -rf /tmp/kolu-comments-empty && git init /tmp/kolu-comments-empty && cd /tmp/kolu-comments-empty"
+    And I run "printf 'hello\n' > a.md && git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    Then the comments tray should not be visible
