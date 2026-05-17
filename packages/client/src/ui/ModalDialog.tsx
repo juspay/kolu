@@ -55,9 +55,9 @@ const ModalDialog: Component<{
   /** Disable Corvu's built-in focus trapping (for custom keyboard navigation). */
   trapFocus?: boolean;
   /** Max width cap — "sm" (24rem) for confirms/help, "md" (28rem) for
-   *  legacy palette callers, "lg" (48rem) for the unified command
-   *  palette whose workspace-grid body needs the extra room. Defaults
-   *  to "md". */
+   *  legacy palette callers, "lg" (min(95vw, 80rem)) for the unified
+   *  command palette whose workspace-grid body needs the extra room.
+   *  Defaults to "md". */
   size?: "sm" | "md" | "lg";
   children: JSX.Element;
 }> = (props) => (
