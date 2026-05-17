@@ -387,6 +387,7 @@ Before(async function (this: KoluWorld, scenario) {
           size: 0.25,
           activeTab: "inspector",
           codeMode: "local",
+          codeTabTreeSize: 0.35,
         },
       },
     }),
