@@ -82,31 +82,52 @@ const WorkspaceGrid: Component<{
       return [...column.entries];
     }),
   );
-  const [selectedColumn, setSelectedColumn] = createSignal(0);
-  const [selectedRow, setSelectedRow] = createSignal(0);
+  // The keyboard cursor is one logical thing — the id of the
+  // highlighted entry. Step* functions locate the id in the column
+  // layout, compute the next position, and write back the new id.
+  // The reconcile effect falls the id back to the first available
+  // entry when the visible set narrows past it. One signal, one
+  // truth, no fallback drift.
+  const [highlightedId, setHighlightedId] = createSignal<TerminalId | null>(
+    null,
+  );
 
-  // Resolve the highlighted entry, falling back to the first
-  // non-empty column when the current selection has gone empty
-  // (typing narrowed the grid past it, repo facet flipped, …).
-  // Returns null when *no* column has entries.
-  const selectedEntry = createMemo<DockEntry | null>(() => {
-    const cols = columnEntries();
-    const col = cols[selectedColumn()];
-    if (col && col.length > 0) {
-      const row = Math.min(selectedRow(), col.length - 1);
-      return col[row] ?? null;
+  function firstAvailableId(): TerminalId | null {
+    for (const col of columnEntries()) {
+      if (col.length > 0) return col[0]?.id ?? null;
     }
-    // Current column is empty — find any non-empty one to highlight
-    // so the user still sees a cursor (don't move the actual signals;
-    // the next nav keypress will reconcile them).
-    for (const candidate of cols) {
-      if (candidate.length > 0) return candidate[0] ?? null;
+    return null;
+  }
+
+  /** Locate the highlighted id in the column layout. `null` when the
+   *  id isn't currently visible (the reconcile effect will move it). */
+  function locateHighlight(): { col: number; row: number } | null {
+    const id = highlightedId();
+    if (id === null) return null;
+    const cols = columnEntries();
+    for (let c = 0; c < cols.length; c++) {
+      const col = cols[c];
+      if (!col) continue;
+      const row = col.findIndex((e) => e.id === id);
+      if (row >= 0) return { col: c, row };
+    }
+    return null;
+  }
+
+  const selectedEntry = createMemo<DockEntry | null>(() => {
+    const id = highlightedId();
+    if (id === null) return null;
+    for (const col of columnEntries()) {
+      const entry = col.find((e) => e.id === id);
+      if (entry) return entry;
     }
     return null;
   });
 
   // Reset selection when the visible set changes. Track the id list
-  // so metadata-only updates don't perturb the cursor.
+  // so metadata-only updates don't perturb the cursor. If the
+  // highlighted id is gone (or unset), fall back to the first
+  // available entry across all columns.
   createEffect(
     on(
       () =>
@@ -114,38 +135,34 @@ const WorkspaceGrid: Component<{
           .flat()
           .map((e) => e.id),
       () => {
-        const firstFilled = columnEntries().findIndex((c) => c.length > 0);
-        if (firstFilled >= 0) {
-          setSelectedColumn(firstFilled);
-          setSelectedRow(0);
-        }
+        if (locateHighlight() === null) setHighlightedId(firstAvailableId());
       },
     ),
   );
 
   function stepRow(delta: 1 | -1) {
-    const cols = columnEntries();
-    const col = cols[selectedColumn()];
-    if (!col || col.length === 0) return;
-    setSelectedRow((r) => {
-      const next = r + delta;
-      if (next < 0) return 0;
-      if (next >= col.length) return col.length - 1;
-      return next;
-    });
+    const pos = locateHighlight();
+    if (!pos) return;
+    const col = columnEntries()[pos.col];
+    if (!col) return;
+    const nextRow = Math.max(0, Math.min(col.length - 1, pos.row + delta));
+    const target = col[nextRow];
+    if (target) setHighlightedId(target.id);
   }
 
   function stepColumn(delta: 1 | -1) {
+    const pos = locateHighlight();
+    if (!pos) return;
     const cols = columnEntries();
-    let i = selectedColumn() + delta;
-    while (i >= 0 && i < cols.length) {
-      const next = cols[i];
+    let c = pos.col + delta;
+    while (c >= 0 && c < cols.length) {
+      const next = cols[c];
       if (next && next.length > 0) {
-        setSelectedColumn(i);
-        setSelectedRow((r) => Math.min(r, next.length - 1));
+        const target = next[Math.min(pos.row, next.length - 1)];
+        if (target) setHighlightedId(target.id);
         return;
       }
-      i += delta;
+      c += delta;
     }
     // No non-empty column in that direction — leave the cursor where
     // it is rather than wrapping (wrap would teleport the user across
