@@ -29,8 +29,9 @@ import { koluShellDir } from "./koluRoot.ts";
  * Exported so callers can pass it as the default whitelist value.
  *
  * Kolu's own identity vars (TERM_PROGRAM, TERM_PROGRAM_VERSION,
- * VTE_VERSION) live in `koluEnv()` and are layered on top of cleanEnv's
- * output by spawnPty — they don't belong in the parent-forward whitelist.
+ * VTE_VERSION) live in `koluIdentityEnv()` and are layered on top of
+ * cleanEnv's output by spawnPty — they don't belong in the parent-forward
+ * whitelist.
  */
 export const NIX_ENV_WHITELIST =
   "HOME,USER,PATH,TERM,LANG,LC_ALL,LOGNAME,DISPLAY,COLORTERM";
@@ -97,8 +98,12 @@ export function cleanEnv(): Record<string, string> {
  *
  * Separate function because the volatility axis is different: cleanEnv
  * decides what parent vars are safe to forward (driven by Nix devshell
- * pollution, OS conventions); koluEnv decides what Kolu asserts about
- * itself (driven by rebrand, version bumps, future capability vars).
+ * pollution, OS conventions); koluIdentityEnv decides what Kolu asserts
+ * about itself (driven by rebrand, version bumps, future capability vars).
+ *
+ * Distinct from the Nix `koluEnv` attribute in `nix/env.nix`, which holds
+ * build-time vars (KOLU_FONTS_DIR, KOLU_GH_BIN). Different namespace,
+ * different volatility axis — name shouldn't conflate them.
  *
  * `TERM_PROGRAM` follows the convention shared by VSCode, iTerm2,
  * Ghostty, WezTerm — set by the terminal emulator/host so tools like
@@ -111,7 +116,7 @@ export function cleanEnv(): Record<string, string> {
  * Per-PTY identity vars (anything that depends on terminalId) belong in
  * `SpawnInit.env` returned by `prepareShellInit`, not here.
  */
-export function koluEnv(version: string): Record<string, string> {
+export function koluIdentityEnv(version: string): Record<string, string> {
   return {
     TERM_PROGRAM: "kolu",
     TERM_PROGRAM_VERSION: version,

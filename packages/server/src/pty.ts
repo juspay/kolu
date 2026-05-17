@@ -15,7 +15,7 @@ import {
 import * as pty from "node-pty";
 import pkg from "../package.json" with { type: "json" };
 import type { Logger } from "./log.ts";
-import { cleanEnv, koluEnv, prepareShellInit } from "./shell.ts";
+import { cleanEnv, koluIdentityEnv, prepareShellInit } from "./shell.ts";
 
 // @xterm packages ship CJS only — use createRequire for clean ESM interop
 const require = createRequire(import.meta.url);
@@ -87,15 +87,16 @@ export function spawnPty(
   spawnCwd?: string,
 ): PtyHandle {
   // Env layering, ordered from least to most authoritative:
-  //   1. cleanEnv()      — parent env passthrough (Nix devshell filtering).
-  //   2. koluEnv()       — Kolu's identity (TERM_PROGRAM, version, VTE_VERSION);
-  //                        unconditionally stomps whatever the parent had.
-  //   3. shellInit.env   — per-PTY overrides (e.g. ZDOTDIR for zsh).
+  //   1. cleanEnv()         — parent env passthrough (Nix devshell filtering).
+  //   2. koluIdentityEnv()  — Kolu's identity (TERM_PROGRAM, version,
+  //                           VTE_VERSION); unconditionally stomps whatever
+  //                           the parent had.
+  //   3. shellInit.env      — per-PTY overrides (e.g. ZDOTDIR for zsh).
   const env = cleanEnv();
   const shell = env.SHELL ?? "/bin/sh";
   const cwd = spawnCwd || env.HOME || "/";
 
-  Object.assign(env, koluEnv(pkg.version));
+  Object.assign(env, koluIdentityEnv(pkg.version));
 
   const shellInit = prepareShellInit({
     shell,

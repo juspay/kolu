@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
-  koluEnv,
+  koluIdentityEnv,
   OSC2_PRECMD_BASH,
   OSC2_PRECMD_ZSH,
   OSC2_PREEXEC_BASH_GUARD,
@@ -36,9 +36,9 @@ function runZsh(script: string, cwd = "/tmp"): string | null {
   }
 }
 
-describe("koluEnv", () => {
+describe("koluIdentityEnv", () => {
   it("returns Kolu's identity vars: TERM_PROGRAM, TERM_PROGRAM_VERSION, VTE_VERSION", () => {
-    const env = koluEnv("9.9.9");
+    const env = koluIdentityEnv("9.9.9");
     expect(env).toEqual({
       TERM_PROGRAM: "kolu",
       TERM_PROGRAM_VERSION: "9.9.9",
