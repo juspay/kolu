@@ -40,7 +40,7 @@ function score(
   for (let i = 0; i < pe.length; i++) {
     const h = occurrence - 1 - i;
     const e = pe.length - 1 - i;
-    if (h < 0 || e < 0) break;
+    if (h < 0) break;
     if (haystack[h] !== pe[e]) break;
     prefixMatch++;
   }
