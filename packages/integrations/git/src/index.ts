@@ -38,7 +38,6 @@ export { getDiff, getStatus, parseNameStatus } from "./review.ts";
 export { resolveUnder } from "./safe-path.ts";
 // Schemas
 export {
-  buildIframePreviewUrl,
   FsListAllInputSchema,
   type FsListAllOutput,
   FsListAllOutputSchema,

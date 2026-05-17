@@ -18,6 +18,29 @@ import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { resolveUnder } from "kolu-git";
 
+/** Base URL for the iframe-preview file route. Used by both
+ *  `buildIframePreviewUrl` (server emits URLs in this shape) and the Hono
+ *  route registration in `index.ts` (matches incoming requests against the
+ *  same shape). One constant → renames touch one place. */
+export const TERMINAL_FILE_ROUTE_BASE = "/api/terminals";
+
+/** Path suffix relative to `TERMINAL_FILE_ROUTE_BASE` for per-terminal file
+ *  serving. Concatenated as `${BASE}/${terminalId}/file/${path}`. */
+export const TERMINAL_FILE_ROUTE_FILE_SEGMENT = "file";
+
+/** Canonical URL shape for the iframe-served file route, used in
+ *  `FsReadFileOutput.kind === "binary"` and matched by the Hono route in
+ *  `index.ts`. `mtimeMs` is rounded down so a stable file always produces
+ *  the same URL (browser caches the iframe content per URL). */
+export function buildIframePreviewUrl(
+  terminalId: string,
+  filePath: string,
+  mtimeMs: number,
+): string {
+  const encodedPath = filePath.split("/").map(encodeURIComponent).join("/");
+  return `${TERMINAL_FILE_ROUTE_BASE}/${terminalId}/${TERMINAL_FILE_ROUTE_FILE_SEGMENT}/${encodedPath}?v=${Math.floor(mtimeMs)}`;
+}
+
 /** Extensions whose contents the browser renders natively in an iframe.
  *  Lives here (next to `CONTENT_TYPES`) because both lists are facets of
  *  the same iframe-rendering decision — adding a new previewable extension

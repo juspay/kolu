@@ -184,20 +184,6 @@ export const FsReadFileOutputSchema = z.discriminatedUnion("kind", [
 ]);
 export type FsReadFileOutput = z.infer<typeof FsReadFileOutputSchema>;
 
-/** Canonical URL shape for the iframe-served file route, used in
- *  `FsReadFileOutput.kind === "binary"` and matched by a Hono route in the
- *  server's `index.ts`. Single source of truth so the two sides can't drift.
- *  `mtimeMs` is rounded down so a stable file always produces the same URL
- *  (browser caches the iframe content per URL). */
-export function buildIframePreviewUrl(
-  terminalId: string,
-  filePath: string,
-  mtimeMs: number,
-): string {
-  const encodedPath = filePath.split("/").map(encodeURIComponent).join("/");
-  return `/api/terminals/${terminalId}/file/${encodedPath}?v=${Math.floor(mtimeMs)}`;
-}
-
 // --- Derived types ---
 
 export type GitInfo = z.infer<typeof GitInfoSchema>;
