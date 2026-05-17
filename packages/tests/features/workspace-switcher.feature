@@ -97,6 +97,36 @@ Feature: Workspace switcher (unified palette navigator)
     Then the active terminal should show "first-workspace-card"
     And there should be no page errors
 
+  Scenario: Arrow keys move the keyboard cursor between workspace cards
+    # Two plain-shell terminals stack in the "No agent" column; the
+    # cursor lands on card 1 by default and ArrowDown steps to card 2.
+    Given I create a terminal
+    When I hover the workspace switcher
+    Then the workspace switcher panel should be visible
+    And the workspace switcher should show 2 cards
+    And workspace switcher card 1 should be highlighted
+    When I press ArrowDown
+    Then workspace switcher card 2 should be highlighted
+    And exactly one workspace switcher card should be highlighted
+    When I press ArrowUp
+    Then workspace switcher card 1 should be highlighted
+    And there should be no page errors
+
+  Scenario: Enter on the keyboard-highlighted workspace activates it
+    # The cursor lands on card 1 by default; Enter without prior arrow
+    # navigation activates that card. Mirrors the click-card-1 path of
+    # "Selecting a workspace card switches the active terminal" but
+    # via Enter so we exercise the body's Enter handler explicitly.
+    Given I run "echo selected-via-enter"
+    And I create a terminal
+    When I hover the workspace switcher
+    Then the workspace switcher panel should be visible
+    And workspace switcher card 1 should be highlighted
+    When I press Enter
+    Then the workspace switcher panel should not be visible
+    And the active terminal should show "selected-via-enter"
+    And there should be no page errors
+
   Scenario: Workspace columns enumerate every agent state bucket
     # The Idle column lives between Working and No agent and surfaces the
     # parked-by-inactivity entries the minimap window picker dims. Even on

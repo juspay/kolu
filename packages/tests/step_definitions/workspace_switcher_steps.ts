@@ -298,3 +298,33 @@ When(
     await this.waitForFrame();
   },
 );
+
+Then(
+  "workspace switcher card {int} should be highlighted",
+  async function (this: KoluWorld, position: number) {
+    const card = this.page.locator(CARD_SELECTOR).nth(position - 1);
+    await card.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await this.page.waitForFunction(
+      ({ selector, idx }) =>
+        document
+          .querySelectorAll(selector)
+          [idx]?.getAttribute("data-highlighted") === "",
+      { selector: CARD_SELECTOR, idx: position - 1 },
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+Then(
+  "exactly one workspace switcher card should be highlighted",
+  async function (this: KoluWorld) {
+    await this.page.waitForFunction(
+      (selector) =>
+        Array.from(document.querySelectorAll(selector)).filter(
+          (el) => el.getAttribute("data-highlighted") === "",
+        ).length === 1,
+      CARD_SELECTOR,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
