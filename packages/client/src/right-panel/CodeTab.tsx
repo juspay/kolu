@@ -29,6 +29,9 @@ import {
   Switch,
 } from "solid-js";
 import { toast } from "solid-sonner";
+import { CommentComposer } from "../comments/CommentComposer";
+import { CommentsTray } from "../comments/CommentsTray";
+import { CommentTextSurface } from "../comments/CommentTextSurface";
 import { useColorScheme } from "../settings/useColorScheme";
 import { app } from "../wire";
 import { FileBrowseIcon, FileDiffIcon, GitBranchIcon } from "../ui/Icons";
@@ -601,48 +604,68 @@ const CodeTab: Component<{
                         )}
                       </Match>
                       <Match when={diff()}>
-                        {(d) => (
-                          <CodeMenuFrame
-                            path={path}
-                            onOpen={(ref) => {
-                              // Diff paths are repo-relative; cwd is irrelevant.
-                              const repo = repoPath();
-                              if (repo === null) return;
-                              openInCodeTab({
-                                ref,
-                                repoRoot: repo,
-                                targetMode: "browse",
-                              });
-                            }}
-                          >
-                            {(selection) => (
-                              // `<Virtualizer>` is the scroll container —
-                              // `<FileDiff>` consumes its context and
-                              // upgrades to Pierre's `VirtualizedFileDiff`,
-                              // windowing huge diffs (50k-line lockfile,
-                              // #809 / #514 Phase 8). Without this wrapper
-                              // `<FileDiff>` falls back to the vanilla
-                              // class — same as before.
-                              <Virtualizer
-                                class="h-full w-full overflow-auto"
-                                style={pierreDiffsStyle}
-                              >
-                                <FileDiff
-                                  rawDiff={d().hunks[0] ?? ""}
-                                  theme={diffTheme()}
-                                  enableLineSelection
-                                  onLineSelected={selection.handleSelect}
-                                  onError={(err) =>
-                                    toast.error(
-                                      `Diff render failed: ${err.message}`,
-                                    )
-                                  }
-                                  class="w-full"
-                                />
-                              </Virtualizer>
-                            )}
-                          </CodeMenuFrame>
-                        )}
+                        {(d) => {
+                          const repo = repoPath();
+                          return (
+                            <Show
+                              when={repo}
+                              fallback={
+                                // Diff view requires a repo — the outer
+                                // Show already guards but TS can't narrow
+                                // through the closure capture above.
+                                <div class="px-2 py-1 text-fg-3/50" />
+                              }
+                            >
+                              {(r) => (
+                                <CommentTextSurface
+                                  repoRoot={r()}
+                                  path={path}
+                                  contentTick={d().hunks[0] ?? ""}
+                                  class="h-full w-full"
+                                >
+                                  <CodeMenuFrame
+                                    path={path}
+                                    onOpen={(ref) => {
+                                      openInCodeTab({
+                                        ref,
+                                        repoRoot: r(),
+                                        targetMode: "browse",
+                                      });
+                                    }}
+                                  >
+                                    {(selection) => (
+                                      // `<Virtualizer>` is the scroll
+                                      // container — `<FileDiff>` consumes
+                                      // its context and upgrades to
+                                      // Pierre's `VirtualizedFileDiff`,
+                                      // windowing huge diffs (50k-line
+                                      // lockfile, #809 / #514 Phase 8).
+                                      <Virtualizer
+                                        class="h-full w-full overflow-auto"
+                                        style={pierreDiffsStyle}
+                                      >
+                                        <FileDiff
+                                          rawDiff={d().hunks[0] ?? ""}
+                                          theme={diffTheme()}
+                                          enableLineSelection
+                                          onLineSelected={
+                                            selection.handleSelect
+                                          }
+                                          onError={(err) =>
+                                            toast.error(
+                                              `Diff render failed: ${err.message}`,
+                                            )
+                                          }
+                                          class="w-full"
+                                        />
+                                      </Virtualizer>
+                                    )}
+                                  </CodeMenuFrame>
+                                </CommentTextSurface>
+                              )}
+                            </Show>
+                          );
+                        }}
                       </Match>
                     </Switch>
                   </Match>
@@ -667,6 +690,25 @@ const CodeTab: Component<{
             </Show>
           </Resizable.Panel>
         </Resizable>
+        <Show when={repoPath()}>
+          {(repo) => (
+            <>
+              <CommentsTray
+                repoRoot={repo()}
+                onJumpTo={(comment) => {
+                  // Switch to browse mode and select the file. The
+                  // overlay re-runs `findQuote` on render and the user
+                  // sees the highlighted quote in place. No precise
+                  // scroll-to-quote yet — natural scroll once the file
+                  // mounts; revisit if reviewer feedback flags it.
+                  setView("browse");
+                  setSelectedPath(comment.path);
+                }}
+              />
+              <CommentComposer repoRoot={repo()} />
+            </>
+          )}
+        </Show>
       </div>
     </Show>
   );
