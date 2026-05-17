@@ -361,15 +361,6 @@ const DockRow: Component<{
           data-agent-state={c().meta.agent?.state}
           data-active={active() ? "" : undefined}
           data-unread={unread() ? "" : undefined}
-          classList={{
-            // Overt active treatment: a tinted background wash + a
-            // ring on the row body so the active terminal pops against
-            // the sea of theme-tinted variant rows. The 0.5-px accent
-            // strip on the left edge alone was getting lost against
-            // tile-themed backgrounds (#915 follow-up).
-            "bg-accent/15 ring-2 ring-inset ring-accent shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--color-accent)_60%,transparent)]":
-              active(),
-          }}
         >
           <Show when={unread()}>
             <span
@@ -380,17 +371,24 @@ const DockRow: Component<{
               <span class="relative inline-flex rounded-full h-2 w-2 bg-alert" />
             </span>
           </Show>
-          {/* Active-terminal indicator — a wide accent strip on the
-           *  row's left edge, paired with the row-wide accent tint
-           *  (classList above). The strip stays so screen-readers and
-           *  CSS hooks targeting `dock-row-active-indicator` keep
-           *  working; the tint is what makes the row pop against
-           *  tile-themed backgrounds.*/}
+          {/* Active-terminal indicator — painted as an absolutely-
+           *  positioned overlay rather than a parent ring/tint so the
+           *  AwaitingCardBody's solid `theme().bg` (and the working
+           *  pill's, and the quiet row's) can't cover it. The overlay
+           *  sits at z-30, above the row body's z-0/z-10 content; the
+           *  `pointer-events-none` keeps clicks reaching the variant
+           *  body underneath. The 4-px left strip stays both as the
+           *  legacy testid hook and as an unambiguous "this row is
+           *  the active one" pin against narrow rail mode. */}
           <Show when={active()}>
             <span
               data-testid="dock-row-active-indicator"
               aria-hidden="true"
-              class="absolute left-0 top-0 bottom-0 w-1 bg-accent z-20"
+              class="pointer-events-none absolute inset-0 z-30 ring-2 ring-inset ring-accent"
+            />
+            <span
+              aria-hidden="true"
+              class="pointer-events-none absolute left-0 top-0 bottom-0 w-1 bg-accent z-30"
             />
           </Show>
           <Show when={showShortcutHint()}>
