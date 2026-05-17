@@ -713,16 +713,15 @@ const ActionBar: Component<{
   highlighted: PaletteCommand | PaletteLabel | undefined;
 }> = (props) => {
   function primaryLabel(): string {
-    if (props.mode.kind === "body") {
-      return props.mode.leaf.bodyHint ?? "Pick an item";
-    }
-    if (props.mode.kind === "value") return "Submit";
-    const h = props.highlighted;
-    if (!h) return "";
-    if (isDrillable(h)) {
-      return "Open";
-    }
-    return "Run";
+    return match(props.mode)
+      .with({ kind: "body" }, (m) => m.leaf.bodyHint ?? "Pick an item")
+      .with({ kind: "value" }, () => "Submit")
+      .with({ kind: "filter" }, () => {
+        const h = props.highlighted;
+        if (!h) return "";
+        return isDrillable(h) ? "Open" : "Run";
+      })
+      .exhaustive();
   }
   return (
     <div
