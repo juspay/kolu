@@ -58,7 +58,15 @@ When(
  *  `data-focused`): this variant addresses entries by DOM position and
  *  waits on `data-visible`, which is what scenarios that don't track
  *  created IDs (or want to address pre-existing background terminals)
- *  need. */
+ *  need.
+ *
+ *  Positional order matches terminal-creation order only for plain-shell
+ *  terminals — they all have `lastActivityAt === 0`, tie in
+ *  `rankDockRows()`'s `b.ts - a.ts` sort, and the stable sort then
+ *  preserves the `Map`'s insertion order. Agent-backed terminals carry
+ *  real activity timestamps and may reshuffle the dock, so position-based
+ *  addressing isn't safe for them; reach for the ID-based sibling step
+ *  instead. */
 When(
   "I select workspace switcher entry {int}",
   async function (this: KoluWorld, position: number) {
