@@ -24,7 +24,6 @@ export {
 export {
   bindArtifactSdk,
   pushHighlightsTo,
-  pushPathTo,
   type BindOptions,
 } from "./bridge";
 export type {

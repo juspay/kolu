@@ -88,10 +88,3 @@ export function pushHighlightsTo(
     "*",
   );
 }
-
-export function pushPathTo(iframe: HTMLIFrameElement, path: string): void {
-  iframe.contentWindow?.postMessage(
-    { type: "kolu-artifact-sdk:path", path },
-    "*",
-  );
-}

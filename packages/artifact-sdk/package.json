@@ -7,7 +7,6 @@
   "sideEffects": false,
   "exports": {
     "./types": "./src/types.ts",
-    "./core": "./src/core/index.ts",
     "./client": "./src/client/index.ts",
     "./server": "./src/server/index.ts"
   },

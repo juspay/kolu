@@ -59,5 +59,3 @@ export function mountArtifactSdk(app: Hono, opts: MountOptions): void {
     c.res = new Response(decorated, { status: 200, headers });
   });
 }
-
-export { decorateHtml, getSdkBundle };
