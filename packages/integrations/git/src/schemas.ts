@@ -165,8 +165,8 @@ export const FsReadFileInputSchema = z.object({
 
 /** Discriminated by `kind`. Text files yield their content; iframe-
  *  previewable binaries yield a cache-busted URL the client points
- *  an `<iframe>` at. Server picks the variant per file extension via
- *  `isIframePreviewable` below. */
+ *  an `<iframe>` at. The variant-picker (`isIframePreviewable`) and
+ *  URL builder live server-side in `iframePreviewRoute.ts`. */
 export const FsReadFileOutputSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("text"),

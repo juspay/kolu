@@ -165,9 +165,11 @@ app.get(
   async (c) => {
     const terminalId = c.req.param("terminalId");
     const prefix = `${TERMINAL_FILE_ROUTE_BASE}/${terminalId}/${TERMINAL_FILE_ROUTE_FILE_SEGMENT}/`;
-    // Use the raw decoded path from req.url to keep our own URL-decoding
-    // pipeline (see `resolvePreviewPath`) in charge of segment parsing —
-    // anything Hono pre-decodes here would bypass the guard.
+    // Slice the tail off `c.req.path` (Hono applies `decodeURI` here, so
+    // `%2f` stays encoded) rather than read `c.req.param("*")` (which
+    // applies `decodeURIComponent` — that would decode `%2f` → `/` and
+    // destroy segment boundaries before `resolvePreviewPath`'s split
+    // could see them, letting `foo%2f..%2fpasswd` through the guard).
     const rawTail = c.req.path.startsWith(prefix)
       ? c.req.path.slice(prefix.length)
       : "";
