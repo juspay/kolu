@@ -311,6 +311,21 @@ Feature: Code tab (review + browse)
     Then the file content should contain "hello"
     And the file preview iframe should not be visible
 
+  # ── Tree/content vertical split is draggable ──
+  # The tree pane used to be a fixed `h-[35%]`; it's now a Corvu Resizable
+  # panel keyed off `preferences.rightPanel.codeTabTreeSize`. The handle
+  # presence is the wiring proof — persistence rides on the same
+  # `updatePreferences` infra the horizontal split already covers in
+  # `right-panel.feature`.
+
+  Scenario: Tree/content split has a draggable handle
+    When I run "rm -rf /tmp/kolu-tree-resize && git init /tmp/kolu-tree-resize && cd /tmp/kolu-tree-resize"
+    And I run "printf 'hello\n' > note.txt"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    Then the Code tab tree pane split handle should be visible
+
   Scenario: File browser expands directories lazily
     When I run "git init /tmp/kolu-browse-expand && cd /tmp/kolu-browse-expand"
     And I run "mkdir -p lib && printf 'x\n' > lib/util.ts"

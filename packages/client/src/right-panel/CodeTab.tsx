@@ -13,6 +13,7 @@
  * via `FileTree.searchQuery`. `@kolu/solid-pierre` owns the imperative
  * Pierre lifecycle; this component is just data flow + chrome. */
 
+import Resizable from "@corvu/resizable";
 import { FileDiff, FileTree, Virtualizer } from "@kolu/solid-pierre";
 import type { GitDiffMode } from "kolu-git/schemas";
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
@@ -447,177 +448,219 @@ const CodeTab: Component<{
           <FileSearchInput value={searchQuery()} onChange={setSearchQuery} />
         </div>
 
-        <div
-          class="shrink-0 h-[35%] min-h-0 border-b border-edge"
-          data-testid="diff-file-list"
+        {/* Vertical split between tree and content. Mirrors the horizontal
+         *  split in `RightPanelLayout` — same `@corvu/resizable` shell,
+         *  vertical orientation. Split fraction persists via
+         *  `rightPanel.codeTabTreeSize` so reload restores the user's layout. */}
+        <Resizable
+          orientation="vertical"
+          sizes={[
+            rightPanel.codeTabTreeSize(),
+            1 - rightPanel.codeTabTreeSize(),
+          ]}
+          onSizesChange={(sizes) => {
+            if (sizes[0] !== undefined) rightPanel.setCodeTabTreeSize(sizes[0]);
+          }}
+          class="flex-1 min-h-0 overflow-hidden"
         >
-          <Switch fallback={<div class="px-2 py-1 text-fg-3/50">Loading…</div>}>
-            <Match when={treeError()}>
-              {(err) => (
-                <div class="px-2 py-1 text-danger" data-testid="diff-error">
-                  Error: {err().message}
-                </div>
-              )}
-            </Match>
-            <Match when={treeReady()}>
-              <Show
-                when={treePaths().length > 0}
-                fallback={
-                  <div
-                    class="px-2 py-4 text-fg-3/50 text-center"
-                    data-testid="diff-empty"
-                  >
-                    {(() => {
-                      const m = diffMode();
-                      return m ? EMPTY_STATE[m] : "Empty repository";
-                    })()}
-                  </div>
-                }
-              >
-                <FileTree
-                  paths={treeSearch().projectedPaths}
-                  gitStatus={treeGitStatus()}
-                  selectedPath={selectedPath()}
-                  onSelect={handleSelect}
-                  initialExpansion={isDiffView() ? "open" : "closed"}
-                  search={false}
-                  expandPaths={treeSearch().expandedAncestors}
-                  icons={pierreIconConfig}
-                  contextMenu={{
-                    enabled: true,
-                    triggerMode: "both",
-                    render: renderTreeContextMenu,
-                  }}
-                  onError={(err) =>
-                    toast.error(`File tree render failed: ${err.message}`)
-                  }
-                  class="h-full w-full"
-                  style={pierreTreesStyle}
-                />
-              </Show>
-            </Match>
-          </Switch>
-        </div>
-
-        <div class="flex-1 min-h-0 overflow-auto" data-testid="diff-content">
-          <Show
-            when={selectedPath()}
-            keyed
-            fallback={
-              <FileSelectHint
-                label={
-                  isDiffView()
-                    ? "Select a file to view its diff"
-                    : "Select a file to view its content"
-                }
-              />
-            }
+          <Resizable.Panel
+            as="div"
+            data-testid="diff-file-list"
+            class="min-h-0 border-b border-edge"
+            minSize={0.1}
           >
-            {(path) => (
-              // `keyed` remounts this subtree whenever the selected file
-              // changes. Pierre's `FileDiff.render(newFileDiff)` reuses
-              // the same instance — its line-selection handlers don't
-              // re-bind to the new gutter elements, so right-clicking on
-              // a line in the second file would yield a "Copy path" menu
-              // with no "Copy path:line" entry. Per-file remount gives
-              // each file a fresh `FileDiff` and a clean
-              // `useLineSelection` range, which is also the right
-              // semantic — line refs don't survive across files.
-              <Switch>
-                <Match when={isDiffView()}>
-                  <Switch
-                    fallback={
-                      <div class="px-2 py-1 text-fg-3/50">Loading diff…</div>
+            <Switch
+              fallback={<div class="px-2 py-1 text-fg-3/50">Loading…</div>}
+            >
+              <Match when={treeError()}>
+                {(err) => (
+                  <div class="px-2 py-1 text-danger" data-testid="diff-error">
+                    Error: {err().message}
+                  </div>
+                )}
+              </Match>
+              <Match when={treeReady()}>
+                <Show
+                  when={treePaths().length > 0}
+                  fallback={
+                    <div
+                      class="px-2 py-4 text-fg-3/50 text-center"
+                      data-testid="diff-empty"
+                    >
+                      {(() => {
+                        const m = diffMode();
+                        return m ? EMPTY_STATE[m] : "Empty repository";
+                      })()}
+                    </div>
+                  }
+                >
+                  <FileTree
+                    paths={treeSearch().projectedPaths}
+                    gitStatus={treeGitStatus()}
+                    selectedPath={selectedPath()}
+                    onSelect={handleSelect}
+                    initialExpansion={isDiffView() ? "open" : "closed"}
+                    search={false}
+                    expandPaths={treeSearch().expandedAncestors}
+                    icons={pierreIconConfig}
+                    contextMenu={{
+                      enabled: true,
+                      triggerMode: "both",
+                      render: renderTreeContextMenu,
+                    }}
+                    onError={(err) =>
+                      toast.error(`File tree render failed: ${err.message}`)
                     }
-                  >
-                    <Match when={diff.error()}>
-                      {(err) => (
-                        <div class="px-2 py-1 text-danger">
-                          Error: {err().message}
-                        </div>
-                      )}
-                    </Match>
-                    <Match when={diff()?.binary && diff()}>
-                      {(d) => (
-                        <BinaryFileHint
-                          fileName={d().newFileName ?? d().oldFileName}
+                    class="h-full w-full"
+                    style={pierreTreesStyle}
+                  />
+                </Show>
+              </Match>
+            </Switch>
+          </Resizable.Panel>
+
+          <Resizable.Handle
+            data-testid="diff-tree-content-handle"
+            aria-label="Resize tree pane"
+            // Disable startIntersection (the handle's left edge): Corvu's
+            // registerHandle keeps a *module-level* handles[] and pairs
+            // handles whose orientations differ and rects touch at the
+            // corner (see @corvu/resizable/dist/index.js:201–222). Without
+            // this opt-out, our left edge equals `RightPanelLayout`'s
+            // outer horizontal handle's right edge → the two are coupled,
+            // and clicks on the outer handle near the file-tree row land
+            // on the inner handle instead. Explicit opt-out keeps the
+            // outer panel-resize handle hit-targetable along its full
+            // height.
+            startIntersection={false}
+            class="shrink-0 h-0 relative before:absolute before:inset-x-0 before:-top-1 before:h-2 before:cursor-row-resize before:hover:bg-accent/30 before:transition-colors"
+          />
+
+          <Resizable.Panel
+            as="div"
+            data-testid="diff-content"
+            class="min-h-0 overflow-auto"
+            minSize={0.1}
+          >
+            <Show
+              when={selectedPath()}
+              keyed
+              fallback={
+                <FileSelectHint
+                  label={
+                    isDiffView()
+                      ? "Select a file to view its diff"
+                      : "Select a file to view its content"
+                  }
+                />
+              }
+            >
+              {(path) => (
+                // `keyed` remounts this subtree whenever the selected file
+                // changes. Pierre's `FileDiff.render(newFileDiff)` reuses
+                // the same instance — its line-selection handlers don't
+                // re-bind to the new gutter elements, so right-clicking on
+                // a line in the second file would yield a "Copy path" menu
+                // with no "Copy path:line" entry. Per-file remount gives
+                // each file a fresh `FileDiff` and a clean
+                // `useLineSelection` range, which is also the right
+                // semantic — line refs don't survive across files.
+                <Switch>
+                  <Match when={isDiffView()}>
+                    <Switch
+                      fallback={
+                        <div class="px-2 py-1 text-fg-3/50">Loading diff…</div>
+                      }
+                    >
+                      <Match when={diff.error()}>
+                        {(err) => (
+                          <div class="px-2 py-1 text-danger">
+                            Error: {err().message}
+                          </div>
+                        )}
+                      </Match>
+                      <Match when={diff()?.binary && diff()}>
+                        {(d) => (
+                          <BinaryFileHint
+                            fileName={d().newFileName ?? d().oldFileName}
+                          />
+                        )}
+                      </Match>
+                      <Match when={renamedDiff()}>
+                        {(rename) => (
+                          <div class="flex items-center justify-center h-full text-fg-3/50">
+                            File renamed: {rename().oldFileName} →{" "}
+                            {rename().newFileName}
+                          </div>
+                        )}
+                      </Match>
+                      <Match when={diff()}>
+                        {(d) => (
+                          <CodeMenuFrame
+                            path={path}
+                            onOpen={(ref) => {
+                              // Diff paths are repo-relative; cwd is irrelevant.
+                              const repo = repoPath();
+                              if (repo === null) return;
+                              openInCodeTab({
+                                ref,
+                                repoRoot: repo,
+                                targetMode: "browse",
+                              });
+                            }}
+                          >
+                            {(selection) => (
+                              // `<Virtualizer>` is the scroll container —
+                              // `<FileDiff>` consumes its context and
+                              // upgrades to Pierre's `VirtualizedFileDiff`,
+                              // windowing huge diffs (50k-line lockfile,
+                              // #809 / #514 Phase 8). Without this wrapper
+                              // `<FileDiff>` falls back to the vanilla
+                              // class — same as before.
+                              <Virtualizer
+                                class="h-full w-full overflow-auto"
+                                style={pierreDiffsStyle}
+                              >
+                                <FileDiff
+                                  rawDiff={d().hunks[0] ?? ""}
+                                  theme={diffTheme()}
+                                  enableLineSelection
+                                  onLineSelected={selection.handleSelect}
+                                  onError={(err) =>
+                                    toast.error(
+                                      `Diff render failed: ${err.message}`,
+                                    )
+                                  }
+                                  class="w-full"
+                                />
+                              </Virtualizer>
+                            )}
+                          </CodeMenuFrame>
+                        )}
+                      </Match>
+                    </Switch>
+                  </Match>
+                  <Match when={!isDiffView()}>
+                    {(() => {
+                      const repo = repoPath();
+                      const tid = props.terminalId;
+                      if (repo === null || tid === null) return null;
+                      return (
+                        <BrowseFileDispatcher
+                          terminalId={tid}
+                          repoPath={repo}
+                          filePath={path}
+                          theme={diffTheme()}
+                          initialSelectedLines={selectedRange()}
                         />
-                      )}
-                    </Match>
-                    <Match when={renamedDiff()}>
-                      {(rename) => (
-                        <div class="flex items-center justify-center h-full text-fg-3/50">
-                          File renamed: {rename().oldFileName} →{" "}
-                          {rename().newFileName}
-                        </div>
-                      )}
-                    </Match>
-                    <Match when={diff()}>
-                      {(d) => (
-                        <CodeMenuFrame
-                          path={path}
-                          onOpen={(ref) => {
-                            // Diff paths are repo-relative; cwd is irrelevant.
-                            const repo = repoPath();
-                            if (repo === null) return;
-                            openInCodeTab({
-                              ref,
-                              repoRoot: repo,
-                              targetMode: "browse",
-                            });
-                          }}
-                        >
-                          {(selection) => (
-                            // `<Virtualizer>` is the scroll container —
-                            // `<FileDiff>` consumes its context and
-                            // upgrades to Pierre's `VirtualizedFileDiff`,
-                            // windowing huge diffs (50k-line lockfile,
-                            // #809 / #514 Phase 8). Without this wrapper
-                            // `<FileDiff>` falls back to the vanilla
-                            // class — same as before.
-                            <Virtualizer
-                              class="h-full w-full overflow-auto"
-                              style={pierreDiffsStyle}
-                            >
-                              <FileDiff
-                                rawDiff={d().hunks[0] ?? ""}
-                                theme={diffTheme()}
-                                enableLineSelection
-                                onLineSelected={selection.handleSelect}
-                                onError={(err) =>
-                                  toast.error(
-                                    `Diff render failed: ${err.message}`,
-                                  )
-                                }
-                                class="w-full"
-                              />
-                            </Virtualizer>
-                          )}
-                        </CodeMenuFrame>
-                      )}
-                    </Match>
-                  </Switch>
-                </Match>
-                <Match when={!isDiffView()}>
-                  {(() => {
-                    const repo = repoPath();
-                    const tid = props.terminalId;
-                    if (repo === null || tid === null) return null;
-                    return (
-                      <BrowseFileDispatcher
-                        terminalId={tid}
-                        repoPath={repo}
-                        filePath={path}
-                        theme={diffTheme()}
-                        initialSelectedLines={selectedRange()}
-                      />
-                    );
-                  })()}
-                </Match>
-              </Switch>
-            )}
-          </Show>
-        </div>
+                      );
+                    })()}
+                  </Match>
+                </Switch>
+              )}
+            </Show>
+          </Resizable.Panel>
+        </Resizable>
       </div>
     </Show>
   );

@@ -11,6 +11,11 @@ import {
 import { preferences, updatePreferences } from "../wire";
 
 const MIN_PANEL_SIZE = 0.05;
+/** Lower bound for the Code-tab vertical split — keep the tree and content
+ *  panes from collapsing to invisible via drag. Mirrors `MIN_PANEL_SIZE`'s
+ *  role for the horizontal split. */
+const MIN_TREE_SIZE = 0.1;
+const MAX_TREE_SIZE = 0.9;
 
 export function useRightPanel() {
   const rp = () => preferences().rightPanel;
@@ -71,6 +76,14 @@ export function useRightPanel() {
     expandPanel: () => updatePreferences({ rightPanel: { collapsed: false } }),
     setPanelSize: (size: number) => {
       if (size > MIN_PANEL_SIZE) updatePreferences({ rightPanel: { size } });
+    },
+    /** Vertical split fraction inside the Code tab — tree pane occupies
+     *  this share, content pane gets the rest. Persisted across reload. */
+    codeTabTreeSize: () => rp().codeTabTreeSize,
+    setCodeTabTreeSize: (size: number) => {
+      if (size >= MIN_TREE_SIZE && size <= MAX_TREE_SIZE) {
+        updatePreferences({ rightPanel: { codeTabTreeSize: size } });
+      }
     },
   } as const;
 }

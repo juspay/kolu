@@ -301,6 +301,10 @@ export const RightPanelPrefsSchema = z.object({
   size: z.number(),
   activeTab: RightPanelTabKindSchema,
   codeMode: CodeTabViewSchema,
+  /** Vertical split fraction (0–1) inside the Code tab: tree pane occupies
+   *  this share, content pane gets the rest. Persisted so layout survives
+   *  reload, mirroring the horizontal `size` field's behavior. */
+  codeTabTreeSize: z.number(),
 });
 
 export const PreferencesSchema = z.object({
@@ -395,6 +399,7 @@ export const DEFAULT_PREFERENCES: z.infer<typeof PreferencesSchema> = {
     size: 0.25,
     activeTab: "inspector",
     codeMode: "local",
+    codeTabTreeSize: 0.35,
   },
 };
 
