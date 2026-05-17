@@ -205,8 +205,6 @@ const CommandPalette: Component<{
     if (last.kind === "body-group") return [];
     let level: PaletteItem[] = props.commands();
     for (const segment of p) {
-      // Body group can only be the last segment, already returned above.
-      if (segment.kind === "body-group") return [];
       const match = level.find(
         (item): item is PaletteGroup | PaletteValueInput =>
           (item.kind === "group" || item.kind === "value") &&
