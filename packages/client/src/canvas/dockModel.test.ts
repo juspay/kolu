@@ -8,7 +8,6 @@ import {
   agentBucket,
   buildDockModel,
   type DockSourceEntry,
-  searchWorkspaceEntries,
   sortDockEntriesByRecency,
 } from "./dockModel";
 
@@ -343,45 +342,5 @@ describe("buildDockModel", () => {
     expect(
       modelFor(entries, { query: "claude sonnet" }).visibleEntries,
     ).toHaveLength(1);
-  });
-});
-
-describe("searchWorkspaceEntries", () => {
-  const entries: DockSourceEntry[] = [
-    source("t1", {
-      agent: makeAgent({ state: "waiting" }),
-      git: makeGit({ repoName: "kolu", branch: "bug-828" }),
-    }),
-    source("t2", {
-      agent: makeAgent({ state: "tool_use", summary: "Refactor API client" }),
-      git: makeGit({ repoName: "kolu", branch: "api-refactor" }),
-    }),
-    source("t3", {
-      git: makeGit({
-        repoRoot: "/home/user/emanote",
-        repoName: "emanote",
-        branch: "docs",
-        worktreePath: "/home/user/emanote",
-        mainRepoRoot: "/home/user/emanote",
-      }),
-      foreground: { name: "vim", title: "vim README.md" },
-    }),
-  ];
-
-  it("returns every entry in recency order when no query is supplied", () => {
-    const recency: Record<string, number> = { t1: 3, t2: 2, t3: 1 };
-    const result = searchWorkspaceEntries(entries, {
-      getRecency: (id) => recency[id] ?? 0,
-    });
-    expect(result.map((e) => e.id)).toEqual(["t1", "t2", "t3"]);
-  });
-
-  it("filters by AND-token query across the searchText corpus", () => {
-    expect(
-      searchWorkspaceEntries(entries, { query: "kolu api" }).map((e) => e.id),
-    ).toEqual(["t2"]);
-    expect(
-      searchWorkspaceEntries(entries, { query: "vim readme" }).map((e) => e.id),
-    ).toEqual(["t3"]);
   });
 });
