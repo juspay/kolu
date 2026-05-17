@@ -74,11 +74,9 @@ const WorkspaceGrid: Component<{
   const columnEntries = createMemo<DockEntry[][]>(() =>
     model().columns.map((column) => {
       if (column.key === "idle") {
-        const flat: DockEntry[] = [];
-        for (const sub of column.idleSubBuckets) flat.push(...sub.entries);
-        return flat;
+        return column.idleSubBuckets.flatMap((sub) => sub.entries);
       }
-      return [...column.entries];
+      return column.entries;
     }),
   );
   // The keyboard cursor is one logical thing — the id of the
