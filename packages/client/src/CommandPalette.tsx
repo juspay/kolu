@@ -350,6 +350,12 @@ const CommandPalette: Component<{
 
   function handleKeyDown(e: KeyboardEvent) {
     if (!props.open) return;
+    // Body mode (custom group renderer): the body owns its own
+    // selection/activation. The engine still handles Backspace for
+    // drilling out (so the input being empty still pops the path)
+    // and lets Escape fall through to Corvu Dialog. Arrow/Tab/Enter
+    // pass to the body's own listener.
+    if (mode().kind === "body" && e.key !== "Backspace") return;
     const items = filtered();
     const isCtrl = e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey;
     const key = (isCtrl && CTRL_KEY_MAP[e.key]) || e.key;

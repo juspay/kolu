@@ -12,14 +12,17 @@
  *  sidebar's selection bar, the card eyebrow, and the card border —
  *  three echoes of the same truth. */
 
+import { makeEventListener } from "@solid-primitives/event-listener";
 import type { TerminalId } from "kolu-common/surface";
 import {
   type Component,
   For,
   Index,
   Show,
+  createEffect,
   createMemo,
   createSignal,
+  on,
 } from "solid-js";
 import { formatTimeAgo, useIdleClassifier } from "../../terminal/staleness";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
@@ -56,6 +59,92 @@ const WorkspaceGrid: Component<{
   const columnCount = () => Math.max(1, model().columns.length);
   const totalCount = () =>
     model().repoFacets.reduce((sum, facet) => sum + facet.count, 0);
+
+  // Flat keyboard-nav order — DOM order across columns (column-major):
+  // first the Idle column's sub-buckets in age order (4-12h → 48h+),
+  // then Awaiting, Working, None. Matches what the user sees scanning
+  // left-to-right column by column.
+  const flatEntries = createMemo<DockEntry[]>(() => {
+    const flat: DockEntry[] = [];
+    for (const column of model().columns) {
+      if (column.key === "idle") {
+        for (const sub of column.idleSubBuckets) flat.push(...sub.entries);
+      } else {
+        flat.push(...column.entries);
+      }
+    }
+    return flat;
+  });
+  const [selectedIndex, setSelectedIndex] = createSignal(0);
+
+  // Reset selection when the visible set changes (typing narrows the
+  // grid, switching repo facet, the recency-sorted seed shifts). Keep
+  // the cursor stable when only metadata of the same set updates by
+  // tracking the id list rather than the array identity.
+  createEffect(
+    on(
+      () => flatEntries().map((e) => e.id),
+      () => setSelectedIndex(0),
+    ),
+  );
+
+  function step(delta: number) {
+    const total = flatEntries().length;
+    if (total === 0) return;
+    setSelectedIndex((i) => {
+      const next = i + delta;
+      if (next < 0) return 0;
+      if (next >= total) return total - 1;
+      return next;
+    });
+  }
+
+  function activateSelected() {
+    const entry = flatEntries()[selectedIndex()];
+    if (entry) props.onSelect(entry.id);
+  }
+
+  makeEventListener(
+    window,
+    "keydown",
+    (e) => {
+      // Capture phase: this listener registers after the palette
+      // engine's, but the engine bails for nav keys when mode is
+      // `body`. Tab is intentionally NOT handled here — the input
+      // still owns focus, and Tab inside a text input should keep
+      // its default browser behaviour.
+      if (e.key === "ArrowDown" || e.key === "ArrowRight") {
+        step(1);
+      } else if (e.key === "ArrowUp" || e.key === "ArrowLeft") {
+        step(-1);
+      } else if (e.key === "Enter") {
+        if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+        if (flatEntries().length === 0) return;
+        activateSelected();
+      } else {
+        return;
+      }
+      e.preventDefault();
+      e.stopPropagation();
+    },
+    { capture: true },
+  );
+
+  // Scroll the highlighted card into view as the user navigates.
+  // Driven by selectedIndex only — the cards' DOM identity is stable
+  // across query changes (each card has data-terminal-id), and the
+  // ResetSelection effect above already snaps the index back to 0
+  // when the visible set changes.
+  createEffect(() => {
+    const idx = selectedIndex();
+    if (flatEntries().length === 0) return;
+    queueMicrotask(() => {
+      const cards = document.querySelectorAll<HTMLElement>(
+        '[data-testid="workspace-switcher-card"][data-in-grid="palette-body"]',
+      );
+      cards[idx]?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    });
+  });
 
   return (
     <div
@@ -110,7 +199,11 @@ const WorkspaceGrid: Component<{
         >
           <Index each={model().columns}>
             {(column) => (
-              <ColumnView column={column()} onSelect={props.onSelect} />
+              <ColumnView
+                column={column()}
+                onSelect={props.onSelect}
+                highlightedId={flatEntries()[selectedIndex()]?.id}
+              />
             )}
           </Index>
         </div>
@@ -132,6 +225,7 @@ const WorkspaceGrid: Component<{
 const ColumnView: Component<{
   column: DockColumn;
   onSelect: (id: TerminalId) => void;
+  highlightedId: TerminalId | undefined;
 }> = (props) => (
   <div
     data-testid="workspace-switcher-column"
@@ -162,6 +256,7 @@ const ColumnView: Component<{
           entries={props.column.entries}
           empty={props.column.empty}
           onSelect={props.onSelect}
+          highlightedId={props.highlightedId}
         />
       }
     >
@@ -187,6 +282,7 @@ const ColumnView: Component<{
                   empty="empty"
                   onSelect={props.onSelect}
                   compactEmpty
+                  highlightedId={props.highlightedId}
                 />
               </div>
             )}
@@ -202,6 +298,7 @@ const EntryList: Component<{
   empty: string;
   compactEmpty?: boolean;
   onSelect: (id: TerminalId) => void;
+  highlightedId: TerminalId | undefined;
 }> = (props) => {
   const store = useTerminalStore();
   const tileTheme = useTileTheme();
@@ -226,6 +323,7 @@ const EntryList: Component<{
             <WorkspaceCard
               entry={entry()}
               active={store.activeId() === entry().id}
+              highlighted={props.highlightedId === entry().id}
               unread={store.isUnread(entry().id)}
               tileBg={tileTheme(entry().id).bg}
               tileFg={tileTheme(entry().id).fg}
@@ -284,6 +382,11 @@ const RepoFacetButton: Component<{
 const WorkspaceCard: Component<{
   entry: DockEntry;
   active: boolean;
+  /** Keyboard cursor — true when this card is the current arrow-key
+   *  selection inside the palette body. Painted as a 2-px accent ring
+   *  so it overrides the dim idle border and stays distinct from
+   *  `active` (which uses the repo-color left rail). */
+  highlighted: boolean;
   unread: boolean;
   tileBg: string;
   tileFg: string;
@@ -300,17 +403,21 @@ const WorkspaceCard: Component<{
     <button
       type="button"
       data-testid="workspace-switcher-card"
+      data-in-grid="palette-body"
       data-terminal-id={props.entry.id}
       data-repo-name={props.entry.repoName}
       data-agent-bucket={props.entry.bucket}
       data-active={props.active ? "" : undefined}
+      data-highlighted={props.highlighted ? "" : undefined}
       class={`relative rounded-lg border p-2.5 text-left cursor-pointer transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 ${props.active || idle() ? "" : bucketInfo().borderClass}`}
       classList={{
+        "ring-2 ring-accent ring-offset-1 ring-offset-surface-1":
+          props.highlighted,
         "border-edge-bright/70 bg-surface-0/60 shadow-[0_0_0_1px_color-mix(in_oklch,var(--card-color)_22%,transparent)]":
           props.active,
         "border-edge/60 bg-surface-0/60 hover:bg-surface-2/70 hover:border-edge-bright/70":
           !props.active,
-        "opacity-60": idle() && !props.active,
+        "opacity-60": idle() && !props.active && !props.highlighted,
       }}
       style={{
         "--card-color": props.entry.info.repoColor,

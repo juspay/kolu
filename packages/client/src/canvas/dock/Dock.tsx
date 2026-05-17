@@ -361,6 +361,15 @@ const DockRow: Component<{
           data-agent-state={c().meta.agent?.state}
           data-active={active() ? "" : undefined}
           data-unread={unread() ? "" : undefined}
+          classList={{
+            // Overt active treatment: a tinted background wash + a
+            // ring on the row body so the active terminal pops against
+            // the sea of theme-tinted variant rows. The 0.5-px accent
+            // strip on the left edge alone was getting lost against
+            // tile-themed backgrounds (#915 follow-up).
+            "bg-accent/15 ring-2 ring-inset ring-accent shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--color-accent)_60%,transparent)]":
+              active(),
+          }}
         >
           <Show when={unread()}>
             <span
@@ -371,16 +380,17 @@ const DockRow: Component<{
               <span class="relative inline-flex rounded-full h-2 w-2 bg-alert" />
             </span>
           </Show>
-          {/* Active-terminal indicator — a 2px accent strip pinned to the
-           *  row's left edge, visible in both rail and cards modes. The
-           *  strip sits *outside* the per-row body theming (which has its
-           *  own background-color), so it reads as "this is the active
-           *  terminal" against any tile theme. */}
+          {/* Active-terminal indicator — a wide accent strip on the
+           *  row's left edge, paired with the row-wide accent tint
+           *  (classList above). The strip stays so screen-readers and
+           *  CSS hooks targeting `dock-row-active-indicator` keep
+           *  working; the tint is what makes the row pop against
+           *  tile-themed backgrounds.*/}
           <Show when={active()}>
             <span
               data-testid="dock-row-active-indicator"
               aria-hidden="true"
-              class="absolute left-0 top-0 bottom-0 w-0.5 bg-accent z-20"
+              class="absolute left-0 top-0 bottom-0 w-1 bg-accent z-20"
             />
           </Show>
           <Show when={showShortcutHint()}>
