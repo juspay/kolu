@@ -111,7 +111,8 @@ export function cleanEnv(): Record<string, string> {
  *
  * `VTE_VERSION` is a compatibility shim some tools (e.g. direnv) check
  * for VTE-style integration; it sits here, not in cleanEnv, because it's
- * the same shape as the identity assertions.
+ * the same shape as the identity assertions. The value `7603` encodes VTE
+ * 0.76.3 using VTE's scheme: major×10000 + minor×100 + micro.
  *
  * Per-PTY identity vars (anything that depends on terminalId) belong in
  * `SpawnInit.env` returned by `prepareShellInit`, not here.
