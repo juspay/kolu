@@ -60,16 +60,21 @@ export interface PaletteGroup extends PaletteBase {
   kind: "group";
   /** Static array or accessor for dynamic lists. */
   children: PaletteItem[] | (() => PaletteItem[]);
-  /** Optional custom body — when present, replaces the default
-   *  filtered-list rendering after drill-in. The group still owns
-   *  search-input behaviour (palette forwards the typed query) and
-   *  the breadcrumb / bottom action bar, but the body decides how to
-   *  paint its rows. Use this for grids that don't fit a single
-   *  column of items (e.g. agent-state columns + facet sidebar). */
-  body?: Component<{ query: string; closePalette: () => void }>;
-  /** Hint string shown in the bottom action bar when the body is
-   *  active — describes what clicking inside the body does (e.g.
-   *  "Click a workspace to switch"). Ignored when no body is set. */
+}
+
+/** A drill-in group that renders a custom body component instead of a
+ *  filtered list. Body groups are leaves — they cannot host nested
+ *  groups, and the engine never resolves children for them. The palette
+ *  still owns the search input (the body reads `query` as a prop) and
+ *  the breadcrumb / bottom action bar; the body decides how to paint
+ *  its rows. Use this for grids that don't fit a single column of
+ *  items (e.g. agent-state columns + facet sidebar). */
+export interface PaletteBodyGroup extends PaletteBase {
+  kind: "body-group";
+  body: Component<{ query: string; closePalette: () => void }>;
+  /** Hint string shown in the bottom action bar when drilled in —
+   *  describes what clicking inside the body does (e.g. "Pick a
+   *  workspace to switch"). */
   bodyHint?: string;
 }
 
@@ -113,21 +118,30 @@ export interface PaletteHint {
   text: string;
 }
 
-/** Top-level commands — action, group, or value-input. Labels are not
- *  permitted at the top level; they appear only as `PaletteValueInput`
- *  children. */
-export type PaletteCommand = PaletteAction | PaletteGroup | PaletteValueInput;
+/** Top-level commands — action, group, body-group, or value-input.
+ *  Labels are not permitted at the top level; they appear only as
+ *  `PaletteValueInput` children. */
+export type PaletteCommand =
+  | PaletteAction
+  | PaletteGroup
+  | PaletteBodyGroup
+  | PaletteValueInput;
 
 /** Anything renderable at a palette level. */
 export type PaletteItem = PaletteCommand | PaletteLabel | PaletteHint;
 
-function isGroup(item: PaletteItem): item is PaletteGroup | PaletteValueInput {
-  return item.kind === "group" || item.kind === "value";
+/** Any drillable kind — group with children, body group, or value input. */
+type DrillableKind = PaletteGroup | PaletteValueInput | PaletteBodyGroup;
+
+function isDrillable(item: PaletteItem): item is DrillableKind {
+  return (
+    item.kind === "group" || item.kind === "value" || item.kind === "body-group"
+  );
 }
 
-/** Resolve children, handling both static arrays and accessors.
- *  `PaletteValueChild` is a subset of `PaletteItem`, so a value-group's
- *  children fit the wider return type. */
+/** Resolve children, handling both static arrays and accessors. Body
+ *  groups have no children, so they are excluded from the input type —
+ *  callers narrow first. */
 function resolveChildren(cmd: PaletteGroup | PaletteValueInput): PaletteItem[] {
   return typeof cmd.children === "function" ? cmd.children() : cmd.children;
 }
@@ -154,9 +168,7 @@ const CommandPalette: Component<{
   const [selectedIndex, setSelectedIndex] = createSignal(0);
   // Ignore mouseEnter until a real mouse move after opening (prevents cursor-under-palette hijack).
   const [mouseActive, setMouseActive] = createSignal(false);
-  const [path, setPath] = createSignal<(PaletteGroup | PaletteValueInput)[]>(
-    [],
-  );
+  const [path, setPath] = createSignal<DrillableKind[]>([]);
 
   /** Items at the current navigation level (may include hints).
    *
@@ -177,11 +189,16 @@ const CommandPalette: Component<{
     const p = path();
     const last = p.at(-1);
     if (last === undefined) return props.commands();
+    // Body groups are leaves — the body owns rendering, no children.
+    if (last.kind === "body-group") return [];
     let level: PaletteItem[] = props.commands();
     for (const segment of p) {
+      // Body group can only be the last segment, already returned above.
+      if (segment.kind === "body-group") return [];
       const match = level.find(
         (item): item is PaletteGroup | PaletteValueInput =>
-          isGroup(item) && item.name === segment.name,
+          (item.kind === "group" || item.kind === "value") &&
+          item.name === segment.name,
       );
       if (!match) return resolveChildren(last);
       level = resolveChildren(match);
@@ -213,19 +230,18 @@ const CommandPalette: Component<{
   type Mode =
     | { kind: "filter" }
     | { kind: "value"; leaf: PaletteValueInput }
-    | { kind: "body"; leaf: PaletteGroup };
+    | { kind: "body"; leaf: PaletteBodyGroup };
 
   const mode = createMemo<Mode>(() => {
     const last = path().at(-1);
     if (last?.kind === "value") return { kind: "value", leaf: last };
-    if (last?.kind === "group" && last.body)
-      return { kind: "body", leaf: last };
+    if (last?.kind === "body-group") return { kind: "body", leaf: last };
     return { kind: "filter" };
   });
 
-  /** The active `PaletteGroup` when in body mode, else `undefined`.
+  /** The active `PaletteBodyGroup` when in body mode, else `undefined`.
    *  Used by the body-render branch in JSX to avoid an inline IIFE. */
-  const bodyGroup = createMemo<PaletteGroup | undefined>(() => {
+  const bodyGroup = createMemo<PaletteBodyGroup | undefined>(() => {
     const m = mode();
     return m.kind === "body" ? m.leaf : undefined;
   });
@@ -278,7 +294,7 @@ const CommandPalette: Component<{
     partitioned().interactive.some((cmd) => cmd.icon),
   );
 
-  function drillInto(cmd: PaletteGroup | PaletteValueInput) {
+  function drillInto(cmd: DrillableKind) {
     setPath((p) => [...p, cmd]);
     if (cmd.kind === "value") {
       setQuery(cmd.prefill());
@@ -329,7 +345,12 @@ const CommandPalette: Component<{
     // .exhaustive() forces a compile error if a future kind is added
     // without an arm here.
     match(cmd)
-      .with({ kind: "group" }, { kind: "value" }, (group) => drillInto(group))
+      .with(
+        { kind: "group" },
+        { kind: "value" },
+        { kind: "body-group" },
+        (group) => drillInto(group),
+      )
       .with({ kind: "action" }, (action) => {
         // Close first so the highlight effect stops tracking filtered(),
         // preventing onSelect's state changes from re-triggering a preview.
@@ -412,8 +433,7 @@ const CommandPalette: Component<{
           const group = props
             .commands()
             .find(
-              (c): c is PaletteGroup | PaletteValueInput =>
-                isGroup(c) && c.name === initial,
+              (c): c is DrillableKind => isDrillable(c) && c.name === initial,
             );
           if (group) drillInto(group);
         }
@@ -630,7 +650,7 @@ const CommandPalette: Component<{
                             );
                           }}
                         </Show>
-                        <Show when={isGroup(cmd)}>
+                        <Show when={isDrillable(cmd)}>
                           <span class="shrink-0 text-xs text-fg-3">→</span>
                         </Show>
                       </div>
@@ -690,7 +710,7 @@ const ActionBar: Component<{
   mode:
     | { kind: "filter" }
     | { kind: "value"; leaf: PaletteValueInput }
-    | { kind: "body"; leaf: PaletteGroup };
+    | { kind: "body"; leaf: PaletteBodyGroup };
   drilled: boolean;
   highlighted: PaletteCommand | PaletteLabel | undefined;
 }> = (props) => {
@@ -701,7 +721,9 @@ const ActionBar: Component<{
     if (props.mode.kind === "value") return "Submit";
     const h = props.highlighted;
     if (!h) return "";
-    if (h.kind === "group" || h.kind === "value") return "Open";
+    if (h.kind === "group" || h.kind === "value" || h.kind === "body-group") {
+      return "Open";
+    }
     return "Run";
   }
   return (

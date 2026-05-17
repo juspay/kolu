@@ -254,13 +254,12 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
     ...(deps.terminalIds().length > 0
       ? [
           {
-            kind: "group" as const,
+            kind: "body-group" as const,
             name: "Search workspaces",
             description: "Switch to a live terminal",
             keybind: ACTIONS.openWorkspaceSwitcher.keybind,
             body: workspacesBody,
             bodyHint: "Pick a workspace to switch",
-            children: [],
           },
         ]
       : []),
