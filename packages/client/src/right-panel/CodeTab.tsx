@@ -27,6 +27,7 @@ import {
   Show,
   Switch,
 } from "solid-js";
+import { createStore, produce } from "solid-js/store";
 import { toast } from "solid-sonner";
 import { useColorScheme } from "../settings/useColorScheme";
 import { app } from "../wire";
@@ -100,25 +101,30 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
   // right slot rather than clearing on transition, and a full browser
   // reload restores whichever slot is current. `::` is collision-safe:
   // `view()` is a typed enum so it can't contain `::`, and `repoPath()`
-  // is an absolute path or null.
+  // is an absolute path or null. `createStore` (not `createSignal`) so
+  // that reads of the active slot are fine-grained — unrelated slot
+  // writes don't re-tick `selectedPath()` consumers (per project rule:
+  // `createStore` over `createSignal<Record>` for keyed state). The
+  // `slotKey` memo doubles as the source of truth for the search-reset
+  // effect below — same value, single derivation.
   const [selectedFilesByKey, setSelectedFilesByKey] = makePersisted(
-    createSignal<Record<string, string>>({}),
+    createStore<Record<string, string>>({}),
     { name: "kolu-codetab-selected-files" },
   );
-  const slotKey = () => `${repoPath() ?? ""}::${view()}`;
+  const slotKey = createMemo(() => `${repoPath() ?? ""}::${view()}`);
   const selectedPath = (): string | null =>
-    selectedFilesByKey()[slotKey()] ?? null;
+    selectedFilesByKey[slotKey()] ?? null;
   const setSelectedPath = (path: string | null) => {
     const key = slotKey();
-    setSelectedFilesByKey((prev) => {
-      if (path === null) {
-        if (!(key in prev)) return prev;
-        const { [key]: _, ...rest } = prev;
-        return rest;
-      }
-      if (prev[key] === path) return prev;
-      return { ...prev, [key]: path };
-    });
+    if (path === null) {
+      setSelectedFilesByKey(
+        produce((s) => {
+          delete s[key];
+        }),
+      );
+    } else {
+      setSelectedFilesByKey(key, path);
+    }
   };
 
   // Filename filter — drives Pierre's tree filter externally. Reset on
@@ -182,24 +188,18 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
     },
   );
 
-  // Clear the filename filter when the repo or view changes — the search
-  // needle was scoped to the previous file set and rarely makes sense
-  // post-switch. Selection itself is per-slot (see `selectedFilesByKey`
+  // Clear the filename filter when the slot changes — the search needle
+  // was scoped to the previous file set and rarely makes sense post-
+  // switch. Selection itself is per-slot (see `selectedFilesByKey`
   // above) so the new view automatically surfaces its own pick without
-  // a clear here.
-  //
-  // The `on()` is paired with a memoized key so it only fires when the
-  // (repoPath, view) tuple actually CHANGES VALUE. Without the memo,
-  // SolidJS' `on(...)` re-runs its callback on every upstream signal tick
-  // — and the upstream `preferences` cell ticks on activity beyond just
-  // tab/repo changes (e.g. unrelated pref updates). The unmemoed accessor
-  // would wipe the filter on every preference tick after #818 made
-  // CodeTab survive across right-panel tab toggles.
-  const resetKey = createMemo(() => `${repoPath() ?? ""}::${view()}`);
-
+  // a clear here. `slotKey` is memoized, so this fires only when the
+  // tuple genuinely changes — without the memo, `on(...)` would re-run
+  // its callback on every preferences tick (the upstream cell ticks on
+  // activity beyond tab/repo changes) and wipe the filter spuriously
+  // after #818 made CodeTab survive right-panel tab toggles.
   createEffect(
     on(
-      resetKey,
+      slotKey,
       () => {
         setSearchQuery("");
       },
