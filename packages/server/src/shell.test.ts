@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  koluIdentityEnv,
   OSC2_PRECMD_BASH,
   OSC2_PRECMD_ZSH,
   OSC2_PREEXEC_BASH_GUARD,
@@ -34,6 +35,28 @@ function runZsh(script: string, cwd = "/tmp"): string | null {
     throw err;
   }
 }
+
+describe("koluIdentityEnv", () => {
+  it("returns Kolu's identity vars: TERM_PROGRAM, TERM_PROGRAM_VERSION, VTE_VERSION", () => {
+    const env = koluIdentityEnv("9.9.9");
+    expect(env).toEqual({
+      TERM_PROGRAM: "kolu",
+      TERM_PROGRAM_VERSION: "9.9.9",
+      VTE_VERSION: "7603",
+    });
+  });
+
+  it("VTE_VERSION stomps a parent value when layered via Object.assign", () => {
+    // Pins the intentional behavior change from `??=` in cleanEnv to
+    // unconditional assignment via koluIdentityEnv: kolu isn't a VTE
+    // terminal, so inheriting a stale parent VTE_VERSION would be a
+    // bigger lie than the hardcoded shim. Guards against a future
+    // refactor that quietly reintroduces inheritance.
+    const layered: Record<string, string> = { VTE_VERSION: "9999" };
+    Object.assign(layered, koluIdentityEnv("9.9.9"));
+    expect(layered.VTE_VERSION).toBe("7603");
+  });
+});
 
 describe("OSC7_FN", () => {
   it("emits OSC 7 with file:// URL containing hostname and cwd", () => {

@@ -27,9 +27,14 @@ import { koluShellDir } from "./koluRoot.ts";
  * Default env vars safe to forward from a nix devshell to PTY shells.
  * Everything else (NIX_*, DIRENV_*, derivation vars) is excluded.
  * Exported so callers can pass it as the default whitelist value.
+ *
+ * Kolu's own identity vars (TERM_PROGRAM, TERM_PROGRAM_VERSION,
+ * VTE_VERSION) live in `koluIdentityEnv()` and are layered on top of
+ * cleanEnv's output by spawnPty — they don't belong in the parent-forward
+ * whitelist.
  */
 export const NIX_ENV_WHITELIST =
-  "HOME,USER,PATH,TERM,LANG,LC_ALL,LOGNAME,DISPLAY,COLORTERM,TERM_PROGRAM";
+  "HOME,USER,PATH,TERM,LANG,LC_ALL,LOGNAME,DISPLAY,COLORTERM";
 
 /** Whitelist set once at startup; undefined means passthrough mode (production). */
 let envWhitelist: Set<string> | undefined;
@@ -85,9 +90,39 @@ export function cleanEnv(): Record<string, string> {
   // Ensure SHELL is set — systemd user services may not have it.
   // Fall back to the login shell from /etc/passwd.
   env.SHELL ??= userInfo().shell || "/bin/sh";
-  // Enable VTE integration in bash/zsh (some tools like direnv check this).
-  env.VTE_VERSION ??= "7603";
   return env;
+}
+
+/**
+ * Kolu's identity env vars, layered over `cleanEnv()` by spawnPty.
+ *
+ * Separate function because the volatility axis is different: cleanEnv
+ * decides what parent vars are safe to forward (driven by Nix devshell
+ * pollution, OS conventions); koluIdentityEnv decides what Kolu asserts
+ * about itself (driven by rebrand, version bumps, future capability vars).
+ *
+ * Distinct from the Nix `koluEnv` attribute in `nix/env.nix`, which holds
+ * build-time vars (KOLU_FONTS_DIR, KOLU_GH_BIN). Different namespace,
+ * different volatility axis — name shouldn't conflate them.
+ *
+ * `TERM_PROGRAM` follows the convention shared by VSCode, iTerm2,
+ * Ghostty, WezTerm — set by the terminal emulator/host so tools like
+ * starship prompts and shell themes can detect their environment.
+ *
+ * `VTE_VERSION` is a compatibility shim some tools (e.g. direnv) check
+ * for VTE-style integration; it sits here, not in cleanEnv, because it's
+ * the same shape as the identity assertions. The value `7603` encodes VTE
+ * 0.76.3 using VTE's scheme: major×10000 + minor×100 + micro.
+ *
+ * Per-PTY identity vars (anything that depends on terminalId) belong in
+ * `SpawnInit.env` returned by `prepareShellInit`, not here.
+ */
+export function koluIdentityEnv(version: string): Record<string, string> {
+  return {
+    TERM_PROGRAM: "kolu",
+    TERM_PROGRAM_VERSION: version,
+    VTE_VERSION: "7603",
+  };
 }
 
 /** Shell function that emits OSC 7 with the current working directory. */
