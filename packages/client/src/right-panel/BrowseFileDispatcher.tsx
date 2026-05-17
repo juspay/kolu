@@ -6,11 +6,11 @@
  *  Loading and error surfaces stay here so the two presenters underneath
  *  remain pure — each handles its own variant of a successful read and
  *  nothing else. The server picks the variant by file extension via
- *  `isIframePreviewable` (see `kolu-git/schemas`). */
+ *  `isIframePreviewable` (see `packages/server/src/iframePreviewRoute.ts`). */
 
 import type { SelectedLineRange } from "@kolu/solid-pierre";
 import type { TerminalId } from "kolu-common/surface";
-import { type Component, Match, Switch } from "solid-js";
+import { type Component, createMemo, Match, Switch } from "solid-js";
 import { toast } from "solid-sonner";
 import { app } from "../wire";
 import BrowseFileView from "./BrowseFileView";
@@ -36,6 +36,17 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
     },
   );
 
+  // Pre-narrow to each variant so the Match arms receive a typed accessor
+  // without needing a runtime re-check inside the callback.
+  const textContent = createMemo(() => {
+    const fc = fileContent();
+    return fc?.kind === "text" ? fc : null;
+  });
+  const binaryContent = createMemo(() => {
+    const fc = fileContent();
+    return fc?.kind === "binary" ? fc : null;
+  });
+
   return (
     <Switch fallback={<div class="px-2 py-1 text-fg-3/50">Loading…</div>}>
       <Match when={fileContent.error()}>
@@ -43,27 +54,19 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
           <div class="px-2 py-1 text-danger">Error: {err().message}</div>
         )}
       </Match>
-      <Match when={fileContent()?.kind === "text" && fileContent()}>
-        {(fc) => {
-          const v = fc();
-          if (v.kind !== "text") return null;
-          return (
-            <BrowseFileView
-              filePath={props.filePath}
-              content={v.content}
-              truncated={v.truncated}
-              theme={props.theme}
-              initialSelectedLines={props.initialSelectedLines}
-            />
-          );
-        }}
+      <Match when={textContent()}>
+        {(fc) => (
+          <BrowseFileView
+            filePath={props.filePath}
+            content={fc().content}
+            truncated={fc().truncated}
+            theme={props.theme}
+            initialSelectedLines={props.initialSelectedLines}
+          />
+        )}
       </Match>
-      <Match when={fileContent()?.kind === "binary" && fileContent()}>
-        {(fc) => {
-          const v = fc();
-          if (v.kind !== "binary") return null;
-          return <BrowsePreviewView filePath={props.filePath} url={v.url} />;
-        }}
+      <Match when={binaryContent()}>
+        {(fc) => <BrowsePreviewView filePath={props.filePath} url={fc().url} />}
       </Match>
     </Switch>
   );
