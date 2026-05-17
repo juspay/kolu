@@ -241,7 +241,7 @@ const WorkspaceGrid: Component<{
 
       <section class="min-w-0 p-4 overflow-hidden">
         <div
-          class="scrollbar-subtle grid gap-4 overflow-y-auto max-h-full pr-1"
+          class="scrollbar-subtle grid gap-4 overflow-y-auto max-h-full px-1.5"
           style={{
             "grid-template-columns": `repeat(${columnCount()}, minmax(0, 1fr))`,
           }}
