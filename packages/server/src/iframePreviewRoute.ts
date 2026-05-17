@@ -18,8 +18,27 @@ import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { resolveUnder } from "kolu-git";
 
+/** Extensions whose contents the browser renders natively in an iframe.
+ *  Lives here (next to `CONTENT_TYPES`) because both lists are facets of
+ *  the same iframe-rendering decision — adding a new previewable extension
+ *  means adding its Content-Type below, and they can no longer drift
+ *  across packages. `.html`/`.htm` are the primary use case (agent-
+ *  generated artifacts); `.svg`/`.pdf` come along for free. */
+export const IFRAME_PREVIEWABLE_EXTENSIONS = [
+  ".html",
+  ".htm",
+  ".svg",
+  ".pdf",
+] as const;
+
+export function isIframePreviewable(filePath: string): boolean {
+  const lower = filePath.toLowerCase();
+  return IFRAME_PREVIEWABLE_EXTENSIONS.some((ext) => lower.endsWith(ext));
+}
+
 const CONTENT_TYPES: Record<string, string> = {
-  // Iframe-previewable kinds (must match IFRAME_PREVIEWABLE_EXTENSIONS).
+  // Iframe-previewable kinds — co-located with
+  // `IFRAME_PREVIEWABLE_EXTENSIONS` above. Drift impossible.
   ".html": "text/html; charset=utf-8",
   ".htm": "text/html; charset=utf-8",
   ".svg": "image/svg+xml",

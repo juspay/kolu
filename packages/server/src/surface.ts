@@ -49,13 +49,13 @@ import {
   getStatus,
   gitDiffOutputEqual,
   gitStatusOutputEqual,
-  isIframePreviewable,
   listAll,
   readFile,
   statFileMtimeMs,
   subscribeFileChange,
   subscribeRepoChange,
 } from "kolu-git";
+import { isIframePreviewable } from "./iframePreviewRoute.ts";
 import { log } from "./log.ts";
 import { publisher } from "./publisher.ts";
 import { cancelPendingAutosave, getSavedSession } from "./session.ts";

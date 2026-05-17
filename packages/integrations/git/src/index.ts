@@ -45,8 +45,6 @@ export {
   FsReadFileInputSchema,
   type FsReadFileOutput,
   FsReadFileOutputSchema,
-  IFRAME_PREVIEWABLE_EXTENSIONS,
-  isIframePreviewable,
   type GitBaseRef,
   GitBaseRefSchema,
   type GitChangedFile,

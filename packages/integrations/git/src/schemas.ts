@@ -184,21 +184,6 @@ export const FsReadFileOutputSchema = z.discriminatedUnion("kind", [
 ]);
 export type FsReadFileOutput = z.infer<typeof FsReadFileOutputSchema>;
 
-/** Extensions whose contents the browser renders natively in an iframe.
- *  `.html` and `.htm` are the primary use case (agent-generated artifacts);
- *  `.svg` and `.pdf` come along for free because every browser handles them. */
-export const IFRAME_PREVIEWABLE_EXTENSIONS = [
-  ".html",
-  ".htm",
-  ".svg",
-  ".pdf",
-] as const;
-
-export function isIframePreviewable(filePath: string): boolean {
-  const lower = filePath.toLowerCase();
-  return IFRAME_PREVIEWABLE_EXTENSIONS.some((ext) => lower.endsWith(ext));
-}
-
 /** Canonical URL shape for the iframe-served file route, used in
  *  `FsReadFileOutput.kind === "binary"` and matched by a Hono route in the
  *  server's `index.ts`. Single source of truth so the two sides can't drift.
