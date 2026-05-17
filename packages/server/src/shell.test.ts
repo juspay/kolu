@@ -45,6 +45,17 @@ describe("koluIdentityEnv", () => {
       VTE_VERSION: "7603",
     });
   });
+
+  it("VTE_VERSION stomps a parent value when layered via Object.assign", () => {
+    // Pins the intentional behavior change from `??=` in cleanEnv to
+    // unconditional assignment via koluIdentityEnv: kolu isn't a VTE
+    // terminal, so inheriting a stale parent VTE_VERSION would be a
+    // bigger lie than the hardcoded shim. Guards against a future
+    // refactor that quietly reintroduces inheritance.
+    const layered: Record<string, string> = { VTE_VERSION: "9999" };
+    Object.assign(layered, koluIdentityEnv("9.9.9"));
+    expect(layered.VTE_VERSION).toBe("7603");
+  });
 });
 
 describe("OSC7_FN", () => {
