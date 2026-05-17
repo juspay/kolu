@@ -165,19 +165,23 @@ depcruise-graph: install
         echo
         echo '## Module-level detail'
         echo
-        echo 'Each section below clusters the internal files of one workspace package by subfolder — `canvas/`, `dock/`, `input/`, etc. each become a single node, with edges aggregated. Top-level files (e.g. `App.tsx`) stay as themselves. Cross-package edges are excluded — those live in the overview above. Packages with no internal edges are omitted.'
+        echo 'Subfolder-level view of each workspace package — one node per `src/<dir>/` subfolder, edges aggregated. Top-level files (e.g. `App.tsx`, `commands.tsx`) are intentionally omitted: with 30+ entry-point files in `client/`, including them turns the graph into spaghetti. To trace a specific top-level file, run `depcruise --focus "^packages/<pkg>/src/<file>"` directly. Packages with no subfolder structure (single-file leaves like `nonempty`) are omitted.'
         for pkg in $pkgs; do
             slug=$(echo "$pkg" | sed 's|^packages/||')
-            # --collapse '^<pkg>/src/[^/]+' folds each subfolder into one
-            # node; top-level files like `App.tsx` stay individual. Without
-            # this the client graph is unreadable spaghetti.
+            # Two-step filter for a clean architecture view:
+            #   --include-only "^<pkg>/src/[^/]+/" — trailing slash means
+            #     "files INSIDE a subdirectory"; drops top-level files
+            #     (App.tsx, wire.ts, …) that clutter the diagram.
+            #   --collapse "^<pkg>/src/[^/]+"  — folds each surviving
+            #     subdirectory into one node.
+            # Net result: a "which subfolder talks to which" overview.
             {{ nix_shell }} ./node_modules/.bin/depcruise-fmt -T mermaid \
-                --include-only "^$pkg/" \
+                --include-only "^$pkg/src/[^/]+/" \
                 --collapse "^$pkg/src/[^/]+" \
                 --exclude "$exclude_tests" \
                 "$tmp/cruise.json" > "$tmp/pkg.mmd"
-            # Skip packages with no internal edges — a single-node graph
-            # is noise (e.g. `nonempty/src/index.ts` standing alone).
+            # Skip packages whose entire `src/` is flat — a single-node
+            # graph (or zero) carries no information.
             lines=$(grep -c -- '-->' "$tmp/pkg.mmd" || true)
             if [ "${lines:-0}" -eq 0 ]; then continue; fi
             echo
