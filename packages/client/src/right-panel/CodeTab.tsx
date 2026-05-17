@@ -16,6 +16,7 @@
 import { FileDiff, FileTree, Virtualizer } from "@kolu/solid-pierre";
 import type { GitDiffMode } from "kolu-git/schemas";
 import type { TerminalMetadata } from "kolu-common/surface";
+import { makePersisted } from "@solid-primitives/storage";
 import {
   type Component,
   createEffect,
@@ -78,7 +79,6 @@ const BinaryFileHint: Component<{ fileName: string | null }> = (props) => (
 const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
   const { themeTypeLiteral: diffTheme } = useColorScheme();
   const rightPanel = useRightPanel();
-  const [selectedPath, setSelectedPath] = createSignal<string | null>(null);
 
   // Read `codeMode` directly rather than projecting it from `activeTab`.
   // CodeTab now stays mounted across the Inspector tab toggle (#818); a
@@ -95,34 +95,56 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
   const diffMode = (): GitDiffMode | undefined =>
     view() === "browse" ? undefined : (view() as GitDiffMode);
 
+  // Selection is keyed per (repoRoot, view) and persisted to localStorage.
+  // Each slot owns its own pick — switching modes / repos surfaces the
+  // right slot rather than clearing on transition, and a full browser
+  // reload restores whichever slot is current. `::` is collision-safe:
+  // `view()` is a typed enum so it can't contain `::`, and `repoPath()`
+  // is an absolute path or null.
+  const [selectedFilesByKey, setSelectedFilesByKey] = makePersisted(
+    createSignal<Record<string, string>>({}),
+    { name: "kolu-codetab-selected-files" },
+  );
+  const slotKey = () => `${repoPath() ?? ""}::${view()}`;
+  const selectedPath = (): string | null =>
+    selectedFilesByKey()[slotKey()] ?? null;
+  const setSelectedPath = (path: string | null) => {
+    const key = slotKey();
+    setSelectedFilesByKey((prev) => {
+      if (path === null) {
+        if (!(key in prev)) return prev;
+        const { [key]: _, ...rest } = prev;
+        return rest;
+      }
+      if (prev[key] === path) return prev;
+      return { ...prev, [key]: path };
+    });
+  };
+
   // Filename filter — drives Pierre's tree filter externally. Reset on
   // mode switch so a stale needle doesn't hide the wrong file set.
   const [searchQuery, setSearchQuery] = createSignal("");
 
-  // ── Selection-stability invariant ──────────────────────────────────
+  // ── Selection-stability invariants ─────────────────────────────────
   // CodeTab survives right-panel tab toggles and panel collapse (#818)
-  // — meaning every reactive surface in this component stays alive
-  // across UI state changes that previously destroyed and rebuilt it.
-  // Three independent sources of `selectedPath = null` would fire
-  // spuriously without explicit guards; each guard defends against a
-  // *different* origin of churn, so they don't collapse into one rule:
+  // — every reactive surface stays alive across UI state changes that
+  // previously destroyed and rebuilt it. Two independent sources of
+  // spurious `selectedPath = null` would fire without explicit guards:
   //
-  //   1. `resetKey` memo (below) — preferences cell ticks on unrelated
-  //      pref updates; raw `on([repoPath, view], …)` would re-fire its
-  //      callback every tick and wipe selection.
-  //   2. `pending()` gate on the membership check — gitStatus / fsList
+  //   1. `pending()` gate on the membership check — gitStatus / fsList
   //      stream resubscribes briefly drop `treePaths()` to `[]`; without
   //      the gate, the membership check reads transient empty as
-  //      "selected file is missing".
-  //   3. `handleSelect` ignores Pierre's `null` events — Pierre fires
+  //      "selected file is missing" and deletes the slot.
+  //   2. `handleSelect` ignores Pierre's `null` events — Pierre fires
   //      `onSelectionChange([])` from `resetPaths` and tear-down, not
   //      just user deselect; the Code tab has no UX for explicit
   //      deselect anyway (user switches by clicking another file).
   //
-  // The unifying invariant is "preserve selection across non-genuine
-  // transitions". Adding a fourth churn source means adding a fourth
-  // guard in the same shape — extract a `createStableSignal`-style
-  // helper if/when it appears.
+  // (Repo / view transitions used to be a third churn source — the
+  // resetKey effect cleared selection on every (repoPath, view) change.
+  // Per-slot storage above makes that clear obsolete: the new slot's
+  // value is already correct without writing through. resetKey now only
+  // clears `searchQuery`, which is genuinely shared across slots.)
 
   const status = app.streams.gitStatus.use(
     () => {
@@ -160,55 +182,26 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
     },
   );
 
-  // Reset selection when the repo or view changes so a stale path doesn't
-  // bleed across modes (e.g. a browse-mode pick showing up in diff mode).
-  // Same reset clears the filename filter — the search needle was scoped
-  // to the previous file set and rarely makes sense post-switch.
+  // Clear the filename filter when the repo or view changes — the search
+  // needle was scoped to the previous file set and rarely makes sense
+  // post-switch. Selection itself is per-slot (see `selectedFilesByKey`
+  // above) so the new view automatically surfaces its own pick without
+  // a clear here.
   //
-  // The `on()` here is paired with a memoized key so it only fires when
-  // the (repoPath, view) tuple actually CHANGES VALUE. Without the memo,
+  // The `on()` is paired with a memoized key so it only fires when the
+  // (repoPath, view) tuple actually CHANGES VALUE. Without the memo,
   // SolidJS' `on(...)` re-runs its callback on every upstream signal tick
   // — and the upstream `preferences` cell ticks on activity beyond just
-  // tab/repo changes (e.g. unrelated pref updates). Since the callback
-  // unconditionally nulls `selectedPath`, an unmemoed accessor wipes the
-  // user's selection on every preference tick — visible after #818 made
+  // tab/repo changes (e.g. unrelated pref updates). The unmemoed accessor
+  // would wipe the filter on every preference tick after #818 made
   // CodeTab survive across right-panel tab toggles.
-  //
-  // `::` is collision-safe as the separator: `view()` is a typed enum
-  // (`"browse" | "local" | "branch"`) so it can't contain `::`, and
-  // `repoPath()` is `props.meta?.git?.repoRoot ?? null` — a real
-  // absolute path or `null`, never the empty string that would alias
-  // null.
   const resetKey = createMemo(() => `${repoPath() ?? ""}::${view()}`);
-
-  /** The resetKey effect runs BEFORE the pendingOpen effect by
-   *  registration order. When a navigation request is about to land in
-   *  the new (repo, mode) — same repoRoot, target mode equals the
-   *  freshly-ticked `view()`, and the request hasn't already been
-   *  consumed by `handled()` — the resetKey effect must skip its clear,
-   *  or the pendingOpen effect would null what we're about to set.
-   *  This predicate names the cross-effect temporal coupling so the
-   *  guard isn't a wall of inline conjunctions a future editor has to
-   *  re-derive. The `batch()` in `openInCodeTab` ensures both writes
-   *  (`view` and `pendingOpen`) commit before either effect fires; the
-   *  registration-order discipline survives ABOVE that. */
-  const isPendingOpenAboutToLand = (): boolean => {
-    const req = pendingOpen();
-    return (
-      req !== null &&
-      req.repoRoot === repoPath() &&
-      req.targetMode === view() &&
-      handled()?.request !== req
-    );
-  };
 
   createEffect(
     on(
       resetKey,
       () => {
         setSearchQuery("");
-        if (isPendingOpenAboutToLand()) return;
-        setSelectedPath(null);
       },
       { defer: true },
     ),
@@ -220,8 +213,7 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
   // object per call) alongside the resolved path. Storing the
   // request here lets `selectedRange` derive its value without
   // re-running `resolveLineRefPath` (single resolution site per
-  // request) and lets `resetKey` know whether a pending request
-  // has already been applied.
+  // request).
   const [handled, setHandled] = createSignal<{
     request: OpenInCodeTabRequest;
     resolvedPath: string | null;
@@ -233,9 +225,7 @@ const CodeTab: Component<{ meta: TerminalMetadata | null }> = (props) => {
   // resolution can validate against a complete file list — otherwise
   // a request fired during boot would toast "not found" on a path
   // that just hasn't been enumerated yet. `openInCodeTab` flips the
-  // panel to browse mode itself; this effect only sets
-  // `selectedPath`. The `resetKey` effect above guards against
-  // clearing selectedPath when this effect is about to set it.
+  // panel to browse mode itself; this effect only sets `selectedPath`.
   createEffect(
     on(
       () => {

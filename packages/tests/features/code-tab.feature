@@ -106,6 +106,28 @@ Feature: Code tab (review + browse)
       | branch |
       | browse |
 
+  # Regression: opening a file in the Code tab and refreshing the browser
+  # used to lose the preview because `selectedPath` lived in a local
+  # `createSignal` that died with the component. Selection is now backed
+  # by `makePersisted` keyed per (repoRoot, view) so each slot's pick
+  # survives a full reload AND switching modes/repos surfaces the right
+  # slot without clobbering siblings.
+  Scenario Outline: Selected file survives page refresh [<mode>]
+    Given a Code tab in "<mode>" mode showing file "a.txt" with content "aaa"
+    When I open file "a.txt" in the Code tab
+    Then the selected file should show content "aaa"
+    When I wait for the session auto-save
+    And I reload the page and wait for ready
+    Then the right panel should be visible
+    And the Code tab mode should be "<mode>"
+    And the selected file should show content "aaa"
+
+    Examples:
+      | mode   |
+      | local  |
+      | branch |
+      | browse |
+
   # ── Local mode: file list + diff rendering ──
 
   Scenario: Lists changed files and opens a diff on click
