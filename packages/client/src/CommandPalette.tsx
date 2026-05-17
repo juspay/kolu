@@ -133,6 +133,18 @@ export type PaletteItem = PaletteCommand | PaletteLabel | PaletteHint;
 /** Any drillable kind — group with children, body group, or value input. */
 type DrillableKind = PaletteGroup | PaletteValueInput | PaletteBodyGroup;
 
+/** Discriminated UI mode driven by the deepest path segment. Filter
+ *  mode: input narrows the children list. Value mode: input is a
+ *  free-text field; children render as passive labels. Body mode:
+ *  the body component renders its own custom JSX in place of the
+ *  list (the input still drives a query the body reads). Exported so
+ *  child components (e.g. ActionBar) reference the same union the
+ *  engine dispatches on — a future arm forces both ends to update. */
+export type PaletteMode =
+  | { kind: "filter" }
+  | { kind: "value"; leaf: PaletteValueInput }
+  | { kind: "body"; leaf: PaletteBodyGroup };
+
 function isDrillable(item: PaletteItem): item is DrillableKind {
   return (
     item.kind === "group" || item.kind === "value" || item.kind === "body-group"
@@ -220,19 +232,7 @@ const CommandPalette: Component<{
     return { interactive, hints };
   });
 
-  /** Discriminated UI mode driven by the deepest path segment.
-   *  Filter mode: input narrows the children list. Value mode: input is
-   *  a free-text field; children render as passive labels. Body mode:
-   *  the group renders its own custom JSX in place of the list (the
-   *  input still drives a query the body reads). The behavior swaps
-   *  (filter bypass, validation, placeholder, key dispatch, render
-   *  branch) all switch on this. */
-  type Mode =
-    | { kind: "filter" }
-    | { kind: "value"; leaf: PaletteValueInput }
-    | { kind: "body"; leaf: PaletteBodyGroup };
-
-  const mode = createMemo<Mode>(() => {
+  const mode = createMemo<PaletteMode>(() => {
     const last = path().at(-1);
     if (last?.kind === "value") return { kind: "value", leaf: last };
     if (last?.kind === "body-group") return { kind: "body", leaf: last };
@@ -707,10 +707,7 @@ const CommandPalette: Component<{
  *  path is drilled. Border-top separates it from the scrollable list
  *  above; the ambient tip (when present) renders below this bar. */
 const ActionBar: Component<{
-  mode:
-    | { kind: "filter" }
-    | { kind: "value"; leaf: PaletteValueInput }
-    | { kind: "body"; leaf: PaletteBodyGroup };
+  mode: PaletteMode;
   drilled: boolean;
   highlighted: PaletteCommand | PaletteLabel | undefined;
 }> = (props) => {
