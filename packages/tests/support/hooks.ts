@@ -298,7 +298,7 @@ BeforeAll(async () => {
     // above. Without this, the whitelist filter strips them and those
     // scenarios fail on pristine hosts.
     const envWhitelist = [
-      "HOME,USER,PATH,TERM,LANG,LC_ALL,LOGNAME,DISPLAY,COLORTERM,TERM_PROGRAM",
+      "HOME,USER,PATH,TERM,LANG,LC_ALL,LOGNAME,DISPLAY,COLORTERM",
       "GIT_AUTHOR_NAME,GIT_AUTHOR_EMAIL,GIT_COMMITTER_NAME,GIT_COMMITTER_EMAIL",
     ].join(",");
     serverProcess = spawn(
