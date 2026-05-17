@@ -46,11 +46,12 @@ export const pendingOpen = pending;
 
 /** Open the right panel's Code tab at `req.targetMode` showing `req.ref`.
  *  The two reactive writes (preferences patch + pending-request signal)
- *  are wrapped in `batch()` so SolidJS defers dependent effects until
- *  both have committed. Without the batch, the preferences optimistic
- *  update ticks `view()` first, fires `CodeTab`'s `resetKey` effect
- *  when `pendingOpen()` is still null, the guard fails, and the
- *  selectedPath the user navigated to gets cleared. */
+ *  are wrapped in `batch()` so downstream effects see both changes in
+ *  the same reactive transaction — one tick instead of two. Pure
+ *  optimization since the `resetKey`-vs-pendingOpen race was removed
+ *  (selection is now per-slot, so no effect clears `selectedPath`);
+ *  kept because the merged tick still avoids a flash of intermediate
+ *  state during navigation. */
 export function openInCodeTab(req: OpenInCodeTabRequest): void {
   batch(() => {
     useRightPanel().openCodeAt(req.targetMode);
