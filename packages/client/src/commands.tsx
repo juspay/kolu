@@ -225,13 +225,6 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
     actionPaletteCommand("toggleRightPanel", deps),
     ...(!deps.isMobile()
       ? [
-          // "Workspace switcher" lived here pre-#912 as a separate
-          // action whose only job was to bump the dock-mega impulse;
-          // after unification it would just re-open the palette and
-          // drill into "Search workspaces" — the same destination the
-          // visible group entry below already points at. The
-          // `Cmd+Shift+K` keybind is rendered alongside the group's
-          // chevron so discoverability survives.
           {
             kind: "action" as const,
             name: "Center on active tile",
