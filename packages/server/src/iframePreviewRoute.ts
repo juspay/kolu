@@ -180,11 +180,21 @@ export async function serveResolvedFile(
       },
       body: buf,
     };
-  } catch {
+  } catch (e: unknown) {
+    const code = (e as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") {
+      return {
+        status: 404,
+        headers: { "Content-Type": "text/plain; charset=utf-8" },
+        body: "not found",
+      };
+    }
+    // Unexpected I/O error (EACCES, EIO, …) — surface as 500 so it doesn't
+    // masquerade as a missing file.
     return {
-      status: 404,
+      status: 500,
       headers: { "Content-Type": "text/plain; charset=utf-8" },
-      body: "not found",
+      body: e instanceof Error ? e.message : "internal error",
     };
   }
 }
