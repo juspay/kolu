@@ -19,6 +19,7 @@ import { After, AfterAll, Before, BeforeAll, Status } from "@cucumber/cucumber";
 import getPort from "get-port";
 import type { Browser, BrowserContext, Page } from "playwright";
 import { chromium } from "playwright";
+import { NIX_ENV_WHITELIST } from "../../server/src/shell.ts";
 import type { KoluWorld } from "./world.ts";
 
 const workerId = parseInt(process.env.CUCUMBER_WORKER_ID || "0", 10);
@@ -291,14 +292,13 @@ BeforeAll(async () => {
     const port = await getPort();
     baseUrl = `http://localhost:${port}`;
     console.log(`[worker:${workerId}] Starting server on port ${port}...`);
-    // Extend the default nix-shell env whitelist (see NIX_ENV_WHITELIST in shell.ts) with
-    // GIT_AUTHOR_*/GIT_COMMITTER_* so PTY shells in fixtures like
-    // `code-tab.feature` (which run `git init && git commit` inside the
-    // terminal under test) inherit the same identity set on process.env
-    // above. Without this, the whitelist filter strips them and those
-    // scenarios fail on pristine hosts.
+    // Extend NIX_ENV_WHITELIST with GIT_AUTHOR_*/GIT_COMMITTER_* so PTY
+    // shells in fixtures like `code-tab.feature` (which run `git init &&
+    // git commit` inside the terminal under test) inherit the same
+    // identity set on process.env above. Without this, the whitelist
+    // filter strips them and those scenarios fail on pristine hosts.
     const envWhitelist = [
-      "HOME,USER,PATH,TERM,LANG,LC_ALL,LOGNAME,DISPLAY,COLORTERM",
+      NIX_ENV_WHITELIST,
       "GIT_AUTHOR_NAME,GIT_AUTHOR_EMAIL,GIT_COMMITTER_NAME,GIT_COMMITTER_EMAIL",
     ].join(",");
     serverProcess = spawn(
