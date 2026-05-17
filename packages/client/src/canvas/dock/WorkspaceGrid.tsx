@@ -91,7 +91,7 @@ const WorkspaceGrid: Component<{
 
   function firstAvailableId(): TerminalId | null {
     for (const col of columnEntries()) {
-      if (col.length > 0) return col[0]?.id ?? null;
+      if (col.length > 0) return col[0]!.id;
     }
     return null;
   }
