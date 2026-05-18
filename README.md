@@ -307,10 +307,12 @@ Bug fixes, build/CI fixes, doc tweaks, and behavior-preserving refactors are wel
 
 The pipeline (defined in [`ci/mod.just`](ci/mod.just)) is driven by [juspay/ci](https://github.com/juspay/ci): it builds all flake outputs on x86_64-linux and aarch64-darwin, runs e2e tests, boots the packaged binary against `/api/health` as a runtime smoke, and posts GitHub commit statuses per `(recipe, platform)` pair. Non-local platforms run over SSH against hosts listed in `~/.config/ci/hosts.json`. See [`ci/README.md`](ci/README.md) for the full reference.
 
+Only the runner posts GitHub commit statuses; the `just` shortcuts below stay entirely local.
+
 ```sh
-CI=true nix run github:juspay/ci -- run    # full multi-platform run, live statuses
-just ci                                    # single-platform local run
-just ci::e2e                               # one recipe, in the local worktree
+CI=true nix run github:juspay/ci -- run    # multi-platform fanout + commit statuses
+just ci                                    # local single-platform pipeline, no statuses
+just ci::e2e                               # one recipe, no statuses
 ```
 
 ## Deployment (home-manager)
