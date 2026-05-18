@@ -15,6 +15,7 @@
 
 import { makePersisted } from "@solid-primitives/storage";
 import { createSignal } from "solid-js";
+import { toast } from "solid-sonner";
 import type { Comment, PersistedShape } from "./types";
 
 const STORAGE_PREFIX = "kolu:comments:";
@@ -46,8 +47,27 @@ function storeFor(repoRoot: string) {
           if (parsed && parsed.v === 1 && Array.isArray(parsed.comments)) {
             return parsed as PersistedShape;
           }
-        } catch {
-          // Fall through to default.
+          // Shape mismatch — log + surface, then fall through to a
+          // fresh init so the app doesn't brick.
+          console.error(
+            `[comments] Stored data for ${repoRoot} has unexpected shape; resetting queue`,
+            parsed,
+          );
+          toast.error(
+            `Comments for this repo had an unexpected shape and were reset. Check the console.`,
+          );
+        } catch (err) {
+          // JSON.parse failed — same fallback. Surface the error so the
+          // user knows their queue was wiped instead of silently
+          // returning {comments: []} (indistinguishable from a fresh
+          // install).
+          console.error(
+            `[comments] Failed to parse stored data for ${repoRoot}:`,
+            err,
+          );
+          toast.error(
+            `Failed to load comments: ${(err as Error).message ?? "parse error"}. Queue reset.`,
+          );
         }
         return { v: 1, comments: [] };
       },
