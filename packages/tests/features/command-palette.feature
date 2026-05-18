@@ -26,12 +26,13 @@ Feature: Command Palette
     And there should be no page errors
 
   Scenario: Filter commands by typing
-    # Theme is a flat-list drill-in group — typing in the palette
-    # narrows its children via the engine's AND-token filter. Use a
-    # unique theme name to assert a single match.
+    # "Set theme" is a flat-list drill-in group under Active Terminal —
+    # typing in the palette narrows its children via the engine's
+    # AND-token filter. Use a unique theme name to assert a single match.
     When I open the app
+    And I create a terminal
     And I open the command palette
-    And I select "Theme" in the palette
+    And I select "Set theme" in the palette
     And I type "0x96f" in the palette
     Then the command palette should show 1 result
     And there should be no page errors
@@ -109,25 +110,29 @@ Feature: Command Palette
 
   Scenario: Backspace drills out of nested group
     When I open the app
+    And I create a terminal
     And I open the command palette
-    And I select "Theme" in the palette
-    Then the palette breadcrumb should show "Theme"
+    And I select "Set theme" in the palette
+    Then the palette breadcrumb should show "Set theme"
     When I press Backspace
     Then the palette breadcrumb should not be visible
     And there should be no page errors
 
   Scenario: Breadcrumb click navigates back to root
     When I open the app
+    And I create a terminal
     And I open the command palette
-    And I select "Theme" in the palette
-    Then the palette breadcrumb should show "Theme"
+    And I select "Set theme" in the palette
+    Then the palette breadcrumb should show "Set theme"
     When I click breadcrumb "Commands" in the palette
     Then the palette breadcrumb should not be visible
     And there should be no page errors
 
   Scenario: Group commands show chevron indicator
+    # "New terminal" is always at root regardless of focus state — it
+    # makes a stable target for the chevron assertion.
     When I open the command palette
-    Then palette item "Theme" should have a chevron
+    Then palette item "New terminal" should have a chevron
     And there should be no page errors
 
   Scenario: Keyboard shortcut hints shown on commands
@@ -160,7 +165,7 @@ Feature: Command Palette
     When I open the app
     And I create a terminal
     And I open the command palette
-    And I select "Theme" in the palette
+    And I select "Set theme" in the palette
     And I select "Dracula" in the palette
     Then the command palette should not be visible
     And the terminal should have keyboard focus
@@ -190,4 +195,30 @@ Feature: Command Palette
     When I open the command palette
     And I press Escape
     Then no sendInput call should contain "k"
+    And there should be no page errors
+
+  Scenario: Section headers group root commands
+    # With a focused terminal, root items split into multiple sections —
+    # Active Terminal, UI, Help — each rendered with a sticky uppercase
+    # header. Drilling in or typing collapses headers. Debug lives as a
+    # drill-in group inside Help, not as its own section header.
+    When I open the app
+    And I create a terminal
+    And I open the command palette
+    Then palette section header "Active Terminal" should be visible
+    And palette section header "UI" should be visible
+    And palette section header "Help" should be visible
+    When I type "Set theme" in the palette
+    Then no palette section header should be visible
+    And there should be no page errors
+
+  Scenario: Filtering shows section tags on matched rows
+    # When the user types, sections collapse and each row carries a
+    # small tag indicating which section it belongs to. "Set theme" only
+    # appears with an active terminal, so create one first.
+    When I open the app
+    And I create a terminal
+    And I open the command palette
+    And I type "Set theme" in the palette
+    Then palette item "Set theme" should show section tag "Active Terminal"
     And there should be no page errors

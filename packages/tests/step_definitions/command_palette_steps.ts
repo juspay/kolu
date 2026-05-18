@@ -157,8 +157,8 @@ Then(
     await item.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     const content = await item.textContent();
     assert.ok(
-      content?.includes("→"),
-      `Expected "${text}" to have a chevron (→) but got "${content}"`,
+      content?.includes("›"),
+      `Expected "${text}" to have a chevron (›) but got "${content}"`,
     );
   },
 );
@@ -285,5 +285,44 @@ Then(
         `Keystroke "${key}" leaked via sendInput: ${msg}`,
       );
     }
+  },
+);
+
+Then(
+  "palette section header {string} should be visible",
+  async function (this: KoluWorld, label: string) {
+    const header = this.page.locator(
+      `${PALETTE_SELECTOR} [data-testid="palette-section-header"]`,
+      { hasText: label },
+    );
+    await header.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+Then(
+  "no palette section header should be visible",
+  async function (this: KoluWorld) {
+    const count = await this.page
+      .locator(`${PALETTE_SELECTOR} [data-testid="palette-section-header"]`)
+      .count();
+    assert.strictEqual(
+      count,
+      0,
+      `Expected no palette section headers, got ${count}`,
+    );
+  },
+);
+
+Then(
+  "palette item {string} should show section tag {string}",
+  async function (this: KoluWorld, itemName: string, tagLabel: string) {
+    const row = this.page
+      .locator(`${PALETTE_SELECTOR} [role="option"]`)
+      .filter({ hasText: new RegExp(`^${itemName}`) });
+    await row.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const tag = row
+      .first()
+      .locator('[data-testid="palette-section-tag"]', { hasText: tagLabel });
+    await tag.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },
 );

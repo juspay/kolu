@@ -29,6 +29,48 @@ import { useTips } from "./settings/useTips";
 import Kbd from "./ui/Kbd";
 import ModalDialog from "./ui/ModalDialog";
 
+/** Top-level sections, in render order. Items tagged with a section are
+ *  grouped under a sticky header at the root level; untagged items
+ *  render without a header. Drill-in levels ignore sections entirely
+ *  (children of a group all belong to that group). */
+export type SectionId =
+  | "workspaces"
+  | "active-terminal"
+  | "canvas"
+  | "ui"
+  | "help";
+
+const SECTION_ORDER: readonly SectionId[] = [
+  "workspaces",
+  "active-terminal",
+  "canvas",
+  "ui",
+  "help",
+];
+
+const SECTION_LABELS: Record<SectionId, string> = {
+  workspaces: "Workspaces",
+  "active-terminal": "Active Terminal",
+  canvas: "Canvas",
+  ui: "UI",
+  help: "Help",
+};
+
+/** O(1) lookup derived from `SECTION_ORDER` — single source of truth.
+ *  Built at module load via `Object.fromEntries(...)` so reordering
+ *  `SECTION_ORDER` automatically rebuilds the map; there is no parallel
+ *  literal to keep in sync. */
+const SECTION_INDEX: Record<SectionId, number> = Object.fromEntries(
+  SECTION_ORDER.map((s, i) => [s, i]),
+) as Record<SectionId, number>;
+
+/** Stable sort key: tagged items cluster in canonical order; untagged
+ *  items sort to the end and preserve their registration order via the
+ *  stability of `Array.prototype.sort`. */
+function sectionIndex(s: SectionId | undefined): number {
+  return s === undefined ? SECTION_ORDER.length : SECTION_INDEX[s];
+}
+
 /** Fields shared by every interactive palette item. */
 interface PaletteBase {
   name: string;
@@ -43,6 +85,9 @@ interface PaletteBase {
   icon?: Component<{ class?: string }>;
   /** Keyboard shortcut(s) to display alongside the command name. */
   keybind?: Keybind | Keybind[];
+  /** Top-level grouping — only rendered at the root level. Untagged
+   *  items appear with no header. Ignored for drill-in children. */
+  section?: SectionId;
   /** Called when this item becomes the highlighted item during navigation. */
   onHighlight?: () => void;
   /** Called when leaving this item without executing it (Escape, Backspace, breadcrumb). */
@@ -275,14 +320,51 @@ const CommandPalette: Component<{
    *  (`buildDockModel`), which is the right semantics there. */
   const filtered = createMemo((): (PaletteCommand | PaletteLabel)[] => {
     const items = partitioned().interactive;
-    if (mode().kind !== "filter") return items;
+    // Stable sort by section index — tagged root items cluster in canonical
+    // order; untagged items (drill-in children, value-input labels) all map
+    // to the same end index, so registration order is preserved by sort
+    // stability.
+    const sorted = [...items].sort(
+      (a, b) => sectionIndex(a.section) - sectionIndex(b.section),
+    );
+    if (mode().kind !== "filter") return sorted;
     const q = query().toLowerCase();
-    if (!q) return items;
-    return items.filter(
+    if (!q) return sorted;
+    return sorted.filter(
       (cmd) =>
         cmd.name.toLowerCase().includes(q) ||
         cmd.description?.toLowerCase().includes(q),
     );
+  });
+
+  /** Annotated render list — interleaves section headers with rows when
+   *  at root with no query. Headers do not participate in selection;
+   *  `index` on row entries still indexes into `filtered()` directly so
+   *  keyboard navigation stays unchanged. */
+  type DisplayEntry =
+    | { kind: "header"; section: SectionId; index?: never }
+    | { kind: "row"; cmd: PaletteCommand | PaletteLabel; index: number };
+
+  const showSectionHeaders = createMemo(
+    () => path().length === 0 && query() === "" && mode().kind === "filter",
+  );
+
+  const displayed = createMemo((): DisplayEntry[] => {
+    const items = filtered();
+    if (!showSectionHeaders()) {
+      return items.map((cmd, index) => ({ kind: "row", cmd, index }));
+    }
+    const out: DisplayEntry[] = [];
+    let lastSection: SectionId | undefined;
+    items.forEach((cmd, index) => {
+      const section = cmd.section;
+      if (section !== undefined && section !== lastSection) {
+        out.push({ kind: "header", section });
+      }
+      lastSection = section;
+      out.push({ kind: "row", cmd, index });
+    });
+    return out;
   });
 
   // Reserve a leading icon gutter for the whole list when ANY row carries
@@ -508,26 +590,28 @@ const CommandPalette: Component<{
       <Dialog.Content
         forceMount
         data-testid="command-palette"
-        class="w-full bg-surface-1 border border-edge rounded-2xl shadow-2xl shadow-black/50 overflow-hidden flex flex-col"
+        class="w-full border border-edge rounded-2xl shadow-2xl shadow-black/60 ring-1 ring-white/[0.03] overflow-hidden flex flex-col"
         style={{
           // Cap at 80vh so the dialog adapts to the workspace grid's
           // four-column body without forcing scroll for small dialogs;
           // 40rem keeps the chrome compact on tall monitors.
           height: "min(80vh, 40rem)",
-          // Firefox workaround: bg-surface-1 utility intermittently fails
-          // to apply to Corvu-portalled dialog content, leaving it
-          // transparent. Inline style guarantees the background paints.
-          "background-color": "var(--color-surface-1)",
+          // Subtle vertical gradient from surface-1 → surface-0 gives the
+          // chrome a soft depth without theming it. The inline style also
+          // works around a Firefox quirk where the `bg-surface-1` utility
+          // intermittently failed to apply on Corvu-portalled content.
+          background:
+            "linear-gradient(180deg, var(--color-surface-1) 0%, var(--color-surface-0) 100%)",
         }}
       >
         {/* Breadcrumb — visible when drilled into a group. Renders as
             Raycast-style chips: "Commands › Theme" feels like a path you
             can click any segment of to pop back. */}
         <Show when={path().length > 0}>
-          <nav class="flex items-center gap-1.5 px-4 pt-3 text-xs text-fg-3">
+          <nav class="flex items-center gap-1.5 px-5 pt-3.5 text-xs text-fg-3">
             <button
               type="button"
-              class="px-1.5 py-0.5 rounded hover:text-fg hover:bg-surface-2 transition-colors"
+              class="px-1.5 py-0.5 rounded-md hover:text-fg hover:bg-surface-2/70 transition-colors"
               onClick={() => navigateTo(0)}
             >
               Commands
@@ -535,12 +619,13 @@ const CommandPalette: Component<{
             <For each={path()}>
               {(segment, i) => (
                 <>
-                  <span class="text-fg-3/60">›</span>
+                  <span class="text-fg-3/50">›</span>
                   <button
                     type="button"
-                    class="px-1.5 py-0.5 rounded hover:text-fg hover:bg-surface-2 transition-colors"
+                    class="px-1.5 py-0.5 rounded-md hover:bg-surface-2/70 transition-colors"
                     classList={{
-                      "text-fg font-medium": i() === path().length - 1,
+                      "text-accent font-medium": i() === path().length - 1,
+                      "hover:text-fg": i() !== path().length - 1,
                     }}
                     onClick={() => navigateTo(i() + 1)}
                   >
@@ -551,10 +636,10 @@ const CommandPalette: Component<{
             </For>
           </nav>
         </Show>
-        <div class="flex items-center gap-2 px-4 py-3 border-b border-edge">
+        <div class="flex items-center gap-3 px-5 py-3.5 border-b border-edge/60">
           <span
             aria-hidden="true"
-            class="font-mono text-[0.85rem] leading-none text-accent select-none"
+            class="font-mono text-base leading-none text-accent select-none"
           >
             ⏵
           </span>
@@ -564,7 +649,7 @@ const CommandPalette: Component<{
             data-value-input={mode().kind === "value" ? "" : undefined}
             data-value-invalid={valueError() ? "" : undefined}
             placeholder={placeholder()}
-            class="flex-1 min-w-0 bg-transparent text-fg text-sm outline-none placeholder-fg-3"
+            class="flex-1 min-w-0 bg-transparent text-fg text-base outline-none placeholder-fg-3/80"
             classList={{
               "text-danger": !!valueError(),
             }}
@@ -576,7 +661,7 @@ const CommandPalette: Component<{
           {(msg) => (
             <div
               data-testid="palette-value-error"
-              class="px-4 py-2 text-xs text-danger border-b border-edge"
+              class="px-5 py-2 text-xs text-danger border-b border-edge/60 bg-danger/[0.06]"
             >
               {msg()}
             </div>
@@ -601,77 +686,134 @@ const CommandPalette: Component<{
               <Show
                 when={filtered().length > 0}
                 fallback={
-                  <div class="px-4 py-3 text-sm text-fg-2">
-                    No matching commands
+                  <div class="flex flex-col items-center justify-center gap-1 px-5 py-10 text-center">
+                    <span
+                      aria-hidden="true"
+                      class="font-mono text-base text-fg-3/60 select-none"
+                    >
+                      ⏵
+                    </span>
+                    <span class="text-sm text-fg-2">No matching commands</span>
+                    <span class="text-xs text-fg-3/70">
+                      Try a different search
+                    </span>
                   </div>
                 }
               >
-                <div class="py-1" role="listbox">
-                  <For each={filtered()}>
-                    {(cmd, i) => (
-                      <div
-                        role="option"
-                        tabIndex={-1}
-                        aria-selected={selectedIndex() === i()}
-                        class="flex items-center gap-3 px-4 py-2 text-sm cursor-pointer transition-colors duration-150 border-l-2"
-                        classList={{
-                          "bg-surface-3 text-fg border-accent":
-                            selectedIndex() === i(),
-                          "text-fg-2 hover:bg-surface-2 border-transparent":
-                            selectedIndex() !== i(),
-                        }}
-                        data-selected={selectedIndex() === i() || undefined}
-                        onMouseEnter={() =>
-                          mouseActive() && setSelectedIndex(i())
-                        }
-                        onClick={() => execute(cmd)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
-                            execute(cmd);
+                <div class="py-1.5 px-2" role="listbox">
+                  <For each={displayed()}>
+                    {(entry) =>
+                      entry.kind === "header" ? (
+                        <div
+                          data-testid="palette-section-header"
+                          data-section={entry.section}
+                          class="flex items-center gap-2 px-3 pt-3.5 pb-1.5 text-[0.65rem] font-semibold tracking-[0.16em] uppercase text-fg-3/90 select-none first:pt-1.5"
+                        >
+                          <span
+                            aria-hidden="true"
+                            class="w-1 h-1 rounded-full bg-accent/60"
+                          />
+                          {SECTION_LABELS[entry.section]}
+                        </div>
+                      ) : (
+                        <div
+                          role="option"
+                          tabIndex={-1}
+                          aria-selected={selectedIndex() === entry.index}
+                          class="flex items-center gap-3 px-3 py-2 text-sm rounded-lg cursor-pointer transition-colors duration-100"
+                          classList={{
+                            "bg-accent/15 text-fg shadow-[inset_2px_0_0_var(--color-accent)]":
+                              selectedIndex() === entry.index,
+                            "text-fg-2 hover:bg-surface-2/60":
+                              selectedIndex() !== entry.index,
+                          }}
+                          data-selected={
+                            selectedIndex() === entry.index || undefined
                           }
-                        }}
-                      >
-                        <Show when={hasAnyIcon()}>
-                          <span class="shrink-0 w-3 inline-flex items-center justify-center">
-                            <Dynamic component={cmd.icon} class="w-3 h-3" />
-                          </span>
-                        </Show>
-                        <div class="flex-1 min-w-0 flex items-baseline gap-2">
-                          <span class="truncate">{cmd.name}</span>
-                          <Show when={cmd.description}>
-                            <span class="text-fg-3 text-xs truncate min-w-0">
-                              {cmd.description}
+                          onMouseEnter={() =>
+                            mouseActive() && setSelectedIndex(entry.index)
+                          }
+                          onClick={() => execute(entry.cmd)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              execute(entry.cmd);
+                            }
+                          }}
+                        >
+                          <Show when={hasAnyIcon()}>
+                            <span
+                              class="shrink-0 w-5 h-5 inline-flex items-center justify-center rounded-md transition-colors"
+                              classList={{
+                                "bg-accent/20 text-accent":
+                                  selectedIndex() === entry.index,
+                                "bg-surface-2/60 text-fg-3":
+                                  selectedIndex() !== entry.index,
+                              }}
+                            >
+                              <Dynamic
+                                component={entry.cmd.icon}
+                                class="w-3 h-3"
+                              />
+                            </span>
+                          </Show>
+                          <div class="flex-1 min-w-0 flex items-baseline gap-2">
+                            <span class="truncate">{entry.cmd.name}</span>
+                            <Show when={entry.cmd.description}>
+                              <span class="text-fg-3/80 text-xs truncate min-w-0">
+                                {entry.cmd.description}
+                              </span>
+                            </Show>
+                          </div>
+                          <Show
+                            when={!showSectionHeaders() && entry.cmd.section}
+                          >
+                            {(section) => (
+                              <span
+                                data-testid="palette-section-tag"
+                                class="shrink-0 text-[0.6rem] font-semibold tracking-[0.1em] uppercase text-fg-3 px-2 py-0.5 rounded-full border border-edge/80 bg-surface-2/40"
+                              >
+                                {SECTION_LABELS[section()]}
+                              </span>
+                            )}
+                          </Show>
+                          <Show when={entry.cmd.keybind}>
+                            {(keybind) => {
+                              const kb = keybind();
+                              return (
+                                <span class="shrink-0 flex items-center gap-1.5">
+                                  <For each={Array.isArray(kb) ? kb : [kb]}>
+                                    {(k) => <Kbd>{formatKeybind(k)}</Kbd>}
+                                  </For>
+                                </span>
+                              );
+                            }}
+                          </Show>
+                          <Show when={isDrillable(entry.cmd)}>
+                            <span
+                              aria-hidden="true"
+                              class="shrink-0 text-sm leading-none"
+                              classList={{
+                                "text-accent": selectedIndex() === entry.index,
+                                "text-fg-3/70": selectedIndex() !== entry.index,
+                              }}
+                            >
+                              ›
                             </span>
                           </Show>
                         </div>
-                        <Show when={cmd.keybind}>
-                          {(keybind) => {
-                            const kb = keybind();
-                            return (
-                              <span class="shrink-0 flex items-center gap-1.5">
-                                <For each={Array.isArray(kb) ? kb : [kb]}>
-                                  {(k) => <Kbd>{formatKeybind(k)}</Kbd>}
-                                </For>
-                              </span>
-                            );
-                          }}
-                        </Show>
-                        <Show when={isDrillable(cmd)}>
-                          <span class="shrink-0 text-xs text-fg-3">→</span>
-                        </Show>
-                      </div>
-                    )}
+                      )
+                    }
                   </For>
                 </div>
               </Show>
               <Show when={partitioned().hints.length > 0}>
-                <ul class="py-1">
+                <ul class="py-1 px-2">
                   <For each={partitioned().hints}>
                     {(hint) => (
                       <li
                         data-testid="palette-hint"
-                        class="px-4 py-2 text-xs text-fg-3 italic"
+                        class="px-3 py-2 text-xs text-fg-3/80 italic"
                       >
                         {hint.text}
                       </li>
@@ -698,9 +840,13 @@ const CommandPalette: Component<{
         <Show when={ambientTip()}>
           <div
             data-testid="palette-tip"
-            class="px-4 py-2 text-xs text-fg-3 border-t border-edge truncate"
+            class="flex items-center gap-2 px-5 py-2 text-xs text-fg-3/80 border-t border-edge/60 bg-surface-0/40 truncate"
           >
-            💡 {ambientTip()}
+            <span
+              aria-hidden="true"
+              class="shrink-0 w-1 h-1 rounded-full bg-accent/70"
+            />
+            <span class="truncate">{ambientTip()}</span>
           </div>
         </Show>
       </Dialog.Content>
@@ -732,13 +878,13 @@ const ActionBar: Component<{
   return (
     <div
       data-testid="palette-action-bar"
-      class="flex items-center justify-between gap-3 px-4 py-1.5 border-t border-edge text-[0.7rem] text-fg-3"
+      class="flex items-center justify-between gap-3 px-5 py-2 border-t border-edge/60 text-[0.7rem] text-fg-3"
     >
       <Show when={primaryLabel()}>
         {(label) => (
           <span class="flex items-center gap-1.5">
             <Kbd>⏎</Kbd>
-            <span>{label()}</span>
+            <span class="text-fg-2 font-medium">{label()}</span>
           </span>
         )}
       </Show>

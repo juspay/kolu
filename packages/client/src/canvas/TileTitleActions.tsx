@@ -28,7 +28,7 @@ const TILE_BUTTON_CLASS =
 
 const TileTitleActions: Component<{
   id: TerminalId;
-  /** Open the command palette at a specific group (e.g. "Theme"). */
+  /** Open the command palette at a specific group (e.g. "Set theme"). */
   onOpenPaletteGroup: (group: string) => void;
   /** Toggle the sub-panel for the given parent — App owns this because it
    *  has to bridge to `crud.handleCreateSubTerminal` when no splits exist. */
@@ -82,7 +82,7 @@ const TileTitleActions: Component<{
               onClick={(e) => {
                 e.stopPropagation();
                 store.setActiveSilently(props.id);
-                props.onOpenPaletteGroup("Theme");
+                props.onOpenPaletteGroup("Set theme");
                 setTimeout(
                   () => showTipOnce(CONTEXTUAL_TIPS.themeFromPalette),
                   500,

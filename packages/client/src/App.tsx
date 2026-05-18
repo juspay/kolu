@@ -274,13 +274,6 @@ const App: Component = () => {
       const id = store.activeId();
       if (id) closeTerminal(id);
     },
-    handleCloseAll: () => void crud.handleCloseAll(),
-    handleTriggerServerError: () =>
-      void client.terminal.resize({
-        id: "00000000-0000-0000-0000-000000000000",
-        cols: 1,
-        rows: 1,
-      }),
     handleClearLocalStorage: () => {
       localStorage.clear();
       location.reload();
@@ -519,7 +512,7 @@ const App: Component = () => {
               terminalId={store.activeId()}
               meta={store.activeMeta()}
               themeName={activeThemeName()}
-              onThemeClick={() => openPaletteGroup("Theme")}
+              onThemeClick={() => openPaletteGroup("Set theme")}
               contentClass={isMobile() ? "flex-col" : undefined}
             >
               {match(isMobile())
