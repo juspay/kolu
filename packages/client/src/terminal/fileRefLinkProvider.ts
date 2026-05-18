@@ -24,10 +24,12 @@ export function createFileRefLinkProvider(
         return;
       }
       const text = lineObj.translateToString(true);
-      // `:` is the cheapest necessary condition for the pattern;
-      // skipping the regex on plain prompts / output is a meaningful
-      // win on a hot-path that fires per hover-cell.
-      if (text.indexOf(":") < 0) {
+      // Cheap necessary condition: every match requires at least one
+      // `/` (slash-containing branch) or one `.` (bare extension
+      // branch). Skipping the regex on plain prompts is a meaningful
+      // win on a hot-path that fires per hover-cell. `:` alone is no
+      // longer sufficient since `:N` became optional.
+      if (text.indexOf("/") < 0 && text.indexOf(".") < 0) {
         callback(undefined);
         return;
       }

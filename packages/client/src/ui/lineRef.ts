@@ -3,11 +3,14 @@
  *  excerpts, and editor messages all share this shape; this module is
  *  the single place that knows how to read and resolve it. */
 
-/** Parsed line reference with an inclusive 1-based range. */
+/** Parsed line reference with an inclusive 1-based range. `startLine`
+ *  and `endLine` are null when the source had no `:N` suffix — `path`
+ *  alone is enough to navigate, and the consumer should open the file
+ *  without selecting any line. */
 export interface LineRef {
   path: string;
-  startLine: number;
-  endLine: number;
+  startLine: number | null;
+  endLine: number | null;
 }
 
 /** Parsed match including source positions — what an xterm link
@@ -19,14 +22,16 @@ export interface LineRefMatch extends LineRef {
   index: number;
 }
 
-/** Format a `path:line` (single line) or `path:start-end` (range)
- *  reference the way most editors and code tools accept (VS Code,
- *  Vim's `:e file:N`, GitHub URL fragments, Linear-style snippets). */
+/** Format a `path`, `path:line`, or `path:start-end` reference the way
+ *  most editors and code tools accept (VS Code, Vim's `:e file:N`,
+ *  GitHub URL fragments, Linear-style snippets). When `start` is null
+ *  the bare path is returned. */
 export function formatLineRef(
   path: string,
-  start: number,
-  end: number,
+  start: number | null,
+  end: number | null,
 ): string {
+  if (start === null) return path;
   return start === end ? `${path}:${start}` : `${path}:${start}-${end}`;
 }
 
@@ -42,13 +47,17 @@ const LINE_REF_RE = new RegExp(
   //   2. bare filename with a letter-led extension (`Type.hs`,
   //      `package.json`) — letter-led extension rejects IPv4-style
   //      `192.168.1.1:8080` and version strings like `1.2.3:5`.
+  // Both branches require either a `/` or a `.ext`, which keeps plain
+  // words (`react`, `init`) from getting linkified when the `:N`
+  // suffix is absent.
   `((?:\\.\\.?\\/|\\/)?(?:${PATH_CHARS}+\\/)+${PATH_CHARS}+|${PATH_CHARS}+\\.[A-Za-z]\\w*)` +
-    // Line + optional `:col` (consumed but ignored) or `-end`.
-    `:(\\d+)(?::\\d+|-(\\d+))?`,
+    // Optional `:line[:col|-end]`. When absent the bare path links to
+    // the file with no line selected.
+    `(?::(\\d+)(?::\\d+|-(\\d+))?)?`,
   "g",
 );
 
-/** Find every `path:line[-end]` reference in `text`. URL embeds
+/** Find every `path[:line[-end]]` reference in `text`. URL embeds
  *  (`://...`) and mid-token matches (immediately preceded by another
  *  path char) are rejected. */
 export function parseLineRefs(text: string): LineRefMatch[] {
@@ -57,13 +66,13 @@ export function parseLineRefs(text: string): LineRefMatch[] {
   let m = LINE_REF_RE.exec(text);
   while (m !== null) {
     const path = m[1];
-    const start = Number(m[2]);
+    const hasLine = m[2] !== undefined;
+    const start = hasLine ? Number(m[2]) : null;
     const end = m[3] !== undefined ? Number(m[3]) : start;
-    const ok =
-      path !== undefined &&
-      start >= 1 &&
-      end >= start &&
-      hasRefBoundary(text, m.index);
+    const lineOk =
+      !hasLine ||
+      (start !== null && start >= 1 && end !== null && end >= start);
+    const ok = path !== undefined && lineOk && hasRefBoundary(text, m.index);
     if (ok && path !== undefined) {
       out.push({
         path,

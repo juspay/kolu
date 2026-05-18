@@ -201,6 +201,30 @@ Then(
   },
 );
 
+// Negative variant: file is rendered but no line is highlighted. Used
+// for bare-path refs (`src/Main.hs` with no `:N`) — the file should
+// open, but no selection appears. Callers should first assert the file
+// has loaded (e.g. `the selected file should show content "..."`) so
+// this check doesn't pass trivially against a blank view.
+Then(
+  "no line should be selected in the file content",
+  async function (this: KoluWorld) {
+    const hasSelection = await this.page.evaluate(
+      `(() => {
+        ${SHADOW_DFS_FN_SRC}
+        const root = document.querySelector('${FILE_VIEW}');
+        if (!root) return false;
+        return shadowDfs(root, (node) =>
+          node.nodeType === 1 && node.hasAttribute('data-selected-line')
+        ) === true;
+      })()`,
+    );
+    if (hasSelection) {
+      throw new Error("expected no selected line, but one was found");
+    }
+  },
+);
+
 // Asserts the exact set of items in the Pierre diff/file context menu,
 // in order, joined with " | ". Stronger than `I click the context menu
 // item {string}` because it catches "wrong items present" regressions
