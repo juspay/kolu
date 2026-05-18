@@ -16,11 +16,14 @@ import {
   onCleanup,
   onMount,
 } from "solid-js";
-import { extractQuote, type Locator } from "@kolu/artifact-sdk/client";
+import { extractQuote } from "@kolu/artifact-sdk/client";
 import { useComposer } from "./composerState";
 
+/** Debounced live-selection snapshot. The pill placement only needs the
+ *  rect — the real W3C Locator is built lazily in `activate()` from the
+ *  cached `lastRange`, since extracting context windows for every
+ *  selection tick during a drag is wasteful. */
 export type SelectionCaptured = {
-  locator: Locator;
   rect: { x: number; y: number; width: number; height: number };
 };
 
@@ -183,11 +186,9 @@ export function useTextSelection(opts: UseTextSelectionOptions) {
       return;
     }
     // Lazy-build the locator — extractQuote walks the DOM, so don't pay
-    // for it on every selection tick if the user is just dragging.
+    // for it on every selection tick if the user is just dragging. We
+    // rebuild the real Locator at activation time in `activate()`.
     setCaptured({
-      // We rebuild locator at activation time in `activate`; carry a
-      // placeholder to keep the shape stable for the pill placement.
-      locator: { quote: text, prefix: "", suffix: "" },
       rect: {
         x: last.left,
         y: last.top,
