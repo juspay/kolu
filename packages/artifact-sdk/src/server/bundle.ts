@@ -31,7 +31,10 @@ async function build(): Promise<SdkBundle> {
     platform: "browser",
     minify: false,
     sourcemap: false,
-    logLevel: "silent",
+    // `logLevel: "silent"` previously suppressed esbuild's own warnings —
+    // bundler diagnostics (deprecated APIs, unresolved imports the resolver
+    // recovered from) would never reach the server log and a misconfigured
+    // SDK would ship undetected. Use esbuild's default `"warning"`.
   });
   const file = result.outputFiles[0];
   if (!file) throw new Error("artifact-sdk: esbuild produced no output");
@@ -41,6 +44,15 @@ async function build(): Promise<SdkBundle> {
 }
 
 export function getSdkBundle(): Promise<SdkBundle> {
-  if (!cached) cached = build();
+  if (!cached) {
+    // Clear the cache slot if the build rejects — otherwise a transient
+    // failure (FS hiccup, esbuild OOM) becomes permanent: every future
+    // call awaits the rejected promise and the server can't recover
+    // without a restart.
+    cached = build().catch((e) => {
+      cached = null;
+      throw e;
+    });
+  }
   return cached;
 }
