@@ -218,8 +218,24 @@ export function startAgentProvider<Session, Info extends AgentInfoShape>(
 
   plog.debug("started");
 
+  // Remote terminals can't use the full provider — `externalChanges`
+  // and `createWatcher` both reach for paths on the controller's local
+  // fs (Claude's `~/.claude/sessions/`, OpenCode's SQLite, Codex's WAL),
+  // which won't exist when the agent is actually running on another
+  // machine. Emit a minimal AgentInfo from foreground-process state
+  // so the tile/dock/inspector at least show "an agent is running"
+  // with the correct kind. Richer state (transcript, token counts,
+  // tool progress) is a follow-up that routes the watchers through
+  // `host.exec` + `host.watch`.
+  const isRemote = entry.meta.hostId !== undefined;
+
   function reconcile() {
     const state = snapshotTerminalState(entry, terminalId, plog);
+
+    if (isRemote) {
+      reconcileRemote(state);
+      return;
+    }
 
     // Lazy external-change registration. On the first reconcile where the
     // agent is foregrounded in *this* terminal, join the provider's
@@ -285,6 +301,43 @@ export function startAgentProvider<Session, Info extends AgentInfoShape>(
         plog,
       ),
     };
+  }
+
+  /** Minimal remote agent detection — emit a stable AgentInfo whenever
+   *  `resolveSession` matches, without spinning up a per-session
+   *  watcher. State stays "thinking" (the safe default) because we
+   *  can't tell from process name alone whether the agent is busy or
+   *  waiting on the user. */
+  function reconcileRemote(state: AgentTerminalState): void {
+    const next = provider.resolveSession(state, plog);
+    const nextKey = next ? provider.sessionKey(next) : null;
+    if ((current?.key ?? null) === nextKey) return;
+
+    current = null;
+    if (!next || !nextKey) {
+      if (entry.meta.agent?.kind === provider.kind) {
+        setAgentMetadata(entry, terminalId, null);
+      }
+      return;
+    }
+
+    plog.debug({ session: nextKey }, "remote agent session matched");
+    // No watcher — store the key so transitions still fire the recency
+    // bump exactly once. `destroy()` is a no-op since there's nothing
+    // running.
+    current = {
+      key: nextKey,
+      watcher: { destroy: () => {} },
+    };
+    setAgentMetadata(entry, terminalId, {
+      kind: provider.kind,
+      state: "thinking",
+      sessionId: `remote:${terminalId}:${nextKey}`,
+      model: null,
+      summary: null,
+      taskProgress: null,
+      contextTokens: null,
+    } as unknown as AgentInfo);
   }
 
   function clearCommandRunTimers() {

@@ -580,12 +580,15 @@ const AwaitingCardBody: Component<{
         title="Jump to this terminal"
       >
         <div class="flex items-baseline justify-between gap-2 min-w-0">
-          <span
-            class="font-mono text-[0.7rem] font-bold uppercase tracking-[0.14em] truncate min-w-0"
-            style={{ color: props.info.repoColor }}
-          >
-            {props.info.key.group}
-          </span>
+          <div class="flex items-baseline gap-2 min-w-0">
+            <HostChip meta={props.meta} />
+            <span
+              class="font-mono text-[0.7rem] font-bold uppercase tracking-[0.14em] truncate min-w-0"
+              style={{ color: props.info.repoColor }}
+            >
+              {props.info.key.group}
+            </span>
+          </div>
           <span
             class="text-[0.95rem] font-semibold leading-tight truncate min-w-0"
             style={{ color: props.info.branchColor }}
@@ -654,12 +657,15 @@ const WorkingPillBody: Component<{
       title="Jump to this terminal"
     >
       <div class="flex items-baseline justify-between gap-2 min-w-0">
-        <span
-          class="font-mono text-[0.65rem] font-bold uppercase tracking-[0.14em] truncate min-w-0"
-          style={{ color: props.info.repoColor }}
-        >
-          {props.info.key.group}
-        </span>
+        <div class="flex items-baseline gap-2 min-w-0">
+          <HostChip meta={props.meta} />
+          <span
+            class="font-mono text-[0.65rem] font-bold uppercase tracking-[0.14em] truncate min-w-0"
+            style={{ color: props.info.repoColor }}
+          >
+            {props.info.key.group}
+          </span>
+        </div>
         <span
           class="text-[0.85rem] font-semibold leading-tight truncate min-w-0"
           style={{ color: props.info.branchColor }}
@@ -700,6 +706,7 @@ const QuietRowBody: Component<{
       title={props.info.meta.cwd}
     >
       <div class="flex items-baseline gap-2 min-w-0">
+        <HostChip meta={props.meta} />
         <span
           class="font-mono text-[0.6rem] font-bold uppercase tracking-[0.14em] truncate min-w-0"
           style={{ color: props.info.repoColor }}
@@ -731,6 +738,29 @@ const QuietRowBody: Component<{
         )}
       </Show>
     </button>
+  );
+};
+
+/** Loud SSH chip rendered at the top of every remote-terminal dock row.
+ *  Hidden for local terminals so the visual delta is unmistakable —
+ *  "you are NOT looking at a local shell". Same accent color the
+ *  Inspector's Host section uses. */
+const HostChip: Component<{ meta: TerminalMetadata }> = (props) => {
+  return (
+    <Show when={props.meta.hostId}>
+      {(hostId) => (
+        <span
+          data-testid="dock-host-chip"
+          class="inline-flex items-center gap-1 px-1.5 py-px rounded-sm font-mono text-[0.55rem] uppercase tracking-[0.1em] font-bold bg-accent/15 text-accent border border-accent/30 shrink-0"
+          title={`Remote terminal on ${hostId()}`}
+        >
+          <span aria-hidden="true">SSH</span>
+          <span class="normal-case tracking-normal font-semibold truncate max-w-[14ch]">
+            {hostId()}
+          </span>
+        </span>
+      )}
+    </Show>
   );
 };
 

@@ -36,19 +36,26 @@ export default defineConfig({
       "kolu-fonts": `${fontsDir}/fonts.css`,
     },
   },
-  server: {
-    port: 5173,
-    // Prevent browser from caching dev assets — stale modules cause subtle bugs on refresh.
-    headers: { "Cache-Control": "no-store" },
-    proxy: {
-      "/api": `http://localhost:${DEFAULT_PORT}`,
-      "/manifest.webmanifest": `http://localhost:${DEFAULT_PORT}`,
-      "/rpc": {
-        target: `http://localhost:${DEFAULT_PORT}`,
-        ws: true,
+  server: (() => {
+    // `KOLU_DEV_CLIENT_PORT` / `KOLU_DEV_SERVER_PORT` let a second dev
+    // instance coexist with the canonical 5173/7681 pair (e.g. another
+    // working tree, an automated browser-MCP test run). Without the env
+    // vars, behavior is unchanged.
+    const serverPort = Number(process.env.KOLU_DEV_SERVER_PORT) || DEFAULT_PORT;
+    return {
+      port: Number(process.env.KOLU_DEV_CLIENT_PORT) || 5173,
+      // Prevent browser from caching dev assets — stale modules cause subtle bugs on refresh.
+      headers: { "Cache-Control": "no-store" },
+      proxy: {
+        "/api": `http://localhost:${serverPort}`,
+        "/manifest.webmanifest": `http://localhost:${serverPort}`,
+        "/rpc": {
+          target: `http://localhost:${serverPort}`,
+          ws: true,
+        },
       },
-    },
-  },
+    };
+  })(),
   define: {
     __KOLU_COMMIT__: JSON.stringify(commitHash),
     __XTERM_VERSION__: JSON.stringify(xtermVersion),
