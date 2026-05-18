@@ -33,7 +33,6 @@ Feature: Recent agents in command palette
     # start typing to filter agents.
     When I run "claude --dangerously-skip-permissions"
     And I open the command palette
-    And I select "Debug" in the palette
     And I select "Recent agents" in the palette
     Then the palette breadcrumb should show "Recent agents"
     And the palette search input should be focused

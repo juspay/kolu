@@ -152,12 +152,14 @@ Feature: Command Palette
     And the palette search input should be focused
     And there should be no page errors
 
-  Scenario: Drilling into Theme keeps focus on palette input
+  Scenario: Drilling into Set theme keeps focus on palette input
     # Same focus contract as body-group drill-ins: the group-kind sub-mode
     # must leave focus in the palette input.
-    When I open the command palette
-    And I select "Theme" in the palette
-    Then the palette breadcrumb should show "Theme"
+    When I open the app
+    And I create a terminal
+    And I open the command palette
+    And I select "Set theme" in the palette
+    Then the palette breadcrumb should show "Set theme"
     And the palette search input should be focused
     And there should be no page errors
 
