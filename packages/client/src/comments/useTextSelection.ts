@@ -226,6 +226,18 @@ export function useTextSelection(opts: UseTextSelectionOptions) {
       rects.length > 0
         ? rects[rects.length - 1]
         : lastRange.getBoundingClientRect();
+    // Clear BEFORE opening the composer. Order matters: if we open first,
+    // there's a tick where `captured` is still non-null AND
+    // `isComposing()` is true — a `selectionchange` arriving in that
+    // window short-circuits via the composing guard and never clears the
+    // captured signal, leaving the pill stuck on screen behind the
+    // composer.
+    setCaptured(null);
+    // Clear whichever selection actually holds the range — shadow-root
+    // selections are invisible to `window.getSelection()`, so calling
+    // removeAllRanges on the document selection silently no-ops.
+    const sel = getShadowAwareSelection(host);
+    sel?.removeAllRanges();
     composer.open({
       path,
       locator,
@@ -234,12 +246,6 @@ export function useTextSelection(opts: UseTextSelectionOptions) {
         ? { x: last.left, y: last.top, width: last.width, height: last.height }
         : { x: 0, y: 0, width: 0, height: 0 },
     });
-    setCaptured(null);
-    // Clear whichever selection actually holds the range — shadow-root
-    // selections are invisible to `window.getSelection()`, so calling
-    // removeAllRanges on the document selection silently no-ops.
-    const sel = getShadowAwareSelection(host);
-    sel?.removeAllRanges();
   };
 
   onMount(() => {
