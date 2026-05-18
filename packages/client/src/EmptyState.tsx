@@ -134,7 +134,9 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
                                       </span>
                                     )}
                                   </Show>
-                                  <span class="truncate">{terminalKey(t).label}</span>
+                                  <span class="truncate">
+                                    {terminalKey(t).label}
+                                  </span>
                                 </div>
                                 <Show
                                   when={

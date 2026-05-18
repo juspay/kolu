@@ -146,15 +146,25 @@ export function createRemoteHost(opts: RemoteHostOpts): Host {
   let child: ChildProcessWithoutNullStreams | null = null;
   let nextRequestId = 1;
   const pending = new Map<number, PendingRequest>();
-  /** Per-pty event listeners — registered by spawnPty, fired by the
-   *  stdin parser when an event for that ptyId arrives. */
-  const dataListeners = new Map<string, (e: HelperDataEvent) => void>();
-  const exitListeners = new Map<string, (e: HelperExitEvent) => void>();
+  /** Per-pty event listener pair + last-seen sequence number.
+   *  `lastSeq` is what we pass as `sinceSeq` to `attach` on reconnect
+   *  so the helper can replay only the events we missed. */
+  interface PtyReg {
+    onData(e: HelperDataEvent): void;
+    onExit(e: HelperExitEvent): void;
+    lastSeq: number;
+  }
+  const ptys = new Map<string, PtyReg>();
   let connectPromise: Promise<void> | null = null;
   /** Resolver for the in-flight `connect()` waiting on the helper's
    *  `ready` event. Set by `connect`, cleared by `dispatchFrame` on
    *  the first ready event. */
   let readyResolve: ((version: string) => void) | null = null;
+  /** True once the user has explicitly disposed the host (or every
+   *  PTY has been disposed). Reconnect attempts stop. */
+  let shuttingDown = false;
+  /** Backoff timer for the next reconnect attempt. */
+  let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
 
   function dispatchFrame(line: string, baseLog: Logger): void {
     const log = baseLog.child({ host: alias });
@@ -203,9 +213,17 @@ export function createRemoteHost(opts: RemoteHostOpts): Host {
       return;
     }
     if (event.method === "data") {
-      dataListeners.get(event.params.ptyId)?.(event);
+      const reg = ptys.get(event.params.ptyId);
+      if (reg) {
+        reg.lastSeq = event.params.seq;
+        reg.onData(event);
+      }
     } else if (event.method === "exit") {
-      exitListeners.get(event.params.ptyId)?.(event);
+      const reg = ptys.get(event.params.ptyId);
+      if (reg) {
+        reg.lastSeq = event.params.seq;
+        reg.onExit(event);
+      }
     }
   }
 
@@ -267,26 +285,42 @@ export function createRemoteHost(opts: RemoteHostOpts): Host {
     ssh.on("exit", (code, signal) => {
       log.info({ code, signal }, "ssh helper exited");
       child = null;
-      // Drop the cached connect promise too — otherwise `ensureConnected`
-      // sees a resolved promise on the next `spawnPty` call, awaits it
-      // happily, and then `sendRequest` fails on `!child`. Without this
-      // reset the RemoteHost is permanently dead after the first SSH
-      // exit instead of just "current PTYs torn down."
       connectPromise = null;
-      // Reject any in-flight requests so callers don't hang forever.
+      // Reject in-flight requests so the controller can give up; the
+      // PTY listeners stay registered so when the relay reconnects to
+      // the daemon and we `attach(sinceSeq)`, replayed events still
+      // reach the right xterm.
       for (const p of pending.values()) {
-        p.reject(new Error(`ssh helper for ${alias} exited`));
+        p.reject(new Error(`ssh helper for ${alias} disconnected`));
       }
       pending.clear();
-      // Synthesize exit events for every PTY so consumers tear down.
-      for (const [ptyId, listener] of exitListeners.entries()) {
-        listener({
-          method: "exit",
-          params: { ptyId, seq: Number.MAX_SAFE_INTEGER, exitCode: -1 },
-        });
+
+      // If there are no live PTYs nothing's worth reconnecting for —
+      // skip the auto-reconnect entirely so a host with no terminals
+      // doesn't spam ssh attempts forever.
+      if (shuttingDown || ptys.size === 0) {
+        for (const reg of ptys.values()) {
+          reg.onExit({
+            method: "exit",
+            params: { ptyId: "", seq: Number.MAX_SAFE_INTEGER, exitCode: -1 },
+          });
+        }
+        ptys.clear();
+        return;
       }
-      dataListeners.clear();
-      exitListeners.clear();
+
+      // Reconnect with a short backoff so a flapping ssh doesn't spin
+      // on the CPU. The daemon on the remote outlives the SSH session
+      // (its parent is detached + setsid'd), so reconnect lands back
+      // in the SAME process holding the SAME PTYs.
+      log.info({ pendingPtys: ptys.size }, "scheduling helper reconnect");
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = undefined;
+        if (shuttingDown) return;
+        void ensureConnected(log).catch((err) => {
+          log.warn({ err }, "reconnect attempt failed; will retry");
+        });
+      }, 1_000);
     });
 
     // Wait for the `ready` event (or stderr / exit) before resolving.
@@ -327,6 +361,21 @@ export function createRemoteHost(opts: RemoteHostOpts): Host {
       });
     });
     log.info({ helperVersion }, "helper ready");
+
+    // Reconnect catch-up: for every PTY we already knew about, ask the
+    // daemon to replay anything we missed since `lastSeq`. The daemon's
+    // per-PTY ring buffer streams those events back through
+    // `dispatchFrame` exactly the same way new output does, so the
+    // xterm pumping from `onData` lands the missed bytes contiguously
+    // with whatever was on screen before SSH dropped.
+    if (ptys.size > 0) {
+      log.info({ count: ptys.size }, "re-attaching PTYs after reconnect");
+      for (const [ptyId, reg] of ptys.entries()) {
+        sendRequest("attach", { ptyId, sinceSeq: reg.lastSeq }, log).catch(
+          (err) => log.warn({ err, ptyId }, "attach after reconnect failed"),
+        );
+      }
+    }
   }
 
   async function ensureConnected(log: Logger): Promise<void> {
@@ -398,17 +447,19 @@ export function createRemoteHost(opts: RemoteHostOpts): Host {
 
     const foregroundPoller = createForegroundPoller(ptyId, sendRequest, tlog);
 
-    // Track per-PTY high-water-mark sequence on every event we receive
-    // so a future reconnect-replay path can pass `sinceSeq` to the
-    // helper's `attach`. v0 does not wire the reconnect yet (SSH drop
-    // tears the helper down with it — see the file comment).
-    dataListeners.set(ptyId, (event) => {
-      headless.write(event.params.data);
-      spOpts.onData(event.params.data);
-    });
-    exitListeners.set(ptyId, (event) => {
-      cleanup();
-      spOpts.onExit(event.params.exitCode);
+    // Register the per-PTY listeners + initial sequence. `dispatchFrame`
+    // bumps `lastSeq` on every event so a future SSH reconnect can pass
+    // it as `sinceSeq` to `attach` and replay missed output transparently.
+    ptys.set(ptyId, {
+      lastSeq: 0,
+      onData: (event) => {
+        headless.write(event.params.data);
+        spOpts.onData(event.params.data);
+      },
+      onExit: (event) => {
+        cleanup();
+        spOpts.onExit(event.params.exitCode);
+      },
     });
 
     let disposed = false;
@@ -417,8 +468,7 @@ export function createRemoteHost(opts: RemoteHostOpts): Host {
       disposed = true;
       foregroundPoller.stop();
       parser.dispose();
-      dataListeners.delete(ptyId);
-      exitListeners.delete(ptyId);
+      ptys.delete(ptyId);
       headless.dispose();
     }
 
@@ -454,6 +504,11 @@ export function createRemoteHost(opts: RemoteHostOpts): Host {
   }
 
   async function shutdown(): Promise<void> {
+    shuttingDown = true;
+    if (reconnectTimer !== undefined) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = undefined;
+    }
     if (!child) return;
     try {
       child.stdin.end();
