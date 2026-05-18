@@ -775,17 +775,18 @@ Then(
   },
 );
 
-// ── Comments tray (#881) ──
+// ── Comments tray + composer + pill (#881) ──
 //
-// Only the empty-tray assertion ships in e2e today — the full capture
-// flow (selectionchange → pill → composer → tray → copy) requires
-// driving DOM selection inside Pierre's shadow DOM, which the harness
-// doesn't yet support. Pure-logic coverage lives in
-// `packages/artifact-sdk/src/core/findQuote.test.ts`,
+// Pure-logic coverage lives in `packages/artifact-sdk/src/core/findQuote.test.ts`,
 // `packages/artifact-sdk/src/server/inject.test.ts`, and
-// `packages/client/src/comments/formatMarkdown.test.ts`.
+// `packages/client/src/comments/formatMarkdown.test.ts`. The scenarios
+// below exercise the user-visible flow end-to-end: real text selection
+// inside Pierre's shadow DOM (via `shadowDfs` + `Selection.addRange`),
+// the floating pill, the composer popover, and the persisted tray.
 
 const COMMENTS_TRAY = '[data-testid="kolu-comments-tray"]';
+const COMMENT_PILL = '[data-testid="kolu-comment-pill"]';
+const COMMENT_COMPOSER = '[data-testid="kolu-comment-composer"]';
 
 Then(
   "the comments tray should not be visible",
@@ -795,3 +796,234 @@ Then(
       .waitFor({ state: "detached", timeout: POLL_TIMEOUT });
   },
 );
+
+Then("the comments tray should be visible", async function (this: KoluWorld) {
+  await this.page
+    .locator(COMMENTS_TRAY)
+    .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+});
+
+Then(
+  "the comments tray should contain {string}",
+  async function (this: KoluWorld, text: string) {
+    await this.page
+      .locator(COMMENTS_TRAY)
+      .getByText(text, { exact: false })
+      .first()
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+Then(
+  "the comments tray should not contain {string}",
+  async function (this: KoluWorld, text: string) {
+    // Poll until the text is absent from the tray. The tray may still
+    // be visible (other comments queued) but this specific text must
+    // be gone — string-template body (see selection step's rationale).
+    await this.page.waitForFunction(
+      `(() => {
+        const tray = document.querySelector('${COMMENTS_TRAY}');
+        if (!tray) return true;
+        return !(tray.textContent || "").includes(${JSON.stringify(text)});
+      })()`,
+      undefined,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+Then(
+  "the comments tray should have {int} comments",
+  async function (this: KoluWorld, count: number) {
+    await this.page.waitForFunction(
+      `(() => {
+        const tray = document.querySelector('${COMMENTS_TRAY}');
+        if (!tray) return ${count} === 0;
+        const items = tray.querySelectorAll('[data-testid="kolu-tray-item"]');
+        return items.length === ${count};
+      })()`,
+      undefined,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+// Drive a real text selection inside Pierre's shadow-rooted FileView.
+// Walks the shadow tree to find the first text node containing the
+// target, then uses Selection.addRange to set it. `selectionchange`
+// fires on document for shadow-DOM selections in Chromium; the
+// useTextSelection adapter's 80ms debounce then surfaces the pill.
+//
+// Polls until the text appears (Pierre's VirtualizedFile renders
+// asynchronously after the file-content stream delivers) — without
+// this, scenarios that don't pre-wait via a content-contains step
+// race the renderer.
+//
+// String-template body (not function-literal) because tsx/esbuild
+// inserts `__name(fn, "...")` calls when transpiling TS function
+// declarations, and `__name` isn't defined in the page context —
+// passing the body as a raw string avoids the transformation.
+When(
+  "I select text {string} in the file content",
+  async function (this: KoluWorld, target: string) {
+    await this.page.waitForFunction(
+      `(() => {
+        ${SHADOW_DFS_FN_SRC}
+        const view = document.querySelector('[data-testid="pierre-file-view"]');
+        if (!view) return false;
+        const target = ${JSON.stringify(target)};
+        let found = false;
+        shadowDfs(view, (n) => {
+          if (n.nodeType === 3 && (n.nodeValue || "").indexOf(target) !== -1) {
+            found = true;
+            return true;
+          }
+        });
+        return found;
+      })()`,
+      undefined,
+      { timeout: POLL_TIMEOUT },
+    );
+    const result = (await this.page.evaluate(
+      `(() => {
+        ${SHADOW_DFS_FN_SRC}
+        const view = document.querySelector('[data-testid="pierre-file-view"]');
+        if (!view) return { ok: false, reason: "no file view mounted" };
+        const target = ${JSON.stringify(target)};
+        let foundNode = null;
+        let foundOffset = -1;
+        shadowDfs(view, (n) => {
+          if (n.nodeType === 3) {
+            const txt = n.nodeValue || "";
+            const idx = txt.indexOf(target);
+            if (idx !== -1) { foundNode = n; foundOffset = idx; return true; }
+          }
+        });
+        if (!foundNode || foundOffset < 0) {
+          return { ok: false, reason: 'text "' + target + '" not in rendered view' };
+        }
+        const range = document.createRange();
+        range.setStart(foundNode, foundOffset);
+        range.setEnd(foundNode, foundOffset + target.length);
+        const sel = window.getSelection();
+        if (!sel) return { ok: false, reason: "no Selection API" };
+        sel.removeAllRanges();
+        sel.addRange(range);
+        document.dispatchEvent(new Event("selectionchange"));
+        return { ok: true };
+      })()`,
+    )) as { ok: boolean; reason?: string };
+    if (!result.ok) {
+      throw new Error(`Could not select text: ${result.reason}`);
+    }
+    await this.waitForFrame();
+  },
+);
+
+Then("the comment pill should be visible", async function (this: KoluWorld) {
+  await this.page
+    .locator(COMMENT_PILL)
+    .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+});
+
+Then(
+  "the comment pill should not be visible",
+  async function (this: KoluWorld) {
+    await this.page
+      .locator(COMMENT_PILL)
+      .waitFor({ state: "detached", timeout: POLL_TIMEOUT });
+  },
+);
+
+When("I click the comment pill", async function (this: KoluWorld) {
+  const pill = this.page.locator(COMMENT_PILL);
+  await pill.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  // The pill uses mousedown (not click) to keep the selection alive
+  // before the browser collapses it on focus. Drive the same event.
+  await pill.dispatchEvent("mousedown");
+  await this.waitForFrame();
+});
+
+Then(
+  "the comment composer should be visible",
+  async function (this: KoluWorld) {
+    await this.page
+      .locator(COMMENT_COMPOSER)
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+Then(
+  "the comment composer should not be visible",
+  async function (this: KoluWorld) {
+    await this.page
+      .locator(COMMENT_COMPOSER)
+      .waitFor({ state: "detached", timeout: POLL_TIMEOUT });
+  },
+);
+
+When(
+  "I type {string} into the comment composer",
+  async function (this: KoluWorld, body: string) {
+    const ta = this.page.locator(`${COMMENT_COMPOSER} textarea`);
+    await ta.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await ta.fill(body);
+    await this.waitForFrame();
+  },
+);
+
+When(
+  "I click the composer {string} button",
+  async function (this: KoluWorld, label: string) {
+    const btn = this.page.locator(COMMENT_COMPOSER).getByRole("button", {
+      name: label,
+    });
+    await btn.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await btn.first().click();
+    await this.waitForFrame();
+  },
+);
+
+When("I press Escape in the composer", async function (this: KoluWorld) {
+  const composer = this.page.locator(COMMENT_COMPOSER);
+  await composer.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  // Escape is handled on the composer div's onKeyDown — focus must be
+  // inside the composer for the handler to fire.
+  await this.page.locator(`${COMMENT_COMPOSER} textarea`).press("Escape");
+  await this.waitForFrame();
+});
+
+When(
+  "I click the comments tray {string} button",
+  async function (this: KoluWorld, label: string) {
+    const btn = this.page.locator(COMMENTS_TRAY).getByRole("button", {
+      name: label,
+    });
+    await btn.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await btn.first().click();
+    await this.waitForFrame();
+  },
+);
+
+When(
+  "I remove the tray comment containing {string}",
+  async function (this: KoluWorld, body: string) {
+    // Each tray item is `<li>` with a comment-body button and a
+    // per-item × remove button (aria-label "Remove comment on <path>").
+    // Match the item that contains the body text, then click its ×.
+    await this.page
+      .locator(COMMENTS_TRAY)
+      .locator(`li:has-text("${body}")`)
+      .first()
+      .getByRole("button", { name: /Remove comment/ })
+      .click();
+    await this.waitForFrame();
+  },
+);
+
+When("I reload the page", async function (this: KoluWorld) {
+  await this.page.reload();
+  // App boot + Code-tab mount + repoPath() resolution; the tests rely
+  // on the right panel staying open across reloads via persisted state.
+  await this.waitForFrame();
+});
