@@ -1,78 +1,102 @@
 ---
 name: ci
-description: Run local CI (`just ci`) and verify all steps passed. Use when building, testing across systems, checking commit statuses, retrying failed CI steps, or diagnosing CI failures. Triggers on "run CI", "check CI", "CI failed", "retry CI", "build and test".
+description: Run local CI (`CI=true nix run github:juspay/ci -- run`) and verify all `(recipe, platform)` nodes reported success. Use when building, testing across systems, checking commit statuses, retrying failed CI steps, or diagnosing CI failures. Triggers on "run CI", "check CI", "CI failed", "retry CI", "build and test".
 ---
 
 # CI
 
-Run `just ci` and verify every expected step reported success.
+Kolu's pipeline is defined in `ci/mod.just` and driven by [juspay/ci](https://github.com/juspay/ci). The binary translates the `just` recipe graph into a process-compose DAG, fans every reachable recipe out across the platforms in `~/.config/ci/hosts.json`, and posts a GitHub commit status per `(recipe, platform)` node.
 
 ## Running
 
-Run `just ci` via the **Monitor** tool with this filter so each finishing CI step becomes one event:
+Run in strict mode so the binary posts live commit statuses and pins to HEAD:
 
+```sh
+CI=true nix run github:juspay/ci -- run
 ```
-just ci 2>&1 | grep --line-buffered -oE 'context="ci/[^"]+" -f description="[^"]+"'
-```
 
-Each event corresponds to one GitHub status post by `just ci`. The `description` field encodes the step state:
+Pre-flight requirements (strict mode refuses otherwise):
 
-- `srid · running` → step started
-- `srid · Ns · <log path>` → step finished successfully
-- `srid · failed after Ns · <log path>` → step failed
+- Working tree is clean.
+- HEAD is pushed to the remote (GitHub status API needs the SHA).
+- `~/.config/ci/hosts.json` has entries for each non-local Nix system family declared on the root recipe.
 
-`just ci` is bound to the Monitor's lifetime — **stopping the monitor kills `just ci` mid-run**. Let it run to completion.
+The binary blocks until the pipeline finishes. Process-compose's per-node state transitions stream to its own log at `.ci/pc.log`; the binary's stdout carries the verdict summary printed at the end (one line per node with its final state).
 
-**Never read `just ci` stdout/stderr directly** (no `cat`, `tail`, `head`, `Read` on its output file). The combined stream is enormous and interleaves every parallel step, so it's not useful for diagnosis. The authoritative source is `.logs/<short-sha>/<step>@<system>.log` — one file per step, written by `just ci` itself. For diagnostics, read those files (the failing event's `description` carries the path).
+### Backgrounding
 
-> **Brittleness:** the regex depends on `just ci` literally invoking `gh api ... context="ci/X" -f description="..."` on stdout. If that internal format ever changes, Monitor will silently emit zero events. The cleaner long-term fix is a `just ci::events` wrapper recipe that owns the event format. If you refactor the just recipe's status posting, update this filter too.
+For long runs, spawn the binary via `Bash(run_in_background)` and poll GitHub statuses while it executes. The binary's exit code is authoritative — zero only if every node finished `Success`.
 
 ## Verification
 
-After `just ci` exits, confirm that **every expected context** reported success — not just that the ones which did report are green. Silence (a missing context) means the step never ran.
+Final exit code zero is necessary but not sufficient: cross-check every expected context posted a `success` status.
 
-1. Get the expected contexts: `just ci::_contexts` (one per line, e.g. `nix@x86_64-linux`).
+1. Get the expected contexts. The runner names each node `ci::<recipe>@<platform>`:
+
+   ```sh
+   nix run github:juspay/ci -- dump-yaml | grep -oE '^  ci::[^:]+:' | tr -d ':' | sort -u
+   ```
+
+   (Each `ci::<recipe>@<platform>` line in the dump-yaml output is one expected commit-status context.)
+
 2. Query posted statuses and cross-check:
 
-```bash
-export EXPECTED=$(just ci::_contexts | sed 's/^/ci\//')
-export POSTED=$(gh api "repos/<owner>/<repo>/statuses/<sha>" \
-  --jq '[.[] | select(.context | startswith("ci/"))] | group_by(.context) | map(max_by(.updated_at)) | .[] | "\(.context) \(.state)"')
+   ```bash
+   sha=$(git rev-parse HEAD)
+   posted=$(gh api "repos/juspay/kolu/statuses/$sha" \
+     --jq '[.[] | select(.context | startswith("ci::"))]
+           | group_by(.context) | map(max_by(.updated_at))
+           | .[] | "\(.context) \(.state)"')
 
-# Check for missing contexts (expected but never posted)
-echo "$EXPECTED" | while read ctx; do
-  echo "$POSTED" | grep -q "^$ctx " || echo "MISSING: $ctx"
-done
+   # Expected: ci::<recipe>@<platform> for each (recipe, platform) in the dump.
+   expected=$(nix run github:juspay/ci -- dump-yaml | grep -oE '^  ci::[^:]+' | sort -u)
 
-# Check for non-success contexts
-echo "$POSTED" | grep -v ' success$' || true
-```
+   # Missing: expected but not posted
+   echo "$expected" | while read ctx; do
+     echo "$posted" | grep -q "^$ctx " || echo "MISSING: $ctx"
+   done
 
-Both checks must pass: no `MISSING` lines and no non-success states. If any context is missing, the step was blocked before it could post — investigate why (see #471 for a prior example).
+   # Non-success
+   echo "$posted" | grep -v ' success$' || true
+   ```
+
+Both checks must pass: no `MISSING` lines and no non-success states. Silence (missing context) means the node never transitioned — investigate `.ci/pc.log`.
 
 ## On failure
 
-Read the log file (path is in the event's description) to diagnose.
+Each failed node's `description` field contains the path to its log. The path layout is:
+
+```
+.ci/<short-sha>/<platform>/<recipe>.log
+```
+
+Read that file to diagnose. Do **not** read the binary's stdout/stderr directly — the combined stream interleaves every parallel node.
 
 ## Retrying individual steps
 
-`just ci::<step>` (e.g., `just ci::e2e`). Single-step retries are short enough to run via `Bash(run_in_background)` — Monitor only pays off for full `just ci` runs.
+Single-recipe retries don't need the runner — invoke the just recipe directly:
+
+```sh
+just ci::<recipe>          # local platform, in the worktree
+```
+
+For a specific platform, run from a host that matches that platform (or SSH into one). The full runner is only needed when you want the multi-platform fanout + status posting.
 
 ## Flaky tests
 
 If a test fails once but passes on retry, post a comment on [issue #320](https://github.com/juspay/kolu/issues/320) capturing the failing scenario, platform, error excerpt, and the PR where it was observed. This keeps the flaky-test log current without manual curation.
 
-**IMPORTANT**: At least one platform must have e2e fully passed before the /do workflow is considered done.
+**IMPORTANT**: At least one platform must have `e2e` fully passed before the /do workflow is considered done.
 
 ## Reference
 
-`just ci` builds and tests across all systems. It:
+The pipeline root is `ci::default`, tagged `[linux] [macos] [parallel] [metadata("ci")]`. Its `depends_on` list is the full recipe graph; the runner replicates each one per platform.
 
-- Runs preflight checks (clean worktree, commit pushed)
-- Builds on x86_64-linux and aarch64-darwin in parallel
-- Posts GitHub commit statuses per step
-- Prints a summary table at the end
+Runtime artifacts live under `.ci/` (gitignored):
 
-Individual steps: `just ci::nix-toplevel`, `just ci::e2e`, etc.
-Target a specific system: `CI_SYSTEM=x86_64-linux just ci::e2e`
-Logs are saved to `.logs/<short-sha>/<step>@<system>.log`.
+- `.ci/pc.log` — process-compose's combined event log.
+- `.ci/pc.sock` — Unix domain socket the observer subscribes to.
+- `.ci/worktree/` — git worktree pinned to HEAD (strict mode only).
+- `.ci/<short-sha>/<platform>/<recipe>.log` — one log per node.
+
+Hosts are configured in `~/.config/ci/hosts.json`, keyed by full Nix system tuple. See `ci/README.md` for the schema and host-string conventions.

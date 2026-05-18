@@ -1,49 +1,34 @@
-# Kolu CI steps
+# Kolu CI pipeline — consumed by github:juspay/ci.
+#
+# The runner discovers the recipe tagged [metadata("ci")] (exactly one across
+# this justfile and its submodules), expands its reachable dependency subgraph,
+# and fans every (recipe × platform) pair out into a process-compose node.
+# Local platform runs against the worktree; non-local platforms ship a git
+# bundle over SSH to the host configured under that system tuple in
+# ~/.config/ci/hosts.json.
+#
+# Today every reachable recipe is replicated to every pipeline platform — the
+# per-recipe [linux]/[macos] filter is on the runner's roadmap. So a step
+# tagged [linux]-only would still be scheduled on macOS and fail there; keep
+# leaf recipes platform-neutral until that lands.
 
-import 'lib.just'
+# Re-enter nix devShell when the runner ssh's into a remote that doesn't have
+# the project's dev tools (jq/gh/pnpm/biome/…) on PATH. Skipped when already
+# inside the shell so local invocations stay cheap.
+nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop --accept-flake-config -c' }
 
-sha := `git rev-parse HEAD`
-repo := `git remote get-url origin | sed 's|.*github.com[:/]||;s|\.git$||'`
-system := env("CI_SYSTEM", `nix eval --raw --impure --expr builtins.currentSystem`)
-local_system := `nix eval --raw --impure --expr builtins.currentSystem`
-root := `git rev-parse --show-toplevel`
-systems := "x86_64-linux aarch64-darwin"
-
-# Re-enter nix devShell if the caller isn't already in one, so recipes
-# have jq/gh/etc. on PATH even when invoked outside direnv.
-nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop ' + justfile_directory() + ' --accept-flake-config -c' }
-
-default:
-    {{ nix_shell }} just ci::_default
-
-_default: _preflight _run-all
-    just ci::_summary
-
+# Pipeline root: every recipe listed here becomes a (recipe × platform) node.
+# Body is empty — the runner expands `depends_on` from this DAG and executes
+# each leaf via `just --no-deps <recipe>`. `just ci` (without the runner) still
+# works for single-platform local runs via the [parallel] expansion.
+[linux]
+[macos]
 [parallel]
-_run-all: _local _linux _darwin
+[metadata("ci")]
+default: nix home-manager e2e smoke fmt typecheck biome unit surface-example-build pnpm-hash-fresh
 
-# Each lane swallows failures (|| true) so all steps run and post
-# their own GitHub status — _summary reads those statuses to decide
-# the final pass/fail.
-_local:
-    CI_SYSTEM=x86_64-linux just ci::fmt ci::typecheck ci::biome ci::unit ci::surface-example-build || true
-
-_linux:
-    CI_SYSTEM=x86_64-linux just ci::pnpm-hash-fresh ci::nix ci::_linux-fanout || true
-
-# Runs post-nix steps in parallel. Within the same just process, their
-# `: nix` deps are already satisfied, so nix is not rebuilt.
-[parallel]
-_linux-fanout: home-manager e2e smoke
-
-[parallel]
-_darwin-fanout: home-manager e2e smoke
-
-_darwin:
-    CI_SYSTEM=aarch64-darwin just ci::nix ci::_darwin-fanout || true
-
-# Verify the declared pnpmDeps hashes match what fetchPnpmDeps produces
-# from the current pnpm-lock.yaml files. Covers both the main kolu lockfile
+# Verify the declared pnpmDeps hashes match what fetchPnpmDeps produces from
+# the current pnpm-lock.yaml files. Covers both the main kolu lockfile
 # (./pnpm-lock.yaml → .#pnpmDeps) and the website lockfile
 # (./website/pnpm-lock.yaml → .#website-pnpm-deps).
 #
@@ -54,45 +39,44 @@ _darwin:
 # compares, so a stale cached artifact at the declared hash (local store
 # or cache.nixos.asia) can't silently satisfy a hash that no longer
 # matches the lockfile.
-#
-# Runs on one system — hashes are platform-independent (pnpm install --force
-# bypasses os/cpu/libc gating, see default.nix pnpmDeps comment).
 pnpm-hash-fresh:
-    just ci::_run pnpm-hash-fresh "sh -c 'nix build .#pnpmDeps .#website-pnpm-deps --no-link && nix build --rebuild .#pnpmDeps .#website-pnpm-deps --no-link'"
+    nix build .#pnpmDeps .#website-pnpm-deps --no-link
+    nix build --rebuild .#pnpmDeps .#website-pnpm-deps --no-link
 
+# Build all flake outputs via devour-flake.
 nix:
-    just ci::_devour-flake nix --override-input flake .
+    nix build github:srid/devour-flake -L --no-link --print-out-paths --override-input flake .
 
 home-manager: nix
-    just ci::_devour-flake home-manager --override-input flake ./nix/home/example --override-input flake/kolu .
+    nix build github:srid/devour-flake -L --no-link --print-out-paths --override-input flake ./nix/home/example --override-input flake/kolu .
 
 typecheck:
-    just ci::_run typecheck just check
+    {{ nix_shell }} just check
 
 e2e: nix
-    just ci::_run e2e just test
+    {{ nix_shell }} just test
 
 # Boot the packaged Kolu and verify /api/health — runtime smoke that catches
 # packaging regressions where `nix build` passes but the binary crashes at
 # boot (e.g. missing workspace dep — see #761).
 smoke: nix
-    just ci::_run smoke just smoke
+    {{ nix_shell }} just smoke
 
-# Run vitest unit tests (server + client)
+# Run vitest unit tests (server + client).
 unit:
-    just ci::_run unit just test-unit
+    {{ nix_shell }} just test-unit
 
 # Build the @kolu/surface framework's example app (vite client + tsc on
 # server). Catches example-only regressions that the workspace-wide
 # typecheck doesn't see — broken Tailwind imports, JSX errors, missing
 # imports in the production bundle. Cheap (~1s).
 surface-example-build:
-    just ci::_run surface-example-build "sh -c 'pnpm install --frozen-lockfile && pnpm --filter @kolu/surface-example build:client'"
+    {{ nix_shell }} sh -c 'pnpm install --frozen-lockfile && pnpm --filter @kolu/surface-example build:client'
 
 fmt:
-    just ci::_run fmt just fmt-check
+    {{ nix_shell }} just fmt-check
 
 # Biome lint — recommended preset with each currently-noisy rule explicitly
 # off in biome.jsonc. Each disabled rule has a follow-up PR slot (#710).
 biome:
-    just ci::_run biome "biome lint ."
+    {{ nix_shell }} biome lint .

@@ -1,103 +1,75 @@
-# ci/ — local CI via just + gh + ssh
+# ci/ — Kolu's CI pipeline definition
 
-A reusable CI library that builds across multiple Nix systems, posts GitHub commit statuses, and prints a summary table. No external CI tool needed — just `just`, `gh`, and `ssh`.
+The pipeline itself is defined in [`mod.just`](./mod.just) and driven by [juspay/ci](https://github.com/juspay/ci) — a Haskell binary that translates a `just` recipe graph into a [process-compose](https://f1bonacc1.github.io/process-compose/) DAG, fans it out across target platforms, and posts a GitHub commit status per node.
 
-## How it works
-
-`ci/lib.just` is the reusable library. `ci/mod.just` is the project-specific configuration that imports it.
-
-```
-justfile          →  mod ci 'ci/mod.just'
-ci/mod.just       →  import 'lib.just'    (variables + project steps)
-ci/lib.just       →  reusable infra       (signoff, guard, ssh, prefix, summary)
-```
-
-### What the library provides
-
-- **`_preflight`** — asserts clean worktree, commit pushed to remote, resolves SSH hosts
-- **`_guard`** — re-checks worktree/HEAD per step (catches mid-run dirtying)
-- **`_run name +cmd`** — runs a command locally or via SSH, with colored prefixed output, GitHub status lifecycle (pending → success/failure), and timing
-- **`_host`** — prompts for the SSH command on first use, caches in `~/.config/ci-hosts.json`. The stored value is the full command prefix used to reach the remote (e.g. `ssh srid1` or `pu connect srid1` for an SSH proxy into an Incus cluster). A bare hostname is interpreted as `ssh <hostname>` for backward compatibility.
-- **`_devour-flake name +args`** — wraps `_run` for `nix build` via [devour-flake](https://github.com/srid/devour-flake)
-- **`_contexts`** — auto-derives all `step@system` pairs from the justfile structure
-- **`_summary`** — prints a pass/fail table by querying GitHub statuses for the known contexts
-- **`protect`** — sets GitHub branch protection requiring all CI contexts (auto-derived, no prior CI run needed)
-
-### Local vs remote execution
-
-If `CI_SYSTEM` matches the local system, commands run directly (prefixed with `~`). Otherwise, the repo is `git bundle`-d over the configured SSH command to the remote host and commands run there (prefixed with `>`). The full `.git` is sent so nix can read git revision info. Any ssh-equivalent transport works — `ssh`, `pu connect` (Incus cluster proxy), etc.
-
-### Parallel execution
-
-Systems run in parallel via just's `[parallel]` attribute. Within each system, steps run sequentially respecting recipe dependencies.
-
-## Usage in your project
-
-### 1. Create `ci/lib.just`
-
-Copy `lib.just` from this project.
-
-### 2. Create `ci/mod.just`
-
-```just
-import 'lib.just'
-
-sha := `git rev-parse HEAD`
-repo := `git remote get-url origin | sed 's|.*github.com[:/]||;s|\.git$||'`
-system := env("CI_SYSTEM", `nix eval --raw --impure --expr builtins.currentSystem`)
-local_system := `nix eval --raw --impure --expr builtins.currentSystem`
-root := `git rev-parse --show-toplevel`
-systems := "x86_64-linux aarch64-darwin"
-
-[parallel]
-default: _linux _darwin
-
-_linux: _preflight
-    CI_SYSTEM=x86_64-linux just ci::build ci::test || true
-
-_darwin: _preflight
-    CI_SYSTEM=aarch64-darwin just ci::build || true
-
-build:
-    just ci::_run build nix build .
-
-test: build
-    just ci::_run test just test
-```
-
-### 3. Add to your justfile
-
-```just
-mod ci 'ci/mod.just'
-```
-
-### 4. Run
+## Running it
 
 ```sh
-just ci              # run all steps on all systems
-just ci::protect     # set branch protection requiring CI
-just ci::_contexts   # list all step@system pairs
-just ci::_summary    # show current status table
+# Multi-platform fanout (Linux + macOS), live commit statuses, strict mode.
+CI=true nix run github:juspay/ci/feat-platform-fanout-and-ssh -- run
+
+# Single-platform local run (no statuses, no remote SSH) — just the local lane
+# via just's [parallel] expansion of the root recipe.
+just ci
+
+# Individual recipes (no orchestration, runs in the local worktree).
+just ci::nix
+just ci::e2e
+
+# Inspect the assembled process-compose YAML without side effects.
+nix run github:juspay/ci/feat-platform-fanout-and-ssh -- dump-yaml
 ```
 
-### Contract
+## How the runner picks platforms
 
-The library expects these variables from the importer:
+The root recipe is `ci::default`, tagged `[linux] [macos] [metadata("ci")]`. The runner intersects those OS families with `~/.config/ci/hosts.json`:
 
-| Variable       | Description                                      |
-| -------------- | ------------------------------------------------ |
-| `sha`          | Git commit SHA to test                           |
-| `repo`         | GitHub `owner/repo`                              |
-| `system`       | Current nix system (overridable via `CI_SYSTEM`) |
-| `local_system` | The machine's native nix system                  |
-| `root`         | Git repo root path                               |
-| `systems`      | Space-separated list of all target systems       |
+```json
+{
+  "x86_64-linux": "srid1",
+  "aarch64-darwin": "sincereintent"
+}
+```
 
-### Log capture
+Keys are full Nix system tuples. Values are anything `ssh` can dial — bare hostname, `user@host`, or an `~/.ssh/config` alias. An entry for the *local* system takes precedence over inline execution, so the same machine can offload its native lane to a dedicated builder (e.g. an Incus container reached via an ssh-config alias).
 
-Each `_run` step captures raw output to `.logs/<short-sha>/<step>@<system>.log`. The log path is included in the GitHub status description. Logs are gitignored and persist locally across runs (one directory per commit).
+Systems without entries are silently dropped. To opt in to a platform, add it to the file.
 
-## Not yet implemented
+## How a remote lane runs
 
-- **Nix cache push** — push built paths to a binary cache after successful builds
-- **Load balancing** — pick least loaded from N remote builders to build a system
+Per-platform setup nodes ship the target `just` derivation (via `nix-store --export | ssh <host> nix-store --import`) and a `git bundle` of `HEAD` to each remote *once per run*, into a SHA-keyed cache under `~/.cache/ci/`. Every recipe node on that platform `depends_on` the setup node and reuses the cached checkout. Same-SHA reruns skip the bundle+clone entirely.
+
+Remote recipes run as `just --no-deps <recipe>` against the cached checkout. The remote needs `nix`, `git`, and any tools the recipes themselves use — but **not** `just` itself; the runner ships the derivation.
+
+## Runtime artifacts
+
+All under `$PWD/.ci/` (gitignored):
+
+| Path | Contents |
+| --- | --- |
+| `.ci/pc.log` | process-compose's combined event log |
+| `.ci/pc.sock` | Unix domain socket the central observer subscribes to |
+| `.ci/worktree/` | git worktree pinned to HEAD (strict mode only) |
+| `.ci/<short-sha>/<platform>/<recipe>.log` | one log file per node |
+
+The GitHub status `description` embeds the log path — a red check links straight to the failing log.
+
+## Modes
+
+| Mode | Trigger | Working tree | Status posts |
+| --- | --- | --- | --- |
+| Local | `CI` unset | live worktree | none |
+| Strict | `CI=true` | git worktree pinned to HEAD | per state transition (`pending` → `success`/`failure`) |
+
+Strict mode refuses to run on a dirty tree — the SHA on the green check must match the bytes tested.
+
+## Adding a step
+
+1. Add a leaf recipe to `mod.just` (platform-neutral — every recipe runs on every pipeline platform until the per-recipe OS filter lands upstream).
+2. Add the recipe name to `default`'s dependency list.
+3. The next pipeline run will emit `ci::<recipe>@<platform>` status checks; add them to branch protection if they should gate merges.
+
+## Files
+
+- [`mod.just`](./mod.just) — pipeline definition.
+- [`smoke.sh`](./smoke.sh) — runtime smoke test invoked by `just smoke` / `ci::smoke`. Boots the packaged Kolu and hits `/api/health`.
