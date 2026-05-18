@@ -128,6 +128,16 @@ export function useTerminalCrud(deps: {
       (peerBgs
         ? pickTheme(availableThemes, { spread: true, peerBgs })
         : undefined);
+    // Remote terminals can take a while on first connect (SSH handshake
+    // + helper download/build via `nix run` on the remote). Show a
+    // loading toast so the click feels like it landed; resolve to a
+    // success/error update on the same id so the toast doesn't pile up.
+    // Local terminals spawn synchronously enough that a loading toast
+    // would just flash — skip it.
+    const loadingId =
+      hostId !== undefined
+        ? toast.loading(`Connecting to ${hostId}…`, { duration: Infinity })
+        : null;
     const info = await client.terminal
       .create({
         cwd,
@@ -137,8 +147,16 @@ export function useTerminalCrud(deps: {
         lastActivityAt: initial?.lastActivityAt,
         hostId,
       })
+      .then((result) => {
+        if (loadingId !== null) {
+          toast.success(`Connected to ${hostId}`, { id: loadingId });
+        }
+        return result;
+      })
       .catch((err: Error) => {
-        toast.error(`Failed to create terminal: ${err.message}`);
+        const msg = `Failed to create terminal: ${err.message}`;
+        if (loadingId !== null) toast.error(msg, { id: loadingId });
+        else toast.error(msg);
         throw err;
       });
     // `setActiveSilently`: the canvas's cascade-placement effect bumps

@@ -52,7 +52,6 @@ import type { Logger } from "../log.ts";
 import { attachOscParser } from "../osc-parser.ts";
 import type { PtyHandle } from "../pty.ts";
 import { getScreenText } from "../pty.ts";
-import { cleanEnv } from "../shell.ts";
 import type { Host, SpawnPtyOpts } from "./types.ts";
 
 const require = createRequire(import.meta.url);
@@ -154,7 +153,8 @@ export function createRemoteHost(opts: RemoteHostOpts): Host {
    *  the first ready event. */
   let readyResolve: ((version: string) => void) | null = null;
 
-  function dispatchFrame(line: string, log: Logger): void {
+  function dispatchFrame(line: string, baseLog: Logger): void {
+    const log = baseLog.child({ host: alias });
     if (line.trim().length === 0) return;
     let parsed: unknown;
     try {
@@ -209,8 +209,9 @@ export function createRemoteHost(opts: RemoteHostOpts): Host {
   function sendRequest<T>(
     method: string,
     params: unknown,
-    log: Logger,
+    baseLog: Logger,
   ): Promise<T> {
+    const log = baseLog.child({ host: alias });
     if (!child) {
       return Promise.reject(new Error(`remote host ${alias}: not connected`));
     }
@@ -234,11 +235,12 @@ export function createRemoteHost(opts: RemoteHostOpts): Host {
     return promise;
   }
 
-  async function connect(log: Logger): Promise<void> {
+  async function connect(baseLog: Logger): Promise<void> {
     if (child) return;
+    const log = baseLog.child({ host: alias });
 
     const remoteCmd = helperRemoteCmd ?? DEFAULT_HELPER_REMOTE_CMD;
-    log.info({ alias, remoteCmd }, "spawning ssh helper");
+    log.info({ remoteCmd }, "spawning ssh helper");
     const ssh = spawn("ssh", [alias, remoteCmd], {
       stdio: ["pipe", "pipe", "pipe"],
     });
@@ -317,7 +319,7 @@ export function createRemoteHost(opts: RemoteHostOpts): Host {
         );
       });
     });
-    log.info({ alias, helperVersion }, "helper ready");
+    log.info({ helperVersion }, "helper ready");
   }
 
   async function ensureConnected(log: Logger): Promise<void> {
@@ -331,23 +333,21 @@ export function createRemoteHost(opts: RemoteHostOpts): Host {
   }
 
   async function spawnPty(
-    tlog: Logger,
+    baseTlog: Logger,
     spOpts: SpawnPtyOpts,
   ): Promise<PtyHandle> {
+    const tlog = baseTlog.child({ host: alias });
     await ensureConnected(tlog);
 
     // Remote shell: we don't run the wrapper-rc dance (the talk-mode
     // plan ships v0 with bash-only and no kolu OSC injection on remote).
-    // Let SSH's invocation of the remote shell handle its own dotfiles.
-    // OSC 7 will not fire from the remote shell, so `currentCwd` stays
-    // at the initial cwd we asked for. Remote agent detection is
-    // deferred to a follow-up that wires the wrapper rc through the
-    // helper (see plan; `prepareShellInit` in shell.ts is the local
-    // equivalent).
-    const remoteEnv = {
-      PATH:
-        cleanEnv().PATH ??
-        "/run/current-system/sw/bin:/usr/bin:/bin:/usr/local/bin",
+    // The helper merges this overlay on top of its own process.env, so
+    // the remote shell inherits the SSH user's normal PATH/HOME/USER
+    // from their login shell. Sending kolu's LOCAL env (e.g. PATH full
+    // of `/nix/store/...` paths) would brick the remote bash — it had
+    // no working binaries on its PATH and exited immediately. Keep
+    // this overlay minimal; the helper supplies the rest.
+    const remoteEnvOverlay = {
       TERM: "xterm-256color",
     };
     const result = await sendRequest<{ ptyId: string; pid: number }>(
@@ -355,15 +355,16 @@ export function createRemoteHost(opts: RemoteHostOpts): Host {
       {
         shell: "/bin/bash",
         args: ["--login"],
-        cwd: spOpts.cwd ?? "/",
+        // Empty cwd ⇒ let the helper default to the remote user's HOME.
+        cwd: spOpts.cwd ?? "",
         cols: DEFAULT_COLS,
         rows: DEFAULT_ROWS,
-        env: remoteEnv,
+        env: remoteEnvOverlay,
       },
       tlog,
     );
     const { ptyId, pid } = result;
-    tlog.info({ ptyId, pid, alias }, "remote pty spawned");
+    tlog.info({ ptyId, pid }, "remote pty spawned");
 
     // Kolu-side OSC parser. Mirrors `pty.ts:124-198`.
     const headless = new Terminal({

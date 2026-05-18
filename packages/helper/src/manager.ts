@@ -97,12 +97,22 @@ export function createManager(emit: (event: HelperPtyEvent) => void): Manager {
     env: Record<string, string>;
   }): { ptyId: string; pid: number } {
     const ptyId = randomUUID();
+    // Inherit the helper's own process.env (PATH, HOME, USER, etc. as
+    // configured by the remote login shell that started the helper),
+    // then layer the controller's overlay on top. Without this, kolu's
+    // LOCAL nix-store PATH would be sent through and the spawned bash
+    // would have no working binaries on the remote.
+    const env = { ...process.env, ...opts.env } as Record<string, string>;
+    // Empty cwd ⇒ start in the helper user's HOME. node-pty interprets
+    // "" as the literal empty path and fails; substituting HOME matches
+    // what the user would get if they `ssh <host>` interactively.
+    const cwd = opts.cwd || env.HOME || "/";
     const proc = ptyLib.spawn(opts.shell, opts.args, {
       name: "xterm-256color",
       cols: opts.cols,
       rows: opts.rows,
-      cwd: opts.cwd,
-      env: opts.env,
+      cwd,
+      env,
     });
 
     const entry: PtyEntry = {

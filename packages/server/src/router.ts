@@ -57,19 +57,32 @@ export const appRouter = t.router({
     list: t.host.list.handler(async () => listHosts()),
   },
   terminal: {
-    create: t.terminal.create.handler(async ({ input }) =>
-      createTerminal(
-        input.cwd,
-        input.parentId,
-        {
-          themeName: input.themeName,
-          canvasLayout: input.canvasLayout,
-          subPanel: input.subPanel,
-          lastActivityAt: input.lastActivityAt,
-        },
-        input.hostId,
-      ),
-    ),
+    create: t.terminal.create.handler(async ({ input }) => {
+      try {
+        return await createTerminal(
+          input.cwd,
+          input.parentId,
+          {
+            themeName: input.themeName,
+            canvasLayout: input.canvasLayout,
+            subPanel: input.subPanel,
+            lastActivityAt: input.lastActivityAt,
+          },
+          input.hostId,
+        );
+      } catch (err) {
+        // Without this rethrow, any error coming out of `createTerminal`
+        // (failed SSH connect, helper crash before ready, unknown
+        // hostId) is wrapped by oRPC into an opaque "Internal server
+        // error" — the actual reason is lost before it ever reaches
+        // the client toast. Surface it as a BAD_REQUEST with the
+        // original message preserved.
+        throw new ORPCError("BAD_REQUEST", {
+          message: err instanceof Error ? err.message : String(err),
+          cause: err,
+        });
+      }
+    }),
 
     resize: t.terminal.resize.handler(async ({ input }) => {
       requireTerminal(input.id).handle.resize(input.cols, input.rows);
