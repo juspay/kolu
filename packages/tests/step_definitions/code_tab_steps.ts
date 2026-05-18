@@ -848,24 +848,27 @@ Then(
   },
 );
 
-// Drive a real text selection inside Pierre's shadow-rooted FileView.
-// Walks the shadow tree to find the first text node containing the
-// target, then uses Selection.addRange to set it. `selectionchange`
-// fires on document for shadow-DOM selections in Chromium; the
-// useTextSelection adapter's 80ms debounce then surfaces the pill.
+// Drive a REAL mouse drag to select text — same code path a user hits,
+// not a synthetic `Selection.addRange`. The earlier synthetic step
+// pretended to work but bypassed `window.getSelection()` shadow-DOM
+// invisibility (per spec, document.getSelection cannot see selections
+// whose anchor/focus is inside a shadow tree — `ShadowRoot.getSelection()`
+// is the Chrome-specific escape hatch). A test that doesn't fire real
+// pointer events doesn't test what the user actually does.
 //
-// Polls until the text appears (Pierre's VirtualizedFile renders
-// asynchronously after the file-content stream delivers) — without
-// this, scenarios that don't pre-wait via a content-contains step
-// race the renderer.
-//
-// String-template body (not function-literal) because tsx/esbuild
-// inserts `__name(fn, "...")` calls when transpiling TS function
-// declarations, and `__name` isn't defined in the page context —
-// passing the body as a raw string avoids the transformation.
+// Algorithm:
+//   1. Poll Pierre's shadow tree (via `shadowDfs`) until a text node
+//      containing the target appears.
+//   2. Locate the target's bounding-rect ENDPOINTS by creating a Range
+//      in the page and asking `getClientRects()` — this is read-only
+//      shadow-DOM peeking, not a user-facing selection set.
+//   3. Drive `page.mouse.move/down/move/up` across those rect
+//      coordinates so the browser fires the same pointer + selection
+//      events it does for a real drag.
 When(
   "I select text {string} in the file content",
   async function (this: KoluWorld, target: string) {
+    // (1) Wait for the target to be present in the rendered shadow DOM.
     await this.page.waitForFunction(
       `(() => {
         ${SHADOW_DFS_FN_SRC}
@@ -884,11 +887,15 @@ When(
       undefined,
       { timeout: POLL_TIMEOUT },
     );
-    const result = (await this.page.evaluate(
+
+    // (2) Get the bounding rect of the target's range in viewport coords.
+    //     The Range itself is throwaway — used only to compute pixel
+    //     coordinates for the mouse drag.
+    const rect = (await this.page.evaluate(
       `(() => {
         ${SHADOW_DFS_FN_SRC}
         const view = document.querySelector('[data-testid="pierre-file-view"]');
-        if (!view) return { ok: false, reason: "no file view mounted" };
+        if (!view) return null;
         const target = ${JSON.stringify(target)};
         let foundNode = null;
         let foundOffset = -1;
@@ -899,23 +906,38 @@ When(
             if (idx !== -1) { foundNode = n; foundOffset = idx; return true; }
           }
         });
-        if (!foundNode || foundOffset < 0) {
-          return { ok: false, reason: 'text "' + target + '" not in rendered view' };
-        }
+        if (!foundNode || foundOffset < 0) return null;
         const range = document.createRange();
         range.setStart(foundNode, foundOffset);
         range.setEnd(foundNode, foundOffset + target.length);
-        const sel = window.getSelection();
-        if (!sel) return { ok: false, reason: "no Selection API" };
-        sel.removeAllRanges();
-        sel.addRange(range);
-        document.dispatchEvent(new Event("selectionchange"));
-        return { ok: true };
+        const rects = range.getClientRects();
+        const first = rects[0];
+        const last = rects[rects.length - 1];
+        if (!first || !last) return null;
+        return {
+          startX: first.left,
+          startY: first.top + first.height / 2,
+          endX: last.right,
+          endY: last.top + last.height / 2,
+        };
       })()`,
-    )) as { ok: boolean; reason?: string };
-    if (!result.ok) {
-      throw new Error(`Could not select text: ${result.reason}`);
+    )) as { startX: number; startY: number; endX: number; endY: number } | null;
+    if (!rect) {
+      throw new Error(`Could not locate "${target}" in Pierre's rendered DOM`);
     }
+
+    // (3) Drag from the start of the target to the end. Three move steps
+    //     keep the browser's selection model awake for short ranges;
+    //     a single `move + down + up` sometimes collapses on Chromium.
+    await this.page.mouse.move(rect.startX, rect.startY);
+    await this.page.mouse.down();
+    await this.page.mouse.move(
+      (rect.startX + rect.endX) / 2,
+      (rect.startY + rect.endY) / 2,
+      { steps: 3 },
+    );
+    await this.page.mouse.move(rect.endX, rect.endY, { steps: 3 });
+    await this.page.mouse.up();
     await this.waitForFrame();
   },
 );

@@ -58,6 +58,39 @@ function nodeInside(host: HTMLElement, node: Node | null): boolean {
   return false;
 }
 
+/** Read the active text selection, looking through any open shadow roots
+ *  descending from `host`. `window.getSelection()` cannot return
+ *  selections whose anchor/focus is inside a shadow tree (per spec);
+ *  `ShadowRoot.getSelection()` is Chrome's escape hatch for that case.
+ *  Pierre's `FileView` and `FileDiff` both render into a
+ *  `<diffs-container>` custom element whose `attachShadow({mode: "open"})`
+ *  is the user-visible text — so without this walk, real user drags
+ *  inside Pierre look "empty" to `window.getSelection()` and the pill
+ *  never appears.
+ *
+ *  Returns the first non-collapsed selection found inside the host, or
+ *  the document selection as a fallback (covers non-shadow surfaces and
+ *  browsers without the Chrome-specific shadow API). */
+function getShadowAwareSelection(host: HTMLElement): Selection | null {
+  const stack: Element[] = [host];
+  while (stack.length > 0) {
+    const el = stack.pop();
+    if (!el) continue;
+    const sr = (el as Element & { shadowRoot?: ShadowRoot | null }).shadowRoot;
+    if (sr) {
+      const getSel = (sr as ShadowRoot & { getSelection?: () => Selection })
+        .getSelection;
+      const inShadow = typeof getSel === "function" ? getSel.call(sr) : null;
+      if (inShadow && inShadow.rangeCount > 0 && !inShadow.isCollapsed) {
+        return inShadow;
+      }
+      for (const child of Array.from(sr.children)) stack.push(child);
+    }
+    for (const child of Array.from(el.children)) stack.push(child);
+  }
+  return window.getSelection();
+}
+
 export function useTextSelection(opts: UseTextSelectionOptions) {
   const composer = useComposer();
   const [captured, setCaptured] = createSignal<SelectionCaptured | null>(null);
@@ -71,7 +104,7 @@ export function useTextSelection(opts: UseTextSelectionOptions) {
       return;
     }
     if (composer.isComposing()) return; // draft wins; ignore new selections
-    const sel = window.getSelection();
+    const sel = getShadowAwareSelection(host);
     if (!sel || sel.rangeCount === 0 || sel.isCollapsed) {
       lastRange = null;
       setCaptured(null);
@@ -152,7 +185,11 @@ export function useTextSelection(opts: UseTextSelectionOptions) {
         : { x: 0, y: 0, width: 0, height: 0 },
     });
     setCaptured(null);
-    window.getSelection()?.removeAllRanges();
+    // Clear whichever selection actually holds the range — shadow-root
+    // selections are invisible to `window.getSelection()`, so calling
+    // removeAllRanges on the document selection silently no-ops.
+    const sel = getShadowAwareSelection(host);
+    sel?.removeAllRanges();
   };
 
   onMount(() => {
