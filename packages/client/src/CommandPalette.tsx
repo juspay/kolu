@@ -438,12 +438,17 @@ const CommandPalette: Component<{
               (c): c is DrillableKind => isDrillable(c) && c.name === initial,
             );
           if (group) drillInto(group);
+        } else {
+          // forceMount keeps the dialog in the DOM, so Corvu's initialFocusEl
+          // only fires on first mount. Re-focus explicitly on every root open.
+          // When `initial` is set, `drillInto()` is the sole focus owner — its
+          // rAF would otherwise race this double-rAF, and for a value-kind
+          // initial group the unconditional .focus() would clobber the
+          // .select() drillInto() scheduled.
+          requestAnimationFrame(() =>
+            requestAnimationFrame(() => inputRef.focus()),
+          );
         }
-        // forceMount keeps the dialog in the DOM, so Corvu's initialFocusEl
-        // only fires on first mount. Re-focus explicitly on every open.
-        requestAnimationFrame(() =>
-          requestAnimationFrame(() => inputRef.focus()),
-        );
       } else {
         if (!closingForSelection()) {
           for (const g of path()) g.onCancel?.();
