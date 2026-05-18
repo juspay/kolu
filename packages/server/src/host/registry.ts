@@ -9,6 +9,7 @@
  * SIGHUP is a v1 nicety.
  */
 
+import type { HostSummary } from "kolu-common/contract";
 import { log } from "../log.ts";
 import { createLocalHost, LOCAL_HOST_ID } from "./local.ts";
 import { createRemoteHost } from "./remote.ts";
@@ -17,11 +18,7 @@ import type { Host } from "./types.ts";
 
 const hosts = new Map<string, Host>();
 
-export interface HostSummary {
-  id: string;
-  label: string;
-  kind: "local" | "remote-ssh";
-}
+export type { HostSummary };
 
 /** Initialize the host registry. Idempotent — repeated calls reinitialize
  *  from the current SSH config. Returns the discovered host summaries. */
