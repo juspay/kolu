@@ -12,8 +12,11 @@
 import {
   applyHighlights,
   COMMENT_HIGHLIGHT_STYLE_THEMED,
+  findQuote,
+  rangeFromOffsets,
 } from "@kolu/artifact-sdk/client";
 import { type Accessor, createEffect, onCleanup } from "solid-js";
+import { useCommentScrollRequest } from "./composerState";
 import type { Comment } from "./types";
 
 const HIGHLIGHT_NAME = "kolu-comment";
@@ -57,6 +60,7 @@ export interface OverlayOptions {
 export function useHighlightOverlay(opts: OverlayOptions): void {
   if (!window.CSS?.highlights || !window.Highlight) return; // unsupported
   ensureStyle();
+  const scroll = useCommentScrollRequest();
 
   createEffect(() => {
     const host = opts.host();
@@ -65,6 +69,42 @@ export function useHighlightOverlay(opts: OverlayOptions): void {
     if (!host) return;
     const root = findHostRoot(host);
     applyHighlights(window, root, comments, HIGHLIGHT_NAME);
+
+    // After the highlight set is applied for this file, consume any
+    // pending scroll request. We resolve the target comment's range
+    // fresh (don't trust a stored Range across renders — the DOM may
+    // have been replaced) and scroll it into view.
+    const req = scroll.request();
+    if (!req) return;
+    const target = comments.find((c) => c.id === req.commentId);
+    if (!target) return;
+    const text =
+      root instanceof Document
+        ? (root.body?.textContent ?? "")
+        : (root.textContent ?? "");
+    const match = findQuote(text, target.locator);
+    if (!match) {
+      scroll.clear();
+      return;
+    }
+    const range = rangeFromOffsets(root, match.start, match.end);
+    if (!range) {
+      scroll.clear();
+      return;
+    }
+    // Wait for the next frame so Pierre's virtualizer has settled into
+    // the new file's layout — scrolling on the same tick as render
+    // sometimes lands on a stale node and the highlight ends up off-
+    // screen.
+    requestAnimationFrame(() => {
+      const startContainer = range.startContainer;
+      const el =
+        startContainer.nodeType === Node.ELEMENT_NODE
+          ? (startContainer as Element)
+          : startContainer.parentElement;
+      el?.scrollIntoView({ block: "center", behavior: "smooth" });
+      scroll.clear();
+    });
   });
 
   onCleanup(() => {

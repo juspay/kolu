@@ -32,7 +32,10 @@ import { toast } from "solid-sonner";
 import { CommentComposer } from "../comments/CommentComposer";
 import { CommentsTray } from "../comments/CommentsTray";
 import { CommentTextSurface } from "../comments/CommentTextSurface";
-import { useComposer } from "../comments/composerState";
+import {
+  useCommentScrollRequest,
+  useComposer,
+} from "../comments/composerState";
 import { useColorScheme } from "../settings/useColorScheme";
 import { app } from "../wire";
 import { FileBrowseIcon, FileDiffIcon, GitBranchIcon } from "../ui/Icons";
@@ -721,13 +724,17 @@ const CodeTab: Component<{
               <CommentsTray
                 repoRoot={repo()}
                 onJumpTo={(comment) => {
-                  // Switch to browse mode and select the file. The
-                  // overlay re-runs `findQuote` on render and the user
-                  // sees the highlighted quote in place. No precise
-                  // scroll-to-quote yet — natural scroll once the file
-                  // mounts; revisit if reviewer feedback flags it.
+                  // Switch to browse mode + select the file, then queue
+                  // a scroll request. `highlightOverlay` consumes the
+                  // request after applying highlights and scrolls the
+                  // matched range into view — the user sees the
+                  // commented quote, not just the top of the file.
                   setView("browse");
                   setSelectedPath(comment.path);
+                  useCommentScrollRequest().set({
+                    path: comment.path,
+                    commentId: comment.id,
+                  });
                 }}
               />
               <CommentComposer repoRoot={repo()} />
