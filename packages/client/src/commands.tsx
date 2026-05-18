@@ -57,10 +57,10 @@ function validateWorktreeName(name: string): string | null {
   return result.error.issues[0]?.message ?? "Invalid worktree name";
 }
 
-/** PaletteItems listing each recent agent command. Used by the Debug →
- *  "Recent agents" entry (phase 1 prefill flow). Icons mirror the
- *  worktree-naming leaf below so the same recent agents render with the
- *  same visual treatment in both palettes. */
+/** PaletteItems listing each recent agent command — used by the
+ *  "Recent agents" drill-in group under Active Terminal. Icons mirror the
+ *  worktree-naming leaf so agents render with the same visual treatment
+ *  in both palettes. */
 function agentItems(
   agents: RecentAgent[],
   onPick: (command: string) => void,
@@ -132,8 +132,6 @@ export interface CommandDeps extends ActionContext {
   recencyOf: (id: TerminalId) => number;
   // Debug
   simulateAlert: () => void;
-  handleCloseAll: () => void;
-  handleTriggerServerError: () => void;
   handleClearLocalStorage: () => void;
 }
 
@@ -150,9 +148,24 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
   );
 
   return createMemo((): PaletteCommand[] => [
+    // --- Workspaces ---
+    ...(deps.terminalIds().length > 0
+      ? [
+          {
+            kind: "body-group" as const,
+            name: "Search workspaces",
+            description: "Switch to a live terminal",
+            section: "workspaces" as const,
+            keybind: ACTIONS.openWorkspaceSwitcher.keybind,
+            body: workspacesBody,
+            bodyHint: "Pick a workspace to switch",
+          },
+        ]
+      : []),
     {
       kind: "group",
       name: "New terminal",
+      section: "workspaces",
       children: (): PaletteItem[] => {
         const repos = recentRepos();
         return [
@@ -189,23 +202,32 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
         ];
       },
     },
+
+    // --- Active Terminal (conditional on focus) ---
     ...(deps.activeId() !== null
       ? [
           {
             kind: "action" as const,
             name: "Close terminal",
+            section: "active-terminal" as const,
             onSelect: () => deps.handleClose(),
           },
-          actionPaletteCommand("toggleSubPanel", deps),
-          actionPaletteCommand("createSubTerminal", deps),
+          actionPaletteCommand("toggleSubPanel", deps, {
+            section: "active-terminal",
+          }),
+          actionPaletteCommand("createSubTerminal", deps, {
+            section: "active-terminal",
+          }),
           {
             kind: "action" as const,
             name: "Copy terminal text",
+            section: "active-terminal" as const,
             onSelect: () => deps.handleCopyTerminalText(),
           },
           {
             kind: "action" as const,
             name: "Export scrollback as PDF",
+            section: "active-terminal" as const,
             onSelect: () => deps.handleExportScrollbackAsPdf(),
           },
           ...(deps.activeMeta()?.agent
@@ -213,21 +235,74 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
                 {
                   kind: "action" as const,
                   name: "Export agent session as HTML",
+                  section: "active-terminal" as const,
                   description:
                     "Open a self-contained transcript of the current Claude Code, OpenCode, or Codex session",
                   onSelect: () => deps.handleExportSessionAsHtml(),
                 },
               ]
             : []),
-          actionPaletteCommand("screenshotTerminal", deps),
+          actionPaletteCommand("screenshotTerminal", deps, {
+            section: "active-terminal",
+          }),
+          // "Recent agents" — surfaces agent CLIs the user has previously run
+          // in any kolu terminal, auto-detected via the preexec OSC 633;E
+          // command mark. Promoted to a root-level drill-in under the
+          // Active Terminal section now that the section framework exists.
+          // Visible when at least one agent has been seen AND there is an
+          // active terminal to prefill it into.
+          ...(recentAgents().length > 0
+            ? [
+                {
+                  kind: "group" as const,
+                  name: "Recent agents",
+                  section: "active-terminal" as const,
+                  description: "Prefill an agent CLI into the active terminal",
+                  children: (): PaletteItem[] =>
+                    agentItems(recentAgents(), deps.handleRunInActiveTerminal),
+                },
+              ]
+            : []),
+          // Theme is a per-active-terminal property (`client.terminal.setTheme`
+          // takes a terminal id), so both the drill-in chooser and the
+          // shuffle action live alongside the other active-terminal
+          // commands rather than in a global "Appearance" bucket.
+          {
+            kind: "group" as const,
+            name: "Set theme",
+            section: "active-terminal" as const,
+            onCancel: () => deps.setPreviewThemeName(undefined),
+            children: () =>
+              availableThemes
+                .filter((t) => t.name !== deps.committedThemeName())
+                .map(
+                  (t): PaletteAction => ({
+                    kind: "action",
+                    name: t.name,
+                    onHighlight: () => deps.setPreviewThemeName(t.name),
+                    onSelect: () =>
+                      batch(() => {
+                        deps.setPreviewThemeName(undefined);
+                        deps.handleSetTheme(t.name);
+                      }),
+                  }),
+                ),
+          },
+          actionPaletteCommand("shuffleTheme", deps, {
+            section: "active-terminal",
+            description:
+              "Pick a theme whose background is perceptually distinct from every live terminal",
+          }),
         ]
       : []),
-    actionPaletteCommand("toggleRightPanel", deps),
+
+    // --- Canvas (desktop only — spatial tile actions) ---
     ...(!deps.isMobile()
       ? [
           {
             kind: "action" as const,
             name: "Center on active tile",
+            section: "canvas" as const,
             onSelect: () => deps.canvasCenterActive(),
           },
           // Hide arrange when only one tile exists — a single-tile arrange
@@ -238,61 +313,37 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
                 {
                   kind: "action" as const,
                   name: "Arrange canvas by repo",
+                  section: "canvas" as const,
                   onSelect: () => deps.canvasAutoArrange(),
                 },
               ]
             : []),
         ]
       : []),
-    ...(deps.terminalIds().length > 0
-      ? [
-          {
-            kind: "body-group" as const,
-            name: "Search workspaces",
-            description: "Switch to a live terminal",
-            keybind: ACTIONS.openWorkspaceSwitcher.keybind,
-            body: workspacesBody,
-            bodyHint: "Pick a workspace to switch",
-          },
-        ]
-      : []),
-    {
-      kind: "group",
-      name: "Theme",
-      onCancel: () => deps.setPreviewThemeName(undefined),
-      children: () =>
-        availableThemes
-          .filter((t) => t.name !== deps.committedThemeName())
-          .map(
-            (t): PaletteAction => ({
-              kind: "action",
-              name: t.name,
-              onHighlight: () => deps.setPreviewThemeName(t.name),
-              onSelect: () =>
-                batch(() => {
-                  deps.setPreviewThemeName(undefined);
-                  deps.handleSetTheme(t.name);
-                }),
-            }),
-          ),
-    },
-    ...(deps.activeId() !== null
-      ? [
-          actionPaletteCommand("shuffleTheme", deps, {
-            description:
-              "Pick a theme whose background is perceptually distinct from every live terminal",
-          }),
-        ]
-      : []),
-    actionPaletteCommand("shortcutsHelp", deps, { name: "Keyboard shortcuts" }),
+
+    // --- UI (panel/dock visibility — global UI chrome, not per-terminal) ---
+    actionPaletteCommand("toggleRightPanel", deps, { section: "ui" }),
+    actionPaletteCommand("toggleDock", deps, { section: "ui" }),
+
+    // --- Help (reference + advanced) ---
+    actionPaletteCommand("shortcutsHelp", deps, {
+      name: "Keyboard shortcuts",
+      section: "help",
+    }),
     {
       kind: "action",
       name: "About kolu",
+      section: "help",
       onSelect: () => deps.setAboutOpen(true),
     },
+    // "Debug" — drill-in group under Help. The handful of internal
+    // hatches don't warrant their own top-level section; nesting under
+    // Help signals "advanced reference / introspection."
     {
       kind: "group",
       name: "Debug",
+      section: "help",
+      description: "Internal diagnostics and scaffolding",
       children: [
         {
           kind: "action",
@@ -304,32 +355,6 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
           kind: "action",
           name: "Simulate activity alert",
           onSelect: () => deps.simulateAlert(),
-        },
-        // "Recent agents" — surfaces agent CLIs the user has previously run
-        // in any kolu terminal, auto-detected via the preexec OSC 633;E
-        // command mark. Parked under Debug during phase 1 while the feature
-        // is soft-launched. Only visible when at least one agent has been
-        // seen AND there is an active terminal to prefill it into.
-        ...(deps.activeId() !== null && recentAgents().length > 0
-          ? [
-              {
-                kind: "group" as const,
-                name: "Recent agents",
-                description: "Prefill an agent CLI into the active terminal",
-                children: (): PaletteItem[] =>
-                  agentItems(recentAgents(), deps.handleRunInActiveTerminal),
-              },
-            ]
-          : []),
-        {
-          kind: "action",
-          name: "Trigger server error",
-          onSelect: () => deps.handleTriggerServerError(),
-        },
-        {
-          kind: "action",
-          name: "Close all terminals",
-          onSelect: () => deps.handleCloseAll(),
         },
         {
           kind: "action",
