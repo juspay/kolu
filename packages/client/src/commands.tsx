@@ -345,12 +345,14 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
       onSelect: () => deps.setAboutOpen(true),
     },
 
-    // --- Developer (was "Debug" — renamed now that real features no
-    // longer live here) ---
+    // --- Debug (developer scaffolding: simulate alert, trigger error,
+    // bulk-close, clear storage). Recent agents and Diagnostic info
+    // graduated out to their own sections; what remains is genuinely
+    // axis-of-change: debug/test hatches the user normally never wants. ---
     {
       kind: "group",
-      name: "Developer",
-      section: "developer",
+      name: "Debug",
+      section: "debug",
       children: [
         {
           kind: "action",

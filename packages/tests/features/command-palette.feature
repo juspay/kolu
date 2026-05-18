@@ -181,7 +181,7 @@ Feature: Command Palette
     Then palette section header "Active Terminal" should be visible
     And palette section header "Appearance" should be visible
     And palette section header "Help" should be visible
-    And palette section header "Developer" should be visible
+    And palette section header "Debug" should be visible
     When I type "Theme" in the palette
     Then no palette section header should be visible
     And there should be no page errors

@@ -39,7 +39,7 @@ export type SectionId =
   | "canvas"
   | "appearance"
   | "help"
-  | "developer";
+  | "debug";
 
 const SECTION_ORDER: readonly SectionId[] = [
   "workspaces",
@@ -47,7 +47,7 @@ const SECTION_ORDER: readonly SectionId[] = [
   "canvas",
   "appearance",
   "help",
-  "developer",
+  "debug",
 ];
 
 const SECTION_LABELS: Record<SectionId, string> = {
@@ -56,7 +56,7 @@ const SECTION_LABELS: Record<SectionId, string> = {
   canvas: "Canvas",
   appearance: "Appearance",
   help: "Help",
-  developer: "Developer",
+  debug: "Debug",
 };
 
 /** O(1) lookup derived from `SECTION_ORDER` — single source of truth.
