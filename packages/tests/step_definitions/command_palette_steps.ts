@@ -157,8 +157,8 @@ Then(
     await item.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     const content = await item.textContent();
     assert.ok(
-      content?.includes("→"),
-      `Expected "${text}" to have a chevron (→) but got "${content}"`,
+      content?.includes("›"),
+      `Expected "${text}" to have a chevron (›) but got "${content}"`,
     );
   },
 );
