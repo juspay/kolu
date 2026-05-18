@@ -49,23 +49,3 @@ export function useComposer() {
     isComposing: () => target() !== null,
   };
 }
-
-/** Request slot for "scroll the file viewer to a specific comment's
- *  anchor after navigation lands". The tray sets this when the user
- *  clicks a tray item; the highlight overlay consumes it after applying
- *  CSS Highlights, then scrolls the matching range into view and clears
- *  the slot. One-shot — repeat clicks set fresh values. */
-export type ScrollRequest = { path: string; commentId: string };
-const [scrollReq, setScrollReq] = createSignal<ScrollRequest | null>(null);
-
-export function useCommentScrollRequest() {
-  return {
-    request: scrollReq,
-    set: (r: ScrollRequest): void => {
-      setScrollReq(r);
-    },
-    clear: (): void => {
-      setScrollReq(null);
-    },
-  };
-}

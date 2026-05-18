@@ -32,10 +32,8 @@ import { toast } from "solid-sonner";
 import { CommentComposer } from "../comments/CommentComposer";
 import { CommentsTray } from "../comments/CommentsTray";
 import { CommentTextSurface } from "../comments/CommentTextSurface";
-import {
-  useCommentScrollRequest,
-  useComposer,
-} from "../comments/composerState";
+import { useComposer } from "../comments/composerState";
+import { useCommentScrollRequest } from "../comments/scrollRequest";
 import { useColorScheme } from "../settings/useColorScheme";
 import { app } from "../wire";
 import { FileBrowseIcon, FileDiffIcon, GitBranchIcon } from "../ui/Icons";

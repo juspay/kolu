@@ -16,7 +16,7 @@ import {
   rangeFromOffsets,
 } from "@kolu/artifact-sdk/client";
 import { type Accessor, createEffect, onCleanup } from "solid-js";
-import { useCommentScrollRequest } from "./composerState";
+import { useCommentScrollRequest } from "./scrollRequest";
 import type { Comment } from "./types";
 
 const HIGHLIGHT_NAME = "kolu-comment";
