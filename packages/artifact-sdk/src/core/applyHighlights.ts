@@ -23,8 +23,12 @@ declare global {
   }
 }
 
+/** What `applyHighlights` reads off each comment. `Comment`s carry more
+ *  fields (id, body, createdAt, …) but the highlight pipeline only
+ *  needs the locator — keep the input shape minimal so callers from
+ *  other surfaces (e.g. the iframe-side render-highlights message)
+ *  don't have to invent IDs they'll never use. */
 export interface HighlightInputComment {
-  id: string;
   locator: Locator;
 }
 
