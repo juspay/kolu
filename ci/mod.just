@@ -27,14 +27,11 @@ nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop --accep
 # Body is empty — the runner expands `depends_on` from this DAG and executes
 # each leaf via `just --no-deps <recipe>`. `just ci` (without the runner) still
 # works for single-platform local runs via the [parallel] expansion.
-# TEMP: e2e is dropped from the default DAG while we iterate on the
-# port — it's ~2 min per platform and we don't need it for the structural
-# shakedown. Re-add `e2e` to this list before marking the PR ready.
 [linux]
 [macos]
 [parallel]
 [metadata("ci")]
-default: nix home-manager smoke fmt typecheck biome unit surface-example-build pnpm-hash-fresh
+default: nix home-manager e2e smoke fmt typecheck biome unit surface-example-build pnpm-hash-fresh
 
 # Single per-platform `pnpm install`. The runner fans every recipe out into
 # its own process and starts them all in parallel as soon as setup completes,
