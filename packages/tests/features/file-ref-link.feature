@@ -39,13 +39,13 @@ Feature: File-ref autolinking in terminal
   Scenario: Clicking a slash-containing path opens the file at the line
     When I run "git init /tmp/kolu-file-ref-slash && cd /tmp/kolu-file-ref-slash"
     And I run "git commit --allow-empty -m init"
-    And I run "mkdir -p src && printf 'module Main\nimport Data\nmain = pure ()\n' > src/Main.hs"
-    And I run "echo 'error in src/Main.hs:2 — bad import'"
-    And I trigger the terminal file-ref link "src/Main.hs:2"
+    And I run "mkdir -p src && printf 'alpha\nbeta\ngamma\n' > src/notes.txt"
+    And I run "echo 'error in src/notes.txt:2 — context'"
+    And I trigger the terminal file-ref link "src/notes.txt:2"
     Then the right panel should be visible
     And the Code tab should be active
     And the Code tab mode should be "browse"
-    And the selected file should show content "import Data"
+    And the selected file should show content "beta"
     And line 2 should be selected in the file content
 
   Scenario: Clicking a bare path (no line number) opens the file with no selection
@@ -63,13 +63,13 @@ Feature: File-ref autolinking in terminal
   Scenario: Clicking a slash-containing path with no line opens the file with no selection
     When I run "git init /tmp/kolu-file-ref-slash-noline && cd /tmp/kolu-file-ref-slash-noline"
     And I run "git commit --allow-empty -m init"
-    And I run "mkdir -p src && printf 'module Main\nimport Data\nmain = pure ()\n' > src/Main.hs"
-    And I run "echo 'see src/Main.hs for the entrypoint'"
-    And I trigger the terminal file-ref link "src/Main.hs"
+    And I run "mkdir -p src && printf 'alpha\nbeta\ngamma\n' > src/notes.txt"
+    And I run "echo 'see src/notes.txt for context'"
+    And I trigger the terminal file-ref link "src/notes.txt"
     Then the right panel should be visible
     And the Code tab should be active
     And the Code tab mode should be "browse"
-    And the selected file should show content "module Main"
+    And the selected file should show content "alpha"
     And no line should be selected in the file content
 
   Scenario: Bare basename without a line number resolves via unique-basename fallback
