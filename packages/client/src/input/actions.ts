@@ -13,7 +13,7 @@
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import { nonEmpty } from "nonempty";
 import type { Accessor, Setter } from "solid-js";
-import type { PaletteAction } from "../CommandPalette";
+import type { PaletteAction, SectionId } from "../CommandPalette";
 import { type Keybind, matchesKeybind } from "./keyboard";
 
 /** Shared handler context — every dispatched action receives this. */
@@ -290,13 +290,14 @@ export type DispatchableId = {
 export function actionPaletteCommand(
   id: DispatchableId,
   ctx: ActionContext,
-  overrides: { name?: string; description?: string } = {},
+  overrides: { name?: string; description?: string; section?: SectionId } = {},
 ): PaletteAction {
   const a = ACTIONS[id] as DispatchableAction;
   return {
     kind: "action",
     name: overrides.name ?? a.label,
     description: overrides.description,
+    section: overrides.section,
     keybind: a.keybind,
     onSelect: () => a.handler(ctx),
   };

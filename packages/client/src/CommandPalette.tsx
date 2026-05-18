@@ -29,6 +29,43 @@ import { useTips } from "./settings/useTips";
 import Kbd from "./ui/Kbd";
 import ModalDialog from "./ui/ModalDialog";
 
+/** Top-level sections, in render order. Items tagged with a section are
+ *  grouped under a sticky header at the root level; untagged items
+ *  render without a header. Drill-in levels ignore sections entirely
+ *  (children of a group all belong to that group). */
+export type SectionId =
+  | "workspaces"
+  | "active-terminal"
+  | "canvas"
+  | "appearance"
+  | "help"
+  | "developer";
+
+const SECTION_ORDER: readonly SectionId[] = [
+  "workspaces",
+  "active-terminal",
+  "canvas",
+  "appearance",
+  "help",
+  "developer",
+];
+
+const SECTION_LABELS: Record<SectionId, string> = {
+  workspaces: "Workspaces",
+  "active-terminal": "Active Terminal",
+  canvas: "Canvas",
+  appearance: "Appearance",
+  help: "Help",
+  developer: "Developer",
+};
+
+/** Stable sort key: tagged items cluster in canonical order; untagged
+ *  items sort to the end and preserve their registration order via the
+ *  stability of `Array.prototype.sort`. */
+function sectionIndex(s: SectionId | undefined): number {
+  return s === undefined ? SECTION_ORDER.length : SECTION_ORDER.indexOf(s);
+}
+
 /** Fields shared by every interactive palette item. */
 interface PaletteBase {
   name: string;
@@ -43,6 +80,9 @@ interface PaletteBase {
   icon?: Component<{ class?: string }>;
   /** Keyboard shortcut(s) to display alongside the command name. */
   keybind?: Keybind | Keybind[];
+  /** Top-level grouping — only rendered at the root level. Untagged
+   *  items appear with no header. Ignored for drill-in children. */
+  section?: SectionId;
   /** Called when this item becomes the highlighted item during navigation. */
   onHighlight?: () => void;
   /** Called when leaving this item without executing it (Escape, Backspace, breadcrumb). */
@@ -275,14 +315,51 @@ const CommandPalette: Component<{
    *  (`buildDockModel`), which is the right semantics there. */
   const filtered = createMemo((): (PaletteCommand | PaletteLabel)[] => {
     const items = partitioned().interactive;
-    if (mode().kind !== "filter") return items;
+    // Stable sort by section index — tagged root items cluster in canonical
+    // order; untagged items (drill-in children, value-input labels) all map
+    // to the same end index, so registration order is preserved by sort
+    // stability.
+    const sorted = [...items].sort(
+      (a, b) => sectionIndex(a.section) - sectionIndex(b.section),
+    );
+    if (mode().kind !== "filter") return sorted;
     const q = query().toLowerCase();
-    if (!q) return items;
-    return items.filter(
+    if (!q) return sorted;
+    return sorted.filter(
       (cmd) =>
         cmd.name.toLowerCase().includes(q) ||
         cmd.description?.toLowerCase().includes(q),
     );
+  });
+
+  /** Annotated render list — interleaves section headers with rows when
+   *  at root with no query. Headers do not participate in selection;
+   *  `index` on row entries still indexes into `filtered()` directly so
+   *  keyboard navigation stays unchanged. */
+  type DisplayEntry =
+    | { kind: "header"; section: SectionId }
+    | { kind: "row"; cmd: PaletteCommand | PaletteLabel; index: number };
+
+  const showSectionHeaders = createMemo(
+    () => path().length === 0 && query() === "" && mode().kind === "filter",
+  );
+
+  const displayed = createMemo((): DisplayEntry[] => {
+    const items = filtered();
+    if (!showSectionHeaders()) {
+      return items.map((cmd, index) => ({ kind: "row", cmd, index }));
+    }
+    const out: DisplayEntry[] = [];
+    let lastSection: SectionId | undefined;
+    items.forEach((cmd, index) => {
+      const section = cmd.section;
+      if (section !== undefined && section !== lastSection) {
+        out.push({ kind: "header", section });
+      }
+      lastSection = section;
+      out.push({ kind: "row", cmd, index });
+    });
+    return out;
   });
 
   // Reserve a leading icon gutter for the whole list when ANY row carries
@@ -599,61 +676,88 @@ const CommandPalette: Component<{
                 }
               >
                 <div class="py-1" role="listbox">
-                  <For each={filtered()}>
-                    {(cmd, i) => (
-                      <div
-                        role="option"
-                        tabIndex={-1}
-                        aria-selected={selectedIndex() === i()}
-                        class="flex items-center gap-3 px-4 py-2 text-sm cursor-pointer transition-colors duration-150 border-l-2"
-                        classList={{
-                          "bg-surface-3 text-fg border-accent":
-                            selectedIndex() === i(),
-                          "text-fg-2 hover:bg-surface-2 border-transparent":
-                            selectedIndex() !== i(),
-                        }}
-                        data-selected={selectedIndex() === i() || undefined}
-                        onMouseEnter={() =>
-                          mouseActive() && setSelectedIndex(i())
-                        }
-                        onClick={() => execute(cmd)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
-                            execute(cmd);
+                  <For each={displayed()}>
+                    {(entry) =>
+                      entry.kind === "header" ? (
+                        <div
+                          data-testid="palette-section-header"
+                          data-section={entry.section}
+                          class="px-4 pt-3 pb-1 text-[0.65rem] font-medium tracking-[0.14em] uppercase text-fg-3 select-none"
+                        >
+                          {SECTION_LABELS[entry.section]}
+                        </div>
+                      ) : (
+                        <div
+                          role="option"
+                          tabIndex={-1}
+                          aria-selected={selectedIndex() === entry.index}
+                          class="flex items-center gap-3 px-4 py-2 text-sm cursor-pointer transition-colors duration-150 border-l-2"
+                          classList={{
+                            "bg-surface-3 text-fg border-accent":
+                              selectedIndex() === entry.index,
+                            "text-fg-2 hover:bg-surface-2 border-transparent":
+                              selectedIndex() !== entry.index,
+                          }}
+                          data-selected={
+                            selectedIndex() === entry.index || undefined
                           }
-                        }}
-                      >
-                        <Show when={hasAnyIcon()}>
-                          <span class="shrink-0 w-3 inline-flex items-center justify-center">
-                            <Dynamic component={cmd.icon} class="w-3 h-3" />
-                          </span>
-                        </Show>
-                        <div class="flex-1 min-w-0 flex items-baseline gap-2">
-                          <span class="truncate">{cmd.name}</span>
-                          <Show when={cmd.description}>
-                            <span class="text-fg-3 text-xs truncate min-w-0">
-                              {cmd.description}
+                          onMouseEnter={() =>
+                            mouseActive() && setSelectedIndex(entry.index)
+                          }
+                          onClick={() => execute(entry.cmd)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              execute(entry.cmd);
+                            }
+                          }}
+                        >
+                          <Show when={hasAnyIcon()}>
+                            <span class="shrink-0 w-3 inline-flex items-center justify-center">
+                              <Dynamic
+                                component={entry.cmd.icon}
+                                class="w-3 h-3"
+                              />
                             </span>
                           </Show>
-                        </div>
-                        <Show when={cmd.keybind}>
-                          {(keybind) => {
-                            const kb = keybind();
-                            return (
-                              <span class="shrink-0 flex items-center gap-1.5">
-                                <For each={Array.isArray(kb) ? kb : [kb]}>
-                                  {(k) => <Kbd>{formatKeybind(k)}</Kbd>}
-                                </For>
+                          <div class="flex-1 min-w-0 flex items-baseline gap-2">
+                            <span class="truncate">{entry.cmd.name}</span>
+                            <Show when={entry.cmd.description}>
+                              <span class="text-fg-3 text-xs truncate min-w-0">
+                                {entry.cmd.description}
                               </span>
-                            );
-                          }}
-                        </Show>
-                        <Show when={isDrillable(cmd)}>
-                          <span class="shrink-0 text-xs text-fg-3">→</span>
-                        </Show>
-                      </div>
-                    )}
+                            </Show>
+                          </div>
+                          <Show
+                            when={!showSectionHeaders() && entry.cmd.section}
+                          >
+                            {(section) => (
+                              <span
+                                data-testid="palette-section-tag"
+                                class="shrink-0 text-[0.6rem] font-medium tracking-wider uppercase text-fg-3 px-1.5 py-0.5 rounded bg-surface-2"
+                              >
+                                {SECTION_LABELS[section()]}
+                              </span>
+                            )}
+                          </Show>
+                          <Show when={entry.cmd.keybind}>
+                            {(keybind) => {
+                              const kb = keybind();
+                              return (
+                                <span class="shrink-0 flex items-center gap-1.5">
+                                  <For each={Array.isArray(kb) ? kb : [kb]}>
+                                    {(k) => <Kbd>{formatKeybind(k)}</Kbd>}
+                                  </For>
+                                </span>
+                              );
+                            }}
+                          </Show>
+                          <Show when={isDrillable(entry.cmd)}>
+                            <span class="shrink-0 text-xs text-fg-3">→</span>
+                          </Show>
+                        </div>
+                      )
+                    }
                   </For>
                 </div>
               </Show>

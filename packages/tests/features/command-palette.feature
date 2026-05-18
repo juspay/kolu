@@ -170,3 +170,27 @@ Feature: Command Palette
     And I press Escape
     Then no sendInput call should contain "k"
     And there should be no page errors
+
+  Scenario: Section headers group root commands
+    # With a focused terminal, root items split into multiple sections —
+    # Active Terminal, Appearance, Help, Developer — each rendered with a
+    # sticky uppercase header. Drilling in or typing collapses headers.
+    When I open the app
+    And I create a terminal
+    And I open the command palette
+    Then palette section header "Active Terminal" should be visible
+    And palette section header "Appearance" should be visible
+    And palette section header "Help" should be visible
+    And palette section header "Developer" should be visible
+    When I type "Theme" in the palette
+    Then no palette section header should be visible
+    And there should be no page errors
+
+  Scenario: Filtering shows section tags on matched rows
+    # When the user types, sections collapse and each row carries a
+    # small tag indicating which section it belongs to.
+    When I open the app
+    And I open the command palette
+    And I type "Theme" in the palette
+    Then palette item "Theme" should show section tag "Appearance"
+    And there should be no page errors
