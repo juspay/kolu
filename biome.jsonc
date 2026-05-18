@@ -39,10 +39,8 @@
       "!**/*.astro",
       // One-off heap-snapshot analyzers; not part of the product surface.
       "!docs/perf-investigations/scripts",
-      // Plan / design HTML artifacts — checked into the repo for reference
-      // but not shipping code; the mockup HTML deliberately uses raw
-      // <button> without type= since it's pure visual stand-in.
-      "!kolu-comments-plan.html"
+      // Top-level HTML files are design / plan artifacts, not shipping code.
+      "!*.html"
     ]
   },
   // Biome is now the sole formatter — Prettier has been retired (#710).
