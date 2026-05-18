@@ -17,6 +17,7 @@ import {
 } from "@kolu/artifact-sdk/client";
 import { type Accessor, createEffect, onCleanup } from "solid-js";
 import { useCommentScrollRequest } from "./scrollRequest";
+import { walkShadowRoots } from "./shadowWalk";
 import type { Comment } from "./types";
 
 const HIGHLIGHT_NAME = "kolu-comment";
@@ -30,22 +31,14 @@ function ensureStyle(): void {
   document.head.appendChild(style);
 }
 
-/** Walk a host element + its shadow roots (Pierre's `<diffs-container>`
- *  attaches one) and return the concatenated text plus a function that
- *  resolves [start, end] offsets into a Range over the same text. */
+/** Resolve the root the highlight overlay should walk for re-find +
+ *  Range construction. Pierre's vanilla file path renders directly into
+ *  the wrapper; the virtualized path nests a `<diffs-container>` custom
+ *  element with its own shadow root, so we descend through any shadow
+ *  trees and return the first one found. Otherwise, fall back to the
+ *  host's ownerDocument. */
 function findHostRoot(host: HTMLElement): Document | ShadowRoot {
-  // Pierre's vanilla file path renders directly into the wrapper; the
-  // virtualized path nests a `<diffs-container>` custom element with
-  // its own shadow root. Walk descendants to find a shadow root if any.
-  const stack: Element[] = [host];
-  while (stack.length > 0) {
-    const el = stack.pop();
-    if (!el) continue;
-    const sr = (el as Element & { shadowRoot?: ShadowRoot | null }).shadowRoot;
-    if (sr) return sr;
-    for (const child of Array.from(el.children)) stack.push(child);
-  }
-  return host.ownerDocument ?? document;
+  return walkShadowRoots(host, (sr) => sr) ?? host.ownerDocument ?? document;
 }
 
 export interface OverlayOptions {

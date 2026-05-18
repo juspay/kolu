@@ -18,6 +18,7 @@ import {
 } from "solid-js";
 import { extractOffsets, extractQuote } from "@kolu/artifact-sdk/client";
 import { useComposer } from "./composerState";
+import { walkShadowRoots } from "./shadowWalk";
 
 /** Debounced live-selection snapshot. The pill placement only needs the
  *  rect — the real W3C Locator is built lazily in `activate()` from the
@@ -103,23 +104,16 @@ function lineRangeForSelection(
  *  the document selection as a fallback (covers non-shadow surfaces and
  *  browsers without the Chrome-specific shadow API). */
 function getShadowAwareSelection(host: HTMLElement): Selection | null {
-  const stack: Element[] = [host];
-  while (stack.length > 0) {
-    const el = stack.pop();
-    if (!el) continue;
-    const sr = (el as Element & { shadowRoot?: ShadowRoot | null }).shadowRoot;
-    if (sr) {
-      const getSel = (sr as ShadowRoot & { getSelection?: () => Selection })
-        .getSelection;
-      const inShadow = typeof getSel === "function" ? getSel.call(sr) : null;
-      if (inShadow && inShadow.rangeCount > 0 && !inShadow.isCollapsed) {
-        return inShadow;
-      }
-      for (const child of Array.from(sr.children)) stack.push(child);
+  const found = walkShadowRoots(host, (sr) => {
+    const getSel = (sr as ShadowRoot & { getSelection?: () => Selection })
+      .getSelection;
+    const inShadow = typeof getSel === "function" ? getSel.call(sr) : null;
+    if (inShadow && inShadow.rangeCount > 0 && !inShadow.isCollapsed) {
+      return inShadow;
     }
-    for (const child of Array.from(el.children)) stack.push(child);
-  }
-  return window.getSelection();
+    return undefined;
+  });
+  return found ?? window.getSelection();
 }
 
 export function useTextSelection(opts: UseTextSelectionOptions) {
