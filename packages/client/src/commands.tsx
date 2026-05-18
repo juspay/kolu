@@ -23,7 +23,7 @@ import {
 } from "./input/actions";
 import { iconForCommand } from "./ui/agentDisplay";
 import { TerminalIcon } from "./ui/Icons";
-import { recentAgents, recentRepos } from "./wire";
+import { hosts, recentAgents, recentRepos } from "./wire";
 
 /** Body component factory for the "Search workspaces" group. Captures
  *  the entries accessor + recency lookup in a closure so the palette
@@ -168,12 +168,27 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
       section: "workspaces",
       children: (): PaletteItem[] => {
         const repos = recentRepos();
+        const remoteHosts = hosts().filter((h) => h.kind === "remote-ssh");
         return [
           {
             kind: "action",
             name: "In current directory",
             onSelect: () => deps.handleCreate(deps.activeMeta()?.cwd),
           },
+          // Remote-host entries — one per SSH alias in ~/.ssh/config.
+          // Hidden when no remote hosts are configured so the picker
+          // doesn't show an empty "remote" section to local-only users.
+          // Sub-terminals inherit the parent's host server-side, so
+          // these entries only matter for new top-level remote terminals.
+          ...remoteHosts.map(
+            (h): PaletteAction => ({
+              kind: "action",
+              name: `On ${h.label}`,
+              description: `Spawn a terminal on the SSH host "${h.id}"`,
+              onSelect: () => deps.handleCreate(undefined, h.id),
+              icon: TerminalIcon,
+            }),
+          ),
           ...repos.map(
             (r): PaletteValueInput => ({
               kind: "value",

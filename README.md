@@ -151,6 +151,16 @@ Detects [OpenCode](https://github.com/anomalyco/opencode) sessions and shows the
 - **Same-directory disambiguation** — if multiple OpenCode sessions share a working directory, we pick the most recently updated one
 - **Non-default DB location** — set `KOLU_OPENCODE_DB` to override the path
 
+### Remote terminals (prototype)
+
+Spawn terminals on a remote SSH host without leaving Kolu. The PTY runs on the remote machine; everything else — xterm rendering, scrollback, OSC parsing, the dock — stays in your local Kolu and behaves identically to a local terminal. The picker shows every `Host` block from `~/.ssh/config` under "New terminal".
+
+**How it works:** a small `kolu-helper` Node binary runs on the remote host, launched over SSH. Kolu speaks newline-delimited JSON-RPC over the SSH stdio: `spawnPty` / `write` / `resize` / `attach` (with a per-PTY sequence-numbered ring buffer for replay) / `dispose` / `listPtys` / `foregroundPid` / `processName`. PTY output streams back as `data` events; on each event Kolu pipes the bytes into a local headless xterm so OSC 7 (cwd), OSC 2 (title), and OSC 633 (preexec command) fire client-side just like the local case. The `Host` abstraction in `packages/server/src/host/` wraps node-pty for local and the helper RPC for remote so the rest of the server — terminal lifecycle, sub-terminals, session restore — stays unchanged.
+
+**Prototype scope** ([#TBD](https://github.com/juspay/kolu/issues/TBD)): create remote terminals, type / see output, session restore round-trips through disk so a kolu restart re-spawns each terminal on its original host. The branch chip and worktree list show empty on remote terminals (kolu-git still shells out locally — wiring it through `host.exec` is a follow-up), and remote terminals show no agent badge (the `AgentProvider.externalChanges` contract needs a host parameter — also a follow-up). Bash-only on remote; `ZDOTDIR` over SSH is its own rabbit hole. SSH-drop tears the helper down with it (the sequence numbers and `attach` RPC are already in place for v1's detached-helper path).
+
+**Deploying the helper:** rsync `packages/helper/` to the remote, run `pnpm install`, then set `KOLU_HELPER_REMOTE_CMD="tsx /path/to/packages/helper/src/index.ts --serve"` in Kolu's environment. Auto-deploy via `nix copy --to ssh-ng://<host>` is on the v1 list — see the prototype plan for the full design.
+
 ### Theming
 
 - 200+ color schemes from [iTerm2-Color-Schemes](https://github.com/mbadolato/iTerm2-Color-Schemes), switchable at runtime
@@ -194,6 +204,7 @@ pnpm monorepo:
 | `packages/surface/`                  | Reactive state framework — typed `Cell<T>`, `Collection<K,T>`, `Stream<I,T>`, `Event<I,T>` over oRPC streams; SolidJS hooks (`useCell`, `useCollection`, `useStream`, `useEvent`)               |
 | `packages/solid-pierre/`             | Solid-native wrappers around [`@pierre/trees`](https://www.npmjs.com/package/@pierre/trees) and [`@pierre/diffs`](https://www.npmjs.com/package/@pierre/diffs); encapsulates Pierre's imperative mount/render lifecycle behind `<FileTree>`, `<FileDiff>`, `<FileView>` with required `onError` props. Wrap content in `<Virtualizer>` to upgrade `<FileDiff>` / `<FileView>` to Pierre's windowed-rendering counterparts for very large files |
 | `packages/server/`                   | [Hono](https://hono.dev/) + [node-pty](https://github.com/microsoft/node-pty) + [@xterm/headless](https://www.npmjs.com/package/@xterm/headless)                      |
+| `packages/helper/`                   | Remote PTY helper (prototype, [#TBD]) — small Node binary spawned over SSH on a remote host; exposes `spawnPty` / `write` / `resize` / `attach` / `dispose` / `listPtys` / `foregroundPid` over newline-delimited JSON-RPC; held behind the server's `Host` abstraction so the rest of kolu treats local and remote terminals identically |
 | `packages/client/`                   | [SolidJS](https://www.solidjs.com/) + [xterm.js](https://xtermjs.org/) + [Tailwind CSS v4](https://tailwindcss.com/)                                                  |
 | `packages/integrations/claude-code/` | Claude Code detection — JSONL transcript tailing + Claude Agent SDK; exports a `claudeCodeProvider` `AgentProvider`                                                   |
 | `packages/integrations/anyagent/`    | Agent-agnostic shared contract (`AgentProvider` interface, `agentInfoEqual`), types (Logger, TaskProgress), and agent CLI parsing                                     |

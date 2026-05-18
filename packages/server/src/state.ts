@@ -98,7 +98,7 @@ type PersistedState = z.infer<typeof PersistedStateSchema>;
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.21.0";
+const SCHEMA_VERSION = "1.22.0";
 
 // Callers must pass an explicit directory via KOLU_STATE_DIR. A bare launch
 // with no env would silently clobber whatever happens to live at conf's
@@ -410,6 +410,12 @@ export const store = new Conf<PersistedState>({
       })) as typeof session.terminals;
       store.set("session", { ...session, terminals });
     },
+    // SavedTerminal.hostId added — purely additive optional field. Existing
+    // terminals have no host metadata, which the host registry treats as
+    // local (`hostId === undefined` ⇒ kolu's own process). No data
+    // transformation needed; the entry is here so the schema ladder stays
+    // continuous per `.claude/rules/state.md`.
+    "1.22.0": () => {},
   },
 });
 

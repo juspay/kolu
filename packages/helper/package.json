@@ -1,0 +1,26 @@
+{
+  "name": "kolu-helper",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "main": "./src/index.ts",
+  "bin": {
+    "kolu-helper": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test:unit": "vitest run --fileParallelism=false"
+  },
+  "dependencies": {
+    "kolu-common": "workspace:*",
+    "node-pty": "github:juspay/node-pty#fix/darwin-pty-fd-leak",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.8.0",
+    "vitest": "^4.1.2"
+  }
+}

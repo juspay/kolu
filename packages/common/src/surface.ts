@@ -117,6 +117,13 @@ export const ServerPersistedTerminalFieldsSchema = z.object({
    *  semantic-key transition (`kind`/`sessionId`/`state`). Idle terminals
    *  stay at `0` and fall back to canvas position. */
   lastActivityAt: z.number().default(0),
+  /** Host this PTY lives on. Undefined ⇒ local (kolu's own process).
+   *  Otherwise an SSH alias from `~/.ssh/config`, resolved via the
+   *  host registry at restore time. `cwd` is interpreted in the
+   *  namespace of this host — `/home/srid/x` on a remote host is the
+   *  remote filesystem, not kolu's. Persisted (round-trips through
+   *  saved sessions) so restore can re-establish the correct host. */
+  hostId: z.string().optional(),
 });
 
 /**

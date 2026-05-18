@@ -101,10 +101,16 @@ export function useTerminalCrud(deps: {
    *  `initial` carries client-owned metadata to seed atomically on the
    *  server — used by session restore so the first `terminal.list`
    *  yield already carries the saved theme / canvas layout / sub-panel
-   *  state, closing the race with the canvas cascade effect (#642). */
+   *  state, closing the race with the canvas cascade effect (#642).
+   *
+   *  `hostId` picks which Host runs the PTY — undefined ⇒ local. The
+   *  command palette's "New terminal on <alias>" entries pass an SSH
+   *  alias; everything else (including session restore for terminals
+   *  saved before remote hosts existed) leaves it undefined. */
   async function handleCreate(
     cwd?: string,
     initial?: InitialTerminalMetadata,
+    hostId?: string,
   ): Promise<TerminalId> {
     if (store.activeMeta()?.git) showTipOnce(CONTEXTUAL_TIPS.worktree);
 
@@ -129,6 +135,7 @@ export function useTerminalCrud(deps: {
         canvasLayout: initial?.canvasLayout,
         subPanel: initial?.subPanel,
         lastActivityAt: initial?.lastActivityAt,
+        hostId,
       })
       .catch((err: Error) => {
         toast.error(`Failed to create terminal: ${err.message}`);

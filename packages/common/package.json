@@ -10,6 +10,7 @@
     "./contract": "./src/contract.ts",
     "./errors": "./src/errors.ts",
     "./config": "./src/config.ts",
+    "./helper-protocol": "./src/helper-protocol.ts",
     "./path": "./src/path.ts",
     "./html": "./src/html.ts",
     "./terminalKey": "./src/terminalKey.ts",

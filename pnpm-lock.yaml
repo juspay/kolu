@@ -207,6 +207,31 @@ importers:
         specifier: ^5.8.0
         version: 5.9.3
 
+  packages/helper:
+    dependencies:
+      kolu-common:
+        specifier: workspace:*
+        version: link:../common
+      node-pty:
+        specifier: github:juspay/node-pty#fix/darwin-pty-fd-leak
+        version: https://codeload.github.com/juspay/node-pty/tar.gz/cc137d90e39bb9e5c72ca8b9d81210e5005c5fa3
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.15
+      tsx:
+        specifier: ^4.19.0
+        version: 4.21.0
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.2
+        version: 4.1.2(@types/node@22.19.15)(vite@6.4.2(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.47.1)(tsx@4.21.0)(yaml@2.8.3))
+
   packages/integrations/anyagent:
     dependencies:
       kolu-shared:

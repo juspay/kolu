@@ -20,6 +20,7 @@ import {
   TERMINAL_FILE_ROUTE_BASE,
   TERMINAL_FILE_ROUTE_FILE_SEGMENT,
 } from "./iframePreviewRoute.ts";
+import { initHosts } from "./host/registry.ts";
 import { ensureKoluRoot, shutdownCleanup } from "./koluRoot.ts";
 import { log } from "./log.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
@@ -75,6 +76,7 @@ const PWA_BACKGROUND_COLOR = "#0c0c0e";
 
 configureNixShellEnv(argv.flags.allowNixShellWithEnvWhitelist);
 ensureKoluRoot();
+initHosts();
 initSessionAutoSave(snapshotSession);
 if (argv.flags.verbose) log.level = "debug";
 

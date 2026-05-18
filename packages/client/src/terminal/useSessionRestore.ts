@@ -30,6 +30,7 @@ export function useSessionRestore(deps: {
   handleCreate: (
     cwd?: string,
     initial?: InitialTerminalMetadata,
+    hostId?: string,
   ) => Promise<TerminalId>;
   handleCreateSubTerminal: (
     parentId: TerminalId,
@@ -238,12 +239,16 @@ export function useSessionRestore(deps: {
       // so the canvas cascade effect sees the saved layout on its first run
       // and skips the default-cascade branch (#642).
       for (const t of topLevel) {
-        const newId = await deps.handleCreate(t.cwd, {
-          themeName: t.themeName,
-          canvasLayout: t.canvasLayout,
-          subPanel: t.subPanel,
-          lastActivityAt: t.lastActivityAt,
-        });
+        const newId = await deps.handleCreate(
+          t.cwd,
+          {
+            themeName: t.themeName,
+            canvasLayout: t.canvasLayout,
+            subPanel: t.subPanel,
+            lastActivityAt: t.lastActivityAt,
+          },
+          t.hostId,
+        );
         oldToNew.set(t.id, newId);
         // Step 2: in-loop assert. Combined with step 1, this puts the
         // intended active in place before the first canvas mount.

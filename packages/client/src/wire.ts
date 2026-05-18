@@ -18,7 +18,7 @@
 import type { ClientRetryPluginContext } from "@orpc/client/plugins";
 import type { ContractRouterClient } from "@orpc/contract";
 import { surfaceClient } from "@kolu/surface/solid";
-import { contract } from "kolu-common/contract";
+import type { contract, HostSummary } from "kolu-common/contract";
 import {
   DEFAULT_PREFERENCES,
   type Preferences,
@@ -29,6 +29,7 @@ import {
   surface,
 } from "kolu-common/surface";
 import { WebSocket as PartySocket } from "partysocket";
+import { createSignal } from "solid-js";
 import { toast } from "solid-sonner";
 
 const { protocol, host } = window.location;
@@ -101,3 +102,20 @@ const _terminalList = app.cells.terminalList.use({
 });
 /** Subscription handle for the live terminal list. */
 export const terminalListSub = _terminalList.sub;
+
+// Hosts — one-shot fetch at startup. The server's host registry is
+// immutable for the lifetime of its process (populated from ~/.ssh/config
+// once at boot), so there's no surface cell or stream — just a single
+// RPC call cached in a Solid signal. The first reactive read may return
+// `[]` until the fetch resolves; the picker degrades to "local only"
+// for the brief window before hosts arrive.
+const [hostsSignal, setHostsSignal] = createSignal<HostSummary[]>([]);
+void client.host
+  .list()
+  .then(setHostsSignal)
+  .catch((err: Error) => {
+    toast.error(`Failed to load hosts: ${err.message}`);
+  });
+/** Accessor for the list of hosts the user can spawn terminals on.
+ *  Always contains "local" first once loaded; remote SSH hosts follow. */
+export const hosts = hostsSignal;

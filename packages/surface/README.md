@@ -376,7 +376,7 @@ Shapes that don't fit a descriptor stay as plain oRPC procedures.
 | Pattern | Procedures | How to consume |
 |---|---|---|
 | **Bidirectional binary stream** — subscribe-before-yield ordering, custom `onRetry` (xterm buffer reset before re-subscribe's first frame) | `terminal.attach` | `streamCall(client.terminal.attach, { id }, { signal, onRetry })` |
-| **One-shot queries** — request/response, no subscription dimension | `server.info`, `terminal.screenState`, `terminal.screenText`, `terminal.exportTranscriptHtml` | `await client.X.Y(input)` |
+| **One-shot queries** — request/response, no subscription dimension | `server.info`, `host.list`, `terminal.screenState`, `terminal.screenText`, `terminal.exportTranscriptHtml` | `await client.X.Y(input)` |
 | **Mutations** — request/response writes | `terminal.create` / `kill` / `killAll` / `resize` / `sendInput` / `setTheme` / `setCanvasLayout` / `setSubPanel` / `setActive` / `setParent` / `pasteImage`, `git.worktreeCreate` / `worktreeRemove`, `preferences.update` | `await client.X.Y(input)` (the retry plugin's `retry: 0` default fails them fast) |
 
 `streamCall` applies the same `STREAM_RETRY` context the descriptor hooks thread (and merges in an optional `onRetry` callback) so transport drops re-subscribe transparently — escape hatch for non-descriptor shapes, same retry semantics.

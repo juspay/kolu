@@ -29,6 +29,7 @@ let
       ./packages/memorable-names
       ./packages/server
       ./packages/client
+      ./packages/helper
       ./packages/transcript-core
       ./packages/transcript-html
     ];

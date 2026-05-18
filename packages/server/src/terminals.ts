@@ -18,6 +18,8 @@ import type {
   TerminalInfo,
 } from "kolu-common/surface";
 import { cleanupClipboardDir } from "./clipboard.ts";
+import { getHost } from "./host/registry.ts";
+import { LOCAL_HOST_ID } from "./host/local.ts";
 import { log } from "./log.ts";
 import {
   createMetadata,
@@ -25,7 +27,6 @@ import {
   updateClientMetadata,
   updateServerMetadata,
 } from "./meta/index.ts";
-import { spawnPty } from "./pty.ts";
 import { terminalChannels, terminalsDirtyChannel } from "./publisher.ts";
 import { surfaceCtx } from "./surface.ts";
 import {
@@ -92,67 +93,90 @@ function emitListChanged(): void {
  *  client-owned metadata before `startProviders` runs, so the first
  *  `terminalMetadata` collection read carries it — used by session
  *  restore to avoid racing post-hoc `setCanvasLayout` / `setTheme` /
- *  `setSubPanel` RPCs against the client's canvas-cascade effect (#642). */
-export function createTerminal(
+ *  `setSubPanel` RPCs against the client's canvas-cascade effect (#642).
+ *
+ *  `hostId` picks which `Host` runs the PTY. Undefined ⇒ local (the
+ *  default). A sub-terminal whose parent runs on a remote host inherits
+ *  that hostId automatically — the client doesn't need to thread it
+ *  through every "spawn a sibling" code path.
+ *
+ *  Async because `RemoteHost.spawnPty` round-trips to the SSH helper
+ *  (the local host's own spawnPty is synchronous but wrapped in a
+ *  Promise for uniformity). */
+export async function createTerminal(
   cwd?: string,
   parentId?: string,
   initial?: InitialTerminalMetadata,
-): TerminalInfo {
+  hostId?: string,
+): Promise<TerminalInfo> {
   const id = crypto.randomUUID();
   const tlog = log.child({ terminal: id });
 
-  const handle = spawnPty(
-    tlog,
-    id,
-    {
-      onData: (data) => {
-        terminalChannels.data(id).publish(data);
-      },
-      // On natural exit: notify clients, then remove from server state
-      onExit: (exitCode) => {
-        tlog.info({ exitCode }, "exited");
-        const entry = getTerminal(id);
-        if (entry) {
-          entry.stopProviders();
-          cleanupClipboardDir(id);
-        }
-        surfaceCtx.events.terminalExit.publish({ id }, exitCode);
-        // Only save session on natural exit (entry still in map).
-        // killAllTerminals clears the map first, so entry is gone — skip.
-        const wasNaturalExit = unregisterTerminal(id);
-        if (wasNaturalExit) {
-          emitChanged();
-          emitListChanged();
-        }
-      },
-      // PTY callback (OSC 0/2): notify process provider that title changed
-      onTitleChange: (title) => {
-        terminalChannels.title(id).publish(title);
-      },
-      // PTY callback (OSC 633;E): raw preexec command line. Agent parsing,
-      // the per-terminal stash, and the recent-agents MRU all live in
-      // `meta/agent-command.ts`, fed via this channel.
-      onCommandRun: (raw) => {
-        terminalChannels.commandRun(id).publish(raw);
-      },
-      // PTY callback (OSC 7): update metadata CWD, notify providers via cwd channel
-      onCwd: (newCwd) => {
-        const entry = getTerminal(id);
-        if (entry) {
-          updateServerMetadata(entry, id, (m) => {
-            m.cwd = newCwd;
-          });
-          terminalChannels.cwd(id).publish(newCwd);
-        }
-      },
-    },
+  // Inherit hostId from the parent terminal if this is a sub-terminal
+  // and the client didn't pass one explicitly. The client's "new
+  // sub-terminal" shortcut doesn't know which host the parent runs on,
+  // so the inheritance has to happen server-side.
+  let resolvedHostId = hostId;
+  if (resolvedHostId === undefined && parentId) {
+    const parent = getTerminal(parentId);
+    if (parent) resolvedHostId = parent.meta.hostId;
+  }
+
+  const host = getHost(resolvedHostId);
+  if (!host) {
+    throw new Error(
+      `terminal.create: unknown hostId "${resolvedHostId}" (registered hosts: see /host/registry.ts)`,
+    );
+  }
+
+  const handle = await host.spawnPty(tlog, {
+    terminalId: id,
     cwd,
-  );
+    onData: (data) => {
+      terminalChannels.data(id).publish(data);
+    },
+    // On natural exit: notify clients, then remove from server state
+    onExit: (exitCode) => {
+      tlog.info({ exitCode }, "exited");
+      const entry = getTerminal(id);
+      if (entry) {
+        entry.stopProviders();
+        cleanupClipboardDir(id);
+      }
+      surfaceCtx.events.terminalExit.publish({ id }, exitCode);
+      // Only save session on natural exit (entry still in map).
+      // killAllTerminals clears the map first, so entry is gone — skip.
+      const wasNaturalExit = unregisterTerminal(id);
+      if (wasNaturalExit) {
+        emitChanged();
+        emitListChanged();
+      }
+    },
+    onTitleChange: (title) => {
+      terminalChannels.title(id).publish(title);
+    },
+    onCommandRun: (raw) => {
+      terminalChannels.commandRun(id).publish(raw);
+    },
+    onCwd: (newCwd) => {
+      const entry = getTerminal(id);
+      if (entry) {
+        updateServerMetadata(entry, id, (m) => {
+          m.cwd = newCwd;
+        });
+        terminalChannels.cwd(id).publish(newCwd);
+      }
+    },
+  });
 
   const meta = createMetadata(handle.cwd);
   if (parentId) meta.parentId = parentId;
-  // Seed client-owned initial metadata BEFORE startProviders so the first
-  // `terminalMetadata` collection yield carries these fields (see #642).
+  // Track which host this terminal lives on so session restore (and any
+  // future host-aware metadata provider) can route correctly. We
+  // intentionally do not store the sentinel "local" — undefined is the
+  // canonical local marker so existing persisted records (pre-1.22.0)
+  // read back consistently.
+  if (host.id !== LOCAL_HOST_ID) meta.hostId = host.id;
   if (initial?.themeName) meta.themeName = initial.themeName;
   if (initial?.canvasLayout) meta.canvasLayout = initial.canvasLayout;
   if (initial?.subPanel) meta.subPanel = initial.subPanel;
@@ -164,11 +188,13 @@ export function createTerminal(
     handle,
     stopProviders: () => {},
   };
-  // Start providers after entry is in the map (providers may emit immediately)
   registerTerminal(id, entry);
   entry.stopProviders = startProviders(entry, id);
 
-  tlog.info({ pid: handle.pid, total: listTerminals().length }, "created");
+  tlog.info(
+    { pid: handle.pid, total: listTerminals().length, hostId: host.id },
+    "created",
+  );
   emitChanged();
   emitListChanged();
   return entry.info;

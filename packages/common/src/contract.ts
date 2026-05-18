@@ -38,6 +38,14 @@ export const TerminalCreateInputSchema = z
   .object({
     cwd: z.string().optional(),
     parentId: TerminalIdSchema.optional(),
+    /** Which `Host` to spawn the PTY on. Undefined ⇒ the local machine
+     *  (kolu's own process). Other values are SSH aliases parsed from
+     *  `~/.ssh/config`; the server's host registry resolves them to a
+     *  `RemoteHost`. Sub-terminals inherit the parent's host via
+     *  the create-time plumbing in `createTerminal()`, so the client
+     *  doesn't need to thread `hostId` through every "spawn a sibling"
+     *  code path. */
+    hostId: z.string().optional(),
   })
   .merge(InitialTerminalMetadataSchema);
 
@@ -93,6 +101,16 @@ export const TerminalSetParentInputSchema = z.object({
   parentId: TerminalIdSchema.nullable(),
 });
 
+/** Wire-shape for `host.list` — minimal info the client picker needs to
+ *  render the "New terminal on …" menu. `id` is what gets threaded back
+ *  through `TerminalCreateInput.hostId`. */
+export const HostSummarySchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  kind: z.enum(["local", "remote-ssh"]),
+});
+export type HostSummary = z.infer<typeof HostSummarySchema>;
+
 export const ServerIdentitySchema = z.object({
   hostname: z.string(),
   name: z.string(),
@@ -112,6 +130,13 @@ export const contract = oc.router({
   ...surface.contract,
   server: {
     info: oc.output(ServerInfoSchema),
+  },
+  host: {
+    /** One-shot list of every host Kolu can spawn terminals on. Always
+     *  includes "local" first; remote hosts are populated from
+     *  `~/.ssh/config` at server startup. Not streamed — the list is
+     *  effectively immutable for the lifetime of the server process. */
+    list: oc.output(z.array(HostSummarySchema)),
   },
   terminal: {
     create: oc.input(TerminalCreateInputSchema).output(TerminalInfoSchema),
