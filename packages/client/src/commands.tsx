@@ -132,8 +132,6 @@ export interface CommandDeps extends ActionContext {
   recencyOf: (id: TerminalId) => number;
   // Debug
   simulateAlert: () => void;
-  handleCloseAll: () => void;
-  handleTriggerServerError: () => void;
   handleClearLocalStorage: () => void;
 }
 
@@ -265,6 +263,36 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
                 },
               ]
             : []),
+          // Theme is a per-active-terminal property (`client.terminal.setTheme`
+          // takes a terminal id), so both the drill-in chooser and the
+          // shuffle action live alongside the other active-terminal
+          // commands rather than in a global "Appearance" bucket.
+          {
+            kind: "group" as const,
+            name: "Set theme",
+            section: "active-terminal" as const,
+            onCancel: () => deps.setPreviewThemeName(undefined),
+            children: () =>
+              availableThemes
+                .filter((t) => t.name !== deps.committedThemeName())
+                .map(
+                  (t): PaletteAction => ({
+                    kind: "action",
+                    name: t.name,
+                    onHighlight: () => deps.setPreviewThemeName(t.name),
+                    onSelect: () =>
+                      batch(() => {
+                        deps.setPreviewThemeName(undefined);
+                        deps.handleSetTheme(t.name);
+                      }),
+                  }),
+                ),
+          },
+          actionPaletteCommand("shuffleTheme", deps, {
+            section: "active-terminal",
+            description:
+              "Pick a theme whose background is perceptually distinct from every live terminal",
+          }),
         ]
       : []),
 
@@ -293,81 +321,40 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
         ]
       : []),
 
-    // --- Appearance (theme + view-toggle commands) ---
-    actionPaletteCommand("toggleRightPanel", deps, { section: "appearance" }),
-    {
-      kind: "group",
-      name: "Theme",
-      section: "appearance",
-      onCancel: () => deps.setPreviewThemeName(undefined),
-      children: () =>
-        availableThemes
-          .filter((t) => t.name !== deps.committedThemeName())
-          .map(
-            (t): PaletteAction => ({
-              kind: "action",
-              name: t.name,
-              onHighlight: () => deps.setPreviewThemeName(t.name),
-              onSelect: () =>
-                batch(() => {
-                  deps.setPreviewThemeName(undefined);
-                  deps.handleSetTheme(t.name);
-                }),
-            }),
-          ),
-    },
-    ...(deps.activeId() !== null
-      ? [
-          actionPaletteCommand("shuffleTheme", deps, {
-            section: "appearance",
-            description:
-              "Pick a theme whose background is perceptually distinct from every live terminal",
-          }),
-        ]
-      : []),
+    // --- UI (panel/dock visibility — global UI chrome, not per-terminal) ---
+    actionPaletteCommand("toggleRightPanel", deps, { section: "ui" }),
+    actionPaletteCommand("toggleDock", deps, { section: "ui" }),
 
-    // --- Help ---
+    // --- Help (reference + advanced) ---
     actionPaletteCommand("shortcutsHelp", deps, {
       name: "Keyboard shortcuts",
       section: "help",
     }),
     {
       kind: "action",
-      name: "Diagnostic info",
-      section: "help",
-      description: "Runtime state — renderer, WS, terminals",
-      onSelect: () => deps.setDiagnosticInfoOpen(true),
-    },
-    {
-      kind: "action",
       name: "About kolu",
       section: "help",
       onSelect: () => deps.setAboutOpen(true),
     },
-
-    // --- Debug (developer scaffolding: simulate alert, trigger error,
-    // bulk-close, clear storage). Recent agents and Diagnostic info
-    // graduated out to their own sections; what remains is genuinely
-    // axis-of-change: debug/test hatches the user normally never wants. ---
+    // "Debug" — drill-in group under Help. The handful of internal
+    // hatches don't warrant their own top-level section; nesting under
+    // Help signals "advanced reference / introspection."
     {
       kind: "group",
       name: "Debug",
-      section: "debug",
+      section: "help",
+      description: "Internal diagnostics and scaffolding",
       children: [
+        {
+          kind: "action",
+          name: "Diagnostic info",
+          description: "Runtime state — renderer, WS, terminals",
+          onSelect: () => deps.setDiagnosticInfoOpen(true),
+        },
         {
           kind: "action",
           name: "Simulate activity alert",
           onSelect: () => deps.simulateAlert(),
-        },
-        {
-          kind: "action",
-          name: "Trigger server error",
-          onSelect: () => deps.handleTriggerServerError(),
-        },
-        {
-          kind: "action",
-          name: "Close all terminals",
-          onSelect: () => deps.handleCloseAll(),
         },
         {
           kind: "action",

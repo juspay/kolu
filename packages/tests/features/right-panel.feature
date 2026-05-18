@@ -58,7 +58,7 @@ Feature: Right panel (inspector)
     Then the right panel should be visible
     When I click the theme name in the inspector
     Then the command palette should be visible
-    And the palette breadcrumb should show "Theme"
+    And the palette breadcrumb should show "Set theme"
     And there should be no page errors
 
   Scenario: Resize handle visible when panel is expanded
