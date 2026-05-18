@@ -27,15 +27,17 @@ export function extractQuote(
   doc: Document | ShadowRoot,
 ): Locator {
   const quote = range.toString();
+  const offsets = extractOffsets(doc, range);
+  if (!offsets) {
+    // Cross-root range — neither boundary is reachable from the walked
+    // root. The old code substituted the document's tail text as
+    // prefix/suffix, which is misleading garbage (it has nothing to do
+    // with the actual selection). Emit empty context — the quote is
+    // the durable anchor and `findQuote` falls back to "first match"
+    // gracefully when prefix/suffix don't help disambiguate.
+    return { quote, prefix: "", suffix: "" };
+  }
   const text = rootTextContent(doc);
-  // Cross-root ranges: fall back to the full text length as the offset
-  // so the prefix slice ends at the document end. The locator still
-  // carries the quote, which is the durable anchor; prefix/suffix is
-  // purely a disambiguator. (Fact-check follow-up may tighten this.)
-  const offsets = extractOffsets(doc, range) ?? {
-    start: text.length,
-    end: text.length,
-  };
   const prefix = text.slice(
     Math.max(0, offsets.start - CONTEXT_WINDOW),
     offsets.start,
