@@ -52,6 +52,7 @@ import type { Logger } from "../log.ts";
 import { attachOscParser } from "../osc-parser.ts";
 import type { PtyHandle } from "../pty.ts";
 import { getScreenText } from "../pty.ts";
+import { buildRemoteBashRc } from "../shell.ts";
 import type { Host, SpawnPtyOpts } from "./types.ts";
 
 const require = createRequire(import.meta.url);
@@ -355,22 +356,23 @@ export function createRemoteHost(opts: RemoteHostOpts): Host {
     const remoteEnvOverlay = {
       TERM: "xterm-256color",
     };
+    // Force bash on remote and inject our OSC-7/2/633 wrapper rc. With
+    // `--rcfile`, bash is non-login and reads the kolu rc instead of
+    // `~/.bashrc`; the rc replays `$HOME/.bash_profile` / .bashrc and
+    // adds OSC hooks so cwd/title/preexec land in kolu's metadata.
+    // Bash is resolved via PATH on the remote (helper's process.env);
+    // NixOS users get `/run/current-system/sw/bin/bash` automatically.
+    const rcContent = buildRemoteBashRc();
     const result = await sendRequest<{ ptyId: string; pid: number }>(
       "spawnPty",
       {
-        // Empty `shell` ⇒ helper defaults to the remote user's $SHELL
-        // from their login env (which it inherited via `bash -lc`).
-        // Hardcoding a path here would brick remotes where the binary
-        // lives elsewhere (NixOS has no `/bin/bash` at all — only the
-        // POSIX-mandated `/bin/sh`, which is itself a symlink into the
-        // store).
-        shell: "",
-        args: ["--login"],
-        // Empty cwd ⇒ let the helper default to the remote user's HOME.
+        shell: "bash",
+        args: [],
         cwd: spOpts.cwd ?? "",
         cols: DEFAULT_COLS,
         rows: DEFAULT_ROWS,
         env: remoteEnvOverlay,
+        rcContent,
       },
       tlog,
     );

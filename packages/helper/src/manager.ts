@@ -12,7 +12,10 @@
  */
 
 import { randomUUID } from "node:crypto";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import type {
   HelperDataEvent,
   HelperExitEvent,
@@ -46,7 +49,16 @@ interface PtyEntry {
   buffer: HelperPtyEvent[];
   /** True once an exit event has been pushed — write/resize become no-ops. */
   exited: boolean;
+  /** Path to the per-pty rcfile, if `rcContent` was sent on spawn.
+   *  Removed on dispose to avoid leaking files in `~/.kolu-helper/`. */
+  rcFilePath?: string;
 }
+
+/** Directory the helper writes per-pty rcfiles into. Sits in `$HOME` so
+ *  it survives across SSH sessions for any cleanup-after-crash logic
+ *  we add later, and so the rc files can be `--rcfile`-sourced by a
+ *  bash that the spawned user actually has read access to. */
+const HELPER_DIR = join(homedir(), ".kolu-helper");
 
 export interface Manager {
   spawn(opts: {
@@ -95,6 +107,7 @@ export function createManager(emit: (event: HelperPtyEvent) => void): Manager {
     cols: number;
     rows: number;
     env: Record<string, string>;
+    rcContent?: string;
   }): { ptyId: string; pid: number } {
     const ptyId = randomUUID();
     // Inherit the helper's own process.env (PATH, HOME, USER, etc. as
@@ -108,14 +121,35 @@ export function createManager(emit: (event: HelperPtyEvent) => void): Manager {
     // user's shell choice; on NixOS, `/bin/bash` doesn't even exist
     // (only `/bin/sh`), so a hardcoded "/bin/bash" from the controller
     // would `execvp` fail. node-pty's spawn calls execvp(shell), which
-    // returns ENOENT and the PTY dies immediately with exitCode=1 —
-    // the exact failure mode srid-remote-terminal hit on first try.
+    // returns ENOENT and the PTY dies immediately with exitCode=1.
     const shell = opts.shell || env.SHELL || "/bin/sh";
     // Empty cwd ⇒ start in the helper user's HOME. node-pty interprets
     // "" as the literal empty path and fails; substituting HOME matches
     // what the user would get if they `ssh <host>` interactively.
     const cwd = opts.cwd || env.HOME || "/";
-    const proc = ptyLib.spawn(shell, opts.args, {
+    // Wrapper rc — bash-only for the prototype. Write the controller's
+    // rc content to a per-pty file and prepend `--rcfile <path>` to
+    // args so the spawned bash sources our OSC-injection layer instead
+    // of the user's ~/.bashrc directly (our rc replays the user
+    // dotfiles AND adds OSC hooks; otherwise `cd` events never reach
+    // kolu).
+    let rcFilePath: string | undefined;
+    let args = opts.args;
+    if (opts.rcContent !== undefined) {
+      try {
+        mkdirSync(HELPER_DIR, { recursive: true });
+      } catch {
+        // Best-effort — if mkdir fails the writeFileSync below will too
+        // and we'll surface the error to the controller.
+      }
+      rcFilePath = join(HELPER_DIR, `bashrc-${ptyId}`);
+      writeFileSync(rcFilePath, opts.rcContent);
+      // `--rcfile` is bash-specific. The spawned shell must be bash for
+      // this to take effect; on other shells the flag is ignored or
+      // errors. Bash-only-on-remote is the documented v0 limitation.
+      args = ["--rcfile", rcFilePath, ...opts.args];
+    }
+    const proc = ptyLib.spawn(shell, args, {
       name: "xterm-256color",
       cols: opts.cols,
       rows: opts.rows,
@@ -130,6 +164,7 @@ export function createManager(emit: (event: HelperPtyEvent) => void): Manager {
       lastSeq: 0,
       buffer: [],
       exited: false,
+      rcFilePath,
     };
     ptys.set(ptyId, entry);
 
@@ -177,6 +212,13 @@ export function createManager(emit: (event: HelperPtyEvent) => void): Manager {
         // Ignore — process may have already exited.
       }
     }
+    if (entry.rcFilePath) {
+      try {
+        rmSync(entry.rcFilePath, { force: true });
+      } catch {
+        // Best-effort cleanup.
+      }
+    }
     ptys.delete(ptyId);
   }
 
@@ -221,6 +263,13 @@ export function createManager(emit: (event: HelperPtyEvent) => void): Manager {
       if (!entry.exited) {
         try {
           entry.proc.kill();
+        } catch {
+          // Best-effort during shutdown.
+        }
+      }
+      if (entry.rcFilePath) {
+        try {
+          rmSync(entry.rcFilePath, { force: true });
         } catch {
           // Best-effort during shutdown.
         }

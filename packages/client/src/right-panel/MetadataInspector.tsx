@@ -32,6 +32,20 @@ const MetadataInspector: Component<{
           class="overflow-y-auto overflow-x-hidden h-full"
           data-testid="inspector-cwd"
         >
+          {/* Host (remote terminals only) */}
+          <Show when={meta().hostId}>
+            {(hostId) => (
+              <Section title="Host" accent="border-accent">
+                <div class="text-[11px] text-fg font-mono break-all leading-relaxed">
+                  {hostId()}
+                  <span class="ml-2 text-[10px] text-fg-3 uppercase tracking-wider">
+                    SSH
+                  </span>
+                </div>
+              </Section>
+            )}
+          </Show>
+
           {/* Directory */}
           <Section title="Directory">
             <div class="text-[11px] text-fg font-mono break-all leading-relaxed">

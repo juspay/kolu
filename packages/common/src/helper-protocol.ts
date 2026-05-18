@@ -30,6 +30,12 @@ export const HelperSpawnPtyParamsSchema = z.object({
   cols: z.number().int().positive(),
   rows: z.number().int().positive(),
   env: z.record(z.string(), z.string()),
+  /** Optional shell wrapper rc content. When set, the helper writes it
+   *  to a per-pty file on the remote and prepends the corresponding
+   *  `--rcfile <path>` to `args` (bash-specific). The content typically
+   *  carries the OSC 7 / OSC 2 / OSC 633;E injection that kolu needs to
+   *  track cwd, title, and preexec command marks. Cleaned up on dispose. */
+  rcContent: z.string().optional(),
 });
 
 export const HelperWriteParamsSchema = z.object({

@@ -302,6 +302,22 @@ function selectShellInit(shell: string): ShellInit | null {
 }
 
 /**
+ * Build the bash wrapper-rc content for a remote shell. The remote helper
+ * writes this to a file on the remote host and invokes `bash --rcfile`,
+ * so the rc must reference the *remote* user's HOME — passing the literal
+ * `$HOME` lets bash expand it at source time, side-stepping the controller
+ * having to know the remote homedir in advance.
+ *
+ * Same set of OSC hooks the local wrapper injects (OSC 7 for cwd, OSC 2
+ * for title, OSC 633;E for preexec command marks). Without these, the
+ * remote shell's `cd` events never reach kolu and the Inspector's
+ * Directory field is stuck at whatever cwd the PTY was spawned in.
+ */
+export function buildRemoteBashRc(): string {
+  return [...BASH_INIT.replay("$HOME"), ...BASH_INIT.hooks].join("\n");
+}
+
+/**
  * Build the wrapper rcfile for the user's shell and return the spawn args
  * + env override + cleanup that go alongside it.
  *

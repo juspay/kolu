@@ -53,6 +53,33 @@ const TileTitleActions: Component<{
 
   return (
     <>
+      <Show when={meta()?.hostId}>
+        {(hostId) => (
+          <Tip label={`Remote terminal on ${hostId()}`}>
+            <button
+              type="button"
+              data-testid="tile-host-pill"
+              class={`${TILE_BUTTON_CLASS} px-2 max-w-[16ch] truncate text-xs gap-1`}
+              style={{ color: "var(--color-fg-3, currentColor)" }}
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                store.setActiveSilently(props.id);
+                rightPanel.expandPanel();
+              }}
+              aria-label={`Remote terminal on ${hostId()}`}
+            >
+              <span
+                class="text-[0.6rem] uppercase tracking-wider opacity-70"
+                aria-hidden="true"
+              >
+                SSH
+              </span>
+              <span class="truncate">{hostId()}</span>
+            </button>
+          </Tip>
+        )}
+      </Show>
       <Show when={meta()?.agent}>
         {(agent) => (
           <button
