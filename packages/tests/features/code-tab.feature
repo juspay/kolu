@@ -146,6 +146,36 @@ Feature: Code tab (review + browse)
     When I select workspace switcher entry 2
     Then the selected file should show content "from-B"
 
+  # Regression: with two terminals in different repos and DIFFERENT
+  # filenames selected in browse mode, switching back and forth used to
+  # silently delete the original slot from `selectedFilesByKey`
+  # mid-transition. Root cause: the "selected file no longer in tree"
+  # effect read `treePaths()` from the shared `fsListAll` store before
+  # the slot change had propagated through `createReactiveSubscription`'s
+  # reset, so the new slot's selection was checked against the previous
+  # slot's paths. Same-filename selections accidentally masked the bug
+  # because the membership check still succeeded against the stale tree.
+  # The bug is a reactive race so the round-trip is exercised three times
+  # to make the test consistently red without the fix.
+  Scenario: Browse preview survives terminal switch when filenames differ across repos
+    Given a Code tab in "browse" mode showing file "file-a.txt" with content "AAAA"
+    When I open file "file-a.txt" in the Code tab
+    Then the selected file should show content "AAAA"
+    When I create a terminal
+    Given a Code tab in "browse" mode showing file "file-b.txt" with content "BBBB"
+    When I open file "file-b.txt" in the Code tab
+    Then the selected file should show content "BBBB"
+    When I select workspace switcher entry 1
+    Then the selected file should show content "AAAA"
+    When I select workspace switcher entry 2
+    Then the selected file should show content "BBBB"
+    When I select workspace switcher entry 1
+    Then the selected file should show content "AAAA"
+    When I select workspace switcher entry 2
+    Then the selected file should show content "BBBB"
+    When I select workspace switcher entry 1
+    Then the selected file should show content "AAAA"
+
   # Regression: opening a file in the Code tab and refreshing the browser
   # used to lose the preview because `selectedPath` lived in a local
   # `createSignal` that died with the component. Selection is now backed
