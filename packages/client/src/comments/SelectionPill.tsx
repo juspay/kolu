@@ -11,6 +11,7 @@
 import type { SelectionRect } from "@kolu/artifact-sdk/client";
 import { Portal } from "solid-js/web";
 import type { Component } from "solid-js";
+import { PlusIcon } from "../ui/Icons";
 
 export type SelectionPillProps = {
   rect: SelectionRect;
@@ -42,12 +43,11 @@ export const SelectionPill: Component<SelectionPillProps> = (props) => {
           position: "fixed",
           top: `${props.rect.y + props.rect.height + 4}px`,
           left: `${props.rect.x + props.rect.width + 4}px`,
-          "z-index": "60",
         }}
-        class="flex items-center gap-1.5 rounded-full bg-accent text-surface-0 text-[11px] px-2.5 py-1 shadow-lg cursor-pointer select-none font-sans hover:opacity-90"
+        class="z-50 flex items-center gap-1.5 rounded-full bg-accent text-surface-0 text-[11px] px-2.5 py-1 shadow-lg cursor-pointer select-none font-sans hover:opacity-90"
       >
-        <span class="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full bg-surface-0/20 text-surface-0 font-semibold leading-none text-[10px]">
-          +
+        <span class="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full bg-surface-0/20 text-surface-0 leading-none">
+          <PlusIcon class="w-2.5 h-2.5" />
         </span>
         Comment
       </button>

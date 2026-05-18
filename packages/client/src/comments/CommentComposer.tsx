@@ -78,9 +78,8 @@ export const CommentComposer: Component<{
                 top: `${pos.top}px`,
                 left: `${pos.left}px`,
                 width: `${COMPOSER_WIDTH}px`,
-                "z-index": "70",
               }}
-              class="rounded-md border border-edge bg-surface-1 shadow-xl p-3 font-sans text-[12px]"
+              class="z-50 rounded-md border border-edge bg-surface-1 shadow-xl p-3 font-sans text-[12px]"
               onKeyDown={(e) => {
                 // stopPropagation: kolu has document-level shortcuts
                 // (terminal hotkeys, command palette) that would otherwise
