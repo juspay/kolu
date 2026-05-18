@@ -31,6 +31,18 @@ export interface SpawnPtyOpts {
   onCommandRun?(command: string): void;
 }
 
+export interface ExecResult {
+  stdout: string;
+  stderr: string;
+  exitCode: number | null;
+}
+
+export interface ExecOpts {
+  cwd?: string;
+  timeoutMs?: number;
+  maxBytes?: number;
+}
+
 export interface Host {
   /** Stable id used in `TerminalCreateInput.hostId` and saved sessions.
    *  For `LocalHost` this is the sentinel "local"; for `RemoteHost` it
@@ -43,6 +55,13 @@ export interface Host {
   readonly kind: "local" | "remote-ssh";
 
   spawnPty(tlog: Logger, opts: SpawnPtyOpts): Promise<PtyHandle>;
+
+  /** Run `cmd` with `args` and return the captured output. `LocalHost`
+   *  shells out to `child_process.execFile`; `RemoteHost` proxies the
+   *  call to its helper. Metadata providers (kolu-git in particular)
+   *  use this to evaluate git state in the namespace of the terminal's
+   *  host instead of always against the controller's local fs. */
+  exec(cmd: string, args: string[], opts: ExecOpts): Promise<ExecResult>;
 
   /** Best-effort shutdown — disposes of any long-lived connection (the
    *  SSH child, helper process, etc.). PTYs spawned through this host

@@ -22,6 +22,7 @@ import {
   HelperRequestSchema,
   HelperAttachParamsSchema,
   HelperDisposeParamsSchema,
+  HelperExecParamsSchema,
   HelperForegroundPidParamsSchema,
   HelperListPtysParamsSchema,
   HelperProcessNameParamsSchema,
@@ -49,7 +50,7 @@ function respond(id: number, result: unknown): void {
 
 function respondError(
   id: number,
-  kind: "not-found" | "spawn-failed" | "invalid",
+  kind: "not-found" | "spawn-failed" | "exec-failed" | "invalid",
   message: string,
 ): void {
   writeFrame({ id, error: { kind, message } });
@@ -112,6 +113,20 @@ function handleRequest(req: {
       case "listPtys": {
         HelperListPtysParamsSchema.parse(req.params);
         respond(req.id, { ptys: manager.list() });
+        return;
+      }
+      case "exec": {
+        const params = HelperExecParamsSchema.parse(req.params);
+        manager
+          .exec(params)
+          .then((result) => respond(req.id, result))
+          .catch((err) =>
+            respondError(
+              req.id,
+              "exec-failed",
+              err instanceof Error ? err.message : String(err),
+            ),
+          );
         return;
       }
       default:

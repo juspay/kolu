@@ -11,6 +11,7 @@
  * the next attach the controller catches up.
  */
 
+import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -68,7 +69,15 @@ export interface Manager {
     cols: number;
     rows: number;
     env: Record<string, string>;
+    rcContent?: string;
   }): { ptyId: string; pid: number };
+  exec(opts: {
+    cmd: string;
+    args: string[];
+    cwd?: string;
+    timeoutMs?: number;
+    maxBytes?: number;
+  }): Promise<{ stdout: string; stderr: string; exitCode: number | null }>;
   write(ptyId: string, data: string): void;
   resize(ptyId: string, cols: number, rows: number): void;
   dispose(ptyId: string): void;
@@ -258,6 +267,50 @@ export function createManager(emit: (event: HelperPtyEvent) => void): Manager {
     }));
   }
 
+  function exec(opts: {
+    cmd: string;
+    args: string[];
+    cwd?: string;
+    timeoutMs?: number;
+    maxBytes?: number;
+  }): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
+    const timeoutMs = opts.timeoutMs ?? 30_000;
+    const maxBytes = opts.maxBytes ?? 1_048_576;
+    return new Promise((resolve) => {
+      execFile(
+        opts.cmd,
+        opts.args,
+        {
+          cwd: opts.cwd,
+          timeout: timeoutMs,
+          maxBuffer: maxBytes,
+          env: process.env,
+        },
+        (err, stdout, stderr) => {
+          // execFile rejects on non-zero exit; we want the exit code
+          // delivered to the controller in either case so kolu-git can
+          // distinguish "git found nothing" (exitCode 128) from "git
+          // not on PATH" (spawn-failed).
+          const exitCode =
+            err && "code" in err && typeof err.code === "number"
+              ? err.code
+              : err
+                ? null
+                : 0;
+          resolve({
+            // execFile's `stdout`/`stderr` are typed as `string` when no
+            // `encoding: "buffer"` is requested; the callback signature
+            // narrowing isn't perfect across @types/node versions, so
+            // accept either shape defensively.
+            stdout: String(stdout ?? ""),
+            stderr: String(stderr ?? ""),
+            exitCode,
+          });
+        },
+      );
+    });
+  }
+
   function shutdown(): void {
     for (const entry of ptys.values()) {
       if (!entry.exited) {
@@ -287,6 +340,7 @@ export function createManager(emit: (event: HelperPtyEvent) => void): Manager {
     foregroundPid,
     processName,
     list,
+    exec,
     shutdown,
   };
 }

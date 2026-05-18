@@ -71,6 +71,22 @@ export const HelperAttachParamsSchema = z.object({
 
 export const HelperListPtysParamsSchema = z.object({}).strict();
 
+/** Host-side process execution — the controller's escape hatch for any
+ *  local-machine command kolu-git / agent-providers historically shelled
+ *  out for (`git rev-parse`, `git status`, …). Helper runs `cmd` with
+ *  the given args, captures stdout/stderr, and reports the exit code.
+ *  Timeout is enforced server-side; the controller's only job is to
+ *  pick a reasonable upper bound. */
+export const HelperExecParamsSchema = z.object({
+  cmd: z.string(),
+  args: z.array(z.string()),
+  cwd: z.string().optional(),
+  /** Hard ceiling in milliseconds. Default 30s when omitted. */
+  timeoutMs: z.number().int().positive().optional(),
+  /** Cap on captured stdout (bytes). Output beyond this is truncated. */
+  maxBytes: z.number().int().positive().optional(),
+});
+
 export const HelperRpcMethodSchema = z.enum([
   "spawnPty",
   "write",
@@ -81,6 +97,7 @@ export const HelperRpcMethodSchema = z.enum([
   "attach",
   "detach",
   "listPtys",
+  "exec",
 ]);
 
 export type HelperRpcMethod = z.infer<typeof HelperRpcMethodSchema>;
@@ -94,8 +111,16 @@ export type HelperRequest = z.infer<typeof HelperRequestSchema>;
 
 // ── Responses ─────────────────────────────────────────────────────────
 
+/** Result of an `exec` request — stdout/stderr captured up to maxBytes,
+ *  plus the process exit code (or null if killed by signal/timeout). */
+export const HelperExecResultSchema = z.object({
+  stdout: z.string(),
+  stderr: z.string(),
+  exitCode: z.number().nullable(),
+});
+
 export const HelperErrorShape = z.object({
-  kind: z.enum(["not-found", "spawn-failed", "invalid"]),
+  kind: z.enum(["not-found", "spawn-failed", "exec-failed", "invalid"]),
   message: z.string(),
 });
 

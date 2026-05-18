@@ -53,7 +53,8 @@ import { attachOscParser } from "../osc-parser.ts";
 import type { PtyHandle } from "../pty.ts";
 import { getScreenText } from "../pty.ts";
 import { buildRemoteBashRc } from "../shell.ts";
-import type { Host, SpawnPtyOpts } from "./types.ts";
+import { log as rootLog } from "../log.ts";
+import type { ExecOpts, ExecResult, Host, SpawnPtyOpts } from "./types.ts";
 
 const require = createRequire(import.meta.url);
 const { Terminal } =
@@ -462,11 +463,36 @@ export function createRemoteHost(opts: RemoteHostOpts): Host {
     child = null;
   }
 
+  /** Run a command on the remote host via the helper. Used by metadata
+   *  providers (kolu-git) that historically shelled out to `git` locally.
+   *  Connects the helper lazily if not already up — first call triggers
+   *  the same `nix run` deploy path as `spawnPty`. */
+  async function exec(
+    cmd: string,
+    args: string[],
+    opts: ExecOpts,
+  ): Promise<ExecResult> {
+    const log = rootLog.child({ host: alias });
+    await ensureConnected(log);
+    return sendRequest<ExecResult>(
+      "exec",
+      {
+        cmd,
+        args,
+        cwd: opts.cwd,
+        timeoutMs: opts.timeoutMs,
+        maxBytes: opts.maxBytes,
+      },
+      log,
+    );
+  }
+
   return {
     id: alias,
     label: alias,
     kind: "remote-ssh",
     spawnPty,
+    exec,
     shutdown,
   };
 }
