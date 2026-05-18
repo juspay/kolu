@@ -1,33 +1,12 @@
 import * as assert from "node:assert";
 import { Then, When } from "@cucumber/cucumber";
-import {
-  type KoluWorld,
-  MOD_KEY,
-  WORKSPACE_SWITCHER_ENTRY_SELECTOR,
-  POLL_TIMEOUT,
-} from "../support/world.ts";
+import { type KoluWorld, MOD_KEY, POLL_TIMEOUT } from "../support/world.ts";
 
 /** Convert "#rrggbb" to "rgb(r, g, b)" for comparison with getComputedStyle. */
 function hexToRgb(hex: string): string {
   const n = parseInt(hex.slice(1), 16);
   return `rgb(${(n >> 16) & 0xff}, ${(n >> 8) & 0xff}, ${n & 0xff})`;
 }
-
-/** Select a terminal by its position in the workspace switcher (1-based), regardless of createdTerminalIds. */
-When(
-  "I select workspace switcher entry {int}",
-  async function (this: KoluWorld, position: number) {
-    const entry = this.page
-      .locator(WORKSPACE_SWITCHER_ENTRY_SELECTOR)
-      .nth(position - 1);
-    await entry.click();
-    const id = await entry.getAttribute("data-terminal-id");
-    assert.ok(id, `Workspace switcher entry ${position} has no terminal ID`);
-    await this.page
-      .locator(`[data-terminal-id="${id}"][data-visible]`)
-      .waitFor({ state: "attached", timeout: POLL_TIMEOUT });
-  },
-);
 
 Then(
   "the terminal background should be {string}",

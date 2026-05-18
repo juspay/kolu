@@ -320,16 +320,26 @@ const CodeTab: Component<{
   // resubscribe and lose the selection across tab toggles. Once the stream
   // has delivered (`!pending()`), an empty paths set IS authoritative —
   // the file truly went away (commit cleared local diff, rm deleted it).
+  //
+  // Bail on the tick where `slotKey` itself just changed: the shared
+  // `treePaths()` / `pending()` signals can momentarily expose the
+  // previous slot's snapshot before `createReactiveSubscription` resets
+  // them for the new input, so the new slot's selection would be checked
+  // against the previous slot's tree and falsely cleared. The next tick
+  // (after the reset effect runs) re-evaluates with the authoritative
+  // values for the new slot.
   createEffect(
     on(
       () => {
         const s = selectedPath();
+        const sk = slotKey();
         const isPending = isDiffView() ? status.pending() : allPaths.pending();
         const paths = treePaths();
-        return [s, !s || isPending || paths.includes(s)] as const;
+        return { s, sk, pathExists: !s || isPending || paths.includes(s) };
       },
-      ([path, pathExists]) => {
-        if (path && !pathExists) setSelectedPath(null);
+      (cur, prev) => {
+        if (prev && prev.sk !== cur.sk) return;
+        if (cur.s && !cur.pathExists) setSelectedPath(null);
       },
       { defer: true },
     ),
