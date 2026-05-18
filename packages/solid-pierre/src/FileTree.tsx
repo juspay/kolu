@@ -113,7 +113,12 @@ export const FileTree: Component<FileTreeProps> = (props) => {
       // The deferred resetPaths effect below reads it reactively for
       // subsequent changes — Pierre doesn't expose a hook to re-feed
       // `initialExpandedPaths` after the constructor, so initial and
-      // reactive paths are unavoidably two sites.
+      // reactive paths are unavoidably two sites. The constructor site
+      // also can't snapshot prior expansion from Pierre (the tree
+      // object doesn't exist yet); the createEffect site runs
+      // post-mount and CAN interrogate `tree.getItem(dir)?.isExpanded()`.
+      // Don't try to merge these two sites — they are different
+      // moments in the lifecycle with different available state.
       const selectedAncestors = props.selectedPath
         ? ancestorDirectoryPaths(props.selectedPath)
         : [];
