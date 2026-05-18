@@ -65,8 +65,8 @@ export function useHighlightOverlay(opts: OverlayOptions): void {
 
     // After the highlight set is applied for this file, consume any
     // pending scroll request. We resolve the target comment's range
-    // fresh (don't trust a stored Range across renders — the DOM may
-    // have been replaced) and scroll it into view.
+    // fresh inside the rAF below (don't trust a stored Range across
+    // renders — the DOM may have been replaced).
     const req = scroll.request();
     if (!req) return;
     const target = comments.find((c) => c.id === req.commentId);
@@ -80,17 +80,20 @@ export function useHighlightOverlay(opts: OverlayOptions): void {
       scroll.clear();
       return;
     }
-    const range = rangeFromOffsets(root, match.start, match.end);
-    if (!range) {
-      scroll.clear();
-      return;
-    }
     // Wait for the next frame so Pierre's virtualizer has settled into
     // the new file's layout — scrolling on the same tick as render
     // sometimes lands on a stale node and the highlight ends up off-
-    // screen.
+    // screen. The Range we resolved above will be invalidated by the
+    // virtualizer churn we're waiting through, so re-resolve inside
+    // the rAF body with the same offsets and bail silently if the
+    // anchor moved out of the DOM during virtualization.
     requestAnimationFrame(() => {
-      const startContainer = range.startContainer;
+      const fresh = rangeFromOffsets(root, match.start, match.end);
+      if (!fresh) {
+        scroll.clear();
+        return;
+      }
+      const startContainer = fresh.startContainer;
       const el =
         startContainer.nodeType === Node.ELEMENT_NODE
           ? (startContainer as Element)
