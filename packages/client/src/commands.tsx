@@ -268,8 +268,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
         ]
       : []),
 
-    // --- Canvas (desktop only, plus the always-on right-panel toggle) ---
-    actionPaletteCommand("toggleRightPanel", deps, { section: "canvas" }),
+    // --- Canvas (desktop only — spatial tile actions) ---
     ...(!deps.isMobile()
       ? [
           {
@@ -294,7 +293,8 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
         ]
       : []),
 
-    // --- Appearance ---
+    // --- Appearance (theme + view-toggle commands) ---
+    actionPaletteCommand("toggleRightPanel", deps, { section: "appearance" }),
     {
       kind: "group",
       name: "Theme",
