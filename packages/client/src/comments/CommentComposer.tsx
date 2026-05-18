@@ -79,12 +79,18 @@ export const CommentComposer: Component<{
               }}
               class="rounded-md border border-edge bg-surface-1 shadow-xl p-3 font-sans text-[12px]"
               onKeyDown={(e) => {
+                // stopPropagation: kolu has document-level shortcuts
+                // (terminal hotkeys, command palette) that would otherwise
+                // swallow ⌘↵ / Escape before the composer ever sees them.
                 if (e.key === "Escape") {
                   e.preventDefault();
+                  e.stopPropagation();
                   cancel();
+                  return;
                 }
                 if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
                   e.preventDefault();
+                  e.stopPropagation();
                   submit();
                 }
               }}
@@ -104,7 +110,7 @@ export const CommentComposer: Component<{
                 onInput={(e) => setBody(e.currentTarget.value)}
                 placeholder="What should the agent change?"
                 rows={3}
-                class="w-full resize-y min-h-[60px] border border-edge rounded-sm px-2 py-1.5 font-sans text-[12px] bg-bg text-fg placeholder:text-fg-3 focus:outline-none focus:ring-1 focus:ring-accent"
+                class="w-full resize-y min-h-[60px] border border-edge rounded-sm px-2 py-1.5 font-sans text-[12px] bg-surface-0 text-fg placeholder:text-fg-3 focus:outline-none focus:ring-1 focus:ring-accent"
               />
               <div class="flex justify-end gap-1.5 mt-2">
                 <button
@@ -117,7 +123,7 @@ export const CommentComposer: Component<{
                 <button
                   type="button"
                   onClick={submit}
-                  class="px-2.5 py-1 text-[11px] rounded-sm border border-fg bg-fg text-bg hover:opacity-90"
+                  class="px-2.5 py-1 text-[11px] rounded-sm border border-accent bg-accent text-surface-0 font-medium hover:opacity-90"
                 >
                   Save (⌘↵)
                 </button>

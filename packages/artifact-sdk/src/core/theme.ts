@@ -6,12 +6,27 @@
  *  documents register their own highlight registries — the iframe is
  *  opaque-origin and shares nothing with the parent), but the colors
  *  must stay identical so a comment looks the same regardless of
- *  surface. Without this shared module the values silently drift. */
+ *  surface. Without this shared module the values silently drift.
+ *
+ *  IMPORTANT: `::highlight()` only supports a subset of CSS properties
+ *  (color, background-color, text-decoration*, text-shadow). `box-shadow`
+ *  is silently dropped — use `text-decoration: underline` for the accent
+ *  line. */
 
-export const COMMENT_HIGHLIGHT_BACKGROUND = "#fff5e4";
-export const COMMENT_HIGHLIGHT_UNDERLINE = "#b8431e";
+/** Translucent yellow base (~`var(--color-warning)` at 36% over white)
+ *  — readable across light and dark surfaces. Hard-coded for the iframe
+ *  bundle (opaque-origin sandbox, no access to kolu's CSS variables).
+ *  The parent-side overlay overrides this via `var(--color-warning)`
+ *  + `color-mix` so it tracks the kolu theme exactly. */
+export const COMMENT_HIGHLIGHT_BACKGROUND = "rgba(250, 204, 21, 0.36)";
+export const COMMENT_HIGHLIGHT_UNDERLINE = "rgba(217, 119, 87, 0.85)";
 
-/** CSS body for `::highlight(<name>) { ... }` — caller composes the
- *  `::highlight(<name>) { ${COMMENT_HIGHLIGHT_STYLE} }` rule with
- *  whatever local name the runtime uses. */
-export const COMMENT_HIGHLIGHT_STYLE = `background: ${COMMENT_HIGHLIGHT_BACKGROUND}; box-shadow: 0 1px 0 ${COMMENT_HIGHLIGHT_UNDERLINE};`;
+/** Style body for the in-iframe SDK (no CSS vars). */
+export const COMMENT_HIGHLIGHT_STYLE = `background-color: ${COMMENT_HIGHLIGHT_BACKGROUND}; text-decoration-line: underline; text-decoration-color: ${COMMENT_HIGHLIGHT_UNDERLINE}; text-decoration-thickness: 1px;`;
+
+/** Style body for the parent-side overlay — uses kolu's theme variables
+ *  via `color-mix` so dark and light modes track automatically. The
+ *  parent document has `--color-warning` / `--color-busy` defined in
+ *  `packages/client/src/index.css`. */
+export const COMMENT_HIGHLIGHT_STYLE_THEMED =
+  "background-color: color-mix(in srgb, var(--color-warning) 36%, transparent); text-decoration-line: underline; text-decoration-color: color-mix(in srgb, var(--color-busy) 85%, transparent); text-decoration-thickness: 1px;";

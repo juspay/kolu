@@ -43,9 +43,9 @@ export const SelectionPill: Component<SelectionPillProps> = (props) => {
           left: `${props.rect.x + props.rect.width + 4}px`,
           "z-index": "60",
         }}
-        class="flex items-center gap-1.5 rounded-full bg-fg text-bg text-[11px] px-2.5 py-1 shadow-lg cursor-pointer select-none font-sans hover:bg-fg/90"
+        class="flex items-center gap-1.5 rounded-full bg-accent text-surface-0 text-[11px] px-2.5 py-1 shadow-lg cursor-pointer select-none font-sans hover:opacity-90"
       >
-        <span class="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full bg-accent text-white font-semibold leading-none text-[10px]">
+        <span class="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full bg-surface-0/20 text-surface-0 font-semibold leading-none text-[10px]">
           +
         </span>
         Comment

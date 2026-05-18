@@ -11,7 +11,7 @@
 
 import {
   applyHighlights,
-  COMMENT_HIGHLIGHT_STYLE,
+  COMMENT_HIGHLIGHT_STYLE_THEMED,
 } from "@kolu/artifact-sdk/client";
 import { type Accessor, createEffect, onCleanup } from "solid-js";
 import type { Comment } from "./types";
@@ -23,7 +23,7 @@ function ensureStyle(): void {
   if (document.getElementById(STYLE_ELEMENT_ID)) return;
   const style = document.createElement("style");
   style.id = STYLE_ELEMENT_ID;
-  style.textContent = `::highlight(${HIGHLIGHT_NAME}) { ${COMMENT_HIGHLIGHT_STYLE} }`;
+  style.textContent = `::highlight(${HIGHLIGHT_NAME}) { ${COMMENT_HIGHLIGHT_STYLE_THEMED} }`;
   document.head.appendChild(style);
 }
 

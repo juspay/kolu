@@ -32,6 +32,7 @@ import { toast } from "solid-sonner";
 import { CommentComposer } from "../comments/CommentComposer";
 import { CommentsTray } from "../comments/CommentsTray";
 import { CommentTextSurface } from "../comments/CommentTextSurface";
+import { useComposer } from "../comments/composerState";
 import { useColorScheme } from "../settings/useColorScheme";
 import { app } from "../wire";
 import { FileBrowseIcon, FileDiffIcon, GitBranchIcon } from "../ui/Icons";
@@ -98,6 +99,20 @@ const CodeTab: Component<{
   const setView = rightPanel.setCodeMode;
 
   const repoPath = () => props.meta?.git?.repoRoot ?? null;
+
+  // Dismiss any open comment composer when the user navigates away from
+  // the file/mode/repo the draft was anchored to. Without this, the
+  // composer floats over a different file's content and the user has
+  // to dismiss it manually. Draft body is lost, which matches every
+  // other modal-on-navigate behavior in kolu.
+  const composer = useComposer();
+  createEffect(
+    on(
+      () => [selectedPath(), view(), repoPath()] as const,
+      () => composer.close(),
+      { defer: true },
+    ),
+  );
   const isDiffView = () => view() !== "browse";
   const diffMode = (): GitDiffMode | undefined =>
     view() === "browse" ? undefined : (view() as GitDiffMode);
