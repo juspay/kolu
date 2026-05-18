@@ -57,10 +57,10 @@ function validateWorktreeName(name: string): string | null {
   return result.error.issues[0]?.message ?? "Invalid worktree name";
 }
 
-/** PaletteItems listing each recent agent command. Used by the Debug →
- *  "Recent agents" entry (phase 1 prefill flow). Icons mirror the
- *  worktree-naming leaf below so the same recent agents render with the
- *  same visual treatment in both palettes. */
+/** PaletteItems listing each recent agent command — used by the
+ *  "Recent agents" drill-in group under Active Terminal. Icons mirror the
+ *  worktree-naming leaf so agents render with the same visual treatment
+ *  in both palettes. */
 function agentItems(
   agents: RecentAgent[],
   onPick: (command: string) => void,
