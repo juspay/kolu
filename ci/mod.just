@@ -12,6 +12,12 @@
 # tagged [linux]-only would still be scheduled on macOS and fail there; keep
 # leaf recipes platform-neutral until that lands.
 
+# Submodule recipes default to running from the submodule's directory (`ci/`),
+# but commands like `nix build … --override-input flake .` and `nix develop -c`
+# expect the repo root. Pin the working directory once instead of cd'ing in
+# every body.
+set working-directory := '..'
+
 # Re-enter nix devShell when the runner ssh's into a remote that doesn't have
 # the project's dev tools (jq/gh/pnpm/biome/…) on PATH. Skipped when already
 # inside the shell so local invocations stay cheap.
@@ -26,6 +32,16 @@ nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop --accep
 [parallel]
 [metadata("ci")]
 default: nix home-manager e2e smoke fmt typecheck biome unit surface-example-build pnpm-hash-fresh
+
+# Single per-platform `pnpm install`. The runner fans every recipe out into
+# its own process and starts them all in parallel as soon as setup completes,
+# so any two recipes that each shell out to `pnpm install` against the same
+# workspace race and corrupt each other's node_modules (node-pty's native
+# postinstall is the visible failure). Funnel every pnpm consumer through
+# this node and call pnpm/biome directly downstream — do not invoke top-level
+# `just <recipe>` recipes that carry their own `install` dep.
+install:
+    {{ nix_shell }} pnpm install --frozen-lockfile
 
 # Verify the declared pnpmDeps hashes match what fetchPnpmDeps produces from
 # the current pnpm-lock.yaml files. Covers both the main kolu lockfile
@@ -50,33 +66,34 @@ nix:
 home-manager: nix
     nix build github:srid/devour-flake -L --no-link --print-out-paths --override-input flake ./nix/home/example --override-input flake/kolu .
 
-typecheck:
-    {{ nix_shell }} just check
-
-e2e: nix
-    {{ nix_shell }} just test
+typecheck: install
+    {{ nix_shell }} pnpm typecheck
 
 # Boot the packaged Kolu and verify /api/health — runtime smoke that catches
 # packaging regressions where `nix build` passes but the binary crashes at
-# boot (e.g. missing workspace dep — see #761).
+# boot (e.g. missing workspace dep — see #761). smoke.sh shells out to
+# `nix build .#default` itself; no pnpm install needed here.
 smoke: nix
-    {{ nix_shell }} just smoke
+    {{ nix_shell }} bash ci/smoke.sh
+
+e2e: nix install
+    {{ nix_shell }} just test
 
 # Run vitest unit tests (server + client).
-unit:
-    {{ nix_shell }} just test-unit
+unit: install
+    {{ nix_shell }} pnpm test:unit
 
 # Build the @kolu/surface framework's example app (vite client + tsc on
 # server). Catches example-only regressions that the workspace-wide
 # typecheck doesn't see — broken Tailwind imports, JSX errors, missing
 # imports in the production bundle. Cheap (~1s).
-surface-example-build:
-    {{ nix_shell }} sh -c 'pnpm install --frozen-lockfile && pnpm --filter @kolu/surface-example build:client'
+surface-example-build: install
+    {{ nix_shell }} pnpm --filter @kolu/surface-example build:client
 
-fmt:
-    {{ nix_shell }} just fmt-check
+fmt: install
+    {{ nix_shell }} sh -c 'biome format . && nixpkgs-fmt --check *.nix nix/**/*.nix website/*.nix'
 
 # Biome lint — recommended preset with each currently-noisy rule explicitly
 # off in biome.jsonc. Each disabled rule has a follow-up PR slot (#710).
-biome:
+biome: install
     {{ nix_shell }} biome lint .
