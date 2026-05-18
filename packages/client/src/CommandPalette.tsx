@@ -345,7 +345,7 @@ const CommandPalette: Component<{
    *  `index` on row entries still indexes into `filtered()` directly so
    *  keyboard navigation stays unchanged. */
   type DisplayEntry =
-    | { kind: "header"; section: SectionId }
+    | { kind: "header"; section: SectionId; index?: never }
     | { kind: "row"; cmd: PaletteCommand | PaletteLabel; index: number };
 
   const showSectionHeaders = createMemo(
