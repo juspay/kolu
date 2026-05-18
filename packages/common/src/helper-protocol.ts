@@ -87,6 +87,34 @@ export const HelperExecParamsSchema = z.object({
   maxBytes: z.number().int().positive().optional(),
 });
 
+/** Host-side recursive filesystem watch — the inotify-over-SSH plumbing
+ *  the working-tree-watcher needs. Helper uses `fs.watch(path, { recursive
+ *  : true })` on the remote and streams change events back as
+ *  `watchEvent` frames keyed by `subId`. Idle hosts pay no cost — the
+ *  watch is per-subscription, torn down on `unwatch`. */
+export const HelperWatchParamsSchema = z.object({
+  path: z.string(),
+  /** When true, watch the entire subtree. Defaults to false (single
+   *  directory). */
+  recursive: z.boolean().optional(),
+});
+
+export const HelperUnwatchParamsSchema = z.object({
+  subId: z.string(),
+});
+
+/** Host-side SQLite query — used by agent providers whose live state
+ *  lives in a SQLite DB on the remote (OpenCode's `opencode.db`,
+ *  Codex's `state_<N>.sqlite`). Helper opens the DB read-only via
+ *  `node:sqlite`, runs the parameterized query, returns rows.
+ *  WAL-friendly: opens with `readonly: true` so concurrent writers
+ *  aren't blocked. */
+export const HelperQueryDbParamsSchema = z.object({
+  path: z.string(),
+  sql: z.string(),
+  params: z.array(z.union([z.string(), z.number(), z.null()])).optional(),
+});
+
 export const HelperRpcMethodSchema = z.enum([
   "spawnPty",
   "write",
@@ -98,6 +126,9 @@ export const HelperRpcMethodSchema = z.enum([
   "detach",
   "listPtys",
   "exec",
+  "watch",
+  "unwatch",
+  "queryDb",
 ]);
 
 export type HelperRpcMethod = z.infer<typeof HelperRpcMethodSchema>;
@@ -155,6 +186,20 @@ export const HelperExitEventSchema = z.object({
   }),
 });
 
+/** Filesystem change observed by a `watch` subscription. The helper
+ *  doesn't try to classify Create/Update/Delete reliably (fs.watch's
+ *  event types are notoriously platform-dependent) — the controller
+ *  treats every event as "something changed under this path", which is
+ *  what kolu-git's working-tree-watcher actually does anyway. */
+export const HelperWatchEventSchema = z.object({
+  method: z.literal("watchEvent"),
+  params: z.object({
+    subId: z.string(),
+    /** Path relative to the watched root, or "" for the root itself. */
+    path: z.string(),
+  }),
+});
+
 /** Emitted exactly once, as the very first frame the helper writes after
  *  startup. Lets the controller distinguish "helper running but slow to
  *  service the first request" from "helper crashed/missing/wrong binary."
@@ -180,11 +225,13 @@ export const HelperEventSchema = z.union([
   HelperDataEventSchema,
   HelperExitEventSchema,
   HelperReadyEventSchema,
+  HelperWatchEventSchema,
 ]);
 export type HelperEvent = z.infer<typeof HelperEventSchema>;
 export type HelperDataEvent = z.infer<typeof HelperDataEventSchema>;
 export type HelperExitEvent = z.infer<typeof HelperExitEventSchema>;
 export type HelperReadyEvent = z.infer<typeof HelperReadyEventSchema>;
+export type HelperWatchEvent = z.infer<typeof HelperWatchEventSchema>;
 
 // ── Top-level frame (request or response or event) ────────────────────
 

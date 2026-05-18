@@ -20,10 +20,12 @@ import {
 } from "anyagent";
 import type { Logger } from "kolu-shared";
 import type { AgentInfo } from "kolu-common/surface";
+import { getHost } from "../host/registry.ts";
 import { log } from "../log.ts";
 import { terminalChannels } from "../publisher.ts";
 import type { TerminalProcess } from "../terminal-registry.ts";
 import { getLastAgentCommandName } from "./agent-command.ts";
+import { startRemoteOpencode } from "./remote-opencode.ts";
 import { updateServerLiveMetadata, updateServerMetadata } from "./state.ts";
 
 /** Pure decision: does this agent transition warrant a recency bump?
@@ -211,6 +213,35 @@ export function startAgentProvider<Session, Info extends AgentInfoShape>(
   terminalId: string,
 ): () => void {
   const plog = log.child({ provider: provider.kind, terminal: terminalId });
+
+  // Special-case: remote OpenCode terminals get a richer state derivation
+  // than the basename-only `reconcileRemote` provides — we poll the
+  // remote `opencode.db` over `host.queryDb` and emit proper
+  // thinking/waiting transitions. Local OpenCode and the other agents
+  // (claude-code, codex on remote) keep going through the orchestrator
+  // below.
+  if (entry.meta.hostId && provider.kind === "opencode") {
+    const host = getHost(entry.meta.hostId);
+    if (host) {
+      plog.debug("starting remote opencode watcher");
+      const watcher = startRemoteOpencode(
+        host,
+        entry.meta.cwd,
+        (info) => {
+          setAgentMetadata(entry, terminalId, info as unknown as AgentInfo);
+        },
+        plog,
+      );
+      const cwdCleanup = terminalChannels.cwd(terminalId).consume({
+        onEvent: (cwd) => watcher.setCwd(cwd),
+        onError: (err) => plog.error({ err }, "cwd channel error"),
+      });
+      return () => {
+        watcher.destroy();
+        cwdCleanup();
+      };
+    }
+  }
 
   let current: { watcher: AgentWatcher; key: string } | null = null;
   let registeredForExternal = false;

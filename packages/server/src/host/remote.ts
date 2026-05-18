@@ -46,6 +46,7 @@ import {
   type HelperExitEvent,
   HelperEventSchema,
   HelperResponseSchema,
+  type HelperWatchEvent,
 } from "kolu-common/helper-protocol";
 import { DEFAULT_COLS, DEFAULT_ROWS } from "kolu-common/config";
 import type { Logger } from "../log.ts";
@@ -155,6 +156,11 @@ export function createRemoteHost(opts: RemoteHostOpts): Host {
     lastSeq: number;
   }
   const ptys = new Map<string, PtyReg>();
+  /** Active watch subscriptions: subId → callback. Populated by
+   *  `watch()`, fired by `dispatchFrame` on each `watchEvent`,
+   *  cleaned up by the returned `stop()` (which also sends `unwatch`
+   *  to the helper). */
+  const watchSubs = new Map<string, (relPath: string) => void>();
   let connectPromise: Promise<void> | null = null;
   /** Resolver for the in-flight `connect()` waiting on the helper's
    *  `ready` event. Set by `connect`, cleared by `dispatchFrame` on
@@ -224,6 +230,8 @@ export function createRemoteHost(opts: RemoteHostOpts): Host {
         reg.lastSeq = event.params.seq;
         reg.onExit(event);
       }
+    } else if (event.method === "watchEvent") {
+      watchSubs.get(event.params.subId)?.(event.params.path);
     }
   }
 
@@ -542,12 +550,50 @@ export function createRemoteHost(opts: RemoteHostOpts): Host {
     );
   }
 
+  async function watchPath(
+    path: string,
+    onChange: (relPath: string) => void,
+    opts?: { recursive?: boolean },
+  ): Promise<{ stop(): void }> {
+    const log = rootLog.child({ host: alias });
+    await ensureConnected(log);
+    const { subId } = await sendRequest<{ subId: string }>(
+      "watch",
+      { path, recursive: opts?.recursive ?? false },
+      log,
+    );
+    watchSubs.set(subId, onChange);
+    return {
+      stop: () => {
+        watchSubs.delete(subId);
+        // Fire-and-forget — if the helper is already gone, the
+        // subscription is moot anyway.
+        sendRequest("unwatch", { subId }, log).catch(() => {});
+      },
+    };
+  }
+
+  async function queryDb(
+    path: string,
+    sql: string,
+    params?: ReadonlyArray<string | number | null>,
+  ): Promise<Array<Record<string, unknown>>> {
+    const log = rootLog.child({ host: alias });
+    await ensureConnected(log);
+    const result = await sendRequest<{
+      rows: Array<Record<string, unknown>>;
+    }>("queryDb", { path, sql, params }, log);
+    return result.rows;
+  }
+
   return {
     id: alias,
     label: alias,
     kind: "remote-ssh",
     spawnPty,
     exec,
+    watch: watchPath,
+    queryDb,
     shutdown,
   };
 }

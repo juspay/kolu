@@ -63,6 +63,25 @@ export interface Host {
    *  host instead of always against the controller's local fs. */
   exec(cmd: string, args: string[], opts: ExecOpts): Promise<ExecResult>;
 
+  /** Watch a path for filesystem changes on this host. Returned handle's
+   *  `stop()` tears down the underlying watch — `fs.watch` locally,
+   *  helper-side `fs.watch` over the SSH socket remotely. */
+  watch(
+    path: string,
+    onChange: (relPath: string) => void,
+    opts?: { recursive?: boolean },
+  ): Promise<{ stop(): void }>;
+
+  /** Read-only SQLite query. Used by agent providers whose state lives
+   *  in a DB on the host (OpenCode's `opencode.db`, Codex's
+   *  `state_<N>.sqlite`). Routes through `node:sqlite` on whichever
+   *  side the DB physically lives on. */
+  queryDb(
+    path: string,
+    sql: string,
+    params?: ReadonlyArray<string | number | null>,
+  ): Promise<Array<Record<string, unknown>>>;
+
   /** Best-effort shutdown — disposes of any long-lived connection (the
    *  SSH child, helper process, etc.). PTYs spawned through this host
    *  are not explicitly disposed here; they are torn down when the

@@ -13,7 +13,13 @@
 
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  type FSWatcher,
+  mkdirSync,
+  rmSync,
+  watch,
+  writeFileSync,
+} from "node:fs";
 import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -21,6 +27,7 @@ import type {
   HelperDataEvent,
   HelperExitEvent,
   HelperPtyEvent,
+  HelperWatchEvent,
 } from "kolu-common/helper-protocol";
 
 const require = createRequire(import.meta.url);
@@ -78,6 +85,13 @@ export interface Manager {
     timeoutMs?: number;
     maxBytes?: number;
   }): Promise<{ stdout: string; stderr: string; exitCode: number | null }>;
+  watch(opts: { path: string; recursive?: boolean }): { subId: string };
+  unwatch(subId: string): void;
+  queryDb(opts: {
+    path: string;
+    sql: string;
+    params?: ReadonlyArray<string | number | null>;
+  }): Promise<{ rows: Array<Record<string, unknown>> }>;
   write(ptyId: string, data: string): void;
   resize(ptyId: string, cols: number, rows: number): void;
   dispose(ptyId: string): void;
@@ -94,8 +108,11 @@ export interface Manager {
 /** Construct a Manager that emits events via `emit`. The emitter is
  *  intentionally external so the same Manager works under tests (stub
  *  emitter) and in production (stdout writer). */
-export function createManager(emit: (event: HelperPtyEvent) => void): Manager {
+export function createManager(
+  emit: (event: HelperPtyEvent | HelperWatchEvent) => void,
+): Manager {
   const ptys = new Map<string, PtyEntry>();
+  const watchers = new Map<string, FSWatcher>();
 
   function record(ptyId: string, build: (seq: number) => HelperPtyEvent): void {
     const entry = ptys.get(ptyId);
@@ -311,6 +328,67 @@ export function createManager(emit: (event: HelperPtyEvent) => void): Manager {
     });
   }
 
+  function startWatch(opts: { path: string; recursive?: boolean }): {
+    subId: string;
+  } {
+    const subId = randomUUID();
+    // fs.watch's recursive option works on Linux 22+ and macOS; on
+    // older kernels it silently degrades to non-recursive. Acceptable
+    // for the prototype.
+    const watcher = watch(
+      opts.path,
+      { recursive: opts.recursive ?? false, persistent: true },
+      (_eventType, filename) => {
+        emit({
+          method: "watchEvent",
+          params: { subId, path: filename ? filename.toString() : "" },
+        });
+      },
+    );
+    watcher.on("error", () => {
+      // fs.watch errors (e.g. removed dir) tear down the subscription
+      // silently — the consumer's setCwd will install a fresh watch
+      // when the next git operation resolves a valid repoRoot.
+      watchers.delete(subId);
+    });
+    watchers.set(subId, watcher);
+    return { subId };
+  }
+
+  function stopWatch(subId: string): void {
+    const watcher = watchers.get(subId);
+    if (!watcher) return;
+    try {
+      watcher.close();
+    } catch {
+      // ignore
+    }
+    watchers.delete(subId);
+  }
+
+  async function queryDb(opts: {
+    path: string;
+    sql: string;
+    params?: ReadonlyArray<string | number | null>;
+  }): Promise<{ rows: Array<Record<string, unknown>> }> {
+    // node:sqlite is "experimental" but stable across the 22.x range
+    // kolu's helper runs under (its derivation pins nodejs >= 22).
+    // Read-only + WAL means we can poll a live OpenCode / Codex DB
+    // while the agent process is writing it without blocking either
+    // side.
+    const sqlite = await import("node:sqlite");
+    const db = new sqlite.DatabaseSync(opts.path, { readOnly: true });
+    try {
+      const stmt = db.prepare(opts.sql);
+      const rows = stmt.all(...(opts.params ?? [])) as Array<
+        Record<string, unknown>
+      >;
+      return { rows };
+    } finally {
+      db.close();
+    }
+  }
+
   function shutdown(): void {
     for (const entry of ptys.values()) {
       if (!entry.exited) {
@@ -329,6 +407,14 @@ export function createManager(emit: (event: HelperPtyEvent) => void): Manager {
       }
     }
     ptys.clear();
+    for (const watcher of watchers.values()) {
+      try {
+        watcher.close();
+      } catch {
+        // ignore
+      }
+    }
+    watchers.clear();
   }
 
   return {
@@ -341,6 +427,9 @@ export function createManager(emit: (event: HelperPtyEvent) => void): Manager {
     processName,
     list,
     exec,
+    watch: startWatch,
+    unwatch: stopWatch,
+    queryDb,
     shutdown,
   };
 }

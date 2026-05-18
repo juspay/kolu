@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
-import type { HelperPtyEvent } from "kolu-common/helper-protocol";
+import type {
+  HelperPtyEvent,
+  HelperWatchEvent,
+} from "kolu-common/helper-protocol";
 import { createManager } from "./manager.ts";
 
 describe("helper manager", () => {
   it("spawns a PTY and emits data events with monotonic seq", async () => {
-    const events: HelperPtyEvent[] = [];
+    const events: (HelperPtyEvent | HelperWatchEvent)[] = [];
     const mgr = createManager((e) => events.push(e));
     const { ptyId, pid } = mgr.spawn({
       shell: "/bin/sh",
@@ -44,7 +47,7 @@ describe("helper manager", () => {
   });
 
   it("replays only events with seq > sinceSeq", async () => {
-    const events: HelperPtyEvent[] = [];
+    const events: (HelperPtyEvent | HelperWatchEvent)[] = [];
     const mgr = createManager((e) => events.push(e));
     const { ptyId } = mgr.spawn({
       shell: "/bin/sh",
@@ -76,7 +79,7 @@ describe("helper manager", () => {
   });
 
   it("dispose removes the PTY from list()", () => {
-    const events: HelperPtyEvent[] = [];
+    const events: (HelperPtyEvent | HelperWatchEvent)[] = [];
     const mgr = createManager((e) => events.push(e));
     const { ptyId } = mgr.spawn({
       shell: "/bin/sh",

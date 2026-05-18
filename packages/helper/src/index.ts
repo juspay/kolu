@@ -46,9 +46,12 @@ import {
   HelperListPtysParamsSchema,
   HelperProcessNameParamsSchema,
   type HelperPtyEvent,
+  HelperQueryDbParamsSchema,
   HelperRequestSchema,
   HelperResizeParamsSchema,
   HelperSpawnPtyParamsSchema,
+  HelperUnwatchParamsSchema,
+  HelperWatchParamsSchema,
   HelperWriteParamsSchema,
 } from "kolu-common/helper-protocol";
 import pkg from "../package.json" with { type: "json" };
@@ -95,9 +98,7 @@ function runDaemon(): void {
     currentClient.write(`${JSON.stringify(frame)}\n`);
   }
 
-  const manager = createManager((event: HelperPtyEvent) =>
-    writeToClient(event),
-  );
+  const manager = createManager((event) => writeToClient(event));
 
   function respond(id: number, result: unknown): void {
     writeToClient({ id, result });
@@ -171,6 +172,32 @@ function runDaemon(): void {
           const params = HelperExecParamsSchema.parse(req.params);
           manager
             .exec(params)
+            .then((result) => respond(req.id, result))
+            .catch((err) =>
+              respondError(
+                req.id,
+                "exec-failed",
+                err instanceof Error ? err.message : String(err),
+              ),
+            );
+          return;
+        }
+        case "watch": {
+          const params = HelperWatchParamsSchema.parse(req.params);
+          const result = manager.watch(params);
+          respond(req.id, result);
+          return;
+        }
+        case "unwatch": {
+          const params = HelperUnwatchParamsSchema.parse(req.params);
+          manager.unwatch(params.subId);
+          respond(req.id, {});
+          return;
+        }
+        case "queryDb": {
+          const params = HelperQueryDbParamsSchema.parse(req.params);
+          manager
+            .queryDb(params)
             .then((result) => respond(req.id, result))
             .catch((err) =>
               respondError(
