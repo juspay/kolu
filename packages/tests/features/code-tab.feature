@@ -651,7 +651,8 @@ Feature: Code tab (review + browse)
     And I click the Code tab
     And I click the Code tab mode "browse"
     And I click the file "a.md" in the file browser
-    And I select text "save-flow-marker" in the file content
+    Then the comments tray should not be visible
+    When I select text "save-flow-marker" in the file content
     And I click the comment pill
     Then the comment composer should be visible
     When I type "agent should reword this" into the comment composer
