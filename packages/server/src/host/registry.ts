@@ -12,7 +12,7 @@
 import { log } from "../log.ts";
 import { createLocalHost, LOCAL_HOST_ID } from "./local.ts";
 import { createRemoteHost } from "./remote.ts";
-import { readSshHosts, type SshHostEntry } from "./ssh-config.ts";
+import { readSshHosts } from "./ssh-config.ts";
 import type { Host } from "./types.ts";
 
 const hosts = new Map<string, Host>();
@@ -83,13 +83,4 @@ export function listHosts(): HostSummary[] {
 export async function shutdownHosts(): Promise<void> {
   await Promise.all([...hosts.values()].map((h) => h.shutdown()));
   hosts.clear();
-}
-
-/** Surface the parsed SSH entries (for diagnostics + the host.list RPC,
- *  which wants alias + hostname so the picker can show `srid-build →
- *  build.example.com` instead of just the alias).
- *
- *  Lazy-cached, but re-evaluated on every `initHosts` call. */
-export function getSshEntries(): SshHostEntry[] {
-  return readSshHosts();
 }
