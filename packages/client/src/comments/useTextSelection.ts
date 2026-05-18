@@ -16,7 +16,7 @@ import {
   onCleanup,
   onMount,
 } from "solid-js";
-import { extractQuote } from "@kolu/artifact-sdk/client";
+import { extractOffsets, extractQuote } from "@kolu/artifact-sdk/client";
 import { useComposer } from "./composerState";
 
 /** Debounced live-selection snapshot. The pill placement only needs the
@@ -65,35 +65,15 @@ function nodeInside(host: HTMLElement, node: Node | null): boolean {
  *  Counts newlines in the concatenated text content up to the range's
  *  start (for `start`) and end (for `end`) offsets. Used to populate
  *  `Comment.lineRange` so the tray-click jump can drive Pierre's line
- *  selection via `openInCodeTab`. Returns `undefined` when the root
- *  doesn't have an ownerDocument (defensive — we walk the same
- *  TreeWalker the locator extraction uses). */
+ *  selection via `openInCodeTab`. Returns `undefined` when offsets can't
+ *  be resolved (e.g. cross-root range) — the offset walk is shared with
+ *  `extractQuote` via `extractOffsets`. */
 function lineRangeForSelection(
   root: Document | ShadowRoot,
   range: Range,
 ): { start: number; end: number } | undefined {
-  const rootEl =
-    root instanceof Document ? (root.body ?? root) : (root as Node);
-  const ownerDoc = root instanceof Document ? root : root.ownerDocument;
-  if (!ownerDoc) return undefined;
-  const walker = ownerDoc.createTreeWalker(rootEl, NodeFilter.SHOW_TEXT);
-  let acc = 0;
-  let startOff = -1;
-  let endOff = -1;
-  let node: Node | null = walker.nextNode();
-  while (node) {
-    const len = node.textContent?.length ?? 0;
-    if (startOff < 0 && node === range.startContainer) {
-      startOff = acc + range.startOffset;
-    }
-    if (node === range.endContainer) {
-      endOff = acc + range.endOffset;
-      break;
-    }
-    acc += len;
-    node = walker.nextNode();
-  }
-  if (startOff < 0 || endOff < 0) return undefined;
+  const offsets = extractOffsets(root, range);
+  if (!offsets) return undefined;
   const text =
     root instanceof Document
       ? (root.body?.textContent ?? "")
@@ -106,7 +86,7 @@ function lineRangeForSelection(
     }
     return n;
   };
-  return { start: lineAt(startOff), end: lineAt(endOff) };
+  return { start: lineAt(offsets.start), end: lineAt(offsets.end) };
 }
 
 /** Read the active text selection, looking through any open shadow roots

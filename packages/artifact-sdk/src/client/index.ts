@@ -7,6 +7,7 @@
  *  - `bindArtifactSdk` wires the parent ↔ iframe message protocol. */
 
 export { extractQuote } from "../core/extractQuote";
+export { extractOffsets } from "../core/extractOffsets";
 export {
   findQuote,
   rangeFromOffsets,
