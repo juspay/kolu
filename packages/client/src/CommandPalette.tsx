@@ -59,11 +59,19 @@ const SECTION_LABELS: Record<SectionId, string> = {
   developer: "Developer",
 };
 
+/** O(1) lookup derived from `SECTION_ORDER` — single source of truth.
+ *  Built at module load via `Object.fromEntries(...)` so reordering
+ *  `SECTION_ORDER` automatically rebuilds the map; there is no parallel
+ *  literal to keep in sync. */
+const SECTION_INDEX: Record<SectionId, number> = Object.fromEntries(
+  SECTION_ORDER.map((s, i) => [s, i]),
+) as Record<SectionId, number>;
+
 /** Stable sort key: tagged items cluster in canonical order; untagged
  *  items sort to the end and preserve their registration order via the
  *  stability of `Array.prototype.sort`. */
 function sectionIndex(s: SectionId | undefined): number {
-  return s === undefined ? SECTION_ORDER.length : SECTION_ORDER.indexOf(s);
+  return s === undefined ? SECTION_ORDER.length : SECTION_INDEX[s];
 }
 
 /** Fields shared by every interactive palette item. */
