@@ -11,11 +11,12 @@
  */
 
 import path from "node:path";
-import type {
-  AgentInfoShape,
-  AgentProvider,
-  AgentTerminalState,
-  AgentWatcher,
+import {
+  type AgentInfoShape,
+  type AgentProvider,
+  type AgentTerminalState,
+  type AgentWatcher,
+  matchesAgent,
 } from "anyagent";
 import type { Logger } from "kolu-shared";
 import type { AgentInfo } from "kolu-common/surface";
@@ -229,6 +230,59 @@ export function startAgentProvider<Session, Info extends AgentInfoShape>(
   // `host.exec` + `host.watch`.
   const isRemote = entry.meta.hostId !== undefined;
 
+  /** Binary basename a remote provider should recognize via the
+   *  foreground-process / preexec-mark signal. `provider.resolveSession`
+   *  is unusable on remote because each integration's matcher also
+   *  reads local fs state (Claude's session JSONL, OpenCode's SQLite,
+   *  Codex's WAL) — none of which see the remote-machine state — so
+   *  the basename is the only signal that survives. */
+  const REMOTE_AGENT_BINARY: Record<string, string> = {
+    "claude-code": "claude",
+    codex: "codex",
+    opencode: "opencode",
+  };
+
+  /** Minimal remote agent detection — emit a stable AgentInfo whenever
+   *  the foreground process / preexec mark says this provider's agent
+   *  binary is running. State stays "thinking" (the safe default)
+   *  because we can't tell from process name alone whether the agent
+   *  is busy or waiting on the user.
+   *
+   *  Declared as a `const` arrow before `reconcile` so the closure
+   *  capture is unambiguous — a sibling `function` declaration was
+   *  hitting a tsx/esbuild hoisting quirk that surfaced as a runtime
+   *  `ReferenceError: reconcileRemote is not defined` from inside
+   *  `reconcile`. The arrow form forces a plain lexical binding. */
+  const reconcileRemote = (state: AgentTerminalState): void => {
+    const binary = REMOTE_AGENT_BINARY[provider.kind];
+    const matches = binary !== undefined && matchesAgent(state, binary);
+    const nextKey = matches ? `${provider.kind}:active` : null;
+    if ((current?.key ?? null) === nextKey) return;
+
+    current = null;
+    if (!nextKey) {
+      if (entry.meta.agent?.kind === provider.kind) {
+        setAgentMetadata(entry, terminalId, null);
+      }
+      return;
+    }
+
+    plog.debug({ session: nextKey }, "remote agent matched");
+    current = {
+      key: nextKey,
+      watcher: { destroy: () => {} },
+    };
+    setAgentMetadata(entry, terminalId, {
+      kind: provider.kind,
+      state: "thinking",
+      sessionId: `remote:${terminalId}:${provider.kind}`,
+      model: null,
+      summary: null,
+      taskProgress: null,
+      contextTokens: null,
+    } as unknown as AgentInfo);
+  };
+
   function reconcile() {
     const state = snapshotTerminalState(entry, terminalId, plog);
 
@@ -301,43 +355,6 @@ export function startAgentProvider<Session, Info extends AgentInfoShape>(
         plog,
       ),
     };
-  }
-
-  /** Minimal remote agent detection — emit a stable AgentInfo whenever
-   *  `resolveSession` matches, without spinning up a per-session
-   *  watcher. State stays "thinking" (the safe default) because we
-   *  can't tell from process name alone whether the agent is busy or
-   *  waiting on the user. */
-  function reconcileRemote(state: AgentTerminalState): void {
-    const next = provider.resolveSession(state, plog);
-    const nextKey = next ? provider.sessionKey(next) : null;
-    if ((current?.key ?? null) === nextKey) return;
-
-    current = null;
-    if (!next || !nextKey) {
-      if (entry.meta.agent?.kind === provider.kind) {
-        setAgentMetadata(entry, terminalId, null);
-      }
-      return;
-    }
-
-    plog.debug({ session: nextKey }, "remote agent session matched");
-    // No watcher — store the key so transitions still fire the recency
-    // bump exactly once. `destroy()` is a no-op since there's nothing
-    // running.
-    current = {
-      key: nextKey,
-      watcher: { destroy: () => {} },
-    };
-    setAgentMetadata(entry, terminalId, {
-      kind: provider.kind,
-      state: "thinking",
-      sessionId: `remote:${terminalId}:${nextKey}`,
-      model: null,
-      summary: null,
-      taskProgress: null,
-      contextTokens: null,
-    } as unknown as AgentInfo);
   }
 
   function clearCommandRunTimers() {
