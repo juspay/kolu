@@ -9,17 +9,19 @@ Kolu's pipeline is defined in `ci/mod.just` and driven by [juspay/ci](https://gi
 
 ## Running
 
-Run in strict mode so the binary posts live commit statuses and pins to HEAD:
+Strict mode pre-flight: clean working tree, HEAD pushed to the remote, and a runnable host per non-local Nix system. The darwin lane runs against the static `sincereintent` entry already in `~/.config/ci/hosts.json`. The linux lane runs against an **ephemeral Incus container created per CI run** via `pu`, redirected through juspay/ci's `--host` override:
 
 ```sh
-CI=true nix run github:juspay/ci -- run
+pr=$(gh pr view --json number --jq .number)
+host="kolu-pr-$pr"
+pu create --name "$host"                                                 # writes ~/.pu-state/$host/ssh_config; ssh $host now works
+CI=true nix run github:juspay/ci -- run --host x86_64-linux="$host"      # run with the override
+pu destroy "$host"                                                       # tear down at the end
 ```
 
-Pre-flight requirements (strict mode refuses otherwise):
+Why ephemeral: each CI run gets a clean linux build VM, so prior runs' state (nix store cruft, disk pressure, dirty workspace caches) can't poison a re-run. The darwin lane stays on the static `sincereintent` because reprovisioning a macOS host per run isn't free.
 
-- Working tree is clean.
-- HEAD is pushed to the remote (GitHub status API needs the SHA).
-- `~/.config/ci/hosts.json` has entries for each non-local Nix system family declared on the root recipe.
+The runner accepts `--host PLATFORM=ADDR` repeatedly; CLI entries win over `hosts.json` on collision, and platforms not named on the CLI still consult the file.
 
 The binary blocks until the pipeline finishes. Process-compose's per-node state transitions stream to its own log at `.ci/pc.log`; the binary's stdout carries the verdict summary printed at the end (one line per node with its final state).
 
@@ -74,13 +76,14 @@ Read that file to diagnose. Do **not** read the binary's stdout/stderr directly 
 
 ## Retrying individual steps
 
-Single-recipe retries don't need the runner — invoke the just recipe directly:
+The runner accepts positional `RECIPE[@PLATFORM]` selectors that restrict the DAG to a subset while keeping commit-status posting intact (juspay/ci#20). Each partial re-run **overwrites the same `ci::<recipe>@<platform>` status** the full run wrote — exactly what flips a single red check green:
 
 ```sh
-just ci::<recipe>          # local platform, in the worktree
+CI=true nix run github:juspay/ci -- run e2e@x86_64-linux   # one node, posts a status
+CI=true nix run github:juspay/ci -- run e2e                # both platforms
 ```
 
-For a specific platform, run from a host that matches that platform (or SSH into one). The full runner is only needed when you want the multi-platform fanout + status posting.
+For local-only iteration without touching commit statuses, `just ci::<recipe>` still runs the recipe in the live worktree.
 
 ## Flaky tests
 
@@ -99,4 +102,4 @@ Runtime artifacts live under `.ci/` (gitignored):
 - `.ci/worktree/` — git worktree pinned to HEAD (strict mode only).
 - `.ci/<short-sha>/<platform>/<recipe>.log` — one log per node.
 
-Hosts are configured in `~/.config/ci/hosts.json`, keyed by full Nix system tuple. See `ci/README.md` for the schema and host-string conventions.
+Hosts are configured in `~/.config/ci/hosts.json`, keyed by full Nix system tuple. Values are anything `ssh` can dial — bare hostname, `user@host`, or an `~/.ssh/config` alias. An entry for the *local* system takes precedence over inline execution.
