@@ -179,21 +179,22 @@ export const FileTree: Component<FileTreeProps> = (props) => {
       ],
       ([paths, expandPaths, selectedPath], prev) => {
         try {
+          // Snapshot Pierre's currently-expanded directories so they
+          // survive `resetPaths`'s fresh-PathStore rebuild. Iterate both
+          // the previous and new paths' ancestor sets to cover dirs that
+          // exist on either side of the swap. On the first deferred fire
+          // (after mount) `prev` is undefined per SolidJS `on(defer:true)`
+          // semantics; in that case the new paths alone still hold every
+          // directory Pierre currently indexes (the constructor seeded
+          // from the same `props.paths` source).
           const previouslyExpanded: string[] = [];
-          if (tree && prev) {
-            const [prevPaths] = prev;
+          if (tree) {
             const seenDirs = new Set<string>();
-            for (const p of prevPaths) {
+            const candidatePaths = [...(prev?.[0] ?? []), ...paths];
+            for (const p of candidatePaths) {
               for (const dir of ancestorDirectoryPaths(p)) {
                 if (seenDirs.has(dir)) continue;
                 seenDirs.add(dir);
-                // The trailing-slash key from `ancestorDirectoryPaths`
-                // structurally identifies a folder, but Pierre's
-                // `getItem` returns the un-narrowed `FileTreeItemHandle`
-                // union — `"isExpanded" in item` narrows to the
-                // directory branch (which has `isExpanded`) and
-                // double-guards against a future Pierre change that
-                // shifts what `getItem` returns for a slash key.
                 const item = tree.getItem(dir);
                 if (item && "isExpanded" in item && item.isExpanded()) {
                   previouslyExpanded.push(dir);
