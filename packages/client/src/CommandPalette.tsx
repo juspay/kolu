@@ -385,7 +385,10 @@ const CommandPalette: Component<{
     // the input, Enter on a div option doesn't restore it), so the user
     // can immediately type to filter the sub-mode. Deferred to rAF so the
     // input has rendered any new query value first (select() before the
-    // render highlights nothing).
+    // render highlights nothing). One rAF suffices here because the dialog
+    // is already open and Corvu's initialFocusEl is idle — no focus
+    // competition. The open-effect uses a double-rAF to outlast Corvu's
+    // own focus management on (re)open.
     requestAnimationFrame(() =>
       cmd.kind === "value" ? inputRef.select() : inputRef.focus(),
     );
