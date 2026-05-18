@@ -19,6 +19,11 @@ export type ComposerTarget = {
   /** Repo-relative path the new comment will be anchored to. */
   path: string;
   locator: Locator;
+  /** Optional line range captured at selection time — passed through
+   *  to `Comment.lineRange` on save so the tray-click jump can use
+   *  `openInCodeTab` to land Pierre's line-selection highlight on
+   *  the right row. */
+  lineRange?: { start: number; end: number };
   /** Viewport rect (parent-local coordinates) of the selection — the
    *  composer is positioned next to it. */
   rect: { x: number; y: number; width: number; height: number };

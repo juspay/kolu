@@ -13,6 +13,12 @@ export type Comment = {
    *  locator's quote, it's enough to re-anchor on the agent side. */
   path: string;
   locator: Locator;
+  /** Line range captured at selection time — display hint for the tray
+   *  and the destination of "jump to anchor" via `openInCodeTab`. The
+   *  quote in `locator` is the durable anchor; this is the optimistic
+   *  read of where the selection lived when it was made. Absent for
+   *  HTML iframe comments and for older persisted entries. */
+  lineRange?: { start: number; end: number };
   body: string;
   createdAt: number;
 };

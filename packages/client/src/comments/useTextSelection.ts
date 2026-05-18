@@ -58,6 +58,54 @@ function nodeInside(host: HTMLElement, node: Node | null): boolean {
   return false;
 }
 
+/** Compute the 1-based line range a `Range` covers within the given root.
+ *  Counts newlines in the concatenated text content up to the range's
+ *  start (for `start`) and end (for `end`) offsets. Used to populate
+ *  `Comment.lineRange` so the tray-click jump can drive Pierre's line
+ *  selection via `openInCodeTab`. Returns `undefined` when the root
+ *  doesn't have an ownerDocument (defensive — we walk the same
+ *  TreeWalker the locator extraction uses). */
+function lineRangeForSelection(
+  root: Document | ShadowRoot,
+  range: Range,
+): { start: number; end: number } | undefined {
+  const rootEl =
+    root instanceof Document ? (root.body ?? root) : (root as Node);
+  const ownerDoc = root instanceof Document ? root : root.ownerDocument;
+  if (!ownerDoc) return undefined;
+  const walker = ownerDoc.createTreeWalker(rootEl, NodeFilter.SHOW_TEXT);
+  let acc = 0;
+  let startOff = -1;
+  let endOff = -1;
+  let node: Node | null = walker.nextNode();
+  while (node) {
+    const len = node.textContent?.length ?? 0;
+    if (startOff < 0 && node === range.startContainer) {
+      startOff = acc + range.startOffset;
+    }
+    if (node === range.endContainer) {
+      endOff = acc + range.endOffset;
+      break;
+    }
+    acc += len;
+    node = walker.nextNode();
+  }
+  if (startOff < 0 || endOff < 0) return undefined;
+  const text =
+    root instanceof Document
+      ? (root.body?.textContent ?? "")
+      : (root.textContent ?? "");
+  // 1-based lines — newline count up to the offset + 1.
+  const lineAt = (off: number): number => {
+    let n = 1;
+    for (let i = 0; i < off && i < text.length; i++) {
+      if (text[i] === "\n") n++;
+    }
+    return n;
+  };
+  return { start: lineAt(startOff), end: lineAt(endOff) };
+}
+
 /** Read the active text selection, looking through any open shadow roots
  *  descending from `host`. `window.getSelection()` cannot return
  *  selections whose anchor/focus is inside a shadow tree (per spec);
@@ -172,6 +220,7 @@ export function useTextSelection(opts: UseTextSelectionOptions) {
     const resolvedRoot: Document | ShadowRoot =
       rootNode instanceof ShadowRoot ? rootNode : ownerDoc;
     const locator = extractQuote(lastRange, resolvedRoot);
+    const lineRange = lineRangeForSelection(resolvedRoot, lastRange);
     const rects = lastRange.getClientRects();
     const last =
       rects.length > 0
@@ -180,6 +229,7 @@ export function useTextSelection(opts: UseTextSelectionOptions) {
     composer.open({
       path,
       locator,
+      lineRange,
       rect: last
         ? { x: last.left, y: last.top, width: last.width, height: last.height }
         : { x: 0, y: 0, width: 0, height: 0 },

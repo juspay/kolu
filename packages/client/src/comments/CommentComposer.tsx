@@ -3,13 +3,7 @@
  *  Mounted ONCE per CodeTab — any capture surface (text browse, branch
  *  diff, HTML iframe) routes through the same composer. */
 
-import {
-  type Component,
-  createEffect,
-  createSignal,
-  onCleanup,
-  Show,
-} from "solid-js";
+import { type Component, createSignal, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import { useComposer } from "./composerState";
 import { useComments } from "./useComments";
@@ -52,6 +46,7 @@ export const CommentComposer: Component<{
     useComments(props.repoRoot).add({
       path: target.path,
       locator: target.locator,
+      lineRange: target.lineRange,
       body: trimmed,
     });
     composer.close();
@@ -62,39 +57,6 @@ export const CommentComposer: Component<{
     composer.close();
     setBody("");
   };
-
-  // kolu's global shortcut dispatcher (`useShortcuts.ts`) listens at
-  // window-keydown with `{ capture: true }` — it fires BEFORE bubble-phase
-  // React/Solid handlers and dispatches Cmd+Enter to "New terminal". A
-  // bubble-phase `onKeyDown` on this component runs too late: the global
-  // has already fired. Install our own capture-phase listener that wins
-  // the race when the composer is open AND focus is inside it.
-  createEffect(() => {
-    if (!composer.target()) return;
-    const onKey = (e: KeyboardEvent): void => {
-      // Only intercept if focus is inside the composer — otherwise the
-      // user is using kolu normally (e.g. terminal hotkeys) and we'd
-      // capture-block every Cmd+Enter app-wide.
-      const composerEl = document.querySelector(
-        '[data-testid="kolu-comment-composer"]',
-      );
-      const active = document.activeElement;
-      if (!composerEl || !active || !composerEl.contains(active)) return;
-      if (e.key === "Escape") {
-        e.preventDefault();
-        e.stopImmediatePropagation();
-        cancel();
-      } else if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-        e.preventDefault();
-        e.stopImmediatePropagation();
-        submit();
-      }
-    };
-    window.addEventListener("keydown", onKey, { capture: true });
-    onCleanup(() => {
-      window.removeEventListener("keydown", onKey, { capture: true });
-    });
-  });
 
   return (
     <Show when={composer.target()}>
@@ -109,6 +71,7 @@ export const CommentComposer: Component<{
               role="dialog"
               aria-label="Add comment"
               data-testid="kolu-comment-composer"
+              data-kolu-modal="true"
               style={{
                 position: "fixed",
                 top: `${pos.top}px`,

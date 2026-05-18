@@ -724,13 +724,31 @@ const CodeTab: Component<{
               <CommentsTray
                 repoRoot={repo()}
                 onJumpTo={(comment) => {
-                  // Switch to browse mode + select the file, then queue
-                  // a scroll request. `highlightOverlay` consumes the
-                  // request after applying highlights and scrolls the
-                  // matched range into view — the user sees the
-                  // commented quote, not just the top of the file.
-                  setView("browse");
-                  setSelectedPath(comment.path);
+                  // Two complementary highlights on land:
+                  //   1. Pierre's blue line bar (full-row selection)
+                  //      via `openInCodeTab` when we have a stored
+                  //      `lineRange` — the same machinery terminal
+                  //      `path:line` clicks use.
+                  //   2. The CSS Custom Highlight overlay's yellow
+                  //      underline on the exact quote — applied by
+                  //      `highlightOverlay` after the file mounts.
+                  // Plus a scroll request so the matched range lands
+                  // in view even if Pierre's `scrollToLine` and our
+                  // re-find disagree on the row.
+                  if (comment.lineRange) {
+                    openInCodeTab({
+                      ref: {
+                        path: comment.path,
+                        startLine: comment.lineRange.start,
+                        endLine: comment.lineRange.end,
+                      },
+                      repoRoot: repo(),
+                      targetMode: "browse",
+                    });
+                  } else {
+                    setView("browse");
+                    setSelectedPath(comment.path);
+                  }
                   useCommentScrollRequest().set({
                     path: comment.path,
                     commentId: comment.id,
