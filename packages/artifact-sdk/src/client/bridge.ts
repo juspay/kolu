@@ -13,6 +13,7 @@
  *    onCleanup(dispose);
  */
 
+import { match } from "ts-pattern";
 import type {
   IframeToParent,
   Locator,
@@ -50,15 +51,15 @@ export function bindArtifactSdk(
     if (event.source !== iframe.contentWindow) return;
     const msg = event.data;
     if (!msg || typeof msg !== "object") return;
-    switch (msg.type) {
-      case "kolu-artifact-sdk:ready":
+    match(msg)
+      .with({ type: "kolu-artifact-sdk:ready" }, () => {
         pushPath();
         pushHighlights();
-        break;
-      case "kolu-artifact-sdk:select":
-        opts.onSelect(msg);
-        break;
-    }
+      })
+      .with({ type: "kolu-artifact-sdk:select" }, (m) => {
+        opts.onSelect(m);
+      })
+      .exhaustive();
   };
 
   window.addEventListener("message", onMessage);

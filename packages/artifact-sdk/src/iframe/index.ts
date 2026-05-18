@@ -13,6 +13,7 @@
  *    3. Apply CSS Custom Highlights for the comment set the parent pushes
  *       via `RenderHighlightsMsg`. */
 
+import { match } from "ts-pattern";
 import { applyHighlights } from "../core/applyHighlights";
 import { extractQuote } from "../core/extractQuote";
 import { COMMENT_HIGHLIGHT_STYLE } from "../core/theme";
@@ -130,14 +131,14 @@ function ensureHighlightStyle(): void {
 function onMessage(event: MessageEvent<ParentToIframe>): void {
   const msg = event.data;
   if (!msg || typeof msg !== "object") return;
-  switch (msg.type) {
-    case "kolu-artifact-sdk:path":
-      currentPath = msg.path;
-      break;
-    case "kolu-artifact-sdk:render-highlights":
-      applyHighlights(window, document, msg.comments, HIGHLIGHT_NAME);
-      break;
-  }
+  match(msg)
+    .with({ type: "kolu-artifact-sdk:path" }, (m) => {
+      currentPath = m.path;
+    })
+    .with({ type: "kolu-artifact-sdk:render-highlights" }, (m) => {
+      applyHighlights(window, document, m.comments, HIGHLIGHT_NAME);
+    })
+    .exhaustive();
 }
 
 function boot(): void {
