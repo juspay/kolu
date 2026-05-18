@@ -16,7 +16,11 @@ import {
   onCleanup,
   onMount,
 } from "solid-js";
-import { extractOffsets, extractQuote } from "@kolu/artifact-sdk/client";
+import {
+  extractOffsets,
+  extractQuote,
+  type SelectionRect,
+} from "@kolu/artifact-sdk/client";
 import { useComposer } from "./composerState";
 import { walkShadowRoots } from "./shadowWalk";
 
@@ -25,7 +29,7 @@ import { walkShadowRoots } from "./shadowWalk";
  *  cached `lastRange`, since extracting context windows for every
  *  selection tick during a drag is wasteful. */
 export type SelectionCaptured = {
-  rect: { x: number; y: number; width: number; height: number };
+  rect: SelectionRect;
 };
 
 export interface UseTextSelectionOptions {

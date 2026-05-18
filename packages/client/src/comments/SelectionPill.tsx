@@ -8,11 +8,12 @@
  *  inside the opaque-origin iframe; see
  *  `packages/artifact-sdk/src/iframe/index.ts`.) */
 
+import type { SelectionRect } from "@kolu/artifact-sdk/client";
 import { Portal } from "solid-js/web";
 import type { Component } from "solid-js";
 
 export type SelectionPillProps = {
-  rect: { x: number; y: number; width: number; height: number };
+  rect: SelectionRect;
   onActivate: () => void;
 };
 

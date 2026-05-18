@@ -3,6 +3,7 @@
  *  Mounted ONCE per CodeTab — any capture surface (text browse, branch
  *  diff, HTML iframe) routes through the same composer. */
 
+import type { SelectionRect } from "@kolu/artifact-sdk/client";
 import { type Component, createSignal, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import { useComposer } from "./composerState";
@@ -15,7 +16,7 @@ const COMPOSER_GAP = 8;
  *  might be near the right or bottom edge — we place the popover just
  *  below and right of the rect, then pull it back if needed. */
 function clampPosition(
-  rect: { x: number; y: number; width: number; height: number },
+  rect: SelectionRect,
   popW: number,
   popH: number,
 ): { top: number; left: number } {

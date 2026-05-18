@@ -13,7 +13,7 @@
  *  and dismisses the pill — click-away never leaves a stale pill behind. */
 
 import { createSignal } from "solid-js";
-import type { Locator } from "@kolu/artifact-sdk/client";
+import type { Locator, SelectionRect } from "@kolu/artifact-sdk/client";
 
 export type ComposerTarget = {
   /** Repo-relative path the new comment will be anchored to. */
@@ -26,7 +26,7 @@ export type ComposerTarget = {
   lineRange?: { start: number; end: number };
   /** Viewport rect (parent-local coordinates) of the selection — the
    *  composer is positioned next to it. */
-  rect: { x: number; y: number; width: number; height: number };
+  rect: SelectionRect;
 };
 
 const [target, setTarget] = createSignal<ComposerTarget | null>(null);
