@@ -67,12 +67,6 @@ export const HelperDetachParamsSchema = z.object({
   ptyId: z.string(),
 });
 
-export const HelperExecParamsSchema = z.object({
-  cmd: z.string(),
-  args: z.array(z.string()),
-  cwd: z.string().optional(),
-});
-
 export const HelperListPtysParamsSchema = z.object({}).strict();
 
 export const HelperRpcMethodSchema = z.enum([
@@ -84,7 +78,6 @@ export const HelperRpcMethodSchema = z.enum([
   "processName",
   "attach",
   "detach",
-  "exec",
   "listPtys",
 ]);
 
@@ -114,12 +107,6 @@ export const HelperProcessNameResultSchema = z.object({
   name: z.string().optional(),
 });
 
-export const HelperExecResultSchema = z.object({
-  stdout: z.string(),
-  stderr: z.string(),
-  exitCode: z.number(),
-});
-
 export const HelperListPtysResultSchema = z.object({
   ptys: z.array(
     z.object({
@@ -132,7 +119,7 @@ export const HelperListPtysResultSchema = z.object({
 });
 
 export const HelperErrorShape = z.object({
-  kind: z.enum(["not-found", "spawn-failed", "exec-failed", "invalid"]),
+  kind: z.enum(["not-found", "spawn-failed", "invalid"]),
   message: z.string(),
 });
 

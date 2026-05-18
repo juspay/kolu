@@ -50,7 +50,7 @@ function respond(id: number, result: unknown): void {
 
 function respondError(
   id: number,
-  kind: "not-found" | "spawn-failed" | "exec-failed" | "invalid",
+  kind: "not-found" | "spawn-failed" | "invalid",
   message: string,
 ): void {
   writeFrame({ id, error: { kind, message } });
