@@ -28,6 +28,18 @@ Feature: Recent agents in command palette
     And palette item "claude --dangerously-skip-permissions" should be visible
     And there should be no page errors
 
+  Scenario: Drilling into Recent agents keeps focus on palette input
+    # Same focus contract as Search workspaces / Theme: the drill-in
+    # must leave focus in the palette input so the user can immediately
+    # start typing to filter agents.
+    When I run "claude --dangerously-skip-permissions"
+    And I open the command palette
+    And I select "Debug" in the palette
+    And I select "Recent agents" in the palette
+    Then the palette breadcrumb should show "Recent agents"
+    And the palette search input should be focused
+    And there should be no page errors
+
   Scenario: Prompt flag values are stripped before storage
     When I run "claude --model sonnet -p mysecret"
     And I open the command palette

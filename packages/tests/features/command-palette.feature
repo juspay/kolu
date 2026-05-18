@@ -135,6 +135,27 @@ Feature: Command Palette
     Then palette item "Keyboard shortcuts" should show shortcut "/"
     And there should be no page errors
 
+  Scenario: Drilling into Search workspaces keeps focus on palette input
+    # Selecting a body-group via Enter must leave focus in the palette
+    # input so the user can immediately start typing to narrow the
+    # workspace cards. Previously the open-effect's focus call only
+    # ran on `open` changing — in-palette drill-in skipped it.
+    Given I run "echo focus-after-drill"
+    When I open the command palette
+    And I select "Search workspaces" in the palette
+    Then the workspace switcher panel should be visible
+    And the palette search input should be focused
+    And there should be no page errors
+
+  Scenario: Drilling into Theme keeps focus on palette input
+    # Same focus contract as body-group drill-ins: the group-kind sub-mode
+    # must leave focus in the palette input.
+    When I open the command palette
+    And I select "Theme" in the palette
+    Then the palette breadcrumb should show "Theme"
+    And the palette search input should be focused
+    And there should be no page errors
+
   Scenario: Terminal retains focus after palette command
     When I open the app
     And I create a terminal

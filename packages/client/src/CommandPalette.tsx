@@ -295,15 +295,18 @@ const CommandPalette: Component<{
 
   function drillInto(cmd: DrillableKind) {
     setPath((p) => [...p, cmd]);
-    if (cmd.kind === "value") {
-      setQuery(cmd.prefill());
-      // Defer select() to rAF so the input has rendered the new value
-      // first — selecting before the render highlights nothing.
-      requestAnimationFrame(() => inputRef.select());
-    } else {
-      setQuery("");
-    }
+    if (cmd.kind === "value") setQuery(cmd.prefill());
+    else setQuery("");
     setSelectedIndex(0);
+    // Drill-ins always re-focus the input — Enter / click on a drillable
+    // row may have left focus on the row's div (click steals focus from
+    // the input, Enter on a div option doesn't restore it), so the user
+    // can immediately type to filter the sub-mode. Deferred to rAF so the
+    // input has rendered any new query value first (select() before the
+    // render highlights nothing).
+    requestAnimationFrame(() =>
+      cmd.kind === "value" ? inputRef.select() : inputRef.focus(),
+    );
   }
 
   function navigateTo(depth: number) {
