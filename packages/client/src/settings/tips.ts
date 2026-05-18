@@ -89,4 +89,8 @@ export const AMBIENT_TIPS: readonly Tip[] = [
     id: "amb-minimap-window",
     text: "Click the `All` chip in the minimap's zoom bar to pick an activity window (4h/12h/24h/48h) — older tiles collapse to small ghost markers so attention stays on what's still in play",
   },
+  {
+    id: "amb-comments-on-files",
+    text: "Select any text in the Code tab (file browse, branch diff, or HTML artifact) to drop a `+ Comment` — your queue copies to the clipboard as Markdown for the agent",
+  },
 ];
