@@ -20,6 +20,7 @@ import {
   watch,
   writeFileSync,
 } from "node:fs";
+import { readFile as fsReadFile, stat as fsStat } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -92,6 +93,11 @@ export interface Manager {
     sql: string;
     params?: ReadonlyArray<string | number | null>;
   }): Promise<{ rows: Array<Record<string, unknown>> }>;
+  readFile(opts: {
+    path: string;
+    maxBytes?: number;
+  }): Promise<{ content: string; truncated: boolean }>;
+  statMtimeMs(path: string): Promise<number>;
   write(ptyId: string, data: string): void;
   resize(ptyId: string, cols: number, rows: number): void;
   dispose(ptyId: string): void;
@@ -389,6 +395,26 @@ export function createManager(
     }
   }
 
+  async function readFile(opts: {
+    path: string;
+    maxBytes?: number;
+  }): Promise<{ content: string; truncated: boolean }> {
+    const max = opts.maxBytes ?? 1_048_576;
+    const buf = await fsReadFile(opts.path);
+    if (buf.length > max) {
+      return {
+        content: buf.subarray(0, max).toString("utf-8"),
+        truncated: true,
+      };
+    }
+    return { content: buf.toString("utf-8"), truncated: false };
+  }
+
+  async function statMtimeMs(path: string): Promise<number> {
+    const s = await fsStat(path);
+    return s.mtimeMs;
+  }
+
   function shutdown(): void {
     for (const entry of ptys.values()) {
       if (!entry.exited) {
@@ -430,6 +456,8 @@ export function createManager(
     watch: startWatch,
     unwatch: stopWatch,
     queryDb,
+    readFile,
+    statMtimeMs,
     shutdown,
   };
 }

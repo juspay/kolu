@@ -58,11 +58,28 @@ import {
   buildIframePreviewUrl,
   isIframePreviewable,
 } from "./iframePreviewRoute.ts";
+import { getHost } from "./host/registry.ts";
+import type { Host } from "./host/types.ts";
 import { log } from "./log.ts";
 import { publisher } from "./publisher.ts";
 import { cancelPendingAutosave, getSavedSession } from "./session.ts";
 import { store } from "./state.ts";
-import { getTerminal, listTerminals } from "./terminal-registry.ts";
+import {
+  findTerminalByRepoPath,
+  getTerminal,
+  listTerminals,
+} from "./terminal-registry.ts";
+
+/** Look up the `Host` that owns a given repoPath. The Code-tab streams
+ *  (gitStatus / gitDiff / fsListAll / fsReadFile) take only `repoPath`
+ *  on the wire — no `hostId` — so the server has to find which terminal
+ *  (and therefore which host) the repo belongs to before it can route
+ *  the operation. Falls back to the local host when no terminal claims
+ *  the path so legacy clients keep working. */
+function hostForRepoPath(repoPath: string): Host | undefined {
+  const entry = findTerminalByRepoPath(repoPath);
+  return getHost(entry?.meta.hostId);
+}
 
 // `t` is the host router builder; both `surfaceRouter` and the raw oRPC
 // handlers in `router.ts` plug procedures into it. Exported so `router.ts`
@@ -204,8 +221,21 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
     streams: {
       gitStatus: {
         read: async (input) =>
-          unwrapGit(await getStatus(input.repoPath, input.mode, log)),
-        install: (input, cb) => subscribeRepoChange(input.repoPath, cb, log),
+          unwrapGit(
+            await getStatus(
+              input.repoPath,
+              input.mode,
+              log,
+              hostForRepoPath(input.repoPath),
+            ),
+          ),
+        install: (input, cb) =>
+          subscribeRepoChange(
+            input.repoPath,
+            cb,
+            log,
+            hostForRepoPath(input.repoPath),
+          ),
         isEqual: gitStatusOutputEqual,
       },
       gitDiff: {
@@ -217,23 +247,39 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
               input.mode,
               log,
               input.oldPath,
+              hostForRepoPath(input.repoPath),
             ),
           ),
-        install: (input, cb) => subscribeRepoChange(input.repoPath, cb, log),
+        install: (input, cb) =>
+          subscribeRepoChange(
+            input.repoPath,
+            cb,
+            log,
+            hostForRepoPath(input.repoPath),
+          ),
         isEqual: gitDiffOutputEqual,
       },
       fsListAll: {
         read: async (input) => ({
-          paths: unwrapGit(await listAll(input.repoPath, log)),
+          paths: unwrapGit(
+            await listAll(input.repoPath, log, hostForRepoPath(input.repoPath)),
+          ),
         }),
-        install: (input, cb) => subscribeRepoChange(input.repoPath, cb, log),
+        install: (input, cb) =>
+          subscribeRepoChange(
+            input.repoPath,
+            cb,
+            log,
+            hostForRepoPath(input.repoPath),
+          ),
         isEqual: fsListAllOutputEqual,
       },
       fsReadFile: {
         read: async (input): Promise<FsReadFileOutput> => {
+          const host = hostForRepoPath(input.repoPath);
           if (isIframePreviewable(input.filePath)) {
             const mtimeMs = unwrapGit(
-              await statFileMtimeMs(input.repoPath, input.filePath, log),
+              await statFileMtimeMs(input.repoPath, input.filePath, log, host),
             );
             return {
               kind: "binary",
@@ -245,12 +291,18 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
             };
           }
           const { content, truncated } = unwrapGit(
-            await readFile(input.repoPath, input.filePath, log),
+            await readFile(input.repoPath, input.filePath, log, host),
           );
           return { kind: "text", content, truncated };
         },
         install: (input, cb) =>
-          subscribeFileChange(input.repoPath, input.filePath, cb, log),
+          subscribeFileChange(
+            input.repoPath,
+            input.filePath,
+            cb,
+            log,
+            hostForRepoPath(input.repoPath),
+          ),
         isEqual: fsReadFileOutputEqual,
       },
     },

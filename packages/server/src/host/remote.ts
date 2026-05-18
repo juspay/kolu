@@ -586,6 +586,30 @@ export function createRemoteHost(opts: RemoteHostOpts): Host {
     return result.rows;
   }
 
+  async function readFile(
+    path: string,
+    opts?: { maxBytes?: number },
+  ): Promise<{ content: string; truncated: boolean }> {
+    const log = rootLog.child({ host: alias });
+    await ensureConnected(log);
+    return sendRequest<{ content: string; truncated: boolean }>(
+      "readFile",
+      { path, maxBytes: opts?.maxBytes },
+      log,
+    );
+  }
+
+  async function statMtimeMs(path: string): Promise<number> {
+    const log = rootLog.child({ host: alias });
+    await ensureConnected(log);
+    const result = await sendRequest<{ mtimeMs: number }>(
+      "statMtimeMs",
+      { path },
+      log,
+    );
+    return result.mtimeMs;
+  }
+
   return {
     id: alias,
     label: alias,
@@ -594,6 +618,8 @@ export function createRemoteHost(opts: RemoteHostOpts): Host {
     exec,
     watch: watchPath,
     queryDb,
+    readFile,
+    statMtimeMs,
     shutdown,
   };
 }

@@ -115,6 +115,21 @@ export const HelperQueryDbParamsSchema = z.object({
   params: z.array(z.union([z.string(), z.number(), z.null()])).optional(),
 });
 
+/** Host-side file read — used by kolu-git's `readFile` (Code tab) so
+ *  the controller doesn't have to ship a separate cat-via-exec path.
+ *  Helper truncates at `maxBytes` and reports the flag back so the
+ *  UI can warn. */
+export const HelperReadFileParamsSchema = z.object({
+  path: z.string(),
+  maxBytes: z.number().int().positive().optional(),
+});
+
+/** Host-side stat for cache-busting iframe previews. Returns mtime in
+ *  ms since epoch, matching what `fs.stat().mtimeMs` produces. */
+export const HelperStatMtimeMsParamsSchema = z.object({
+  path: z.string(),
+});
+
 export const HelperRpcMethodSchema = z.enum([
   "spawnPty",
   "write",
@@ -129,6 +144,8 @@ export const HelperRpcMethodSchema = z.enum([
   "watch",
   "unwatch",
   "queryDb",
+  "readFile",
+  "statMtimeMs",
 ]);
 
 export type HelperRpcMethod = z.infer<typeof HelperRpcMethodSchema>;

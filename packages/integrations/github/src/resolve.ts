@@ -5,6 +5,18 @@
  *  not this module. */
 
 import { execFile } from "node:child_process";
+/* Generic exec abstraction — kolu-git's `GitExecutor` is structurally
+ * a strict superset, so kolu-server's `Host` and kolu-git's
+ * `localExecutor` both satisfy it. Defined inline (rather than imported
+ * from kolu-git) to keep this package leaf — kolu-github should not
+ * grow a dependency on kolu-git just to share an interface name. */
+interface GhExecutor {
+  exec(
+    cmd: string,
+    args: string[],
+    opts?: { cwd?: string; timeoutMs?: number; maxBytes?: number },
+  ): Promise<{ stdout: string; stderr: string; exitCode: number | null }>;
+}
 import { promisify } from "node:util";
 import type { Logger } from "kolu-shared";
 import { classifyGhError, deriveCheckStatus, prResultEqual } from "./github.ts";
@@ -55,13 +67,43 @@ interface GhPrViewResult {
 export async function resolveGitHubPr(
   repoRoot: string,
   log?: Logger,
+  executor?: GhExecutor,
 ): Promise<PrResult> {
   try {
-    const { stdout } = await execFileAsync(
-      getGhBin(),
-      ["pr", "view", "--json", "number,title,url,state,statusCheckRollup"],
-      { cwd: repoRoot, timeout: GH_TIMEOUT_MS },
-    );
+    let stdout: string;
+    let stderr = "";
+    let exitCode: number | null = 0;
+    if (executor) {
+      // Remote path: route via the host's exec primitive. Use plain
+      // `gh` (rather than `KOLU_GH_BIN`'s nix-store path) because the
+      // pinned binary on the controller's side won't exist at the
+      // same path on the remote — the remote has its own gh.
+      const r = await executor.exec(
+        "gh",
+        ["pr", "view", "--json", "number,title,url,state,statusCheckRollup"],
+        { cwd: repoRoot, timeoutMs: GH_TIMEOUT_MS },
+      );
+      stdout = r.stdout;
+      stderr = r.stderr;
+      exitCode = r.exitCode;
+      if (exitCode !== 0) {
+        const e: Error & { stderr?: string; code?: number } = new Error(
+          stderr.trim() || `gh exited ${exitCode}`,
+        );
+        e.stderr = stderr;
+        e.code = exitCode ?? undefined;
+        const result = classifyGhError(e);
+        if (log) logGhResolveFailure(e, result, log);
+        return result;
+      }
+    } else {
+      const r = await execFileAsync(
+        getGhBin(),
+        ["pr", "view", "--json", "number,title,url,state,statusCheckRollup"],
+        { cwd: repoRoot, timeout: GH_TIMEOUT_MS },
+      );
+      stdout = r.stdout;
+    }
     const data = JSON.parse(stdout) as GhPrViewResult;
     return {
       kind: "ok",
@@ -131,6 +173,7 @@ export interface GitHubPrWatcher {
 export function subscribeGitHubPr(
   onChange: (pr: PrResult) => void,
   log?: Logger,
+  executor?: GhExecutor,
 ): GitHubPrWatcher {
   let lastBranch: string | null = null;
   let lastRepoRoot: string | null = null;
@@ -144,7 +187,7 @@ export function subscribeGitHubPr(
   }
 
   async function fetchAndEmit(repoRoot: string): Promise<void> {
-    const pr = await resolveGitHubPr(repoRoot, log);
+    const pr = await resolveGitHubPr(repoRoot, log, executor);
     emit(pr);
   }
 

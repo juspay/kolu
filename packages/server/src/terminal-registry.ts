@@ -88,6 +88,30 @@ export function countActiveClaudeSessions(): number {
   return n;
 }
 
+/** Look up which terminal owns a given repo root. Code-tab streams
+ *  arrive keyed on `repoPath` only — no `hostId` is on the wire — so the
+ *  server has to find which terminal (and therefore which host) the
+ *  repo belongs to before it can route the git operations correctly.
+ *  Matches against `meta.git.repoRoot`, `meta.git.mainRepoRoot`, and
+ *  `meta.git.worktreePath` so a sub-worktree path resolves to the
+ *  same host as the main repo. */
+export function findTerminalByRepoPath(
+  repoPath: string,
+): TerminalProcess | undefined {
+  for (const entry of terminals.values()) {
+    const g = entry.meta.git;
+    if (!g) continue;
+    if (
+      g.repoRoot === repoPath ||
+      g.mainRepoRoot === repoPath ||
+      g.worktreePath === repoPath
+    ) {
+      return entry;
+    }
+  }
+  return undefined;
+}
+
 export function getTerminal(id: TerminalId): TerminalProcess | undefined {
   return terminals.get(id);
 }

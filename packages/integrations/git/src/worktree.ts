@@ -8,6 +8,7 @@ import path from "node:path";
 import type { Logger } from "kolu-shared";
 import { simpleGit } from "simple-git";
 import { err, type GitResult, ok } from "./errors.ts";
+import { type GitExecutor, localExecutor } from "./executor.ts";
 
 /** Resolve the main repo root from any path inside a repo (including worktrees). */
 async function resolveMainRepoRoot(repoPath: string): Promise<string> {
@@ -17,21 +18,25 @@ async function resolveMainRepoRoot(repoPath: string): Promise<string> {
 }
 
 /** Detect the default branch name on the remote (e.g. "main" or "master"). */
-export async function detectDefaultBranch(repoPath: string): Promise<string> {
-  const git = simpleGit(repoPath);
-  try {
-    const ref = (
-      await git.raw(["symbolic-ref", "refs/remotes/origin/HEAD"])
-    ).trim();
-    return ref.replace("refs/remotes/origin/", "");
-  } catch {
-    try {
-      await git.raw(["rev-parse", "--verify", "origin/main"]);
-      return "main";
-    } catch {
-      return "master";
-    }
+export async function detectDefaultBranch(
+  repoPath: string,
+  executor: GitExecutor = localExecutor,
+): Promise<string> {
+  const symRef = await executor.exec(
+    "git",
+    ["symbolic-ref", "refs/remotes/origin/HEAD"],
+    { cwd: repoPath },
+  );
+  if (symRef.exitCode === 0) {
+    return symRef.stdout.trim().replace("refs/remotes/origin/", "");
   }
+  const verifyMain = await executor.exec(
+    "git",
+    ["rev-parse", "--verify", "origin/main"],
+    { cwd: repoPath },
+  );
+  if (verifyMain.exitCode === 0) return "main";
+  return "master";
 }
 
 /**

@@ -82,6 +82,18 @@ export interface Host {
     params?: ReadonlyArray<string | number | null>,
   ): Promise<Array<Record<string, unknown>>>;
 
+  /** Read a UTF-8 file. Used by kolu-git's `readFile` (Code tab content
+   *  preview) so the Code-tab can render remote source. Truncation
+   *  flag is reported back so the UI can warn. */
+  readFile(
+    path: string,
+    opts?: { maxBytes?: number },
+  ): Promise<{ content: string; truncated: boolean }>;
+
+  /** Mtime in ms-since-epoch — feeds the iframe-preview URL's cache
+   *  buster. */
+  statMtimeMs(path: string): Promise<number>;
+
   /** Best-effort shutdown — disposes of any long-lived connection (the
    *  SSH child, helper process, etc.). PTYs spawned through this host
    *  are not explicitly disposed here; they are torn down when the

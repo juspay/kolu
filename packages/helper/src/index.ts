@@ -50,6 +50,8 @@ import {
   HelperRequestSchema,
   HelperResizeParamsSchema,
   HelperSpawnPtyParamsSchema,
+  HelperReadFileParamsSchema,
+  HelperStatMtimeMsParamsSchema,
   HelperUnwatchParamsSchema,
   HelperWatchParamsSchema,
   HelperWriteParamsSchema,
@@ -203,6 +205,34 @@ function runDaemon(): void {
               respondError(
                 req.id,
                 "exec-failed",
+                err instanceof Error ? err.message : String(err),
+              ),
+            );
+          return;
+        }
+        case "readFile": {
+          const params = HelperReadFileParamsSchema.parse(req.params);
+          manager
+            .readFile(params)
+            .then((result) => respond(req.id, result))
+            .catch((err) =>
+              respondError(
+                req.id,
+                "not-found",
+                err instanceof Error ? err.message : String(err),
+              ),
+            );
+          return;
+        }
+        case "statMtimeMs": {
+          const params = HelperStatMtimeMsParamsSchema.parse(req.params);
+          manager
+            .statMtimeMs(params.path)
+            .then((mtimeMs) => respond(req.id, { mtimeMs }))
+            .catch((err) =>
+              respondError(
+                req.id,
+                "not-found",
                 err instanceof Error ? err.message : String(err),
               ),
             );

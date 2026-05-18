@@ -13,16 +13,17 @@
  *     same answer a PR's "Files changed" tab gives, computed locally and
  *     forge-agnostically. Untracked files are excluded (they can't ship).
  *
- * The diff itself is produced by `git diff` — we just pipe its output
- * through. Untracked files in local mode go through `git diff --no-index`,
- * which exits 1 by design when files differ; we capture stdout regardless.
+ * All side-effects go through `GitExecutor` so the same code runs against
+ * the controller's local fs (default) or against a remote host via
+ * kolu-server's `Host`. The previous simple-git dependency was a
+ * convenience wrapper around `child_process.execFile`; we now parse
+ * `git status --porcelain=v1` directly to keep the local + remote paths
+ * unified.
  */
 
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import type { Logger } from "kolu-shared";
-import { simpleGit } from "simple-git";
 import { err, type GitResult, ok } from "./errors.ts";
+import { type GitExecutor, localExecutor } from "./executor.ts";
 import { resolveUnder } from "./safe-path.ts";
 import {
   type GitBaseRef,
@@ -35,8 +36,6 @@ import {
 } from "./schemas.ts";
 import { detectDefaultBranch } from "./worktree.ts";
 
-const execFileP = promisify(execFile);
-
 /** Coerce a raw porcelain / name-status letter into the typed enum,
  *  falling back to "?" for anything unexpected. */
 function toChangeStatus(letter: string): GitChangeStatus {
@@ -44,17 +43,37 @@ function toChangeStatus(letter: string): GitChangeStatus {
   return parsed.success ? parsed.data : "?";
 }
 
-/**
- * Resolve the base ref for branch mode: `origin/<defaultBranch>` and the
- * merge-base SHA between it and HEAD.
- */
-async function resolveBase(repoPath: string): Promise<GitResult<GitBaseRef>> {
-  const defaultBranch = await detectDefaultBranch(repoPath);
+/** Run git via the executor; throw on missing-binary / signal kills,
+ *  return stdout on exit-0, and tolerate `--no-index`-style exit-1
+ *  (where stdout is the real payload). */
+async function gitOutput(
+  executor: GitExecutor,
+  cwd: string,
+  args: string[],
+): Promise<string> {
+  const result = await executor.exec("git", args, {
+    cwd,
+    maxBytes: 128 * 1024 * 1024,
+  });
+  if (result.exitCode === 0) return result.stdout;
+  if (result.exitCode === 1 && result.stdout.length > 0) return result.stdout;
+  throw new Error(result.stderr.trim() || `git exited ${result.exitCode}`);
+}
+
+/** Resolve the base ref for branch mode: `origin/<defaultBranch>` and the
+ *  merge-base SHA between it and HEAD. */
+async function resolveBase(
+  executor: GitExecutor,
+  repoPath: string,
+): Promise<GitResult<GitBaseRef>> {
+  const defaultBranch = await detectDefaultBranch(repoPath, executor);
   const ref = `origin/${defaultBranch}`;
-  const git = simpleGit(repoPath);
-  try {
-    await git.raw(["rev-parse", "--verify", `${ref}^{commit}`]);
-  } catch {
+  const verify = await executor.exec(
+    "git",
+    ["rev-parse", "--verify", `${ref}^{commit}`],
+    { cwd: repoPath },
+  );
+  if (verify.exitCode !== 0) {
     return err({
       code: "BASE_BRANCH_NOT_FOUND",
       ref,
@@ -63,25 +82,56 @@ async function resolveBase(repoPath: string): Promise<GitResult<GitBaseRef>> {
         `Run: git fetch origin && git remote set-head origin --auto`,
     });
   }
-  const sha = (await git.raw(["merge-base", "HEAD", ref])).trim();
+  const sha = (
+    await gitOutput(executor, repoPath, ["merge-base", "HEAD", ref])
+  ).trim();
   return ok({ ref, sha });
 }
 
-/**
- * Parse `git diff --name-status <rev>` output into changed files.
+/** Parse a single `git status --porcelain=v1 -z`-style entry into a
+ *  changed-file record. Porcelain v1 format per line (NL-terminated):
  *
- * Format: one file per line, TAB-separated. Most rows are
- *   `<letter>\t<path>`; renames and copies insert a similarity score
- *   after the letter and carry two paths: `R100\told\tnew`, `C75\tsrc\tdst`.
- *   For those, the *new* path is the one under review.
- */
+ *      XY <path>
+ *      XY <new> -> <old>   (for renames/copies when used WITHOUT `-z`)
+ *
+ *  We use the newline form (`--porcelain=v1` without `-z`) for the
+ *  prototype — renames remain detected because Y/X is `R` and the
+ *  rename payload is `new -> old`. */
+function parseStatusPorcelain(raw: string): GitChangedFile[] {
+  const files: GitChangedFile[] = [];
+  for (const line of raw.split("\n")) {
+    if (line.length < 4) continue;
+    const xy = line.slice(0, 2);
+    const rest = line.slice(3);
+    // working_dir takes precedence; fall back to index. This matches the
+    // pre-refactor behaviour of `getLocalStatus` (which used simple-git's
+    // `working_dir !== " " ? working_dir : index`).
+    const working = xy[1] ?? " ";
+    const index = xy[0] ?? " ";
+    const letter = working !== " " ? working : index;
+    const arrowIdx = rest.indexOf(" -> ");
+    if (arrowIdx !== -1) {
+      const oldPath = rest.slice(0, arrowIdx);
+      const newPath = rest.slice(arrowIdx + 4);
+      files.push({
+        path: newPath,
+        status: toChangeStatus(letter),
+        oldPath,
+      });
+    } else {
+      files.push({ path: rest, status: toChangeStatus(letter) });
+    }
+  }
+  return files.sort((a, b) => a.path.localeCompare(b.path));
+}
+
+/** Parse `git diff --name-status <rev>` output into changed files. */
 export function parseNameStatus(raw: string): GitChangedFile[] {
   const files: GitChangedFile[] = [];
   for (const line of raw.split("\n")) {
     if (!line) continue;
     const parts = line.split("\t");
     const letter = parts[0]?.[0] ?? "";
-    // Rename/copy rows have 3 fields; everything else has 2.
     const isRenameOrCopy = parts.length >= 3;
     const filePath = isRenameOrCopy ? parts[2] : parts[1];
     if (!filePath) continue;
@@ -92,52 +142,40 @@ export function parseNameStatus(raw: string): GitChangedFile[] {
   return files.sort((a, b) => a.path.localeCompare(b.path));
 }
 
-/**
- * Working-tree status vs HEAD — the local-mode file list. Returns one
- * entry per modified, added, deleted, renamed, copied, conflicted, or
- * untracked file. Ignored files are excluded.
- */
-async function getLocalStatus(repoPath: string): Promise<GitChangedFile[]> {
-  const git = simpleGit(repoPath);
-  const status = await git.status();
-
-  // `files` covers tracked changes; `not_added` covers untracked paths.
-  // Deduplicate via `path` — status rows may overlap with not_added for
-  // intent-to-add paths.
-  const seen = new Map<string, GitChangedFile>();
-  for (const f of status.files) {
-    // working_dir takes precedence; fall back to index.
-    const letter = f.working_dir !== " " ? f.working_dir : f.index;
-    seen.set(f.path, {
-      path: f.path,
-      status: toChangeStatus(letter),
-      ...(f.from && { oldPath: f.from }),
-    });
-  }
-  for (const p of status.not_added) {
-    if (!seen.has(p)) seen.set(p, { path: p, status: "?" });
-  }
-
-  return [...seen.values()].sort((a, b) => a.path.localeCompare(b.path));
+/** Working-tree status vs HEAD — the local-mode file list. Returns one
+ *  entry per modified, added, deleted, renamed, copied, conflicted, or
+ *  untracked file. Ignored files are excluded. */
+async function getLocalStatus(
+  executor: GitExecutor,
+  repoPath: string,
+): Promise<GitChangedFile[]> {
+  const raw = await gitOutput(executor, repoPath, [
+    "status",
+    "--porcelain=v1",
+    "--untracked-files=all",
+  ]);
+  return parseStatusPorcelain(raw);
 }
 
-/**
- * File list for `mode`. In `branch` mode the list comes from
- * `git diff --name-status <merge-base>` — which naturally excludes
- * untracked files (they aren't in any tree git compares against).
- */
+/** File list for `mode`. In `branch` mode the list comes from
+ *  `git diff --name-status <merge-base>` — which naturally excludes
+ *  untracked files. */
 export async function getStatus(
   repoPath: string,
   mode: GitDiffMode,
   log?: Logger,
+  executor: GitExecutor = localExecutor,
 ): Promise<GitResult<GitStatusOutput>> {
   try {
     if (mode === "local") {
-      return ok({ files: await getLocalStatus(repoPath), base: null });
+      return ok({
+        files: await getLocalStatus(executor, repoPath),
+        base: null,
+      });
     }
-    const baseResult = await resolveBase(repoPath);
+    const baseResult = await resolveBase(executor, repoPath);
     if (!baseResult.ok) return baseResult;
-    const raw = await gitOutput(repoPath, [
+    const raw = await gitOutput(executor, repoPath, [
       "diff",
       "--name-status",
       baseResult.value.sha,
@@ -155,9 +193,6 @@ export async function getStatus(
   }
 }
 
-/** Single home for raw-diff parsing — every classification flag the wire
- *  schema gates rendering on lives here, not split across the result
- *  builder. */
 function parseRawDiffFlags(rawDiff: string): {
   hasHunks: boolean;
   oldAbsent: boolean;
@@ -165,70 +200,26 @@ function parseRawDiffFlags(rawDiff: string): {
   binary: boolean;
 } {
   return {
-    // A pure rename produces a header (similarity index, rename from/to)
-    // but no @@ hunks. The client renders renames via the
-    // oldFileName/newFileName pair, so only emit hunks when the diff
-    // actually contains hunk markers.
     hasHunks: rawDiff.includes("\n@@"),
-    // Existence on each side from the unified-diff headers: added emits
-    // `--- /dev/null`, deleted emits `+++ /dev/null`. Cheaper than a
-    // separate `git cat-file -e` round-trip per side.
     oldAbsent: /^--- \/dev\/null/m.test(rawDiff),
     newAbsent: /^\+\+\+ \/dev\/null/m.test(rawDiff),
-    // Binary files: git emits `Binary files a/foo and b/foo differ` with
-    // no @@ hunks. Same marker for added (`Binary files /dev/null and
-    // b/foo differ`) and deleted, so one regex covers all cases.
     binary: /^Binary files .* differ$/m.test(rawDiff),
   };
 }
 
-/**
- * Run git and return stdout, surviving the `--no-index` exit-1 convention.
- *
- * `git diff --no-index` exits 1 when the two paths differ — that's its
- * successful signal, not an error. `execFile` rejects on any non-zero
- * exit, so we catch exit-1 and keep its stdout; anything else propagates.
- */
-async function gitOutput(cwd: string, args: string[]): Promise<string> {
-  try {
-    const { stdout } = await execFileP("git", args, {
-      cwd,
-      maxBuffer: 128 * 1024 * 1024,
-    });
-    return stdout;
-  } catch (e) {
-    // `execFile`'s rejection carries `code` (exit status, number) and
-    // `stdout`/`stderr` on the error object. NodeJS.ErrnoException types
-    // `code` as `string`, which doesn't match — cast through the shape
-    // we actually observe.
-    const ex = e as { code?: number; stdout?: string };
-    if (ex.code === 1 && typeof ex.stdout === "string") return ex.stdout;
-    throw e;
-  }
-}
-
-/**
- * Compute the unified diff of one file for the given mode.
- *
- * Local mode: `git diff HEAD -- <file>` for tracked changes; falls back
- * to `git diff --no-index /dev/null <file>` for untracked files.
- * Branch mode: `git diff <merge-base> -- <file>`. No `--no-index`
- * fallback — branch-mode files come from `git diff --name-status`, so
- * `git diff <merge-base> -- <file>` is guaranteed to produce output.
- */
+/** Compute the unified diff of one file for the given mode. */
 export async function getDiff(
   repoPath: string,
   filePath: string,
   mode: GitDiffMode,
   log?: Logger,
   oldPath?: string,
+  executor: GitExecutor = localExecutor,
 ): Promise<GitResult<GitDiffOutput>> {
   const pathResult = resolveUnder(repoPath, filePath, log);
   if (!pathResult.ok) return pathResult;
   const { abs, rel } = pathResult.value;
 
-  // Validate oldPath the same way filePath is validated — it comes from
-  // the client and must not escape the repo root.
   let oldRel = rel;
   if (oldPath) {
     const oldPathResult = resolveUnder(repoPath, oldPath, log);
@@ -240,25 +231,26 @@ export async function getDiff(
   if (mode === "local") {
     baseRev = "HEAD";
   } else {
-    const baseResult = await resolveBase(repoPath);
+    const baseResult = await resolveBase(executor, repoPath);
     if (!baseResult.ok) return baseResult;
     baseRev = baseResult.value.sha;
   }
 
   try {
     const tracked = oldPath
-      ? await gitOutput(repoPath, ["diff", "-M", baseRev, "--", oldRel, rel])
-      : await gitOutput(repoPath, ["diff", baseRev, "--", rel]);
+      ? await gitOutput(executor, repoPath, [
+          "diff",
+          "-M",
+          baseRev,
+          "--",
+          oldRel,
+          rel,
+        ])
+      : await gitOutput(executor, repoPath, ["diff", baseRev, "--", rel]);
 
-    // Branch mode's file list comes from `git diff --name-status`, which
-    // only surfaces files already in the diff — so `git diff <base> -- <f>`
-    // is guaranteed to produce output and never needs `--no-index`. Local
-    // mode, on the other hand, also surfaces untracked files (via
-    // `git.status().not_added`); those yield empty output from the normal
-    // `git diff HEAD --` path, so we synthesize a diff against `/dev/null`.
     const rawDiff =
       mode === "local" && tracked.trim().length === 0
-        ? await gitOutput(repoPath, [
+        ? await gitOutput(executor, repoPath, [
             "diff",
             "--no-index",
             "--",

@@ -8,6 +8,7 @@
 
 import { execFile } from "node:child_process";
 import { watch } from "node:fs";
+import { readFile as fsReadFile, stat as fsStat } from "node:fs/promises";
 import type { Logger } from "../log.ts";
 import { spawnPty } from "../pty.ts";
 import type { ExecOpts, ExecResult, Host, SpawnPtyOpts } from "./types.ts";
@@ -94,6 +95,21 @@ export function createLocalHost(): Host {
       } finally {
         db.close();
       }
+    },
+    readFile: async (path, opts) => {
+      const max = opts?.maxBytes ?? 1_048_576;
+      const buf = await fsReadFile(path);
+      if (buf.length > max) {
+        return {
+          content: buf.subarray(0, max).toString("utf-8"),
+          truncated: true,
+        };
+      }
+      return { content: buf.toString("utf-8"), truncated: false };
+    },
+    statMtimeMs: async (path) => {
+      const s = await fsStat(path);
+      return s.mtimeMs;
     },
     shutdown: async () => {
       // Local host has no long-lived connection to tear down.

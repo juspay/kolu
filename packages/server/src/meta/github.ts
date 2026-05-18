@@ -21,12 +21,10 @@
  */
 
 import { subscribeGitHubPr } from "kolu-github";
-import type { PrResult } from "kolu-github/schemas";
 import { getHost } from "../host/registry.ts";
 import { log } from "../log.ts";
 import { terminalChannels } from "../publisher.ts";
 import type { TerminalProcess } from "../terminal-registry.ts";
-import { startRemotePr } from "./remote-pr.ts";
 import { updateServerLiveMetadata } from "./state.ts";
 
 export function startGitHubPrProvider(
@@ -40,33 +38,33 @@ export function startGitHubPrProvider(
   });
   plog.debug("started");
 
-  // Remote terminals: route `gh pr view` through `host.exec` instead of
-  // shelling out locally — the local kolu has no idea what the remote
-  // `/home/toor/code/kolu` repo's GitHub remote is, and `gh`'s
-  // origin-discovery only works against a real working tree.
+  // kolu-github's subscribeGitHubPr is host-aware: pass an executor
+  // (the terminal's Host) and `gh pr view` runs in the namespace of
+  // whichever machine actually has the repo. Local terminals pass
+  // undefined and get the legacy `KOLU_GH_BIN` + child_process path.
   const host = getHost(entry.meta.hostId);
-  const useRemote = host !== undefined && host.kind === "remote-ssh";
+  const executor = host && host.kind === "remote-ssh" ? host : undefined;
 
-  const onChange = (pr: PrResult): void => {
-    updateServerLiveMetadata(entry, terminalId, (m) => {
-      m.pr = pr;
-    });
-    plog.debug(
-      pr.kind === "ok"
-        ? {
-            pr: pr.value.number,
-            title: pr.value.title,
-            state: pr.value.state,
-            checks: pr.value.checks,
-          }
-        : { pr: pr.kind },
-      "pr info updated",
-    );
-  };
-
-  const watcher = useRemote
-    ? startRemotePr(host, onChange, plog)
-    : subscribeGitHubPr(onChange, plog);
+  const watcher = subscribeGitHubPr(
+    (pr) => {
+      updateServerLiveMetadata(entry, terminalId, (m) => {
+        m.pr = pr;
+      });
+      plog.debug(
+        pr.kind === "ok"
+          ? {
+              pr: pr.value.number,
+              title: pr.value.title,
+              state: pr.value.state,
+              checks: pr.value.checks,
+            }
+          : { pr: pr.kind },
+        "pr info updated",
+      );
+    },
+    plog,
+    executor,
+  );
 
   const cleanup = terminalChannels.git(terminalId).consume({
     onEvent: (git) =>

@@ -11,6 +11,7 @@ import type { Logger } from "kolu-shared";
 import { simpleGit } from "simple-git";
 import { watchCwdForGitDir } from "./cwd-git-watcher.ts";
 import { err, type GitResult, ok } from "./errors.ts";
+import type { GitExecutor } from "./executor.ts";
 import { watchGitHead } from "./head-watcher.ts";
 import type { GitInfo } from "./schemas.ts";
 
@@ -29,7 +30,53 @@ export function hasGitDir(cwd: string): boolean {
 export async function resolveGitInfo(
   cwd: string,
   log?: Logger,
+  executor?: GitExecutor,
 ): Promise<GitResult<GitInfo>> {
+  // Remote path — use the executor's exec primitive. The local path
+  // uses simple-git's higher-level wrappers; on remote we'd rather
+  // run a fixed set of `git rev-parse` invocations and parse the
+  // strings, since simple-git internally shells out via the
+  // controller's child_process anyway.
+  if (executor) {
+    try {
+      const top = await executor.exec("git", ["rev-parse", "--show-toplevel"], {
+        cwd,
+      });
+      if (top.exitCode !== 0) return err({ code: "NOT_A_REPO" });
+      const repoRoot = top.stdout.trim();
+      const [branchRes, commonRes] = await Promise.all([
+        executor.exec("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd }),
+        executor.exec("git", ["rev-parse", "--git-common-dir"], { cwd }),
+      ]);
+      const branch =
+        branchRes.exitCode === 0 ? branchRes.stdout.trim() : "HEAD";
+      let mainRepoRoot = repoRoot;
+      let isWorktree = false;
+      if (commonRes.exitCode === 0) {
+        const cd = commonRes.stdout.trim();
+        if (path.isAbsolute(cd)) {
+          const candidate = path.dirname(cd);
+          if (candidate !== repoRoot) {
+            mainRepoRoot = candidate;
+            isWorktree = true;
+          }
+        }
+      }
+      return ok({
+        repoRoot,
+        repoName: path.basename(mainRepoRoot),
+        worktreePath: cwd,
+        branch,
+        isWorktree,
+        mainRepoRoot,
+      });
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      log?.debug({ err: message, cwd }, "remote git resolution failed");
+      return err({ code: "GIT_FAILED", message });
+    }
+  }
+
   try {
     const git = simpleGit(cwd);
     // Bare repos (core.bare=true) have no work tree, so `--show-toplevel`
@@ -149,7 +196,39 @@ export function subscribeGitInfo(
   initialCwd: string,
   onChange: (info: GitInfo | null) => void,
   log?: Logger,
+  executor?: GitExecutor,
 ): { setCwd(next: string): void; stop(): void } {
+  // Remote path: skip the fs-watcher toggle (head vs cwd) and run a
+  // straightforward poll. The executor's exec primitive does the
+  // round-trip; cwd changes trigger an immediate refresh.
+  if (executor) {
+    let cwd = initialCwd;
+    let last: GitInfo | null = null;
+    let stopped = false;
+    const refresh = async (): Promise<void> => {
+      if (stopped) return;
+      const r = await resolveGitInfo(cwd, log, executor);
+      if (stopped) return;
+      const next: GitInfo | null = r.ok ? r.value : null;
+      if (gitInfoEqual(next, last)) return;
+      last = next;
+      onChange(next);
+    };
+    const timer = setInterval(() => void refresh(), 10_000);
+    void refresh();
+    return {
+      setCwd(next: string): void {
+        if (stopped || next === cwd) return;
+        cwd = next;
+        void refresh();
+      },
+      stop(): void {
+        stopped = true;
+        clearInterval(timer);
+      },
+    };
+  }
+
   let currentCwd = initialCwd;
   let currentInfo: GitInfo | null = null;
   // Head mode watches `.git/HEAD` (in-repo); cwd mode watches the parent

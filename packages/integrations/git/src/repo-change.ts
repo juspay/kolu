@@ -25,6 +25,7 @@
  */
 
 import type { Logger } from "kolu-shared";
+import type { GitExecutor } from "./executor.ts";
 import { WATCHER_DEBOUNCE_MS } from "./git-dir.ts";
 import { watchGitHead } from "./head-watcher.ts";
 import { watchGitIndex } from "./index-watcher.ts";
@@ -104,7 +105,60 @@ export function subscribeRepoChange(
   repoRoot: string,
   onChange: () => void,
   log?: Logger,
+  executor?: GitExecutor,
 ): () => void {
+  // Remote path: skip the four-axis fs-watcher composition and route
+  // everything through `executor.watch(repoRoot, recursive: true)`. The
+  // local optimisation (refcounted per-axis watchers) doesn't translate
+  // — one inotify-over-SSH subscription covers the same surface, and
+  // de-duplication still happens via the debounce in `compose`. The
+  // entry isn't shared (no refcount across consumers) because the
+  // executor's watch lifetime is naturally bound to this call; if
+  // multiple consumers fire `subscribeRepoChange(remoteRepo)`, they
+  // each get their own watch on the helper side. Cheap.
+  if (executor) {
+    const listeners = new Set<() => void>();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let handle: { stop(): void } | null = null;
+    const tick = (): void => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        timer = undefined;
+        for (const cb of [...listeners]) {
+          try {
+            cb();
+          } catch (e) {
+            log?.error(
+              { err: e instanceof Error ? e.message : String(e) },
+              "git: remote repo-change listener threw",
+            );
+          }
+        }
+      }, WATCHER_DEBOUNCE_MS);
+    };
+    void executor
+      .watch(repoRoot, tick, { recursive: true })
+      .then((h) => {
+        handle = h;
+        log?.info({ repoRoot }, "git: remote repo-change watcher installed");
+      })
+      .catch((err) =>
+        log?.warn(
+          { err, repoRoot },
+          "git: remote repo-change watch install failed",
+        ),
+      );
+    listeners.add(onChange);
+    return () => {
+      listeners.delete(onChange);
+      if (listeners.size === 0) {
+        if (timer) clearTimeout(timer);
+        handle?.stop();
+        log?.info({ repoRoot }, "git: remote repo-change watcher retired");
+      }
+    };
+  }
+
   let entry = repoChangeWatchers.get(repoRoot);
   if (!entry) {
     entry = compose(
@@ -139,7 +193,57 @@ export function subscribeFileChange(
   filePath: string,
   onChange: () => void,
   log?: Logger,
+  executor?: GitExecutor,
 ): () => void {
+  // Remote path: same trade-off as subscribeRepoChange — one
+  // `executor.watch(repoRoot, recursive: true)` covers axes 1 + 4,
+  // and the debounce + callback dispatch are local to this handle.
+  if (executor) {
+    const listeners = new Set<() => void>();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let handle: { stop(): void } | null = null;
+    const tick = (relPath: string): void => {
+      // For axis-4 narrowing, only fire when the relevant file path
+      // shows up in the event. Axis 1 (HEAD changes) bubbles too — we
+      // accept the extra fire since HEAD churn is rare on remote.
+      if (relPath && relPath !== filePath && !relPath.startsWith(".git"))
+        return;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        timer = undefined;
+        for (const cb of [...listeners]) {
+          try {
+            cb();
+          } catch (e) {
+            log?.error(
+              { err: e instanceof Error ? e.message : String(e) },
+              "git: remote file-change listener threw",
+            );
+          }
+        }
+      }, WATCHER_DEBOUNCE_MS);
+    };
+    void executor
+      .watch(repoRoot, tick, { recursive: true })
+      .then((h) => {
+        handle = h;
+      })
+      .catch((err) =>
+        log?.warn(
+          { err, repoRoot, filePath },
+          "git: remote file-change watch install failed",
+        ),
+      );
+    listeners.add(onChange);
+    return () => {
+      listeners.delete(onChange);
+      if (listeners.size === 0) {
+        if (timer) clearTimeout(timer);
+        handle?.stop();
+      }
+    };
+  }
+
   const key = `${repoRoot}\x00${filePath}`;
   let entry = fileChangeWatchers.get(key);
   if (!entry) {
