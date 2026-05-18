@@ -377,15 +377,21 @@ const CommandPalette: Component<{
 
   function drillInto(cmd: DrillableKind) {
     setPath((p) => [...p, cmd]);
-    if (cmd.kind === "value") {
-      setQuery(cmd.prefill());
-      // Defer select() to rAF so the input has rendered the new value
-      // first — selecting before the render highlights nothing.
-      requestAnimationFrame(() => inputRef.select());
-    } else {
-      setQuery("");
-    }
+    if (cmd.kind === "value") setQuery(cmd.prefill());
+    else setQuery("");
     setSelectedIndex(0);
+    // Drill-ins always re-focus the input — Enter / click on a drillable
+    // row may have left focus on the row's div (click steals focus from
+    // the input, Enter on a div option doesn't restore it), so the user
+    // can immediately type to filter the sub-mode. Deferred to rAF so the
+    // input has rendered any new query value first (select() before the
+    // render highlights nothing). One rAF suffices here because the dialog
+    // is already open and Corvu's initialFocusEl is idle — no focus
+    // competition. The open-effect uses a double-rAF to outlast Corvu's
+    // own focus management on (re)open.
+    requestAnimationFrame(() =>
+      cmd.kind === "value" ? inputRef.select() : inputRef.focus(),
+    );
   }
 
   function navigateTo(depth: number) {
@@ -517,12 +523,17 @@ const CommandPalette: Component<{
               (c): c is DrillableKind => isDrillable(c) && c.name === initial,
             );
           if (group) drillInto(group);
+        } else {
+          // forceMount keeps the dialog in the DOM, so Corvu's initialFocusEl
+          // only fires on first mount. Re-focus explicitly on every root open.
+          // When `initial` is set, `drillInto()` is the sole focus owner — its
+          // rAF would otherwise race this double-rAF, and for a value-kind
+          // initial group the unconditional .focus() would clobber the
+          // .select() drillInto() scheduled.
+          requestAnimationFrame(() =>
+            requestAnimationFrame(() => inputRef.focus()),
+          );
         }
-        // forceMount keeps the dialog in the DOM, so Corvu's initialFocusEl
-        // only fires on first mount. Re-focus explicitly on every open.
-        requestAnimationFrame(() =>
-          requestAnimationFrame(() => inputRef.focus()),
-        );
       } else {
         if (!closingForSelection()) {
           for (const g of path()) g.onCancel?.();
