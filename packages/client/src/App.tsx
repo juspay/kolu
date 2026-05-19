@@ -562,7 +562,6 @@ const App: Component = () => {
                     onCreate={() => openPaletteGroup("New terminal")}
                     renderTileTitle={(id) => (
                       <TerminalMeta
-                        id={id}
                         info={store.getDisplayInfo(id)}
                         onOpenIntent={() => intentEditor.openTerminal(id)}
                       />

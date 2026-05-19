@@ -26,7 +26,7 @@ import {
 } from "solid-js";
 import IntentBody from "../../intent/IntentBody";
 import { formatTimeAgo, useIdleClassifier } from "../../terminal/staleness";
-import IntentGlyph from "../../intent/IntentGlyph";
+import { annotationLine } from "../../intent/text";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import {
   bucketDescriptor,
@@ -509,18 +509,16 @@ const WorkspaceCard: Component<{
         </span>
       </Show>
 
-      {/* Eyebrow: optional intent tag + repo identity + (right) PR # if resolved.
-       *  Tag is rendered as a separate sibling span so it stays out of
-       *  the repo-name color and out of `searchTextFor` (dockModel.ts). */}
+      {/* Eyebrow: repo identity + (right) PR # if resolved.
+       *  The intent glyph is NOT rendered here — line 1 of intent (or
+       *  the branch fallback) lives in the headline below; rendering
+       *  the glyph again as a separate chip would duplicate it. */}
       <div class="flex items-center justify-between gap-2 min-w-0">
-        <span class="flex items-center gap-1.5 min-w-0">
-          <IntentGlyph intent={props.entry.info.meta.intent} />
-          <span
-            class="font-mono text-[0.6rem] font-bold uppercase tracking-[0.16em] truncate min-w-0"
-            style={{ color: props.entry.info.repoColor }}
-          >
-            {props.entry.repoName}
-          </span>
+        <span
+          class="font-mono text-[0.6rem] font-bold uppercase tracking-[0.16em] truncate min-w-0"
+          style={{ color: props.entry.info.repoColor }}
+        >
+          {props.entry.repoName}
         </span>
         <Show when={pr()}>
           {(summary) => (
@@ -531,14 +529,20 @@ const WorkspaceCard: Component<{
         </Show>
       </div>
 
-      {/* Headline: branch label — DM Sans semibold, the human-readable
-       *  anchor of the card. */}
+      {/* Headline: annotation slot — intent line-1 if the user set
+       *  one, otherwise the branch label (the human-readable anchor
+       *  of the card). DM Sans semibold either way. */}
       <div class="mt-1 flex items-baseline gap-2 min-w-0">
         <span
+          data-testid="workspace-switcher-card-annotation"
           class="text-[0.95rem] font-semibold truncate leading-tight"
-          style={{ color: props.entry.info.branchColor }}
+          style={{
+            color: props.entry.info.meta.intent
+              ? "inherit"
+              : props.entry.info.branchColor,
+          }}
         >
-          {props.entry.label}
+          {annotationLine(props.entry.info.meta.intent, props.entry.label)}
         </span>
         <Show when={props.entry.suffix}>
           {(suffix) => (
@@ -601,9 +605,11 @@ const WorkspaceCard: Component<{
         )}
       </Show>
 
-      {/* Intent body — full markdown rendered when set. Shared
-       *  <IntentBody> so every dock + switcher render site looks the
-       *  same. */}
+      {/* Intent body — lines 2+ of the markdown when the user wrote a
+       *  multiline intent. Line 1 already lives in the annotation slot
+       *  above; the body renders only when there's prose past line 1.
+       *  Shared <IntentBody> so every dock + switcher render site
+       *  looks the same. */}
       <IntentBody
         intent={props.entry.info.meta.intent}
         testId="workspace-switcher-card-intent"

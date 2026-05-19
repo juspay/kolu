@@ -3,7 +3,7 @@
 import { cwdBasename } from "kolu-common/path";
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import { type Component, For } from "solid-js";
-import IntentGlyph from "../intent/IntentGlyph";
+import { annotationLine } from "../intent/text";
 
 const SubPanelTabBar: Component<{
   subIds: TerminalId[];
@@ -26,8 +26,10 @@ const SubPanelTabBar: Component<{
             const m = meta();
             const base = m ? cwdBasename(m.cwd) : "terminal";
             // Append 1-based index when multiple tabs share the same name
-            if (props.subIds.length <= 1) return base;
-            return `${base} ${index() + 1}`;
+            const suffixed =
+              props.subIds.length <= 1 ? base : `${base} ${index() + 1}`;
+            // Supplant rule: intent line-1 takes the label slot when set.
+            return annotationLine(m?.intent, suffixed);
           };
           const isActive = () => props.activeSubTab === id;
           return (
@@ -41,7 +43,6 @@ const SubPanelTabBar: Component<{
                 data-active={isActive() || undefined}
                 onClick={() => props.onSelect(id)}
               >
-                <IntentGlyph intent={meta()?.intent} />
                 <span class="truncate">{label()}</span>
               </button>
               <button

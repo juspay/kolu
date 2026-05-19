@@ -1,29 +1,28 @@
 /** Terminal metadata for the canvas tile title bar — two rows:
  *
  *    Row 1: name [suffix] [worktree] [foreground] [agent progress]
- *    Row 2: branch [PR icon checks #N title]
+ *    Row 2: annotation [PR icon checks #N title]
+ *
+ *  Row 2 is the *annotation slot* (supplant rule): intent line-1 if
+ *  the user set one, else the git branch name, else empty. Clicking
+ *  the slot always opens the intent editor — there's no separate
+ *  glyph chip, so the slot is the canvas tile's sole intent
+ *  affordance.
  *
  *  The mobile pull-handle has its own one-row layout — see
- *  `TerminalMetaCompact`. Reusing one component across both was an
- *  abstraction that complected mount-site context with rendering
- *  decisions; the two layouts are different enough to warrant
- *  separate components, with shared bits (skeleton, agent progress)
- *  exported below for reuse. */
+ *  `TerminalMetaCompact`. */
 
 import { prLabel, prUnavailableSource, prValue } from "kolu-github/schemas";
-import type { TerminalId } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
+import { firstIntentLine } from "../intent/text";
 import { PrStateIcon, WorktreeIcon } from "../ui/Icons";
 import Tip from "../ui/Tip";
 import ChecksIndicator from "./ChecksIndicator";
-import { copyTextWithToast } from "./clipboard";
 import { PrUnavailableButton } from "./PrUnavailablePopover";
 import type { TerminalDisplayInfo } from "./terminalDisplay";
-import IntentGlyph from "../intent/IntentGlyph";
 
 const TerminalMeta: Component<{
   info: TerminalDisplayInfo | undefined;
-  id: TerminalId;
   /** Open the intent editor for this terminal. Wired in `App.tsx` to
    *  `intentEditor.openTerminal(id)`. */
   onOpenIntent: () => void;
@@ -33,7 +32,7 @@ const TerminalMeta: Component<{
     <Show when={i()} fallback={<TerminalMetaSkeleton />}>
       {(info) => (
         <>
-          {/* Name row — `[tag] name suffix [worktree-icon] [fg-title] [progress]`.
+          {/* Name row — `name suffix [worktree-icon] [fg-title] [progress]`.
            *  Sub-count lives on the title-bar split toggle (one source
            *  of truth for "this tile has children"); the agent task
            *  progress bar owns the right slot when an agent is running.
@@ -43,10 +42,6 @@ const TerminalMeta: Component<{
            *  repo name) — visible space is reserved for the OSC 2
            *  process title. */}
           <div class="flex items-center gap-1.5 min-h-7 text-sm font-medium min-w-0">
-            <TerminalIntentChip
-              intent={info().meta.intent}
-              onOpen={props.onOpenIntent}
-            />
             <NameSpan info={info()} />
             <Show when={info().key.suffix}>
               {(suffix) => (
@@ -87,36 +82,49 @@ const TerminalMeta: Component<{
             </Show>
           </div>
 
-          {/* Branch + PR — combined row. PR (if present) follows inline:
-           *  state icon, checks indicator, linked #N, truncated title. */}
+          {/* Annotation row (supplant rule) + PR.
+           *
+           *  The slot shows intent line-1 if the user set one, else the
+           *  git branch name. Clicking always opens the intent editor —
+           *  there is no separate glyph chip, so this slot is the
+           *  canvas tile's sole intent affordance. When the terminal
+           *  has neither intent nor git, the slot collapses to a
+           *  non-breaking-space placeholder so row height is preserved. */}
           <Show
-            when={info().meta.git}
+            when={info().meta.intent ?? info().meta.git?.branch}
             fallback={
               <div data-testid="terminal-meta-branch" class="text-xs text-fg-2">
                 {"\u00A0"}
               </div>
             }
           >
-            {(git) => (
+            {(slotText) => (
               <div class="flex items-center gap-1.5 min-w-0 text-xs">
-                <Tip label="Copy branch name">
+                <Tip label={info().meta.intent ? "Edit intent" : "Set intent"}>
                   <button
                     type="button"
                     data-testid="terminal-meta-branch"
-                    aria-label={`Copy branch ${git().branch} to clipboard`}
+                    aria-label={
+                      info().meta.intent
+                        ? "Edit terminal intent"
+                        : "Set terminal intent"
+                    }
                     class="appearance-none bg-transparent border-0 p-0 text-left [font:inherit] truncate shrink-0 max-w-[16ch] cursor-pointer hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 rounded-sm"
-                    style={{ color: info().branchColor }}
+                    style={{
+                      color: info().meta.intent
+                        ? undefined
+                        : info().branchColor,
+                    }}
                     onPointerDown={(e) => e.stopPropagation()}
                     onClick={(e) => {
                       e.stopPropagation();
-                      void copyTextWithToast(git().branch, {
-                        success: "Copied branch name to clipboard",
-                        failure: "Failed to copy branch name",
-                      });
+                      props.onOpenIntent();
                     }}
                     onDblClick={(e) => e.stopPropagation()}
                   >
-                    {git().branch}
+                    {info().meta.intent
+                      ? firstIntentLine(info().meta.intent ?? "")
+                      : slotText()}
                   </button>
                 </Tip>
                 <Show when={prValue(info().meta.pr)}>
@@ -172,19 +180,22 @@ export const TerminalMetaCompact: Component<{
     <Show when={i()} fallback={<TerminalMetaSkeleton />}>
       {(info) => (
         <div class="flex items-center gap-1.5 min-h-7 text-sm font-medium min-w-0">
-          <IntentGlyph intent={info().meta.intent} />
           <NameSpan info={info()} />
           <Show when={info().meta.git?.isWorktree}>
             <WorktreeBadge />
           </Show>
-          <Show when={info().meta.git}>
-            {(git) => (
+          <Show when={info().meta.intent ?? info().meta.git?.branch}>
+            {(slotText) => (
               <span
                 data-testid="terminal-meta-branch"
                 class="text-xs truncate min-w-0"
-                style={{ color: info().branchColor }}
+                style={{
+                  color: info().meta.intent ? undefined : info().branchColor,
+                }}
               >
-                {git().branch}
+                {info().meta.intent
+                  ? firstIntentLine(info().meta.intent ?? "")
+                  : slotText()}
               </span>
             )}
           </Show>
@@ -276,41 +287,6 @@ const TerminalMetaSkeleton: Component = () => (
     <div class="h-3.5 w-24 bg-surface-2 rounded" />
     <div class="h-3 w-16 bg-surface-2 rounded" />
   </div>
-);
-
-/** Clickable chip in the title bar — displays the intent tag (line-1
- *  glyph) if set, or a faint "＋" placeholder otherwise. Click opens
- *  the intent editor; the chip itself is the only affordance the
- *  canvas tile chrome needs to expose for the intent feature. */
-const TerminalIntentChip: Component<{
-  intent: string | undefined;
-  onOpen: () => void;
-}> = (props) => (
-  <Tip label={props.intent ? "Edit intent" : "Set intent"}>
-    <button
-      type="button"
-      data-testid="terminal-intent-chip"
-      class="appearance-none bg-transparent border-0 p-0 m-0 cursor-pointer text-fg-3 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 rounded shrink-0"
-      onPointerDown={(e) => e.stopPropagation()}
-      onClick={(e) => {
-        e.stopPropagation();
-        props.onOpen();
-      }}
-      onDblClick={(e) => e.stopPropagation()}
-      aria-label={props.intent ? "Edit terminal intent" : "Set terminal intent"}
-    >
-      <Show
-        when={props.intent}
-        fallback={
-          <span class="text-xs opacity-50 hover:opacity-90" aria-hidden="true">
-            ＋
-          </span>
-        }
-      >
-        <IntentGlyph intent={props.intent} />
-      </Show>
-    </button>
-  </Tip>
 );
 
 export default TerminalMeta;

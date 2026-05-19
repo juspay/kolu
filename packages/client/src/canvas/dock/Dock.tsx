@@ -44,6 +44,7 @@ import IntentBody from "../../intent/IntentBody";
 import AgentIndicator from "../../terminal/AgentIndicator";
 import { formatTimeAgo, useStaleCheck } from "../../terminal/staleness";
 import IntentGlyph from "../../intent/IntentGlyph";
+import { annotationLine } from "../../intent/text";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { ChevronDownIcon, PlusIcon, SearchIcon } from "../../ui/Icons";
@@ -512,20 +513,20 @@ const AwaitingCardBody: Component<{
         title="Jump to this terminal"
       >
         <div class="flex items-baseline justify-between gap-2 min-w-0">
-          <span class="flex items-baseline gap-1.5 min-w-0">
-            <IntentGlyph intent={props.meta.intent} />
-            <span
-              class="font-mono text-[0.7rem] font-bold uppercase tracking-[0.14em] truncate min-w-0"
-              style={{ color: props.info.repoColor }}
-            >
-              {props.info.key.group}
-            </span>
+          <span
+            class="font-mono text-[0.7rem] font-bold uppercase tracking-[0.14em] truncate min-w-0"
+            style={{ color: props.info.repoColor }}
+          >
+            {props.info.key.group}
           </span>
           <span
+            data-testid="dock-annotation"
             class="text-[0.95rem] font-semibold leading-tight truncate min-w-0"
-            style={{ color: props.info.branchColor }}
+            style={{
+              color: props.meta.intent ? "inherit" : props.info.branchColor,
+            }}
           >
-            {props.info.key.label}
+            {annotationLine(props.meta.intent, props.info.key.label)}
           </span>
         </div>
         <DockMetaRow meta={props.meta} />
@@ -580,20 +581,20 @@ const WorkingPillBody: Component<{
       title="Jump to this terminal"
     >
       <div class="flex items-baseline justify-between gap-2 min-w-0">
-        <span class="flex items-baseline gap-1.5 min-w-0">
-          <IntentGlyph intent={props.meta.intent} />
-          <span
-            class="font-mono text-[0.65rem] font-bold uppercase tracking-[0.14em] truncate min-w-0"
-            style={{ color: props.info.repoColor }}
-          >
-            {props.info.key.group}
-          </span>
+        <span
+          class="font-mono text-[0.65rem] font-bold uppercase tracking-[0.14em] truncate min-w-0"
+          style={{ color: props.info.repoColor }}
+        >
+          {props.info.key.group}
         </span>
         <span
+          data-testid="dock-annotation"
           class="text-[0.85rem] font-semibold leading-tight truncate min-w-0"
-          style={{ color: props.info.branchColor }}
+          style={{
+            color: props.meta.intent ? "inherit" : props.info.branchColor,
+          }}
         >
-          {props.info.key.label}
+          {annotationLine(props.meta.intent, props.info.key.label)}
         </span>
       </div>
       <DockMetaRow meta={props.meta} />
@@ -630,7 +631,6 @@ const QuietRowBody: Component<{
       title={props.info.meta.cwd}
     >
       <div class="flex items-baseline gap-2 min-w-0">
-        <IntentGlyph intent={props.meta.intent} />
         <span
           class="font-mono text-[0.6rem] font-bold uppercase tracking-[0.14em] truncate min-w-0"
           style={{ color: props.info.repoColor }}
@@ -638,10 +638,13 @@ const QuietRowBody: Component<{
           {props.info.key.group}
         </span>
         <span
+          data-testid="dock-annotation"
           class="text-[0.75rem] truncate min-w-0"
-          style={{ color: props.info.branchColor }}
+          style={{
+            color: props.meta.intent ? "inherit" : props.info.branchColor,
+          }}
         >
-          {props.info.key.label}
+          {annotationLine(props.meta.intent, props.info.key.label)}
         </span>
         <Show when={formatTimeAgo(props.meta.lastActivityAt)}>
           {(label) => (

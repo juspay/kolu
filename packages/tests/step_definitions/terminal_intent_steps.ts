@@ -1,19 +1,22 @@
 import { Then, When } from "@cucumber/cucumber";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
-const CHIP =
-  '[data-testid="canvas-tile"][data-active="true"] [data-testid="terminal-intent-chip"]';
+const SLOT =
+  '[data-testid="canvas-tile"][data-active="true"] [data-testid="terminal-meta-branch"]';
 const EDITOR = '[data-testid="intent-editor-textarea"]';
 const SAVE = '[data-testid="intent-editor-save"]';
 const CLEAR = '[data-testid="intent-editor-clear"]';
 const QUICK = '[data-testid="intent-editor-quick"]';
 
-When("I click the terminal intent chip", async function (this: KoluWorld) {
-  const chip = this.page.locator(CHIP).first();
-  await chip.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-  await chip.click({ force: true });
-  await this.waitForFrame();
-});
+When(
+  "I click the active terminal annotation slot",
+  async function (this: KoluWorld) {
+    const slot = this.page.locator(SLOT).first();
+    await slot.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await slot.click({ force: true });
+    await this.waitForFrame();
+  },
+);
 
 Then("the intent editor should be visible", async function (this: KoluWorld) {
   await this.page
@@ -99,14 +102,15 @@ Then(
 );
 
 Then(
-  "the active tile should show the intent tag {string}",
+  "the active terminal annotation slot should start with {string}",
   async function (this: KoluWorld, expected: string) {
     await this.page.waitForFunction(
       (want) => {
-        const chip = document.querySelector(
-          '[data-testid="canvas-tile"][data-active="true"] [data-testid="terminal-intent-chip"] [data-testid="intent-glyph"]',
+        const slot = document.querySelector(
+          '[data-testid="canvas-tile"][data-active="true"] [data-testid="terminal-meta-branch"]',
         );
-        return chip?.textContent === want;
+        const text = (slot?.textContent ?? "").trim();
+        return text.startsWith(want);
       },
       expected,
       { timeout: POLL_TIMEOUT },
@@ -115,17 +119,25 @@ Then(
 );
 
 Then(
-  "the terminal intent chip should show the placeholder",
+  "the active terminal annotation slot should show the branch name",
   async function (this: KoluWorld) {
-    // Placeholder state: chip is present but no intent-glyph span has rendered
-    // (the `<Show fallback=...>` falls through to the "＋" glyph).
+    // Branch fallback: no intent set, slot text equals the terminal's
+    // git branch. The default test terminal is in a git repo (the
+    // World fixture sets one up), so the slot has the branch name and
+    // it must not start with an emoji from the intent quick-row.
     await this.page.waitForFunction(
       () => {
-        const chip = document.querySelector(
-          '[data-testid="canvas-tile"][data-active="true"] [data-testid="terminal-intent-chip"]',
+        const slot = document.querySelector(
+          '[data-testid="canvas-tile"][data-active="true"] [data-testid="terminal-meta-branch"]',
         );
-        if (!chip) return false;
-        return chip.querySelector('[data-testid="intent-glyph"]') === null;
+        const text = (slot?.textContent ?? "").trim();
+        if (text.length === 0) return false;
+        // Reject any of the quick-row emojis — branch names don't
+        // start with these characters.
+        const firstGrapheme = [...text][0];
+        return !["🏠", "🧪", "🐛", "⚡", "🔥", "🚀", "🎯"].includes(
+          firstGrapheme ?? "",
+        );
       },
       undefined,
       { timeout: POLL_TIMEOUT },
