@@ -21,8 +21,34 @@ const [activeTipSignal, setActiveTip] = createSignal<Tip | null>(null);
 /** Reactive accessor for the tip currently displayed by `<TipBanner />`. */
 export const activeTip: Accessor<Tip | null> = activeTipSignal;
 
+/** How long a tip stays on screen before the banner auto-dismisses it.
+ *  Owned here (not in the banner) so the state module fully controls
+ *  "how a tip is displayed and for how long" — the banner is just the
+ *  rendering surface. */
+const TIP_DURATION_MS = 8000;
+let autoDismissTimer: number | null = null;
+
+function cancelAutoDismiss() {
+  if (autoDismissTimer !== null) {
+    window.clearTimeout(autoDismissTimer);
+    autoDismissTimer = null;
+  }
+}
+
+function present(tip: Tip) {
+  cancelAutoDismiss();
+  setActiveTip(tip);
+  autoDismissTimer = window.setTimeout(() => {
+    autoDismissTimer = null;
+    setActiveTip(null);
+  }, TIP_DURATION_MS);
+}
+
 /** Hide the active tip (banner slides away). */
-export const dismissTip = () => setActiveTip(null);
+export const dismissTip = () => {
+  cancelAutoDismiss();
+  setActiveTip(null);
+};
 
 function seen(): Set<TipId> {
   return new Set(preferences().seenTips);
@@ -39,7 +65,7 @@ function showTipOnce(tip: Tip) {
   if (isMobile()) return;
   if (seen().has(tip.id)) return;
   markSeen(tip.id);
-  setActiveTip(tip);
+  present(tip);
 }
 
 /** Internal pure peek — picks a tip without marking it seen. */
@@ -62,7 +88,7 @@ function showAmbientTip() {
   const tip = pickAmbientTip();
   if (!tip) return;
   if (!seen().has(tip.id)) markSeen(tip.id);
-  setActiveTip(tip);
+  present(tip);
 }
 
 /** Show a random tip in the banner on startup, if the setting is on. */

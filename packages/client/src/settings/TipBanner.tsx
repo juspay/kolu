@@ -1,7 +1,7 @@
 /** Top-center tip banner — a distinct surface for tips so they don't
  *  blend into the bottom-right toast stream (success / error / warning
- *  notifications). One tip is shown at a time; new tips replace the
- *  current one. */
+ *  notifications). Pure animation surface; `useTips` owns when a tip
+ *  becomes active and when it auto-dismisses. */
 
 import {
   type Component,
@@ -14,8 +14,6 @@ import {
 import { Portal } from "solid-js/web";
 import { CloseIcon } from "../ui/Icons";
 import { activeTip, dismissTip } from "./useTips";
-
-const VISIBLE_DURATION_MS = 8000;
 
 const TipBanner: Component = () => {
   const [visible, setVisible] = createSignal(false);
@@ -30,11 +28,7 @@ const TipBanner: Component = () => {
       // runs instead of snapping straight to the final position.
       setVisible(false);
       const raf = requestAnimationFrame(() => setVisible(true));
-      const timer = window.setTimeout(dismissTip, VISIBLE_DURATION_MS);
-      onCleanup(() => {
-        cancelAnimationFrame(raf);
-        window.clearTimeout(timer);
-      });
+      onCleanup(() => cancelAnimationFrame(raf));
     }),
   );
 
