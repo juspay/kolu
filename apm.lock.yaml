@@ -1,6 +1,6 @@
 lockfile_version: '1'
-generated_at: '2026-05-18T19:32:08.049632+00:00'
-apm_version: 0.13.0
+generated_at: '2026-05-19T13:47:59.756535+00:00'
+apm_version: 0.14.0
 dependencies:
 - repo_url: anthropics/skills
   host: github.com
@@ -42,7 +42,7 @@ dependencies:
   content_hash: sha256:67ff7ce606ad0378af382ad6cb84d9853bf70ec52d6fe40ed6b6f82ecd2c48c3
 - repo_url: srid/agency
   host: github.com
-  resolved_commit: 634289acd99f57b0d485d89f3464ff496e3206ed
+  resolved_commit: b05ccf8b890ed7350df010d44ed272210cca82cb
   resolved_ref: master
   package_type: apm_package
   deployed_files:
@@ -83,7 +83,7 @@ dependencies:
     .codex/hooks/agency/scripts/do-stop-guard.sh: sha256:cb033f86c15ffd3d09d8e4b74a61f55a70def4cc4131cc013b7368a2d23f3f33
     .opencode/agents/hickey.md: sha256:10d9a4350a85752dc6658af8e0efb3d8be41803a2b6c73464e3d5b7a840435ad
     .opencode/agents/lowy.md: sha256:05aff7f6a91149a42c1fb9a3ca382a6f77bc39ac8a8d45436d443dd3349fb11e
-  content_hash: sha256:278cb36f7fbdce8fdf249c929770fc10f1fb7f0b18581a73e6c12bb879a2cd72
+  content_hash: sha256:0b9a8edbb00aafa615dcf2a8420f7f5b3057f5306ebcf0faadaa9fd803513258
 mcp_servers:
 - chrome-devtools
 mcp_configs:
