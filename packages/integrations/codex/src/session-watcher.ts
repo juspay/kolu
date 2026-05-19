@@ -156,7 +156,7 @@ export function createCodexWatcher(
     }, WAL_DEBOUNCE_MS);
   }
 
-  (async () => {
+  void (async () => {
     // Watch the SQLite WAL (catches title / model row touches) AND the
     // rollout JSONL (catches state-changing turn events). Either signal
     // schedules a refresh; the mtime-cache short-circuits the tail read

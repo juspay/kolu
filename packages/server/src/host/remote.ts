@@ -337,10 +337,7 @@ export function createRemoteHost(opts: RemoteHostOpts): Host {
    *  controller and remote must share `system` (e.g. both `x86_64-linux`).
    *  Cross-arch users hit the github bootstrap fallback or override via
    *  `KOLU_HELPER_REMOTE_CMD`. */
-  async function nixCopyHelper(
-    storePath: string,
-    log: Logger,
-  ): Promise<void> {
+  async function nixCopyHelper(storePath: string, log: Logger): Promise<void> {
     log.info({ storePath }, "nix copy helper to remote");
     const child = spawn(
       "nix",
@@ -401,21 +398,16 @@ export function createRemoteHost(opts: RemoteHostOpts): Host {
       try {
         await nixCopyHelper(HELPER_STORE_PATH, log);
       } catch (err) {
-        log.warn(
-          { err },
-          "nix copy failed; falling back to github bootstrap",
-        );
+        log.warn({ err }, "nix copy failed; falling back to github bootstrap");
       }
       remoteCmd = `${HELPER_STORE_PATH}/bin/kolu-helper --serve`;
     } else {
       remoteCmd = `bash -lc 'nix --extra-experimental-features "nix-command flakes" run --refresh ${DEV_HELPER_FLAKE_REF} -- --serve'`;
     }
     log.info({ remoteCmd }, "spawning ssh helper");
-    const ssh = spawn(
-      "ssh",
-      [...sshOpts(), alias, remoteCmd],
-      { stdio: ["pipe", "pipe", "pipe"] },
-    );
+    const ssh = spawn("ssh", [...sshOpts(), alias, remoteCmd], {
+      stdio: ["pipe", "pipe", "pipe"],
+    });
     child = ssh;
     ssh.on("error", (err) => {
       // Spawn failures (ssh binary missing, ENOENT) reach here BEFORE

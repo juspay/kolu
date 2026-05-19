@@ -165,7 +165,7 @@ export function createSessionWatcher(
     return true;
   }
 
-  (async () => {
+  void (async () => {
     if (await tryFindAndAttach()) return;
     plog.debug(
       { session: session.sessionId, cwd: session.cwd },

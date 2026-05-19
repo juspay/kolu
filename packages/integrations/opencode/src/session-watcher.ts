@@ -155,7 +155,7 @@ export function createOpenCodeWatcher(
   // not exist until OpenCode's first write, so wrap the install in a
   // try/catch — if the watcher install fails we fall back to a direct
   // refresh and rely on the next title/cwd reconcile to re-attempt.
-  (async () => {
+  void (async () => {
     try {
       watchHandle = await executor.watch(
         `${session.dbPath}-wal`,
