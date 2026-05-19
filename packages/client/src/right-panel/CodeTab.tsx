@@ -635,64 +635,52 @@ const CodeTab: Component<{
                       <Match when={diff()}>
                         {(d) => {
                           const repo = repoPath();
+                          const tid = props.terminalId;
+                          if (repo === null || tid === null) return null;
                           return (
-                            <Show
-                              when={repo}
-                              fallback={
-                                // Diff view requires a repo — the outer
-                                // Show already guards but TS can't narrow
-                                // through the closure capture above.
-                                <div class="px-2 py-1 text-fg-3/50" />
-                              }
+                            <CommentTextSurface
+                              terminalId={tid}
+                              path={path}
+                              contentTick={d().hunks[0] ?? ""}
+                              class="h-full w-full"
                             >
-                              {(r) => (
-                                <CommentTextSurface
-                                  terminalId={props.terminalId ?? ""}
-                                  path={path}
-                                  contentTick={d().hunks[0] ?? ""}
-                                  class="h-full w-full"
-                                >
-                                  <CodeMenuFrame
-                                    path={path}
-                                    onOpen={(ref) => {
-                                      openInCodeTab({
-                                        ref,
-                                        repoRoot: r(),
-                                        targetMode: "browse",
-                                      });
-                                    }}
+                              <CodeMenuFrame
+                                path={path}
+                                onOpen={(ref) => {
+                                  openInCodeTab({
+                                    ref,
+                                    repoRoot: repo,
+                                    targetMode: "browse",
+                                  });
+                                }}
+                              >
+                                {(selection) => (
+                                  // `<Virtualizer>` is the scroll
+                                  // container — `<FileDiff>` consumes
+                                  // its context and upgrades to
+                                  // Pierre's `VirtualizedFileDiff`,
+                                  // windowing huge diffs (50k-line
+                                  // lockfile, #809 / #514 Phase 8).
+                                  <Virtualizer
+                                    class="h-full w-full overflow-auto"
+                                    style={pierreDiffsStyle}
                                   >
-                                    {(selection) => (
-                                      // `<Virtualizer>` is the scroll
-                                      // container — `<FileDiff>` consumes
-                                      // its context and upgrades to
-                                      // Pierre's `VirtualizedFileDiff`,
-                                      // windowing huge diffs (50k-line
-                                      // lockfile, #809 / #514 Phase 8).
-                                      <Virtualizer
-                                        class="h-full w-full overflow-auto"
-                                        style={pierreDiffsStyle}
-                                      >
-                                        <FileDiff
-                                          rawDiff={d().hunks[0] ?? ""}
-                                          theme={diffTheme()}
-                                          enableLineSelection
-                                          onLineSelected={
-                                            selection.handleSelect
-                                          }
-                                          onError={(err) =>
-                                            toast.error(
-                                              `Diff render failed: ${err.message}`,
-                                            )
-                                          }
-                                          class="w-full"
-                                        />
-                                      </Virtualizer>
-                                    )}
-                                  </CodeMenuFrame>
-                                </CommentTextSurface>
-                              )}
-                            </Show>
+                                    <FileDiff
+                                      rawDiff={d().hunks[0] ?? ""}
+                                      theme={diffTheme()}
+                                      enableLineSelection
+                                      onLineSelected={selection.handleSelect}
+                                      onError={(err) =>
+                                        toast.error(
+                                          `Diff render failed: ${err.message}`,
+                                        )
+                                      }
+                                      class="w-full"
+                                    />
+                                  </Virtualizer>
+                                )}
+                              </CodeMenuFrame>
+                            </CommentTextSurface>
                           );
                         }}
                       </Match>
