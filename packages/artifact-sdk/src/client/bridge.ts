@@ -54,6 +54,12 @@ export function bindArtifactSdk(
     if (event.source !== iframe.contentWindow) return;
     const msg = event.data;
     if (!msg || typeof msg !== "object") return;
+    // The `event.source` identity check above already filters out
+    // messages from other iframes, but `otherwise(() => undefined)`
+    // is still the right shape: postMessage is a network-grade
+    // boundary, and a newer in-iframe SDK could ship message types
+    // this parent doesn't recognize. Silently dropping unknowns is
+    // better than `NonExhaustiveError` crashing the bridge.
     match(msg)
       .with({ type: "kolu-artifact-sdk:ready" }, () => {
         pushPath();
@@ -62,7 +68,7 @@ export function bindArtifactSdk(
       .with({ type: "kolu-artifact-sdk:select" }, (m) => {
         opts.onSelect(m);
       })
-      .exhaustive();
+      .otherwise(() => undefined);
   };
 
   window.addEventListener("message", onMessage);

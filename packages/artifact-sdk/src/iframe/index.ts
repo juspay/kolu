@@ -131,6 +131,11 @@ function ensureHighlightStyle(): void {
 function onMessage(event: MessageEvent<ParentToIframe>): void {
   const msg = event.data;
   if (!msg || typeof msg !== "object") return;
+  // `postMessage` is a network-grade boundary — any embedder can send
+  // arbitrary payloads. `otherwise(() => undefined)` ignores unknown
+  // message shapes (forward-compat with a newer parent, defense
+  // against unrelated messages) instead of letting `NonExhaustiveError`
+  // crash the SDK.
   match(msg)
     .with({ type: "kolu-artifact-sdk:path" }, (m) => {
       currentPath = m.path;
@@ -138,7 +143,7 @@ function onMessage(event: MessageEvent<ParentToIframe>): void {
     .with({ type: "kolu-artifact-sdk:render-highlights" }, (m) => {
       applyHighlights(window, document, m.comments, HIGHLIGHT_NAME);
     })
-    .exhaustive();
+    .otherwise(() => undefined);
 }
 
 function boot(): void {
