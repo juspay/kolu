@@ -112,14 +112,16 @@ interface PendingRequest {
   reject(err: Error): void;
 }
 
-/** Default helper flake ref. Stays on `feat/remote-terminal-prototype`
- *  until the merge lands — `master` doesn't yet expose `#kolu-helper`,
- *  so pointing the default there pre-merge breaks the `just dev` flow
- *  for anyone who hasn't set `KOLU_HELPER_FLAKE_REF`.
+/** Helper flake ref to bootstrap on the remote. Set by the Nix wrapper
+ *  in `default.nix` to `github:juspay/kolu/<commitHash>#kolu-helper`,
+ *  so a kolu install spawns a helper from the SAME commit it was built
+ *  from — fully reproducible, version-compatible by construction. No
+ *  string-pinning to a branch name needed.
  *
- *  Post-merge, flip this constant to `github:juspay/kolu/master#kolu-helper`.
- *  The `KOLU_HELPER_FLAKE_REF` env var overrides for testing a different
- *  branch — covered by the comment on `DEFAULT_HELPER_REMOTE_CMD`. */
+ *  For `pnpm dev` / `just dev` (outside the Nix wrapper), the env var
+ *  isn't set; falls back to the current development branch.
+ *  `KOLU_HELPER_REMOTE_CMD` still overrides the entire invocation for
+ *  non-Nix remotes. */
 const DEFAULT_HELPER_FLAKE_REF =
   process.env.KOLU_HELPER_FLAKE_REF ??
   "github:juspay/kolu/feat/remote-terminal-prototype#kolu-helper";

@@ -747,7 +747,16 @@ const QuietRowBody: Component<{
  *  Inspector's Host section uses. */
 const HostChip: Component<{ meta: TerminalMetadata }> = (props) => {
   return (
-    <Show when={props.meta.hostId}>
+    // `hostId` is always a string now (defaults to `"local"`). Hide the
+    // chip for local terminals — it only conveys signal for remote SSH
+    // hosts.
+    <Show
+      when={
+        props.meta.hostId && props.meta.hostId !== "local"
+          ? props.meta.hostId
+          : undefined
+      }
+    >
       {(hostId) => (
         <span
           data-testid="dock-host-chip"

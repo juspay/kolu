@@ -53,7 +53,12 @@ const TileTitleActions: Component<{
 
   return (
     <>
-      <Show when={meta()?.hostId}>
+      {/* The host pill exists to surface "this terminal lives on a remote
+       *  SSH host"; `hostId === "local"` is the controller itself and
+       *  doesn't need a chip. The `.default("local")` on the metadata
+       *  schema means hostId is always a string now, so the old
+       *  `Show when={hostId}` truthy check matched local too. */}
+      <Show when={meta()?.hostId && meta()?.hostId !== "local" ? meta()?.hostId : undefined}>
         {(hostId) => (
           <Tip label={`Remote terminal on ${hostId()}`}>
             <button
