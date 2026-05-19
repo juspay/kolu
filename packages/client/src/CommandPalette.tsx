@@ -217,7 +217,7 @@ const CommandPalette: Component<{
   /** When true, the backdrop is transparent so content behind is visible. */
   transparentOverlay?: boolean;
 }> = (props) => {
-  const { randomAmbientTip } = useTips();
+  const { peekAmbientTipText } = useTips();
   let inputRef!: HTMLInputElement;
   let listEl!: HTMLDivElement;
   const [query, setQuery] = createSignal("");
@@ -512,7 +512,7 @@ const CommandPalette: Component<{
       if (isOpen) {
         setQuery("");
         setSelectedIndex(0);
-        setAmbientTip(randomAmbientTip());
+        setAmbientTip(peekAmbientTipText());
         setMouseActive(false);
         setClosingForSelection(false);
         setPath([]);
