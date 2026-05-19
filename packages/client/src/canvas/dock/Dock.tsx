@@ -423,6 +423,25 @@ const RailSegment: Component<{
   );
 };
 
+/** Annotation slot shared by all three Dock body variants — renders
+ *  intent line-1 (or the branch-name fallback) as inline markdown with
+ *  the slot's tint color.  Only the font-size class varies per variant. */
+const DockAnnotation: Component<{
+  meta: TerminalMetadata;
+  info: TerminalDisplayInfo;
+  class: string;
+}> = (props) => (
+  <span
+    data-testid="dock-annotation"
+    class={`${props.class} truncate min-w-0`}
+    style={{ color: props.info.annotationColor }}
+  >
+    <IntentMarkdownInline
+      markdown={annotationLine(props.meta.intent, props.info.key.label)}
+    />
+  </span>
+);
+
 /** Dispatches each row to its variant body. Bundling the variant switch
  *  in one place keeps `DockRow` shape uniform — every bucket has the
  *  same outer "rail + body" geometry regardless of which variant the
@@ -520,15 +539,11 @@ const AwaitingCardBody: Component<{
           >
             {props.info.key.group}
           </span>
-          <span
-            data-testid="dock-annotation"
-            class="text-[0.95rem] font-semibold leading-tight truncate min-w-0"
-            style={{ color: props.info.annotationColor }}
-          >
-            <IntentMarkdownInline
-              markdown={annotationLine(props.meta.intent, props.info.key.label)}
-            />
-          </span>
+          <DockAnnotation
+            meta={props.meta}
+            info={props.info}
+            class="text-[0.95rem] font-semibold leading-tight"
+          />
         </div>
         <DockMetaRow meta={props.meta} />
         <PrLine meta={props.meta} />
@@ -588,15 +603,11 @@ const WorkingPillBody: Component<{
         >
           {props.info.key.group}
         </span>
-        <span
-          data-testid="dock-annotation"
-          class="text-[0.85rem] font-semibold leading-tight truncate min-w-0"
-          style={{ color: props.info.annotationColor }}
-        >
-          <IntentMarkdownInline
-            markdown={annotationLine(props.meta.intent, props.info.key.label)}
-          />
-        </span>
+        <DockAnnotation
+          meta={props.meta}
+          info={props.info}
+          class="text-[0.85rem] font-semibold leading-tight"
+        />
       </div>
       <DockMetaRow meta={props.meta} />
       <PrLine meta={props.meta} />
@@ -638,15 +649,11 @@ const QuietRowBody: Component<{
         >
           {props.info.key.group}
         </span>
-        <span
-          data-testid="dock-annotation"
-          class="text-[0.75rem] truncate min-w-0"
-          style={{ color: props.info.annotationColor }}
-        >
-          <IntentMarkdownInline
-            markdown={annotationLine(props.meta.intent, props.info.key.label)}
-          />
-        </span>
+        <DockAnnotation
+          meta={props.meta}
+          info={props.info}
+          class="text-[0.75rem]"
+        />
         <Show when={formatTimeAgo(props.meta.lastActivityAt)}>
           {(label) => (
             <span class="ml-auto font-mono text-[0.55rem] tabular-nums text-fg-3 shrink-0">
