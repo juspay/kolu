@@ -20,10 +20,8 @@ const TipBanner: Component = () => {
 
   createEffect(
     on(activeTip, (tip) => {
-      if (!tip) {
-        setVisible(false);
-        return;
-      }
+      // <Show> unmounts the DOM when tip is null — nothing to animate out.
+      if (!tip) return;
       // Start off-screen, then flip on next frame so the CSS transition
       // runs instead of snapping straight to the final position.
       setVisible(false);
