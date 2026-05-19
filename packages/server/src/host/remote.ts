@@ -241,6 +241,13 @@ export function createRemoteHost(opts: RemoteHostOpts): Host {
     }
   }
 
+  /** Hard ceiling on how long any helper RPC may wait for a response.
+   *  Without this, a helper that stops responding (deadlocked, paused
+   *  by SIGSTOP under the debugger, network black-hole) leaves promises
+   *  pending forever and the caller hangs. 60s comfortably covers cold
+   *  `nix run --refresh` builds; live RPCs return in ms. */
+  const REQUEST_TIMEOUT_MS = 60_000;
+
   function sendRequest<T>(
     method: string,
     params: unknown,
@@ -251,16 +258,35 @@ export function createRemoteHost(opts: RemoteHostOpts): Host {
       return Promise.reject(new Error(`remote host ${alias}: not connected`));
     }
     const id = nextRequestId++;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const promise = new Promise<T>((resolve, reject) => {
       pending.set(id, {
-        resolve: resolve as (r: unknown) => void,
-        reject,
+        resolve: (r: unknown) => {
+          if (timer !== undefined) clearTimeout(timer);
+          resolve(r as T);
+        },
+        reject: (err: Error) => {
+          if (timer !== undefined) clearTimeout(timer);
+          reject(err);
+        },
       });
+      timer = setTimeout(() => {
+        const p = pending.get(id);
+        if (!p) return;
+        pending.delete(id);
+        log.warn({ method, id, timeoutMs: REQUEST_TIMEOUT_MS }, "rpc timeout");
+        p.reject(
+          new Error(
+            `helper RPC ${method} timed out after ${REQUEST_TIMEOUT_MS}ms`,
+          ),
+        );
+      }, REQUEST_TIMEOUT_MS);
     });
     const line = `${JSON.stringify({ id, method, params })}\n`;
     try {
       child.stdin.write(line);
     } catch (err) {
+      if (timer !== undefined) clearTimeout(timer);
       pending.delete(id);
       log.error({ err, method }, "failed to write helper request");
       return Promise.reject(
@@ -385,6 +411,19 @@ export function createRemoteHost(opts: RemoteHostOpts): Host {
       // resolve in well under a second.
       const readyTimeout = setTimeout(() => {
         readyResolve = null;
+        // Kill the SSH child + clear `child` so the next `ensureConnected`
+        // call starts a fresh connect attempt. Without this, the next
+        // call thinks we're still "connected" (just not ready) and hangs
+        // again behind the same broken pipe.
+        if (child) {
+          try {
+            child.kill();
+          } catch {
+            // best-effort
+          }
+          child = null;
+        }
+        connectPromise = null;
         reject(new Error(`ssh helper for ${alias} did not signal ready`));
       }, 120_000);
       readyResolve = (version: string) => {
