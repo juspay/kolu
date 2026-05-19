@@ -44,9 +44,12 @@ export function useTerminalMetadata(deps: {
   });
 
   // Free per-terminal comment-store entries when a terminal leaves the
-  // live key set. mapArray's per-key reactive owner is disposed on
-  // removal, firing onCleanup — bounds storesByKey to the active set
-  // without a separate diff effect.
+  // live key set. createComputed is load-bearing: it drives the mapArray
+  // accessor eagerly so per-key reactive owners attach with their
+  // onCleanup hooks. Without it the callback never runs, onCleanup never
+  // registers, and storesByKey resumes unbounded growth — with no
+  // compilation or test failure. Each per-key owner is disposed when its
+  // id leaves the set, firing onCleanup → releaseTerminal.
   createComputed(
     mapArray(meta.keys, (id) => {
       onCleanup(() => releaseTerminal(id));
