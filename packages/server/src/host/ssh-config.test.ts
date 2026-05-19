@@ -46,11 +46,12 @@ Host build-box
   it("emits one entry per alias on a multi-alias Host line", () => {
     const cfg = `Host a b c
   HostName shared.example.com
+  User srid
 `;
     expect(parseSshConfig(cfg)).toEqual([
-      { alias: "a", hostname: "a" },
-      { alias: "b", hostname: "b" },
-      { alias: "c", hostname: "shared.example.com" },
+      { alias: "a", hostname: "shared.example.com", user: "srid" },
+      { alias: "b", hostname: "shared.example.com", user: "srid" },
+      { alias: "c", hostname: "shared.example.com", user: "srid" },
     ]);
   });
 

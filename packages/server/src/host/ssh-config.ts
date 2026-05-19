@@ -6,7 +6,7 @@
  * `Include` is followed with OpenSSH-like path resolution and a bounded depth.
  */
 
-import { globSync, readFileSync } from "node:fs";
+import { existsSync, globSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 
@@ -23,6 +23,13 @@ interface ParseCtx {
   visited: Set<string>;
 }
 
+interface CurrentHostBlock {
+  aliases: string[];
+  hostname?: string;
+  user?: string;
+  port?: number;
+}
+
 const MAX_INCLUDE_DEPTH = 8;
 
 function resolveIncludePaths(arg: string, ctx: ParseCtx): string[] {
@@ -34,7 +41,25 @@ function resolveIncludePaths(arg: string, ctx: ParseCtx): string[] {
   try {
     return globSync(expanded);
   } catch {
+    // Bad Include globs are ignored for discovery; ssh itself remains the
+    // authority when the user actually connects to an alias.
     return [];
+  }
+}
+
+function pushCurrent(
+  current: CurrentHostBlock | null,
+  entries: SshHostEntry[],
+): void {
+  if (!current) return;
+  for (const alias of current.aliases) {
+    const entry: SshHostEntry = {
+      alias,
+      hostname: current.hostname ?? alias,
+    };
+    if (current.user !== undefined) entry.user = current.user;
+    if (current.port !== undefined) entry.port = current.port;
+    entries.push(entry);
   }
 }
 
@@ -43,7 +68,7 @@ function parseInto(
   ctx: ParseCtx,
   entries: SshHostEntry[],
 ): void {
-  let current: SshHostEntry | null = null;
+  let current: CurrentHostBlock | null = null;
 
   for (const rawLine of content.split("\n")) {
     const line = rawLine.trim();
@@ -56,10 +81,8 @@ function parseInto(
     if (!key) continue;
 
     if (key === "include") {
-      if (current) {
-        entries.push(current);
-        current = null;
-      }
+      pushCurrent(current, entries);
+      current = null;
       if (ctx.depth >= MAX_INCLUDE_DEPTH) continue;
       for (const includedPath of resolveIncludePaths(value, ctx)) {
         if (ctx.visited.has(includedPath)) continue;
@@ -82,18 +105,13 @@ function parseInto(
     }
 
     if (key === "host") {
-      if (current) entries.push(current);
+      pushCurrent(current, entries);
       current = null;
       const aliases = value
         .split(/\s+/)
         .filter((a) => a.length > 0 && !/[*?!]/.test(a));
       if (aliases.length === 0) continue;
-      const lastAlias = aliases[aliases.length - 1];
-      if (!lastAlias) continue;
-      for (const alias of aliases.slice(0, -1)) {
-        entries.push({ alias, hostname: alias });
-      }
-      current = { alias: lastAlias, hostname: lastAlias };
+      current = { aliases };
       continue;
     }
 
@@ -106,7 +124,7 @@ function parseInto(
     }
   }
 
-  if (current) entries.push(current);
+  pushCurrent(current, entries);
 }
 
 export function parseSshConfig(
@@ -124,9 +142,6 @@ export function parseSshConfig(
 
 export function readSshHosts(): SshHostEntry[] {
   const filePath = join(homedir(), ".ssh", "config");
-  try {
-    return parseSshConfig(readFileSync(filePath, "utf8"), filePath);
-  } catch {
-    return [];
-  }
+  if (!existsSync(filePath)) return [];
+  return parseSshConfig(readFileSync(filePath, "utf8"), filePath);
 }
