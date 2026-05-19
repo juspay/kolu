@@ -32,6 +32,7 @@ Open http://127.0.0.1:7681 (or the address you chose above).
 ### Terminals
 
 - Create, switch, and kill terminals — every terminal renders as a draggable tile on the canvas, with the left-edge **dock** as the canonical at-a-glance navigator (rail / cards levels) and the **command palette** as the canonical search surface
+- SSH terminals — non-wildcard `Host` aliases from the server machine's `~/.ssh/config` appear under `New terminal`, run through a PTY-only `kolu-helper` over `ssh -T`, and restore on the same host with a visible host chip
 - Split terminals — <kbd>Ctrl+&#96;</kbd> splits a bottom pane per terminal; <kbd>Ctrl+Shift+&#96;</kbd> adds tabs, <kbd>Ctrl+PageDown</kbd> / <kbd>Ctrl+PageUp</kbd> cycles
 - Font zoom (<kbd>Cmd/Ctrl</kbd> <kbd>+</kbd>/<kbd>-</kbd>), persisted per terminal across sessions
 - WebGL rendering with canvas fallback, clickable URLs, Unicode 11, inline images (sixel, iTerm2, kitty)
@@ -190,10 +191,12 @@ pnpm monorepo:
 
 | Package                              | Stack                                                                                                                                                                 |
 | ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `packages/common/`                   | [oRPC](https://orpc.dev/) contract + [Zod](https://zod.dev/) schemas + cell descriptors                                                                               |
+| `packages/common/`                   | [oRPC](https://orpc.dev/) contract + [Zod](https://zod.dev/) schemas + cell descriptors + SSH helper protocol schemas                                                |
 | `packages/surface/`                  | Reactive state framework — typed `Cell<T>`, `Collection<K,T>`, `Stream<I,T>`, `Event<I,T>` over oRPC streams; SolidJS hooks (`useCell`, `useCollection`, `useStream`, `useEvent`)               |
+| `packages/shared/`                   | Runtime-neutral shared helpers, including shell integration and OSC command-mark setup reused by the server and SSH helper                                             |
 | `packages/solid-pierre/`             | Solid-native wrappers around [`@pierre/trees`](https://www.npmjs.com/package/@pierre/trees) and [`@pierre/diffs`](https://www.npmjs.com/package/@pierre/diffs); encapsulates Pierre's imperative mount/render lifecycle behind `<FileTree>`, `<FileDiff>`, `<FileView>` with required `onError` props. Wrap content in `<Virtualizer>` to upgrade `<FileDiff>` / `<FileView>` to Pierre's windowed-rendering counterparts for very large files |
-| `packages/server/`                   | [Hono](https://hono.dev/) + [node-pty](https://github.com/microsoft/node-pty) + [@xterm/headless](https://www.npmjs.com/package/@xterm/headless)                      |
+| `packages/server/`                   | [Hono](https://hono.dev/) + host registry over local [node-pty](https://github.com/microsoft/node-pty) or SSH helper + [@xterm/headless](https://www.npmjs.com/package/@xterm/headless) |
+| `packages/helper/`                   | Remote PTY helper launched over SSH stdio; speaks the typed NDJSON helper protocol and never exposes generic shell/git/filesystem RPCs                                 |
 | `packages/client/`                   | [SolidJS](https://www.solidjs.com/) + [xterm.js](https://xtermjs.org/) + [Tailwind CSS v4](https://tailwindcss.com/)                                                  |
 | `packages/integrations/claude-code/` | Claude Code detection — JSONL transcript tailing + Claude Agent SDK; exports a `claudeCodeProvider` `AgentProvider`                                                   |
 | `packages/integrations/anyagent/`    | Agent-agnostic shared contract (`AgentProvider` interface, `agentInfoEqual`), types (Logger, TaskProgress), and agent CLI parsing                                     |
@@ -212,7 +215,7 @@ All traffic flows over a single WebSocket (`/rpc/ws`) via [oRPC](https://orpc.de
 
 | Pattern            | Semantics                                  | Client integration                    | Used for                                               |
 | ------------------ | ------------------------------------------ | ------------------------------------- | ------------------------------------------------------ |
-| Request / response | one-shot RPC call                          | plain `client.*` calls                | `terminal.create`, `terminal.kill`, `terminal.reorder` |
+| Request / response | one-shot RPC call                          | plain `client.*` calls                | `host.list`, `terminal.create`, `terminal.kill`, `terminal.reorder` |
 | Subscription       | server pushes values over WebSocket stream | `createSubscription` → SolidJS signal | Terminal list, metadata, server state                  |
 
 Subscriptions use [`createSubscription`](packages/client/src/rpc/createSubscription.ts) — a 150-line primitive that converts an `AsyncIterable` into a SolidJS signal via `createStore` + `reconcile` for fine-grained reactivity. Per-terminal subscriptions use SolidJS's `mapArray` for automatic lifecycle management.
@@ -231,7 +234,8 @@ flowchart TB
   end
 
   subgraph Server["Server (Hono)"]
-    PTY["node-pty\nshell process"]:::server
+    Host["Host registry\nlocal · SSH"]:::server
+    PTY["PTY handle\nnode-pty · kolu-helper"]:::server
     Headless["@xterm/headless\nscreen state"]:::server
     Pub["Publisher\nper-terminal channels"]:::server
     Providers["Metadata providers"]:::server
@@ -254,7 +258,8 @@ flowchart TB
   Pub -.->|"terminal list stream\n(subscription)"| Subs
 
   %% User actions
-  UI -->|"create · kill · reorder\n(request/response)"| PTY
+  UI -->|"create · kill · reorder\n(request/response)"| Host
+  Host --> PTY
 
   classDef user fill:#f4a261,stroke:#e76f51,color:#000
   classDef client fill:#2a9d8f,stroke:#264653,color:#fff
@@ -265,9 +270,9 @@ flowchart TB
   style Server fill:none,stroke:#264653,stroke-width:2px,color:#264653
 ```
 
-**Terminal I/O** (solid lines) — keystrokes go through `sendInput` RPC to node-pty; shell output flows back through the [publisher](packages/server/src/publisher.ts) as an `attach` stream to xterm.js. An @xterm/headless instance parses VT sequences server-side for screen-state snapshots[^lazy-attach].
+**Terminal I/O** (solid lines) — keystrokes go through `sendInput` RPC to a host-backed `PtyHandle`. Local hosts wrap node-pty in the server process. SSH hosts are discovered from non-wildcard `Host` aliases in `~/.ssh/config`, start `kolu-helper --serve` over `ssh -T`, and speak a typed NDJSON protocol that only covers PTY lifecycle (`spawnPty`, `write`, `resize`, `dispose`). The default remote command is `nix run --refresh github:juspay/kolu#kolu-helper -- --serve`; `KOLU_HELPER_REMOTE_CMD` can override it for testing a branch or a preinstalled helper. Shell output from both paths flows back through the [publisher](packages/server/src/publisher.ts) as an `attach` stream to xterm.js. The same @xterm/headless instance parses VT sequences server-side for screen-state snapshots[^lazy-attach].
 
-**Metadata** (dashed lines) — shell activity triggers a provider DAG: CWD changes (OSC 7) → git provider (.git/HEAD watcher) → GitHub provider (`gh pr view` polling). Agent detection uses a single generic orchestrator ([`meta/agent.ts`](packages/server/src/meta/agent.ts)) driven by per-agent `AgentProvider` instances from each integration package. Today three instances are registered: `claudeCodeProvider` (from `kolu-claude-code`) wakes on title events (OSC 2) and its own `fs.watch` on `~/.claude/sessions/`; `codexProvider` (from `kolu-codex`) queries the highest-numbered `~/.codex/state_<N>.sqlite` for thread metadata and tails the matched rollout JSONL for state transitions; `opencodeProvider` (from `kolu-opencode`) queries OpenCode's SQLite database directly and watches its WAL file for live state updates. Adding a new agent CLI is one new `AgentProvider` and one line in `startProviders` — no server-side adapter file. All providers feed a single metadata channel streamed to the client as a subscription[^providers]. Separately, kolu's preexec hook emits an `OSC 633;E` command mark before each user command; the pty handler republishes the raw payload on a `commandRun` channel, and [`meta/agent-command.ts`](packages/server/src/meta/agent-command.ts) subscribes to match the first token against a known-agents allowlist and fan out to both (a) a bounded recent-agents MRU for the agent-aware command palette and (b) a per-terminal stash keyed by terminal id, so codex/opencode session detection still matches when the agent is an interpreter shim (e.g. npm-installed `codex`, whose kernel-level process name is `node`). No `/proc` lookups or argv scraping.
+**Metadata** (dashed lines) — shell activity triggers a provider DAG: CWD changes (OSC 7) → git provider (.git/HEAD watcher) → GitHub provider (`gh pr view` polling). Agent detection uses a single generic orchestrator ([`meta/agent.ts`](packages/server/src/meta/agent.ts)) driven by per-agent `AgentProvider` instances from each integration package. Today three instances are registered: `claudeCodeProvider` (from `kolu-claude-code`) wakes on title events (OSC 2) and its own `fs.watch` on `~/.claude/sessions/`; `codexProvider` (from `kolu-codex`) queries the highest-numbered `~/.codex/state_<N>.sqlite` for thread metadata and tails the matched rollout JSONL for state transitions; `opencodeProvider` (from `kolu-opencode`) queries OpenCode's SQLite database directly and watches its WAL file for live state updates. Adding a new agent CLI is one new `AgentProvider` and one line in `startProviders` — no server-side adapter file. Local-only providers stay local: remote SSH terminals currently expose shell-derived CWD/process state and command marks, while git, GitHub, remote filesystem, and SQLite agent databases wait for a separate host executor design instead of tunneling arbitrary commands through the PTY helper. All providers feed a single metadata channel streamed to the client as a subscription[^providers]. Separately, kolu's preexec hook emits an `OSC 633;E` command mark before each user command; the pty handler republishes the raw payload on a `commandRun` channel, and [`meta/agent-command.ts`](packages/server/src/meta/agent-command.ts) subscribes to match the first token against a known-agents allowlist and fan out to both (a) a bounded recent-agents MRU for the agent-aware command palette and (b) a per-terminal stash keyed by terminal id, so codex/opencode session detection still matches when the agent is an interpreter shim (e.g. npm-installed `codex`, whose kernel-level process name is `node`). No `/proc` lookups or argv scraping.
 
 **User actions** — the unified command palette (Cmd+K for commands; Cmd+Shift+K or the dock's search-icon button to drill into "Search workspaces") and tile chrome dispatch plain oRPC client calls ([`useTerminalCrud`](packages/client/src/terminal/useTerminalCrud.ts), [`useWorktreeOps`](packages/client/src/terminal/useWorktreeOps.ts)). The server's live subscriptions push updated state to the client automatically. [`useTerminalMetadata`](packages/client/src/terminal/useTerminalMetadata.ts) uses SolidJS's `mapArray` to create per-terminal subscriptions that automatically tear down when terminals are removed[^client-state].
 
@@ -279,13 +284,13 @@ flowchart TB
 
 **Persistence** — sessions auto-save to `~/.config/kolu/state.json` via [`conf`](https://github.com/sindresorhus/conf), debounced at 500 ms[^persistence].
 
-[^persistence]: Schema is versioned with explicit migrations. Stores CWD, sort order, and parent relationships per terminal.
+[^persistence]: Schema is versioned with explicit migrations. Stores CWD, host id, sort order, and parent relationships per terminal.
 
 [PartySocket](https://docs.partykit.io/reference/partysocket-api/) handles WebSocket auto-reconnect; `@kolu/surface/solid`'s `surfaceClient` (wired up in `packages/client/src/wire.ts`) installs oRPC's [`ClientRetryPlugin`](https://orpc.dev/docs/plugins/client-retry) so every Cell/Collection/Stream/Event hook (and the `streamCall` escape hatch for raw streams like terminal `attach`) transparently re-subscribes after a drop — every server-side streaming handler is already snapshot-then-deltas and the reducer in `useTerminalMetadata.ts` pattern-matches an `ActivityStreamEvent` discriminated union (`snapshot` replaces, `delta` appends) so re-subscribe resume is structural, not defensive. Transport events (`connecting` / `connected` / `disconnected` / `reconnected` / `restarted`) are exposed as a single `ServerLifecycleEvent` signal in `packages/client/src/rpc/rpc.ts`, and `TransportOverlay` pattern-matches it into one dim-backdrop card: `disconnected` shows "Reconnecting…" (the backdrop is pointer-events-none, so users can still scroll and read buffers underneath), and `restarted` swaps to "Server updated" with the Reload button inline in the card.
 
 ### Build & packaging
 
-Packaged with [Nix](https://nixos.asia/en/install). The flake has **zero inputs** — nixpkgs and other sources are pinned via [npins](https://github.com/andir/npins) and imported with `fetchTarball` to keep `nix develop` fast (~2.6 s cold). Shared env vars are defined once in `koluEnv` and consumed by both the build and the devShell[^build].
+Packaged with [Nix](https://nixos.asia/en/install). The flake has **zero inputs** — nixpkgs and other sources are pinned via [npins](https://github.com/andir/npins) and imported with `fetchTarball` to keep `nix develop` fast (~2.6 s cold). The default package runs the server/client app; `.#kolu-helper` builds the SSH helper used by remote terminals. Shared env vars are defined once in `koluEnv` and consumed by both the build and the devShell[^build].
 
 [^build]: `koluEnv` includes font paths and the pinned `gh` binary. Terminal themes and word lists ship checked-in as JSON (see `packages/terminal-themes/` and `packages/memorable-names/`). The final derivation is a wrapper script that sets the environment and execs [`tsx`](https://tsx.is/).
 

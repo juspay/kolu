@@ -30,11 +30,12 @@ import type { TerminalProcess } from "../terminal-registry.ts";
  *  means "no agent transition observed yet" — the only event that lifts
  *  the recency clock. Idle terminals tie at 0 and fall back to canvas
  *  position. */
-export function createMetadata(cwd: string): TerminalMetadata {
+export function createMetadata(cwd: string, hostId?: string): TerminalMetadata {
   return {
     cwd,
+    hostId,
     git: null,
-    pr: { kind: "pending" },
+    pr: hostId ? { kind: "absent" } : { kind: "pending" },
     agent: null,
     foreground: null,
     lastActivityAt: 0,

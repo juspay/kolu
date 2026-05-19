@@ -69,21 +69,103 @@ export interface PtyHandle {
   dispose(): void;
 }
 
+export interface PtyCallbacks {
+  onData: (data: string) => void;
+  onExit: (exitCode: number) => void;
+  onCwd?: (cwd: string) => void;
+  /** Fired on OSC 0/2 title change — signals foreground process may have changed. */
+  onTitleChange?: (title: string) => void;
+  /** Fired when the preexec hook emits `OSC 633 ; E ; <cmd>`. */
+  onCommandRun?: (command: string) => void;
+}
+
+export interface PtyScreen {
+  writeOutput(data: string): void;
+  resize(cols: number, rows: number): void;
+  getScreenState(): string;
+  getScreenText(startLine?: number, endLine?: number): string;
+  dispose(): void;
+}
+
+/** Shared headless-xterm sidecar for local and remote PTY output. */
+export function createPtyScreen(
+  tlog: Logger,
+  opts: Omit<PtyCallbacks, "onExit">,
+  writeBack: (data: string) => void,
+): PtyScreen {
+  const headless = new Terminal({
+    cols: DEFAULT_COLS,
+    rows: DEFAULT_ROWS,
+    scrollback: DEFAULT_SCROLLBACK,
+    allowProposedApi: true,
+  });
+  const serializeAddon = new SerializeAddon();
+  headless.loadAddon(serializeAddon);
+
+  const oscDisposable = headless.parser.registerOscHandler(
+    7,
+    (data: string) => {
+      try {
+        const url = new URL(data);
+        if (url.protocol === "file:") {
+          const cwd = decodeURIComponent(url.pathname);
+          tlog.debug({ cwd }, "cwd changed (OSC 7)");
+          opts.onCwd?.(cwd);
+        }
+      } catch {
+        // Ignore malformed OSC 7 data.
+      }
+      return true;
+    },
+  );
+
+  const titleDisposable = headless.onTitleChange((title: string) => {
+    tlog.debug({ title }, "title changed (OSC 0/2)");
+    opts.onTitleChange?.(title);
+  });
+
+  const commandMarkDisposable = headless.parser.registerOscHandler(
+    633,
+    (data: string) => {
+      if (!data.startsWith("E;")) return false;
+      const command = data.slice(2);
+      tlog.debug({ command }, "command run (OSC 633;E)");
+      opts.onCommandRun?.(command);
+      return true;
+    },
+  );
+
+  const headlessOnDataDisposable = headless.onData((data: string) => {
+    if (data.startsWith("\x1b]")) return;
+    writeBack(data);
+  });
+
+  return {
+    writeOutput(data: string) {
+      headless.write(data);
+      opts.onData(data);
+    },
+    resize(cols: number, rows: number) {
+      headless.resize(cols, rows);
+    },
+    getScreenState: () => serializeAddon.serialize(),
+    getScreenText: (startLine?: number, endLine?: number) =>
+      getScreenText(headless.buffer.active, startLine, endLine),
+    dispose() {
+      oscDisposable.dispose();
+      titleDisposable.dispose();
+      commandMarkDisposable.dispose();
+      headlessOnDataDisposable.dispose();
+      headless.dispose();
+    },
+  };
+}
+
 /** Spawn a shell in a PTY, calling back on data, exit, CWD, and title changes. */
 export function spawnPty(
   tlog: Logger,
   terminalId: string,
-  opts: {
-    onData: (data: string) => void;
-    onExit: (exitCode: number) => void;
-    onCwd?: (cwd: string) => void;
-    /** Fired on OSC 0/2 title change — signals foreground process may have changed. */
-    onTitleChange?: (title: string) => void;
-    /** Fired when the preexec hook emits `OSC 633 ; E ; <cmd>` — the raw
-     *  command line the user typed, before execution. Used to build the
-     *  global recent-agents MRU. */
-    onCommandRun?: (command: string) => void;
-  },
+  opts: PtyCallbacks,
   spawnCwd?: string,
 ): PtyHandle {
   // Env layering, ordered from least to most authoritative:
@@ -128,77 +210,21 @@ export function spawnPty(
     );
   }
 
-  // Headless terminal parses PTY output into screen state for serialization.
-  // allowProposedApi is required for SerializeAddon to access the buffer.
-  const headless = new Terminal({
-    cols: DEFAULT_COLS,
-    rows: DEFAULT_ROWS,
-    scrollback: DEFAULT_SCROLLBACK,
-    allowProposedApi: true,
-  });
-  const serializeAddon = new SerializeAddon();
-  headless.loadAddon(serializeAddon);
-
-  // Parse OSC 7 (CWD reporting) from headless terminal output.
-  // The rc wrapper injected above ensures the shell emits these sequences.
   let currentCwd = cwd;
-  const oscDisposable = headless.parser.registerOscHandler(
-    7,
-    (data: string) => {
-      try {
-        const url = new URL(data);
-        if (url.protocol === "file:") {
-          currentCwd = decodeURIComponent(url.pathname);
-          tlog.debug({ cwd: currentCwd }, "cwd changed (OSC 7)");
-          opts.onCwd?.(currentCwd);
-        }
-      } catch {
-        // Ignore malformed OSC 7 data
-      }
-      return true;
+  const screen = createPtyScreen(
+    tlog,
+    {
+      ...opts,
+      onCwd: (newCwd) => {
+        currentCwd = newCwd;
+        opts.onCwd?.(newCwd);
+      },
     },
+    (data) => proc.write(data),
   );
-
-  // OSC 0/2 title changes signal that the foreground process may have changed.
-  // The shell preexec hook (injected in shell.ts) emits OSC 2 before each command.
-  const titleDisposable = headless.onTitleChange((title: string) => {
-    tlog.debug({ title }, "title changed (OSC 0/2)");
-    opts.onTitleChange?.(title);
-  });
-
-  // OSC 633 ; E ; <command>  — VS Code's semantic "exact command line"
-  // sequence, emitted by kolu's preexec hook alongside OSC 2. The payload
-  // arrives as "E;<command>"; we accept only the E sub-code and ignore
-  // any other 633;X payloads so future VS Code sequences (A/B/C/D) pass
-  // through untouched.
-  const commandMarkDisposable = headless.parser.registerOscHandler(
-    633,
-    (data: string) => {
-      if (!data.startsWith("E;")) return false;
-      const command = data.slice(2);
-      // DEBUG only: the raw command string is whatever the user typed,
-      // including any ephemeral prompt text, API keys, or secrets. The
-      // downstream `recent agent tracked` log emits the *normalized*
-      // form at INFO, which has prompt flags and their values stripped.
-      tlog.debug({ command }, "command run (OSC 633;E)");
-      opts.onCommandRun?.(command);
-      return true;
-    },
-  );
-
-  // Forward device query responses (DA1/DSR) from headless terminal back to
-  // the PTY. TUIs like Yazi probe terminal capabilities at startup — the
-  // headless terminal responds immediately, avoiding latency from the client.
-  // Filter out OSC responses (e.g. OSC 10/11/12 color queries) — programs
-  // don't consume these, so the shell echoes them as visible garbage.
-  const headlessOnDataDisposable = headless.onData((data: string) => {
-    if (data.startsWith("\x1b]")) return;
-    proc.write(data);
-  });
 
   const dataDisposable = proc.onData((data: string) => {
-    headless.write(data);
-    opts.onData(data);
+    screen.writeOutput(data);
   });
 
   const exitDisposable = proc.onExit(({ exitCode }) => opts.onExit(exitCode));
@@ -221,20 +247,16 @@ export function spawnPty(
     write: (data) => proc.write(data),
     resize: (cols, rows) => {
       proc.resize(cols, rows);
-      headless.resize(cols, rows);
+      screen.resize(cols, rows);
     },
-    getScreenState: () => serializeAddon.serialize(),
+    getScreenState: () => screen.getScreenState(),
     getScreenText: (startLine?: number, endLine?: number) =>
-      getScreenText(headless.buffer.active, startLine, endLine),
+      screen.getScreenText(startLine, endLine),
     dispose() {
-      oscDisposable.dispose();
-      titleDisposable.dispose();
-      commandMarkDisposable.dispose();
-      headlessOnDataDisposable.dispose();
       dataDisposable.dispose();
       exitDisposable.dispose();
       proc.kill();
-      headless.dispose();
+      screen.dispose();
       shellInit.cleanup();
     },
   };

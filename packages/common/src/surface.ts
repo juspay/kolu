@@ -107,6 +107,8 @@ export const SubPanelStateSchema = z.object({
  */
 export const ServerPersistedTerminalFieldsSchema = z.object({
   cwd: z.string(),
+  /** SSH host alias. Absent means the terminal runs on the Kolu server host. */
+  hostId: z.string().optional(),
   git: GitInfoSchema.nullable(),
   /** Normalized agent CLI invocation last observed in this terminal (e.g.
    *  `"claude --model sonnet"`). Preserved across intervening non-agent

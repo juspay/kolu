@@ -122,6 +122,16 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
                                 <div class="text-sm text-fg-2 truncate leading-snug">
                                   {terminalKey(t).label}
                                 </div>
+                                <Show when={t.hostId}>
+                                  {(hostId) => (
+                                    <div
+                                      data-testid="restore-host-chip"
+                                      class="mt-1 inline-flex font-mono text-[10px] leading-none px-1.5 py-0.5 rounded border border-accent/30 text-accent bg-accent/10"
+                                    >
+                                      SSH {hostId()}
+                                    </div>
+                                  )}
+                                </Show>
                                 <Show
                                   when={
                                     resumeAgents() && t.lastAgentCommand

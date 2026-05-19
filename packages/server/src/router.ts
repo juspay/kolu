@@ -21,6 +21,7 @@ import { transcriptToHtml } from "kolu-transcript-html";
 import { match } from "ts-pattern";
 import { saveClipboardImage } from "./clipboard.ts";
 import { serverHostname, serverProcessId } from "./hostname.ts";
+import { listHosts } from "./host/registry.ts";
 import { log } from "./log.ts";
 import { terminalChannels } from "./publisher.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
@@ -52,14 +53,22 @@ export const appRouter = t.router({
       processId: serverProcessId,
     })),
   },
+  host: {
+    list: t.host.list.handler(async () => listHosts()),
+  },
   terminal: {
     create: t.terminal.create.handler(async ({ input }) =>
-      createTerminal(input.cwd, input.parentId, {
-        themeName: input.themeName,
-        canvasLayout: input.canvasLayout,
-        subPanel: input.subPanel,
-        lastActivityAt: input.lastActivityAt,
-      }),
+      createTerminal(
+        input.cwd,
+        input.parentId,
+        {
+          themeName: input.themeName,
+          canvasLayout: input.canvasLayout,
+          subPanel: input.subPanel,
+          lastActivityAt: input.lastActivityAt,
+        },
+        input.hostId,
+      ),
     ),
 
     resize: t.terminal.resize.handler(async ({ input }) => {

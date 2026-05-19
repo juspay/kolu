@@ -79,6 +79,13 @@ export function startProviders(
   // Subscribe the tracker before any provider — the stash it maintains is
   // read by `startAgentProvider`'s reconcile via `getLastAgentCommandName`.
   const stopAgentCommand = startAgentCommandTracker(terminalId);
+  if (entry.meta.hostId) {
+    const stopProcess = startProcessProvider(entry, terminalId);
+    return () => {
+      stopAgentCommand();
+      stopProcess();
+    };
+  }
   const stopGit = startGitProvider(entry, terminalId);
   const stopGitHubPr = startGitHubPrProvider(entry, terminalId);
   const stopClaude = startAgentProvider(claudeCodeProvider, entry, terminalId);

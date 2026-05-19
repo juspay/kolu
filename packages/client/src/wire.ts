@@ -18,7 +18,7 @@
 import type { ClientRetryPluginContext } from "@orpc/client/plugins";
 import type { ContractRouterClient } from "@orpc/contract";
 import { surfaceClient } from "@kolu/surface/solid";
-import { contract } from "kolu-common/contract";
+import type { contract, HostSummary } from "kolu-common/contract";
 import {
   DEFAULT_PREFERENCES,
   type Preferences,
@@ -29,6 +29,7 @@ import {
   surface,
 } from "kolu-common/surface";
 import { WebSocket as PartySocket } from "partysocket";
+import { createSignal } from "solid-js";
 import { toast } from "solid-sonner";
 
 const { protocol, host } = window.location;
@@ -49,6 +50,20 @@ export const app = surfaceClient<
 /** Convenience alias — `client.terminal.create(...)`, `client.git.worktreeCreate(...)`,
  *  `client.surface.preferences.patch(...)`, etc. */
 export const client = app.rpc;
+
+const [sshHosts, setSshHosts] = createSignal<HostSummary[]>([]);
+export { sshHosts };
+
+export function refreshSshHosts(): void {
+  void client.host
+    .list()
+    .then(setSshHosts)
+    .catch((err: Error) =>
+      toast.error(`Failed to read SSH hosts: ${err.message}`),
+    );
+}
+
+ws.addEventListener("open", refreshSshHosts);
 
 // ── Module-level singleton subscriptions ───────────────────────────────
 

@@ -52,6 +52,7 @@ const TerminalMeta: Component<{
             <Show when={info().meta.git?.isWorktree}>
               <WorktreeBadge />
             </Show>
+            <HostChip hostId={info().meta.hostId} />
             {/* Foreground process title — OSC 2 string when present.
              *  Replaces what used to be the cwd slot; cwd is now a
              *  tooltip on the repo name. `flex-1` so it fills until
@@ -166,6 +167,7 @@ export const TerminalMetaCompact: Component<{
           <Show when={info().meta.git?.isWorktree}>
             <WorktreeBadge />
           </Show>
+          <HostChip hostId={info().meta.hostId} />
           <Show when={info().meta.git}>
             {(git) => (
               <span
@@ -236,6 +238,20 @@ const WorktreeBadge: Component = () => (
   >
     <WorktreeIcon />
   </span>
+);
+
+const HostChip: Component<{ hostId?: string }> = (props) => (
+  <Show when={props.hostId}>
+    {(hostId) => (
+      <span
+        data-testid="terminal-host-chip"
+        class="font-mono text-[10px] leading-none px-1.5 py-0.5 rounded border border-accent/30 text-accent bg-accent/10 shrink-0"
+        title={`SSH host ${hostId()}`}
+      >
+        SSH {hostId()}
+      </span>
+    )}
+  </Show>
 );
 
 const AgentTaskProgress: Component<{ completed: number; total: number }> = (

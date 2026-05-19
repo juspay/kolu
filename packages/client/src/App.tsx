@@ -190,7 +190,8 @@ const App: Component = () => {
     activate: store.activate,
     mruOrder: store.mruOrder,
     activeMeta: store.activeMeta,
-    handleCreate: (cwd?: string) => void crud.handleCreate(cwd),
+    handleCreate: (cwd?: string, hostId?: string) =>
+      void crud.handleCreate(cwd, undefined, hostId),
     handleCreateSubTerminal: (parentId, cwd) =>
       void crud.handleCreateSubTerminal(parentId, cwd),
     openNewTerminalMenu: () => openPaletteGroup("New terminal"),

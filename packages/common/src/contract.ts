@@ -38,6 +38,8 @@ export const TerminalCreateInputSchema = z
   .object({
     cwd: z.string().optional(),
     parentId: TerminalIdSchema.optional(),
+    /** SSH host alias from `host.list`; absent means local. */
+    hostId: z.string().optional(),
   })
   .merge(InitialTerminalMetadataSchema);
 
@@ -106,12 +108,28 @@ export const ServerInfoSchema = z.object({
   processId: z.string().uuid(),
 });
 
+export const HostSummarySchema = z.object({
+  /** Stable per-terminal host id. For SSH hosts this is the `Host` alias. */
+  id: z.string(),
+  /** Human label shown in picker/chips. */
+  label: z.string(),
+  hostname: z.string(),
+  user: z.string().optional(),
+  port: z.number().int().positive().optional(),
+});
+export type HostSummary = z.infer<typeof HostSummarySchema>;
+
 // ── The contract ──────────────────────────────────────────────────────
 
 export const contract = oc.router({
   ...surface.contract,
   server: {
     info: oc.output(ServerInfoSchema),
+  },
+  host: {
+    /** One-shot host discovery; currently reads non-wildcard `Host` aliases
+     *  from ~/.ssh/config on the server machine. */
+    list: oc.output(z.array(HostSummarySchema)),
   },
   terminal: {
     create: oc.input(TerminalCreateInputSchema).output(TerminalInfoSchema),

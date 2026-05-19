@@ -105,6 +105,7 @@ export function useTerminalCrud(deps: {
   async function handleCreate(
     cwd?: string,
     initial?: InitialTerminalMetadata,
+    hostId?: string,
   ): Promise<TerminalId> {
     if (store.activeMeta()?.git) showTipOnce(CONTEXTUAL_TIPS.worktree);
 
@@ -125,6 +126,7 @@ export function useTerminalCrud(deps: {
     const info = await client.terminal
       .create({
         cwd,
+        hostId,
         themeName: theme,
         canvasLayout: initial?.canvasLayout,
         subPanel: initial?.subPanel,

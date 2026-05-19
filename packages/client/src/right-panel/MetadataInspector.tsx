@@ -37,6 +37,18 @@ const MetadataInspector: Component<{
             <div class="text-[11px] text-fg font-mono break-all leading-relaxed">
               {meta().cwd}
             </div>
+            <Show when={meta().hostId}>
+              {(hostId) => (
+                <div class="mt-2">
+                  <span
+                    data-testid="inspector-host"
+                    class="inline-flex font-mono text-[10px] leading-none px-1.5 py-0.5 rounded border border-accent/30 text-accent bg-accent/10"
+                  >
+                    SSH {hostId()}
+                  </span>
+                </div>
+              )}
+            </Show>
           </Section>
 
           {/* Git */}

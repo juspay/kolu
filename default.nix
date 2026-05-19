@@ -22,6 +22,7 @@ let
       ./packages/surface
       ./packages/solid-pierre
       ./packages/common
+      ./packages/helper
       ./packages/integrations
       ./packages/nonempty
       ./packages/shared
@@ -160,6 +161,17 @@ let
              fi'
   '';
 
+  koluHelperBin = pkgs.runCommand "kolu-helper-bin"
+    {
+      nativeBuildInputs = [ pkgs.makeWrapper ];
+      meta.mainProgram = "kolu-helper";
+    } ''
+    mkdir -p $out/bin
+    makeWrapper ${pkgs.tsx}/bin/tsx $out/bin/kolu-helper \
+      --add-flags "${koluStamped}/packages/helper/src/index.ts" \
+      --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs ]}
+  '';
+
   # Production wrapper: koluBin + default KOLU_STATE_DIR.
   # Used by `nix run .` and the NixOS service. Sets the state dir
   # unconditionally — no `:-` override, so tests can't accidentally
@@ -175,5 +187,6 @@ let
   '';
 in
 {
-  inherit default koluBin koluEnv pnpmDeps;
+  inherit default koluBin koluHelperBin koluEnv pnpmDeps;
+  "kolu-helper" = koluHelperBin;
 }

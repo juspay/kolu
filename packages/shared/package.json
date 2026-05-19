@@ -9,6 +9,7 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
+    "./shell": "./src/shell.ts",
     "./sqlite": "./src/sqlite/index.ts"
   },
   "scripts": {

@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { terminalsDirtyChannel } from "../publisher.ts";
 import type { TerminalProcess } from "../terminal-registry.ts";
 import {
+  createMetadata,
   updateClientMetadata,
   updateServerLiveMetadata,
   updateServerMetadata,
@@ -76,6 +77,15 @@ describe("metadata publish routing", () => {
     });
     await settle();
     expect(dirtyCount).toBe(1);
+  });
+
+  it("createMetadata stores remote host identity and suppresses local PR lookup", () => {
+    expect(createMetadata("/home/srid", "build-box")).toMatchObject({
+      cwd: "/home/srid",
+      hostId: "build-box",
+      git: null,
+      pr: { kind: "absent" },
+    });
   });
 
   it("updateClientMetadata fires terminals:dirty (every client field is persisted)", async () => {

@@ -18,6 +18,7 @@ import type {
   TerminalInfo,
 } from "kolu-common/surface";
 import { cleanupClipboardDir } from "./clipboard.ts";
+import { getHost, shutdownHosts } from "./host/registry.ts";
 import { log } from "./log.ts";
 import {
   createMetadata,
@@ -25,7 +26,6 @@ import {
   updateClientMetadata,
   updateServerMetadata,
 } from "./meta/index.ts";
-import { spawnPty } from "./pty.ts";
 import { terminalChannels, terminalsDirtyChannel } from "./publisher.ts";
 import { surfaceCtx } from "./surface.ts";
 import {
@@ -93,15 +93,19 @@ function emitListChanged(): void {
  *  `terminalMetadata` collection read carries it — used by session
  *  restore to avoid racing post-hoc `setCanvasLayout` / `setTheme` /
  *  `setSubPanel` RPCs against the client's canvas-cascade effect (#642). */
-export function createTerminal(
+export async function createTerminal(
   cwd?: string,
   parentId?: string,
   initial?: InitialTerminalMetadata,
-): TerminalInfo {
+  hostId?: string,
+): Promise<TerminalInfo> {
   const id = crypto.randomUUID();
   const tlog = log.child({ terminal: id });
+  const parent = parentId ? getTerminal(parentId) : undefined;
+  const resolvedHostId = hostId ?? parent?.meta.hostId;
+  const host = getHost(resolvedHostId);
 
-  const handle = spawnPty(
+  const handle = await host.spawnPty(
     tlog,
     id,
     {
@@ -149,7 +153,7 @@ export function createTerminal(
     cwd,
   );
 
-  const meta = createMetadata(handle.cwd);
+  const meta = createMetadata(handle.cwd, resolvedHostId);
   if (parentId) meta.parentId = parentId;
   // Seed client-owned initial metadata BEFORE startProviders so the first
   // `terminalMetadata` collection yield carries these fields (see #642).
@@ -278,5 +282,6 @@ export function killAllTerminals(): void {
     entry.handle.dispose();
     cleanupClipboardDir(entry.info.id);
   }
+  shutdownHosts();
   emitListChanged();
 }

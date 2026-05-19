@@ -98,7 +98,7 @@ type PersistedState = z.infer<typeof PersistedStateSchema>;
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.21.0";
+const SCHEMA_VERSION = "1.22.0";
 
 // Callers must pass an explicit directory via KOLU_STATE_DIR. A bare launch
 // with no env would silently clobber whatever happens to live at conf's
@@ -410,6 +410,10 @@ export const store = new Conf<PersistedState>({
       })) as typeof session.terminals;
       store.set("session", { ...session, terminals });
     },
+    // SavedTerminal.hostId added for remote terminals. Optional, so legacy
+    // local terminals need no value transformation; bump recorded for the
+    // migration ladder.
+    "1.22.0": () => {},
   },
 });
 

@@ -33,7 +33,7 @@ export interface ActionContext {
   /** Terminal IDs in most-recently-used order; used for Alt+Tab / Ctrl+Tab cycling. */
   mruOrder: Accessor<TerminalId[]>;
   activeMeta: Accessor<TerminalMetadata | null>;
-  handleCreate: (cwd?: string) => void;
+  handleCreate: (cwd?: string, hostId?: string) => void;
   handleCreateSubTerminal: (parentId: TerminalId, cwd?: string) => void;
   openNewTerminalMenu: () => void;
   openWorkspaceSwitcher: () => void;
@@ -123,7 +123,11 @@ const _ACTIONS = {
     label: "New terminal",
     keybind: { key: "t", mod: true },
     altKeybind: { key: "Enter", mod: true },
-    handler: (ctx) => ctx.handleCreate(ctx.activeMeta()?.cwd ?? undefined),
+    handler: (ctx) =>
+      ctx.handleCreate(
+        ctx.activeMeta()?.cwd ?? undefined,
+        ctx.activeMeta()?.hostId,
+      ),
   },
   newTerminalMenu: {
     label: "New terminal menu",

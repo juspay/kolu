@@ -592,6 +592,7 @@ const AwaitingCardBody: Component<{
           >
             {props.info.key.label}
           </span>
+          <HostChip hostId={props.meta.hostId} />
         </div>
         <DockMetaRow meta={props.meta} />
         <PrLine meta={props.meta} />
@@ -666,6 +667,7 @@ const WorkingPillBody: Component<{
         >
           {props.info.key.label}
         </span>
+        <HostChip hostId={props.meta.hostId} />
       </div>
       <DockMetaRow meta={props.meta} />
       <PrLine meta={props.meta} />
@@ -712,6 +714,7 @@ const QuietRowBody: Component<{
         >
           {props.info.key.label}
         </span>
+        <HostChip hostId={props.meta.hostId} />
         <Show when={formatTimeAgo(props.meta.lastActivityAt)}>
           {(label) => (
             <span class="ml-auto font-mono text-[0.55rem] tabular-nums text-fg-3 shrink-0">
@@ -767,5 +770,18 @@ const DockMetaRow: Component<{ meta: TerminalMetadata }> = (props) => {
     </Show>
   );
 };
+
+const HostChip: Component<{ hostId?: string }> = (props) => (
+  <Show when={props.hostId}>
+    {(hostId) => (
+      <span
+        data-testid="dock-host-chip"
+        class="font-mono text-[0.55rem] leading-none px-1 py-0.5 rounded border border-accent/30 text-accent bg-accent/10 shrink-0"
+      >
+        SSH {hostId()}
+      </span>
+    )}
+  </Show>
+);
 
 export default Dock;

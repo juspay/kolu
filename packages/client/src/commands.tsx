@@ -23,7 +23,7 @@ import {
 } from "./input/actions";
 import { iconForCommand } from "./ui/agentDisplay";
 import { TerminalIcon } from "./ui/Icons";
-import { recentAgents, recentRepos } from "./wire";
+import { recentAgents, recentRepos, sshHosts } from "./wire";
 
 /** Body component factory for the "Search workspaces" group. Captures
  *  the entries accessor + recency lookup in a closure so the palette
@@ -168,12 +168,28 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
       section: "workspaces",
       children: (): PaletteItem[] => {
         const repos = recentRepos();
+        const hosts = sshHosts();
         return [
           {
             kind: "action",
             name: "In current directory",
-            onSelect: () => deps.handleCreate(deps.activeMeta()?.cwd),
+            onSelect: () =>
+              deps.handleCreate(
+                deps.activeMeta()?.cwd,
+                deps.activeMeta()?.hostId,
+              ),
           },
+          ...hosts.map(
+            (h): PaletteAction => ({
+              kind: "action",
+              name: `On ${h.label}`,
+              description: h.user
+                ? `${h.user}@${h.hostname}${h.port ? `:${h.port}` : ""}`
+                : h.hostname,
+              onSelect: () => deps.handleCreate(undefined, h.id),
+              icon: TerminalIcon,
+            }),
+          ),
           ...repos.map(
             (r): PaletteValueInput => ({
               kind: "value",
