@@ -26,4 +26,4 @@ dependencies:
     - juspay/skills/skills/nix-typescript
     - anthropics/skills/skills/frontend-design
     - juspay/nix-chrome-devtools-mcp
-    - juspay/ci
+    - juspay/justci
