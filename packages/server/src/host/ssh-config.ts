@@ -9,7 +9,14 @@
 import { existsSync, globSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
+import SSHConfig, {
+  LineType,
+  type Directive,
+  type Line,
+  type Section,
+} from "ssh-config";
 
+/** SSH destination displayed in the remote-terminal picker. */
 export interface SshHostEntry {
   alias: string;
   hostname: string;
@@ -23,14 +30,28 @@ interface ParseCtx {
   visited: Set<string>;
 }
 
-interface CurrentHostBlock {
-  aliases: string[];
-  hostname?: string;
-  user?: string;
-  port?: number;
+const MAX_INCLUDE_DEPTH = 8;
+
+function isNodeError(err: unknown): err is NodeJS.ErrnoException {
+  return err instanceof Error && "code" in err;
 }
 
-const MAX_INCLUDE_DEPTH = 8;
+function isDirective(line: Line, param?: string): line is Directive {
+  return (
+    line.type === LineType.DIRECTIVE &&
+    "param" in line &&
+    (param === undefined || line.param.toLowerCase() === param)
+  );
+}
+
+function isSection(line: Line, param: string): line is Section {
+  return isDirective(line, param) && "config" in line;
+}
+
+function valueTokens(value: Directive["value"]): string[] {
+  if (typeof value === "string") return value.split(/\s+/);
+  return value.map((v) => v.val);
+}
 
 function resolveIncludePaths(arg: string, ctx: ParseCtx): string[] {
   const expanded = arg.startsWith("~/")
@@ -38,105 +59,82 @@ function resolveIncludePaths(arg: string, ctx: ParseCtx): string[] {
     : isAbsolute(arg)
       ? arg
       : resolve(dirname(ctx.filePath), arg);
+  return globSync(expanded);
+}
+
+function parseFile(path: string): SSHConfig {
   try {
-    return globSync(expanded);
-  } catch {
-    // Bad Include globs are ignored for discovery; ssh itself remains the
-    // authority when the user actually connects to an alias.
-    return [];
+    return SSHConfig.parse(readFileSync(path, "utf8"));
+  } catch (err) {
+    if (isNodeError(err) && err.code === "ENOENT") return new SSHConfig();
+    throw err;
   }
 }
 
-function pushCurrent(
-  current: CurrentHostBlock | null,
-  entries: SshHostEntry[],
-): void {
-  if (!current) return;
-  for (const alias of current.aliases) {
-    const entry: SshHostEntry = {
-      alias,
-      hostname: current.hostname ?? alias,
-    };
-    if (current.user !== undefined) entry.user = current.user;
-    if (current.port !== undefined) entry.port = current.port;
-    entries.push(entry);
-  }
-}
-
-function parseInto(
-  content: string,
-  ctx: ParseCtx,
-  entries: SshHostEntry[],
-): void {
-  let current: CurrentHostBlock | null = null;
-
-  for (const rawLine of content.split("\n")) {
-    const line = rawLine.trim();
-    if (line.length === 0 || line.startsWith("#")) continue;
-
-    const match = line.match(/^([A-Za-z][A-Za-z0-9_-]*)\s*=?\s*(.*)$/);
-    if (!match) continue;
-    const key = match[1]?.toLowerCase();
-    const value = match[2]?.trim() ?? "";
-    if (!key) continue;
-
-    if (key === "include") {
-      pushCurrent(current, entries);
-      current = null;
+function expandIncludes(config: SSHConfig, ctx: ParseCtx): SSHConfig {
+  const expanded = new SSHConfig();
+  for (const line of config) {
+    if (isDirective(line, "include")) {
       if (ctx.depth >= MAX_INCLUDE_DEPTH) continue;
-      for (const includedPath of resolveIncludePaths(value, ctx)) {
-        if (ctx.visited.has(includedPath)) continue;
-        ctx.visited.add(includedPath);
-        try {
-          parseInto(
-            readFileSync(includedPath, "utf8"),
-            {
+      for (const pattern of valueTokens(line.value)) {
+        for (const includedPath of resolveIncludePaths(pattern, ctx)) {
+          if (ctx.visited.has(includedPath)) continue;
+          ctx.visited.add(includedPath);
+          expanded.push(
+            ...expandIncludes(parseFile(includedPath), {
               filePath: includedPath,
               depth: ctx.depth + 1,
               visited: ctx.visited,
-            },
-            entries,
+            }),
           );
-        } catch {
-          // Missing or unreadable includes are ignored, matching ssh_config.
         }
       }
       continue;
     }
-
-    if (key === "host") {
-      pushCurrent(current, entries);
-      current = null;
-      const aliases = value
-        .split(/\s+/)
-        .filter((a) => a.length > 0 && !/[*?!]/.test(a));
-      if (aliases.length === 0) continue;
-      current = { aliases };
-      continue;
-    }
-
-    if (!current) continue;
-    if (key === "hostname") current.hostname = value;
-    else if (key === "user") current.user = value;
-    else if (key === "port") {
-      const port = Number.parseInt(value, 10);
-      if (Number.isFinite(port) && port > 0) current.port = port;
-    }
+    expanded.push(line);
   }
+  return expanded;
+}
 
-  pushCurrent(current, entries);
+function firstString(value: string | string[] | undefined): string | undefined {
+  if (typeof value === "string") return value;
+  return value?.[0];
+}
+
+function hostEntry(config: SSHConfig, alias: string): SshHostEntry {
+  const computed = config.compute(alias, { ignoreCase: true });
+  const hostname = firstString(computed.hostname) ?? alias;
+  const user = firstString(computed.user);
+  const portValue = firstString(computed.port);
+  const port =
+    portValue === undefined ? undefined : Number.parseInt(portValue, 10);
+  const entry: SshHostEntry = { alias, hostname };
+  if (user !== undefined) entry.user = user;
+  if (port !== undefined && Number.isFinite(port) && port > 0)
+    entry.port = port;
+  return entry;
 }
 
 export function parseSshConfig(
   content: string,
   filePath = join(homedir(), ".ssh", "config"),
 ): SshHostEntry[] {
+  const config = expandIncludes(SSHConfig.parse(content), {
+    filePath,
+    depth: 0,
+    visited: new Set([filePath]),
+  });
   const entries: SshHostEntry[] = [];
-  parseInto(
-    content,
-    { filePath, depth: 0, visited: new Set([filePath]) },
-    entries,
-  );
+  const seen = new Set<string>();
+  for (const line of config) {
+    if (!isSection(line, "host")) continue;
+    for (const alias of valueTokens(line.value)) {
+      if (alias.length === 0 || /[*?!]/.test(alias) || seen.has(alias))
+        continue;
+      seen.add(alias);
+      entries.push(hostEntry(config, alias));
+    }
+  }
   return entries;
 }
 

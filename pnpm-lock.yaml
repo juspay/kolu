@@ -218,6 +218,9 @@ importers:
       node-pty:
         specifier: github:juspay/node-pty#fix/darwin-pty-fd-leak
         version: https://codeload.github.com/juspay/node-pty/tar.gz/cc137d90e39bb9e5c72ca8b9d81210e5005c5fa3
+      ts-pattern:
+        specifier: ^5.9.0
+        version: 5.9.0
       zod:
         specifier: ^4.3.6
         version: 4.3.6
@@ -499,6 +502,9 @@ importers:
       selfsigned:
         specifier: ^5.5.0
         version: 5.5.0
+      ssh-config:
+        specifier: ^5.1.0
+        version: 5.1.0
       ts-pattern:
         specifier: ^5.9.0
         version: 5.9.0
@@ -4170,6 +4176,9 @@ packages:
   split2@4.2.0:
     resolution: {integrity: sha512-UcjcJOWknrNkF6PLX83qcHM6KHgVKNkV62Y8a5uYDVv9ydGQVwAHMKqHdJje1VTWpljG0WYpCDhrCdAOYH4TWg==}
     engines: {node: '>= 10.x'}
+
+  ssh-config@5.1.0:
+    resolution: {integrity: sha512-z4fFE4MgCja706ajwYOg6uptS3BIu0TWSUj08UWLuwNB/awVktEA5LyOgIAmgazyDjyTULhlL2GaBv37k4zoxQ==}
 
   stackback@0.0.2:
     resolution: {integrity: sha512-1XMJE5fQo1jGH6Y/7ebnwPOBEkIEnT4QF32d5R1+VXdXveM0IBMJt8zfaxX1P3QhVwrYe+576+jkANtSS2mBbw==}
@@ -8375,6 +8384,8 @@ snapshots:
   spdx-license-ids@3.0.23: {}
 
   split2@4.2.0: {}
+
+  ssh-config@5.1.0: {}
 
   stackback@0.0.2: {}
 

@@ -10,22 +10,23 @@ import { createInterface } from "node:readline";
 import { homedir, userInfo } from "node:os";
 import { join } from "node:path";
 import {
-  HelperDisposeParamsSchema,
+  HELPER_PROTOCOL_VERSION,
   type HelperErrorShape,
   type HelperEvent,
   HelperRequestSchema,
-  HelperResizeParamsSchema,
-  HelperSpawnPtyParamsSchema,
-  HelperWriteParamsSchema,
+  type HelperSpawnPtyParams,
+  type HelperSpawnPtyResult,
 } from "kolu-common/helper-protocol";
 import { DEFAULT_COLS, DEFAULT_ROWS } from "kolu-common/config";
 import { koluIdentityEnv, prepareShellInit } from "kolu-shared/shell";
 import * as pty from "node-pty";
+import { match } from "ts-pattern";
 import pkg from "../package.json" with { type: "json" };
 
 interface PtyEntry {
   proc: pty.IPty;
   cleanup: () => void;
+  pausedForBackpressure: boolean;
 }
 
 const ptys = new Map<string, PtyEntry>();
@@ -44,8 +45,8 @@ function status(proc: pty.IPty): {
   };
 }
 
-function writeFrame(frame: unknown): void {
-  process.stdout.write(`${JSON.stringify(frame)}\n`);
+function writeFrame(frame: unknown): boolean {
+  return process.stdout.write(`${JSON.stringify(frame)}\n`);
 }
 
 function writeError(id: number, error: HelperErrorShape): void {
@@ -56,14 +57,38 @@ function writeEvent(event: HelperEvent): void {
   writeFrame(event);
 }
 
-function spawnPty(params: unknown): {
-  ptyId: string;
-  pid: number;
-  cwd: string;
-  process?: string;
-  foregroundPid?: number;
-} {
-  const input = HelperSpawnPtyParamsSchema.parse(params);
+function writePtyData(ptyId: string, proc: pty.IPty, data: string): void {
+  const entry = ptys.get(ptyId);
+  if (!entry) return;
+  const accepted = writeFrame({
+    method: "data",
+    params: { ptyId, data, ...status(proc) },
+  } satisfies HelperEvent);
+  if (accepted || entry.pausedForBackpressure) return;
+
+  entry.pausedForBackpressure = true;
+  proc.pause();
+  process.stdout.once("drain", () => {
+    const latest = ptys.get(ptyId);
+    if (!latest) return;
+    latest.pausedForBackpressure = false;
+    latest.proc.resume();
+  });
+}
+
+function removePty(ptyId: string, kill: boolean): void {
+  const entry = ptys.get(ptyId);
+  if (!entry) return;
+  ptys.delete(ptyId);
+  entry.cleanup();
+  if (kill) entry.proc.kill();
+}
+
+function cleanupAll(): void {
+  for (const ptyId of [...ptys.keys()]) removePty(ptyId, true);
+}
+
+function spawnPty(input: HelperSpawnPtyParams): HelperSpawnPtyResult {
   const env = { ...(process.env as Record<string, string>) };
   env.SHELL ??= userInfo().shell || "/bin/sh";
   env.HOME ??= homedir();
@@ -87,17 +112,17 @@ function spawnPty(params: unknown): {
     env,
   });
   const ptyId = input.terminalId;
-  ptys.set(ptyId, { proc, cleanup: init.cleanup });
+  ptys.set(ptyId, {
+    proc,
+    cleanup: init.cleanup,
+    pausedForBackpressure: false,
+  });
 
   proc.onData((data) => {
-    writeEvent({
-      method: "data",
-      params: { ptyId, data, ...status(proc) },
-    });
+    writePtyData(ptyId, proc, data);
   });
   proc.onExit(({ exitCode }) => {
-    init.cleanup();
-    ptys.delete(ptyId);
+    removePty(ptyId, false);
     writeEvent({ method: "exit", params: { ptyId, exitCode } });
   });
 
@@ -116,28 +141,24 @@ function requirePty(ptyId: string): PtyEntry {
 function handleRequest(raw: unknown): void {
   const req = HelperRequestSchema.parse(raw);
   try {
-    if (req.method === "spawnPty") {
-      writeFrame({ id: req.id, result: spawnPty(req.params) });
-      return;
-    }
-    if (req.method === "write") {
-      const input = HelperWriteParamsSchema.parse(req.params);
-      requirePty(input.ptyId).proc.write(input.data);
-      writeFrame({ id: req.id, result: null });
-      return;
-    }
-    if (req.method === "resize") {
-      const input = HelperResizeParamsSchema.parse(req.params);
-      requirePty(input.ptyId).proc.resize(input.cols, input.rows);
-      writeFrame({ id: req.id, result: null });
-      return;
-    }
-    const input = HelperDisposeParamsSchema.parse(req.params);
-    const entry = requirePty(input.ptyId);
-    entry.cleanup();
-    entry.proc.kill();
-    ptys.delete(input.ptyId);
-    writeFrame({ id: req.id, result: null });
+    match(req)
+      .with({ method: "spawnPty" }, (r) =>
+        writeFrame({ id: r.id, result: spawnPty(r.params) }),
+      )
+      .with({ method: "write" }, (r) => {
+        requirePty(r.params.ptyId).proc.write(r.params.data);
+        writeFrame({ id: r.id, result: null });
+      })
+      .with({ method: "resize" }, (r) => {
+        requirePty(r.params.ptyId).proc.resize(r.params.cols, r.params.rows);
+        writeFrame({ id: r.id, result: null });
+      })
+      .with({ method: "dispose" }, (r) => {
+        requirePty(r.params.ptyId);
+        removePty(r.params.ptyId, true);
+        writeFrame({ id: r.id, result: null });
+      })
+      .exhaustive();
   } catch (err) {
     const helperKind =
       (err as { helperKind?: HelperErrorShape["kind"] }).helperKind ??
@@ -150,8 +171,12 @@ function handleRequest(raw: unknown): void {
 }
 
 function serve(): void {
-  writeEvent({ method: "ready", params: { version: pkg.version } });
-  createInterface({ input: process.stdin }).on("line", (line) => {
+  writeEvent({
+    method: "ready",
+    params: { version: pkg.version, protocolVersion: HELPER_PROTOCOL_VERSION },
+  });
+  const input = createInterface({ input: process.stdin });
+  input.on("line", (line) => {
     if (line.trim() === "") return;
     try {
       handleRequest(JSON.parse(line));
@@ -162,9 +187,23 @@ function serve(): void {
       });
     }
   });
+  input.on("close", cleanupAll);
 }
 
 if (process.argv.includes("--serve")) {
+  process.once("SIGHUP", () => {
+    cleanupAll();
+    process.exit(128 + 1);
+  });
+  process.once("SIGINT", () => {
+    cleanupAll();
+    process.exit(128 + 2);
+  });
+  process.once("SIGTERM", () => {
+    cleanupAll();
+    process.exit(128 + 15);
+  });
+  process.once("exit", cleanupAll);
   serve();
 } else {
   console.error("usage: kolu-helper --serve");

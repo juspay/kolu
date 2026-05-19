@@ -1,21 +1,25 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import {
+  HELPER_PROTOCOL_VERSION,
   type HelperDataEvent,
   HelperEventSchema,
   type HelperExitEvent,
+  type HelperParams,
   type HelperRpcMethod,
+  type HelperResult,
   HelperResponseSchema,
-  HelperSpawnPtyResultSchema,
+  parseHelperResult,
 } from "kolu-common/helper-protocol";
 import { DEFAULT_COLS, DEFAULT_ROWS } from "kolu-common/config";
 import type { HostSummary } from "kolu-common/contract";
-import type { z } from "zod";
+import { match } from "ts-pattern";
 import type { Logger } from "../log.ts";
 import { createPtyScreen, type PtyHandle, type PtyScreen } from "../pty.ts";
 import type { Host } from "./types.ts";
 
 const HELPER_READY_TIMEOUT_MS = 120_000;
+const HELPER_REQUEST_TIMEOUT_MS = 60_000;
 const DEFAULT_HELPER_REMOTE_CMD = `bash -lc 'nix --extra-experimental-features "nix-command flakes" run --refresh github:juspay/kolu#kolu-helper -- --serve'`;
 
 interface PendingRequest {
@@ -23,10 +27,24 @@ interface PendingRequest {
   reject(err: Error): void;
 }
 
+type PendingPtyEvent = HelperDataEvent | HelperExitEvent;
+
+interface PendingPty {
+  events: PendingPtyEvent[];
+  overflowed: boolean;
+}
+
+interface PtyEventHandlers {
+  onData(event: HelperDataEvent): void;
+  onExit(event: HelperExitEvent): void;
+}
+
 interface RemoteHostOpts {
   summary: HostSummary;
   helperRemoteCmd?: string;
 }
+
+const MAX_PENDING_PTY_EVENTS = 512;
 
 export function createRemoteHost(opts: RemoteHostOpts): Host {
   const { summary } = opts;
@@ -38,13 +56,8 @@ export function createRemoteHost(opts: RemoteHostOpts): Host {
   let readyReject: ((err: Error) => void) | null = null;
   let nextRequestId = 1;
   const pending = new Map<number, PendingRequest>();
-  const ptys = new Map<
-    string,
-    {
-      onData(event: HelperDataEvent): void;
-      onExit(event: HelperExitEvent): void;
-    }
-  >();
+  const pendingPtys = new Map<string, PendingPty>();
+  const ptys = new Map<string, PtyEventHandlers>();
 
   function rejectAll(err: Error): void {
     for (const req of pending.values()) req.reject(err);
@@ -55,13 +68,27 @@ export function createRemoteHost(opts: RemoteHostOpts): Host {
     helperReady = false;
   }
 
+  function queuePendingPtyEvent(event: PendingPtyEvent, tlog: Logger): void {
+    const ptyId = event.params.ptyId;
+    const pendingPty = pendingPtys.get(ptyId);
+    if (!pendingPty) {
+      tlog.warn({ host: summary.id, ptyId }, "helper event for unknown pty");
+      return;
+    }
+    if (pendingPty.events.length >= MAX_PENDING_PTY_EVENTS) {
+      pendingPty.overflowed = true;
+      return;
+    }
+    pendingPty.events.push(event);
+  }
+
   function dispatchFrame(line: string, tlog: Logger): void {
     if (line.trim() === "") return;
     let parsed: unknown;
     try {
       parsed = JSON.parse(line);
     } catch (err) {
-      tlog.warn({ err, host: summary.id, line }, "helper sent invalid JSON");
+      tlog.error({ err, host: summary.id, line }, "helper sent invalid JSON");
       return;
     }
 
@@ -71,7 +98,13 @@ export function createRemoteHost(opts: RemoteHostOpts): Host {
       (response.data.result !== undefined || response.data.error)
     ) {
       const req = pending.get(response.data.id);
-      if (!req) return;
+      if (!req) {
+        tlog.error(
+          { host: summary.id, id: response.data.id },
+          "helper response for unknown request",
+        );
+        return;
+      }
       pending.delete(response.data.id);
       if (response.data.error) {
         req.reject(
@@ -87,28 +120,53 @@ export function createRemoteHost(opts: RemoteHostOpts): Host {
 
     const event = HelperEventSchema.safeParse(parsed);
     if (!event.success) {
-      tlog.warn({ host: summary.id, line }, "helper sent unknown frame");
+      tlog.error({ host: summary.id, line }, "helper sent unknown frame");
       return;
     }
 
-    if (event.data.method === "ready") {
-      tlog.info(
-        { host: summary.id, version: event.data.params.version },
-        "remote helper ready",
-      );
-      helperReady = true;
-      readyResolve?.();
-      readyResolve = null;
-      readyReject = null;
-      return;
-    }
-
-    if (event.data.method === "data") {
-      ptys.get(event.data.params.ptyId)?.onData(event.data);
-      return;
-    }
-
-    ptys.get(event.data.params.ptyId)?.onExit(event.data);
+    match(event.data)
+      .with({ method: "ready" }, (ready) => {
+        if (ready.params.protocolVersion !== HELPER_PROTOCOL_VERSION) {
+          const err = new Error(
+            `remote helper protocol ${ready.params.protocolVersion} does not match server protocol ${HELPER_PROTOCOL_VERSION}`,
+          );
+          tlog.error(
+            {
+              host: summary.id,
+              helperVersion: ready.params.version,
+              protocolVersion: ready.params.protocolVersion,
+              expectedProtocolVersion: HELPER_PROTOCOL_VERSION,
+            },
+            "remote helper protocol mismatch",
+          );
+          readyReject?.(err);
+          child?.kill();
+          return;
+        }
+        tlog.info(
+          {
+            host: summary.id,
+            version: ready.params.version,
+            protocolVersion: ready.params.protocolVersion,
+          },
+          "remote helper ready",
+        );
+        helperReady = true;
+        readyResolve?.();
+        readyResolve = null;
+        readyReject = null;
+      })
+      .with({ method: "data" }, (data) => {
+        const reg = ptys.get(data.params.ptyId);
+        if (reg) reg.onData(data);
+        else queuePendingPtyEvent(data, tlog);
+      })
+      .with({ method: "exit" }, (exit) => {
+        const reg = ptys.get(exit.params.ptyId);
+        if (reg) reg.onExit(exit);
+        else queuePendingPtyEvent(exit, tlog);
+      })
+      .exhaustive();
   }
 
   function ensureConnected(tlog: Logger): Promise<void> {
@@ -138,17 +196,20 @@ export function createRemoteHost(opts: RemoteHostOpts): Host {
       };
 
       createInterface({ input: ssh.stdout }).on("line", (line) =>
-        dispatchFrame(line, tlog),
+        child === ssh ? dispatchFrame(line, tlog) : undefined,
       );
       ssh.stderr.on("data", (data: Buffer) => {
+        if (child !== ssh) return;
         tlog.debug({ host: summary.id, stderr: data.toString() }, "ssh stderr");
       });
       ssh.on("error", (err) => {
+        if (child !== ssh) return;
         child = null;
         connectPromise = null;
         rejectAll(err);
       });
       ssh.on("exit", (code, signal) => {
+        if (child !== ssh) return;
         clearTimeout(readyTimer);
         child = null;
         connectPromise = null;
@@ -164,6 +225,7 @@ export function createRemoteHost(opts: RemoteHostOpts): Host {
             params: { ptyId, exitCode: typeof code === "number" ? code : 255 },
           });
         }
+        pendingPtys.clear();
       });
     }).finally(() => {
       if (helperReady || !child) connectPromise = null;
@@ -172,30 +234,41 @@ export function createRemoteHost(opts: RemoteHostOpts): Host {
     return connectPromise;
   }
 
-  async function sendRequest<T>(
-    method: HelperRpcMethod,
-    params: unknown,
+  async function sendRequest<M extends HelperRpcMethod>(
+    method: M,
+    params: HelperParams<M>,
     tlog: Logger,
-    schema?: z.ZodType<T>,
-  ): Promise<T> {
+  ): Promise<HelperResult<M>> {
     await ensureConnected(tlog);
     if (!child) throw new Error(`remote host ${summary.id}: not connected`);
     const id = nextRequestId++;
-    const promise = new Promise<T>((resolve, reject) => {
+    const promise = new Promise<HelperResult<M>>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        pending.delete(id);
+        reject(new Error(`helper ${method} request timed out`));
+      }, HELPER_REQUEST_TIMEOUT_MS);
       pending.set(id, {
         resolve: (result) => {
-          if (!schema) {
-            resolve(result as T);
-            return;
+          clearTimeout(timeout);
+          try {
+            resolve(parseHelperResult(method, result));
+          } catch {
+            reject(new Error(`invalid helper response for ${method}`));
           }
-          const parsed = schema.safeParse(result);
-          if (parsed.success) resolve(parsed.data);
-          else reject(new Error(`invalid helper response for ${method}`));
         },
-        reject,
+        reject: (err) => {
+          clearTimeout(timeout);
+          reject(err);
+        },
       });
     });
-    child.stdin.write(`${JSON.stringify({ id, method, params })}\n`);
+    try {
+      child.stdin.write(`${JSON.stringify({ id, method, params })}\n`);
+    } catch (err) {
+      const req = pending.get(id);
+      pending.delete(id);
+      req?.reject(err instanceof Error ? err : new Error(String(err)));
+    }
     return promise;
   }
 
@@ -208,19 +281,33 @@ export function createRemoteHost(opts: RemoteHostOpts): Host {
   return {
     summary,
     async spawnPty(tlog, terminalId, opts, cwd): Promise<PtyHandle> {
-      const result = await sendRequest(
-        "spawnPty",
-        {
-          terminalId,
-          cwd,
-          cols: DEFAULT_COLS,
-          rows: DEFAULT_ROWS,
-        },
-        tlog,
-        HelperSpawnPtyResultSchema,
-      );
+      pendingPtys.set(terminalId, { events: [], overflowed: false });
+      let result: HelperResult<"spawnPty">;
+      try {
+        result = await sendRequest(
+          "spawnPty",
+          {
+            terminalId,
+            cwd,
+            cols: DEFAULT_COLS,
+            rows: DEFAULT_ROWS,
+          },
+          tlog,
+        );
+      } catch (err) {
+        pendingPtys.delete(terminalId);
+        throw err;
+      }
 
       const ptyId = result.ptyId;
+      const pendingPty = pendingPtys.get(ptyId);
+      pendingPtys.delete(terminalId);
+      if (ptyId !== terminalId) {
+        pendingPtys.delete(ptyId);
+        throw new Error(
+          `remote helper returned unexpected PTY id ${ptyId} for ${terminalId}`,
+        );
+      }
       let currentCwd = result.cwd;
       let currentProcess = result.process ?? "";
       let currentForegroundPid = result.foregroundPid;
@@ -245,7 +332,7 @@ export function createRemoteHost(opts: RemoteHostOpts): Host {
         writeRemote,
       );
 
-      ptys.set(ptyId, {
+      const reg: PtyEventHandlers = {
         onData: (event) => {
           currentProcess = event.params.process ?? currentProcess;
           currentForegroundPid =
@@ -260,7 +347,19 @@ export function createRemoteHost(opts: RemoteHostOpts): Host {
           opts.onExit(event.params.exitCode);
           maybeShutdown();
         },
-      });
+      };
+      ptys.set(ptyId, reg);
+      if (pendingPty?.overflowed) {
+        tlog.error(
+          { host: summary.id, ptyId },
+          "remote pty dropped output before spawn response",
+        );
+      }
+      for (const event of pendingPty?.events ?? []) {
+        if (event.method === "data") reg.onData(event);
+        else reg.onExit(event);
+        if (disposed) break;
+      }
 
       return {
         pid: result.pid,
@@ -303,6 +402,7 @@ export function createRemoteHost(opts: RemoteHostOpts): Host {
       child?.kill();
       child = null;
       helperReady = false;
+      pendingPtys.clear();
       ptys.clear();
       rejectAll(new Error(`remote host ${summary.id} shut down`));
     },

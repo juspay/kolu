@@ -16,6 +16,7 @@
     "kolu-common": "workspace:*",
     "kolu-shared": "workspace:*",
     "node-pty": "github:juspay/node-pty#fix/darwin-pty-fd-leak",
+    "ts-pattern": "^5.9.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {
