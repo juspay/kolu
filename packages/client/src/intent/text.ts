@@ -25,3 +25,18 @@ export function intentBodyMarkdown(intent: string | undefined): string {
   if (parts.length < 2) return "";
   return parts.slice(1).join("\n").replace(/^\n+/, "").trimEnd();
 }
+
+/** Companion to `annotationLine`: the slot's text color follows the
+ *  same intent-vs-branch split. When intent is set the slot inherits
+ *  its parent's foreground (intent is plain "annotation"); when the
+ *  branch is the fallback the slot uses `branchColor` (the hashed
+ *  per-branch hue). Returns `undefined` for the intent case so callers
+ *  can drop the `color` property entirely. Keeping this paired with
+ *  `annotationLine` in one module means a future change to the
+ *  supplant rule's visual cue lands in one place. */
+export function annotationColor(
+  intent: string | undefined,
+  branchColor: string,
+): string | undefined {
+  return intent ? undefined : branchColor;
+}

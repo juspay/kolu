@@ -14,7 +14,7 @@
 
 import { prLabel, prUnavailableSource, prValue } from "kolu-github/schemas";
 import { type Component, Show } from "solid-js";
-import { firstIntentLine } from "../intent/text";
+import { annotationColor, firstIntentLine } from "../intent/text";
 import { PrStateIcon, WorktreeIcon } from "../ui/Icons";
 import Tip from "../ui/Tip";
 import ChecksIndicator from "./ChecksIndicator";
@@ -111,9 +111,10 @@ const TerminalMeta: Component<{
                     }
                     class="appearance-none bg-transparent border-0 p-0 text-left [font:inherit] truncate shrink-0 max-w-[16ch] cursor-pointer hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 rounded-sm"
                     style={{
-                      color: info().meta.intent
-                        ? undefined
-                        : info().branchColor,
+                      color: annotationColor(
+                        info().meta.intent,
+                        info().branchColor,
+                      ),
                     }}
                     onPointerDown={(e) => e.stopPropagation()}
                     onClick={(e) => {
@@ -190,7 +191,10 @@ export const TerminalMetaCompact: Component<{
                 data-testid="terminal-meta-branch"
                 class="text-xs truncate min-w-0"
                 style={{
-                  color: info().meta.intent ? undefined : info().branchColor,
+                  color: annotationColor(
+                    info().meta.intent,
+                    info().branchColor,
+                  ),
                 }}
               >
                 {info().meta.intent

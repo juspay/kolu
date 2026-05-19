@@ -44,7 +44,7 @@ import IntentBody from "../../intent/IntentBody";
 import AgentIndicator from "../../terminal/AgentIndicator";
 import { formatTimeAgo, useStaleCheck } from "../../terminal/staleness";
 import IntentGlyph from "../../intent/IntentGlyph";
-import { annotationLine } from "../../intent/text";
+import { annotationColor, annotationLine } from "../../intent/text";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { ChevronDownIcon, PlusIcon, SearchIcon } from "../../ui/Icons";
@@ -523,7 +523,7 @@ const AwaitingCardBody: Component<{
             data-testid="dock-annotation"
             class="text-[0.95rem] font-semibold leading-tight truncate min-w-0"
             style={{
-              color: props.meta.intent ? "inherit" : props.info.branchColor,
+              color: annotationColor(props.meta.intent, props.info.branchColor),
             }}
           >
             {annotationLine(props.meta.intent, props.info.key.label)}
@@ -591,7 +591,7 @@ const WorkingPillBody: Component<{
           data-testid="dock-annotation"
           class="text-[0.85rem] font-semibold leading-tight truncate min-w-0"
           style={{
-            color: props.meta.intent ? "inherit" : props.info.branchColor,
+            color: annotationColor(props.meta.intent, props.info.branchColor),
           }}
         >
           {annotationLine(props.meta.intent, props.info.key.label)}
@@ -641,7 +641,7 @@ const QuietRowBody: Component<{
           data-testid="dock-annotation"
           class="text-[0.75rem] truncate min-w-0"
           style={{
-            color: props.meta.intent ? "inherit" : props.info.branchColor,
+            color: annotationColor(props.meta.intent, props.info.branchColor),
           }}
         >
           {annotationLine(props.meta.intent, props.info.key.label)}

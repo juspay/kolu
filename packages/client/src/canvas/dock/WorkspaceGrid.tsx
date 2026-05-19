@@ -26,7 +26,7 @@ import {
 } from "solid-js";
 import IntentBody from "../../intent/IntentBody";
 import { formatTimeAgo, useIdleClassifier } from "../../terminal/staleness";
-import { annotationLine } from "../../intent/text";
+import { annotationColor, annotationLine } from "../../intent/text";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import {
   bucketDescriptor,
@@ -537,9 +537,10 @@ const WorkspaceCard: Component<{
           data-testid="workspace-switcher-card-annotation"
           class="text-[0.95rem] font-semibold truncate leading-tight"
           style={{
-            color: props.entry.info.meta.intent
-              ? "inherit"
-              : props.entry.info.branchColor,
+            color: annotationColor(
+              props.entry.info.meta.intent,
+              props.entry.info.branchColor,
+            ),
           }}
         >
           {annotationLine(props.entry.info.meta.intent, props.entry.label)}
