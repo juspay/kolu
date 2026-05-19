@@ -291,7 +291,10 @@ const TerminalIconChip: Component<{
   function handleSelect(icon: string) {
     void client.terminal
       .setIcon({ id: props.id, icon })
-      .catch((err: Error) => toast.error(`Failed to set icon: ${err.message}`));
+      .catch((err: unknown) => {
+        const message = err instanceof Error ? err.message : String(err);
+        toast.error(`Failed to set icon: ${message}`);
+      });
   }
 
   return (
