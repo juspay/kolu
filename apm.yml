@@ -26,6 +26,4 @@ dependencies:
     - juspay/skills/skills/nix-typescript
     - anthropics/skills/skills/frontend-design
     - juspay/nix-chrome-devtools-mcp
-    # Pinned to the PR branch until #18 lands on main; the MCP export
-    # was added there in 87f48d9f + 6d42a62c. Once merged, drop the ref.
-    - juspay/ci#feat-platform-fanout-and-ssh
+    - juspay/ci

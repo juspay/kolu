@@ -16,67 +16,19 @@ Invoke the `/test` skill. It selects relevant `.feature` files from the git diff
 
 ## CI command
 
-Kolu's pipeline is driven by [juspay/ci](https://github.com/juspay/ci) — the runner translates `ci/mod.just`'s `[metadata("ci")]` DAG into a process-compose pipeline, fans every recipe across `[linux]`/`[macos]`, and posts a GitHub commit status per `ci::<recipe>@<platform>` node. Consult the upstream `/ci` skill for the subcommand surface (`ci run`, `--root`, positional `RECIPE[@PLATFORM]`, `--no-deps`, `--host`, `dump-yaml`, `graph`, `protect`). Kolu-specific operational details below.
+Use the `/ci` skill for the runner mechanics (subcommands, flags, modes, retry shape). Two Kolu-specific operational notes layered on top of it:
 
-### Pre-flight
-
-Strict mode is the only mode that posts commit statuses, so a `/do` run always uses `CI=true`. The runner refuses to start unless:
-
-- The working tree is clean.
-- `HEAD` is pushed to the remote (the GitHub status API needs the SHA reachable).
-- A reachable host exists for every non-local Nix system family the root recipe declares. Static darwin is `sincereintent` in `~/.config/ci/hosts.json`; the linux lane uses an ephemeral Incus container (next section).
-
-### Linux lane — ephemeral container per CI run
-
-Spin up a fresh build host before each full CI run and tear it down after; reusing the same host across runs lets prior runs' nix-store cruft and disk pressure leak into the verdict. `pu create` writes an entry into `~/.pu-state/<name>/ssh_config` that `~/.ssh/config` already includes, so the name resolves as a direct `ssh` target — feed it into `--host`:
+**Ephemeral linux build host per run.** Static darwin (`sincereintent`) lives in `~/.config/ci/hosts.json`; the linux lane uses a throwaway Incus container per CI invocation so prior runs' nix-store cruft can't poison the verdict.
 
 ```sh
 pr=$(gh pr view --json number --jq .number)
 host="kolu-pr-$pr"
-pu create --name "$host"                                                # creates instance, prints `Connect: pu connect $host`
-CI=true nix run github:juspay/ci -- run --host x86_64-linux="$host"     # full pipeline
-pu destroy "$host"                                                      # tear down
+pu create --name "$host"                                                # writes ~/.pu-state/$host/ssh_config (included by ~/.ssh/config)
+CI=true nix run github:juspay/ci -- run --host x86_64-linux="$host"     # --host wins over hosts.json on collision; darwin keeps using sincereintent
+pu destroy "$host"
 ```
 
-`--host PLATFORM=ADDR` is repeatable. CLI entries win over `hosts.json` on collision; unnamed platforms still consult the file (so `aarch64-darwin` keeps using `sincereintent` without an explicit override).
-
-### Verification
-
-The runner's exit code reflects every node's outcome, but cross-check the posted statuses on the PR's SHA against the canonical context list — silent skips (missing context entirely) read the same as a green build through `gh api` if you only filter on `state == "success"`.
-
-```bash
-sha=$(git rev-parse HEAD)
-expected=$(nix run github:juspay/ci -- dump-yaml | grep -oE '^  ci::[a-z][^:@]*@[^:]+' | sort -u)
-posted=$(gh api --paginate "repos/juspay/kolu/statuses/$sha" \
-  --jq '[.[] | select(.context | startswith("ci::")) | {ctx: .context, state: .state, t: .updated_at}]' \
-  | jq -s 'add | group_by(.ctx) | map(max_by(.t)) | .[] | "\(.state) \(.ctx)"' -r)
-
-# Missing: expected but never posted
-echo "$expected" | while read ctx; do echo "$posted" | grep -q " $ctx$" || echo "MISSING: $ctx"; done
-
-# Non-success
-echo "$posted" | grep -v '^success ' || true
-```
-
-Both must pass. A `MISSING:` line means the node never ran — investigate `.ci/pc.log`.
-
-### Retrying a failed node
-
-The new tool's positional selectors restrict the DAG to the named recipes plus their transitive deps, and the partial re-run **overwrites the same `ci::<recipe>@<platform>` status the full run wrote** — exactly what flips one red check green without rerunning the other 23:
-
-```sh
-CI=true nix run github:juspay/ci -- run --host x86_64-linux="$host" ci::e2e@x86_64-linux
-```
-
-The DAG root `ci::default` is an empty-body recipe; if it's stuck `pending`/`failure` after partial reruns of its deps, post a fresh success via `--no-deps ci::default` (no real work, just refreshes the root status).
-
-### Flaky tests
-
-If a test fails once but passes on retry, post a comment on [issue #320](https://github.com/juspay/kolu/issues/320) capturing the failing scenario, platform, error excerpt, and the PR where it was observed. **At least one platform must have `ci::e2e@<platform>` fully passed before `/do` considers itself done**, even if the green came from a positional retry.
-
-### Logs
-
-All artifacts live under `.ci/` (gitignored): `.ci/pc.log` is process-compose's combined event log; `.ci/<short-sha>/<platform>/<recipe>.log` is the per-node stdout/stderr (the GitHub status `description` embeds the path so a red check in the GH UI links straight to it). Don't read the runner's stdout for diagnosis — the per-node log files are the authoritative source.
+**Flake → comment on [#320](https://github.com/juspay/kolu/issues/320)** with scenario/platform/error excerpt/PR. At least one platform must have `ci::e2e@<platform>` fully passed before `/do` considers itself done, even if the green came from a positional retry.
 
 ## Documentation
 

@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-05-19T17:10:09.660903+00:00'
+generated_at: '2026-05-19T17:47:22.757814+00:00'
 apm_version: 0.14.0
 dependencies:
 - repo_url: anthropics/skills
@@ -14,8 +14,7 @@ dependencies:
   content_hash: sha256:063a0e6448123cd359ad0044cc46b0e490cc7964d45ef4bb9fd842bd2ffbca67
 - repo_url: juspay/ci
   host: github.com
-  resolved_commit: bd510a6ab42fbc226d6565309f241f29cd57bbd9
-  resolved_ref: feat-platform-fanout-and-ssh
+  resolved_commit: bb640313cf2298413e9c7f608df0e60f66642f6f
   package_type: apm_package
   deployed_files:
   - .agents/skills/ci
@@ -23,7 +22,7 @@ dependencies:
   - .claude/skills/ci
   deployed_file_hashes:
     .claude/rules/workflow.md: sha256:babf61cdd29cfc8f03b3d20f17b4bf13ef5f173dc05640bc83c505dca4b42010
-  content_hash: sha256:b4c5861008d258ba76b4d55e75dbb085a4748e77dd647d9a42a7b39023b6433d
+  content_hash: sha256:c55550d044bcb55280495b278260b7151755a9f4b4d909562165c43f0f2c801f
 - repo_url: juspay/nix-chrome-devtools-mcp
   host: github.com
   resolved_commit: 9c28516075f1a22e2cfd8986976ccb4b59bc60ed
