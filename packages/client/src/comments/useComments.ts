@@ -87,6 +87,23 @@ function storeFor(terminalId: string) {
   return wrapped;
 }
 
+/** Drop the in-memory store wrapper for a terminal whose lifecycle has
+ *  ended. The `makePersisted` storage entry stays — comments survive
+ *  terminal recreation as long as the terminalId is reused (e.g. session
+ *  restore). Call this from the terminal-deletion path to bound the
+ *  in-memory Map; without it, every `useComments(tid)` call leaves a
+ *  Map entry that lives for the page session.
+ *
+ *  NOTE: not yet wired to terminal deletion — the comments feature
+ *  doesn't own the terminal lifecycle. Filed as a follow-up because
+ *  the Map entries are tiny (a few function closures each) and the
+ *  realistic upper bound is the number of terminals opened in one
+ *  session, which is small. The API exists so wiring it later is a
+ *  one-line change in the terminal-management code. */
+export function releaseTerminal(terminalId: string): void {
+  storesByKey.delete(terminalId);
+}
+
 /** API the rest of the client uses. Pass the active terminalId at the
  *  consumer site — there's no global ambient context (matches how
  *  `CodeTab.tsx` already threads `props.terminalId`). */
