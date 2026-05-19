@@ -6,7 +6,7 @@
  */
 
 import type { TerminalId } from "kolu-common/surface";
-import { type Accessor, createEffect, createSignal, onCleanup } from "solid-js";
+import { type Accessor, createEffect, createSignal } from "solid-js";
 import { isMobile } from "../useMobile";
 import { AMBIENT_TIPS, type Tip, type TipId } from "./tips";
 import { preferences, updatePreferences } from "../wire";
@@ -106,8 +106,10 @@ function initTipTriggers(deps: { terminalIds: Accessor<TerminalId[]> }) {
   createEffect(() => {
     if (!startupFired && deps.terminalIds().length > 0) {
       startupFired = true;
-      const id = window.setTimeout(showStartupTip, 1000);
-      onCleanup(() => window.clearTimeout(id));
+      // Fire-and-forget: the createEffect re-runs when terminalIds changes,
+      // and onCleanup would cancel the pending timeout before it fires.
+      // startupFired already guards against re-entry, so no cleanup needed.
+      window.setTimeout(showStartupTip, 1000);
     }
   });
 }
