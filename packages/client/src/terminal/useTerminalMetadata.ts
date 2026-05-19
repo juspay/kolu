@@ -43,6 +43,11 @@ export function useTerminalMetadata(deps: {
     onError: (err) => toast.error(`Metadata error: ${err.message}`),
   });
 
+  // Lifecycle scope: data-scoped — fires on server key-set departure
+  // (an id leaves `meta.keys`), NOT on component unmount. The component
+  // path uses `Terminal.tsx`'s onCleanup for xterm/WebGL teardown; the
+  // two scopes are intentionally separate and not synchronous.
+  //
   // Free per-terminal comment-store entries when a terminal leaves the
   // live key set. createComputed is load-bearing: it drives the mapArray
   // accessor eagerly so per-key reactive owners attach with their
