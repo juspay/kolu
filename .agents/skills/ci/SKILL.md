@@ -1,105 +1,96 @@
 ---
 name: ci
-description: Run local CI (`CI=true nix run github:juspay/ci -- run`) and verify all `(recipe, platform)` nodes reported success. Use when building, testing across systems, checking commit statuses, retrying failed CI steps, or diagnosing CI failures. Triggers on "run CI", "check CI", "CI failed", "retry CI", "build and test".
+description: Reference for the `ci` runner — how to invoke a full pipeline, a single recipe, or a platform-pinned node from a project that depends on `juspay/ci`. Trigger when the user asks to "run ci", "run the pipeline", "re-run a check", or names a specific recipe by `<recipe>@<platform>`.
 ---
 
-# CI
+# ci
 
-Kolu's pipeline is defined in `ci/mod.just` and driven by [juspay/ci](https://github.com/juspay/ci). The binary translates the `just` recipe graph into a process-compose DAG, fans every reachable recipe out across the platforms in `~/.config/ci/hosts.json`, and posts a GitHub commit status per `(recipe, platform)` node.
+`ci` translates a project's `just` recipe DAG into a `process-compose` pipeline and runs it. Multi-platform lanes fan out via SSH; commit statuses get posted (in strict mode) under `<recipe>@<platform>` contexts. Full background in the [repo README](https://github.com/juspay/ci/blob/main/README.md); the subcommand surface below is what you'll reach for most often.
 
-## Running
+## Modes
 
-Strict mode pre-flight: clean working tree, HEAD pushed to the remote, and a runnable host per non-local Nix system. The darwin lane runs against the static `sincereintent` entry already in `~/.config/ci/hosts.json`. The linux lane runs against an **ephemeral Incus container created per CI run** via `pu`, redirected through juspay/ci's `--host` override:
+| Variable | Effect |
+| --- | --- |
+| `CI` unset (default) | **Local mode.** Runs against the live working tree. No GitHub status posts, no clean-tree refuse. Use for iterating. |
+| `CI=true` | **Strict mode.** Refuses a dirty tree, snapshots `HEAD` via `git worktree`, posts commit statuses, splits per-recipe logs into `.ci/<sha>/<plat>/<recipe>.log`. Use for "real" CI runs. |
 
-```sh
-pr=$(gh pr view --json number --jq .number)
-host="kolu-pr-$pr"
-pu create --name "$host"                                                 # writes ~/.pu-state/$host/ssh_config; ssh $host now works
-CI=true nix run github:juspay/ci -- run --host x86_64-linux="$host"      # run with the override
-pu destroy "$host"                                                       # tear down at the end
-```
+Both modes share the same verdict-summary at the end (`── ci run summary ──`) and exit non-zero if any node failed.
 
-Why ephemeral: each CI run gets a clean linux build VM, so prior runs' state (nix store cruft, disk pressure, dirty workspace caches) can't poison a re-run. The darwin lane stays on the static `sincereintent` because reprovisioning a macOS host per run isn't free.
-
-The runner accepts `--host PLATFORM=ADDR` repeatedly; CLI entries win over `hosts.json` on collision, and platforms not named on the CLI still consult the file.
-
-The binary blocks until the pipeline finishes. Process-compose's per-node state transitions stream to its own log at `.ci/pc.log`; the binary's stdout carries the verdict summary printed at the end (one line per node with its final state).
-
-### Backgrounding
-
-For long runs, spawn the binary via `Bash(run_in_background)` and poll GitHub statuses while it executes. The binary's exit code is authoritative — zero only if every node finished `Success`.
-
-## Verification
-
-Final exit code zero is necessary but not sufficient: cross-check every expected context posted a `success` status.
-
-1. Get the expected contexts. The runner names each node `ci::<recipe>@<platform>`:
-
-   ```sh
-   nix run github:juspay/ci -- dump-yaml | grep -oE '^  ci::[^:]+:' | tr -d ':' | sort -u
-   ```
-
-   (Each `ci::<recipe>@<platform>` line in the dump-yaml output is one expected commit-status context.)
-
-2. Query posted statuses and cross-check:
-
-   ```bash
-   sha=$(git rev-parse HEAD)
-   posted=$(gh api "repos/juspay/kolu/statuses/$sha" \
-     --jq '[.[] | select(.context | startswith("ci::"))]
-           | group_by(.context) | map(max_by(.updated_at))
-           | .[] | "\(.context) \(.state)"')
-
-   # Expected: ci::<recipe>@<platform> for each (recipe, platform) in the dump.
-   expected=$(nix run github:juspay/ci -- dump-yaml | grep -oE '^  ci::[^:]+' | sort -u)
-
-   # Missing: expected but not posted
-   echo "$expected" | while read ctx; do
-     echo "$posted" | grep -q "^$ctx " || echo "MISSING: $ctx"
-   done
-
-   # Non-success
-   echo "$posted" | grep -v ' success$' || true
-   ```
-
-Both checks must pass: no `MISSING` lines and no non-success states. Silence (missing context) means the node never transitioned — investigate `.ci/pc.log`.
-
-## On failure
-
-Each failed node's `description` field contains the path to its log. The path layout is:
-
-```
-.ci/<short-sha>/<platform>/<recipe>.log
-```
-
-Read that file to diagnose. Do **not** read the binary's stdout/stderr directly — the combined stream interleaves every parallel node.
-
-## Retrying individual steps
-
-The runner accepts positional `RECIPE[@PLATFORM]` selectors that restrict the DAG to a subset while keeping commit-status posting intact (juspay/ci#20). Each partial re-run **overwrites the same `ci::<recipe>@<platform>` status** the full run wrote — exactly what flips a single red check green:
+## Common invocations
 
 ```sh
-CI=true nix run github:juspay/ci -- run e2e@x86_64-linux   # one node, posts a status
-CI=true nix run github:juspay/ci -- run e2e                # both platforms
+# Full pipeline (canonical [metadata("ci")] root, every platform in the fanout)
+ci run                # local mode
+CI=true ci run        # strict mode
+
+# Re-run a single failed recipe on a specific lane — overwrites the same
+# GitHub commit-status context the full run wrote (closes the red check).
+ci run e2e@x86_64-linux
+
+# Re-run a single recipe across every pipeline platform.
+ci run e2e
+
+# Multiple positional selectors compose — `e2e` AND `lint` both run.
+ci run e2e lint
+
+# Skip the dependency closure; run ONLY the named nodes. Setup nodes
+# auto-ride for remote-platform recipes regardless.
+ci run --no-deps e2e@aarch64-darwin
+
+# Use a different DAG root instead of the [metadata("ci")] recipe.
+ci run --root release-pipeline
+
+# One-shot redirect of a platform to a throwaway host (LXC container,
+# alternate SSH alias). Repeatable per platform.
+ci run --host x86_64-linux=root@lxc-foo
+
+# Drive process-compose's interactive TUI instead of headless logs.
+ci run --tui
+
+# Forward arbitrary args to `process-compose up` after --.
+ci run -- -t=false
 ```
 
-For local-only iteration without touching commit statuses, `just ci::<recipe>` still runs the recipe in the live worktree.
+## Inspection subcommands (no side effects)
 
-## Flaky tests
+```sh
+# Print the assembled process-compose YAML — no host prompts, no git
+# rev-parse, works offline.
+ci dump-yaml
 
-If a test fails once but passes on retry, post a comment on [issue #320](https://github.com/juspay/kolu/issues/320) capturing the failing scenario, platform, error excerpt, and the PR where it was observed. This keeps the flaky-test log current without manual curation.
+# Print the dependency graph in Mermaid flowchart syntax.
+ci graph
 
-**IMPORTANT**: At least one platform must have `e2e` fully passed before the /do workflow is considered done.
+# PATCH GitHub branch-protection's required_status_checks to the
+# (recipe, platform) contexts the canonical DAG produces. --dry-run
+# prints what would be PATCHed without touching the API.
+ci protect --dry-run
+ci protect                  # writes to default branch
+ci protect --branch develop
+```
 
-## Reference
+## Decision flow
 
-The pipeline root is `ci::default`, tagged `[linux] [macos] [parallel] [metadata("ci")]`. Its `depends_on` list is the full recipe graph; the runner replicates each one per platform.
+1. **Full canonical run?** → `ci run` (or `CI=true ci run` for strict mode).
+2. **Flaky check on a PR, only one lane is red?** → `ci run <recipe>@<platform>` — same status context, overwrites the failure.
+3. **Iterating on one recipe locally?** → `ci run <recipe>` (no platform pin = fans out to every pipeline platform; `<recipe>@<localPlat>` if you only want the local lane).
+4. **Investigating "what would this run?"** → `ci dump-yaml` or `ci graph`.
+5. **Setting up a new repo?** → run `ci protect --dry-run` after at least one full run, verify the contexts look right, then `ci protect` to lock them in.
 
-Runtime artifacts live under `.ci/` (gitignored):
+## Hosts config
 
-- `.ci/pc.log` — process-compose's combined event log.
-- `.ci/pc.sock` — Unix domain socket the observer subscribes to.
-- `.ci/worktree/` — git worktree pinned to HEAD (strict mode only).
-- `.ci/<short-sha>/<platform>/<recipe>.log` — one log per node.
+`ci` reads `~/.config/ci/hosts.json`:
 
-Hosts are configured in `~/.config/ci/hosts.json`, keyed by full Nix system tuple. Values are anything `ssh` can dial — bare hostname, `user@host`, or an `~/.ssh/config` alias. An entry for the *local* system takes precedence over inline execution.
+```json
+{
+  "x86_64-linux":   "srid1",
+  "aarch64-darwin": "sincereintent"
+}
+```
+
+Keys are full Nix system tuples (`x86_64-linux`, `aarch64-linux`, `aarch64-darwin`). Values are anything `ssh` knows how to dial — bare hostname, `user@host`, alias from `~/.ssh/config`. Missing platforms silently drop from the fanout (the user opts in by adding the entry). Override per-run with `--host PLATFORM=ADDR`.
+
+## When NOT to use this skill
+
+- The user is asking *about* ci's internals (how the YAML is shaped, what `_ci-setup` does, why `[metadata("ci")]` matters) — that's a docs question, point them at the [repo README](https://github.com/juspay/ci/blob/main/README.md).
+- The user wants the runner to do something it doesn't support (parallel cross-platform within one recipe, mid-run config reload, MCP introspection) — those are not supported today; check the README's Roadmap section.

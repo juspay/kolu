@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-05-19T16:44:07.162378+00:00'
+generated_at: '2026-05-19T17:10:09.660903+00:00'
 apm_version: 0.14.0
 dependencies:
 - repo_url: anthropics/skills
@@ -14,7 +14,7 @@ dependencies:
   content_hash: sha256:063a0e6448123cd359ad0044cc46b0e490cc7964d45ef4bb9fd842bd2ffbca67
 - repo_url: juspay/ci
   host: github.com
-  resolved_commit: 07a346cdee3163ef3420859e358f080571b9b28b
+  resolved_commit: bd510a6ab42fbc226d6565309f241f29cd57bbd9
   resolved_ref: feat-platform-fanout-and-ssh
   package_type: apm_package
   deployed_files:
@@ -23,7 +23,7 @@ dependencies:
   - .claude/skills/ci
   deployed_file_hashes:
     .claude/rules/workflow.md: sha256:babf61cdd29cfc8f03b3d20f17b4bf13ef5f173dc05640bc83c505dca4b42010
-  content_hash: sha256:8f7ac08cb7d69fe9efed6e949862b9547a957574b1d6620cddc31a24284afc59
+  content_hash: sha256:b4c5861008d258ba76b4d55e75dbb085a4748e77dd647d9a42a7b39023b6433d
 - repo_url: juspay/nix-chrome-devtools-mcp
   host: github.com
   resolved_commit: 9c28516075f1a22e2cfd8986976ccb4b59bc60ed
@@ -98,20 +98,13 @@ dependencies:
   content_hash: sha256:b4c49cbb5308a43ac20ae76f7dfa77f56a102b13625c6cc6313f801c104359ca
 mcp_servers:
 - chrome-devtools
-- ci
 mcp_configs:
   chrome-devtools:
     name: chrome-devtools
     transport: stdio
     registry: false
     command: .agents/skills/nix-chrome-devtools-mcp/bin/serve
-  ci:
-    name: ci
-    transport: stdio
-    registry: false
-    command: .agents/skills/ci/bin/serve
 local_deployed_files:
-- .agents/skills/ci
 - .agents/skills/hk
 - .agents/skills/parcel
 - .agents/skills/perf-diagnose
@@ -128,7 +121,6 @@ local_deployed_files:
 - .claude/rules/state.md
 - .claude/rules/streaming.md
 - .claude/rules/toast-conventions.md
-- .claude/skills/ci
 - .claude/skills/hk
 - .claude/skills/parcel
 - .claude/skills/perf-diagnose
