@@ -119,25 +119,18 @@ Then(
 );
 
 Then(
-  "the active terminal annotation slot should show the branch name",
+  "the active terminal annotation slot should be empty",
   async function (this: KoluWorld) {
-    // Branch fallback: no intent set, slot text equals the terminal's
-    // git branch. The default test terminal is in a git repo (the
-    // World fixture sets one up), so the slot has the branch name and
-    // it must not start with an emoji from the intent quick-row.
+    // Placeholder state: no intent, no git → slot shows a nbsp
+    // placeholder so the row height is preserved. textContent trims
+    // to an empty string.
     await this.page.waitForFunction(
       () => {
         const slot = document.querySelector(
           '[data-testid="canvas-tile"][data-active="true"] [data-testid="terminal-meta-branch"]',
         );
-        const text = (slot?.textContent ?? "").trim();
-        if (text.length === 0) return false;
-        // Reject any of the quick-row emojis — branch names don't
-        // start with these characters.
-        const firstGrapheme = [...text][0];
-        return !["🏠", "🧪", "🐛", "⚡", "🔥", "🚀", "🎯"].includes(
-          firstGrapheme ?? "",
-        );
+        if (!slot) return false;
+        return (slot.textContent ?? "").trim().length === 0;
       },
       undefined,
       { timeout: POLL_TIMEOUT },

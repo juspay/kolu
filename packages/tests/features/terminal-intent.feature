@@ -10,8 +10,8 @@ Feature: Terminal intent
   Background:
     Given the terminal is ready
 
-  Scenario: Default state — annotation slot falls back to branch name
-    Then the active terminal annotation slot should show the branch name
+  Scenario: Default state — annotation slot is empty (no intent, no git)
+    Then the active terminal annotation slot should be empty
 
   Scenario: Click annotation slot opens the intent editor
     When I click the active terminal annotation slot
@@ -33,14 +33,14 @@ Feature: Terminal intent
     And I refresh the page
     Then the active terminal annotation slot should start with "🚀"
 
-  Scenario: Clear via editor's Clear button → annotation slot back to branch
+  Scenario: Clear via editor's Clear button → annotation slot back to empty
     When I click the active terminal annotation slot
     And I type "⚡ fast" into the intent editor
     And I save the intent
     Then the active terminal annotation slot should start with "⚡"
     When I click the active terminal annotation slot
     And I clear the intent
-    Then the active terminal annotation slot should show the branch name
+    Then the active terminal annotation slot should be empty
 
   Scenario: Quick-row click inserts emoji at cursor
     When I click the active terminal annotation slot
