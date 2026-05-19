@@ -47,9 +47,7 @@ const TerminalMeta: Component<{
            *  process title. */}
           <div class="flex items-center gap-1.5 min-h-7 text-sm font-medium min-w-0">
             <Show when={props.id}>
-              {(id) => (
-                <TerminalUserIconChip id={id()} icon={info().meta.icon} />
-              )}
+              {(id) => <TerminalIconChip id={id()} icon={info().meta.icon} />}
             </Show>
             <NameSpan info={info()} />
             <Show when={info().key.suffix}>
@@ -332,7 +330,7 @@ const TerminalIconChip: Component<{
           </Show>
         </button>
       </Tip>
-      <TerminalUserIconPopover
+      <TerminalIconPopover
         open={open()}
         onOpenChange={setOpen}
         triggerRef={triggerRef()}
