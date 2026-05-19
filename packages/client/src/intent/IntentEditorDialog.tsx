@@ -117,7 +117,10 @@ const IntentEditorDialog: Component<{
       onOpenChange={props.onOpenChange}
       initialFocusEl={textareaRef()}
     >
-      <Dialog.Content class="bg-surface-1 border border-edge rounded-xl shadow-2xl shadow-black/50 p-4 text-sm w-[min(560px,calc(100vw-2rem))]">
+      <Dialog.Content
+        data-kolu-modal="true"
+        class="bg-surface-1 border border-edge rounded-xl shadow-2xl shadow-black/50 p-4 text-sm w-[min(560px,calc(100vw-2rem))]"
+      >
         <div class="mb-3">
           <Dialog.Label class="block text-sm font-semibold text-fg">
             {props.title}
@@ -152,8 +155,15 @@ const IntentEditorDialog: Component<{
           placeholder={"🏠 main\n\nWhat are you doing in this terminal?"}
           spellcheck={false}
           onKeyDown={(e) => {
+            // Cmd/Ctrl+Enter saves. The `data-kolu-modal="true"` on
+            // Dialog.Content makes `useShortcuts.ts` bail before
+            // dispatching the global "New terminal" altKeybind for
+            // events that originate inside the editor; the inner
+            // stopPropagation is belt-and-braces for any other
+            // bubble-phase handler that might still react.
             if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
               e.preventDefault();
+              e.stopPropagation();
               save();
             }
           }}
