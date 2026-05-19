@@ -115,7 +115,7 @@ const TerminalMeta: Component<{
               >
                 {annotationLine(
                   info().meta.intent,
-                  info().meta.git?.branch ?? " ",
+                  info().meta.git?.branch ?? "—",
                 )}
               </button>
             </Tip>

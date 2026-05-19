@@ -10,8 +10,8 @@ Feature: Terminal intent
   Background:
     Given the terminal is ready
 
-  Scenario: Default state — annotation slot is empty (no intent, no git)
-    Then the active terminal annotation slot should be empty
+  Scenario: Default state — annotation slot shows the placeholder (no intent, no git)
+    Then the active terminal annotation slot should show the placeholder
 
   Scenario: Click annotation slot opens the intent editor
     When I click the active terminal annotation slot
@@ -40,7 +40,7 @@ Feature: Terminal intent
     Then the active terminal annotation slot should start with "⚡"
     When I click the active terminal annotation slot
     And I clear the intent
-    Then the active terminal annotation slot should be empty
+    Then the active terminal annotation slot should show the placeholder
 
   Scenario: Quick-row click inserts emoji at cursor
     When I click the active terminal annotation slot

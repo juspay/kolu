@@ -119,18 +119,17 @@ Then(
 );
 
 Then(
-  "the active terminal annotation slot should be empty",
+  "the active terminal annotation slot should show the placeholder",
   async function (this: KoluWorld) {
-    // Placeholder state: no intent, no git → slot shows a nbsp
-    // placeholder so the row height is preserved. textContent trims
-    // to an empty string.
+    // Placeholder state: no intent, no git → slot shows an em-dash so
+    // it's still visible and clickable (the user can add an intent
+    // even when the terminal isn't in a git repo).
     await this.page.waitForFunction(
       () => {
         const slot = document.querySelector(
           '[data-testid="canvas-tile"][data-active="true"] [data-testid="terminal-meta-branch"]',
         );
-        if (!slot) return false;
-        return (slot.textContent ?? "").trim().length === 0;
+        return (slot?.textContent ?? "").trim() === "—";
       },
       undefined,
       { timeout: POLL_TIMEOUT },
