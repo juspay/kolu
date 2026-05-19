@@ -10,6 +10,7 @@
 
 import type { Locator } from "../types";
 import { findQuote, rangeFromOffsets } from "./findQuote";
+import { rootTextContent } from "./extractQuote";
 
 declare global {
   interface Window {
@@ -47,10 +48,7 @@ export function applyHighlights(
     win.CSS.highlights.delete(name);
     return;
   }
-  const text =
-    root instanceof Document
-      ? (root.body?.textContent ?? "")
-      : (root.textContent ?? "");
+  const text = rootTextContent(root);
   const ranges: Range[] = [];
   for (const c of comments) {
     const match = findQuote(text, c.locator);

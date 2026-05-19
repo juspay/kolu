@@ -14,8 +14,11 @@ const CONTEXT_WINDOW = 32;
 /** Concatenated text content of a Document or shadow root. Used as the
  *  haystack for prefix/suffix extraction. Pierre's open shadow DOM is
  *  walked transparently when the Range's commonAncestor lives inside it
- *  — `textContent` crosses shadow boundaries for ranges that span them. */
-function rootTextContent(doc: Document | ShadowRoot): string {
+ *  — `textContent` crosses shadow boundaries for ranges that span them.
+ *
+ *  Exported so `applyHighlights` and the parent-side highlight overlay
+ *  can reuse the same extraction rather than inlining the same ternary. */
+export function rootTextContent(doc: Document | ShadowRoot): string {
   // `textContent` on a Document returns null; use body instead.
   if (doc instanceof Document) return doc.body?.textContent ?? "";
   return doc.textContent ?? "";

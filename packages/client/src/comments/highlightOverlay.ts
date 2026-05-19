@@ -14,6 +14,7 @@ import {
   COMMENT_HIGHLIGHT_STYLE_THEMED,
   findQuote,
   rangeFromOffsets,
+  rootTextContent,
 } from "@kolu/artifact-sdk/client";
 import { type Accessor, createEffect, onCleanup } from "solid-js";
 import { useCommentScrollRequest } from "./scrollRequest";
@@ -71,10 +72,7 @@ export function useHighlightOverlay(opts: OverlayOptions): void {
     if (!req) return;
     const target = comments.find((c) => c.id === req.commentId);
     if (!target) return;
-    const text =
-      root instanceof Document
-        ? (root.body?.textContent ?? "")
-        : (root.textContent ?? "");
+    const text = rootTextContent(root);
     const match = findQuote(text, target.locator);
     if (!match) {
       scroll.clear();
