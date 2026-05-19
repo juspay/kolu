@@ -175,9 +175,17 @@ export async function tailJsonlLines(
       log?.debug({ stderr: r.stderr, filePath }, "claude tail failed");
       return [];
     }
+    // `tail -c <bytes>` returns the LAST <bytes> of the file. If the file
+    // is larger than the window the slice begins mid-line, so the first
+    // line is a partial that won't parse — drop it. If the file fits
+    // entirely, the slice begins at the file's first byte, which (for
+    // valid JSONL) is `{` — keep it. Detecting "complete vs. partial"
+    // from the first character is enough to stop the small-file case
+    // from silently dropping its only line.
     const all = r.stdout.split("\n");
+    const start = all[0]?.startsWith("{") ? 0 : 1;
     const out: string[] = [];
-    for (let i = 1; i < all.length; i++) {
+    for (let i = start; i < all.length; i++) {
       const l = all[i];
       if (l && l.length > 0) out.push(l);
     }

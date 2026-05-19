@@ -23,19 +23,30 @@ import { DatabaseSync } from "node:sqlite";
 import type { Executor } from "anyagent";
 import { classifyByAwaiting } from "anyagent";
 import type { Logger } from "kolu-shared";
-import { CODEX_DB_PATH, CODEX_DIR } from "./config.ts";
+import { CODEX_DB_PATH, CODEX_DIR, findCodexStateDbPath } from "./config.ts";
 import type { CodexInfo } from "./schemas.ts";
 
 // --- DB path resolution ---
 
 /** Resolve Codex's `state_v<N>.sqlite` path on this executor's filesystem.
  *  Walks `~/.codex/` for the highest-version `state_v<N>.sqlite` so users
- *  who upgrade Codex past v5 aren't silently blind. */
+ *  who upgrade Codex past v5 aren't silently blind.
+ *
+ *  Controller-side env overrides are honored first — `KOLU_CODEX_DB` for
+ *  a direct DB path and `KOLU_CODEX_DIR` for a custom Codex root. Both
+ *  short-circuit the executor-routed lookup; in production neither is
+ *  set so the remote executor's `$HOME/.codex/` enumeration runs. Tests
+ *  set `KOLU_CODEX_DIR` to a per-worker temp dir, and without honoring
+ *  it here the executor.exec fallback walked the controller's real
+ *  `$HOME/.codex/` and missed the fixture entirely. */
 export async function resolveCodexDbPath(
   executor: Executor,
   log?: Logger,
 ): Promise<string | null> {
   if (process.env.KOLU_CODEX_DB) return process.env.KOLU_CODEX_DB;
+  if (process.env.KOLU_CODEX_DIR) {
+    return findCodexStateDbPath(process.env.KOLU_CODEX_DIR);
+  }
   try {
     const r = await executor.exec(
       "sh",
@@ -57,11 +68,15 @@ export async function resolveCodexDbPath(
 
 /** Resolve `~/.codex/` on this executor's filesystem. Used by
  *  `externalChanges.isPresent` to decide whether to install the WAL
- *  watcher at all. */
+ *  watcher at all. Same env-override priority as `resolveCodexDbPath`:
+ *  `KOLU_CODEX_DIR` short-circuits to the controller-side override
+ *  (which the test fixture sets to a per-worker temp dir) before
+ *  falling through to the executor's `$HOME/.codex`. */
 export async function resolveCodexDir(
   executor: Executor,
   log?: Logger,
 ): Promise<string | null> {
+  if (process.env.KOLU_CODEX_DIR) return process.env.KOLU_CODEX_DIR;
   try {
     const r = await executor.exec("printenv", ["HOME"], { timeoutMs: 5_000 });
     if (r.exitCode !== 0) return null;
@@ -317,13 +332,17 @@ export async function readRolloutTail(
       );
       return null;
     }
-    // Split into lines and drop the first if it's a partial (the byte
-    // cut likely sliced mid-line; the first non-empty line might be
-    // truncated). Empty trailing element from trailing newline gets
-    // filtered too.
+    // `tail -c <bytes>` returns the LAST <bytes> of the file. If the file
+    // is larger than the window the slice begins mid-line, so the first
+    // line is a partial that won't parse — drop it. If the file fits
+    // entirely, the slice begins at the file's first byte, which (for
+    // valid JSONL) is `{` — keep it. Detecting "complete vs. partial"
+    // from the first character is enough to stop the small-file case
+    // from silently dropping its only line.
     const all = r.stdout.split("\n");
+    const start = all[0]?.startsWith("{") ? 0 : 1;
     const lines: string[] = [];
-    for (let i = 1; i < all.length; i++) {
+    for (let i = start; i < all.length; i++) {
       const l = all[i];
       if (l && l.length > 0) lines.push(l);
     }
