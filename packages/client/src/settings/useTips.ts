@@ -42,30 +42,32 @@ function showTipOnce(tip: Tip) {
   setActiveTip(tip);
 }
 
-/** Pick a random ambient tip (prefers unseen, falls back to any).
- *  Returns the full tip so callers can show it in the banner; the
- *  palette consumer uses `.text` for its footer string. */
+/** Internal pure peek — picks a tip without marking it seen. */
 function pickAmbientTip(): Tip | null {
   if (isMobile()) return null;
   const unseen = ambientPool.filter((t) => !seen().has(t.id));
   const pool = unseen.length > 0 ? unseen : ambientPool;
-  const pick = pool[Math.floor(Math.random() * pool.length)];
-  if (!pick) return null;
-  if (!seen().has(pick.id)) markSeen(pick.id);
-  return pick;
+  return pool[Math.floor(Math.random() * pool.length)] ?? null;
 }
 
-/** Text-only variant for surfaces that just render a string (palette footer). */
-function randomAmbientTip(): string {
+/** Text-only peek for surfaces that render tip text without "consuming"
+ *  the tip (palette footer). Does not mark the tip seen so the banner's
+ *  unseen pool is not drained by incidental glances. */
+function peekAmbientTipText(): string {
   return pickAmbientTip()?.text ?? "";
 }
 
-/** Show a random tip in the banner (for startup). Respects the startup-tips setting. */
-function showStartupTip() {
-  if (isMobile()) return;
-  if (!preferences().startupTips) return;
+/** Atomic: pick an ambient tip, mark it seen, show it in the banner. */
+function showAmbientTip() {
   const tip = pickAmbientTip();
-  if (tip) setActiveTip(tip);
+  if (!tip) return;
+  if (!seen().has(tip.id)) markSeen(tip.id);
+  setActiveTip(tip);
+}
+
+/** Show a random tip in the banner on startup, if the setting is on. */
+function showStartupTip() {
+  if (preferences().startupTips) showAmbientTip();
 }
 
 /**
@@ -87,7 +89,7 @@ function initTipTriggers(deps: { terminalIds: Accessor<TerminalId[]> }) {
 export function useTips() {
   return {
     showTipOnce,
-    randomAmbientTip,
+    peekAmbientTipText,
     initTipTriggers,
     startupTips: () => preferences().startupTips,
     setStartupTips: (on: boolean) => updatePreferences({ startupTips: on }),
