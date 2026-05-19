@@ -38,11 +38,16 @@ const require = createRequire(import.meta.url);
 // biome-ignore lint/suspicious/noExplicitAny: node-pty types are dynamic
 const ptyLib = require("node-pty") as any;
 
-/** Ring buffer size per PTY (events, not bytes). Tuned for typical
- *  scrollback-plus-burst: enough to hold a normal terminal session of
- *  output across a brief reconnect, small enough that an idle remote
- *  helper doesn't accumulate megabytes per PTY. */
-const RING_BUFFER_SIZE = 4096;
+/** Per-PTY ring buffer cap **in bytes** (not events). PTY output is
+ *  bursty — a single `cat` of a large file can produce hundreds of small
+ *  data events in milliseconds — so an event-count cap silently shed
+ *  whole megabytes of scrollback during a flood while a byte cap keeps
+ *  the buffer tracking what the user actually sees.
+ *
+ *  4 MiB comfortably covers a typical scrollback plus a sane reconnect
+ *  gap. On the wire it sits in the helper's memory, not on disk, and
+ *  one PTY pinning 4 MiB even at the worst case is cheap. */
+const RING_BUFFER_MAX_BYTES = 4 * 1024 * 1024;
 
 interface PtyEntry {
   ptyId: string;
@@ -55,8 +60,18 @@ interface PtyEntry {
   };
   /** Monotonically increasing sequence number for events this PTY has emitted. */
   lastSeq: number;
-  /** Most recent events, oldest first. Length capped at RING_BUFFER_SIZE. */
+  /** Lowest sequence number still in `buffer` (i.e. the seq of `buffer[0]`).
+   *  Used by `replay` to detect a gap: if `sinceSeq < oldestSeq - 1`,
+   *  the buffer evicted events the controller hadn't seen yet. */
+  oldestSeq: number;
+  /** Most recent events, oldest first. Total `data` byte size is capped
+   *  at `RING_BUFFER_MAX_BYTES`; oldest events are shifted out when the
+   *  cap is exceeded. */
   buffer: HelperPtyEvent[];
+  /** Sum of byte sizes of every `data` event currently in `buffer`. The
+   *  shift-when-over-cap loop reads this; non-data events (`exit`) add
+   *  zero. */
+  bufferBytes: number;
   /** True once an exit event has been pushed — write/resize become no-ops. */
   exited: boolean;
   /** Path to the per-pty rcfile, if `rcContent` was sent on spawn.
@@ -106,8 +121,14 @@ export interface Manager {
   resize(ptyId: string, cols: number, rows: number): void;
   dispose(ptyId: string): void;
   /** Replay buffered events strictly after `sinceSeq`. If sinceSeq is
-   *  undefined, replays everything in the buffer. */
-  replay(ptyId: string, sinceSeq: number | undefined): HelperPtyEvent[];
+   *  undefined, replays everything in the buffer. The `gap` flag is true
+   *  when the buffer evicted events the controller hadn't yet acknowledged
+   *  — the controller treats that as "scrollback is unrecoverable; reset
+   *  screen state and let the live stream rebuild it." Reviewer #7. */
+  replay(
+    ptyId: string,
+    sinceSeq: number | undefined,
+  ): { events: HelperPtyEvent[]; gap: boolean };
   foregroundPid(ptyId: string): number | undefined;
   processName(ptyId: string): string | undefined;
   /** Start pushing `foregroundChange` events for this PTY whenever the
@@ -146,8 +167,19 @@ export function createManager(
     entry.lastSeq += 1;
     const event = build(entry.lastSeq);
     entry.buffer.push(event);
-    if (entry.buffer.length > RING_BUFFER_SIZE) {
-      entry.buffer.splice(0, entry.buffer.length - RING_BUFFER_SIZE);
+    if (event.method === "data") entry.bufferBytes += event.params.data.length;
+    // Shift oldest events out until we're back under the byte cap.
+    // `oldestSeq` advances with each eviction so `replay()` can detect
+    // a gap by comparing it against the controller's `sinceSeq + 1`.
+    while (
+      entry.bufferBytes > RING_BUFFER_MAX_BYTES &&
+      entry.buffer.length > 1
+    ) {
+      const dropped = entry.buffer.shift();
+      if (dropped?.method === "data") {
+        entry.bufferBytes -= dropped.params.data.length;
+      }
+      if (dropped) entry.oldestSeq = dropped.params.seq + 1;
     }
     emit(event);
   }
@@ -214,7 +246,9 @@ export function createManager(
       pid: proc.pid,
       proc,
       lastSeq: 0,
+      oldestSeq: 1,
       buffer: [],
+      bufferBytes: 0,
       exited: false,
       rcFilePath,
     };
@@ -278,11 +312,25 @@ export function createManager(
   function replay(
     ptyId: string,
     sinceSeq: number | undefined,
-  ): HelperPtyEvent[] {
+  ): { events: HelperPtyEvent[]; gap: boolean } {
     const entry = ptys.get(ptyId);
-    if (!entry) return [];
-    if (sinceSeq === undefined) return [...entry.buffer];
-    return entry.buffer.filter((e) => e.params.seq > sinceSeq);
+    if (!entry) return { events: [], gap: false };
+    if (sinceSeq === undefined) {
+      return { events: [...entry.buffer], gap: false };
+    }
+    // Gap detection: the controller wants events strictly after
+    // `sinceSeq`. If the next event we have is `sinceSeq + 2` or later
+    // (or we have no events at all but `lastSeq > sinceSeq`), we've
+    // evicted output the controller never observed — the data between
+    // sinceSeq and the buffer's start is gone forever. Signal the gap
+    // so the controller can clear xterm scrollback and resync from the
+    // live stream.
+    const expectedNext = sinceSeq + 1;
+    const earliestBuffered =
+      entry.buffer.length > 0 ? entry.buffer[0]!.params.seq : entry.lastSeq + 1;
+    const gap = earliestBuffered > expectedNext;
+    const events = entry.buffer.filter((e) => e.params.seq > sinceSeq);
+    return { events, gap };
   }
 
   function foregroundPid(ptyId: string): number | undefined {

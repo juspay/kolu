@@ -26,10 +26,14 @@
  */
 
 import { spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import {
+  chmodSync,
+  closeSync,
   existsSync,
   mkdirSync,
   openSync,
+  readFileSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -66,6 +70,18 @@ const HELPER_DIR = join(homedir(), ".kolu-helper");
 const SOCKET_PATH = join(HELPER_DIR, "daemon.sock");
 const LOG_PATH = join(HELPER_DIR, "daemon.log");
 const PID_PATH = join(HELPER_DIR, "daemon.pid");
+const TOKEN_PATH = join(HELPER_DIR, "daemon.token");
+const LOCK_PATH = join(HELPER_DIR, "daemon.lock");
+
+/** First line every relay must send before any other frame: a single
+ *  JSON object `{"auth":"<token>"}\n`. The daemon disconnects on
+ *  mismatched / missing / malformed auth before any PTY ops are exposed.
+ *
+ *  The token is generated once per daemon, stored at `daemon.token`
+ *  (mode 0600 inside a 0700 HELPER_DIR), and read by relays through the
+ *  same path. Both files live on the helper user's HOME — only that
+ *  user (and root) can read them. */
+const AUTH_FRAME_MAX_BYTES = 256;
 
 const isDaemon = process.argv.includes("--daemon-mode");
 
@@ -79,9 +95,48 @@ if (isDaemon) {
 
 function runDaemon(): void {
   mkdirSync(HELPER_DIR, { recursive: true });
-  // Clean up any stale socket from a previous run that didn't exit
-  // cleanly. If a real daemon was already bound here, `listen` below
-  // would have failed first.
+  // 0700 — only this user can enter the dir, so the secret-bearing
+  // `daemon.token` (mode 0600) is also unreadable to other system users.
+  try {
+    chmodSync(HELPER_DIR, 0o700);
+  } catch {
+    // best-effort — bind-mounted dirs may refuse chmod
+  }
+
+  // Lock acquisition: O_CREAT|O_EXCL. If the file already exists and
+  // points to a live process, refuse to start (Reviewer #5: prevents a
+  // racing second daemon from `unlink`-ing the live socket and orphaning
+  // the in-flight client's PTYs). If the PID isn't alive any more,
+  // remove the stale lock and try again.
+  if (!acquireDaemonLock()) {
+    process.stderr.write(
+      "kolu-helper daemon: another daemon already holds the lock; exiting\n",
+    );
+    process.exit(2);
+  }
+
+  // Generate the per-daemon auth token. Written 0600 inside the 0700
+  // HELPER_DIR. Same process reads it back when authorizing client
+  // connections — short-circuits the case where a hostile process on
+  // the same machine tries to connect to the socket without knowing
+  // the secret.
+  const authToken = randomBytes(32).toString("hex");
+  try {
+    const fd = openSync(TOKEN_PATH, "w", 0o600);
+    try {
+      writeFileSync(fd, authToken);
+    } finally {
+      closeSync(fd);
+    }
+  } catch (err) {
+    process.stderr.write(
+      `kolu-helper daemon: failed to write auth token: ${(err as Error).message}\n`,
+    );
+    process.exit(2);
+  }
+
+  // The socket-cleanup-then-listen dance is now safe: the lock above
+  // prevents a concurrent daemon from racing us through this gap.
   if (existsSync(SOCKET_PATH)) {
     try {
       unlinkSync(SOCKET_PATH);
@@ -93,7 +148,7 @@ function runDaemon(): void {
     writeFileSync(PID_PATH, String(process.pid));
   } catch {
     // best-effort — losing the PID file just means stale-detection
-    // is slightly less precise; correctness rides on the socket itself
+    // is slightly less precise; correctness rides on the lock + socket
   }
 
   let currentClient: net.Socket | null = null;
@@ -163,9 +218,18 @@ function runDaemon(): void {
         }
         case "attach": {
           const params = HelperAttachParamsSchema.parse(req.params);
-          const events = manager.replay(params.ptyId, params.sinceSeq);
+          const { events, gap } = manager.replay(params.ptyId, params.sinceSeq);
+          if (gap && params.sinceSeq !== undefined) {
+            // Emit the gap signal BEFORE the replayed events so the
+            // controller can clear scrollback before applying the new
+            // bytes. Reviewer #7.
+            writeToClient({
+              method: "replayGap",
+              params: { ptyId: params.ptyId, sinceSeq: params.sinceSeq },
+            });
+          }
           for (const event of events) writeToClient(event);
-          respond(req.id, { replayed: events.length });
+          respond(req.id, { replayed: events.length, gap });
           return;
         }
         case "detach": {
@@ -294,33 +358,80 @@ function runDaemon(): void {
   }
 
   const server = net.createServer((sock) => {
-    // One client at a time. A fresh kolu-side SSH reconnect lands a
-    // new client connection BEFORE the previous relay's socket has
-    // necessarily noticed it's dead — close the old socket here so
-    // every server-pushed event goes to the new client only.
-    if (currentClient && !currentClient.destroyed) {
-      currentClient.destroy();
-    }
-    currentClient = sock;
-
-    // Attach the error / close handlers BEFORE the first write. A relay
-    // that has already lost its SSH peer can land here with a half-open
-    // socket whose first `.write` synchronously triggers `EPIPE` — without
-    // a registered `'error'` listener Node escalates to an uncaught
-    // exception and kills the daemon, taking every PTY with it.
-    sock.on("close", () => {
-      if (currentClient === sock) currentClient = null;
-    });
-    sock.on("error", () => {
-      if (currentClient === sock) currentClient = null;
-    });
+    // Attach error / close handlers BEFORE anything else so a half-open
+    // socket can't escalate to an uncaught exception.
+    sock.on("error", () => {});
 
     const rl = createInterface({ input: sock, crlfDelay: Infinity });
-    // readline forwards socket errors as Interface 'error' events; an
-    // unhandled one is the same uncaught-exception trap as above.
     rl.on("error", () => {});
+
+    // Auth-pending state — the client must send `{"auth": "<token>"}`
+    // as its first frame. Until then, this socket is NOT the
+    // `currentClient`; it can't receive events and can't issue
+    // commands. A racing hostile process that connects without the
+    // token gets disconnected here, without observing the daemon's
+    // ready frame (which would leak the helper's PID + version).
+    let authed = false;
+    const authTimeout = setTimeout(() => {
+      if (authed) return;
+      sock.destroy();
+    }, 5_000);
+
+    function adoptAsCurrentClient(): void {
+      // One client at a time. A fresh SSH reconnect lands a new (now-
+      // authed) connection BEFORE the previous relay's socket has
+      // noticed it's dead — close the old one so every server-pushed
+      // event goes to the new client only.
+      if (currentClient && currentClient !== sock && !currentClient.destroyed) {
+        currentClient.destroy();
+      }
+      currentClient = sock;
+      sock.on("close", () => {
+        if (currentClient === sock) currentClient = null;
+      });
+      sock.on("error", () => {
+        if (currentClient === sock) currentClient = null;
+      });
+
+      // Now the socket is safe to write to. Announce ready so the
+      // controller can transition to "connected" without waiting for
+      // its first request to round-trip.
+      writeToClient({
+        method: "ready",
+        params: { version: HELPER_VERSION },
+      });
+    }
+
     rl.on("line", (line) => {
+      if (line.length > AUTH_FRAME_MAX_BYTES && !authed) {
+        // Oversized first frame from an un-authed client — drop. Real
+        // requests are small; this catches log-pasting / corruption.
+        sock.destroy();
+        return;
+      }
       if (line.trim().length === 0) return;
+      if (!authed) {
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(line);
+        } catch {
+          sock.destroy();
+          return;
+        }
+        if (
+          !parsed ||
+          typeof parsed !== "object" ||
+          typeof (parsed as { auth?: unknown }).auth !== "string" ||
+          (parsed as { auth: string }).auth !== authToken
+        ) {
+          sock.destroy();
+          return;
+        }
+        authed = true;
+        clearTimeout(authTimeout);
+        adoptAsCurrentClient();
+        return;
+      }
       try {
         const parsed = JSON.parse(line);
         const req = HelperRequestSchema.safeParse(parsed);
@@ -328,14 +439,6 @@ function runDaemon(): void {
       } catch {
         // malformed input from a client; daemon stays up.
       }
-    });
-
-    // Now the socket is safe to write to. Announce ready so the controller
-    // can transition to "connected" without waiting for its first request
-    // to round-trip.
-    writeToClient({
-      method: "ready",
-      params: { version: HELPER_VERSION },
     });
   });
 
@@ -346,10 +449,12 @@ function runDaemon(): void {
   // point of the daemon.
   process.on("SIGTERM", () => {
     manager.shutdown();
-    try {
-      unlinkSync(SOCKET_PATH);
-    } catch {
-      // ignore
+    for (const p of [SOCKET_PATH, LOCK_PATH, TOKEN_PATH, PID_PATH]) {
+      try {
+        unlinkSync(p);
+      } catch {
+        // ignore
+      }
     }
     process.exit(0);
   });
@@ -381,8 +486,25 @@ async function runRelay(): Promise<void> {
     }
   }
 
+  // Read the daemon's auth token (mode 0600 inside HELPER_DIR mode
+  // 0700). The relay's stdin is the controller's SSH session, and the
+  // controller can't read this file directly — so the relay prepends
+  // the auth frame to the controller's stream. From the daemon's
+  // perspective, the first line on every connection is the auth
+  // handshake.
+  let authToken: string;
+  try {
+    authToken = readFileSync(TOKEN_PATH, "utf8").trim();
+  } catch (err) {
+    process.stderr.write(
+      `kolu-helper relay: cannot read daemon token (${(err as Error).message})\n`,
+    );
+    process.exit(1);
+  }
+
   const sock = net.connect(SOCKET_PATH);
   sock.on("connect", () => {
+    sock.write(`${JSON.stringify({ auth: authToken })}\n`);
     process.stdin.pipe(sock);
     sock.pipe(process.stdout);
   });
@@ -433,6 +555,71 @@ async function waitForDaemon(timeoutMs: number): Promise<boolean> {
   while (Date.now() < deadline) {
     if (await daemonReachable()) return true;
     await new Promise((r) => setTimeout(r, 150));
+  }
+  return false;
+}
+
+/** Acquire the per-user daemon lock. Returns true if we got it (no live
+ *  daemon was running). Returns false if another live daemon holds it.
+ *
+ *  Strategy:
+ *   - Try `open(O_WRONLY|O_CREAT|O_EXCL, 0o600)` — atomic test-and-set.
+ *   - If that succeeds, write our PID into it.
+ *   - If it fails with EEXIST, read the existing pid; if that process
+ *     isn't alive (`kill(pid, 0)` throws ESRCH), the lock is stale —
+ *     unlink it and retry once. Otherwise fail.
+ *
+ *  Avoids both the lockless race (two relays racing to spawn daemons,
+ *  each `unlink`ing the other's socket — Reviewer #5) and the stuck-
+ *  lock-after-crash case (`unlink`-then-retry on dead PID). */
+function acquireDaemonLock(): boolean {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const fd = openSync(LOCK_PATH, "wx", 0o600);
+      try {
+        writeFileSync(fd, String(process.pid));
+      } finally {
+        closeSync(fd);
+      }
+      return true;
+    } catch (e) {
+      const code = (e as NodeJS.ErrnoException).code;
+      if (code !== "EEXIST") {
+        process.stderr.write(
+          `kolu-helper daemon: lock acquisition failed: ${(e as Error).message}\n`,
+        );
+        return false;
+      }
+    }
+    // EEXIST — check whether the holder is alive. If not, unlink + retry.
+    let holderPid: number | undefined;
+    try {
+      const raw = readFileSync(LOCK_PATH, "utf8").trim();
+      const parsed = Number(raw);
+      if (Number.isFinite(parsed) && parsed > 0) holderPid = parsed;
+    } catch {
+      // unreadable lock — treat as stale
+    }
+    if (holderPid !== undefined) {
+      let isLive = false;
+      try {
+        process.kill(holderPid, 0);
+        isLive = true;
+      } catch (sigErr) {
+        // ESRCH: no such process — definitely stale; clean up + retry.
+        // EPERM: process exists but isn't ours — refuse (the PID was
+        // recycled to a different user; that's a race we can't safely
+        // resolve from here).
+        const code = (sigErr as NodeJS.ErrnoException).code;
+        if (code !== "ESRCH") return false;
+      }
+      if (isLive) return false;
+    }
+    try {
+      unlinkSync(LOCK_PATH);
+    } catch {
+      // race — another daemon just removed it; retry
+    }
   }
   return false;
 }

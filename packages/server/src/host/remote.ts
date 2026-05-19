@@ -151,6 +151,10 @@ export function createRemoteHost(opts: RemoteHostOpts): Host {
   interface PtyReg {
     onData(e: HelperDataEvent): void;
     onExit(e: HelperExitEvent): void;
+    /** Fired when the helper's ring buffer evicted events we hadn't
+     *  acknowledged — the kolu side resets xterm scrollback so a
+     *  partial replay doesn't render as garbage. */
+    onReplayGap?: () => void;
     lastSeq: number;
     /** Foreground-source cache for this PTY, fed by `foregroundChange`
      *  events the helper pushes (one per actual change, not on a poll). */
@@ -238,6 +242,13 @@ export function createRemoteHost(opts: RemoteHostOpts): Host {
       if (reg?.foreground) {
         reg.foreground.applyChange(event.params.pid, event.params.name);
       }
+    } else if (event.method === "replayGap") {
+      // The helper's ring buffer evicted events we hadn't acknowledged —
+      // the scrollback between our last seq and the next-buffered event
+      // is gone forever. Notify the consumer so xterm can clear screen
+      // state instead of pasting a corrupted scrollback. Reviewer #7.
+      const reg = ptys.get(event.params.ptyId);
+      reg?.onReplayGap?.();
     }
   }
 
@@ -559,6 +570,21 @@ export function createRemoteHost(opts: RemoteHostOpts): Host {
       onExit: (event) => {
         cleanup();
         spOpts.onExit(event.params.exitCode);
+      },
+      onReplayGap: () => {
+        // Reset the headless terminal so the OSC parser doesn't apply the
+        // partial replay over a now-stale grid, and push a "clear + home"
+        // ANSI sequence to the client so xterm.js redraws from a known
+        // state. The live stream that follows rebuilds whatever was
+        // actually on screen at the daemon side.
+        try {
+          headless.reset();
+        } catch {
+          // headless.reset throws if the addon is mid-write; safe to skip
+        }
+        const clear = "\x1b[2J\x1b[H";
+        spOpts.onData(clear);
+        tlog.warn({ ptyId }, "replay gap — scrollback discarded, screen reset");
       },
     });
 

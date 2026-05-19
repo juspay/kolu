@@ -76,14 +76,15 @@ describe("helper manager", () => {
 
     // Replay with sinceSeq=0 must return everything in the ring buffer.
     const all = mgr.replay(ptyId, 0);
-    expect(all.length).toBeGreaterThan(0);
+    expect(all.events.length).toBeGreaterThan(0);
+    expect(all.gap).toBe(false);
 
     // Replay with sinceSeq = max(seq) must return nothing — no event has
     // a strictly-greater seq.
     const maxSeq = Math.max(
-      ...all.map((e) => (e.params as { seq: number }).seq),
+      ...all.events.map((e) => (e.params as { seq: number }).seq),
     );
-    expect(mgr.replay(ptyId, maxSeq)).toEqual([]);
+    expect(mgr.replay(ptyId, maxSeq)).toEqual({ events: [], gap: false });
     mgr.shutdown();
   });
 

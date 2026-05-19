@@ -245,6 +245,21 @@ export const HelperForegroundChangeEventSchema = z.object({
   }),
 });
 
+/** Replay-gap signal — emitted exactly once before a replay sequence when
+ *  the daemon's ring buffer had evicted events the controller never saw.
+ *  The controller treats this as "scrollback unrecoverable; clear xterm
+ *  screen state, the live stream will rebuild it." Reviewer #7 on PR #929. */
+export const HelperReplayGapEventSchema = z.object({
+  method: z.literal("replayGap"),
+  params: z.object({
+    ptyId: z.string(),
+    /** Last seq the controller had acknowledged when it asked to
+     *  reattach. The replay it's about to receive starts at some seq
+     *  STRICTLY GREATER than `sinceSeq + 1`. */
+    sinceSeq: z.number().int().nonnegative(),
+  }),
+});
+
 /** Emitted exactly once, as the very first frame the helper writes after
  *  startup. Lets the controller distinguish "helper running but slow to
  *  service the first request" from "helper crashed/missing/wrong binary."
@@ -272,6 +287,7 @@ export const HelperEventSchema = z.union([
   HelperReadyEventSchema,
   HelperWatchEventSchema,
   HelperForegroundChangeEventSchema,
+  HelperReplayGapEventSchema,
 ]);
 export type HelperEvent = z.infer<typeof HelperEventSchema>;
 export type HelperDataEvent = z.infer<typeof HelperDataEventSchema>;
@@ -281,6 +297,7 @@ export type HelperWatchEvent = z.infer<typeof HelperWatchEventSchema>;
 export type HelperForegroundChangeEvent = z.infer<
   typeof HelperForegroundChangeEventSchema
 >;
+export type HelperReplayGapEvent = z.infer<typeof HelperReplayGapEventSchema>;
 
 // ── Top-level frame (request or response or event) ────────────────────
 
