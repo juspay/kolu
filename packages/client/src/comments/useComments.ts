@@ -15,8 +15,15 @@
  *  function; the tray's "Copy to clipboard" calls it directly. */
 
 import { makePersisted } from "@solid-primitives/storage";
-import { createSignal } from "solid-js";
+import {
+  createComputed,
+  createRoot,
+  createSignal,
+  mapArray,
+  onCleanup,
+} from "solid-js";
 import { toast } from "solid-sonner";
+import { terminalListSub } from "../wire";
 import type { Comment, PersistedShape } from "./types";
 
 const STORAGE_PREFIX = "kolu:comments-by-terminal:";
@@ -87,17 +94,29 @@ function storeFor(terminalId: string) {
   return wrapped;
 }
 
-/** Drop the in-memory store wrapper for a terminal whose lifecycle has
- *  ended. The `makePersisted` storage entry stays — comments survive
- *  terminal recreation as long as the terminalId is reused (e.g. session
- *  restore).
- *
- *  Wired from `useTerminalMetadata` via `mapArray` + `onCleanup`: the
- *  per-key reactive owner is disposed when a terminalId leaves the
- *  live key set, which fires this release. */
-export function releaseTerminal(terminalId: string): void {
-  storesByKey.delete(terminalId);
-}
+// Lifecycle scope: data-scoped — fires when a terminalId leaves the
+// server's live terminal list (NOT on component unmount; xterm/WebGL
+// teardown lives in `Terminal.tsx`'s onCleanup, which is component-scoped).
+//
+// Bound `storesByKey` to live terminals by evicting an entry when its id
+// leaves `terminalListSub`. Owning the wiring here keeps the terminal
+// subsystem ignorant of per-feature cleanup APIs — features that key off
+// `terminalId` follow the same self-subscription pattern. createComputed
+// is load-bearing: it drives the mapArray accessor eagerly so per-key
+// reactive owners attach with their onCleanup hooks. Without it the
+// callback never runs and bound growth silently regresses. The
+// makePersisted storage entry stays — comments survive terminal
+// recreation as long as the terminalId is reused (session restore).
+createRoot(() => {
+  createComputed(
+    mapArray(
+      () => terminalListSub()?.map((t) => t.id) ?? [],
+      (id) => {
+        onCleanup(() => storesByKey.delete(id));
+      },
+    ),
+  );
+});
 
 /** API the rest of the client uses. Pass the active terminalId at the
  *  consumer site — there's no global ambient context (matches how

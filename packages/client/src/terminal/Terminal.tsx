@@ -369,10 +369,11 @@ const Terminal: Component<{
   );
 
   // Lifecycle scope: component-scoped — fires on DOM disposal (e.g.
-  // `<Show>` tile swap, route change), NOT on server key-set departure.
-  // The data-scoped path (per-id eviction from `meta.keys`) lives in
-  // `useTerminalMetadata.ts`; the two scopes are intentionally separate
-  // and not synchronous.
+  // `<Show>` tile swap, route change), NOT on server-list departure.
+  // Per-feature data-scoped cleanup (e.g. comments-store eviction in
+  // `comments/useComments.ts`) lives at the feature site and subscribes
+  // to `terminalListSub` directly; the two scopes are intentionally
+  // separate and not synchronous.
   //
   // Cleanup registered SYNCHRONOUSLY at component body top — NOT inside the
   // async `onMount` below. If the reactive owner disposes during `onMount`'s

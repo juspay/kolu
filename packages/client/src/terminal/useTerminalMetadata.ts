@@ -19,15 +19,8 @@ import type {
   TerminalInfo,
   TerminalMetadata,
 } from "kolu-common/surface";
-import {
-  type Accessor,
-  createComputed,
-  createMemo,
-  mapArray,
-  onCleanup,
-} from "solid-js";
+import { type Accessor, createMemo } from "solid-js";
 import { toast } from "solid-sonner";
-import { releaseTerminal } from "../comments/useComments";
 import { app } from "../wire";
 import {
   buildTerminalDisplayInfos,
@@ -42,24 +35,6 @@ export function useTerminalMetadata(deps: {
     keys: () => deps.list()?.map((t) => t.id) ?? [],
     onError: (err) => toast.error(`Metadata error: ${err.message}`),
   });
-
-  // Lifecycle scope: data-scoped — fires on server key-set departure
-  // (an id leaves `meta.keys`), NOT on component unmount. The component
-  // path uses `Terminal.tsx`'s onCleanup for xterm/WebGL teardown; the
-  // two scopes are intentionally separate and not synchronous.
-  //
-  // Free per-terminal comment-store entries when a terminal leaves the
-  // live key set. createComputed is load-bearing: it drives the mapArray
-  // accessor eagerly so per-key reactive owners attach with their
-  // onCleanup hooks. Without it the callback never runs, onCleanup never
-  // registers, and storesByKey resumes unbounded growth — with no
-  // compilation or test failure. Each per-key owner is disposed when its
-  // id leaves the set, firing onCleanup → releaseTerminal.
-  createComputed(
-    mapArray(meta.keys, (id) => {
-      onCleanup(() => releaseTerminal(id));
-    }),
-  );
 
   function getMetadata(id: TerminalId): TerminalMetadata | undefined {
     return meta.byKey(id)?.();
