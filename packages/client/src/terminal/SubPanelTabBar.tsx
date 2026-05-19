@@ -41,10 +41,7 @@ const SubPanelTabBar: Component<{
                 data-active={isActive() || undefined}
                 onClick={() => props.onSelect(id)}
               >
-                <TerminalUserIcon
-                  icon={meta()?.icon}
-                  class="text-sm leading-none shrink-0"
-                />
+                <TerminalUserIcon icon={meta()?.icon} />
                 <span class="truncate">{label()}</span>
               </button>
               <button

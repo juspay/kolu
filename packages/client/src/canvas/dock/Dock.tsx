@@ -591,10 +591,7 @@ const AwaitingCardBody: Component<{
       >
         <div class="flex items-baseline justify-between gap-2 min-w-0">
           <span class="flex items-baseline gap-1.5 min-w-0">
-            <TerminalUserIcon
-              icon={props.meta.icon}
-              class="text-sm leading-none shrink-0"
-            />
+            <TerminalUserIcon icon={props.meta.icon} />
             <span
               class="font-mono text-[0.7rem] font-bold uppercase tracking-[0.14em] truncate min-w-0"
               style={{ color: props.info.repoColor }}
@@ -671,10 +668,7 @@ const WorkingPillBody: Component<{
     >
       <div class="flex items-baseline justify-between gap-2 min-w-0">
         <span class="flex items-baseline gap-1.5 min-w-0">
-          <TerminalUserIcon
-            icon={props.meta.icon}
-            class="text-sm leading-none shrink-0"
-          />
+          <TerminalUserIcon icon={props.meta.icon} />
           <span
             class="font-mono text-[0.65rem] font-bold uppercase tracking-[0.14em] truncate min-w-0"
             style={{ color: props.info.repoColor }}
@@ -722,10 +716,7 @@ const QuietRowBody: Component<{
       title={props.info.meta.cwd}
     >
       <div class="flex items-baseline gap-2 min-w-0">
-        <TerminalUserIcon
-          icon={props.meta.icon}
-          class="text-sm leading-none shrink-0"
-        />
+        <TerminalUserIcon icon={props.meta.icon} />
         <span
           class="font-mono text-[0.6rem] font-bold uppercase tracking-[0.14em] truncate min-w-0"
           style={{ color: props.info.repoColor }}

@@ -17,16 +17,17 @@ import { type Component, Show } from "solid-js";
 
 const TerminalUserIcon: Component<{
   icon: string | undefined;
-  /** Tailwind size + spacing applied to the outer span. Override for
-   *  tighter chromes (e.g. sub-panel tabs) where the default `text-base
-   *  leading-none` would overflow the row. */
+  /** Tailwind size + spacing applied to the outer span. The default
+   *  matches what every dock / switcher / sub-tab call site needs;
+   *  override only when a surface genuinely diverges (e.g. the dock
+   *  rail-segment overlay uses `text-base` + `mix-blend-multiply`). */
   class?: string;
 }> = (props) => (
   <Show when={props.icon}>
     {(icon) => (
       <span
         data-testid="terminal-icon"
-        class={props.class ?? "text-base leading-none shrink-0"}
+        class={props.class ?? "text-sm leading-none shrink-0"}
         aria-hidden="true"
       >
         {icon()}

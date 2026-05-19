@@ -513,10 +513,7 @@ const WorkspaceCard: Component<{
        *  the repo-name color and out of `searchTextFor` (dockModel.ts). */}
       <div class="flex items-center justify-between gap-2 min-w-0">
         <span class="flex items-center gap-1.5 min-w-0">
-          <TerminalUserIcon
-            icon={props.entry.info.meta.icon}
-            class="text-sm leading-none shrink-0"
-          />
+          <TerminalUserIcon icon={props.entry.info.meta.icon} />
           <span
             class="font-mono text-[0.6rem] font-bold uppercase tracking-[0.16em] truncate min-w-0"
             style={{ color: props.entry.info.repoColor }}
