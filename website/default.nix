@@ -29,7 +29,7 @@ let
     pname = "kolu-website";
     version = "0.1.0";
     inherit src;
-    hash = "sha256-EgCvlKgSv86ecZR7aL1J2uGFWnaCMyQjkvUlpqXjaTo=";
+    hash = "sha256-UKIHmWIr5s0RkpDOB8RMDvLL779dugiBDoVOWqQgYrQ=";
     fetcherVersion = 3;
   };
 
