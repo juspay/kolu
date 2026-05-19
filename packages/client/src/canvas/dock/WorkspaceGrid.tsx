@@ -24,7 +24,9 @@ import {
   createSignal,
   on,
 } from "solid-js";
+import { IntentMarkdownBlock } from "../../intent/IntentMarkdown";
 import { formatTimeAgo, useIdleClassifier } from "../../terminal/staleness";
+import TerminalTag from "../../terminal/TerminalTag";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import {
   bucketDescriptor,
@@ -507,13 +509,18 @@ const WorkspaceCard: Component<{
         </span>
       </Show>
 
-      {/* Eyebrow: repo identity + (right) PR # if resolved. */}
+      {/* Eyebrow: optional intent tag + repo identity + (right) PR # if resolved.
+       *  Tag is rendered as a separate sibling span so it stays out of
+       *  the repo-name color and out of `searchTextFor` (dockModel.ts). */}
       <div class="flex items-center justify-between gap-2 min-w-0">
-        <span
-          class="font-mono text-[0.6rem] font-bold uppercase tracking-[0.16em] truncate min-w-0"
-          style={{ color: props.entry.info.repoColor }}
-        >
-          {props.entry.repoName}
+        <span class="flex items-center gap-1.5 min-w-0">
+          <TerminalTag intent={props.entry.info.meta.intent} />
+          <span
+            class="font-mono text-[0.6rem] font-bold uppercase tracking-[0.16em] truncate min-w-0"
+            style={{ color: props.entry.info.repoColor }}
+          >
+            {props.entry.repoName}
+          </span>
         </span>
         <Show when={pr()}>
           {(summary) => (
@@ -590,6 +597,19 @@ const WorkspaceCard: Component<{
                 </span>
               )}
             </Show>
+          </div>
+        )}
+      </Show>
+
+      {/* Intent body — full markdown rendered when set, so the user
+       *  sees the same note here that they edit in the dialog. */}
+      <Show when={props.entry.info.meta.intent}>
+        {(intent) => (
+          <div
+            data-testid="workspace-switcher-card-intent"
+            class="mt-2 border-l-2 border-edge-bright/40 pl-2 text-[0.72rem] leading-snug text-fg-2"
+          >
+            <IntentMarkdownBlock markdown={intent()} />
           </div>
         )}
       </Show>

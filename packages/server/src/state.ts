@@ -98,7 +98,7 @@ type PersistedState = z.infer<typeof PersistedStateSchema>;
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.21.0";
+const SCHEMA_VERSION = "1.22.0";
 
 // Callers must pass an explicit directory via KOLU_STATE_DIR. A bare launch
 // with no env would silently clobber whatever happens to live at conf's
@@ -410,6 +410,14 @@ export const store = new Conf<PersistedState>({
       })) as typeof session.terminals;
       store.set("session", { ...session, terminals });
     },
+    // SavedTerminal.intent added — optional multiline-markdown annotation.
+    // No backfill: the field is optional, so absent values continue to
+    // read as "unset" through the tightened Zod schema (`.min(1).optional()`).
+    // themeName was also tightened from `.optional()` to `.min(1).optional()`
+    // in the same schema bump; legacy sessions that had `themeName: ""`
+    // would now fail validation, but no path produced that shape — the
+    // theme setter always wrote a non-empty value or omitted the key.
+    "1.22.0": () => {},
   },
 });
 

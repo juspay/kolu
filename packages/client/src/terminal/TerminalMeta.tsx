@@ -11,6 +11,7 @@
  *  exported below for reuse. */
 
 import { prLabel, prUnavailableSource, prValue } from "kolu-github/schemas";
+import type { TerminalId } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
 import { PrStateIcon, WorktreeIcon } from "../ui/Icons";
 import Tip from "../ui/Tip";
@@ -18,16 +19,21 @@ import ChecksIndicator from "./ChecksIndicator";
 import { copyTextWithToast } from "./clipboard";
 import { PrUnavailableButton } from "./PrUnavailablePopover";
 import type { TerminalDisplayInfo } from "./terminalDisplay";
+import TerminalTag from "./TerminalTag";
 
 const TerminalMeta: Component<{
   info: TerminalDisplayInfo | undefined;
+  id: TerminalId;
+  /** Open the intent editor for this terminal. Wired in `App.tsx` to
+   *  `intentEditor.openTerminal(id)`. */
+  onOpenIntent: () => void;
 }> = (props) => {
   const i = () => props.info;
   return (
     <Show when={i()} fallback={<TerminalMetaSkeleton />}>
       {(info) => (
         <>
-          {/* Name row — `name suffix [worktree-icon] [fg-title] [progress]`.
+          {/* Name row — `[tag] name suffix [worktree-icon] [fg-title] [progress]`.
            *  Sub-count lives on the title-bar split toggle (one source
            *  of truth for "this tile has children"); the agent task
            *  progress bar owns the right slot when an agent is running.
@@ -37,6 +43,10 @@ const TerminalMeta: Component<{
            *  repo name) — visible space is reserved for the OSC 2
            *  process title. */}
           <div class="flex items-center gap-1.5 min-h-7 text-sm font-medium min-w-0">
+            <TerminalIntentChip
+              intent={info().meta.intent}
+              onOpen={props.onOpenIntent}
+            />
             <NameSpan info={info()} />
             <Show when={info().key.suffix}>
               {(suffix) => (
@@ -162,6 +172,7 @@ export const TerminalMetaCompact: Component<{
     <Show when={i()} fallback={<TerminalMetaSkeleton />}>
       {(info) => (
         <div class="flex items-center gap-1.5 min-h-7 text-sm font-medium min-w-0">
+          <TerminalTag intent={info().meta.intent} />
           <NameSpan info={info()} />
           <Show when={info().meta.git?.isWorktree}>
             <WorktreeBadge />
@@ -265,6 +276,41 @@ const TerminalMetaSkeleton: Component = () => (
     <div class="h-3.5 w-24 bg-surface-2 rounded" />
     <div class="h-3 w-16 bg-surface-2 rounded" />
   </div>
+);
+
+/** Clickable chip in the title bar — displays the intent tag (line-1
+ *  glyph) if set, or a faint "＋" placeholder otherwise. Click opens
+ *  the intent editor; the chip itself is the only affordance the
+ *  canvas tile chrome needs to expose for the intent feature. */
+const TerminalIntentChip: Component<{
+  intent: string | undefined;
+  onOpen: () => void;
+}> = (props) => (
+  <Tip label={props.intent ? "Edit intent" : "Set intent"}>
+    <button
+      type="button"
+      data-testid="terminal-intent-chip"
+      class="appearance-none bg-transparent border-0 p-0 m-0 cursor-pointer text-fg-3 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 rounded shrink-0"
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={(e) => {
+        e.stopPropagation();
+        props.onOpen();
+      }}
+      onDblClick={(e) => e.stopPropagation()}
+      aria-label={props.intent ? "Edit terminal intent" : "Set terminal intent"}
+    >
+      <Show
+        when={props.intent}
+        fallback={
+          <span class="text-xs opacity-50 hover:opacity-90" aria-hidden="true">
+            ＋
+          </span>
+        }
+      >
+        <TerminalTag intent={props.intent} />
+      </Show>
+    </button>
+  </Tip>
 );
 
 export default TerminalMeta;
