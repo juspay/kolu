@@ -237,14 +237,3 @@ export const IntentMarkdownBlock: Component<{
     </div>
   );
 };
-
-/** Safe inline markdown renderer for first-line intent tags. */
-export const IntentMarkdownInline: Component<{
-  markdown: string;
-  links?: boolean;
-}> = (props) => {
-  const tokens = createMemo(() =>
-    marked.Lexer.lexInline(props.markdown, MARKED_OPTIONS),
-  );
-  return <InlineTokens tokens={tokens()} links={props.links ?? false} />;
-};
