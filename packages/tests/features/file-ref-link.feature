@@ -36,6 +36,53 @@ Feature: File-ref autolinking in terminal
     And the Code tab mode should be "browse"
     And the selected file should show content "beta"
 
+  Scenario: Clicking a slash-containing path opens the file at the line
+    When I run "git init /tmp/kolu-file-ref-slash && cd /tmp/kolu-file-ref-slash"
+    And I run "git commit --allow-empty -m init"
+    And I run "mkdir -p src && printf 'alpha\nbeta\ngamma\n' > src/notes.txt"
+    And I run "echo 'error in src/notes.txt:2 — context'"
+    And I trigger the terminal file-ref link "src/notes.txt:2"
+    Then the right panel should be visible
+    And the Code tab should be active
+    And the Code tab mode should be "browse"
+    And the selected file should show content "beta"
+    And line 2 should be selected in the file content
+
+  Scenario: Clicking a bare path (no line number) opens the file with no selection
+    When I run "git init /tmp/kolu-file-ref-noline && cd /tmp/kolu-file-ref-noline"
+    And I run "git commit --allow-empty -m init"
+    And I run "printf 'alpha\nbeta\ngamma\n' > plain.txt"
+    And I run "echo 'see plain.txt for context'"
+    And I trigger the terminal file-ref link "plain.txt"
+    Then the right panel should be visible
+    And the Code tab should be active
+    And the Code tab mode should be "browse"
+    And the selected file should show content "alpha"
+    And no line should be selected in the file content
+
+  Scenario: Clicking a slash-containing path with no line opens the file with no selection
+    When I run "git init /tmp/kolu-file-ref-slash-noline && cd /tmp/kolu-file-ref-slash-noline"
+    And I run "git commit --allow-empty -m init"
+    And I run "mkdir -p src && printf 'alpha\nbeta\ngamma\n' > src/notes.txt"
+    And I run "echo 'see src/notes.txt for context'"
+    And I trigger the terminal file-ref link "src/notes.txt"
+    Then the right panel should be visible
+    And the Code tab should be active
+    And the Code tab mode should be "browse"
+    And the selected file should show content "alpha"
+    And no line should be selected in the file content
+
+  Scenario: Bare basename without a line number resolves via unique-basename fallback
+    When I run "git init /tmp/kolu-file-ref-noline-basename && cd /tmp/kolu-file-ref-noline-basename"
+    And I run "git commit --allow-empty -m init"
+    And I run "mkdir -p src/lib && printf 'alpha\nbeta\ngamma\n' > src/lib/unique.txt"
+    And I run "echo 'open unique.txt for details'"
+    And I trigger the terminal file-ref link "unique.txt"
+    Then the right panel should be visible
+    And the Code tab should be active
+    And the selected file should show content "alpha"
+    And no line should be selected in the file content
+
   Scenario: Re-clicking the same file-ref after closing the panel re-selects the line
     When I run "git init /tmp/kolu-file-ref-861-reclick && cd /tmp/kolu-file-ref-861-reclick"
     And I run "git commit --allow-empty -m init"

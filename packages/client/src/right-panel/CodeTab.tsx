@@ -314,6 +314,9 @@ const CodeTab: Component<{
     const h = handled();
     if (!h || h.request !== req || h.resolvedPath === null) return null;
     if (h.resolvedPath !== selectedPath()) return null;
+    // No-line refs (`src/Main.hs` with no `:N`) open the file with no
+    // highlight — the user asked for the file, not a specific line.
+    if (req.ref.startLine === null || req.ref.endLine === null) return null;
     return { start: req.ref.startLine, end: req.ref.endLine };
   });
 

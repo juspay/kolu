@@ -6,6 +6,10 @@ describe("formatLineRef", () => {
     expect(formatLineRef("src/a.ts", 5, 5)).toBe("src/a.ts:5");
     expect(formatLineRef("src/a.ts", 5, 9)).toBe("src/a.ts:5-9");
   });
+
+  it("returns the bare path when start is null", () => {
+    expect(formatLineRef("src/a.ts", null, null)).toBe("src/a.ts");
+  });
 });
 
 describe("parseLineRefs", () => {
@@ -109,6 +113,35 @@ describe("parseLineRefs", () => {
     expect(refs).toHaveLength(1);
     expect(refs[0]?.index).toBe(line.indexOf("packages/"));
     expect(refs[0]?.text).toBe("packages/foo.ts:7");
+  });
+
+  it("matches a bare slash-containing path without a line number", () => {
+    const refs = parseLineRefs("see src/Main.hs for details");
+    expect(refs).toHaveLength(1);
+    expect(refs[0]).toMatchObject({
+      path: "src/Main.hs",
+      startLine: null,
+      endLine: null,
+      text: "src/Main.hs",
+    });
+  });
+
+  it("matches a bare filename with an extension and no line number", () => {
+    const refs = parseLineRefs("open Main.hs to start");
+    expect(refs).toHaveLength(1);
+    expect(refs[0]).toMatchObject({
+      path: "Main.hs",
+      startLine: null,
+      endLine: null,
+    });
+  });
+
+  it("does not linkify plain words without a `/` or `.ext`", () => {
+    // `react`, `init`, `Makefile` etc. — common terminal output that
+    // would be noisy if every word became hover-decorated.
+    expect(parseLineRefs("npm i react")).toEqual([]);
+    expect(parseLineRefs("git init")).toEqual([]);
+    expect(parseLineRefs("run Makefile")).toEqual([]);
   });
 });
 
