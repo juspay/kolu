@@ -43,8 +43,8 @@ Feature: Terminal intent
 
   Scenario: Quick-row click inserts emoji at cursor
     When I click the terminal intent chip
-    And I click the quick-row emoji "🎩"
-    Then the intent editor textarea should contain "🎩"
+    And I click the quick-row emoji "🎯"
+    Then the intent editor textarea should contain "🎯"
 
   Scenario: Edit intent via the command palette
     When I open the command palette
