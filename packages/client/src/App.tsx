@@ -183,10 +183,11 @@ const App: Component = () => {
     activeId: store.activeId,
     getTerminalIntent: (id) => store.getMetadata(id)?.intent,
     setTerminalIntent: (id, intent) => {
-      void client.terminal.setIntent({ id, intent }).catch((err: unknown) => {
-        const message = err instanceof Error ? err.message : String(err);
-        toast.error(`Failed to save intent: ${message}`);
-      });
+      void client.terminal
+        .setIntent({ id, intent })
+        .catch((err: Error) =>
+          toast.error(`Failed to save intent: ${err.message}`),
+        );
     },
   });
 
