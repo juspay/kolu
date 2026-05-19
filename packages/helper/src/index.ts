@@ -52,6 +52,8 @@ import {
   HelperSpawnPtyParamsSchema,
   HelperReadFileParamsSchema,
   HelperStatMtimeMsParamsSchema,
+  HelperSubscribeForegroundParamsSchema,
+  HelperUnsubscribeForegroundParamsSchema,
   HelperUnwatchParamsSchema,
   HelperWatchParamsSchema,
   HelperWriteParamsSchema,
@@ -259,6 +261,22 @@ function runDaemon(): void {
                 err instanceof Error ? err.message : String(err),
               ),
             );
+          return;
+        }
+        case "subscribeForeground": {
+          const params = HelperSubscribeForegroundParamsSchema.parse(
+            req.params,
+          );
+          manager.subscribeForeground(params.ptyId);
+          respond(req.id, {});
+          return;
+        }
+        case "unsubscribeForeground": {
+          const params = HelperUnsubscribeForegroundParamsSchema.parse(
+            req.params,
+          );
+          manager.unsubscribeForeground(params.ptyId);
+          respond(req.id, {});
           return;
         }
         default:

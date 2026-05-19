@@ -19,10 +19,18 @@ import { join } from "node:path";
 import type {
   HelperDataEvent,
   HelperExitEvent,
+  HelperForegroundChangeEvent,
   HelperPtyEvent,
   HelperWatchEvent,
 } from "kolu-common/helper-protocol";
 import { localExecutor, type WatchHandle } from "kolu-git/executor";
+
+/** Helper-side foreground-poll cadence. Local to the helper process —
+ *  no SSH round trip — so we can poll cheaply. 200 ms is faster than
+ *  the old controller-side 250 ms poll but emits to the controller only
+ *  on actual change, so the SSH channel sees at most a small handful of
+ *  frames per PTY across an entire session (one per agent start/exit). */
+const FOREGROUND_POLL_MS = 200;
 
 const require = createRequire(import.meta.url);
 // node-pty has no ESM build; load via createRequire so TypeScript is happy
@@ -102,6 +110,12 @@ export interface Manager {
   replay(ptyId: string, sinceSeq: number | undefined): HelperPtyEvent[];
   foregroundPid(ptyId: string): number | undefined;
   processName(ptyId: string): string | undefined;
+  /** Start pushing `foregroundChange` events for this PTY whenever the
+   *  foreground pid or process name actually differs from the last
+   *  push. Emits an initial event immediately so the controller's
+   *  cached value populates without a separate sync RPC. */
+  subscribeForeground(ptyId: string): void;
+  unsubscribeForeground(ptyId: string): void;
   list(): Array<{ ptyId: string; pid: number; lastSeq: number }>;
   /** Cleanup hook for shutdown — kills every PTY, no events emitted. */
   shutdown(): void;
@@ -111,10 +125,20 @@ export interface Manager {
  *  intentionally external so the same Manager works under tests (stub
  *  emitter) and in production (stdout writer). */
 export function createManager(
-  emit: (event: HelperPtyEvent | HelperWatchEvent) => void,
+  emit: (
+    event: HelperPtyEvent | HelperWatchEvent | HelperForegroundChangeEvent,
+  ) => void,
 ): Manager {
   const ptys = new Map<string, PtyEntry>();
   const watchers = new Map<string, WatchHandle>();
+  /** Per-PTY foreground subscription state. The timer polls locally and
+   *  pushes only when `{pid, name}` differs from the last push. */
+  interface ForegroundSub {
+    timer: ReturnType<typeof setInterval>;
+    lastPid: number | null;
+    lastName: string | null;
+  }
+  const fgSubs = new Map<string, ForegroundSub>();
 
   function record(ptyId: string, build: (seq: number) => HelperPtyEvent): void {
     const entry = ptys.get(ptyId);
@@ -247,6 +271,7 @@ export function createManager(
         // Best-effort cleanup.
       }
     }
+    unsubscribeForeground(ptyId);
     ptys.delete(ptyId);
   }
 
@@ -276,6 +301,41 @@ export function createManager(
     } catch {
       return undefined;
     }
+  }
+
+  function emitForeground(ptyId: string, sub: ForegroundSub): void {
+    const pid = foregroundPid(ptyId) ?? null;
+    const name = processName(ptyId) ?? null;
+    if (pid === sub.lastPid && name === sub.lastName) return;
+    sub.lastPid = pid;
+    sub.lastName = name;
+    emit({
+      method: "foregroundChange",
+      params: { ptyId, pid, name },
+    });
+  }
+
+  function subscribeForeground(ptyId: string): void {
+    if (fgSubs.has(ptyId)) return;
+    // Sentinels chosen so the first poll always differs and emits an
+    // initial frame to populate the controller's cache without a
+    // separate sync RPC.
+    const sub: ForegroundSub = {
+      timer: setInterval(() => emitForeground(ptyId, sub), FOREGROUND_POLL_MS),
+      lastPid: Number.NaN as unknown as number,
+      lastName: "\0",
+    };
+    fgSubs.set(ptyId, sub);
+    // Fire once synchronously so the controller doesn't wait FOREGROUND_POLL_MS
+    // for the first datum.
+    emitForeground(ptyId, sub);
+  }
+
+  function unsubscribeForeground(ptyId: string): void {
+    const sub = fgSubs.get(ptyId);
+    if (!sub) return;
+    clearInterval(sub.timer);
+    fgSubs.delete(ptyId);
   }
 
   function list(): Array<{ ptyId: string; pid: number; lastSeq: number }> {
@@ -373,6 +433,8 @@ export function createManager(
     ptys.clear();
     for (const handle of watchers.values()) handle.stop();
     watchers.clear();
+    for (const sub of fgSubs.values()) clearInterval(sub.timer);
+    fgSubs.clear();
   }
 
   return {
@@ -383,6 +445,8 @@ export function createManager(
     replay,
     foregroundPid,
     processName,
+    subscribeForeground,
+    unsubscribeForeground,
     list,
     exec,
     watch: startWatch,

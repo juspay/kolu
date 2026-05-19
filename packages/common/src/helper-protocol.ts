@@ -146,7 +146,22 @@ export const HelperRpcMethodSchema = z.enum([
   "queryDb",
   "readFile",
   "statMtimeMs",
+  "subscribeForeground",
+  "unsubscribeForeground",
 ]);
+
+/** Subscribe to foreground-process changes for a PTY. The helper polls
+ *  `tcgetpgrp()` locally (no SSH round trip) at its own cadence and
+ *  pushes a `foregroundChange` event only when `{pid, name}` differ
+ *  from the last emit. Replaces the controller-side 250 ms poll that
+ *  used to fire 8 RPCs/sec/PTY just to keep the cached snapshot live. */
+export const HelperSubscribeForegroundParamsSchema = z.object({
+  ptyId: z.string(),
+});
+
+export const HelperUnsubscribeForegroundParamsSchema = z.object({
+  ptyId: z.string(),
+});
 
 export type HelperRpcMethod = z.infer<typeof HelperRpcMethodSchema>;
 
@@ -217,6 +232,19 @@ export const HelperWatchEventSchema = z.object({
   }),
 });
 
+/** Foreground-process change observed for a subscribed PTY. The helper
+ *  polls tcgetpgrp() locally and dedups; only emits when pid or process
+ *  name differs from the last value. `pid` is null when no foreground
+ *  process is set (between fork and exec, or after exit). */
+export const HelperForegroundChangeEventSchema = z.object({
+  method: z.literal("foregroundChange"),
+  params: z.object({
+    ptyId: z.string(),
+    pid: z.number().int().positive().nullable(),
+    name: z.string().nullable(),
+  }),
+});
+
 /** Emitted exactly once, as the very first frame the helper writes after
  *  startup. Lets the controller distinguish "helper running but slow to
  *  service the first request" from "helper crashed/missing/wrong binary."
@@ -243,12 +271,16 @@ export const HelperEventSchema = z.union([
   HelperExitEventSchema,
   HelperReadyEventSchema,
   HelperWatchEventSchema,
+  HelperForegroundChangeEventSchema,
 ]);
 export type HelperEvent = z.infer<typeof HelperEventSchema>;
 export type HelperDataEvent = z.infer<typeof HelperDataEventSchema>;
 export type HelperExitEvent = z.infer<typeof HelperExitEventSchema>;
 export type HelperReadyEvent = z.infer<typeof HelperReadyEventSchema>;
 export type HelperWatchEvent = z.infer<typeof HelperWatchEventSchema>;
+export type HelperForegroundChangeEvent = z.infer<
+  typeof HelperForegroundChangeEventSchema
+>;
 
 // ── Top-level frame (request or response or event) ────────────────────
 

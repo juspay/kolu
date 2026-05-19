@@ -63,54 +63,47 @@ const { Terminal } =
 const { SerializeAddon } =
   require("@xterm/addon-serialize") as typeof import("@xterm/addon-serialize");
 
-/** Background poll cadence for foregroundPid / processName. The local
- *  case reads these via a kernel syscall on demand; the remote case
- *  can't make that synchronous, so we cache the last value from a
- *  periodic helper RPC. 250ms balances "feels live" against helper RPC
- *  cost — agent detection's title-event reconcile is the main consumer
- *  and it can tolerate a quarter-second staleness easily. */
-const FOREGROUND_POLL_MS = 250;
-
-/** Spawn a periodic poll loop that keeps `foregroundPid` and `process`
- *  fresh for the remote PTY. Returned `stop` clears the timer.
+/** Foreground-pid / process-name source backed by helper-pushed
+ *  `foregroundChange` events. Zero polling on the SSH channel — the
+ *  helper does the local tcgetpgrp() polling and only sends a frame
+ *  when the value actually changes. The synchronous getters on
+ *  `PtyHandle` read from the locally-cached last-pushed value.
  *
- *  Lives outside `spawnPty` so the closure inside `spawnPty` doesn't
- *  braid three things into one factory call: the lifecycle of the PTY
- *  itself, the OSC parser, AND the background poller. Local separation
- *  per Hickey C1 — the broader fix (an async `ForegroundPidSource` that
- *  removes the synchronous-getter complect from `PtyHandle` itself)
- *  remains the deferred follow-up the file header calls out. */
-interface ForegroundPoller {
+ *  Lives outside `spawnPty` so the lifecycle (subscribe at spawn,
+ *  unsubscribe + clear cache at dispose) doesn't braid into the
+ *  spawn closure. */
+interface ForegroundSource {
   foregroundPid(): number | undefined;
   processName(): string;
+  /** Called by `dispatchFrame` on each `foregroundChange` event. */
+  applyChange(pid: number | null, name: string | null): void;
   stop(): void;
 }
 
-function createForegroundPoller(
+function createForegroundSource(
   ptyId: string,
   sendRequest: <T>(method: string, params: unknown, log: Logger) => Promise<T>,
   tlog: Logger,
-): ForegroundPoller {
+): ForegroundSource {
   let cachedForegroundPid: number | undefined;
   let cachedProcess = "";
-  const timer = setInterval(() => {
-    sendRequest<{ pid?: number }>("foregroundPid", { ptyId }, tlog)
-      .then((r) => {
-        cachedForegroundPid = r.pid;
-      })
-      .catch(() => {
-        // Helper gone or PTY missing — leave the cached value alone.
-      });
-    sendRequest<{ name?: string }>("processName", { ptyId }, tlog)
-      .then((r) => {
-        cachedProcess = r.name ?? "";
-      })
-      .catch(() => {});
-  }, FOREGROUND_POLL_MS);
+  // Fire-and-forget — the helper sends an initial frame on subscribe so
+  // the cache populates without any controller-side poll.
+  sendRequest<unknown>("subscribeForeground", { ptyId }, tlog).catch(() => {
+    // helper gone or PTY missing; we'll re-subscribe after reconnect
+  });
   return {
     foregroundPid: () => cachedForegroundPid,
     processName: () => cachedProcess,
-    stop: () => clearInterval(timer),
+    applyChange(pid, name) {
+      cachedForegroundPid = pid ?? undefined;
+      cachedProcess = name ?? "";
+    },
+    stop: () => {
+      sendRequest<unknown>("unsubscribeForeground", { ptyId }, tlog).catch(
+        () => {},
+      );
+    },
   };
 }
 
@@ -154,6 +147,9 @@ export function createRemoteHost(opts: RemoteHostOpts): Host {
     onData(e: HelperDataEvent): void;
     onExit(e: HelperExitEvent): void;
     lastSeq: number;
+    /** Foreground-source cache for this PTY, fed by `foregroundChange`
+     *  events the helper pushes (one per actual change, not on a poll). */
+    foreground: ForegroundSource | null;
   }
   const ptys = new Map<string, PtyReg>();
   /** Active watch subscriptions: subId → callback. Populated by
@@ -232,6 +228,11 @@ export function createRemoteHost(opts: RemoteHostOpts): Host {
       }
     } else if (event.method === "watchEvent") {
       watchSubs.get(event.params.subId)?.(event.params.path);
+    } else if (event.method === "foregroundChange") {
+      const reg = ptys.get(event.params.ptyId);
+      if (reg?.foreground) {
+        reg.foreground.applyChange(event.params.pid, event.params.name);
+      }
     }
   }
 
@@ -270,10 +271,46 @@ export function createRemoteHost(opts: RemoteHostOpts): Host {
 
     const remoteCmd = helperRemoteCmd ?? DEFAULT_HELPER_REMOTE_CMD;
     log.info({ remoteCmd }, "spawning ssh helper");
-    const ssh = spawn("ssh", [alias, remoteCmd], {
-      stdio: ["pipe", "pipe", "pipe"],
-    });
+    // SSH options tuned for low-latency, single long-lived channel:
+    //  - `Compression=no` — small JSON frames compress poorly; the CPU
+    //    cost adds latency per keystroke without saving bytes.
+    //  - `ServerAliveInterval=30` / `ServerAliveCountMax=3` — detect a
+    //    half-open TCP within 90s so reconnect kicks in promptly.
+    //  - `ControlMaster=auto` + `ControlPersist=10m` — share the SSH
+    //    auth handshake across reconnects so the 1-second reconnect
+    //    backoff doesn't pay for a fresh TLS round trip.
+    //  - `ControlPath` lives under `$XDG_RUNTIME_DIR` (or `/tmp` fallback)
+    //    so it's per-user and ephemeral.
+    const cmDir = process.env.XDG_RUNTIME_DIR ?? "/tmp";
+    const ssh = spawn(
+      "ssh",
+      [
+        "-o",
+        "Compression=no",
+        "-o",
+        "ServerAliveInterval=30",
+        "-o",
+        "ServerAliveCountMax=3",
+        "-o",
+        "ControlMaster=auto",
+        "-o",
+        "ControlPersist=10m",
+        "-o",
+        `ControlPath=${cmDir}/kolu-ssh-cm-%r@%h:%p`,
+        alias,
+        remoteCmd,
+      ],
+      { stdio: ["pipe", "pipe", "pipe"] },
+    );
     child = ssh;
+    ssh.on("error", (err) => {
+      // Spawn failures (ssh binary missing, ENOENT) reach here BEFORE
+      // any stderr lines. Without this listener Node escalates to an
+      // uncaught exception and crashes the controller. Surface it as a
+      // helper-exit so the existing reconnect / rejection path takes
+      // care of it.
+      log.error({ err }, "ssh spawn errored");
+    });
 
     // readline handles NDJSON framing: splits on '\n', buffers partial
     // chunks, and closes naturally when the SSH process exits.
@@ -382,6 +419,14 @@ export function createRemoteHost(opts: RemoteHostOpts): Host {
         sendRequest("attach", { ptyId, sinceSeq: reg.lastSeq }, log).catch(
           (err) => log.warn({ err, ptyId }, "attach after reconnect failed"),
         );
+        // Re-subscribe foreground push — the daemon's subscription state
+        // for this PTY is keyed on the previous SSH-channel client and
+        // was cleared when the relay socket closed. Without this, the
+        // foreground cache freezes at its last-seen value across SSH
+        // drops.
+        if (reg.foreground) {
+          sendRequest("subscribeForeground", { ptyId }, log).catch(() => {});
+        }
       }
     }
   }
@@ -453,13 +498,16 @@ export function createRemoteHost(opts: RemoteHostOpts): Host {
       onDebug: (payload, message) => tlog.debug(payload, message),
     });
 
-    const foregroundPoller = createForegroundPoller(ptyId, sendRequest, tlog);
+    const foreground = createForegroundSource(ptyId, sendRequest, tlog);
 
     // Register the per-PTY listeners + initial sequence. `dispatchFrame`
     // bumps `lastSeq` on every event so a future SSH reconnect can pass
     // it as `sinceSeq` to `attach` and replay missed output transparently.
+    // `foreground` is wired so that `foregroundChange` events the helper
+    // pushes feed straight into the synchronous-getter cache.
     ptys.set(ptyId, {
       lastSeq: 0,
+      foreground,
       onData: (event) => {
         headless.write(event.params.data);
         spOpts.onData(event.params.data);
@@ -474,7 +522,7 @@ export function createRemoteHost(opts: RemoteHostOpts): Host {
     function cleanup(): void {
       if (disposed) return;
       disposed = true;
-      foregroundPoller.stop();
+      foreground.stop();
       parser.dispose();
       ptys.delete(ptyId);
       headless.dispose();
@@ -486,10 +534,10 @@ export function createRemoteHost(opts: RemoteHostOpts): Host {
         return parser.currentCwd();
       },
       get process() {
-        return foregroundPoller.processName();
+        return foreground.processName();
       },
       get foregroundPid() {
-        return foregroundPoller.foregroundPid();
+        return foreground.foregroundPid();
       },
       write(data: string) {
         // Fire-and-forget — write errors land in the helper log via
