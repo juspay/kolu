@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-05-19T13:47:59.756535+00:00'
+generated_at: '2026-05-19T16:44:07.162378+00:00'
 apm_version: 0.14.0
 dependencies:
 - repo_url: anthropics/skills
@@ -12,6 +12,18 @@ dependencies:
   - .agents/skills/frontend-design
   - .claude/skills/frontend-design
   content_hash: sha256:063a0e6448123cd359ad0044cc46b0e490cc7964d45ef4bb9fd842bd2ffbca67
+- repo_url: juspay/ci
+  host: github.com
+  resolved_commit: 07a346cdee3163ef3420859e358f080571b9b28b
+  resolved_ref: feat-platform-fanout-and-ssh
+  package_type: apm_package
+  deployed_files:
+  - .agents/skills/ci
+  - .claude/rules/workflow.md
+  - .claude/skills/ci
+  deployed_file_hashes:
+    .claude/rules/workflow.md: sha256:babf61cdd29cfc8f03b3d20f17b4bf13ef5f173dc05640bc83c505dca4b42010
+  content_hash: sha256:8f7ac08cb7d69fe9efed6e949862b9547a957574b1d6620cddc31a24284afc59
 - repo_url: juspay/nix-chrome-devtools-mcp
   host: github.com
   resolved_commit: 9c28516075f1a22e2cfd8986976ccb4b59bc60ed
@@ -42,7 +54,7 @@ dependencies:
   content_hash: sha256:67ff7ce606ad0378af382ad6cb84d9853bf70ec52d6fe40ed6b6f82ecd2c48c3
 - repo_url: srid/agency
   host: github.com
-  resolved_commit: b05ccf8b890ed7350df010d44ed272210cca82cb
+  resolved_commit: a19e96686ea20ad02e2869334f426e024565c703
   resolved_ref: master
   package_type: apm_package
   deployed_files:
@@ -83,15 +95,21 @@ dependencies:
     .codex/hooks/agency/scripts/do-stop-guard.sh: sha256:cb033f86c15ffd3d09d8e4b74a61f55a70def4cc4131cc013b7368a2d23f3f33
     .opencode/agents/hickey.md: sha256:10d9a4350a85752dc6658af8e0efb3d8be41803a2b6c73464e3d5b7a840435ad
     .opencode/agents/lowy.md: sha256:05aff7f6a91149a42c1fb9a3ca382a6f77bc39ac8a8d45436d443dd3349fb11e
-  content_hash: sha256:0b9a8edbb00aafa615dcf2a8420f7f5b3057f5306ebcf0faadaa9fd803513258
+  content_hash: sha256:b4c49cbb5308a43ac20ae76f7dfa77f56a102b13625c6cc6313f801c104359ca
 mcp_servers:
 - chrome-devtools
+- ci
 mcp_configs:
   chrome-devtools:
     name: chrome-devtools
     transport: stdio
     registry: false
     command: .agents/skills/nix-chrome-devtools-mcp/bin/serve
+  ci:
+    name: ci
+    transport: stdio
+    registry: false
+    command: .agents/skills/ci/bin/serve
 local_deployed_files:
 - .agents/skills/ci
 - .agents/skills/hk

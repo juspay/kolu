@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Launch the `ci` runner with process-compose's MCP server over stdio.
+# Sourced verbatim from juspay/ci (.apm/skills/ci/bin/serve on the
+# feat-platform-fanout-and-ssh branch). Lives here in our own
+# .apm/skills/ci/ because we already define an `ci` skill of our own
+# (SKILL.md in the same dir, /ci slash command), which causes APM to
+# skip the upstream package's bin/ subtree on name collision. Once the
+# upstream juspay/ci PR lands on main and APM's directory-merge story
+# improves (or our local SKILL.md is restructured), this file can be
+# deleted and the deployment reverts to upstream's launcher.
+#
+# Override knobs (env vars):
+#   CI_FLAKE — flake-ref for the ci runner (default points at the PR
+#              branch since the --mcp flag isn't on main yet).
+#   CI       — set `true` to drive strict mode (clean-tree refuse,
+#              `git worktree` HEAD snapshot, commit-status posts).
+
+set -euo pipefail
+
+flake="${CI_FLAKE:-github:juspay/ci/feat-platform-fanout-and-ssh}"
+exec nix run "${flake}" -- run --mcp "$@"

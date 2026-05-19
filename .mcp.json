@@ -4,6 +4,11 @@
       "command": ".agents/skills/nix-chrome-devtools-mcp/bin/serve",
       "args": [],
       "type": "stdio"
+    },
+    "ci": {
+      "type": "stdio",
+      "command": ".agents/skills/ci/bin/serve",
+      "args": []
     }
   }
 }

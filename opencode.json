@@ -6,6 +6,13 @@
       "command": [
         ".agents/skills/nix-chrome-devtools-mcp/bin/serve"
       ]
+    },
+    "ci": {
+      "type": "local",
+      "enabled": true,
+      "command": [
+        ".agents/skills/ci/bin/serve"
+      ]
     }
   }
 }
