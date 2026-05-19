@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "kolu-common": "workspace:*",
+    "kolu-git": "workspace:*",
     "node-pty": "github:juspay/node-pty#fix/darwin-pty-fd-leak",
     "zod": "^4.3.6"
   },

@@ -49,6 +49,16 @@ function withDb<T>(
 
 // --- Database session lookup ---
 
+/** SQL: most recently updated unarchived session for a directory.
+ *  Shared between the local DatabaseSync path here and the remote
+ *  `host.queryDb` path in `server/src/meta/remote-opencode.ts`. */
+export const SESSION_BY_DIRECTORY_SQL =
+  "SELECT id, title, directory FROM session WHERE directory = ? AND time_archived IS NULL ORDER BY time_updated DESC LIMIT 1";
+
+/** SQL: latest message blob for a session — feeds `parseMessageState`. */
+export const LATEST_MESSAGE_SQL =
+  "SELECT id, data FROM message WHERE session_id = ? ORDER BY time_created DESC LIMIT 1";
+
 export interface OpenCodeSession {
   id: string;
   title: string | null;
@@ -80,11 +90,7 @@ export function findSessionByDirectory(
 ): OpenCodeSession | null {
   return withDb(
     (conn) => {
-      const row = conn
-        .prepare(
-          "SELECT id, title, directory FROM session WHERE directory = ? AND time_archived IS NULL ORDER BY time_updated DESC LIMIT 1",
-        )
-        .get(directory) as
+      const row = conn.prepare(SESSION_BY_DIRECTORY_SQL).get(directory) as
         | { id: string; title: string; directory: string }
         | undefined;
       if (!row) return null;
@@ -303,11 +309,9 @@ export function deriveSessionState(
 ): DerivedState | null {
   return withDb(
     (conn) => {
-      const row = conn
-        .prepare(
-          "SELECT id, data FROM message WHERE session_id = ? ORDER BY time_created DESC LIMIT 1",
-        )
-        .get(sessionId) as { id: string; data: string } | undefined;
+      const row = conn.prepare(LATEST_MESSAGE_SQL).get(sessionId) as
+        | { id: string; data: string }
+        | undefined;
       if (!row) return null;
       const parsed = parseMessageState(row.data);
       if (!parsed) return null;

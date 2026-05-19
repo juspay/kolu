@@ -10,13 +10,19 @@
  *   (b) fall back to the basename-only minimal detection that the
  *       generic remote orchestrator emits — same problem.
  *
- * Mirrors the local `kolu-opencode/core.ts` logic (`findSessionByDirectory`
- * + `parseMessageState`) but routes the SQL through `host.queryDb` so it
- * runs on the remote's `opencode.db`. State transitions (thinking ↔
- * waiting) come through unchanged.
+ * Reuses kolu-opencode's SQL constants (`SESSION_BY_DIRECTORY_SQL`,
+ * `LATEST_MESSAGE_SQL`) and message-parser (`parseMessageState`) so
+ * the local and remote paths share one source of truth for the
+ * derived OpenCode state. The only divergence is the IO primitive:
+ * `DatabaseSync` here, `host.queryDb` over RPC there.
  */
 
-import { match } from "ts-pattern";
+import {
+  LATEST_MESSAGE_SQL,
+  OPENCODE_DB_REL,
+  parseMessageState,
+  SESSION_BY_DIRECTORY_SQL,
+} from "kolu-opencode";
 import type { Host } from "../host/types.ts";
 import type { Logger } from "../log.ts";
 
@@ -26,21 +32,6 @@ import type { Logger } from "../log.ts";
  *  enough for "is the agent done thinking yet" without flooding the
  *  helper RPC channel. */
 const POLL_INTERVAL_MS = 1_500;
-
-/** Default OpenCode DB path relative to the remote user's HOME.
- *  Matches `kolu-opencode/config.ts`'s `OPENCODE_DB_PATH`. */
-const OPENCODE_DB_REL = ".local/share/opencode/opencode.db";
-
-/** Minimal subset of OpenCode's `MessageData` we need to derive state.
- *  Defined inline so this module stays decoupled from the integration
- *  package's internal types. */
-interface MessageData {
-  role: "user" | "assistant" | string;
-  modelID?: string;
-  providerID?: string;
-  time?: { completed?: number };
-  finish?: string;
-}
 
 export interface RemoteOpencodeWatcher {
   /** Latest cwd from the terminal — the session lookup keys on this. */
@@ -107,23 +98,18 @@ export function startRemoteOpencode(
     if (!home) return;
     const dbPath = `${home}/${OPENCODE_DB_REL}`;
     try {
-      const sessions = (await host.queryDb(
-        dbPath,
-        "SELECT id, title FROM session WHERE directory = ? AND time_archived IS NULL ORDER BY time_updated DESC LIMIT 1",
-        [cwd],
-      )) as Array<{ id: string; title: string | null }>;
+      const sessions = (await host.queryDb(dbPath, SESSION_BY_DIRECTORY_SQL, [
+        cwd,
+      ])) as Array<{ id: string; title: string | null }>;
       const session = sessions[0];
       if (!session) {
         emit(null);
         return;
       }
-      const messages = (await host.queryDb(
-        dbPath,
-        "SELECT data FROM message WHERE session_id = ? ORDER BY time_created DESC LIMIT 1",
-        [session.id],
-      )) as Array<{ data: string }>;
-      const lastMsg = messages[0];
-      const parsed = lastMsg ? parseMessage(lastMsg.data) : null;
+      const messages = (await host.queryDb(dbPath, LATEST_MESSAGE_SQL, [
+        session.id,
+      ])) as Array<{ data: string }>;
+      const parsed = messages[0] ? parseMessageState(messages[0].data) : null;
       emit({
         kind: "opencode",
         state: parsed?.state ?? "thinking",
@@ -136,34 +122,6 @@ export function startRemoteOpencode(
     } catch (err) {
       plog.debug({ err, dbPath, cwd }, "remote opencode poll failed");
     }
-  }
-
-  function parseMessage(
-    raw: string,
-  ): { state: OpencodeInfoOut["state"]; model: string | null } | null {
-    let data: MessageData;
-    try {
-      data = JSON.parse(raw) as MessageData;
-    } catch {
-      return null;
-    }
-    return match(data)
-      .with({ role: "user" }, () => ({
-        state: "thinking" as const,
-        model: null,
-      }))
-      .with({ role: "assistant" }, (m) => {
-        const model = m.modelID
-          ? m.providerID
-            ? `${m.providerID}/${m.modelID}`
-            : m.modelID
-          : null;
-        if (m.time?.completed && m.finish === "stop") {
-          return { state: "waiting" as const, model };
-        }
-        return { state: "thinking" as const, model };
-      })
-      .otherwise(() => null);
   }
 
   function setCwd(next: string): void {

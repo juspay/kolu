@@ -186,8 +186,16 @@ function runDaemon(): void {
         }
         case "watch": {
           const params = HelperWatchParamsSchema.parse(req.params);
-          const result = manager.watch(params);
-          respond(req.id, result);
+          manager
+            .watch(params)
+            .then((result) => respond(req.id, result))
+            .catch((err) =>
+              respondError(
+                req.id,
+                "exec-failed",
+                err instanceof Error ? err.message : String(err),
+              ),
+            );
           return;
         }
         case "unwatch": {

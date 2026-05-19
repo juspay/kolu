@@ -11,16 +11,8 @@
  * the next attach the controller catches up.
  */
 
-import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import {
-  type FSWatcher,
-  mkdirSync,
-  rmSync,
-  watch,
-  writeFileSync,
-} from "node:fs";
-import { readFile as fsReadFile, stat as fsStat } from "node:fs/promises";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -30,6 +22,7 @@ import type {
   HelperPtyEvent,
   HelperWatchEvent,
 } from "kolu-common/helper-protocol";
+import { localExecutor, type WatchHandle } from "kolu-git/executor";
 
 const require = createRequire(import.meta.url);
 // node-pty has no ESM build; load via createRequire so TypeScript is happy
@@ -86,7 +79,10 @@ export interface Manager {
     timeoutMs?: number;
     maxBytes?: number;
   }): Promise<{ stdout: string; stderr: string; exitCode: number | null }>;
-  watch(opts: { path: string; recursive?: boolean }): { subId: string };
+  watch(opts: {
+    path: string;
+    recursive?: boolean;
+  }): Promise<{ subId: string }>;
   unwatch(subId: string): void;
   queryDb(opts: {
     path: string;
@@ -118,7 +114,7 @@ export function createManager(
   emit: (event: HelperPtyEvent | HelperWatchEvent) => void,
 ): Manager {
   const ptys = new Map<string, PtyEntry>();
-  const watchers = new Map<string, FSWatcher>();
+  const watchers = new Map<string, WatchHandle>();
 
   function record(ptyId: string, build: (seq: number) => HelperPtyEvent): void {
     const entry = ptys.get(ptyId);
@@ -290,85 +286,55 @@ export function createManager(
     }));
   }
 
+  // exec/readFile/statMtimeMs/watch are all delegations to kolu-git's
+  // `localExecutor` — the helper is the remote-end shim for exactly that
+  // primitive set. Reimplementing them here would be straight duplication.
+  // queryDb stays helper-specific (kolu-git has no SQLite need).
   function exec(opts: {
     cmd: string;
     args: string[];
     cwd?: string;
     timeoutMs?: number;
     maxBytes?: number;
-  }): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
-    const timeoutMs = opts.timeoutMs ?? 30_000;
-    const maxBytes = opts.maxBytes ?? 1_048_576;
-    return new Promise((resolve) => {
-      execFile(
-        opts.cmd,
-        opts.args,
-        {
-          cwd: opts.cwd,
-          timeout: timeoutMs,
-          maxBuffer: maxBytes,
-          env: process.env,
-        },
-        (err, stdout, stderr) => {
-          // execFile rejects on non-zero exit; we want the exit code
-          // delivered to the controller in either case so kolu-git can
-          // distinguish "git found nothing" (exitCode 128) from "git
-          // not on PATH" (spawn-failed).
-          const exitCode =
-            err && "code" in err && typeof err.code === "number"
-              ? err.code
-              : err
-                ? null
-                : 0;
-          resolve({
-            // execFile's `stdout`/`stderr` are typed as `string` when no
-            // `encoding: "buffer"` is requested; the callback signature
-            // narrowing isn't perfect across @types/node versions, so
-            // accept either shape defensively.
-            stdout: String(stdout ?? ""),
-            stderr: String(stderr ?? ""),
-            exitCode,
-          });
-        },
-      );
+  }) {
+    return localExecutor.exec(opts.cmd, opts.args, {
+      cwd: opts.cwd,
+      timeoutMs: opts.timeoutMs,
+      maxBytes: opts.maxBytes,
     });
   }
+  function readFile(opts: { path: string; maxBytes?: number }) {
+    return localExecutor.readFile(opts.path, { maxBytes: opts.maxBytes });
+  }
+  function statMtimeMs(path: string) {
+    return localExecutor.statMtimeMs(path);
+  }
 
-  function startWatch(opts: { path: string; recursive?: boolean }): {
+  async function startWatch(opts: {
+    path: string;
+    recursive?: boolean;
+  }): Promise<{
     subId: string;
-  } {
+  }> {
     const subId = randomUUID();
-    // fs.watch's recursive option works on Linux 22+ and macOS; on
-    // older kernels it silently degrades to non-recursive. Acceptable
-    // for the prototype.
-    const watcher = watch(
+    const handle = await localExecutor.watch(
       opts.path,
-      { recursive: opts.recursive ?? false, persistent: true },
-      (_eventType, filename) => {
+      (rel) => {
         emit({
           method: "watchEvent",
-          params: { subId, path: filename ? filename.toString() : "" },
+          params: { subId, path: rel },
         });
       },
+      { recursive: opts.recursive ?? false },
     );
-    watcher.on("error", () => {
-      // fs.watch errors (e.g. removed dir) tear down the subscription
-      // silently — the consumer's setCwd will install a fresh watch
-      // when the next git operation resolves a valid repoRoot.
-      watchers.delete(subId);
-    });
-    watchers.set(subId, watcher);
+    watchers.set(subId, handle);
     return { subId };
   }
 
   function stopWatch(subId: string): void {
-    const watcher = watchers.get(subId);
-    if (!watcher) return;
-    try {
-      watcher.close();
-    } catch {
-      // ignore
-    }
+    const handle = watchers.get(subId);
+    if (!handle) return;
+    handle.stop();
     watchers.delete(subId);
   }
 
@@ -395,26 +361,6 @@ export function createManager(
     }
   }
 
-  async function readFile(opts: {
-    path: string;
-    maxBytes?: number;
-  }): Promise<{ content: string; truncated: boolean }> {
-    const max = opts.maxBytes ?? 1_048_576;
-    const buf = await fsReadFile(opts.path);
-    if (buf.length > max) {
-      return {
-        content: buf.subarray(0, max).toString("utf-8"),
-        truncated: true,
-      };
-    }
-    return { content: buf.toString("utf-8"), truncated: false };
-  }
-
-  async function statMtimeMs(path: string): Promise<number> {
-    const s = await fsStat(path);
-    return s.mtimeMs;
-  }
-
   function shutdown(): void {
     for (const entry of ptys.values()) {
       if (!entry.exited) {
@@ -433,13 +379,7 @@ export function createManager(
       }
     }
     ptys.clear();
-    for (const watcher of watchers.values()) {
-      try {
-        watcher.close();
-      } catch {
-        // ignore
-      }
-    }
+    for (const handle of watchers.values()) handle.stop();
     watchers.clear();
   }
 

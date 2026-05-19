@@ -212,6 +212,9 @@ importers:
       kolu-common:
         specifier: workspace:*
         version: link:../common
+      kolu-git:
+        specifier: workspace:*
+        version: link:../integrations/git
       node-pty:
         specifier: github:juspay/node-pty#fix/darwin-pty-fd-leak
         version: https://codeload.github.com/juspay/node-pty/tar.gz/cc137d90e39bb9e5c72ca8b9d81210e5005c5fa3

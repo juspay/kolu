@@ -17,7 +17,11 @@
 
 export type { Logger } from "kolu-shared";
 export { opencodeProvider } from "./agent-provider.ts";
-export { OPENCODE_DB_PATH, OPENCODE_DB_WAL_PATH } from "./config.ts";
+export {
+  OPENCODE_DB_PATH,
+  OPENCODE_DB_REL,
+  OPENCODE_DB_WAL_PATH,
+} from "./config.ts";
 
 export {
   type DerivedState,
@@ -26,11 +30,13 @@ export {
   getLatestAssistantContextTokens,
   getSessionTaskProgress,
   getSessionTitle,
+  LATEST_MESSAGE_SQL,
   type OpenCodeSession,
   openDb,
   type ParsedMessageState,
   parseMessageState,
   runningToolsBucket,
+  SESSION_BY_DIRECTORY_SQL,
 } from "./core.ts";
 export {
   type OpenCodeInfo,
