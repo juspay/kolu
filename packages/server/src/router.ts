@@ -57,19 +57,26 @@ export const appRouter = t.router({
     list: t.host.list.handler(async () => listHosts()),
   },
   terminal: {
-    create: t.terminal.create.handler(async ({ input }) =>
-      createTerminal(
-        input.cwd,
-        input.parentId,
-        {
-          themeName: input.themeName,
-          canvasLayout: input.canvasLayout,
-          subPanel: input.subPanel,
-          lastActivityAt: input.lastActivityAt,
-        },
-        input.hostId,
-      ),
-    ),
+    create: t.terminal.create.handler(async ({ input }) => {
+      try {
+        return await createTerminal(
+          input.cwd,
+          input.parentId,
+          {
+            themeName: input.themeName,
+            canvasLayout: input.canvasLayout,
+            subPanel: input.subPanel,
+            lastActivityAt: input.lastActivityAt,
+          },
+          input.hostId,
+        );
+      } catch (err) {
+        if (!input.hostId) throw err;
+        throw new ORPCError("INTERNAL_SERVER_ERROR", {
+          message: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }),
 
     resize: t.terminal.resize.handler(async ({ input }) => {
       requireTerminal(input.id).handle.resize(input.cols, input.rows);

@@ -1,4 +1,8 @@
-import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
+import {
+  type ChildProcessWithoutNullStreams,
+  execFileSync,
+  spawn,
+} from "node:child_process";
 import { createInterface } from "node:readline";
 import {
   HELPER_PROTOCOL_VERSION,
@@ -20,7 +24,8 @@ import type { Host } from "./types.ts";
 
 const HELPER_READY_TIMEOUT_MS = 120_000;
 const HELPER_REQUEST_TIMEOUT_MS = 60_000;
-const DEFAULT_HELPER_REMOTE_CMD = `bash -lc 'nix --extra-experimental-features "nix-command flakes" run --refresh github:juspay/kolu#kolu-helper -- --serve'`;
+const MAX_HELPER_STDERR_CHARS = 12_000;
+const DEFAULT_HELPER_FLAKE = "github:juspay/kolu";
 
 interface PendingRequest {
   resolve(result: unknown): void;
@@ -46,9 +51,43 @@ interface RemoteHostOpts {
 
 const MAX_PENDING_PTY_EVENTS = 512;
 
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+function currentGitRev(): string | null {
+  try {
+    const rev = execFileSync("git", ["rev-parse", "HEAD"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    return /^[0-9a-f]{40}$/i.test(rev) ? rev : null;
+  } catch {
+    return null;
+  }
+}
+
+function defaultHelperRemoteCmd(): string {
+  const commitHash =
+    process.env.KOLU_COMMIT_HASH?.match(/^[0-9a-f]{7,40}$/i)?.[0] ??
+    currentGitRev();
+  const flakeRef = commitHash
+    ? `${DEFAULT_HELPER_FLAKE}/${commitHash}`
+    : DEFAULT_HELPER_FLAKE;
+  const command = `nix --extra-experimental-features "nix-command flakes" run --refresh ${shellQuote(flakeRef)}#kolu-helper -- --serve`;
+  return `bash -lc ${shellQuote(command)}`;
+}
+
+function appendTail(current: string, chunk: string): string {
+  const next = current + chunk;
+  return next.length > MAX_HELPER_STDERR_CHARS
+    ? next.slice(next.length - MAX_HELPER_STDERR_CHARS)
+    : next;
+}
+
 export function createRemoteHost(opts: RemoteHostOpts): Host {
   const { summary } = opts;
-  const helperRemoteCmd = opts.helperRemoteCmd ?? DEFAULT_HELPER_REMOTE_CMD;
+  const helperRemoteCmd = opts.helperRemoteCmd ?? defaultHelperRemoteCmd();
   let child: ChildProcessWithoutNullStreams | null = null;
   let connectPromise: Promise<void> | null = null;
   let helperReady = false;
@@ -177,13 +216,20 @@ export function createRemoteHost(opts: RemoteHostOpts): Host {
       const ssh = spawn("ssh", ["-T", summary.id, helperRemoteCmd], {
         stdio: "pipe",
       });
+      let stderrTail = "";
       child = ssh;
       helperReady = false;
 
+      const helperFailure = (reason: string): Error => {
+        const stderr = stderrTail.trim();
+        const details = stderr
+          ? `\n\nRemote stderr:\n${stderr}`
+          : "\n\nRemote stderr was empty.";
+        return new Error(`ssh helper for ${summary.id} ${reason}.${details}`);
+      };
+
       const readyTimer = setTimeout(() => {
-        readyReject?.(
-          new Error(`remote helper on ${summary.id} did not become ready`),
-        );
+        readyReject?.(helperFailure("did not become ready"));
         ssh.kill();
       }, HELPER_READY_TIMEOUT_MS);
       readyResolve = () => {
@@ -200,7 +246,9 @@ export function createRemoteHost(opts: RemoteHostOpts): Host {
       );
       ssh.stderr.on("data", (data: Buffer) => {
         if (child !== ssh) return;
-        tlog.debug({ host: summary.id, stderr: data.toString() }, "ssh stderr");
+        const text = data.toString();
+        stderrTail = appendTail(stderrTail, text);
+        tlog.debug({ host: summary.id, stderr: text }, "ssh stderr");
       });
       ssh.on("error", (err) => {
         if (child !== ssh) return;
@@ -214,8 +262,14 @@ export function createRemoteHost(opts: RemoteHostOpts): Host {
         child = null;
         connectPromise = null;
         helperReady = false;
-        const err = new Error(
-          `ssh helper for ${summary.id} exited (${signal ?? code ?? "unknown"})`,
+        const reason =
+          signal !== null
+            ? `exited from signal ${signal}`
+            : `exited with code ${code ?? "unknown"}`;
+        const err = helperFailure(reason);
+        tlog.error(
+          { err, host: summary.id, stderr: stderrTail, helperRemoteCmd },
+          "ssh helper exited before or during remote terminal session",
         );
         rejectAll(err);
         for (const [ptyId, reg] of [...ptys]) {

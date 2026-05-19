@@ -7,6 +7,7 @@ import type {
   CanvasLayout,
   InitialTerminalMetadata,
   TerminalId,
+  TerminalInfo,
 } from "kolu-common/surface";
 import { toast } from "solid-sonner";
 import { availableThemes, pickTheme, resolveThemeBgs } from "terminal-themes";
@@ -107,6 +108,9 @@ export function useTerminalCrud(deps: {
     initial?: InitialTerminalMetadata,
     hostId?: string,
   ): Promise<TerminalId> {
+    const loadingToastId = hostId
+      ? toast.loading(`Connecting to SSH host ${hostId}…`)
+      : undefined;
     if (store.activeMeta()?.git) showTipOnce(CONTEXTUAL_TIPS.worktree);
 
     // Snapshot peer backgrounds BEFORE creating — the new terminal gets the
@@ -123,19 +127,32 @@ export function useTerminalCrud(deps: {
       (peerBgs
         ? pickTheme(availableThemes, { spread: true, peerBgs })
         : undefined);
-    const info = await client.terminal
-      .create({
+    let info: TerminalInfo;
+    try {
+      info = await client.terminal.create({
         cwd,
         hostId,
         themeName: theme,
         canvasLayout: initial?.canvasLayout,
         subPanel: initial?.subPanel,
         lastActivityAt: initial?.lastActivityAt,
-      })
-      .catch((err: Error) => {
-        toast.error(`Failed to create terminal: ${err.message}`);
-        throw err;
       });
+      if (hostId) {
+        toast.success(`Connected to SSH host ${hostId}`, {
+          id: loadingToastId,
+        });
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (hostId) {
+        toast.error(`Failed to connect to SSH host ${hostId}: ${message}`, {
+          id: loadingToastId,
+        });
+      } else {
+        toast.error(`Failed to create terminal: ${message}`);
+      }
+      throw err;
+    }
     // `setActiveSilently`: the canvas's cascade-placement effect bumps
     // the centering signal once the new tile's pending layout is set —
     // calling `activate` here would race the layout and read undefined.
