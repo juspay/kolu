@@ -9,12 +9,7 @@
 import { existsSync, globSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
-import SSHConfig, {
-  LineType,
-  type Directive,
-  type Line,
-  type Section,
-} from "ssh-config";
+import SSHConfig, { type Directive, type Line, type Section } from "ssh-config";
 
 /** SSH destination displayed in the remote-terminal picker. */
 export interface SshHostEntry {
@@ -38,7 +33,7 @@ function isNodeError(err: unknown): err is NodeJS.ErrnoException {
 
 function isDirective(line: Line, param?: string): line is Directive {
   return (
-    line.type === LineType.DIRECTIVE &&
+    line.type === SSHConfig.DIRECTIVE &&
     "param" in line &&
     (param === undefined || line.param.toLowerCase() === param)
   );
