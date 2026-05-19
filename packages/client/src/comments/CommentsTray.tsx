@@ -13,20 +13,18 @@ import type { Comment } from "./types";
 import { useComments } from "./useComments";
 
 export type CommentsTrayProps = {
-  repoRoot: string;
+  terminalId: string;
   /** Click a tray item to jump to its file (and trigger scroll-to-quote
    *  via the highlight overlay's resolved Range on the destination). */
   onJumpTo?: (comment: Comment) => void;
 };
 
 export const CommentsTray: Component<CommentsTrayProps> = (props) => {
-  // `props.repoRoot` may briefly be `""` while `meta.git.repoRoot` is
-  // still streaming; capturing `useComments(props.repoRoot)` once at
-  // mount would lock the tray onto the empty-key store forever, so a
-  // later save (against the real repoRoot) would land in a sibling
-  // store the tray never re-reads. `createMemo` re-derives the wrapper
-  // whenever `props.repoRoot` ticks.
-  const store = createMemo(() => useComments(props.repoRoot));
+  // `createMemo` re-derives the store when `props.terminalId` changes —
+  // switching to a different terminal swaps the visible queue, and any
+  // race between meta resolution and mount can't lock the tray onto a
+  // stale key (the same trap the previous `const store = ...` form had).
+  const store = createMemo(() => useComments(props.terminalId));
 
   const copy = async (): Promise<void> => {
     const list = store().comments();

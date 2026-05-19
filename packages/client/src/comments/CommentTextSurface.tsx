@@ -22,7 +22,7 @@ import { useComments } from "./useComments";
 import { useTextSelection } from "./useTextSelection";
 
 export type CommentTextSurfaceProps = {
-  repoRoot: string;
+  terminalId: string;
   /** Repo-relative path the captured comments anchor to. */
   path: string;
   /** Ticker — caller bumps when the host's text content changes so the
@@ -43,10 +43,9 @@ export const CommentTextSurface: Component<CommentTextSurfaceProps> = (
     host,
     path: () => props.path,
   });
-  // `props.repoRoot` may briefly be `""` while `meta.git.repoRoot` is
-  // still streaming — see CommentsTray for the long form. `createMemo`
-  // re-derives the store whenever `props.repoRoot` ticks.
-  const comments = createMemo(() => useComments(props.repoRoot));
+  // `createMemo` re-derives the store when `props.terminalId` changes,
+  // so switching terminals re-reads the per-terminal queue.
+  const comments = createMemo(() => useComments(props.terminalId));
   const commentsForFile = createMemo(() =>
     comments().commentsForPath(props.path),
   );

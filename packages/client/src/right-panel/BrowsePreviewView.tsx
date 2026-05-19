@@ -17,7 +17,7 @@ import { type Component, createSignal } from "solid-js";
 import { CommentIframeSurface } from "../comments/CommentIframeSurface";
 
 export type BrowsePreviewViewProps = {
-  repoRoot: string;
+  terminalId: string;
   filePath: string;
   url: string;
 };
@@ -43,7 +43,7 @@ const BrowsePreviewView: Component<BrowsePreviewViewProps> = (props) => {
         class="w-full h-full border-0 bg-white"
       />
       <CommentIframeSurface
-        repoRoot={props.repoRoot}
+        terminalId={props.terminalId}
         path={props.filePath}
         iframe={iframeEl()}
       />

@@ -1,10 +1,11 @@
 /** Comments store — singleton, persisted to localStorage, keyed by
- *  `repoRoot`.
+ *  `terminalId`.
  *
- *  INVARIANT: keyed by git repoRoot (NOT by terminalId or worktree path).
- *  Comments survive worktree switches by design — the user's intent
- *  travels with the repo, not the directory. All terminals attached to
- *  the same repo share one comment queue.
+ *  INVARIANT: keyed by terminalId (NOT by git repoRoot). Each terminal
+ *  has its own comment queue. Two terminals in the same repo do NOT
+ *  share comments — they're typically working on different feature
+ *  branches with different review contexts, and merging their queues
+ *  would conflate unrelated drafts.
  *
  *  Stored shape: `{v: 1, comments: Comment[]}`. The `v` bump path lets
  *  future schema changes ship a migration without breaking existing
@@ -18,9 +19,9 @@ import { createSignal } from "solid-js";
 import { toast } from "solid-sonner";
 import type { Comment, PersistedShape } from "./types";
 
-const STORAGE_PREFIX = "kolu:comments:";
+const STORAGE_PREFIX = "kolu:comments-by-terminal:";
 
-type StoresByRepo = Map<
+type StoresByKey = Map<
   string,
   {
     comments: () => Comment[];
@@ -28,18 +29,18 @@ type StoresByRepo = Map<
   }
 >;
 
-const storesByRepo: StoresByRepo = new Map();
+const storesByKey: StoresByKey = new Map();
 
-/** Get or lazily create the persisted store for a given repoRoot. The
- *  per-repo store is a singleton so multiple call sites share one
+/** Get or lazily create the persisted store for a given terminalId. The
+ *  per-terminal store is a singleton so multiple call sites share one
  *  reactive source. */
-function storeFor(repoRoot: string) {
-  const existing = storesByRepo.get(repoRoot);
+function storeFor(terminalId: string) {
+  const existing = storesByKey.get(terminalId);
   if (existing) return existing;
   const [signal, setSignal] = makePersisted(
     createSignal<PersistedShape>({ v: 1, comments: [] }),
     {
-      name: `${STORAGE_PREFIX}${repoRoot}`,
+      name: `${STORAGE_PREFIX}${terminalId}`,
       serialize: (v) => JSON.stringify(v),
       deserialize: (s): PersistedShape => {
         try {
@@ -50,7 +51,7 @@ function storeFor(repoRoot: string) {
           // Shape mismatch — log + surface, then fall through to a
           // fresh init so the app doesn't brick.
           console.error(
-            `[comments] Stored data for ${repoRoot} has unexpected shape; resetting queue`,
+            `[comments] Stored data for ${terminalId} has unexpected shape; resetting queue`,
             parsed,
           );
           toast.error(
@@ -62,7 +63,7 @@ function storeFor(repoRoot: string) {
           // returning {comments: []} (indistinguishable from a fresh
           // install).
           console.error(
-            `[comments] Failed to parse stored data for ${repoRoot}:`,
+            `[comments] Failed to parse stored data for ${terminalId}:`,
             err,
           );
           toast.error(
@@ -82,15 +83,15 @@ function storeFor(repoRoot: string) {
       }));
     },
   };
-  storesByRepo.set(repoRoot, wrapped);
+  storesByKey.set(terminalId, wrapped);
   return wrapped;
 }
 
-/** API the rest of the client uses. Pass the active repoRoot at the
+/** API the rest of the client uses. Pass the active terminalId at the
  *  consumer site — there's no global ambient context (matches how
- *  `CodeTab.tsx` reads `props.meta?.git?.repoRoot`). */
-export function useComments(repoRoot: string) {
-  const store = storeFor(repoRoot);
+ *  `CodeTab.tsx` already threads `props.terminalId`). */
+export function useComments(terminalId: string) {
+  const store = storeFor(terminalId);
   return {
     comments: store.comments,
     commentsForPath: (path: string): Comment[] =>

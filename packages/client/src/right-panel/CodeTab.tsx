@@ -647,7 +647,7 @@ const CodeTab: Component<{
                             >
                               {(r) => (
                                 <CommentTextSurface
-                                  repoRoot={r()}
+                                  terminalId={props.terminalId ?? ""}
                                   path={path}
                                   contentTick={d().hunks[0] ?? ""}
                                   class="h-full w-full"
@@ -719,12 +719,14 @@ const CodeTab: Component<{
             </Show>
           </Resizable.Panel>
         </Resizable>
-        <Show when={repoPath()}>
-          {(repo) => (
+        <Show when={repoPath() !== null && props.terminalId !== null}>
+          {(_present) => (
             <>
               <CommentsTray
-                repoRoot={repo()}
+                terminalId={props.terminalId as string}
                 onJumpTo={(comment) => {
+                  const repo = repoPath();
+                  if (repo === null) return;
                   // Two complementary highlights on land:
                   //   1. Pierre's blue line bar (full-row selection)
                   //      via `openInCodeTab` when we have a stored
@@ -743,7 +745,7 @@ const CodeTab: Component<{
                         startLine: comment.lineRange.start,
                         endLine: comment.lineRange.end,
                       },
-                      repoRoot: repo(),
+                      repoRoot: repo,
                       targetMode: "browse",
                     });
                   } else {
@@ -756,7 +758,7 @@ const CodeTab: Component<{
                   });
                 }}
               />
-              <CommentComposer repoRoot={repo()} />
+              <CommentComposer terminalId={props.terminalId as string} />
             </>
           )}
         </Show>

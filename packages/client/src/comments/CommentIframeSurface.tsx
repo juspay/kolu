@@ -14,7 +14,7 @@ import { useComposer } from "./composerState";
 import { useComments } from "./useComments";
 
 export type CommentIframeSurfaceProps = {
-  repoRoot: string;
+  terminalId: string;
   path: string;
   iframe: HTMLIFrameElement | undefined;
 };
@@ -23,10 +23,9 @@ export const CommentIframeSurface: Component<CommentIframeSurfaceProps> = (
   props,
 ) => {
   const composer = useComposer();
-  // `props.repoRoot` may briefly be `""` while `meta.git.repoRoot` is
-  // still streaming — see CommentsTray for the long form. `createMemo`
-  // re-derives the store whenever `props.repoRoot` ticks.
-  const comments = createMemo(() => useComments(props.repoRoot));
+  // `createMemo` re-derives the store when `props.terminalId` changes,
+  // so switching terminals re-reads the per-terminal queue.
+  const comments = createMemo(() => useComments(props.terminalId));
   const commentsForFile = createMemo(() =>
     comments()
       .commentsForPath(props.path)

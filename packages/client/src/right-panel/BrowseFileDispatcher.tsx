@@ -57,7 +57,7 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
       <Match when={textContent()}>
         {(fc) => (
           <BrowseFileView
-            repoRoot={props.repoPath}
+            terminalId={props.terminalId}
             filePath={props.filePath}
             content={fc().content}
             truncated={fc().truncated}
@@ -69,7 +69,7 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
       <Match when={binaryContent()}>
         {(fc) => (
           <BrowsePreviewView
-            repoRoot={props.repoPath}
+            terminalId={props.terminalId}
             filePath={props.filePath}
             url={fc().url}
           />

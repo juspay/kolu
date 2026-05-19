@@ -30,7 +30,7 @@ function clampPosition(
 }
 
 export const CommentComposer: Component<{
-  repoRoot: string;
+  terminalId: string;
 }> = (props) => {
   const composer = useComposer();
   const [body, setBody] = createSignal("");
@@ -44,7 +44,7 @@ export const CommentComposer: Component<{
       setBody("");
       return;
     }
-    useComments(props.repoRoot).add({
+    useComments(props.terminalId).add({
       path: target.path,
       locator: target.locator,
       lineRange: target.lineRange,

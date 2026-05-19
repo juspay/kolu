@@ -18,7 +18,7 @@ import { pierreDiffsStyle } from "../ui/pierreTheme";
 import CodeMenuFrame from "./CodeMenuFrame";
 
 export type BrowseFileViewProps = {
-  repoRoot: string;
+  terminalId: string;
   filePath: string;
   content: string;
   /** True if the file exceeded the server's size limit and was truncated. */
@@ -40,7 +40,7 @@ const BrowseFileView: Component<BrowseFileViewProps> = (props) => {
         </div>
       </Show>
       <CommentTextSurface
-        repoRoot={props.repoRoot}
+        terminalId={props.terminalId}
         path={props.filePath}
         contentTick={props.content}
         class="h-full w-full"
