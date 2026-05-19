@@ -85,7 +85,14 @@ const ModalDialog: Component<{
         class="fixed inset-0 z-50 flex items-start justify-center px-4 pt-[15vh] pointer-events-none"
         classList={{ hidden: !props.open }}
       >
+        {/* `data-kolu-modal="true"` opts every ModalDialog out of
+         *  document-level shortcuts (`useShortcuts.ts`). Without this,
+         *  ⌘↵ inside an intent-editor / palette / confirm textarea
+         *  dispatches the global "New terminal" altKeybind BEFORE the
+         *  modal's own onKeyDown sees it. Same mechanism the comments
+         *  composer uses. */}
         <div
+          data-kolu-modal="true"
           class={`pointer-events-auto w-full ${SIZE_CLASS[props.size ?? "md"]}`}
         >
           {props.children}
