@@ -96,8 +96,23 @@ function runDaemon(): void {
 
   let currentClient: net.Socket | null = null;
   function writeToClient(frame: HelperFrame): void {
-    if (!currentClient || currentClient.destroyed) return;
-    currentClient.write(`${JSON.stringify(frame)}\n`);
+    if (!currentClient || currentClient.destroyed || !currentClient.writable) {
+      return;
+    }
+    try {
+      // The socket can transition to "broken pipe" between our `destroyed`
+      // check and the actual syscall (relay process exit, SSH drop, etc.).
+      // Node escalates EPIPE to an `'error'` event; without this guard the
+      // unhandled error tears down the daemon and every PTY with it.
+      currentClient.write(`${JSON.stringify(frame)}\n`, (err) => {
+        if (err && currentClient && !currentClient.destroyed) {
+          currentClient.destroy();
+        }
+      });
+    } catch {
+      // Synchronous throws (rare — usually EBADF) — leave the socket; its
+      // 'close' handler will null `currentClient`.
+    }
   }
 
   const manager = createManager((event) => writeToClient(event));
@@ -270,14 +285,22 @@ function runDaemon(): void {
     }
     currentClient = sock;
 
-    // Immediately announce ready so the controller can transition to
-    // "connected" without waiting for its first request to round-trip.
-    writeToClient({
-      method: "ready",
-      params: { version: HELPER_VERSION },
+    // Attach the error / close handlers BEFORE the first write. A relay
+    // that has already lost its SSH peer can land here with a half-open
+    // socket whose first `.write` synchronously triggers `EPIPE` — without
+    // a registered `'error'` listener Node escalates to an uncaught
+    // exception and kills the daemon, taking every PTY with it.
+    sock.on("close", () => {
+      if (currentClient === sock) currentClient = null;
+    });
+    sock.on("error", () => {
+      if (currentClient === sock) currentClient = null;
     });
 
     const rl = createInterface({ input: sock, crlfDelay: Infinity });
+    // readline forwards socket errors as Interface 'error' events; an
+    // unhandled one is the same uncaught-exception trap as above.
+    rl.on("error", () => {});
     rl.on("line", (line) => {
       if (line.trim().length === 0) return;
       try {
@@ -289,11 +312,12 @@ function runDaemon(): void {
       }
     });
 
-    sock.on("close", () => {
-      if (currentClient === sock) currentClient = null;
-    });
-    sock.on("error", () => {
-      if (currentClient === sock) currentClient = null;
+    // Now the socket is safe to write to. Announce ready so the controller
+    // can transition to "connected" without waiting for its first request
+    // to round-trip.
+    writeToClient({
+      method: "ready",
+      params: { version: HELPER_VERSION },
     });
   });
 
@@ -315,6 +339,14 @@ function runDaemon(): void {
   process.on("unhandledRejection", (reason) => {
     process.stderr.write(
       `kolu-helper daemon: unhandled rejection: ${reason instanceof Error ? reason.stack : String(reason)}\n`,
+    );
+  });
+  // Belt-and-braces: a synchronous throw from any socket / fs callback we
+  // missed must not kill the daemon. The daemon's whole reason for existing
+  // is to outlive transient client failures.
+  process.on("uncaughtException", (err) => {
+    process.stderr.write(
+      `kolu-helper daemon: uncaught exception: ${err instanceof Error ? err.stack : String(err)}\n`,
     );
   });
 }
