@@ -31,6 +31,7 @@ let
       ./packages/client
       ./packages/transcript-core
       ./packages/transcript-html
+      ./packages/artifact-sdk
     ];
   };
 
@@ -99,7 +100,11 @@ let
       # of 395MB, halving the I/O and Nix NAR hashing time.
       rm -rf packages/client/src packages/client/node_modules
       pushd node_modules/.pnpm
-      rm -rf typescript@* @esbuild* esbuild@* \
+      # NOTE: esbuild is kept (NOT pruned) because @kolu/artifact-sdk's server
+      # module bundles the in-iframe SDK script at runtime via esbuild. The
+      # cost is ~15MB in the production NAR for one platform-specific binary;
+      # the simplicity win is no separate build-step coordination with Nix.
+      rm -rf typescript@* \
              lightningcss* rollup@* @rollup* \
              vitest@* @vitest* \
              vite@* vitefu@* vite-plugin-* @tailwindcss* tailwindcss@* \
