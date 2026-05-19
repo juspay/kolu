@@ -1,4 +1,4 @@
-import { marked, type Token, type Tokens } from "marked";
+import { Lexer, marked, type Token, type Tokens } from "marked";
 import { type Component, createMemo, For, type JSX, Show } from "solid-js";
 
 const MARKED_OPTIONS = { breaks: true, gfm: true } as const;
@@ -249,21 +249,8 @@ export const IntentMarkdownInline: Component<{
   markdown: string;
   links?: boolean;
 }> = (props) => {
-  const tokens = createMemo(() => {
-    // `marked.lexer` returns block tokens. For a single line of text the
-    // top-level token is almost always a single "paragraph" — descend
-    // into its inline tokens. If the input contains a block construct
-    // (rare on one line), we fall back to whatever inline tokens we can
-    // extract; anything unrenderable is dropped by renderInline.
-    const block = marked.lexer(props.markdown, MARKED_OPTIONS);
-    const first = block[0];
-    if (first && first.type === "paragraph" && first.tokens) {
-      return first.tokens;
-    }
-    return marked.lexer(props.markdown, MARKED_OPTIONS).flatMap((t) => {
-      if (t && "tokens" in t && Array.isArray(t.tokens)) return t.tokens;
-      return [];
-    });
-  });
+  const tokens = createMemo(() =>
+    Lexer.lexInline(props.markdown, MARKED_OPTIONS),
+  );
   return <InlineTokens tokens={tokens()} links={props.links ?? false} />;
 };
