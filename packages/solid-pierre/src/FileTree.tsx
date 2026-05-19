@@ -131,6 +131,13 @@ export const FileTree: Component<FileTreeProps> = (props) => {
         },
       });
       tree.render({ containerWrapper: container });
+      // Mirror the reactive selection effect: pin the "selected row is
+      // visible" invariant to this wrapper at both write sites instead
+      // of relying on Pierre's mount-time auto-scroll
+      // (`initialFocusedScrollAppliedRef`) to cover the constructor
+      // path. Idempotent — Pierre's view processes the explicit scroll
+      // request in the same render tick as its own first-mount scroll.
+      if (props.selectedPath) tree.scrollToPath(props.selectedPath);
     } catch (e) {
       props.onError(toError(e));
     }
