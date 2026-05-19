@@ -87,7 +87,7 @@ function peekAmbientTipText(): string {
 function showAmbientTip() {
   const tip = pickAmbientTip();
   if (!tip) return;
-  if (!seen().has(tip.id)) markSeen(tip.id);
+  markSeen(tip.id);
   present(tip);
 }
 
