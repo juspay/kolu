@@ -41,6 +41,29 @@ schema the app happens to use.
 Never check `sub() === undefined` as a proxy for loading — use `sub.pending()`.
 _Rationale_: Conflates "loading" with "no data" and misses error states.
 
+### solid-reactive-prop-passed-to-hook-must-be-reactive
+
+A "hook" call that takes a reactive prop value as a key — `useComments(props.repoRoot)`, `useStore(props.id)`, `useThing(props.path)` — must be wrapped in `createMemo` or called inline at each use site. A bare `const x = useHook(props.key)` in the component body captures `props.key` at mount, locks the result to that initial value, and silently desyncs if the prop changes — by which point the component is bound to the wrong instance and no surface (toast, console, type error) flags it.
+
+Bad:
+```ts
+const store = useComments(props.repoRoot);
+return <Show when={store.comments().length > 0}>…</Show>;
+```
+
+Good:
+```ts
+const store = createMemo(() => useComments(props.repoRoot));
+return <Show when={store().comments().length > 0}>…</Show>;
+```
+
+Also good — inline at an event-handler use site, where the prop is re-read at click time:
+```ts
+const submit = () => useComments(props.repoRoot).add(…);
+```
+
+_Rationale_: SolidJS re-renders don't re-execute a component's body — only JSX-embedded reactive reads do. A function call in the body that takes a prop value sees only the initial value. This is the same failure mode that "props stay reactive" (in `.claude/rules/solidjs.md`) covers for destructuring, but applied to function-argument passing — a subtler trap because no `const { x } = props` appears in the diff. Codified after the `CommentsTray` / `CommentTextSurface` / `CommentIframeSurface` first-comment regression: the tray captured `useComments(props.repoRoot)` at mount when `meta.git.repoRoot` hadn't streamed yet, so `props.repoRoot` was `""`; the composer (which reads `props.repoRoot` inside its submit handler — fresh) wrote to the real-repoRoot store, and the tray stayed bound to the empty-key one until a full refresh re-mounted it.
+
 ### no-untyped-escape-hatches
 
 Don't introduce helpers like `unwrap`, `fromJust`, `assertNonEmpty`, or any other "narrow `T | undefined | null` to `T` by throwing" wrapper. The type system doesn't see the throw, callers can't handle it, and `catch (err: unknown)` swallows it the same as a `!`. Push the invariant to the type at its source.
