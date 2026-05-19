@@ -741,7 +741,6 @@ const CodeTab: Component<{
                     setSelectedPath(comment.path);
                   }
                   useCommentScrollRequest().set({
-                    path: comment.path,
                     commentId: comment.id,
                   });
                 }}

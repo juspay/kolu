@@ -11,7 +11,7 @@
 
 import { createSignal } from "solid-js";
 
-export type ScrollRequest = { path: string; commentId: string };
+export type ScrollRequest = { commentId: string };
 
 const [scrollReq, setScrollReq] = createSignal<ScrollRequest | null>(null);
 
