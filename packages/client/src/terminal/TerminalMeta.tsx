@@ -26,10 +26,7 @@ import TerminalIconPopover from "./TerminalIconPopover";
 
 const TerminalMeta: Component<{
   info: TerminalDisplayInfo | undefined;
-  /** Terminal ID — required for the icon picker. Optional so callers
-   *  that only render the skeleton (no live info yet) don't need to
-   *  thread it; the chip won't render until `info` is defined anyway. */
-  id?: TerminalId;
+  id: TerminalId;
 }> = (props) => {
   const i = () => props.info;
   return (
@@ -46,9 +43,7 @@ const TerminalMeta: Component<{
            *  repo name) — visible space is reserved for the OSC 2
            *  process title. */}
           <div class="flex items-center gap-1.5 min-h-7 text-sm font-medium min-w-0">
-            <Show when={props.id}>
-              {(id) => <TerminalIconChip id={id()} icon={info().meta.icon} />}
-            </Show>
+            <TerminalIconChip id={props.id} icon={info().meta.icon} />
             <NameSpan info={info()} />
             <Show when={info().key.suffix}>
               {(suffix) => (
