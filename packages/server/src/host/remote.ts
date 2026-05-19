@@ -112,11 +112,17 @@ interface PendingRequest {
   reject(err: Error): void;
 }
 
-/** Default helper flake ref. Points at the shipped branch — `master` is
- *  the right post-merge default; `KOLU_HELPER_FLAKE_REF` overrides for
- *  development branches without touching this file. */
+/** Default helper flake ref. Stays on `feat/remote-terminal-prototype`
+ *  until the merge lands — `master` doesn't yet expose `#kolu-helper`,
+ *  so pointing the default there pre-merge breaks the `just dev` flow
+ *  for anyone who hasn't set `KOLU_HELPER_FLAKE_REF`.
+ *
+ *  Post-merge, flip this constant to `github:juspay/kolu/master#kolu-helper`.
+ *  The `KOLU_HELPER_FLAKE_REF` env var overrides for testing a different
+ *  branch — covered by the comment on `DEFAULT_HELPER_REMOTE_CMD`. */
 const DEFAULT_HELPER_FLAKE_REF =
-  process.env.KOLU_HELPER_FLAKE_REF ?? "github:juspay/kolu/master#kolu-helper";
+  process.env.KOLU_HELPER_FLAKE_REF ??
+  "github:juspay/kolu/feat/remote-terminal-prototype#kolu-helper";
 
 /** Default invocation kolu runs over SSH when the user hasn't set
  *  `KOLU_HELPER_REMOTE_CMD`. `bash -lc` makes the remote shell source
