@@ -69,17 +69,11 @@ function init(deps: IntentEditorDeps) {
 }
 
 let cached: ReturnType<typeof init> | undefined;
-let cachedDeps: IntentEditorDeps | undefined;
 
 /** Lazy singleton — deps are captured on first call. Subsequent calls
  *  with different deps are ignored (deliberate; the deps come from the
  *  app root and never change identity over the app's lifetime). */
 export function useIntentEditor(deps: IntentEditorDeps) {
-  if (!cached) {
-    cachedDeps = deps;
-    cached = createRoot(() => init(deps));
-  }
-  // Reference unused but kept to silence lint about cachedDeps.
-  void cachedDeps;
+  if (!cached) cached = createRoot(() => init(deps));
   return cached;
 }
