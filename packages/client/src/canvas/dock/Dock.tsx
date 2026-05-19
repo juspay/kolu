@@ -534,7 +534,7 @@ const AwaitingCardBody: Component<{
           {(intent) => (
             <div
               data-testid="dock-intent"
-              class="mt-1 border-l-2 border-current/30 pl-2 text-[0.72rem] leading-snug opacity-90 w-full"
+              class="mt-2 border-l-2 border-edge-bright/40 pl-2 text-[0.72rem] leading-snug text-fg-2"
             >
               <IntentMarkdownBlock markdown={intent()} />
             </div>
@@ -607,6 +607,16 @@ const WorkingPillBody: Component<{
       </div>
       <DockMetaRow meta={props.meta} />
       <PrLine meta={props.meta} />
+      <Show when={props.meta.intent}>
+        {(intent) => (
+          <div
+            data-testid="dock-intent"
+            class="mt-2 border-l-2 border-edge-bright/40 pl-2 text-[0.72rem] leading-snug text-fg-2"
+          >
+            <IntentMarkdownBlock markdown={intent()} />
+          </div>
+        )}
+      </Show>
     </button>
   );
 };
@@ -667,6 +677,16 @@ const QuietRowBody: Component<{
           >
             {fg()}
           </span>
+        )}
+      </Show>
+      <Show when={props.meta.intent}>
+        {(intent) => (
+          <div
+            data-testid="dock-intent"
+            class="mt-2 border-l-2 border-edge-bright/40 pl-2 text-[0.72rem] leading-snug text-fg-2"
+          >
+            <IntentMarkdownBlock markdown={intent()} />
+          </div>
         )}
       </Show>
     </button>
