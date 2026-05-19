@@ -26,7 +26,8 @@ import {
 } from "solid-js";
 import IntentBody from "../../intent/IntentBody";
 import { formatTimeAgo, useIdleClassifier } from "../../terminal/staleness";
-import { annotationColor, annotationLine } from "../../intent/text";
+import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
+import { annotationLine } from "../../intent/text";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import {
   bucketDescriptor,
@@ -536,14 +537,14 @@ const WorkspaceCard: Component<{
         <span
           data-testid="workspace-switcher-card-annotation"
           class="text-[0.95rem] font-semibold truncate leading-tight"
-          style={{
-            color: annotationColor(
-              props.entry.info.meta.intent,
-              props.entry.info.branchColor,
-            ),
-          }}
+          style={{ color: props.entry.info.branchColor }}
         >
-          {annotationLine(props.entry.info.meta.intent, props.entry.label)}
+          <IntentMarkdownInline
+            markdown={annotationLine(
+              props.entry.info.meta.intent,
+              props.entry.label,
+            )}
+          />
         </span>
         <Show when={props.entry.suffix}>
           {(suffix) => (

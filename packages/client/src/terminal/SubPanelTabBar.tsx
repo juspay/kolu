@@ -3,6 +3,7 @@
 import { cwdBasename } from "kolu-common/path";
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import { type Component, For } from "solid-js";
+import { IntentMarkdownInline } from "../intent/IntentMarkdown";
 import { annotationLine } from "../intent/text";
 
 const SubPanelTabBar: Component<{
@@ -43,7 +44,9 @@ const SubPanelTabBar: Component<{
                 data-active={isActive() || undefined}
                 onClick={() => props.onSelect(id)}
               >
-                <span class="truncate">{label()}</span>
+                <span class="truncate">
+                  <IntentMarkdownInline markdown={label()} />
+                </span>
               </button>
               <button
                 type="button"

@@ -14,7 +14,8 @@
 
 import { prLabel, prUnavailableSource, prValue } from "kolu-github/schemas";
 import { type Component, Show } from "solid-js";
-import { annotationColor, annotationLine } from "../intent/text";
+import { IntentMarkdownInline } from "../intent/IntentMarkdown";
+import { annotationLine } from "../intent/text";
 import { PrStateIcon, WorktreeIcon } from "../ui/Icons";
 import Tip from "../ui/Tip";
 import ChecksIndicator from "./ChecksIndicator";
@@ -100,12 +101,7 @@ const TerminalMeta: Component<{
                     : "Set terminal intent"
                 }
                 class="appearance-none bg-transparent border-0 p-0 text-left [font:inherit] truncate shrink-0 max-w-[16ch] cursor-pointer hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 rounded-sm"
-                style={{
-                  color: annotationColor(
-                    info().meta.intent,
-                    info().branchColor,
-                  ),
-                }}
+                style={{ color: info().branchColor }}
                 onPointerDown={(e) => e.stopPropagation()}
                 onClick={(e) => {
                   e.stopPropagation();
@@ -113,10 +109,12 @@ const TerminalMeta: Component<{
                 }}
                 onDblClick={(e) => e.stopPropagation()}
               >
-                {annotationLine(
-                  info().meta.intent,
-                  info().meta.git?.branch ?? "—",
-                )}
+                <IntentMarkdownInline
+                  markdown={annotationLine(
+                    info().meta.intent,
+                    info().meta.git?.branch ?? "—",
+                  )}
+                />
               </button>
             </Tip>
             <Show when={prValue(info().meta.pr)}>
@@ -178,14 +176,14 @@ export const TerminalMetaCompact: Component<{
             <span
               data-testid="terminal-meta-branch"
               class="text-xs truncate min-w-0"
-              style={{
-                color: annotationColor(info().meta.intent, info().branchColor),
-              }}
+              style={{ color: info().branchColor }}
             >
-              {annotationLine(
-                info().meta.intent,
-                info().meta.git?.branch ?? "",
-              )}
+              <IntentMarkdownInline
+                markdown={annotationLine(
+                  info().meta.intent,
+                  info().meta.git?.branch ?? "",
+                )}
+              />
             </span>
           </Show>
           {/* Anchor stops propagation so a tap on the PR doesn't toggle

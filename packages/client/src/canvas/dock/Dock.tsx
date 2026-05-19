@@ -44,7 +44,8 @@ import IntentBody from "../../intent/IntentBody";
 import AgentIndicator from "../../terminal/AgentIndicator";
 import { formatTimeAgo, useStaleCheck } from "../../terminal/staleness";
 import IntentGlyph from "../../intent/IntentGlyph";
-import { annotationColor, annotationLine } from "../../intent/text";
+import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
+import { annotationLine } from "../../intent/text";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { ChevronDownIcon, PlusIcon, SearchIcon } from "../../ui/Icons";
@@ -522,11 +523,11 @@ const AwaitingCardBody: Component<{
           <span
             data-testid="dock-annotation"
             class="text-[0.95rem] font-semibold leading-tight truncate min-w-0"
-            style={{
-              color: annotationColor(props.meta.intent, props.info.branchColor),
-            }}
+            style={{ color: props.info.branchColor }}
           >
-            {annotationLine(props.meta.intent, props.info.key.label)}
+            <IntentMarkdownInline
+              markdown={annotationLine(props.meta.intent, props.info.key.label)}
+            />
           </span>
         </div>
         <DockMetaRow meta={props.meta} />
@@ -590,11 +591,11 @@ const WorkingPillBody: Component<{
         <span
           data-testid="dock-annotation"
           class="text-[0.85rem] font-semibold leading-tight truncate min-w-0"
-          style={{
-            color: annotationColor(props.meta.intent, props.info.branchColor),
-          }}
+          style={{ color: props.info.branchColor }}
         >
-          {annotationLine(props.meta.intent, props.info.key.label)}
+          <IntentMarkdownInline
+            markdown={annotationLine(props.meta.intent, props.info.key.label)}
+          />
         </span>
       </div>
       <DockMetaRow meta={props.meta} />
@@ -640,11 +641,11 @@ const QuietRowBody: Component<{
         <span
           data-testid="dock-annotation"
           class="text-[0.75rem] truncate min-w-0"
-          style={{
-            color: annotationColor(props.meta.intent, props.info.branchColor),
-          }}
+          style={{ color: props.info.branchColor }}
         >
-          {annotationLine(props.meta.intent, props.info.key.label)}
+          <IntentMarkdownInline
+            markdown={annotationLine(props.meta.intent, props.info.key.label)}
+          />
         </span>
         <Show when={formatTimeAgo(props.meta.lastActivityAt)}>
           {(label) => (
