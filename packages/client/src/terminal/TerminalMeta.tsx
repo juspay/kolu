@@ -14,7 +14,7 @@
 
 import { prLabel, prUnavailableSource, prValue } from "kolu-github/schemas";
 import { type Component, Show } from "solid-js";
-import { annotationColor, firstIntentLine } from "../intent/text";
+import { annotationColor, annotationLine } from "../intent/text";
 import { PrStateIcon, WorktreeIcon } from "../ui/Icons";
 import Tip from "../ui/Tip";
 import ChecksIndicator from "./ChecksIndicator";
@@ -98,70 +98,69 @@ const TerminalMeta: Component<{
               </div>
             }
           >
-            {(slotText) => (
-              <div class="flex items-center gap-1.5 min-w-0 text-xs">
-                <Tip label={info().meta.intent ? "Edit intent" : "Set intent"}>
-                  <button
-                    type="button"
-                    data-testid="terminal-meta-branch"
-                    aria-label={
-                      info().meta.intent
-                        ? "Edit terminal intent"
-                        : "Set terminal intent"
-                    }
-                    class="appearance-none bg-transparent border-0 p-0 text-left [font:inherit] truncate shrink-0 max-w-[16ch] cursor-pointer hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 rounded-sm"
-                    style={{
-                      color: annotationColor(
-                        info().meta.intent,
-                        info().branchColor,
-                      ),
-                    }}
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      props.onOpenIntent();
-                    }}
-                    onDblClick={(e) => e.stopPropagation()}
+            <div class="flex items-center gap-1.5 min-w-0 text-xs">
+              <Tip label={info().meta.intent ? "Edit intent" : "Set intent"}>
+                <button
+                  type="button"
+                  data-testid="terminal-meta-branch"
+                  aria-label={
+                    info().meta.intent
+                      ? "Edit terminal intent"
+                      : "Set terminal intent"
+                  }
+                  class="appearance-none bg-transparent border-0 p-0 text-left [font:inherit] truncate shrink-0 max-w-[16ch] cursor-pointer hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 rounded-sm"
+                  style={{
+                    color: annotationColor(
+                      info().meta.intent,
+                      info().branchColor,
+                    ),
+                  }}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    props.onOpenIntent();
+                  }}
+                  onDblClick={(e) => e.stopPropagation()}
+                >
+                  {annotationLine(
+                    info().meta.intent,
+                    info().meta.git?.branch ?? "",
+                  )}
+                </button>
+              </Tip>
+              <Show when={prValue(info().meta.pr)}>
+                {(pr) => (
+                  <span
+                    class="flex items-center gap-1 text-fg-2 truncate min-w-0"
+                    data-testid="terminal-meta-pr"
+                    title={prLabel(pr())}
                   >
-                    {info().meta.intent
-                      ? firstIntentLine(info().meta.intent ?? "")
-                      : slotText()}
-                  </button>
-                </Tip>
-                <Show when={prValue(info().meta.pr)}>
-                  {(pr) => (
-                    <span
-                      class="flex items-center gap-1 text-fg-2 truncate min-w-0"
-                      data-testid="terminal-meta-pr"
-                      title={prLabel(pr())}
+                    <PrStateIcon state={pr().state} class="w-3 h-3" />
+                    <Show when={pr().checks}>
+                      {(checks) => <ChecksIndicator status={checks()} />}
+                    </Show>
+                    <a
+                      href={pr().url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="hover:text-accent shrink-0"
+                      onClick={(e) => e.stopPropagation()}
                     >
-                      <PrStateIcon state={pr().state} class="w-3 h-3" />
-                      <Show when={pr().checks}>
-                        {(checks) => <ChecksIndicator status={checks()} />}
-                      </Show>
-                      <a
-                        href={pr().url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        class="hover:text-accent shrink-0"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        #{pr().number}
-                      </a>
-                      <span class="truncate">{pr().title}</span>
-                    </span>
-                  )}
-                </Show>
-                <Show when={prUnavailableSource(info().meta.pr)}>
-                  {(source) => (
-                    <PrUnavailableButton
-                      source={source()}
-                      testId="terminal-meta-pr-unavailable"
-                    />
-                  )}
-                </Show>
-              </div>
-            )}
+                      #{pr().number}
+                    </a>
+                    <span class="truncate">{pr().title}</span>
+                  </span>
+                )}
+              </Show>
+              <Show when={prUnavailableSource(info().meta.pr)}>
+                {(source) => (
+                  <PrUnavailableButton
+                    source={source()}
+                    testId="terminal-meta-pr-unavailable"
+                  />
+                )}
+              </Show>
+            </div>
           </Show>
         </>
       )}
@@ -186,22 +185,18 @@ export const TerminalMetaCompact: Component<{
             <WorktreeBadge />
           </Show>
           <Show when={info().meta.intent ?? info().meta.git?.branch}>
-            {(slotText) => (
-              <span
-                data-testid="terminal-meta-branch"
-                class="text-xs truncate min-w-0"
-                style={{
-                  color: annotationColor(
-                    info().meta.intent,
-                    info().branchColor,
-                  ),
-                }}
-              >
-                {info().meta.intent
-                  ? firstIntentLine(info().meta.intent ?? "")
-                  : slotText()}
-              </span>
-            )}
+            <span
+              data-testid="terminal-meta-branch"
+              class="text-xs truncate min-w-0"
+              style={{
+                color: annotationColor(info().meta.intent, info().branchColor),
+              }}
+            >
+              {annotationLine(
+                info().meta.intent,
+                info().meta.git?.branch ?? "",
+              )}
+            </span>
           </Show>
           {/* Anchor stops propagation so a tap on the PR doesn't toggle
            *  the enclosing Drawer.Trigger. */}
