@@ -188,14 +188,6 @@ const App: Component = () => {
         toast.error(`Failed to save intent: ${message}`);
       });
     },
-    clearTerminalIntent: (id) => {
-      void client.terminal
-        .setIntent({ id, intent: "" })
-        .catch((err: unknown) => {
-          const message = err instanceof Error ? err.message : String(err);
-          toast.error(`Failed to clear intent: ${message}`);
-        });
-    },
   });
 
   const arrange = useCanvasArrange({

@@ -22,8 +22,9 @@ export type IntentEditorSession = {
 
 export type IntentEditorDeps = {
   getTerminalIntent: (id: TerminalId) => string | undefined;
+  /** Set or clear intent. Empty string clears (the wire contract
+   *  encodes that — see `terminal.setIntent` in `contract.ts`). */
   setTerminalIntent: (id: TerminalId, intent: string) => void;
-  clearTerminalIntent: (id: TerminalId) => void;
   activeId: () => TerminalId | null;
 };
 
@@ -39,7 +40,7 @@ function init(deps: IntentEditorDeps) {
       initialValue,
       allowClear: initialValue.trim().length > 0,
       save: (intent) => deps.setTerminalIntent(id, intent),
-      clear: () => deps.clearTerminalIntent(id),
+      clear: () => deps.setTerminalIntent(id, ""),
     });
   }
 
