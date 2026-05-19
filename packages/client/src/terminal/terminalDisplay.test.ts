@@ -6,6 +6,7 @@ import { assignColors, buildTerminalDisplayInfos } from "./terminalDisplay";
 function makeMeta(overrides: Partial<TerminalMetadata> = {}): TerminalMetadata {
   return {
     cwd: "/home/user/project",
+    hostId: "local",
     git: null,
     pr: { kind: "pending" },
     agent: null,

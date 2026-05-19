@@ -22,6 +22,7 @@ function fakeTerminal(): TerminalProcess {
     info: { id: "term-pub-test", pid: 0 },
     meta: {
       cwd: "/tmp",
+      hostId: "local",
       git: null,
       pr: { kind: "pending" },
       agent: null,

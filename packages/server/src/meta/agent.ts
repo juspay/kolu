@@ -106,10 +106,13 @@ function snapshotTerminalState(
 /** Pick the executor for this terminal. Local terminals run agents via
  *  `localExecutor` (controller's fs / child_process). Remote terminals
  *  run them via the SSH host — which structurally satisfies `Executor`.
- *  One orchestrator, two backends. */
+ *  One orchestrator, two backends.
+ *
+ *  `hostId` is always a concrete string on terminal metadata
+ *  (`"local"` or an SSH alias); `localExecutor` is the fallback when
+ *  the registry doesn't recognize the id. */
 function executorForTerminal(entry: TerminalProcess): Executor {
-  const host = entry.meta.hostId ? getHost(entry.meta.hostId) : undefined;
-  return host ?? localExecutor;
+  return getHost(entry.meta.hostId) ?? localExecutor;
 }
 
 /** Per-executor activation state for the lazy external-change subscription.

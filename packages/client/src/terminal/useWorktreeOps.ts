@@ -1,27 +1,43 @@
 /** Worktree operations — create and remove git worktrees with associated terminals. */
 
-import type { TerminalId } from "kolu-common/surface";
+import type { InitialTerminalMetadata, TerminalId } from "kolu-common/surface";
 import { toast } from "solid-sonner";
 import { client } from "../wire";
 import type { TerminalStore } from "./useTerminalStore";
 
 export function useWorktreeOps(deps: {
   store: TerminalStore;
-  handleCreate: (cwd?: string) => Promise<TerminalId>;
+  handleCreate: (
+    cwd?: string,
+    initial?: InitialTerminalMetadata,
+    hostId?: string,
+  ) => Promise<TerminalId>;
   handleKill: (id: TerminalId) => Promise<void>;
 }) {
   const { store } = deps;
 
   async function handleCreateWorktree(
+    hostId: string,
     repoPath: string,
     name: string,
     initialCommand?: string,
   ) {
     const id = toast.loading("Creating worktree…");
     try {
-      const result = await client.git.worktreeCreate({ repoPath, name });
+      const result = await client.git.worktreeCreate({
+        hostId,
+        repoPath,
+        name,
+      });
       toast.success(`Created worktree at ${result.path}`, { id });
-      const newTerminalId = await deps.handleCreate(result.path);
+      // The new worktree's PTY lives on the same host as the parent repo.
+      // Pass `undefined` for `initial` — worktree create doesn't carry
+      // themed / layout overrides; only the host has to thread through.
+      const newTerminalId = await deps.handleCreate(
+        result.path,
+        undefined,
+        hostId === "local" ? undefined : hostId,
+      );
       // Recent repos update reactively via trackRecentRepo → publishSystem
 
       // Optional initial command (phase 2 of #452): write the agent command
@@ -60,13 +76,14 @@ export function useWorktreeOps(deps: {
     if (!id) return;
     const meta = store.getMetadata(id);
     const worktreePath = meta?.git?.isWorktree ? meta.git.worktreePath : null;
+    const hostId = meta?.hostId ?? "local";
     const subs = store.getSubTerminalIds(id);
     for (const subId of subs) await deps.handleKill(subId);
     await deps.handleKill(id);
     if (worktreePath) {
       const tid = toast.loading("Removing worktree…");
       try {
-        await client.git.worktreeRemove({ worktreePath });
+        await client.git.worktreeRemove({ hostId, worktreePath });
         toast.success("Worktree removed", { id: tid });
       } catch (err) {
         toast.error(`Failed to remove worktree: ${(err as Error).message}`, {

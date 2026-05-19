@@ -20,7 +20,7 @@ import { loadOpenCodeTranscript } from "kolu-opencode";
 import { transcriptToHtml } from "kolu-transcript-html";
 import { match } from "ts-pattern";
 import { saveClipboardImage } from "./clipboard.ts";
-import { listHosts } from "./host/registry.ts";
+import { getHost, isLocalHostId, listHosts } from "./host/registry.ts";
 import { serverHostname, serverProcessId } from "./hostname.ts";
 import { log } from "./log.ts";
 import { terminalChannels } from "./publisher.ts";
@@ -247,19 +247,34 @@ export const appRouter = t.router({
   },
   git: {
     worktreeCreate: t.git.worktreeCreate.handler(async ({ input }) => {
-      log.info({ repo: input.repoPath, name: input.name }, "worktree create");
+      log.info(
+        { hostId: input.hostId, repo: input.repoPath, name: input.name },
+        "worktree create",
+      );
+      const host = getHost(input.hostId);
+      const executor = host && !isLocalHostId(host.id) ? host : undefined;
       const result = unwrapGit(
-        await worktreeCreate(input.repoPath, input.name, log),
+        await worktreeCreate(input.repoPath, input.name, log, executor),
       );
       log.info(
-        { repo: input.repoPath, path: result.path, branch: result.branch },
+        {
+          hostId: input.hostId,
+          repo: input.repoPath,
+          path: result.path,
+          branch: result.branch,
+        },
         "worktree created",
       );
       return result;
     }),
     worktreeRemove: t.git.worktreeRemove.handler(async ({ input }) => {
-      log.info({ worktree: input.worktreePath }, "worktree remove");
-      unwrapGit(await worktreeRemove(input.worktreePath, log));
+      log.info(
+        { hostId: input.hostId, worktree: input.worktreePath },
+        "worktree remove",
+      );
+      const host = getHost(input.hostId);
+      const executor = host && !isLocalHostId(host.id) ? host : undefined;
+      unwrapGit(await worktreeRemove(input.worktreePath, log, executor));
     }),
   },
 });

@@ -98,7 +98,7 @@ type PersistedState = z.infer<typeof PersistedStateSchema>;
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.22.0";
+const SCHEMA_VERSION = "1.23.0";
 
 // Callers must pass an explicit directory via KOLU_STATE_DIR. A bare launch
 // with no env would silently clobber whatever happens to live at conf's
@@ -416,6 +416,26 @@ export const store = new Conf<PersistedState>({
     // transformation needed; the entry is here so the schema ladder stays
     // continuous per `.claude/rules/state.md`.
     "1.22.0": () => {},
+    // hostId became first-class: `hostId` on every persisted entry now
+    // defaults to "local" rather than being optional. Backfill recent
+    // repos saved before this change so the schema's `.default("local")`
+    // doesn't have to be the only thing keeping the field consistent
+    // across the store. Saved-session entries are backfilled by Zod's
+    // default at read time (`SavedTerminalSchema.hostId`), so we don't
+    // need to touch them here.
+    "1.23.0": (store: Conf<PersistedState>) => {
+      const feed = store.get("activityFeed") as
+        | { recentRepos?: Array<Record<string, unknown>> }
+        | undefined;
+      if (!feed?.recentRepos) return;
+      const migrated = feed.recentRepos.map((r) =>
+        r.hostId === undefined ? { ...r, hostId: "local" } : r,
+      );
+      store.set("activityFeed", {
+        ...feed,
+        recentRepos: migrated,
+      } as ActivityFeed);
+    },
   },
 });
 

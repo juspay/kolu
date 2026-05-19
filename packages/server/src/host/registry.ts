@@ -59,12 +59,24 @@ export function initHosts(): HostSummary[] {
   }));
 }
 
-/** Look up a host by id. Returns `undefined` if not found — the caller
- *  should fall back to the local host or surface an error. */
+/** Look up a host by id. `"local"` returns the local host; any other
+ *  string is an SSH alias. `undefined` is accepted as a back-compat
+ *  shorthand for `"local"` (the old wire shape used `undefined` to mean
+ *  local) but new code should pass an explicit hostId — terminal
+ *  metadata always carries `"local"` since the `.default("local")` on
+ *  the schema fills it in. */
 export function getHost(id: string | undefined): Host | undefined {
-  if (id === undefined) return hosts.get(LOCAL_HOST_ID);
+  if (id === undefined || id === LOCAL_HOST_ID) return hosts.get(LOCAL_HOST_ID);
   return hosts.get(id);
 }
+
+/** True when this id is the local-host sentinel. Centralized so the
+ *  rest of the code doesn't have to know what string `"local"` is. */
+export function isLocalHostId(id: string): boolean {
+  return id === LOCAL_HOST_ID;
+}
+
+export { LOCAL_HOST_ID };
 
 /** All registered hosts, local first. */
 export function listHosts(): HostSummary[] {

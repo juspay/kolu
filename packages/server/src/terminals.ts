@@ -19,7 +19,6 @@ import type {
 } from "kolu-common/surface";
 import { cleanupClipboardDir } from "./clipboard.ts";
 import { getHost } from "./host/registry.ts";
-import { LOCAL_HOST_ID } from "./host/local.ts";
 import { log } from "./log.ts";
 import {
   createMetadata,
@@ -169,14 +168,12 @@ export async function createTerminal(
     },
   });
 
-  const meta = createMetadata(handle.cwd);
+  // hostId is first-class — every terminal's metadata carries a concrete
+  // host identifier (`"local"` for the controller's process, the SSH
+  // alias for remote). createMetadata defaults to "local"; we overwrite
+  // here so the field always reflects the spawn host.
+  const meta = createMetadata(handle.cwd, host.id);
   if (parentId) meta.parentId = parentId;
-  // Track which host this terminal lives on so session restore (and any
-  // future host-aware metadata provider) can route correctly. We
-  // intentionally do not store the sentinel "local" — undefined is the
-  // canonical local marker so existing persisted records (pre-1.22.0)
-  // read back consistently.
-  if (host.id !== LOCAL_HOST_ID) meta.hostId = host.id;
   if (initial?.themeName) meta.themeName = initial.themeName;
   if (initial?.canvasLayout) meta.canvasLayout = initial.canvasLayout;
   if (initial?.subPanel) meta.subPanel = initial.subPanel;

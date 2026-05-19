@@ -31,6 +31,9 @@ export const WorktreeNameSchema = z
   });
 
 export const WorktreeCreateInputSchema = z.object({
+  /** Host the repo lives on — picks which executor runs `git worktree
+   *  add`. `"local"` for the controller's fs; SSH alias otherwise. */
+  hostId: z.string(),
   repoPath: z.string(),
   name: WorktreeNameSchema,
 });
@@ -41,6 +44,7 @@ export const WorktreeCreateOutputSchema = z.object({
 });
 
 export const WorktreeRemoveInputSchema = z.object({
+  hostId: z.string(),
   worktreePath: z.string(),
 });
 

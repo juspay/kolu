@@ -121,6 +121,7 @@ export interface CommandDeps extends ActionContext {
   canvasAutoArrange: () => void;
   // Worktree
   handleCreateWorktree: (
+    hostId: string,
     repoPath: string,
     name: string,
     initialCommand?: string,
@@ -203,14 +204,25 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
             (r): PaletteValueInput => ({
               kind: "value",
               name: r.repoName,
-              description: `New worktree in ${r.repoRoot}`,
+              // Surface the host in the description for non-local entries
+              // so the user can tell a remote `~/code/foo` apart from the
+              // identically-named local repo.
+              description:
+                r.hostId === "local"
+                  ? `New worktree in ${r.repoRoot}`
+                  : `New worktree on ${r.hostId} in ${r.repoRoot}`,
               prefill: randomName,
               placeholder: "Worktree name",
               validate: validateWorktreeName,
               onSubmit: (name, selected) => {
                 const agentCmd =
                   typeof selected.data === "string" ? selected.data : undefined;
-                deps.handleCreateWorktree(r.repoRoot, name.trim(), agentCmd);
+                deps.handleCreateWorktree(
+                  r.hostId,
+                  r.repoRoot,
+                  name.trim(),
+                  agentCmd,
+                );
               },
               children: (): (PaletteLabel | PaletteHint)[] =>
                 worktreeAgentOptions(recentAgents()),

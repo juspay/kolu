@@ -39,6 +39,7 @@ function makeAgent(overrides: Partial<AgentInfo> = {}): AgentInfo {
 function makeMeta(overrides: Partial<TerminalMetadata> = {}): TerminalMetadata {
   return {
     cwd: "/home/user/kolu",
+    hostId: "local",
     git: makeGit(),
     pr: { kind: "absent" },
     agent: null,

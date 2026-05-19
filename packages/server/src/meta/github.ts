@@ -26,7 +26,11 @@ export function startGitHubPrProvider(
   });
   plog.debug("started");
 
-  const host = entry.meta.hostId ? getHost(entry.meta.hostId) : undefined;
+  // hostId is always concrete (`"local"` or an SSH alias); resolve the
+  // host and use it as the executor regardless. localExecutor is the
+  // fallback when the registry has no entry — e.g. a stale terminal
+  // whose host was unregistered.
+  const host = getHost(entry.meta.hostId);
   const executor = host ?? localExecutor;
 
   const watcher = subscribeGitHubPr(

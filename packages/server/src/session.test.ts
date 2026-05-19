@@ -15,6 +15,7 @@ import {
 const terminal: SavedTerminal = {
   id: "term-1",
   cwd: "/home/user/project",
+  hostId: "local",
   git: {
     repoRoot: "/home/user/project",
     repoName: "project",
@@ -73,9 +74,16 @@ describe("session persistence", () => {
 
   it("preserves multiple terminals with array order", () => {
     const terminals: SavedTerminal[] = [
-      { id: "a", cwd: "/a", git: null, lastActivityAt: 0 },
-      { id: "b", cwd: "/b", git: null, lastActivityAt: 0 },
-      { id: "c", cwd: "/c", git: null, parentId: "a", lastActivityAt: 0 },
+      { id: "a", cwd: "/a", hostId: "local", git: null, lastActivityAt: 0 },
+      { id: "b", cwd: "/b", hostId: "local", git: null, lastActivityAt: 0 },
+      {
+        id: "c",
+        cwd: "/c",
+        hostId: "local",
+        git: null,
+        parentId: "a",
+        lastActivityAt: 0,
+      },
     ];
     saveSession({ terminals, activeTerminalId: null });
     const session = getSavedSession();
@@ -90,11 +98,12 @@ describe("session persistence", () => {
       {
         id: "a",
         cwd: "/a",
+        hostId: "local",
         git: null,
         themeName: "Dracula",
         lastActivityAt: 0,
       },
-      { id: "b", cwd: "/b", git: null, lastActivityAt: 0 },
+      { id: "b", cwd: "/b", hostId: "local", git: null, lastActivityAt: 0 },
     ];
     saveSession({ terminals, activeTerminalId: null });
     const session = getSavedSession();
@@ -110,8 +119,8 @@ describe("session persistence", () => {
     const t1 = 1_700_000_000_000;
     const t2 = 1_700_000_900_000;
     const terminals: SavedTerminal[] = [
-      { id: "a", cwd: "/a", git: null, lastActivityAt: t1 },
-      { id: "b", cwd: "/b", git: null, lastActivityAt: t2 },
+      { id: "a", cwd: "/a", hostId: "local", git: null, lastActivityAt: t1 },
+      { id: "b", cwd: "/b", hostId: "local", git: null, lastActivityAt: t2 },
     ];
     saveSession({ terminals, activeTerminalId: null });
     const session = getSavedSession();

@@ -185,8 +185,7 @@ app.get(
     // terminals route the read through the SSH host so a remote
     // `~/code/foo/index.html` doesn't accidentally 404 (or worse,
     // serve a local file at the same path) — Reviewer #3 on PR #929.
-    const host = term.meta.hostId ? getHost(term.meta.hostId) : undefined;
-    const executor = host ?? localExecutor;
+    const executor = getHost(term.meta.hostId) ?? localExecutor;
     const res = await serveResolvedFile(
       resolvePreviewPath(repoRoot, rawTail),
       executor,

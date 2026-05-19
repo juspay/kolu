@@ -14,7 +14,7 @@
 
 import { subscribeGitInfo } from "kolu-git";
 import { trackRecentRepo } from "../activity.ts";
-import { getHost } from "../host/registry.ts";
+import { getHost, isLocalHostId } from "../host/registry.ts";
 import { log } from "../log.ts";
 import { terminalChannels } from "../publisher.ts";
 import type { TerminalProcess } from "../terminal-registry.ts";
@@ -31,13 +31,17 @@ export function startGitProvider(
   });
   plog.debug({ cwd: entry.meta.cwd }, "started");
 
+  // Pass the host as executor only when the terminal is remote — passing
+  // a local Host would route through the executor protocol and bypass
+  // the fast `@parcel/watcher` + refcounted `.git/HEAD` watcher.
   const host = getHost(entry.meta.hostId);
-  const executor = host && host.kind === "remote-ssh" ? host : undefined;
+  const executor = host && !isLocalHostId(host.id) ? host : undefined;
 
   const watcher = subscribeGitInfo(
     entry.meta.cwd,
     (git) => {
-      if (git) trackRecentRepo(git.mainRepoRoot, git.repoName);
+      if (git)
+        trackRecentRepo(entry.meta.hostId, git.mainRepoRoot, git.repoName);
       updateServerMetadata(entry, terminalId, (m) => {
         m.git = git;
       });

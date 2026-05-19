@@ -117,13 +117,18 @@ export const ServerPersistedTerminalFieldsSchema = z.object({
    *  semantic-key transition (`kind`/`sessionId`/`state`). Idle terminals
    *  stay at `0` and fall back to canvas position. */
   lastActivityAt: z.number().default(0),
-  /** Host this PTY lives on. Undefined ⇒ local (kolu's own process).
-   *  Otherwise an SSH alias from `~/.ssh/config`, resolved via the
-   *  host registry at restore time. `cwd` is interpreted in the
-   *  namespace of this host — `/home/srid/x` on a remote host is the
-   *  remote filesystem, not kolu's. Persisted (round-trips through
-   *  saved sessions) so restore can re-establish the correct host. */
-  hostId: z.string().optional(),
+  /** Host this PTY lives on. `"local"` ⇒ kolu's own process; any other
+   *  value is an SSH alias from `~/.ssh/config`, resolved via the host
+   *  registry at restore time. `cwd` is interpreted in the namespace of
+   *  this host — `/home/srid/x` on a remote host is the remote
+   *  filesystem, not kolu's. Persisted (round-trips through saved
+   *  sessions) so restore can re-establish the correct host.
+   *
+   *  The `.default("local")` collapses legacy saves (where hostId was
+   *  optional + `undefined` meant local) into the new first-class
+   *  representation on read. No migration script needed — Zod fills it
+   *  in at parse time. */
+  hostId: z.string().default("local"),
 });
 
 /**
@@ -237,6 +242,12 @@ export const TerminalOnExitOutputSchema = z.number();
 // ── Activity feed sub-schemas ─────────────────────────────────────────
 
 export const RecentRepoSchema = z.object({
+  /** Host the repo lives on. `"local"` is the controller's filesystem;
+   *  any other value is an SSH alias. Two hosts can have a repo at the
+   *  same on-disk path — `{hostId, repoRoot}` is the unique key. Default
+   *  `"local"` collapses legacy saves (where the field didn't exist) into
+   *  the new representation on read. */
+  hostId: z.string().default("local"),
   repoRoot: z.string(),
   repoName: z.string(),
   lastSeen: z.number(),
