@@ -6,7 +6,7 @@
  *  Hidden when the queue is empty — no toggle, no mode. Visibility =
  *  `comments.length > 0` by construction. */
 
-import { type Component, For, Show } from "solid-js";
+import { type Component, createMemo, For, Show } from "solid-js";
 import { toast } from "solid-sonner";
 import { formatMarkdown } from "./formatMarkdown";
 import type { Comment } from "./types";
@@ -20,10 +20,16 @@ export type CommentsTrayProps = {
 };
 
 export const CommentsTray: Component<CommentsTrayProps> = (props) => {
-  const store = useComments(props.repoRoot);
+  // `props.repoRoot` may briefly be `""` while `meta.git.repoRoot` is
+  // still streaming; capturing `useComments(props.repoRoot)` once at
+  // mount would lock the tray onto the empty-key store forever, so a
+  // later save (against the real repoRoot) would land in a sibling
+  // store the tray never re-reads. `createMemo` re-derives the wrapper
+  // whenever `props.repoRoot` ticks.
+  const store = createMemo(() => useComments(props.repoRoot));
 
   const copy = async (): Promise<void> => {
-    const list = store.comments();
+    const list = store().comments();
     if (list.length === 0) return;
     const text = formatMarkdown(list);
     try {
@@ -31,7 +37,7 @@ export const CommentsTray: Component<CommentsTrayProps> = (props) => {
       toast.success(
         `Copied ${list.length} comment${list.length === 1 ? "" : "s"} to clipboard`,
       );
-      store.clear();
+      store().clear();
     } catch (err) {
       toast.error(
         `Failed to copy: ${(err as Error).message ?? "clipboard rejected"}`,
@@ -40,7 +46,7 @@ export const CommentsTray: Component<CommentsTrayProps> = (props) => {
   };
 
   return (
-    <Show when={store.comments().length > 0}>
+    <Show when={store().comments().length > 0}>
       <div
         class="border-t border-edge bg-surface-2 px-3 py-2 text-[12px] font-sans shrink-0 max-h-[40vh] overflow-auto"
         data-testid="kolu-comments-tray"
@@ -51,19 +57,19 @@ export const CommentsTray: Component<CommentsTrayProps> = (props) => {
               Comments
             </strong>
             <span class="font-mono text-[11px] text-fg-3 ml-1.5">
-              {store.comments().length} queued
+              {store().comments().length} queued
             </span>
           </div>
           <button
             type="button"
-            onClick={() => store.clear()}
+            onClick={() => store().clear()}
             class="text-[11px] text-fg-3 hover:text-fg-2 px-1.5"
           >
             Discard all
           </button>
         </div>
         <ul class="list-none p-0 m-0">
-          <For each={store.comments()}>
+          <For each={store().comments()}>
             {(c) => (
               <li class="bg-surface-1 border border-edge rounded-sm px-2 py-1.5 mb-1 grid grid-cols-[1fr_auto] gap-2 items-start">
                 <button
@@ -84,7 +90,7 @@ export const CommentsTray: Component<CommentsTrayProps> = (props) => {
                 </button>
                 <button
                   type="button"
-                  onClick={() => store.remove(c.id)}
+                  onClick={() => store().remove(c.id)}
                   aria-label={`Remove comment on ${c.path}`}
                   class="text-fg-3 text-[14px] self-center px-1 hover:text-fg-2"
                 >

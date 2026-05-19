@@ -23,9 +23,12 @@ export const CommentIframeSurface: Component<CommentIframeSurfaceProps> = (
   props,
 ) => {
   const composer = useComposer();
-  const comments = useComments(props.repoRoot);
+  // `props.repoRoot` may briefly be `""` while `meta.git.repoRoot` is
+  // still streaming — see CommentsTray for the long form. `createMemo`
+  // re-derives the store whenever `props.repoRoot` ticks.
+  const comments = createMemo(() => useComments(props.repoRoot));
   const commentsForFile = createMemo(() =>
-    comments
+    comments()
       .commentsForPath(props.path)
       .map((c) => ({ id: c.id, locator: c.locator })),
   );
