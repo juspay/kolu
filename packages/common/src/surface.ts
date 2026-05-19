@@ -169,6 +169,14 @@ export const LiveTerminalFieldsSchema = z.object({
   agent: AgentInfoSchema.nullable(),
   /** Foreground process name — detected via OSC 2 title change events. */
   foreground: ForegroundSchema.nullable(),
+  /** True while the underlying PTY is still being spawned. Remote hosts
+   *  set this on creation and clear it once the SSH helper has returned
+   *  a real PTY handle, so the client can render a "Connecting…"
+   *  placeholder instead of mounting xterm against a dummy. Local hosts
+   *  spawn synchronously and never set this on the wire — absent ⇒
+   *  ready. Optional so fixtures and other call sites don't have to
+   *  spell out the absent case. */
+  connecting: z.boolean().optional(),
 });
 
 /**

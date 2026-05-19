@@ -19,13 +19,16 @@ import type {
 } from "kolu-common/surface";
 import { cleanupClipboardDir } from "./clipboard.ts";
 import { getHost } from "./host/registry.ts";
+import type { SpawnPtyOpts } from "./host/types.ts";
 import { log } from "./log.ts";
 import {
   createMetadata,
   startProviders,
   updateClientMetadata,
+  updateServerLiveMetadata,
   updateServerMetadata,
 } from "./meta/index.ts";
+import type { PtyHandle } from "./pty.ts";
 import { terminalChannels, terminalsDirtyChannel } from "./publisher.ts";
 import { surfaceCtx } from "./surface.ts";
 import {
@@ -66,6 +69,7 @@ export function snapshotSession(): {
         pr: _pr,
         agent: _agent,
         foreground: _foreground,
+        connecting: _connecting,
         ...persisted
       } = entry.meta;
       return { id, ...persisted };
@@ -88,6 +92,50 @@ function emitListChanged(): void {
   surfaceCtx.cells.terminalList.set(listTerminals());
 }
 
+/** Buffer for PTY writes that arrive before the real handle exists.
+ *  Returned alongside a `PtyHandle`-shaped placeholder so the rest of
+ *  the server can hold an entry whose handle is still being negotiated
+ *  with a remote helper. Drained into the real handle on swap. */
+interface PendingHandle {
+  handle: PtyHandle;
+  drainWrites(): string[];
+  takeResize(): { cols: number; rows: number } | null;
+  isDisposed(): boolean;
+}
+
+function createPendingHandle(initialCwd: string): PendingHandle {
+  const pending: string[] = [];
+  let lastDims: { cols: number; rows: number } | null = null;
+  let disposed = false;
+  const handle: PtyHandle = {
+    pid: 0,
+    cwd: initialCwd,
+    process: "",
+    foregroundPid: undefined,
+    write(data) {
+      if (!disposed) pending.push(data);
+    },
+    resize(cols, rows) {
+      lastDims = { cols, rows };
+    },
+    getScreenState: () => "",
+    getScreenText: () => "",
+    dispose() {
+      disposed = true;
+    },
+  };
+  return {
+    handle,
+    drainWrites: () => pending.splice(0, pending.length),
+    takeResize: () => {
+      const out = lastDims;
+      lastDims = null;
+      return out;
+    },
+    isDisposed: () => disposed,
+  };
+}
+
 /** Create a new terminal, spawn a PTY process. `initial` seeds
  *  client-owned metadata before `startProviders` runs, so the first
  *  `terminalMetadata` collection read carries it — used by session
@@ -99,9 +147,15 @@ function emitListChanged(): void {
  *  that hostId automatically — the client doesn't need to thread it
  *  through every "spawn a sibling" code path.
  *
- *  Async because `RemoteHost.spawnPty` round-trips to the SSH helper
- *  (the local host's own spawnPty is synchronous but wrapped in a
- *  Promise for uniformity). */
+ *  Local hosts spawn inline — node-pty returns in milliseconds and the
+ *  RPC resolves with a real `pid`. Remote hosts return immediately with
+ *  a placeholder handle (`pid: 0`, `connecting: true` in metadata) and
+ *  finish the SSH-helper handshake in the background. The client sees
+ *  the tile right away and gates xterm mount on `meta.connecting`,
+ *  turning the multi-second handshake on the first remote terminal of
+ *  a session into a "Connecting…" placeholder instead of a frozen UI.
+ *  Input / resize / paste during the connecting window are buffered on
+ *  the placeholder and flushed once the real handle is in place. */
 export async function createTerminal(
   cwd?: string,
   parentId?: string,
@@ -121,20 +175,20 @@ export async function createTerminal(
     if (parent) resolvedHostId = parent.meta.hostId;
   }
 
-  const host = getHost(resolvedHostId);
-  if (!host) {
+  const resolvedHost = getHost(resolvedHostId);
+  if (!resolvedHost) {
     throw new Error(
       `terminal.create: unknown hostId "${resolvedHostId}" (registered hosts: see /host/registry.ts)`,
     );
   }
+  const host = resolvedHost;
 
-  const handle = await host.spawnPty(tlog, {
+  const spawnOpts: SpawnPtyOpts = {
     terminalId: id,
     cwd,
     onData: (data) => {
       terminalChannels.data(id).publish(data);
     },
-    // On natural exit: notify clients, then remove from server state
     onExit: (exitCode) => {
       tlog.info({ exitCode }, "exited");
       const entry = getTerminal(id);
@@ -143,8 +197,6 @@ export async function createTerminal(
         cleanupClipboardDir(id);
       }
       surfaceCtx.events.terminalExit.publish({ id }, exitCode);
-      // Only save session on natural exit (entry still in map).
-      // killAllTerminals clears the map first, so entry is gone — skip.
       const wasNaturalExit = unregisterTerminal(id);
       if (wasNaturalExit) {
         emitChanged();
@@ -166,34 +218,98 @@ export async function createTerminal(
         terminalChannels.cwd(id).publish(newCwd);
       }
     },
-  });
+  };
 
-  // hostId is first-class — every terminal's metadata carries a concrete
-  // host identifier (`"local"` for the controller's process, the SSH
-  // alias for remote). createMetadata defaults to "local"; we overwrite
-  // here so the field always reflects the spawn host.
-  const meta = createMetadata(handle.cwd, host.id);
-  if (parentId) meta.parentId = parentId;
-  if (initial?.themeName) meta.themeName = initial.themeName;
-  if (initial?.canvasLayout) meta.canvasLayout = initial.canvasLayout;
-  if (initial?.subPanel) meta.subPanel = initial.subPanel;
-  if (initial?.lastActivityAt !== undefined)
-    meta.lastActivityAt = initial.lastActivityAt;
+  function buildInitialMeta(spawnCwd: string) {
+    const m = createMetadata(spawnCwd, host.id);
+    if (parentId) m.parentId = parentId;
+    if (initial?.themeName) m.themeName = initial.themeName;
+    if (initial?.canvasLayout) m.canvasLayout = initial.canvasLayout;
+    if (initial?.subPanel) m.subPanel = initial.subPanel;
+    if (initial?.lastActivityAt !== undefined)
+      m.lastActivityAt = initial.lastActivityAt;
+    return m;
+  }
+
+  if (host.kind === "local") {
+    const handle = await host.spawnPty(tlog, spawnOpts);
+    const entry: TerminalProcess = {
+      info: { id, pid: handle.pid },
+      meta: buildInitialMeta(handle.cwd),
+      handle,
+      stopProviders: () => {},
+    };
+    registerTerminal(id, entry);
+    entry.stopProviders = startProviders(entry, id);
+    tlog.info(
+      { pid: handle.pid, total: listTerminals().length, hostId: host.id },
+      "created",
+    );
+    emitChanged();
+    emitListChanged();
+    return entry.info;
+  }
+
+  // Remote: register a placeholder entry so the tile renders immediately,
+  // then finish the helper handshake in the background.
+  const placeholder = createPendingHandle(cwd ?? "/");
   const entry: TerminalProcess = {
-    info: { id, pid: handle.pid },
-    meta,
-    handle,
+    info: { id, pid: 0 },
+    meta: buildInitialMeta(cwd ?? "/"),
+    handle: placeholder.handle,
     stopProviders: () => {},
   };
   registerTerminal(id, entry);
-  entry.stopProviders = startProviders(entry, id);
-
-  tlog.info(
-    { pid: handle.pid, total: listTerminals().length, hostId: host.id },
-    "created",
-  );
+  // Publish the metadata with `connecting: true` so the client renders
+  // the "Connecting…" placeholder. updateServerLiveMetadata both
+  // mutates and triggers the surface upsert in one step.
+  updateServerLiveMetadata(entry, id, (m) => {
+    m.connecting = true;
+  });
   emitChanged();
   emitListChanged();
+  tlog.info({ hostId: host.id }, "connecting (placeholder registered)");
+
+  void (async () => {
+    let handle: PtyHandle;
+    try {
+      handle = await host.spawnPty(tlog, spawnOpts);
+    } catch (err) {
+      tlog.error({ err }, "remote terminal spawn failed");
+      // Reuse the natural-exit path so the client toast + cleanup fire
+      // through the same channel as a runtime exit. The `terminalExit`
+      // event message carries the error string in the published payload.
+      surfaceCtx.events.terminalExit.publish({ id }, -1);
+      if (unregisterTerminal(id)) {
+        emitChanged();
+        emitListChanged();
+      }
+      return;
+    }
+    // The user may have killed the tile while we were connecting. If the
+    // entry is gone or the placeholder was disposed, drop the freshly
+    // spawned handle on the floor.
+    if (!getTerminal(id) || placeholder.isDisposed()) {
+      handle.dispose();
+      return;
+    }
+    entry.handle = handle;
+    entry.info = { id, pid: handle.pid };
+    const dims = placeholder.takeResize();
+    if (dims) handle.resize(dims.cols, dims.rows);
+    for (const data of placeholder.drainWrites()) handle.write(data);
+    entry.stopProviders = startProviders(entry, id);
+    updateServerLiveMetadata(entry, id, (m) => {
+      m.connecting = undefined;
+    });
+    // Push the updated pid through the list snapshot.
+    emitListChanged();
+    tlog.info(
+      { pid: handle.pid, total: listTerminals().length, hostId: host.id },
+      "connected",
+    );
+  })();
+
   return entry.info;
 }
 

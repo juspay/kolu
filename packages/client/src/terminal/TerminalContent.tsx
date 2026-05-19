@@ -10,6 +10,7 @@ import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import { type Component, For, Show } from "solid-js";
 import SubPanelTabBar from "./SubPanelTabBar";
 import Terminal from "./Terminal";
+import TerminalConnecting from "./TerminalConnecting";
 import { useSubPanel } from "./useSubPanel";
 
 const TerminalContent: Component<{
@@ -81,15 +82,26 @@ const TerminalContent: Component<{
       class="flex-1 min-h-0"
     >
       <Resizable.Panel as="div" class="min-h-0 overflow-hidden" minSize={0.2}>
-        <Terminal
-          terminalId={props.terminalId}
-          visible={props.visible}
-          focused={shouldFocusMain()}
-          theme={props.theme}
-          searchOpen={props.searchOpen}
-          onSearchOpenChange={props.onSearchOpenChange}
-          onFocus={handleMainFocus}
-        />
+        <Show
+          when={!props.getMetadata(props.terminalId)?.connecting}
+          fallback={
+            <TerminalConnecting
+              terminalId={props.terminalId}
+              hostId={props.getMetadata(props.terminalId)?.hostId ?? "remote"}
+              visible={props.visible}
+            />
+          }
+        >
+          <Terminal
+            terminalId={props.terminalId}
+            visible={props.visible}
+            focused={shouldFocusMain()}
+            theme={props.theme}
+            searchOpen={props.searchOpen}
+            onSearchOpenChange={props.onSearchOpenChange}
+            onFocus={handleMainFocus}
+          />
+        </Show>
       </Resizable.Panel>
 
       {/* Resize handle — invisible hit zone, visible on hover */}
@@ -130,20 +142,34 @@ const TerminalContent: Component<{
         </Show>
         <div class="flex-1 min-h-0">
           <For each={props.subTerminalIds}>
-            {(subId) => (
-              <Terminal
-                terminalId={subId}
-                visible={
-                  props.visible && isExpanded() && activeSubTab() === subId
-                }
-                focused={shouldFocusSub(subId)}
-                theme={props.theme}
-                searchOpen={false}
-                onSearchOpenChange={() => {}}
-                onFocus={handleSubFocus}
-                isSub
-              />
-            )}
+            {(subId) => {
+              const subVisible = () =>
+                props.visible && isExpanded() && activeSubTab() === subId;
+              return (
+                <Show
+                  when={!props.getMetadata(subId)?.connecting}
+                  fallback={
+                    <TerminalConnecting
+                      terminalId={subId}
+                      hostId={props.getMetadata(subId)?.hostId ?? "remote"}
+                      visible={subVisible()}
+                      isSub
+                    />
+                  }
+                >
+                  <Terminal
+                    terminalId={subId}
+                    visible={subVisible()}
+                    focused={shouldFocusSub(subId)}
+                    theme={props.theme}
+                    searchOpen={false}
+                    onSearchOpenChange={() => {}}
+                    onFocus={handleSubFocus}
+                    isSub
+                  />
+                </Show>
+              );
+            }}
           </For>
         </div>
       </Resizable.Panel>
