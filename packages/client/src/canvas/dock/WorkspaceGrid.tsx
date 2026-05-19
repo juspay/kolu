@@ -537,7 +537,7 @@ const WorkspaceCard: Component<{
         <span
           data-testid="workspace-switcher-card-annotation"
           class="text-[0.95rem] font-semibold truncate leading-tight"
-          style={{ color: props.entry.info.branchColor }}
+          style={{ color: props.entry.info.annotationColor }}
         >
           <IntentMarkdownInline
             markdown={annotationLine(

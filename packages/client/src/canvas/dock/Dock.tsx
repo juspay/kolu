@@ -523,7 +523,7 @@ const AwaitingCardBody: Component<{
           <span
             data-testid="dock-annotation"
             class="text-[0.95rem] font-semibold leading-tight truncate min-w-0"
-            style={{ color: props.info.branchColor }}
+            style={{ color: props.info.annotationColor }}
           >
             <IntentMarkdownInline
               markdown={annotationLine(props.meta.intent, props.info.key.label)}
@@ -591,7 +591,7 @@ const WorkingPillBody: Component<{
         <span
           data-testid="dock-annotation"
           class="text-[0.85rem] font-semibold leading-tight truncate min-w-0"
-          style={{ color: props.info.branchColor }}
+          style={{ color: props.info.annotationColor }}
         >
           <IntentMarkdownInline
             markdown={annotationLine(props.meta.intent, props.info.key.label)}
@@ -641,7 +641,7 @@ const QuietRowBody: Component<{
         <span
           data-testid="dock-annotation"
           class="text-[0.75rem] truncate min-w-0"
-          style={{ color: props.info.branchColor }}
+          style={{ color: props.info.annotationColor }}
         >
           <IntentMarkdownInline
             markdown={annotationLine(props.meta.intent, props.info.key.label)}

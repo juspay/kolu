@@ -126,7 +126,7 @@ const Row: Component<{
                 "text-[0.95rem]": live(),
                 "text-[0.8rem]": !live(),
               }}
-              style={{ color: info()?.branchColor }}
+              style={{ color: info()?.annotationColor }}
             >
               <IntentMarkdownInline
                 markdown={annotationLine(

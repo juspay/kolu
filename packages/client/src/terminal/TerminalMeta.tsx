@@ -101,7 +101,7 @@ const TerminalMeta: Component<{
                     : "Set terminal intent"
                 }
                 class="appearance-none bg-transparent border-0 p-0 text-left [font:inherit] truncate shrink-0 max-w-[16ch] cursor-pointer hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 rounded-sm"
-                style={{ color: info().branchColor }}
+                style={{ color: info().annotationColor }}
                 onPointerDown={(e) => e.stopPropagation()}
                 onClick={(e) => {
                   e.stopPropagation();
@@ -176,7 +176,7 @@ export const TerminalMetaCompact: Component<{
             <span
               data-testid="terminal-meta-branch"
               class="text-xs truncate min-w-0"
-              style={{ color: info().branchColor }}
+              style={{ color: info().annotationColor }}
             >
               <IntentMarkdownInline
                 markdown={annotationLine(
