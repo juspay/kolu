@@ -49,7 +49,7 @@ const IntentEditorDialog: Component<{
   onSave: (intent: string) => void;
   onClear?: () => void;
 }> = (props) => {
-  let textareaRef: HTMLTextAreaElement | undefined;
+  const [textareaRef, setTextareaRef] = createSignal<HTMLTextAreaElement>();
   const [draft, setDraft] = createSignal("");
   const trimmed = () => draft().trim();
   const canSave = () => trimmed().length > 0;
@@ -60,11 +60,6 @@ const IntentEditorDialog: Component<{
       (open) => {
         if (!open) return;
         setDraft(props.value);
-        // Focus + select on next tick so the textarea is mounted.
-        queueMicrotask(() => {
-          textareaRef?.focus();
-          textareaRef?.select();
-        });
       },
     ),
   );
@@ -73,7 +68,7 @@ const IntentEditorDialog: Component<{
    *  a selection, replace it. Preserves the rest of the value and moves
    *  the cursor to just after the inserted text. */
   function insertAtCursor(text: string) {
-    const el = textareaRef;
+    const el = textareaRef();
     if (!el) {
       setDraft((d) => d + text);
       return;
@@ -117,7 +112,11 @@ const IntentEditorDialog: Component<{
   }
 
   return (
-    <ModalDialog open={props.open} onOpenChange={props.onOpenChange}>
+    <ModalDialog
+      open={props.open}
+      onOpenChange={props.onOpenChange}
+      initialFocusEl={textareaRef()}
+    >
       <Dialog.Content class="bg-surface-1 border border-edge rounded-xl shadow-2xl shadow-black/50 p-4 text-sm w-[min(560px,calc(100vw-2rem))]">
         <div class="mb-3">
           <Dialog.Label class="block text-sm font-semibold text-fg">
@@ -145,7 +144,7 @@ const IntentEditorDialog: Component<{
           </For>
         </div>
         <textarea
-          ref={textareaRef}
+          ref={setTextareaRef}
           data-testid="intent-editor-textarea"
           value={draft()}
           onInput={(e) => setDraft(e.currentTarget.value)}
