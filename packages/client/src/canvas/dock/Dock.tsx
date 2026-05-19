@@ -40,7 +40,7 @@ import {
   createSignal,
 } from "solid-js";
 import { toast } from "solid-sonner";
-import { IntentMarkdownBlock } from "../../intent/IntentMarkdown";
+import IntentBody from "../../intent/IntentBody";
 import AgentIndicator from "../../terminal/AgentIndicator";
 import { formatTimeAgo, useStaleCheck } from "../../terminal/staleness";
 import IntentGlyph from "../../intent/IntentGlyph";
@@ -530,16 +530,7 @@ const AwaitingCardBody: Component<{
         </div>
         <DockMetaRow meta={props.meta} />
         <PrLine meta={props.meta} />
-        <Show when={props.meta.intent}>
-          {(intent) => (
-            <div
-              data-testid="dock-intent"
-              class="mt-2 border-l-2 border-edge-bright/40 pl-2 text-[0.72rem] leading-snug text-fg-2"
-            >
-              <IntentMarkdownBlock markdown={intent()} />
-            </div>
-          )}
-        </Show>
+        <IntentBody intent={props.meta.intent} testId="dock-intent" />
       </button>
       <form onSubmit={submit}>
         <input
@@ -607,16 +598,7 @@ const WorkingPillBody: Component<{
       </div>
       <DockMetaRow meta={props.meta} />
       <PrLine meta={props.meta} />
-      <Show when={props.meta.intent}>
-        {(intent) => (
-          <div
-            data-testid="dock-intent"
-            class="mt-2 border-l-2 border-edge-bright/40 pl-2 text-[0.72rem] leading-snug text-fg-2"
-          >
-            <IntentMarkdownBlock markdown={intent()} />
-          </div>
-        )}
-      </Show>
+      <IntentBody intent={props.meta.intent} testId="dock-intent" />
     </button>
   );
 };
@@ -679,16 +661,7 @@ const QuietRowBody: Component<{
           </span>
         )}
       </Show>
-      <Show when={props.meta.intent}>
-        {(intent) => (
-          <div
-            data-testid="dock-intent"
-            class="mt-2 border-l-2 border-edge-bright/40 pl-2 text-[0.72rem] leading-snug text-fg-2"
-          >
-            <IntentMarkdownBlock markdown={intent()} />
-          </div>
-        )}
-      </Show>
+      <IntentBody intent={props.meta.intent} testId="dock-intent" />
     </button>
   );
 };

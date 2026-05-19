@@ -24,7 +24,7 @@ import {
   createSignal,
   on,
 } from "solid-js";
-import { IntentMarkdownBlock } from "../../intent/IntentMarkdown";
+import IntentBody from "../../intent/IntentBody";
 import { formatTimeAgo, useIdleClassifier } from "../../terminal/staleness";
 import IntentGlyph from "../../intent/IntentGlyph";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
@@ -601,18 +601,13 @@ const WorkspaceCard: Component<{
         )}
       </Show>
 
-      {/* Intent body — full markdown rendered when set, so the user
-       *  sees the same note here that they edit in the dialog. */}
-      <Show when={props.entry.info.meta.intent}>
-        {(intent) => (
-          <div
-            data-testid="workspace-switcher-card-intent"
-            class="mt-2 border-l-2 border-edge-bright/40 pl-2 text-[0.72rem] leading-snug text-fg-2"
-          >
-            <IntentMarkdownBlock markdown={intent()} />
-          </div>
-        )}
-      </Show>
+      {/* Intent body — full markdown rendered when set. Shared
+       *  <IntentBody> so every dock + switcher render site looks the
+       *  same. */}
+      <IntentBody
+        intent={props.entry.info.meta.intent}
+        testId="workspace-switcher-card-intent"
+      />
     </button>
   );
 };
