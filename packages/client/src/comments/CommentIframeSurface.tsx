@@ -32,15 +32,17 @@ export const CommentIframeSurface: Component<CommentIframeSurfaceProps> = (
       .map((c) => ({ id: c.id, locator: c.locator })),
   );
 
-  // Bind the bridge whenever the iframe element ticks. The bridge's
-  // `onLoad` listener already re-handshakes on in-iframe navigation,
-  // so the path is pushed to the SDK on every fresh document.
+  // Bind the bridge whenever the iframe element ticks. `onDocumentReady`
+  // covers the lifecycle trigger (initial `ready` + in-iframe `load`);
+  // the reactive `createEffect` below covers data-change pushes. Two
+  // orthogonal triggers, one push path — no double-broadcast, no
+  // "highlights vanish after in-iframe navigation" bug.
   createEffect(() => {
     const el = props.iframe;
     if (!el) return;
     const dispose = bindArtifactSdk(el, {
       currentPath: () => props.path,
-      commentsForPath: () => commentsForFile(),
+      onDocumentReady: () => pushHighlightsTo(el, commentsForFile()),
       onSelect: (msg) => {
         const rect = el.getBoundingClientRect();
         composer.open({

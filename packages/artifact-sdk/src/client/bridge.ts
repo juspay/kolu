@@ -3,12 +3,18 @@
  *  literal string `"null"` under opaque-origin sandbox, so origin-based
  *  validation is meaningless — identity is the check).
  *
+ *  The bridge owns the parent↔iframe protocol surface: path delivery on
+ *  ready/load, `SelectMsg` routing inward. It does NOT own reactive
+ *  highlight state — the caller pushes via `pushHighlightsTo` (reactive
+ *  data changes) and via `onDocumentReady` (in-iframe document boots),
+ *  so "what comments exist" is never duplicated across modules.
+ *
  *  Usage:
  *
  *    const dispose = bindArtifactSdk(iframeEl, {
  *      currentPath: () => "out/report.html",
- *      commentsForPath: () => store.commentsForPath("out/report.html"),
  *      onSelect: (msg) => openComposer(msg),
+ *      onDocumentReady: () => pushHighlightsTo(iframeEl, commentsForFile()),
  *    });
  *    onCleanup(dispose);
  */
@@ -23,8 +29,12 @@ import type {
 
 export interface BindOptions {
   currentPath: () => string | null;
-  commentsForPath: () => Array<{ id: string; locator: Locator }>;
   onSelect: (msg: SelectMsg) => void;
+  /** Fired whenever the in-iframe SDK boots: initial `ready` message OR
+   *  the iframe's `load` event after in-iframe navigation. The caller
+   *  uses this to re-push highlights for the fresh document, since the
+   *  reactive `pushHighlightsTo` effect only re-fires on data change. */
+  onDocumentReady?: () => void;
 }
 
 export function bindArtifactSdk(
@@ -40,13 +50,6 @@ export function bindArtifactSdk(
     if (path !== null) sendToIframe({ type: "kolu-artifact-sdk:path", path });
   };
 
-  const pushHighlights = (): void => {
-    sendToIframe({
-      type: "kolu-artifact-sdk:render-highlights",
-      comments: opts.commentsForPath(),
-    });
-  };
-
   const onMessage = (event: MessageEvent<IframeToParent>): void => {
     if (event.source !== iframe.contentWindow) return;
     const msg = event.data;
@@ -54,7 +57,7 @@ export function bindArtifactSdk(
     match(msg)
       .with({ type: "kolu-artifact-sdk:ready" }, () => {
         pushPath();
-        pushHighlights();
+        opts.onDocumentReady?.();
       })
       .with({ type: "kolu-artifact-sdk:select" }, (m) => {
         opts.onSelect(m);
@@ -68,7 +71,7 @@ export function bindArtifactSdk(
   // working SDK on the new document.
   const onLoad = (): void => {
     pushPath();
-    pushHighlights();
+    opts.onDocumentReady?.();
   };
   iframe.addEventListener("load", onLoad);
 
