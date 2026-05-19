@@ -1,0 +1,27 @@
+{
+  "name": "@kolu/artifact-sdk",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    "./types": "./src/types.ts",
+    "./client": "./src/client/index.ts",
+    "./server": "./src/server/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test:unit": "vitest run"
+  },
+  "dependencies": {
+    "esbuild": "^0.25.0",
+    "hono": "^4.6.0",
+    "ts-pattern": "^5.9.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.8.0",
+    "vitest": "^2.0.0"
+  }
+}

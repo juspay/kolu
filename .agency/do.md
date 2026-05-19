@@ -16,7 +16,19 @@ Invoke the `/test` skill. It selects relevant `.feature` files from the git diff
 
 ## CI command
 
-Invoke the `/ci` skill. It runs `just ci` via the Monitor tool and cross-checks posted GitHub commit statuses against `just ci::_contexts` so missing steps can't silently pass.
+Use the `/ci` skill for the runner mechanics (subcommands, flags, modes, retry shape). Two Kolu-specific operational notes layered on top of it:
+
+**Ephemeral linux build host per run.** Static darwin (`sincereintent`) lives in `~/.config/ci/hosts.json`; the linux lane uses a throwaway Incus container per CI invocation so prior runs' nix-store cruft can't poison the verdict.
+
+```sh
+pr=$(gh pr view --json number --jq .number)
+host="kolu-pr-$pr"
+pu create --name "$host"                                                # writes ~/.pu-state/$host/ssh_config (included by ~/.ssh/config)
+CI=true nix run github:juspay/ci -- run --host x86_64-linux="$host"     # --host wins over hosts.json on collision; darwin keeps using sincereintent
+pu destroy "$host"
+```
+
+**Flake → comment on [#320](https://github.com/juspay/kolu/issues/320)** with scenario/platform/error excerpt/PR. At least one platform must have `ci::e2e@<platform>` fully passed before `/do` considers itself done, even if the green came from a positional retry.
 
 ## Documentation
 

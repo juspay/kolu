@@ -6,7 +6,12 @@ set working-directory := '..'
 # these recipes need to enter it when invoked from a bare shell.
 nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop --accept-flake-config -c' }
 
-apm_cmd := nix_shell + ' uvx --from apm-cli apm'
+# Pinned to srid/apm#fix/1394-project-scope-hook-paths until microsoft/apm#1396
+# lands: 0.14.0 absolutizes project-scope hook `command` paths (e.g.
+# /home/<user>/<worktree>/.claude/hooks/...) which only resolve on the
+# author's machine. The PR keeps repo-relative commands repo-relative.
+# Once merged, switch back to: uvx --from apm-cli apm
+apm_cmd := nix_shell + ' uvx --from git+https://github.com/srid/apm.git@fix/1394-project-scope-hook-paths apm'
 apm_targets := 'claude,codex,opencode'
 apm_compile_targets := 'codex,opencode'
 

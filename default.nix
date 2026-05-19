@@ -31,6 +31,7 @@ let
       ./packages/client
       ./packages/transcript-core
       ./packages/transcript-html
+      ./packages/artifact-sdk
     ];
   };
 
@@ -45,7 +46,7 @@ let
     # hash-fresh` enforces this stays in sync with pnpm-lock.yaml by forcing
     # fetchPnpmDeps to re-execute (--rebuild), so stale artifacts in the
     # binary cache can't silently satisfy a hash that no longer matches.
-    hash = "sha256-9VZsrpjGQsMFX8Ct5MPGRMr3vqHV3rkeI9hwfQMtMVo=";
+    hash = "sha256-7G4/0en1onFx2hh+nl7YuF1fTVSYCkM8fyPcdy3bYhM=";
     fetcherVersion = 3;
   };
 
@@ -99,7 +100,11 @@ let
       # of 395MB, halving the I/O and Nix NAR hashing time.
       rm -rf packages/client/src packages/client/node_modules
       pushd node_modules/.pnpm
-      rm -rf typescript@* @esbuild* esbuild@* \
+      # NOTE: esbuild is kept (NOT pruned) because @kolu/artifact-sdk's server
+      # module bundles the in-iframe SDK script at runtime via esbuild. The
+      # cost is ~15MB in the production NAR for one platform-specific binary;
+      # the simplicity win is no separate build-step coordination with Nix.
+      rm -rf typescript@* \
              lightningcss* rollup@* @rollup* \
              vitest@* @vitest* \
              vite@* vitefu@* vite-plugin-* @tailwindcss* tailwindcss@* \

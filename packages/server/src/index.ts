@@ -14,6 +14,7 @@ import pkg from "../package.json" with { type: "json" };
 import { getCacheControlHeader } from "./cacheControl.ts";
 import { startDiagnostics } from "./diagnostics.ts";
 import { serverHostname } from "./hostname.ts";
+import { mountArtifactSdk } from "@kolu/artifact-sdk/server";
 import {
   resolvePreviewPath,
   serveResolvedFile,
@@ -154,6 +155,15 @@ process.on("unhandledRejection", (reason) => {
 
 // --- Health endpoint ---
 app.get("/api/health", (c) => c.text("kolu"));
+
+// --- Artifact-SDK (comments-on-files) mount ---
+// Self-contained — registers the SDK bundle route and a middleware that
+// splices the SDK <script> into text/html responses on the iframe-preview
+// route. The byte-streaming `iframePreviewRoute` below stays untouched.
+mountArtifactSdk(app, {
+  sdkScriptPath: "/api/artifact-sdk.js",
+  htmlRoutePrefix: `${TERMINAL_FILE_ROUTE_BASE}/:terminalId/${TERMINAL_FILE_ROUTE_FILE_SEGMENT}/*`,
+});
 
 // --- Iframe preview file route ---
 // Serves repo files referenced by `FsReadFileOutput.kind === "binary"`.

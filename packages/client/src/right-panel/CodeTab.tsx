@@ -29,6 +29,11 @@ import {
   Switch,
 } from "solid-js";
 import { toast } from "solid-sonner";
+import { CommentComposer } from "../comments/CommentComposer";
+import { CommentsTray } from "../comments/CommentsTray";
+import { CommentTextSurface } from "../comments/CommentTextSurface";
+import { useComposer } from "../comments/composerState";
+import { useCommentScrollRequest } from "../comments/scrollRequest";
 import { useColorScheme } from "../settings/useColorScheme";
 import { app } from "../wire";
 import { FileBrowseIcon, FileDiffIcon, GitBranchIcon } from "../ui/Icons";
@@ -95,6 +100,20 @@ const CodeTab: Component<{
   const setView = rightPanel.setCodeMode;
 
   const repoPath = () => props.meta?.git?.repoRoot ?? null;
+
+  // Dismiss any open comment composer when the user navigates away from
+  // the file/mode/repo the draft was anchored to. Without this, the
+  // composer floats over a different file's content and the user has
+  // to dismiss it manually. Draft body is lost, which matches every
+  // other modal-on-navigate behavior in kolu.
+  const composer = useComposer();
+  createEffect(
+    on(
+      () => [selectedPath(), view(), repoPath()] as const,
+      () => composer.close(),
+      { defer: true },
+    ),
+  );
   const isDiffView = () => view() !== "browse";
   const diffMode = (): GitDiffMode | undefined =>
     view() === "browse" ? undefined : (view() as GitDiffMode);
@@ -614,48 +633,56 @@ const CodeTab: Component<{
                         )}
                       </Match>
                       <Match when={diff()}>
-                        {(d) => (
-                          <CodeMenuFrame
-                            path={path}
-                            onOpen={(ref) => {
-                              // Diff paths are repo-relative; cwd is irrelevant.
-                              const repo = repoPath();
-                              if (repo === null) return;
-                              openInCodeTab({
-                                ref,
-                                repoRoot: repo,
-                                targetMode: "browse",
-                              });
-                            }}
-                          >
-                            {(selection) => (
-                              // `<Virtualizer>` is the scroll container —
-                              // `<FileDiff>` consumes its context and
-                              // upgrades to Pierre's `VirtualizedFileDiff`,
-                              // windowing huge diffs (50k-line lockfile,
-                              // #809 / #514 Phase 8). Without this wrapper
-                              // `<FileDiff>` falls back to the vanilla
-                              // class — same as before.
-                              <Virtualizer
-                                class="h-full w-full overflow-auto"
-                                style={pierreDiffsStyle}
+                        {(d) => {
+                          const repo = repoPath();
+                          const tid = props.terminalId;
+                          if (repo === null || tid === null) return null;
+                          return (
+                            <CommentTextSurface
+                              terminalId={tid}
+                              path={path}
+                              contentTick={d().hunks[0] ?? ""}
+                              class="h-full w-full"
+                            >
+                              <CodeMenuFrame
+                                path={path}
+                                onOpen={(ref) => {
+                                  openInCodeTab({
+                                    ref,
+                                    repoRoot: repo,
+                                    targetMode: "browse",
+                                  });
+                                }}
                               >
-                                <FileDiff
-                                  rawDiff={d().hunks[0] ?? ""}
-                                  theme={diffTheme()}
-                                  enableLineSelection
-                                  onLineSelected={selection.handleSelect}
-                                  onError={(err) =>
-                                    toast.error(
-                                      `Diff render failed: ${err.message}`,
-                                    )
-                                  }
-                                  class="w-full"
-                                />
-                              </Virtualizer>
-                            )}
-                          </CodeMenuFrame>
-                        )}
+                                {(selection) => (
+                                  // `<Virtualizer>` is the scroll
+                                  // container — `<FileDiff>` consumes
+                                  // its context and upgrades to
+                                  // Pierre's `VirtualizedFileDiff`,
+                                  // windowing huge diffs (50k-line
+                                  // lockfile, #809 / #514 Phase 8).
+                                  <Virtualizer
+                                    class="h-full w-full overflow-auto"
+                                    style={pierreDiffsStyle}
+                                  >
+                                    <FileDiff
+                                      rawDiff={d().hunks[0] ?? ""}
+                                      theme={diffTheme()}
+                                      enableLineSelection
+                                      onLineSelected={selection.handleSelect}
+                                      onError={(err) =>
+                                        toast.error(
+                                          `Diff render failed: ${err.message}`,
+                                        )
+                                      }
+                                      class="w-full"
+                                    />
+                                  </Virtualizer>
+                                )}
+                              </CodeMenuFrame>
+                            </CommentTextSurface>
+                          );
+                        }}
                       </Match>
                     </Switch>
                   </Match>
@@ -680,6 +707,48 @@ const CodeTab: Component<{
             </Show>
           </Resizable.Panel>
         </Resizable>
+        <Show when={repoPath() !== null && props.terminalId !== null}>
+          {(_present) => (
+            <>
+              <CommentsTray
+                terminalId={props.terminalId as string}
+                onJumpTo={(comment) => {
+                  const repo = repoPath();
+                  if (repo === null) return;
+                  // Two complementary highlights on land:
+                  //   1. Pierre's blue line bar (full-row selection)
+                  //      via `openInCodeTab` when we have a stored
+                  //      `lineRange` — the same machinery terminal
+                  //      `path:line` clicks use.
+                  //   2. The CSS Custom Highlight overlay's yellow
+                  //      underline on the exact quote — applied by
+                  //      `highlightOverlay` after the file mounts.
+                  // Plus a scroll request so the matched range lands
+                  // in view even if Pierre's `scrollToLine` and our
+                  // re-find disagree on the row.
+                  if (comment.lineRange) {
+                    openInCodeTab({
+                      ref: {
+                        path: comment.path,
+                        startLine: comment.lineRange.start,
+                        endLine: comment.lineRange.end,
+                      },
+                      repoRoot: repo,
+                      targetMode: "browse",
+                    });
+                  } else {
+                    setView("browse");
+                    setSelectedPath(comment.path);
+                  }
+                  useCommentScrollRequest().set({
+                    commentId: comment.id,
+                  });
+                }}
+              />
+              <CommentComposer terminalId={props.terminalId as string} />
+            </>
+          )}
+        </Show>
       </div>
     </Show>
   );

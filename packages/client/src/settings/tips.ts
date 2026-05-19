@@ -91,6 +91,10 @@ export const AMBIENT_TIPS: readonly Tip[] = [
   },
   {
     id: "amb-terminal-intent",
-    text: `Click the ＋ next to a tile's repo name (or ${formatKeybind(ACTIONS.commandPalette.keybind)} → "Edit intent") to attach a note — the first line shows as a glyph in the dock and switcher; the rest renders as markdown`,
+    text: `Click the annotation slot in a tile's title bar (or ${formatKeybind(ACTIONS.commandPalette.keybind)} → "Edit intent") to attach a note — line 1 supplants the branch name in dock/switcher; the rest renders as markdown`,
+  },
+  {
+    id: "amb-comments-on-files",
+    text: "Select any text in the Code tab (file browse, branch diff, or HTML artifact) to drop a `+ Comment` — your queue copies to the clipboard as Markdown for the agent",
   },
 ];

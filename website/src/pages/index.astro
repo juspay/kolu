@@ -62,6 +62,12 @@ const features = [
     title: 'Share what your agent did',
     body: 'Export any Claude Code, Codex, or OpenCode session as a single self-contained .html — warm-parchment editorial layout, shiki-tokenized code, real diff views for every Edit/Write/apply_patch, j/k prompt navigation, dark/light toggle. No external assets, no upload — opens offline in any browser.',
   },
+  {
+    num: '09',
+    key: 'comment-on-any-file',
+    title: 'Comment on any file',
+    body: "Select text in any file the Code tab shows — source, branch diff, or rendered HTML artifact the agent produced — and a floating pill lets you leave a free-text note anchored to the exact quote. Notes accumulate in a per-terminal tray across every file you touch. \"Copy to clipboard\" flushes the queue as plain Markdown ready to paste back into the agent's prompt — the agent re-locates each comment by quote-matching, robust to file edits.",
+  },
 ];
 ---
 
@@ -134,7 +140,7 @@ const features = [
   <section class="mx-auto max-w-[68rem] px-6 py-20">
     <div class="mb-14 flex items-baseline justify-between">
       <p class="eyebrow">what you get</p>
-      <p class="mono text-[0.72rem] text-ink-faint">08 features</p>
+      <p class="mono text-[0.72rem] text-ink-faint">09 features</p>
     </div>
 
     <ul class="grid md:grid-cols-2 gap-px bg-rule">

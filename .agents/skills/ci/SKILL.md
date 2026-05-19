@@ -1,78 +1,96 @@
 ---
 name: ci
-description: Run local CI (`just ci`) and verify all steps passed. Use when building, testing across systems, checking commit statuses, retrying failed CI steps, or diagnosing CI failures. Triggers on "run CI", "check CI", "CI failed", "retry CI", "build and test".
+description: Reference for the `ci` runner — how to invoke a full pipeline, a single recipe, or a platform-pinned node from a project that depends on `juspay/ci`. Trigger when the user asks to "run ci", "run the pipeline", "re-run a check", or names a specific recipe by `<recipe>@<platform>`.
 ---
 
-# CI
+# ci
 
-Run `just ci` and verify every expected step reported success.
+`ci` translates a project's `just` recipe DAG into a `process-compose` pipeline and runs it. Multi-platform lanes fan out via SSH; commit statuses get posted (in strict mode) under `<recipe>@<platform>` contexts. Full background in the [repo README](https://github.com/juspay/ci/blob/main/README.md); the subcommand surface below is what you'll reach for most often.
 
-## Running
+## Modes
 
-Run `just ci` via the **Monitor** tool with this filter so each finishing CI step becomes one event:
+| Variable | Effect |
+| --- | --- |
+| `CI` unset (default) | **Local mode.** Runs against the live working tree. No GitHub status posts, no clean-tree refuse. Use for iterating. |
+| `CI=true` | **Strict mode.** Refuses a dirty tree, snapshots `HEAD` via `git worktree`, posts commit statuses, splits per-recipe logs into `.ci/<sha>/<plat>/<recipe>.log`. Use for "real" CI runs. |
 
+Both modes share the same verdict-summary at the end (`── ci run summary ──`) and exit non-zero if any node failed.
+
+## Common invocations
+
+```sh
+# Full pipeline (canonical [metadata("ci")] root, every platform in the fanout)
+ci run                # local mode
+CI=true ci run        # strict mode
+
+# Re-run a single failed recipe on a specific lane — overwrites the same
+# GitHub commit-status context the full run wrote (closes the red check).
+ci run e2e@x86_64-linux
+
+# Re-run a single recipe across every pipeline platform.
+ci run e2e
+
+# Multiple positional selectors compose — `e2e` AND `lint` both run.
+ci run e2e lint
+
+# Skip the dependency closure; run ONLY the named nodes. Setup nodes
+# auto-ride for remote-platform recipes regardless.
+ci run --no-deps e2e@aarch64-darwin
+
+# Use a different DAG root instead of the [metadata("ci")] recipe.
+ci run --root release-pipeline
+
+# One-shot redirect of a platform to a throwaway host (LXC container,
+# alternate SSH alias). Repeatable per platform.
+ci run --host x86_64-linux=root@lxc-foo
+
+# Drive process-compose's interactive TUI instead of headless logs.
+ci run --tui
+
+# Forward arbitrary args to `process-compose up` after --.
+ci run -- -t=false
 ```
-just ci 2>&1 | grep --line-buffered -oE 'context="ci/[^"]+" -f description="[^"]+"'
+
+## Inspection subcommands (no side effects)
+
+```sh
+# Print the assembled process-compose YAML — no host prompts, no git
+# rev-parse, works offline.
+ci dump-yaml
+
+# Print the dependency graph in Mermaid flowchart syntax.
+ci graph
+
+# PATCH GitHub branch-protection's required_status_checks to the
+# (recipe, platform) contexts the canonical DAG produces. --dry-run
+# prints what would be PATCHed without touching the API.
+ci protect --dry-run
+ci protect                  # writes to default branch
+ci protect --branch develop
 ```
 
-Each event corresponds to one GitHub status post by `just ci`. The `description` field encodes the step state:
+## Decision flow
 
-- `srid · running` → step started
-- `srid · Ns · <log path>` → step finished successfully
-- `srid · failed after Ns · <log path>` → step failed
+1. **Full canonical run?** → `ci run` (or `CI=true ci run` for strict mode).
+2. **Flaky check on a PR, only one lane is red?** → `ci run <recipe>@<platform>` — same status context, overwrites the failure.
+3. **Iterating on one recipe locally?** → `ci run <recipe>` (no platform pin = fans out to every pipeline platform; `<recipe>@<localPlat>` if you only want the local lane).
+4. **Investigating "what would this run?"** → `ci dump-yaml` or `ci graph`.
+5. **Setting up a new repo?** → run `ci protect --dry-run` after at least one full run, verify the contexts look right, then `ci protect` to lock them in.
 
-`just ci` is bound to the Monitor's lifetime — **stopping the monitor kills `just ci` mid-run**. Let it run to completion.
+## Hosts config
 
-**Never read `just ci` stdout/stderr directly** (no `cat`, `tail`, `head`, `Read` on its output file). The combined stream is enormous and interleaves every parallel step, so it's not useful for diagnosis. The authoritative source is `.logs/<short-sha>/<step>@<system>.log` — one file per step, written by `just ci` itself. For diagnostics, read those files (the failing event's `description` carries the path).
+`ci` reads `~/.config/ci/hosts.json`:
 
-> **Brittleness:** the regex depends on `just ci` literally invoking `gh api ... context="ci/X" -f description="..."` on stdout. If that internal format ever changes, Monitor will silently emit zero events. The cleaner long-term fix is a `just ci::events` wrapper recipe that owns the event format. If you refactor the just recipe's status posting, update this filter too.
-
-## Verification
-
-After `just ci` exits, confirm that **every expected context** reported success — not just that the ones which did report are green. Silence (a missing context) means the step never ran.
-
-1. Get the expected contexts: `just ci::_contexts` (one per line, e.g. `nix@x86_64-linux`).
-2. Query posted statuses and cross-check:
-
-```bash
-export EXPECTED=$(just ci::_contexts | sed 's/^/ci\//')
-export POSTED=$(gh api "repos/<owner>/<repo>/statuses/<sha>" \
-  --jq '[.[] | select(.context | startswith("ci/"))] | group_by(.context) | map(max_by(.updated_at)) | .[] | "\(.context) \(.state)"')
-
-# Check for missing contexts (expected but never posted)
-echo "$EXPECTED" | while read ctx; do
-  echo "$POSTED" | grep -q "^$ctx " || echo "MISSING: $ctx"
-done
-
-# Check for non-success contexts
-echo "$POSTED" | grep -v ' success$' || true
+```json
+{
+  "x86_64-linux":   "srid1",
+  "aarch64-darwin": "sincereintent"
+}
 ```
 
-Both checks must pass: no `MISSING` lines and no non-success states. If any context is missing, the step was blocked before it could post — investigate why (see #471 for a prior example).
+Keys are full Nix system tuples (`x86_64-linux`, `aarch64-linux`, `aarch64-darwin`). Values are anything `ssh` knows how to dial — bare hostname, `user@host`, alias from `~/.ssh/config`. Missing platforms silently drop from the fanout (the user opts in by adding the entry). Override per-run with `--host PLATFORM=ADDR`.
 
-## On failure
+## When NOT to use this skill
 
-Read the log file (path is in the event's description) to diagnose.
-
-## Retrying individual steps
-
-`just ci::<step>` (e.g., `just ci::e2e`). Single-step retries are short enough to run via `Bash(run_in_background)` — Monitor only pays off for full `just ci` runs.
-
-## Flaky tests
-
-If a test fails once but passes on retry, post a comment on [issue #320](https://github.com/juspay/kolu/issues/320) capturing the failing scenario, platform, error excerpt, and the PR where it was observed. This keeps the flaky-test log current without manual curation.
-
-**IMPORTANT**: At least one platform must have e2e fully passed before the /do workflow is considered done.
-
-## Reference
-
-`just ci` builds and tests across all systems. It:
-
-- Runs preflight checks (clean worktree, commit pushed)
-- Builds on x86_64-linux and aarch64-darwin in parallel
-- Posts GitHub commit statuses per step
-- Prints a summary table at the end
-
-Individual steps: `just ci::nix-toplevel`, `just ci::e2e`, etc.
-Target a specific system: `CI_SYSTEM=x86_64-linux just ci::e2e`
-Logs are saved to `.logs/<short-sha>/<step>@<system>.log`.
+- The user is asking *about* ci's internals (how the YAML is shaped, what `_ci-setup` does, why `[metadata("ci")]` matters) — that's a docs question, point them at the [repo README](https://github.com/juspay/ci/blob/main/README.md).
+- The user wants the runner to do something it doesn't support (parallel cross-platform within one recipe, mid-run config reload, MCP introspection) — those are not supported today; check the README's Roadmap section.
