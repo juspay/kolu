@@ -324,7 +324,7 @@ const TerminalIconChip: Component<{
               </span>
             }
           >
-            <TerminalUserIcon icon={props.icon} />
+            {(icon) => <TerminalUserIcon icon={icon()} />}
           </Show>
         </button>
       </Tip>
