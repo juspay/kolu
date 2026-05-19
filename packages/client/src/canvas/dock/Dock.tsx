@@ -43,7 +43,7 @@ import { toast } from "solid-sonner";
 import { IntentMarkdownBlock } from "../../intent/IntentMarkdown";
 import AgentIndicator from "../../terminal/AgentIndicator";
 import { formatTimeAgo, useStaleCheck } from "../../terminal/staleness";
-import TerminalTag from "../../terminal/TerminalTag";
+import IntentGlyph from "../../intent/IntentGlyph";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { ChevronDownIcon, PlusIcon, SearchIcon } from "../../ui/Icons";
@@ -412,7 +412,7 @@ const RailSegment: Component<{
       aria-label="Jump to this terminal"
     >
       <Show when={props.mode === "rail" && props.intent}>
-        <TerminalTag
+        <IntentGlyph
           intent={props.intent}
           class="block text-base leading-none mix-blend-multiply"
         />
@@ -513,7 +513,7 @@ const AwaitingCardBody: Component<{
       >
         <div class="flex items-baseline justify-between gap-2 min-w-0">
           <span class="flex items-baseline gap-1.5 min-w-0">
-            <TerminalTag intent={props.meta.intent} />
+            <IntentGlyph intent={props.meta.intent} />
             <span
               class="font-mono text-[0.7rem] font-bold uppercase tracking-[0.14em] truncate min-w-0"
               style={{ color: props.info.repoColor }}
@@ -590,7 +590,7 @@ const WorkingPillBody: Component<{
     >
       <div class="flex items-baseline justify-between gap-2 min-w-0">
         <span class="flex items-baseline gap-1.5 min-w-0">
-          <TerminalTag intent={props.meta.intent} />
+          <IntentGlyph intent={props.meta.intent} />
           <span
             class="font-mono text-[0.65rem] font-bold uppercase tracking-[0.14em] truncate min-w-0"
             style={{ color: props.info.repoColor }}
@@ -638,7 +638,7 @@ const QuietRowBody: Component<{
       title={props.info.meta.cwd}
     >
       <div class="flex items-baseline gap-2 min-w-0">
-        <TerminalTag intent={props.meta.intent} />
+        <IntentGlyph intent={props.meta.intent} />
         <span
           class="font-mono text-[0.6rem] font-bold uppercase tracking-[0.14em] truncate min-w-0"
           style={{ color: props.info.repoColor }}

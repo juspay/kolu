@@ -19,7 +19,7 @@ import ChecksIndicator from "./ChecksIndicator";
 import { copyTextWithToast } from "./clipboard";
 import { PrUnavailableButton } from "./PrUnavailablePopover";
 import type { TerminalDisplayInfo } from "./terminalDisplay";
-import TerminalTag from "./TerminalTag";
+import IntentGlyph from "../intent/IntentGlyph";
 
 const TerminalMeta: Component<{
   info: TerminalDisplayInfo | undefined;
@@ -172,7 +172,7 @@ export const TerminalMetaCompact: Component<{
     <Show when={i()} fallback={<TerminalMetaSkeleton />}>
       {(info) => (
         <div class="flex items-center gap-1.5 min-h-7 text-sm font-medium min-w-0">
-          <TerminalTag intent={info().meta.intent} />
+          <IntentGlyph intent={info().meta.intent} />
           <NameSpan info={info()} />
           <Show when={info().meta.git?.isWorktree}>
             <WorktreeBadge />
@@ -307,7 +307,7 @@ const TerminalIntentChip: Component<{
           </span>
         }
       >
-        <TerminalTag intent={props.intent} />
+        <IntentGlyph intent={props.intent} />
       </Show>
     </button>
   </Tip>

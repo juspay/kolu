@@ -3,7 +3,7 @@
 import { cwdBasename } from "kolu-common/path";
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import { type Component, For } from "solid-js";
-import TerminalTag from "./TerminalTag";
+import IntentGlyph from "../intent/IntentGlyph";
 
 const SubPanelTabBar: Component<{
   subIds: TerminalId[];
@@ -41,7 +41,7 @@ const SubPanelTabBar: Component<{
                 data-active={isActive() || undefined}
                 onClick={() => props.onSelect(id)}
               >
-                <TerminalTag intent={meta()?.intent} />
+                <IntentGlyph intent={meta()?.intent} />
                 <span class="truncate">{label()}</span>
               </button>
               <button

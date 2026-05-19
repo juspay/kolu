@@ -26,7 +26,7 @@ import {
 } from "solid-js";
 import { IntentMarkdownBlock } from "../../intent/IntentMarkdown";
 import { formatTimeAgo, useIdleClassifier } from "../../terminal/staleness";
-import TerminalTag from "../../terminal/TerminalTag";
+import IntentGlyph from "../../intent/IntentGlyph";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import {
   bucketDescriptor,
@@ -514,7 +514,7 @@ const WorkspaceCard: Component<{
        *  the repo-name color and out of `searchTextFor` (dockModel.ts). */}
       <div class="flex items-center justify-between gap-2 min-w-0">
         <span class="flex items-center gap-1.5 min-w-0">
-          <TerminalTag intent={props.entry.info.meta.intent} />
+          <IntentGlyph intent={props.entry.info.meta.intent} />
           <span
             class="font-mono text-[0.6rem] font-bold uppercase tracking-[0.16em] truncate min-w-0"
             style={{ color: props.entry.info.repoColor }}

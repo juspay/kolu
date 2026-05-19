@@ -104,7 +104,7 @@ Then(
     await this.page.waitForFunction(
       (want) => {
         const chip = document.querySelector(
-          '[data-testid="canvas-tile"][data-active="true"] [data-testid="terminal-intent-chip"] [data-testid="terminal-tag"]',
+          '[data-testid="canvas-tile"][data-active="true"] [data-testid="terminal-intent-chip"] [data-testid="intent-glyph"]',
         );
         return chip?.textContent === want;
       },
@@ -117,7 +117,7 @@ Then(
 Then(
   "the terminal intent chip should show the placeholder",
   async function (this: KoluWorld) {
-    // Placeholder state: chip is present but no terminal-tag span has rendered
+    // Placeholder state: chip is present but no intent-glyph span has rendered
     // (the `<Show fallback=...>` falls through to the "＋" glyph).
     await this.page.waitForFunction(
       () => {
@@ -125,7 +125,7 @@ Then(
           '[data-testid="canvas-tile"][data-active="true"] [data-testid="terminal-intent-chip"]',
         );
         if (!chip) return false;
-        return chip.querySelector('[data-testid="terminal-tag"]') === null;
+        return chip.querySelector('[data-testid="intent-glyph"]') === null;
       },
       undefined,
       { timeout: POLL_TIMEOUT },
