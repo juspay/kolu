@@ -48,6 +48,7 @@ import { serverProcessId, wsStatus } from "./rpc/rpc";
 import TransportOverlay from "./rpc/TransportOverlay";
 import ShortcutsHelp from "./ShortcutsHelp";
 import { screenshotTerminal } from "./screenshotTerminal";
+import TipBanner from "./settings/TipBanner";
 import { useColorScheme } from "./settings/useColorScheme";
 import { useTips } from "./settings/useTips";
 import { useStaleCheck } from "./terminal/staleness";
@@ -366,6 +367,7 @@ const App: Component = () => {
       </Show>
       <TransportOverlay />
       <WebcamOverlay />
+      <TipBanner />
       <Toaster
         position="bottom-right"
         theme={colorScheme()}

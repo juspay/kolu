@@ -1,11 +1,12 @@
 /**
  * Tip state — singleton module. Persists seen tips in server state.
- * Owns all tip timing: state-driven triggers live here, not in consuming components.
+ * Tips render via `<TipBanner />` (top-center floating pill), kept
+ * separate from the bottom-right toast stream so they don't get lost
+ * among success / error notifications.
  */
 
 import type { TerminalId } from "kolu-common/surface";
-import { type Accessor, createEffect } from "solid-js";
-import { toast } from "solid-sonner";
+import { type Accessor, createEffect, createSignal } from "solid-js";
 import { isMobile } from "../useMobile";
 import { AMBIENT_TIPS, type Tip, type TipId } from "./tips";
 import { preferences, updatePreferences } from "../wire";
@@ -14,6 +15,40 @@ const isPWA = window.matchMedia("(display-mode: standalone)").matches;
 const ambientPool = AMBIENT_TIPS.filter(
   (t) => !(isPWA && t.id === "amb-pwa-install"),
 );
+
+const [activeTipSignal, setActiveTip] = createSignal<Tip | null>(null);
+
+/** Reactive accessor for the tip currently displayed by `<TipBanner />`. */
+export const activeTip: Accessor<Tip | null> = activeTipSignal;
+
+/** How long a tip stays on screen before the banner auto-dismisses it.
+ *  Owned here (not in the banner) so the state module fully controls
+ *  "how a tip is displayed and for how long" — the banner is just the
+ *  rendering surface. */
+const TIP_DURATION_MS = 8000;
+let autoDismissTimer: number | null = null;
+
+function cancelAutoDismiss() {
+  if (autoDismissTimer !== null) {
+    window.clearTimeout(autoDismissTimer);
+    autoDismissTimer = null;
+  }
+}
+
+function present(tip: Tip) {
+  cancelAutoDismiss();
+  setActiveTip(tip);
+  autoDismissTimer = window.setTimeout(() => {
+    autoDismissTimer = null;
+    setActiveTip(null);
+  }, TIP_DURATION_MS);
+}
+
+/** Hide the active tip (banner slides away). */
+export const dismissTip = () => {
+  cancelAutoDismiss();
+  setActiveTip(null);
+};
 
 function seen(): Set<TipId> {
   return new Set(preferences().seenTips);
@@ -25,36 +60,40 @@ function markSeen(id: TipId) {
   updatePreferences({ seenTips: [...s] });
 }
 
-const TIP_PREFIX = "\u{1F4A1} ";
-
-/** Show a contextual tip toast if the user hasn't seen it yet. */
+/** Show a contextual tip once. Marks it seen so it never reappears. */
 function showTipOnce(tip: Tip) {
   if (isMobile()) return;
   if (seen().has(tip.id)) return;
   markSeen(tip.id);
-  toast(TIP_PREFIX + tip.text, { duration: 5000 });
+  present(tip);
 }
 
-/** Pick a random ambient tip (prefers unseen, falls back to any). */
-function randomAmbientTip(): string {
-  if (isMobile()) return "";
+/** Internal pure peek — picks a tip without marking it seen. */
+function pickAmbientTip(): Tip | null {
+  if (isMobile()) return null;
   const unseen = ambientPool.filter((t) => !seen().has(t.id));
   const pool = unseen.length > 0 ? unseen : ambientPool;
-  const pick = pool[Math.floor(Math.random() * pool.length)];
-  if (!pick) return "";
-  if (!seen().has(pick.id)) markSeen(pick.id);
-  return pick.text;
+  return pool[Math.floor(Math.random() * pool.length)] ?? null;
 }
 
-/** Show a random tip as a toast (for startup). Respects the startup-tips setting. */
+/** Text-only peek for surfaces that render tip text without "consuming"
+ *  the tip (palette footer). Does not mark the tip seen so the banner's
+ *  unseen pool is not drained by incidental glances. */
+function peekAmbientTipText(): string {
+  return pickAmbientTip()?.text ?? "";
+}
+
+/** Atomic: pick an ambient tip, mark it seen, show it in the banner. */
+function showAmbientTip() {
+  const tip = pickAmbientTip();
+  if (!tip) return;
+  markSeen(tip.id);
+  present(tip);
+}
+
+/** Show a random tip in the banner on startup, if the setting is on. */
 function showStartupTip() {
-  if (isMobile()) return;
-  if (!preferences().startupTips) return;
-  const text = randomAmbientTip();
-  toast(TIP_PREFIX + text, {
-    duration: 4000,
-    description: "Startup tip \u00B7 disable in Settings",
-  });
+  if (preferences().startupTips) showAmbientTip();
 }
 
 /**
@@ -67,7 +106,10 @@ function initTipTriggers(deps: { terminalIds: Accessor<TerminalId[]> }) {
   createEffect(() => {
     if (!startupFired && deps.terminalIds().length > 0) {
       startupFired = true;
-      setTimeout(showStartupTip, 1000);
+      // Fire-and-forget: the createEffect re-runs when terminalIds changes,
+      // and onCleanup would cancel the pending timeout before it fires.
+      // startupFired already guards against re-entry, so no cleanup needed.
+      window.setTimeout(showStartupTip, 1000);
     }
   });
 }
@@ -75,7 +117,7 @@ function initTipTriggers(deps: { terminalIds: Accessor<TerminalId[]> }) {
 export function useTips() {
   return {
     showTipOnce,
-    randomAmbientTip,
+    peekAmbientTipText,
     initTipTriggers,
     startupTips: () => preferences().startupTips,
     setStartupTips: (on: boolean) => updatePreferences({ startupTips: on }),
