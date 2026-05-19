@@ -112,31 +112,22 @@ interface PendingRequest {
   reject(err: Error): void;
 }
 
-/** Helper flake ref to bootstrap on the remote. Set by the Nix wrapper
- *  in `default.nix` to `github:juspay/kolu/<commitHash>#kolu-helper`,
- *  so a kolu install spawns a helper from the SAME commit it was built
- *  from — fully reproducible, version-compatible by construction. No
- *  string-pinning to a branch name needed.
- *
- *  For `pnpm dev` / `just dev` (outside the Nix wrapper), the env var
- *  isn't set; falls back to the current development branch.
- *  `KOLU_HELPER_REMOTE_CMD` still overrides the entire invocation for
- *  non-Nix remotes. */
-const DEFAULT_HELPER_FLAKE_REF =
+/** Local Nix store path of the kolu-helper derivation. Set by the Nix
+ *  wrapper in `default.nix` (`--set KOLU_HELPER_STORE_PATH "${kolu-helper}"`),
+ *  so kolu always runs a helper built from the SAME closure as the
+ *  controller itself — no GitHub fetch, no branch pinning, no version
+ *  skew. `pnpm dev` / `just dev` (outside the Nix wrapper) leaves this
+ *  undefined and falls back to bootstrapping via `nix run github:...`. */
+const HELPER_STORE_PATH = process.env.KOLU_HELPER_STORE_PATH;
+
+/** Fallback flake ref for the development loop (just dev), where the Nix
+ *  wrapper isn't in play and the local store path isn't available. Points
+ *  at the development branch. Keep this in sync with the active branch
+ *  while in development; the production path uses the local store path
+ *  and bypasses this constant entirely. */
+const DEV_HELPER_FLAKE_REF =
   process.env.KOLU_HELPER_FLAKE_REF ??
   "github:juspay/kolu/feat/remote-terminal-prototype#kolu-helper";
-
-/** Default invocation kolu runs over SSH when the user hasn't set
- *  `KOLU_HELPER_REMOTE_CMD`. `bash -lc` makes the remote shell source
- *  the user's profile so `nix` lands on PATH for a non-interactive
- *  session. `--refresh` skips Nix's flake eval cache so the helper
- *  picks up new commits without an hour-long lag.
- *
- *  Two override hatches: `KOLU_HELPER_REMOTE_CMD` replaces the entire
- *  invocation (for non-Nix remotes, custom builds, docker, …);
- *  `KOLU_HELPER_FLAKE_REF` swaps only the flake ref (for testing a
- *  development branch against the released helper bootstrap). */
-const DEFAULT_HELPER_REMOTE_CMD = `bash -lc 'nix --extra-experimental-features "nix-command flakes" run --refresh ${DEFAULT_HELPER_FLAKE_REF} -- --serve'`;
 
 interface RemoteHostOpts {
   alias: string;
@@ -315,41 +306,114 @@ export function createRemoteHost(opts: RemoteHostOpts): Host {
     return promise;
   }
 
+  /** Shared SSH options for all ssh / nix-copy invocations against this
+   *  host. ControlMaster + ControlPath collapse the multiple round-trips
+   *  (nix-copy push followed by helper-spawn) onto a single underlying
+   *  SSH session. */
+  function sshOpts(): string[] {
+    const cmDir = process.env.XDG_RUNTIME_DIR ?? "/tmp";
+    return [
+      "-o",
+      "Compression=no",
+      "-o",
+      "ServerAliveInterval=30",
+      "-o",
+      "ServerAliveCountMax=3",
+      "-o",
+      "ControlMaster=auto",
+      "-o",
+      "ControlPersist=10m",
+      "-o",
+      `ControlPath=${cmDir}/kolu-ssh-cm-%r@%h:%p`,
+    ];
+  }
+
+  /** Push the kolu-helper closure to the remote's Nix store via
+   *  `nix copy --to ssh-ng://<alias>`. Idempotent: nix-copy diffs the
+   *  remote store and only ships paths that are missing, so the second
+   *  time onward it's a no-op handshake.
+   *
+   *  Same-arch only: the helper has a native `node-pty` binding, so
+   *  controller and remote must share `system` (e.g. both `x86_64-linux`).
+   *  Cross-arch users hit the github bootstrap fallback or override via
+   *  `KOLU_HELPER_REMOTE_CMD`. */
+  async function nixCopyHelper(
+    storePath: string,
+    log: Logger,
+  ): Promise<void> {
+    log.info({ storePath }, "nix copy helper to remote");
+    const child = spawn(
+      "nix",
+      [
+        "--extra-experimental-features",
+        "nix-command flakes",
+        "copy",
+        "--to",
+        `ssh-ng://${alias}?ssh-options=${encodeURIComponent(sshOpts().join(" "))}`,
+        storePath,
+      ],
+      { stdio: ["ignore", "pipe", "pipe"] },
+    );
+    let stderr = "";
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", () => {});
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (chunk: string) => {
+      stderr += chunk;
+    });
+    const exitCode: number = await new Promise((resolve, reject) => {
+      child.on("error", reject);
+      child.on("exit", (code) => resolve(code ?? -1));
+    });
+    if (exitCode !== 0) {
+      // Don't hard-fail here — the helper bin will simply not exist on
+      // the remote and the subsequent ssh will fail with a more
+      // actionable error. We log the copy stderr so an operator can see
+      // why (most common: ssh-ng requires the remote to trust nix from
+      // the user, OR the user lacks daemon access).
+      log.warn(
+        { exitCode, stderr: stderr.trim() },
+        "nix copy helper failed; the next ssh will fall back to the bootstrap path if available",
+      );
+      throw new Error(
+        `nix copy of kolu-helper to ${alias} failed (exit ${exitCode}): ${stderr.trim().slice(-500)}`,
+      );
+    }
+  }
+
   async function connect(baseLog: Logger): Promise<void> {
     if (child) return;
     const log = baseLog.child({ host: alias });
 
-    const remoteCmd = helperRemoteCmd ?? DEFAULT_HELPER_REMOTE_CMD;
+    // Pick the remote invocation. Three modes:
+    //   1. KOLU_HELPER_REMOTE_CMD overrides everything (non-Nix remotes,
+    //      docker, custom builds).
+    //   2. KOLU_HELPER_STORE_PATH set — the Nix wrapper's path. We
+    //      `nix copy` it to the remote, then ssh to exec it directly.
+    //      Same-commit guarantee, no github fetch.
+    //   3. Fallback — bootstrap via `nix run github:juspay/kolu/<branch>`
+    //      for the `pnpm dev` / `just dev` flow that doesn't run under
+    //      the Nix wrapper.
+    let remoteCmd: string;
+    if (helperRemoteCmd) {
+      remoteCmd = helperRemoteCmd;
+    } else if (HELPER_STORE_PATH) {
+      try {
+        await nixCopyHelper(HELPER_STORE_PATH, log);
+      } catch (err) {
+        log.warn(
+          { err },
+          "nix copy failed; falling back to github bootstrap",
+        );
+      }
+      remoteCmd = `${HELPER_STORE_PATH}/bin/kolu-helper --serve`;
+    } else {
+      remoteCmd = `bash -lc 'nix --extra-experimental-features "nix-command flakes" run --refresh ${DEV_HELPER_FLAKE_REF} -- --serve'`;
+    }
     log.info({ remoteCmd }, "spawning ssh helper");
-    // SSH options tuned for low-latency, single long-lived channel:
-    //  - `Compression=no` — small JSON frames compress poorly; the CPU
-    //    cost adds latency per keystroke without saving bytes.
-    //  - `ServerAliveInterval=30` / `ServerAliveCountMax=3` — detect a
-    //    half-open TCP within 90s so reconnect kicks in promptly.
-    //  - `ControlMaster=auto` + `ControlPersist=10m` — share the SSH
-    //    auth handshake across reconnects so the 1-second reconnect
-    //    backoff doesn't pay for a fresh TLS round trip.
-    //  - `ControlPath` lives under `$XDG_RUNTIME_DIR` (or `/tmp` fallback)
-    //    so it's per-user and ephemeral.
-    const cmDir = process.env.XDG_RUNTIME_DIR ?? "/tmp";
     const ssh = spawn(
       "ssh",
-      [
-        "-o",
-        "Compression=no",
-        "-o",
-        "ServerAliveInterval=30",
-        "-o",
-        "ServerAliveCountMax=3",
-        "-o",
-        "ControlMaster=auto",
-        "-o",
-        "ControlPersist=10m",
-        "-o",
-        `ControlPath=${cmDir}/kolu-ssh-cm-%r@%h:%p`,
-        alias,
-        remoteCmd,
-      ],
+      [...sshOpts(), alias, remoteCmd],
       { stdio: ["pipe", "pipe", "pipe"] },
     );
     child = ssh;
