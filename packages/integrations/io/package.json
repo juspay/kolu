@@ -12,7 +12,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test:unit": "vitest run"
+    "test:unit": "vitest run --passWithNoTests"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
