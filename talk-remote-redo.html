@@ -348,10 +348,10 @@ export interface Host extends Executor {           // ← extends, not duplicate
     </tr>
     <tr class="new-pkg">
       <td><strong>F5</strong></td>
-      <td>Create <code>packages/integrations/remote/</code> (<code>kolu-remote-server</code> binary, protocol schemas, SSH-stdio RPC client, ssh-config parser). Implement <code>RemoteHost</code> in <code>integrations/host/</code>, plumbing remote PTY bytes through a new byte-stream OSC parser added to <code>kolu-pty</code> (exists on master from R2). Wire <code>readSshHosts()</code> into registry. Add <code>host.list</code> RPC + host axis in palette.</td>
-      <td class="check">User-visible: remote PTYs work. No metadata parity yet.</td>
-      <td class="num">~+1,800<br><span class="cite">mostly new pkg</span></td>
-      <td>~10 (8 new in remote/, 2 new in host/+pty/, ~3 modified)</td>
+      <td>Create <code>packages/integrations/remote/</code>: <code>kolu-remote-server</code> binary (file-IO RPC only — no PTY engine), wire-protocol Zod schemas, SSH-stdio RPC client, ssh-config parser, <code>buildSshCommand({ program, args, env, cwd, interactive }) → CommandTemplate</code>. Implement <code>RemoteHost</code> in <code>kolu-host</code>: <code>spawnPty</code> uses <code>buildSshCommand({ interactive: true })</code> + <code>kolu-pty</code>'s local <code>spawnPty</code> (program=ssh inside local PTY). For <code>readFile/exec/watch/queryDb/statMtimeMs</code>, dispatch over channel B to <code>kolu-remote-server</code>. SSH ControlMaster multiplexes both channels over one TCP connection. OSC rcfile written on remote via RPC; <code>--rcfile</code> passed in the PTY's ssh command. Wire <code>readSshHosts()</code> into registry. Add <code>host.list</code> RPC + host axis in palette. Nix-only deployment: <code>nix copy --to ssh-ng://&lt;alias&gt;</code> seeds the remote binary closure.</td>
+      <td class="check">User-visible: remote PTYs work end-to-end with full metadata parity (branch chip, agent badges, Code-tab read).</td>
+      <td class="num">~+1,200<br><span class="cite">smaller than PR #929's ~+1,800 — no PTY engine on remote</span></td>
+      <td>~10 (new in remote/, new in host/, ~3 modified)</td>
     </tr>
     <tr class="modified">
       <td><strong>F6a-d</strong><br><span class="cite">4 PRs</span></td>
@@ -362,10 +362,10 @@ export interface Host extends Executor {           // ← extends, not duplicate
     </tr>
     <tr class="modified">
       <td><strong>F7</strong></td>
-      <td>Reliability: helper becomes a daemon (Unix socket, <code>setsid</code>, lock file). Per-PTY ring buffer with sequence numbers. <code>attach(sinceSeq)</code> RPC replays missed output across SSH reconnects. All inside <code>integrations/remote/</code>.</td>
-      <td class="check">SSH-drop resilience</td>
-      <td class="num">~+650</td>
-      <td>2-3, all in <code>integrations/remote/</code></td>
+      <td>Reliability for the metadata RPC channel: <code>kolu-remote-server</code> stays alive across SSH connection drops (Unix socket, lock file). Controller's RPC client auto-reconnects with exponential backoff. <strong>No PTY-state replay needed</strong> — terminals are stateless from the server's perspective; if SSH drops, the local PTY's ssh process dies and the user spawns a new one. (PR #929's ring buffer + sequence numbering + <code>attach(sinceSeq)</code> are <em>not</em> in scope under the Zed-inspired approach.)</td>
+      <td class="check">Metadata channel survives SSH blips; long-running watchers don't tear down on every reconnect</td>
+      <td class="num">~+200<br><span class="cite">vs PR #929's ~+650 — no PTY replay</span></td>
+      <td>1-2, all in <code>integrations/remote/</code></td>
     </tr>
     <tr class="modified">
       <td><strong>F8</strong></td>
@@ -535,28 +535,77 @@ onChange();   // ← getStore() here returns undefined.
 
 <p>Zed ships SSH-based remote development with a similar local-vs-remote unification goal. I cloned <code>github.com/zed-industries/zed</code> and read the relevant crates (<code>crates/remote</code>, <code>crates/remote_server</code>, <code>crates/remote_connection</code>, <code>crates/fs</code>, <code>crates/project/src/terminals.rs</code>, ~9k LOC total). Findings worth folding in:</p>
 
-<h3>1. Terminals: Zed runs the PTY locally with <code>ssh</code> as the program</h3>
+<h3>1. Terminals: Zed runs the PTY locally with <code>ssh</code> as the program — <span class="check">ADOPTED</span></h3>
 
-<p>This is the biggest divergence from our plan and from PR #929. Verified at <code>crates/remote/src/transport/ssh.rs:1768-1880</code> (<code>build_command_posix</code>): when Zed creates a remote terminal, it builds a command template like:</p>
+<p>The biggest divergence from PR #929. Verified at <code>crates/remote/src/transport/ssh.rs:1768-1880</code> (<code>build_command_posix</code>): when Zed creates a remote terminal, it builds a command template like:</p>
 
 <div class="diagram">ssh -q -t &lt;destination&gt; 'cd &lt;working_dir&gt; &amp;&amp; exec env &lt;ENV_KV...&gt; &lt;remote_shell&gt; -l'</div>
 
-<p>That command is then passed to <code>alacritty_terminal::tty::new(...)</code> as the PTY's program (<code>crates/terminal/src/terminal.rs:568</code>). <strong>The PTY itself is local;</strong> <code>ssh</code> is what runs inside it, and ssh's own client-server protocol shuttles bytes to the remote shell. Zed's <code>remote_server</code> daemon is <em>not involved in terminals at all</em> — its responsibilities (verified from <code>crates/remote_server/src/headless_project.rs</code>) are file I/O, LSP, search, Jupyter kernels, directory env. <strong>Not PTY hosting.</strong></p>
+<p>That command is passed to <code>alacritty_terminal::tty::new(...)</code> as the PTY's program (<code>crates/terminal/src/terminal.rs:568</code>). <strong>The PTY itself is local;</strong> ssh runs inside it; ssh's protocol shuttles bytes to the remote shell. Zed's <code>remote_server</code> daemon is <em>not involved in terminals at all</em> — its responsibilities (verified from <code>crates/remote_server/src/headless_project.rs</code>) are file I/O, LSP, search, Jupyter kernels, directory env. <strong>Not PTY hosting.</strong></p>
+
+<p><strong>We're adopting this.</strong> The trade-off — SSH drops kill the PTY (scrollback gone) — is acceptable given the simplification: F5 sheds ~1,200 lines of helper-side PTY engine + ring buffer + sequence-numbering + attach/replay logic. F7 collapses from "PTY survives SSH drops" to "RPC channel reconnects automatically" — much smaller scope.</p>
+
+<h3>How Kolu's features work under the new architecture</h3>
+
+<p>Each remote terminal has <strong>two SSH-backed channels</strong>, multiplexed over one TCP connection via SSH's <code>ControlMaster</code>:</p>
+
+<div class="diagram">┌── controller (your laptop) ──────────────────┐    ┌── remote host ─────────────┐
+│                                              │    │                            │
+│  ┌─ LOCAL PTY ─────────────┐                 │    │                            │
+│  │  program: ssh           │ ── ssh channel A ───→│ shell -l (-rcfile injects │
+│  │  args: -t host 'cmd…'   │←─────────────────────│   OSC 7 / 2 / 633;E hooks) │
+│  │  xterm.js renders here  │                 │    │                            │
+│  └─────────────────────────┘                 │    │                            │
+│                                              │    │                            │
+│  ┌─ metadata RPC client ───┐                 │    │  ┌─ kolu-remote-server ─┐ │
+│  │  executor.readFile      │ ── ssh channel B ───→│  │ NDJSON over stdio     │ │
+│  │  executor.exec("git",…) │←─────────────────────│  │ exec / readFile / fs  │ │
+│  │  executor.watch(.git/…) │                 │    │  │ .watch / queryDb /    │ │
+│  │  executor.queryDb(…)    │                 │    │  │ statMtimeMs           │ │
+│  └─────────────────────────┘                 │    │  └───────────────────────┘ │
+└──────────────────────────────────────────────┘    └────────────────────────────┘</div>
+
+<p>Concrete behaviour per feature:</p>
 
 <table>
-  <thead><tr><th></th><th>Zed: local PTY + ssh-inside</th><th>This plan (and PR #929): remote PTY via daemon</th></tr></thead>
+  <thead><tr><th>Feature</th><th>How it works on remote</th></tr></thead>
   <tbody>
-    <tr><td>PTY lifecycle</td><td>Dies when ssh exits / network drops. Reconnect = new PTY, scrollback lost.</td><td>Daemon owns PTY; survives SSH drops. Per-PTY ring buffer replays missed bytes on reconnect.</td></tr>
-    <tr><td>Server binary on remote</td><td>Not needed for terminals. (Needed for file I/O / LSP / etc.)</td><td>Needed: <code>kolu-remote-server</code> spawns the PTY.</td></tr>
-    <tr><td>OSC sequence parsing</td><td>Native — terminal emulator parses OSC inline as the PTY produces it locally.</td><td>Bytes come back as RPC frames; need to re-feed through xterm-headless on controller (or parse server-side and forward events).</td></tr>
-    <tr><td>Complexity in remote code</td><td>Minimal — no PTY engine on remote.</td><td>Full PTY engine, ring buffer, sequence numbering, attach/replay logic.</td></tr>
-    <tr><td>Resilience to SSH drops</td><td>None — process dies.</td><td>F7 ships daemon mode with replay.</td></tr>
+    <tr>
+      <td><strong>Branch chip</strong></td>
+      <td><code>meta/git.ts</code> calls <code>subscribeGitInfo(cwd, onChange, log, host)</code>. <code>host.exec("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd })</code> goes over channel B (metadata RPC). <code>host.watch(".git/HEAD", onChange)</code> installs a watcher on the kolu-remote-server side. Updates stream back over channel B.</td>
+    </tr>
+    <tr>
+      <td><strong>Worktree create/remove</strong></td>
+      <td>kolu-git's <code>worktreeCreate(repo, name, log, host)</code> uses <code>host.exec("git", ["worktree", "add", …])</code>. All over channel B.</td>
+    </tr>
+    <tr>
+      <td><strong>Agent badge (claude-code)</strong></td>
+      <td><code>host.readFile(`${resolvedHome}/.claude/sessions/${pid}.json`)</code> + <code>host.watch(sessionsDir, onChange)</code> + <code>host.exec("tail", ["-c", "262144", transcriptPath])</code>. Pure channel B.</td>
+    </tr>
+    <tr>
+      <td><strong>Agent badge (opencode / codex)</strong></td>
+      <td><code>host.queryDb(opencodeDbPath, sessionLookupSql, params)</code> + <code>host.watch(walPath, onChange)</code>. Pure channel B.</td>
+    </tr>
+    <tr>
+      <td><strong>Code-tab file browser / read</strong></td>
+      <td><code>host.exec("ls", [path])</code> for directory listing; <code>host.readFile(path)</code> for content. Channel B.</td>
+    </tr>
+    <tr>
+      <td><strong>OSC 7/2/633;E injection</strong></td>
+      <td>kolu writes a per-terminal rcfile to the remote (via <code>host.exec("sh", ["-c", "cat > /tmp/kolu-rc-${id}"], { stdin: rcContent })</code> — channel B). The PTY ssh command is then <code>ssh -t host '… exec bash --rcfile /tmp/kolu-rc-${id}'</code>. Remote shell sources the rcfile; OSC sequences emit naturally as part of the shell's normal output, get parsed by xterm.js on the controller from channel A's byte stream.</td>
+    </tr>
+    <tr>
+      <td><strong>Foreground process detection</strong></td>
+      <td>OSC 633;E preexec hook in the rcfile prints the typed command name. Same mechanism as local. <code>tcgetpgrp</code>-based fallback (for cases where the user runs a sub-program via Tab-completion etc.) becomes a periodic <code>host.exec("ps", ["-o", "pid,comm,pgid", "-p", ptyPid])</code> over channel B.</td>
+    </tr>
+    <tr>
+      <td><strong>session restore</strong></td>
+      <td>Persisted <code>hostId</code> on terminal metadata. On restore, <code>createTerminal(savedCwd, parentId, savedInitial, savedHostId)</code> spawns a new local PTY with ssh inside — same shape as initial creation.</td>
+    </tr>
   </tbody>
 </table>
 
-<p><strong>Recommendation:</strong> seriously consider Zed's approach for our PTY layer. The trade we make by adopting it: <em>SSH drops kill the PTY (scrollback gone)</em> in exchange for <em>eliminating ~1,200 lines of helper-side PTY engine + ring buffer code from F5/F7</em>. Kolu's user base spawns short-lived shells in a tile UI; persistent-PTY-across-disconnect is a nice-to-have, not a defining feature. Worth a follow-up discussion before F5 lands.</p>
-
-<p>The <code>kolu-remote-server</code> binary would still exist — needed for <code>executor.{readFile, exec, watch, queryDb, statMtimeMs}</code> (branch chip, agent badges, Code-tab on remote). It just wouldn't run PTYs.</p>
+<p><strong>The kolu-remote-server is much smaller under this approach.</strong> It's a generic IO-RPC daemon (exec, readFile, watch, queryDb, statMtimeMs) with no PTY engine, no ring buffer, no sequence numbering, no attach/replay. Estimate: ~600 lines vs PR #929's ~1,200.</p>
 
 <h3>2. Transport pluggability — Zed supports SSH, Docker, WSL, and mock</h3>
 
@@ -584,28 +633,91 @@ onChange();   // ← getStore() here returns undefined.
 
 <h3>5. Server binary deployment</h3>
 
-<p>Verified from <code>crates/remote/src/remote_client.rs:785</code> (<code>ensure_server_binary</code>) and the docs at <code>docs/src/remote-development.md</code>: Zed downloads a prebuilt server binary from <code>zed.dev</code> directly on the remote host (using the remote's network), or uploads from the controller via SSH (<code>upload_binary_over_ssh: true</code> setting) for networks where the remote can't reach the internet. Platform/arch detected via <code>uname -sm</code> first.</p>
+<p>Verified from <code>crates/remote/src/remote_client.rs:785</code> (<code>ensure_server_binary</code>) and <code>docs/src/remote-development.md</code>: Zed downloads a prebuilt server binary from <code>zed.dev</code> directly on the remote host (using the remote's network), or uploads from the controller via SSH (<code>upload_binary_over_ssh: true</code> setting) for networks where the remote can't reach the internet. Platform/arch detected via <code>uname -sm</code> first.</p>
 
-<p>PR #929's approach: <code>nix copy --to ssh-ng://&lt;alias&gt;</code> the helper closure from the controller. Trade-off: Nix-based is hermetic and reproducible but requires Nix on both ends; Zed's HTTP download requires only network access. <strong>For Kolu, keep Nix-based deployment</strong> (matches the rest of the project's reproducibility story) but document the fallback path: <code>KOLU_REMOTE_SERVER_CMD</code> env var lets users override the spawn command entirely (custom build, Docker image, ad-hoc binary).</p>
+<p><strong>Kolu deployment is Nix-only.</strong> <code>nix copy --to ssh-ng://&lt;alias&gt;</code> pushes the controller's exact <code>kolu-remote-server</code> closure to the remote — same commit on both sides, no version skew, no HTTP download path needed. Cross-arch (controller and remote on different platforms) falls back to building from source on the remote via <code>nix run github:juspay/kolu#kolu-remote-server</code>. Same-arch path uses substituted binaries from the cache. No env-override escape hatch — Nix is the deployment contract.</p>
 
-<h3>6. <code>Fs</code> trait — a richer IO abstraction than our <code>Executor</code></h3>
+<h3>6. <code>Fs</code> trait and structured <code>GitRepository</code> — a richer IO abstraction than our <code>Executor</code></h3>
 
 <p>Verified at <code>crates/fs/src/fs.rs:97</code>: Zed's <code>Fs</code> trait has ~30 methods including <code>create_dir</code>, <code>create_file</code>, <code>copy_file</code>, <code>rename</code>, <code>remove_dir</code>, <code>trash</code>, <code>atomic_write</code>, <code>save</code>, <code>load_bytes</code>, <code>metadata</code>, <code>read_dir</code> (streaming), <code>watch</code> (streaming), plus first-class git operations (<code>open_repo</code>, <code>git_init</code>, <code>git_clone</code>, <code>git_config</code>).</p>
 
-<p>Our <code>Executor</code> has 5 methods (<code>exec</code>, <code>readFile</code>, <code>statMtimeMs</code>, <code>watch</code>, <code>queryDb</code>). The gap is deliberate — Kolu's needs are narrower (terminal + metadata, not full editor). But Zed's pattern of treating git as a structured first-class concern (not just <code>exec("git", …)</code>) is intriguing. <strong>Not adopting</strong> for this round — kolu-git's <code>exec("git", …)</code> approach works fine for our use cases — but flagging for future consideration if we want to drop the <code>git</code> CLI dependency.</p>
+<p>And <code>open_repo</code> returns a <code>GitRepository</code> trait (verified at <code>crates/git/src/repository.rs:750</code>) with another ~30 methods:</p>
+
+<div class="diagram">pub trait GitRepository: Send + Sync {
+    fn reload_index(&self);
+    fn load_index_text(...) -> BoxFuture<'_, Option<String>>;
+    fn load_committed_text(...) -> BoxFuture<'_, Option<String>>;
+    fn load_blob_content(...) -> BoxFuture<'_, Result<String>>;
+    fn set_index_text(...) -> BoxFuture<'_, Result<()>>;
+    fn remote_url(...) -> BoxFuture<'_, Option<String>>;
+    fn revparse_batch(...) -> BoxFuture<'_, Result<Vec<Option<String>>>>;
+    fn head_sha(&self) -> BoxFuture<'_, Option<String>>;
+    fn merge_message(&self) -> BoxFuture<'_, Option<String>>;
+    fn status(&self, path_prefixes: &[RepoPath]) -> Task<Result<GitStatus>>;
+    fn diff_tree(...) -> BoxFuture<'_, Result<TreeDiff>>;
+    fn stash_entries(&self) -> BoxFuture<'_, Result<GitStash>>;
+    fn branches(&self) -> BoxFuture<'_, Result<Vec<Branch>>>;
+    fn change_branch(...) -> BoxFuture<'_, Result<()>>;
+    fn create_branch(...) -> BoxFuture<'_, Result<()>>;
+    fn rename_branch(...) -> BoxFuture<'_, Result<()>>;
+    fn delete_branch(...) -> BoxFuture<'_, Result<()>>;
+    fn worktrees(&self) -> BoxFuture<'_, Result<Vec<Worktree>>>;
+    fn create_worktree(...) -> BoxFuture<'_, Result<()>>;
+    fn checkout_branch_in_worktree(...) -> BoxFuture<'_, Result<()>>;
+    fn remove_worktree(...) -> BoxFuture<'_, Result<()>>;
+    fn reset(&self, commit, mode, env) -> BoxFuture<'_, Result<()>>;
+    fn checkout_files(...) -> BoxFuture<'_, Result<()>>;
+    fn show(&self, commit) -> BoxFuture<'_, Result<CommitDetails>>;
+    fn load_commit(...) -> BoxFuture<'_, Result<CommitDiff>>;
+    fn blame(...) -> BoxFuture<'_, Result<Blame>>;
+    fn path(&self) -> PathBuf;
+    fn main_repository_path(&self) -> PathBuf;
+    // ... and more
+}</div>
+
+<h4>Comparison to our plan</h4>
+
+<table>
+  <thead><tr><th></th><th>Zed: structured <code>GitRepository</code> trait</th><th>Our plan: kolu-git over <code>executor.exec("git", …)</code></th></tr></thead>
+  <tbody>
+    <tr><td>Surface</td><td>~30 typed methods returning <code>Branch</code>, <code>GitStatus</code>, <code>TreeDiff</code>, <code>CommitDetails</code>, etc.</td><td>~10 public functions, each builds <code>git</code> argv and parses stdout into typed shapes.</td></tr>
+    <tr><td>Local backend</td><td>libgit2 (or shell-out — runtime choice).</td><td>Always shell-out via <code>localExecutor.exec</code>.</td></tr>
+    <tr><td>Remote backend</td><td>Shell-out via RPC, or could be libgit2 server-side.</td><td>Shell-out via <code>host.exec("git", …)</code> RPC.</td></tr>
+    <tr><td>New git op (e.g. <code>git stash</code>)</td><td>Add method to trait + impl on both backends + define output shape.</td><td>Add a function to kolu-git that builds argv + parses output. One file.</td></tr>
+    <tr><td>Performance (local)</td><td>libgit2 avoids fork/exec per call. Big wins for editor-style usage (status on every keystroke, blame, etc.).</td><td>Each call forks <code>git</code>. ~5-20ms overhead per invocation. Fine for our usage (status on file-watch events, not per-keystroke).</td></tr>
+    <tr><td>Output parsing</td><td>Built into trait — each method returns a typed result.</td><td>Per-function parsers (<code>parseNameStatus</code>, etc.). Currently ~80 LOC across kolu-git for parsers.</td></tr>
+    <tr><td>Test surface</td><td>Trait mockable; fake impl for tests.</td><td><code>Executor</code> mockable; fake <code>exec</code> returns canned stdout.</td></tr>
+    <tr><td>Dependency on <code>git</code> CLI</td><td>Can drop CLI entirely if libgit2 backend used everywhere.</td><td>Requires <code>git</code> on both controller and remote.</td></tr>
+  </tbody>
+</table>
+
+<h4>Why we don't adopt this</h4>
+
+<p>Zed has editor-grade git pressure: blame on every buffer, status diffed against HEAD per-file-change, branch picker, commit-history scrubbing, stash management — all interactive UI features that pay a cost per <code>git</code> invocation. libgit2 + structured trait pays off there.</p>
+
+<p>Kolu's git surface is narrower: <strong>branch name</strong> (for the chip), <strong>worktree create/remove</strong> (for branch switching), <strong>status</strong> (for the review pane), <strong>diff</strong> (for the review pane). All event-driven, not keystroke-driven. The fork-exec overhead per <code>git</code> call is negligible at our usage frequency. The structured-trait approach would cost us:</p>
+
+<ul>
+  <li>libgit2 native binding (cross-arch deployment complexity — same axis we've already accepted for node-pty)</li>
+  <li>~30 methods to implement on both backends</li>
+  <li>Per-op output shape definitions (where today we parse <code>git</code>'s stable text output)</li>
+  <li>A second source of truth for "what does <code>git status</code> mean" — kolu would have to reproduce git's exact semantics in code instead of letting <code>git</code> itself be the spec</li>
+</ul>
+
+<p><strong>Decision: keep kolu-git's <code>exec("git", …)</code> approach.</strong> Same `git` binary called via different exec backends; one source of truth (the CLI). If Kolu ever grows editor-grade git UI, revisit.</p>
 
 <h3>Summary of Zed-inspired changes</h3>
 
 <table>
   <thead><tr><th>Inspiration</th><th>Adopt?</th><th>Where in our plan</th></tr></thead>
   <tbody>
-    <tr><td>Local PTY + ssh-inside (no remote PTY engine)</td><td><strong>Worth discussing before F5.</strong> Big simplification; trade-off is SSH-drop resilience.</td><td>F5 + F7 redesign if adopted</td></tr>
+    <tr><td>Local PTY + ssh-inside (no remote PTY engine)</td><td><span class="check">Yes</span> — simplifies F5 and F7 substantially</td><td>F5 redesigned: RemoteHost.spawnPty wraps a local PTY whose program is ssh. F7 becomes "RPC reconnection" only — no ring buffer, no replay logic.</td></tr>
     <tr><td>Multi-transport via <code>Transport</code> trait</td><td><span class="check">Yes</span></td><td>F5 shapes <code>integrations/remote/</code> with a Transport interface internally; SSH is the only impl initially.</td></tr>
-    <tr><td><code>CommandTemplate</code> abstraction</td><td><span class="check">Yes</span></td><td>F5's RPC client exposes a <code>buildSshCommand(...)</code> primitive that returns <code>{ program, args, env }</code> instead of running directly.</td></tr>
+    <tr><td><code>CommandTemplate</code> abstraction</td><td><span class="check">Yes</span></td><td>F5's RPC client exposes a <code>buildSshCommand(...)</code> primitive that returns <code>{ program, args, env }</code> instead of running directly. Callers (PTY spawn for terminal; one-shot for RPC) consume the template.</td></tr>
+    <tr><td>SSH ControlMaster multiplexing</td><td><span class="check">Yes</span></td><td>The PTY's ssh process (channel A) and the kolu-remote-server RPC channel (B) share one TCP connection via <code>ControlMaster=auto</code> + <code>ControlPersist=10m</code>. Avoids paying the SSH handshake cost per channel.</td></tr>
     <tr><td>Protobuf wire protocol</td><td><span class="cross">No</span> — stick with NDJSON+Zod</td><td>Kolu's TypeScript-native context; codegen tax not worth it for our message volume.</td></tr>
-    <tr><td><code>KOLU_REMOTE_SERVER_CMD</code> env override</td><td><span class="check">Yes</span></td><td>Document in F5 alongside Nix-based default deployment.</td></tr>
     <tr><td>Streaming <code>read_dir</code> + <code>watch</code></td><td>Maybe later</td><td>Not in F1-F8 scope; revisit if our <code>Executor.watch</code> needs to scale.</td></tr>
-    <tr><td>Structured git operations on <code>Fs</code></td><td><span class="cross">No</span></td><td>kolu-git's <code>exec("git", …)</code> works for our needs.</td></tr>
+    <tr><td>Structured <code>GitRepository</code> trait</td><td><span class="cross">No</span></td><td>kolu-git's <code>exec("git", …)</code> approach works for our event-driven git surface. See comparison above; libgit2-style structured trait pays off for editor-grade pressure (blame, per-keystroke status), not our usage.</td></tr>
   </tbody>
 </table>
 
