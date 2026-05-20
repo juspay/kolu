@@ -306,31 +306,38 @@ export interface Host extends Executor {           // ← extends, not duplicate
 <p><code>PtyHandle</code> comes from <code>integrations/pty/</code> (extracted in R2). Logger type is a structural interface (<code>{ info, debug, warn, error, child }</code>) — no kolu import.</p>
 
 <h2>Feature phasing (F1-F8)</h2>
-<p class="cite">R1 + R2 have landed; F1 onward builds on the cleaner base.</p>
+<p class="cite">R1 + R2 have landed on master; F1 onward builds on the cleaner base.</p>
+
+<div class="footnote"><span class="label">Workflow</span> Feature PRs target <code>plan/remote-terminals-over-ssh</code> (this plan's PR #946), <strong>not master directly</strong>. Each F-phase PR merges into the plan branch; the plan PR accumulates the implementation and lands to master as a single mergeable unit once F1-F8 are complete. This keeps in-progress feature work off master while letting reviewers see incremental phases stacked.</div>
+
+<div class="footnote"><span class="label">F1+F2+F3 bundled</span> Filed as a single PR — <a href="https://github.com/juspay/kolu/issues/947">issue #947</a>. F2's diff is mechanical pattern-matching (every <code>simpleGit(...).raw(...)</code> → <code>await executor.exec("git", ...)</code>); F3 is "<code>fs.* → await executor.*</code>" with an async cascade. The transformation rules are uniform per phase; reviewer cost scales with the rules, not the raw LOC. F1 alone would be unused exports, so it bundles cleanly with F2 (its first consumer).</div>
 
 <table>
   <thead><tr><th>Phase</th><th>Scope</th><th>Functional change?</th><th>Size</th><th>Files</th></tr></thead>
   <tbody>
     <tr class="modified">
+      <td colspan="5" style="background:#fff4dc; font-weight:600;">F1 + F2 + F3 ship as one PR → <a href="https://github.com/juspay/kolu/issues/947">issue #947</a></td>
+    </tr>
+    <tr class="modified">
       <td><strong>F1</strong></td>
-      <td>Extend <code>kolu-io</code> (exists on master from R1) with the <code>Executor</code> interface, <code>localExecutor</code> (the <em>only</em> concrete impl at this point — wraps <code>execFile</code>/<code>fs</code>/<code>node:sqlite</code>), and the <code>Host</code> interface (<code>extends Executor</code>). <strong>No remote impl yet</strong> — that lands in F5 alongside <code>kolu-remote</code> and <code>RemoteHost</code>. No new consumers yet either.</td>
-      <td class="check">None — additions not imported anywhere</td>
+      <td>Extend <code>kolu-io</code> with the <code>Executor</code> interface, <code>localExecutor</code> (the <em>only</em> concrete impl at this point — wraps <code>execFile</code>/<code>fs</code>/<code>node:sqlite</code>), and the <code>Host</code> interface (<code>extends Executor</code>). <strong>No remote impl yet</strong> — that lands in F5 alongside <code>kolu-remote</code> and <code>RemoteHost</code>.</td>
+      <td class="check">None — additions not imported until F2</td>
       <td class="num">~+250</td>
-      <td>3 new files inside existing pkg</td>
+      <td>3 new files in <code>kolu-io</code></td>
     </tr>
     <tr class="modified">
       <td><strong>F2</strong></td>
-      <td>Refactor <code>kolu-git</code> public functions to take <code>executor?: Executor = localExecutor</code>. Drop <code>simple-git</code>; switch git invocations to <code>executor.exec("git", …)</code>. Switch bare <code>fs.*</code> to <code>executor.*</code>.</td>
+      <td>Refactor <code>kolu-git</code> public functions to take <code>executor?: Executor = localExecutor</code>. Drop <code>simple-git</code>; switch git invocations to <code>executor.exec("git", …)</code>. Switch bare <code>fs.*</code> to <code>executor.*</code>. Mostly mechanical (one transformation rule).</td>
       <td class="check">None — default preserves behaviour</td>
-      <td class="num">~+700/−590</td>
+      <td class="num">+623/−196 <span class="cite">(verified from PR #929)</span></td>
       <td>6 modified</td>
     </tr>
     <tr class="modified">
-      <td><strong>F3</strong><br><span class="cite">3 PRs</span></td>
-      <td>Refactor agent providers: <code>AgentProvider</code> contract in <code>anyagent</code> gains <code>executor</code> param. Each of claude-code / codex / opencode rewrites <code>core.ts</code> + <code>session-watcher.ts</code> to <code>await executor.*</code>.</td>
-      <td class="check">None per PR</td>
-      <td class="num">~+400/−500<br><span class="cite">per provider PR</span></td>
-      <td>~5-7 per PR</td>
+      <td><strong>F3</strong></td>
+      <td>Refactor agent providers: <code>AgentProvider</code> contract in <code>anyagent</code> gains <code>executor</code> param. Each of claude-code / codex / opencode rewrites <code>core.ts</code> + <code>session-watcher.ts</code> to <code>await executor.*</code> + async cascade. Each provider has its own quirks (sqlite for opencode/codex, JSONL tail for claude, WAL watch for codex) but follows the same three transformation rules.</td>
+      <td class="check">None — default preserves behaviour</td>
+      <td class="num">+1,434/−1,528 <span class="cite">(verified, all four pkgs combined)</span></td>
+      <td>anyagent + 3 providers</td>
     </tr>
     <tr class="new-pkg">
       <td><strong>F4</strong></td>
@@ -370,7 +377,7 @@ export interface Host extends Executor {           // ← extends, not duplicate
   </tbody>
 </table>
 
-<p>Two refactor PRs (R1, R2) + eight feature phases split across fourteen feature PRs (F1, F2, F3×3, F4, F5, F6×4, F7, F8). The first six feature PRs (through F4) ship no user-visible change; reviewers verify "tests still pass." The remaining eight each add one visible capability.</p>
+<p>Two refactor PRs (R1, R2, both merged) + eight feature phases split across nine feature PRs (F1+F2+F3 bundled, F4, F5, F6×4, F7, F8). The first two feature PRs (through F4) ship no user-visible change; reviewers verify "tests still pass." The remaining seven each add one visible capability.</p>
 
 <h2>F6 in detail — the per-provider light-up</h2>
 
@@ -528,7 +535,7 @@ onChange();   // ← getStore() here returns undefined.
 
 <ul>
   <li><span class="verdict good">Each user-visible PR is small.</span> F6a-d are ~20-150 lines touching one <code>meta/*.ts</code> file each. Reviewers can reason about one provider's remote behaviour at a time.</li>
-  <li><span class="verdict good">Refactor PRs are no-functional-change.</span> R1, R2, F1, F2, F3a-c, F4 are mechanical refactors. Tests pass identically. Reviewers verify "did anything break?"</li>
+  <li><span class="verdict good">Refactor PRs are no-functional-change.</span> R1, R2 (merged), F1+F2+F3 (bundled, #947), F4 are mechanical refactors. Tests pass identically. Reviewers verify "did anything break?"</li>
   <li><span class="verdict good">All refactors captured in the plan.</span> R1, R2 land first as standalone PRs; F1-F4 fold in additional refactor work; nothing is deferred to a "future cleanup."</li>
   <li><span class="verdict good">R1 + R2 already shipped value to master.</span> Master is unambiguously better even if the feature never lands — the two extracted libraries stand on their own.</li>
   <li><span class="verdict good">No partial-symmetry asymmetry.</span> Local and remote routing are structurally identical post-R1.</li>
