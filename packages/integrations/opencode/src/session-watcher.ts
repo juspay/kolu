@@ -7,12 +7,13 @@ import type { Executor } from "kolu-io";
 import type { Logger } from "kolu-shared";
 import { createDebounceWatcher } from "kolu-shared/sqlite";
 import {
-  deriveSessionStateWithExecutor,
-  getLatestAssistantContextTokensWithExecutor,
-  getSessionTaskProgressWithExecutor,
-  getSessionTitleWithExecutor,
+  deriveSessionStateFromRunner,
+  executorOpenCodeQueryRunner,
+  getLatestAssistantContextTokensFromRunner,
+  getSessionTaskProgressFromRunner,
+  getSessionTitleFromRunner,
   type OpenCodeSession,
-  runningToolsBucketWithExecutor,
+  runningToolsBucketFromRunner,
 } from "./core.ts";
 import type { OpenCodeInfo } from "./schemas.ts";
 import { subscribeOpenCodeDb } from "./wal-watcher.ts";
@@ -30,15 +31,15 @@ export function createOpenCodeWatcher(
   onChange: (info: OpenCodeInfo) => void,
   log?: Logger,
 ): OpenCodeWatcher {
-  const watcherContext = { session, executor };
+  const runner = executorOpenCodeQueryRunner(session, executor, log);
+  const watcherContext = { session, runner };
 
   async function readInfo(
     ctx: typeof watcherContext,
   ): Promise<OpenCodeInfo | null> {
-    const derived = await deriveSessionStateWithExecutor(
-      ctx.session,
-      ctx.executor,
-      log,
+    const derived = await deriveSessionStateFromRunner(
+      ctx.session.id,
+      ctx.runner,
     );
     if (!derived) {
       log?.debug(
@@ -50,24 +51,21 @@ export function createOpenCodeWatcher(
 
     const state =
       derived.state === "thinking"
-        ? ((await runningToolsBucketWithExecutor(
+        ? ((await runningToolsBucketFromRunner(
             derived.messageId,
-            ctx.session,
-            ctx.executor,
-            log,
+            ctx.runner,
           )) ?? derived.state)
         : derived.state;
-    const taskProgress = await getSessionTaskProgressWithExecutor(
-      ctx.session,
-      ctx.executor,
-      log,
+    const taskProgress = await getSessionTaskProgressFromRunner(
+      ctx.session.id,
+      ctx.runner,
     );
     const summary =
-      (await getSessionTitleWithExecutor(ctx.session, ctx.executor, log)) ??
+      (await getSessionTitleFromRunner(ctx.session.id, ctx.runner)) ??
       ctx.session.title;
-    const contextTokens = await getLatestAssistantContextTokensWithExecutor(
-      ctx.session,
-      ctx.executor,
+    const contextTokens = await getLatestAssistantContextTokensFromRunner(
+      ctx.session.id,
+      ctx.runner,
       log,
     );
 

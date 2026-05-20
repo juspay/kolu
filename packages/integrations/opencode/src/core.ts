@@ -98,6 +98,26 @@ async function queryDb(
   }
 }
 
+export interface OpenCodeQueryRunner {
+  queryRows(
+    sql: string,
+    params: ReadonlyArray<string | number | null>,
+    errorMsg: string,
+    errorCtx: Record<string, unknown>,
+  ): Promise<Array<Record<string, unknown>> | null>;
+}
+
+export function executorOpenCodeQueryRunner(
+  session: OpenCodeSession,
+  executor: Executor,
+  log?: Logger,
+): OpenCodeQueryRunner {
+  return {
+    queryRows: (sql, params, errorMsg, errorCtx) =>
+      queryDb(executor, session.dbPath, sql, params, errorMsg, errorCtx, log),
+  };
+}
+
 const FIND_SESSION_SQL =
   "SELECT id, title, directory FROM session WHERE directory = ? AND time_archived IS NULL ORDER BY time_updated DESC LIMIT 1";
 const SESSION_TITLE_SQL = "SELECT title FROM session WHERE id = ?";
@@ -404,91 +424,71 @@ export function deriveSessionState(
   );
 }
 
-export async function getSessionTitleWithExecutor(
-  session: OpenCodeSession,
-  executor: Executor,
-  log?: Logger,
+export async function getSessionTitleFromRunner(
+  sessionId: string,
+  runner: OpenCodeQueryRunner,
 ): Promise<string | null> {
-  const rows = await queryDb(
-    executor,
-    session.dbPath,
+  const rows = await runner.queryRows(
     SESSION_TITLE_SQL,
-    [session.id],
+    [sessionId],
     "opencode session title query failed",
-    { sessionId: session.id },
-    log,
+    { sessionId },
   );
   return titleFromRow(rows?.[0]);
 }
 
-export async function getSessionTaskProgressWithExecutor(
-  session: OpenCodeSession,
-  executor: Executor,
-  log?: Logger,
+export async function getSessionTaskProgressFromRunner(
+  sessionId: string,
+  runner: OpenCodeQueryRunner,
 ): Promise<TaskProgress | null> {
-  const rows = await queryDb(
-    executor,
-    session.dbPath,
+  const rows = await runner.queryRows(
     TODO_PROGRESS_SQL,
-    [session.id],
+    [sessionId],
     "opencode todo query failed",
-    { sessionId: session.id },
-    log,
+    { sessionId },
   );
   return taskProgressFromRow(rows?.[0]);
 }
 
-export async function getLatestAssistantContextTokensWithExecutor(
-  session: OpenCodeSession,
-  executor: Executor,
+export async function getLatestAssistantContextTokensFromRunner(
+  sessionId: string,
+  runner: OpenCodeQueryRunner,
   log?: Logger,
 ): Promise<number | null> {
-  const rows = await queryDb(
-    executor,
-    session.dbPath,
+  const rows = await runner.queryRows(
     LATEST_ASSISTANT_MESSAGE_SQL,
-    [session.id],
+    [sessionId],
     "opencode context-tokens query failed",
-    { sessionId: session.id },
-    log,
+    { sessionId },
   );
   const data = rows?.[0]?.data;
   return typeof data === "string"
-    ? contextTokensFromData(data, session.id, log)
+    ? contextTokensFromData(data, sessionId, log)
     : null;
 }
 
-export async function runningToolsBucketWithExecutor(
+export async function runningToolsBucketFromRunner(
   messageId: string,
-  session: OpenCodeSession,
-  executor: Executor,
-  log?: Logger,
+  runner: OpenCodeQueryRunner,
 ): Promise<"tool_use" | "awaiting_user" | null> {
-  const rows = await queryDb(
-    executor,
-    session.dbPath,
+  const rows = await runner.queryRows(
     runningToolsSql(),
     [...AWAITING_USER_TOOLS, messageId],
     "opencode running-tools query failed",
     { messageId },
-    log,
   );
   return runningToolsFromRow(rows?.[0]);
 }
 
-export async function deriveSessionStateWithExecutor(
-  session: OpenCodeSession,
-  executor: Executor,
-  log?: Logger,
+export async function deriveSessionStateFromRunner(
+  sessionId: string,
+  runner: OpenCodeQueryRunner,
 ): Promise<DerivedState | null> {
-  const rows = await queryDb(
-    executor,
-    session.dbPath,
+  const rows = await runner.queryRows(
     LATEST_MESSAGE_SQL,
-    [session.id],
+    [sessionId],
     "opencode message query failed",
-    { sessionId: session.id },
-    log,
+    { sessionId },
   );
   return deriveStateFromRow(rows?.[0]);
 }
