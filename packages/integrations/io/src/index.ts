@@ -8,5 +8,4 @@ export {
   createDirFilenameWatcher,
   type DirFilenameWatcher,
   type DirFilenameWatcherConfig,
-  type Logger,
 } from "./refcounted-dir-watcher.ts";
