@@ -17,7 +17,10 @@ import type {
   TerminalId,
   TerminalInfo,
 } from "kolu-common/surface";
+import { spawnPty } from "kolu-pty";
+import pkg from "../package.json" with { type: "json" };
 import { cleanupClipboardDir } from "./clipboard.ts";
+import { koluShellDir } from "./koluRoot.ts";
 import { log } from "./log.ts";
 import {
   createMetadata,
@@ -25,7 +28,6 @@ import {
   updateClientMetadata,
   updateServerMetadata,
 } from "./meta/index.ts";
-import { spawnPty } from "./pty.ts";
 import { terminalChannels, terminalsDirtyChannel } from "./publisher.ts";
 import { surfaceCtx } from "./surface.ts";
 import {
@@ -105,6 +107,8 @@ export function createTerminal(
     tlog,
     id,
     {
+      rcDir: koluShellDir,
+      termProgramVersion: pkg.version,
       onData: (data) => {
         terminalChannels.data(id).publish(data);
       },

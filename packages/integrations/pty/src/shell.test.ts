@@ -294,6 +294,7 @@ describe("prepareShellInit zsh wrapper", () => {
   // (broken `if`, wrong path, accidentally inside a function, etc.).
   it("loads user env from ~/.zshenv (regression: missing under macOS launchd)", () => {
     const fakeHome = mkdtempSync(join(tmpdir(), "kolu-shell-"));
+    const rcDir = mkdtempSync(join(tmpdir(), "kolu-rc-"));
     try {
       writeFileSync(
         join(fakeHome, ".zshenv"),
@@ -303,6 +304,7 @@ describe("prepareShellInit zsh wrapper", () => {
         shell: "/bin/zsh",
         home: fakeHome,
         terminalId: `test-zshenv-${process.pid}`,
+        rcDir,
       });
       try {
         const rcPath = join(init.env.ZDOTDIR as string, ".zshrc");
@@ -316,6 +318,7 @@ describe("prepareShellInit zsh wrapper", () => {
       }
     } finally {
       rmSync(fakeHome, { recursive: true, force: true });
+      rmSync(rcDir, { recursive: true, force: true });
     }
   });
 });

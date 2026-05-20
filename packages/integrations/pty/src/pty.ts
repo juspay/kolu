@@ -7,15 +7,21 @@
  */
 
 import { createRequire } from "node:module";
-import {
-  DEFAULT_COLS,
-  DEFAULT_ROWS,
-  DEFAULT_SCROLLBACK,
-} from "kolu-common/config";
 import * as pty from "node-pty";
-import pkg from "../package.json" with { type: "json" };
-import type { Logger } from "./log.ts";
 import { cleanEnv, koluIdentityEnv, prepareShellInit } from "./shell.ts";
+
+/** Default terminal grid dimensions (matches xterm/VT100 standard). */
+const DEFAULT_COLS = 80;
+const DEFAULT_ROWS = 24;
+/** Scrollback buffer size in lines. Sized for multi-hour Claude sessions
+ *  so PDF export captures a useful window — the export reads from this
+ *  same ring buffer. Per-line memory in xterm is small, so 50K is low
+ *  tens of MB per terminal in the worst case.
+ *
+ *  Kept inlined (rather than imported) so kolu-pty has zero kolu-* deps.
+ *  The client-side default lives in `kolu-common/config` — keep both in
+ *  lock-step so server headless state matches client visible scrollback. */
+const DEFAULT_SCROLLBACK = 50_000;
 
 // @xterm packages ship CJS only — use createRequire for clean ESM interop
 const require = createRequire(import.meta.url);
@@ -23,6 +29,16 @@ const { Terminal } =
   require("@xterm/headless") as typeof import("@xterm/headless");
 const { SerializeAddon } =
   require("@xterm/addon-serialize") as typeof import("@xterm/addon-serialize");
+
+/** Structural Logger shape — kept minimal so kolu-pty has zero kolu deps.
+ *  Pino's Logger satisfies this; any compatible shim works. */
+export interface Logger {
+  info(obj: object, msg?: string): void;
+  debug(obj: object, msg?: string): void;
+  warn(obj: object, msg?: string): void;
+  error(obj: object, msg?: string): void;
+  child(bindings: object): Logger;
+}
 
 /** Extract plain text from an xterm buffer within a line range. */
 export function getScreenText(
@@ -74,6 +90,11 @@ export function spawnPty(
   tlog: Logger,
   terminalId: string,
   opts: {
+    /** Directory where per-terminal rc files (bashrc, ZDOTDIR) are written.
+     *  Caller owns the lifetime — kolu-pty just writes into it. */
+    rcDir: string;
+    /** Version string emitted as `TERM_PROGRAM_VERSION` to the spawned shell. */
+    termProgramVersion: string;
     onData: (data: string) => void;
     onExit: (exitCode: number) => void;
     onCwd?: (cwd: string) => void;
@@ -96,12 +117,13 @@ export function spawnPty(
   const shell = env.SHELL ?? "/bin/sh";
   const cwd = spawnCwd || env.HOME || "/";
 
-  Object.assign(env, koluIdentityEnv(pkg.version));
+  Object.assign(env, koluIdentityEnv(opts.termProgramVersion));
 
   const shellInit = prepareShellInit({
     shell,
     home: env.HOME,
     terminalId,
+    rcDir: opts.rcDir,
   });
   Object.assign(env, shellInit.env);
 

@@ -21,7 +21,6 @@
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { userInfo } from "node:os";
 import { join } from "node:path";
-import { koluShellDir } from "./koluRoot.ts";
 
 /**
  * Default env vars safe to forward from a nix devshell to PTY shells.
@@ -101,10 +100,6 @@ export function cleanEnv(): Record<string, string> {
  * pollution, OS conventions); koluIdentityEnv decides what Kolu asserts
  * about itself (driven by rebrand, version bumps, future capability vars).
  *
- * Distinct from the Nix `koluEnv` attribute in `nix/env.nix`, which holds
- * build-time vars (KOLU_FONTS_DIR, KOLU_GH_BIN). Different namespace,
- * different volatility axis — name shouldn't conflate them.
- *
  * `TERM_PROGRAM` follows the convention shared by VSCode, iTerm2,
  * Ghostty, WezTerm — set by the terminal emulator/host so tools like
  * starship prompts and shell themes can detect their environment.
@@ -139,17 +134,16 @@ export const OSC7_FN = `__kolu_osc7() { printf '\\033]7;file://%s%s\\033\\\\' "$
  *
  *  2. **OSC 633 ; E ; <cmd>** — VS Code's semantic "exact command line"
  *     mark. The OSC 633 handler in pty.ts republishes the raw payload on
- *     the `commandRun` channel; `meta/agent-command.ts` subscribes and
- *     derives both the global "recent agents" MRU and a per-terminal
- *     agent-command stash (used to detect interpreter-shimmed agents like
- *     npm-installed codex, where the kernel-level process name is `node`).
- *     The shell hands us the command string verbatim, so kolu never needs
- *     `/proc` (Linux-only) or `ps` spawning (slow). Works identically on
- *     Linux and macOS.
+ *     the `commandRun` channel; downstream consumers derive the global
+ *     "recent agents" MRU and a per-terminal agent-command stash (used to
+ *     detect interpreter-shimmed agents like npm-installed codex, where
+ *     the kernel-level process name is `node`). The shell hands us the
+ *     command string verbatim, so callers never need `/proc` (Linux-only)
+ *     or `ps` spawning (slow). Works identically on Linux and macOS.
  *
  *  Emission order is not load-bearing. Preexec fires while the shell is
  *  still at its prompt, so any reconcile triggered here would be gated
- *  out by `shellIdle` in `snapshotTerminalState` anyway — the agent
+ *  out by `shellIdle` in the downstream snapshot anyway — the agent
  *  match actually fires once the agent has taken over the foreground
  *  and emits a later signal (WAL write for codex, TUI OSC 2 title). */
 export const OSC2_PREEXEC_FN = `__kolu_preexec() { printf '\\033]2;%s\\033\\\\' "$1"; printf '\\033]633;E;%s\\033\\\\' "$1"; }`;
@@ -217,13 +211,13 @@ type SpawnInit = {
  *     add-zsh-hook), so the lists aren't merge-able.
  *
  * The wrapper *mechanism* (--rcfile vs ZDOTDIR) is encapsulated in
- * `spawn`, which writes the assembled rcContent and returns spawn args
- * + env override + cleanup.
+ * `spawn`, which writes the assembled rcContent under `rcDir` and returns
+ * spawn args + env override + cleanup.
  */
 type ShellInit = {
   replay: (home: string) => string[];
   hooks: string[];
-  spawn: (rcContent: string, terminalId: string) => SpawnInit;
+  spawn: (rcContent: string, terminalId: string, rcDir: string) => SpawnInit;
 };
 
 const BASH_INIT: ShellInit = {
@@ -250,8 +244,8 @@ const BASH_INIT: ShellInit = {
     // DEBUG trap persists across commands, so install once at source time.
     `trap '__kolu_preexec_dispatch' DEBUG`,
   ],
-  spawn: (rcContent, terminalId) => {
-    const rcFile = join(koluShellDir, `bashrc-${terminalId}`);
+  spawn: (rcContent, terminalId, rcDir) => {
+    const rcFile = join(rcDir, `bashrc-${terminalId}`);
     writeFileSync(rcFile, rcContent);
     return {
       args: ["--rcfile", rcFile],
@@ -283,8 +277,8 @@ const ZSH_INIT: ShellInit = {
     `add-zsh-hook precmd __kolu_title_precmd`,
     `add-zsh-hook preexec __kolu_preexec`,
   ],
-  spawn: (rcContent, terminalId) => {
-    const zdotdir = join(koluShellDir, `zdotdir-${terminalId}`);
+  spawn: (rcContent, terminalId, rcDir) => {
+    const zdotdir = join(rcDir, `zdotdir-${terminalId}`);
     mkdirSync(zdotdir, { recursive: true });
     writeFileSync(join(zdotdir, ".zshrc"), rcContent);
     return {
@@ -310,17 +304,21 @@ function selectShellInit(shell: string): ShellInit | null {
  * load-bearing — replay must precede hooks so user PROMPT_COMMAND / starship
  * etc. can't clobber our hooks. PROMPT_COMMAND in env doesn't work because
  * the user's rc would overwrite it.
+ *
+ * `rcDir` is where the per-terminal bashrc / ZDOTDIR is written. The caller
+ * owns the directory's lifetime — kolu-pty just writes into it.
  */
 export function prepareShellInit(opts: {
   shell: string;
   home: string | undefined;
   terminalId: string;
+  rcDir: string;
 }): SpawnInit {
   const noop: SpawnInit = { args: [], env: {}, cleanup: () => {} };
-  const { shell, home, terminalId } = opts;
+  const { shell, home, terminalId, rcDir } = opts;
   if (!home) return noop;
   const init = selectShellInit(shell);
   if (!init) return noop;
   const rcContent = [...init.replay(home), ...init.hooks].join("\n");
-  return init.spawn(rcContent, terminalId);
+  return init.spawn(rcContent, terminalId, rcDir);
 }

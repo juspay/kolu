@@ -19,7 +19,7 @@ import type {
   TerminalInfo,
   TerminalMetadata,
 } from "kolu-common/surface";
-import type { PtyHandle } from "./pty.ts";
+import type { PtyHandle } from "kolu-pty";
 
 /** Server-side terminal state. `info` is the wire shape sent in the
  *  `terminalList` cell snapshot; `meta` is mutated in place by providers

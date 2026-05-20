@@ -21,12 +21,12 @@ import {
   TERMINAL_FILE_ROUTE_BASE,
   TERMINAL_FILE_ROUTE_FILE_SEGMENT,
 } from "./iframePreviewRoute.ts";
+import { configureNixShellEnv } from "kolu-pty";
 import { ensureKoluRoot, shutdownCleanup } from "./koluRoot.ts";
 import { log } from "./log.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import { appRouter } from "./router.ts";
 import { initSessionAutoSave } from "./session.ts";
-import { configureNixShellEnv } from "./shell.ts";
 import { getTerminal } from "./terminal-registry.ts";
 import { snapshotSession } from "./terminals.ts";
 import { resolveTlsOptions } from "./tls.ts";
