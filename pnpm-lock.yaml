@@ -700,6 +700,9 @@ importers:
       kolu-common:
         specifier: workspace:*
         version: link:../common
+      kolu-pty:
+        specifier: workspace:*
+        version: link:../integrations/pty
       playwright:
         specifier: 1.57.0
         version: 1.57.0
