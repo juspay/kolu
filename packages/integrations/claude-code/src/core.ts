@@ -23,7 +23,7 @@ import os from "node:os";
 import path from "node:path";
 import { getSessionInfo } from "@anthropic-ai/claude-agent-sdk";
 import { classifyByAwaiting } from "anyagent";
-import type { Executor } from "kolu-io";
+import { type Executor, resolveExecutorHome } from "kolu-io";
 import type { Logger } from "kolu-shared";
 import { match } from "ts-pattern";
 import type { ClaudeCodeInfo, TaskProgress } from "./schemas.ts";
@@ -99,19 +99,12 @@ export async function resolveClaudeCodeDirs(
       projectsDir: LOCAL_PROJECTS_DIR_OVERRIDE,
     };
   }
-  try {
-    const r = await executor.exec("printenv", ["HOME"], { timeoutMs: 5_000 });
-    if (r.exitCode !== 0) return null;
-    const home = r.stdout.trim();
-    if (!home) return null;
-    return {
-      sessionsDir: `${home}/${SESSIONS_REL}`,
-      projectsDir: `${home}/${PROJECTS_REL}`,
-    };
-  } catch (err) {
-    log?.debug({ err }, "resolveClaudeCodeDirs failed");
-    return null;
-  }
+  const home = await resolveExecutorHome(executor, log);
+  if (!home) return null;
+  return {
+    sessionsDir: `${home}/${SESSIONS_REL}`,
+    projectsDir: `${home}/${PROJECTS_REL}`,
+  };
 }
 
 // --- Session file reading ---

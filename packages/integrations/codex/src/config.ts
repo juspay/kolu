@@ -4,7 +4,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { Executor } from "kolu-io";
+import { type Executor, resolveExecutorHome } from "kolu-io";
 import type { Logger } from "kolu-shared";
 
 /** Root of Codex's per-user state directory. Contains the threads
@@ -53,16 +53,8 @@ export async function resolveCodexDirs(
   // `CODEX_DB_PATH` constant below. The corresponding dir is still
   // resolved from $HOME so callers using `dir` for presence checks get
   // a sensible default.
-  let dir: string | null = null;
-  try {
-    const r = await executor.exec("printenv", ["HOME"], { timeoutMs: 5_000 });
-    if (r.exitCode === 0) {
-      const home = r.stdout.trim();
-      if (home) dir = `${home}/.codex`;
-    }
-  } catch (err) {
-    log?.debug({ err }, "resolveCodexDirs: printenv HOME failed");
-  }
+  const home = await resolveExecutorHome(executor, log);
+  const dir = home ? `${home}/.codex` : null;
 
   if (process.env.KOLU_CODEX_DB) {
     const dbPath = process.env.KOLU_CODEX_DB;

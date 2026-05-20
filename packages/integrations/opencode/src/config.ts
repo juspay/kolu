@@ -4,7 +4,7 @@
 
 import os from "node:os";
 import path from "node:path";
-import type { Executor } from "kolu-io";
+import { type Executor, resolveExecutorHome } from "kolu-io";
 import type { Logger } from "kolu-shared";
 
 /** Path to OpenCode's SQLite database on the controller's local fs.
@@ -55,18 +55,8 @@ export async function resolveOpenCodeDirs(
     const dbPath = process.env.KOLU_OPENCODE_DB;
     return { dbPath, walPath: `${dbPath}-wal` };
   }
-  try {
-    const r = await executor.exec("printenv", ["HOME"], { timeoutMs: 5_000 });
-    if (r.exitCode !== 0) {
-      log?.debug({ stderr: r.stderr }, "printenv HOME failed");
-      return null;
-    }
-    const home = r.stdout.trim();
-    if (!home) return null;
-    const dbPath = `${home}/.local/share/opencode/opencode.db`;
-    return { dbPath, walPath: `${dbPath}-wal` };
-  } catch (err) {
-    log?.debug({ err }, "resolveOpenCodeDirs failed");
-    return null;
-  }
+  const home = await resolveExecutorHome(executor, log);
+  if (!home) return null;
+  const dbPath = `${home}/.local/share/opencode/opencode.db`;
+  return { dbPath, walPath: `${dbPath}-wal` };
 }

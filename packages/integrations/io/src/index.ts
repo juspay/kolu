@@ -14,6 +14,7 @@ export {
   localExecutor,
   type WatchHandle,
 } from "./executor.ts";
+export { type HomeLogger, resolveExecutorHome } from "./home.ts";
 export { type Host, type HostLogger } from "./host.ts";
 export {
   createDirFilenameWatcher,
