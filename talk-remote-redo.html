@@ -85,7 +85,7 @@
 <body>
 
 <h1>Remote terminals over SSH — design plan</h1>
-<p class="cite">Starting point: <code>master</code> @ <code>b8c955b2</code>. Goal: a new terminal in Kolu can run its PTY on any host in your <code>~/.ssh/config</code>, with branch chip / agent badge / Code-tab parity to local terminals; SSH drops survive via a daemon on the remote side. Plan is captured end-to-end — no deferred follow-ups. Reviewed through Hickey + Lowy; numbers verified against master.</p>
+<p class="cite">Current master HEAD: <code>4b55c58a</code> (post-R1 #944, post-R2 #945). Goal: a new terminal in Kolu can run its PTY on any host in your <code>~/.ssh/config</code>, with branch chip / agent badge / Code-tab parity to local terminals; SSH drops survive via a daemon on the remote side. Plan is captured end-to-end — no deferred follow-ups. Reviewed through Hickey + Lowy; numbers verified against current master. PR #929 (still in draft) is the prior implementation cited for structural observations — those citations are point-in-time and may drift if PR #929 is revised.</p>
 
 <div class="tldr">
 <strong>TL;DR.</strong> Two standalone refactor PRs (R1, R2) extracted library-shaped primitives to master — <strong>both merged</strong> (<a href="https://github.com/juspay/kolu/pull/944">PR #944</a>, <a href="https://github.com/juspay/kolu/pull/945">PR #945</a>). Eight feature phases (F1-F8) build the remote-terminal capability on the cleaner base. <strong>Every refactor was captured in the plan, none deferred.</strong> Each refactor PR landing reduced the surface of the feature plan that follows.
@@ -538,7 +538,7 @@ onChange();   // ← getStore() here returns undefined.
 
 <h2>Verification appendix</h2>
 
-<p>What I checked against <code>master</code> code vs. what's estimated. Master HEAD: <code>b8c955b2</code>.</p>
+<p>What I checked against <code>master</code> code vs. what's estimated. Master HEAD at verification time: <code>4b55c58a</code> (after R1 #944 and R2 #945 merged).</p>
 
 <table>
   <thead><tr><th>Claim</th><th>Status</th><th>Source</th></tr></thead>
