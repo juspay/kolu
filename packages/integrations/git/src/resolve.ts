@@ -209,6 +209,8 @@ export function subscribeGitInfo(
       : watchCwdForGitDir(currentCwd, handleWatcherEvent, log);
   }
 
+  const usesLocalGitWatchers = () => executor.kind === "local";
+
   function ensureMode(mode: WatcherMode): void {
     if (watcher?.mode === mode) return;
     watcher?.stop();
@@ -240,11 +242,7 @@ export function subscribeGitInfo(
       );
     }
     ensureMode(
-      executor === localExecutor
-        ? next !== null
-          ? "head"
-          : "cwd"
-        : "executor",
+      usesLocalGitWatchers() ? (next !== null ? "head" : "cwd") : "executor",
     );
     if (gitInfoEqual(next, currentInfo)) return;
     currentInfo = next;
@@ -254,7 +252,7 @@ export function subscribeGitInfo(
   // Install synchronously so fs events during the first `resolve()` await
   // aren't dropped on the floor.
   ensureMode(
-    executor === localExecutor
+    usesLocalGitWatchers()
       ? hasLocalGitDir(currentCwd)
         ? "head"
         : "cwd"
@@ -272,7 +270,7 @@ export function subscribeGitInfo(
         // bind-mounted container fs).
         if (
           currentInfo === null &&
-          (executor !== localExecutor || hasLocalGitDir(next))
+          (!usesLocalGitWatchers() || hasLocalGitDir(next))
         ) {
           void resolve();
         }
@@ -281,7 +279,7 @@ export function subscribeGitInfo(
       currentCwd = next;
       tearDownWatchers();
       ensureMode(
-        executor === localExecutor
+        usesLocalGitWatchers()
           ? hasLocalGitDir(next)
             ? "head"
             : "cwd"

@@ -22,6 +22,8 @@ export interface WatchHandle {
 }
 
 export interface Executor {
+  readonly id: string;
+  readonly kind: "local" | "remote-ssh";
   exec(
     cmd: string,
     args: string[],
@@ -41,7 +43,7 @@ export interface Executor {
     onChange: (relPath: string) => void,
     opts?: { recursive?: boolean },
   ): Promise<WatchHandle>;
-  queryDb?(
+  queryDb(
     path: string,
     sql: string,
     params?: ReadonlyArray<string | number | null>,
@@ -51,6 +53,8 @@ export interface Executor {
 const execFileP = promisify(execFile);
 
 export const localExecutor: Executor = {
+  id: "local",
+  kind: "local",
   exec: async (cmd, args, opts) =>
     new Promise((resolve) => {
       execFileP(cmd, args, {

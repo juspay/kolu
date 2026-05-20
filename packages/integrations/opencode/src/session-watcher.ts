@@ -134,10 +134,6 @@ async function queryRows(
   label: string,
   log?: Logger,
 ): Promise<Array<Record<string, unknown>> | null> {
-  if (!executor.queryDb) {
-    log?.error({ dbPath: session.dbPath }, "executor does not support queryDb");
-    return null;
-  }
   try {
     return await executor.queryDb(session.dbPath, sql, params);
   } catch (err) {

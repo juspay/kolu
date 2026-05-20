@@ -90,10 +90,6 @@ async function queryDb(
   errorCtx: Record<string, unknown>,
   log?: Logger,
 ): Promise<Array<Record<string, unknown>> | null> {
-  if (!executor.queryDb) {
-    log?.error({ dbPath, ...errorCtx }, "executor does not support queryDb");
-    return null;
-  }
   try {
     return await executor.queryDb(dbPath, sql, params);
   } catch (err) {

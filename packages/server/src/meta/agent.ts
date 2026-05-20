@@ -149,8 +149,9 @@ function snapshotTerminalState(
 
 /**
  * Per-provider activation state for the lazy external-change subscription.
- * Shared across every terminal that uses a given provider kind. Installed
- * at most once per process, the first time any terminal's state reports
+ * Shared across every terminal that uses a given provider kind on the
+ * same executor. Installed at most once per process, the first time
+ * any terminal's state reports
  * `externalChanges.isPresent` — so a user who has never run the agent
  * pays zero watcher cost and logs no missing-directory errors (issue #698).
  *
@@ -187,11 +188,19 @@ const activations = new Map<string, ExternalChangesActivation>();
  *  `resolveSession` reads (which hit SQLite for codex/opencode). */
 const COMMAND_RUN_RECONCILE_DELAYS_MS = [0, 75, 300, 1000] as const;
 
-function getActivation(kind: string): ExternalChangesActivation {
-  let entry = activations.get(kind);
+function activationKey(kind: string, executor: Executor): string {
+  return `${executor.id}\x00${kind}`;
+}
+
+function getActivation(
+  kind: string,
+  executor: Executor,
+): ExternalChangesActivation {
+  const key = activationKey(kind, executor);
+  let entry = activations.get(key);
   if (!entry) {
     entry = { reconcilers: new Set(), handle: null, installing: false };
-    activations.set(kind, entry);
+    activations.set(key, entry);
   }
   return entry;
 }
@@ -239,7 +248,7 @@ export function startAgentProvider<Session, Info extends AgentInfoShape>(
       );
       if (stopped || seq !== reconcileSeq) return;
       if (isPresent) {
-        const activation = getActivation(provider.kind);
+        const activation = getActivation(provider.kind, executor);
         externalReconciler = () => {
           void reconcile().catch((err) =>
             plog.error({ err }, "external-change reconcile failed"),
@@ -416,11 +425,12 @@ export function startAgentProvider<Session, Info extends AgentInfoShape>(
     cleanupCwd();
     cleanupCommandRun();
     if (registeredForExternal && externalReconciler) {
-      const activation = activations.get(provider.kind);
+      const key = activationKey(provider.kind, executor);
+      const activation = activations.get(key);
       activation?.reconcilers.delete(externalReconciler);
       if (activation && activation.reconcilers.size === 0) {
         activation.handle?.stop();
-        activations.delete(provider.kind);
+        activations.delete(key);
       }
     }
     current?.watcher.destroy();
