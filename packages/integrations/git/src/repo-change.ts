@@ -38,8 +38,7 @@ interface SharedComposed {
 
 const repoChangeWatchers = new Map<string, SharedComposed>();
 const fileChangeWatchers = new Map<string, SharedComposed>();
-const executorRepoChangeWatchers = new Map<string, SharedComposed>();
-const executorFileChangeWatchers = new Map<string, SharedComposed>();
+type UpstreamInstall = (onChange: () => void) => () => void;
 
 /** Build a composed watcher backed by N upstream `subscribe` functions.
  *  Each upstream callback fires `tick()`, which trailing-edge-debounces
@@ -47,7 +46,7 @@ const executorFileChangeWatchers = new Map<string, SharedComposed>();
  *  function plus a sealed-once disposer the registry runs on last
  *  unsubscribe. */
 function compose(
-  upstreamInstalls: ((onChange: () => void) => () => void)[],
+  upstreamInstalls: UpstreamInstall[],
   onLast: () => void,
   logLabel: string,
   logFields: Record<string, unknown>,
@@ -92,6 +91,78 @@ function compose(
   };
 }
 
+function watcherPrefix(executor?: Executor): string {
+  return executor ? `executor:${executor.id}` : "local";
+}
+
+function repoChangeKey(repoRoot: string, executor?: Executor): string {
+  return `${watcherPrefix(executor)}\x00${repoRoot}`;
+}
+
+function fileChangeKey(
+  repoRoot: string,
+  filePath: string,
+  executor?: Executor,
+): string {
+  return `${watcherPrefix(executor)}\x00${repoRoot}\x00${filePath}`;
+}
+
+function repoChangeUpstreams(
+  repoRoot: string,
+  log?: Logger,
+  executor?: Executor,
+): UpstreamInstall[] {
+  if (executor) {
+    return [
+      (cb) =>
+        watchExecutorRoot(
+          executor,
+          repoRoot,
+          () => true,
+          cb,
+          "git: repo-change",
+          { repoRoot, executor: executor.id },
+          log,
+        ),
+    ];
+  }
+  return [
+    (cb) => watchGitHead(repoRoot, cb, log),
+    (cb) => watchGitReflog(repoRoot, cb, log),
+    (cb) => watchGitIndex(repoRoot, cb, log),
+    (cb) => watchWorkingTree(repoRoot, cb, log),
+  ];
+}
+
+function fileChangeUpstreams(
+  repoRoot: string,
+  filePath: string,
+  log?: Logger,
+  executor?: Executor,
+): UpstreamInstall[] {
+  if (executor) {
+    return [
+      (cb) =>
+        watchExecutorRoot(
+          executor,
+          repoRoot,
+          (relPath) =>
+            relPath === "" ||
+            relPath === filePath ||
+            relPath.startsWith(".git"),
+          cb,
+          "git: file-change",
+          { repoRoot, filePath, executor: executor.id },
+          log,
+        ),
+    ];
+  }
+  return [
+    (cb) => watchGitHead(repoRoot, cb, log),
+    (cb) => watchWorkingTree(repoRoot, cb, log, { filePath }),
+  ];
+}
+
 /**
  * Subscribe to "any file or git-state change in this repo." Refcounted per
  * `repoRoot`. Composes all four watcher primitives:
@@ -109,48 +180,17 @@ export function subscribeRepoChange(
   log?: Logger,
   executor?: Executor,
 ): () => void {
-  if (executor) {
-    const key = `${executor.id}\x00${repoRoot}`;
-    let entry = executorRepoChangeWatchers.get(key);
-    if (!entry) {
-      entry = compose(
-        [
-          (cb) =>
-            watchExecutorRoot(
-              executor,
-              repoRoot,
-              () => true,
-              cb,
-              "git: executor repo-change",
-              { repoRoot, executor: executor.id },
-              log,
-            ),
-        ],
-        () => executorRepoChangeWatchers.delete(key),
-        "git: executor repo-change",
-        { repoRoot, executor: executor.id },
-        log,
-      );
-      executorRepoChangeWatchers.set(key, entry);
-    }
-    return entry.subscribe(onChange);
-  }
-
-  let entry = repoChangeWatchers.get(repoRoot);
+  const key = repoChangeKey(repoRoot, executor);
+  let entry = repoChangeWatchers.get(key);
   if (!entry) {
     entry = compose(
-      [
-        (cb) => watchGitHead(repoRoot, cb, log),
-        (cb) => watchGitReflog(repoRoot, cb, log),
-        (cb) => watchGitIndex(repoRoot, cb, log),
-        (cb) => watchWorkingTree(repoRoot, cb, log),
-      ],
-      () => repoChangeWatchers.delete(repoRoot),
+      repoChangeUpstreams(repoRoot, log, executor),
+      () => repoChangeWatchers.delete(key),
       "git: repo-change",
-      { repoRoot },
+      executor ? { repoRoot, executor: executor.id } : { repoRoot },
       log,
     );
-    repoChangeWatchers.set(repoRoot, entry);
+    repoChangeWatchers.set(key, entry);
   }
   return entry.subscribe(onChange);
 }
@@ -172,47 +212,16 @@ export function subscribeFileChange(
   log?: Logger,
   executor?: Executor,
 ): () => void {
-  if (executor) {
-    const key = `${executor.id}\x00${repoRoot}\x00${filePath}`;
-    let entry = executorFileChangeWatchers.get(key);
-    if (!entry) {
-      entry = compose(
-        [
-          (cb) =>
-            watchExecutorRoot(
-              executor,
-              repoRoot,
-              (relPath) =>
-                relPath === "" ||
-                relPath === filePath ||
-                relPath.startsWith(".git"),
-              cb,
-              "git: executor file-change",
-              { repoRoot, filePath, executor: executor.id },
-              log,
-            ),
-        ],
-        () => executorFileChangeWatchers.delete(key),
-        "git: executor file-change",
-        { repoRoot, filePath, executor: executor.id },
-        log,
-      );
-      executorFileChangeWatchers.set(key, entry);
-    }
-    return entry.subscribe(onChange);
-  }
-
-  const key = `${repoRoot}\x00${filePath}`;
+  const key = fileChangeKey(repoRoot, filePath, executor);
   let entry = fileChangeWatchers.get(key);
   if (!entry) {
     entry = compose(
-      [
-        (cb) => watchGitHead(repoRoot, cb, log),
-        (cb) => watchWorkingTree(repoRoot, cb, log, { filePath }),
-      ],
+      fileChangeUpstreams(repoRoot, filePath, log, executor),
       () => fileChangeWatchers.delete(key),
       "git: file-change",
-      { repoRoot, filePath },
+      executor
+        ? { repoRoot, filePath, executor: executor.id }
+        : { repoRoot, filePath },
       log,
     );
     fileChangeWatchers.set(key, entry);
@@ -256,11 +265,11 @@ function watchExecutorRoot(
 /** Test-only — number of distinct (repoRoot) entries holding active
  *  shared `subscribeRepoChange` listener sets. */
 export function _sharedRepoChangeCount(): number {
-  return repoChangeWatchers.size + executorRepoChangeWatchers.size;
+  return repoChangeWatchers.size;
 }
 
 /** Test-only — number of distinct (repoRoot, filePath) entries holding
  *  active shared `subscribeFileChange` listener sets. */
 export function _sharedFileChangeCount(): number {
-  return fileChangeWatchers.size + executorFileChangeWatchers.size;
+  return fileChangeWatchers.size;
 }

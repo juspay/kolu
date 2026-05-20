@@ -165,6 +165,52 @@ function hasLocalGitDir(cwd: string): boolean {
  */
 type WatcherMode = "head" | "cwd" | "executor";
 type WatcherSlot = { mode: WatcherMode; stop: () => void };
+interface GitWatchStrategy {
+  modeFor(cwd: string, info: GitInfo | null): WatcherMode;
+  shouldProbeSameCwd(cwd: string, info: GitInfo | null): boolean;
+  install(
+    mode: WatcherMode,
+    cwd: string,
+    onEvent: () => void,
+    log?: Logger,
+  ): () => void;
+}
+
+function gitWatchStrategy(executor: Executor): GitWatchStrategy {
+  if (executor.kind !== "local") {
+    return {
+      modeFor: () => "executor",
+      shouldProbeSameCwd: (_cwd, info) => info === null,
+      install: (_mode, cwd, onEvent, log) => {
+        let handle: { stop(): void } | null = null;
+        let cancelled = false;
+        void executor
+          .watch(cwd, onEvent, { recursive: true })
+          .then((h) => {
+            if (cancelled) h.stop();
+            else handle = h;
+          })
+          .catch((err) =>
+            log?.warn({ err, cwd }, "git: executor watch failed"),
+          );
+        return () => {
+          cancelled = true;
+          handle?.stop();
+        };
+      },
+    };
+  }
+
+  return {
+    modeFor: (cwd, info) =>
+      info !== null || hasLocalGitDir(cwd) ? "head" : "cwd",
+    shouldProbeSameCwd: (cwd, info) => info === null && hasLocalGitDir(cwd),
+    install: (mode, cwd, onEvent, log) =>
+      mode === "head"
+        ? watchGitHead(cwd, onEvent, log)
+        : watchCwdForGitDir(cwd, onEvent, log),
+  };
+}
 
 export function subscribeGitInfo(
   initialCwd: string,
@@ -177,6 +223,7 @@ export function subscribeGitInfo(
   // Head mode watches `.git/HEAD` (in-repo); cwd mode watches the parent
   // for `.git` appearing (out-of-repo). The two are mutually exclusive.
   let watcher: WatcherSlot | null = null;
+  const watchStrategy = gitWatchStrategy(executor);
   // Set by `stop()` so an in-flight `resolve()` that resumes after teardown
   // can't re-install a watcher via `ensureMode` — the resulting orphan
   // would leak past the subscription's lifetime.
@@ -186,35 +233,13 @@ export function subscribeGitInfo(
     void resolve();
   }
 
-  function install(mode: WatcherMode): () => void {
-    if (mode === "executor") {
-      let handle: { stop(): void } | null = null;
-      let cancelled = false;
-      void executor
-        .watch(currentCwd, handleWatcherEvent, { recursive: true })
-        .then((h) => {
-          if (cancelled) h.stop();
-          else handle = h;
-        })
-        .catch((err) =>
-          log?.warn({ err, cwd: currentCwd }, "git: executor watch failed"),
-        );
-      return () => {
-        cancelled = true;
-        handle?.stop();
-      };
-    }
-    return mode === "head"
-      ? watchGitHead(currentCwd, handleWatcherEvent, log)
-      : watchCwdForGitDir(currentCwd, handleWatcherEvent, log);
-  }
-
-  const usesLocalGitWatchers = () => executor.kind === "local";
-
   function ensureMode(mode: WatcherMode): void {
     if (watcher?.mode === mode) return;
     watcher?.stop();
-    watcher = { mode, stop: install(mode) };
+    watcher = {
+      mode,
+      stop: watchStrategy.install(mode, currentCwd, handleWatcherEvent, log),
+    };
   }
 
   function tearDownWatchers(): void {
@@ -241,9 +266,7 @@ export function subscribeGitInfo(
         "git resolution failed",
       );
     }
-    ensureMode(
-      usesLocalGitWatchers() ? (next !== null ? "head" : "cwd") : "executor",
-    );
+    ensureMode(watchStrategy.modeFor(currentCwd, next));
     if (gitInfoEqual(next, currentInfo)) return;
     currentInfo = next;
     onChange(next);
@@ -251,13 +274,7 @@ export function subscribeGitInfo(
 
   // Install synchronously so fs events during the first `resolve()` await
   // aren't dropped on the floor.
-  ensureMode(
-    usesLocalGitWatchers()
-      ? hasLocalGitDir(currentCwd)
-        ? "head"
-        : "cwd"
-      : "executor",
-  );
+  ensureMode(watchStrategy.modeFor(currentCwd, currentInfo));
   void resolve();
 
   return {
@@ -268,23 +285,14 @@ export function subscribeGitInfo(
         // belt-and-braces re-resolve for platforms or filesystems where the
         // watcher might miss the event (e.g. polling fallback under a
         // bind-mounted container fs).
-        if (
-          currentInfo === null &&
-          (!usesLocalGitWatchers() || hasLocalGitDir(next))
-        ) {
+        if (watchStrategy.shouldProbeSameCwd(next, currentInfo)) {
           void resolve();
         }
         return;
       }
       currentCwd = next;
       tearDownWatchers();
-      ensureMode(
-        usesLocalGitWatchers()
-          ? hasLocalGitDir(next)
-            ? "head"
-            : "cwd"
-          : "executor",
-      );
+      ensureMode(watchStrategy.modeFor(next, null));
       void resolve();
     },
     stop(): void {
