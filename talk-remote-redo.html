@@ -308,7 +308,7 @@ export interface Host extends Executor {           // ← extends, not duplicate
 <h2>Feature phasing (F1-F8)</h2>
 <p class="cite">R1 + R2 have landed on master; F1 onward builds on the cleaner base.</p>
 
-<div class="footnote"><span class="label">Workflow</span> Feature PRs target <code>plan/remote-terminals-over-ssh</code> (this plan's PR #946), <strong>not master directly</strong>. Each F-phase PR merges into the plan branch; the plan PR accumulates the implementation and lands to master as a single mergeable unit once F1-F8 are complete. This keeps in-progress feature work off master while letting reviewers see incremental phases stacked.</div>
+<div class="footnote"><span class="label">Workflow</span> Feature PRs target <code>remote-terminal</code> (a feature branch off master), <strong>not master directly</strong>. Each F-phase PR merges into <code>remote-terminal</code>; once F1-F8 are complete, <code>remote-terminal</code> merges to master as the final feature delivery. The design plan lives separately in PR #946 (this PR) on its own branch.</div>
 
 <div class="footnote"><span class="label">F1+F2+F3 bundled</span> Filed as a single PR — <a href="https://github.com/juspay/kolu/issues/947">issue #947</a>. F2's diff is mechanical pattern-matching (every <code>simpleGit(...).raw(...)</code> → <code>await executor.exec("git", ...)</code>); F3 is "<code>fs.* → await executor.*</code>" with an async cascade. The transformation rules are uniform per phase; reviewer cost scales with the rules, not the raw LOC. F1 alone would be unused exports, so it bundles cleanly with F2 (its first consumer).</div>
 
@@ -530,6 +530,84 @@ onChange();   // ← getStore() here returns undefined.
   <li>Smell #7 — concept multiplication. Fixed by F1's <code>Host extends Executor</code>.</li>
   <li>Smell #12 — local-remote asymmetry. Fixed by R1's primitive extraction.</li>
 </ul>
+
+<h2>Prior art — Zed's remote development</h2>
+
+<p>Zed ships SSH-based remote development with a similar local-vs-remote unification goal. I cloned <code>github.com/zed-industries/zed</code> and read the relevant crates (<code>crates/remote</code>, <code>crates/remote_server</code>, <code>crates/remote_connection</code>, <code>crates/fs</code>, <code>crates/project/src/terminals.rs</code>, ~9k LOC total). Findings worth folding in:</p>
+
+<h3>1. Terminals: Zed runs the PTY locally with <code>ssh</code> as the program</h3>
+
+<p>This is the biggest divergence from our plan and from PR #929. Verified at <code>crates/remote/src/transport/ssh.rs:1768-1880</code> (<code>build_command_posix</code>): when Zed creates a remote terminal, it builds a command template like:</p>
+
+<div class="diagram">ssh -q -t &lt;destination&gt; 'cd &lt;working_dir&gt; &amp;&amp; exec env &lt;ENV_KV...&gt; &lt;remote_shell&gt; -l'</div>
+
+<p>That command is then passed to <code>alacritty_terminal::tty::new(...)</code> as the PTY's program (<code>crates/terminal/src/terminal.rs:568</code>). <strong>The PTY itself is local;</strong> <code>ssh</code> is what runs inside it, and ssh's own client-server protocol shuttles bytes to the remote shell. Zed's <code>remote_server</code> daemon is <em>not involved in terminals at all</em> — its responsibilities (verified from <code>crates/remote_server/src/headless_project.rs</code>) are file I/O, LSP, search, Jupyter kernels, directory env. <strong>Not PTY hosting.</strong></p>
+
+<table>
+  <thead><tr><th></th><th>Zed: local PTY + ssh-inside</th><th>This plan (and PR #929): remote PTY via daemon</th></tr></thead>
+  <tbody>
+    <tr><td>PTY lifecycle</td><td>Dies when ssh exits / network drops. Reconnect = new PTY, scrollback lost.</td><td>Daemon owns PTY; survives SSH drops. Per-PTY ring buffer replays missed bytes on reconnect.</td></tr>
+    <tr><td>Server binary on remote</td><td>Not needed for terminals. (Needed for file I/O / LSP / etc.)</td><td>Needed: <code>kolu-remote-server</code> spawns the PTY.</td></tr>
+    <tr><td>OSC sequence parsing</td><td>Native — terminal emulator parses OSC inline as the PTY produces it locally.</td><td>Bytes come back as RPC frames; need to re-feed through xterm-headless on controller (or parse server-side and forward events).</td></tr>
+    <tr><td>Complexity in remote code</td><td>Minimal — no PTY engine on remote.</td><td>Full PTY engine, ring buffer, sequence numbering, attach/replay logic.</td></tr>
+    <tr><td>Resilience to SSH drops</td><td>None — process dies.</td><td>F7 ships daemon mode with replay.</td></tr>
+  </tbody>
+</table>
+
+<p><strong>Recommendation:</strong> seriously consider Zed's approach for our PTY layer. The trade we make by adopting it: <em>SSH drops kill the PTY (scrollback gone)</em> in exchange for <em>eliminating ~1,200 lines of helper-side PTY engine + ring buffer code from F5/F7</em>. Kolu's user base spawns short-lived shells in a tile UI; persistent-PTY-across-disconnect is a nice-to-have, not a defining feature. Worth a follow-up discussion before F5 lands.</p>
+
+<p>The <code>kolu-remote-server</code> binary would still exist — needed for <code>executor.{readFile, exec, watch, queryDb, statMtimeMs}</code> (branch chip, agent badges, Code-tab on remote). It just wouldn't run PTYs.</p>
+
+<h3>2. Transport pluggability — Zed supports SSH, Docker, WSL, and mock</h3>
+
+<p>Verified at <code>crates/remote/src/transport/</code>: four concrete transports behind a single <code>RemoteConnection</code> trait (<code>remote_client.rs:1509</code>). The trait has methods like <code>start_proxy</code>, <code>build_command</code>, <code>upload_directory</code>, <code>kill</code>, <code>connection_options</code>, <code>path_style</code>, <code>shell</code>. Any new transport implements the trait.</p>
+
+<p>Our <code>Host</code> interface already gestures at this (the <code>kind: "local" | "remote-ssh"</code> discriminator hints at future variants), but we don't have a structured transport seam yet. Worth shaping F5's <code>kolu-remote</code> with a <code>Transport</code> abstraction internally so a future <code>RemoteHost</code> over Docker or WSL or Tailscale-direct doesn't require rewriting the package. Cost: ~20 lines of interface declaration.</p>
+
+<h3>3. <code>CommandTemplate</code> abstraction</h3>
+
+<p>Verified at <code>crates/remote/src/transport/ssh.rs:303-371</code> and the trait at <code>remote_client.rs:1531</code>: Zed's transport doesn't run commands itself. It returns a <code>CommandTemplate { program, args, env }</code>. The caller decides what to do with it — feed it to a PTY (terminal), pass it to <code>child_process</code> (one-shot exec), etc.</p>
+
+<p>This is a clean separation. For our <code>integrations/remote/</code> package, the equivalent design: the RPC client exposes a <code>buildSshCommand({ remoteCmd, env, cwd, interactive }) → { program: "ssh", args: [...], env: {...} }</code> primitive. Callers (PTY spawn for the Zed-style terminal approach, or RPC exec for one-shot commands) consume the template.</p>
+
+<h3>4. Wire protocol — protobuf vs our planned NDJSON+Zod</h3>
+
+<p>Verified at <code>crates/remote/src/protocol.rs</code>: 4-byte little-endian length prefix, then encoded <code>rpc::proto::Envelope</code> (protobuf). 76 lines of framing total — much smaller than Zod schemas because protobuf does the codec work.</p>
+
+<p>Trade-offs honestly:</p>
+<ul>
+  <li><strong>NDJSON+Zod (this plan)</strong>: TypeScript-native, no codegen step, human-readable wire (debuggable via <code>cat</code>), schemas double as runtime validators.</li>
+  <li><strong>Protobuf (Zed)</strong>: binary-efficient, explicit schema versioning, fast codec, mature tooling, but adds a build step.</li>
+</ul>
+
+<p>NDJSON is the right pick for Kolu's stage — JavaScript ecosystem, no codegen tax, plenty fast for the message volume we'll see. Keep it. Worth knowing protobuf is the path forward if message throughput becomes a bottleneck (it won't, for terminal use).</p>
+
+<h3>5. Server binary deployment</h3>
+
+<p>Verified from <code>crates/remote/src/remote_client.rs:785</code> (<code>ensure_server_binary</code>) and the docs at <code>docs/src/remote-development.md</code>: Zed downloads a prebuilt server binary from <code>zed.dev</code> directly on the remote host (using the remote's network), or uploads from the controller via SSH (<code>upload_binary_over_ssh: true</code> setting) for networks where the remote can't reach the internet. Platform/arch detected via <code>uname -sm</code> first.</p>
+
+<p>PR #929's approach: <code>nix copy --to ssh-ng://&lt;alias&gt;</code> the helper closure from the controller. Trade-off: Nix-based is hermetic and reproducible but requires Nix on both ends; Zed's HTTP download requires only network access. <strong>For Kolu, keep Nix-based deployment</strong> (matches the rest of the project's reproducibility story) but document the fallback path: <code>KOLU_REMOTE_SERVER_CMD</code> env var lets users override the spawn command entirely (custom build, Docker image, ad-hoc binary).</p>
+
+<h3>6. <code>Fs</code> trait — a richer IO abstraction than our <code>Executor</code></h3>
+
+<p>Verified at <code>crates/fs/src/fs.rs:97</code>: Zed's <code>Fs</code> trait has ~30 methods including <code>create_dir</code>, <code>create_file</code>, <code>copy_file</code>, <code>rename</code>, <code>remove_dir</code>, <code>trash</code>, <code>atomic_write</code>, <code>save</code>, <code>load_bytes</code>, <code>metadata</code>, <code>read_dir</code> (streaming), <code>watch</code> (streaming), plus first-class git operations (<code>open_repo</code>, <code>git_init</code>, <code>git_clone</code>, <code>git_config</code>).</p>
+
+<p>Our <code>Executor</code> has 5 methods (<code>exec</code>, <code>readFile</code>, <code>statMtimeMs</code>, <code>watch</code>, <code>queryDb</code>). The gap is deliberate — Kolu's needs are narrower (terminal + metadata, not full editor). But Zed's pattern of treating git as a structured first-class concern (not just <code>exec("git", …)</code>) is intriguing. <strong>Not adopting</strong> for this round — kolu-git's <code>exec("git", …)</code> approach works fine for our use cases — but flagging for future consideration if we want to drop the <code>git</code> CLI dependency.</p>
+
+<h3>Summary of Zed-inspired changes</h3>
+
+<table>
+  <thead><tr><th>Inspiration</th><th>Adopt?</th><th>Where in our plan</th></tr></thead>
+  <tbody>
+    <tr><td>Local PTY + ssh-inside (no remote PTY engine)</td><td><strong>Worth discussing before F5.</strong> Big simplification; trade-off is SSH-drop resilience.</td><td>F5 + F7 redesign if adopted</td></tr>
+    <tr><td>Multi-transport via <code>Transport</code> trait</td><td><span class="check">Yes</span></td><td>F5 shapes <code>integrations/remote/</code> with a Transport interface internally; SSH is the only impl initially.</td></tr>
+    <tr><td><code>CommandTemplate</code> abstraction</td><td><span class="check">Yes</span></td><td>F5's RPC client exposes a <code>buildSshCommand(...)</code> primitive that returns <code>{ program, args, env }</code> instead of running directly.</td></tr>
+    <tr><td>Protobuf wire protocol</td><td><span class="cross">No</span> — stick with NDJSON+Zod</td><td>Kolu's TypeScript-native context; codegen tax not worth it for our message volume.</td></tr>
+    <tr><td><code>KOLU_REMOTE_SERVER_CMD</code> env override</td><td><span class="check">Yes</span></td><td>Document in F5 alongside Nix-based default deployment.</td></tr>
+    <tr><td>Streaming <code>read_dir</code> + <code>watch</code></td><td>Maybe later</td><td>Not in F1-F8 scope; revisit if our <code>Executor.watch</code> needs to scale.</td></tr>
+    <tr><td>Structured git operations on <code>Fs</code></td><td><span class="cross">No</span></td><td>kolu-git's <code>exec("git", …)</code> works for our needs.</td></tr>
+  </tbody>
+</table>
 
 <h2>Trade-offs honestly</h2>
 
