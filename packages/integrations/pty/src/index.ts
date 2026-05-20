@@ -6,10 +6,5 @@
  *  its per-terminal scratch files live) and a TERM_PROGRAM_VERSION
  *  string (so the package has zero kolu-* deps). */
 
-export {
-  getScreenText,
-  type Logger,
-  type PtyHandle,
-  spawnPty,
-} from "./pty.ts";
+export { getScreenText, type PtyHandle, spawnPty } from "./pty.ts";
 export { configureNixShellEnv, NIX_ENV_WHITELIST } from "./shell.ts";

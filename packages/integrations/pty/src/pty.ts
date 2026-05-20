@@ -7,6 +7,7 @@
  */
 
 import { createRequire } from "node:module";
+import type { Logger } from "kolu-shared";
 import * as pty from "node-pty";
 import { cleanEnv, koluIdentityEnv, prepareShellInit } from "./shell.ts";
 
@@ -20,16 +21,6 @@ const { Terminal } =
   require("@xterm/headless") as typeof import("@xterm/headless");
 const { SerializeAddon } =
   require("@xterm/addon-serialize") as typeof import("@xterm/addon-serialize");
-
-/** Structural Logger shape — kept minimal so kolu-pty has zero kolu deps.
- *  Pino's Logger satisfies this; any compatible shim works. */
-export interface Logger {
-  info(obj: object, msg?: string): void;
-  debug(obj: object, msg?: string): void;
-  warn(obj: object, msg?: string): void;
-  error(obj: object, msg?: string): void;
-  child(bindings: object): Logger;
-}
 
 /** Extract plain text from an xterm buffer within a line range. */
 export function getScreenText(
