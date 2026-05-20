@@ -16,11 +16,11 @@ import {
   deriveTaskProgress,
   encodeProjectPath,
   extractTasks,
-  fetchSessionSummary,
   fileSizeBytes,
   findTranscriptPath,
   readFileChunk,
   type SessionFile,
+  summaryFetcherForExecutor,
   TAIL_BYTES,
   tailJsonlLines,
 } from "./core.ts";
@@ -111,6 +111,7 @@ export function createSessionWatcher(
   let transcriptDebounceTimer: NodeJS.Timeout | null = null;
   let refreshInFlight = false;
   let refreshPending = false;
+  const summaryFetcher = summaryFetcherForExecutor(executor);
 
   let destroyed = false;
 
@@ -332,10 +333,13 @@ export function createSessionWatcher(
   }
 
   async function refreshSummary() {
-    if (destroyed) return;
+    if (destroyed || !summaryFetcher) return;
     pendingSummaryFetches++;
     try {
-      const summary = await fetchSessionSummary(session.sessionId, session.cwd);
+      const summary = await summaryFetcher.fetchSessionSummary(
+        session.sessionId,
+        session.cwd,
+      );
       if (destroyed) return;
       if (summary === lastSummary) return;
       lastSummary = summary;

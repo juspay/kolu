@@ -494,7 +494,18 @@ export async function subscribeSessionsDir(
 
 // --- Summary fetching ---
 
-/** Fetch the display summary from the Claude Agent SDK. Returns null on failure. */
+export interface ClaudeSummaryFetcher {
+  fetchSessionSummary(sessionId: string, cwd: string): Promise<string | null>;
+}
+
+export function summaryFetcherForExecutor(
+  executor: Executor,
+): ClaudeSummaryFetcher | null {
+  if (executor.kind !== "local" || !SUMMARY_FETCH_ENABLED) return null;
+  return { fetchSessionSummary };
+}
+
+/** Fetch the display summary from the local Claude Agent SDK. Returns null on failure. */
 export async function fetchSessionSummary(
   sessionId: string,
   cwd: string,
