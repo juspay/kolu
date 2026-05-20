@@ -20,24 +20,24 @@
  * barrel simultaneously.
  */
 
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import { getSessionInfo } from "@anthropic-ai/claude-agent-sdk";
 import { classifyByAwaiting } from "anyagent";
-import { type Logger, readTailLines } from "kolu-shared";
+import type { Executor } from "kolu-io";
+import type { Logger } from "kolu-shared";
 import { match } from "ts-pattern";
 import type { ClaudeCodeInfo, TaskProgress } from "./schemas.ts";
 
 // --- Configuration ---
 
-/** Configurable via env for testing. */
+const SESSIONS_REL = ".claude/sessions";
+const PROJECTS_REL = ".claude/projects";
+const LOCAL_SESSIONS_DIR_OVERRIDE = process.env.KOLU_CLAUDE_SESSIONS_DIR;
+const LOCAL_PROJECTS_DIR_OVERRIDE = process.env.KOLU_CLAUDE_PROJECTS_DIR;
+
 export const SESSIONS_DIR =
-  process.env.KOLU_CLAUDE_SESSIONS_DIR ??
-  path.join(os.homedir(), ".claude", "sessions");
+  LOCAL_SESSIONS_DIR_OVERRIDE ?? `${process.env.HOME ?? ""}/${SESSIONS_REL}`;
 export const PROJECTS_DIR =
-  process.env.KOLU_CLAUDE_PROJECTS_DIR ??
-  path.join(os.homedir(), ".claude", "projects");
+  LOCAL_PROJECTS_DIR_OVERRIDE ?? `${process.env.HOME ?? ""}/${PROJECTS_REL}`;
 
 /** True when the e2e harness has redirected the projects/sessions dirs at
  *  test fixtures. The Claude Agent SDK has no equivalent override and would
@@ -45,8 +45,8 @@ export const PROJECTS_DIR =
  *  inotify pressure that has been observed to race with the mock harness
  *  on Linux. Skip summary fetching entirely under test. */
 export const SUMMARY_FETCH_ENABLED =
-  process.env.KOLU_CLAUDE_PROJECTS_DIR === undefined &&
-  process.env.KOLU_CLAUDE_SESSIONS_DIR === undefined;
+  LOCAL_PROJECTS_DIR_OVERRIDE === undefined &&
+  LOCAL_SESSIONS_DIR_OVERRIDE === undefined;
 
 /** Tail window for `tailJsonlLines` — must exceed the largest single JSONL
  *  entry so that at least one complete line is present after dropping the
@@ -68,12 +68,41 @@ export const SUMMARY_FETCH_ENABLED =
  *  (mux's pattern), not another bump. */
 export const TAIL_BYTES = 256 * 1024;
 
+export async function resolveClaudeDirs(
+  executor: Executor,
+  log?: Logger,
+): Promise<{ sessionsDir: string; projectsDir: string } | null> {
+  if (LOCAL_SESSIONS_DIR_OVERRIDE && LOCAL_PROJECTS_DIR_OVERRIDE) {
+    return {
+      sessionsDir: LOCAL_SESSIONS_DIR_OVERRIDE,
+      projectsDir: LOCAL_PROJECTS_DIR_OVERRIDE,
+    };
+  }
+  try {
+    const result = await executor.exec("printenv", ["HOME"], {
+      timeoutMs: 5_000,
+    });
+    if (result.exitCode !== 0) return null;
+    const home = result.stdout.trim();
+    if (!home) return null;
+    return {
+      sessionsDir: `${home}/${SESSIONS_REL}`,
+      projectsDir: `${home}/${PROJECTS_REL}`,
+    };
+  } catch (err) {
+    log?.debug({ err }, "claude dir resolution failed");
+    return null;
+  }
+}
+
 // --- Session file reading ---
 
 export interface SessionFile {
   pid: number;
   sessionId: string;
   cwd: string;
+  sessionsDir: string;
+  projectsDir: string;
 }
 
 /**
@@ -81,13 +110,20 @@ export interface SessionFile {
  * exist (the common case — most pids are not claude-code sessions) or
  * if the file is unreadable / malformed / missing required fields.
  */
-export function readSessionFile(
+export async function readSessionFile(
   pid: number,
-  log?: { debug: (obj: Record<string, unknown>, msg: string) => void },
-): SessionFile | null {
+  executor: Executor,
+  log?: Logger,
+): Promise<SessionFile | null> {
+  const dirs = await resolveClaudeDirs(executor, log);
+  if (!dirs) return null;
   let raw: string;
   try {
-    raw = fs.readFileSync(path.join(SESSIONS_DIR, `${pid}.json`), "utf8");
+    raw = (
+      await executor.readFile(`${dirs.sessionsDir}/${pid}.json`, {
+        maxBytes: 64 * 1024,
+      })
+    ).content;
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
       log?.debug({ err, pid }, "claude session file unreadable");
@@ -104,7 +140,13 @@ export function readSessionFile(
       log?.debug({ pid, parsed }, "claude session file shape unexpected");
       return null;
     }
-    return parsed as SessionFile;
+    return {
+      pid: parsed.pid,
+      sessionId: parsed.sessionId,
+      cwd: parsed.cwd,
+      sessionsDir: dirs.sessionsDir,
+      projectsDir: dirs.projectsDir,
+    };
   } catch (err) {
     log?.debug({ err, pid }, "claude session file parse failed");
     return null;
@@ -132,11 +174,14 @@ export function encodeProjectPath(cwd: string): string {
  * dir leads to attaching to a stale previous-session transcript while the
  * current session's file is still being created. Better to wait.
  */
-export function findTranscriptPath(session: SessionFile): string | null {
-  const projectDir = path.join(PROJECTS_DIR, encodeProjectPath(session.cwd));
-  const exactPath = path.join(projectDir, `${session.sessionId}.jsonl`);
+export async function findTranscriptPath(
+  session: SessionFile,
+  executor: Executor,
+): Promise<string | null> {
+  const projectDir = `${session.projectsDir}/${encodeProjectPath(session.cwd)}`;
+  const exactPath = `${projectDir}/${session.sessionId}.jsonl`;
   try {
-    fs.accessSync(exactPath);
+    await executor.statMtimeMs(exactPath);
     return exactPath;
   } catch {
     return null;
@@ -157,14 +202,80 @@ export function findTranscriptPath(session: SessionFile): string | null {
  * absent file to `[]` — the transcript tailer treats all three modes
  * the same way (retry on the next `fs.watch` fire).
  */
-export function tailJsonlLines(filePath: string, bytes: number): string[] {
-  let size: number;
+export async function tailJsonlLines(
+  filePath: string,
+  bytes: number,
+  executor: Executor,
+  log?: Logger,
+): Promise<string[]> {
   try {
-    size = fs.statSync(filePath).size;
-  } catch {
+    const result = await executor.exec(
+      "tail",
+      ["-c", String(bytes), filePath],
+      {
+        timeoutMs: 10_000,
+        maxBytes: bytes + 4096,
+      },
+    );
+    if (result.exitCode !== 0) {
+      log?.debug({ stderr: result.stderr, filePath }, "claude tail failed");
+      return [];
+    }
+    const startsAtFileBeginning =
+      Buffer.byteLength(result.stdout, "utf8") < bytes;
+    const lines = result.stdout.split("\n");
+    const start = startsAtFileBeginning ? 0 : 1;
+    return lines.slice(start).filter((line) => line.length > 0);
+  } catch (err) {
+    log?.debug({ err, filePath }, "claude tail threw");
     return [];
   }
-  return readTailLines({ path: filePath, size, maxBytes: bytes }) ?? [];
+}
+
+export async function fileSizeBytes(
+  filePath: string,
+  executor: Executor,
+  log?: Logger,
+): Promise<number | null> {
+  try {
+    const result = await executor.exec("wc", ["-c", filePath], {
+      timeoutMs: 10_000,
+      maxBytes: 4096,
+    });
+    if (result.exitCode !== 0) {
+      log?.debug({ stderr: result.stderr, filePath }, "file size query failed");
+      return null;
+    }
+    const sizeText = /^\s*(\d+)/.exec(result.stdout)?.[1];
+    return sizeText ? Number.parseInt(sizeText, 10) : null;
+  } catch (err) {
+    log?.debug({ err, filePath }, "file size query threw");
+    return null;
+  }
+}
+
+export async function readFileChunk(
+  filePath: string,
+  offset: number,
+  bytes: number,
+  executor: Executor,
+  log?: Logger,
+): Promise<string | null> {
+  try {
+    const result = await executor.exec(
+      "dd",
+      [`if=${filePath}`, "bs=1", `skip=${offset}`, `count=${bytes}`],
+      { timeoutMs: 30_000, maxBytes: bytes + 4096 },
+    );
+    if (result.exitCode !== 0) {
+      log?.debug({ stderr: result.stderr, filePath }, "file chunk read failed");
+      return null;
+    }
+    return result.stdout;
+  } catch (err) {
+    log?.debug({ err, filePath, offset, bytes }, "file chunk read threw");
+    return null;
+  }
 }
 
 // --- State derivation ---
@@ -399,153 +510,37 @@ export function deriveTaskProgress(
   return { total: tasks.size, completed };
 }
 
-// --- fs.watch helpers ---
-
-/**
- * Try to watch a directory. Returns a cleanup function on success, null
- * if watch failed. ENOENT (directory doesn't exist yet) is expected and
- * silent; other errors (EACCES, EMFILE, etc.) surface at debug so they're
- * discoverable without spamming the log.
- */
-export function tryWatchDir(
-  dir: string,
-  onChange: () => void,
-  log?: Logger,
-): (() => void) | null {
-  try {
-    const w = fs.watch(dir, () => onChange());
-    log?.info({ dir }, "claude-code: dir watcher installed");
-    return () => {
-      w.close();
-      log?.info({ dir }, "claude-code: dir watcher retired");
-    };
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
-      log?.debug({ err, dir }, "fs.watch failed");
-    }
-    return null;
-  }
-}
-
-/**
- * Watch a directory that may not yet exist. If direct watch fails, falls
- * back to watching the immediate parent (one level only) and re-attaches
- * to the target as soon as it appears. Returns a cleanup function.
- *
- * Used for both SESSIONS_DIR (absent on fresh systems until first claude
- * run) and the per-session project dir under PROJECTS_DIR (created lazily
- * when claude writes its first transcript).
- */
-export function watchOrWaitForDir(
-  dir: string,
-  onChange: () => void,
-  log?: Logger,
-): () => void {
-  const direct = tryWatchDir(dir, onChange, log);
-  if (direct) return direct;
-
-  let child: (() => void) | null = null;
-  let parentWatcher: fs.FSWatcher | null = null;
-  const parent = path.dirname(dir);
-  try {
-    parentWatcher = fs.watch(parent, () => {
-      if (child) return;
-      const attached = tryWatchDir(dir, onChange, log);
-      if (!attached) return;
-      child = attached;
-      parentWatcher?.close();
-      parentWatcher = null;
-      log?.info({ dir, parent }, "claude-code: parent-dir watcher retired");
-      // Kick — dir may already contain files (race: created between our
-      // first attempt and the parent event).
-      onChange();
-    });
-    log?.info({ dir, parent }, "claude-code: parent-dir watcher installed");
-  } catch (err) {
-    log?.debug({ err, dir }, "fs.watch parent fallback failed");
-  }
-  return () => {
-    if (parentWatcher) {
-      parentWatcher.close();
-      log?.info({ dir, parent }, "claude-code: parent-dir watcher retired");
-    }
-    child?.();
-  };
-}
-
-// --- Shared SESSIONS_DIR watcher ---
-//
-// Every consumer of this package that wants to react to session
-// file appearance/disappearance needs a watch on SESSIONS_DIR. Rather
-// than have each caller install its own fs.watch (so N consumers = N
-// duplicate watchers + N duplicate dispatches per event), this module
-// refcounts a single watcher: first subscriber lazily installs it,
-// last unsubscribe tears it down.
-//
-// `sharedSessionsDir` is a single nullable structure (not a
-// {watcher, listeners} pair) so the "active iff non-empty" invariant
-// is mechanical — there's no way for the two halves to disagree.
-//
-// Per-listener `onError` is required (not optional) so fault isolation
-// is a type-system obligation, not a convention. If one listener's
-// callback throws, its own onError runs, and iteration continues to
-// the next listener unaffected.
-
-interface SessionsDirListener {
-  cb: () => void;
-  onError: (err: unknown) => void;
-}
-
-let sharedSessionsDir: {
-  cleanup: () => void;
-  listeners: Set<SessionsDirListener>;
-} | null = null;
-
 /**
  * Subscribe to changes in `SESSIONS_DIR`. Returns an unsubscribe
- * function. The underlying `fs.watch` is shared across all
- * subscribers — refcounted, installed on first subscribe, torn down
- * on last unsubscribe.
- *
- * `onError` receives any exception thrown by `onChange` and runs
- * in place of breaking the iteration over peer listeners. Callers
- * must provide one (silent swallowing would hide bugs) — pass a
- * logger call like `(err) => log.warn({ err }, "...")`.
+ * handle. The caller owns any process-wide sharing.
  */
-export function subscribeSessionsDir(
+export async function subscribeSessionsDir(
+  executor: Executor,
   onChange: () => void,
   onError: (err: unknown) => void,
   log?: Logger,
-): () => void {
-  if (!sharedSessionsDir) {
-    const listeners = new Set<SessionsDirListener>();
-    const cleanup = watchOrWaitForDir(
-      SESSIONS_DIR,
+): Promise<{ stop(): void }> {
+  const dirs = await resolveClaudeDirs(executor, log);
+  if (!dirs) return { stop: () => {} };
+  try {
+    return await executor.watch(
+      dirs.sessionsDir,
       () => {
-        // Snapshot before iteration so a listener that subscribes or
-        // unsubscribes synchronously can't skip a peer for this event.
-        for (const l of [...listeners]) {
-          try {
-            l.cb();
-          } catch (err) {
-            l.onError(err);
-          }
+        try {
+          onChange();
+        } catch (err) {
+          onError(err);
         }
       },
-      log,
+      { recursive: false },
     );
-    sharedSessionsDir = { cleanup, listeners };
+  } catch (err) {
+    log?.debug(
+      { err, dir: dirs.sessionsDir },
+      "claude sessions dir watch failed",
+    );
+    return { stop: () => {} };
   }
-  const listener: SessionsDirListener = { cb: onChange, onError };
-  sharedSessionsDir.listeners.add(listener);
-  return () => {
-    if (!sharedSessionsDir) return;
-    sharedSessionsDir.listeners.delete(listener);
-    if (sharedSessionsDir.listeners.size === 0) {
-      sharedSessionsDir.cleanup();
-      sharedSessionsDir = null;
-    }
-  };
 }
 
 // --- Summary fetching ---

@@ -25,6 +25,7 @@
  */
 
 import type { Logger } from "kolu-shared";
+import type { Executor } from "kolu-io";
 import { WATCHER_DEBOUNCE_MS } from "./git-dir.ts";
 import { watchGitHead } from "./head-watcher.ts";
 import { watchGitIndex } from "./index-watcher.ts";
@@ -104,7 +105,20 @@ export function subscribeRepoChange(
   repoRoot: string,
   onChange: () => void,
   log?: Logger,
+  executor?: Executor,
 ): () => void {
+  if (executor) {
+    return subscribeExecutorChange(
+      executor,
+      repoRoot,
+      () => true,
+      onChange,
+      "git: executor repo-change",
+      { repoRoot },
+      log,
+    );
+  }
+
   let entry = repoChangeWatchers.get(repoRoot);
   if (!entry) {
     entry = compose(
@@ -139,7 +153,21 @@ export function subscribeFileChange(
   filePath: string,
   onChange: () => void,
   log?: Logger,
+  executor?: Executor,
 ): () => void {
+  if (executor) {
+    return subscribeExecutorChange(
+      executor,
+      repoRoot,
+      (relPath) =>
+        relPath === "" || relPath === filePath || relPath.startsWith(".git"),
+      onChange,
+      "git: executor file-change",
+      { repoRoot, filePath },
+      log,
+    );
+  }
+
   const key = `${repoRoot}\x00${filePath}`;
   let entry = fileChangeWatchers.get(key);
   if (!entry) {
@@ -156,6 +184,51 @@ export function subscribeFileChange(
     fileChangeWatchers.set(key, entry);
   }
   return entry.subscribe(onChange);
+}
+
+function subscribeExecutorChange(
+  executor: Executor,
+  root: string,
+  accepts: (relPath: string) => boolean,
+  onChange: () => void,
+  logLabel: string,
+  logFields: Record<string, unknown>,
+  log?: Logger,
+): () => void {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let handle: { stop(): void } | null = null;
+  let stopped = false;
+
+  const tick = (relPath: string): void => {
+    if (!accepts(relPath)) return;
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = undefined;
+      try {
+        onChange();
+      } catch (err) {
+        log?.error({ err, ...logFields }, `${logLabel} listener threw`);
+      }
+    }, WATCHER_DEBOUNCE_MS);
+  };
+
+  void executor
+    .watch(root, tick, { recursive: true })
+    .then((h) => {
+      if (stopped) h.stop();
+      else handle = h;
+      log?.info(logFields, `${logLabel} watcher installed`);
+    })
+    .catch((err) =>
+      log?.warn({ err, ...logFields }, `${logLabel} watch install failed`),
+    );
+
+  return () => {
+    stopped = true;
+    if (timer) clearTimeout(timer);
+    handle?.stop();
+    log?.info(logFields, `${logLabel} watcher retired`);
+  };
 }
 
 /** Test-only — number of distinct (repoRoot) entries holding active

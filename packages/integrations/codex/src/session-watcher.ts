@@ -1,104 +1,87 @@
 /**
- * CodexWatcher — encapsulates all per-session lifecycle state.
+ * CodexWatcher — per-session lifecycle over the supplied executor.
  *
- * Wraps `kolu-shared`'s generic `createDebounceWatcher` with codex's
- * SQLite + JSONL refresh logic. The factory owns the destroy flag,
- * debounce timer, DB lifetime, equality-gated dispatch, and lifecycle
- * logs; this file only owns the per-event `refresh` body and codex's
- * `cachedDerive` JSONL-tail short-circuit.
- *
- * Data flow per WAL event (inside the factory's debounce):
- *   1. re-read `threads.{title, model, tokens_used}` from SQLite
- *   2. tail the matched rollout JSONL (last TAIL_BYTES) — skipped when
- *      the file size is unchanged from the last parse
- *   3. assemble CodexInfo; the factory gates dispatch on `agentInfoEqual`
- *
- * Mirrors `OpenCodeWatcher` (SQLite side) composed with `SessionWatcher`
- * (JSONL tail side). The merge happens here because Codex is the one
- * integration where state lives only in the JSONL but metadata lives
- * only in SQLite — neither source is sufficient alone.
+ * On each WAL event, re-read mutable SQLite metadata through
+ * `executor.queryDb`, tail the rollout JSONL through `executor.exec`, and
+ * publish a changed CodexInfo snapshot.
  */
 
-import fs from "node:fs";
-import type { DatabaseSync } from "node:sqlite";
 import { agentInfoEqual } from "anyagent";
+import type { Executor } from "kolu-io";
 import type { Logger } from "kolu-shared";
-import { readTailLines } from "kolu-shared";
-import { createDebounceWatcher } from "kolu-shared/sqlite";
 import {
   type CodexSession,
   getThreadMetadata,
-  openDb,
   parseRolloutContextTokens,
   parseRolloutState,
 } from "./core.ts";
 import type { CodexInfo } from "./schemas.ts";
-import { subscribeCodexDb } from "./wal-watcher.ts";
 
-// --- Tuning constants ---
-
-/** Trailing-edge debounce for WAL fs.watch callbacks. Codex writes a
- *  WAL frame and appends a JSONL line on every thread mutation; during
- *  active generation these fire several times per second. 150 ms
- *  coalesces bursts into one handler run while staying imperceptible.
- *  Matches WAL_DEBOUNCE_MS in kolu-opencode and TRANSCRIPT_DEBOUNCE_MS
- *  in kolu-claude-code. */
 const WAL_DEBOUNCE_MS = 150;
-
-/** Tail window for reading the rollout JSONL. Matches kolu-claude-code's
- *  TAIL_BYTES — sized to comfortably contain the last few turns
- *  (task_started → agent_message → task_complete plus any tool calls).
- *  Codex rollout lines are smaller than Claude's (assistant content is
- *  split into many `response_item` records rather than one monolithic
- *  `assistant` entry), so 256 KB is generous. */
 const TAIL_BYTES = 256 * 1024;
-
-// --- Watcher ---
 
 export interface CodexWatcher {
   readonly session: CodexSession;
   destroy(): void;
 }
 
-/**
- * Start watching a Codex session. Reads current state immediately and
- * emits an initial CodexInfo, then re-reads on every WAL file change
- * (debounced) and emits a new info if it differs from the last one.
- *
- * `onChange` is called with the full CodexInfo each time state changes.
- * The caller forwards it to the metadata system.
- */
 export function createCodexWatcher(
   session: CodexSession,
+  executor: Executor,
   onChange: (info: CodexInfo) => void,
   log?: Logger,
 ): CodexWatcher {
-  /** Cache of the last-parsed rollout state + context-token count,
-   *  scoped to a specific JSONL byte size. On a WAL event whose
-   *  corresponding stat size matches `size`, we reuse the cached
-   *  values instead of re-reading and re-parsing the tail. Null
-   *  until the first successful derive.
-   *
-   *  This is the hot-path optimization: DB-only WAL events (e.g.
-   *  title updates, row touches) don't append to the rollout, so
-   *  `state` and `contextTokens` can't have changed. Without the
-   *  short-circuit, we'd re-read + re-parse 256 KB on every such
-   *  fire. */
+  let lastInfo: CodexInfo | null = null;
   let cachedDerive: {
     size: number;
     state: CodexInfo["state"];
     contextTokens: number | null;
   } | null = null;
+  let stopped = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let watchHandle: { stop(): void } | null = null;
+  let refreshInFlight = false;
+  let refreshPending = false;
 
-  function refresh(db: DatabaseSync): CodexInfo | null {
-    const meta = getThreadMetadata(session.id, log, db);
+  async function refresh(): Promise<void> {
+    if (stopped) return;
+    if (refreshInFlight) {
+      refreshPending = true;
+      return;
+    }
+    refreshInFlight = true;
+    try {
+      const info = await readInfo();
+      if (stopped || info === null) return;
+      if (agentInfoEqual(info, lastInfo)) return;
+      log?.debug(
+        {
+          state: info.state,
+          model: info.model,
+          session: info.sessionId,
+          tokens: info.contextTokens,
+        },
+        "codex state updated",
+      );
+      lastInfo = info;
+      onChange(info);
+    } finally {
+      refreshInFlight = false;
+      if (refreshPending && !stopped) {
+        refreshPending = false;
+        setTimeout(() => void refresh(), 0);
+      }
+    }
+  }
+
+  async function readInfo(): Promise<CodexInfo | null> {
+    const meta = await getThreadMetadata(
+      session.id,
+      executor,
+      session.dbPath,
+      log,
+    );
     if (!meta) {
-      // The row existed at match time (otherwise we wouldn't have a
-      // CodexSession at all) — a null here means Codex deleted it
-      // after we subscribed. That's a real anomaly, not a race window,
-      // so it warrants `warn`, not `debug`. Conflating it with the
-      // expected "no turns yet" path below would hide the distinction
-      // from an operator filtering logs.
       log?.warn(
         { session: session.id },
         "codex thread row disappeared after match",
@@ -106,20 +89,32 @@ export function createCodexWatcher(
       return null;
     }
 
-    const stat = statRollout(session, log);
-    if (stat === null) return null;
+    const size = await fileSizeBytes(session.rolloutPath, executor, log);
+    if (size === null) return null;
 
     let state: CodexInfo["state"];
     let contextTokens: number | null;
-    if (cachedDerive !== null && cachedDerive.size === stat.size) {
+    if (cachedDerive !== null && cachedDerive.size === size) {
       state = cachedDerive.state;
       contextTokens = cachedDerive.contextTokens;
     } else {
-      const derived = readAndParseTail(session, stat.size, log);
-      if (derived === null) return null;
-      state = derived.state;
-      contextTokens = derived.contextTokens;
-      cachedDerive = { size: stat.size, state, contextTokens };
+      const lines = await tailLines(
+        session.rolloutPath,
+        TAIL_BYTES,
+        executor,
+        log,
+      );
+      const parsedState = parseRolloutState(lines);
+      if (parsedState === null) {
+        log?.debug(
+          { session: session.id, path: session.rolloutPath },
+          "codex rollout has no task events yet",
+        );
+        return null;
+      }
+      state = parsedState;
+      contextTokens = parseRolloutContextTokens(lines);
+      cachedDerive = { size, state, contextTokens };
     }
 
     return {
@@ -133,93 +128,92 @@ export function createCodexWatcher(
     };
   }
 
-  function logAndDispatch(info: CodexInfo): void {
-    log?.debug(
-      {
-        state: info.state,
-        model: info.model,
-        session: info.sessionId,
-        tokens: info.contextTokens,
-      },
-      "codex state updated",
-    );
-    onChange(info);
+  function scheduleRefresh(): void {
+    if (stopped) return;
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = undefined;
+      void refresh();
+    }, WAL_DEBOUNCE_MS);
   }
 
-  // Hoist the DB connection across the watcher's lifetime so we don't
-  // open/close on every WAL event. Safe in WAL mode: an open read-only
-  // connection holds no locks until a transaction starts, and our
-  // single-SELECT queries are autocommit.
-  const db = openDb(log);
+  void executor
+    .watch(session.walPath, scheduleRefresh, { recursive: false })
+    .then((handle) => {
+      if (stopped) handle.stop();
+      else watchHandle = handle;
+    })
+    .catch((err) =>
+      log?.debug({ err, path: session.walPath }, "codex WAL watch failed"),
+    );
+  void refresh();
 
-  return createDebounceWatcher({
+  return {
     session,
-    label: "codex: session",
-    debounceMs: WAL_DEBOUNCE_MS,
-    db,
-    subscribe: subscribeCodexDb,
-    refresh,
-    isEqual: agentInfoEqual,
-    onChange: logAndDispatch,
-    logCtx: { session: session.id },
-    log,
-  });
+    destroy(): void {
+      stopped = true;
+      if (timer) clearTimeout(timer);
+      watchHandle?.stop();
+      watchHandle = null;
+    },
+  };
 }
 
-/** Stat the rollout JSONL. Returns `{ size }` on success, null on any
- *  failure (ENOENT silently; other errnos at `error`). Split out from
- *  the parse step so the caller can use the size as a cache key — if
- *  it matches the last-parsed size, the expensive open/read/parse pass
- *  can be skipped entirely. */
-function statRollout(
-  session: CodexSession,
+async function fileSizeBytes(
+  filePath: string,
+  executor: Executor,
   log?: Logger,
-): { size: number } | null {
+): Promise<number | null> {
   try {
-    return { size: fs.statSync(session.rolloutPath).size };
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
-      log?.error(
-        { err, path: session.rolloutPath, session: session.id },
+    const result = await executor.exec("wc", ["-c", filePath], {
+      timeoutMs: 10_000,
+      maxBytes: 4096,
+    });
+    if (result.exitCode !== 0) {
+      log?.debug(
+        { stderr: result.stderr, filePath },
         "codex rollout stat failed",
       );
+      return null;
     }
+    const sizeText = /^\s*(\d+)/.exec(result.stdout)?.[1];
+    return sizeText ? Number.parseInt(sizeText, 10) : null;
+  } catch (err) {
+    log?.debug({ err, filePath }, "codex rollout stat threw");
     return null;
   }
 }
 
-/** Read the last TAIL_BYTES of the rollout JSONL at the given size
- *  via kolu-shared's tail reader, then derive state and context-token
- *  count from the same buffer in two passes. Returns null on hard read
- *  error (logged at `error`) or when the state machine found no task
- *  events in the tail (logged at `debug` — the caller treats this
- *  uniformly as "skip"). `contextTokens` may independently be null
- *  when the tail contains a lifecycle event but no `token_count`
- *  event yet. */
-function readAndParseTail(
-  session: CodexSession,
-  size: number,
+async function tailLines(
+  filePath: string,
+  bytes: number,
+  executor: Executor,
   log?: Logger,
-): { state: CodexInfo["state"]; contextTokens: number | null } | null {
-  const lines = readTailLines({
-    path: session.rolloutPath,
-    size,
-    maxBytes: TAIL_BYTES,
-    onError: (err) =>
-      log?.error(
-        { err, path: session.rolloutPath, session: session.id },
-        "codex rollout read failed",
-      ),
-  });
-  if (lines === null) return null;
-
-  const state = parseRolloutState(lines);
-  if (state === null) {
-    log?.debug(
-      { session: session.id, path: session.rolloutPath },
-      "codex rollout has no task events yet",
+): Promise<string[]> {
+  try {
+    const result = await executor.exec(
+      "tail",
+      ["-c", String(bytes), filePath],
+      {
+        timeoutMs: 10_000,
+        maxBytes: bytes + 4096,
+      },
     );
-    return null;
+    if (result.exitCode !== 0) {
+      log?.debug(
+        { stderr: result.stderr, filePath },
+        "codex rollout read failed",
+      );
+      return [];
+    }
+    const startsAtFileBeginning =
+      Buffer.byteLength(result.stdout, "utf8") < bytes;
+    return result.stdout
+      .split("\n")
+      .slice(startsAtFileBeginning ? 0 : 1)
+      .filter((line) => line.length > 0);
+  } catch (err) {
+    log?.debug({ err, filePath }, "codex rollout read threw");
+    return [];
   }
-  return { state, contextTokens: parseRolloutContextTokens(lines) };
 }

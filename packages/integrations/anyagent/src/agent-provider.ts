@@ -18,6 +18,7 @@
  */
 
 import type { Logger } from "kolu-shared";
+import type { Executor } from "kolu-io";
 import type { TaskProgress } from "./schemas.ts";
 
 /** Snapshot of a terminal's observable state, passed to `resolveSession`.
@@ -73,7 +74,11 @@ export interface AgentInfoShape {
 
 /** Agent-detection contract. Type parameters: `Session` is the provider's
  *  opaque match result (its lifetime == one matched session); `Info` is the
- *  wire-shape yielded by the watcher. */
+ *  wire-shape yielded by the watcher.
+ *
+ *  Every IO-bearing method takes an `executor`. `sessionKey` stays pure:
+ *  it derives identity from an already-resolved session and should not
+ *  reach out to a filesystem, process, or database. */
 export interface AgentProvider<Session, Info extends AgentInfoShape> {
   /** Discriminator matching `Info["kind"]` (e.g. "claude-code", "opencode"). */
   readonly kind: Info["kind"];
@@ -81,7 +86,11 @@ export interface AgentProvider<Session, Info extends AgentInfoShape> {
   /** Given a snapshot of terminal state, return the currently-matching
    *  session for this agent kind, or null if no session applies. Pure and
    *  cheap — may be called repeatedly on title events and external changes. */
-  resolveSession(state: AgentTerminalState, log: Logger): Session | null;
+  resolveSession(
+    state: AgentTerminalState,
+    executor: Executor,
+    log: Logger,
+  ): Promise<Session | null>;
 
   /** Stable dedup key for a resolved session. The orchestrator compares
    *  successive `sessionKey(resolveSession(...))` values to decide whether
@@ -96,6 +105,7 @@ export interface AgentProvider<Session, Info extends AgentInfoShape> {
    *  debounce timers, in-flight async work). */
   createWatcher(
     session: Session,
+    executor: Executor,
     onChange: (info: Info) => void,
     log: Logger,
   ): AgentWatcher;
@@ -127,15 +137,16 @@ export interface AgentProvider<Session, Info extends AgentInfoShape> {
      *  `resolveSession` to have succeeded — for Codex, the foreground
      *  process is `codex` before any DB row exists, and the WAL watcher
      *  is what catches the row's appearance. */
-    isPresent(state: AgentTerminalState): boolean;
+    isPresent(state: AgentTerminalState, executor: Executor): Promise<boolean>;
     /** Install the process-wide watcher and wire its events to `onChange`.
      *  Called at most once per process. `onError` receives exceptions
      *  thrown by `onChange`. */
     install(
+      executor: Executor,
       onChange: () => void,
       onError: (err: unknown) => void,
       log: Logger,
-    ): void;
+    ): Promise<{ stop(): void }>;
   };
 }
 

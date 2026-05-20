@@ -9,21 +9,20 @@
  * and replaces it on session change.
  */
 
-import fs from "node:fs";
 import { agentInfoEqual } from "anyagent";
-import { match } from "ts-pattern";
+import type { Executor } from "kolu-io";
 import {
   deriveState,
   deriveTaskProgress,
   encodeProjectPath,
   extractTasks,
   fetchSessionSummary,
+  fileSizeBytes,
   findTranscriptPath,
-  PROJECTS_DIR,
+  readFileChunk,
   type SessionFile,
   TAIL_BYTES,
   tailJsonlLines,
-  watchOrWaitForDir,
 } from "./core.ts";
 import type { ClaudeCodeInfo } from "./schemas.ts";
 
@@ -49,8 +48,8 @@ const TASK_SCAN_CHUNK_BYTES = 1024 * 1024;
 /** Transcript-watching state machine — mutually exclusive states. */
 type TranscriptWatching =
   | { kind: "none" }
-  | { kind: "waiting"; dirWatcher: () => void }
-  | { kind: "watching"; path: string; fileWatcher: fs.FSWatcher };
+  | { kind: "waiting"; dirWatcher: { stop(): void } }
+  | { kind: "watching"; path: string; fileWatcher: { stop(): void } };
 
 // --- Logger interface ---
 
@@ -92,6 +91,7 @@ export interface SessionWatcher {
  */
 export function createSessionWatcher(
   session: SessionFile,
+  executor: Executor,
   onUpdate: (info: ClaudeCodeInfo) => void,
   plog: Logger,
 ): SessionWatcher {
@@ -109,21 +109,26 @@ export function createSessionWatcher(
   // Trailing-edge debounce timer for transcript fs.watch events.
   // Null when idle. Cleared on destroy.
   let transcriptDebounceTimer: NodeJS.Timeout | null = null;
+  let refreshInFlight = false;
+  let refreshPending = false;
 
   let destroyed = false;
 
   function teardownTranscriptWatching() {
-    match(transcriptWatching)
-      .with({ kind: "none" }, () => {})
-      .with({ kind: "waiting" }, ({ dirWatcher }) => dirWatcher())
-      .with({ kind: "watching" }, ({ path, fileWatcher }) => {
-        fileWatcher.close();
+    switch (transcriptWatching.kind) {
+      case "none":
+        break;
+      case "waiting":
+        transcriptWatching.dirWatcher.stop();
+        break;
+      case "watching":
+        transcriptWatching.fileWatcher.stop();
         plog.info(
-          { path, session: session.sessionId },
+          { path: transcriptWatching.path, session: session.sessionId },
           "claude-code: transcript watcher retired",
         );
-      })
-      .exhaustive();
+        break;
+    }
     transcriptWatching = { kind: "none" };
   }
 
@@ -137,95 +142,131 @@ export function createSessionWatcher(
     if (transcriptDebounceTimer) clearTimeout(transcriptDebounceTimer);
     transcriptDebounceTimer = setTimeout(() => {
       transcriptDebounceTimer = null;
-      onTranscriptMaybeChanged();
+      void onTranscriptMaybeChanged();
     }, TRANSCRIPT_DEBOUNCE_MS);
   }
 
-  function attachTranscriptWatcher(tp: string) {
+  async function attachTranscriptWatcher(tp: string) {
     try {
-      const fileWatcher = fs.watch(tp, () => scheduleTranscriptCheck());
+      const fileWatcher = await executor.watch(
+        tp,
+        () => scheduleTranscriptCheck(),
+        { recursive: false },
+      );
+      if (destroyed) {
+        fileWatcher.stop();
+        return;
+      }
       transcriptWatching = { kind: "watching", path: tp, fileWatcher };
       plog.info(
         { path: tp, session: session.sessionId },
         "claude-code: transcript watcher installed",
       );
+      void onTranscriptMaybeChanged();
     } catch (err) {
       plog.error({ err, path: tp }, "failed to watch transcript");
       transcriptWatching = { kind: "none" };
     }
   }
 
-  function setupTranscriptWatching() {
-    const tp = findTranscriptPath(session);
+  async function setupTranscriptWatching() {
+    const tp = await findTranscriptPath(session, executor);
+    if (destroyed) return;
     if (tp) {
       plog.debug({ path: tp }, "transcript found");
-      attachTranscriptWatcher(tp);
-      onTranscriptMaybeChanged();
+      await attachTranscriptWatcher(tp);
       return;
     }
     plog.debug(
       { session: session.sessionId, cwd: session.cwd },
       "transcript not found yet (JSONL created after first message)",
     );
-    const projectDir = `${PROJECTS_DIR}/${encodeProjectPath(session.cwd)}`;
-    const dirWatcher = watchOrWaitForDir(
-      projectDir,
-      () => onProjectDirChanged(),
-      plog,
-    );
-    transcriptWatching = { kind: "waiting", dirWatcher };
+    const projectDir = `${session.projectsDir}/${encodeProjectPath(session.cwd)}`;
+    try {
+      const dirWatcher = await executor.watch(
+        projectDir,
+        () => void onProjectDirChanged(),
+        { recursive: false },
+      );
+      if (destroyed) {
+        dirWatcher.stop();
+        return;
+      }
+      transcriptWatching = { kind: "waiting", dirWatcher };
+    } catch (err) {
+      plog.debug({ err, projectDir }, "project dir watch failed");
+    }
   }
 
-  function onProjectDirChanged() {
+  async function onProjectDirChanged() {
     if (destroyed) return;
     if (transcriptWatching.kind !== "waiting") return;
-    const tp = findTranscriptPath(session);
+    const tp = await findTranscriptPath(session, executor);
+    if (destroyed) return;
     if (!tp) return;
     plog.debug({ path: tp }, "transcript appeared");
-    transcriptWatching.dirWatcher();
-    attachTranscriptWatcher(tp);
-    onTranscriptMaybeChanged();
+    transcriptWatching.dirWatcher.stop();
+    await attachTranscriptWatcher(tp);
   }
 
-  function onTranscriptMaybeChanged() {
+  async function onTranscriptMaybeChanged() {
     if (destroyed) return;
     if (transcriptWatching.kind !== "watching") return;
-
-    const lines = tailJsonlLines(transcriptWatching.path, TAIL_BYTES);
-    const derived = deriveState(lines);
-    if (!derived) {
-      plog.debug(
-        { path: transcriptWatching.path },
-        "no user/assistant message in transcript tail",
-      );
+    if (refreshInFlight) {
+      refreshPending = true;
       return;
     }
+    refreshInFlight = true;
 
-    scanTasksIncremental(transcriptWatching.path);
-
-    const info: ClaudeCodeInfo = {
-      kind: "claude-code",
-      state: derived.state,
-      sessionId: session.sessionId,
-      model: derived.model,
-      summary: lastSummary,
-      taskProgress: deriveTaskProgress(taskMap),
-      contextTokens: derived.contextTokens,
-    };
-
-    if (!agentInfoEqual(info, lastInfo)) {
-      plog.debug(
-        { state: info.state, model: info.model, session: info.sessionId },
-        "claude code state updated",
+    try {
+      const lines = await tailJsonlLines(
+        transcriptWatching.path,
+        TAIL_BYTES,
+        executor,
+        plog,
       );
-      lastInfo = info;
-      onUpdate(info);
-    }
+      if (destroyed) return;
+      const derived = deriveState(lines);
+      if (!derived) {
+        plog.debug(
+          { path: transcriptWatching.path },
+          "no user/assistant message in transcript tail",
+        );
+        return;
+      }
 
-    // Fire-and-forget: refreshSummary owns its try/catch/finally and
-    // the pendingSummaryFetches counter. Not awaited so the caller
-    // (transcript-change handler) doesn't block on the network fetch.
-    void refreshSummary();
+      await scanTasksIncremental(transcriptWatching.path);
+
+      const info: ClaudeCodeInfo = {
+        kind: "claude-code",
+        state: derived.state,
+        sessionId: session.sessionId,
+        model: derived.model,
+        summary: lastSummary,
+        taskProgress: deriveTaskProgress(taskMap),
+        contextTokens: derived.contextTokens,
+      };
+
+      if (!agentInfoEqual(info, lastInfo)) {
+        plog.debug(
+          { state: info.state, model: info.model, session: info.sessionId },
+          "claude code state updated",
+        );
+        lastInfo = info;
+        onUpdate(info);
+      }
+
+      // Fire-and-forget: refreshSummary owns its try/catch/finally and
+      // the pendingSummaryFetches counter. Not awaited so the caller
+      // (transcript-change handler) doesn't block on the network fetch.
+      void refreshSummary();
+    } finally {
+      refreshInFlight = false;
+      if (refreshPending && !destroyed) {
+        refreshPending = false;
+        setTimeout(() => void onTranscriptMaybeChanged(), 0);
+      }
+    }
   }
 
   /** Incrementally scan the transcript for TaskCreate/TaskUpdate entries.
@@ -240,34 +281,36 @@ export function createSessionWatcher(
    *  call, the remainder is prepended to the newly-written bytes, then
    *  split; the last (potentially partial) segment becomes the new
    *  remainder. */
-  function scanTasksIncremental(filePath: string) {
+  async function scanTasksIncremental(filePath: string) {
     try {
-      const size = fs.statSync(filePath).size;
+      const size = await fileSizeBytes(filePath, executor, plog);
+      if (size === null) return;
       if (taskScanOffset >= size) return;
-      const fd = fs.openSync(filePath, "r");
       const prevOffset = taskScanOffset;
       let carried = taskScanRemainder;
       let changed = false;
-      try {
-        let offset = taskScanOffset;
-        while (offset < size) {
-          const toRead = Math.min(TASK_SCAN_CHUNK_BYTES, size - offset);
-          const buf = Buffer.alloc(toRead);
-          fs.readSync(fd, buf, 0, toRead, offset);
-          const text = carried + buf.toString("utf8");
-          const lines = text.split("\n");
-          // The last segment is either a complete line followed by a
-          // trailing newline (→ "") or a partial line (→ the fragment).
-          // Either way, carry it forward; never process it this round.
-          carried = lines.pop() ?? "";
-          const complete = lines.filter((l) => l.length > 0);
-          if (complete.length > 0) {
-            if (extractTasks(complete, taskMap, plog)) changed = true;
-          }
-          offset += toRead;
+      let offset = taskScanOffset;
+      while (offset < size) {
+        const toRead = Math.min(TASK_SCAN_CHUNK_BYTES, size - offset);
+        const chunk = await readFileChunk(
+          filePath,
+          offset,
+          toRead,
+          executor,
+          plog,
+        );
+        if (chunk === null) return;
+        const text = carried + chunk;
+        const lines = text.split("\n");
+        // The last segment is either a complete line followed by a
+        // trailing newline (→ "") or a partial line (→ the fragment).
+        // Either way, carry it forward; never process it this round.
+        carried = lines.pop() ?? "";
+        const complete = lines.filter((l) => l.length > 0);
+        if (complete.length > 0) {
+          if (extractTasks(complete, taskMap, plog)) changed = true;
         }
-      } finally {
-        fs.closeSync(fd);
+        offset += toRead;
       }
       taskScanRemainder = carried;
       taskScanOffset = size;
@@ -312,7 +355,7 @@ export function createSessionWatcher(
   }
 
   // --- Start watching ---
-  setupTranscriptWatching();
+  void setupTranscriptWatching();
 
   return {
     session,

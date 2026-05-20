@@ -237,6 +237,9 @@ importers:
 
   packages/integrations/anyagent:
     dependencies:
+      kolu-io:
+        specifier: workspace:*
+        version: link:../io
       kolu-shared:
         specifier: workspace:*
         version: link:../../shared
@@ -268,6 +271,9 @@ importers:
       anyagent:
         specifier: workspace:*
         version: link:../anyagent
+      kolu-io:
+        specifier: workspace:*
+        version: link:../io
       kolu-shared:
         specifier: workspace:*
         version: link:../../shared
@@ -296,6 +302,9 @@ importers:
       anyagent:
         specifier: workspace:*
         version: link:../anyagent
+      kolu-io:
+        specifier: workspace:*
+        version: link:../io
       kolu-shared:
         specifier: workspace:*
         version: link:../../shared
@@ -333,9 +342,6 @@ importers:
       memorable-names:
         specifier: workspace:*
         version: link:../../memorable-names
-      simple-git:
-        specifier: ^3.36.0
-        version: 3.36.0
       zod:
         specifier: ^4.3.6
         version: 4.3.6
@@ -343,6 +349,9 @@ importers:
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
+      simple-git:
+        specifier: ^3.36.0
+        version: 3.36.0
       typescript:
         specifier: ^5.8.0
         version: 5.9.3
@@ -373,6 +382,13 @@ importers:
         version: 4.1.2(@types/node@22.19.15)(vite@6.4.2(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.47.1)(tsx@4.21.0)(yaml@2.8.3))
 
   packages/integrations/io:
+    dependencies:
+      kolu-pty:
+        specifier: workspace:*
+        version: link:../pty
+      kolu-shared:
+        specifier: workspace:*
+        version: link:../../shared
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -389,6 +405,9 @@ importers:
       anyagent:
         specifier: workspace:*
         version: link:../anyagent
+      kolu-io:
+        specifier: workspace:*
+        version: link:../io
       kolu-shared:
         specifier: workspace:*
         version: link:../../shared
@@ -515,6 +534,9 @@ importers:
       kolu-github:
         specifier: workspace:*
         version: link:../integrations/github
+      kolu-io:
+        specifier: workspace:*
+        version: link:../integrations/io
       kolu-opencode:
         specifier: workspace:*
         version: link:../integrations/opencode

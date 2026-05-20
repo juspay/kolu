@@ -37,26 +37,12 @@
 
 import { DatabaseSync } from "node:sqlite";
 import { classifyByAwaiting } from "anyagent";
+import type { Executor } from "kolu-io";
 import type { Logger } from "kolu-shared";
-import { withDb as sharedWithDb } from "kolu-shared/sqlite";
 import { CODEX_DB_PATH } from "./config.ts";
 import type { CodexInfo } from "./schemas.ts";
 
 // --- Database helpers ---
-
-/** Codex-specific `withDb` — partial application of anyagent's shared
- *  helper over our `openDb`. Callers stay unaware that the machinery
- *  lives upstream; they just get the same `(fn, errorMsg, errorCtx,
- *  log?, db?) → T | null` signature they had before. */
-function withDb<T>(
-  fn: (db: DatabaseSync) => T,
-  errorMsg: string,
-  errorCtx: Record<string, unknown>,
-  log?: Logger,
-  db?: DatabaseSync,
-): T | null {
-  return sharedWithDb<DatabaseSync, T>(openDb, fn, errorMsg, errorCtx, log, db);
-}
 
 // --- Database session lookup ---
 
@@ -66,6 +52,8 @@ export interface CodexSession {
   /** Absolute path to the rollout JSONL — copied from the DB row at
    *  match time so the watcher doesn't re-query to locate its file. */
   rolloutPath: string;
+  dbPath: string;
+  walPath: string;
 }
 
 /** Columns our SELECTs depend on. If Codex renames or drops any of
@@ -96,56 +84,136 @@ export function missingThreadColumns(db: DatabaseSync): string[] {
   return REQUIRED_THREAD_COLUMNS.filter((c) => !observed.has(c));
 }
 
+/** Local transcript-export path. Provider/watch runtime uses Executor. */
+export function openDb(log?: Logger): DatabaseSync | null {
+  try {
+    return new DatabaseSync(CODEX_DB_PATH, { readOnly: true });
+  } catch (err) {
+    log?.debug({ err, path: CODEX_DB_PATH }, "codex db unavailable");
+    return null;
+  }
+}
+
 /** One-shot guard: has openDb already logged a schema-mismatch error
  *  for this process? The mismatch can't resolve without a restart
  *  (CODEX_DB_PATH is resolved once at module load), so re-logging on
  *  every openDb call would be noise. */
 let loggedSchemaError = false;
 
-/** Open a read-only connection to Codex's threads database. Returns null
- *  if the DB is absent (ENOENT silently; other errors at `error`) or if
- *  the `threads` table is missing required columns (logged loudly once).
- *  WAL mode is Codex's default, so a read-only connection coexists with
- *  Codex's own writes without blocking either side. Caller MUST close
- *  the returned database when done. */
-export function openDb(log?: Logger): DatabaseSync | null {
-  let db: DatabaseSync;
-  try {
-    db = new DatabaseSync(CODEX_DB_PATH, { readOnly: true });
-  } catch (err) {
-    log?.debug({ err, path: CODEX_DB_PATH }, "codex db unavailable");
-    return null;
+export interface CodexPaths {
+  dir: string;
+  dbPath: string;
+  walPath: string;
+}
+
+export async function resolveCodexPaths(
+  executor: Executor,
+  log?: Logger,
+): Promise<CodexPaths | null> {
+  if (process.env.KOLU_CODEX_DB) {
+    return {
+      dir: process.env.KOLU_CODEX_DIR ?? "",
+      dbPath: process.env.KOLU_CODEX_DB,
+      walPath: `${process.env.KOLU_CODEX_DB}-wal`,
+    };
   }
-  let missing: string[];
+  let dir = process.env.KOLU_CODEX_DIR;
+  if (!dir) {
+    const home = await executor.exec("printenv", ["HOME"], {
+      timeoutMs: 5_000,
+      maxBytes: 4096,
+    });
+    if (home.exitCode !== 0 || !home.stdout.trim()) return null;
+    dir = `${home.stdout.trim()}/.codex`;
+  }
+  let bestVersion = -1;
+  let bestFile: string | null = null;
   try {
-    missing = missingThreadColumns(db);
-  } catch (err) {
-    db.close();
-    if (!loggedSchemaError) {
-      loggedSchemaError = true;
-      log?.error(
-        { err, path: CODEX_DB_PATH },
-        "codex schema introspection failed — Codex detection disabled",
-      );
+    const ls = await executor.exec("ls", ["-1", dir], {
+      timeoutMs: 10_000,
+      maxBytes: 1024 * 1024,
+    });
+    if (ls.exitCode === 0) {
+      for (const name of ls.stdout.split("\n")) {
+        const versionText = /^state_(\d+)\.sqlite$/.exec(name)?.[1];
+        if (!versionText) continue;
+        const version = Number.parseInt(versionText, 10);
+        if (version > bestVersion) {
+          bestVersion = version;
+          bestFile = name;
+        }
+      }
     }
+  } catch (err) {
+    log?.debug({ err, dir }, "codex state db enumeration failed");
+  }
+  const dbPath = `${dir}/${bestFile ?? "state_5.sqlite"}`;
+  return { dir, dbPath, walPath: `${dbPath}-wal` };
+}
+
+async function queryDb(
+  executor: Executor,
+  dbPath: string,
+  sql: string,
+  params: ReadonlyArray<string | number | null>,
+  errorMsg: string,
+  errorCtx: Record<string, unknown>,
+  log?: Logger,
+): Promise<Array<Record<string, unknown>> | null> {
+  if (!executor.queryDb) {
+    log?.error({ dbPath, ...errorCtx }, "executor does not support queryDb");
     return null;
   }
+  try {
+    return await executor.queryDb(dbPath, sql, params);
+  } catch (err) {
+    log?.debug({ err, dbPath, ...errorCtx }, errorMsg);
+    return null;
+  }
+}
+
+function missingThreadColumnsFromRows(
+  rows: Array<Record<string, unknown>>,
+): string[] {
+  const observed = new Set(
+    rows
+      .map((row) => row.name)
+      .filter((name): name is string => typeof name === "string"),
+  );
+  return REQUIRED_THREAD_COLUMNS.filter((c) => !observed.has(c));
+}
+
+async function ensureThreadSchema(
+  executor: Executor,
+  dbPath: string,
+  log?: Logger,
+): Promise<boolean> {
+  const rows = await queryDb(
+    executor,
+    dbPath,
+    "PRAGMA table_info(threads)",
+    [],
+    "codex schema introspection failed — Codex detection disabled",
+    {},
+    log,
+  );
+  if (rows === null) return false;
+  const missing = missingThreadColumnsFromRows(rows);
   if (missing.length > 0) {
-    db.close();
     if (!loggedSchemaError) {
       loggedSchemaError = true;
       log?.error(
         {
-          path: CODEX_DB_PATH,
+          path: dbPath,
           missing,
           required: REQUIRED_THREAD_COLUMNS,
         },
         "codex `threads` table is missing required columns — Codex detection disabled. Upstream may have bumped the schema; set KOLU_CODEX_DB to pin a known-good DB while a fix ships.",
       );
     }
-    return null;
+    return false;
   }
-  return db;
+  return true;
 }
 
 /**
@@ -164,27 +232,37 @@ export function openDb(log?: Logger): DatabaseSync | null {
  * live threads share a cwd. Mirrors OpenCode's `time_updated DESC`
  * heuristic.
  */
-export function findSessionByDirectory(
+export async function findSessionByDirectory(
   directory: string,
+  executor: Executor,
   log?: Logger,
-): CodexSession | null {
-  return withDb(
-    (conn) => {
-      const row = conn
-        .prepare(
-          "SELECT id, rollout_path FROM threads WHERE cwd = ? AND source = 'cli' AND archived = 0 ORDER BY updated_at_ms DESC LIMIT 1",
-        )
-        .get(directory) as { id: string; rollout_path: string } | undefined;
-      if (!row) return null;
-      return {
-        id: row.id,
-        rolloutPath: row.rollout_path,
-      };
-    },
+): Promise<CodexSession | null> {
+  const paths = await resolveCodexPaths(executor, log);
+  if (!paths) return null;
+  if (!(await ensureThreadSchema(executor, paths.dbPath, log))) return null;
+  const rows = await queryDb(
+    executor,
+    paths.dbPath,
+    "SELECT id, rollout_path FROM threads WHERE cwd = ? AND source = 'cli' AND archived = 0 ORDER BY updated_at_ms DESC LIMIT 1",
+    [directory],
     "codex threads query failed",
     { directory },
     log,
   );
+  const row = rows?.[0];
+  if (
+    !row ||
+    typeof row.id !== "string" ||
+    typeof row.rollout_path !== "string"
+  ) {
+    return null;
+  }
+  return {
+    id: row.id,
+    rolloutPath: row.rollout_path,
+    dbPath: paths.dbPath,
+    walPath: paths.walPath,
+  };
 }
 
 // --- Thread row refresh (title + model) ---
@@ -210,29 +288,27 @@ export interface ThreadMetadata {
  * in `info.last_token_usage` inside the rollout JSONL's latest
  * `token_count` event — see `parseRolloutContextTokens`.
  */
-export function getThreadMetadata(
+export async function getThreadMetadata(
   threadId: string,
+  executor: Executor,
+  dbPath: string,
   log?: Logger,
-  db?: DatabaseSync,
-): ThreadMetadata | null {
-  return withDb(
-    (conn) => {
-      const row = conn
-        .prepare("SELECT title, model FROM threads WHERE id = ?")
-        .get(threadId) as
-        | { title: string | null; model: string | null }
-        | undefined;
-      if (!row) return null;
-      return {
-        title: row.title || null,
-        model: row.model || null,
-      };
-    },
+): Promise<ThreadMetadata | null> {
+  const rows = await queryDb(
+    executor,
+    dbPath,
+    "SELECT title, model FROM threads WHERE id = ?",
+    [threadId],
     "codex thread metadata query failed",
     { threadId },
     log,
-    db,
   );
+  const row = rows?.[0];
+  if (!row) return null;
+  return {
+    title: typeof row.title === "string" && row.title ? row.title : null,
+    model: typeof row.model === "string" && row.model ? row.model : null,
+  };
 }
 
 // --- JSONL state derivation ---

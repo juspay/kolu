@@ -15,36 +15,62 @@
  * no missing-directory error (issue #698).
  */
 
-import fs from "node:fs";
 import { type AgentProvider, matchesAgent } from "anyagent";
-import { CODEX_DIR } from "./config.ts";
-import { type CodexSession, findSessionByDirectory } from "./core.ts";
+import {
+  type CodexSession,
+  findSessionByDirectory,
+  resolveCodexPaths,
+} from "./core.ts";
 import type { CodexInfo } from "./schemas.ts";
 import { createCodexWatcher } from "./session-watcher.ts";
-import { subscribeCodexDb } from "./wal-watcher.ts";
 
 export const codexProvider: AgentProvider<CodexSession, CodexInfo> = {
   kind: "codex",
 
-  resolveSession(state, log) {
+  async resolveSession(state, executor, log) {
     if (!matchesAgent(state, "codex")) return null;
-    return findSessionByDirectory(state.cwd, log);
+    return findSessionByDirectory(state.cwd, executor, log);
   },
 
   sessionKey(session) {
     return session.id;
   },
 
-  createWatcher(session, onChange, log) {
-    return createCodexWatcher(session, onChange, log);
+  createWatcher(session, executor, onChange, log) {
+    return createCodexWatcher(session, executor, onChange, log);
   },
 
   externalChanges: {
-    isPresent(state) {
-      return matchesAgent(state, "codex") || fs.existsSync(CODEX_DIR);
+    async isPresent(state, executor) {
+      if (matchesAgent(state, "codex")) return true;
+      const paths = await resolveCodexPaths(executor);
+      if (!paths) return false;
+      try {
+        await executor.statMtimeMs(paths.dir);
+        return true;
+      } catch {
+        return false;
+      }
     },
-    install(onChange, onError, log) {
-      subscribeCodexDb(onChange, onError, log);
+    async install(executor, onChange, onError, log) {
+      const paths = await resolveCodexPaths(executor, log);
+      if (!paths) return { stop: () => {} };
+      try {
+        return await executor.watch(
+          paths.walPath,
+          () => {
+            try {
+              onChange();
+            } catch (err) {
+              onError(err);
+            }
+          },
+          { recursive: false },
+        );
+      } catch (err) {
+        log.debug({ err, path: paths.walPath }, "codex WAL watch failed");
+        return { stop: () => {} };
+      }
     },
   },
 };

@@ -19,17 +19,17 @@ import { createOpenCodeWatcher } from "./session-watcher.ts";
 export const opencodeProvider: AgentProvider<OpenCodeSession, OpenCodeInfo> = {
   kind: "opencode",
 
-  resolveSession(state, log) {
+  async resolveSession(state, executor, log) {
     if (!matchesAgent(state, "opencode")) return null;
-    return findSessionByDirectory(state.cwd, log);
+    return findSessionByDirectory(state.cwd, executor, log);
   },
 
   sessionKey(session) {
     return session.id;
   },
 
-  createWatcher(session, onChange, log) {
-    return createOpenCodeWatcher(session, onChange, log);
+  createWatcher(session, executor, onChange, log) {
+    return createOpenCodeWatcher(session, executor, onChange, log);
   },
 
   // subscribeExternalChanges: intentionally omitted.

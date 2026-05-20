@@ -4,14 +4,11 @@
  *  tracked + untracked-but-not-ignored paths in one shot. This avoids
  *  listing `node_modules/`, `.git/`, build artifacts, etc. */
 
-import { execFile } from "node:child_process";
-import { readFile as fsReadFile, stat as fsStat } from "node:fs/promises";
-import { promisify } from "node:util";
+import { localExecutor, type Executor } from "kolu-io";
 import type { Logger } from "kolu-shared";
 import { err, type GitResult, ok } from "./errors.ts";
+import { gitOutput } from "./executor-utils.ts";
 import { resolveUnder } from "./safe-path.ts";
-
-const execFileAsync = promisify(execFile);
 
 /** Flat list of every repo-relative path (tracked + untracked-but-not-ignored).
  *  One-shot snapshot for Pierre's `@pierre/trees`, which builds the tree
@@ -22,12 +19,14 @@ const execFileAsync = promisify(execFile);
 export async function listAll(
   repoPath: string,
   log?: Logger,
+  executor: Executor = localExecutor,
 ): Promise<GitResult<string[]>> {
   try {
-    const { stdout } = await execFileAsync(
-      "git",
+    const stdout = await gitOutput(
+      executor,
+      repoPath,
       ["ls-files", "--cached", "--others", "--exclude-standard"],
-      { cwd: repoPath, maxBuffer: 64 * 1024 * 1024 },
+      { maxBytes: 64 * 1024 * 1024 },
     );
     const paths = stdout.split("\n").filter((l) => l.length > 0);
     return ok(paths);
@@ -50,22 +49,16 @@ export async function readFile(
   repoPath: string,
   filePath: string,
   log?: Logger,
+  executor: Executor = localExecutor,
 ): Promise<GitResult<{ content: string; truncated: boolean }>> {
   const resolved = resolveUnder(repoPath, filePath, log);
   if (!resolved.ok)
     return resolved as GitResult<{ content: string; truncated: boolean }>;
 
   try {
-    const buf = await fsReadFile(resolved.value.abs);
-    if (buf.length > MAX_READ_BYTES) {
-      // May split a multi-byte UTF-8 sequence at the boundary; Node
-      // replaces the incomplete trailing character with U+FFFD.
-      return ok({
-        content: buf.subarray(0, MAX_READ_BYTES).toString("utf-8"),
-        truncated: true,
-      });
-    }
-    return ok({ content: buf.toString("utf-8"), truncated: false });
+    return ok(
+      await executor.readFile(resolved.value.abs, { maxBytes: MAX_READ_BYTES }),
+    );
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     return err({ code: "GIT_FAILED", message: `Failed to read file: ${msg}` });
@@ -78,12 +71,12 @@ export async function statFileMtimeMs(
   repoPath: string,
   filePath: string,
   log?: Logger,
+  executor: Executor = localExecutor,
 ): Promise<GitResult<number>> {
   const resolved = resolveUnder(repoPath, filePath, log);
   if (!resolved.ok) return resolved as GitResult<number>;
   try {
-    const s = await fsStat(resolved.value.abs);
-    return ok(s.mtimeMs);
+    return ok(await executor.statMtimeMs(resolved.value.abs));
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     return err({ code: "GIT_FAILED", message: `Failed to stat file: ${msg}` });

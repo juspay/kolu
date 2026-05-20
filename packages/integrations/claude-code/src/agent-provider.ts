@@ -21,11 +21,10 @@
  * (issue #698).
  */
 
-import fs from "node:fs";
 import { type AgentProvider, matchesAgent } from "anyagent";
 import {
   readSessionFile,
-  SESSIONS_DIR,
+  resolveClaudeDirs,
   type SessionFile,
   subscribeSessionsDir,
 } from "./core.ts";
@@ -35,25 +34,33 @@ import { createSessionWatcher } from "./session-watcher.ts";
 export const claudeCodeProvider: AgentProvider<SessionFile, ClaudeCodeInfo> = {
   kind: "claude-code",
 
-  resolveSession(state, log) {
+  async resolveSession(state, executor, log) {
     if (state.foregroundPid === undefined) return null;
-    return readSessionFile(state.foregroundPid, log);
+    return readSessionFile(state.foregroundPid, executor, log);
   },
 
   sessionKey(session) {
     return session.sessionId;
   },
 
-  createWatcher(session, onChange, log) {
-    return createSessionWatcher(session, onChange, log);
+  createWatcher(session, executor, onChange, log) {
+    return createSessionWatcher(session, executor, onChange, log);
   },
 
   externalChanges: {
-    isPresent(state) {
-      return matchesAgent(state, "claude") || fs.existsSync(SESSIONS_DIR);
+    async isPresent(state, executor) {
+      if (matchesAgent(state, "claude")) return true;
+      const dirs = await resolveClaudeDirs(executor);
+      if (!dirs) return false;
+      try {
+        await executor.statMtimeMs(dirs.sessionsDir);
+        return true;
+      } catch {
+        return false;
+      }
     },
-    install(onChange, onError, log) {
-      subscribeSessionsDir(onChange, onError, log);
+    install(executor, onChange, onError, log) {
+      return subscribeSessionsDir(executor, onChange, onError, log);
     },
   },
 };

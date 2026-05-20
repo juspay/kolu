@@ -17,6 +17,7 @@ import type {
   AgentTerminalState,
   AgentWatcher,
 } from "anyagent";
+import { localExecutor, type Executor } from "kolu-io";
 import type { Logger } from "kolu-shared";
 import type { AgentInfo } from "kolu-common/surface";
 import { log } from "../log.ts";
@@ -163,7 +164,8 @@ function snapshotTerminalState(
  */
 interface ExternalChangesActivation {
   reconcilers: Set<() => void>;
-  installed: boolean;
+  handle: { stop(): void } | null;
+  installing: boolean;
 }
 const activations = new Map<string, ExternalChangesActivation>();
 
@@ -188,7 +190,7 @@ const COMMAND_RUN_RECONCILE_DELAYS_MS = [0, 75, 300, 1000] as const;
 function getActivation(kind: string): ExternalChangesActivation {
   let entry = activations.get(kind);
   if (!entry) {
-    entry = { reconcilers: new Set(), installed: false };
+    entry = { reconcilers: new Set(), handle: null, installing: false };
     activations.set(kind, entry);
   }
   return entry;
@@ -210,47 +212,76 @@ export function startAgentProvider<Session, Info extends AgentInfoShape>(
   terminalId: string,
 ): () => void {
   const plog = log.child({ provider: provider.kind, terminal: terminalId });
+  const executor: Executor = localExecutor;
 
   let current: { watcher: AgentWatcher; key: string } | null = null;
   let registeredForExternal = false;
+  let externalReconciler: (() => void) | null = null;
   let stopped = false;
   let commandRunTimers: ReturnType<typeof setTimeout>[] = [];
+  let reconcileSeq = 0;
 
   plog.debug("started");
 
-  function reconcile() {
+  async function reconcile(): Promise<void> {
+    if (stopped) return;
+    const seq = ++reconcileSeq;
     const state = snapshotTerminalState(entry, terminalId, plog);
 
     // Lazy external-change registration. On the first reconcile where the
     // agent is foregrounded in *this* terminal, join the provider's
     // fan-out set and — if we're the first across the whole process —
     // install the underlying watcher.
-    if (!registeredForExternal && provider.externalChanges?.isPresent(state)) {
-      const activation = getActivation(provider.kind);
-      activation.reconcilers.add(reconcile);
-      registeredForExternal = true;
-      if (!activation.installed) {
-        activation.installed = true;
-        const slog = log.child({ provider: provider.kind });
-        provider.externalChanges.install(
-          () => {
-            // Snapshot before iteration so a reconcile that registers or
-            // unregisters synchronously can't skip a peer for this event.
-            for (const fn of [...activation.reconcilers]) {
-              try {
-                fn();
-              } catch (err) {
-                slog.error({ err }, "reconcile threw on external change");
-              }
-            }
-          },
-          (err) => slog.error({ err }, "external-change listener threw"),
-          slog,
-        );
+    if (!registeredForExternal && provider.externalChanges) {
+      const isPresent = await provider.externalChanges.isPresent(
+        state,
+        executor,
+      );
+      if (stopped || seq !== reconcileSeq) return;
+      if (isPresent) {
+        const activation = getActivation(provider.kind);
+        externalReconciler = () => {
+          void reconcile().catch((err) =>
+            plog.error({ err }, "external-change reconcile failed"),
+          );
+        };
+        activation.reconcilers.add(externalReconciler);
+        registeredForExternal = true;
+        if (!activation.handle && !activation.installing) {
+          activation.installing = true;
+          const slog = log.child({ provider: provider.kind });
+          void provider.externalChanges
+            .install(
+              executor,
+              () => {
+                // Snapshot before iteration so a reconcile that registers or
+                // unregisters synchronously can't skip a peer for this event.
+                for (const fn of [...activation.reconcilers]) {
+                  try {
+                    fn();
+                  } catch (err) {
+                    slog.error({ err }, "reconcile threw on external change");
+                  }
+                }
+              },
+              (err) => slog.error({ err }, "external-change listener threw"),
+              slog,
+            )
+            .then((handle) => {
+              activation.handle = handle;
+            })
+            .catch((err) => {
+              slog.error({ err }, "external-change watcher install failed");
+            })
+            .finally(() => {
+              activation.installing = false;
+            });
+        }
       }
     }
 
-    const next = provider.resolveSession(state, plog);
+    const next = await provider.resolveSession(state, executor, plog);
+    if (stopped || seq !== reconcileSeq) return;
     const nextKey = next ? provider.sessionKey(next) : null;
     if ((current?.key ?? null) === nextKey) return;
 
@@ -273,6 +304,7 @@ export function startAgentProvider<Session, Info extends AgentInfoShape>(
       key: nextKey,
       watcher: provider.createWatcher(
         next,
+        executor,
         (info) => {
           // Widen Info to AgentInfo — every concrete Info variant is a
           // member of the AgentInfo discriminated union by construction
@@ -308,23 +340,22 @@ export function startAgentProvider<Session, Info extends AgentInfoShape>(
     // and in the event loop's pending queue still runs. This guard
     // makes that runaway no-op.
     if (stopped) return;
-    try {
-      reconcile();
-    } catch (err) {
-      plog.error({ err }, "command-run reconcile failed");
-    }
-    if (current !== null) return;
-    const nextIdx = idx + 1;
-    const next = COMMAND_RUN_RECONCILE_DELAYS_MS[nextIdx];
-    if (next === undefined) return;
-    // `cur` is in range by construction — `scheduleCommandRunReconciles`
-    // enters at `idx=0` and we only recurse from `idx` to `idx+1` after
-    // the in-range check on `next` above, so `idx` is always a valid
-    // index. The non-null assertion narrows for `next - cur`.
-    const cur = COMMAND_RUN_RECONCILE_DELAYS_MS[idx]!;
-    commandRunTimers.push(
-      setTimeout(() => reconcileFromCommandRun(nextIdx), next - cur),
-    );
+    void (async () => {
+      try {
+        await reconcile();
+      } catch (err) {
+        plog.error({ err }, "command-run reconcile failed");
+      }
+      if (stopped || current !== null) return;
+      const nextIdx = idx + 1;
+      const next = COMMAND_RUN_RECONCILE_DELAYS_MS[nextIdx];
+      if (next === undefined) return;
+      const cur = COMMAND_RUN_RECONCILE_DELAYS_MS[idx];
+      if (cur === undefined) return;
+      commandRunTimers.push(
+        setTimeout(() => reconcileFromCommandRun(nextIdx), next - cur),
+      );
+    })();
   }
 
   function scheduleCommandRunReconciles() {
@@ -338,7 +369,10 @@ export function startAgentProvider<Session, Info extends AgentInfoShape>(
   // Title events — fired by OSC 2 preexec hook. Every shell command
   // boundary is a potential foreground-process change.
   const cleanupTitle = terminalChannels.title(terminalId).consume({
-    onEvent: () => reconcile(),
+    onEvent: () =>
+      void reconcile().catch((err) =>
+        plog.error({ err }, "title reconcile failed"),
+      ),
     onError: (err) => plog.error({ err }, "publisher subscription failed"),
   });
 
@@ -350,7 +384,10 @@ export function startAgentProvider<Session, Info extends AgentInfoShape>(
   // the cwd has been published, so the codex provider sees a stale cwd
   // and `findSessionByDirectory` returns null.
   const cleanupCwd = terminalChannels.cwd(terminalId).consume({
-    onEvent: () => reconcile(),
+    onEvent: () =>
+      void reconcile().catch((err) =>
+        plog.error({ err }, "cwd reconcile failed"),
+      ),
     onError: (err) => plog.error({ err }, "publisher subscription failed"),
   });
 
@@ -368,7 +405,9 @@ export function startAgentProvider<Session, Info extends AgentInfoShape>(
   });
 
   // Initial reconcile — covers terminals that already host a session.
-  reconcile();
+  void reconcile().catch((err) =>
+    plog.error({ err }, "initial reconcile failed"),
+  );
 
   return () => {
     stopped = true;
@@ -376,8 +415,13 @@ export function startAgentProvider<Session, Info extends AgentInfoShape>(
     cleanupTitle();
     cleanupCwd();
     cleanupCommandRun();
-    if (registeredForExternal) {
-      activations.get(provider.kind)?.reconcilers.delete(reconcile);
+    if (registeredForExternal && externalReconciler) {
+      const activation = activations.get(provider.kind);
+      activation?.reconcilers.delete(externalReconciler);
+      if (activation && activation.reconcilers.size === 0) {
+        activation.handle?.stop();
+        activations.delete(provider.kind);
+      }
     }
     current?.watcher.destroy();
     plog.debug("stopped");

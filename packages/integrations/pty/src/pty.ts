@@ -67,30 +67,32 @@ export interface PtyHandle {
   dispose(): void;
 }
 
+export interface SpawnPtyOpts {
+  /** Directory where per-terminal rc files (bashrc, ZDOTDIR) are written.
+   *  Caller owns the lifetime — kolu-pty just writes into it. */
+  rcDir: string;
+  /** Version string emitted as `TERM_PROGRAM_VERSION` to the spawned shell. */
+  termProgramVersion: string;
+  /** Scrollback buffer size in lines for the server-side headless terminal.
+   *  Must match the client's visible scrollback so `getScreenState()` on
+   *  late join carries the lines the client expects. */
+  scrollback: number;
+  onData: (data: string) => void;
+  onExit: (exitCode: number) => void;
+  onCwd?: (cwd: string) => void;
+  /** Fired on OSC 0/2 title change — signals foreground process may have changed. */
+  onTitleChange?: (title: string) => void;
+  /** Fired when the preexec hook emits `OSC 633 ; E ; <cmd>` — the raw
+   *  command line the user typed, before execution. Used to build the
+   *  global recent-agents MRU. */
+  onCommandRun?: (command: string) => void;
+}
+
 /** Spawn a shell in a PTY, calling back on data, exit, CWD, and title changes. */
 export function spawnPty(
   tlog: Logger,
   terminalId: string,
-  opts: {
-    /** Directory where per-terminal rc files (bashrc, ZDOTDIR) are written.
-     *  Caller owns the lifetime — kolu-pty just writes into it. */
-    rcDir: string;
-    /** Version string emitted as `TERM_PROGRAM_VERSION` to the spawned shell. */
-    termProgramVersion: string;
-    /** Scrollback buffer size in lines for the server-side headless terminal.
-     *  Must match the client's visible scrollback so `getScreenState()` on
-     *  late join carries the lines the client expects. */
-    scrollback: number;
-    onData: (data: string) => void;
-    onExit: (exitCode: number) => void;
-    onCwd?: (cwd: string) => void;
-    /** Fired on OSC 0/2 title change — signals foreground process may have changed. */
-    onTitleChange?: (title: string) => void;
-    /** Fired when the preexec hook emits `OSC 633 ; E ; <cmd>` — the raw
-     *  command line the user typed, before execution. Used to build the
-     *  global recent-agents MRU. */
-    onCommandRun?: (command: string) => void;
-  },
+  opts: SpawnPtyOpts,
   spawnCwd?: string,
 ): PtyHandle {
   // Env layering, ordered from least to most authoritative:

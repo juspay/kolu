@@ -26,6 +26,7 @@
 
 import { DatabaseSync } from "node:sqlite";
 import { classifyByAwaiting } from "anyagent";
+import type { Executor } from "kolu-io";
 import type { Logger } from "kolu-shared";
 import { withDb as sharedWithDb } from "kolu-shared/sqlite";
 import { match } from "ts-pattern";
@@ -53,6 +54,52 @@ export interface OpenCodeSession {
   id: string;
   title: string | null;
   directory: string;
+  dbPath: string;
+  walPath: string;
+}
+
+export interface OpenCodePaths {
+  dbPath: string;
+  walPath: string;
+}
+
+export async function resolveOpenCodePaths(
+  executor: Executor,
+): Promise<OpenCodePaths | null> {
+  if (process.env.KOLU_OPENCODE_DB) {
+    return {
+      dbPath: process.env.KOLU_OPENCODE_DB,
+      walPath: `${process.env.KOLU_OPENCODE_DB}-wal`,
+    };
+  }
+  const home = await executor.exec("printenv", ["HOME"], {
+    timeoutMs: 5_000,
+    maxBytes: 4096,
+  });
+  if (home.exitCode !== 0 || !home.stdout.trim()) return null;
+  const dbPath = `${home.stdout.trim()}/.local/share/opencode/opencode.db`;
+  return { dbPath, walPath: `${dbPath}-wal` };
+}
+
+async function queryDb(
+  executor: Executor,
+  dbPath: string,
+  sql: string,
+  params: ReadonlyArray<string | number | null>,
+  errorMsg: string,
+  errorCtx: Record<string, unknown>,
+  log?: Logger,
+): Promise<Array<Record<string, unknown>> | null> {
+  if (!executor.queryDb) {
+    log?.error({ dbPath, ...errorCtx }, "executor does not support queryDb");
+    return null;
+  }
+  try {
+    return await executor.queryDb(dbPath, sql, params);
+  } catch (err) {
+    log?.debug({ err, dbPath, ...errorCtx }, errorMsg);
+    return null;
+  }
 }
 
 /** Open a read-only connection to OpenCode's database. Returns null if absent.
@@ -74,30 +121,33 @@ export function openDb(log?: Logger): DatabaseSync | null {
  * the user most recently interacted with. If multiple sessions share a
  * directory, this picks the active one in practice.
  */
-export function findSessionByDirectory(
+export async function findSessionByDirectory(
   directory: string,
+  executor: Executor,
   log?: Logger,
-): OpenCodeSession | null {
-  return withDb(
-    (conn) => {
-      const row = conn
-        .prepare(
-          "SELECT id, title, directory FROM session WHERE directory = ? AND time_archived IS NULL ORDER BY time_updated DESC LIMIT 1",
-        )
-        .get(directory) as
-        | { id: string; title: string; directory: string }
-        | undefined;
-      if (!row) return null;
-      return {
-        id: row.id,
-        title: row.title || null,
-        directory: row.directory,
-      };
-    },
+): Promise<OpenCodeSession | null> {
+  const paths = await resolveOpenCodePaths(executor);
+  if (!paths) return null;
+  const rows = await queryDb(
+    executor,
+    paths.dbPath,
+    "SELECT id, title, directory FROM session WHERE directory = ? AND time_archived IS NULL ORDER BY time_updated DESC LIMIT 1",
+    [directory],
     "opencode session query failed",
     { directory },
     log,
   );
+  const row = rows?.[0];
+  if (!row || typeof row.id !== "string" || typeof row.directory !== "string") {
+    return null;
+  }
+  return {
+    id: row.id,
+    title: typeof row.title === "string" && row.title ? row.title : null,
+    directory: row.directory,
+    dbPath: paths.dbPath,
+    walPath: paths.walPath,
+  };
 }
 
 // --- Session title refresh ---
@@ -215,7 +265,7 @@ export function getLatestAssistantContextTokens(
  *  (`ctx.ask` permission prompts inside `shell`/`edit`/`write`/etc.)
  *  don't surface a distinct `tool` value — the part stays `shell`/etc.
  *  and is indistinguishable from a real-work tool. */
-const AWAITING_USER_TOOLS = ["question", "plan_exit"] as const;
+export const AWAITING_USER_TOOLS = ["question", "plan_exit"] as const;
 
 /** Classify the tool parts currently in the "running" state for one
  *  message (the current assistant turn) — scoped per-message rather

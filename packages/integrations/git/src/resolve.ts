@@ -5,23 +5,27 @@
  * provider calls these functions and bridges results into its event system.
  */
 
-import fs from "node:fs";
 import path from "node:path";
+import { localExecutor, type Executor } from "kolu-io";
 import type { Logger } from "kolu-shared";
-import { simpleGit } from "simple-git";
 import { watchCwdForGitDir } from "./cwd-git-watcher.ts";
 import { err, type GitResult, ok } from "./errors.ts";
+import {
+  gitOutput,
+  pathExists,
+  realpath,
+  resolveMainRepoRoot,
+} from "./executor-utils.ts";
+import { resolveGitDir } from "./git-dir.ts";
 import { watchGitHead } from "./head-watcher.ts";
 import type { GitInfo } from "./schemas.ts";
 
 /** Fast check: does a .git entry exist in this directory? (stat, not a git subprocess) */
-export function hasGitDir(cwd: string): boolean {
-  try {
-    fs.accessSync(path.join(cwd, ".git"));
-    return true;
-  } catch {
-    return false;
-  }
+export async function hasGitDir(
+  cwd: string,
+  executor: Executor = localExecutor,
+): Promise<boolean> {
+  return pathExists(executor, path.join(cwd, ".git"));
 }
 
 /** Resolve git context for a directory. Returns an error result if not in a
@@ -29,15 +33,17 @@ export function hasGitDir(cwd: string): boolean {
 export async function resolveGitInfo(
   cwd: string,
   log?: Logger,
+  executor: Executor = localExecutor,
 ): Promise<GitResult<GitInfo>> {
   try {
-    const git = simpleGit(cwd);
     // Bare repos (core.bare=true) have no work tree, so `--show-toplevel`
     // throws on them. Detect up front and return a GitInfo rooted at the
     // bare repo's own location — the palette consumer treats the result as
     // "a repo you can spawn a worktree from," which is exactly right.
     const isBare =
-      (await git.raw(["rev-parse", "--is-bare-repository"])).trim() === "true";
+      (
+        await gitOutput(executor, cwd, ["rev-parse", "--is-bare-repository"])
+      ).trim() === "true";
     if (isBare) {
       // Derive the repo location from `--git-dir`, not cwd. For a canonical
       // bare repo (`/tmp/foo` bare, cwd == bare dir) the two coincide. For
@@ -45,8 +51,12 @@ export async function resolveGitInfo(
       // (`/home/user/proj/.git` with sibling `proj/.worktrees/`), cwd can be
       // anywhere around `.git` — falling back to `basename(cwd)` would
       // report the wrong name (e.g. `.worktrees`).
-      const gitDirAbs = fs.realpathSync(
-        path.resolve(cwd, (await git.raw(["rev-parse", "--git-dir"])).trim()),
+      const gitDirAbs = await realpath(
+        executor,
+        path.resolve(
+          cwd,
+          (await gitOutput(executor, cwd, ["rev-parse", "--git-dir"])).trim(),
+        ),
       );
       const gitDirBase = path.basename(gitDirAbs);
       // Three shapes:
@@ -60,10 +70,14 @@ export async function resolveGitInfo(
         : gitDirBase.replace(/\.git$/, "");
       let branch: string;
       try {
-        branch = (await git.raw(["symbolic-ref", "--short", "HEAD"])).trim();
+        branch = (
+          await gitOutput(executor, cwd, ["symbolic-ref", "--short", "HEAD"])
+        ).trim();
       } catch {
         // Detached HEAD in a bare repo (unusual but possible).
-        branch = (await git.revparse(["--abbrev-ref", "HEAD"])).trim();
+        branch = (
+          await gitOutput(executor, cwd, ["rev-parse", "--abbrev-ref", "HEAD"])
+        ).trim();
       }
       return ok({
         repoRoot,
@@ -74,22 +88,25 @@ export async function resolveGitInfo(
         mainRepoRoot: repoRoot,
       });
     }
-    const repoRoot = (await git.revparse(["--show-toplevel"])).trim();
+    const repoRoot = (
+      await gitOutput(executor, cwd, ["rev-parse", "--show-toplevel"])
+    ).trim();
     let branch: string;
     try {
-      branch = (await git.raw(["symbolic-ref", "--short", "HEAD"])).trim();
+      branch = (
+        await gitOutput(executor, cwd, ["symbolic-ref", "--short", "HEAD"])
+      ).trim();
     } catch {
-      branch = (await git.revparse(["--abbrev-ref", "HEAD"])).trim();
+      branch = (
+        await gitOutput(executor, cwd, ["rev-parse", "--abbrev-ref", "HEAD"])
+      ).trim();
     }
     // --git-common-dir returns the shared .git dir; for worktrees it points
     // back to the main repo's .git, letting us derive the real repo name.
     // The path is relative to cwd (where simple-git runs), not repoRoot.
     // realpathSync normalizes symlinks (e.g. /tmp → /private/tmp on macOS)
     // so the comparison with repoRoot (which git already resolved) is reliable.
-    const gitCommonDir = (await git.revparse(["--git-common-dir"])).trim();
-    const mainRepoRoot = path.dirname(
-      fs.realpathSync(path.resolve(cwd, gitCommonDir)),
-    );
+    const mainRepoRoot = await resolveMainRepoRoot(executor, cwd);
     const isWorktree = mainRepoRoot !== repoRoot;
     return ok({
       repoRoot,
@@ -124,6 +141,10 @@ export function gitInfoEqual(a: GitInfo | null, b: GitInfo | null): boolean {
   );
 }
 
+function hasLocalGitDir(cwd: string): boolean {
+  return resolveGitDir(cwd) !== null;
+}
+
 /**
  * Subscribe to the GitInfo stream for a cwd. Owns the full resolve + watch
  * + re-resolve loop: initial resolve, dedup via `gitInfoEqual`, and the
@@ -142,13 +163,14 @@ export function gitInfoEqual(a: GitInfo | null, b: GitInfo | null): boolean {
  * tears down whichever watcher is active; `setCwd(next)` swaps the watched
  * directory.
  */
-type WatcherMode = "head" | "cwd";
+type WatcherMode = "head" | "cwd" | "executor";
 type WatcherSlot = { mode: WatcherMode; stop: () => void };
 
 export function subscribeGitInfo(
   initialCwd: string,
   onChange: (info: GitInfo | null) => void,
   log?: Logger,
+  executor: Executor = localExecutor,
 ): { setCwd(next: string): void; stop(): void } {
   let currentCwd = initialCwd;
   let currentInfo: GitInfo | null = null;
@@ -165,6 +187,23 @@ export function subscribeGitInfo(
   }
 
   function install(mode: WatcherMode): () => void {
+    if (mode === "executor") {
+      let handle: { stop(): void } | null = null;
+      let cancelled = false;
+      void executor
+        .watch(currentCwd, handleWatcherEvent, { recursive: true })
+        .then((h) => {
+          if (cancelled) h.stop();
+          else handle = h;
+        })
+        .catch((err) =>
+          log?.warn({ err, cwd: currentCwd }, "git: executor watch failed"),
+        );
+      return () => {
+        cancelled = true;
+        handle?.stop();
+      };
+    }
     return mode === "head"
       ? watchGitHead(currentCwd, handleWatcherEvent, log)
       : watchCwdForGitDir(currentCwd, handleWatcherEvent, log);
@@ -183,7 +222,7 @@ export function subscribeGitInfo(
 
   async function resolve(): Promise<void> {
     const cwdAtStart = currentCwd;
-    const result = await resolveGitInfo(cwdAtStart, log);
+    const result = await resolveGitInfo(cwdAtStart, log, executor);
     // Discard the result if the subscription was stopped during the await:
     // `ensureMode` would otherwise install a fresh watcher with no path to
     // retire it, and `onChange` would fire past the caller's stop barrier.
@@ -200,7 +239,13 @@ export function subscribeGitInfo(
         "git resolution failed",
       );
     }
-    ensureMode(next !== null ? "head" : "cwd");
+    ensureMode(
+      executor === localExecutor
+        ? next !== null
+          ? "head"
+          : "cwd"
+        : "executor",
+    );
     if (gitInfoEqual(next, currentInfo)) return;
     currentInfo = next;
     onChange(next);
@@ -208,7 +253,13 @@ export function subscribeGitInfo(
 
   // Install synchronously so fs events during the first `resolve()` await
   // aren't dropped on the floor.
-  ensureMode(hasGitDir(currentCwd) ? "head" : "cwd");
+  ensureMode(
+    executor === localExecutor
+      ? hasLocalGitDir(currentCwd)
+        ? "head"
+        : "cwd"
+      : "executor",
+  );
   void resolve();
 
   return {
@@ -219,12 +270,23 @@ export function subscribeGitInfo(
         // belt-and-braces re-resolve for platforms or filesystems where the
         // watcher might miss the event (e.g. polling fallback under a
         // bind-mounted container fs).
-        if (currentInfo === null && hasGitDir(next)) void resolve();
+        if (
+          currentInfo === null &&
+          (executor !== localExecutor || hasLocalGitDir(next))
+        ) {
+          void resolve();
+        }
         return;
       }
       currentCwd = next;
       tearDownWatchers();
-      ensureMode(hasGitDir(next) ? "head" : "cwd");
+      ensureMode(
+        executor === localExecutor
+          ? hasLocalGitDir(next)
+            ? "head"
+            : "cwd"
+          : "executor",
+      );
       void resolve();
     },
     stop(): void {

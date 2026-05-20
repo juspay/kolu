@@ -1,64 +1,66 @@
 /**
- * OpenCodeWatcher — encapsulates all per-session lifecycle state.
- *
- * Wraps `kolu-shared`'s generic `createDebounceWatcher` with opencode's
- * SQLite refresh logic. The factory owns the destroy flag, debounce
- * timer, DB lifetime, equality-gated dispatch, and lifecycle logs;
- * this file only owns the per-event `refresh` body.
- *
- * The server's opencode provider creates one of these per matched
- * session and replaces it on session change.
+ * OpenCodeWatcher — per-session lifecycle over the supplied executor.
  */
 
-import type { DatabaseSync } from "node:sqlite";
-import { agentInfoEqual } from "anyagent";
+import { agentInfoEqual, classifyByAwaiting } from "anyagent";
+import type { Executor } from "kolu-io";
 import type { Logger } from "kolu-shared";
-import { createDebounceWatcher } from "kolu-shared/sqlite";
 import {
-  deriveSessionState,
-  getLatestAssistantContextTokens,
-  getSessionTaskProgress,
-  getSessionTitle,
+  AWAITING_USER_TOOLS,
   type OpenCodeSession,
-  openDb,
-  runningToolsBucket,
+  parseMessageState,
 } from "./core.ts";
-import type { OpenCodeInfo } from "./schemas.ts";
-import { subscribeOpenCodeDb } from "./wal-watcher.ts";
+import type { OpenCodeInfo, TaskProgress } from "./schemas.ts";
 
-// --- Tuning constants ---
-
-/** Trailing-edge debounce for WAL fs.watch callbacks. OpenCode streams
- *  parts during generation, and Linux fs.watch fires multiple events per
- *  write — without debouncing, `refresh` runs dozens of times per second
- *  during active use, each call running two SQL queries. 150 ms coalesces
- *  bursts into one handler run while keeping user-perceptible lag
- *  imperceptible. Matches TRANSCRIPT_DEBOUNCE_MS in kolu-claude-code. */
 const WAL_DEBOUNCE_MS = 150;
-
-// --- Watcher ---
 
 export interface OpenCodeWatcher {
   readonly session: OpenCodeSession;
   destroy(): void;
 }
 
-/**
- * Start watching an OpenCode session. Reads the latest message immediately
- * and emits an initial state, then re-reads on every WAL file change
- * (debounced) and emits a new state if it differs from the last one.
- *
- * `onChange` is called with the full OpenCodeInfo each time state changes.
- * The caller is responsible for forwarding it to the metadata system.
- */
 export function createOpenCodeWatcher(
   session: OpenCodeSession,
+  executor: Executor,
   onChange: (info: OpenCodeInfo) => void,
   log?: Logger,
 ): OpenCodeWatcher {
-  function refresh(db: DatabaseSync): OpenCodeInfo | null {
-    const derived = deriveSessionState(session.id, log, db);
-    if (!derived) {
+  let lastInfo: OpenCodeInfo | null = null;
+  let stopped = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let watchHandle: { stop(): void } | null = null;
+  let refreshInFlight = false;
+  let refreshPending = false;
+
+  async function refresh(): Promise<void> {
+    if (stopped) return;
+    if (refreshInFlight) {
+      refreshPending = true;
+      return;
+    }
+    refreshInFlight = true;
+    try {
+      const info = await readInfo();
+      if (stopped || info === null) return;
+      if (agentInfoEqual(info, lastInfo)) return;
+      log?.debug(
+        { state: info.state, model: info.model, session: info.sessionId },
+        "opencode state updated",
+      );
+      lastInfo = info;
+      onChange(info);
+    } finally {
+      refreshInFlight = false;
+      if (refreshPending && !stopped) {
+        refreshPending = false;
+        setTimeout(() => void refresh(), 0);
+      }
+    }
+  }
+
+  async function readInfo(): Promise<OpenCodeInfo | null> {
+    const latest = await latestMessage(session, executor, log);
+    if (!latest) {
       log?.debug(
         { session: session.id },
         "no messages yet for opencode session",
@@ -66,27 +68,21 @@ export function createOpenCodeWatcher(
       return null;
     }
 
-    // When the assistant is actively generating (state === "thinking"),
-    // classify the current message's running tool parts to distinguish
-    // tool execution from LLM generation — and within tool execution,
-    // separate "blocked on user question" from real compute. Scoped to
-    // derived.messageId (the latest message) — not the entire session —
-    // so we only scan the handful of current-turn parts.
+    const derived = parseMessageState(latest.data);
+    if (!derived) return null;
     const state =
       derived.state === "thinking"
-        ? (runningToolsBucket(derived.messageId, log, db) ?? derived.state)
+        ? ((await runningToolsBucket(latest.id, session, executor, log)) ??
+          derived.state)
         : derived.state;
-
-    const taskProgress = getSessionTaskProgress(session.id, log, db);
-    // Re-read title on each refresh so mid-conversation title changes
-    // (e.g. OpenCode auto-generating a title after the first exchange)
-    // are picked up live, not stuck at the snapshot from session match.
-    const summary = getSessionTitle(session.id, log, db) ?? session.title;
-    // Context-token total comes from its own query — the latest assistant
-    // message's tokens.total, which survives a newer user prompt (Thinking
-    // state). Using derived.state's single-message lens would blank the
-    // count whenever the user is typing.
-    const contextTokens = getLatestAssistantContextTokens(session.id, log, db);
+    const taskProgress = await getSessionTaskProgress(session, executor, log);
+    const summary =
+      (await getSessionTitle(session, executor, log)) ?? session.title;
+    const contextTokens = await getLatestAssistantContextTokens(
+      session,
+      executor,
+      log,
+    );
 
     return {
       kind: "opencode",
@@ -99,31 +95,160 @@ export function createOpenCodeWatcher(
     };
   }
 
-  function logAndDispatch(info: OpenCodeInfo): void {
-    log?.debug(
-      { state: info.state, model: info.model, session: info.sessionId },
-      "opencode state updated",
-    );
-    onChange(info);
+  function scheduleRefresh(): void {
+    if (stopped) return;
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = undefined;
+      void refresh();
+    }, WAL_DEBOUNCE_MS);
   }
 
-  // Hoist the DB connection across the watcher's lifetime so we don't
-  // open/close on every WAL event. Safe in WAL mode: an open connection
-  // holds no locks until you start a transaction, and our queries are
-  // autocommit. See README's OpenCode Status section for the full
-  // locking analysis.
-  const db = openDb(log);
+  void executor
+    .watch(session.walPath, scheduleRefresh, { recursive: false })
+    .then((handle) => {
+      if (stopped) handle.stop();
+      else watchHandle = handle;
+    })
+    .catch((err) =>
+      log?.debug({ err, path: session.walPath }, "opencode WAL watch failed"),
+    );
+  void refresh();
 
-  return createDebounceWatcher({
+  return {
     session,
-    label: "opencode: session",
-    debounceMs: WAL_DEBOUNCE_MS,
-    db,
-    subscribe: subscribeOpenCodeDb,
-    refresh,
-    isEqual: agentInfoEqual,
-    onChange: logAndDispatch,
-    logCtx: { session: session.id },
+    destroy(): void {
+      stopped = true;
+      if (timer) clearTimeout(timer);
+      watchHandle?.stop();
+      watchHandle = null;
+    },
+  };
+}
+
+async function queryRows(
+  session: OpenCodeSession,
+  executor: Executor,
+  sql: string,
+  params: ReadonlyArray<string | number | null>,
+  label: string,
+  log?: Logger,
+): Promise<Array<Record<string, unknown>> | null> {
+  if (!executor.queryDb) {
+    log?.error({ dbPath: session.dbPath }, "executor does not support queryDb");
+    return null;
+  }
+  try {
+    return await executor.queryDb(session.dbPath, sql, params);
+  } catch (err) {
+    log?.debug({ err, session: session.id }, label);
+    return null;
+  }
+}
+
+async function latestMessage(
+  session: OpenCodeSession,
+  executor: Executor,
+  log?: Logger,
+): Promise<{ id: string; data: string } | null> {
+  const rows = await queryRows(
+    session,
+    executor,
+    "SELECT id, data FROM message WHERE session_id = ? ORDER BY time_created DESC LIMIT 1",
+    [session.id],
+    "opencode message query failed",
     log,
-  });
+  );
+  const row = rows?.[0];
+  return row && typeof row.id === "string" && typeof row.data === "string"
+    ? { id: row.id, data: row.data }
+    : null;
+}
+
+async function runningToolsBucket(
+  messageId: string,
+  session: OpenCodeSession,
+  executor: Executor,
+  log?: Logger,
+): Promise<"tool_use" | "awaiting_user" | null> {
+  const placeholders = AWAITING_USER_TOOLS.map(() => "?").join(", ");
+  const rows = await queryRows(
+    session,
+    executor,
+    `SELECT COUNT(*) AS total, SUM(CASE WHEN json_extract(data, '$.tool') IN (${placeholders}) THEN 1 ELSE 0 END) AS awaiting FROM part WHERE message_id = ? AND json_extract(data, '$.type') = 'tool' AND json_extract(data, '$.state.status') = 'running'`,
+    [...AWAITING_USER_TOOLS, messageId],
+    "opencode running-tools query failed",
+    log,
+  );
+  const row = rows?.[0];
+  const total = typeof row?.total === "number" ? row.total : 0;
+  if (total === 0) return null;
+  const awaiting = typeof row?.awaiting === "number" ? row.awaiting : 0;
+  return classifyByAwaiting(awaiting, total);
+}
+
+async function getSessionTaskProgress(
+  session: OpenCodeSession,
+  executor: Executor,
+  log?: Logger,
+): Promise<TaskProgress | null> {
+  const rows = await queryRows(
+    session,
+    executor,
+    "SELECT COUNT(*) AS total, SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS completed FROM todo WHERE session_id = ?",
+    [session.id],
+    "opencode todo query failed",
+    log,
+  );
+  const row = rows?.[0];
+  const total = typeof row?.total === "number" ? row.total : 0;
+  if (total === 0) return null;
+  return {
+    total,
+    completed: typeof row?.completed === "number" ? row.completed : 0,
+  };
+}
+
+async function getSessionTitle(
+  session: OpenCodeSession,
+  executor: Executor,
+  log?: Logger,
+): Promise<string | null> {
+  const rows = await queryRows(
+    session,
+    executor,
+    "SELECT title FROM session WHERE id = ?",
+    [session.id],
+    "opencode session title query failed",
+    log,
+  );
+  const title = rows?.[0]?.title;
+  return typeof title === "string" && title ? title : null;
+}
+
+async function getLatestAssistantContextTokens(
+  session: OpenCodeSession,
+  executor: Executor,
+  log?: Logger,
+): Promise<number | null> {
+  const rows = await queryRows(
+    session,
+    executor,
+    "SELECT data FROM message WHERE session_id = ? AND json_extract(data, '$.role') = 'assistant' ORDER BY time_created DESC LIMIT 1",
+    [session.id],
+    "opencode context-tokens query failed",
+    log,
+  );
+  const data = rows?.[0]?.data;
+  if (typeof data !== "string") return null;
+  try {
+    const parsed = JSON.parse(data) as { tokens?: { total?: number } };
+    return parsed.tokens?.total ?? null;
+  } catch (err) {
+    log?.error(
+      { err, sessionId: session.id },
+      "opencode assistant message.data parse failed",
+    );
+    return null;
+  }
 }

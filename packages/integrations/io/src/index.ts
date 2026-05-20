@@ -1,8 +1,16 @@
 /** kolu-io — filesystem and I/O primitives for Kolu.
  *
- *  Standalone integration package with no `kolu-*` dependencies — only
- *  third-party packages and the Node stdlib. Consumers across the workspace
- *  can adopt these primitives without taking a feature-package dependency. */
+ *  Consumers across the workspace can adopt these primitives without taking
+ *  feature-package dependencies. */
+
+export {
+  type ExecResult,
+  type Executor,
+  localExecutor,
+  type WatchHandle,
+} from "./executor.ts";
+
+export type { Host } from "./host.ts";
 
 export {
   createDirFilenameWatcher,
