@@ -5,19 +5,10 @@
  *  router dispatches on `agentKind`; each branch calls a `Fetcher` and
  *  gets a `Transcript | null` back. */
 
+import type { Logger } from "kolu-shared";
 import type { Transcript, TranscriptPr } from "./schemas.ts";
 
-/** Logger interface accepted by integration library functions.
- *  Structurally compatible with pino child loggers — the server creates
- *  a `log.child(...)` and passes it through. Re-declared here (instead
- *  of imported from `anyagent`) so transcript-core has zero deps on
- *  integration-side packages. */
-export type Logger = {
-  debug: (obj: Record<string, unknown>, msg: string) => void;
-  info: (obj: Record<string, unknown>, msg: string) => void;
-  warn: (obj: Record<string, unknown>, msg: string) => void;
-  error: (obj: Record<string, unknown>, msg: string) => void;
-};
+export type { Logger };
 
 /** Common shape every loader takes. Vendors that don't carry a value for
  *  a field receive `null`; the loader decides what to do (e.g. claude-code

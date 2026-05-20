@@ -709,6 +709,9 @@ importers:
 
   packages/transcript-core:
     dependencies:
+      kolu-shared:
+        specifier: workspace:*
+        version: link:../shared
       zod:
         specifier: ^4.3.6
         version: 4.3.6
