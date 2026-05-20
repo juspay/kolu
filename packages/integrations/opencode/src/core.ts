@@ -98,6 +98,60 @@ async function queryDb(
   }
 }
 
+const FIND_SESSION_SQL =
+  "SELECT id, title, directory FROM session WHERE directory = ? AND time_archived IS NULL ORDER BY time_updated DESC LIMIT 1";
+const SESSION_TITLE_SQL = "SELECT title FROM session WHERE id = ?";
+const TODO_PROGRESS_SQL =
+  "SELECT COUNT(*) AS total, SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS completed FROM todo WHERE session_id = ?";
+const LATEST_ASSISTANT_MESSAGE_SQL =
+  "SELECT data FROM message WHERE session_id = ? AND json_extract(data, '$.role') = 'assistant' ORDER BY time_created DESC LIMIT 1";
+const LATEST_MESSAGE_SQL =
+  "SELECT id, data FROM message WHERE session_id = ? ORDER BY time_created DESC LIMIT 1";
+
+function titleFromRow(row: Record<string, unknown> | undefined): string | null {
+  return typeof row?.title === "string" && row.title ? row.title : null;
+}
+
+function taskProgressFromRow(
+  row: Record<string, unknown> | undefined,
+): TaskProgress | null {
+  const total = typeof row?.total === "number" ? row.total : 0;
+  if (total === 0) return null;
+  return {
+    total,
+    completed: typeof row?.completed === "number" ? row.completed : 0,
+  };
+}
+
+function contextTokensFromData(
+  data: string,
+  sessionId: string,
+  log?: Logger,
+): number | null {
+  try {
+    const parsed = JSON.parse(data) as MessageData;
+    return parsed.tokens?.total ?? null;
+  } catch (err) {
+    // OpenCode writes this JSON itself, so a parse failure is a real
+    // anomaly — surface it rather than silently blanking the badge.
+    log?.error(
+      { err, sessionId },
+      "opencode assistant message.data parse failed",
+    );
+    return null;
+  }
+}
+
+function deriveStateFromRow(
+  row: Record<string, unknown> | undefined,
+): DerivedState | null {
+  if (!row || typeof row.id !== "string" || typeof row.data !== "string") {
+    return null;
+  }
+  const parsed = parseMessageState(row.data);
+  return parsed ? { ...parsed, messageId: row.id } : null;
+}
+
 /** Open a read-only connection to OpenCode's database. Returns null if absent.
  *  Caller MUST close the returned database when done. */
 export function openDb(log?: Logger): DatabaseSync | null {
@@ -127,7 +181,7 @@ export async function findSessionByDirectory(
   const rows = await queryDb(
     executor,
     paths.dbPath,
-    "SELECT id, title, directory FROM session WHERE directory = ? AND time_archived IS NULL ORDER BY time_updated DESC LIMIT 1",
+    FIND_SESSION_SQL,
     [directory],
     "opencode session query failed",
     { directory },
@@ -139,7 +193,7 @@ export async function findSessionByDirectory(
   }
   return {
     id: row.id,
-    title: typeof row.title === "string" && row.title ? row.title : null,
+    title: titleFromRow(row),
     directory: row.directory,
     dbPath: paths.dbPath,
     walPath: paths.walPath,
@@ -156,10 +210,10 @@ export function getSessionTitle(
 ): string | null {
   return withDb(
     (conn) => {
-      const row = conn
-        .prepare("SELECT title FROM session WHERE id = ?")
-        .get(sessionId) as { title: string } | undefined;
-      return row?.title || null;
+      const row = conn.prepare(SESSION_TITLE_SQL).get(sessionId) as
+        | { title: string }
+        | undefined;
+      return titleFromRow(row);
     },
     "opencode session title query failed",
     { sessionId },
@@ -185,15 +239,10 @@ export function getSessionTaskProgress(
 ): TaskProgress | null {
   return withDb(
     (conn) => {
-      const row = conn
-        .prepare(
-          "SELECT COUNT(*) AS total, SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS completed FROM todo WHERE session_id = ?",
-        )
-        .get(sessionId) as
+      const row = conn.prepare(TODO_PROGRESS_SQL).get(sessionId) as
         | { total: number; completed: number | null }
         | undefined;
-      if (!row || row.total === 0) return null;
-      return { total: row.total, completed: row.completed ?? 0 };
+      return taskProgressFromRow(row);
     },
     "opencode todo query failed",
     { sessionId },
@@ -223,25 +272,10 @@ export function getLatestAssistantContextTokens(
 ): number | null {
   return withDb(
     (conn) => {
-      const row = conn
-        .prepare(
-          "SELECT data FROM message WHERE session_id = ? AND json_extract(data, '$.role') = 'assistant' ORDER BY time_created DESC LIMIT 1",
-        )
-        .get(sessionId) as { data: string } | undefined;
-      if (!row) return null;
-      let parsed: MessageData;
-      try {
-        parsed = JSON.parse(row.data) as MessageData;
-      } catch (err) {
-        // OpenCode writes this JSON itself, so a parse failure is a real
-        // anomaly — surface it rather than silently blanking the badge.
-        log?.error(
-          { err, sessionId },
-          "opencode assistant message.data parse failed",
-        );
-        return null;
-      }
-      return parsed.tokens?.total ?? null;
+      const row = conn.prepare(LATEST_ASSISTANT_MESSAGE_SQL).get(sessionId) as
+        | { data: string }
+        | undefined;
+      return row ? contextTokensFromData(row.data, sessionId, log) : null;
     },
     "opencode context-tokens query failed",
     { sessionId },
@@ -263,6 +297,23 @@ export function getLatestAssistantContextTokens(
  *  and is indistinguishable from a real-work tool. */
 export const AWAITING_USER_TOOLS = ["question", "plan_exit"] as const;
 
+function runningToolsSql(): string {
+  // SQLite's parameter binding doesn't accept arrays for `IN (...)`,
+  // so the placeholder list is constructed inline from a constant —
+  // safe because every value is a hard-coded literal, not user input.
+  const placeholders = AWAITING_USER_TOOLS.map(() => "?").join(", ");
+  return `SELECT COUNT(*) AS total, SUM(CASE WHEN json_extract(data, '$.tool') IN (${placeholders}) THEN 1 ELSE 0 END) AS awaiting FROM part WHERE message_id = ? AND json_extract(data, '$.type') = 'tool' AND json_extract(data, '$.state.status') = 'running'`;
+}
+
+function runningToolsFromRow(
+  row: Record<string, unknown> | undefined,
+): "tool_use" | "awaiting_user" | null {
+  const total = typeof row?.total === "number" ? row.total : 0;
+  if (total === 0) return null;
+  const awaiting = typeof row?.awaiting === "number" ? row.awaiting : 0;
+  return classifyByAwaiting(awaiting, total);
+}
+
 /** Classify the tool parts currently in the "running" state for one
  *  message (the current assistant turn) — scoped per-message rather
  *  than per-session so a transcript with thousands of completed tool
@@ -278,23 +329,15 @@ export function runningToolsBucket(
   log?: Logger,
   db?: DatabaseSync,
 ): "tool_use" | "awaiting_user" | null {
-  // SQLite's parameter binding doesn't accept arrays for `IN (...)`,
-  // so the placeholder list is constructed inline from a constant —
-  // safe because every value is a hard-coded literal, not user input.
-  const placeholders = AWAITING_USER_TOOLS.map(() => "?").join(", ");
   return (
     withDb(
       (conn) => {
         const row = conn
-          .prepare(
-            `SELECT COUNT(*) AS total, SUM(CASE WHEN json_extract(data, '$.tool') IN (${placeholders}) THEN 1 ELSE 0 END) AS awaiting FROM part WHERE message_id = ? AND json_extract(data, '$.type') = 'tool' AND json_extract(data, '$.state.status') = 'running'`,
-          )
+          .prepare(runningToolsSql())
           .get(...AWAITING_USER_TOOLS, messageId) as
           | { total: number; awaiting: number | null }
           | undefined;
-        const total = row?.total ?? 0;
-        if (total === 0) return null;
-        return classifyByAwaiting(row?.awaiting ?? 0, total);
+        return runningToolsFromRow(row);
       },
       "opencode running-tools query failed",
       { messageId },
@@ -349,21 +392,105 @@ export function deriveSessionState(
 ): DerivedState | null {
   return withDb(
     (conn) => {
-      const row = conn
-        .prepare(
-          "SELECT id, data FROM message WHERE session_id = ? ORDER BY time_created DESC LIMIT 1",
-        )
-        .get(sessionId) as { id: string; data: string } | undefined;
-      if (!row) return null;
-      const parsed = parseMessageState(row.data);
-      if (!parsed) return null;
-      return { ...parsed, messageId: row.id };
+      const row = conn.prepare(LATEST_MESSAGE_SQL).get(sessionId) as
+        | { id: string; data: string }
+        | undefined;
+      return deriveStateFromRow(row);
     },
     "opencode message query failed",
     { sessionId },
     log,
     db,
   );
+}
+
+export async function getSessionTitleWithExecutor(
+  session: OpenCodeSession,
+  executor: Executor,
+  log?: Logger,
+): Promise<string | null> {
+  const rows = await queryDb(
+    executor,
+    session.dbPath,
+    SESSION_TITLE_SQL,
+    [session.id],
+    "opencode session title query failed",
+    { sessionId: session.id },
+    log,
+  );
+  return titleFromRow(rows?.[0]);
+}
+
+export async function getSessionTaskProgressWithExecutor(
+  session: OpenCodeSession,
+  executor: Executor,
+  log?: Logger,
+): Promise<TaskProgress | null> {
+  const rows = await queryDb(
+    executor,
+    session.dbPath,
+    TODO_PROGRESS_SQL,
+    [session.id],
+    "opencode todo query failed",
+    { sessionId: session.id },
+    log,
+  );
+  return taskProgressFromRow(rows?.[0]);
+}
+
+export async function getLatestAssistantContextTokensWithExecutor(
+  session: OpenCodeSession,
+  executor: Executor,
+  log?: Logger,
+): Promise<number | null> {
+  const rows = await queryDb(
+    executor,
+    session.dbPath,
+    LATEST_ASSISTANT_MESSAGE_SQL,
+    [session.id],
+    "opencode context-tokens query failed",
+    { sessionId: session.id },
+    log,
+  );
+  const data = rows?.[0]?.data;
+  return typeof data === "string"
+    ? contextTokensFromData(data, session.id, log)
+    : null;
+}
+
+export async function runningToolsBucketWithExecutor(
+  messageId: string,
+  session: OpenCodeSession,
+  executor: Executor,
+  log?: Logger,
+): Promise<"tool_use" | "awaiting_user" | null> {
+  const rows = await queryDb(
+    executor,
+    session.dbPath,
+    runningToolsSql(),
+    [...AWAITING_USER_TOOLS, messageId],
+    "opencode running-tools query failed",
+    { messageId },
+    log,
+  );
+  return runningToolsFromRow(rows?.[0]);
+}
+
+export async function deriveSessionStateWithExecutor(
+  session: OpenCodeSession,
+  executor: Executor,
+  log?: Logger,
+): Promise<DerivedState | null> {
+  const rows = await queryDb(
+    executor,
+    session.dbPath,
+    LATEST_MESSAGE_SQL,
+    [session.id],
+    "opencode message query failed",
+    { sessionId: session.id },
+    log,
+  );
+  return deriveStateFromRow(rows?.[0]);
 }
 
 /** Parse a `message.data` JSON blob into derived state.

@@ -22,15 +22,20 @@ export { OPENCODE_DB_PATH, OPENCODE_DB_WAL_PATH } from "./config.ts";
 export {
   type DerivedState,
   deriveSessionState,
+  deriveSessionStateWithExecutor,
   findSessionByDirectory,
   getLatestAssistantContextTokens,
+  getLatestAssistantContextTokensWithExecutor,
   getSessionTaskProgress,
+  getSessionTaskProgressWithExecutor,
   getSessionTitle,
+  getSessionTitleWithExecutor,
   type OpenCodeSession,
   openDb,
   type ParsedMessageState,
   parseMessageState,
   runningToolsBucket,
+  runningToolsBucketWithExecutor,
 } from "./core.ts";
 export {
   type OpenCodeInfo,
