@@ -1,10 +1,10 @@
 /**
  * Generic refcounted shared `fs.watch` watcher keyed by directory.
  *
- * The directory is the watch target, not the file: most editors and git
- * itself rewrite files via temp+rename, which destroys an `fs.watch` handle
- * pointed at the original file. A parent-directory watcher catches the
- * rename event cleanly on both Linux inotify and macOS FSEvents.
+ * The directory is the watch target, not the file: most editors and tools
+ * rewrite files via temp+rename, which destroys an `fs.watch` handle pointed
+ * at the original file. A parent-directory watcher catches the rename event
+ * cleanly on both Linux inotify and macOS FSEvents.
  *
  * Refcounted singleton per resolved dir: first subscribe installs, last
  * unsubscribe tears down and drops the registry entry. Idempotent
@@ -13,7 +13,20 @@
  */
 
 import fs from "node:fs";
-import type { Logger } from "kolu-shared";
+
+/** Minimal structured-logging contract for the optional `log?` parameter.
+ *  Structurally compatible with [pino](https://getpino.io)'s child loggers
+ *  and with `kolu-shared`'s `Logger` — callers pass either without an
+ *  adapter. Kept private (no re-export from the barrel) so `kolu-shared/log`
+ *  remains the workspace's single authoritative public `Logger` contract;
+ *  this declaration exists only to keep `kolu-io` a zero-`kolu-*`-deps
+ *  leaf. */
+type Logger = {
+  debug: (obj: Record<string, unknown>, msg: string) => void;
+  info: (obj: Record<string, unknown>, msg: string) => void;
+  warn: (obj: Record<string, unknown>, msg: string) => void;
+  error: (obj: Record<string, unknown>, msg: string) => void;
+};
 
 interface SharedFilenameWatcher {
   subscribe(onChange: () => void): () => void;
