@@ -229,11 +229,17 @@ export async function tailJsonlLines(
       return [];
     }
     const all = r.stdout.split("\n");
+    // Only drop the first segment when `tail -c` actually sliced the
+    // file (i.e. the file is larger than `bytes`, so the cut likely
+    // started mid-line). For small files where stdout fits inside the
+    // window, the first line is a real first record — keeping it
+    // matters for transcripts whose only assistant entry sits at the
+    // top (mocked fixtures, brand-new sessions).
+    const slicedMidLine =
+      Buffer.byteLength(r.stdout, "utf-8") >= bytes && all.length > 1;
+    const startIdx = slicedMidLine ? 1 : 0;
     const out: string[] = [];
-    // Drop the first (potentially partial) segment; the remaining
-    // segments are complete lines (or the trailing empty after the
-    // final newline). Empty strings filter out.
-    for (let i = 1; i < all.length; i++) {
+    for (let i = startIdx; i < all.length; i++) {
       const l = all[i];
       if (l && l.length > 0) out.push(l);
     }

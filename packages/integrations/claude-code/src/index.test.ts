@@ -312,7 +312,7 @@ describe("tailJsonlLines", () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it("reads all-but-first line from a small file", async () => {
+  it("reads every line from a small file", async () => {
     const filePath = path.join(tmpDir, "small.jsonl");
     const lines = [
       JSON.stringify({ type: "user" }),
@@ -322,12 +322,12 @@ describe("tailJsonlLines", () => {
       }),
     ];
     fs.writeFileSync(filePath, `${lines.join("\n")}\n`);
-    // tailJsonlLines drops the first segment from `tail -c` (potentially
-    // partial mid-line). On a small file where the window exceeds the
-    // file size, the dropped segment is line 0 — the result is
-    // `lines.slice(1)`.
+    // `tail -c <window>` on a file smaller than the window returns the
+    // entire file — the first line is a real first record, not a
+    // partial slice, so it must be kept. The dropped-first-segment
+    // policy only applies when the cut actually started mid-file.
     const result = await tailJsonlLines(filePath, 16_384, fsExecutor);
-    expect(result).toEqual(lines.slice(1));
+    expect(result).toEqual(lines);
   });
 
   it("skips partial first line when reading from middle of file", async () => {
