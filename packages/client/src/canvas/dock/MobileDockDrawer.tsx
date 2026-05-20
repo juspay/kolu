@@ -19,6 +19,8 @@
 
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import { type Component, For, Show, createMemo } from "solid-js";
+import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
+import { annotationLine } from "../../intent/text";
 import AgentIndicator from "../../terminal/AgentIndicator";
 import { formatTimeAgo, useStaleCheck } from "../../terminal/staleness";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
@@ -124,9 +126,14 @@ const Row: Component<{
                 "text-[0.95rem]": live(),
                 "text-[0.8rem]": !live(),
               }}
-              style={{ color: info()?.branchColor }}
+              style={{ color: info()?.annotationColor }}
             >
-              {info()?.key.label}
+              <IntentMarkdownInline
+                markdown={annotationLine(
+                  meta()?.intent,
+                  info()?.key.label ?? "",
+                )}
+              />
             </span>
           </div>
           <Show when={live() && meta()?.agent}>

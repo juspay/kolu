@@ -59,6 +59,7 @@ function makeInfo(
     subCount: 0,
     repoColor: "oklch(0.75 0.14 20)",
     branchColor: "oklch(0.75 0.14 140)",
+    annotationColor: "oklch(0.75 0.14 140)",
     key: {
       group: meta.git?.repoName ?? "nogit",
       label: meta.git?.branch ?? meta.cwd,

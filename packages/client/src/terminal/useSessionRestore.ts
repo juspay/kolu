@@ -246,6 +246,7 @@ export function useSessionRestore(deps: {
             canvasLayout: t.canvasLayout,
             subPanel: t.subPanel,
             lastActivityAt: t.lastActivityAt,
+            intent: t.intent,
           },
           t.hostId,
         );

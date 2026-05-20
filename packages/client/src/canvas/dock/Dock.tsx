@@ -36,17 +36,17 @@ import {
   Match,
   Show,
   Switch,
-  createEffect,
   createMemo,
-  createRoot,
   createSignal,
 } from "solid-js";
 import { toast } from "solid-sonner";
+import IntentBody from "../../intent/IntentBody";
 import AgentIndicator from "../../terminal/AgentIndicator";
-import { tailBuffer } from "../../terminal/bufferTail";
 import { formatTimeAgo, useStaleCheck } from "../../terminal/staleness";
+import IntentGlyph from "../../intent/IntentGlyph";
+import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
+import { annotationLine } from "../../intent/text";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
-import { getTerminalRefs } from "../../terminal/terminalRefs";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { ChevronDownIcon, PlusIcon, SearchIcon } from "../../ui/Icons";
 import { client } from "../../wire";
@@ -58,9 +58,6 @@ import { type DockRowBucket, rankDockRows } from "./dockRowRanking";
 
 export type DockMode = "rail" | "cards";
 
-const PEEK_REFRESH_MS = 250;
-const MIN_TAIL_LINES = 2;
-const MAX_TAIL_LINES = 7;
 // 40px so the 24px-wide header buttons (`w-6`) + 8px of `px-1` padding
 // fit without overflowing the rail's outer width.
 const RAIL_WIDTH_PX = 40;
@@ -71,47 +68,6 @@ const CARDS_WIDTH_PX = 288;
  *  footprint as a left-panel sibling of the canvas. */
 function dockWidth(mode: DockMode): number {
   return mode === "rail" ? RAIL_WIDTH_PX : CARDS_WIDTH_PX;
-}
-
-/** Per-card tail budget shrinks as the dock fills.
- *
- *  Each card has ~120px of fixed chrome (eyebrow + agent row + reply
- *  input + padding); tail lines add ~18px each. Subtract a top-offset
- *  + bottom-margin reserve (~200px), divide the remaining height
- *  across the visible cards, then floor to a line count. */
-function tailLinesFor(viewportPx: number, numCards: number): number {
-  if (numCards === 0) return MIN_TAIL_LINES;
-  const reserved = 200;
-  const cardBase = 120;
-  const tailLineHeight = 18;
-  const available = Math.max(0, viewportPx - reserved - cardBase * numCards);
-  const perCardTailPx = available / numCards;
-  return Math.max(
-    MIN_TAIL_LINES,
-    Math.min(MAX_TAIL_LINES, Math.floor(perCardTailPx / tailLineHeight)),
-  );
-}
-
-// Module-scope viewport height + resize listener. Lifecycle matches the
-// signal itself (browser session) rather than `Dock`'s mount —
-// otherwise a resize while the dock is auto-hidden (no terminals) would
-// leave `viewportHeight` stale.
-const [viewportHeight, setViewportHeight] = createSignal(
-  typeof window === "undefined" ? 1000 : window.innerHeight,
-);
-if (typeof window !== "undefined") {
-  window.addEventListener("resize", () =>
-    setViewportHeight(window.innerHeight),
-  );
-}
-
-// Shared peek-tick — every awaiting card refreshes its xterm tail on
-// the same cadence, so one app-scoped timer fans out to N consumers.
-const [peekTick, setPeekTick] = createSignal(0);
-if (typeof window !== "undefined") {
-  createRoot(() => {
-    setInterval(() => setPeekTick((n) => n + 1), PEEK_REFRESH_MS);
-  });
 }
 
 // Holding the platform modifier (Cmd on macOS, Ctrl elsewhere) reveals
@@ -179,13 +135,6 @@ const Dock: Component<{
     return map;
   });
 
-  const awaitingCount = createMemo(
-    () => ranked().filter((r) => r.bucket === "awaiting").length,
-  );
-  const tailLines = createMemo(() =>
-    tailLinesFor(viewportHeight(), awaitingCount()),
-  );
-
   // Maximized = flush sidebar; tiled = floating overlay. Two distinct
   // shells share the same inner body so rendering logic stays singular.
   return (
@@ -216,7 +165,6 @@ const Dock: Component<{
           mode={dockMode()}
           liveIds={liveIds()}
           bucketOf={bucketOf()}
-          tailLines={tailLines()}
           onCreate={props.onCreate}
           onOpenWorkspaceSearch={props.onOpenWorkspaceSearch}
         />
@@ -231,7 +179,6 @@ const RailOrCards: Component<{
   mode: DockMode;
   liveIds: TerminalId[];
   bucketOf: Map<TerminalId, DockRowBucket>;
-  tailLines: number;
   onCreate: () => void;
   onOpenWorkspaceSearch: () => void;
 }> = (props) => {
@@ -249,7 +196,6 @@ const RailOrCards: Component<{
               id={id}
               bucket={props.bucketOf.get(id) ?? "none"}
               mode={props.mode}
-              tailLines={props.tailLines}
               index={index()}
             />
           )}
@@ -332,7 +278,6 @@ const DockRow: Component<{
   id: TerminalId;
   bucket: DockRowBucket;
   mode: DockMode;
-  tailLines: number;
   /** Zero-based row index in the recency-sorted list. Used to paint
    *  the `Cmd+1..9` hint on the first nine rows while Alt is held. */
   index: number;
@@ -405,6 +350,7 @@ const DockRow: Component<{
             repoColor={c().info.repoColor}
             bucket={props.bucket}
             mode={props.mode}
+            intent={c().meta.intent}
           />
           <Show when={props.mode === "cards"}>
             <div class="flex-1 min-w-0">
@@ -413,7 +359,6 @@ const DockRow: Component<{
                 bucket={props.bucket}
                 info={c().info}
                 meta={c().meta}
-                tailLines={props.tailLines}
               />
             </div>
           </Show>
@@ -436,6 +381,7 @@ const RailSegment: Component<{
   repoColor: string;
   bucket: DockRowBucket;
   mode: DockMode;
+  intent: string | undefined;
 }> = (props) => {
   const store = useTerminalStore();
   // The breath/pulse animation belongs only to live attention states.
@@ -457,7 +403,7 @@ const RailSegment: Component<{
       data-testid="dock-rail"
       data-agent-bucket={props.bucket}
       onClick={() => store.activate(props.id)}
-      class={`shrink-0 cursor-pointer transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 ${
+      class={`shrink-0 cursor-pointer transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 flex items-center justify-center ${
         props.mode === "rail" ? "w-full h-6" : "w-1.5"
       } ${animClass()}`}
       classList={{
@@ -466,9 +412,35 @@ const RailSegment: Component<{
       style={{ "background-color": props.repoColor }}
       title="Jump to this terminal"
       aria-label="Jump to this terminal"
-    />
+    >
+      <Show when={props.mode === "rail" && props.intent}>
+        <IntentGlyph
+          intent={props.intent}
+          class="block text-base leading-none mix-blend-multiply"
+        />
+      </Show>
+    </button>
   );
 };
+
+/** Annotation slot shared by all three Dock body variants — renders
+ *  intent line-1 (or the branch-name fallback) as inline markdown with
+ *  the slot's tint color.  Only the font-size class varies per variant. */
+const DockAnnotation: Component<{
+  meta: TerminalMetadata;
+  info: TerminalDisplayInfo;
+  class: string;
+}> = (props) => (
+  <span
+    data-testid="dock-annotation"
+    class={`${props.class} truncate min-w-0`}
+    style={{ color: props.info.annotationColor }}
+  >
+    <IntentMarkdownInline
+      markdown={annotationLine(props.meta.intent, props.info.key.label)}
+    />
+  </span>
+);
 
 /** Dispatches each row to its variant body. Bundling the variant switch
  *  in one place keeps `DockRow` shape uniform — every bucket has the
@@ -479,7 +451,6 @@ const RowBody: Component<{
   bucket: DockRowBucket;
   info: TerminalDisplayInfo;
   meta: TerminalMetadata;
-  tailLines: number;
 }> = (props) => {
   return (
     <Switch
@@ -493,12 +464,7 @@ const RowBody: Component<{
       }
     >
       <Match when={props.bucket === "awaiting"}>
-        <AwaitingCardBody
-          id={props.id}
-          info={props.info}
-          meta={props.meta}
-          tailLines={props.tailLines}
-        />
+        <AwaitingCardBody id={props.id} info={props.info} meta={props.meta} />
       </Match>
       <Match when={props.bucket === "working"}>
         <WorkingPillBody id={props.id} info={props.info} meta={props.meta} />
@@ -507,36 +473,23 @@ const RowBody: Component<{
   );
 };
 
-/** Awaiting card body — content for an awaiting row. */
+/** Awaiting card body — content for an awaiting row.
+ *
+ *  Replaces the previous xterm-buffer-tail render with the terminal's
+ *  intent markdown. Rationale: the agent's live state is already
+ *  communicated by the bucket pulse + `DockMetaRow`; what's missing in
+ *  a busy dock is *which* terminal this is — the user's intent note is
+ *  exactly that, and it stays stable while the buffer below it
+ *  scrolls. When intent is unset the card collapses to header + reply. */
 const AwaitingCardBody: Component<{
   id: TerminalId;
   info: TerminalDisplayInfo;
   meta: TerminalMetadata;
-  tailLines: number;
 }> = (props) => {
   const store = useTerminalStore();
   const tileTheme = useTileTheme();
   const theme = createMemo(() => tileTheme(props.id));
-  const [tail, setTail] = createSignal<string[]>([]);
   const [value, setValue] = createSignal("");
-
-  createEffect(() => {
-    peekTick();
-    const xterm = getTerminalRefs(props.id)?.xterm;
-    // Refs can be transiently absent during xterm fit/resize cycles
-    // (e.g. when this card's terminal becomes active and the tile
-    // reflows). Don't overwrite the cached tail in that window — the
-    // next tick will refill from the populated buffer.
-    if (!xterm) return;
-    const next = tailBuffer(xterm, props.tailLines);
-    // Alt-screen TUIs (agent prompts) momentarily yield an empty walk
-    // during the same fit/resize cycles — `buffer.active.length` is
-    // briefly small enough that every row reads as chrome. Treat an
-    // empty read as transient: hold the previously-cached tail rather
-    // than collapse the card to 0 lines and flash back next tick.
-    if (next.length === 0 && tail().length > 0) return;
-    setTail(next);
-  });
 
   async function submit(e: SubmitEvent) {
     e.preventDefault();
@@ -589,25 +542,15 @@ const AwaitingCardBody: Component<{
               {props.info.key.group}
             </span>
           </div>
-          <span
-            class="text-[0.95rem] font-semibold leading-tight truncate min-w-0"
-            style={{ color: props.info.branchColor }}
-          >
-            {props.info.key.label}
-          </span>
+          <DockAnnotation
+            meta={props.meta}
+            info={props.info}
+            class="text-[0.95rem] font-semibold leading-tight"
+          />
         </div>
         <DockMetaRow meta={props.meta} />
         <PrLine meta={props.meta} />
-        <Show when={tail().length > 0}>
-          <div
-            data-testid="dock-tail"
-            class="font-mono text-[0.7rem] text-fg-2 leading-snug whitespace-pre-wrap break-all w-full mt-0.5"
-          >
-            <For each={tail()}>
-              {(line) => <div class="truncate">{line}</div>}
-            </For>
-          </div>
-        </Show>
+        <IntentBody intent={props.meta.intent} testId="dock-intent" />
       </button>
       <form onSubmit={submit}>
         <input
@@ -666,15 +609,15 @@ const WorkingPillBody: Component<{
             {props.info.key.group}
           </span>
         </div>
-        <span
-          class="text-[0.85rem] font-semibold leading-tight truncate min-w-0"
-          style={{ color: props.info.branchColor }}
-        >
-          {props.info.key.label}
-        </span>
+        <DockAnnotation
+          meta={props.meta}
+          info={props.info}
+          class="text-[0.85rem] font-semibold leading-tight"
+        />
       </div>
       <DockMetaRow meta={props.meta} />
       <PrLine meta={props.meta} />
+      <IntentBody intent={props.meta.intent} testId="dock-intent" />
     </button>
   );
 };
@@ -713,12 +656,11 @@ const QuietRowBody: Component<{
         >
           {props.info.key.group}
         </span>
-        <span
-          class="text-[0.75rem] truncate min-w-0"
-          style={{ color: props.info.branchColor }}
-        >
-          {props.info.key.label}
-        </span>
+        <DockAnnotation
+          meta={props.meta}
+          info={props.info}
+          class="text-[0.75rem]"
+        />
         <Show when={formatTimeAgo(props.meta.lastActivityAt)}>
           {(label) => (
             <span class="ml-auto font-mono text-[0.55rem] tabular-nums text-fg-3 shrink-0">
@@ -737,6 +679,7 @@ const QuietRowBody: Component<{
           </span>
         )}
       </Show>
+      <IntentBody intent={props.meta.intent} testId="dock-intent" />
     </button>
   );
 };

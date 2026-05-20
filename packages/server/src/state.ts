@@ -410,11 +410,16 @@ export const store = new Conf<PersistedState>({
       })) as typeof session.terminals;
       store.set("session", { ...session, terminals });
     },
-    // SavedTerminal.hostId added — purely additive optional field. Existing
-    // terminals have no host metadata, which the host registry treats as
-    // local (`hostId === undefined` ⇒ kolu's own process). No data
-    // transformation needed; the entry is here so the schema ladder stays
-    // continuous per `.claude/rules/state.md`.
+    // Two additive optional fields landed in the same schema bump:
+    //   • `SavedTerminal.hostId` — host the PTY lives on. Absent ⇒ local,
+    //     resolved by the host registry at restore time.
+    //   • `SavedTerminal.intent` — multiline-markdown annotation. Optional;
+    //     absent reads as "unset" through `.min(1).optional()`. themeName
+    //     was tightened from `.optional()` to `.min(1).optional()` in the
+    //     same bump; no path produced an empty themeName, so no migration
+    //     is needed (the setter wrote a non-empty value or omitted the key).
+    // No data transformation here — the entry exists so the schema ladder
+    // stays continuous per `.claude/rules/state.md`.
     "1.22.0": () => {},
     // hostId became first-class: `hostId` on every persisted entry now
     // defaults to "local" rather than being optional. Backfill recent

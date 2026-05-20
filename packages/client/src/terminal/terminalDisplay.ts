@@ -18,6 +18,11 @@ export type TerminalDisplayInfo = {
   /** Same OKLCH scheme keyed on the branch `label`. Always defined for
    *  the same reason. */
   branchColor: string;
+  /** Color for the supplant-rule annotation slot — currently mirrors
+   *  `branchColor`, but lives behind its own name so a future tint
+   *  policy (theme-aware, intent-vs-branch distinction, …) lands in
+   *  one place instead of touching every render site. */
+  annotationColor: string;
   meta: TerminalMetadata;
   subCount: number;
   /** Collision-aware identity key. `suffix` is set only when another
@@ -71,6 +76,7 @@ export function buildTerminalDisplayInfos(
       meta,
       repoColor,
       branchColor,
+      annotationColor: branchColor,
       subCount: getSubTerminalIds(id).length,
       key,
     });
