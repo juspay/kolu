@@ -6,7 +6,7 @@
  *  the other side of `Fetcher`. Renderers (kolu-transcript-html today,
  *  others later) consume IR; they don't redefine it. */
 
-export type { Fetcher, FetcherInput, Logger } from "./fetcher.ts";
+export type { Fetcher, FetcherInput } from "./fetcher.ts";
 export {
   AGENT_KINDS,
   type AgentKindLiteral,
