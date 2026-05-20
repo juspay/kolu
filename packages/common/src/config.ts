@@ -18,6 +18,8 @@ export const DEFAULT_FONT_SIZE = 14;
  *  the export reads from this same ring buffer. Per-line memory in xterm
  *  is small, so 50K is low tens of MB per terminal in the worst case.
  *
- *  kolu-pty inlines the same value as its server-side default — keep them
- *  in lock-step so server headless state matches client visible scrollback. */
+ *  Single source of truth for both the client's visible scrollback and the
+ *  server's headless ring buffer — kolu-server's `terminals.ts` reads this
+ *  and passes it to `spawnPty` so the server-side headless terminal stays
+ *  in lock-step with what the client renders. */
 export const DEFAULT_SCROLLBACK = 50_000;

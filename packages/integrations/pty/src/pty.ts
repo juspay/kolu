@@ -13,15 +13,6 @@ import { cleanEnv, koluIdentityEnv, prepareShellInit } from "./shell.ts";
 /** Default terminal grid dimensions (matches xterm/VT100 standard). */
 const DEFAULT_COLS = 80;
 const DEFAULT_ROWS = 24;
-/** Scrollback buffer size in lines. Sized for multi-hour Claude sessions
- *  so PDF export captures a useful window — the export reads from this
- *  same ring buffer. Per-line memory in xterm is small, so 50K is low
- *  tens of MB per terminal in the worst case.
- *
- *  Kept inlined (rather than imported) so kolu-pty has zero kolu-* deps.
- *  The client-side default lives in `kolu-common/config` — keep both in
- *  lock-step so server headless state matches client visible scrollback. */
-const DEFAULT_SCROLLBACK = 50_000;
 
 // @xterm packages ship CJS only — use createRequire for clean ESM interop
 const require = createRequire(import.meta.url);
@@ -95,6 +86,10 @@ export function spawnPty(
     rcDir: string;
     /** Version string emitted as `TERM_PROGRAM_VERSION` to the spawned shell. */
     termProgramVersion: string;
+    /** Scrollback buffer size in lines for the server-side headless terminal.
+     *  Must match the client's visible scrollback so `getScreenState()` on
+     *  late join carries the lines the client expects. */
+    scrollback: number;
     onData: (data: string) => void;
     onExit: (exitCode: number) => void;
     onCwd?: (cwd: string) => void;
@@ -155,7 +150,7 @@ export function spawnPty(
   const headless = new Terminal({
     cols: DEFAULT_COLS,
     rows: DEFAULT_ROWS,
-    scrollback: DEFAULT_SCROLLBACK,
+    scrollback: opts.scrollback,
     allowProposedApi: true,
   });
   const serializeAddon = new SerializeAddon();

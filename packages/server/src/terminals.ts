@@ -17,6 +17,7 @@ import type {
   TerminalId,
   TerminalInfo,
 } from "kolu-common/surface";
+import { DEFAULT_SCROLLBACK } from "kolu-common/config";
 import { spawnPty } from "kolu-pty";
 import pkg from "../package.json" with { type: "json" };
 import { cleanupClipboardDir } from "./clipboard.ts";
@@ -109,6 +110,7 @@ export function createTerminal(
     {
       rcDir: koluShellDir,
       termProgramVersion: pkg.version,
+      scrollback: DEFAULT_SCROLLBACK,
       onData: (data) => {
         terminalChannels.data(id).publish(data);
       },
