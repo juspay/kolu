@@ -88,34 +88,36 @@
 <p class="cite">Starting point: <code>master</code> @ <code>b8c955b2</code>. Goal: a new terminal in Kolu can run its PTY on any host in your <code>~/.ssh/config</code>, with branch chip / agent badge / Code-tab parity to local terminals; SSH drops survive via a daemon on the remote side. Plan is captured end-to-end — no deferred follow-ups. Reviewed through Hickey + Lowy; numbers verified against master.</p>
 
 <div class="tldr">
-<strong>TL;DR.</strong> Two standalone refactor PRs (R1, R2) land first to master — each delivers value independent of the remote-terminal feature. They extract two existing master primitives into library-shaped packages. Then eight feature phases (F1-F8) build the remote-terminal capability on the cleaner base. <strong>Every refactor is in the plan, none deferred.</strong> Each refactor PR landing makes the rest of the plan smaller and structurally cleaner.
+<strong>TL;DR.</strong> Two standalone refactor PRs (R1, R2) extracted library-shaped primitives to master — <strong>both merged</strong> (<a href="https://github.com/juspay/kolu/pull/944">PR #944</a>, <a href="https://github.com/juspay/kolu/pull/945">PR #945</a>). Eight feature phases (F1-F8) build the remote-terminal capability on the cleaner base. <strong>Every refactor was captured in the plan, none deferred.</strong> Each refactor PR landing reduced the surface of the feature plan that follows.
 </div>
 
-<h2>Standalone refactor PRs — land first</h2>
+<h2>Standalone refactor PRs — <span class="check">both merged ✓</span></h2>
 
-<p>These two refactors deliver value to <code>master</code> independent of any remote-terminal context. Each is small, pure-refactor, reviewable on its own merits. Filed as separate GitHub issues so they can land independently.</p>
+<p>Two refactors that delivered structural value to <code>master</code> independent of any remote-terminal context. Both shipped as standalone PRs, reviewable on their own merits.</p>
 
 <table>
-  <thead><tr><th>PR</th><th>Issue</th><th>What it extracts</th><th>From</th><th>To</th><th>Size</th></tr></thead>
+  <thead><tr><th>PR</th><th>Issue / PR</th><th>What it extracted</th><th>From → To</th><th>Size</th></tr></thead>
   <tbody>
     <tr class="refactor">
       <td><strong>R1</strong> <span class="check">✓ merged</span></td>
       <td><a href="https://github.com/juspay/kolu/issues/942">#942</a> · <a href="https://github.com/juspay/kolu/pull/944">PR #944</a></td>
-      <td><code>shared-dir-filename-watcher.ts</code> — described in its own header as "Generic refcounted shared <code>fs.watch</code> watcher keyed by directory."</td>
-      <td><code>packages/integrations/git/src/</code></td>
-      <td>New <code>packages/integrations/io/</code></td>
-      <td class="num">+144/−26 <span class="cite">(actual)</span></td>
+      <td><code>shared-dir-filename-watcher.ts</code> — header reads "Generic refcounted shared <code>fs.watch</code> watcher keyed by directory."</td>
+      <td><code>kolu-git</code> → new <code>kolu-io</code> (<code>packages/integrations/io/</code>)</td>
+      <td class="num">+144/−26</td>
     </tr>
     <tr class="refactor">
-      <td><strong>R2</strong></td>
-      <td><a href="https://github.com/juspay/kolu/issues/943">#943</a></td>
-      <td><code>pty.ts</code> (241 lines: <code>spawnPty</code>, <code>getScreenText</code>, <code>PtyHandle</code>) + <code>shell.ts</code> (326 lines: OSC injection functions, rcfile builder). The <code>koluShellDir</code> coupling parameterised away — caller passes rc-file directory.</td>
-      <td><code>packages/server/src/</code></td>
-      <td>New <code>packages/integrations/pty/</code></td>
-      <td class="num">~+650/−570</td>
+      <td><strong>R2</strong> <span class="check">✓ merged</span></td>
+      <td><a href="https://github.com/juspay/kolu/issues/943">#943</a> · <a href="https://github.com/juspay/kolu/pull/945">PR #945</a></td>
+      <td><code>pty.ts</code> (<code>spawnPty</code>, <code>getScreenText</code>, <code>PtyHandle</code>) + <code>shell.ts</code> (OSC injection functions, rcfile builder). The <code>koluShellDir</code> coupling parameterised — function takes <code>rcDir</code> (verified <code>kolu-pty/src/shell.ts:220, 247, 280</code>; server passes at <code>terminals.ts:111</code>).</td>
+      <td><code>kolu-server</code> → new <code>kolu-pty</code> (<code>packages/integrations/pty/</code>)</td>
+      <td class="num">+148/−53</td>
     </tr>
   </tbody>
 </table>
+
+<p class="cite">Both estimates I made earlier overshot: R1 estimated ~+150/−132 (close); R2 estimated ~+650/−570 (way off — git rename detection preserved most lines, showing only the deltas as real adds/deletes).</p>
+
+<div class="footnote"><span class="label">Note</span> <code>kolu-pty</code> shipped with <code>kolu-shared</code> as a runtime dep (for the <code>Logger</code> type), not the inline structural interface I recommended. Small deviation; doesn't compromise library shape meaningfully. Could be tightened in a follow-up if strict zero-kolu-deps becomes important. <code>kolu-io</code> has zero <code>kolu-*</code> deps (verified).</div>
 
 <h3>Why these stand on their own merits</h3>
 
@@ -127,42 +129,30 @@
 
 <div class="footnote"><span class="label">PR #929 note</span> PR #929 lifts the OSC parsing concern into a new <code>osc-parser.ts</code> (102 lines, new code). On master that file doesn't exist — OSC parsing is implicit inside <code>pty.ts</code>'s xterm-headless usage. The OSC parser is needed for the remote-PTY path (parsing bytes streamed back over RPC) but isn't part of R2's pure-refactor scope; it's new code that lands as part of <code>integrations/pty/</code> in F5 alongside <code>RemoteHost</code>.</div>
 
-<h2>How master gets simpler as refactors land</h2>
+<h2>Where master stands now</h2>
 
-<table>
-  <thead><tr><th>State</th><th>Master after this PR</th></tr></thead>
-  <tbody>
-    <tr>
-      <td><strong>Today</strong></td>
-      <td>Generic primitives buried inside feature packages. <code>shared-dir-filename-watcher.ts</code> lives in <code>kolu-git</code>. <code>pty.ts</code> + <code>shell.ts</code> live in <code>kolu-server</code>. No <code>integrations/io/</code>; no <code>integrations/pty/</code>.</td>
-    </tr>
-    <tr>
-      <td><strong>After R1</strong></td>
-      <td><code>integrations/io/</code> exists as a package owning the refcounted dir-watcher. <code>kolu-git</code>'s watchers import it. One existing concept moved to its proper home.</td>
-    </tr>
-    <tr>
-      <td><strong>After R2</strong></td>
-      <td><code>integrations/pty/</code> exists owning <code>PtyHandle</code>, <code>spawnPty</code>, <code>getScreenText</code>, OSC injection rcfile builder. <code>kolu-server</code>'s existing PTY consumers (<code>terminals.ts</code>, <code>terminal-registry.ts</code>) import from there. PTY handling is now library-shaped.</td>
-    </tr>
-  </tbody>
-</table>
+<p>Both refactors merged; master already carries the cleaner base. The feature plan (F1-F8 below) starts from here:</p>
 
-<p><strong>After R1 + R2 land, the remote-terminal feature plan (F1-F8 below) starts from a base where every package boundary it needs already exists.</strong> No new top-level packages get created inside feature PRs — only new files inside the already-extracted homes, plus two more new packages (<code>integrations/host/</code>, <code>integrations/remote/</code>) that don't conflict with anything in master.</p>
+<ul>
+  <li><code>packages/integrations/io/</code> exists. Currently owns just the refcounted dir-watcher (R1). F1 will extend it with <code>Executor</code> + <code>localExecutor</code> + <code>Host</code> interface.</li>
+  <li><code>packages/integrations/pty/</code> exists. Owns <code>PtyHandle</code>, <code>spawnPty</code>, <code>getScreenText</code>, OSC injection rcfile builder (R2). Server's <code>terminals.ts</code> + <code>terminal-registry.ts</code> already import from here.</li>
+  <li><strong>No new top-level packages get created inside feature PRs</strong> — only new files inside the already-extracted homes, plus two more new packages (<code>integrations/host/</code>, <code>integrations/remote/</code>) introduced in F4 / F5.</li>
+</ul>
 
 <h2>Package overview (after all phases land)</h2>
 
 <table>
   <thead><tr><th>Package / directory</th><th>Status</th><th>Purpose</th></tr></thead>
   <tbody>
-    <tr class="new-pkg">
+    <tr class="modified">
       <td><code>packages/integrations/io/</code></td>
-      <td>NEW pkg (R1 + F1)</td>
-      <td>Generic IO primitives. R1 lands the refcounted dir-watcher. F1 adds <code>Executor</code> interface, <code>localExecutor</code>, and <code>Host</code> interface (extends Executor). Library-shaped: zero kolu-specific imports.</td>
+      <td>EXISTS (R1 ✓) + extended in F1</td>
+      <td>Generic IO primitives. R1 landed the refcounted dir-watcher (live on master). F1 will add <code>Executor</code> interface, <code>localExecutor</code>, and <code>Host</code> interface (extends Executor). Library-shaped: zero kolu-specific imports (verified — no <code>kolu-*</code> deps in <code>package.json</code>).</td>
     </tr>
-    <tr class="new-pkg">
+    <tr class="modified">
       <td><code>packages/integrations/pty/</code></td>
-      <td>NEW pkg (R2 + F5)</td>
-      <td>PTY primitives. R2 lands <code>PtyHandle</code>, <code>spawnPty</code>, <code>getScreenText</code>, OSC injection rcfile builder. F5 adds the byte-stream OSC parser (new code for RemoteHost's needs). Library-shaped.</td>
+      <td>EXISTS (R2 ✓) + extended in F5</td>
+      <td>PTY primitives. R2 landed <code>PtyHandle</code>, <code>spawnPty</code>, <code>getScreenText</code>, OSC injection rcfile builder. F5 will add the byte-stream OSC parser (new code for RemoteHost's needs). Currently has one <code>kolu-shared</code> runtime dep (for <code>Logger</code> type) — minor deviation from the strict library-shape recommendation; could be tightened later.</td>
     </tr>
     <tr class="new-pkg">
       <td><code>packages/integrations/host/</code></td>
@@ -229,7 +219,7 @@
 
 <h2>Target package layout (after all phases)</h2>
 
-<div class="diagram">┌─ packages/integrations/io/  ──────────────────┐    NEW (R1 + F1)
+<div class="diagram">┌─ packages/integrations/io/  ──────────────────┐    EXISTS (R1 ✓) + F1
 │  src/refcounted-dir-watcher.ts  (R1)          │    Library-shaped:
 │  src/executor.ts                (F1)          │    zero kolu deps.
 │    Executor interface, localExecutor          │
@@ -239,7 +229,7 @@
                      │
        ┌─────────────┼─────────────┬─────────────────┐
        ▼             ▼             ▼                 ▼
-┌─ pty/  (R2+F5)─┐  ┌─ git ─┐  ┌─ anyagent ─┐  ┌─ host/ (F4+F5) ─┐
+┌─ pty/ (R2✓+F5)─┐  ┌─ git ─┐  ┌─ anyagent ─┐  ┌─ host/ (F4+F5) ─┐
 │ PtyHandle      │  │ exec  │  │ Executor   │  │  LocalHost      │
 │ spawnPty       │  │ param │  │ in iface   │  │  RemoteHost     │
 │ getScreenText  │  └───────┘  ├─ claude-c  │  │  registry       │
@@ -315,14 +305,15 @@ export interface Host extends Executor {           // ← extends, not duplicate
 
 <p><code>PtyHandle</code> comes from <code>integrations/pty/</code> (extracted in R2). Logger type is a structural interface (<code>{ info, debug, warn, error, child }</code>) — no kolu import.</p>
 
-<h2>Feature phasing (F1-F8, after R1 + R2 land)</h2>
+<h2>Feature phasing (F1-F8)</h2>
+<p class="cite">R1 + R2 have landed; F1 onward builds on the cleaner base.</p>
 
 <table>
   <thead><tr><th>Phase</th><th>Scope</th><th>Functional change?</th><th>Size</th><th>Files</th></tr></thead>
   <tbody>
     <tr class="modified">
       <td><strong>F1</strong></td>
-      <td>Extend <code>integrations/io/</code> (created by R1) with <code>Executor</code> interface + <code>localExecutor</code> + <code>Host</code> interface. No new consumers yet.</td>
+      <td>Extend <code>kolu-io</code> (exists on master from R1) with <code>Executor</code> interface + <code>localExecutor</code> + <code>Host</code> interface. No new consumers yet.</td>
       <td class="check">None — additions not imported anywhere</td>
       <td class="num">~+250</td>
       <td>3 new files inside existing pkg</td>
@@ -350,7 +341,7 @@ export interface Host extends Executor {           // ← extends, not duplicate
     </tr>
     <tr class="new-pkg">
       <td><strong>F5</strong></td>
-      <td>Create <code>packages/integrations/remote/</code> (helper binary, protocol schemas, SSH-stdio RPC client, ssh-config parser). Implement <code>RemoteHost</code> in <code>integrations/host/</code>, plumbing remote PTY bytes through a new byte-stream OSC parser added to <code>integrations/pty/</code>. Wire <code>readSshHosts()</code> into registry. Add <code>host.list</code> RPC + host axis in palette.</td>
+      <td>Create <code>packages/integrations/remote/</code> (<code>kolu-remote-server</code> binary, protocol schemas, SSH-stdio RPC client, ssh-config parser). Implement <code>RemoteHost</code> in <code>integrations/host/</code>, plumbing remote PTY bytes through a new byte-stream OSC parser added to <code>kolu-pty</code> (exists on master from R2). Wire <code>readSshHosts()</code> into registry. Add <code>host.list</code> RPC + host axis in palette.</td>
       <td class="check">User-visible: remote PTYs work. No metadata parity yet.</td>
       <td class="num">~+1,800<br><span class="cite">mostly new pkg</span></td>
       <td>~10 (8 new in remote/, 2 new in host/+pty/, ~3 modified)</td>
@@ -539,7 +530,7 @@ onChange();   // ← getStore() here returns undefined.
   <li><span class="verdict good">Each user-visible PR is small.</span> F6a-d are ~20-150 lines touching one <code>meta/*.ts</code> file each. Reviewers can reason about one provider's remote behaviour at a time.</li>
   <li><span class="verdict good">Refactor PRs are no-functional-change.</span> R1, R2, F1, F2, F3a-c, F4 are mechanical refactors. Tests pass identically. Reviewers verify "did anything break?"</li>
   <li><span class="verdict good">All refactors captured in the plan.</span> R1, R2 land first as standalone PRs; F1-F4 fold in additional refactor work; nothing is deferred to a "future cleanup."</li>
-  <li><span class="verdict good">After R1 + R2 land, master is unambiguously better even if the feature never ships.</span> The two extracted libraries stand on their own merits.</li>
+  <li><span class="verdict good">R1 + R2 already shipped value to master.</span> Master is unambiguously better even if the feature never lands — the two extracted libraries stand on their own.</li>
   <li><span class="verdict good">No partial-symmetry asymmetry.</span> Local and remote routing are structurally identical post-R1.</li>
   <li><span class="verdict bad">Adding a new <code>Executor</code> op</span> later (e.g. <code>streamFile</code>) edits 4 places (<code>io/</code> interface, <code>localExecutor</code>, <code>RemoteHost</code>, helper protocol + manager). Acceptable; only matters when a second op forces the move.</li>
   <li><span class="verdict bad">AsyncLocalStorage rejected.</span> See the dedicated section for the five concrete failure modes.</li>
@@ -552,14 +543,15 @@ onChange();   // ← getStore() here returns undefined.
 <table>
   <thead><tr><th>Claim</th><th>Status</th><th>Source</th></tr></thead>
   <tbody>
-    <tr><td><code>shared-dir-filename-watcher.ts</code> is 132 lines, self-described as "Generic refcounted shared fs.watch watcher"</td><td class="check">Verified</td><td>Read the file head + <code>wc -l</code></td></tr>
-    <tr><td><code>pty.ts</code> on master is 241 lines (<code>spawnPty</code>, <code>getScreenText</code>, <code>PtyHandle</code>)</td><td class="check">Verified</td><td>Read + <code>wc -l</code></td></tr>
-    <tr><td><code>shell.ts</code> on master is 326 lines, OSC injection in <code>OSC7_FN</code>/<code>OSC2_PREEXEC_FN</code>/etc.</td><td class="check">Verified</td><td>Read + grep for OSC functions</td></tr>
-    <tr><td><code>shell.ts</code>'s only kolu-coupling is <code>koluShellDir</code> from <code>koluRoot.ts</code></td><td class="check">Verified</td><td>Read both files</td></tr>
-    <tr><td>Master has no <code>osc-parser.ts</code> (PR #929 adds it as new code)</td><td class="check">Verified</td><td><code>ls packages/server/src/</code></td></tr>
-    <tr><td>kolu-git on master has refcounted parcel-watcher composition</td><td class="check">Verified</td><td><code>ls</code> shows <code>head-watcher.ts</code>, <code>index-watcher.ts</code>, etc. composing on <code>shared-dir-filename-watcher.ts</code></td></tr>
+    <tr><td>R1 actual size +144/−26, closes #942, merged via PR #944</td><td class="check">Verified</td><td><code>gh pr view 944 --json mergedAt,additions,deletions,closingIssuesReferences</code></td></tr>
+    <tr><td>R2 actual size +148/−53, closes #943, merged via PR #945</td><td class="check">Verified</td><td><code>gh pr view 945 --json …</code></td></tr>
+    <tr><td><code>kolu-io</code> exists on master with <code>refcounted-dir-watcher.ts</code> and zero <code>kolu-*</code> deps</td><td class="check">Verified</td><td><code>ls packages/integrations/io/src/</code> + read <code>package.json</code></td></tr>
+    <tr><td><code>kolu-pty</code> exists on master with <code>pty.ts</code> + <code>shell.ts</code> + tests, deps: <code>node-pty</code>, <code>@xterm/headless</code>, <code>@xterm/addon-serialize</code>, <code>kolu-shared</code></td><td class="check">Verified</td><td><code>ls</code> + <code>cat package.json</code></td></tr>
+    <tr><td>R2 parameterised <code>koluShellDir</code> as <code>rcDir</code> (per the plan recommendation)</td><td class="check">Verified</td><td><code>shell.ts:220,247,280</code> use <code>rcDir</code> param; <code>terminals.ts:111</code> passes <code>koluShellDir</code> at call site</td></tr>
+    <tr><td>Master has no <code>osc-parser.ts</code> (PR #929 adds it as new code; F5 will too)</td><td class="check">Verified</td><td><code>ls packages/server/src/</code></td></tr>
+    <tr><td>kolu-git on master has refcounted parcel-watcher composition (now imports <code>kolu-io</code> after R1)</td><td class="check">Verified</td><td><code>ls</code> shows <code>head-watcher.ts</code>, <code>index-watcher.ts</code>, etc.; R1 PR #944 confirms imports updated</td></tr>
     <tr><td>Coupling smells #1-#11 in PR #929</td><td class="check">Verified</td><td>Read PR's package.jsons + import statements via <code>git show origin/feat/remote-terminal-prototype:&lt;path&gt;</code></td></tr>
-    <tr><td>Per-phase size estimates (R1, R2, F1-F8 line counts)</td><td><span class="cross">Estimated</span></td><td>Extrapolated from PR #929's per-file diff content. Order-of-magnitude.</td></tr>
+    <tr><td>Per-phase size estimates (F1-F8 line counts)</td><td><span class="cross">Estimated</span></td><td>Extrapolated from PR #929's per-file diff content. Order-of-magnitude.</td></tr>
   </tbody>
 </table>
 
