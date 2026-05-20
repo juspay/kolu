@@ -1,14 +1,14 @@
 /**
  * CodexWatcher — per-session lifecycle over the supplied executor.
  *
- * On each WAL event, re-read mutable SQLite metadata through
- * `executor.queryDb`, tail the rollout JSONL through `executor.exec`, and
- * publish a changed CodexInfo snapshot.
+ * On each shared WAL event, re-read mutable SQLite metadata through the
+ * executor, tail the rollout JSONL, and publish a changed CodexInfo snapshot.
  */
 
 import { agentInfoEqual } from "anyagent";
 import type { Executor } from "kolu-io";
 import type { Logger } from "kolu-shared";
+import { createDebounceWatcher } from "kolu-shared/sqlite";
 import {
   type CodexSession,
   getThreadMetadata,
@@ -16,6 +16,7 @@ import {
   parseRolloutState,
 } from "./core.ts";
 import type { CodexInfo } from "./schemas.ts";
+import { subscribeCodexDb } from "./wal-watcher.ts";
 
 const WAL_DEBOUNCE_MS = 150;
 const TAIL_BYTES = 256 * 1024;
@@ -31,65 +32,35 @@ export function createCodexWatcher(
   onChange: (info: CodexInfo) => void,
   log?: Logger,
 ): CodexWatcher {
-  let lastInfo: CodexInfo | null = null;
+  const watcherContext = { session, executor };
   let cachedDerive: {
     size: number;
     state: CodexInfo["state"];
     contextTokens: number | null;
   } | null = null;
-  let stopped = false;
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  let watchHandle: { stop(): void } | null = null;
-  let refreshInFlight = false;
-  let refreshPending = false;
 
-  async function refresh(): Promise<void> {
-    if (stopped) return;
-    if (refreshInFlight) {
-      refreshPending = true;
-      return;
-    }
-    refreshInFlight = true;
-    try {
-      const info = await readInfo();
-      if (stopped || info === null) return;
-      if (agentInfoEqual(info, lastInfo)) return;
-      log?.debug(
-        {
-          state: info.state,
-          model: info.model,
-          session: info.sessionId,
-          tokens: info.contextTokens,
-        },
-        "codex state updated",
-      );
-      lastInfo = info;
-      onChange(info);
-    } finally {
-      refreshInFlight = false;
-      if (refreshPending && !stopped) {
-        refreshPending = false;
-        setTimeout(() => void refresh(), 0);
-      }
-    }
-  }
-
-  async function readInfo(): Promise<CodexInfo | null> {
+  async function readInfo(
+    ctx: typeof watcherContext,
+  ): Promise<CodexInfo | null> {
     const meta = await getThreadMetadata(
-      session.id,
-      executor,
-      session.dbPath,
+      ctx.session.id,
+      ctx.executor,
+      ctx.session.dbPath,
       log,
     );
     if (!meta) {
       log?.warn(
-        { session: session.id },
+        { session: ctx.session.id },
         "codex thread row disappeared after match",
       );
       return null;
     }
 
-    const size = await fileSizeBytes(session.rolloutPath, executor, log);
+    const size = await fileSizeBytes(
+      ctx.session.rolloutPath,
+      ctx.executor,
+      log,
+    );
     if (size === null) return null;
 
     let state: CodexInfo["state"];
@@ -99,15 +70,15 @@ export function createCodexWatcher(
       contextTokens = cachedDerive.contextTokens;
     } else {
       const lines = await tailLines(
-        session.rolloutPath,
+        ctx.session.rolloutPath,
         TAIL_BYTES,
-        executor,
+        ctx.executor,
         log,
       );
       const parsedState = parseRolloutState(lines);
       if (parsedState === null) {
         log?.debug(
-          { session: session.id, path: session.rolloutPath },
+          { session: ctx.session.id, path: ctx.session.rolloutPath },
           "codex rollout has no task events yet",
         );
         return null;
@@ -120,7 +91,7 @@ export function createCodexWatcher(
     return {
       kind: "codex",
       state,
-      sessionId: session.id,
+      sessionId: ctx.session.id,
       model: meta.model,
       summary: meta.title,
       taskProgress: null,
@@ -128,35 +99,37 @@ export function createCodexWatcher(
     };
   }
 
-  function scheduleRefresh(): void {
-    if (stopped) return;
-    if (timer) clearTimeout(timer);
-    timer = setTimeout(() => {
-      timer = undefined;
-      void refresh();
-    }, WAL_DEBOUNCE_MS);
-  }
-
-  void executor
-    .watch(session.walPath, scheduleRefresh, { recursive: false })
-    .then((handle) => {
-      if (stopped) handle.stop();
-      else watchHandle = handle;
-    })
-    .catch((err) =>
-      log?.debug({ err, path: session.walPath }, "codex WAL watch failed"),
-    );
-  void refresh();
-
-  return {
+  return createDebounceWatcher({
     session,
-    destroy(): void {
-      stopped = true;
-      if (timer) clearTimeout(timer);
-      watchHandle?.stop();
-      watchHandle = null;
+    label: "codex: session",
+    debounceMs: WAL_DEBOUNCE_MS,
+    db: watcherContext,
+    subscribe: (onEvent, onError, plog) =>
+      subscribeCodexDb(
+        executor,
+        session.dbPath,
+        session.walPath,
+        onEvent,
+        onError,
+        plog,
+      ),
+    refresh: readInfo,
+    isEqual: agentInfoEqual,
+    onChange: (info) => {
+      log?.debug(
+        {
+          state: info.state,
+          model: info.model,
+          session: info.sessionId,
+          tokens: info.contextTokens,
+        },
+        "codex state updated",
+      );
+      onChange(info);
     },
-  };
+    logCtx: { session: session.id },
+    log,
+  });
 }
 
 async function fileSizeBytes(

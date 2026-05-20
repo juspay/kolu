@@ -1,16 +1,24 @@
 /**
- * Shared WAL watcher for Codex's threads DB. Wraps anyagent's
- * `createWalSubscription` — the refcounted singleton, parent-dir
- * fallback, and promote-on-appearance dance all live upstream.
+ * Shared WAL watcher for Codex's threads DB. Wraps kolu-io's executor WAL
+ * adapter — refcounting, parent-dir fallback, and re-arm semantics all live
+ * in the canonical shared SQLite watcher.
  */
 
-import { createWalSubscription } from "kolu-shared/sqlite";
-import { CODEX_DB_PATH, CODEX_DB_WAL_PATH } from "./config.ts";
+import { subscribeExecutorWal, type Executor } from "kolu-io";
+import type { Logger } from "kolu-shared";
 
-const { subscribe: subscribeCodexDb } = createWalSubscription({
-  dbPath: CODEX_DB_PATH,
-  walPath: CODEX_DB_WAL_PATH,
-  label: "codex",
-});
-
-export { subscribeCodexDb };
+export function subscribeCodexDb(
+  executor: Executor,
+  dbPath: string,
+  walPath: string,
+  onChange: () => void,
+  onError: (err: unknown) => void,
+  log?: Logger,
+): () => void {
+  return subscribeExecutorWal(
+    { executor, dbPath, walPath, label: "codex" },
+    onChange,
+    onError,
+    log,
+  );
+}

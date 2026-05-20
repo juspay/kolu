@@ -1,16 +1,24 @@
 /**
- * Shared WAL watcher for OpenCode's database. Wraps anyagent's
- * `createWalSubscription` — the refcounted singleton, parent-dir
- * fallback, and promote-on-appearance dance all live upstream.
+ * Shared WAL watcher for OpenCode's database. Wraps kolu-io's executor WAL
+ * adapter — refcounting, parent-dir fallback, and re-arm semantics all live
+ * in the canonical shared SQLite watcher.
  */
 
-import { createWalSubscription } from "kolu-shared/sqlite";
-import { OPENCODE_DB_PATH, OPENCODE_DB_WAL_PATH } from "./config.ts";
+import { subscribeExecutorWal, type Executor } from "kolu-io";
+import type { Logger } from "kolu-shared";
 
-const { subscribe: subscribeOpenCodeDb } = createWalSubscription({
-  dbPath: OPENCODE_DB_PATH,
-  walPath: OPENCODE_DB_WAL_PATH,
-  label: "opencode",
-});
-
-export { subscribeOpenCodeDb };
+export function subscribeOpenCodeDb(
+  executor: Executor,
+  dbPath: string,
+  walPath: string,
+  onChange: () => void,
+  onError: (err: unknown) => void,
+  log?: Logger,
+): () => void {
+  return subscribeExecutorWal(
+    { executor, dbPath, walPath, label: "opencode" },
+    onChange,
+    onError,
+    log,
+  );
+}

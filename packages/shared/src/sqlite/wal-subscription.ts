@@ -54,6 +54,20 @@ interface WalListener {
   onError: (err: unknown) => void;
 }
 
+export interface WalWatchHandle {
+  stop(): void;
+}
+
+export type WalWatchTransport = (
+  path: string,
+  onChange: (relPath: string) => void,
+  opts?: { recursive?: boolean },
+) => WalWatchHandle | Promise<WalWatchHandle>;
+
+export type WalIdentityReader = (
+  path: string,
+) => string | null | Promise<string | null>;
+
 /** Shape of the factory's output — a single `subscribe` function that
  *  returns an unsubscribe. Intentionally narrow: callers only need to
  *  start a listener, and the factory's closure-private state handles
@@ -77,6 +91,14 @@ export interface WalSubscriptionConfig {
    *  can tell codex's WAL watcher apart from opencode's in combined
    *  logs. E.g. "codex", "opencode". */
   label: string;
+  /** Watch transport. Defaults to local `fs.watch`; executor-backed
+   *  integrations pass their own host transport while keeping the WAL
+   *  refcount/re-arm semantics centralized here. */
+  watch?: WalWatchTransport;
+  /** Return an identity token for the current WAL file, or null when it
+   *  is absent. Defaults to local `dev:ino`; remote transports may use a
+   *  host-specific token such as mtime when inode data is unavailable. */
+  identity?: WalIdentityReader;
 }
 
 /**
@@ -148,16 +170,37 @@ export function createWalSubscription(
   return { subscribe };
 }
 
-/** Try to attach an fs.watch directly to the WAL file. Returns the
+function localWatch(
+  target: string,
+  onChange: (relPath: string) => void,
+  opts?: { recursive?: boolean },
+): WalWatchHandle {
+  const watcher = fs.watch(
+    target,
+    { recursive: opts?.recursive ?? false },
+    (_event, filename) => onChange(filename ? filename.toString() : ""),
+  );
+  return { stop: () => watcher.close() };
+}
+
+function watchTransport(config: WalSubscriptionConfig): WalWatchTransport {
+  return config.watch ?? localWatch;
+}
+
+/** Try to attach a watch directly to the WAL file. Returns the
  *  watcher's cleanup function, or null if the file doesn't exist yet. */
-function tryWatchWal(
+async function tryWatchWal(
   onChange: () => void,
   config: WalSubscriptionConfig,
   log?: Logger,
-): (() => void) | null {
+): Promise<(() => void) | null> {
   try {
-    const w = fs.watch(config.walPath, () => onChange());
-    return () => w.close();
+    const handle = await watchTransport(config)(
+      config.walPath,
+      () => onChange(),
+      { recursive: false },
+    );
+    return () => handle.stop();
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
       // Non-ENOENT (EACCES, EMFILE, etc.) means state detection for
@@ -165,7 +208,7 @@ function tryWatchWal(
       // expected-absent condition. Log at error.
       log?.error(
         { err, path: config.walPath, label: config.label },
-        "WAL fs.watch failed",
+        "WAL watch failed",
       );
     }
     return null;
@@ -177,10 +220,23 @@ function tryWatchWal(
  *  replacement — a fresh WAL file with the same path but a different
  *  inode means SQLite checkpointed and the previous direct `fs.watch`
  *  is bound to a dead inode. */
-function walIdentity(
+async function walIdentity(
   config: WalSubscriptionConfig,
   log?: Logger,
-): string | null {
+): Promise<string | null> {
+  if (config.identity) {
+    try {
+      return await config.identity(config.walPath);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+        log?.error(
+          { err, path: config.walPath, label: config.label },
+          "WAL stat failed",
+        );
+      }
+      return null;
+    }
+  }
   try {
     const stat = fs.statSync(config.walPath);
     return `${stat.dev}:${stat.ino}`;
@@ -212,6 +268,8 @@ function installWalWatcher(
   // them in one nullable structure makes "armed vs not-armed" structural
   // rather than a paired-field convention.
   let direct: { cleanup: () => void; identity: string } | null = null;
+  let stopped = false;
+  let armSeq = 0;
 
   function closeDirect(): void {
     direct?.cleanup();
@@ -221,14 +279,20 @@ function installWalWatcher(
   /** Ensure the direct WAL watcher is attached to the current inode.
    *  Returns true if a watcher is now active, false if the WAL is
    *  gone (the directory watcher will pick the next recreate up). */
-  function armDirect(): boolean {
-    const nextIdentity = walIdentity(config, log);
+  async function armDirect(): Promise<boolean> {
+    const seq = ++armSeq;
+    const nextIdentity = await walIdentity(config, log);
+    if (stopped || seq !== armSeq) return false;
     if (!nextIdentity) {
       closeDirect();
       return false;
     }
     if (direct && direct.identity === nextIdentity) return true;
-    const nextCleanup = tryWatchWal(onChange, config, log);
+    const nextCleanup = await tryWatchWal(onChange, config, log);
+    if (stopped || seq !== armSeq) {
+      nextCleanup?.();
+      return false;
+    }
     if (!nextCleanup) {
       closeDirect();
       return false;
@@ -238,7 +302,7 @@ function installWalWatcher(
     return true;
   }
 
-  armDirect();
+  void armDirect();
 
   // Coalesce parent-directory events at `WAL_REARM_DEBOUNCE_MS` (50 ms)
   // so a flurry of file writes reported through the directory inode
@@ -252,41 +316,50 @@ function installWalWatcher(
   function runRearm(): void {
     rearmTimer = null;
     const hadDirect = direct !== null;
-    const hasDirect = armDirect();
-    // Kick — between the prior watcher closing and the new one
-    // arming, WAL writes may have been missed. The integration-level
-    // debounce absorbs duplicates if the direct watcher also fires.
-    if (hadDirect || hasDirect) onChange();
+    void armDirect().then((hasDirect) => {
+      if (stopped) return;
+      // Kick — between the prior watcher closing and the new one
+      // arming, WAL writes may have been missed. The integration-level
+      // debounce absorbs duplicates if the direct watcher also fires.
+      if (hadDirect || hasDirect) onChange();
+    });
   }
   function scheduleRearm(): void {
     if (rearmTimer) clearTimeout(rearmTimer);
     rearmTimer = setTimeout(runRearm, WAL_REARM_DEBOUNCE_MS);
   }
 
-  let dirWatcher: fs.FSWatcher | null = null;
+  let dirWatcher: WalWatchHandle | null = null;
   const dir = path.dirname(config.dbPath);
   const walBasename = path.basename(config.walPath);
-  try {
-    dirWatcher = fs.watch(dir, (_event, filename) => {
-      // Some platforms / fs types report `null` filenames. Stat
-      // unconditionally on null; otherwise filter to WAL-related
-      // events to avoid restat'ing on every unrelated dir mutation.
-      if (filename !== null && filename.toString() !== walBasename) return;
-      scheduleRearm();
+  void Promise.resolve()
+    .then(() =>
+      watchTransport(config)(dir, (filename) => {
+        // Some platforms / fs types report `null` filenames. Stat
+        // unconditionally on null; otherwise filter to WAL-related
+        // events to avoid restat'ing on every unrelated dir mutation.
+        if (filename !== "" && filename !== walBasename) return;
+        scheduleRearm();
+      }),
+    )
+    .then((handle) => {
+      if (stopped) handle.stop();
+      else dirWatcher = handle;
+    })
+    .catch((err) => {
+      // A watch failure on the parent directory means we can never
+      // recover from WAL inode replacement, so future state updates
+      // can silently disappear once the current direct watcher's
+      // inode is reaped. Error-level.
+      log?.error({ err, dir, label: config.label }, "db dir watch failed");
     });
-  } catch (err) {
-    // A watch failure on the parent directory means we can never
-    // recover from WAL inode replacement, so future state updates
-    // can silently disappear once the current direct watcher's
-    // inode is reaped. Error-level.
-    log?.error({ err, dir, label: config.label }, "db dir fs.watch failed");
-  }
   return () => {
+    stopped = true;
     if (rearmTimer) {
       clearTimeout(rearmTimer);
       rearmTimer = null;
     }
-    dirWatcher?.close();
+    dirWatcher?.stop();
     closeDirect();
   };
 }

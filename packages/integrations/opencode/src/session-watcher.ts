@@ -5,12 +5,14 @@
 import { agentInfoEqual, classifyByAwaiting } from "anyagent";
 import type { Executor } from "kolu-io";
 import type { Logger } from "kolu-shared";
+import { createDebounceWatcher } from "kolu-shared/sqlite";
 import {
   AWAITING_USER_TOOLS,
   type OpenCodeSession,
   parseMessageState,
 } from "./core.ts";
 import type { OpenCodeInfo, TaskProgress } from "./schemas.ts";
+import { subscribeOpenCodeDb } from "./wal-watcher.ts";
 
 const WAL_DEBOUNCE_MS = 150;
 
@@ -25,44 +27,15 @@ export function createOpenCodeWatcher(
   onChange: (info: OpenCodeInfo) => void,
   log?: Logger,
 ): OpenCodeWatcher {
-  let lastInfo: OpenCodeInfo | null = null;
-  let stopped = false;
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  let watchHandle: { stop(): void } | null = null;
-  let refreshInFlight = false;
-  let refreshPending = false;
+  const watcherContext = { session, executor };
 
-  async function refresh(): Promise<void> {
-    if (stopped) return;
-    if (refreshInFlight) {
-      refreshPending = true;
-      return;
-    }
-    refreshInFlight = true;
-    try {
-      const info = await readInfo();
-      if (stopped || info === null) return;
-      if (agentInfoEqual(info, lastInfo)) return;
-      log?.debug(
-        { state: info.state, model: info.model, session: info.sessionId },
-        "opencode state updated",
-      );
-      lastInfo = info;
-      onChange(info);
-    } finally {
-      refreshInFlight = false;
-      if (refreshPending && !stopped) {
-        refreshPending = false;
-        setTimeout(() => void refresh(), 0);
-      }
-    }
-  }
-
-  async function readInfo(): Promise<OpenCodeInfo | null> {
-    const latest = await latestMessage(session, executor, log);
+  async function readInfo(
+    ctx: typeof watcherContext,
+  ): Promise<OpenCodeInfo | null> {
+    const latest = await latestMessage(ctx.session, ctx.executor, log);
     if (!latest) {
       log?.debug(
-        { session: session.id },
+        { session: ctx.session.id },
         "no messages yet for opencode session",
       );
       return null;
@@ -72,22 +45,31 @@ export function createOpenCodeWatcher(
     if (!derived) return null;
     const state =
       derived.state === "thinking"
-        ? ((await runningToolsBucket(latest.id, session, executor, log)) ??
-          derived.state)
+        ? ((await runningToolsBucket(
+            latest.id,
+            ctx.session,
+            ctx.executor,
+            log,
+          )) ?? derived.state)
         : derived.state;
-    const taskProgress = await getSessionTaskProgress(session, executor, log);
+    const taskProgress = await getSessionTaskProgress(
+      ctx.session,
+      ctx.executor,
+      log,
+    );
     const summary =
-      (await getSessionTitle(session, executor, log)) ?? session.title;
+      (await getSessionTitle(ctx.session, ctx.executor, log)) ??
+      ctx.session.title;
     const contextTokens = await getLatestAssistantContextTokens(
-      session,
-      executor,
+      ctx.session,
+      ctx.executor,
       log,
     );
 
     return {
       kind: "opencode",
       state,
-      sessionId: session.id,
+      sessionId: ctx.session.id,
       model: derived.model,
       summary,
       taskProgress,
@@ -95,35 +77,32 @@ export function createOpenCodeWatcher(
     };
   }
 
-  function scheduleRefresh(): void {
-    if (stopped) return;
-    if (timer) clearTimeout(timer);
-    timer = setTimeout(() => {
-      timer = undefined;
-      void refresh();
-    }, WAL_DEBOUNCE_MS);
-  }
-
-  void executor
-    .watch(session.walPath, scheduleRefresh, { recursive: false })
-    .then((handle) => {
-      if (stopped) handle.stop();
-      else watchHandle = handle;
-    })
-    .catch((err) =>
-      log?.debug({ err, path: session.walPath }, "opencode WAL watch failed"),
-    );
-  void refresh();
-
-  return {
+  return createDebounceWatcher({
     session,
-    destroy(): void {
-      stopped = true;
-      if (timer) clearTimeout(timer);
-      watchHandle?.stop();
-      watchHandle = null;
+    label: "opencode: session",
+    debounceMs: WAL_DEBOUNCE_MS,
+    db: watcherContext,
+    subscribe: (onEvent, onError, plog) =>
+      subscribeOpenCodeDb(
+        executor,
+        session.dbPath,
+        session.walPath,
+        onEvent,
+        onError,
+        plog,
+      ),
+    refresh: readInfo,
+    isEqual: agentInfoEqual,
+    onChange: (info) => {
+      log?.debug(
+        { state: info.state, model: info.model, session: info.sessionId },
+        "opencode state updated",
+      );
+      onChange(info);
     },
-  };
+    logCtx: { session: session.id },
+    log,
+  });
 }
 
 async function queryRows(

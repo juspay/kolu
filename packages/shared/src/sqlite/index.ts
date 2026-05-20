@@ -13,4 +13,7 @@ export {
   createWalSubscription,
   type WalSubscription,
   type WalSubscriptionConfig,
+  type WalWatchHandle,
+  type WalWatchTransport,
+  type WalIdentityReader,
 } from "./wal-subscription.ts";

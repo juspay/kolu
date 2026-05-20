@@ -23,6 +23,7 @@ import {
 } from "./core.ts";
 import type { CodexInfo } from "./schemas.ts";
 import { createCodexWatcher } from "./session-watcher.ts";
+import { subscribeCodexDb } from "./wal-watcher.ts";
 
 export const codexProvider: AgentProvider<CodexSession, CodexInfo> = {
   kind: "codex",
@@ -55,22 +56,15 @@ export const codexProvider: AgentProvider<CodexSession, CodexInfo> = {
     async install(executor, onChange, onError, log) {
       const paths = await resolveCodexPaths(executor, log);
       if (!paths) return { stop: () => {} };
-      try {
-        return await executor.watch(
-          paths.walPath,
-          () => {
-            try {
-              onChange();
-            } catch (err) {
-              onError(err);
-            }
-          },
-          { recursive: false },
-        );
-      } catch (err) {
-        log.debug({ err, path: paths.walPath }, "codex WAL watch failed");
-        return { stop: () => {} };
-      }
+      const unsubscribe = subscribeCodexDb(
+        executor,
+        paths.dbPath,
+        paths.walPath,
+        onChange,
+        onError,
+        log,
+      );
+      return { stop: unsubscribe };
     },
   },
 };

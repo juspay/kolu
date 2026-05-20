@@ -10,6 +10,11 @@ export {
   type WatchHandle,
 } from "./executor.ts";
 
+export {
+  subscribeExecutorWal,
+  type ExecutorWalSubscriptionConfig,
+} from "./executor-wal.ts";
+
 export type { Host } from "./host.ts";
 
 export {
