@@ -65,9 +65,15 @@ export async function writeTextToClipboard(text: string): Promise<void> {
     try {
       await navigator.clipboard.writeText(text);
       return;
-    } catch {
+    } catch (err) {
       // Fall through to execCommand — navigator.clipboard can reject for
-      // reasons other than missing secure context (permission denied, etc.).
+      // reasons other than missing secure context (permission denied,
+      // document-not-focused, etc.). Log so the original rejection isn't
+      // invisible if the fallback also fails.
+      console.debug(
+        "navigator.clipboard.writeText rejected; trying execCommand fallback:",
+        err,
+      );
     }
   }
   const textarea = document.createElement("textarea");
