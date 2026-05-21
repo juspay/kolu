@@ -182,62 +182,81 @@
 
 <h2>The <code>Host</code> abstraction</h2>
 
-<p>One interface in <code>kolu-io</code>. Two implementations (<code>LocalHost</code>, <code>RemoteHost</code>) in <code>kolu-host</code>. Generic dispatch primitives — providers don't appear in the type.</p>
+<p><strong>Generic interface in <code>kolu-io</code> (domain-free). Concrete discriminated unions in <code>kolu-host</code>.</strong> This split keeps <code>kolu-io</code> a library-shaped leaf — it has zero knowledge of git, agents, or any other domain. Adding a new provider = adding a variant in <code>kolu-host</code>'s unions, never editing <code>kolu-io</code>.</p>
 
-<div class="diagram">// packages/integrations/io/src/host.ts  (new in P1)
+<div class="diagram">// packages/integrations/io/src/host.ts — generic, domain-free
 
 import type { PtyHandle, SpawnPtyOpts } from "kolu-pty";
 
-export interface HostLogger {
-  debug(obj: Record&lt;string, unknown&gt;, msg: string): void;
-  info(obj: Record&lt;string, unknown&gt;, msg: string): void;
-  warn(obj: Record&lt;string, unknown&gt;, msg: string): void;
-  error(obj: Record&lt;string, unknown&gt;, msg: string): void;
+export interface HostLogger { debug, info, warn, error: ... }
+export interface Subscription { stop(): void }
+
+/** Host — generic transport-identity abstraction.
+ *  Type parameters define the closed set of subscriptions and invokes
+ *  a concrete Host supports. kolu-host declares the concrete bindings
+ *  (KoluHost = Host&lt;SubscriptionRequest, SubscriptionEventMap, InvokeRequest,
+ *  InvokeResultMap&gt;); consumers work in terms of KoluHost and get full
+ *  inference on host.subscribe({ kind: "git", cwd }) etc. */
+export interface Host&lt;
+  SubReq extends { kind: string },
+  SubEventMap extends Record&lt;SubReq["kind"], unknown&gt;,
+  InvReq extends { kind: string },
+  InvResultMap extends Record&lt;InvReq["kind"], unknown&gt;,
+&gt; {
+  readonly id: string;
+  readonly label: string;
+  readonly kind: "local" | "remote-ssh";
+  spawnPty(log: HostLogger, opts: SpawnPtyOpts): Promise&lt;PtyHandle&gt;;
+  subscribe&lt;R extends SubReq&gt;(
+    req: R,
+    onEvent: (event: SubEventMap[R["kind"]]) =&gt; void,
+    log: HostLogger,
+  ): Subscription;
+  invoke&lt;R extends InvReq&gt;(req: R): Promise&lt;InvResultMap[R["kind"]]&gt;;
+  shutdown(): Promise&lt;void&gt;;
 }
 
-export interface Subscription {
-  stop(): void;
-}
+// packages/integrations/host/src/requests.ts — concrete unions live here
 
-/** Discriminated union of every subscription the system supports. Adding
- *  a new subscription kind = one variant here + one case in LocalHost.subscribe
- *  + one case in kolu-remote-server's handler table. */
 export type SubscriptionRequest =
   | { kind: "git"; cwd: string }
-  | { kind: "agent.claude-code"; terminalId: string; state: AgentTerminalState }
-  | { kind: "agent.codex";       terminalId: string; state: AgentTerminalState }
-  | { kind: "agent.opencode";    terminalId: string; state: AgentTerminalState }
-  | { kind: "foreground";        terminalId: string };
+  | { kind: "agent";
+      provider: "claude-code" | "codex" | "opencode";
+      terminalId: string;
+      state: AgentTerminalState }
+  | { kind: "foreground";
+      terminalId: string;
+      sshPid: number }  // LocalHost ignores; RemoteHost /proc-walks via this
 
-/** Discriminated union of one-shot commands the system supports. */
+export type SubscriptionEventMap = {
+  git: GitInfo | null;
+  agent: ClaudeCodeInfo | CodexInfo | OpenCodeInfo | null;
+  foreground: { pid: number; name: string; pgid: number };
+};
+
 export type InvokeRequest =
   | { kind: "git.worktreeCreate"; repo: string; name: string }
   | { kind: "git.worktreeRemove"; path: string }
   | { kind: "fs.readFile";        path: string; maxBytes?: number }
   | { kind: "fs.listDir";         path: string };
 
-export interface Host {
-  readonly id: string;                              // "local" or SSH alias
-  readonly label: string;
-  readonly kind: "local" | "remote-ssh";
-  spawnPty(log: HostLogger, opts: SpawnPtyOpts): Promise&lt;PtyHandle&gt;;
-  subscribe&lt;R extends SubscriptionRequest&gt;(
-    req: R,
-    onEvent: (event: EventOf&lt;R&gt;) =&gt; void,
-    log: HostLogger,
-  ): Subscription;
-  invoke&lt;R extends InvokeRequest&gt;(req: R): Promise&lt;ResultOf&lt;R&gt;&gt;;
-  shutdown(): Promise&lt;void&gt;;
-}</div>
+export type InvokeResultMap = { ... };
+
+export type KoluHost = Host&lt;
+  SubscriptionRequest, SubscriptionEventMap,
+  InvokeRequest, InvokeResultMap
+&gt;;</div>
 
 <p>Two impls in <code>kolu-host</code>:</p>
 
 <ul>
-  <li><strong><code>LocalHost</code></strong> (P1): <code>spawnPty</code> calls <code>kolu-pty</code>'s <code>spawnPty</code> directly. <code>subscribe</code> matches on <code>req.kind</code> and calls the relevant provider's in-process subscribe function (<code>subscribeGitInfo</code>, <code>subscribeClaudeCodeSession</code>, etc.), wiring its callback to <code>onEvent</code>. <code>invoke</code> matches on <code>req.kind</code> and calls the relevant one-shot function (<code>worktreeCreate</code>, etc.).</li>
-  <li><strong><code>RemoteHost</code></strong> (P3): <code>spawnPty</code> calls <code>kolu-pty</code>'s <code>spawnPty</code> with <code>program: "ssh"</code> and <code>args: [...sshOpts, host, "-t", remoteCmd]</code>. <code>subscribe</code> sends a streaming RPC request to <code>kolu-remote-server</code>; events come back as wire envelopes, get decoded, fired into <code>onEvent</code>. <code>invoke</code> sends a request/response RPC.</li>
+  <li><strong><code>LocalHost</code></strong> (R3): <code>spawnPty</code> calls <code>kolu-pty</code>'s <code>spawnPty</code> directly. <code>subscribe</code> uses a <code>switch (req.kind)</code> with <code>assertNever</code> exhaustiveness (compile error if a variant is added without a dispatch arm), calling the relevant provider's in-process subscribe function. <code>invoke</code> same pattern for one-shots.</li>
+  <li><strong><code>RemoteHost</code></strong> (F1): <code>spawnPty</code> calls <code>kolu-pty</code>'s <code>spawnPty</code> with <code>program: "ssh"</code> and <code>args: [...sshOpts, host, "-t", remoteCmd]</code>. <code>subscribe</code> sends a streaming RPC to <code>kolu-remote-server</code>; events flow back as wire envelopes. <code>invoke</code> sends request/response.</li>
 </ul>
 
 <p><strong>The providers never see <code>Host</code>.</strong> They keep their existing signatures (<code>subscribeGitInfo(cwd, onChange, log)</code>, etc.). <code>LocalHost</code> calls them directly; <code>kolu-remote-server</code> calls them on the remote.</p>
+
+<div class="footnote"><span class="label">Design review</span> The <code>Host</code> shape went through a hickey + lowy review pass that caught a structural smell in the first draft: discriminated unions placed in <code>kolu-io</code>, making it depend on every domain package. The fix here — generic Host in kolu-io + concrete unions in kolu-host — keeps kolu-io domain-free. Other findings folded in: collapsed three <code>agent.*</code> variants into one with <code>provider</code> discriminator (saves three-site → two-site update rule); added <code>sshPid</code> to the foreground variant (without it RemoteHost can't resolve the remote shell PID — was a latent F1 runtime defect); activation/dedup registry moves to LocalHost (volatility-correct — separates dedup policy from reconcile orchestration).</div>
 
 <h2>Wire protocol</h2>
 
@@ -252,7 +271,16 @@ const FrameSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("event"),    respondingTo: z.number(), payload: z.unknown() }),
   z.object({ kind: z.literal("endStream"),respondingTo: z.number() }),
   z.object({ kind: z.literal("ping") }),
-]);</div>
+]);
+
+// Type aliases to disambiguate the three concerns the union braids:
+//   - one-shot RPC:  request, response, error
+//   - streaming:     request, event…, endStream
+//   - keepalive:     ping
+// No wire change — consumers narrow via these aliases for clarity.
+export type OneShotFrame    = Extract&lt;Frame, { kind: "request" | "response" | "error" }&gt;;
+export type StreamFrame     = Extract&lt;Frame, { kind: "request" | "event" | "endStream" }&gt;;
+export type TransportFrame  = Extract&lt;Frame, { kind: "ping" }&gt;;</div>
 
 <p>RPC patterns:</p>
 
