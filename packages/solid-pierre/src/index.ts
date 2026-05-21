@@ -7,6 +7,7 @@ export { ancestorDirectoryPaths, FileTree } from "./FileTree";
 export type { FileTreeProps } from "./FileTree";
 export { CodeView } from "./CodeView";
 export type { CodeViewProps } from "./CodeView";
+export { diffItem, fileItem } from "./codeViewItem";
 
 // Re-export Pierre types consumers commonly need to type prop callbacks
 // without reaching into `@pierre/*` directly.

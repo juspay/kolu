@@ -18,9 +18,9 @@ import {
   CodeView,
   type CodeViewItem,
   type CodeViewLineSelection,
+  diffItem,
   FileTree,
 } from "@kolu/solid-pierre";
-import { parsePatchFiles } from "@pierre/diffs";
 import type { GitDiffMode } from "kolu-git/schemas";
 import { makePersisted } from "@solid-primitives/storage";
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
@@ -646,12 +646,8 @@ const CodeTab: Component<{
                           // #809 / #514 Phase 8) — no separate scroll context
                           // component required.
                           const items = createMemo<CodeViewItem[]>(() => {
-                            const fileDiff = parsePatchFiles(
-                              d().hunks[0] ?? "",
-                            )[0]?.files[0];
-                            return fileDiff
-                              ? [{ id: path, type: "diff", fileDiff }]
-                              : [];
+                            const item = diffItem(path, d().hunks[0] ?? "");
+                            return item ? [item] : [];
                           });
                           return (
                             <CommentTextSurface

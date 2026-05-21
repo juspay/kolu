@@ -11,6 +11,7 @@ import {
   CodeView,
   type CodeViewItem,
   type CodeViewLineSelection,
+  fileItem,
   type SelectedLineRange,
 } from "@kolu/solid-pierre";
 import { type Component, createMemo, Show } from "solid-js";
@@ -38,11 +39,7 @@ const BrowseFileView: Component<BrowseFileViewProps> = (props) => {
   // virtualization, version-tracked content updates, and selection — Pierre
   // doesn't distinguish the single-item case at the API boundary.
   const items = createMemo<CodeViewItem[]>(() => [
-    {
-      id: props.filePath,
-      type: "file",
-      file: { name: props.filePath, contents: props.content },
-    },
+    fileItem(props.filePath, props.filePath, props.content),
   ]);
 
   return (
