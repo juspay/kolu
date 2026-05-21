@@ -36,7 +36,14 @@ export const diffItem = (
     onError(toError(e));
     return undefined;
   }
-  return fileDiff ? { id, type: "diff", fileDiff } : undefined;
+  // Non-empty input that parsed to no file entry is a malformed-diff
+  // signal, not "no changes to show" — surface it so the user sees a
+  // toast rather than a blank pane indistinguishable from "loading".
+  if (!fileDiff) {
+    onError(new Error(`No file entry parsed from diff for ${id}`));
+    return undefined;
+  }
+  return { id, type: "diff", fileDiff };
 };
 
 export const fileItem = (
