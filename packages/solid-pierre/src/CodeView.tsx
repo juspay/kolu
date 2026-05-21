@@ -140,11 +140,20 @@ export const CodeView: Component<CodeViewProps> = (props) => {
   onMount(() => {
     safeApply(() => {
       instance = new CodeViewClass(buildOptions());
+      // `setup(root)` ends with an internal `render(true)` against zero
+      // items, then `setItems(...)` queues a *separate* render for the
+      // next frame. On a slow host that one-frame gap stretches and the
+      // e2e text-poll on `pierre-file-view` / `pierre-diff-view` can
+      // time out before the content paints. Forcing an immediate render
+      // after `setItems` collapses the two-step into one synchronous
+      // paint at mount time. Subsequent updates go through the queued
+      // path normally.
       instance.setup(root);
       instance.setItems(versionedItems(props.items));
       if (props.selectedLines !== undefined) {
         instance.setSelectedLines(props.selectedLines);
       }
+      instance.render(true);
     }, props.onError);
   });
 
