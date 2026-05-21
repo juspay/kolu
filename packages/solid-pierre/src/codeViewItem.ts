@@ -31,6 +31,10 @@ export const diffItem = (
   if (!rawDiff) return undefined;
   let fileDiff: FileDiffMetadata | undefined;
   try {
+    // Pierre's `parsePatchFiles` returns `ParsedPatch[]`, each with a
+    // `files: FileDiffMetadata[]`. Kolu's server emits one hunk string
+    // per file (`GitDiffOutputSchema.hunks` — single per-file patch),
+    // so the first patch's first file is the only entry we care about.
     fileDiff = parsePatchFiles(rawDiff)[0]?.files[0];
   } catch (e) {
     onError(toError(e));
