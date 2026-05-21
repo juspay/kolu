@@ -7,21 +7,35 @@
  *    per file via `getDiff`) and runs Pierre's `parsePatchFiles` to extract
  *    the single `FileDiffMetadata`. Returns `undefined` for empty / malformed
  *    diffs so the caller can render a placeholder instead of a broken item.
+ *    Parse throws (Pierre's parser is defensive but the contract is not
+ *    formally `never-throws`) are routed through the optional `onError`
+ *    callback so a malformed header surfaces in the same toast lane as
+ *    Pierre's render-time throws — silent swallowing would leave a blank
+ *    pane indistinguishable from "no diff for this file".
  *  - `fileItem` packages a filename + body string into Pierre's `FileContents`
  *    shape. */
 
 import {
   type CodeViewDiffItem,
   type CodeViewFileItem,
+  type FileDiffMetadata,
   parsePatchFiles,
 } from "@pierre/diffs";
+import { toError } from "./toError";
 
 export const diffItem = (
   id: string,
   rawDiff: string,
+  onError?: (err: Error) => void,
 ): CodeViewDiffItem | undefined => {
   if (!rawDiff) return undefined;
-  const fileDiff = parsePatchFiles(rawDiff)[0]?.files[0];
+  let fileDiff: FileDiffMetadata | undefined;
+  try {
+    fileDiff = parsePatchFiles(rawDiff)[0]?.files[0];
+  } catch (e) {
+    onError?.(toError(e));
+    return undefined;
+  }
   return fileDiff ? { id, type: "diff", fileDiff } : undefined;
 };
 

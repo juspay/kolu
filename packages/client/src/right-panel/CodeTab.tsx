@@ -646,7 +646,14 @@ const CodeTab: Component<{
                           // #809 / #514 Phase 8) — no separate scroll context
                           // component required.
                           const items = createMemo<CodeViewItem[]>(() => {
-                            const item = diffItem(path, d().hunks[0] ?? "");
+                            const item = diffItem(
+                              path,
+                              d().hunks[0] ?? "",
+                              (err) =>
+                                toast.error(
+                                  `Diff parse failed: ${err.message}`,
+                                ),
+                            );
                             return item ? [item] : [];
                           });
                           return (
