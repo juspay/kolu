@@ -38,9 +38,8 @@ export const CommentsTray: Component<CommentsTrayProps> = (props) => {
       );
       store().clear();
     } catch (err) {
-      toast.error(
-        `Failed to copy: ${(err as Error).message ?? "clipboard rejected"}`,
-      );
+      console.error("Failed to copy comments:", err);
+      toast.error(`Failed to copy: ${(err as Error).message}`);
     }
   };
 
