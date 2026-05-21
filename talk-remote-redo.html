@@ -324,35 +324,51 @@ const FrameSchema = z.discriminatedUnion("kind", [
 
 <h2>Phases</h2>
 
+<p>Following the project convention: <strong>Rn = standalone refactor PRs that improve master independently of the feature</strong>; <strong>Fn = feature PRs that target the <code>remote-terminal</code> branch off master, accumulating until the branch merges back to master as the feature delivery.</strong> R1 (#944) and R2 (#945) already shipped; the new plan adds R3 + R4 ahead of any feature work.</p>
+
+<h3>Refactor phases (land to master ahead of the feature)</h3>
+
 <table>
   <thead><tr><th>Phase</th><th>Scope</th><th>Functional change?</th><th>Size</th></tr></thead>
   <tbody>
     <tr class="new-pkg">
-      <td><strong>P1</strong></td>
-      <td>Add <code>Host</code> interface to <code>kolu-io</code>. Create new <code>kolu-host</code> package with <code>LocalHost</code> + registry. <code>LocalHost.subscribe</code> dispatches to in-process provider subscribe functions; <code>LocalHost.invoke</code> dispatches to one-shot functions. <code>terminals.ts</code> calls <code>getHost(hostId).spawnPty(...)</code> via the registry (only <code>"local"</code> resolves for now). Persist <code>hostId</code> on terminal metadata (default <code>"local"</code>).</td>
-      <td class="cross">Internal restructure only — UI unchanged; tests pass identically</td>
+      <td><strong>R3</strong></td>
+      <td>Introduce the <code>Host</code> abstraction with a local-only impl. Add <code>Host</code> + <code>SubscriptionRequest</code> + <code>InvokeRequest</code> + <code>Subscription</code> types to <code>kolu-io</code>. Create new <code>kolu-host</code> package with <code>LocalHost</code> (dispatches <code>subscribe</code> / <code>invoke</code> to the in-process provider functions) + <code>registry.getHost("local")</code>. Refactor <code>kolu-server</code>'s <code>terminals.ts</code> to call <code>getHost(hostId).spawnPty(...)</code> via the registry — only <code>"local"</code> resolves for now. Persist <code>hostId</code> on terminal metadata (defaults to <code>"local"</code>). RPC contract gains <code>hostId</code> on <code>TerminalCreateInput</code>; defaults preserve every existing call site.</td>
+      <td class="cross">None — UI unchanged, tests pass identically. Server now spawns local PTYs via a host indirection, but the indirection only has one impl.</td>
       <td class="num">~+400 new<br>~+80 modified</td>
     </tr>
     <tr class="modified">
-      <td><strong>P2</strong></td>
-      <td>Rewire <code>meta/git.ts</code> and <code>meta/agent.ts</code> to dispatch via <code>host.subscribe(...)</code> instead of calling provider subscribe functions directly. For local terminals, <code>LocalHost</code>'s subscribe path is structurally identical to today's call. Per-host activation registry moves to <code>LocalHost</code>.</td>
-      <td class="cross">Internal restructure only — same observable behaviour for local terminals</td>
-      <td class="num">~+150 modified</td>
+      <td><strong>R4</strong></td>
+      <td>Rewire <code>meta/git.ts</code> and <code>meta/agent.ts</code> to dispatch metadata subscriptions via <code>host.subscribe(...)</code> instead of calling provider <code>subscribe*</code> functions directly. <code>LocalHost.subscribe</code>'s match arms wrap the existing provider subscribe functions; the orchestrator code path becomes "look up the host, ask it to subscribe." Per-host activation/dedup logic moves into <code>LocalHost</code>'s internal registry (one underlying watcher per <code>(kind, params)</code>, fan out to N orchestrator subscribers). All existing local-terminal behavior unchanged.</td>
+      <td class="cross">None — same observable behavior for every existing terminal. Metadata events flow through one more layer of indirection.</td>
+      <td class="num">~+150/−80 modified<br><span class="cite">across <code>meta/{git,agent}.ts</code> + <code>kolu-host</code></span></td>
     </tr>
+  </tbody>
+</table>
+
+<p>Both R3 and R4 are mechanical refactors with no functional change. Each lands to master directly (not the feature branch) and stands on its own — the master codebase becomes more amenable to a future remote-terminal feature, even if the feature never ships. Reviewers verify "tests still pass."</p>
+
+<p>If R3 + R4 are too bundled to review together, they can land as separate PRs (R3 first, then R4 on top). They can also bundle into one PR if the reviewer prefers a single cohesive "introduce host indirection" change.</p>
+
+<h3>Feature phases (land to <code>remote-terminal</code> branch off master)</h3>
+
+<table>
+  <thead><tr><th>Phase</th><th>Scope</th><th>Functional change?</th><th>Size</th></tr></thead>
+  <tbody>
     <tr class="new-pkg">
-      <td><strong>P3</strong></td>
-      <td>Create new <code>kolu-remote</code> package: <code>protocol.ts</code> (envelope Zod schemas), <code>rpc-client.ts</code> (NDJSON-over-SSH-stdio request/response/stream framing), <code>ssh-config.ts</code> (parse <code>~/.ssh/config</code>), <code>build-command.ts</code> (<code>CommandTemplate { program, args, env }</code> builder with ControlMaster opts), <code>bin/kolu-remote-server</code> (node daemon that imports the four integration packages and exposes subscribe/invoke handlers). Add <code>RemoteHost</code> in <code>kolu-host</code>. Wire <code>readSshHosts()</code> into registry. Add <code>host.list</code> RPC + host axis in palette. Nix deployment: <code>nix copy --derivation</code> the controller's closure.</td>
-      <td class="check">User-visible: remote PTYs work end-to-end with full metadata parity (branch chip, agent badges, Code-tab) on the first PR that ships this.</td>
-      <td class="num">~+1,200<br><span class="cite">~80% new pkg, ~20% kolu-host extensions</span></td>
+      <td><strong>F1</strong></td>
+      <td>Create the new <code>kolu-remote</code> package: <code>protocol.ts</code> (envelope Zod schemas — request / response / event / endStream / ping), <code>rpc-client.ts</code> (NDJSON-over-SSH-stdio framing, request/response/stream tracking), <code>ssh-config.ts</code> (parse <code>~/.ssh/config</code>), <code>build-command.ts</code> (<code>CommandTemplate { program, args, env }</code> with ControlMaster opts), <code>bin/kolu-remote-server</code> (the node daemon — imports the four integration packages unchanged, exposes subscribe/invoke handlers, per-resource dedup, foreground-PID tracking via <code>/proc</code>, rcfile-on-temp helper). Add <code>RemoteHost</code> in <code>kolu-host</code> (uses kolu-remote's RPC client + builds ssh as PTY program via kolu-pty). Wire <code>readSshHosts()</code> into the registry. Add <code>host.list</code> RPC + host axis in the "New terminal" palette. Nix deployment via <code>nix copy --derivation</code>.</td>
+      <td class="check">User-visible: remote PTYs work end-to-end with full metadata parity (branch chip, agent badges, Code-tab read, worktree ops) on the first merge.</td>
+      <td class="num">~+1,200<br><span class="cite">~80% new pkg, ~20% kolu-host extensions for RemoteHost</span></td>
     </tr>
     <tr class="modified">
-      <td><strong>P4</strong></td>
-      <td>Reliability: RPC channel auto-reconnects on SSH drop. Per-subscription snapshot-on-reconnect (daemon re-emits current state as a fresh event so the controller doesn't render stale data). <code>ControlPersist=10m</code> + periodic <code>ping</code> on idle.</td>
+      <td><strong>F2</strong></td>
+      <td>Reliability: RPC channel auto-reconnects on SSH drop. Per-subscription snapshot-on-reconnect (daemon re-emits current state so the controller doesn't render stale data after a blip). <code>ControlPersist=10m</code> + periodic <code>ping</code> on idle. All inside <code>kolu-remote</code>.</td>
       <td class="check">Metadata channel survives SSH blips; long-running watchers don't tear down on every reconnect.</td>
       <td class="num">~+200, all in <code>kolu-remote</code></td>
     </tr>
     <tr class="modified">
-      <td><strong>P5</strong></td>
+      <td><strong>F3</strong></td>
       <td>UX polish: SSH chip on remote tiles, "Connecting to <code>&lt;host&gt;</code>…" placeholder, eager tile rendering (return the placeholder synchronously; swap in the real handle when ssh authenticates).</td>
       <td class="check">Cosmetic</td>
       <td class="num">~+200, all in <code>client/</code></td>
@@ -360,13 +376,23 @@ const FrameSchema = z.discriminatedUnion("kind", [
   </tbody>
 </table>
 
-<p>Five phases, five PRs (P3 is the only large one). Each targets <code>remote-terminal</code> branch off master; the branch merges to master once P1-P5 are complete. The plan PR (this one, #946) tracks design only.</p>
+<p>Two refactor PRs (R3, R4) land to master ahead of the feature work. Three feature PRs (F1, F2, F3) land to the <code>remote-terminal</code> branch; F1 is the only large one. The plan PR (this one, #946) tracks design only.</p>
+
+<h3>Why this partition</h3>
+
+<p>The R-vs-F split has the same payoff here as it did for R1+R2:</p>
+
+<ul>
+  <li><strong>Each refactor improves master regardless of whether the feature ships.</strong> R3's <code>Host</code> indirection is a clean abstraction for "where does this PTY run?" even if every host is local. R4's via-Host metadata dispatch is a small move toward a more uniform orchestrator, useful even in the local-only world.</li>
+  <li><strong>The feature PR (F1) is smaller because R3+R4 already exist.</strong> F1 just adds the SSH transport + remote daemon + a second <code>Host</code> impl that satisfies the interface R3 set up. No "rewire the entire orchestrator while also introducing remote" mega-PR.</li>
+  <li><strong>Reviewer cost is partitioned correctly.</strong> R3+R4 are "did anything break?" reviews; F1 is the "is the new functionality correct?" review.</li>
+</ul>
 
 <h3>What's NOT in the phasing</h3>
 
 <p>No "thread executor through kolu-git" phase. No "thread executor through agent providers" phase. No async cascade in the integration packages. Those phases existed in earlier drafts of this plan when the architecture was "abstract the IO substrate"; under the run-providers-on-remote model they are unnecessary.</p>
 
-<div class="footnote"><span class="label">Why we abandoned the executor approach</span> Earlier drafts had P1-P3 threading an <code>Executor</code> parameter through every IO-bearing function in kolu-git and the agent providers, with the remote daemon serving as a thin RPC shim for that IO. Two implementing PRs (#948, #949) showed the real cost: ~2,500 lines of churn across the integration packages, plus async-cascade race conditions that forced state-machine rewrites in the watcher code. The "just thread executor" framing turned out to require structural rewrites in code that should be untouched. The run-providers-on-remote model — Zed's approach — moves the substrate seam <em>outside</em> the integration packages: the daemon runs them, the controller talks to the daemon. Integration code is unchanged. See <code>.apm/skills/zed/SKILL.md</code> for the architectural reasoning.</div>
+<div class="footnote"><span class="label">Why we abandoned the executor approach</span> Earlier drafts had F1-F3 threading an <code>Executor</code> parameter through every IO-bearing function in kolu-git and the agent providers, with the remote daemon serving as a thin RPC shim for that IO. Two implementing PRs (#948, #949) showed the real cost: ~2,500 lines of churn across the integration packages, plus async-cascade race conditions that forced state-machine rewrites in the watcher code. The "just thread executor" framing turned out to require structural rewrites in code that should be untouched. The run-providers-on-remote model — Zed's approach — moves the substrate seam <em>outside</em> the integration packages: the daemon runs them, the controller talks to the daemon. Integration code is unchanged. See <code>.apm/skills/zed/SKILL.md</code> for the architectural reasoning.</div>
 
 <h2>The <code>kolu-remote-server</code> daemon</h2>
 
