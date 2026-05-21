@@ -161,12 +161,15 @@ export const CodeView: Component<CodeViewProps> = (props) => {
 
   // A theme toggle (or any other option flip) lands on the existing
   // instance — no reconstruct needed. `setOptions` rebuilds the per-item
-  // option wrappers internally.
+  // option wrappers internally. Tracking `buildOptions` itself (rather
+  // than an explicit deps array) means whatever it reads becomes the
+  // tracked set automatically — the two cannot drift if a new option
+  // is added to `buildOptions` later. Pierre's `setOptions` is
+  // idempotent on identical input, so any incidental re-fire is harmless.
   createEffect(
     on(
-      () => [props.theme, props.diffStyle, props.overflow] as const,
-      () =>
-        safeApply(() => instance?.setOptions(buildOptions()), props.onError),
+      buildOptions,
+      (opts) => safeApply(() => instance?.setOptions(opts), props.onError),
       { defer: true },
     ),
   );
