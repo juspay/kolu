@@ -17,9 +17,9 @@ import Resizable from "@corvu/resizable";
 import {
   CodeView,
   type CodeViewItem,
-  type CodeViewLineSelection,
   diffItem,
   FileTree,
+  useCodeViewSelection,
 } from "@kolu/solid-pierre";
 import type { GitDiffMode } from "kolu-git/schemas";
 import { makePersisted } from "@solid-primitives/storage";
@@ -667,17 +667,10 @@ const CodeTab: Component<{
                                 }}
                               >
                                 {(selection) => {
-                                  // Pair the controller's path-less range
-                                  // with the active item id to produce
-                                  // Pierre's item-scoped selection.
                                   const codeViewSelection =
-                                    createMemo<CodeViewLineSelection | null>(
-                                      () => {
-                                        const r = selection.range();
-                                        return r
-                                          ? { id: path, range: r }
-                                          : null;
-                                      },
+                                    useCodeViewSelection(
+                                      () => path,
+                                      selection.range,
                                     );
                                   return (
                                     <CodeView

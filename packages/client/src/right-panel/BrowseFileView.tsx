@@ -10,9 +10,9 @@
 import {
   CodeView,
   type CodeViewItem,
-  type CodeViewLineSelection,
   fileItem,
   type SelectedLineRange,
+  useCodeViewSelection,
 } from "@kolu/solid-pierre";
 import { type Component, createMemo, Show } from "solid-js";
 import { toast } from "solid-sonner";
@@ -60,13 +60,9 @@ const BrowseFileView: Component<BrowseFileViewProps> = (props) => {
           initialSelectedLines={props.initialSelectedLines}
         >
           {(lineSelection) => {
-            // Pair the controller's path-less `SelectedLineRange` with the
-            // active item's id to produce Pierre's item-scoped selection.
-            const codeViewSelection = createMemo<CodeViewLineSelection | null>(
-              () => {
-                const r = lineSelection.range();
-                return r ? { id: props.filePath, range: r } : null;
-              },
+            const codeViewSelection = useCodeViewSelection(
+              () => props.filePath,
+              lineSelection.range,
             );
             return (
               <CodeView
