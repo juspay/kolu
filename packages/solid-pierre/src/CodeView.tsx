@@ -29,7 +29,7 @@ import {
   onCleanup,
   onMount,
 } from "solid-js";
-import { toError } from "./toError";
+import { safeApply } from "./safeApply";
 
 export type CodeViewProps = {
   /** The items to render — files, diffs, or a mix. Pierre virtualizes across
@@ -127,14 +127,6 @@ export const CodeView: Component<CodeViewProps> = (props) => {
     onSelectedLinesChange: (s) => props.onSelectedLinesChange?.(s),
   });
 
-  const safeApply = (fn: () => void) => {
-    try {
-      fn();
-    } catch (e) {
-      props.onError(toError(e));
-    }
-  };
-
   onMount(() => {
     safeApply(() => {
       instance = new CodeViewClass(buildOptions());
@@ -143,13 +135,17 @@ export const CodeView: Component<CodeViewProps> = (props) => {
       if (props.selectedLines !== undefined) {
         instance.setSelectedLines(props.selectedLines);
       }
-    });
+    }, props.onError);
   });
 
   createEffect(
     on(
       () => props.items,
-      (items) => safeApply(() => instance?.setItems(versionedItems(items))),
+      (items) =>
+        safeApply(
+          () => instance?.setItems(versionedItems(items)),
+          props.onError,
+        ),
       { defer: true },
     ),
   );
@@ -157,7 +153,8 @@ export const CodeView: Component<CodeViewProps> = (props) => {
   createEffect(
     on(
       () => props.selectedLines,
-      (s) => safeApply(() => instance?.setSelectedLines(s ?? null)),
+      (s) =>
+        safeApply(() => instance?.setSelectedLines(s ?? null), props.onError),
       { defer: true },
     ),
   );
@@ -168,7 +165,8 @@ export const CodeView: Component<CodeViewProps> = (props) => {
   createEffect(
     on(
       () => [props.theme, props.diffStyle, props.overflow] as const,
-      () => safeApply(() => instance?.setOptions(buildOptions())),
+      () =>
+        safeApply(() => instance?.setOptions(buildOptions()), props.onError),
       { defer: true },
     ),
   );
