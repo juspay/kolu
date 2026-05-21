@@ -28,7 +28,7 @@ import {
   Show,
 } from "solid-js";
 import { match } from "ts-pattern";
-import { copyTextWithToast, SafeClipboardProvider } from "./clipboard";
+import { copyTextWithToast, SafeClipboardProvider } from "../ui/clipboard";
 import "@xterm/xterm/css/xterm.css";
 import type { TerminalId } from "kolu-common/surface";
 import { DEFAULT_SCROLLBACK } from "kolu-common/config";

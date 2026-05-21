@@ -6,11 +6,11 @@
 import Dialog from "@corvu/dialog";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, createMemo, For, Show } from "solid-js";
-import { toast } from "solid-sonner";
 import { serverProcessId, wsStatus } from "./rpc/rpc";
 import { getTerminalRefs } from "./terminal/terminalRefs";
 import { getDiagnostics } from "./terminal/useTerminalDiagnostics";
 import { webglLifecycleSnapshot } from "./terminal/webglTracker";
+import { copyTextWithToast } from "./ui/clipboard";
 import ModalDialog, { refocusTerminal } from "./ui/ModalDialog";
 import Row from "./ui/Row";
 import Section from "./ui/Section";
@@ -115,10 +115,10 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
   });
 
   function copyJson() {
-    void navigator.clipboard
-      .writeText(JSON.stringify(snapshot(), null, 2))
-      .then(() => toast.success("Diagnostic info copied"))
-      .catch((err: Error) => toast.error(`Failed to copy: ${err.message}`));
+    void copyTextWithToast(JSON.stringify(snapshot(), null, 2), {
+      success: "Diagnostic info copied",
+      failure: "Failed to copy diagnostic info",
+    });
   }
 
   return (

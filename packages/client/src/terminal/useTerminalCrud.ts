@@ -13,7 +13,7 @@ import { availableThemes, pickTheme, resolveThemeBgs } from "terminal-themes";
 import { CONTEXTUAL_TIPS } from "../settings/tips";
 import { client, preferences } from "../wire";
 import { useTips } from "../settings/useTips";
-import { copyTextWithToast } from "./clipboard";
+import { copyTextWithToast } from "../ui/clipboard";
 import { useSubPanel } from "./useSubPanel";
 import type { TerminalStore } from "./useTerminalStore";
 
