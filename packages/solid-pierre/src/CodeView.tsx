@@ -78,6 +78,34 @@ type VersionEntry = { ref: unknown; version: number };
 const contentRefOf = (item: CodeViewItem): unknown =>
   item.type === "diff" ? item.fileDiff : item.file;
 
+/** Pure transform: stamp each item with a `version` derived from `current`.
+ *  An item with no prior entry starts at `1`; an item whose content
+ *  reference is unchanged keeps its version; an item whose content has
+ *  changed bumps. The returned `next` Map contains only ids in `raw`, so a
+ *  caller that swaps it in wholesale also handles eviction.
+ *
+ *  Decoupling this from the mutation step keeps the version logic testable
+ *  and removes the "transform side-effects the closure" interleaving the
+ *  earlier inline implementation carried. */
+const applyVersions = (
+  raw: readonly CodeViewItem[],
+  current: ReadonlyMap<string, VersionEntry>,
+): { items: CodeViewItem[]; next: Map<string, VersionEntry> } => {
+  const next = new Map<string, VersionEntry>();
+  const items = raw.map((item): CodeViewItem => {
+    const ref = contentRefOf(item);
+    const prev = current.get(item.id);
+    const version = !prev
+      ? 1
+      : prev.ref === ref
+        ? prev.version
+        : prev.version + 1;
+    next.set(item.id, { ref, version });
+    return { ...item, version };
+  });
+  return { items, next };
+};
+
 export const CodeView: Component<CodeViewProps> = (props) => {
   let root!: HTMLDivElement;
   let instance: CodeViewClass | undefined;
@@ -85,33 +113,15 @@ export const CodeView: Component<CodeViewProps> = (props) => {
   // new items array with a different content reference, bump its version
   // so Pierre publishes the new content. Without this, the `version`-gated
   // `syncItemRecord` path in CodeView keeps the old record in place even
-  // though the item's `fileDiff`/`file` field has changed.
-  const versions = new Map<string, VersionEntry>();
+  // though the item's `fileDiff`/`file` field has changed. Swap-by-replace
+  // (rather than per-id mutation) also evicts ids that left the list so
+  // the map can't grow unboundedly across long-lived sessions.
+  let versions: ReadonlyMap<string, VersionEntry> = new Map();
 
   const versionedItems = (raw: readonly CodeViewItem[]): CodeViewItem[] => {
-    const seen = new Set<string>();
-    const next = raw.map((item): CodeViewItem => {
-      seen.add(item.id);
-      const ref = contentRefOf(item);
-      const prev = versions.get(item.id);
-      if (!prev) {
-        versions.set(item.id, { ref, version: 1 });
-        return { ...item, version: 1 };
-      }
-      if (prev.ref === ref) {
-        return { ...item, version: prev.version };
-      }
-      const bumped = prev.version + 1;
-      versions.set(item.id, { ref, version: bumped });
-      return { ...item, version: bumped };
-    });
-    // Drop versions for ids that left the list so the map can't grow
-    // unboundedly across long-lived sessions (e.g. flipping through many
-    // files in browse mode).
-    for (const id of Array.from(versions.keys())) {
-      if (!seen.has(id)) versions.delete(id);
-    }
-    return next;
+    const result = applyVersions(raw, versions);
+    versions = result.next;
+    return result.items;
   };
 
   // Read every reactive prop at call time so a later prop change lands on
