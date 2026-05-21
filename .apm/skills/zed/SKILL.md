@@ -39,8 +39,8 @@ Consequences:
 
 Zed unifies local-and-remote not by threading an executor parameter through call sites, but by **hiding the substrate behind a trait** that both local and remote impls satisfy.
 
-- **`Fs` trait** at `crates/fs/src/fs.rs:97` — ~30 methods covering `create_dir`, `create_file`, `copy_file`, `rename`, `remove_dir`, `remove_file`, `trash`, `atomic_write`, `save`, `load`, `load_bytes`, `canonicalize`, `is_file`, `is_dir`, `metadata`, `read_link`, `read_dir` (streaming), `watch` (streaming), `read_repo` (returns `GitRepository`), `git_init`, `git_clone`, `git_config`, `is_case_sensitive`. Two concrete impls: `RealFs` and `FakeFs` (for tests).
-- **`GitRepository` trait** at `crates/git/src/repository.rs:750` — ~30 methods covering `status`, `diff_tree`, `branches`, `change_branch`, `create_branch`, `worktrees`, `create_worktree`, `reset`, `checkout_files`, `show`, `load_commit`, `blame`, etc. Returns typed results (`Branch`, `GitStatus`, `TreeDiff`, `CommitDetails`), not strings.
+- **`Fs` trait** at `crates/fs/src/fs.rs:97` — 33 methods covering `create_dir`, `create_file`, `copy_file`, `rename`, `remove_dir`, `remove_file`, `trash`, `atomic_write`, `save`, `load`, `load_bytes`, `canonicalize`, `is_file`, `is_dir`, `metadata`, `read_link`, `read_dir` (streaming), `watch` (streaming), `open_repo` (returns `GitRepository`), `git_init`, `git_clone`, `git_config`, `is_case_sensitive`. Two concrete impls: `RealFs` and `FakeFs` (for tests).
+- **`GitRepository` trait** at `crates/git/src/repository.rs:750` — ~64 methods covering `status`, `diff_tree`, `branches`, `change_branch`, `create_branch`, `worktrees`, `create_worktree`, `reset`, `checkout_files`, `show`, `load_commit`, `blame`, stashes, checkpoints, and more. Returns typed results (`Branch`, `GitStatus`, `TreeDiff`, `CommitDetails`), not strings.
 - **`RemoteConnection` trait** at `crates/remote/src/remote_client.rs:1509` — abstracts transport. Methods include `start_proxy`, `build_command(CommandTemplate)`, `upload_directory`, `kill`, `connection_options`, `path_style`, `shell`, `has_wsl_interop`. Concrete impls: `SshConnection` (`transport/ssh.rs`), `DockerConnection`, `WslConnection`, `MockConnection` (for tests).
 
 This is the right factoring **for Zed** because their git surface is editor-pressure (blame per buffer, status per keystroke, branch picker). The structured trait + libgit2 backend earns its keep. **For Kolu, this trait shape is over-engineered** — kolu-git's event-driven surface (branch chip, worktree create, status for review pane) is happy with `exec("git", …)` against the user's `git` binary. The lesson Kolu should take from Zed isn't "build a 30-method `Fs` trait"; it's "find one substrate-volatility seam, and put one abstraction there."
@@ -95,17 +95,17 @@ Zed's wire protocol is small and elegant. Source files to read in order:
        Error error = 6;
        Ping ping = 7;
        EndStream end_stream = 165;
-       // ... ~270 more variants, one per RPC type
+       // ... ~350 more variants, one per RPC type
      }
    }
    ```
 
-3. **`crates/rpc/src/peer.rs`** (~1300 lines) — the `Peer` struct exposes five operations:
-   - `send(receiver, msg)` — fire-and-forget envelope.
-   - `request(receiver, msg) -> T::Response` — request/response; response carries `responding_to = original.id`.
-   - `request_stream(receiver, msg) -> BoxStream<T::Response>` — streaming request; one outbound, many inbound responses; ends when an `EndStream` payload arrives.
-   - `forward_send` / `forward_request` — proxy a message between two connections (collaboration).
-   - `respond(receipt, response)` — server-side response to a request.
+3. **`crates/rpc/src/peer.rs`** (1371 lines) — the `Peer` struct exposes six operations:
+   - `send(receiver, msg)` (line 586) — fire-and-forget envelope.
+   - `request(receiver, msg) -> T::Response` (line 405) — request/response; response carries `responding_to = original.id`.
+   - `request_stream(receiver, msg) -> BoxStream<T::Response>` (line 489) — streaming request; one outbound, many inbound responses; ends when an `EndStream` payload arrives.
+   - `forward_send` (line 605) and `forward_request` (line 422) — proxy a message between two connections (collaboration).
+   - `respond(receipt, response)` (line 625) — server-side response to a request.
 
 4. **`crates/rpc/src/proto_client.rs`** — client-side handler registry. `add_entity_message_handler`, `add_entity_request_handler`, `add_entity_stream_request_handler` register typed handlers per message variant.
 
@@ -156,6 +156,8 @@ Zed's deployment story is documented at `docs/src/remote-development.md` and imp
 
 For Kolu — Nix-only deployment — the equivalent is `nix copy --to ssh-ng://<alias>` of the controller's exact `kolu-remote-server` closure. Same-arch fast path via Nix substituters; cross-arch via "copy the .drv and realise on remote" (`nix copy --derivation` + `nix-store --realise`). No HTTP download path, no env-override escape hatch — Nix is the deployment contract.
 
+Verified location: `ensure_server_binary` is at `crates/remote/src/transport/ssh.rs:785` (not in `remote_client.rs` as I initially cited).
+
 ## Multi-transport pattern
 
 Zed's `RemoteConnection` trait has four implementations (`crates/remote/src/transport/`):
@@ -169,19 +171,23 @@ Worth borrowing: shape Kolu's transport seam so a future Docker/WSL backend slot
 
 ## SSH ControlMaster multiplexing
 
-Verified from `crates/remote/src/transport/ssh.rs`: Zed uses OpenSSH's `ControlMaster=auto` + `ControlPersist=10m` so multiple SSH child processes to the same host share one TCP connection. For a remote terminal feature this matters because:
+Verified from `crates/remote/src/transport/ssh.rs:166-168`: Zed actually uses `ControlMaster=yes` + `ControlPersist=no`. **Not** `auto`/`10m` as I initially recorded. The difference matters:
 
-- The PTY's ssh process and the metadata-RPC channel's ssh process target the same host.
-- Without multiplexing, each pays the SSH handshake cost (~hundreds of ms for key auth).
-- With multiplexing, subsequent connections complete in milliseconds.
+- `ControlMaster=yes`: Zed launches the master ssh process itself (rather than letting OpenSSH auto-promote a client to master).
+- `ControlPersist=no`: the master exits when Zed kills it (rather than persisting for N minutes after the last client disconnects).
+- Zed manages the master process lifecycle via `kill_on_drop` — when the connection's `Drop` runs, the master gets killed.
 
-Kolu should set `ControlMaster=auto` + `ControlPersist=10m` (or longer) explicitly on every `ssh` invocation it issues.
+The TCP-sharing benefit is the same as `auto`/`Npersist`: multiple Zed child processes (terminal PTY, metadata RPC, file IO) share one TCP connection to the host. The difference is who owns the master's lifetime — Zed (yes+no+kill_on_drop) or OpenSSH (auto+Npersist).
+
+Kolu's choice: either approach works for the two-channel (PTY + metadata RPC) use case. The `auto + ControlPersist=10m` shape is simpler to set up (Kolu doesn't manage the master). The `yes + no + kill_on_drop` shape gives precise lifecycle control. For V1, `auto + ControlPersist=10m` is sufficient.
 
 ## Subscription dedup / activation registry
 
 When five Zed clients open the same remote project, the headless server doesn't run five copies of the worktree watcher — it runs one and fans out events to all subscribers. The dedup logic lives inside the various `*Store` types (`buffer_store.rs`, `worktree_store.rs`, `lsp_store.rs`, `git_store.rs` — all in `crates/project/src/`). Each store owns the underlying subscription and maintains a `Vec<ProjectClient>` of subscribers.
 
 For Kolu, the equivalent: the kolu-remote-server should dedupe identical subscriptions across terminals on the same host. Two terminals subscribing to git info for the same `cwd` → one underlying `subscribeGitInfo` call, two RPC stream subscribers. This is the same "activation registry" idea our earlier design floated, but **simpler because there's no executor identity to discriminate** — the remote daemon is the only "executor" from its own perspective.
+
+Verified: the four `*Store` files exist (`buffer_store.rs`, `worktree_store.rs`, `lsp_store.rs`, `git_store.rs` in `crates/project/src/`), and each maintains subscriber lists (typed as `Vec<async_channel::Sender<…>>` — e.g. `git_store.rs:365` — not the made-up `Vec<ProjectClient>` I initially wrote).
 
 ## Foreground-process tracking under local-PTY-+-ssh-inside
 
