@@ -143,20 +143,20 @@
       <td>Lightly extended (just <code>Host</code> + <code>Subscription</code> types in <code>kolu-io</code>)</td>
       <td>R1 + R2 already shipped these. P1 adds the <code>Host</code> interface to <code>kolu-io</code>. <code>kolu-pty</code> needs no changes.</td>
     </tr>
-    <tr class="new-pkg">
-      <td><code>packages/integrations/host/</code> <em>(new in P1)</em></td>
-      <td>NEW pkg</td>
-      <td>Owns the host abstraction's <em>implementations</em>: <code>LocalHost</code> (in-process dispatch to the providers + <code>kolu-pty</code>'s <code>spawnPty</code>), <code>registry</code> (<code>getHost("local")</code> initially; <code>getHost(sshAlias)</code> after P3). Depends on <code>kolu-io</code>, <code>kolu-pty</code>, and the four integration packages. The "is this terminal local or remote?" dispatch lives here.</td>
+    <tr class="new-dir">
+      <td><code>packages/server/src/host/</code> <em>(new in R3)</em></td>
+      <td>NEW subdir in server</td>
+      <td>Hosts <code>LocalHost</code> (R3 — ~20 lines wrapping <code>kolu-pty</code>'s <code>spawnPty</code>) and <code>RemoteHost</code> (F1 — uses kolu-remote's RPC client). Plus <code>registry.ts</code> (<code>getHost</code> / <code>listHosts</code>). <strong>NOT a separate package</strong> — these implementations are server-internal glue and have no external consumers. Removed the previously-planned <code>kolu-host</code> package which would have depended on every integration.</td>
     </tr>
     <tr class="new-pkg">
-      <td><code>packages/integrations/remote/</code> <em>(new in P3)</em></td>
+      <td><code>packages/integrations/remote/</code> <em>(new in F1)</em></td>
       <td>NEW pkg</td>
-      <td>Owns the SSH transport: <code>kolu-remote-server</code> binary (depends on the four integration packages — runs them on the remote), wire-protocol Zod schemas, NDJSON RPC client over SSH stdio, <code>~/.ssh/config</code> parser, <code>CommandTemplate</code> builder. Plus <code>RemoteHost</code> (the <code>Host</code> impl that talks to <code>kolu-remote-server</code> via RPC).</td>
+      <td>Owns the SSH transport: <code>kolu-remote-server</code> binary (the only place that depends on every integration package — runs them on the remote), wire-protocol Zod schemas, NDJSON RPC client over SSH stdio, <code>~/.ssh/config</code> parser, <code>CommandTemplate</code> builder.</td>
     </tr>
     <tr class="modified">
       <td><code>packages/server/</code></td>
-      <td>MODIFIED (P1, P2, P4, P5)</td>
-      <td>Terminal lifecycle (<code>terminals.ts</code>) gains <code>hostId</code> + calls <code>host.spawnPty()</code> via the registry. Metadata orchestrators (<code>meta/git.ts</code>, <code>meta/agent.ts</code>) dispatch via <code>host.subscribe(...)</code> instead of calling providers directly. Persisted-metadata schema bumps for <code>hostId</code>. New <code>host.list</code> RPC.</td>
+      <td>MODIFIED (R3, F1, F2, F3)</td>
+      <td>Terminal lifecycle (<code>terminals.ts</code>) gains <code>hostId</code> + calls <code>host.spawnPty()</code> via the registry. In F1: <code>meta/git.ts</code> and <code>meta/agent.ts</code> gain a thin <code>if (host.kind === "remote-ssh")</code> branch that routes RPC via <code>host.rpc.subscribe(...)</code> — for local terminals the existing in-process call site is unchanged. <strong>No central dispatcher knows about every domain on the controller side; each <code>meta/*</code> module owns its own domain's dispatch.</strong></td>
     </tr>
     <tr class="modified">
       <td><code>packages/common/</code></td>
@@ -182,81 +182,77 @@
 
 <h2>The <code>Host</code> abstraction</h2>
 
-<p><strong>Generic interface in <code>kolu-io</code> (domain-free). Concrete discriminated unions in <code>kolu-host</code>.</strong> This split keeps <code>kolu-io</code> a library-shaped leaf — it has zero knowledge of git, agents, or any other domain. Adding a new provider = adding a variant in <code>kolu-host</code>'s unions, never editing <code>kolu-io</code>.</p>
+<p><strong>Narrow interface in <code>kolu-io</code> (domain-free, transport-only). Per-domain dispatch lives inline in each <code>meta/*</code> module where the domain knowledge already exists.</strong> No central dispatcher knows about every domain on the controller side — the daemon (kolu-remote-server) is the only place that legitimately enumerates every domain, because that's its purpose.</p>
 
-<div class="diagram">// packages/integrations/io/src/host.ts — generic, domain-free
+<div class="diagram">// packages/integrations/io/src/host.ts — narrow, transport-only
 
 import type { PtyHandle, SpawnPtyOpts } from "kolu-pty";
 
 export interface HostLogger { debug, info, warn, error: ... }
 export interface Subscription { stop(): void }
 
-/** Host — generic transport-identity abstraction.
- *  Type parameters define the closed set of subscriptions and invokes
- *  a concrete Host supports. kolu-host declares the concrete bindings
- *  (KoluHost = Host&lt;SubscriptionRequest, SubscriptionEventMap, InvokeRequest,
- *  InvokeResultMap&gt;); consumers work in terms of KoluHost and get full
- *  inference on host.subscribe({ kind: "git", cwd }) etc. */
-export interface Host&lt;
-  SubReq extends { kind: string },
-  SubEventMap extends Record&lt;SubReq["kind"], unknown&gt;,
-  InvReq extends { kind: string },
-  InvResultMap extends Record&lt;InvReq["kind"], unknown&gt;,
-&gt; {
+/** Host — minimal transport-identity abstraction. Zero domain knowledge. */
+export interface Host {
   readonly id: string;
   readonly label: string;
   readonly kind: "local" | "remote-ssh";
   spawnPty(log: HostLogger, opts: SpawnPtyOpts): Promise&lt;PtyHandle&gt;;
-  subscribe&lt;R extends SubReq&gt;(
-    req: R,
-    onEvent: (event: SubEventMap[R["kind"]]) =&gt; void,
-    log: HostLogger,
-  ): Subscription;
-  invoke&lt;R extends InvReq&gt;(req: R): Promise&lt;InvResultMap[R["kind"]]&gt;;
   shutdown(): Promise&lt;void&gt;;
 }
 
-// packages/integrations/host/src/requests.ts — concrete unions live here
+/** Generic RPC primitives only RemoteHost implements meaningfully. */
+export interface RemoteHostRpc {
+  subscribe&lt;Params, Event&gt;(
+    method: string,
+    params: Params,
+    onEvent: (event: Event) =&gt; void,
+    log: HostLogger,
+  ): Subscription;
+  invoke&lt;Params, Result&gt;(method: string, params: Params): Promise&lt;Result&gt;;
+}
 
-export type SubscriptionRequest =
-  | { kind: "git"; cwd: string }
-  | { kind: "agent";
-      provider: "claude-code" | "codex" | "opencode";
-      terminalId: string;
-      state: AgentTerminalState }
-  | { kind: "foreground";
-      terminalId: string;
-      sshPid: number }  // LocalHost ignores; RemoteHost /proc-walks via this
+/** RemoteHost adds the RPC channel; LocalHost is just Host. */
+export interface RemoteHost extends Host {
+  readonly kind: "remote-ssh";
+  rpc: RemoteHostRpc;
+}</div>
 
-export type SubscriptionEventMap = {
-  git: GitInfo | null;
-  agent: ClaudeCodeInfo | CodexInfo | OpenCodeInfo | null;
-  foreground: { pid: number; name: string; pgid: number };
-};
+<p>Dispatch lives where the domain knowledge already lives:</p>
 
-export type InvokeRequest =
-  | { kind: "git.worktreeCreate"; repo: string; name: string }
-  | { kind: "git.worktreeRemove"; path: string }
-  | { kind: "fs.readFile";        path: string; maxBytes?: number }
-  | { kind: "fs.listDir";         path: string };
+<div class="diagram">// kolu-server/src/meta/git.ts — the dispatch for git lives WITH git
 
-export type InvokeResultMap = { ... };
+function subscribeGit(host: Host, cwd: string, onChange, log: HostLogger): Subscription {
+  if (host.kind === "remote-ssh") {
+    // Type-safe at THIS call site — meta/git.ts knows git's wire shape
+    return host.rpc.subscribe&lt;{ cwd: string }, GitInfo | null&gt;(
+      "git.subscribeGitInfo", { cwd }, onChange, log,
+    );
+  }
+  // Local: in-process, same as today on master
+  return subscribeGitInfo(cwd, onChange, log);
+}
 
-export type KoluHost = Host&lt;
-  SubscriptionRequest, SubscriptionEventMap,
-  InvokeRequest, InvokeResultMap
-&gt;;</div>
+// kolu-server/src/meta/agent.ts — same pattern, per-domain
 
-<p>Two impls in <code>kolu-host</code>:</p>
+function subscribeAgent(host: Host, provider, terminalId, state, onChange, log): Subscription {
+  if (host.kind === "remote-ssh") {
+    return host.rpc.subscribe&lt;{ provider; terminalId; state }, AgentInfo&gt;(
+      `agent.${provider.kind}.subscribe`, { provider: provider.kind, terminalId, state }, onChange, log,
+    );
+  }
+  return startAgentProvider(provider, ...);  // same as master
+}</div>
+
+<p>Two impls live inside <code>kolu-server/src/host/</code>:</p>
 
 <ul>
-  <li><strong><code>LocalHost</code></strong> (R3): <code>spawnPty</code> calls <code>kolu-pty</code>'s <code>spawnPty</code> directly. <code>subscribe</code> uses a <code>switch (req.kind)</code> with <code>assertNever</code> exhaustiveness (compile error if a variant is added without a dispatch arm), calling the relevant provider's in-process subscribe function. <code>invoke</code> same pattern for one-shots.</li>
-  <li><strong><code>RemoteHost</code></strong> (F1): <code>spawnPty</code> calls <code>kolu-pty</code>'s <code>spawnPty</code> with <code>program: "ssh"</code> and <code>args: [...sshOpts, host, "-t", remoteCmd]</code>. <code>subscribe</code> sends a streaming RPC to <code>kolu-remote-server</code>; events flow back as wire envelopes. <code>invoke</code> sends request/response.</li>
+  <li><strong><code>LocalHost</code></strong> (R3, ~20 lines): just <code>spawnPty</code> wrapping <code>kolu-pty</code>'s <code>spawnPty</code>. No <code>rpc</code> field; <code>kind: "local"</code>.</li>
+  <li><strong><code>RemoteHost</code></strong> (F1): <code>spawnPty</code> wraps <code>kolu-pty</code>'s <code>spawnPty</code> with <code>program: "ssh"</code> and <code>args: [...sshOpts, host, "-t", remoteCmd]</code>. <code>rpc</code> field exposes <code>subscribe</code>/<code>invoke</code> backed by the NDJSON RPC client from <code>kolu-remote</code>.</li>
 </ul>
 
-<p><strong>The providers never see <code>Host</code>.</strong> They keep their existing signatures (<code>subscribeGitInfo(cwd, onChange, log)</code>, etc.). <code>LocalHost</code> calls them directly; <code>kolu-remote-server</code> calls them on the remote.</p>
+<p><strong>The providers never see <code>Host</code>.</strong> They keep their existing signatures (<code>subscribeGitInfo(cwd, onChange, log)</code>, etc.). The local code path is byte-identical to master; only remote terminals exercise the RPC branch.</p>
 
-<div class="footnote"><span class="label">Design review</span> The <code>Host</code> shape went through a hickey + lowy review pass that caught a structural smell in the first draft: discriminated unions placed in <code>kolu-io</code>, making it depend on every domain package. The fix here — generic Host in kolu-io + concrete unions in kolu-host — keeps kolu-io domain-free. Other findings folded in: collapsed three <code>agent.*</code> variants into one with <code>provider</code> discriminator (saves three-site → two-site update rule); added <code>sshPid</code> to the foreground variant (without it RemoteHost can't resolve the remote shell PID — was a latent F1 runtime defect); activation/dedup registry moves to LocalHost (volatility-correct — separates dedup policy from reconcile orchestration).</div>
+<div class="footnote"><span class="label">Design review history</span> Two earlier drafts of the <code>Host</code> shape failed structural review. <strong>Draft 1</strong> put a closed <code>SubscriptionRequest</code> discriminated union enumerating every domain (<code>git</code>, <code>agent.claude-code</code>, …) directly in <code>kolu-io</code> — would have made kolu-io depend on every integration. Caught by hickey + lowy. <strong>Draft 2</strong> moved the unions into a new <code>kolu-host</code> package — same problem at a different file, kolu-host had the fan-out instead. The user caught this. <strong>This draft</strong> dissolves the central dispatcher entirely: each <code>meta/*</code> module owns its own domain's dispatch (inline <code>if (host.kind === "remote-ssh")</code> branch), <code>kolu-io</code> stays domain-free with just transport-identity types, and the daemon (which legitimately knows every domain because it runs them all) is the only place where enumeration is appropriate.</div>
 
 <h2>Wire protocol</h2>
 
@@ -359,24 +355,18 @@ export type TransportFrame  = Extract&lt;Frame, { kind: "ping" }&gt;;</div>
 <table>
   <thead><tr><th>Phase</th><th>Scope</th><th>Functional change?</th><th>Size</th></tr></thead>
   <tbody>
-    <tr class="new-pkg">
+    <tr class="new-dir">
       <td><strong>R3</strong></td>
-      <td>Introduce the <code>Host</code> abstraction with a local-only impl. Add <code>Host</code> + <code>SubscriptionRequest</code> + <code>InvokeRequest</code> + <code>Subscription</code> types to <code>kolu-io</code>. Create new <code>kolu-host</code> package with <code>LocalHost</code> (dispatches <code>subscribe</code> / <code>invoke</code> to the in-process provider functions) + <code>registry.getHost("local")</code>. Refactor <code>kolu-server</code>'s <code>terminals.ts</code> to call <code>getHost(hostId).spawnPty(...)</code> via the registry — only <code>"local"</code> resolves for now. Persist <code>hostId</code> on terminal metadata (defaults to <code>"local"</code>). RPC contract gains <code>hostId</code> on <code>TerminalCreateInput</code>; defaults preserve every existing call site.</td>
-      <td class="cross">None — UI unchanged, tests pass identically. Server now spawns local PTYs via a host indirection, but the indirection only has one impl.</td>
-      <td class="num">~+400 new<br>~+80 modified</td>
-    </tr>
-    <tr class="modified">
-      <td><strong>R4</strong></td>
-      <td>Rewire <code>meta/git.ts</code> and <code>meta/agent.ts</code> to dispatch metadata subscriptions via <code>host.subscribe(...)</code> instead of calling provider <code>subscribe*</code> functions directly. <code>LocalHost.subscribe</code>'s match arms wrap the existing provider subscribe functions; the orchestrator code path becomes "look up the host, ask it to subscribe." Per-host activation/dedup logic moves into <code>LocalHost</code>'s internal registry (one underlying watcher per <code>(kind, params)</code>, fan out to N orchestrator subscribers). All existing local-terminal behavior unchanged.</td>
-      <td class="cross">None — same observable behavior for every existing terminal. Metadata events flow through one more layer of indirection.</td>
-      <td class="num">~+150/−80 modified<br><span class="cite">across <code>meta/{git,agent}.ts</code> + <code>kolu-host</code></span></td>
+      <td>Introduce the narrow <code>Host</code> abstraction. Add <code>Host</code> + <code>RemoteHostRpc</code> + <code>RemoteHost</code> + <code>Subscription</code> + <code>HostLogger</code> types to <code>kolu-io</code> — <strong>domain-free, transport-only</strong>. Create <code>packages/server/src/host/</code> (new subdirectory, not a new package): <code>local-host.ts</code> (~20 lines wrapping <code>kolu-pty</code>'s <code>spawnPty</code>) + <code>registry.ts</code> (<code>getHost("local")</code>). Refactor <code>kolu-server</code>'s <code>terminals.ts</code> to call <code>getHost(hostId).spawnPty(...)</code> via the registry. Persist <code>hostId</code> on terminal metadata (defaults to <code>"local"</code>). RPC contract gains <code>hostId</code> on <code>TerminalCreateInput</code>. <strong>No changes to <code>meta/*</code></strong> — they continue to call the providers in-process, exactly as today.</td>
+      <td class="cross">None — UI unchanged, tests pass identically. PTY spawning gains one level of indirection (registry lookup); everything else is byte-identical.</td>
+      <td class="num">~+150 new<br>~+50 modified<br><span class="cite">No new package; kolu-server gains a small <code>host/</code> subdir.</span></td>
     </tr>
   </tbody>
 </table>
 
-<p>Both R3 and R4 are mechanical refactors with no functional change. Each lands to master directly (not the feature branch) and stands on its own — the master codebase becomes more amenable to a future remote-terminal feature, even if the feature never ships. Reviewers verify "tests still pass."</p>
+<p><strong>Only one refactor phase (R3) — no R4.</strong> Earlier drafts had R4 rewiring <code>meta/*</code> to dispatch through a central <code>LocalHost.subscribe</code> method. Under the dissolved-dispatcher design that's not needed: <code>meta/*</code>'s existing in-process calls to <code>subscribeGitInfo</code> etc. are correct for local terminals as-is. The <code>if (host.kind === "remote-ssh")</code> branch lives inline in each <code>meta/*</code> module and lands as part of F1, where there's actually a <code>RemoteHost</code> to dispatch to.</p>
 
-<p>If R3 + R4 are too bundled to review together, they can land as separate PRs (R3 first, then R4 on top). They can also bundle into one PR if the reviewer prefers a single cohesive "introduce host indirection" change.</p>
+<p>R3 is a mechanical refactor with no functional change. Lands to master directly. The codebase becomes amenable to a future remote-terminal feature, even if the feature never ships.</p>
 
 <h3>Feature phases (land to <code>remote-terminal</code> branch off master)</h3>
 
@@ -385,9 +375,9 @@ export type TransportFrame  = Extract&lt;Frame, { kind: "ping" }&gt;;</div>
   <tbody>
     <tr class="new-pkg">
       <td><strong>F1</strong></td>
-      <td>Create the new <code>kolu-remote</code> package: <code>protocol.ts</code> (envelope Zod schemas — request / response / event / endStream / ping), <code>rpc-client.ts</code> (NDJSON-over-SSH-stdio framing, request/response/stream tracking), <code>ssh-config.ts</code> (parse <code>~/.ssh/config</code>), <code>build-command.ts</code> (<code>CommandTemplate { program, args, env }</code> with ControlMaster opts), <code>bin/kolu-remote-server</code> (the node daemon — imports the four integration packages unchanged, exposes subscribe/invoke handlers, per-resource dedup, foreground-PID tracking via <code>/proc</code>, rcfile-on-temp helper). Add <code>RemoteHost</code> in <code>kolu-host</code> (uses kolu-remote's RPC client + builds ssh as PTY program via kolu-pty). Wire <code>readSshHosts()</code> into the registry. Add <code>host.list</code> RPC + host axis in the "New terminal" palette. Nix deployment via <code>nix copy --derivation</code>.</td>
+      <td>Create the new <code>kolu-remote</code> package: <code>protocol.ts</code> (envelope Zod schemas — request / response / event / endStream / ping), <code>rpc-client.ts</code> (NDJSON-over-SSH-stdio framing, request/response/stream tracking), <code>ssh-config.ts</code> (parse <code>~/.ssh/config</code>), <code>build-command.ts</code> (<code>CommandTemplate { program, args, env }</code> with ControlMaster opts), <code>bin/kolu-remote-server</code> (the node daemon — imports the four integration packages unchanged, exposes subscribe/invoke handlers by method name, per-resource dedup, foreground-PID tracking via <code>/proc</code>, rcfile-on-temp helper). Add <code>RemoteHost</code> in <code>kolu-server/src/host/remote-host.ts</code> (uses kolu-remote's RPC client + builds ssh as PTY program via kolu-pty). Wire <code>readSshHosts()</code> into the registry. Add <code>if (host.kind === "remote-ssh")</code> branches in <code>meta/git.ts</code> and <code>meta/agent.ts</code> (each routes via <code>host.rpc.subscribe&lt;P, E&gt;(method, params, …)</code>). Add <code>host.list</code> RPC + host axis in the "New terminal" palette. Nix deployment via <code>nix copy --derivation</code>.</td>
       <td class="check">User-visible: remote PTYs work end-to-end with full metadata parity (branch chip, agent badges, Code-tab read, worktree ops) on the first merge.</td>
-      <td class="num">~+1,200<br><span class="cite">~80% new pkg, ~20% kolu-host extensions for RemoteHost</span></td>
+      <td class="num">~+1,200<br><span class="cite">~70% new pkg, ~15% RemoteHost in server/host/, ~15% meta/* branches + palette</span></td>
     </tr>
     <tr class="modified">
       <td><strong>F2</strong></td>
