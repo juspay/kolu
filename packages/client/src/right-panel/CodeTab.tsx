@@ -14,7 +14,13 @@
  * Pierre lifecycle; this component is just data flow + chrome. */
 
 import Resizable from "@corvu/resizable";
-import { FileDiff, FileTree, Virtualizer } from "@kolu/solid-pierre";
+import {
+  CodeView,
+  type CodeViewItem,
+  type CodeViewLineSelection,
+  FileTree,
+} from "@kolu/solid-pierre";
+import { parsePatchFiles } from "@pierre/diffs";
 import type { GitDiffMode } from "kolu-git/schemas";
 import { makePersisted } from "@solid-primitives/storage";
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
@@ -595,14 +601,12 @@ const CodeTab: Component<{
             >
               {(path) => (
                 // `keyed` remounts this subtree whenever the selected file
-                // changes. Pierre's `FileDiff.render(newFileDiff)` reuses
-                // the same instance — its line-selection handlers don't
-                // re-bind to the new gutter elements, so right-clicking on
-                // a line in the second file would yield a "Copy path" menu
-                // with no "Copy path:line" entry. Per-file remount gives
-                // each file a fresh `FileDiff` and a clean
-                // `useLineSelection` range, which is also the right
-                // semantic — line refs don't survive across files.
+                // changes — line refs don't survive across files, so the
+                // `useLineSelection` controller resets cleanly with the
+                // surrounding subtree. The inner `<CodeView>` would also
+                // accept an in-place item swap via `updateItemId`, but
+                // remount is the simpler idiom here and the right semantic
+                // for the per-file menu state.
                 <Switch>
                   <Match when={isDiffView()}>
                     <Switch
@@ -637,6 +641,18 @@ const CodeTab: Component<{
                           const repo = repoPath();
                           const tid = props.terminalId;
                           if (repo === null || tid === null) return null;
+                          // Single-file diff → one CodeView item. The wrapper
+                          // virtualizes long diffs internally (50k-line lockfile,
+                          // #809 / #514 Phase 8) — no separate scroll context
+                          // component required.
+                          const items = createMemo<CodeViewItem[]>(() => {
+                            const fileDiff = parsePatchFiles(
+                              d().hunks[0] ?? "",
+                            )[0]?.files[0];
+                            return fileDiff
+                              ? [{ id: path, type: "diff", fileDiff }]
+                              : [];
+                          });
                           return (
                             <CommentTextSurface
                               terminalId={tid}
@@ -654,31 +670,40 @@ const CodeTab: Component<{
                                   });
                                 }}
                               >
-                                {(selection) => (
-                                  // `<Virtualizer>` is the scroll
-                                  // container — `<FileDiff>` consumes
-                                  // its context and upgrades to
-                                  // Pierre's `VirtualizedFileDiff`,
-                                  // windowing huge diffs (50k-line
-                                  // lockfile, #809 / #514 Phase 8).
-                                  <Virtualizer
-                                    class="h-full w-full overflow-auto"
-                                    style={pierreDiffsStyle}
-                                  >
-                                    <FileDiff
-                                      rawDiff={d().hunks[0] ?? ""}
+                                {(selection) => {
+                                  // Pair the controller's path-less range
+                                  // with the active item id to produce
+                                  // Pierre's item-scoped selection.
+                                  const codeViewSelection =
+                                    createMemo<CodeViewLineSelection | null>(
+                                      () => {
+                                        const r = selection.range();
+                                        return r
+                                          ? { id: path, range: r }
+                                          : null;
+                                      },
+                                    );
+                                  return (
+                                    <CodeView
+                                      items={items()}
                                       theme={diffTheme()}
+                                      diffStyle="unified"
                                       enableLineSelection
-                                      onLineSelected={selection.handleSelect}
+                                      selectedLines={codeViewSelection()}
+                                      onSelectedLinesChange={(s) =>
+                                        selection.handleSelect(s?.range ?? null)
+                                      }
                                       onError={(err) =>
                                         toast.error(
                                           `Diff render failed: ${err.message}`,
                                         )
                                       }
-                                      class="w-full"
+                                      class="h-full w-full overflow-auto"
+                                      style={pierreDiffsStyle}
+                                      data-testid="pierre-diff-view"
                                     />
-                                  </Virtualizer>
-                                )}
+                                  );
+                                }}
                               </CodeMenuFrame>
                             </CommentTextSurface>
                           );

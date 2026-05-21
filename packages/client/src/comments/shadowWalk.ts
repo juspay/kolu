@@ -3,12 +3,12 @@
  *  non-undefined value the visitor produces; returns `undefined` if no
  *  visit matched.
  *
- *  Pierre's text surfaces (`FileView`, `FileDiff`) render into a
- *  `<diffs-container>` custom element whose `attachShadow({mode: "open"})`
- *  holds the user-visible text. Selection capture, shadow-aware
- *  `Selection` lookup, and the highlight overlay's root resolution all
- *  need to descend through these — three separate sites used to roll
- *  their own walk. */
+ *  Pierre's `CodeView` renders each item into a `<diffs-container>` custom
+ *  element whose `attachShadow({mode: "open"})` holds the user-visible
+ *  text. Selection capture, shadow-aware `Selection` lookup, and the
+ *  highlight overlay's root resolution all need to descend through
+ *  potentially multiple per-item shadow roots — three separate sites used
+ *  to roll their own walk. */
 
 export function walkShadowRoots<T>(
   host: Element,

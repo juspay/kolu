@@ -74,8 +74,8 @@ importers:
         specifier: ^1.13.13
         version: 1.13.13
       '@pierre/diffs':
-        specifier: ^1.1.20
-        version: 1.1.20(react@19.2.5)
+        specifier: ^1.2.1
+        version: 1.2.1(react@19.2.5)
       '@pierre/trees':
         specifier: ^1.0.0-beta.4
         version: 1.0.0-beta.4(react@19.2.5)
@@ -574,8 +574,8 @@ importers:
   packages/solid-pierre:
     dependencies:
       '@pierre/diffs':
-        specifier: ^1.1.20
-        version: 1.1.20(react@19.2.5)
+        specifier: ^1.2.1
+        version: 1.2.1(react@19.2.5)
       '@pierre/trees':
         specifier: ^1.0.0-beta.4
         version: 1.0.0-beta.4(react@19.2.5)
@@ -747,8 +747,8 @@ importers:
   packages/transcript-html:
     dependencies:
       '@pierre/diffs':
-        specifier: ^1.1.20
-        version: 1.1.20(react@19.2.5)
+        specifier: ^1.2.1
+        version: 1.2.1(react@19.2.5)
       kolu-common:
         specifier: workspace:*
         version: link:../common
@@ -2209,8 +2209,8 @@ packages:
     resolution: {integrity: sha512-C2Xj8FZ0uHWeCXXqX5B4/gVFQmtSkiuOolzAgutjTfseNOHT3pUjljDZsTSxXFGgio54bCzVFqmEOUrIVk8RDA==}
     engines: {node: '>=20.0.0'}
 
-  '@pierre/diffs@1.1.20':
-    resolution: {integrity: sha512-lLi+3sLCm3QDd5/aLO9pw+WbF6UzhrkWm2oTZ5WZJTGemOyUNRJ4DDhcEKmVusu4C4bXx9Nssh6fF+wQcapb5w==}
+  '@pierre/diffs@1.2.1':
+    resolution: {integrity: sha512-T9pYhh1KeaYLTwL1HMiAkeETj9CPjiKq6pqiUWRVJXvIkIvYutMrYyr3kN07cFWX2XPM8eqe6l2dknezs6K2AA==}
     peerDependencies:
       react: ^18.3.1 || ^19.0.0
       react-dom: ^18.3.1 || ^19.0.0
@@ -2220,8 +2220,8 @@ packages:
       react-dom:
         optional: true
 
-  '@pierre/theme@0.0.28':
-    resolution: {integrity: sha512-1j/H/fECBuc9dEvntdWI+l435HZapw+RCJTlqCA6BboQ5TjlnE005j/ROWutXIs8aq5OAc82JI2Kwk4A1WWBgw==}
+  '@pierre/theme@1.0.3':
+    resolution: {integrity: sha512-sWHv11TMoqKxKDgTIk5VbhQjdPhs8DCcBxbjh3mRlS3YOM/OcrWoGX6MM8eBGn9cUu3M46Py0JnxsG2nJaFTuA==}
     engines: {vscode: ^1.0.0}
 
   '@pierre/trees@1.0.0-beta.4':
@@ -6573,9 +6573,9 @@ snapshots:
       tslib: 2.8.1
       tsyringe: 4.10.0
 
-  '@pierre/diffs@1.1.20(react@19.2.5)':
+  '@pierre/diffs@1.2.1(react@19.2.5)':
     dependencies:
-      '@pierre/theme': 0.0.28
+      '@pierre/theme': 1.0.3
       '@shikijs/transformers': 3.23.0
       diff: 8.0.3
       hast-util-to-html: 9.0.5
@@ -6584,7 +6584,7 @@ snapshots:
     optionalDependencies:
       react: 19.2.5
 
-  '@pierre/theme@0.0.28': {}
+  '@pierre/theme@1.0.3': {}
 
   '@pierre/trees@1.0.0-beta.4(react@19.2.5)':
     dependencies:

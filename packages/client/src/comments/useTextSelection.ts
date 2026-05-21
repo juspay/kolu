@@ -3,8 +3,8 @@
  *  `SelectionPill` placement and feeds the composer on activation.
  *
  *  Mounted on:
- *    - `BrowseFileView.tsx` (text browse, Pierre's `FileView` host)
- *    - The diff branch in `CodeTab.tsx` (Pierre's `FileDiff` host)
+ *    - `BrowseFileView.tsx` (text browse, Pierre's `CodeView` file item)
+ *    - The diff branch in `CodeTab.tsx` (Pierre's `CodeView` diff item)
  *
  *  The HTML-iframe surface uses the in-iframe SDK instead (this hook
  *  doesn't fire inside the iframe — opaque origin + sandbox isolation). */
@@ -98,11 +98,10 @@ function lineRangeForSelection(
  *  descending from `host`. `window.getSelection()` cannot return
  *  selections whose anchor/focus is inside a shadow tree (per spec);
  *  `ShadowRoot.getSelection()` is Chrome's escape hatch for that case.
- *  Pierre's `FileView` and `FileDiff` both render into a
- *  `<diffs-container>` custom element whose `attachShadow({mode: "open"})`
- *  is the user-visible text — so without this walk, real user drags
- *  inside Pierre look "empty" to `window.getSelection()` and the pill
- *  never appears.
+ *  Pierre's `CodeView` renders each item into a `<diffs-container>` custom
+ *  element whose `attachShadow({mode: "open"})` is the user-visible text —
+ *  so without this walk, real user drags inside Pierre look "empty" to
+ *  `window.getSelection()` and the pill never appears.
  *
  *  Returns the first non-collapsed selection found inside the host, or
  *  the document selection as a fallback (covers non-shadow surfaces and

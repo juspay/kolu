@@ -1,6 +1,6 @@
 /** Owns the `fsReadFile` subscription for the Code tab's browse mode and
  *  routes by the wire-level `kind` discriminator:
- *    - `text`   → `BrowseFileView`   (Pierre's syntax-highlighted FileView)
+ *    - `text`   → `BrowseFileView`   (Pierre's syntax-highlighted CodeView)
  *    - `binary` → `BrowsePreviewView` (iframe at server-built URL)
  *
  *  Loading and error surfaces stay here so the two presenters underneath

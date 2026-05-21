@@ -1,7 +1,7 @@
-/** Wrap a Pierre text viewer (`FileView` or `FileDiff`) with the comments
- *  capture + overlay wiring. Both surfaces share identical wiring — one
- *  host div, one selection adapter, one highlight overlay, one pill —
- *  the only thing that differs is the inner Pierre component, which the
+/** Wrap a Pierre text viewer (`CodeView`, file or diff item) with the
+ *  comments capture + overlay wiring. Both surfaces share identical wiring
+ *  — one host div, one selection adapter, one highlight overlay, one pill
+ *  — the only thing that differs is the inner Pierre component, which the
  *  caller supplies via `children`.
  *
  *  Iframe-rendered HTML artifacts use `BrowsePreviewView` directly with
