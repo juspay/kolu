@@ -8,8 +8,9 @@
 
 import { type Component, createSignal, For, onCleanup, Show } from "solid-js";
 import { Dynamic, Portal } from "solid-js/web";
+import { toast } from "solid-sonner";
 import { match } from "ts-pattern";
-import { copyTextWithToast } from "./clipboard";
+import { writeTextToClipboard } from "./clipboard";
 
 /** Two verbs over the same selection noun: copy a string to the clipboard,
  *  or invoke an action callback. The discriminator keeps the dispatch
@@ -86,11 +87,14 @@ export const CodeContextMenu: Component<{
 
   const handleItem = (item: CodeContextMenuItem) => {
     match(item)
-      .with({ kind: "copy" }, ({ textToCopy }) => {
-        void copyTextWithToast(textToCopy, {
-          success: `Copied: ${textToCopy}`,
-          failure: "Failed to copy",
-        });
+      .with({ kind: "copy" }, async ({ textToCopy }) => {
+        try {
+          await writeTextToClipboard(textToCopy);
+          toast.success(`Copied: ${textToCopy}`);
+        } catch (err) {
+          console.error("Failed to copy:", err);
+          toast.error(`Failed to copy: ${(err as Error).message}`);
+        }
       })
       .with({ kind: "action" }, ({ onActivate }) => onActivate())
       .exhaustive();

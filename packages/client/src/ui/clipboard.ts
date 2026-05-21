@@ -52,10 +52,14 @@ import type {
   ClipboardSelectionType,
   IClipboardProvider,
 } from "@xterm/addon-clipboard";
-import { toast } from "solid-sonner";
 
 /** Write `text` to the system clipboard, falling back to execCommand when
- *  navigator.clipboard is unavailable or rejects. Throws if both paths fail. */
+ *  navigator.clipboard is unavailable or rejects. Throws if both paths fail.
+ *
+ *  Toasts are intentionally *not* wrapped — see `.claude/rules/toast-conventions.md`:
+ *  toast calls stay colocated with the logic that triggers them, so callers
+ *  pair this with their own `toast.success` / `toast.error` on the await
+ *  boundary. */
 export async function writeTextToClipboard(text: string): Promise<void> {
   if (navigator.clipboard?.writeText) {
     try {
@@ -77,19 +81,6 @@ export async function writeTextToClipboard(text: string): Promise<void> {
     if (!ok) throw new Error("clipboard access blocked");
   } finally {
     document.body.removeChild(textarea);
-  }
-}
-
-export async function copyTextWithToast(
-  text: string,
-  messages: { success: string; failure: string },
-): Promise<void> {
-  try {
-    await writeTextToClipboard(text);
-    toast.success(messages.success);
-  } catch (err) {
-    console.error(`${messages.failure}:`, err);
-    toast.error(`${messages.failure}: ${(err as Error).message}`);
   }
 }
 
