@@ -32,7 +32,7 @@ Feature: Dock
     When the dock is expanded
     Then the dock should be in "cards" mode
 
-  Scenario: Cmd+B toggles the dock between rail and cards
+  Scenario: Cmd+Shift+B toggles the dock between rail and cards
     # The keyboard shortcut should drive the same rail ↔ cards state
     # the in-header chevron drives. Cards is the default, so the first
     # press collapses to rail; the second expands back.

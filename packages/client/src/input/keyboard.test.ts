@@ -3,8 +3,14 @@ import { describe, expect, it, vi } from "vitest";
 // Mock the platform module before importing keyboard
 vi.mock("./platform", () => ({ isMac: false }));
 
-import { matchesAnyShortcut } from "./actions";
-import { formatKeybind, type Keybind, matchesKeybind } from "./keyboard";
+import { ACTIONS, matchesAnyShortcut } from "./actions";
+import {
+  formatKeybind,
+  type Keybind,
+  keybindAsEvent,
+  matchesKeybind,
+} from "./keyboard";
+import { PROHIBITED_KEYBINDS } from "./prohibitedKeybinds";
 
 function makeEvent(overrides: Partial<KeyboardEvent> = {}): KeyboardEvent {
   return {
@@ -130,15 +136,20 @@ describe("matchesAnyShortcut", () => {
     );
   });
 
-  it("matches Ctrl+B (toggle dock)", () => {
-    // Mod+B on Linux/Windows (resolves to ctrlKey) triggers `toggleDock`.
-    // Mirrors VS Code's primary-sidebar shortcut; the dock is Kolu's
-    // primary navigator so it gets the short chord. (Was previously
-    // released back to the terminal in #821; reclaimed when the dock
-    // shipped as canonical in #903.)
+  it("matches Ctrl+Shift+B (toggle dock)", () => {
+    // Mod+Shift+B drives toggleDock; bare Ctrl+B is reserved for the
+    // PTY (see prohibitedKeybinds.ts).
+    expect(
+      matchesAnyShortcut(
+        makeEvent({ code: "KeyB", ctrlKey: true, shiftKey: true }),
+      ),
+    ).toBe(true);
+  });
+
+  it("does NOT match Ctrl+B (reserved for PTY)", () => {
     expect(
       matchesAnyShortcut(makeEvent({ key: "b", code: "KeyB", ctrlKey: true })),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it("matches Ctrl+Alt+B (toggle inspector)", () => {
@@ -167,5 +178,22 @@ describe("matchesAnyShortcut", () => {
 
   it("does not match random key", () => {
     expect(matchesAnyShortcut(makeEvent({ key: "z" }))).toBe(false);
+  });
+});
+
+describe("PROHIBITED_KEYBINDS", () => {
+  // Synthesize the prohibited chord as a KeyboardEvent and ask
+  // every registered action whether it would intercept it. A match
+  // means the action would steal a keystroke meant for the PTY.
+  it.each(PROHIBITED_KEYBINDS)("no action collides with $tool: $reason", ({
+    keybind,
+  }) => {
+    const event = keybindAsEvent(keybind) as KeyboardEvent;
+    const collisions = Object.entries(ACTIONS).filter(
+      ([, action]) =>
+        matchesKeybind(event, action.keybind) ||
+        (action.altKeybind != null && matchesKeybind(event, action.altKeybind)),
+    );
+    expect(collisions.map(([id]) => id)).toEqual([]);
   });
 });

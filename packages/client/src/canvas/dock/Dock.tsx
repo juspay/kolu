@@ -102,9 +102,9 @@ export const [dockMode, setDockMode] = makePersisted(
 );
 
 /** Toggle the dock between rail (collapsed) and cards (expanded).
- *  Exported so the chrome-bar dock-toggle button and the `Cmd+B`
- *  keyboard shortcut can drive the same lifecycle as the dock-header
- *  chevron. */
+ *  Exported so the chrome-bar dock-toggle button and the
+ *  `Cmd+Shift+B` keyboard shortcut can drive the same lifecycle as
+ *  the dock-header chevron. */
 export function toggleRailCards(): void {
   setDockMode(dockMode() === "rail" ? "cards" : "rail");
 }

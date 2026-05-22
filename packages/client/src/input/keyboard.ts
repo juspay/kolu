@@ -61,6 +61,26 @@ export function matchesKeybind(e: KeyboardEvent, kb: Keybind): boolean {
   return true;
 }
 
+/**
+ * Synthesize a KeyboardEvent shape from a Keybind. Used by the
+ * `PROHIBITED_KEYBINDS` collision test to ask "would the prohibited
+ * chord match this registered action?" without constructing a real
+ * event. Resolves `mod` against the runtime platform — same path
+ * `matchesKeybind` takes — so there's one source of modifier truth.
+ */
+export function keybindAsEvent(kb: Keybind): Partial<KeyboardEvent> {
+  const modCtrl = kb.mod && !isMac;
+  const modMeta = kb.mod && isMac;
+  return {
+    key: kb.key,
+    code: kb.code,
+    ctrlKey: kb.ctrl === true || modCtrl,
+    metaKey: modMeta,
+    altKey: kb.alt === true,
+    shiftKey: kb.shift === true,
+  };
+}
+
 /** Platform-aware display string for a keybind (e.g. "⌘1" on macOS, "Ctrl+1" elsewhere). */
 export function formatKeybind(kb: Keybind): string {
   const parts: string[] = [];
