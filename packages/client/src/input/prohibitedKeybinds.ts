@@ -26,7 +26,8 @@ export const PROHIBITED_KEYBINDS: readonly ProhibitedKeybind[] = [
   },
   {
     keybind: { key: "j", code: "KeyJ", ctrl: true },
-    tool: "Claude Code",
-    reason: "Readline LF / newline byte",
+    tool: "POSIX terminal / readline",
+    reason:
+      "LF (0x0A) — newline byte every shell and readline-based program consumes",
   },
 ];
