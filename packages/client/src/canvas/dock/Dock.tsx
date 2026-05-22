@@ -656,7 +656,10 @@ const QuietRowBody: Component<{
       classList={{
         "bg-surface-1/40 hover:bg-surface-2/50": !props.active,
         "bg-accent text-white": props.active,
-        "opacity-60": props.bucket === "parked",
+        // Parked dim only when not active; an active parked row pops
+        // at full opacity, matching the existing mobile behavior at
+        // `MobileDockDrawer.tsx`.
+        "opacity-60": props.bucket === "parked" && !props.active,
       }}
       title={props.info.meta.cwd}
     >
