@@ -292,20 +292,24 @@ body {
 
 /* ── Active dock row — pieces Tailwind can't express ─────────
  * The bulk of the lifted-card treatment lives as Tailwind utilities
- * on the row itself (see `DockRow` in Dock.tsx and `Row` in
- * MobileDockDrawer.tsx — `data-[active]:` variants for margin /
- * border-radius / shadow / animation, `group-data-[active]:` on the
- * children for the accent flood). Here we keep only what Tailwind
- * can't carry inline: `@keyframes`, the inline-style override on
- * body bg (needs `!important` to beat `style={{ backgroundColor }}`
- * on AwaitingCardBody / WorkingPillBody), and the rail-cadence quiet
- * + parked-opacity restore (cross-cutting selectors).
+ * on the row itself (`data-[active]:` variants for margin /
+ * border-radius / shadow / animation in `DockRow` and the mobile
+ * `Row`). The body bg / fg flood lives as conditional inline styles
+ * in each body variant (`AwaitingCardBody`, `WorkingPillBody`,
+ * `QuietRowBody`) — the body components take `active` and paint
+ * accent / white when set, themed `theme().bg` / `theme().fg`
+ * otherwise. Here we keep only what neither route can carry: the
+ * shared resting halo, the activation keyframes, the rail-cadence
+ * quiet + parked-opacity restore (cross-cutting selectors against
+ * elements that don't take an `active` prop), and the
+ * prefers-reduced-motion override.
  *
  * `--dock-active-halo` is the resting glow that the active row
  * settles to after the flash. Defined once so the Tailwind shadow
  * utility on the row and the `@keyframes dock-row-flash` 100% frame
  * stay in lockstep — change one knob, both surfaces follow. */
-:root {
+[data-testid="dock-row"],
+[data-testid="mobile-dock-row"] {
   --dock-active-halo:
     0 0 0 1.5px color-mix(in oklch, var(--color-accent) 80%, transparent),
     0 6px 24px -4px color-mix(in oklch, var(--color-accent) 55%, transparent),
