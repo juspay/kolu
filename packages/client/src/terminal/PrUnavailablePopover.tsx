@@ -16,7 +16,7 @@ import { toast } from "solid-sonner";
 import { match } from "ts-pattern";
 import { useAnchoredPopover } from "../ui/useAnchoredPopover";
 import { WarningIcon } from "../ui/Icons";
-import { writeTextToClipboard } from "./clipboard";
+import { writeTextToClipboard } from "../ui/clipboard";
 
 const AUTH_COMMAND = "gh auth login -s repo,read:org";
 

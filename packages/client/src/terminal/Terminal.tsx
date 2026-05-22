@@ -27,8 +27,9 @@ import {
   runWithOwner,
   Show,
 } from "solid-js";
+import { toast } from "solid-sonner";
 import { match } from "ts-pattern";
-import { copyTextWithToast, SafeClipboardProvider } from "./clipboard";
+import { SafeClipboardProvider, writeTextToClipboard } from "../ui/clipboard";
 import "@xterm/xterm/css/xterm.css";
 import type { TerminalId } from "kolu-common/surface";
 import { DEFAULT_SCROLLBACK } from "kolu-common/config";
@@ -583,10 +584,12 @@ const Terminal: Component<{
               e.preventDefault();
               const selection = term.getSelection();
               if (selection)
-                void copyTextWithToast(selection, {
-                  success: "Copied selection to clipboard",
-                  failure: "Failed to copy selection",
-                });
+                writeTextToClipboard(selection)
+                  .then(() => toast.success("Copied selection to clipboard"))
+                  .catch((err: Error) => {
+                    console.error("Failed to copy selection:", err);
+                    toast.error(`Failed to copy selection: ${err.message}`);
+                  });
               return false;
             }
 

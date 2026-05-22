@@ -11,6 +11,7 @@ import { serverProcessId, wsStatus } from "./rpc/rpc";
 import { getTerminalRefs } from "./terminal/terminalRefs";
 import { getDiagnostics } from "./terminal/useTerminalDiagnostics";
 import { webglLifecycleSnapshot } from "./terminal/webglTracker";
+import { writeTextToClipboard } from "./ui/clipboard";
 import ModalDialog, { refocusTerminal } from "./ui/ModalDialog";
 import Row from "./ui/Row";
 import Section from "./ui/Section";
@@ -114,11 +115,14 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
     };
   });
 
-  function copyJson() {
-    void navigator.clipboard
-      .writeText(JSON.stringify(snapshot(), null, 2))
-      .then(() => toast.success("Diagnostic info copied"))
-      .catch((err: Error) => toast.error(`Failed to copy: ${err.message}`));
+  async function copyJson() {
+    try {
+      await writeTextToClipboard(JSON.stringify(snapshot(), null, 2));
+      toast.success("Diagnostic info copied");
+    } catch (err) {
+      console.error("Failed to copy diagnostic info:", err);
+      toast.error(`Failed to copy diagnostic info: ${(err as Error).message}`);
+    }
   }
 
   return (

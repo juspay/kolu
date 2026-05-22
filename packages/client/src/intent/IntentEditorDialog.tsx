@@ -16,7 +16,7 @@ import {
   Show,
 } from "solid-js";
 import { toast } from "solid-sonner";
-import { copyTextWithToast } from "../terminal/clipboard";
+import { writeTextToClipboard } from "../ui/clipboard";
 import { CloseIcon, CopyIcon } from "../ui/Icons";
 import ModalDialog from "../ui/ModalDialog";
 import { IntentMarkdownBlock } from "./IntentMarkdown";
@@ -102,13 +102,16 @@ const IntentEditorDialog: Component<{
     props.onOpenChange(false);
   }
 
-  function copy() {
+  async function copy() {
     const value = trimmed();
     if (!value) return;
-    void copyTextWithToast(value, {
-      success: "Copied intent to clipboard",
-      failure: "Failed to copy intent",
-    });
+    try {
+      await writeTextToClipboard(value);
+      toast.success("Copied intent to clipboard");
+    } catch (err) {
+      console.error("Failed to copy intent:", err);
+      toast.error(`Failed to copy intent: ${(err as Error).message}`);
+    }
   }
 
   return (

@@ -8,6 +8,7 @@
 
 import { type Component, createMemo, For, Show } from "solid-js";
 import { toast } from "solid-sonner";
+import { writeTextToClipboard } from "../ui/clipboard";
 import { formatMarkdown } from "./formatMarkdown";
 import type { Comment } from "./types";
 import { useComments } from "./useComments";
@@ -31,15 +32,14 @@ export const CommentsTray: Component<CommentsTrayProps> = (props) => {
     if (list.length === 0) return;
     const text = formatMarkdown(list);
     try {
-      await navigator.clipboard.writeText(text);
+      await writeTextToClipboard(text);
       toast.success(
         `Copied ${list.length} comment${list.length === 1 ? "" : "s"} to clipboard`,
       );
       store().clear();
     } catch (err) {
-      toast.error(
-        `Failed to copy: ${(err as Error).message ?? "clipboard rejected"}`,
-      );
+      console.error("Failed to copy comments:", err);
+      toast.error(`Failed to copy: ${(err as Error).message}`);
     }
   };
 

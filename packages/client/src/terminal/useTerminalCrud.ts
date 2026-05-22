@@ -13,7 +13,7 @@ import { availableThemes, pickTheme, resolveThemeBgs } from "terminal-themes";
 import { CONTEXTUAL_TIPS } from "../settings/tips";
 import { client, preferences } from "../wire";
 import { useTips } from "../settings/useTips";
-import { copyTextWithToast } from "./clipboard";
+import { writeTextToClipboard } from "../ui/clipboard";
 import { useSubPanel } from "./useSubPanel";
 import type { TerminalStore } from "./useTerminalStore";
 
@@ -175,12 +175,17 @@ export function useTerminalCrud(deps: {
   async function handleCopyTerminalText() {
     const id = focusedTerminalId();
     if (id === null) return;
+    let text: string;
     try {
-      const text = await client.terminal.screenText({ id });
-      await copyTextWithToast(text, {
-        success: "Copied terminal text to clipboard",
-        failure: "Failed to copy terminal text",
-      });
+      text = await client.terminal.screenText({ id });
+    } catch (err) {
+      console.error("Failed to read terminal text:", err);
+      toast.error(`Failed to read terminal text: ${(err as Error).message}`);
+      return;
+    }
+    try {
+      await writeTextToClipboard(text);
+      toast.success("Copied terminal text to clipboard");
     } catch (err) {
       console.error("Failed to copy terminal text:", err);
       toast.error(`Failed to copy terminal text: ${(err as Error).message}`);
