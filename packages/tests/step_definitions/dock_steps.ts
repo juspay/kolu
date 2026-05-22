@@ -157,7 +157,11 @@ When(
 );
 
 const SHORTCUT_HINT_SELECTOR = '[data-testid="dock-row-shortcut-hint"]';
-const ACTIVE_INDICATOR_SELECTOR = '[data-testid="dock-row-active-indicator"]';
+// The active row is identified by the `data-active` attribute on the row
+// itself — the visual treatment (lifted-card geometry, accent flood,
+// pop-in animation) is painted by CSS keyed on that attribute. See the
+// "Active dock row" section in `packages/client/src/index.css`.
+const ACTIVE_INDICATOR_SELECTOR = '[data-testid="dock-row"][data-active]';
 
 Then(
   "the dock should show {int} active row indicator",

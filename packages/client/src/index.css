@@ -290,6 +290,86 @@ body {
   }
 }
 
+/* ── Active dock row — pieces Tailwind can't express ─────────
+ * The bulk of the lifted-card treatment lives as Tailwind utilities
+ * on the row itself (see `DockRow` in Dock.tsx and `Row` in
+ * MobileDockDrawer.tsx — `data-[active]:` variants for margin /
+ * border-radius / shadow / animation, `group-data-[active]:` on the
+ * children for the accent flood). Here we keep only what Tailwind
+ * can't carry inline: `@keyframes`, the inline-style override on
+ * body bg (needs `!important` to beat `style={{ backgroundColor }}`
+ * on AwaitingCardBody / WorkingPillBody), and the rail-cadence quiet
+ * + parked-opacity restore (cross-cutting selectors). */
+
+/* Desktop bodies paint their own `theme().bg` via inline style —
+ * an inline-style override needs `!important` to land, which
+ * Tailwind's `!` prefix doesn't expose for arbitrary CSS variables
+ * cleanly. Mobile's button is its own body and is covered by the
+ * Tailwind utility there. */
+[data-testid="dock-row"][data-active] [data-testid="dock-card"],
+[data-testid="dock-row"][data-active] [data-testid="dock-working"],
+[data-testid="dock-row"][data-active] [data-testid="dock-quiet"] {
+  background-color: var(--color-accent) !important;
+  color: #ffffff !important;
+}
+
+/* Quiet the rail's bucket-cadence on active rows. `RailSegment` never
+ * learns about `active()`; this is purely presentational. Parked /
+ * none buckets keep full opacity when active. */
+[data-active] .dock-rail-awaiting,
+[data-active] .dock-rail-working {
+  animation: none;
+  filter: brightness(1);
+}
+[data-active] [data-agent-bucket="parked"],
+[data-active] [data-agent-bucket="none"] {
+  opacity: 1;
+}
+
+/* One-shot pop-in fires every time an element first matches
+ * `[data-active]` — i.e. every activation, whether from a mouse
+ * click (Dock body `onClick`) or a keyboard shortcut (`Cmd+1..9`
+ * in `input/actions.ts`). Both routes call `store.activate(id)`,
+ * which flips the attribute. */
+@keyframes dock-row-activate {
+  0% {
+    transform: scale(0.96);
+  }
+  55% {
+    transform: scale(1.025);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+@keyframes dock-row-flash {
+  0% {
+    box-shadow:
+      0 0 0 0 color-mix(in oklch, var(--color-accent) 90%, transparent),
+      0 6px 24px -4px color-mix(in oklch, var(--color-accent) 55%, transparent),
+      0 2px 6px -2px rgba(0, 0, 0, 0.4);
+  }
+  35% {
+    box-shadow:
+      0 0 0 4px color-mix(in oklch, var(--color-accent) 85%, transparent),
+      0 8px 36px -2px color-mix(in oklch, var(--color-accent) 75%, transparent),
+      0 2px 6px -2px rgba(0, 0, 0, 0.4);
+  }
+  100% {
+    box-shadow:
+      0 0 0 1.5px color-mix(in oklch, var(--color-accent) 80%, transparent),
+      0 6px 24px -4px color-mix(in oklch, var(--color-accent) 55%, transparent),
+      0 2px 6px -2px rgba(0, 0, 0, 0.4);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-testid="dock-row"][data-active],
+  [data-testid="mobile-dock-row"][data-active] {
+    animation: none;
+    transition: none;
+  }
+}
+
 /* ── Canvas grid background ─────────────────────────────────── */
 /* Fine line grid gives spatial grounding to the freeform canvas.
    Lines use the edge color at low opacity so they adapt to light/dark themes. */

@@ -299,7 +299,7 @@ const DockRow: Component<{
     <Show when={combined()}>
       {(c) => (
         <div
-          class="flex flex-row items-stretch border-b border-edge/15 last:border-b-0 relative"
+          class="flex flex-row items-stretch border-b border-edge/15 last:border-b-0 relative transition-[margin,border-radius,box-shadow] duration-300 ease-out data-[active]:m-1.5 data-[active]:rounded-lg data-[active]:border-b-transparent data-[active]:shadow-[0_0_0_1.5px_color-mix(in_oklch,var(--color-accent)_80%,transparent),0_6px_24px_-4px_color-mix(in_oklch,var(--color-accent)_55%,transparent),0_2px_6px_-2px_rgba(0,0,0,0.4)] data-[active]:animate-[dock-row-activate_0.36s_cubic-bezier(0.34,1.45,0.6,1),dock-row-flash_0.48s_ease-out]"
           data-testid="dock-row"
           data-terminal-id={props.id}
           data-bucket={props.bucket}
@@ -316,26 +316,12 @@ const DockRow: Component<{
               <span class="relative inline-flex rounded-full h-2 w-2 bg-alert" />
             </span>
           </Show>
-          {/* Active-terminal indicator — painted as an absolutely-
-           *  positioned overlay rather than a parent ring/tint so the
-           *  AwaitingCardBody's solid `theme().bg` (and the working
-           *  pill's, and the quiet row's) can't cover it. The overlay
-           *  sits at z-30, above the row body's z-0/z-10 content; the
-           *  `pointer-events-none` keeps clicks reaching the variant
-           *  body underneath. The 4-px left strip stays both as the
-           *  legacy testid hook and as an unambiguous "this row is
-           *  the active one" pin against narrow rail mode. */}
-          <Show when={active()}>
-            <span
-              data-testid="dock-row-active-indicator"
-              aria-hidden="true"
-              class="pointer-events-none absolute inset-0 z-30 ring-2 ring-inset ring-accent"
-            />
-            <span
-              aria-hidden="true"
-              class="pointer-events-none absolute left-0 top-0 bottom-0 w-1 bg-accent z-30"
-            />
-          </Show>
+          {/* Active-terminal indicator lives in index.css, keyed on
+           *  `[data-testid="dock-row"][data-active]` (set on the row
+           *  above). Lifted-card geometry + accent flood + one-shot
+           *  pop-in animation — see the "Active dock row" section in
+           *  `index.css`. Mobile drawer shares the same CSS block via
+           *  its own `[data-testid="mobile-dock-row"][data-active]`. */}
           <Show when={showShortcutHint()}>
             <span
               data-testid="dock-row-shortcut-hint"
