@@ -30,6 +30,11 @@ type Logger = {
 
 interface SharedFilenameWatcher {
   subscribe(onChange: () => void): () => void;
+  /** Test-only: tear down the underlying `fs.watch` handle and clear the
+   *  debounce timer, regardless of subscriber count. Invoked by
+   *  `DirFilenameWatcher._reset()` to break the module-scope leak that
+   *  cascades vitest `afterEach` failures (see #955). */
+  _forceClose(): void;
 }
 
 export interface DirFilenameWatcherConfig {
@@ -55,6 +60,11 @@ export interface DirFilenameWatcher {
    *  shared watchers. Used by unit tests to assert the singleton invariant
    *  without spying on `fs.watch`. */
   _watcherCount(): number;
+  /** Test-only teardown — close every active watcher and clear the
+   *  registry, regardless of subscriber count. Used in vitest `beforeEach`
+   *  to break the module-scope leak that turns one timed-out test into a
+   *  whole-file cascade (#955). Production code must never call this. */
+  _reset(): void;
 }
 
 /**
@@ -124,6 +134,11 @@ export function createDirFilenameWatcher(
           }
         };
       },
+      _forceClose() {
+        listeners.clear();
+        if (timer) clearTimeout(timer);
+        watcher.close();
+      },
     };
   }
 
@@ -141,5 +156,9 @@ export function createDirFilenameWatcher(
       return entry.subscribe(onChange);
     },
     _watcherCount: () => watchers.size,
+    _reset() {
+      for (const entry of watchers.values()) entry._forceClose();
+      watchers.clear();
+    },
   };
 }

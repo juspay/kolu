@@ -2,7 +2,15 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { simpleGit } from "simple-git";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+} from "vitest";
 import {
   type GitInfo,
   getDiff,
@@ -15,9 +23,15 @@ import {
   watchGitHead,
   worktreeCreate,
 } from "./index.ts";
-import { _sharedCwdGitWatcherCount } from "./cwd-git-watcher.ts";
+import {
+  _resetSharedCwdGitWatchers,
+  _sharedCwdGitWatcherCount,
+} from "./cwd-git-watcher.ts";
 import { WATCHER_DEBOUNCE_MS } from "./git-dir.ts";
-import { _sharedHeadWatcherCount } from "./head-watcher.ts";
+import {
+  _resetSharedHeadWatchers,
+  _sharedHeadWatcherCount,
+} from "./head-watcher.ts";
 
 // --- getDiff: renames ---
 
@@ -694,9 +708,19 @@ describe("watchGitHead", () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
+  beforeEach(() => {
+    // Hard-reset the module-scope registry so a previous test that timed
+    // out (and never reached its `stop*()` calls) cannot leak into this
+    // one. Without this, a single 5s vitest timeout cascades into every
+    // following test's afterEach (#955).
+    _resetSharedHeadWatchers();
+  });
+
   afterEach(() => {
     // Defensive: any test that leaks a subscription would skew the count
-    // for the next test. The Map is module-scope, so leaks are sticky.
+    // for the next test. The `beforeEach` above keeps the count truthful
+    // even when a test fails — the assertion below is still the place a
+    // *clean* test surfaces a real leak.
     expect(_sharedHeadWatcherCount()).toBe(0);
   });
 
@@ -864,6 +888,13 @@ describe("subscribeGitInfo watcher churn", () => {
 
   afterAll(() => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  beforeEach(() => {
+    // See companion comment in the `watchGitHead` describe — module-scope
+    // registry reset breaks the leak-cascade (#955).
+    _resetSharedHeadWatchers();
+    _resetSharedCwdGitWatchers();
   });
 
   afterEach(() => {

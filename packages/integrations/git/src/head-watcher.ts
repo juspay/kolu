@@ -28,3 +28,9 @@ export const watchGitHead = headWatcher.watch;
  *  watchers. Used by unit tests to assert the singleton invariant without
  *  spying on `fs.watch`. */
 export const _sharedHeadWatcherCount = headWatcher._watcherCount;
+
+/** Test-only teardown — close every active head-watcher and clear the
+ *  singleton's registry. Production code must never call this; it exists
+ *  so vitest `beforeEach` can break the module-scope leak that turns one
+ *  timed-out test into a whole-file `afterEach` cascade (#955). */
+export const _resetSharedHeadWatchers = headWatcher._reset;
