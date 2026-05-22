@@ -79,6 +79,31 @@ nix run github:juspay/justci -- protect                  # writes to default bra
 nix run github:juspay/justci -- protect --branch develop
 ```
 
+## Live introspection (during a backgrounded run)
+
+When `justci run` is in progress — typically because the agent backgrounded it (e.g. `loop until /ci passes`) — these subcommands report fine-grained per-node state without disturbing the run. Each resolves the socket and process-compose binary from the same source `justci run` itself uses, so the client version never drifts from the server.
+
+```sh
+# Snapshot every node's current state. Pipe `-o json` into jq for
+# fields like name / status / exit_code / restarts.
+nix run github:juspay/justci -- status
+nix run github:juspay/justci -- status -o json
+
+# Live state-transition stream — one line per (recipe, platform)
+# transition, no polling. `-o json` emits one event per line.
+nix run github:juspay/justci -- monitor
+
+# Tail one node's stdout/stderr; `-f` follows.
+nix run github:juspay/justci -- logs ci::e2e@aarch64-darwin
+nix run github:juspay/justci -- logs -f ci::e2e@aarch64-darwin
+```
+
+If no run is in progress in this checkout, the subcommand exits non-zero with `no justci run in progress in this checkout (no socket at .ci/pc.sock)`.
+
+### Anti-pattern: do not reach for raw process-compose
+
+If you find yourself typing `nix run nixpkgs#process-compose --` or hunting through `/nix/store/...-process-compose-*/bin/` for a binary, stop — that path is not guaranteed to match the version the running pipeline uses, and the JSON shapes (e.g. `process list -o json`) may disagree. Always go through `nix run github:juspay/justci -- {status,logs,monitor}` so client and server stay version-pinned.
+
 ## Decision flow
 
 1. **Full canonical run?** → `nix run github:juspay/justci -- run` (or `CI=true …` for strict mode).
@@ -86,6 +111,7 @@ nix run github:juspay/justci -- protect --branch develop
 3. **Iterating on one recipe locally?** → `nix run github:juspay/justci -- run <recipe>` (no platform pin = fans out to every pipeline platform; `<recipe>@<localPlat>` if you only want the local lane).
 4. **Investigating "what would this run?"** → `nix run github:juspay/justci -- dump-yaml` or `… -- graph`.
 5. **Setting up a new repo?** → run `… -- protect --dry-run` after at least one full run, verify the contexts look right, then `… -- protect` to lock them in.
+6. **Checking on a backgrounded run?** → `nix run github:juspay/justci -- status` for a snapshot, `… -- logs -f <recipe>@<platform>` to follow one node, `… -- monitor` for the live event stream.
 
 ## Hosts config
 
@@ -103,4 +129,4 @@ Keys are full Nix system tuples (`x86_64-linux`, `aarch64-linux`, `aarch64-darwi
 ## When NOT to use this skill
 
 - The user is asking *about* justci's internals (how the YAML is shaped, what the setup node does, why `[metadata("ci")]` matters) — that's a docs question, point them at the [repo README](https://github.com/juspay/justci/blob/main/README.md).
-- The user wants the runner to do something it doesn't support (parallel cross-platform within one recipe, mid-run config reload, MCP introspection) — those are not supported today; check the README's Roadmap section.
+- The user wants the runner to do something it doesn't support (parallel cross-platform within one recipe, mid-run config reload) — those are not supported today; check the README's Roadmap section.
