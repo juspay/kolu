@@ -417,11 +417,15 @@ const DockAnnotation: Component<{
   meta: TerminalMetadata;
   info: TerminalDisplayInfo;
   class: string;
+  active: boolean;
 }> = (props) => (
   <span
     data-testid="dock-annotation"
     class={`${props.class} truncate min-w-0`}
-    style={{ color: props.info.annotationColor }}
+    // Inherit when active so the parent body's white color flows
+    // through — an inline annotationColor wins against `!important`
+    // via specificity, so the only way to swap is at the inline.
+    style={{ color: props.active ? "inherit" : props.info.annotationColor }}
   >
     <IntentMarkdownInline
       markdown={annotationLine(props.meta.intent, props.info.key.label)}
@@ -537,7 +541,9 @@ const AwaitingCardBody: Component<{
         <div class="flex items-baseline justify-between gap-2 min-w-0">
           <span
             class="font-mono text-[0.7rem] font-bold uppercase tracking-[0.14em] truncate min-w-0"
-            style={{ color: props.info.repoColor }}
+            style={{
+              color: props.active ? "inherit" : props.info.repoColor,
+            }}
           >
             {props.info.key.group}
           </span>
@@ -545,6 +551,7 @@ const AwaitingCardBody: Component<{
             meta={props.meta}
             info={props.info}
             class="text-[0.95rem] font-semibold leading-tight"
+            active={props.active}
           />
         </div>
         <DockMetaRow meta={props.meta} />
@@ -602,7 +609,9 @@ const WorkingPillBody: Component<{
       <div class="flex items-baseline justify-between gap-2 min-w-0">
         <span
           class="font-mono text-[0.65rem] font-bold uppercase tracking-[0.14em] truncate min-w-0"
-          style={{ color: props.info.repoColor }}
+          style={{
+            color: props.active ? "inherit" : props.info.repoColor,
+          }}
         >
           {props.info.key.group}
         </span>
@@ -610,6 +619,7 @@ const WorkingPillBody: Component<{
           meta={props.meta}
           info={props.info}
           class="text-[0.85rem] font-semibold leading-tight"
+          active={props.active}
         />
       </div>
       <DockMetaRow meta={props.meta} />
@@ -653,7 +663,9 @@ const QuietRowBody: Component<{
       <div class="flex items-baseline gap-2 min-w-0">
         <span
           class="font-mono text-[0.6rem] font-bold uppercase tracking-[0.14em] truncate min-w-0"
-          style={{ color: props.info.repoColor }}
+          style={{
+            color: props.active ? "inherit" : props.info.repoColor,
+          }}
         >
           {props.info.key.group}
         </span>
@@ -661,6 +673,7 @@ const QuietRowBody: Component<{
           meta={props.meta}
           info={props.info}
           class="text-[0.75rem]"
+          active={props.active}
         />
         <Show when={formatTimeAgo(props.meta.lastActivityAt)}>
           {(label) => (

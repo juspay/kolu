@@ -118,7 +118,11 @@ const Row: Component<{
           <div class="flex items-baseline justify-between gap-2 min-w-0">
             <span
               class="font-mono text-[0.6rem] font-bold uppercase tracking-[0.14em] truncate min-w-0"
-              style={{ color: info()?.repoColor }}
+              // Inherit when active so the row's white color flows
+              // through; otherwise paint the per-repo identity color.
+              style={{
+                color: active() ? "inherit" : info()?.repoColor,
+              }}
             >
               {info()?.key.group}
             </span>
@@ -128,7 +132,9 @@ const Row: Component<{
                 "text-[0.95rem]": live(),
                 "text-[0.8rem]": !live(),
               }}
-              style={{ color: info()?.annotationColor }}
+              style={{
+                color: active() ? "inherit" : info()?.annotationColor,
+              }}
             >
               <IntentMarkdownInline
                 markdown={annotationLine(
