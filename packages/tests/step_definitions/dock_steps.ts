@@ -108,10 +108,11 @@ When(
 );
 
 When("I press the dock toggle shortcut", async function (this: KoluWorld) {
-  // `Cmd+B` (or `Ctrl+B` on non-macOS) drives `toggleDock` — same
-  // behavior as the chrome-bar dock-toggle button and the in-header
-  // chevron.
-  await this.page.keyboard.press(`${MOD_KEY}+b`);
+  // `Cmd+Shift+B` (or `Ctrl+Shift+B` on non-macOS) drives
+  // `toggleDock` — same behavior as the chrome-bar dock-toggle
+  // button and the in-header chevron. Ctrl+B without shift is
+  // reserved for the PTY (see prohibitedKeybinds.ts).
+  await this.page.keyboard.press(`${MOD_KEY}+Shift+B`);
   await this.waitForFrame();
 });
 

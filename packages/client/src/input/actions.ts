@@ -245,10 +245,11 @@ const _ACTIONS = {
   },
   toggleDock: {
     label: "Toggle dock (rail / cards)",
-    // Mirror of VS Code's primary-sidebar shortcut. The right-panel
-    // toggle takes `Mod+Alt+B`; the dock (left panel) gets the
-    // shorter `Mod+B`, since the dock is the primary navigator.
-    keybind: { key: "b", code: "KeyB", mod: true },
+    // Mod+Shift+B — bare Mod+B on Linux/Windows resolves to Ctrl+B,
+    // which Claude Code claims as its in-PTY background-task chord.
+    // The shifted form keeps the B mnemonic for the left panel and
+    // frees Ctrl+B to reach the PTY. See `prohibitedKeybinds.ts`.
+    keybind: { key: "B", code: "KeyB", mod: true, shift: true },
     handler: (ctx) => ctx.toggleDock(),
   },
   toggleRecordingPause: {
