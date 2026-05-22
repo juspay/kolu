@@ -299,7 +299,7 @@ const DockRow: Component<{
     <Show when={combined()}>
       {(c) => (
         <div
-          class="flex flex-row items-stretch border-b border-edge/15 last:border-b-0 relative transition-[margin,border-radius,box-shadow] duration-300 ease-out data-[active]:m-1.5 data-[active]:rounded-lg data-[active]:border-b-transparent data-[active]:shadow-[0_0_0_1.5px_color-mix(in_oklch,var(--color-accent)_80%,transparent),0_6px_24px_-4px_color-mix(in_oklch,var(--color-accent)_55%,transparent),0_2px_6px_-2px_rgba(0,0,0,0.4)] data-[active]:animate-[dock-row-activate_0.36s_cubic-bezier(0.34,1.45,0.6,1),dock-row-flash_0.48s_ease-out]"
+          class="flex flex-row items-stretch border-b border-edge/15 last:border-b-0 relative transition-[margin,border-radius,box-shadow] duration-300 ease-out data-[active]:m-1.5 data-[active]:rounded-lg data-[active]:border-b-transparent data-[active]:shadow-[var(--dock-active-halo)] data-[active]:animate-[dock-row-activate_0.36s_cubic-bezier(0.34,1.45,0.6,1),dock-row-flash_0.48s_ease-out]"
           data-testid="dock-row"
           data-terminal-id={props.id}
           data-bucket={props.bucket}

@@ -299,7 +299,18 @@ body {
  * can't carry inline: `@keyframes`, the inline-style override on
  * body bg (needs `!important` to beat `style={{ backgroundColor }}`
  * on AwaitingCardBody / WorkingPillBody), and the rail-cadence quiet
- * + parked-opacity restore (cross-cutting selectors). */
+ * + parked-opacity restore (cross-cutting selectors).
+ *
+ * `--dock-active-halo` is the resting glow that the active row
+ * settles to after the flash. Defined once so the Tailwind shadow
+ * utility on the row and the `@keyframes dock-row-flash` 100% frame
+ * stay in lockstep — change one knob, both surfaces follow. */
+:root {
+  --dock-active-halo:
+    0 0 0 1.5px color-mix(in oklch, var(--color-accent) 80%, transparent),
+    0 6px 24px -4px color-mix(in oklch, var(--color-accent) 55%, transparent),
+    0 2px 6px -2px rgba(0, 0, 0, 0.4);
+}
 
 /* Desktop bodies paint their own `theme().bg` via inline style —
  * an inline-style override needs `!important` to land, which
@@ -363,10 +374,7 @@ body {
       0 2px 6px -2px rgba(0, 0, 0, 0.4);
   }
   100% {
-    box-shadow:
-      0 0 0 1.5px color-mix(in oklch, var(--color-accent) 80%, transparent),
-      0 6px 24px -4px color-mix(in oklch, var(--color-accent) 55%, transparent),
-      0 2px 6px -2px rgba(0, 0, 0, 0.4);
+    box-shadow: var(--dock-active-halo);
   }
 }
 @media (prefers-reduced-motion: reduce) {
