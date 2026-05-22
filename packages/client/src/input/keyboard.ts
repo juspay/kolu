@@ -11,15 +11,6 @@ export function isPlatformModifier(e: KeyboardEvent): boolean {
   return isMac ? e.metaKey : e.ctrlKey;
 }
 
-/** The platform modifier as KeyboardEvent flags — write-direction dual
- *  of `isPlatformModifier`. Both live here so the "`mod` means Meta on
- *  Mac, Ctrl elsewhere" rule has exactly one source. */
-function platformModifierFlags(): { ctrlKey: boolean; metaKey: boolean } {
-  return isMac
-    ? { ctrlKey: false, metaKey: true }
-    : { ctrlKey: true, metaKey: false };
-}
-
 /** Zoom key deltas: maps key to font-size change direction. */
 export const ZOOM_KEYS: Record<string, 1 | -1> = { "=": 1, "+": 1, "-": -1 };
 
@@ -78,14 +69,13 @@ export function matchesKeybind(e: KeyboardEvent, kb: Keybind): boolean {
  * `matchesKeybind` takes — so there's one source of modifier truth.
  */
 export function keybindAsEvent(kb: Keybind): Partial<KeyboardEvent> {
-  const modFlags = kb.mod
-    ? platformModifierFlags()
-    : { ctrlKey: false, metaKey: false };
+  const modCtrl = kb.mod && !isMac;
+  const modMeta = kb.mod && isMac;
   return {
     key: kb.key,
     code: kb.code,
-    ctrlKey: kb.ctrl === true || modFlags.ctrlKey,
-    metaKey: modFlags.metaKey,
+    ctrlKey: kb.ctrl === true || modCtrl,
+    metaKey: modMeta,
     altKey: kb.alt === true,
     shiftKey: kb.shift === true,
   };
