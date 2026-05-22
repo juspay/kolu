@@ -345,6 +345,7 @@ const DockRow: Component<{
                 bucket={props.bucket}
                 info={c().info}
                 meta={c().meta}
+                active={active()}
               />
             </div>
           </Show>
@@ -431,12 +432,15 @@ const DockAnnotation: Component<{
 /** Dispatches each row to its variant body. Bundling the variant switch
  *  in one place keeps `DockRow` shape uniform — every bucket has the
  *  same outer "rail + body" geometry regardless of which variant the
- *  body renders. */
+ *  body renders. `active` is threaded so each body can paint its bg /
+ *  fg as a function of (themed, active) without the stylesheet needing
+ *  to fight inline `style=` with `!important`. */
 const RowBody: Component<{
   id: TerminalId;
   bucket: DockRowBucket;
   info: TerminalDisplayInfo;
   meta: TerminalMetadata;
+  active: boolean;
 }> = (props) => {
   return (
     <Switch
@@ -446,14 +450,25 @@ const RowBody: Component<{
           info={props.info}
           meta={props.meta}
           bucket={props.bucket}
+          active={props.active}
         />
       }
     >
       <Match when={props.bucket === "awaiting"}>
-        <AwaitingCardBody id={props.id} info={props.info} meta={props.meta} />
+        <AwaitingCardBody
+          id={props.id}
+          info={props.info}
+          meta={props.meta}
+          active={props.active}
+        />
       </Match>
       <Match when={props.bucket === "working"}>
-        <WorkingPillBody id={props.id} info={props.info} meta={props.meta} />
+        <WorkingPillBody
+          id={props.id}
+          info={props.info}
+          meta={props.meta}
+          active={props.active}
+        />
       </Match>
     </Switch>
   );
@@ -471,6 +486,7 @@ const AwaitingCardBody: Component<{
   id: TerminalId;
   info: TerminalDisplayInfo;
   meta: TerminalMetadata;
+  active: boolean;
 }> = (props) => {
   const store = useTerminalStore();
   const tileTheme = useTileTheme();
@@ -506,10 +522,10 @@ const AwaitingCardBody: Component<{
     <div
       data-testid="dock-card"
       data-terminal-id={props.id}
-      class="px-2.5 py-2.5 flex flex-col gap-1.5"
+      class="px-2.5 py-2.5 flex flex-col gap-1.5 transition-colors duration-200 ease-out"
       style={{
-        "background-color": theme().bg,
-        color: theme().fg,
+        "background-color": props.active ? "var(--color-accent)" : theme().bg,
+        color: props.active ? "#ffffff" : theme().fg,
       }}
     >
       <button
@@ -565,6 +581,7 @@ const WorkingPillBody: Component<{
   id: TerminalId;
   info: TerminalDisplayInfo;
   meta: TerminalMetadata;
+  active: boolean;
 }> = (props) => {
   const store = useTerminalStore();
   const tileTheme = useTileTheme();
@@ -575,10 +592,10 @@ const WorkingPillBody: Component<{
       data-testid="dock-working"
       data-terminal-id={props.id}
       onClick={() => store.activate(props.id)}
-      class="w-full px-2.5 py-1 flex flex-col gap-0.5 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 text-left"
+      class="w-full px-2.5 py-1 flex flex-col gap-0.5 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 text-left transition-colors duration-200 ease-out"
       style={{
-        "background-color": theme().bg,
-        color: theme().fg,
+        "background-color": props.active ? "var(--color-accent)" : theme().bg,
+        color: props.active ? "#ffffff" : theme().fg,
       }}
       title="Jump to this terminal"
     >
@@ -613,6 +630,7 @@ const QuietRowBody: Component<{
   info: TerminalDisplayInfo;
   meta: TerminalMetadata;
   bucket: DockRowBucket;
+  active: boolean;
 }> = (props) => {
   const store = useTerminalStore();
   const foreground = () =>
@@ -624,8 +642,12 @@ const QuietRowBody: Component<{
       data-terminal-id={props.id}
       data-bucket={props.bucket}
       onClick={() => store.activate(props.id)}
-      class="w-full px-2.5 py-1 flex flex-col gap-0.5 min-w-0 cursor-pointer text-left bg-surface-1/40 hover:bg-surface-2/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
-      classList={{ "opacity-60": props.bucket === "parked" }}
+      class="w-full px-2.5 py-1 flex flex-col gap-0.5 min-w-0 cursor-pointer text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 transition-colors duration-200 ease-out"
+      classList={{
+        "bg-surface-1/40 hover:bg-surface-2/50": !props.active,
+        "bg-accent text-white": props.active,
+        "opacity-60": props.bucket === "parked",
+      }}
       title={props.info.meta.cwd}
     >
       <div class="flex items-baseline gap-2 min-w-0">
