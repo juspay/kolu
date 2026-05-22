@@ -23,11 +23,15 @@ export const POLL_TIMEOUT = 20_000;
 /** Per-step budget for *hydration* polls — waiting for the app to mount
  *  enough state that interaction is meaningful (server WS up, savedSession
  *  reflected, file-tree populated). The hydration axis is volatile
- *  separately from interaction: a loaded darwin runner can take 20 s+ for
- *  the Pierre file tree to flip from empty to populated, but the *first*
- *  interaction after that lands in ~200 ms. Splitting the constants keeps
- *  one slow axis from forcing the rest of the suite to wait. */
-export const HYDRATION_TIMEOUT = 30_000;
+ *  separately from interaction: a loaded darwin runner can take 30 s+ for
+ *  the Pierre file tree to flip from empty to populated (branch mode +
+ *  server-side `git status` round-trip), but the *first* interaction
+ *  after that lands in ~200 ms. Splitting the constants keeps one slow
+ *  axis from forcing the rest of the suite to wait. Generous margin
+ *  here is on purpose — empirically the slow path hits 30 s on the
+ *  darwin CI runner, and the safety-net Cucumber retry only absorbs
+ *  one re-run per scenario. */
+export const HYDRATION_TIMEOUT = 60_000;
 
 const READY_TIMEOUT = HYDRATION_TIMEOUT;
 
