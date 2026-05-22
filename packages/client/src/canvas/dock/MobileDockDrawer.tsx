@@ -118,10 +118,10 @@ const Row: Component<{
           <div class="flex items-baseline justify-between gap-2 min-w-0">
             <span
               class="font-mono text-[0.6rem] font-bold uppercase tracking-[0.14em] truncate min-w-0"
-              // Inherit when active so the row's white color flows
+              // Drop inline color when active so the row's white cascades
               // through; otherwise paint the per-repo identity color.
               style={{
-                color: active() ? "inherit" : info()?.repoColor,
+                color: active() ? undefined : info()?.repoColor,
               }}
             >
               {info()?.key.group}
@@ -133,7 +133,7 @@ const Row: Component<{
                 "text-[0.8rem]": !live(),
               }}
               style={{
-                color: active() ? "inherit" : info()?.annotationColor,
+                color: active() ? undefined : info()?.annotationColor,
               }}
             >
               <IntentMarkdownInline

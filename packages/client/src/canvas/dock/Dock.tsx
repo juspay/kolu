@@ -345,7 +345,6 @@ const DockRow: Component<{
                 bucket={props.bucket}
                 info={c().info}
                 meta={c().meta}
-                active={active()}
               />
             </div>
           </Show>
@@ -422,10 +421,10 @@ const DockAnnotation: Component<{
   <span
     data-testid="dock-annotation"
     class={`${props.class} truncate min-w-0`}
-    // Inherit when active so the parent body's white color flows
-    // through — an inline annotationColor wins against `!important`
-    // via specificity, so the only way to swap is at the inline.
-    style={{ color: props.active ? "inherit" : props.info.annotationColor }}
+    // Drop the inline color when active so the parent body's white
+    // cascades through — an inline annotationColor wins against
+    // `!important` via specificity; undefined removes the inline.
+    style={{ color: props.active ? undefined : props.info.annotationColor }}
   >
     <IntentMarkdownInline
       markdown={annotationLine(props.meta.intent, props.info.key.label)}
@@ -436,15 +435,14 @@ const DockAnnotation: Component<{
 /** Dispatches each row to its variant body. Bundling the variant switch
  *  in one place keeps `DockRow` shape uniform — every bucket has the
  *  same outer "rail + body" geometry regardless of which variant the
- *  body renders. `active` is threaded so each body can paint its bg /
- *  fg as a function of (themed, active) without the stylesheet needing
- *  to fight inline `style=` with `!important`. */
+ *  body renders. Each body derives its own `active` state from the
+ *  terminal store — no prop threading needed since all three already
+ *  call `useTerminalStore()` and have `props.id`. */
 const RowBody: Component<{
   id: TerminalId;
   bucket: DockRowBucket;
   info: TerminalDisplayInfo;
   meta: TerminalMetadata;
-  active: boolean;
 }> = (props) => {
   return (
     <Switch
@@ -454,25 +452,14 @@ const RowBody: Component<{
           info={props.info}
           meta={props.meta}
           bucket={props.bucket}
-          active={props.active}
         />
       }
     >
       <Match when={props.bucket === "awaiting"}>
-        <AwaitingCardBody
-          id={props.id}
-          info={props.info}
-          meta={props.meta}
-          active={props.active}
-        />
+        <AwaitingCardBody id={props.id} info={props.info} meta={props.meta} />
       </Match>
       <Match when={props.bucket === "working"}>
-        <WorkingPillBody
-          id={props.id}
-          info={props.info}
-          meta={props.meta}
-          active={props.active}
-        />
+        <WorkingPillBody id={props.id} info={props.info} meta={props.meta} />
       </Match>
     </Switch>
   );
@@ -490,11 +477,11 @@ const AwaitingCardBody: Component<{
   id: TerminalId;
   info: TerminalDisplayInfo;
   meta: TerminalMetadata;
-  active: boolean;
 }> = (props) => {
   const store = useTerminalStore();
   const tileTheme = useTileTheme();
   const theme = createMemo(() => tileTheme(props.id));
+  const active = () => store.activeId() === props.id;
   const [value, setValue] = createSignal("");
 
   async function submit(e: SubmitEvent) {
@@ -527,9 +514,10 @@ const AwaitingCardBody: Component<{
       data-testid="dock-card"
       data-terminal-id={props.id}
       class="px-2.5 py-2.5 flex flex-col gap-1.5 transition-colors duration-200 ease-out"
+      classList={{ "text-white": active() }}
       style={{
-        "background-color": props.active ? "var(--color-accent)" : theme().bg,
-        color: props.active ? "#ffffff" : theme().fg,
+        "background-color": active() ? "var(--color-accent)" : theme().bg,
+        color: active() ? undefined : theme().fg,
       }}
     >
       <button
@@ -542,7 +530,7 @@ const AwaitingCardBody: Component<{
           <span
             class="font-mono text-[0.7rem] font-bold uppercase tracking-[0.14em] truncate min-w-0"
             style={{
-              color: props.active ? "inherit" : props.info.repoColor,
+              color: active() ? undefined : props.info.repoColor,
             }}
           >
             {props.info.key.group}
@@ -551,7 +539,7 @@ const AwaitingCardBody: Component<{
             meta={props.meta}
             info={props.info}
             class="text-[0.95rem] font-semibold leading-tight"
-            active={props.active}
+            active={active()}
           />
         </div>
         <DockMetaRow meta={props.meta} />
@@ -588,11 +576,11 @@ const WorkingPillBody: Component<{
   id: TerminalId;
   info: TerminalDisplayInfo;
   meta: TerminalMetadata;
-  active: boolean;
 }> = (props) => {
   const store = useTerminalStore();
   const tileTheme = useTileTheme();
   const theme = createMemo(() => tileTheme(props.id));
+  const active = () => store.activeId() === props.id;
   return (
     <button
       type="button"
@@ -600,9 +588,10 @@ const WorkingPillBody: Component<{
       data-terminal-id={props.id}
       onClick={() => store.activate(props.id)}
       class="w-full px-2.5 py-1 flex flex-col gap-0.5 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 text-left transition-colors duration-200 ease-out"
+      classList={{ "text-white": active() }}
       style={{
-        "background-color": props.active ? "var(--color-accent)" : theme().bg,
-        color: props.active ? "#ffffff" : theme().fg,
+        "background-color": active() ? "var(--color-accent)" : theme().bg,
+        color: active() ? undefined : theme().fg,
       }}
       title="Jump to this terminal"
     >
@@ -610,7 +599,7 @@ const WorkingPillBody: Component<{
         <span
           class="font-mono text-[0.65rem] font-bold uppercase tracking-[0.14em] truncate min-w-0"
           style={{
-            color: props.active ? "inherit" : props.info.repoColor,
+            color: active() ? undefined : props.info.repoColor,
           }}
         >
           {props.info.key.group}
@@ -619,7 +608,7 @@ const WorkingPillBody: Component<{
           meta={props.meta}
           info={props.info}
           class="text-[0.85rem] font-semibold leading-tight"
-          active={props.active}
+          active={active()}
         />
       </div>
       <DockMetaRow meta={props.meta} />
@@ -640,9 +629,9 @@ const QuietRowBody: Component<{
   info: TerminalDisplayInfo;
   meta: TerminalMetadata;
   bucket: DockRowBucket;
-  active: boolean;
 }> = (props) => {
   const store = useTerminalStore();
+  const active = () => store.activeId() === props.id;
   const foreground = () =>
     props.meta.foreground?.title ?? props.meta.foreground?.name ?? null;
   return (
@@ -654,12 +643,12 @@ const QuietRowBody: Component<{
       onClick={() => store.activate(props.id)}
       class="w-full px-2.5 py-1 flex flex-col gap-0.5 min-w-0 cursor-pointer text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 transition-colors duration-200 ease-out"
       classList={{
-        "bg-surface-1/40 hover:bg-surface-2/50": !props.active,
-        "bg-accent text-white": props.active,
+        "bg-surface-1/40 hover:bg-surface-2/50": !active(),
+        "bg-accent text-white": active(),
         // Parked dim only when not active; an active parked row pops
         // at full opacity, matching the existing mobile behavior at
         // `MobileDockDrawer.tsx`.
-        "opacity-60": props.bucket === "parked" && !props.active,
+        "opacity-60": props.bucket === "parked" && !active(),
       }}
       title={props.info.meta.cwd}
     >
@@ -667,7 +656,7 @@ const QuietRowBody: Component<{
         <span
           class="font-mono text-[0.6rem] font-bold uppercase tracking-[0.14em] truncate min-w-0"
           style={{
-            color: props.active ? "inherit" : props.info.repoColor,
+            color: active() ? undefined : props.info.repoColor,
           }}
         >
           {props.info.key.group}
@@ -676,7 +665,7 @@ const QuietRowBody: Component<{
           meta={props.meta}
           info={props.info}
           class="text-[0.75rem]"
-          active={props.active}
+          active={active()}
         />
         <Show when={formatTimeAgo(props.meta.lastActivityAt)}>
           {(label) => (
