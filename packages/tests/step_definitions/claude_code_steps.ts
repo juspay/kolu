@@ -15,6 +15,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { After, Then, When } from "@cucumber/cucumber";
 import { ACTIVE_TERMINAL, readBufferText } from "../support/buffer.ts";
+import { nudgeFiles } from "../support/nudge.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
 const SESSION_ID = "test-claude-session-00000000-0000-0000-0000";
@@ -171,24 +172,12 @@ When(
   },
 );
 
-/** Re-touch the mock files so a dropped fs.watch event can't deadlock detection.
- *
- *  fs.watch (inotify on Linux, FSEvents on darwin) is a single-shot best-effort
- *  notification — under heavy load both backends silently drop events. The server
- *  has no polling fallback, so a single missed event can wedge a scenario. Tests
- *  re-touch the trigger files on each poll iteration so detection retries are
- *  driven by *us*, not by hoping the kernel queue stays warm. */
+/** Re-touch the mock files so a dropped fs.watch event can't deadlock
+ *  detection. The mechanism (and its rationale) lives in
+ *  `support/nudge.ts::nudgeFiles` alongside `nudgeWal` — same volatility
+ *  axis (kernel inotify queue overflow under parallel load). */
 function nudgeMockFiles() {
-  const now = new Date();
-  for (const p of [mockSessionFile, mockTranscriptPath]) {
-    if (p) {
-      try {
-        fs.utimesSync(p, now, now);
-      } catch {
-        // file may have been cleaned up between iterations — fine
-      }
-    }
-  }
+  nudgeFiles([mockSessionFile, mockTranscriptPath]);
 }
 
 When(

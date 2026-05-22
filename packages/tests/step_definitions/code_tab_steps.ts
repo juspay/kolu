@@ -1,6 +1,10 @@
 import { Given, Then, When } from "@cucumber/cucumber";
 import { pollFor } from "../support/poll.ts";
-import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
+import {
+  type KoluWorld,
+  HYDRATION_TIMEOUT,
+  POLL_TIMEOUT,
+} from "../support/world.ts";
 
 // ── Pierre tree selectors ──
 //
@@ -686,17 +690,34 @@ async function activateCodeTabMode(
   await world.waitForFrame();
 }
 
+/** Wait for the Pierre file tree to finish its first hydration — at least
+ *  one real (non-sticky) row visible. Without this gate the subsequent
+ *  per-path assertion has to absorb both "tree mounted" and "specific row
+ *  rendered" against a single timeout; under darwin CI load the combined
+ *  chain (fs.watcher → server → SSE → SolidJS → Pierre mount) repeatedly
+ *  exceeded 20 s and was the single most-recurring flake site (#955). */
+async function waitForCodeTabReady(world: KoluWorld): Promise<void> {
+  await world.page
+    .locator(
+      `${TREE} [data-item-path][data-item-type]:not([data-file-tree-sticky-row])`,
+    )
+    .first()
+    .waitFor({ state: "visible", timeout: HYDRATION_TIMEOUT });
+}
+
 async function waitForFixturePath(
   world: KoluWorld,
   mode: CodeTabMode,
   path: string,
 ): Promise<void> {
-  const selector =
-    mode === "browse"
-      ? `${TREE} [data-item-path][data-item-type]:not([data-file-tree-sticky-row])`
-      : fileRow(path);
+  // Two-step wait — first the tree's hydration, then the specific path.
+  // Each step carries its own timeout against its own volatility axis;
+  // the fused single-locator wait (the prior shape) made both axes share
+  // POLL_TIMEOUT and starved the slow hydration side on loaded runners.
+  await waitForCodeTabReady(world);
+  if (mode === "browse") return;
   await world.page
-    .locator(selector)
+    .locator(fileRow(path))
     .first()
     .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
 }
@@ -779,6 +800,15 @@ Then(
 Then(
   "the selected file should show content {string}",
   async function (this: KoluWorld, expected: string) {
+    // Split: (1) wait for one of the view roots to mount under HYDRATION
+    // budget, (2) wait for the expected text under POLL budget. The fused
+    // pre-#955 shape carried both axes against POLL_TIMEOUT — text never
+    // got a fair chance once a slow runner spent most of the budget on
+    // the view mount.
+    await this.page
+      .locator(`${DIFF_VIEW}, ${FILE_VIEW}`)
+      .first()
+      .waitFor({ state: "visible", timeout: HYDRATION_TIMEOUT });
     await this.page.waitForFunction(
       `(() => {
         ${SHADOW_DFS_FN_SRC}

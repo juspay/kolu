@@ -77,7 +77,11 @@ smoke: nix
     {{ nix_shell }} bash ci/smoke.sh
 
 e2e: nix install
-    {{ nix_shell }} just test
+    # CUCUMBER_RETRY=1 is the residual safety net for darwin-runner-load
+    # flakes that survive the structural fixes in #955. Local
+    # `just test-quick` runs leave it unset (0 = off) so real failures
+    # surface on the first attempt.
+    CUCUMBER_RETRY=1 {{ nix_shell }} just test
 
 # Run vitest unit tests (server + client).
 unit: install

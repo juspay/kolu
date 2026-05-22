@@ -1,17 +1,20 @@
-/** WAL-nudge helper for mock SQLite-backed agent integrations.
+/** Nudge helpers for fs.watch / inotify recovery under parallel load.
  *
  *  Under parallel-worker load the kernel inotify queue overflows and
- *  silently drops `fs.watch` events, leaving the server's session
- *  watcher wedged on stale state. The recovery is to re-fire a fresh
- *  WAL frame on each poll iteration so detection retries are driven
- *  from the test side rather than relying on the kernel queue staying
- *  warm. Mirror of `claude_code_steps.ts::nudgeMockFiles` (which uses
- *  `fs.utimesSync` for the file-watcher case).
+ *  silently drops `fs.watch` events, leaving the server's watchers
+ *  wedged on stale state. The recovery is to re-fire a detectable
+ *  event on each poll iteration so detection retries are driven from
+ *  the test side rather than relying on the kernel queue staying warm.
  *
- *  Errors that match the SQLITE_BUSY family are swallowed silently —
- *  these ARE the events we expect under contention. Anything else
- *  (schema drift, missing column, permissions) is logged once per
- *  dbPath so a regression doesn't silently re-flake the suite. */
+ *  Two flavors: `nudgeWal` writes a WAL frame to a SQLite DB
+ *  (agent-session mocks); `nudgeFiles` re-touches mtimes (transcript /
+ *  session-JSONL mocks). Same volatility axis, two mechanisms — they
+ *  share a home so future additions don't fragment further.
+ *
+ *  SQLite errors that match the SQLITE_BUSY family are swallowed
+ *  silently — those ARE the events we expect under contention.
+ *  Anything else (schema drift, missing column, permissions) is logged
+ *  once per dbPath so a regression doesn't silently re-flake the suite. */
 
 import * as fs from "node:fs";
 import { DatabaseSync } from "node:sqlite";
@@ -25,6 +28,23 @@ function isExpectedSqliteRace(err: unknown): boolean {
 }
 
 const warned = new Set<string>();
+
+/** Re-touch each existing file's mtime to re-fire its parent dir's
+ *  `fs.watch`. Used by mock agent integrations whose session/transcript
+ *  files are the trigger the server polls for. Undefined or
+ *  non-existent paths are silently skipped — the caller's poll loop
+ *  retries on the next tick. */
+export function nudgeFiles(paths: ReadonlyArray<string | undefined>): void {
+  const now = new Date();
+  for (const p of paths) {
+    if (!p) continue;
+    try {
+      fs.utimesSync(p, now, now);
+    } catch {
+      // File may have been cleaned up between iterations — fine.
+    }
+  }
+}
 
 /** Execute `sql` against the SQLite DB at `dbPath` to force a WAL
  *  frame. No-ops if `dbPath` is undefined or the file doesn't exist
