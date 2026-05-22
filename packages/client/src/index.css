@@ -314,21 +314,17 @@ body {
 
 /* Quiet the rail's bucket-cadence on active rows. `RailSegment` never
  * learns about `active()`; this is purely presentational. Parked /
- * none rails keep full opacity when active. Selectors are scoped to
- * the dock testids — `data-active` is also used by other surfaces
- * (canvas tile, scroll-to-bottom, code-tab), so an unscoped selector
- * would silently suppress any rail-class descendant in those trees. */
+ * none rails keep full opacity when active. Scoped to `dock-row`
+ * because the rail and `data-agent-bucket` only exist on the desktop
+ * dock — mobile's row has no rail-class or bucket-attribute
+ * descendants, so a mobile-prefixed selector would match nothing. */
 [data-testid="dock-row"][data-active] .dock-rail-awaiting,
-[data-testid="dock-row"][data-active] .dock-rail-working,
-[data-testid="mobile-dock-row"][data-active] .dock-rail-awaiting,
-[data-testid="mobile-dock-row"][data-active] .dock-rail-working {
+[data-testid="dock-row"][data-active] .dock-rail-working {
   animation: none;
   filter: brightness(1);
 }
 [data-testid="dock-row"][data-active] [data-agent-bucket="parked"],
-[data-testid="dock-row"][data-active] [data-agent-bucket="none"],
-[data-testid="mobile-dock-row"][data-active] [data-agent-bucket="parked"],
-[data-testid="mobile-dock-row"][data-active] [data-agent-bucket="none"] {
+[data-testid="dock-row"][data-active] [data-agent-bucket="none"] {
   opacity: 1;
 }
 
