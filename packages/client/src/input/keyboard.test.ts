@@ -189,12 +189,11 @@ describe("PROHIBITED_KEYBINDS", () => {
     keybind,
   }) => {
     const event = keybindAsEvent(keybind) as KeyboardEvent;
-    const collisions = Object.entries(ACTIONS).filter(([, action]) => {
-      if (matchesKeybind(event, action.keybind)) return true;
-      if (action.altKeybind && matchesKeybind(event, action.altKeybind))
-        return true;
-      return false;
-    });
+    const collisions = Object.entries(ACTIONS).filter(
+      ([, action]) =>
+        matchesKeybind(event, action.keybind) ||
+        (action.altKeybind != null && matchesKeybind(event, action.altKeybind)),
+    );
     expect(collisions.map(([id]) => id)).toEqual([]);
   });
 });
