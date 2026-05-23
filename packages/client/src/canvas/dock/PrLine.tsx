@@ -4,12 +4,11 @@
  *  sees on the focused tile. Returns null for unresolved PR kinds
  *  (`absent` / `pending` / `unavailable`) so the row collapses cleanly. */
 
-import { prLabel } from "kolu-github/schemas";
+import { prLabel, prValue } from "kolu-github/schemas";
 import { type Component, Show } from "solid-js";
 import type { TerminalMetadata } from "kolu-common/surface";
 import ChecksIndicator from "../../terminal/ChecksIndicator";
 import { PrStateIcon } from "../../ui/Icons";
-import { resolvedPr } from "../dockModel";
 
 const PrLine: Component<{
   meta: TerminalMetadata | undefined;
@@ -17,7 +16,7 @@ const PrLine: Component<{
    *  mobile drawer bumps to `text-[0.7rem]` for thumb-friendly density. */
   textClass?: string;
 }> = (props) => {
-  const pr = () => (props.meta ? resolvedPr(props.meta.pr) : null);
+  const pr = () => (props.meta ? prValue(props.meta.pr) : null);
   return (
     <Show when={pr()}>
       {(p) => (

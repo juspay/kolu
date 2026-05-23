@@ -1,7 +1,7 @@
 import type { AgentInfo } from "kolu-common/surface";
+import { prValue } from "kolu-github/schemas";
 import { agentNames, stateLabels } from "../../ui/agentDisplay";
 import type { DockEntry } from "../dockModel";
-import { resolvedPr } from "../dockModel";
 
 export function agentLabel(agent: AgentInfo | null | undefined): string {
   if (!agent) return "Plain shell";
@@ -26,7 +26,7 @@ export type PrSummary = {
 };
 
 export function prSummary(entry: DockEntry): PrSummary | null {
-  const pr = resolvedPr(entry.info.meta.pr);
+  const pr = prValue(entry.info.meta.pr);
   if (!pr) return null;
   return {
     number: pr.number,
