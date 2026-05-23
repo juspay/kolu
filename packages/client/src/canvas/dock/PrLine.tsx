@@ -10,18 +10,25 @@ import type { TerminalMetadata } from "kolu-common/surface";
 import ChecksIndicator from "../../terminal/ChecksIndicator";
 import { PrStateIcon } from "../../ui/Icons";
 
+/** Dock-row density. `sm` is the desktop dock default; `md` is the
+ *  mobile drawer's thumb-friendlier rung. */
+type Size = "sm" | "md";
+
+const TEXT_CLASS: Record<Size, string> = {
+  sm: "text-[0.65rem]",
+  md: "text-[0.7rem]",
+};
+
 const PrLine: Component<{
   meta: TerminalMetadata | undefined;
-  /** Tailwind text-size class. Desktop dock uses `text-[0.65rem]`;
-   *  mobile drawer bumps to `text-[0.7rem]` for thumb-friendly density. */
-  textClass?: string;
+  size?: Size;
 }> = (props) => {
   const pr = () => (props.meta ? prValue(props.meta.pr) : null);
   return (
     <Show when={pr()}>
       {(p) => (
         <div
-          class={`flex items-center gap-1.5 min-w-0 text-fg-2 ${props.textClass ?? "text-[0.65rem]"}`}
+          class={`flex items-center gap-1.5 min-w-0 text-fg-2 ${TEXT_CLASS[props.size ?? "sm"]}`}
           data-testid="dock-pr"
           title={prLabel(p())}
         >

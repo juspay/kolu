@@ -176,7 +176,7 @@ const Row: Component<{
             )}
           </Show>
           <Show when={live()}>
-            <PrLine meta={meta()} textClass="text-[0.7rem]" />
+            <PrLine meta={meta()} size="md" />
           </Show>
           {/* Foreground process line — surfaced on quiet (non-live)
            *  rows so plain shells aren't reduced to bare repo + branch
