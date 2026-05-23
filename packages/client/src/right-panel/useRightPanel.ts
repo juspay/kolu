@@ -72,12 +72,26 @@ export function useRightPanel() {
 
   /** Mutate the active terminal's per-terminal record. No-op when no
    *  terminal is active — clicks on the panel before a terminal exists
-   *  are dropped silently. */
-  function mutateActive(patch: Partial<RightPanelPerTerminalState>): void {
+   *  are dropped silently.
+   *
+   *  Accepts either a shallow patch (`Partial<RightPanelPerTerminalState>`)
+   *  or a producer function for nested updates (e.g. mutating one key in
+   *  `selectedFileByMode`). Both paths share the same `ensureState →
+   *  setStore → reportToServer` triplet so future contract changes
+   *  (client-side equality gate, telemetry) land in one place. */
+  function mutateActive(
+    update:
+      | Partial<RightPanelPerTerminalState>
+      | ((s: RightPanelPerTerminalState) => void),
+  ): void {
     const id = store.activeId();
     if (id === null) return;
     ensureState(id);
-    setPerTerminal(id, patch);
+    if (typeof update === "function") {
+      setPerTerminal(id, produce(update));
+    } else {
+      setPerTerminal(id, update);
+    }
     reportToServer(id);
   }
 
@@ -149,25 +163,18 @@ export function useRightPanel() {
     selectedFile: (mode: CodeTabView): string | null =>
       activeState().selectedFileByMode?.[mode] ?? null,
     setSelectedFile: (mode: CodeTabView, path: string | null) => {
-      const id = store.activeId();
-      if (id === null) return;
-      ensureState(id);
-      setPerTerminal(
-        id,
-        produce((s: RightPanelPerTerminalState) => {
-          const cur = s.selectedFileByMode ?? {};
-          if (path === null) {
-            if (!(mode in cur)) return;
-            const { [mode]: _, ...rest } = cur;
-            s.selectedFileByMode =
-              Object.keys(rest).length > 0 ? rest : undefined;
-          } else {
-            if (cur[mode] === path) return;
-            s.selectedFileByMode = { ...cur, [mode]: path };
-          }
-        }),
-      );
-      reportToServer(id);
+      mutateActive((s) => {
+        const cur = s.selectedFileByMode ?? {};
+        if (path === null) {
+          if (!(mode in cur)) return;
+          const { [mode]: _, ...rest } = cur;
+          s.selectedFileByMode =
+            Object.keys(rest).length > 0 ? rest : undefined;
+        } else {
+          if (cur[mode] === path) return;
+          s.selectedFileByMode = { ...cur, [mode]: path };
+        }
+      });
     },
 
     // ── Session restore + lifecycle ──────────────────────────────────
