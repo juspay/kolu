@@ -10,6 +10,7 @@ const CARD_SELECTOR = '[data-testid="dock-card"]';
 const WORKING_SELECTOR = '[data-testid="dock-working"]';
 const QUIET_FOREGROUND_SELECTOR = '[data-testid="dock-quiet-foreground"]';
 const CHROME_DOCK_TOGGLE_SELECTOR = '[data-testid="dock-toggle"]';
+const DOCK_WINDOW_TRIGGER_SELECTOR = '[data-testid="dock-window-trigger"]';
 
 Then("the dock should be visible", async function (this: KoluWorld) {
   await this.page
@@ -218,5 +219,47 @@ Then(
       },
       { timeout: POLL_TIMEOUT },
     );
+  },
+);
+
+Then(
+  "the dock window trigger should be visible",
+  async function (this: KoluWorld) {
+    await this.page
+      .locator(DOCK_WINDOW_TRIGGER_SELECTOR)
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+Then(
+  /^the dock window should be "(all|4h|12h|24h|48h)"$/,
+  async function (this: KoluWorld, expected: string) {
+    await this.page.waitForFunction(
+      ({ sel, want }: { sel: string; want: string }) => {
+        const el = document.querySelector(sel) as HTMLElement | null;
+        return el?.getAttribute("data-window") === want;
+      },
+      { sel: DOCK_WINDOW_TRIGGER_SELECTOR, want: expected },
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+When("I click the dock window trigger", async function (this: KoluWorld) {
+  const button = this.page.locator(DOCK_WINDOW_TRIGGER_SELECTOR);
+  await button.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  await button.click();
+  await this.waitForFrame();
+});
+
+When(
+  /^I pick the dock window option "(all|4h|12h|24h|48h)"$/,
+  async function (this: KoluWorld, value: string) {
+    const opt = this.page.locator(
+      `[data-testid="dock-window-option-${value}"]`,
+    );
+    await opt.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await opt.click();
+    await this.waitForFrame();
   },
 );
