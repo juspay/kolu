@@ -14,6 +14,7 @@ import { CONTEXTUAL_TIPS } from "../settings/tips";
 import { client, preferences } from "../wire";
 import { useTips } from "../settings/useTips";
 import { writeTextToClipboard } from "../ui/clipboard";
+import { useRightPanel } from "../right-panel/useRightPanel";
 import { useSubPanel } from "./useSubPanel";
 import type { TerminalStore } from "./useTerminalStore";
 
@@ -23,6 +24,7 @@ export function useTerminalCrud(deps: {
 }) {
   const { store } = deps;
   const subPanel = useSubPanel();
+  const rightPanel = useRightPanel();
   const { showTipOnce } = useTips();
 
   /** The terminal the user is currently interacting with —
@@ -86,6 +88,7 @@ export function useTerminalCrud(deps: {
     const ids = store.terminalIds();
     const idx = ids.indexOf(id);
     subPanel.removePanel(id);
+    rightPanel.removePanel(id);
     store.setMruOrder((prev) => prev.filter((x) => x !== id));
     if (store.activeId() === id) {
       const remaining = ids.filter((x) => x !== id);
@@ -128,6 +131,7 @@ export function useTerminalCrud(deps: {
         themeName: theme,
         canvasLayout: initial?.canvasLayout,
         subPanel: initial?.subPanel,
+        rightPanel: initial?.rightPanel,
         lastActivityAt: initial?.lastActivityAt,
         intent: initial?.intent,
       })
