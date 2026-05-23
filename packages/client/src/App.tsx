@@ -263,7 +263,7 @@ const App: Component = () => {
       void crud.handleKill(id);
       return;
     }
-    const splitCount = store.getSubTerminalIds(id).length;
+    const splitCount = store.getDisplayInfo(id)?.subCount ?? 0;
     const worktreePath = meta.git?.isWorktree
       ? meta.git.worktreePath
       : undefined;
