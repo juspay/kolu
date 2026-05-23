@@ -138,10 +138,13 @@ export function useRightPanel() {
       }),
     /** Atomic "open the Code tab at `mode`" — uncollapse the panel,
      *  switch to Code, set the requested sub-mode. The collapse flip is
-     *  a global write; the tab/mode flip is a per-terminal write. Skip
-     *  both when already in the target state to avoid spurious republishes
-     *  (every diff→browse and browse→browse `openInCodeTab` would otherwise
-     *  round-trip two writes to the server). */
+     *  a global write; the tab/mode flip is a per-terminal write.
+     *
+     *  Short-circuits when the panel is already open at the right tab+mode —
+     *  every diff→browse and browse→browse `openCodeAt` would otherwise
+     *  round-trip two writes to the server. When the panel is collapsed, the
+     *  per-terminal write still fires (the tab/mode may need updating even
+     *  though the panel is opening fresh). */
     openCodeAt: (mode: CodeTabView) => {
       const cur = activeState();
       const wasCollapsed = rp().collapsed;
