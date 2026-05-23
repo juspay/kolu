@@ -1,41 +1,60 @@
-/** Stale-terminal predicate. A terminal is "stale" when its last observed
- *  agent transition is older than the auto-park threshold.
+/** Stale-terminal predicate.
+ *
+ *  A terminal is "stale" when its last observed agent transition is older
+ *  than the user's currently-selected activity window — UNLESS the agent
+ *  is in an attention state (`waiting` / `awaiting_user`), in which case
+ *  the terminal is never stale regardless of age. The exemption is the
+ *  load-bearing invariant: a user-blocking agent must not lose its
+ *  identity to staleness just because the laptop slept past the window.
  *
  *  `lastActivityAt` is bumped only on agent semantic-key transitions
  *  (`packages/server/src/meta/agent.ts`), so terminals that never hosted an
  *  agent stay at `0` and are excluded — staleness only applies to terminals
  *  whose attention state has actually been observed at some point.
  *
- *  The threshold is a constant; if a preference knob ever becomes useful,
- *  it lands in `Preferences` and flows through this module without
- *  consumers changing. Consumers compose via `useStaleCheck` and then
- *  combine with `agentBucket()` from the workspace-switcher model when
- *  the conjunction with bucket state is the actual concept. */
+ *  The active threshold flows from `activityWindowThresholdMs()` in
+ *  `activityWindow.ts` — a per-device persisted choice exposed through
+ *  one signal so every consumer (dock buckets, minimap fade, badge gate)
+ *  agrees on what "stale" means. */
 
 import { type Accessor, createRoot, createSignal, onCleanup } from "solid-js";
-import { HOUR_MS, type IdleBucketKey, idleBucketFor } from "./activityWindow";
+import { isAttentionState } from "../ui/agentDisplay";
+import {
+  activityWindowThresholdMs,
+  type IdleBucketKey,
+  idleBucketFor,
+} from "./activityWindow";
+import type { AgentInfo } from "kolu-common/surface";
 
 const TICK_MS = 60_000;
 
-/** Auto-park threshold. Hardcoded for now; consumers go through the module
- *  rather than the constant so a future preference knob is a one-file
- *  change. */
-export const STALE_THRESHOLD_MS = 4 * HOUR_MS;
+/** Minimal input shape for staleness — every consumer either has full
+ *  `TerminalMetadata` (most callsites) or constructs the pair locally
+ *  from `lastActivityAt` + a `null` agent (e.g. legacy tests of the pure
+ *  predicate). Avoids importing the full `TerminalMetadata` here, which
+ *  would drag in surface schema concerns the predicate doesn't need. */
+export type StalenessInput = {
+  lastActivityAt: number;
+  agent: AgentInfo | null;
+};
 
-/** Pure stale predicate.
+/** Pure stale predicate. Attention-state agents are exempt — the
+ *  user-blocking case is never stale.
  *
- *  Stale ⇔ `lastActivityAt > 0` AND `now - lastActivityAt > thresholdMs`.
- *  A `null` threshold disables the feature (never stale). The `lastActivityAt
- *  === 0` guard excludes terminals whose agent transitions have never been
- *  observed (plain shells, brand-new terminals). */
+ *  Otherwise: stale ⇔ `lastActivityAt > 0` AND `now - lastActivityAt >
+ *  thresholdMs`. A `null` threshold disables the feature (never stale).
+ *  The `lastActivityAt === 0` guard excludes terminals whose agent
+ *  transitions have never been observed (plain shells, brand-new
+ *  terminals). */
 export function isStale(
-  lastActivityAt: number,
+  input: StalenessInput,
   now: number,
   thresholdMs: number | null,
 ): boolean {
+  if (isAttentionState(input.agent?.state)) return false;
   if (thresholdMs === null) return false;
-  if (lastActivityAt === 0) return false;
-  return now - lastActivityAt > thresholdMs;
+  if (input.lastActivityAt === 0) return false;
+  return now - input.lastActivityAt > thresholdMs;
 }
 
 let nowSignal: Accessor<number> | null = null;
@@ -61,46 +80,32 @@ function getNowTicker(): Accessor<number> {
 }
 
 /** Reactive stale check. Returns a function consumers call per terminal —
- *  invoking it inside a tracking context (JSX, `createMemo`) subscribes to
- *  the periodic tick, so views fade and un-fade automatically as `now`
- *  advances and as agent transitions update `lastActivityAt`. */
-export function useStaleCheck(): (lastActivityAt: number) => boolean {
+ *  invoking it inside a tracking context (JSX, `createMemo`) subscribes
+ *  to both the periodic tick and the user's activity-window choice, so
+ *  views re-bucket automatically when either advances. */
+export function useStaleCheck(): (input: StalenessInput) => boolean {
   const tick = getNowTicker();
-  return (lastActivityAt: number) =>
-    isStale(lastActivityAt, tick(), STALE_THRESHOLD_MS);
+  return (input) => isStale(input, tick(), activityWindowThresholdMs());
 }
 
 /** Reactive idle classifier — returns the matching idle sub-bucket for
- *  a `lastActivityAt`, or `null` when the terminal is still live.
+ *  a terminal, or `null` when the terminal is still live.
  *
  *  Routes through `isStale` first so the "is parked" boundary is
  *  identical to `useStaleCheck`'s — without this, `isStale` (strict `>`)
  *  and `idleBucketFor` (inclusive `>=` on the first bucket) would
- *  disagree at the exact `now - lastActivityAt === STALE_THRESHOLD_MS`
- *  tick: the Collapsed pill would still read live while the switcher
- *  panel had moved the entry into the Idle column. The shared gate
- *  also picks up the `lastActivityAt === 0` plain-shell exclusion. */
+ *  disagree at the exact `now - lastActivityAt === thresholdMs` tick.
+ *  The shared gate also carries the attention-state exemption and the
+ *  `lastActivityAt === 0` plain-shell exclusion. */
 export function useIdleClassifier(): (
-  lastActivityAt: number,
+  input: StalenessInput,
 ) => IdleBucketKey | null {
   const tick = getNowTicker();
-  return (lastActivityAt: number) => {
+  return (input) => {
     const now = tick();
-    if (!isStale(lastActivityAt, now, STALE_THRESHOLD_MS)) return null;
-    return idleBucketFor(now - lastActivityAt);
+    if (!isStale(input, now, activityWindowThresholdMs())) return null;
+    return idleBucketFor(now - input.lastActivityAt);
   };
-}
-
-/** Reactive stale check with a caller-supplied threshold accessor. Same
- *  composition shape as `useStaleCheck`, but the consumer drives the
- *  threshold (e.g. the minimap's user-selected activity window). Passing
- *  `null` from the accessor disables the check — every input is fresh. */
-export function useStaleCheckWith(
-  thresholdMs: Accessor<number | null>,
-): (lastActivityAt: number) => boolean {
-  const tick = getNowTicker();
-  return (lastActivityAt: number) =>
-    isStale(lastActivityAt, tick(), thresholdMs());
 }
 
 /** Compact "5m ago" / "2h ago" / "3d ago" — empty string for `0`

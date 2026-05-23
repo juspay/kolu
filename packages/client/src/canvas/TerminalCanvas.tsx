@@ -418,7 +418,12 @@ const TerminalCanvas: Component<{
                     id={id}
                     active={maximized || store.activeId() === id}
                     maximized={maximized}
-                    dimmed={isStale(store.getMetadata(id)?.lastActivityAt ?? 0)}
+                    dimmed={isStale(
+                      store.getMetadata(id) ?? {
+                        lastActivityAt: 0,
+                        agent: null,
+                      },
+                    )}
                     theme={tileTheme(id)}
                     repoColor={info().repoColor}
                     onSelect={() => props.onSelect(id)}

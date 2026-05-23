@@ -32,10 +32,16 @@ export function useTerminalAlerts(deps: {
 
   // Stale terminals are excluded — but the attention mark itself
   // stays, so a fresh agent transition (which bumps `lastActivityAt`
-  // and unparks) wakes the badge back up.
-  const isAttentionLive = (id: TerminalId) =>
-    deps.hasBadgeAttention(id) &&
-    !isStale(deps.getMetadata(id)?.lastActivityAt ?? 0);
+  // and unparks) wakes the badge back up. Attention-state agents
+  // are exempt from staleness (see `isStale` in `staleness.ts`), so
+  // a "waiting" agent keeps badging the dock icon regardless of how
+  // long ago the user last interacted.
+  const isAttentionLive = (id: TerminalId) => {
+    if (!deps.hasBadgeAttention(id)) return false;
+    const meta = deps.getMetadata(id);
+    if (!meta) return false;
+    return !isStale(meta);
+  };
 
   // Badge the PWA dock icon with terminals that need attention. The
   // effect re-runs on every staleness tick (~60s), so guard against

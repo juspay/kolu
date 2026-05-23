@@ -246,8 +246,7 @@ describe("buildDockModel", () => {
         : entry,
     );
     const m = modelFor(seeded, {
-      idleClassifier: (lastActivityAt) =>
-        lastActivityAt === 1 ? "4h-12h" : null,
+      idleClassifier: (input) => (input.lastActivityAt === 1 ? "4h-12h" : null),
     });
     // Idle leads — picks up t1 (was awaiting) and t3 (was none).
     expect(m.columns[0]?.entries.map((e) => e.id).sort()).toEqual(["t1", "t3"]);
@@ -280,7 +279,7 @@ describe("buildDockModel", () => {
       4: "48h+",
     };
     const m = buildDockModel(sources, {
-      idleClassifier: (lastActivityAt) => byMarker[lastActivityAt] ?? null,
+      idleClassifier: (input) => byMarker[input.lastActivityAt] ?? null,
     });
     const idle = m.columns.find((c) => c.key === "idle");
     const subEntries = (key: string) =>

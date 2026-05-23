@@ -1,6 +1,5 @@
 /** Canvas minimap — spatial overview of all tiles + integrated zoom controls. */
 
-import { makePersisted } from "@solid-primitives/storage";
 import {
   type Component,
   createMemo,
@@ -11,12 +10,12 @@ import {
 } from "solid-js";
 import { Portal } from "solid-js/web";
 import {
-  isMinimapWindow,
-  type MinimapWindow,
+  activityWindow,
+  setActivityWindow,
   WINDOW_VALUES,
   windowOption,
 } from "../terminal/activityWindow";
-import { formatTimeAgo, useStaleCheckWith } from "../terminal/staleness";
+import { formatTimeAgo, useStaleCheck } from "../terminal/staleness";
 import type { TerminalDisplayInfo } from "../terminal/terminalDisplay";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { GridIcon } from "../ui/Icons";
@@ -118,19 +117,10 @@ const CanvasMinimap: Component<{
   const tileTheme = useTileTheme();
   const [hoveringViewport, setHoveringViewport] = createSignal(false);
   const [draggingViewport, setDraggingViewport] = createSignal(false);
-  // Per-device viewing preference — stays in localStorage rather than
-  // syncing through server preferences.
-  const [windowSel, setWindowSel] = makePersisted(
-    createSignal<MinimapWindow>("all"),
-    {
-      name: "kolu-minimap-window",
-      serialize: (v) => v,
-      deserialize: (raw) => (isMinimapWindow(raw) ? raw : "all"),
-    },
-  );
-  const isParked = useStaleCheckWith(
-    () => windowOption(windowSel()).thresholdMs,
-  );
+  // Shared per-device activity window — same signal consumed by the
+  // dock-row bucket classifier and the badge gate, so a user who
+  // shortens the window in one place shortens it everywhere.
+  const isParked = useStaleCheck();
   const [menuOpen, setMenuOpen] = createSignal(false);
   const [triggerRef, setTriggerRef] = createSignal<HTMLButtonElement>();
   const { panelRef: menuPanelRef, panelStyle: menuPanelStyle } =
@@ -140,7 +130,9 @@ const CanvasMinimap: Component<{
       onDismiss: () => setMenuOpen(false),
       anchor: "top-end",
     });
-  const currentWindowLabel = createMemo(() => windowOption(windowSel()).label);
+  const currentWindowLabel = createMemo(
+    () => windowOption(activityWindow()).label,
+  );
 
   // ── Bounding box of all tiles ──
   const bounds = createMemo(() => {
@@ -320,7 +312,7 @@ const CanvasMinimap: Component<{
               if (!i) return { bucket: "none" as const, parked: false };
               return {
                 bucket: agentBucket(i.meta.agent),
-                parked: isParked(i.meta.lastActivityAt),
+                parked: isParked(i.meta),
               };
             });
             // Hover tooltip — repo · branch[ #suffix] + last-active duration,
@@ -499,17 +491,17 @@ const CanvasMinimap: Component<{
           type="button"
           ref={setTriggerRef}
           data-testid="minimap-window-trigger"
-          data-enabled={windowSel() !== "all" ? "" : undefined}
-          data-window={windowSel()}
+          data-enabled={activityWindow() !== "all" ? "" : undefined}
+          data-window={activityWindow()}
           class="flex items-center justify-center min-w-[2.5rem] h-8 px-1 hover:bg-surface-3/60 transition-colors cursor-pointer border-l border-edge/40 text-xs tabular-nums"
           classList={{
-            "text-fg-2 hover:text-fg": windowSel() === "all",
-            "text-accent": windowSel() !== "all",
+            "text-fg-2 hover:text-fg": activityWindow() === "all",
+            "text-accent": activityWindow() !== "all",
           }}
           title={`Minimap: ${currentWindowLabel()} — click to change`}
           onClick={() => setMenuOpen((prev) => !prev)}
         >
-          {windowOption(windowSel()).short}
+          {windowOption(activityWindow()).short}
         </button>
       </div>
       <Show when={menuOpen()}>
@@ -525,15 +517,15 @@ const CanvasMinimap: Component<{
                 <button
                   type="button"
                   data-testid={`minimap-window-option-${value}`}
-                  data-selected={windowSel() === value ? "" : undefined}
+                  data-selected={activityWindow() === value ? "" : undefined}
                   class="text-left text-xs px-2 py-1.5 rounded-md transition-colors cursor-pointer"
                   classList={{
-                    "bg-accent/20 text-accent": windowSel() === value,
+                    "bg-accent/20 text-accent": activityWindow() === value,
                     "text-fg-2 hover:bg-surface-3 hover:text-fg":
-                      windowSel() !== value,
+                      activityWindow() !== value,
                   }}
                   onClick={() => {
-                    setWindowSel(value);
+                    setActivityWindow(value);
                     setMenuOpen(false);
                   }}
                 >

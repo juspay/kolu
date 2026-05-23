@@ -48,7 +48,15 @@ import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
 import { annotationLine } from "../../intent/text";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
+import { Portal } from "solid-js/web";
+import {
+  activityWindow,
+  setActivityWindow,
+  WINDOW_VALUES,
+  windowOption,
+} from "../../terminal/activityWindow";
 import { ChevronDownIcon, PlusIcon, SearchIcon } from "../../ui/Icons";
+import { useAnchoredPopover } from "../../ui/useAnchoredPopover";
 import { client } from "../../wire";
 import { isPlatformModifier } from "../../input/keyboard";
 import { useTileTheme } from "../useTileTheme";
@@ -205,10 +213,12 @@ const RailOrCards: Component<{
   );
 };
 
-/** Dock header — `+` new terminal, workspace-search trigger, and the
- *  rail ↔ cards mode toggle. Layout is row in cards mode (icons sit on
- *  one line at the top), column in rail mode (stacked vertically
- *  inside the narrow rail width). */
+/** Dock header — `+` new terminal, workspace-search trigger, an activity-
+ *  window selector (governs how aggressively non-awaiting rows fade into
+ *  the parked bucket; attention-state agents are exempt regardless of
+ *  age), and the rail ↔ cards mode toggle. Layout is row in cards mode
+ *  (icons sit on one line at the top), column in rail mode (stacked
+ *  vertically inside the narrow rail width). */
 const DockHeader: Component<{
   mode: DockMode;
   onCreate: () => void;
@@ -240,6 +250,7 @@ const DockHeader: Component<{
       >
         <SearchIcon class="w-3.5 h-3.5" />
       </button>
+      <ActivityWindowMenu railLayout={railLayout()} />
       <button
         type="button"
         data-testid="dock-mode-toggle"
@@ -260,6 +271,75 @@ const DockHeader: Component<{
         </span>
       </button>
     </div>
+  );
+};
+
+/** Activity-window chip: shows the current short label (`24h`, `4h`,
+ *  `All`, …) and opens a popover menu of all options. Same shared signal
+ *  the minimap reads, so picking `12h` here also tightens the minimap's
+ *  fade. Attention-state agents bypass this entirely — they never become
+ *  parked, regardless of which window is selected. */
+const ActivityWindowMenu: Component<{ railLayout: boolean }> = (props) => {
+  const [menuOpen, setMenuOpen] = createSignal(false);
+  const [triggerRef, setTriggerRef] = createSignal<HTMLButtonElement>();
+  const { panelRef, panelStyle } = useAnchoredPopover({
+    triggerRef,
+    open: menuOpen,
+    onDismiss: () => setMenuOpen(false),
+    anchor: props.railLayout ? "bottom-start" : "bottom-end",
+  });
+  const current = () => windowOption(activityWindow());
+  return (
+    <>
+      <button
+        type="button"
+        ref={setTriggerRef}
+        data-testid="dock-window-trigger"
+        data-window={activityWindow()}
+        class="flex items-center justify-center h-6 min-w-6 px-1 rounded-md cursor-pointer text-[0.65rem] font-mono tabular-nums hover:bg-surface-2/70 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+        classList={{
+          "text-fg-3 hover:text-fg": activityWindow() === "all",
+          "text-accent": activityWindow() !== "all",
+        }}
+        aria-label={`Activity window: ${current().label}`}
+        title={`Activity window: ${current().label} — click to change`}
+        onClick={() => setMenuOpen((prev) => !prev)}
+      >
+        {current().short}
+      </button>
+      <Show when={menuOpen()}>
+        <Portal>
+          <div
+            ref={panelRef}
+            data-testid="dock-window-menu"
+            class="fixed z-50 flex flex-col bg-surface-1 border border-edge rounded-lg shadow-lg shadow-black/40 p-1 min-w-[180px]"
+            style={panelStyle()}
+          >
+            <For each={WINDOW_VALUES}>
+              {(value) => (
+                <button
+                  type="button"
+                  data-testid={`dock-window-option-${value}`}
+                  data-selected={activityWindow() === value ? "" : undefined}
+                  class="text-left text-xs px-2 py-1.5 rounded-md transition-colors cursor-pointer"
+                  classList={{
+                    "bg-accent/20 text-accent": activityWindow() === value,
+                    "text-fg-2 hover:bg-surface-3 hover:text-fg":
+                      activityWindow() !== value,
+                  }}
+                  onClick={() => {
+                    setActivityWindow(value);
+                    setMenuOpen(false);
+                  }}
+                >
+                  {windowOption(value).label}
+                </button>
+              )}
+            </For>
+          </div>
+        </Portal>
+      </Show>
+    </>
   );
 };
 
