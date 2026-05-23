@@ -81,5 +81,3 @@ export const OptionMenu = <T extends string>(props: {
     </Show>
   );
 };
-
-export default OptionMenu;
