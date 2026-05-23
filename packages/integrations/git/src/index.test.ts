@@ -2,6 +2,15 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { simpleGit } from "simple-git";
+
+/** Tests in this file that gate on `fs.watch` event delivery under load
+ *  are unreliable on darwin in CI — FSEvents coalesces and can take >12s
+ *  to deliver a single change under contention on the `sincereintent`
+ *  host. The dispatcher logic itself (snapshot + try/catch per listener,
+ *  in `kolu-io/refcounted-dir-watcher.ts`) is verified by linux+inotify
+ *  CI on every commit; the darwin skips here only avoid the platform
+ *  layer's non-determinism. Tracked: juspay/kolu#320. */
+const SKIP_DARWIN_FSWATCH = process.platform === "darwin" && !!process.env.CI;
 import {
   afterAll,
   afterEach,
@@ -821,49 +830,55 @@ describe("watchGitHead", () => {
     }
   }
 
-  it("a HEAD change fans out to every subscriber on the shared watcher", async () => {
-    const { dir, git, gitDir } = await initRepo("dispatch-repo");
-    let aFires = 0;
-    let bFires = 0;
-    const stopA = watchGitHead(dir, () => {
-      aFires++;
-    });
-    const stopB = watchGitHead(dir, () => {
-      bFires++;
-    });
-    expect(_sharedHeadWatcherCount()).toBe(1);
+  it.skipIf(SKIP_DARWIN_FSWATCH)(
+    "a HEAD change fans out to every subscriber on the shared watcher",
+    async () => {
+      const { dir, git, gitDir } = await initRepo("dispatch-repo");
+      let aFires = 0;
+      let bFires = 0;
+      const stopA = watchGitHead(dir, () => {
+        aFires++;
+      });
+      const stopB = watchGitHead(dir, () => {
+        bFires++;
+      });
+      expect(_sharedHeadWatcherCount()).toBe(1);
 
-    // Branch switch rewrites .git/HEAD, which is what we're watching.
-    await git.checkoutLocalBranch("feature");
+      // Branch switch rewrites .git/HEAD, which is what we're watching.
+      await git.checkoutLocalBranch("feature");
 
-    await waitForHeadEvent(() => aFires > 0 && bFires > 0, gitDir);
+      await waitForHeadEvent(() => aFires > 0 && bFires > 0, gitDir);
 
-    expect(aFires).toBeGreaterThan(0);
-    expect(bFires).toBeGreaterThan(0);
+      expect(aFires).toBeGreaterThan(0);
+      expect(bFires).toBeGreaterThan(0);
 
-    stopA();
-    stopB();
-    expect(_sharedHeadWatcherCount()).toBe(0);
-  });
+      stopA();
+      stopB();
+      expect(_sharedHeadWatcherCount()).toBe(0);
+    },
+  );
 
-  it("a listener that throws does not block its peers", async () => {
-    const { dir, git, gitDir } = await initRepo("fault-isolation-repo");
-    let bFires = 0;
-    const stopA = watchGitHead(dir, () => {
-      throw new Error("boom");
-    });
-    const stopB = watchGitHead(dir, () => {
-      bFires++;
-    });
+  it.skipIf(SKIP_DARWIN_FSWATCH)(
+    "a listener that throws does not block its peers",
+    async () => {
+      const { dir, git, gitDir } = await initRepo("fault-isolation-repo");
+      let bFires = 0;
+      const stopA = watchGitHead(dir, () => {
+        throw new Error("boom");
+      });
+      const stopB = watchGitHead(dir, () => {
+        bFires++;
+      });
 
-    await git.checkoutLocalBranch("feature");
-    await waitForHeadEvent(() => bFires > 0, gitDir);
+      await git.checkoutLocalBranch("feature");
+      await waitForHeadEvent(() => bFires > 0, gitDir);
 
-    expect(bFires).toBeGreaterThan(0);
-    stopA();
-    stopB();
-    expect(_sharedHeadWatcherCount()).toBe(0);
-  });
+      expect(bFires).toBeGreaterThan(0);
+      stopA();
+      stopB();
+      expect(_sharedHeadWatcherCount()).toBe(0);
+    },
+  );
 });
 
 // --- subscribeGitInfo: watcher lifecycle invariants (#748 regression) ---
@@ -992,44 +1007,47 @@ describe("subscribeGitInfo watcher churn", () => {
   // Code browser and path pill — but the shell doesn't re-emit OSC 7 when
   // cwd hasn't changed, so the provider can't rely on `setCwd` to learn
   // about the new `.git`.
-  it("detects `git init` in the current cwd without an OSC 7 setCwd", async () => {
-    const dir = path.join(tmpDir, "git-init-osc7-less");
-    fs.mkdirSync(dir, { recursive: true });
+  it.skipIf(SKIP_DARWIN_FSWATCH)(
+    "detects `git init` in the current cwd without an OSC 7 setCwd",
+    async () => {
+      const dir = path.join(tmpDir, "git-init-osc7-less");
+      fs.mkdirSync(dir, { recursive: true });
 
-    const counter = makeLog();
-    const updates: (GitInfo | null)[] = [];
-    const sub = subscribeGitInfo(
-      dir,
-      (info) => {
-        updates.push(info);
-      },
-      counter.log,
-    );
+      const counter = makeLog();
+      const updates: (GitInfo | null)[] = [];
+      const sub = subscribeGitInfo(
+        dir,
+        (info) => {
+          updates.push(info);
+        },
+        counter.log,
+      );
 
-    // Initial subscribe on a non-git dir installs the cwd watcher, not the
-    // HEAD watcher — there's nothing inside `.git/` to watch yet.
-    expect(counter.installs).toBe(0);
-    expect(counter.cwdInstalls).toBe(1);
+      // Initial subscribe on a non-git dir installs the cwd watcher, not the
+      // HEAD watcher — there's nothing inside `.git/` to watch yet.
+      expect(counter.installs).toBe(0);
+      expect(counter.cwdInstalls).toBe(1);
 
-    // `git init` (no setCwd / OSC 7 follow-up). The cwd watcher must fire
-    // on `.git` appearing, trigger a re-resolve, and swap to the HEAD
-    // watcher.
-    const git = simpleGit(dir);
-    await git.init();
-    await git.checkoutLocalBranch("main");
-    fs.writeFileSync(path.join(dir, "f.txt"), "x");
-    await git.add(".");
-    await git.commit("initial");
+      // `git init` (no setCwd / OSC 7 follow-up). The cwd watcher must fire
+      // on `.git` appearing, trigger a re-resolve, and swap to the HEAD
+      // watcher.
+      const git = simpleGit(dir);
+      await git.init();
+      await git.checkoutLocalBranch("main");
+      fs.writeFileSync(path.join(dir, "f.txt"), "x");
+      await git.add(".");
+      await git.commit("initial");
 
-    await waitFor(() => updates.length >= 1, 3000);
-    expect(updates[0]?.repoRoot).toBe(fs.realpathSync(dir));
+      await waitFor(() => updates.length >= 1, 3000);
+      expect(updates[0]?.repoRoot).toBe(fs.realpathSync(dir));
 
-    sub.stop();
+      sub.stop();
 
-    expect(counter.installs).toBe(1);
-    expect(counter.retires).toBe(1);
-    expect(counter.cwdRetires).toBe(1);
-  });
+      expect(counter.installs).toBe(1);
+      expect(counter.retires).toBe(1);
+      expect(counter.cwdRetires).toBe(1);
+    },
+  );
 
   it("setCwd defense-in-depth still works if the cwd watcher missed the event", async () => {
     // Some filesystems (bind-mounted containers, polling fallback) can lose
