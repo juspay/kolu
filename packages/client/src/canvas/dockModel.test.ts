@@ -2,6 +2,7 @@ import type { AgentInfo, TerminalMetadata } from "kolu-common/surface";
 import type { GitInfo } from "kolu-git/schemas";
 import { describe, expect, it } from "vitest";
 import type { IdleBucketKey } from "../terminal/activityWindow";
+import { isAttentionState } from "../terminal/agentState";
 import type { TerminalDisplayInfo } from "../terminal/terminalDisplay";
 import type { TileLayout } from "./TileLayout";
 import {
@@ -230,10 +231,13 @@ describe("buildDockModel", () => {
     ]);
   });
 
-  it("routes stale entries into the Idle column regardless of agent state", () => {
-    // Seed t1 (awaiting) and t3 (none) with lastActivityAt=1 so the
-    // classifier marks them parked; t2 and t4 stay at the default (0)
-    // and remain live.
+  it("buildDockModel trusts the classifier's bucket decision (plumbing)", () => {
+    // This test verifies the model wiring only: whatever `idleClassifier`
+    // returns is what `entryBucket` reports. The production classifier
+    // (`useIdleClassifier`) layers the attention-state exemption ON TOP
+    // — covered by the next test and by staleness.test.ts. Keeping the
+    // two concerns separate means a future refactor that moves the
+    // exemption out of `isStale` won't silently still pass here.
     const seeded = entries.map((entry) =>
       entry.id === "t1" || entry.id === "t3"
         ? {
@@ -248,18 +252,49 @@ describe("buildDockModel", () => {
     const m = modelFor(seeded, {
       idleClassifier: (input) => (input.lastActivityAt === 1 ? "4h-12h" : null),
     });
-    // Idle leads — picks up t1 (was awaiting) and t3 (was none).
+    // Classifier said idle for t1 + t3, so they're in Idle — even though
+    // t1 is `awaiting`. That's the plumbing under test, not the policy.
     expect(m.columns[0]?.entries.map((e) => e.id).sort()).toEqual(["t1", "t3"]);
-    // Awaiting now empty — t1 routed to Idle.
     expect(m.columns[1]?.entries).toHaveLength(0);
-    // Working still holds t2.
     expect(m.columns[2]?.entries.map((e) => e.id)).toEqual(["t2"]);
-    // No agent shrinks to t4 (lastActivityAt === 0 → classifier returns
-    // null → stays).
     expect(m.columns[3]?.entries.map((e) => e.id)).toEqual(["t4"]);
-    // Each entry knows its bucket so consumers don't re-derive it.
     expect(m.entries.find((e) => e.id === "t1")?.bucket).toBe("idle");
     expect(m.entries.find((e) => e.id === "t3")?.bucket).toBe("idle");
+  });
+
+  it("attention-state agents stay in Awaiting even when the classifier would idle them", () => {
+    // Mirror the production policy: an exemption-aware classifier
+    // returns null for attention-state agents so they keep their
+    // `awaiting` bucket regardless of age. This is the end-to-end
+    // contract — `useIdleClassifier` + `entryBucket` together MUST
+    // preserve the awaiting bucket for a user-blocking agent that has
+    // been waiting for hours.
+    const seeded = entries.map((entry) =>
+      entry.id === "t1" || entry.id === "t3"
+        ? {
+            ...entry,
+            info: {
+              ...entry.info,
+              meta: { ...entry.info.meta, lastActivityAt: 1 },
+            },
+          }
+        : entry,
+    );
+    const exemptionAware = (input: {
+      lastActivityAt: number;
+      agent: AgentInfo | null;
+    }): IdleBucketKey | null => {
+      if (isAttentionState(input.agent?.state)) return null;
+      return input.lastActivityAt === 1 ? "4h-12h" : null;
+    };
+    const m = modelFor(seeded, { idleClassifier: exemptionAware });
+    // t1 (awaiting agent, lastActivityAt=1) stays in Awaiting — the
+    // exemption-aware classifier returns null for it.
+    expect(m.columns[1]?.entries.map((e) => e.id)).toEqual(["t1"]);
+    expect(m.entries.find((e) => e.id === "t1")?.bucket).toBe("awaiting");
+    // t3 (no agent, lastActivityAt=1) still routes to Idle — the
+    // exemption only applies to attention-state agents.
+    expect(m.columns[0]?.entries.map((e) => e.id)).toEqual(["t3"]);
   });
 
   it("groups Idle entries by age into the 4-rung sub-bucket ladder", () => {
