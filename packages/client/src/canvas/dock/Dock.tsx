@@ -514,7 +514,17 @@ const AwaitingCardBody: Component<{
       data-testid="dock-card"
       data-terminal-id={props.id}
       class="px-2.5 py-2.5 flex flex-col gap-1.5 transition-colors duration-200 ease-out"
-      classList={{ "text-white": active() }}
+      classList={{
+        // Active body floods to accent → main text inherits white,
+        // and the dim subtitle utilities (`text-fg-2`, `text-fg-3`)
+        // get brightened via descendant overrides so the PR line,
+        // timestamp, and agent-indicator token count stay readable
+        // against the accent flood. CSS specificity ensures the
+        // descendant arbitrary selectors win over the bare
+        // `.text-fg-*` utilities.
+        "text-white [&_.text-fg-2]:text-white/85 [&_.text-fg-3]:text-white/70":
+          active(),
+      }}
       style={{
         "background-color": active() ? "var(--color-accent)" : theme().bg,
         color: active() ? undefined : theme().fg,
@@ -588,7 +598,17 @@ const WorkingPillBody: Component<{
       data-terminal-id={props.id}
       onClick={() => store.activate(props.id)}
       class="w-full px-2.5 py-1 flex flex-col gap-0.5 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 text-left transition-colors duration-200 ease-out"
-      classList={{ "text-white": active() }}
+      classList={{
+        // Active body floods to accent → main text inherits white,
+        // and the dim subtitle utilities (`text-fg-2`, `text-fg-3`)
+        // get brightened via descendant overrides so the PR line,
+        // timestamp, and agent-indicator token count stay readable
+        // against the accent flood. CSS specificity ensures the
+        // descendant arbitrary selectors win over the bare
+        // `.text-fg-*` utilities.
+        "text-white [&_.text-fg-2]:text-white/85 [&_.text-fg-3]:text-white/70":
+          active(),
+      }}
       style={{
         "background-color": active() ? "var(--color-accent)" : theme().bg,
         color: active() ? undefined : theme().fg,
@@ -644,7 +664,8 @@ const QuietRowBody: Component<{
       class="w-full px-2.5 py-1 flex flex-col gap-0.5 min-w-0 cursor-pointer text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 transition-colors duration-200 ease-out"
       classList={{
         "bg-surface-1/40 hover:bg-surface-2/50": !active(),
-        "bg-accent text-white": active(),
+        "bg-accent text-white [&_.text-fg-2]:text-white/85 [&_.text-fg-3]:text-white/70":
+          active(),
         // Parked dim only when not active; an active parked row pops
         // at full opacity, matching the existing mobile behavior at
         // `MobileDockDrawer.tsx`.

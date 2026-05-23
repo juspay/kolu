@@ -99,7 +99,7 @@ const Row: Component<{
         // drag-to-dismiss from claiming the tap.
         onPointerDown={(e) => e.stopPropagation()}
         onClick={() => props.onSelect(props.id)}
-        class="w-full flex items-stretch gap-3 px-3 text-left transition-[margin,border-radius,box-shadow,background-color,color] duration-300 ease-out cursor-pointer active:bg-surface-2 border-b border-edge/15 data-[active]:m-1.5 data-[active]:rounded-lg data-[active]:border-b-transparent data-[active]:bg-accent data-[active]:text-white data-[active]:shadow-[var(--dock-active-halo)] data-[active]:animate-[dock-row-activate_0.36s_cubic-bezier(0.34,1.45,0.6,1),dock-row-flash_0.48s_ease-out] motion-reduce:transition-none motion-reduce:data-[active]:animate-none"
+        class="w-full flex items-stretch gap-3 px-3 text-left transition-[margin,border-radius,box-shadow,background-color,color] duration-300 ease-out cursor-pointer active:bg-surface-2 border-b border-edge/15 data-[active]:m-1.5 data-[active]:rounded-lg data-[active]:border-b-transparent data-[active]:bg-accent data-[active]:text-white data-[active]:[&_.text-fg-2]:text-white/85 data-[active]:[&_.text-fg-3]:text-white/70 data-[active]:shadow-[var(--dock-active-halo)] data-[active]:animate-[dock-row-activate_0.36s_cubic-bezier(0.34,1.45,0.6,1),dock-row-flash_0.48s_ease-out] motion-reduce:transition-none motion-reduce:data-[active]:animate-none"
         classList={{
           "py-3": live(),
           "py-2": !live(),
