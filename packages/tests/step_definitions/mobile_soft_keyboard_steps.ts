@@ -77,16 +77,14 @@ Then(
 Then(
   "xterm's helper textarea should be the active element",
   async function (this: KoluWorld) {
-    const isTextarea = await this.page.evaluate(() => {
-      const active = document.activeElement;
-      return (
-        active?.tagName === "TEXTAREA" &&
-        active.classList.contains("xterm-helper-textarea")
-      );
-    });
-    assert.ok(
-      isTextarea,
-      "Expected xterm's helper textarea to be document.activeElement after tap",
+    // Poll until focus settles — touchscreen tap focus assignment may not be
+    // synchronous by the time this step runs (mirrors the pattern used in
+    // terminal_lifecycle_steps.ts for "[data-focused]" after dialog dismissal).
+    await this.page.waitForFunction(
+      () =>
+        document.activeElement?.tagName === "TEXTAREA" &&
+        document.activeElement.classList.contains("xterm-helper-textarea"),
+      { timeout: POLL_TIMEOUT },
     );
   },
 );
