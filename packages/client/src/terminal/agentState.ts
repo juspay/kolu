@@ -19,8 +19,6 @@
  *  compile-fail there until it lands in one of these predicates.
  */
 
-import type { AgentInfo } from "kolu-common/surface";
-
 export type AttentionState = "waiting" | "awaiting_user";
 export type WorkingState = "thinking" | "tool_use";
 
@@ -43,14 +41,4 @@ export function isWorkingState(
   state: string | undefined,
 ): state is WorkingState {
   return state === "thinking" || state === "tool_use";
-}
-
-/** Convenience: pull the state field through the null gate. Lifts
- *  `agent?.state` to a string union, matching what the predicates above
- *  expect. Inline most places, but a few callers (alerts, ranker) want
- *  to keep this gate honest in one spot. */
-export function agentState(
-  agent: AgentInfo | null | undefined,
-): AgentInfo["state"] | undefined {
-  return agent?.state;
 }
