@@ -32,7 +32,7 @@ Open http://127.0.0.1:7681 (or the address you chose above).
 ### Terminals
 
 - Create, switch, and kill terminals — every terminal renders as a draggable tile on the canvas, with the left-edge **dock** as the canonical at-a-glance navigator (rail / cards levels) and the **command palette** as the canonical search surface
-- Split terminals — <kbd>Ctrl+&#96;</kbd> splits a bottom pane per terminal; <kbd>Ctrl+Shift+&#96;</kbd> adds tabs, <kbd>Ctrl+PageDown</kbd> / <kbd>Ctrl+PageUp</kbd> cycles
+- Split terminals — <kbd>Ctrl+&#96;</kbd> splits a bottom pane per terminal; <kbd>Ctrl+Shift+&#96;</kbd> adds tabs, <kbd>Ctrl+PageDown</kbd> / <kbd>Ctrl+PageUp</kbd> cycles. Open splits surface as an inline `▭ N` chip on the parent's dock row so the count is visible at a glance, not just on the active tile's title bar
 - Font zoom (<kbd>Cmd/Ctrl</kbd> <kbd>+</kbd>/<kbd>-</kbd>), persisted per terminal across sessions
 - WebGL rendering with canvas fallback, clickable URLs, Unicode 11, inline images (sixel, iTerm2, kitty)
 - Clickable file references — terminal output that contains `path/to/file.ts:42` (with optional `:col` or `-end` line range) is linkified; clicking opens the file in the right panel's Code tab at that line

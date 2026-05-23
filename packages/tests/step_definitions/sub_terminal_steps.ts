@@ -257,6 +257,43 @@ Then(
 );
 
 Then(
+  "the active dock row should show sub-terminal count {int}",
+  async function (this: KoluWorld, expected: number) {
+    const row = this.page.locator('[data-testid="dock-row"][data-active]');
+    await row.waitFor({ state: "attached", timeout: POLL_TIMEOUT });
+    const attr = await row.getAttribute("data-sub-count");
+    assert.strictEqual(
+      attr,
+      `${expected}`,
+      `Expected dock row data-sub-count="${expected}", got "${attr}"`,
+    );
+    const chip = row.locator('[data-testid="dock-sub-count"]');
+    const text = await chip.textContent({ timeout: POLL_TIMEOUT });
+    assert.ok(
+      text?.includes(`${expected}`),
+      `Expected dock chip to show "${expected}", got "${text}"`,
+    );
+  },
+);
+
+Then(
+  "the active dock row should not show a sub-terminal count",
+  async function (this: KoluWorld) {
+    const row = this.page.locator('[data-testid="dock-row"][data-active]');
+    await row.waitFor({ state: "attached", timeout: POLL_TIMEOUT });
+    const attr = await row.getAttribute("data-sub-count");
+    assert.strictEqual(
+      attr,
+      null,
+      `Expected no data-sub-count on dock row, got "${attr}"`,
+    );
+    const chip = row.locator('[data-testid="dock-sub-count"]');
+    const count = await chip.count();
+    assert.strictEqual(count, 0, "Expected no dock-sub-count chip");
+  },
+);
+
+Then(
   "the collapsed indicator should be visible",
   async function (this: KoluWorld) {
     // First wait for the tab bar to disappear (confirms collapse state settled)

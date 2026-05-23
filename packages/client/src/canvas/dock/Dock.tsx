@@ -54,7 +54,12 @@ import {
   WINDOW_OPTIONS,
   windowOption,
 } from "../../terminal/activityWindow";
-import { ChevronDownIcon, PlusIcon, SearchIcon } from "../../ui/Icons";
+import {
+  ChevronDownIcon,
+  PlusIcon,
+  SearchIcon,
+  SplitToggleIcon,
+} from "../../ui/Icons";
 import { OptionMenu } from "../../ui/OptionMenu";
 import { client } from "../../wire";
 import { isPlatformModifier } from "../../input/keyboard";
@@ -362,6 +367,7 @@ const DockRow: Component<{
           data-agent-state={c().meta.agent?.state}
           data-active={active() ? "" : undefined}
           data-unread={unread() ? "" : undefined}
+          data-sub-count={c().info.subCount > 0 ? c().info.subCount : undefined}
         >
           <Show when={unread()}>
             <span
@@ -488,6 +494,40 @@ const DockAnnotation: Component<{
   </span>
 );
 
+/** Sub-terminal count chip — surfaces `subCount > 0` in the dock row
+ *  title bar so a glance at the dock alone reveals which terminals have
+ *  splits open, without diving into the canvas. Same `SplitToggleIcon`
+ *  vocabulary the tile header uses (`TileTitleActions`) so the symbol
+ *  reads consistently across surfaces. Active rows get a translucent-
+ *  white treatment to survive the accent flood; inactive rows mix
+ *  `currentColor` so the chip inherits the row's text tone. */
+const SubCountChip: Component<{
+  count: number;
+  active: boolean;
+  class?: string;
+}> = (props) => {
+  const label = () =>
+    `${props.count} sub-terminal${props.count === 1 ? "" : "s"}`;
+  return (
+    <span
+      data-testid="dock-sub-count"
+      class={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded font-mono text-[0.7rem] font-semibold tabular-nums leading-none shrink-0 ${props.class ?? ""}`}
+      style={{
+        "background-color": props.active
+          ? "rgba(255, 255, 255, 0.18)"
+          : "color-mix(in oklch, currentColor 10%, transparent)",
+        border: props.active
+          ? "1px solid rgba(255, 255, 255, 0.32)"
+          : "1px solid color-mix(in oklch, currentColor 22%, transparent)",
+      }}
+      title={label()}
+    >
+      <SplitToggleIcon class="w-3 h-3" />
+      <span>{props.count}</span>
+    </span>
+  );
+};
+
 /** Dispatches each row to its variant body. Bundling the variant switch
  *  in one place keeps `DockRow` shape uniform — every bucket has the
  *  same outer "rail + body" geometry regardless of which variant the
@@ -601,12 +641,17 @@ const AwaitingCardBody: Component<{
           >
             {props.info.key.group}
           </span>
-          <DockAnnotation
-            meta={props.meta}
-            info={props.info}
-            class="text-[0.95rem] font-semibold leading-tight"
-            active={active()}
-          />
+          <div class="flex items-baseline gap-2 min-w-0">
+            <DockAnnotation
+              meta={props.meta}
+              info={props.info}
+              class="text-[0.95rem] font-semibold leading-tight"
+              active={active()}
+            />
+            <Show when={props.info.subCount > 0}>
+              <SubCountChip count={props.info.subCount} active={active()} />
+            </Show>
+          </div>
         </div>
         <DockMetaRow meta={props.meta} />
         <PrLine meta={props.meta} />
@@ -680,12 +725,17 @@ const WorkingPillBody: Component<{
         >
           {props.info.key.group}
         </span>
-        <DockAnnotation
-          meta={props.meta}
-          info={props.info}
-          class="text-[0.85rem] font-semibold leading-tight"
-          active={active()}
-        />
+        <div class="flex items-baseline gap-2 min-w-0">
+          <DockAnnotation
+            meta={props.meta}
+            info={props.info}
+            class="text-[0.85rem] font-semibold leading-tight"
+            active={active()}
+          />
+          <Show when={props.info.subCount > 0}>
+            <SubCountChip count={props.info.subCount} active={active()} />
+          </Show>
+        </div>
       </div>
       <DockMetaRow meta={props.meta} />
       <PrLine meta={props.meta} />
@@ -744,6 +794,13 @@ const QuietRowBody: Component<{
           class="text-[0.75rem]"
           active={active()}
         />
+        <Show when={props.info.subCount > 0}>
+          <SubCountChip
+            count={props.info.subCount}
+            active={active()}
+            class="ml-auto"
+          />
+        </Show>
         <Show when={formatTimeAgo(props.meta.lastActivityAt)}>
           {(label) => (
             <span class="ml-auto font-mono text-[0.55rem] tabular-nums text-fg-3 shrink-0">

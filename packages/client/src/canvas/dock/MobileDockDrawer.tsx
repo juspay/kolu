@@ -24,6 +24,7 @@ import { annotationLine } from "../../intent/text";
 import AgentIndicator from "../../terminal/AgentIndicator";
 import { formatTimeAgo, useStaleCheck } from "../../terminal/staleness";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
+import { SplitToggleIcon } from "../../ui/Icons";
 import { resolvedPr } from "../dockModel";
 import { type DockRowBucket, rankDockRows } from "./dockRowRanking";
 
@@ -95,6 +96,9 @@ const Row: Component<{
         data-bucket={props.bucket}
         data-active={active() ? "" : undefined}
         data-unread={unread() ? "" : undefined}
+        data-sub-count={
+          (info()?.subCount ?? 0) > 0 ? info()?.subCount : undefined
+        }
         // stopPropagation on pointerdown keeps Corvu Drawer's
         // drag-to-dismiss from claiming the tap.
         onPointerDown={(e) => e.stopPropagation()}
@@ -126,23 +130,31 @@ const Row: Component<{
             >
               {info()?.key.group}
             </span>
-            <span
-              class="font-medium leading-tight truncate min-w-0"
-              classList={{
-                "text-[0.95rem]": live(),
-                "text-[0.8rem]": !live(),
-              }}
-              style={{
-                color: active() ? undefined : info()?.annotationColor,
-              }}
-            >
-              <IntentMarkdownInline
-                markdown={annotationLine(
-                  meta()?.intent,
-                  info()?.key.label ?? "",
-                )}
-              />
-            </span>
+            <div class="flex items-baseline gap-2 min-w-0">
+              <span
+                class="font-medium leading-tight truncate min-w-0"
+                classList={{
+                  "text-[0.95rem]": live(),
+                  "text-[0.8rem]": !live(),
+                }}
+                style={{
+                  color: active() ? undefined : info()?.annotationColor,
+                }}
+              >
+                <IntentMarkdownInline
+                  markdown={annotationLine(
+                    meta()?.intent,
+                    info()?.key.label ?? "",
+                  )}
+                />
+              </span>
+              <Show when={(info()?.subCount ?? 0) > 0}>
+                <MobileSubCountChip
+                  count={info()?.subCount ?? 0}
+                  active={active()}
+                />
+              </Show>
+            </div>
           </div>
           {/* AgentIndicator surfaces on every row that carries a known
            *  agent — live (awaiting/working) AND parked. Without this
@@ -179,6 +191,36 @@ const Row: Component<{
         </Show>
       </button>
     </Show>
+  );
+};
+
+/** Mirrors the desktop dock's `SubCountChip` (Dock.tsx): surfaces the
+ *  open-sub-terminal count on the mobile row's title bar with the same
+ *  `SplitToggleIcon`+count vocabulary so the symbol reads consistently
+ *  across surfaces. Active rows get a translucent-white treatment to
+ *  survive the accent flood. */
+const MobileSubCountChip: Component<{ count: number; active: boolean }> = (
+  props,
+) => {
+  const label = () =>
+    `${props.count} sub-terminal${props.count === 1 ? "" : "s"}`;
+  return (
+    <span
+      data-testid="mobile-dock-sub-count"
+      class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded font-mono text-[0.7rem] font-semibold tabular-nums leading-none shrink-0"
+      style={{
+        "background-color": props.active
+          ? "rgba(255, 255, 255, 0.18)"
+          : "color-mix(in oklch, currentColor 10%, transparent)",
+        border: props.active
+          ? "1px solid rgba(255, 255, 255, 0.32)"
+          : "1px solid color-mix(in oklch, currentColor 22%, transparent)",
+      }}
+      title={label()}
+    >
+      <SplitToggleIcon class="w-3 h-3" />
+      <span>{props.count}</span>
+    </span>
   );
 };
 

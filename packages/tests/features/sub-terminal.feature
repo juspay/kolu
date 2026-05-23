@@ -125,3 +125,18 @@ Feature: Sub-terminals
     When I create a sub-terminal via command palette
     Then the resize handle should be visible
     And there should be no page errors
+
+  Scenario: Dock row surfaces sub-terminal count
+    When I create a sub-terminal via command palette
+    Then the active dock row should show sub-terminal count 1
+    When I create another sub-terminal via command palette
+    Then the active dock row should show sub-terminal count 2
+    And there should be no page errors
+
+  Scenario: Dock row drops sub-terminal count when sub-terminal exits
+    When I create a sub-terminal via command palette
+    Then the active dock row should show sub-terminal count 1
+    When I run "exit" in the sub-terminal
+    Then the sub-panel should eventually collapse
+    And the active dock row should not show a sub-terminal count
+    And there should be no page errors
