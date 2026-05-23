@@ -249,7 +249,7 @@ const DockHeader: Component<{
       >
         <SearchIcon class="w-3.5 h-3.5" />
       </button>
-      <ActivityWindowMenu railLayout={railLayout()} />
+      <ActivityWindowMenu />
       <button
         type="button"
         data-testid="dock-mode-toggle"
@@ -283,7 +283,7 @@ const DockHeader: Component<{
  *  edge of the viewport — `bottom-end` would push the 180px-wide panel
  *  LEFT of the trigger and clip it off-screen. (See useAnchoredPopover
  *  for the panel-min-width clamp.) */
-const ActivityWindowMenu: Component<{ railLayout: boolean }> = (_props) => {
+const ActivityWindowMenu: Component = () => {
   const [menuOpen, setMenuOpen] = createSignal(false);
   const [triggerRef, setTriggerRef] = createSignal<HTMLButtonElement>();
   const current = () => windowOption(activityWindow());
