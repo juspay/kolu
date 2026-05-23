@@ -24,9 +24,9 @@ import { annotationLine } from "../../intent/text";
 import AgentIndicator from "../../terminal/AgentIndicator";
 import { formatTimeAgo, useStaleCheck } from "../../terminal/staleness";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
-import { SplitToggleIcon } from "../../ui/Icons";
 import { resolvedPr } from "../dockModel";
 import { type DockRowBucket, rankDockRows } from "./dockRowRanking";
+import { SubCountChip } from "./SubCountChip";
 
 const MobileDockDrawer: Component<{
   onSelect: (id: TerminalId) => void;
@@ -149,9 +149,10 @@ const Row: Component<{
                 />
               </span>
               <Show when={(info()?.subCount ?? 0) > 0}>
-                <MobileSubCountChip
+                <SubCountChip
                   count={info()?.subCount ?? 0}
                   active={active()}
+                  testId="mobile-dock-sub-count"
                 />
               </Show>
             </div>
@@ -191,36 +192,6 @@ const Row: Component<{
         </Show>
       </button>
     </Show>
-  );
-};
-
-/** Mirrors the desktop dock's `SubCountChip` (Dock.tsx): surfaces the
- *  open-sub-terminal count on the mobile row's title bar with the same
- *  `SplitToggleIcon`+count vocabulary so the symbol reads consistently
- *  across surfaces. Active rows get a translucent-white treatment to
- *  survive the accent flood. */
-const MobileSubCountChip: Component<{ count: number; active: boolean }> = (
-  props,
-) => {
-  const label = () =>
-    `${props.count} sub-terminal${props.count === 1 ? "" : "s"}`;
-  return (
-    <span
-      data-testid="mobile-dock-sub-count"
-      class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded font-mono text-[0.7rem] font-semibold tabular-nums leading-none shrink-0"
-      style={{
-        "background-color": props.active
-          ? "rgba(255, 255, 255, 0.18)"
-          : "color-mix(in oklch, currentColor 10%, transparent)",
-        border: props.active
-          ? "1px solid rgba(255, 255, 255, 0.32)"
-          : "1px solid color-mix(in oklch, currentColor 22%, transparent)",
-      }}
-      title={label()}
-    >
-      <SplitToggleIcon class="w-3 h-3" />
-      <span>{props.count}</span>
-    </span>
   );
 };
 

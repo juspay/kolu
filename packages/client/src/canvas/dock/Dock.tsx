@@ -54,12 +54,7 @@ import {
   WINDOW_OPTIONS,
   windowOption,
 } from "../../terminal/activityWindow";
-import {
-  ChevronDownIcon,
-  PlusIcon,
-  SearchIcon,
-  SplitToggleIcon,
-} from "../../ui/Icons";
+import { ChevronDownIcon, PlusIcon, SearchIcon } from "../../ui/Icons";
 import { OptionMenu } from "../../ui/OptionMenu";
 import { client } from "../../wire";
 import { isPlatformModifier } from "../../input/keyboard";
@@ -67,6 +62,7 @@ import { useTileTheme } from "../useTileTheme";
 import { useViewPosture } from "../useViewPosture";
 import { resolvedPr } from "../dockModel";
 import { type DockRowBucket, rankDockRows } from "./dockRowRanking";
+import { SubCountChip } from "./SubCountChip";
 
 export type DockMode = "rail" | "cards";
 
@@ -494,40 +490,6 @@ const DockAnnotation: Component<{
   </span>
 );
 
-/** Sub-terminal count chip — surfaces `subCount > 0` in the dock row
- *  title bar so a glance at the dock alone reveals which terminals have
- *  splits open, without diving into the canvas. Same `SplitToggleIcon`
- *  vocabulary the tile header uses (`TileTitleActions`) so the symbol
- *  reads consistently across surfaces. Active rows get a translucent-
- *  white treatment to survive the accent flood; inactive rows mix
- *  `currentColor` so the chip inherits the row's text tone. */
-const SubCountChip: Component<{
-  count: number;
-  active: boolean;
-  class?: string;
-}> = (props) => {
-  const label = () =>
-    `${props.count} sub-terminal${props.count === 1 ? "" : "s"}`;
-  return (
-    <span
-      data-testid="dock-sub-count"
-      class={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded font-mono text-[0.7rem] font-semibold tabular-nums leading-none shrink-0 ${props.class ?? ""}`}
-      style={{
-        "background-color": props.active
-          ? "rgba(255, 255, 255, 0.18)"
-          : "color-mix(in oklch, currentColor 10%, transparent)",
-        border: props.active
-          ? "1px solid rgba(255, 255, 255, 0.32)"
-          : "1px solid color-mix(in oklch, currentColor 22%, transparent)",
-      }}
-      title={label()}
-    >
-      <SplitToggleIcon class="w-3 h-3" />
-      <span>{props.count}</span>
-    </span>
-  );
-};
-
 /** Dispatches each row to its variant body. Bundling the variant switch
  *  in one place keeps `DockRow` shape uniform — every bucket has the
  *  same outer "rail + body" geometry regardless of which variant the
@@ -649,7 +611,11 @@ const AwaitingCardBody: Component<{
               active={active()}
             />
             <Show when={props.info.subCount > 0}>
-              <SubCountChip count={props.info.subCount} active={active()} />
+              <SubCountChip
+                count={props.info.subCount}
+                active={active()}
+                testId="dock-sub-count"
+              />
             </Show>
           </div>
         </div>
@@ -733,7 +699,11 @@ const WorkingPillBody: Component<{
             active={active()}
           />
           <Show when={props.info.subCount > 0}>
-            <SubCountChip count={props.info.subCount} active={active()} />
+            <SubCountChip
+              count={props.info.subCount}
+              active={active()}
+              testId="dock-sub-count"
+            />
           </Show>
         </div>
       </div>
@@ -801,7 +771,11 @@ const QuietRowBody: Component<{
         >
           <div class="ml-auto flex items-baseline gap-2 shrink-0">
             <Show when={props.info.subCount > 0}>
-              <SubCountChip count={props.info.subCount} active={active()} />
+              <SubCountChip
+                count={props.info.subCount}
+                active={active()}
+                testId="dock-sub-count"
+              />
             </Show>
             <Show when={formatTimeAgo(props.meta.lastActivityAt)}>
               {(label) => (
