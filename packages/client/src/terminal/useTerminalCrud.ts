@@ -131,6 +131,7 @@ export function useTerminalCrud(deps: {
         themeName: theme,
         canvasLayout: initial?.canvasLayout,
         subPanel: initial?.subPanel,
+        rightPanel: initial?.rightPanel,
         lastActivityAt: initial?.lastActivityAt,
         intent: initial?.intent,
       })

@@ -261,10 +261,12 @@ export function useSessionRestore(deps: {
         // to the same tab. The server-persisted fields (collapsed, panelSize)
         // ride along via handleCreate above.
         if (t.subPanel) subPanel.seedPanel(newId, t.subPanel);
-        // Same for right-panel per-terminal state — the persisted record
-        // rides handleCreate, but we also seed the local in-memory store
-        // so reads before the metadata collection resnapshots see the
-        // restored value.
+        // Right-panel per-terminal state: the persisted record rides
+        // `handleCreate` (server seeds `meta.rightPanel` from
+        // `initial.rightPanel` in the first `terminal.list` snapshot);
+        // `seedPanel` here is the early-read optimization for the
+        // in-memory store, so reads that happen before the metadata
+        // collection resnapshots see the restored value.
         if (t.rightPanel) rightPanel.seedPanel(newId, t.rightPanel);
         // Auto-launch the resume form of the previously captured agent
         // command, if the user didn't opt out. The command is already
