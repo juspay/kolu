@@ -11,7 +11,7 @@ import {
 import {
   activityWindow,
   setActivityWindow,
-  WINDOW_VALUES,
+  WINDOW_OPTIONS,
   windowOption,
 } from "../terminal/activityWindow";
 import { formatTimeAgo, useStaleCheck } from "../terminal/staleness";
@@ -122,13 +122,6 @@ const CanvasMinimap: Component<{
   const isParked = useStaleCheck();
   const [menuOpen, setMenuOpen] = createSignal(false);
   const [triggerRef, setTriggerRef] = createSignal<HTMLButtonElement>();
-  const currentWindowLabel = createMemo(
-    () => windowOption(activityWindow()).label,
-  );
-  const windowOptions = WINDOW_VALUES.map((value) => ({
-    value,
-    label: windowOption(value).label,
-  }));
 
   // ── Bounding box of all tiles ──
   const bounds = createMemo(() => {
@@ -494,7 +487,7 @@ const CanvasMinimap: Component<{
             "text-fg-2 hover:text-fg": activityWindow() === "all",
             "text-accent": activityWindow() !== "all",
           }}
-          title={`Minimap: ${currentWindowLabel()} — click to change`}
+          title={`Minimap: ${windowOption(activityWindow()).label} — click to change`}
           onClick={() => setMenuOpen((prev) => !prev)}
         >
           {windowOption(activityWindow()).short}
@@ -505,7 +498,7 @@ const CanvasMinimap: Component<{
         open={menuOpen}
         onDismiss={() => setMenuOpen(false)}
         anchor="top-end"
-        options={windowOptions}
+        options={WINDOW_OPTIONS}
         value={activityWindow()}
         onSelect={setActivityWindow}
         testIdPrefix="minimap-window"

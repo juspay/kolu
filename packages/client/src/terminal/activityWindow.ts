@@ -102,6 +102,14 @@ export function activityWindowThresholdMs(): number | null {
   return WINDOWS[activityWindow()].thresholdMs;
 }
 
+/** Pre-built `{value, label}` list for the activity-window picker menus —
+ *  shared by the dock chip and the minimap chip so the option set is
+ *  defined exactly once. */
+export const WINDOW_OPTIONS: readonly {
+  value: ActivityWindow;
+  label: string;
+}[] = WINDOW_VALUES.map((value) => ({ value, label: WINDOWS[value].label }));
+
 /** Idle sub-bucket keys, ordered most-recent → oldest. The "4h-12h" entry
  *  is the freshest slice of the parked set: terminals that crossed the
  *  4h auto-park threshold but are still inside the 12h window. */

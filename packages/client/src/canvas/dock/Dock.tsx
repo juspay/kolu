@@ -51,7 +51,7 @@ import { useTerminalStore } from "../../terminal/useTerminalStore";
 import {
   activityWindow,
   setActivityWindow,
-  WINDOW_VALUES,
+  WINDOW_OPTIONS,
   windowOption,
 } from "../../terminal/activityWindow";
 import { ChevronDownIcon, PlusIcon, SearchIcon } from "../../ui/Icons";
@@ -287,10 +287,6 @@ const ActivityWindowMenu: Component = () => {
   const [menuOpen, setMenuOpen] = createSignal(false);
   const [triggerRef, setTriggerRef] = createSignal<HTMLButtonElement>();
   const current = () => windowOption(activityWindow());
-  const options = WINDOW_VALUES.map((value) => ({
-    value,
-    label: windowOption(value).label,
-  }));
   return (
     <>
       <button
@@ -314,7 +310,7 @@ const ActivityWindowMenu: Component = () => {
         open={menuOpen}
         onDismiss={() => setMenuOpen(false)}
         anchor="bottom-start"
-        options={options}
+        options={WINDOW_OPTIONS}
         value={activityWindow()}
         onSelect={setActivityWindow}
         testIdPrefix="dock-window"
