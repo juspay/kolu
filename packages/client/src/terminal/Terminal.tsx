@@ -526,6 +526,21 @@ const Terminal: Component<{
               screen.setAttribute("aria-readonly", "true");
               screen.style.caretColor = "transparent";
               screen.style.outline = "none";
+              // iOS Safari rejects the soft keyboard when focus shuffles
+              // mid-gesture from the contenteditable above to xterm's
+              // opacity-0 helper textarea — which is exactly what happens
+              // when the wrapper-click handler (line 500) fires
+              // term.focus() right after the browser auto-focuses
+              // .xterm-screen on pointerdown. preventDefault on pointerdown
+              // blocks the contenteditable auto-focus, and the same handler
+              // routes focus straight to xterm's input surface — a single
+              // focus event in the user-gesture window, no shuffle for iOS
+              // to reject. Mirrors the MobileKeyBar.tsx:60 pattern that
+              // already keeps the textarea focused across key taps.
+              makeEventListener(screen, "pointerdown", (e: PointerEvent) => {
+                e.preventDefault();
+                term.focus();
+              });
             }
           }
           // Kolu-owned bridge consumed by e2e step definitions —

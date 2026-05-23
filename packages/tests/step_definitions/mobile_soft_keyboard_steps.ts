@@ -1,3 +1,4 @@
+import * as assert from "node:assert";
 import { Then, When } from "@cucumber/cucumber";
 import { ACTIVE_TERMINAL } from "../support/buffer.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
@@ -22,6 +23,71 @@ Then(
     await this.page
       .locator(KEY_BAR)
       .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+When("I tap the terminal canvas", async function (this: KoluWorld) {
+  // Install a focus-event observer on .xterm-screen BEFORE the tap so we can
+  // detect the iOS-style contenteditable auto-focus. The bug surfaces when the
+  // browser focuses the contenteditable on pointerdown and our wrapper-click
+  // handler then shuffles to the helper textarea — the smoking gun is a focus
+  // event landing on .xterm-screen during the gesture.
+  await this.page.evaluate(() => {
+    const screen = document.querySelector(
+      "[data-visible][data-terminal-id] .xterm-screen",
+    ) as HTMLElement | null;
+    if (!screen) throw new Error("No .xterm-screen on active terminal");
+    (window as Window & { __screenFocusCount?: number }).__screenFocusCount = 0;
+    screen.addEventListener("focus", () => {
+      const w = window as Window & { __screenFocusCount?: number };
+      w.__screenFocusCount = (w.__screenFocusCount ?? 0) + 1;
+    });
+  });
+
+  // Real CDP touch via Playwright's touchscreen triggers the browser's native
+  // contenteditable auto-focus heuristic — synthetic dispatchEvent doesn't.
+  const canvas = this.page
+    .locator("[data-visible][data-terminal-id] .xterm-screen canvas")
+    .first();
+  const box = await canvas.boundingBox();
+  assert.ok(box, "xterm canvas has no bounding box");
+  await this.page.touchscreen.tap(
+    box.x + box.width / 2,
+    box.y + box.height / 2,
+  );
+  await this.waitForFrame();
+});
+
+Then(
+  "the xterm contenteditable screen should never have been focused",
+  async function (this: KoluWorld) {
+    const count = await this.page.evaluate(
+      () =>
+        (window as Window & { __screenFocusCount?: number })
+          .__screenFocusCount ?? 0,
+    );
+    assert.strictEqual(
+      count,
+      0,
+      `Expected .xterm-screen to never receive focus during the tap (focus-shuffle indicator), got ${count} focus events`,
+    );
+  },
+);
+
+Then(
+  "xterm's helper textarea should be the active element",
+  async function (this: KoluWorld) {
+    const isTextarea = await this.page.evaluate(() => {
+      const active = document.activeElement;
+      return (
+        active?.tagName === "TEXTAREA" &&
+        active.classList.contains("xterm-helper-textarea")
+      );
+    });
+    assert.ok(
+      isTextarea,
+      "Expected xterm's helper textarea to be document.activeElement after tap",
+    );
   },
 );
 
