@@ -90,7 +90,13 @@ export const RightPanelTabKindSchema = z.enum(["inspector", "code"]);
  *
  *  `selectedFileByMode` is per-mode so flipping between local↔branch↔browse
  *  within a single terminal keeps each mode's last-viewed file, mirroring
- *  the prior `(repo, mode)`-keyed localStorage slot behaviour. */
+ *  the prior `(repo, mode)`-keyed localStorage slot behaviour.
+ *
+ *  Storage is flat (`activeTab` + `codeMode` as parallel fields) so Solid's
+ *  shallow-merge `setStore` is correct. Consumption should go through the
+ *  `rightPanelView()` DU projection — pattern-matching on `activeTab` /
+ *  `codeMode` separately leaks the storage shape across the DU seam and
+ *  defeats the "codeMode survives Inspector toggle" invariant. */
 export const RightPanelPerTerminalStateSchema = z.object({
   activeTab: RightPanelTabKindSchema,
   codeMode: CodeTabViewSchema,
