@@ -4,7 +4,7 @@ import type {
   TerminalMetadata,
 } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
-import { rankDockRows } from "./dockRowRanking";
+import { type DockRowBucket, rankDockRows } from "./dockRowRanking";
 
 function makeAgent(state: AgentInfo["state"]): AgentInfo {
   return {
@@ -30,6 +30,18 @@ function makeMeta(overrides: Partial<TerminalMetadata> = {}): TerminalMetadata {
   };
 }
 
+/** Convenience: rank a single terminal and return its bucket. */
+function bucket(meta: TerminalMetadata, stale: boolean): DockRowBucket {
+  const rows = rankDockRows(
+    ["t1"] as TerminalId[],
+    () => meta,
+    () => stale,
+  );
+  const row = rows[0];
+  if (!row) throw new Error("no row returned");
+  return row.bucket;
+}
+
 describe("rankDockRows — parked bucket precedence", () => {
   // The activity-window selector exists to compress yesterday's queue
   // out of the prominent buckets. A waiting agent past the threshold
@@ -38,18 +50,8 @@ describe("rankDockRows — parked bucket precedence", () => {
   // preserved at the render layer (QuietRowBody paints AgentIndicator
   // when meta.agent is set), not by keeping the row in `awaiting`.
   it("parks a stale waiting agent regardless of attention state", () => {
-    const meta = makeMeta({
-      agent: makeAgent("waiting"),
-      lastActivityAt: 1,
-    });
-    const rows = rankDockRows(
-      ["t1"] as TerminalId[],
-      () => meta,
-      // Pretend the activity-window predicate fires for this terminal.
-      () => true,
-    );
-    expect(rows).toHaveLength(1);
-    expect(rows[0]?.bucket).toBe("parked");
+    const meta = makeMeta({ agent: makeAgent("waiting"), lastActivityAt: 1 });
+    expect(bucket(meta, true)).toBe("parked");
   });
 
   it("parks a stale awaiting_user agent the same way", () => {
@@ -57,12 +59,7 @@ describe("rankDockRows — parked bucket precedence", () => {
       agent: makeAgent("awaiting_user"),
       lastActivityAt: 1,
     });
-    const rows = rankDockRows(
-      ["t1"] as TerminalId[],
-      () => meta,
-      () => true,
-    );
-    expect(rows[0]?.bucket).toBe("parked");
+    expect(bucket(meta, true)).toBe("parked");
   });
 
   it("keeps a fresh waiting agent in awaiting", () => {
@@ -70,63 +67,32 @@ describe("rankDockRows — parked bucket precedence", () => {
       agent: makeAgent("waiting"),
       lastActivityAt: Date.now(),
     });
-    const rows = rankDockRows(
-      ["t1"] as TerminalId[],
-      () => meta,
-      // Activity window says fresh.
-      () => false,
-    );
-    expect(rows[0]?.bucket).toBe("awaiting");
+    expect(bucket(meta, false)).toBe("awaiting");
   });
 
   it("keeps a fresh working agent in working, parks it when stale", () => {
-    const meta = makeMeta({
-      agent: makeAgent("tool_use"),
-      lastActivityAt: 1,
-    });
-    const fresh = rankDockRows(
-      ["t1"] as TerminalId[],
-      () => meta,
-      () => false,
-    );
-    expect(fresh[0]?.bucket).toBe("working");
-    const stale = rankDockRows(
-      ["t1"] as TerminalId[],
-      () => meta,
-      () => true,
-    );
-    expect(stale[0]?.bucket).toBe("parked");
+    const meta = makeMeta({ agent: makeAgent("tool_use"), lastActivityAt: 1 });
+    expect(bucket(meta, false)).toBe("working");
+    expect(bucket(meta, true)).toBe("parked");
   });
 
   it("never-touched plain shells route to none, not idle", () => {
-    const meta = makeMeta({ agent: null, lastActivityAt: 0 });
-    const rows = rankDockRows(
-      ["t1"] as TerminalId[],
-      () => meta,
-      () => false,
-    );
-    expect(rows[0]?.bucket).toBe("none");
+    expect(bucket(makeMeta(), false)).toBe("none");
   });
 
-  it("agent metadata survives the move to parked — render layer can paint identity", () => {
-    // A stale waiting agent lands in `parked`, but its `meta.agent`
-    // stays populated so QuietRowBody / MobileDockDrawer can paint the
-    // AgentIndicator on the compact row. Without this guarantee the
-    // sleep-overnight bug returns: the row reads as a plain shell.
-    const meta = makeMeta({
-      agent: makeAgent("waiting"),
-      lastActivityAt: 1,
-    });
-    const rows = rankDockRows(
+  it("meta.agent is not mutated by ranking — render layer retains identity after park", () => {
+    // rankDockRows must not clear or replace meta.agent when it routes a
+    // terminal to `parked`. QuietRowBody reads meta.agent directly to paint
+    // the AgentIndicator on the compact row; if ranking cleared it, the
+    // sleep-overnight bug returns (row reads as a plain shell).
+    const meta = makeMeta({ agent: makeAgent("waiting"), lastActivityAt: 1 });
+    const agentBefore = meta.agent;
+    rankDockRows(
       ["t1"] as TerminalId[],
       () => meta,
       () => true,
     );
-    // rankDockRows returns RankedDockRow which carries id + bucket + ts;
-    // the consumer reads meta via getMeta directly. This test asserts
-    // the contract: the SAME meta the ranker saw is what consumers will
-    // read for rendering.
-    expect(rows[0]?.bucket).toBe("parked");
+    expect(meta.agent).toBe(agentBefore); // identity preserved — same object reference
     expect(meta.agent?.state).toBe("waiting");
   });
 });
