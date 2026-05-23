@@ -1,11 +1,16 @@
 /** Stale-terminal predicate.
  *
  *  A terminal is "stale" when its last observed agent transition is older
- *  than the user's currently-selected activity window — UNLESS the agent
- *  is in an attention state (`waiting` / `awaiting_user`), in which case
- *  the terminal is never stale regardless of age. The exemption is the
- *  load-bearing invariant: a user-blocking agent must not lose its
- *  identity to staleness just because the laptop slept past the window.
+ *  than the user's currently-selected activity window. Pure temporal —
+ *  agent state is NOT consulted here. The earlier "attention-state agents
+ *  are never stale" exemption was a category error: it gave user-blocking
+ *  agents permanent prominence (full `AwaitingCardBody` rows with reply
+ *  boxes) regardless of how long the user had been away, defeating the
+ *  point of the threshold. Identity for stale-but-still-awaiting agents
+ *  is preserved instead at the *render* layer — `QuietRowBody` paints
+ *  the `AgentIndicator` when `meta.agent` is set — so a 20h-stale
+ *  waiting agent shows as a compact parked row with its kind/state
+ *  visible, not as a plain shell.
  *
  *  `lastActivityAt` is bumped only on agent semantic-key transitions
  *  (`packages/server/src/meta/agent.ts`), so terminals that never hosted an
@@ -24,7 +29,6 @@ import {
   type IdleBucketKey,
   idleBucketFor,
 } from "./activityWindow";
-import { isAttentionState } from "./agentState";
 
 const TICK_MS = 60_000;
 
@@ -32,26 +36,30 @@ const TICK_MS = 60_000;
  *  `TerminalMetadata` (most callsites) or constructs the pair locally
  *  from `lastActivityAt` + a `null` agent (e.g. legacy tests of the pure
  *  predicate). Avoids importing the full `TerminalMetadata` here, which
- *  would drag in surface schema concerns the predicate doesn't need. */
+ *  would drag in surface schema concerns the predicate doesn't need.
+ *
+ *  `agent` is carried in the shape (not just `lastActivityAt`) so the
+ *  rendering layer downstream of `isStale` can still ask "does this
+ *  parked row carry a known agent?" via the same value — the predicate
+ *  itself ignores `agent`. */
 export type StalenessInput = {
   lastActivityAt: number;
   agent: AgentInfo | null;
 };
 
-/** Pure stale predicate. Attention-state agents are exempt — the
- *  user-blocking case is never stale.
+/** Pure stale predicate.
  *
- *  Otherwise: stale ⇔ `lastActivityAt > 0` AND `now - lastActivityAt >
- *  thresholdMs`. A `null` threshold disables the feature (never stale).
- *  The `lastActivityAt === 0` guard excludes terminals whose agent
+ *  Stale ⇔ `lastActivityAt > 0` AND `now - lastActivityAt > thresholdMs`.
+ *  A `null` threshold disables the feature (never stale). The
+ *  `lastActivityAt === 0` guard excludes terminals whose agent
  *  transitions have never been observed (plain shells, brand-new
- *  terminals). */
+ *  terminals). Agent state is intentionally NOT consulted — see the
+ *  module header for why. */
 export function isStale(
   input: StalenessInput,
   now: number,
   thresholdMs: number | null,
 ): boolean {
-  if (isAttentionState(input.agent?.state)) return false;
   if (thresholdMs === null) return false;
   if (input.lastActivityAt === 0) return false;
   return now - input.lastActivityAt > thresholdMs;
@@ -95,8 +103,8 @@ export function useStaleCheck(): (input: StalenessInput) => boolean {
  *  identical to `useStaleCheck`'s — without this, `isStale` (strict `>`)
  *  and `idleBucketFor` (inclusive `>=` on the first bucket) would
  *  disagree at the exact `now - lastActivityAt === thresholdMs` tick.
- *  The shared gate also carries the attention-state exemption and the
- *  `lastActivityAt === 0` plain-shell exclusion. */
+ *  The shared gate also carries the `lastActivityAt === 0` plain-shell
+ *  exclusion. */
 export function useIdleClassifier(): (
   input: StalenessInput,
 ) => IdleBucketKey | null {

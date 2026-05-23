@@ -756,6 +756,21 @@ const QuietRowBody: Component<{
           )}
         </Show>
       </div>
+      {/* Identity preservation for parked-but-known agent terminals:
+       *  surface the AgentIndicator on the compact row so a 20h-stale
+       *  `waiting` agent reads as "OpenCode · waiting · 22.0K" instead
+       *  of a plain shell. The full `AwaitingCardBody` (reply input,
+       *  tail preview) is reserved for fresh awaiting agents — see
+       *  `dockRowRanking.ts` — and this surface only carries the
+       *  compact pill so a queue of stale waiters doesn't dominate
+       *  the dock height. */}
+      <Show when={props.meta.agent}>
+        {(agent) => (
+          <div class="flex items-center gap-1.5 min-w-0 text-[0.6rem] text-fg-3">
+            <AgentIndicator agent={agent()} />
+          </div>
+        )}
+      </Show>
       <Show when={foreground()}>
         {(fg) => (
           <span

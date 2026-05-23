@@ -144,7 +144,13 @@ const Row: Component<{
               />
             </span>
           </div>
-          <Show when={live() && meta()?.agent}>
+          {/* AgentIndicator surfaces on every row that carries a known
+           *  agent — live (awaiting/working) AND parked. Without this
+           *  fallback on quiet rows, a 20h-stale waiting agent renders
+           *  as a plain shell after the laptop sleeps past the activity
+           *  window. The full reply card / tail preview stays
+           *  live-only; the quiet row only carries identity. */}
+          <Show when={meta()?.agent}>
             {(agent) => (
               <div class="flex items-center justify-between gap-2 min-w-0 text-[0.65rem] text-fg-3">
                 <AgentIndicator agent={agent()} />
@@ -162,10 +168,8 @@ const Row: Component<{
           {/* Foreground process line — surfaced on quiet (non-live)
            *  rows so plain shells aren't reduced to bare repo + branch
            *  when they're running something like `pu connect srid1`
-           *  or `nix build`. The live rows have agent state +
-           *  optional PR carrying the same "what is this terminal
-           *  doing?" signal, so a foreground row there would be
-           *  redundant. */}
+           *  or `nix build`. Live rows have the PR line and the
+           *  agent indicator already; foreground duplicates that. */}
           <Show when={!live()}>
             <ForegroundLine meta={meta()} />
           </Show>

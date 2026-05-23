@@ -2,7 +2,6 @@ import type { AgentInfo, TerminalMetadata } from "kolu-common/surface";
 import type { GitInfo } from "kolu-git/schemas";
 import { describe, expect, it } from "vitest";
 import type { IdleBucketKey } from "../terminal/activityWindow";
-import { isAttentionState } from "../terminal/agentState";
 import type { TerminalDisplayInfo } from "../terminal/terminalDisplay";
 import type { TileLayout } from "./TileLayout";
 import {
@@ -231,13 +230,14 @@ describe("buildDockModel", () => {
     ]);
   });
 
-  it("buildDockModel trusts the classifier's bucket decision (plumbing)", () => {
-    // This test verifies the model wiring only: whatever `idleClassifier`
-    // returns is what `entryBucket` reports. The production classifier
-    // (`useIdleClassifier`) layers the attention-state exemption ON TOP
-    // — covered by the next test and by staleness.test.ts. Keeping the
-    // two concerns separate means a future refactor that moves the
-    // exemption out of `isStale` won't silently still pass here.
+  it("routes stale entries into the Idle column regardless of agent state", () => {
+    // Stale-awaiting agents (laptop slept past the window) belong in
+    // Idle — the activity-window selector must actually compress them
+    // out of the Awaiting column, or it has no effect on the wall-of-
+    // yesterday's-cards problem it exists to solve. Identity for those
+    // entries is preserved at the *render* layer (`QuietRowBody` paints
+    // the AgentIndicator when `meta.agent` is set), not by promoting
+    // them back into the Awaiting bucket here.
     const seeded = entries.map((entry) =>
       entry.id === "t1" || entry.id === "t3"
         ? {
@@ -252,49 +252,20 @@ describe("buildDockModel", () => {
     const m = modelFor(seeded, {
       idleClassifier: (input) => (input.lastActivityAt === 1 ? "4h-12h" : null),
     });
-    // Classifier said idle for t1 + t3, so they're in Idle — even though
-    // t1 is `awaiting`. That's the plumbing under test, not the policy.
+    // t1 (was awaiting) AND t3 (was no-agent) both route to Idle.
     expect(m.columns[0]?.entries.map((e) => e.id).sort()).toEqual(["t1", "t3"]);
+    // Awaiting column empties — the t1 waiter compressed into Idle.
     expect(m.columns[1]?.entries).toHaveLength(0);
     expect(m.columns[2]?.entries.map((e) => e.id)).toEqual(["t2"]);
     expect(m.columns[3]?.entries.map((e) => e.id)).toEqual(["t4"]);
     expect(m.entries.find((e) => e.id === "t1")?.bucket).toBe("idle");
     expect(m.entries.find((e) => e.id === "t3")?.bucket).toBe("idle");
-  });
-
-  it("attention-state agents stay in Awaiting even when the classifier would idle them", () => {
-    // Mirror the production policy: an exemption-aware classifier
-    // returns null for attention-state agents so they keep their
-    // `awaiting` bucket regardless of age. This is the end-to-end
-    // contract — `useIdleClassifier` + `entryBucket` together MUST
-    // preserve the awaiting bucket for a user-blocking agent that has
-    // been waiting for hours.
-    const seeded = entries.map((entry) =>
-      entry.id === "t1" || entry.id === "t3"
-        ? {
-            ...entry,
-            info: {
-              ...entry.info,
-              meta: { ...entry.info.meta, lastActivityAt: 1 },
-            },
-          }
-        : entry,
+    // The agent metadata survives the bucket move — render-layer
+    // consumers (QuietRowBody, MobileDockDrawer) read this to paint
+    // the AgentIndicator on parked rows.
+    expect(m.entries.find((e) => e.id === "t1")?.info.meta.agent?.state).toBe(
+      "waiting",
     );
-    const exemptionAware = (input: {
-      lastActivityAt: number;
-      agent: AgentInfo | null;
-    }): IdleBucketKey | null => {
-      if (isAttentionState(input.agent?.state)) return null;
-      return input.lastActivityAt === 1 ? "4h-12h" : null;
-    };
-    const m = modelFor(seeded, { idleClassifier: exemptionAware });
-    // t1 (awaiting agent, lastActivityAt=1) stays in Awaiting — the
-    // exemption-aware classifier returns null for it.
-    expect(m.columns[1]?.entries.map((e) => e.id)).toEqual(["t1"]);
-    expect(m.entries.find((e) => e.id === "t1")?.bucket).toBe("awaiting");
-    // t3 (no agent, lastActivityAt=1) still routes to Idle — the
-    // exemption only applies to attention-state agents.
-    expect(m.columns[0]?.entries.map((e) => e.id)).toEqual(["t3"]);
   });
 
   it("groups Idle entries by age into the 4-rung sub-bucket ladder", () => {
