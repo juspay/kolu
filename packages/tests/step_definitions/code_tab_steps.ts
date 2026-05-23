@@ -263,6 +263,13 @@ Then("the Code tab should be active", async function (this: KoluWorld) {
   await btn.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
 });
 
+Then("the Inspector tab should be active", async function (this: KoluWorld) {
+  const btn = this.page.locator(
+    '[data-testid="right-panel-tab-inspector"][data-active="true"]',
+  );
+  await btn.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+});
+
 Then(
   "the Code tab should indicate no git repository",
   async function (this: KoluWorld) {

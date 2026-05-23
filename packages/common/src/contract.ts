@@ -22,6 +22,7 @@ import { z } from "zod";
 import {
   CanvasLayoutSchema,
   InitialTerminalMetadataSchema,
+  RightPanelPerTerminalStateSchema,
   surface,
   TerminalAttachInputSchema,
   TerminalIdSchema,
@@ -73,6 +74,11 @@ export const TerminalSetSubPanelInputSchema = z.object({
   collapsed: z.boolean(),
   panelSize: z.number(),
 });
+
+export const TerminalSetRightPanelInputSchema =
+  RightPanelPerTerminalStateSchema.extend({
+    id: TerminalIdSchema,
+  });
 
 export const SetActiveTerminalInputSchema = z.object({
   id: TerminalIdSchema.nullable(),
@@ -129,6 +135,7 @@ export const contract = oc.router({
       .input(TerminalSetCanvasLayoutInputSchema)
       .output(z.void()),
     setSubPanel: oc.input(TerminalSetSubPanelInputSchema).output(z.void()),
+    setRightPanel: oc.input(TerminalSetRightPanelInputSchema).output(z.void()),
     setActive: oc.input(SetActiveTerminalInputSchema).output(z.void()),
     /** Bidirectional binary stream — clients use `streamCall` with a
      *  custom `onRetry` (xterm buffer reset before re-subscribe). Doesn't

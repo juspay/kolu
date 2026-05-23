@@ -13,6 +13,7 @@
 
 import type {
   InitialTerminalMetadata,
+  RightPanelPerTerminalState,
   SavedTerminal,
   TerminalId,
   TerminalInfo,
@@ -162,6 +163,7 @@ export function createTerminal(
   if (initial?.themeName) meta.themeName = initial.themeName;
   if (initial?.canvasLayout) meta.canvasLayout = initial.canvasLayout;
   if (initial?.subPanel) meta.subPanel = initial.subPanel;
+  if (initial?.rightPanel) meta.rightPanel = initial.rightPanel;
   if (initial?.lastActivityAt !== undefined)
     meta.lastActivityAt = initial.lastActivityAt;
   if (initial?.intent) meta.intent = initial.intent;
@@ -249,6 +251,43 @@ export function setSubPanelState(
   updateClientMetadata(entry, id, (m) => {
     m.subPanel = state;
   });
+}
+
+/** Store a terminal's right-panel per-terminal state (client-reported).
+ *  Publishes via metadata so other clients (and the same client after a
+ *  refresh) pick up the change from the same channel as every other
+ *  client-owned metadata field.
+ *
+ *  Equality-gated like `setSubPanelState` — the client RPCs this on every
+ *  file-tree click and tab-toggle, so without a guard each interaction
+ *  would fan a full per-key metadata publish. Deep-compares
+ *  `selectedFileByMode` since the user clicks files often. */
+export function setRightPanelState(
+  id: TerminalId,
+  state: RightPanelPerTerminalState,
+): void {
+  const entry = getTerminal(id);
+  if (!entry) return;
+  const cur = entry.meta.rightPanel;
+  if (cur && rightPanelStateEqual(cur, state)) return;
+  updateClientMetadata(entry, id, (m) => {
+    m.rightPanel = state;
+  });
+}
+
+function rightPanelStateEqual(
+  a: RightPanelPerTerminalState,
+  b: RightPanelPerTerminalState,
+): boolean {
+  if (a.activeTab !== b.activeTab || a.codeMode !== b.codeMode) return false;
+  const am = a.selectedFileByMode;
+  const bm = b.selectedFileByMode;
+  if (am === bm) return true;
+  if (!am || !bm) return false;
+  if (am.local !== bm.local) return false;
+  if (am.branch !== bm.branch) return false;
+  if (am.browse !== bm.browse) return false;
+  return true;
 }
 
 // Active terminal ID — client-reported, used only for session snapshots.

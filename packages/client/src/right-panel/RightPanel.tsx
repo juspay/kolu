@@ -8,6 +8,7 @@ import type {
   TerminalMetadata,
 } from "kolu-common/surface";
 import { type Component, For } from "solid-js";
+import { match } from "ts-pattern";
 import { CHROME_ICON_BUTTON_CLASS } from "../ui/chromeSpacing";
 import { ChevronRightIcon } from "../ui/Icons";
 import { ACTIVE_TERMINAL_ACCENT } from "./activeTerminalAccent";
@@ -18,8 +19,10 @@ import { useRightPanel } from "./useRightPanel";
 /** Ordered tab kinds shown in the tab bar. Adding a new kind to the
  *  discriminated union requires a corresponding entry here AND in
  *  `TAB_LABEL` below — both are typed `Record<RightPanelTabKind, …>` and
- *  fail-compile on missing keys. The body renderer further down takes a
- *  matching wrapper div per kind; that part is checked at review time. */
+ *  fail-compile on missing keys. The body renderer further down dispatches
+ *  via `match(kind).exhaustive()`, which also fails-compile on a missing
+ *  variant — so adding a new kind is a three-place change that the
+ *  compiler enforces end-to-end. */
 const TAB_KINDS: readonly RightPanelTabKind[] = ["inspector", "code"] as const;
 
 const TAB_LABEL: Record<RightPanelTabKind, string> = {
@@ -91,29 +94,37 @@ const RightPanel: Component<{
       {/* Both tabs are always rendered; the inactive one is display:none.
        *  Mounting both keeps each tab's local state (CodeTab's selected file,
        *  Pierre's tree expansion, scroll position) alive across tab switches
-       *  — a `match()` swap would unmount the inactive sibling and discard
-       *  it. TAB_KINDS / TAB_LABEL above already give compile-time
-       *  exhaustiveness over RightPanelTabKind, so adding a new tab kind
-       *  fails to compile there before reaching this renderer. */}
+       *  — wrapping a single `match(...).exhaustive()` over `activeTab()`
+       *  would unmount the inactive sibling and discard that state. The
+       *  shape below iterates `TAB_KINDS` (already compile-exhaustive over
+       *  RightPanelTabKind via the `Record<RightPanelTabKind, …>` typings
+       *  on TAB_LABEL) so both bodies mount once, then `match(kind)` picks
+       *  which component to render per slot — exhaustive *and* both-mounted. */}
       <div class="flex-1 min-h-0 overflow-hidden">
-        <div
-          class={
-            rightPanel.activeTab().kind === "inspector" ? "h-full" : "hidden"
-          }
-          aria-hidden={rightPanel.activeTab().kind !== "inspector"}
-        >
-          <MetadataInspector
-            meta={props.meta}
-            themeName={props.themeName}
-            onThemeClick={props.onThemeClick}
-          />
-        </div>
-        <div
-          class={rightPanel.activeTab().kind === "code" ? "h-full" : "hidden"}
-          aria-hidden={rightPanel.activeTab().kind !== "code"}
-        >
-          <CodeTab terminalId={props.terminalId} meta={props.meta} />
-        </div>
+        <For each={TAB_KINDS}>
+          {(kind) => {
+            const isActive = () => rightPanel.activeTab().kind === kind;
+            return (
+              <div
+                class={isActive() ? "h-full" : "hidden"}
+                aria-hidden={!isActive()}
+              >
+                {match(kind)
+                  .with("inspector", () => (
+                    <MetadataInspector
+                      meta={props.meta}
+                      themeName={props.themeName}
+                      onThemeClick={props.onThemeClick}
+                    />
+                  ))
+                  .with("code", () => (
+                    <CodeTab terminalId={props.terminalId} meta={props.meta} />
+                  ))
+                  .exhaustive()}
+              </div>
+            );
+          }}
+        </For>
       </div>
     </div>
   );

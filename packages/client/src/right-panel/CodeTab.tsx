@@ -22,7 +22,6 @@ import {
   useCodeViewSelection,
 } from "@kolu/solid-pierre";
 import type { GitDiffMode } from "kolu-git/schemas";
-import { makePersisted } from "@solid-primitives/storage";
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import {
   type Component,
@@ -124,45 +123,20 @@ const CodeTab: Component<{
   const diffMode = (): GitDiffMode | undefined =>
     view() === "browse" ? undefined : (view() as GitDiffMode);
 
-  // Selection is keyed per (repoRoot, view) and persisted to localStorage.
-  // Each slot owns its own pick — switching modes / repos surfaces the
-  // right slot rather than clearing on transition, and a full browser
-  // reload restores whichever slot is current. `::` is collision-safe:
-  // `view()` is a typed enum so it can't contain `::`, and `repoPath()`
-  // is an absolute path or null. The `slotKey` memo doubles as the
-  // source of truth for the search-reset effect below — same value,
-  // single derivation.
+  // Selection is per-terminal, keyed by mode, stored in
+  // `TerminalMetadata.rightPanel.selectedFileByMode` via `useRightPanel`.
+  // Each (terminal, mode) slot owns its own pick — switching modes within
+  // a terminal restores that mode's last file; switching terminals
+  // restores that terminal's last (file, mode) pair.
   //
-  // `createSignal<Record>` is deliberate against the project rule
-  // (`createStore` over `createSignal<Record>` for keyed state): the
-  // fine-grained read tracking createStore offers isn't actually
-  // observed here because Pierre's `FileTree` snapshots `selectedPath`
-  // at mount via `initialSelectedPaths` and the host re-mounts that
-  // subtree on view transitions. The synchronous, whole-record
-  // semantics of a signal match this lifecycle; `createStore`'s
-  // late-arriving notifications on a not-yet-seen key produce a
-  // remount race where the new slot's pick is set AFTER FileTree's
-  // constructor reads it (verified empirically against the
-  // "right-click Open jumps to browse" regression suite).
-  const [selectedFilesByKey, setSelectedFilesByKey] = makePersisted(
-    createSignal<Record<string, string>>({}),
-    { name: "kolu-codetab-selected-files" },
-  );
-  const slotKey = createMemo(() => `${repoPath() ?? ""}::${view()}`);
-  const selectedPath = (): string | null =>
-    selectedFilesByKey()[slotKey()] ?? null;
+  // The `slotKey` memo doubles as the source of truth for the
+  // search-reset effect below; collision-safe by construction since
+  // `view()` is a typed enum and `repoPath()` is absolute-or-null.
+  const selectedPath = (): string | null => rightPanel.selectedFile(view());
   const setSelectedPath = (path: string | null) => {
-    const key = slotKey();
-    setSelectedFilesByKey((prev) => {
-      if (path === null) {
-        if (!(key in prev)) return prev;
-        const { [key]: _, ...rest } = prev;
-        return rest;
-      }
-      if (prev[key] === path) return prev;
-      return { ...prev, [key]: path };
-    });
+    rightPanel.setSelectedFile(view(), path);
   };
+  const slotKey = createMemo(() => `${repoPath() ?? ""}::${view()}`);
 
   // Filename filter — drives Pierre's tree filter externally. Reset on
   // mode switch so a stale needle doesn't hide the wrong file set.
@@ -227,13 +201,15 @@ const CodeTab: Component<{
 
   // Clear the filename filter when the slot changes — the search needle
   // was scoped to the previous file set and rarely makes sense post-
-  // switch. Selection itself is per-slot (see `selectedFilesByKey`
-  // above) so the new view automatically surfaces its own pick without
-  // a clear here. `slotKey` is memoized, so this fires only when the
-  // tuple genuinely changes — without the memo, `on(...)` would re-run
-  // its callback on every preferences tick (the upstream cell ticks on
-  // activity beyond tab/repo changes) and wipe the filter spuriously
-  // after #818 made CodeTab survive right-panel tab toggles.
+  // switch. Selection itself is per-slot (read/written via
+  // `rightPanel.selectedFile(mode)` → `selectedFileByMode` on the
+  // per-terminal record) so the new view automatically surfaces its own
+  // pick without a clear here. `slotKey` is memoized, so this fires
+  // only when the tuple genuinely changes — without the memo, `on(...)`
+  // would re-run its callback on every incidental tick of `repoPath()`
+  // (metadata cell) or `view()` (per-terminal in-memory store) and wipe
+  // the filter spuriously after #818 made CodeTab survive right-panel
+  // tab toggles.
   createEffect(
     on(
       slotKey,
