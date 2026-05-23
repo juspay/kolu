@@ -36,7 +36,8 @@ import {
   type DockEntry,
   type DockSourceEntry,
 } from "../dockModel";
-import { agentLabel, metaLine, prSummary, tokenLine } from "./dockRowChrome";
+import { prValue } from "kolu-github/schemas";
+import { agentLabel, metaLine, tokenLine } from "./dockRowChrome";
 
 /** Slot tag on each card. The scroll-into-view effect queries by this
  *  value so the lookup stays scoped to *this* grid instance even if a
@@ -459,7 +460,7 @@ const WorkspaceCard: Component<{
   onSelect: () => void;
 }> = (props) => {
   const agent = () => props.entry.info.meta.agent;
-  const pr = () => prSummary(props.entry);
+  const pr = () => prValue(props.entry.info.meta.pr);
   const tokens = () => tokenLine(agent());
   const bucketInfo = () => bucketDescriptor(props.entry.bucket);
   const lastActive = () => formatTimeAgo(props.entry.info.meta.lastActivityAt);
