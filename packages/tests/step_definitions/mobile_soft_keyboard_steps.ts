@@ -3,6 +3,9 @@ import { Then, When } from "@cucumber/cucumber";
 import { ACTIVE_TERMINAL } from "../support/buffer.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
+/** Browser-side window augmentation used by the focus-shuffle detection probe. */
+type FocusProbeWindow = Window & { __screenFocusCount?: number };
+
 const KEY_BAR = '[data-testid="mobile-key-bar"]';
 const KEY = (testId: string) => `[data-testid="mobile-key-${testId}"]`;
 
@@ -37,9 +40,9 @@ When("I tap the terminal canvas", async function (this: KoluWorld) {
       "[data-visible][data-terminal-id] .xterm-screen",
     ) as HTMLElement | null;
     if (!screen) throw new Error("No .xterm-screen on active terminal");
-    (window as Window & { __screenFocusCount?: number }).__screenFocusCount = 0;
+    const w = window as FocusProbeWindow;
+    w.__screenFocusCount = 0;
     screen.addEventListener("focus", () => {
-      const w = window as Window & { __screenFocusCount?: number };
       w.__screenFocusCount = (w.__screenFocusCount ?? 0) + 1;
     });
   });
@@ -62,9 +65,7 @@ Then(
   "the xterm contenteditable screen should never have been focused",
   async function (this: KoluWorld) {
     const count = await this.page.evaluate(
-      () =>
-        (window as Window & { __screenFocusCount?: number })
-          .__screenFocusCount ?? 0,
+      () => (window as FocusProbeWindow).__screenFocusCount ?? 0,
     );
     assert.strictEqual(
       count,
