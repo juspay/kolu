@@ -277,8 +277,13 @@ const DockHeader: Component<{
  *  `All`, …) and opens an `OptionMenu` of all options. Same shared
  *  signal the minimap reads, so picking `12h` here also tightens the
  *  minimap's fade. Attention-state agents bypass this entirely — they
- *  never become parked, regardless of which window is selected. */
-const ActivityWindowMenu: Component<{ railLayout: boolean }> = (props) => {
+ *  never become parked, regardless of which window is selected.
+ *
+ *  Always anchors `bottom-start` because the dock lives at the left
+ *  edge of the viewport — `bottom-end` would push the 180px-wide panel
+ *  LEFT of the trigger and clip it off-screen. (See useAnchoredPopover
+ *  for the panel-min-width clamp.) */
+const ActivityWindowMenu: Component<{ railLayout: boolean }> = (_props) => {
   const [menuOpen, setMenuOpen] = createSignal(false);
   const [triggerRef, setTriggerRef] = createSignal<HTMLButtonElement>();
   const current = () => windowOption(activityWindow());
@@ -308,7 +313,7 @@ const ActivityWindowMenu: Component<{ railLayout: boolean }> = (props) => {
         triggerRef={triggerRef}
         open={menuOpen}
         onDismiss={() => setMenuOpen(false)}
-        anchor={props.railLayout ? "bottom-start" : "bottom-end"}
+        anchor="bottom-start"
         options={options}
         value={activityWindow()}
         onSelect={setActivityWindow}

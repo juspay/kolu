@@ -41,6 +41,10 @@ export const OptionMenu = <T extends string>(props: {
     open: props.open,
     onDismiss: props.onDismiss,
     anchor: props.anchor,
+    // Engage the bottom-start viewport clamp so a left-edge trigger
+    // (the dock chip) cannot push the panel off the right edge of the
+    // viewport. Matches the panel's own `min-w-[180px]` Tailwind class.
+    panelMinWidth: 180,
   });
   return (
     <Show when={props.open()}>
