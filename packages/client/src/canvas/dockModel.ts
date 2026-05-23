@@ -3,12 +3,12 @@ import type {
   TerminalId,
   TerminalMetadata,
 } from "kolu-common/surface";
-import { match } from "ts-pattern";
 import {
   type IdleBucket,
   IDLE_BUCKETS,
   type IdleBucketKey,
 } from "../terminal/activityWindow";
+import { isAttentionState, isWorkingState } from "../terminal/agentState";
 import type { StalenessInput } from "../terminal/staleness";
 import type { TerminalDisplayInfo } from "../terminal/terminalDisplay";
 import type { TileLayout } from "./TileLayout";
@@ -210,15 +210,16 @@ export type DockModel = {
 export function agentBucket(
   agent: AgentInfo | null | undefined,
 ): Exclude<AgentBucketKind, "idle"> {
-  // The `waiting | awaiting_user` pair is the same equivalence class
-  // surfaced runtime-side by `isAttentionState` in `agentDisplay.ts` —
-  // ts-pattern is used here instead so `.exhaustive()` flags any future
-  // state literal that lands in `AgentInfo["state"]` without a bucket.
-  return match(agent?.state)
-    .with(undefined, () => "none" as const)
-    .with("waiting", "awaiting_user", () => "awaiting" as const)
-    .with("thinking", "tool_use", () => "working" as const)
-    .exhaustive();
+  const state = agent?.state;
+  if (state === undefined) return "none";
+  if (isAttentionState(state)) return "awaiting";
+  if (isWorkingState(state)) return "working";
+  // Exhaustiveness fence: AgentInfo["state"] partitions cleanly into
+  // attention + working today. Any future state literal added to the
+  // schema must join one predicate (or earn its own bucket) — `state
+  // satisfies never` compile-fails here until it does.
+  state satisfies never;
+  return "none";
 }
 
 /** Classify a terminal into a switcher column. Parked terminals (last

@@ -18,13 +18,13 @@
  *  agrees on what "stale" means. */
 
 import { type Accessor, createRoot, createSignal, onCleanup } from "solid-js";
-import { isAttentionState } from "../ui/agentDisplay";
+import type { AgentInfo } from "kolu-common/surface";
 import {
   activityWindowThresholdMs,
   type IdleBucketKey,
   idleBucketFor,
 } from "./activityWindow";
-import type { AgentInfo } from "kolu-common/surface";
+import { isAttentionState } from "./agentState";
 
 const TICK_MS = 60_000;
 

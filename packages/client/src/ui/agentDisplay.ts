@@ -28,19 +28,10 @@ export const stateLabels: Record<AgentInfo["state"], string> = {
   awaiting_user: "Awaiting input",
 };
 
-/** True when the agent state means "user action needed now" — collapses
- *  `waiting` (turn ended cleanly, no more compute happening) and
- *  `awaiting_user` (agent blocked on a question) into one predicate so
- *  the alert layer and the switcher bucket agree on the equivalence
- *  class. Add a new state here when it joins the attention class;
- *  miss this and one consumer fires while the other ignores it.
- *
- *  Accepts `string | undefined` because callers reading from reactive
- *  history (`createEffect`'s previous-value tracking) lose the literal
- *  type — equality comparisons inside still narrow correctly. */
-export function isAttentionState(state: string | undefined): boolean {
-  return state === "waiting" || state === "awaiting_user";
-}
+// `isAttentionState` lives in `terminal/agentState.ts` (domain layer)
+// where the predicate sits next to its companions and `agentBucket` can
+// reuse it. Re-exported here for legacy import-site compatibility.
+export { isAttentionState } from "../terminal/agentState";
 
 /** Resolve the icon for a raw agent command string (e.g. `"claude --model
  *  sonnet"`). Returns `undefined` for detection-only agents that have no
