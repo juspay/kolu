@@ -343,7 +343,7 @@ Concrete inventory — what every server-pushed reactive surface in Kolu maps to
 
 | Descriptor | Backs | Authority | Mutation | Persistence |
 |---|---|---|---|---|
-| `preferencesCell` | User preferences (theme, scrollLock, sound, rightPanel state, …) | `local` (instant UI) | `client.preferences.update(patch)` | `confStore("preferences")` |
+| `preferencesCell` | User preferences (theme, scrollLock, sound, right-panel workspace chrome — collapsed/size/codeTabTreeSize — …) | `local` (instant UI) | `client.preferences.update(patch)` | `confStore("preferences")` |
 | `terminalListCell` | Live terminal list — drives the dock, canvas tile set, mobile swipe order | `server` | _server-only_ (via `terminal.create` / `kill` mutations) | `inMemoryStore` (registry is canonical) |
 | `activityFeedCell` | Recent repos cd'd into + recent agent CLIs spotted via OSC 633;E | `server` | _server-only_ (via `trackRecentRepo` / `trackRecentAgent`) | `confStore("activityFeed")` |
 | `savedSessionCell` | Last-persisted snapshot of terminals + active id (drives session restore) | `server` | _server-only_ (debounced autosave on `terminals:dirty`) | `confStore("session")` |
@@ -352,7 +352,7 @@ Concrete inventory — what every server-pushed reactive surface in Kolu maps to
 
 | Descriptor | Backs | Mutation |
 |---|---|---|
-| `terminalMetadataCollection` | Per-terminal metadata (cwd, git, PR, agent state, foreground process, last-activity timestamp for switcher recency) — each terminal's tile chrome and inspector reads its own key | _server-only_ (providers under `meta/*.ts` route writes through `updateServerMetadata` for persisted fields and `updateServerLiveMetadata` for live-only fields — `pr`, `agent`, `foreground` — so the high-frequency agent-stream watcher doesn't fire `terminals:dirty` and trigger no-op session autosaves; the agent provider switches to the persisting variant on each semantic-key transition that bumps `lastActivityAt`) |
+| `terminalMetadataCollection` | Per-terminal metadata (cwd, git, PR, agent state, foreground process, last-activity timestamp for switcher recency, **right-panel per-terminal state** — activeTab, codeMode, per-mode selected file — and sub-panel state) — each terminal's tile chrome and inspector reads its own key | _server-only_ (providers under `meta/*.ts` route writes through `updateServerMetadata` for persisted fields and `updateServerLiveMetadata` for live-only fields — `pr`, `agent`, `foreground` — so the high-frequency agent-stream watcher doesn't fire `terminals:dirty` and trigger no-op session autosaves; the agent provider switches to the persisting variant on each semantic-key transition that bumps `lastActivityAt`) |
 
 ### Streams
 
@@ -377,7 +377,7 @@ Shapes that don't fit a descriptor stay as plain oRPC procedures.
 |---|---|---|
 | **Bidirectional binary stream** — subscribe-before-yield ordering, custom `onRetry` (xterm buffer reset before re-subscribe's first frame) | `terminal.attach` | `streamCall(client.terminal.attach, { id }, { signal, onRetry })` |
 | **One-shot queries** — request/response, no subscription dimension | `server.info`, `terminal.screenState`, `terminal.screenText`, `terminal.exportTranscriptHtml` | `await client.X.Y(input)` |
-| **Mutations** — request/response writes | `terminal.create` / `kill` / `killAll` / `resize` / `sendInput` / `setTheme` / `setCanvasLayout` / `setSubPanel` / `setActive` / `setParent` / `pasteImage`, `git.worktreeCreate` / `worktreeRemove`, `preferences.update` | `await client.X.Y(input)` (the retry plugin's `retry: 0` default fails them fast) |
+| **Mutations** — request/response writes | `terminal.create` / `kill` / `killAll` / `resize` / `sendInput` / `setTheme` / `setCanvasLayout` / `setSubPanel` / `setRightPanel` / `setActive` / `setParent` / `pasteImage`, `git.worktreeCreate` / `worktreeRemove`, `preferences.update` | `await client.X.Y(input)` (the retry plugin's `retry: 0` default fails them fast) |
 
 `streamCall` applies the same `STREAM_RETRY` context the descriptor hooks thread (and merges in an optional `onRetry` callback) so transport drops re-subscribe transparently — escape hatch for non-descriptor shapes, same retry semantics.
 

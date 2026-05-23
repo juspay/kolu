@@ -22,7 +22,8 @@
  *     stream watcher publishes ~150ms during streaming, and most of
  *     those publishes touch only live state.
  *   - `updateClientMetadata` — client-persisted fields (themeName,
- *     parentId, canvasLayout, subPanel). Fires `terminals:dirty`.
+ *     parentId, canvasLayout, subPanel, rightPanel, intent). Fires
+ *     `terminals:dirty`.
  *
  * The mutator-type narrowing is a bidirectional compile-time fence:
  * each helper can only write the fields it owns, so a provider cannot

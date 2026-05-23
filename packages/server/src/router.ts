@@ -32,6 +32,7 @@ import {
   killTerminal,
   setActiveTerminalId,
   setCanvasLayout,
+  setRightPanelState,
   setSubPanelState,
   setTerminalIntent,
   setTerminalParent,
@@ -59,6 +60,7 @@ export const appRouter = t.router({
         themeName: input.themeName,
         canvasLayout: input.canvasLayout,
         subPanel: input.subPanel,
+        rightPanel: input.rightPanel,
         lastActivityAt: input.lastActivityAt,
         intent: input.intent,
       }),
@@ -98,6 +100,12 @@ export const appRouter = t.router({
         collapsed: input.collapsed,
         panelSize: input.panelSize,
       });
+    }),
+
+    setRightPanel: t.terminal.setRightPanel.handler(async ({ input }) => {
+      requireTerminal(input.id);
+      const { id: _id, ...state } = input;
+      setRightPanelState(input.id, state);
     }),
 
     setActive: t.terminal.setActive.handler(async ({ input }) => {
