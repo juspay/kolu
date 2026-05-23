@@ -48,7 +48,6 @@ import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
 import { annotationLine } from "../../intent/text";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
-import { Portal } from "solid-js/web";
 import {
   activityWindow,
   setActivityWindow,
@@ -56,7 +55,7 @@ import {
   windowOption,
 } from "../../terminal/activityWindow";
 import { ChevronDownIcon, PlusIcon, SearchIcon } from "../../ui/Icons";
-import { useAnchoredPopover } from "../../ui/useAnchoredPopover";
+import { OptionMenu } from "../../ui/OptionMenu";
 import { client } from "../../wire";
 import { isPlatformModifier } from "../../input/keyboard";
 import { useTileTheme } from "../useTileTheme";
@@ -275,20 +274,18 @@ const DockHeader: Component<{
 };
 
 /** Activity-window chip: shows the current short label (`24h`, `4h`,
- *  `All`, …) and opens a popover menu of all options. Same shared signal
- *  the minimap reads, so picking `12h` here also tightens the minimap's
- *  fade. Attention-state agents bypass this entirely — they never become
- *  parked, regardless of which window is selected. */
+ *  `All`, …) and opens an `OptionMenu` of all options. Same shared
+ *  signal the minimap reads, so picking `12h` here also tightens the
+ *  minimap's fade. Attention-state agents bypass this entirely — they
+ *  never become parked, regardless of which window is selected. */
 const ActivityWindowMenu: Component<{ railLayout: boolean }> = (props) => {
   const [menuOpen, setMenuOpen] = createSignal(false);
   const [triggerRef, setTriggerRef] = createSignal<HTMLButtonElement>();
-  const { panelRef, panelStyle } = useAnchoredPopover({
-    triggerRef,
-    open: menuOpen,
-    onDismiss: () => setMenuOpen(false),
-    anchor: props.railLayout ? "bottom-start" : "bottom-end",
-  });
   const current = () => windowOption(activityWindow());
+  const options = WINDOW_VALUES.map((value) => ({
+    value,
+    label: windowOption(value).label,
+  }));
   return (
     <>
       <button
@@ -307,38 +304,16 @@ const ActivityWindowMenu: Component<{ railLayout: boolean }> = (props) => {
       >
         {current().short}
       </button>
-      <Show when={menuOpen()}>
-        <Portal>
-          <div
-            ref={panelRef}
-            data-testid="dock-window-menu"
-            class="fixed z-50 flex flex-col bg-surface-1 border border-edge rounded-lg shadow-lg shadow-black/40 p-1 min-w-[180px]"
-            style={panelStyle()}
-          >
-            <For each={WINDOW_VALUES}>
-              {(value) => (
-                <button
-                  type="button"
-                  data-testid={`dock-window-option-${value}`}
-                  data-selected={activityWindow() === value ? "" : undefined}
-                  class="text-left text-xs px-2 py-1.5 rounded-md transition-colors cursor-pointer"
-                  classList={{
-                    "bg-accent/20 text-accent": activityWindow() === value,
-                    "text-fg-2 hover:bg-surface-3 hover:text-fg":
-                      activityWindow() !== value,
-                  }}
-                  onClick={() => {
-                    setActivityWindow(value);
-                    setMenuOpen(false);
-                  }}
-                >
-                  {windowOption(value).label}
-                </button>
-              )}
-            </For>
-          </div>
-        </Portal>
-      </Show>
+      <OptionMenu
+        triggerRef={triggerRef}
+        open={menuOpen}
+        onDismiss={() => setMenuOpen(false)}
+        anchor={props.railLayout ? "bottom-start" : "bottom-end"}
+        options={options}
+        value={activityWindow()}
+        onSelect={setActivityWindow}
+        testIdPrefix="dock-window"
+      />
     </>
   );
 };

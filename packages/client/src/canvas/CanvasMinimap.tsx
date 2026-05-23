@@ -8,7 +8,6 @@ import {
   type JSX,
   Show,
 } from "solid-js";
-import { Portal } from "solid-js/web";
 import {
   activityWindow,
   setActivityWindow,
@@ -19,7 +18,7 @@ import { formatTimeAgo, useStaleCheck } from "../terminal/staleness";
 import type { TerminalDisplayInfo } from "../terminal/terminalDisplay";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { GridIcon } from "../ui/Icons";
-import { useAnchoredPopover } from "../ui/useAnchoredPopover";
+import { OptionMenu } from "../ui/OptionMenu";
 import {
   handleMinimapClick,
   startTileDrag,
@@ -123,16 +122,13 @@ const CanvasMinimap: Component<{
   const isParked = useStaleCheck();
   const [menuOpen, setMenuOpen] = createSignal(false);
   const [triggerRef, setTriggerRef] = createSignal<HTMLButtonElement>();
-  const { panelRef: menuPanelRef, panelStyle: menuPanelStyle } =
-    useAnchoredPopover({
-      triggerRef,
-      open: menuOpen,
-      onDismiss: () => setMenuOpen(false),
-      anchor: "top-end",
-    });
   const currentWindowLabel = createMemo(
     () => windowOption(activityWindow()).label,
   );
+  const windowOptions = WINDOW_VALUES.map((value) => ({
+    value,
+    label: windowOption(value).label,
+  }));
 
   // ── Bounding box of all tiles ──
   const bounds = createMemo(() => {
@@ -504,38 +500,16 @@ const CanvasMinimap: Component<{
           {windowOption(activityWindow()).short}
         </button>
       </div>
-      <Show when={menuOpen()}>
-        <Portal>
-          <div
-            ref={menuPanelRef}
-            data-testid="minimap-window-menu"
-            class="fixed z-50 flex flex-col bg-surface-1 border border-edge rounded-lg shadow-lg shadow-black/40 p-1 min-w-[160px]"
-            style={menuPanelStyle()}
-          >
-            <For each={WINDOW_VALUES}>
-              {(value) => (
-                <button
-                  type="button"
-                  data-testid={`minimap-window-option-${value}`}
-                  data-selected={activityWindow() === value ? "" : undefined}
-                  class="text-left text-xs px-2 py-1.5 rounded-md transition-colors cursor-pointer"
-                  classList={{
-                    "bg-accent/20 text-accent": activityWindow() === value,
-                    "text-fg-2 hover:bg-surface-3 hover:text-fg":
-                      activityWindow() !== value,
-                  }}
-                  onClick={() => {
-                    setActivityWindow(value);
-                    setMenuOpen(false);
-                  }}
-                >
-                  {windowOption(value).label}
-                </button>
-              )}
-            </For>
-          </div>
-        </Portal>
-      </Show>
+      <OptionMenu
+        triggerRef={triggerRef}
+        open={menuOpen}
+        onDismiss={() => setMenuOpen(false)}
+        anchor="top-end"
+        options={windowOptions}
+        value={activityWindow()}
+        onSelect={setActivityWindow}
+        testIdPrefix="minimap-window"
+      />
     </div>
   );
 };
