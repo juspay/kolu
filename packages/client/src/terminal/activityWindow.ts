@@ -76,10 +76,10 @@ export function windowOption(w: ActivityWindow): WindowOption {
 
 /** Default activity window. `24h` because the immediate user pain is "I
  *  closed the laptop overnight; this morning my waiting agents look like
- *  plain shells" — a 24h horizon keeps yesterday's awaiting work visible
- *  under its own identity. Attention-state agents are exempt from the
- *  threshold entirely (see `isStale` in `staleness.ts`), so this default
- *  only affects how aggressively *non-awaiting* idle terminals fade. */
+ *  plain shells" — a 24h horizon keeps yesterday's queue compressed into
+ *  parked rows where each row still carries its agent identity (the
+ *  parked-row AgentIndicator), without a wall of full reply cards
+ *  drowning out fresh waiters. */
 export const DEFAULT_ACTIVITY_WINDOW: ActivityWindow = "24h";
 
 /** Per-device user choice of activity window. Singleton — one persisted
