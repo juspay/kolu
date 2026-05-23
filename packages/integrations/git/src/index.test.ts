@@ -886,7 +886,7 @@ describe("watchGitHead", () => {
 
 // --- subscribeGitInfo: watcher lifecycle invariants (#748 regression) ---
 
-describe("subscribeGitInfo watcher churn", () => {
+describe.skipIf(SKIP_DARWIN_FSWATCH)("subscribeGitInfo watcher churn", () => {
   let tmpDir: string;
 
   /** Create a git repo with one commit. */
@@ -1010,47 +1010,44 @@ describe("subscribeGitInfo watcher churn", () => {
   // Code browser and path pill — but the shell doesn't re-emit OSC 7 when
   // cwd hasn't changed, so the provider can't rely on `setCwd` to learn
   // about the new `.git`.
-  it.skipIf(SKIP_DARWIN_FSWATCH)(
-    "detects `git init` in the current cwd without an OSC 7 setCwd",
-    async () => {
-      const dir = path.join(tmpDir, "git-init-osc7-less");
-      fs.mkdirSync(dir, { recursive: true });
+  it("detects `git init` in the current cwd without an OSC 7 setCwd", async () => {
+    const dir = path.join(tmpDir, "git-init-osc7-less");
+    fs.mkdirSync(dir, { recursive: true });
 
-      const counter = makeLog();
-      const updates: (GitInfo | null)[] = [];
-      const sub = subscribeGitInfo(
-        dir,
-        (info) => {
-          updates.push(info);
-        },
-        counter.log,
-      );
+    const counter = makeLog();
+    const updates: (GitInfo | null)[] = [];
+    const sub = subscribeGitInfo(
+      dir,
+      (info) => {
+        updates.push(info);
+      },
+      counter.log,
+    );
 
-      // Initial subscribe on a non-git dir installs the cwd watcher, not the
-      // HEAD watcher — there's nothing inside `.git/` to watch yet.
-      expect(counter.installs).toBe(0);
-      expect(counter.cwdInstalls).toBe(1);
+    // Initial subscribe on a non-git dir installs the cwd watcher, not the
+    // HEAD watcher — there's nothing inside `.git/` to watch yet.
+    expect(counter.installs).toBe(0);
+    expect(counter.cwdInstalls).toBe(1);
 
-      // `git init` (no setCwd / OSC 7 follow-up). The cwd watcher must fire
-      // on `.git` appearing, trigger a re-resolve, and swap to the HEAD
-      // watcher.
-      const git = simpleGit(dir);
-      await git.init();
-      await git.checkoutLocalBranch("main");
-      fs.writeFileSync(path.join(dir, "f.txt"), "x");
-      await git.add(".");
-      await git.commit("initial");
+    // `git init` (no setCwd / OSC 7 follow-up). The cwd watcher must fire
+    // on `.git` appearing, trigger a re-resolve, and swap to the HEAD
+    // watcher.
+    const git = simpleGit(dir);
+    await git.init();
+    await git.checkoutLocalBranch("main");
+    fs.writeFileSync(path.join(dir, "f.txt"), "x");
+    await git.add(".");
+    await git.commit("initial");
 
-      await waitFor(() => updates.length >= 1, 3000);
-      expect(updates[0]?.repoRoot).toBe(fs.realpathSync(dir));
+    await waitFor(() => updates.length >= 1, 3000);
+    expect(updates[0]?.repoRoot).toBe(fs.realpathSync(dir));
 
-      sub.stop();
+    sub.stop();
 
-      expect(counter.installs).toBe(1);
-      expect(counter.retires).toBe(1);
-      expect(counter.cwdRetires).toBe(1);
-    },
-  );
+    expect(counter.installs).toBe(1);
+    expect(counter.retires).toBe(1);
+    expect(counter.cwdRetires).toBe(1);
+  });
 
   it("setCwd defense-in-depth still works if the cwd watcher missed the event", async () => {
     // Some filesystems (bind-mounted containers, polling fallback) can lose
