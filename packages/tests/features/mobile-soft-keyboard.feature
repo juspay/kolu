@@ -38,14 +38,10 @@ Feature: Mobile soft keyboard
 
   @mobile
   Scenario: Tapping the terminal focuses xterm without a contenteditable focus shuffle
-    # On iOS Safari, a tap on `.xterm-screen` (made contenteditable for
-    # spell-check suppression in #448) causes the browser to auto-focus the
-    # contenteditable, after which our wrapper-click handler shuffles focus
-    # to xterm's opacity-0 helper textarea. iOS rejects the soft keyboard
-    # for the shuffled invisible final target. The fix blocks the contenteditable
-    # auto-focus via `pointerdown` + `preventDefault`, so a single focus event
-    # lands on the helper textarea. This scenario asserts the contenteditable
-    # never receives focus during a tap — the smoking gun for the shuffle.
+    # Regression guard for the iOS focus-shuffle bug (#448 / Terminal.tsx
+    # pointerdown fix): .xterm-screen must never receive a focus event during
+    # the tap — that's the smoking gun for the shuffle iOS uses to reject the
+    # soft keyboard.
     When I tap the terminal canvas
     Then the xterm contenteditable screen should never have been focused
     And xterm's helper textarea should be the active element
