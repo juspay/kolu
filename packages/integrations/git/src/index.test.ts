@@ -3,14 +3,17 @@ import os from "node:os";
 import path from "node:path";
 import { simpleGit } from "simple-git";
 
-/** Tests in this file that gate on `fs.watch` event delivery under load
- *  are unreliable on darwin in CI — FSEvents coalesces and can take >12s
- *  to deliver a single change under contention on the `sincereintent`
- *  host. The dispatcher logic itself (snapshot + try/catch per listener,
- *  in `kolu-io/refcounted-dir-watcher.ts`) is verified by linux+inotify
- *  CI on every commit; the darwin skips here only avoid the platform
- *  layer's non-determinism. Tracked: juspay/kolu#320. */
-const SKIP_DARWIN_FSWATCH = process.platform === "darwin" && !!process.env.CI;
+/** Tests in this file that gate on `fs.watch` event delivery are
+ *  unreliable on darwin — FSEvents coalesces and can take >12s to
+ *  deliver a single change under contention. The dispatcher logic
+ *  itself (snapshot + try/catch per listener, in
+ *  `kolu-io/refcounted-dir-watcher.ts:96-106`) is verified by
+ *  linux+inotify CI on every commit; the darwin skips here only avoid
+ *  the platform layer's non-determinism. Local darwin devs also skip
+ *  these — running them on a busy laptop produces false negatives.
+ *  Tracked: juspay/kolu#320 for a proper fix (test seam or polling
+ *  fallback in the production watcher path). */
+const SKIP_DARWIN_FSWATCH = process.platform === "darwin";
 import {
   afterAll,
   afterEach,
