@@ -51,7 +51,9 @@ function reportToServer(id: TerminalId): void {
       codeMode: s.codeMode,
       selectedFileByMode: s.selectedFileByMode,
     })
-    .catch(() => {});
+    .catch((err: Error) =>
+      console.error("useRightPanel: setRightPanel RPC failed", err),
+    );
 }
 
 export function useRightPanel() {
