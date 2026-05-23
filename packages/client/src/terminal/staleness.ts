@@ -1,16 +1,9 @@
-/** Stale-terminal predicate.
- *
- *  A terminal is "stale" when its last observed agent transition is older
- *  than the user's currently-selected activity window. Pure temporal —
- *  agent state is NOT consulted here. The earlier "attention-state agents
- *  are never stale" exemption was a category error: it gave user-blocking
- *  agents permanent prominence (full `AwaitingCardBody` rows with reply
- *  boxes) regardless of how long the user had been away, defeating the
- *  point of the threshold. Identity for stale-but-still-awaiting agents
- *  is preserved instead at the *render* layer — `QuietRowBody` paints
- *  the `AgentIndicator` when `meta.agent` is set — so a 20h-stale
- *  waiting agent shows as a compact parked row with its kind/state
- *  visible, not as a plain shell.
+/** Stale-terminal predicate. Pure temporal: a terminal is "stale" when its
+ *  last observed agent transition is older than the user's currently-
+ *  selected activity window. Agent state is NOT consulted — identity for
+ *  stale-but-still-awaiting agents is preserved at the *render* layer
+ *  (`QuietRowBody` paints `AgentIndicator` when `meta.agent` is set), not
+ *  by exempting them from staleness.
  *
  *  `lastActivityAt` is bumped only on agent semantic-key transitions
  *  (`packages/server/src/meta/agent.ts`), so terminals that never hosted an
@@ -23,7 +16,6 @@
  *  agrees on what "stale" means. */
 
 import { type Accessor, createRoot, createSignal, onCleanup } from "solid-js";
-import type { AgentInfo } from "kolu-common/surface";
 import {
   activityWindowThresholdMs,
   type IdleBucketKey,
@@ -32,37 +24,21 @@ import {
 
 const TICK_MS = 60_000;
 
-/** Minimal input shape for staleness — every consumer either has full
- *  `TerminalMetadata` (most callsites) or constructs the pair locally
- *  from `lastActivityAt` + a `null` agent (e.g. legacy tests of the pure
- *  predicate). Avoids importing the full `TerminalMetadata` here, which
- *  would drag in surface schema concerns the predicate doesn't need.
- *
- *  `agent` is carried in the shape (not just `lastActivityAt`) so the
- *  rendering layer downstream of `isStale` can still ask "does this
- *  parked row carry a known agent?" via the same value — the predicate
- *  itself ignores `agent`. */
-export type StalenessInput = {
-  lastActivityAt: number;
-  agent: AgentInfo | null;
-};
-
 /** Pure stale predicate.
  *
  *  Stale ⇔ `lastActivityAt > 0` AND `now - lastActivityAt > thresholdMs`.
  *  A `null` threshold disables the feature (never stale). The
  *  `lastActivityAt === 0` guard excludes terminals whose agent
  *  transitions have never been observed (plain shells, brand-new
- *  terminals). Agent state is intentionally NOT consulted — see the
- *  module header for why. */
+ *  terminals). */
 export function isStale(
-  input: StalenessInput,
+  lastActivityAt: number,
   now: number,
   thresholdMs: number | null,
 ): boolean {
   if (thresholdMs === null) return false;
-  if (input.lastActivityAt === 0) return false;
-  return now - input.lastActivityAt > thresholdMs;
+  if (lastActivityAt === 0) return false;
+  return now - lastActivityAt > thresholdMs;
 }
 
 let nowSignal: Accessor<number> | null = null;
@@ -91,9 +67,10 @@ function getNowTicker(): Accessor<number> {
  *  invoking it inside a tracking context (JSX, `createMemo`) subscribes
  *  to both the periodic tick and the user's activity-window choice, so
  *  views re-bucket automatically when either advances. */
-export function useStaleCheck(): (input: StalenessInput) => boolean {
+export function useStaleCheck(): (lastActivityAt: number) => boolean {
   const tick = getNowTicker();
-  return (input) => isStale(input, tick(), activityWindowThresholdMs());
+  return (lastActivityAt) =>
+    isStale(lastActivityAt, tick(), activityWindowThresholdMs());
 }
 
 /** Reactive idle classifier — returns the matching idle sub-bucket for
@@ -106,13 +83,13 @@ export function useStaleCheck(): (input: StalenessInput) => boolean {
  *  The shared gate also carries the `lastActivityAt === 0` plain-shell
  *  exclusion. */
 export function useIdleClassifier(): (
-  input: StalenessInput,
+  lastActivityAt: number,
 ) => IdleBucketKey | null {
   const tick = getNowTicker();
-  return (input) => {
+  return (lastActivityAt) => {
     const now = tick();
-    if (!isStale(input, now, activityWindowThresholdMs())) return null;
-    return idleBucketFor(now - input.lastActivityAt);
+    if (!isStale(lastActivityAt, now, activityWindowThresholdMs())) return null;
+    return idleBucketFor(now - lastActivityAt);
   };
 }
 

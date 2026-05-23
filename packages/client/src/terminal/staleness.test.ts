@@ -38,8 +38,6 @@ describe("isStale", () => {
       why: "feature off (threshold=null)",
     },
   ])("$why", ({ lastActivityAt, thresholdMs, expected }) => {
-    expect(isStale({ lastActivityAt, agent: null }, now, thresholdMs)).toBe(
-      expected,
-    );
+    expect(isStale(lastActivityAt, now, thresholdMs)).toBe(expected);
   });
 });

@@ -308,7 +308,7 @@ const CanvasMinimap: Component<{
               if (!i) return { bucket: "none" as const, parked: false };
               return {
                 bucket: agentBucket(i.meta.agent),
-                parked: isParked(i.meta),
+                parked: isParked(i.meta.lastActivityAt),
               };
             });
             // Hover tooltip — repo · branch[ #suffix] + last-active duration,

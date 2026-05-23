@@ -9,7 +9,6 @@ import {
   type IdleBucketKey,
 } from "../terminal/activityWindow";
 import { isAttentionState, isWorkingState } from "../terminal/agentState";
-import type { StalenessInput } from "../terminal/staleness";
 import type { TerminalDisplayInfo } from "../terminal/terminalDisplay";
 import type { TileLayout } from "./TileLayout";
 import { matchesAllTokens, tokenize } from "../search";
@@ -225,16 +224,18 @@ export function agentBucket(
 /** Classify a terminal into a switcher column. Parked terminals (last
  *  agent transition older than the activity-window threshold, surfaced via
  *  the idle classifier as a non-null sub-bucket key) route to "idle"
- *  unless the agent itself is in an attention state — that exemption is
- *  baked into the classifier via `isStale`, so a `waiting` /
- *  `awaiting_user` agent stays on its `awaiting` column regardless of age.
- *  Same invariant the dock surface relies on. A `null` classifier result
- *  keeps the entry on its agent-state column. */
+ *  regardless of current agent state — the unified mental model is
+ *  "anything past the threshold goes to one place." Identity for stale-
+ *  but-still-awaiting agents is preserved at the *render* layer
+ *  (`QuietRowBody` paints `AgentIndicator` when `meta.agent` is set).
+ *  A `null` classifier result keeps the entry on its agent-state column;
+ *  the classifier itself is what enforces the `lastActivityAt === 0`
+ *  plain-shell exclusion. */
 export function entryBucket(
   info: TerminalDisplayInfo,
-  idleClassifier?: (input: StalenessInput) => IdleBucketKey | null,
+  idleClassifier?: (lastActivityAt: number) => IdleBucketKey | null,
 ): AgentBucketKind {
-  if (idleClassifier?.(info.meta)) return "idle";
+  if (idleClassifier?.(info.meta.lastActivityAt)) return "idle";
   return agentBucket(info.meta.agent);
 }
 
@@ -339,7 +340,7 @@ export function buildDockModel(
     query?: string;
     repoFilter?: string | null;
     getRecency?: (id: TerminalId) => number;
-    idleClassifier?: (input: StalenessInput) => IdleBucketKey | null;
+    idleClassifier?: (lastActivityAt: number) => IdleBucketKey | null;
   } = {},
 ): DockModel {
   const ordered = options.getRecency
@@ -355,7 +356,7 @@ export function buildDockModel(
       info: source.info,
     };
     const searchText = searchTextFor(baseFields);
-    const idleSub = idleClassifier?.(source.info.meta) ?? null;
+    const idleSub = idleClassifier?.(source.info.meta.lastActivityAt) ?? null;
     if (idleSub !== null) {
       return { ...baseFields, searchText, bucket: "idle" as const, idleSub };
     }

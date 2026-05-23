@@ -4,10 +4,10 @@
  *  multiple consumers and otherwise prone to drifting apart:
  *
  *  - **Attention** (`waiting` | `awaiting_user`): agent is blocked on the
- *    user. Drives the dock's `awaiting` row variant, the OS-badge gate,
- *    the staleness exemption (`staleness.ts`), and the activity-alert
- *    fire criterion. A new state joining this class must land here so
- *    every consumer picks it up.
+ *    user. Drives the dock's `awaiting` row variant, the OS-badge gate
+ *    (firing condition only — staleness still suppresses the badge), and
+ *    the activity-alert fire criterion. A new state joining this class
+ *    must land here so every consumer picks it up.
  *  - **Working** (`thinking` | `tool_use`): compute is in flight. Drives
  *    the dock's `working` row variant.
  *

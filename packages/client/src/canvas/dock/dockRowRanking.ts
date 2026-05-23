@@ -18,7 +18,6 @@
  *  would invite label-collision bugs. */
 
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
-import type { StalenessInput } from "../../terminal/staleness";
 import { agentBucket } from "../dockModel";
 
 /** Per-row render variant. `parked` is its own bucket (not folded into
@@ -58,20 +57,20 @@ export type RankedDockRow = {
 /** Project a terminal id list into the recency-sorted, bucket-classified
  *  row order the dock paints. Secondary key is bucket priority so
  *  never-touched plain shells don't outrank an idle terminal with the
- *  same `ts === 0`. The `isStale` callback receives the full
- *  `(lastActivityAt, agent)` shape so the attention-state exemption
- *  baked into `isStale` (`staleness.ts`) keeps user-blocking agents out
- *  of the `parked` bucket regardless of age. */
+ *  same `ts === 0`. `isStale` is a pure-temporal predicate over
+ *  `lastActivityAt` — identity for stale-but-still-awaiting agents lives
+ *  at the render layer (`QuietRowBody` paints `AgentIndicator` when
+ *  `meta.agent` is set), not in the bucket decision here. */
 export function rankDockRows(
   ids: readonly TerminalId[],
   getMeta: (id: TerminalId) => TerminalMetadata | undefined,
-  isStale: (input: StalenessInput) => boolean,
+  isStale: (lastActivityAt: number) => boolean,
 ): RankedDockRow[] {
   const rows: RankedDockRow[] = [];
   for (const id of ids) {
     const meta = getMeta(id);
     if (!meta) continue;
-    const bucket = classifyDockRow(meta, isStale(meta));
+    const bucket = classifyDockRow(meta, isStale(meta.lastActivityAt));
     rows.push({ id, bucket, ts: meta.lastActivityAt });
   }
   rows.sort((a, b) => {
