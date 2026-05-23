@@ -365,13 +365,10 @@ body {
     box-shadow: var(--dock-active-halo);
   }
 }
-@media (prefers-reduced-motion: reduce) {
-  [data-testid="dock-row"][data-active],
-  [data-testid="mobile-dock-row"][data-active] {
-    animation: none;
-    transition: none;
-  }
-}
+/* prefers-reduced-motion is expressed at the row consumers via
+ * Tailwind's `motion-reduce:` variant (see `DockRow` in Dock.tsx and
+ * the mobile `Row` in MobileDockDrawer.tsx). No CSS media query
+ * needed here. */
 
 /* ── Canvas grid background ─────────────────────────────────── */
 /* Fine line grid gives spatial grounding to the freeform canvas.
