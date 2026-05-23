@@ -36,6 +36,10 @@ const PrLine: Component<{
           <Show when={p().checks}>
             {(checks) => <ChecksIndicator status={checks()} />}
           </Show>
+          {/* `#N` is intentionally not linkified — the dock row is a
+           *  navigation affordance for the terminal, not for GitHub.
+           *  TerminalMeta wraps `#N` in `<a href={pr().url}>` because the
+           *  title bar's surrounding chrome is not itself activatable. */}
           <span class="font-mono tabular-nums text-fg-3 shrink-0">
             #{p().number}
           </span>
