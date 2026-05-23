@@ -201,13 +201,15 @@ const CodeTab: Component<{
 
   // Clear the filename filter when the slot changes — the search needle
   // was scoped to the previous file set and rarely makes sense post-
-  // switch. Selection itself is per-slot (see `selectedFilesByKey`
-  // above) so the new view automatically surfaces its own pick without
-  // a clear here. `slotKey` is memoized, so this fires only when the
-  // tuple genuinely changes — without the memo, `on(...)` would re-run
-  // its callback on every preferences tick (the upstream cell ticks on
-  // activity beyond tab/repo changes) and wipe the filter spuriously
-  // after #818 made CodeTab survive right-panel tab toggles.
+  // switch. Selection itself is per-slot (read/written via
+  // `rightPanel.selectedFile(mode)` → `selectedFileByMode` on the
+  // per-terminal record) so the new view automatically surfaces its own
+  // pick without a clear here. `slotKey` is memoized, so this fires
+  // only when the tuple genuinely changes — without the memo, `on(...)`
+  // would re-run its callback on every incidental tick of `repoPath()`
+  // (metadata cell) or `view()` (per-terminal in-memory store) and wipe
+  // the filter spuriously after #818 made CodeTab survive right-panel
+  // tab toggles.
   createEffect(
     on(
       slotKey,
