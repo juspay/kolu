@@ -36,12 +36,9 @@ const [perTerminal, setPerTerminal] = createStore<
   Record<TerminalId, RightPanelPerTerminalState>
 >({});
 
-function ensureState(id: TerminalId): RightPanelPerTerminalState {
-  const existing = perTerminal[id];
-  if (existing) return existing;
+function ensureState(id: TerminalId): void {
+  if (perTerminal[id]) return;
   setPerTerminal(id, { ...DEFAULT_RIGHT_PANEL_PER_TERMINAL });
-  // Re-read so the returned reference points at the store-tracked object.
-  return perTerminal[id] as RightPanelPerTerminalState;
 }
 
 function reportToServer(id: TerminalId): void {
