@@ -28,11 +28,6 @@ export const stateLabels: Record<AgentInfo["state"], string> = {
   awaiting_user: "Awaiting input",
 };
 
-// `isAttentionState` lives in `terminal/agentState.ts` (domain layer)
-// where the predicate sits next to its companions and `agentBucket` can
-// reuse it. Re-exported here for legacy import-site compatibility.
-export { isAttentionState } from "../terminal/agentState";
-
 /** Resolve the icon for a raw agent command string (e.g. `"claude --model
  *  sonnet"`). Returns `undefined` for detection-only agents that have no
  *  AgentInfo discriminator (aider/goose/gemini/cursor-agent) and for
