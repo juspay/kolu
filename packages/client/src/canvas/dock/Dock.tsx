@@ -794,19 +794,23 @@ const QuietRowBody: Component<{
           class="text-[0.75rem]"
           active={active()}
         />
-        <Show when={props.info.subCount > 0}>
-          <SubCountChip
-            count={props.info.subCount}
-            active={active()}
-            class="ml-auto"
-          />
-        </Show>
-        <Show when={formatTimeAgo(props.meta.lastActivityAt)}>
-          {(label) => (
-            <span class="ml-auto font-mono text-[0.55rem] tabular-nums text-fg-3 shrink-0">
-              {label()}
-            </span>
-          )}
+        <Show
+          when={
+            props.info.subCount > 0 || formatTimeAgo(props.meta.lastActivityAt)
+          }
+        >
+          <div class="ml-auto flex items-baseline gap-2 shrink-0">
+            <Show when={props.info.subCount > 0}>
+              <SubCountChip count={props.info.subCount} active={active()} />
+            </Show>
+            <Show when={formatTimeAgo(props.meta.lastActivityAt)}>
+              {(label) => (
+                <span class="font-mono text-[0.55rem] tabular-nums text-fg-3 shrink-0">
+                  {label()}
+                </span>
+              )}
+            </Show>
+          </div>
         </Show>
       </div>
       {/* Identity preservation for parked-but-known agent terminals:
