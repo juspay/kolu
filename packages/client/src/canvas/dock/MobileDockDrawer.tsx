@@ -96,9 +96,7 @@ const Row: Component<{
         data-bucket={props.bucket}
         data-active={active() ? "" : undefined}
         data-unread={unread() ? "" : undefined}
-        data-sub-count={
-          (info()?.subCount ?? 0) > 0 ? info()?.subCount : undefined
-        }
+        data-sub-count={info()?.subCount || undefined}
         // stopPropagation on pointerdown keeps Corvu Drawer's
         // drag-to-dismiss from claiming the tap.
         onPointerDown={(e) => e.stopPropagation()}
@@ -148,12 +146,14 @@ const Row: Component<{
                   )}
                 />
               </span>
-              <Show when={(info()?.subCount ?? 0) > 0}>
-                <SubCountChip
-                  count={info()?.subCount ?? 0}
-                  active={active()}
-                  testId="mobile-dock-sub-count"
-                />
+              <Show when={info()?.subCount}>
+                {(n) => (
+                  <SubCountChip
+                    count={n()}
+                    active={active()}
+                    testId="mobile-dock-sub-count"
+                  />
+                )}
               </Show>
             </div>
           </div>
