@@ -792,6 +792,35 @@ describe("watchGitHead", () => {
     expect(_sharedHeadWatcherCount()).toBe(0);
   });
 
+  /** Wait for an fs.watch-driven predicate, re-touching HEAD between
+   *  attempts. FSEvents on darwin coalesces and can take seconds to
+   *  deliver under load — a single fixed `waitFor` budget races that
+   *  latency and produces the `watchGitHead` darwin-only flake tracked
+   *  in #320. Each attempt waits up to `perAttemptMs` for the predicate;
+   *  if it doesn't fire, the next iteration rewrites HEAD to force
+   *  another change event. Up to 6 attempts × 2s = 12s overall budget. */
+  async function waitForHeadEvent(
+    predicate: () => boolean,
+    gitDir: string,
+    perAttemptMs = 2000,
+    attempts = 6,
+  ): Promise<void> {
+    const head = path.join(gitDir, "HEAD");
+    for (let i = 0; i < attempts; i++) {
+      try {
+        await waitFor(predicate, perAttemptMs);
+        return;
+      } catch {
+        if (i === attempts - 1)
+          throw new Error("HEAD-event predicate never fired");
+        // Re-touch HEAD with its own bytes so fs.watch fires another
+        // change event without altering repo state.
+        const content = fs.readFileSync(head);
+        fs.writeFileSync(head, content);
+      }
+    }
+  }
+
   it("a HEAD change fans out to every subscriber on the shared watcher", async () => {
     const { dir, git, gitDir } = await initRepo("dispatch-repo");
     let aFires = 0;
@@ -807,15 +836,7 @@ describe("watchGitHead", () => {
     // Branch switch rewrites .git/HEAD, which is what we're watching.
     await git.checkoutLocalBranch("feature");
 
-    // Re-touch HEAD until both listeners fire — fs.watch (inotify on Linux,
-    // FSEvents on darwin) is best-effort and a single edit can occasionally
-    // be missed under load.
-    await waitFor(() => aFires > 0 && bFires > 0, 3000).catch(async () => {
-      const head = path.join(gitDir, "HEAD");
-      const content = fs.readFileSync(head);
-      fs.writeFileSync(head, content);
-      await waitFor(() => aFires > 0 && bFires > 0, 2000);
-    });
+    await waitForHeadEvent(() => aFires > 0 && bFires > 0, gitDir);
 
     expect(aFires).toBeGreaterThan(0);
     expect(bFires).toBeGreaterThan(0);
@@ -836,11 +857,7 @@ describe("watchGitHead", () => {
     });
 
     await git.checkoutLocalBranch("feature");
-    await waitFor(() => bFires > 0, 3000).catch(async () => {
-      const head = path.join(gitDir, "HEAD");
-      fs.writeFileSync(head, fs.readFileSync(head));
-      await waitFor(() => bFires > 0, 2000);
-    });
+    await waitForHeadEvent(() => bFires > 0, gitDir);
 
     expect(bFires).toBeGreaterThan(0);
     stopA();
