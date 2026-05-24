@@ -24,8 +24,8 @@ import { annotationLine } from "../../intent/text";
 import AgentIndicator from "../../terminal/AgentIndicator";
 import { formatTimeAgo, useStaleCheck } from "../../terminal/staleness";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
-import { resolvedPr } from "../dockModel";
 import { type DockRowBucket, rankDockRows } from "./dockRowRanking";
+import PrLine from "./PrLine";
 import { SubCountChip } from "./SubCountChip";
 
 const MobileDockDrawer: Component<{
@@ -176,7 +176,7 @@ const Row: Component<{
             )}
           </Show>
           <Show when={live()}>
-            <PrLine meta={meta()} />
+            <PrLine meta={meta()} size="md" />
           </Show>
           {/* Foreground process line — surfaced on quiet (non-live)
            *  rows so plain shells aren't reduced to bare repo + branch
@@ -216,31 +216,6 @@ const ForegroundLine: Component<{ meta: TerminalMetadata | undefined }> = (
         >
           {label()}
         </span>
-      )}
-    </Show>
-  );
-};
-
-/** PR summary line — `#N title` — rendered when the terminal's PR is
- *  in the resolved `ok` state. Mirrors the desktop dock's `PrLine` so
- *  the awaiting/working rows on mobile carry the same identity rung
- *  the desktop cards do. Returns null for `absent` / `pending` /
- *  `unavailable` PR kinds so the row collapses cleanly. */
-const PrLine: Component<{ meta: TerminalMetadata | undefined }> = (props) => {
-  const pr = () => {
-    const m = props.meta;
-    if (!m) return null;
-    return resolvedPr(m.pr);
-  };
-  return (
-    <Show when={pr()}>
-      {(p) => (
-        <div class="flex items-baseline gap-1.5 min-w-0 text-[0.7rem] text-fg-2">
-          <span class="font-mono tabular-nums text-fg-3 shrink-0">
-            #{p().number}
-          </span>
-          <span class="truncate min-w-0">{p().title}</span>
-        </div>
       )}
     </Show>
   );

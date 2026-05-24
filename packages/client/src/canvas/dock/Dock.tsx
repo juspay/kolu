@@ -60,8 +60,8 @@ import { client } from "../../wire";
 import { isPlatformModifier } from "../../input/keyboard";
 import { useTileTheme } from "../useTileTheme";
 import { useViewPosture } from "../useViewPosture";
-import { resolvedPr } from "../dockModel";
 import { type DockRowBucket, rankDockRows } from "./dockRowRanking";
+import PrLine from "./PrLine";
 import { SubCountChip } from "./SubCountChip";
 
 export type DockMode = "rail" | "cards";
@@ -814,23 +814,6 @@ const QuietRowBody: Component<{
       </Show>
       <IntentBody intent={props.meta.intent} testId="dock-intent" />
     </button>
-  );
-};
-
-/** GitHub PR summary line (when one is resolved). */
-const PrLine: Component<{ meta: TerminalMetadata }> = (props) => {
-  const pr = () => resolvedPr(props.meta.pr);
-  return (
-    <Show when={pr()}>
-      {(p) => (
-        <div class="flex items-baseline gap-1.5 min-w-0 text-[0.65rem] text-fg-2">
-          <span class="font-mono tabular-nums text-fg-3 shrink-0">
-            #{p().number}
-          </span>
-          <span class="truncate min-w-0">{p().title}</span>
-        </div>
-      )}
-    </Show>
   );
 };
 
