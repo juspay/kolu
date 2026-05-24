@@ -184,79 +184,144 @@ const MobileCodeSheet: Component<{
             </div>
           }
         >
-          {(repo) => (
-            <>
-              <div
-                class="absolute inset-0"
-                // Pierre's `<file-tree-container>` keeps its scroll
-                // viewport inside a shadow root, and Corvu's
-                // drag-to-dismiss runs a `parentElement`/`_$host` walk
-                // to find scrollable ancestors — Pierre uses neither
-                // shadow-host convention, so the walk reports no
-                // scroll and Corvu claims every vertical touch as a
-                // drag-to-dismiss. Stop pointerdown here so Corvu's
-                // delegated listener on `Drawer.Content` never sees
-                // the touch; Pierre's internal pointerdown handlers
-                // (which live inside the shadow root, before the
-                // event escapes) keep firing for row clicks and the
-                // tree scrolls natively.
-                onPointerDown={(e) => e.stopPropagation()}
-                onTouchStart={(e) => e.stopPropagation()}
-              >
-                <Switch
-                  fallback={
-                    <div class="px-2 py-1 text-fg-3/50 text-[11px]">
-                      Loading…
-                    </div>
-                  }
+          {(repo) => {
+            // Pierre's `<file-tree-container>` keeps its scroll viewport
+            // inside a shadow root. iOS Safari's native scroll discovery
+            // walks the composed tree for a scrollable ancestor — but in
+            // practice (real iPhone, not Playwright emulation), shadow-
+            // contained scrollers below a Corvu `Drawer.Content` don't
+            // receive the touchmove deltas at all and the tree appears
+            // frozen below the visible band.
+            //
+            // Two compounding causes: (a) Corvu's drag-to-dismiss walks
+            // `parentElement`/`_$host` to find scrollables — Pierre uses
+            // neither host convention, so Corvu reports zero scroll and
+            // claims the touch as a drag; (b) iOS's own native-scroll
+            // pathway is unreliable inside a portaled drawer above a
+            // shadow-rooted scroller.
+            //
+            // Drive the scroll ourselves: capture touchstart/move on the
+            // wrapper, locate Pierre's shadow-DOM scroller, and set
+            // `scrollTop` directly. Stops Corvu via stopPropagation in
+            // the same handler. Pierre's own pointerdown handlers (row
+            // clicks) live inside the shadow root and fire before the
+            // event escapes — they still work because we only act on
+            // movements past a small threshold, and a stationary tap
+            // never crosses it.
+            let scrollState: {
+              startY: number;
+              startTop: number;
+              scroller: HTMLElement;
+              moved: boolean;
+            } | null = null;
+            const findScroller = (
+              container: HTMLElement,
+            ): HTMLElement | null => {
+              const ftc = container.querySelector("file-tree-container");
+              const root = (ftc as Element | null)?.shadowRoot;
+              if (!root) return null;
+              for (const el of root.querySelectorAll<HTMLElement>("*")) {
+                if (el.scrollHeight > el.clientHeight + 1) return el;
+              }
+              return null;
+            };
+            const onTreeTouchStart = (e: TouchEvent) => {
+              e.stopPropagation();
+              const touch = e.touches[0];
+              if (!touch) return;
+              const scroller = findScroller(e.currentTarget as HTMLElement);
+              if (!scroller) return;
+              scrollState = {
+                startY: touch.clientY,
+                startTop: scroller.scrollTop,
+                scroller,
+                moved: false,
+              };
+            };
+            const onTreeTouchMove = (e: TouchEvent) => {
+              if (!scrollState) return;
+              const touch = e.touches[0];
+              if (!touch) return;
+              const dy = touch.clientY - scrollState.startY;
+              if (!scrollState.moved && Math.abs(dy) < 4) return;
+              scrollState.moved = true;
+              scrollState.scroller.scrollTop = scrollState.startTop - dy;
+              // Once we've committed to scrolling, eat the touchmove so
+              // iOS doesn't fight us with its own scroll attempt and so
+              // Pierre's row-click logic doesn't fire on touchend.
+              e.preventDefault();
+              e.stopPropagation();
+            };
+            const onTreeTouchEnd = () => {
+              scrollState = null;
+            };
+            return (
+              <>
+                <div
+                  class="absolute inset-0"
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onTouchStart={onTreeTouchStart}
+                  onTouchMove={onTreeTouchMove}
+                  onTouchEnd={onTreeTouchEnd}
+                  onTouchCancel={onTreeTouchEnd}
                 >
-                  <Match when={allPaths.error()}>
-                    {(err) => (
-                      <div class="px-2 py-1 text-danger text-[11px]">
-                        Error: {err().message}
+                  <Switch
+                    fallback={
+                      <div class="px-2 py-1 text-fg-3/50 text-[11px]">
+                        Loading…
                       </div>
-                    )}
-                  </Match>
-                  <Match when={allPaths()}>
-                    {(paths) => (
-                      <FileTree
-                        paths={paths().paths}
-                        selectedPath={null}
-                        onSelect={(p) => {
-                          if (p !== null)
-                            rightPanel.setSelectedFile("browse", p);
-                        }}
-                        initialExpansion="closed"
-                        search={true}
-                        icons={pierreIconConfig}
-                        onError={(err) =>
-                          toast.error(`File tree render failed: ${err.message}`)
-                        }
-                        class="h-full w-full"
-                        style={pierreTreesStyle}
-                      />
-                    )}
-                  </Match>
-                </Switch>
-              </div>
-              <Show when={selectedPath()} keyed>
-                {(path) => {
-                  const tid = props.terminalId;
-                  if (tid === null) return null;
-                  return (
-                    <div class="absolute inset-0 bg-surface-1">
-                      <BrowseFileDispatcher
-                        terminalId={tid}
-                        repoPath={repo()}
-                        filePath={path}
-                        theme={diffTheme()}
-                      />
-                    </div>
-                  );
-                }}
-              </Show>
-            </>
-          )}
+                    }
+                  >
+                    <Match when={allPaths.error()}>
+                      {(err) => (
+                        <div class="px-2 py-1 text-danger text-[11px]">
+                          Error: {err().message}
+                        </div>
+                      )}
+                    </Match>
+                    <Match when={allPaths()}>
+                      {(paths) => (
+                        <FileTree
+                          paths={paths().paths}
+                          selectedPath={null}
+                          onSelect={(p) => {
+                            if (p !== null)
+                              rightPanel.setSelectedFile("browse", p);
+                          }}
+                          initialExpansion="closed"
+                          search={true}
+                          icons={pierreIconConfig}
+                          onError={(err) =>
+                            toast.error(
+                              `File tree render failed: ${err.message}`,
+                            )
+                          }
+                          class="h-full w-full"
+                          style={pierreTreesStyle}
+                        />
+                      )}
+                    </Match>
+                  </Switch>
+                </div>
+                <Show when={selectedPath()} keyed>
+                  {(path) => {
+                    const tid = props.terminalId;
+                    if (tid === null) return null;
+                    return (
+                      <div class="absolute inset-0 bg-surface-1">
+                        <BrowseFileDispatcher
+                          terminalId={tid}
+                          repoPath={repo()}
+                          filePath={path}
+                          theme={diffTheme()}
+                        />
+                      </div>
+                    );
+                  }}
+                </Show>
+              </>
+            );
+          }}
         </Show>
       </div>
     </div>
