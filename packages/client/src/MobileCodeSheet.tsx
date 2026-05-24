@@ -39,6 +39,12 @@ const MobileCodeSheet: Component<{
   const { themeTypeLiteral: diffTheme } = useColorScheme();
   const rightPanel = useRightPanel();
   const repoPath = () => props.meta?.git?.repoRoot ?? null;
+  // Deliberate divergence from `CodeTab.tsx`: no membership-check effect
+  // that nulls the slot when the selected path leaves `treePaths()`.
+  // The drawer is short-lived (user closes it after viewing), so the
+  // round-trip "file disappeared mid-session" failure mode is moot —
+  // and the friendlier UX is to land the user back on the detail view
+  // they last had open on reopen, not drop them to the tree.
   const selectedPath = () => rightPanel.selectedFile("browse");
 
   const allPaths = app.streams.fsListAll.use(
