@@ -16,6 +16,9 @@ type FocusProbeWindow = Window & {
 
 const KEY_BAR = '[data-testid="mobile-key-bar"]';
 const KEY = (testId: string) => `[data-testid="mobile-key-${testId}"]`;
+const XTERM_SCREEN = "[data-visible][data-terminal-id] .xterm-screen";
+const XTERM_TEXTAREA =
+  "[data-visible][data-terminal-id] .xterm-helper-textarea";
 
 When(
   "I tap the mobile key {string}",
@@ -43,10 +46,8 @@ When("I tap the terminal canvas", async function (this: KoluWorld) {
   // browser focuses the contenteditable on pointerdown and our wrapper-click
   // handler then shuffles to the helper textarea — the smoking gun is a focus
   // event landing on .xterm-screen during the gesture.
-  await this.page.evaluate(() => {
-    const screen = document.querySelector(
-      "[data-visible][data-terminal-id] .xterm-screen",
-    ) as HTMLElement | null;
+  await this.page.evaluate((sel) => {
+    const screen = document.querySelector(sel) as HTMLElement | null;
     if (!screen) throw new Error("No .xterm-screen on active terminal");
     const w = window as FocusProbeWindow;
     w.__screenFocusCount = 0;
@@ -54,13 +55,11 @@ When("I tap the terminal canvas", async function (this: KoluWorld) {
       w.__screenFocusCount = (w.__screenFocusCount ?? 0) + 1;
     };
     screen.addEventListener("focus", w.__screenFocusListener);
-  });
+  }, XTERM_SCREEN);
 
   // Real CDP touch via Playwright's touchscreen triggers the browser's native
   // contenteditable auto-focus heuristic — synthetic dispatchEvent doesn't.
-  const canvas = this.page
-    .locator("[data-visible][data-terminal-id] .xterm-screen canvas")
-    .first();
+  const canvas = this.page.locator(`${XTERM_SCREEN} canvas`).first();
   const box = await canvas.boundingBox();
   assert.ok(box, "xterm canvas has no bounding box");
   await this.page.touchscreen.tap(
@@ -73,18 +72,16 @@ When("I tap the terminal canvas", async function (this: KoluWorld) {
 Then(
   "the xterm contenteditable screen should never have been focused",
   async function (this: KoluWorld) {
-    const count = await this.page.evaluate(() => {
+    const count = await this.page.evaluate((sel) => {
       const w = window as FocusProbeWindow;
       const value = w.__screenFocusCount ?? 0;
-      const screen = document.querySelector(
-        "[data-visible][data-terminal-id] .xterm-screen",
-      );
+      const screen = document.querySelector(sel);
       if (screen && w.__screenFocusListener) {
         screen.removeEventListener("focus", w.__screenFocusListener);
       }
       w.__screenFocusListener = undefined;
       return value;
-    });
+    }, XTERM_SCREEN);
     assert.strictEqual(
       count,
       0,
@@ -119,11 +116,11 @@ When(
     // listens on pointerdown/pointerup. Playwright's touchscreen primitive is
     // tap-only and CDP swipes don't translate to PointerEvents in the same
     // shape the browser emits for real touch.
-    await this.page.evaluate(() => {
+    await this.page.evaluate((sel) => {
       const ta = document.activeElement;
       if (ta instanceof HTMLElement) ta.blur();
       const textarea = document.querySelector(
-        "[data-visible][data-terminal-id] .xterm-helper-textarea",
+        sel,
       ) as HTMLTextAreaElement | null;
       if (!textarea) throw new Error("No xterm helper textarea found");
       const w = window as FocusProbeWindow;
@@ -132,11 +129,9 @@ When(
         w.__textareaFocusCount = (w.__textareaFocusCount ?? 0) + 1;
       };
       textarea.addEventListener("focus", w.__textareaFocusListener);
-    });
+    }, XTERM_TEXTAREA);
 
-    const screen = this.page
-      .locator("[data-visible][data-terminal-id] .xterm-screen")
-      .first();
+    const screen = this.page.locator(XTERM_SCREEN).first();
     const box = await screen.boundingBox();
     assert.ok(box, "xterm screen has no bounding box");
     const x = box.x + box.width / 2;
@@ -169,7 +164,7 @@ When(
         for (const y of ys) dispatch("pointermove", y);
         dispatch("pointerup", ys[ys.length - 1] ?? startY);
       },
-      { sel: "[data-visible][data-terminal-id] .xterm-screen", x, startY, ys },
+      { sel: XTERM_SCREEN, x, startY, ys },
     );
     await this.waitForFrame();
   },
@@ -178,18 +173,16 @@ When(
 Then(
   "xterm's helper textarea should not have been focused by the scroll",
   async function (this: KoluWorld) {
-    const count = await this.page.evaluate(() => {
+    const count = await this.page.evaluate((sel) => {
       const w = window as FocusProbeWindow;
       const value = w.__textareaFocusCount ?? 0;
-      const textarea = document.querySelector(
-        "[data-visible][data-terminal-id] .xterm-helper-textarea",
-      );
+      const textarea = document.querySelector(sel);
       if (textarea && w.__textareaFocusListener) {
         textarea.removeEventListener("focus", w.__textareaFocusListener);
       }
       w.__textareaFocusListener = undefined;
       return value;
-    });
+    }, XTERM_TEXTAREA);
     assert.strictEqual(
       count,
       0,
@@ -207,11 +200,11 @@ When(
     // same position. With the cancel branch live, the pointerup sees activeTap
     // cleared and short-circuits; without it, the pointerup would meet the
     // tap-threshold check (zero movement) and focus the textarea.
-    await this.page.evaluate(() => {
+    await this.page.evaluate((sel) => {
       const ta = document.activeElement;
       if (ta instanceof HTMLElement) ta.blur();
       const textarea = document.querySelector(
-        "[data-visible][data-terminal-id] .xterm-helper-textarea",
+        sel,
       ) as HTMLTextAreaElement | null;
       if (!textarea) throw new Error("No xterm helper textarea found");
       const w = window as FocusProbeWindow;
@@ -220,11 +213,9 @@ When(
         w.__textareaFocusCount = (w.__textareaFocusCount ?? 0) + 1;
       };
       textarea.addEventListener("focus", w.__textareaFocusListener);
-    });
+    }, XTERM_TEXTAREA);
 
-    const screen = this.page
-      .locator("[data-visible][data-terminal-id] .xterm-screen")
-      .first();
+    const screen = this.page.locator(XTERM_SCREEN).first();
     const box = await screen.boundingBox();
     assert.ok(box, "xterm screen has no bounding box");
     const x = box.x + box.width / 2;
@@ -250,7 +241,7 @@ When(
         dispatch("pointercancel");
         dispatch("pointerup");
       },
-      { sel: "[data-visible][data-terminal-id] .xterm-screen", x, y },
+      { sel: XTERM_SCREEN, x, y },
     );
     await this.waitForFrame();
   },
@@ -259,18 +250,16 @@ When(
 Then(
   "xterm's helper textarea should not have been focused by the canceled gesture",
   async function (this: KoluWorld) {
-    const count = await this.page.evaluate(() => {
+    const count = await this.page.evaluate((sel) => {
       const w = window as FocusProbeWindow;
       const value = w.__textareaFocusCount ?? 0;
-      const textarea = document.querySelector(
-        "[data-visible][data-terminal-id] .xterm-helper-textarea",
-      );
+      const textarea = document.querySelector(sel);
       if (textarea && w.__textareaFocusListener) {
         textarea.removeEventListener("focus", w.__textareaFocusListener);
       }
       w.__textareaFocusListener = undefined;
       return value;
-    });
+    }, XTERM_TEXTAREA);
     assert.strictEqual(
       count,
       0,
