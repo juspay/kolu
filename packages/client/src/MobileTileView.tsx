@@ -44,6 +44,9 @@ import { useTerminalStore } from "./terminal/useTerminalStore";
 
 /** Minimum horizontal travel (px) before a swipe commits to a tile change. */
 const SWIPE_THRESHOLD = 60;
+/** Tailwind classes shared by all three drawer backdrop overlays. */
+const OVERLAY_CLASS =
+  "fixed inset-0 z-40 bg-black/40 opacity-0 transition-opacity duration-200 data-open:opacity-100";
 /** Vertical drift cap — if the user moved more vertically than horizontally,
  *  treat the gesture as a scroll, not a swipe. */
 const VERTICAL_TOLERANCE_RATIO = 0.7;
@@ -218,7 +221,7 @@ const MobileTileView: Component<{
         <Drawer.Portal>
           <Drawer.Overlay
             data-testid="mobile-chrome-backdrop"
-            class="fixed inset-0 z-40 bg-black/40 opacity-0 transition-opacity duration-200 data-open:opacity-100"
+            class={OVERLAY_CLASS}
           />
           <Drawer.Content class="fixed top-0 left-0 right-0 z-50 bg-surface-1 border-b border-edge shadow-xl max-h-[70vh] overflow-y-auto">
             <MobileChromeSheet
@@ -237,7 +240,7 @@ const MobileTileView: Component<{
         <Drawer.Portal>
           <Drawer.Overlay
             data-testid="mobile-dock-backdrop"
-            class="fixed inset-0 z-40 bg-black/40 opacity-0 transition-opacity duration-200 data-open:opacity-100"
+            class={OVERLAY_CLASS}
           />
           <Drawer.Content class="fixed top-0 left-0 bottom-0 z-50 w-[78vw] max-w-[20rem] bg-surface-1 border-r border-edge shadow-xl">
             <MobileDockDrawer
@@ -253,7 +256,7 @@ const MobileTileView: Component<{
         <Drawer.Portal>
           <Drawer.Overlay
             data-testid="mobile-code-backdrop"
-            class="fixed inset-0 z-40 bg-black/40 opacity-0 transition-opacity duration-200 data-open:opacity-100"
+            class={OVERLAY_CLASS}
           />
           <Drawer.Content class="fixed left-0 right-0 bottom-0 z-50 h-[92vh] bg-surface-1 border-t border-edge shadow-xl flex flex-col">
             <MobileCodeSheet
