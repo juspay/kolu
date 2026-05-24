@@ -45,7 +45,7 @@ Feature: Mobile code browser
     And there should be no page errors
 
   @mobile
-  Scenario: Back arrow returns from detail view to file tree
+  Scenario: Back arrow dismisses the detail view
     When I run "git init /tmp/kolu-mobile-back && cd /tmp/kolu-mobile-back"
     And I run "echo hi > foo.md"
     And I run "git add foo.md && git commit -m init"
@@ -54,7 +54,7 @@ Feature: Mobile code browser
     And I tap mobile file "foo.md"
     Then the mobile file view should be visible
     When I tap the mobile code back button
-    Then the mobile file tree should contain "foo.md"
+    Then the mobile file view should not be visible
     And there should be no page errors
 
   @mobile

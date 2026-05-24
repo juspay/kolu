@@ -62,10 +62,28 @@ const MobileCodeSheet: Component<{
       data-testid="mobile-code-sheet"
       class="flex flex-col h-full bg-surface-1 text-fg"
     >
-      {/* Header — back arrow (detail only), title, close (×). */}
+      {/* Header — back arrow (detail only), title, close (×). The back
+       *  button stays mounted with a `hidden` class toggle instead of
+       *  `<Show>`; remount cycles racing with the body's overlay
+       *  transition occasionally left the button missing from the DOM
+       *  for the next reactive tick, which was enough for an immediate
+       *  tap to whiff. CSS toggling keeps the element present and the
+       *  selector stable. */}
       <div class="flex items-center gap-2 px-3 py-2 border-b border-edge shrink-0 min-h-11">
+        <button
+          type="button"
+          data-testid="mobile-code-back"
+          class="h-8 w-8 flex items-center justify-center text-fg-2 rounded-md active:bg-surface-2"
+          classList={{ hidden: selectedPath() === null }}
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={() => rightPanel.clearSelectedFile("browse")}
+          aria-label="Back to file tree"
+        >
+          ‹
+        </button>
         <Show
           when={selectedPath()}
+          keyed
           fallback={
             <span class="flex items-center gap-2 flex-1 min-w-0 text-sm font-semibold">
               <FileBrowseIcon class="w-4 h-4 shrink-0" />
@@ -74,24 +92,12 @@ const MobileCodeSheet: Component<{
           }
         >
           {(path) => (
-            <>
-              <button
-                type="button"
-                data-testid="mobile-code-back"
-                class="h-8 w-8 flex items-center justify-center text-fg-2 rounded-md active:bg-surface-2"
-                onPointerDown={(e) => e.stopPropagation()}
-                onClick={() => rightPanel.clearSelectedFile("browse")}
-                aria-label="Back to file tree"
-              >
-                ‹
-              </button>
-              <span
-                class="flex-1 min-w-0 text-sm font-mono truncate"
-                title={path()}
-              >
-                {path()}
-              </span>
-            </>
+            <span
+              class="flex-1 min-w-0 text-sm font-mono truncate"
+              title={path}
+            >
+              {path}
+            </span>
           )}
         </Show>
         <button
@@ -106,8 +112,12 @@ const MobileCodeSheet: Component<{
         </button>
       </div>
 
-      {/* Body — tree or detail. */}
-      <div class="flex-1 min-h-0 overflow-hidden">
+      {/* Body — tree always mounted, detail overlays on top when a file
+       *  is selected. Pierre's `FileTree` keeps its subscription warm
+       *  across back-and-forth navigation; remounting it on every back
+       *  click sometimes left its virtualizer in a stuck state where
+       *  rows wouldn't repaint until the next reactive tick. */}
+      <div class="flex-1 min-h-0 overflow-hidden relative">
         <Show
           when={repoPath()}
           fallback={
@@ -121,9 +131,8 @@ const MobileCodeSheet: Component<{
           }
         >
           {(repo) => (
-            <Show
-              when={selectedPath()}
-              fallback={
+            <>
+              <div class="absolute inset-0">
                 <Switch
                   fallback={
                     <div class="px-2 py-1 text-fg-3/50 text-[11px]">
@@ -159,21 +168,24 @@ const MobileCodeSheet: Component<{
                     )}
                   </Match>
                 </Switch>
-              }
-            >
-              {(path) => {
-                const tid = props.terminalId;
-                if (tid === null) return null;
-                return (
-                  <BrowseFileDispatcher
-                    terminalId={tid}
-                    repoPath={repo()}
-                    filePath={path()}
-                    theme={diffTheme()}
-                  />
-                );
-              }}
-            </Show>
+              </div>
+              <Show when={selectedPath()} keyed>
+                {(path) => {
+                  const tid = props.terminalId;
+                  if (tid === null) return null;
+                  return (
+                    <div class="absolute inset-0 bg-surface-1">
+                      <BrowseFileDispatcher
+                        terminalId={tid}
+                        repoPath={repo()}
+                        filePath={path}
+                        theme={diffTheme()}
+                      />
+                    </div>
+                  );
+                }}
+              </Show>
+            </>
           )}
         </Show>
       </div>
