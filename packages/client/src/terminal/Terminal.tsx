@@ -43,6 +43,8 @@ import { client } from "../wire";
 import { isExpectedCleanupError } from "../rpc/streamCleanup";
 import { createScrollLock } from "../scrollLock";
 import { openInCodeTab } from "../right-panel/openInCodeTab";
+import { openInMobileFiles } from "../openInMobileFiles";
+import { isMobile } from "../useMobile";
 import { preferences } from "../wire";
 import { isTouch } from "../useMobile";
 import { createFileRefLinkProvider } from "./fileRefLinkProvider";
@@ -470,6 +472,16 @@ const Terminal: Component<{
                 const meta = terminalStore.getMetadata(props.terminalId);
                 const repoRoot = meta?.git?.repoRoot ?? null;
                 if (!repoRoot) return;
+                if (isMobile()) {
+                  // The right panel doesn't exist on mobile; route to
+                  // the Files drawer instead. The desktop helper would
+                  // write `rightPanel.collapsed = false` to preferences
+                  // — a server-persisted mutation with no UI effect on
+                  // mobile but a stale toggle waiting to surprise the
+                  // user the next time they open Kolu on desktop.
+                  openInMobileFiles({ path: ref.path });
+                  return;
+                }
                 openInCodeTab({
                   ref,
                   repoRoot,

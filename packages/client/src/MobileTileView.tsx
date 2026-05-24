@@ -25,10 +25,19 @@
 
 import Drawer from "@corvu/drawer";
 import type { TerminalId } from "kolu-common/surface";
-import { type Component, createSignal, For, type JSX, Show } from "solid-js";
+import {
+  type Component,
+  createEffect,
+  createSignal,
+  For,
+  type JSX,
+  on,
+  Show,
+} from "solid-js";
 import MobileChromeSheet from "./MobileChromeSheet";
 import MobileCodeSheet from "./MobileCodeSheet";
 import MobileDockDrawer from "./canvas/dock/MobileDockDrawer";
+import { pendingMobileOpen } from "./openInMobileFiles";
 import type { WsStatus } from "./rpc/rpc";
 import { TerminalMetaCompact } from "./terminal/TerminalMeta";
 import { useTerminalStore } from "./terminal/useTerminalStore";
@@ -65,6 +74,21 @@ const MobileTileView: Component<{
   const [chromeOpen, setChromeOpen] = createSignal(false);
   const [dockOpen, setDockOpen] = createSignal(false);
   const [filesOpen, setFilesOpen] = createSignal(false);
+
+  // External producers (today: terminal `path:line` link clicks in
+  // `Terminal.tsx`) request the Files drawer via `openInMobileFiles`,
+  // which bumps the counter we subscribe to here. `defer: true` skips
+  // the initial-mount tick so the drawer stays closed until a real
+  // request lands.
+  createEffect(
+    on(
+      pendingMobileOpen,
+      () => {
+        setFilesOpen(true);
+      },
+      { defer: true },
+    ),
+  );
   // Pull-handle drag state for the chrome (top) drawer. Not reactive —
   // only the touch handlers read it.
   let pullStartY: number | null = null;
