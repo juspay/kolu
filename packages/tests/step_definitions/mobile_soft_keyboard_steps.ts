@@ -4,10 +4,14 @@ import { ACTIVE_TERMINAL } from "../support/buffer.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
 /** Browser-side window augmentation used by the focus-shuffle detection probe
- *  and the touch-scroll-no-focus probe (textarea focus counter). */
+ *  and the touch-scroll-no-focus probe. Listener refs are stashed alongside
+ *  the counters so the Then-step can detach them after asserting, keeping
+ *  state from leaking across scenarios that share the same page. */
 type FocusProbeWindow = Window & {
   __screenFocusCount?: number;
+  __screenFocusListener?: EventListener;
   __textareaFocusCount?: number;
+  __textareaFocusListener?: EventListener;
 };
 
 const KEY_BAR = '[data-testid="mobile-key-bar"]';
@@ -46,9 +50,10 @@ When("I tap the terminal canvas", async function (this: KoluWorld) {
     if (!screen) throw new Error("No .xterm-screen on active terminal");
     const w = window as FocusProbeWindow;
     w.__screenFocusCount = 0;
-    screen.addEventListener("focus", () => {
+    w.__screenFocusListener = () => {
       w.__screenFocusCount = (w.__screenFocusCount ?? 0) + 1;
-    });
+    };
+    screen.addEventListener("focus", w.__screenFocusListener);
   });
 
   // Real CDP touch via Playwright's touchscreen triggers the browser's native
@@ -68,9 +73,18 @@ When("I tap the terminal canvas", async function (this: KoluWorld) {
 Then(
   "the xterm contenteditable screen should never have been focused",
   async function (this: KoluWorld) {
-    const count = await this.page.evaluate(
-      () => (window as FocusProbeWindow).__screenFocusCount ?? 0,
-    );
+    const count = await this.page.evaluate(() => {
+      const w = window as FocusProbeWindow;
+      const value = w.__screenFocusCount ?? 0;
+      const screen = document.querySelector(
+        "[data-visible][data-terminal-id] .xterm-screen",
+      );
+      if (screen && w.__screenFocusListener) {
+        screen.removeEventListener("focus", w.__screenFocusListener);
+      }
+      w.__screenFocusListener = undefined;
+      return value;
+    });
     assert.strictEqual(
       count,
       0,
@@ -114,9 +128,10 @@ When(
       if (!textarea) throw new Error("No xterm helper textarea found");
       const w = window as FocusProbeWindow;
       w.__textareaFocusCount = 0;
-      textarea.addEventListener("focus", () => {
+      w.__textareaFocusListener = () => {
         w.__textareaFocusCount = (w.__textareaFocusCount ?? 0) + 1;
-      });
+      };
+      textarea.addEventListener("focus", w.__textareaFocusListener);
     });
 
     const screen = this.page
@@ -163,9 +178,18 @@ When(
 Then(
   "xterm's helper textarea should not have been focused by the scroll",
   async function (this: KoluWorld) {
-    const count = await this.page.evaluate(
-      () => (window as FocusProbeWindow).__textareaFocusCount ?? 0,
-    );
+    const count = await this.page.evaluate(() => {
+      const w = window as FocusProbeWindow;
+      const value = w.__textareaFocusCount ?? 0;
+      const textarea = document.querySelector(
+        "[data-visible][data-terminal-id] .xterm-helper-textarea",
+      );
+      if (textarea && w.__textareaFocusListener) {
+        textarea.removeEventListener("focus", w.__textareaFocusListener);
+      }
+      w.__textareaFocusListener = undefined;
+      return value;
+    });
     assert.strictEqual(
       count,
       0,
