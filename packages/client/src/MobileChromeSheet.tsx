@@ -109,8 +109,18 @@ const MobileChromeSheet: Component<{
           class="h-9 w-9 flex items-center justify-center text-fg-2 bg-surface-2 rounded-lg border border-edge active:bg-surface-3"
           onPointerDown={(e) => e.stopPropagation()}
           onClick={() => {
-            props.onOpenFiles();
+            // Sequence the two drawer transitions across the chrome
+            // drawer's close animation (~200ms). When both `open`
+            // signals flip in the same tick, Corvu's chrome-drawer
+            // close fires a synthetic outside-pointer event that the
+            // freshly-opened files drawer interprets as a dismiss tap
+            // — the drawer mounts and immediately tears down again,
+            // which is what users on iOS see as "Files button does
+            // nothing but pop the keyboard". The 220ms timeout lets
+            // the chrome overlay fully unmount before the files
+            // drawer mounts its own overlay.
             props.onClose();
+            setTimeout(() => props.onOpenFiles(), 220);
           }}
           aria-label="Browse files"
         >
