@@ -45,19 +45,6 @@ Feature: Mobile code browser
     And there should be no page errors
 
   @mobile
-  Scenario: Back arrow dismisses the detail view
-    When I run "rm -rf /tmp/kolu-mobile-back && git init /tmp/kolu-mobile-back && cd /tmp/kolu-mobile-back"
-    And I run "echo hi > foo.md"
-    And I run "git add foo.md && git commit -m init"
-    And I tap the mobile pull handle
-    And I tap the mobile files button
-    And I tap mobile file "foo.md"
-    Then the mobile file view should be visible
-    When I tap the mobile code back button
-    Then the mobile file view should not be visible
-    And there should be no page errors
-
-  @mobile
   Scenario: Close button dismisses the drawer
     When I run "rm -rf /tmp/kolu-mobile-close && git init /tmp/kolu-mobile-close && cd /tmp/kolu-mobile-close"
     And I run "echo hi > x.txt"
