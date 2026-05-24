@@ -132,7 +132,23 @@ const MobileCodeSheet: Component<{
         >
           {(repo) => (
             <>
-              <div class="absolute inset-0">
+              <div
+                class="absolute inset-0"
+                // Pierre's `<file-tree-container>` keeps its scroll
+                // viewport inside a shadow root, and Corvu's
+                // drag-to-dismiss runs a `parentElement`/`_$host` walk
+                // to find scrollable ancestors — Pierre uses neither
+                // shadow-host convention, so the walk reports no
+                // scroll and Corvu claims every vertical touch as a
+                // drag-to-dismiss. Stop pointerdown here so Corvu's
+                // delegated listener on `Drawer.Content` never sees
+                // the touch; Pierre's internal pointerdown handlers
+                // (which live inside the shadow root, before the
+                // event escapes) keep firing for row clicks and the
+                // tree scrolls natively.
+                onPointerDown={(e) => e.stopPropagation()}
+                onTouchStart={(e) => e.stopPropagation()}
+              >
                 <Switch
                   fallback={
                     <div class="px-2 py-1 text-fg-3/50 text-[11px]">
