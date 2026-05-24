@@ -137,11 +137,11 @@ When(
     const x = box.x + box.width / 2;
     const startY = box.y + box.height - 30;
     const endY = box.y + 30;
-    const steps = 6;
-    const ys: number[] = [];
-    for (let i = 1; i <= steps; i++) {
-      ys.push(startY + ((endY - startY) * i) / steps);
-    }
+    // 6 intermediate y-positions from startY toward endY — simulates an upward swipe.
+    const ys = Array.from(
+      { length: 6 },
+      (_, i) => startY + ((endY - startY) * (i + 1)) / 6,
+    );
 
     await this.page.evaluate(
       ({ sel, x, startY, ys }) => {
@@ -162,7 +162,7 @@ When(
         };
         dispatch("pointerdown", startY);
         for (const y of ys) dispatch("pointermove", y);
-        dispatch("pointerup", ys[ys.length - 1] ?? startY);
+        dispatch("pointerup", ys.at(-1) ?? startY);
       },
       { sel: XTERM_SCREEN, x, startY, ys },
     );
