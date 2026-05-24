@@ -46,3 +46,12 @@ Feature: Mobile soft keyboard
     Then the xterm contenteditable screen should never have been focused
     And xterm's helper textarea should be the active element
     And there should be no page errors
+
+  @mobile
+  Scenario: App root tracks visualViewport.height so the keyboard doesn't overlap the terminal
+    # iOS Safari overlays the soft keyboard on top of the layout viewport;
+    # `100dvh` doesn't shrink. useVisualViewportHeight sets `--app-h` on
+    # <html> so `var(--app-h, 100dvh)` on the App root tracks the visible
+    # area. Wire-check: --app-h must be populated after mount.
+    Then the --app-h CSS variable should match visualViewport.height
+    And there should be no page errors

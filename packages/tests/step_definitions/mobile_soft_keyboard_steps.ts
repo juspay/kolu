@@ -91,6 +91,25 @@ Then(
 );
 
 Then(
+  "the --app-h CSS variable should match visualViewport.height",
+  async function (this: KoluWorld) {
+    // Wire-check: useVisualViewportHeight is mounted and the inline-style
+    // override on the App root is consuming `--app-h`. Tolerate sub-pixel
+    // rounding from the px-string round-trip.
+    await this.page.waitForFunction(
+      () => {
+        const raw = document.documentElement.style.getPropertyValue("--app-h");
+        if (!raw) return false;
+        const cssH = Number.parseFloat(raw);
+        const vvH = window.visualViewport?.height ?? Number.NaN;
+        return Number.isFinite(cssH) && Math.abs(cssH - vvH) < 1;
+      },
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+Then(
   "the active terminal should show {string} {int} time(s)",
   async function (this: KoluWorld, expected: string, count: number) {
     // Poll the buffer for at-least-N occurrences. Used to verify history

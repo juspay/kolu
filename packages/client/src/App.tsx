@@ -53,6 +53,7 @@ import { screenshotTerminal } from "./screenshotTerminal";
 import TipBanner from "./settings/TipBanner";
 import { useColorScheme } from "./settings/useColorScheme";
 import { useTips } from "./settings/useTips";
+import { useVisualViewportHeight } from "./useVisualViewportHeight";
 import { useStaleCheck } from "./terminal/staleness";
 import TerminalContent from "./terminal/TerminalContent";
 import TerminalMeta from "./terminal/TerminalMeta";
@@ -140,6 +141,10 @@ const App: Component = () => {
 
   const { initTipTriggers } = useTips();
   initTipTriggers({ terminalIds: store.terminalIds });
+
+  // Track the soft-keyboard-shrunk visible area on iOS — `--app-h` overrides
+  // the root `h-dvh` so the terminal grid refits into the visible region.
+  useVisualViewportHeight();
 
   /** Toggle sub-panel: create first split if none exist, otherwise toggle visibility. */
   function handleToggleSubPanel(parentId: TerminalId) {
@@ -371,8 +376,12 @@ const App: Component = () => {
 
   return (
     <div
-      class="relative flex flex-col h-dvh bg-surface-0 text-fg font-sans"
+      class="relative flex flex-col bg-surface-0 text-fg font-sans"
       style={{
+        // `var(--app-h)` is set by useVisualViewportHeight to the
+        // soft-keyboard-shrunk visible area; `100dvh` is the fallback for
+        // browsers without VisualViewport (or before mount fires).
+        height: "var(--app-h, 100dvh)",
         "padding-top": "env(safe-area-inset-top)",
         "padding-bottom": "env(safe-area-inset-bottom)",
         "padding-left": "env(safe-area-inset-left)",
