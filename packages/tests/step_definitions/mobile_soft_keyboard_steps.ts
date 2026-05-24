@@ -3,8 +3,12 @@ import { Then, When } from "@cucumber/cucumber";
 import { ACTIVE_TERMINAL } from "../support/buffer.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
-/** Browser-side window augmentation used by the focus-shuffle detection probe. */
-type FocusProbeWindow = Window & { __screenFocusCount?: number };
+/** Browser-side window augmentation used by the focus-shuffle detection probe
+ *  and the touch-scroll-no-focus probe (textarea focus counter). */
+type FocusProbeWindow = Window & {
+  __screenFocusCount?: number;
+  __textareaFocusCount?: number;
+};
 
 const KEY_BAR = '[data-testid="mobile-key-bar"]';
 const KEY = (testId: string) => `[data-testid="mobile-key-${testId}"]`;
@@ -86,6 +90,86 @@ Then(
         document.activeElement?.tagName === "TEXTAREA" &&
         document.activeElement.classList.contains("xterm-helper-textarea"),
       { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+When(
+  "I touch-scroll inside the terminal canvas",
+  async function (this: KoluWorld) {
+    // Blur the textarea (mount auto-focuses it) and install a focus counter
+    // before the gesture, so the assertion below can prove the scroll itself
+    // didn't summon focus — not just that focus was already there.
+    //
+    // Synthetic PointerEvents drive the test because the handler under test
+    // listens on pointerdown/pointerup. Playwright's touchscreen primitive is
+    // tap-only and CDP swipes don't translate to PointerEvents in the same
+    // shape the browser emits for real touch.
+    await this.page.evaluate(() => {
+      const ta = document.activeElement;
+      if (ta instanceof HTMLElement) ta.blur();
+      const textarea = document.querySelector(
+        "[data-visible][data-terminal-id] .xterm-helper-textarea",
+      ) as HTMLTextAreaElement | null;
+      if (!textarea) throw new Error("No xterm helper textarea found");
+      const w = window as FocusProbeWindow;
+      w.__textareaFocusCount = 0;
+      textarea.addEventListener("focus", () => {
+        w.__textareaFocusCount = (w.__textareaFocusCount ?? 0) + 1;
+      });
+    });
+
+    const screen = this.page
+      .locator("[data-visible][data-terminal-id] .xterm-screen")
+      .first();
+    const box = await screen.boundingBox();
+    assert.ok(box, "xterm screen has no bounding box");
+    const x = box.x + box.width / 2;
+    const startY = box.y + box.height - 30;
+    const endY = box.y + 30;
+    const steps = 6;
+    const ys: number[] = [];
+    for (let i = 1; i <= steps; i++) {
+      ys.push(startY + ((endY - startY) * i) / steps);
+    }
+
+    await this.page.evaluate(
+      ({ sel, x, startY, ys }) => {
+        const target = document.querySelector(sel) as HTMLElement | null;
+        if (!target) throw new Error(`No element matches ${sel}`);
+        const dispatch = (type: string, clientY: number) => {
+          target.dispatchEvent(
+            new PointerEvent(type, {
+              clientX: x,
+              clientY,
+              pointerId: 1,
+              pointerType: "touch",
+              isPrimary: true,
+              bubbles: true,
+              cancelable: true,
+            }),
+          );
+        };
+        dispatch("pointerdown", startY);
+        for (const y of ys) dispatch("pointermove", y);
+        dispatch("pointerup", ys[ys.length - 1] ?? startY);
+      },
+      { sel: "[data-visible][data-terminal-id] .xterm-screen", x, startY, ys },
+    );
+    await this.waitForFrame();
+  },
+);
+
+Then(
+  "xterm's helper textarea should not have been focused by the scroll",
+  async function (this: KoluWorld) {
+    const count = await this.page.evaluate(
+      () => (window as FocusProbeWindow).__textareaFocusCount ?? 0,
+    );
+    assert.strictEqual(
+      count,
+      0,
+      `Expected the textarea to receive no focus event during a touch-scroll, got ${count}`,
     );
   },
 );

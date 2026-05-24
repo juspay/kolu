@@ -532,14 +532,37 @@ const Terminal: Component<{
               // when the wrapper-click handler (line 500) fires
               // term.focus() right after the browser auto-focuses
               // .xterm-screen on pointerdown. preventDefault on pointerdown
-              // blocks the contenteditable auto-focus, and the same handler
-              // routes focus straight to xterm's input surface — a single
-              // focus event in the user-gesture window, no shuffle for iOS
-              // to reject. Mirrors the MobileKeyBar.tsx:60 pattern that
-              // already keeps the textarea focused across key taps.
+              // blocks the contenteditable auto-focus.
+              //
+              // Defer the focus call to pointerup, gated on a tap-sized
+              // movement threshold: taps summon the keyboard, touch-scrolls
+              // don't. pointerup still fires inside the user-gesture window
+              // iOS requires for programmatic focus, and the call sees the
+              // same "single focus event, no shuffle" iOS heuristic the
+              // pointerdown variant did. Threshold is generous enough to
+              // tolerate finger jitter on a real tap but tighter than the
+              // ~1-cell-height step the scroll handler at line 716 reads as
+              // "scroll started".
+              const TAP_THRESHOLD_PX = 10;
+              let tapStartX = 0;
+              let tapStartY = 0;
+              let tapPointerId: number | null = null;
               makeEventListener(screen, "pointerdown", (e: PointerEvent) => {
                 e.preventDefault();
+                tapStartX = e.clientX;
+                tapStartY = e.clientY;
+                tapPointerId = e.pointerId;
+              });
+              makeEventListener(screen, "pointerup", (e: PointerEvent) => {
+                if (e.pointerId !== tapPointerId) return;
+                tapPointerId = null;
+                const dx = e.clientX - tapStartX;
+                const dy = e.clientY - tapStartY;
+                if (Math.hypot(dx, dy) > TAP_THRESHOLD_PX) return;
                 term.focus();
+              });
+              makeEventListener(screen, "pointercancel", (e: PointerEvent) => {
+                if (e.pointerId === tapPointerId) tapPointerId = null;
               });
             }
           }

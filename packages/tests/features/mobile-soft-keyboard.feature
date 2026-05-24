@@ -48,6 +48,16 @@ Feature: Mobile soft keyboard
     And there should be no page errors
 
   @mobile
+  Scenario: Touch-scrolling the terminal does not summon the soft keyboard
+    # The pointerdown→focus pattern that unstuck the iOS keyboard would also
+    # fire at scroll-start — every swipe popped the keyboard mid-read. Defer
+    # the focus call to pointerup, gated on a tap-sized movement threshold:
+    # taps still summon the keyboard; scrolls don't.
+    When I touch-scroll inside the terminal canvas
+    Then xterm's helper textarea should not have been focused by the scroll
+    And there should be no page errors
+
+  @mobile
   Scenario: App root tracks visualViewport.height so the keyboard doesn't overlap the terminal
     # iOS Safari overlays the soft keyboard on top of the layout viewport;
     # `100dvh` doesn't shrink. useVisualViewportHeight sets `--app-h` on
