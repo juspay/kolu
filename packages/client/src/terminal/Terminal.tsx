@@ -544,25 +544,31 @@ const Terminal: Component<{
               // ~1-cell-height step the scroll handler at line 716 reads as
               // "scroll started".
               const TAP_THRESHOLD_PX = 10;
-              let tapStartX = 0;
-              let tapStartY = 0;
-              let tapPointerId: number | null = null;
+              let activeTap: {
+                pointerId: number;
+                startX: number;
+                startY: number;
+              } | null = null;
               makeEventListener(screen, "pointerdown", (e: PointerEvent) => {
                 e.preventDefault();
-                tapStartX = e.clientX;
-                tapStartY = e.clientY;
-                tapPointerId = e.pointerId;
+                activeTap = {
+                  pointerId: e.pointerId,
+                  startX: e.clientX,
+                  startY: e.clientY,
+                };
               });
               makeEventListener(screen, "pointerup", (e: PointerEvent) => {
-                if (e.pointerId !== tapPointerId) return;
-                tapPointerId = null;
-                const dx = e.clientX - tapStartX;
-                const dy = e.clientY - tapStartY;
+                if (activeTap === null || e.pointerId !== activeTap.pointerId)
+                  return;
+                const { startX, startY } = activeTap;
+                activeTap = null;
+                const dx = e.clientX - startX;
+                const dy = e.clientY - startY;
                 if (Math.hypot(dx, dy) > TAP_THRESHOLD_PX) return;
                 term.focus();
               });
               makeEventListener(screen, "pointercancel", (e: PointerEvent) => {
-                if (e.pointerId === tapPointerId) tapPointerId = null;
+                if (activeTap?.pointerId === e.pointerId) activeTap = null;
               });
             }
           }
