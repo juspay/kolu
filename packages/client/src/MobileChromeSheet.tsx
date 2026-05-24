@@ -4,12 +4,14 @@
  *  global controls live behind a pull-handle at the top of the
  *  terminal. Tap or pull the handle to reveal this sheet. Contents:
  *  identity (logo + connection dot) and the control cluster (command
- *  palette, settings, inspector toggle).
+ *  palette, settings, file browser trigger).
  *
  *  Terminal navigation moved out of this sheet to its own left-edge
  *  swipe drawer — see `MobileDockDrawer`. The split mirrors the
  *  desktop: the dock owns the live-terminal navigator, the
- *  chrome bar owns global controls.
+ *  chrome bar owns global controls. The Files button opens the
+ *  bottom-modal `MobileCodeSheet`; the right panel is hidden on mobile,
+ *  so a desktop-style inspector toggle has nothing to act on.
  *
  *  Sheet machinery (open state, drag-to-dismiss, overlay, portal) is
  *  owned by `MobileTileView` via `@corvu/drawer`. This component only
@@ -19,10 +21,9 @@
 import { type Component, createSignal } from "solid-js";
 import { ACTIONS } from "./input/actions";
 import { formatKeybind } from "./input/keyboard";
-import { useRightPanel } from "./right-panel/useRightPanel";
 import type { WsStatus } from "./rpc/rpc";
 import SettingsPopover from "./settings/SettingsPopover";
-import { SettingsIcon } from "./ui/Icons";
+import { FileBrowseIcon, SettingsIcon } from "./ui/Icons";
 import Kbd from "./ui/Kbd";
 
 const statusStyles: Record<WsStatus, string> = {
@@ -35,12 +36,13 @@ const MobileChromeSheet: Component<{
   status: WsStatus;
   appTitle: string;
   onOpenPalette: () => void;
+  /** Open the mobile file-browser drawer. Owned by `MobileTileView`. */
+  onOpenFiles: () => void;
   /** Close the drawer after the user takes an action (palette open,
-   *  inspector toggle). The drawer is otherwise dismissed by drag-down
-   *  or overlay tap, both handled by Corvu. */
+   *  files open). The drawer is otherwise dismissed by drag-down or
+   *  overlay tap, both handled by Corvu. */
   onClose: () => void;
 }> = (props) => {
-  const rightPanel = useRightPanel();
   let settingsTriggerRef!: HTMLButtonElement;
   const [settingsOpen, setSettingsOpen] = createSignal(false);
 
@@ -103,19 +105,16 @@ const MobileChromeSheet: Component<{
         </div>
         <button
           type="button"
-          data-testid="inspector-toggle"
+          data-testid="mobile-files-trigger"
           class="h-9 w-9 flex items-center justify-center text-fg-2 bg-surface-2 rounded-lg border border-edge active:bg-surface-3"
-          classList={{
-            "bg-surface-3 text-fg": !rightPanel.collapsed(),
-          }}
           onPointerDown={(e) => e.stopPropagation()}
           onClick={() => {
-            rightPanel.togglePanel();
+            props.onOpenFiles();
             props.onClose();
           }}
-          aria-label="Toggle inspector"
+          aria-label="Browse files"
         >
-          ⟳
+          <FileBrowseIcon class="w-4 h-4" />
         </button>
       </div>
     </div>

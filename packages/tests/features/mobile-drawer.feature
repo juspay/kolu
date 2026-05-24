@@ -1,7 +1,7 @@
 Feature: Mobile chrome drawer
   On mobile, the persistent chrome bar is replaced by a pull-down
   drawer (`MobileChromeSheet`) carrying global controls — command
-  palette, settings, inspector toggle. Tapping the top pull-handle
+  palette, settings, files browser. Tapping the top pull-handle
   opens it; tapping the backdrop dismisses it.
 
   Terminal navigation lives in a separate left-edge swipe drawer

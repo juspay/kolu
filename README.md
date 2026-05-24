@@ -67,7 +67,7 @@ The desktop workspace is mode-less — every terminal renders as a draggable, re
 - **Identity-collision suffix** — when two terminals share the same repo+branch (or cwd, for non-git), the server assigns each a stable 4-char id suffix (`#a3f2`) so the dock and tile chrome can disambiguate them at a glance
 - **Canvas navigation** — the command palette can center the active tile when panning has moved it out of view, or arrange the canvas by repo to cluster each repo's tiles into a square-ish island while preserving every tile's current size. New tiles join their repo's cluster in the same square-ish layout automatically — opening many worktree terminals fills out a 2×2, 3×2, … grid instead of a 1×N row
 - **Per-tile theming** — title bars and pill swatches derive their colors from each terminal's theme for guaranteed contrast
-- **Mobile** — the canvas, pan/zoom, and the desktop dock are disabled; the active tile fills the viewport and swipe-left/right cycles between terminals in compact switcher order. A pull-down chrome sheet at the top reveals the same logo + vertical switcher list + controls as a touch-sized drawer
+- **Mobile** — the canvas, pan/zoom, and the desktop dock are disabled; the active tile fills the viewport and swipe-left/right cycles between terminals in compact switcher order. A pull-down chrome sheet at the top reveals the same logo + vertical switcher list + controls as a touch-sized drawer. The chrome sheet's **Files** button opens a bottom modal drawer over the active terminal's repo — Pierre's file tree on top, tap any file to view it; HTML, SVG, and PDF files render in the sandboxed iframe preview the desktop Code tab uses, so a phone can review agent-generated artifacts without a desktop
 
 ### Git & GitHub
 

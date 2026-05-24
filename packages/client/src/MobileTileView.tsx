@@ -4,17 +4,21 @@
  *  disabled per #622. The active terminal fills the viewport; swipe-
  *  left/right cycles between terminals in workspace-switcher order.
  *
- *  Two chrome drawers mirror the desktop split (#903):
+ *  Three chrome drawers mirror the desktop split (#903) plus the
+ *  mobile-only file browser:
  *  - **Top pull-down** (`MobileChromeSheet`): global controls — palette,
- *    settings, inspector toggle. Trigger is the always-visible
+ *    settings, file browser trigger. Trigger is the always-visible
  *    pull-handle row at the top of the terminal.
  *  - **Left swipe** (`MobileDockDrawer`): live-terminal navigator. The
  *    mobile mirror of the desktop dock; trigger is a thin
  *    handle pinned to the left edge.
+ *  - **Bottom modal sheet** (`MobileCodeSheet`): repo file browser, the
+ *    mobile surface for the desktop Code tab (the right panel is
+ *    hidden on mobile). Opened from the chrome sheet's Files button.
  *
- *  Both Corvu `Drawer`s live as siblings (not nested) so each has its
- *  own clean context — nesting put the chrome trigger inside the dock
- *  drawer's context, breaking the chrome-tap-to-open path. Plain
+ *  All three Corvu `Drawer`s live as siblings (not nested) so each has
+ *  its own clean context — nesting put the chrome trigger inside the
+ *  dock drawer's context, breaking the chrome-tap-to-open path. Plain
  *  buttons drive `open` state setters directly; the chrome handle
  *  keeps its drag-down-to-open behavior via a manual touchmove
  *  handler. */
@@ -23,6 +27,7 @@ import Drawer from "@corvu/drawer";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, createSignal, For, type JSX, Show } from "solid-js";
 import MobileChromeSheet from "./MobileChromeSheet";
+import MobileCodeSheet from "./MobileCodeSheet";
 import MobileDockDrawer from "./canvas/dock/MobileDockDrawer";
 import type { WsStatus } from "./rpc/rpc";
 import { TerminalMetaCompact } from "./terminal/TerminalMeta";
@@ -59,6 +64,7 @@ const MobileTileView: Component<{
   } | null>(null);
   const [chromeOpen, setChromeOpen] = createSignal(false);
   const [dockOpen, setDockOpen] = createSignal(false);
+  const [filesOpen, setFilesOpen] = createSignal(false);
   // Pull-handle drag state for the chrome (top) drawer. Not reactive —
   // only the touch handlers read it.
   let pullStartY: number | null = null;
@@ -195,6 +201,7 @@ const MobileTileView: Component<{
               status={props.status}
               appTitle={props.appTitle}
               onOpenPalette={props.onOpenPalette}
+              onOpenFiles={() => setFilesOpen(true)}
               onClose={() => setChromeOpen(false)}
             />
           </Drawer.Content>
@@ -212,6 +219,23 @@ const MobileTileView: Component<{
             <MobileDockDrawer
               onSelect={store.setActiveSilently}
               onClose={() => setDockOpen(false)}
+            />
+          </Drawer.Content>
+        </Drawer.Portal>
+      </Drawer>
+
+      {/* Files (bottom modal) drawer — repo file browser. */}
+      <Drawer side="bottom" open={filesOpen()} onOpenChange={setFilesOpen}>
+        <Drawer.Portal>
+          <Drawer.Overlay
+            data-testid="mobile-code-backdrop"
+            class="fixed inset-0 z-40 bg-black/40 opacity-0 transition-opacity duration-200 data-open:opacity-100"
+          />
+          <Drawer.Content class="fixed left-0 right-0 bottom-0 z-50 h-[92vh] bg-surface-1 border-t border-edge shadow-xl flex flex-col">
+            <MobileCodeSheet
+              terminalId={store.activeId()}
+              meta={store.activeMeta()}
+              onClose={() => setFilesOpen(false)}
             />
           </Drawer.Content>
         </Drawer.Portal>
