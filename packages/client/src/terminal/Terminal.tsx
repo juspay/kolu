@@ -544,6 +544,8 @@ const Terminal: Component<{
               // ~1-cell-height step the scroll handler at line 716 reads as
               // "scroll started".
               const TAP_THRESHOLD_PX = 10;
+              const isTap = (dx: number, dy: number) =>
+                Math.hypot(dx, dy) <= TAP_THRESHOLD_PX;
               let activeTap: {
                 pointerId: number;
                 startX: number;
@@ -562,9 +564,7 @@ const Terminal: Component<{
                   return;
                 const { startX, startY } = activeTap;
                 activeTap = null;
-                const dx = e.clientX - startX;
-                const dy = e.clientY - startY;
-                if (Math.hypot(dx, dy) > TAP_THRESHOLD_PX) return;
+                if (!isTap(e.clientX - startX, e.clientY - startY)) return;
                 term.focus();
               });
               makeEventListener(screen, "pointercancel", (e: PointerEvent) => {
