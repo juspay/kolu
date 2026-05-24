@@ -198,6 +198,87 @@ Then(
   },
 );
 
+When(
+  "I cancel a pointer gesture on the terminal canvas mid-tap",
+  async function (this: KoluWorld) {
+    // Same install pattern as the touch-scroll step — blur the textarea and
+    // install a focus counter so a stray focus during the sequence trips the
+    // assertion. Then dispatch pointerdown → pointercancel → pointerup at the
+    // same position. With the cancel branch live, the pointerup sees activeTap
+    // cleared and short-circuits; without it, the pointerup would meet the
+    // tap-threshold check (zero movement) and focus the textarea.
+    await this.page.evaluate(() => {
+      const ta = document.activeElement;
+      if (ta instanceof HTMLElement) ta.blur();
+      const textarea = document.querySelector(
+        "[data-visible][data-terminal-id] .xterm-helper-textarea",
+      ) as HTMLTextAreaElement | null;
+      if (!textarea) throw new Error("No xterm helper textarea found");
+      const w = window as FocusProbeWindow;
+      w.__textareaFocusCount = 0;
+      w.__textareaFocusListener = () => {
+        w.__textareaFocusCount = (w.__textareaFocusCount ?? 0) + 1;
+      };
+      textarea.addEventListener("focus", w.__textareaFocusListener);
+    });
+
+    const screen = this.page
+      .locator("[data-visible][data-terminal-id] .xterm-screen")
+      .first();
+    const box = await screen.boundingBox();
+    assert.ok(box, "xterm screen has no bounding box");
+    const x = box.x + box.width / 2;
+    const y = box.y + box.height / 2;
+    await this.page.evaluate(
+      ({ sel, x, y }) => {
+        const target = document.querySelector(sel) as HTMLElement | null;
+        if (!target) throw new Error(`No element matches ${sel}`);
+        const dispatch = (type: string) => {
+          target.dispatchEvent(
+            new PointerEvent(type, {
+              clientX: x,
+              clientY: y,
+              pointerId: 1,
+              pointerType: "touch",
+              isPrimary: true,
+              bubbles: true,
+              cancelable: true,
+            }),
+          );
+        };
+        dispatch("pointerdown");
+        dispatch("pointercancel");
+        dispatch("pointerup");
+      },
+      { sel: "[data-visible][data-terminal-id] .xterm-screen", x, y },
+    );
+    await this.waitForFrame();
+  },
+);
+
+Then(
+  "xterm's helper textarea should not have been focused by the canceled gesture",
+  async function (this: KoluWorld) {
+    const count = await this.page.evaluate(() => {
+      const w = window as FocusProbeWindow;
+      const value = w.__textareaFocusCount ?? 0;
+      const textarea = document.querySelector(
+        "[data-visible][data-terminal-id] .xterm-helper-textarea",
+      );
+      if (textarea && w.__textareaFocusListener) {
+        textarea.removeEventListener("focus", w.__textareaFocusListener);
+      }
+      w.__textareaFocusListener = undefined;
+      return value;
+    });
+    assert.strictEqual(
+      count,
+      0,
+      `Expected the textarea to receive no focus event after a canceled gesture, got ${count}`,
+    );
+  },
+);
+
 Then(
   "the --app-h CSS variable should match visualViewport.height",
   async function (this: KoluWorld) {

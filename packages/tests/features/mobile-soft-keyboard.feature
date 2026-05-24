@@ -58,6 +58,16 @@ Feature: Mobile soft keyboard
     And there should be no page errors
 
   @mobile
+  Scenario: A canceled gesture clears state so a trailing pointerup does not focus
+    # The pointercancel branch in the tap handler clears activeTap so a
+    # later pointerup (system-cancelled gesture, browser-glitch sequence)
+    # can't slip through and focus the textarea on its way past — popping
+    # the soft keyboard with nothing behind it.
+    When I cancel a pointer gesture on the terminal canvas mid-tap
+    Then xterm's helper textarea should not have been focused by the canceled gesture
+    And there should be no page errors
+
+  @mobile
   Scenario: App root tracks visualViewport.height so the keyboard doesn't overlap the terminal
     # iOS Safari overlays the soft keyboard on top of the layout viewport;
     # `100dvh` doesn't shrink. useVisualViewportHeight sets `--app-h` on
