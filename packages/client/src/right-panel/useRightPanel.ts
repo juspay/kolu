@@ -164,18 +164,24 @@ export function useRightPanel() {
      *  terminal remembers its own pick in each of local/branch/browse. */
     selectedFile: (mode: CodeTabView): string | null =>
       activeState().selectedFileByMode?.[mode] ?? null,
-    setSelectedFile: (mode: CodeTabView, path: string | null) => {
+    /** Set the selection for a mode to a non-null path. Use
+     *  `clearSelectedFile` to remove a selection — null is not a valid
+     *  payload here so Pierre's spurious `onSelect(null)` events
+     *  (resubscribe/teardown) can't reach the store by accident. */
+    setSelectedFile: (mode: CodeTabView, path: string) => {
       mutateActive((s) => {
         const cur = s.selectedFileByMode ?? {};
-        if (path === null) {
-          if (!(mode in cur)) return;
-          const { [mode]: _, ...rest } = cur;
-          s.selectedFileByMode =
-            Object.keys(rest).length > 0 ? rest : undefined;
-        } else {
-          if (cur[mode] === path) return;
-          s.selectedFileByMode = { ...cur, [mode]: path };
-        }
+        if (cur[mode] === path) return;
+        s.selectedFileByMode = { ...cur, [mode]: path };
+      });
+    },
+    /** Clear the selection for a mode. No-op when no selection exists. */
+    clearSelectedFile: (mode: CodeTabView) => {
+      mutateActive((s) => {
+        const cur = s.selectedFileByMode ?? {};
+        if (!(mode in cur)) return;
+        const { [mode]: _, ...rest } = cur;
+        s.selectedFileByMode = Object.keys(rest).length > 0 ? rest : undefined;
       });
     },
 

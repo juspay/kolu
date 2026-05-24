@@ -134,7 +134,8 @@ const CodeTab: Component<{
   // `view()` is a typed enum and `repoPath()` is absolute-or-null.
   const selectedPath = (): string | null => rightPanel.selectedFile(view());
   const setSelectedPath = (path: string | null) => {
-    rightPanel.setSelectedFile(view(), path);
+    if (path === null) rightPanel.clearSelectedFile(view());
+    else rightPanel.setSelectedFile(view(), path);
   };
   const slotKey = createMemo(() => `${repoPath() ?? ""}::${view()}`);
 

@@ -40,8 +40,6 @@ const MobileCodeSheet: Component<{
   const rightPanel = useRightPanel();
   const repoPath = () => props.meta?.git?.repoRoot ?? null;
   const selectedPath = () => rightPanel.selectedFile("browse");
-  const setSelectedPath = (p: string | null) =>
-    rightPanel.setSelectedFile("browse", p);
 
   const allPaths = app.streams.fsListAll.use(
     () => {
@@ -76,7 +74,7 @@ const MobileCodeSheet: Component<{
                 data-testid="mobile-code-back"
                 class="h-8 w-8 flex items-center justify-center text-fg-2 rounded-md active:bg-surface-2"
                 onPointerDown={(e) => e.stopPropagation()}
-                onClick={() => setSelectedPath(null)}
+                onClick={() => rightPanel.clearSelectedFile("browse")}
                 aria-label="Back to file tree"
               >
                 ‹
@@ -140,7 +138,8 @@ const MobileCodeSheet: Component<{
                         paths={paths().paths}
                         selectedPath={null}
                         onSelect={(p) => {
-                          if (p !== null) setSelectedPath(p);
+                          if (p !== null)
+                            rightPanel.setSelectedFile("browse", p);
                         }}
                         initialExpansion="closed"
                         search={true}
