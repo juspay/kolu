@@ -137,21 +137,30 @@ When(
     const x = box.x + box.width / 2;
     const startY = box.y + box.height - 30;
     const endY = box.y + 30;
-    // 6 intermediate y-positions from startY toward endY — simulates an upward swipe.
-    const ys = Array.from(
-      { length: 6 },
-      (_, i) => startY + ((endY - startY) * (i + 1)) / 6,
-    );
+    // Pre-compute the (type, clientY) pairs Node-side and pass as data.
+    // No nested function declarations inside page.evaluate: swc wraps named
+    // functions with a `__name` debug helper that doesn't exist in the
+    // browser, so a dispatch arrow inside evaluate crashes the gesture (see
+    // mobile_terminal_scroll_steps.ts for the same constraint).
+    const intermediate = Array.from({ length: 6 }, (_, i) => ({
+      type: "pointermove",
+      y: startY + ((endY - startY) * (i + 1)) / 6,
+    }));
+    const events: { type: string; y: number }[] = [
+      { type: "pointerdown", y: startY },
+      ...intermediate,
+      { type: "pointerup", y: intermediate.at(-1)?.y ?? startY },
+    ];
 
     await this.page.evaluate(
-      ({ sel, x, startY, ys }) => {
+      ({ sel, x, events }) => {
         const target = document.querySelector(sel) as HTMLElement | null;
         if (!target) throw new Error(`No element matches ${sel}`);
-        const dispatch = (type: string, clientY: number) => {
+        for (const { type, y } of events) {
           target.dispatchEvent(
             new PointerEvent(type, {
               clientX: x,
-              clientY,
+              clientY: y,
               pointerId: 1,
               pointerType: "touch",
               isPrimary: true,
@@ -159,12 +168,9 @@ When(
               cancelable: true,
             }),
           );
-        };
-        dispatch("pointerdown", startY);
-        for (const y of ys) dispatch("pointermove", y);
-        dispatch("pointerup", ys.at(-1) ?? startY);
+        }
       },
-      { sel: XTERM_SCREEN, x, startY, ys },
+      { sel: XTERM_SCREEN, x, events },
     );
     await this.waitForFrame();
   },
@@ -220,11 +226,14 @@ When(
     assert.ok(box, "xterm screen has no bounding box");
     const x = box.x + box.width / 2;
     const y = box.y + box.height / 2;
+    // No nested function declarations inside page.evaluate — see
+    // mobile_terminal_scroll_steps.ts for the swc __name pitfall.
+    const types = ["pointerdown", "pointercancel", "pointerup"];
     await this.page.evaluate(
-      ({ sel, x, y }) => {
+      ({ sel, x, y, types }) => {
         const target = document.querySelector(sel) as HTMLElement | null;
         if (!target) throw new Error(`No element matches ${sel}`);
-        const dispatch = (type: string) => {
+        for (const type of types) {
           target.dispatchEvent(
             new PointerEvent(type, {
               clientX: x,
@@ -236,12 +245,9 @@ When(
               cancelable: true,
             }),
           );
-        };
-        dispatch("pointerdown");
-        dispatch("pointercancel");
-        dispatch("pointerup");
+        }
       },
-      { sel: XTERM_SCREEN, x, y },
+      { sel: XTERM_SCREEN, x, y, types },
     );
     await this.waitForFrame();
   },
