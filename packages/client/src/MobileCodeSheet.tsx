@@ -25,6 +25,8 @@ import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import {
   type Component,
   createEffect,
+  createMemo,
+  createSignal,
   Match,
   on,
   Show,
@@ -66,17 +68,29 @@ const MobileCodeSheet: Component<{
     },
   );
 
+  // Consume-once record for the latest pendingMobileOpen tick. Mirrors
+  // `CodeTab.tsx`'s `handled` signal — the request reference
+  // discriminates two structurally-identical taps (`openInMobileFiles`
+  // mints a fresh object per call), and the resolved path lets
+  // `selectedRange` decide whether the current selection is the one
+  // this request produced (so a subsequent tree-tap that changes
+  // `selectedFile` invalidates the highlight without a second
+  // resolution call).
+  const [handled, setHandled] = createSignal<{
+    request: NavRequest;
+    resolvedPath: string | null;
+  } | null>(null);
+
   // Consume `openInMobileFiles` requests once `fsListAll` has settled.
   // Mirrors `CodeTab.tsx`'s `pendingOpen` consumer — terminal output
   // emits absolute paths (`/abs/path`), cwd-relative paths
   // (`error in foo.ts:42` while in a subdir), and basename-only
   // references (`Foo.hs:42` from compiler output that drops the
-  // `src/lib/` prefix); `resolveLineRefPath` normalizes them against
+  // `src/lib/` prefix); `resolveNavPath` normalizes them against
   // the live repo file set. Writing `req.ref.path` raw into the
   // selection slot (the bug this effect fixes) pushes
   // un-resolvable strings at `fsReadFile` and the server returns
   // `path escapes root` or `EISDIR`.
-  let lastHandled: NavRequest | null = null;
   createEffect(
     on(
       () => {
@@ -87,20 +101,40 @@ const MobileCodeSheet: Component<{
       },
       ({ req, paths, isPending }) => {
         if (!req) return;
-        if (lastHandled === req) return;
+        if (handled()?.request === req) return;
         const repo = repoPath();
         if (repo === null || repo !== req.repoRoot) return;
         if (isPending || !paths) return;
         const rel = resolveNavPath(req, paths.paths);
-        lastHandled = req;
         if (rel === null) {
           toast.error(`File reference not found: ${req.ref.path}`);
+          setHandled({ request: req, resolvedPath: null });
           return;
         }
         rightPanel.setSelectedFile("browse", rel);
+        setHandled({ request: req, resolvedPath: rel });
       },
       { defer: true },
     ),
+  );
+
+  // Line-range highlight for terminal `path:line` taps — mirrors
+  // CodeTab's `selectedRange`. The memo emits a range only when the
+  // current `selectedPath` is the file the latest pendingMobileOpen
+  // resolved to; any tree-tap that changes the slot naturally
+  // invalidates the highlight (resolvedPath !== selectedPath). Refs
+  // without a `:N` suffix (`README.md`) open the file with no
+  // highlight — the user asked for the file, not a specific line.
+  const selectedRange = createMemo<{ start: number; end: number } | null>(
+    () => {
+      const req = pendingMobileOpen();
+      if (!req) return null;
+      const h = handled();
+      if (!h || h.request !== req || h.resolvedPath === null) return null;
+      if (h.resolvedPath !== selectedPath()) return null;
+      if (req.ref.startLine === null || req.ref.endLine === null) return null;
+      return { start: req.ref.startLine, end: req.ref.endLine };
+    },
   );
 
   return (
@@ -306,6 +340,7 @@ const MobileCodeSheet: Component<{
                           repoPath={repo()}
                           filePath={path}
                           theme={diffTheme()}
+                          initialSelectedLines={selectedRange()}
                         />
                       </div>
                     );
