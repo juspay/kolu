@@ -11,6 +11,7 @@ import { Dynamic, Portal } from "solid-js/web";
 import { toast } from "solid-sonner";
 import { match } from "ts-pattern";
 import { writeTextToClipboard } from "./clipboard";
+import { surface } from "./Surface";
 
 /** Two verbs over the same selection noun: copy a string to the clipboard,
  *  or invoke an action callback. The discriminator keeps the dispatch
@@ -101,14 +102,16 @@ export const CodeContextMenu: Component<{
     close();
   };
 
+  const chrome = surface({ radius: "md", shadow: "bare", portalled: true });
+
   return (
     <Show when={open()}>
       <Portal>
         <div
           id="code-context-menu"
           role="menu"
-          class="fixed z-50 min-w-40 rounded-md border border-edge bg-surface-1 p-1 text-[11px] text-fg shadow-lg"
-          style={{ left: `${pos().x}px`, top: `${pos().y}px` }}
+          class={`fixed z-50 min-w-40 ${chrome.class} p-1 text-[11px] text-fg`}
+          style={{ left: `${pos().x}px`, top: `${pos().y}px`, ...chrome.style }}
         >
           <For each={items()}>
             {(item) => (

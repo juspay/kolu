@@ -31,6 +31,7 @@ const RADIUS_CLASS = {
 } as const;
 
 const SHADOW_CLASS = {
+  bare: "shadow-lg",
   light: "shadow-lg shadow-black/40",
   soft: "shadow-2xl shadow-black/40",
   default: "shadow-2xl shadow-black/50",
