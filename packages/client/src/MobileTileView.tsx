@@ -56,28 +56,6 @@ const VERTICAL_TOLERANCE_RATIO = 0.7;
  *  click handler. */
 const PULL_OPEN_THRESHOLD = 24;
 
-/** Watches the chrome drawer's `transitionState` and fires `onFire`
- *  when it returns to `null` (animation finished) while `pending` is
- *  set. Rendered inside the chrome `<Drawer.Content>` so
- *  `Drawer.useContext("chrome")` resolves to the right drawer; the
- *  contextId on `<Drawer>` is what targets it. Returns nothing. */
-const ChromeCloseWatcher: Component<{
-  pending: () => boolean;
-  onFire: () => void;
-}> = (props) => {
-  const ctx = Drawer.useContext("chrome");
-  createEffect(
-    on(
-      () => ctx.transitionState(),
-      (state) => {
-        if (state === null && props.pending()) props.onFire();
-      },
-      { defer: true },
-    ),
-  );
-  return null;
-};
-
 const MobileTileView: Component<{
   /** Workspace-switcher-ordered ids — same source as the desktop dock, so
    *  swipe order matches what the user would see if they switched to
@@ -99,15 +77,6 @@ const MobileTileView: Component<{
   const [chromeOpen, setChromeOpen] = createSignal(false);
   const [dockOpen, setDockOpen] = createSignal(false);
   const [filesOpen, setFilesOpen] = createSignal(false);
-  // Set true when the chrome sheet's Files button is tapped. Watched by
-  // `ChromeCloseWatcher` (rendered inside the chrome drawer's content)
-  // — when the chrome drawer's transitionState returns to `null` after
-  // closing and this flag is set, fire `setFilesOpen(true)` and clear
-  // the flag. Replaces the previous `setTimeout(220)` in
-  // `MobileChromeSheet` that hardcoded the OVERLAY_CLASS animation
-  // duration; binding to the actual Corvu transition lifecycle keeps
-  // the two drawers' open/close from racing into each other.
-  const [filesAfterChromeClose, setFilesAfterChromeClose] = createSignal(false);
 
   // External producers (today: terminal `path:line` link clicks in
   // `Terminal.tsx`) request the Files drawer via `openInMobileFiles`,
@@ -250,38 +219,18 @@ const MobileTileView: Component<{
       </div>
 
       {/* Chrome (top pull-down) drawer — global controls. */}
-      <Drawer
-        side="top"
-        contextId="chrome"
-        open={chromeOpen()}
-        onOpenChange={setChromeOpen}
-      >
+      <Drawer side="top" open={chromeOpen()} onOpenChange={setChromeOpen}>
         <Drawer.Portal>
           <Drawer.Overlay
             data-testid="mobile-chrome-backdrop"
             class={OVERLAY_CLASS}
           />
           <Drawer.Content class="fixed top-0 left-0 right-0 z-50 bg-surface-1 border-b border-edge shadow-xl max-h-[70vh] overflow-y-auto">
-            <ChromeCloseWatcher
-              pending={filesAfterChromeClose}
-              onFire={() => {
-                setFilesAfterChromeClose(false);
-                setFilesOpen(true);
-              }}
-            />
             <MobileChromeSheet
               status={props.status}
               appTitle={props.appTitle}
               onOpenPalette={props.onOpenPalette}
-              onOpenFiles={() => {
-                // Two drawers can't transition simultaneously without
-                // Corvu's chrome-close pointer event leaking into the
-                // freshly-opened files drawer's dismiss path. Queue
-                // the open and let `ChromeCloseWatcher` fire it when
-                // the chrome drawer's transitionState returns to null.
-                setFilesAfterChromeClose(true);
-                setChromeOpen(false);
-              }}
+              onOpenFiles={() => setFilesOpen(true)}
               onClose={() => setChromeOpen(false)}
             />
           </Drawer.Content>
