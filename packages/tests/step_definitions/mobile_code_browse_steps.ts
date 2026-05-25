@@ -6,6 +6,7 @@
 
 import { When } from "@cucumber/cucumber";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
+import { tapBackdropAtSafePoint } from "./mobile_drawer_steps.ts";
 
 const CHROME_SHEET = '[data-testid="mobile-chrome-sheet"]';
 const INSPECTOR_TOGGLE = `${CHROME_SHEET} [data-testid="inspector-toggle"]`;
@@ -19,14 +20,5 @@ When("I tap the mobile inspector toggle", async function (this: KoluWorld) {
 });
 
 When("I tap the right panel drawer backdrop", async function (this: KoluWorld) {
-  // The bottom drawer's overlay spans the full viewport. Tap near
-  // the top edge where only the backdrop is visible — the default
-  // center-of-element tap would land inside Drawer.Content (which
-  // sits on top of the backdrop across the drawer's bounding box).
-  const backdrop = this.page.locator(DRAWER_BACKDROP);
-  await backdrop.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-  const box = await backdrop.boundingBox();
-  if (!box) throw new Error("right panel drawer backdrop has no bounding box");
-  await backdrop.tap({ position: { x: box.width / 2, y: 20 } });
-  await this.waitForFrame();
+  await tapBackdropAtSafePoint(this, DRAWER_BACKDROP, "bottom");
 });

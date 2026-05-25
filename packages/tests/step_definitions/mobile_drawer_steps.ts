@@ -16,6 +16,33 @@ const DOCK_SHEET = '[data-testid="mobile-dock-sheet"]';
 const DOCK_BACKDROP = '[data-testid="mobile-dock-backdrop"]';
 const DOCK_ROW = '[data-testid="mobile-dock-row"]';
 
+// ── Shared backdrop-tap helper ────────────────────────────────────────
+//
+// Corvu's Drawer.Overlay spans the full viewport but Drawer.Content sits on
+// top of it across the side the drawer opens from. A naive `.tap()` centers
+// on the backdrop and lands inside the drawer content, which consumes the
+// tap. `tapBackdropAtSafePoint` taps the *opposite* edge of the backdrop
+// from the drawer's anchor side, where only the overlay paints.
+export async function tapBackdropAtSafePoint(
+  world: KoluWorld,
+  selector: string,
+  side: "top" | "bottom" | "left" | "right",
+): Promise<void> {
+  const backdrop = world.page.locator(selector);
+  await backdrop.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  const box = await backdrop.boundingBox();
+  if (!box) throw new Error(`backdrop ${selector} has no bounding box`);
+  const SAFE_OFFSET = 20;
+  const positions = {
+    top: { x: box.width / 2, y: box.height - SAFE_OFFSET },
+    bottom: { x: box.width / 2, y: SAFE_OFFSET },
+    left: { x: box.width - SAFE_OFFSET, y: box.height / 2 },
+    right: { x: SAFE_OFFSET, y: box.height / 2 },
+  };
+  await backdrop.tap({ position: positions[side] });
+  await world.waitForFrame();
+}
+
 // ── Chrome drawer steps ───────────────────────────────────────────────
 
 When("I tap the mobile pull handle", async function (this: KoluWorld) {
@@ -167,18 +194,7 @@ When("I tap the mobile dock handle", async function (this: KoluWorld) {
 });
 
 When("I tap the mobile dock backdrop", async function (this: KoluWorld) {
-  // The dock drawer is `side="left"` and covers the left ~78vw. The
-  // backdrop spans the full viewport but Drawer.Content (z-50) sits on
-  // top of it across the drawer's bounding box. Tap on the *right*
-  // edge of the viewport where only the backdrop is visible — the
-  // default `.tap()` center-of-element lands inside the drawer content
-  // and is consumed by it, not the backdrop.
-  const backdrop = this.page.locator(DOCK_BACKDROP);
-  const box = await backdrop.boundingBox();
-  assert.ok(box, "Dock backdrop has no bounding box");
-  await backdrop.tap({
-    position: { x: box.width - 20, y: box.height / 2 },
-  });
+  await tapBackdropAtSafePoint(this, DOCK_BACKDROP, "left");
 });
 
 When("I tap the inactive mobile dock row", async function (this: KoluWorld) {
