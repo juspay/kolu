@@ -9,6 +9,7 @@ import { type Component, Show } from "solid-js";
 import ChecksIndicator from "./terminal/ChecksIndicator";
 import { PrStateIcon, WorktreeIcon } from "./ui/Icons";
 import ModalDialog from "./ui/ModalDialog";
+import { surfaceClass, surfaceStyle } from "./ui/Surface";
 
 /** Reasons why the "Remove worktree" action is suppressed.
  *
@@ -68,9 +69,9 @@ const CloseConfirm: Component<{
       size="sm"
     >
       <Dialog.Content
-        class="bg-surface-1 border border-edge rounded-2xl shadow-2xl shadow-black/50 p-5 text-sm space-y-4"
+        class={`${surfaceClass()} p-5 text-sm space-y-4`}
         data-testid="close-confirm"
-        style={{ "background-color": "var(--color-surface-1)" }}
+        style={surfaceStyle}
       >
         <Dialog.Label class="font-semibold text-fg">
           <Show

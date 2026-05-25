@@ -60,6 +60,7 @@ import TerminalMeta from "./terminal/TerminalMeta";
 import { useSubPanel } from "./terminal/useSubPanel";
 import { useTerminals } from "./terminal/useTerminals";
 import ModalDialog, { refocusTerminal } from "./ui/ModalDialog";
+import { surfaceClass } from "./ui/Surface";
 import { isMobile } from "./useMobile";
 import { useThemeManager } from "./useThemeManager";
 
@@ -434,7 +435,7 @@ const App: Component = () => {
         onOpenChange={withRefocus(setAboutOpen)}
         size="sm"
       >
-        <Dialog.Content class="bg-surface-1 border border-edge rounded-2xl shadow-2xl shadow-black/50 p-6 text-sm">
+        <Dialog.Content class={`${surfaceClass()} p-6 text-sm`}>
           <div class="flex items-center gap-2 mb-3">
             <img src="/favicon.svg" alt="kolu" class="w-6 h-6" />
             <span class="font-semibold text-fg">{appTitle()}</span>

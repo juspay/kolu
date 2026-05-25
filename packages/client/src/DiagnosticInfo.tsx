@@ -15,6 +15,7 @@ import { writeTextToClipboard } from "./ui/clipboard";
 import ModalDialog, { refocusTerminal } from "./ui/ModalDialog";
 import Row from "./ui/Row";
 import Section from "./ui/Section";
+import { surfaceClass } from "./ui/Surface";
 import { isMobile } from "./useMobile";
 
 /** WebGL2 support detection creates a throwaway canvas + WebGL context
@@ -126,7 +127,7 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
   }
 
   return (
-    <div class="bg-surface-1 border border-edge rounded-2xl shadow-2xl shadow-black/50 overflow-hidden flex flex-col max-h-[80vh]">
+    <div class={`${surfaceClass()} overflow-hidden flex flex-col max-h-[80vh]`}>
       <div class="flex items-center justify-between px-4 py-2.5 border-b border-edge shrink-0">
         <Dialog.Label class="font-semibold text-fg text-sm">
           Diagnostic info

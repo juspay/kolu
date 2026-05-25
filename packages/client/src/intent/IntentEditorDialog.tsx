@@ -19,6 +19,7 @@ import { toast } from "solid-sonner";
 import { writeTextToClipboard } from "../ui/clipboard";
 import { CloseIcon, CopyIcon } from "../ui/Icons";
 import ModalDialog from "../ui/ModalDialog";
+import { surfaceClass } from "../ui/Surface";
 import { IntentMarkdownBlock } from "./IntentMarkdown";
 
 /** Curated emoji quick-row. Pairs glyph with a short label that
@@ -122,7 +123,7 @@ const IntentEditorDialog: Component<{
     >
       <Dialog.Content
         data-kolu-modal="true"
-        class="bg-surface-1 border border-edge rounded-xl shadow-2xl shadow-black/50 p-4 text-sm w-[min(560px,calc(100vw-2rem))]"
+        class={`${surfaceClass({ radius: "xl" })} p-4 text-sm w-[min(560px,calc(100vw-2rem))]`}
       >
         <div class="mb-3">
           <Dialog.Label class="block text-sm font-semibold text-fg">

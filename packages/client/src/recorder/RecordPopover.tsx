@@ -4,6 +4,7 @@
 
 import { type Component, createEffect, For, Show } from "solid-js";
 import { Portal } from "solid-js/web";
+import { surfaceClass, surfaceStyle } from "../ui/Surface";
 import Toggle from "../ui/Toggle";
 import { useAnchoredPopover } from "../ui/useAnchoredPopover";
 import LevelMeter from "./LevelMeter";
@@ -71,11 +72,8 @@ const RecordPopover: Component<{
         <div
           ref={panelRef}
           data-testid="record-popover"
-          class="fixed z-50 bg-surface-1 border border-edge rounded-2xl shadow-2xl shadow-black/50 p-3 min-w-[280px] space-y-3"
-          style={{
-            ...panelStyle(),
-            "background-color": "var(--color-surface-1)",
-          }}
+          class={`fixed z-50 ${surfaceClass()} p-3 min-w-[280px] space-y-3`}
+          style={{ ...panelStyle(), ...surfaceStyle }}
         >
           <div class="text-sm font-medium text-fg">Record workspace</div>
 
