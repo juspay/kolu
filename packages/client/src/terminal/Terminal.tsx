@@ -545,11 +545,27 @@ const Terminal: Component<{
               const col = Math.floor((touch.clientX - rect.left) / cellW);
               const visRow = Math.floor((touch.clientY - rect.top) / cellH);
               const bufRow = term.buffer.active.viewportY + visRow;
-              const line =
-                term.buffer.active.getLine(bufRow)?.translateToString(true) ??
-                "";
+              // Join wrapped continuation rows so a path that wraps on
+              // a narrow mobile viewport is parsed as one LineRef
+              // instead of two truncated halves. Walk back from
+              // `bufRow` to the first row of its logical line, then
+              // forward to the last wrapped continuation; concatenate.
+              // `col` is offset by the chars consumed before bufRow so
+              // the hit-test still picks the LineRef under the finger.
+              const buf = term.buffer.active;
+              let lineStart = bufRow;
+              while (lineStart > 0 && buf.getLine(lineStart)?.isWrapped) {
+                lineStart--;
+              }
+              let line = "";
+              for (let r = lineStart; r < buf.length; r++) {
+                if (r > lineStart && !buf.getLine(r)?.isWrapped) break;
+                line += buf.getLine(r)?.translateToString(false) ?? "";
+              }
+              const joinedCol = (bufRow - lineStart) * term.cols + col;
               const hit = parseLineRefs(line).find(
-                (m) => col >= m.index && col < m.index + m.text.length,
+                (m) =>
+                  joinedCol >= m.index && joinedCol < m.index + m.text.length,
               );
               if (!hit) return;
               // preventDefault before dispatch so iOS doesn't synthesize
