@@ -31,44 +31,43 @@ const HELP_ORDER: readonly { id: ActionId; label?: string }[] = [
   { id: "shortcutsHelp" },
 ];
 
+const chrome = surface({ portalled: true });
+
 const ShortcutsHelp: Component<{
   open: boolean;
   onOpenChange: (open: boolean) => void;
-}> = (props) => {
-  const chrome = surface({ portalled: true });
-  return (
-    <ModalDialog open={props.open} onOpenChange={props.onOpenChange} size="sm">
-      <Dialog.Content
-        data-testid="shortcuts-help"
-        class={`${chrome.class} overflow-hidden`}
-        style={chrome.style}
-      >
-        <Dialog.Label class="block px-4 py-3 border-b border-edge text-sm font-semibold text-fg">
-          Keyboard Shortcuts
-        </Dialog.Label>
-        <div class="px-4 py-2">
-          <For each={HELP_ORDER}>
-            {(entry) => {
-              const action = ACTIONS[entry.id];
-              return (
-                <div class="flex items-center justify-between py-1.5">
-                  <span class="text-sm text-fg-2">
-                    {entry.label ?? action.label}
-                  </span>
-                  <span class="flex items-center gap-1.5">
-                    <Kbd>{formatKeybind(action.keybind)}</Kbd>
-                    {action.altKeybind && (
-                      <Kbd>{formatKeybind(action.altKeybind)}</Kbd>
-                    )}
-                  </span>
-                </div>
-              );
-            }}
-          </For>
-        </div>
-      </Dialog.Content>
-    </ModalDialog>
-  );
-};
+}> = (props) => (
+  <ModalDialog open={props.open} onOpenChange={props.onOpenChange} size="sm">
+    <Dialog.Content
+      data-testid="shortcuts-help"
+      class={`${chrome.class} overflow-hidden`}
+      style={chrome.style}
+    >
+      <Dialog.Label class="block px-4 py-3 border-b border-edge text-sm font-semibold text-fg">
+        Keyboard Shortcuts
+      </Dialog.Label>
+      <div class="px-4 py-2">
+        <For each={HELP_ORDER}>
+          {(entry) => {
+            const action = ACTIONS[entry.id];
+            return (
+              <div class="flex items-center justify-between py-1.5">
+                <span class="text-sm text-fg-2">
+                  {entry.label ?? action.label}
+                </span>
+                <span class="flex items-center gap-1.5">
+                  <Kbd>{formatKeybind(action.keybind)}</Kbd>
+                  {action.altKeybind && (
+                    <Kbd>{formatKeybind(action.altKeybind)}</Kbd>
+                  )}
+                </span>
+              </div>
+            );
+          }}
+        </For>
+      </div>
+    </Dialog.Content>
+  </ModalDialog>
+);
 
 export default ShortcutsHelp;
