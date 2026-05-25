@@ -11,28 +11,9 @@
  *  reference, which is what lets `CodeTab` tell them apart even when
  *  their `ref` content matches and re-paint the highlight. */
 
-import type { CodeTabView } from "kolu-common/surface";
 import { batch, createSignal } from "solid-js";
-import type { LineRef } from "../ui/lineRef";
+import type { NavRequest } from "../navRequest";
 import { useRightPanel } from "./useRightPanel";
-
-export interface OpenInCodeTabRequest {
-  /** Parsed `path:line[-end]` to navigate to. The path is interpreted
-   *  relative to `repoRoot` (or, when present, cwd-relative under
-   *  `repoRoot`) by `CodeTab` via `resolveLineRefPath`. */
-  ref: LineRef;
-  /** Per-terminal git repo root that `ref.path` is relative to (when
-   *  relative). Absolute paths beneath this root are also accepted —
-   *  the resolver normalizes both shapes. */
-  repoRoot: string;
-  /** Terminal cwd at the time of the request. Drives the "user typed
-   *  `bar.ts:42` while standing in a subdirectory of the repo" case;
-   *  undefined falls back to repo-relative interpretation only. */
-  cwd?: string;
-  /** Which Code-tab sub-mode the request expects to land in.
-   *  Producers that don't track an authoring mode pass `"browse"`. */
-  targetMode: CodeTabView;
-}
 
 // Module-level singleton. Right-panel state is a singleton in Kolu —
 // one panel, one CodeTab — and the navigation request is meant for
@@ -40,7 +21,7 @@ export interface OpenInCodeTabRequest {
 // (split panels, multi-window), this signal must move into a
 // SolidJS context or scope to a per-panel store, otherwise concurrent
 // consumers will race on each other's pending requests.
-const [pending, setPending] = createSignal<OpenInCodeTabRequest | null>(null);
+const [pending, setPending] = createSignal<NavRequest | null>(null);
 
 export const pendingOpen = pending;
 
@@ -52,7 +33,7 @@ export const pendingOpen = pending;
  *  (selection is now per-slot, so no effect clears `selectedPath`);
  *  kept because the merged tick still avoids a flash of intermediate
  *  state during navigation. */
-export function openInCodeTab(req: OpenInCodeTabRequest): void {
+export function openInCodeTab(req: NavRequest): void {
   batch(() => {
     useRightPanel().openCodeAt(req.targetMode);
     setPending(req);

@@ -54,11 +54,8 @@ import {
 import { resolveLineRefPath } from "../ui/lineRef";
 import BrowseFileDispatcher from "./BrowseFileDispatcher";
 import CodeMenuFrame from "./CodeMenuFrame";
-import {
-  openInCodeTab,
-  type OpenInCodeTabRequest,
-  pendingOpen,
-} from "./openInCodeTab";
+import type { NavRequest } from "../navRequest";
+import { openInCodeTab, pendingOpen } from "./openInCodeTab";
 import { projectFileTreeSearch } from "./fileSearch";
 import FileSearchInput from "./FileSearchInput";
 import ModeChipPicker, { type ModeOption } from "./ModeChipPicker";
@@ -229,7 +226,7 @@ const CodeTab: Component<{
   // re-running `resolveLineRefPath` (single resolution site per
   // request).
   const [handled, setHandled] = createSignal<{
-    request: OpenInCodeTabRequest;
+    request: NavRequest;
     resolvedPath: string | null;
   } | null>(null);
 

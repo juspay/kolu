@@ -31,10 +31,8 @@ import {
   Switch,
 } from "solid-js";
 import { toast } from "solid-sonner";
-import {
-  type OpenInMobileFilesRequest,
-  pendingMobileOpen,
-} from "./openInMobileFiles";
+import type { NavRequest } from "./navRequest";
+import { pendingMobileOpen } from "./openInMobileFiles";
 import BrowseFileDispatcher from "./right-panel/BrowseFileDispatcher";
 import { useRightPanel } from "./right-panel/useRightPanel";
 import { useColorScheme } from "./settings/useColorScheme";
@@ -79,7 +77,7 @@ const MobileCodeSheet: Component<{
   // selection slot (the bug this effect fixes) pushes
   // un-resolvable strings at `fsReadFile` and the server returns
   // `path escapes root` or `EISDIR`.
-  let lastHandled: OpenInMobileFilesRequest | null = null;
+  let lastHandled: NavRequest | null = null;
   createEffect(
     on(
       () => {

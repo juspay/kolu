@@ -20,30 +20,17 @@
  *  un-resolvable string at `fsReadFile` and the server would reject
  *  with `path escapes root` or `EISDIR`. */
 
-import type { CodeTabView } from "kolu-common/surface";
 import { createSignal } from "solid-js";
-import type { LineRef } from "./ui/lineRef";
+import type { NavRequest } from "./navRequest";
 
-export interface OpenInMobileFilesRequest {
-  ref: LineRef;
-  repoRoot: string;
-  cwd?: string;
-  /** Mode slot to write the resolved path into. Producers always pass
-   *  `"browse"` today; the field is here so future modes (local diff
-   *  inspection on mobile, say) don't need to refactor the contract. */
-  targetMode: CodeTabView;
-}
-
-const [pending, setPending] = createSignal<OpenInMobileFilesRequest | null>(
-  null,
-);
+const [pending, setPending] = createSignal<NavRequest | null>(null);
 
 /** Subscribe in `MobileTileView` to open the Files drawer when a
  *  producer requests navigation, and in `MobileCodeSheet` to resolve
  *  the request against `fsListAll` and write the selection slot. */
 export const pendingMobileOpen = pending;
 
-export function openInMobileFiles(req: OpenInMobileFilesRequest): void {
+export function openInMobileFiles(req: NavRequest): void {
   // Mint a fresh object on every call so two clicks on the same
   // `path:line` (which would deep-equal) are distinguishable by
   // reference identity — `MobileCodeSheet`'s consume-once effect
