@@ -31,10 +31,13 @@ import { useRightPanel } from "./useRightPanel";
 
 type HostProps = {
   children: JSX.Element;
+  /** Active terminal id. Used by the Code tab's iframe-preview path to
+   *  build the per-terminal file-serving URL. */
   terminalId: TerminalId | null;
   meta: TerminalMetadata | null;
   themeName?: string;
   onThemeClick?: () => void;
+  /** Extra class on the content wrapper (e.g. "flex flex-col" for Focus mode). */
   contentClass?: string;
 };
 
