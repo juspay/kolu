@@ -10,9 +10,10 @@
  *    - `radius`: `"2xl"` (default) for modal dialogs and primary popovers,
  *      `"xl"` for compact dialogs (intent editor, find bar), `"lg"`/`"md"`
  *      for menu surfaces (anchored option lists, context menus).
- *    - `shadow`: `"default"` (`shadow-black/50`, modal weight) or
- *      `"soft"` (`shadow-black/40`, popover/floating weight), or `"light"`
- *      (`shadow-lg shadow-black/40`, menu weight).
+ *    - `shadow`: `"default"` (`shadow-black/50`, modal weight),
+ *      `"soft"` (`shadow-black/40`, popover/floating weight),
+ *      `"light"` (`shadow-lg shadow-black/40`, menu weight), or
+ *      `"bare"` (`shadow-lg`, no color tint — for context menus).
  *
  *  Pass `portalled: true` whenever the panel renders inside a Corvu portal
  *  (`Dialog.Content`) or a SolidJS `Portal`. The returned `style` then
