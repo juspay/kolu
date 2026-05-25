@@ -90,6 +90,7 @@ const RightPanelLayout: Component<{
                     onToggle={() => rightPanel.setDrawerOpen(false)}
                     themeName={props.themeName}
                     onThemeClick={props.onThemeClick}
+                    visible={rightPanel.drawerOpen()}
                   />
                 </div>
               </Drawer.Content>
@@ -143,6 +144,7 @@ const RightPanelLayout: Component<{
               onToggle={rightPanel.togglePanel}
               themeName={props.themeName}
               onThemeClick={props.onThemeClick}
+              visible={!rightPanel.collapsed()}
             />
           </Resizable.Panel>
         </Resizable>

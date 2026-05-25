@@ -36,6 +36,12 @@ const RightPanel: Component<{
   onToggle: () => void;
   themeName?: string;
   onThemeClick?: () => void;
+  /** Whether this `RightPanel` instance is visible to the user. The host
+   *  (`RightPanelLayout`) decides — desktop reads `collapsed()`, mobile
+   *  reads `drawerOpen()`. Threading the signal keeps `RightPanel` a
+   *  pure presenter and lets `aria-hidden` track actual visibility on
+   *  both surfaces. */
+  visible: boolean;
 }> = (props) => {
   const rightPanel = useRightPanel();
 
@@ -46,11 +52,12 @@ const RightPanel: Component<{
     <div
       data-testid="right-panel"
       class="flex flex-col h-full min-w-0 overflow-hidden bg-surface-0 border-l border-edge"
-      // Panel stays mounted across the collapse toggle so CodeTab's local
+      // Panel stays mounted across collapse on desktop so CodeTab's local
       // state survives (#818); RightPanelLayout shrinks it to ~0 width via
-      // Resizable `sizes=[1,0]`. `aria-hidden` makes the contract legible
-      // and keeps assistive tech in sync with the visual collapse.
-      aria-hidden={rightPanel.collapsed()}
+      // Resizable `sizes=[1,0]`. `aria-hidden` reflects actual visibility
+      // — driven by the host, not the desktop pref, so the contract holds
+      // on the mobile drawer host too.
+      aria-hidden={!props.visible}
     >
       {/* Tab bar */}
       <div class="flex items-center h-8 shrink-0 bg-surface-1 border-b border-edge">
