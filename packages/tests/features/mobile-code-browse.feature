@@ -47,9 +47,9 @@ Feature: Mobile code browse — unified right-panel drawer
   Scenario: A terminal file-ref link opens the drawer at that file
     # Same openInCodeTab front door the desktop file-ref-link.feature
     # exercises — there is no mobile-specific producer or isMobile()
-    # branch in Terminal.tsx. openInCodeTab flips collapsed=false and
-    # seeds pendingOpen; on mobile the drawer's open prop reads
-    # !collapsed() and opens, and CodeTab consumes pendingOpen to
+    # branch in Terminal.tsx. openInCodeTab seeds pendingOpen;
+    # MobileDrawerHost's createEffect watches it and calls
+    # setDrawerOpen(true), then CodeTab consumes pendingOpen to
     # surface the file.
     When I run "rm -rf /tmp/kolu-mobile-link && git init /tmp/kolu-mobile-link && cd /tmp/kolu-mobile-link"
     And I run "printf 'one\ntwo\nthree\nfour\n' > note.md"
