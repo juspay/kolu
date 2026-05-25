@@ -131,9 +131,6 @@ export function buildDockTree(
       };
     });
     branchGroups.sort((a, b) => b.recency - a.recency);
-    const branchEntries = branchNames.flatMap(
-      (name) => branches.get(name) ?? [],
-    );
     topGroups.push({
       kind: "group",
       key: groupName,
@@ -142,7 +139,9 @@ export function buildDockTree(
       depth: 0,
       children: branchGroups,
       terminalCount: branchGroups.reduce((s, g) => s + g.terminalCount, 0),
-      recency: maxRecency(branchEntries),
+      // Recency is already computed on each branch child; re-fold over the
+      // children rather than re-walking the flat entries list.
+      recency: branchGroups.reduce((m, g) => Math.max(m, g.recency), 0),
     });
   }
   topGroups.sort((a, b) => b.recency - a.recency);
