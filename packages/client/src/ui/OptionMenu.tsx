@@ -48,6 +48,7 @@ export const OptionMenu = <T extends string>(props: {
     // viewport. Matches the panel's own `min-w-[180px]` Tailwind class.
     panelMinWidth: 180,
   });
+
   const chrome = surface({ radius: "lg", shadow: "light", portalled: true });
   return (
     <Show when={props.open()}>
