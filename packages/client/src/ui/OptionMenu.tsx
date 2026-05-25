@@ -10,12 +10,14 @@
  *
  *  Distinct from `right-panel/ModeChipPicker` — that picker handles
  *  grouped, hinted, icon-labelled CodeTab modes with a baked-in chip
- *  trigger. Different visual axis; consolidating both would mean
- *  conditionally suppressing the icon/hint/group features at every
- *  call site, which is more complecting than two focused components. */
+ *  trigger; consolidating both would mean conditionally suppressing
+ *  the icon/hint/group features at every call site, which is more
+ *  complecting than two focused components. The panel-chrome itself
+ *  is shared via `surface()`. */
 
 import { For, Show } from "solid-js";
 import { Portal } from "solid-js/web";
+import { surface } from "./Surface";
 import { type AnchorSide, useAnchoredPopover } from "./useAnchoredPopover";
 
 export type OptionMenuItem<T extends string> = {
@@ -46,14 +48,15 @@ export const OptionMenu = <T extends string>(props: {
     // viewport. Matches the panel's own `min-w-[180px]` Tailwind class.
     panelMinWidth: 180,
   });
+  const chrome = surface({ radius: "lg", shadow: "light", portalled: true });
   return (
     <Show when={props.open()}>
       <Portal>
         <div
           ref={panelRef}
           data-testid={`${props.testIdPrefix}-menu`}
-          class="fixed z-50 flex flex-col bg-surface-1 border border-edge rounded-lg shadow-lg shadow-black/40 p-1 min-w-[180px]"
-          style={panelStyle()}
+          class={`fixed z-50 flex flex-col ${chrome.class} p-1 min-w-[180px]`}
+          style={{ ...panelStyle(), ...chrome.style }}
         >
           <For each={props.options}>
             {(opt) => (
