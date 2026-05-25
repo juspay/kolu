@@ -22,10 +22,12 @@ function makeMeta(overrides: Partial<TerminalMetadata> = {}): TerminalMetadata {
   return {
     cwd: "/tmp",
     git: null,
+    location: { kind: "local" },
     pr: { kind: "absent" },
     agent: null,
     foreground: null,
     lastActivityAt: 0,
+    connectionState: "live",
     ...overrides,
   };
 }

@@ -10,7 +10,7 @@
 
 import type { GitInfo } from "kolu-git/schemas";
 import { cwdBasename, shortenCwd } from "./path";
-import type { TerminalId } from "./surface";
+import type { TerminalId, TerminalLocation } from "./surface";
 
 /** `(group, label)` plus an optional `suffix` for ids that collide on
  *  `(group, label)` within the live set.
@@ -28,22 +28,31 @@ export type TerminalKey = {
   suffix?: string;
 };
 
-/** What `terminalKey` needs from a terminal — just the location. The wider
- *  `TerminalIdentity` (with `id`) is only required by `computeTerminalKeys`
- *  because it returns a Map keyed by id. Splitting these lets `terminalKey`
- *  be called from places (e.g. `buildTerminalDisplayInfos`) that don't yet
- *  know the id, without forcing them to fabricate one. */
-export type TerminalLocation = {
+/** What `terminalKey` needs from a terminal — git + cwd + location. The
+ *  wider `TerminalIdentity` (with `id`) is only required by
+ *  `computeTerminalKeys` because it returns a Map keyed by id. Splitting
+ *  these lets `terminalKey` be called from places (e.g.
+ *  `buildTerminalDisplayInfos`) that don't yet know the id, without
+ *  forcing them to fabricate one.
+ *
+ *  `location` carries the host axis: two terminals with the same
+ *  repo/branch on different hosts must produce distinct keys so the
+ *  workspace switcher doesn't collide them. For `kind === "local"` the
+ *  host prefix is empty — the common case stays visually clean. */
+export type TerminalKeyInputs = {
   git: GitInfo | null;
   cwd: string;
+  location: TerminalLocation;
 };
 
-export type TerminalIdentity = TerminalLocation & {
+export type TerminalIdentity = TerminalKeyInputs & {
   id: TerminalId;
 };
 
 /** Canonical projection. The mapping is `git → (repoName, branch)` for
- *  git-aware terminals, `no git → (basename, shortenCwd)` otherwise.
+ *  git-aware terminals, `no git → (basename, shortenCwd)` otherwise. The
+ *  host (when `location.kind === "ssh"`) prefixes `group` so two terminals
+ *  on different hosts with the same repo+branch don't collide.
  *
  *  Why basename + shortened-cwd for non-git: `group` is the compact
  *  heading (a basename so paths like `/home/alice/projects/foo` show as
@@ -53,12 +62,16 @@ export type TerminalIdentity = TerminalLocation & {
  *  rendering all read from this single projection — a divergent
  *  projection elsewhere silently breaks `computeTerminalKeys` collision
  *  detection or visually contradicts the live workspace switcher. */
-export function terminalKey(t: TerminalLocation): {
+export function terminalKey(t: TerminalKeyInputs): {
   group: string;
   label: string;
 } {
-  if (t.git) return { group: t.git.repoName, label: t.git.branch };
-  return { group: cwdBasename(t.cwd), label: shortenCwd(t.cwd) };
+  const hostPrefix = t.location.kind === "ssh" ? `${t.location.host}:` : "";
+  if (t.git) return { group: hostPrefix + t.git.repoName, label: t.git.branch };
+  return {
+    group: hostPrefix + cwdBasename(t.cwd),
+    label: shortenCwd(t.cwd),
+  };
 }
 
 /** Compute keys for every terminal in one pass.

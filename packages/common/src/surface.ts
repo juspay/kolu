@@ -82,6 +82,26 @@ export const CodeTabViewSchema = z.enum(["local", "branch", "browse"]);
 /** Which tab is currently displayed in the right panel. */
 export const RightPanelTabKindSchema = z.enum(["inspector", "code"]);
 
+/** Which machine the terminal runs on. Discriminated union so adding a
+ *  remote variant later (`ssh`, eventually `wsl` / `docker`) doesn't
+ *  spread `host?: string` checks across every consumer.
+ *
+ *  Phase 0 ships the schema with only the `local` variant live in
+ *  practice; `ssh` is reserved for kolu#951's later phases. Every
+ *  consumer that branches on transport-dependent behavior (host chip,
+ *  agent-detection, channel publishes that carry filesystem paths)
+ *  pattern-matches on `kind` so the seam is in one place. */
+export const TerminalLocationSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("local") }),
+  z.object({ kind: z.literal("ssh"), host: z.string() }),
+]);
+
+/** Default for terminals created or restored without an explicit location.
+ *  Exported as a const so call sites that seed metadata don't reach for a
+ *  Zod parse just to spell "local". */
+export const DEFAULT_TERMINAL_LOCATION: z.infer<typeof TerminalLocationSchema> =
+  { kind: "local" };
+
 /** Per-terminal right-panel state — which tab is open, which sub-mode
  *  the Code tab is in, and which file the user last selected in each
  *  mode. The three fields move together because they are *about* the
@@ -143,6 +163,12 @@ export const RightPanelPerTerminalStateSchema = z.object({
 export const ServerPersistedTerminalFieldsSchema = z.object({
   cwd: z.string(),
   git: GitInfoSchema.nullable(),
+  /** Which machine the terminal's shell runs on. Persisted so session
+   *  restore re-spawns a remote tile on its original host instead of
+   *  spawning locally with a remote path. Defaults to `local` for sessions
+   *  saved before this field existed and for fresh terminals created
+   *  without an explicit host. */
+  location: TerminalLocationSchema.default(DEFAULT_TERMINAL_LOCATION),
   /** Normalized agent CLI invocation last observed in this terminal (e.g.
    *  `"claude --model sonnet"`). Preserved across intervening non-agent
    *  input; drives the "resume agent on restore" offer in EmptyState.
@@ -197,6 +223,18 @@ export const ClientPersistedTerminalFieldsSchema = z.object({
  * fire `terminals:dirty` — that's how the agent-stream firehose is
  * kept off the autosave channel.
  */
+/** Connection state for the terminal's transport. `live` is the only
+ *  meaningful value for `location.kind === "local"` terminals; `connecting`
+ *  and `disconnected` exist so the schema pattern-matches cleanly once a
+ *  remote variant lands (kolu#951 phases). Lives on the live schema (not
+ *  persisted) — restore always starts at `connecting → live`, never picks
+ *  up a stale "disconnected" from a previous session. */
+export const ConnectionStateSchema = z.enum([
+  "live",
+  "connecting",
+  "disconnected",
+]);
+
 export const LiveTerminalFieldsSchema = z.object({
   /** GitHub PR resolution — discriminated union (see PrResultSchema). */
   pr: PrResultSchema,
@@ -204,6 +242,10 @@ export const LiveTerminalFieldsSchema = z.object({
   agent: AgentInfoSchema.nullable(),
   /** Foreground process name — detected via OSC 2 title change events. */
   foreground: ForegroundSchema.nullable(),
+  /** Transport state — see ConnectionStateSchema. Local terminals stay at
+   *  `live` once their PTY spawns; the other states are wired in Phase 1
+   *  for SSH-wrapped PTYs. */
+  connectionState: ConnectionStateSchema.default("live"),
 });
 
 /**
@@ -264,10 +306,15 @@ export const InitialTerminalMetadataSchema = z.object({
 // ── Terminal cell value + raw-procedure shared schemas ────────────────
 
 /** Wire shape for the `terminalList` cell. Identity only — metadata
- *  flows through the `terminalMetadata` collection. */
+ *  flows through the `terminalMetadata` collection.
+ *
+ *  `pid` is intentionally absent: for an SSH-wrapped PTY the only
+ *  locally-knowable pid is the `ssh` subprocess's, which is a different
+ *  namespace from "the shell's pid". The server keeps the pid on its
+ *  internal `TerminalProcess.handle.pid` for logs and diagnostics, but it
+ *  never crosses the wire. (Verified by grep: no client code reads it.) */
 export const TerminalInfoSchema = z.object({
   id: TerminalIdSchema,
-  pid: z.number(),
 });
 
 /** Shared by both `terminal.attach` (raw oRPC streaming) and the
@@ -416,6 +463,8 @@ export type RightPanelTabKind = z.infer<typeof RightPanelTabKindSchema>;
 export type RightPanelPerTerminalState = z.infer<
   typeof RightPanelPerTerminalStateSchema
 >;
+export type TerminalLocation = z.infer<typeof TerminalLocationSchema>;
+export type ConnectionState = z.infer<typeof ConnectionStateSchema>;
 
 /** Discriminated-union view of the right panel's active tab. Derived from the
  *  flat `activeTab` + `codeMode` storage shape — see `rightPanelView()`. Use

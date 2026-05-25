@@ -14,11 +14,13 @@
  * the meta/providers graph.
  */
 
-import type {
-  LiveTerminalFields,
-  ServerPersistedTerminalFields,
-  TerminalClientMetadata,
-  TerminalMetadata,
+import {
+  DEFAULT_TERMINAL_LOCATION,
+  type LiveTerminalFields,
+  type ServerPersistedTerminalFields,
+  type TerminalClientMetadata,
+  type TerminalLocation,
+  type TerminalMetadata,
 } from "kolu-common/surface";
 import { prUnavailableReason, prValue } from "kolu-github/schemas";
 import { log } from "../log.ts";
@@ -29,15 +31,25 @@ import type { TerminalProcess } from "../terminal-registry.ts";
 /** Create initial metadata state for a new terminal. `lastActivityAt: 0`
  *  means "no agent transition observed yet" — the only event that lifts
  *  the recency clock. Idle terminals tie at 0 and fall back to canvas
- *  position. */
-export function createMetadata(cwd: string): TerminalMetadata {
+ *  position.
+ *
+ *  `location` defaults to `local`; the SSH variants are seeded by
+ *  `createTerminal` when a host is specified (or inherited from a parent
+ *  sub-terminal). `connectionState` starts at `live` for local terminals
+ *  — Phase 1 transitions ssh-wrapped PTYs through `connecting → live`. */
+export function createMetadata(
+  cwd: string,
+  location: TerminalLocation = DEFAULT_TERMINAL_LOCATION,
+): TerminalMetadata {
   return {
     cwd,
     git: null,
+    location,
     pr: { kind: "pending" },
     agent: null,
     foreground: null,
     lastActivityAt: 0,
+    connectionState: "live",
   };
 }
 

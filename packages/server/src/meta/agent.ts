@@ -94,19 +94,24 @@ function setAgentMetadata(
  *  NixOS). Normalize to basename so providers can compare against known
  *  binary names. Mirrors `processBasename` in `process.ts`.
  *
- *  Reading `entry.handle.process` involves a kernel syscall on darwin
+ *  Reading `entry.handle.localProcess` involves a kernel syscall on darwin
  *  (sysctl) and can throw if node-pty has already terminated the process;
  *  log and return null so the provider treats the terminal as having no
- *  foreground binary (session match will just fail). */
+ *  foreground binary (session match will just fail).
+ *
+ *  Caller must guarantee `entry.meta.location.kind === "local"` —
+ *  `localProcess` describes the local subprocess only, never a remote
+ *  shell behind an ssh-wrapped PTY. `startAgentProvider` enforces the
+ *  precondition by short-circuiting non-local terminals. */
 function readForegroundBasenameOnce(
   entry: TerminalProcess,
   plog: Logger,
 ): string | null {
   try {
-    const proc = entry.handle.process;
+    const proc = entry.handle.localProcess;
     return proc ? path.basename(proc) : null;
   } catch (err) {
-    plog.debug({ err }, "failed to read entry.handle.process");
+    plog.debug({ err }, "failed to read entry.handle.localProcess");
     return null;
   }
 }
@@ -129,7 +134,7 @@ function snapshotTerminalState(
   plog: Logger,
 ): AgentTerminalState {
   let basename: string | null | undefined;
-  const foregroundPid = entry.handle.foregroundPid;
+  const foregroundPid = entry.handle.localForegroundPid;
   const shellIdle =
     foregroundPid === undefined || foregroundPid === entry.handle.pid;
   return {
@@ -210,6 +215,17 @@ export function startAgentProvider<Session, Info extends AgentInfoShape>(
   terminalId: string,
 ): () => void {
   const plog = log.child({ provider: provider.kind, terminal: terminalId });
+
+  // Agent detection reads the local kernel (`localProcess`,
+  // `localForegroundPid`, on-disk session DBs at `~/.codex/sessions/...`).
+  // For an SSH-wrapped PTY those describe the local `ssh` subprocess and
+  // the kolu-server's home dir, not the remote shell — running the
+  // matcher would yield false negatives at best, false positives at
+  // worst. Skip cleanly until Phase 2b lands a `RemoteAgentProvider`.
+  if (entry.meta.location.kind !== "local") {
+    plog.debug({ location: entry.meta.location }, "skipping non-local");
+    return () => {};
+  }
 
   let current: { watcher: AgentWatcher; key: string } | null = null;
   let registeredForExternal = false;

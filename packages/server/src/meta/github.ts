@@ -20,7 +20,7 @@
  * └──────────────────────────────────────────────────────────────────────┘
  */
 
-import { subscribeGitHubPr } from "kolu-github";
+import { localGitHubPrProvider } from "kolu-github";
 import { log } from "../log.ts";
 import { terminalChannels } from "../publisher.ts";
 import type { TerminalProcess } from "../terminal-registry.ts";
@@ -31,9 +31,20 @@ export function startGitHubPrProvider(
   terminalId: string,
 ): () => void {
   const plog = log.child({ provider: "github-pr", terminal: terminalId });
+
+  // `localGitHubPrProvider` spawns `gh pr view` against a local `cwd`. For
+  // an SSH-wrapped tile the right `cwd` lives on the remote, and the
+  // user's `gh` auth lives on the remote too — local invocation would
+  // either ENOENT or pull the wrong PR. Skip cleanly; Phase 2b's
+  // `remoteGitHubPrProvider` will dispatch through the kolu-agent.
+  if (entry.meta.location.kind !== "local") {
+    plog.debug({ location: entry.meta.location }, "skipping non-local");
+    return () => {};
+  }
+
   plog.debug("started");
 
-  const watcher = subscribeGitHubPr((pr) => {
+  const watcher = localGitHubPrProvider.subscribe((pr) => {
     updateServerLiveMetadata(entry, terminalId, (m) => {
       m.pr = pr;
     });
@@ -50,9 +61,16 @@ export function startGitHubPrProvider(
     );
   }, plog);
 
+  // Channel events are host-tagged. Guard on `host === null` before
+  // feeding `repoRoot` into a local `gh pr view --cwd repoRoot` — a
+  // remote-host path would silently ENOENT. With this provider skipped
+  // for non-local terminals (above), the guard is defence-in-depth.
   const cleanup = terminalChannels.git(terminalId).consume({
-    onEvent: (git) =>
-      watcher.setGit(git?.repoRoot ?? null, git?.branch ?? null),
+    onEvent: (event) => {
+      if (event.host !== null) return;
+      const git = event.payload;
+      watcher.setGit(git?.repoRoot ?? null, git?.branch ?? null);
+    },
     onError: (err) => plog.error({ err }, "publisher subscription failed"),
   });
 

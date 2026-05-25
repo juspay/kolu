@@ -48,9 +48,7 @@ import {
   getStatus,
   gitDiffOutputEqual,
   gitStatusOutputEqual,
-  listAll,
-  readFile,
-  statFileMtimeMs,
+  localFsProvider,
   subscribeFileChange,
   subscribeRepoChange,
 } from "kolu-git";
@@ -224,7 +222,7 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
       },
       fsListAll: {
         read: async (input) => ({
-          paths: unwrapGit(await listAll(input.repoPath, log)),
+          paths: unwrapGit(await localFsProvider.listAll(input.repoPath, log)),
         }),
         install: (input, cb) => subscribeRepoChange(input.repoPath, cb, log),
         isEqual: fsListAllOutputEqual,
@@ -233,7 +231,11 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
         read: async (input): Promise<FsReadFileOutput> => {
           if (isIframePreviewable(input.filePath)) {
             const mtimeMs = unwrapGit(
-              await statFileMtimeMs(input.repoPath, input.filePath, log),
+              await localFsProvider.statFileMtimeMs(
+                input.repoPath,
+                input.filePath,
+                log,
+              ),
             );
             return {
               kind: "binary",
@@ -245,7 +247,7 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
             };
           }
           const { content, truncated } = unwrapGit(
-            await readFile(input.repoPath, input.filePath, log),
+            await localFsProvider.readFile(input.repoPath, input.filePath, log),
           );
           return { kind: "text", content, truncated };
         },

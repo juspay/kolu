@@ -11,15 +11,16 @@
  * file re-exports the registry surface they need.
  */
 
-import type {
-  InitialTerminalMetadata,
-  RightPanelPerTerminalState,
-  SavedTerminal,
-  TerminalId,
-  TerminalInfo,
+import {
+  DEFAULT_TERMINAL_LOCATION,
+  type InitialTerminalMetadata,
+  type RightPanelPerTerminalState,
+  type SavedTerminal,
+  type TerminalId,
+  type TerminalInfo,
 } from "kolu-common/surface";
 import { DEFAULT_SCROLLBACK } from "kolu-common/config";
-import { spawnPty } from "kolu-pty";
+import { localPtyProvider } from "kolu-pty";
 import pkg from "../package.json" with { type: "json" };
 import { cleanupClipboardDir } from "./clipboard.ts";
 import { koluShellDir } from "./koluRoot.ts";
@@ -70,6 +71,7 @@ export function snapshotSession(): {
         pr: _pr,
         agent: _agent,
         foreground: _foreground,
+        connectionState: _connectionState,
         ...persisted
       } = entry.meta;
       return { id, ...persisted };
@@ -105,7 +107,15 @@ export function createTerminal(
   const id = crypto.randomUUID();
   const tlog = log.child({ terminal: id });
 
-  const handle = spawnPty(
+  // Sub-terminal inheritance: a sub-terminal spawns on the same host as
+  // its parent. Phase 0 always resolves to `local` because no SSH host
+  // picker exists yet — but the lookup IS the structural seam for
+  // Phase 1, so it lives here, not at the call site. Falls back to
+  // `local` if the parent has been killed mid-create.
+  const parentEntry = parentId ? getTerminal(parentId) : undefined;
+  const location = parentEntry?.meta.location ?? DEFAULT_TERMINAL_LOCATION;
+
+  const handle = localPtyProvider.spawn(
     tlog,
     id,
     {
@@ -156,7 +166,7 @@ export function createTerminal(
     cwd,
   );
 
-  const meta = createMetadata(handle.cwd);
+  const meta = createMetadata(handle.cwd, location);
   if (parentId) meta.parentId = parentId;
   // Seed client-owned initial metadata BEFORE startProviders so the first
   // `terminalMetadata` collection yield carries these fields (see #642).
@@ -168,7 +178,7 @@ export function createTerminal(
     meta.lastActivityAt = initial.lastActivityAt;
   if (initial?.intent) meta.intent = initial.intent;
   const entry: TerminalProcess = {
-    info: { id, pid: handle.pid },
+    info: { id },
     meta,
     handle,
     stopProviders: () => {},

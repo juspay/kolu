@@ -26,6 +26,19 @@ import { publisherChannel } from "@kolu/surface/server";
 import { MemoryPublisher } from "@orpc/experimental-publisher/memory";
 import type { GitInfo } from "kolu-git/schemas";
 
+/** Channel payload wrapper that carries the host the payload was
+ *  observed on. `host: null` for local-origin events. Downstream
+ *  consumers that interpret payload contents as locally-resolvable —
+ *  e.g. `meta/github.ts` feeding `git.repoRoot` into a local `gh pr view
+ *  --cwd repoRoot` — guard on `host !== null` so a remote-origin event
+ *  doesn't silently misroute. Phase 0 always emits `host: null` because
+ *  every terminal is local; the guard is dead code until Phase 2b lands
+ *  remote providers, but the type fence is the point. */
+export type HostTagged<T> = {
+  host: string | null;
+  payload: T | null;
+};
+
 // `MemoryPublisher` constrains its generic to `Record<string, object>`,
 // which excludes the primitive payloads we publish (data strings, exit
 // codes). The generic is dead weight here — type safety on every real
@@ -52,8 +65,11 @@ export const terminalChannels = {
   cwd: (id: string) => publisherChannel<string>(publisher, `cwd:${id}`),
   /** Terminal title changed (OSC 0/2 from PTY) — feeds the process provider. */
   title: (id: string) => publisherChannel<string>(publisher, `title:${id}`),
-  /** Git context changed — feeds the github PR provider. */
-  git: (id: string) => publisherChannel<GitInfo | null>(publisher, `git:${id}`),
+  /** Git context changed — feeds the github PR provider. Wrapped in
+   *  `HostTagged<GitInfo>` so consumers can pattern-match on origin host
+   *  before treating paths as locally resolvable. */
+  git: (id: string) =>
+    publisherChannel<HostTagged<GitInfo>>(publisher, `git:${id}`),
   /** Raw command string from OSC 633;E preexec mark — feeds agent-command
    *  tracking (per-terminal stash + recent-agents MRU). Not retained;
    *  each event is an isolated "the user just typed this" notice. */

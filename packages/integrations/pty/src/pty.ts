@@ -47,14 +47,24 @@ export interface PtyHandle {
   readonly pid: number;
   /** Current working directory (from OSC 7), initially $HOME. */
   readonly cwd: string;
-  /** Current foreground process name (from node-pty). */
-  readonly process: string;
+  /** Current foreground process name (from node-pty).
+   *
+   *  Local-only semantics: for SSH-wrapped PTYs the upstream process is
+   *  the local `ssh` client, NOT the remote shell. The `local` prefix is
+   *  the wire-shape rename that keeps the misuse from compiling once
+   *  remote variants exist — meta/* providers must gate reads on
+   *  `entry.meta.location.kind === "local"`. */
+  readonly localProcess: string;
   /**
    * Pid of the pty's current foreground process group leader (from
    * tcgetpgrp(3)), or `undefined` if not yet set. Used by metadata
    * providers to identify which process is running in the terminal.
+   *
+   * Local-only semantics: same as `localProcess` above — for SSH-wrapped
+   * PTYs this is the local `ssh` subprocess's foreground group, not the
+   * remote shell's. Providers must gate on `location.kind === "local"`.
    */
-  readonly foregroundPid: number | undefined;
+  readonly localForegroundPid: number | undefined;
   /** Send input to the PTY (keystrokes, pasted text). */
   write(data: string): void;
   /** Resize the PTY grid. */
@@ -66,6 +76,43 @@ export interface PtyHandle {
   /** Kill the PTY process and release resources. */
   dispose(): void;
 }
+
+/** Options forwarded to `PtyProvider.spawn`. Mirrors `spawnPty`'s opts arg
+ *  exactly — extracted as a type so remote PTY providers (Phase 1 ssh
+ *  variant, Phase 3 agent-owned variant) bind to the same shape. */
+export interface PtySpawnOptions {
+  rcDir: string;
+  termProgramVersion: string;
+  scrollback: number;
+  onData: (data: string) => void;
+  onExit: (exitCode: number) => void;
+  onCwd?: (cwd: string) => void;
+  onTitleChange?: (title: string) => void;
+  onCommandRun?: (command: string) => void;
+}
+
+/** Terminal-runner seam — picks "how a shell is hosted" per terminal. The
+ *  local impl wraps `spawnPty` unchanged; later phases add `SshPtyProvider`
+ *  (spawn ssh -tt and feed its PTY) and an agent-owned variant for
+ *  reattach support. Every impl returns a `PtyHandle` with the same
+ *  surface — consumers (terminals.ts) don't pattern-match on the
+ *  provider. */
+export interface PtyProvider {
+  spawn(
+    tlog: Logger,
+    terminalId: string,
+    opts: PtySpawnOptions,
+    spawnCwd?: string,
+  ): PtyHandle;
+}
+
+/** Local PTY provider — direct wrapper around `spawnPty`. Stateless;
+ *  shared by every local terminal. */
+export const localPtyProvider: PtyProvider = {
+  spawn(tlog, terminalId, opts, spawnCwd) {
+    return spawnPty(tlog, terminalId, opts, spawnCwd);
+  },
+};
 
 /** Spawn a shell in a PTY, calling back on data, exit, CWD, and title changes. */
 export function spawnPty(
@@ -216,10 +263,10 @@ export function spawnPty(
     get cwd() {
       return currentCwd;
     },
-    get process() {
+    get localProcess() {
       return proc.process;
     },
-    get foregroundPid() {
+    get localForegroundPid() {
       // node-pty's IPty type doesn't expose this; the UnixTerminal class does.
       // tcgetpgrp can return 0 momentarily before the child finishes setsid —
       // collapse that to undefined so callers don't have to special-case it.

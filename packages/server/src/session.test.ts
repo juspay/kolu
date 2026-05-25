@@ -23,6 +23,7 @@ const terminal: SavedTerminal = {
     isWorktree: false,
     mainRepoRoot: "/home/user/project",
   },
+  location: { kind: "local" },
   lastActivityAt: 0,
 };
 
@@ -73,9 +74,28 @@ describe("session persistence", () => {
 
   it("preserves multiple terminals with array order", () => {
     const terminals: SavedTerminal[] = [
-      { id: "a", cwd: "/a", git: null, lastActivityAt: 0 },
-      { id: "b", cwd: "/b", git: null, lastActivityAt: 0 },
-      { id: "c", cwd: "/c", git: null, parentId: "a", lastActivityAt: 0 },
+      {
+        id: "a",
+        cwd: "/a",
+        git: null,
+        location: { kind: "local" },
+        lastActivityAt: 0,
+      },
+      {
+        id: "b",
+        cwd: "/b",
+        git: null,
+        location: { kind: "local" },
+        lastActivityAt: 0,
+      },
+      {
+        id: "c",
+        cwd: "/c",
+        git: null,
+        location: { kind: "local" },
+        parentId: "a",
+        lastActivityAt: 0,
+      },
     ];
     saveSession({ terminals, activeTerminalId: null });
     const session = getSavedSession();
@@ -91,10 +111,17 @@ describe("session persistence", () => {
         id: "a",
         cwd: "/a",
         git: null,
+        location: { kind: "local" },
         themeName: "Dracula",
         lastActivityAt: 0,
       },
-      { id: "b", cwd: "/b", git: null, lastActivityAt: 0 },
+      {
+        id: "b",
+        cwd: "/b",
+        git: null,
+        location: { kind: "local" },
+        lastActivityAt: 0,
+      },
     ];
     saveSession({ terminals, activeTerminalId: null });
     const session = getSavedSession();
@@ -110,8 +137,20 @@ describe("session persistence", () => {
     const t1 = 1_700_000_000_000;
     const t2 = 1_700_000_900_000;
     const terminals: SavedTerminal[] = [
-      { id: "a", cwd: "/a", git: null, lastActivityAt: t1 },
-      { id: "b", cwd: "/b", git: null, lastActivityAt: t2 },
+      {
+        id: "a",
+        cwd: "/a",
+        git: null,
+        location: { kind: "local" },
+        lastActivityAt: t1,
+      },
+      {
+        id: "b",
+        cwd: "/b",
+        git: null,
+        location: { kind: "local" },
+        lastActivityAt: t2,
+      },
     ];
     saveSession({ terminals, activeTerminalId: null });
     const session = getSavedSession();

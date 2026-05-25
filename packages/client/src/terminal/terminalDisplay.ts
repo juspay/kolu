@@ -59,7 +59,12 @@ export function buildTerminalDisplayInfos(
     entries.flatMap(({ group, label }) => [group, label]),
   );
   const keys = computeTerminalKeys(
-    entries.map(({ id, meta }) => ({ id, git: meta.git, cwd: meta.cwd })),
+    entries.map(({ id, meta }) => ({
+      id,
+      git: meta.git,
+      cwd: meta.cwd,
+      location: meta.location,
+    })),
   );
   const result = new Map<TerminalId, TerminalDisplayInfo>();
   for (const { id, meta, group, label } of entries) {

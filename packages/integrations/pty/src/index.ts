@@ -6,5 +6,12 @@
  *  its per-terminal scratch files live) and a TERM_PROGRAM_VERSION
  *  string. Only dep on kolu-* is `kolu-shared` (the `Logger` type). */
 
-export { getScreenText, type PtyHandle, spawnPty } from "./pty.ts";
+export {
+  getScreenText,
+  localPtyProvider,
+  type PtyHandle,
+  type PtyProvider,
+  type PtySpawnOptions,
+  spawnPty,
+} from "./pty.ts";
 export { configureNixShellEnv, NIX_ENV_WHITELIST } from "./shell.ts";

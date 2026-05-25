@@ -7,6 +7,10 @@
 
 export { classifyGhError, deriveCheckStatus, prResultEqual } from "./github.ts";
 export {
+  type GitHubPrProvider,
+  localGitHubPrProvider,
+} from "./providers.ts";
+export {
   type GitHubPrWatcher,
   resolveGitHubPr,
   subscribeGitHubPr,
