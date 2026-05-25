@@ -15,6 +15,7 @@ import type { CodeTabView } from "kolu-common/surface";
 import { type Component, createMemo, createSignal, For, Show } from "solid-js";
 import { Dynamic, Portal } from "solid-js/web";
 import { ChevronDownIcon } from "../ui/Icons";
+import { surface } from "../ui/Surface";
 import { useAnchoredPopover } from "../ui/useAnchoredPopover";
 
 export type ModeOption = {
@@ -58,6 +59,8 @@ const ModeChipPicker: Component<{
   const chipLabel = (m: ModeOption) =>
     m.group ? `${m.group}: ${m.label}` : m.label;
 
+  const chrome = surface({ radius: "md", shadow: "soft", portalled: true });
+
   return (
     <>
       <button
@@ -91,8 +94,8 @@ const ModeChipPicker: Component<{
         <Portal>
           <div
             ref={panelRef}
-            class="fixed z-50 bg-surface-1 border border-edge rounded-md shadow-2xl shadow-black/40 py-1 min-w-[240px] text-[11px] font-mono"
-            style={panelStyle()}
+            class={`fixed z-50 ${chrome.class} py-1 min-w-[240px] text-[11px] font-mono`}
+            style={{ ...panelStyle(), ...chrome.style }}
             role="menu"
             data-testid="diff-filter-popover"
           >
