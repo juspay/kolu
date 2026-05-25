@@ -1,5 +1,6 @@
 import * as assert from "node:assert";
 import { Then, When } from "@cucumber/cucumber";
+import { tapBackdropAtSafePoint } from "../support/drawer.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
 // ── Chrome (top pull-down) drawer ─────────────────────────────────────
@@ -15,33 +16,6 @@ const DOCK_HANDLE = '[data-testid="mobile-dock-handle"]';
 const DOCK_SHEET = '[data-testid="mobile-dock-sheet"]';
 const DOCK_BACKDROP = '[data-testid="mobile-dock-backdrop"]';
 const DOCK_ROW = '[data-testid="mobile-dock-row"]';
-
-// ── Shared backdrop-tap helper ────────────────────────────────────────
-//
-// Corvu's Drawer.Overlay spans the full viewport but Drawer.Content sits on
-// top of it across the side the drawer opens from. A naive `.tap()` centers
-// on the backdrop and lands inside the drawer content, which consumes the
-// tap. `tapBackdropAtSafePoint` taps the *opposite* edge of the backdrop
-// from the drawer's anchor side, where only the overlay paints.
-export async function tapBackdropAtSafePoint(
-  world: KoluWorld,
-  selector: string,
-  side: "top" | "bottom" | "left" | "right",
-): Promise<void> {
-  const backdrop = world.page.locator(selector);
-  await backdrop.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-  const box = await backdrop.boundingBox();
-  if (!box) throw new Error(`backdrop ${selector} has no bounding box`);
-  const SAFE_OFFSET = 20;
-  const positions = {
-    top: { x: box.width / 2, y: box.height - SAFE_OFFSET },
-    bottom: { x: box.width / 2, y: SAFE_OFFSET },
-    left: { x: box.width - SAFE_OFFSET, y: box.height / 2 },
-    right: { x: SAFE_OFFSET, y: box.height / 2 },
-  };
-  await backdrop.tap({ position: positions[side] });
-  await world.waitForFrame();
-}
 
 // ── Chrome drawer steps ───────────────────────────────────────────────
 

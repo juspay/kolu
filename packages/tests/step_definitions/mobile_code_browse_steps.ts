@@ -5,8 +5,8 @@
  *  mobile-specific actions are defined here. */
 
 import { When } from "@cucumber/cucumber";
+import { tapBackdropAtSafePoint } from "../support/drawer.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
-import { tapBackdropAtSafePoint } from "./mobile_drawer_steps.ts";
 
 const CHROME_SHEET = '[data-testid="mobile-chrome-sheet"]';
 const INSPECTOR_TOGGLE = `${CHROME_SHEET} [data-testid="inspector-toggle"]`;
