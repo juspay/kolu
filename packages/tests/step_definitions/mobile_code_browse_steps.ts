@@ -79,6 +79,49 @@ When("I tap the mobile code close button", async function (this: KoluWorld) {
 When(
   "I tap terminal text {string}",
   async function (this: KoluWorld, target: string) {
+    // The preceding `I run` step only waits one frame after typing — the
+    // PTY → server → SSE → xterm render chain takes longer, so the
+    // freshly-echoed target text may not have hit the buffer yet on a
+    // loaded CI host. Poll the buffer for the target's presence (any
+    // non-prompt row whose joined logical line contains it) before
+    // computing the tap point — `waitForFunction` retries on a 25ms
+    // cadence, so the first frame that lands the output unblocks us.
+    await this.page.waitForFunction(
+      (targetText) => {
+        type BL = {
+          translateToString(trim?: boolean): string;
+          isWrapped: boolean;
+        };
+        type X = {
+          buffer: {
+            active: {
+              viewportY: number;
+              length: number;
+              getLine(i: number): BL | undefined;
+            };
+          };
+        };
+        const el = document.querySelector("[data-focused]") as
+          | (HTMLElement & { __xterm?: X })
+          | null;
+        const t = el?.__xterm;
+        if (!t) return false;
+        const b = t.buffer.active;
+        for (let r = 0; r < b.length; r++) {
+          let line = b.getLine(r)?.translateToString(false) ?? "";
+          let s = r;
+          while (s + 1 < b.length && b.getLine(s + 1)?.isWrapped) {
+            line += b.getLine(s + 1)?.translateToString(false) ?? "";
+            s++;
+          }
+          if (!line.includes("❯") && line.includes(targetText)) return true;
+          r = s;
+        }
+        return false;
+      },
+      target,
+      { timeout: 15000 },
+    );
     const point = await this.page.evaluate((targetText) => {
       type BufferLine = {
         translateToString(trim?: boolean): string;
