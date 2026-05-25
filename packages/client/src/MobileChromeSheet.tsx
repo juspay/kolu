@@ -22,7 +22,7 @@ import { formatKeybind } from "./input/keyboard";
 import { useRightPanel } from "./right-panel/useRightPanel";
 import type { WsStatus } from "./rpc/rpc";
 import SettingsPopover from "./settings/SettingsPopover";
-import { SettingsIcon } from "./ui/Icons";
+import { InspectorToggleIcon, SettingsIcon } from "./ui/Icons";
 import Kbd from "./ui/Kbd";
 
 const statusStyles: Record<WsStatus, string> = {
@@ -115,7 +115,7 @@ const MobileChromeSheet: Component<{
           }}
           aria-label="Toggle inspector"
         >
-          ⟳
+          <InspectorToggleIcon active={!rightPanel.collapsed()} />
         </button>
       </div>
     </div>
