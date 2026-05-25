@@ -4,7 +4,7 @@
 
 import { type Component, createEffect, For, Show } from "solid-js";
 import { Portal } from "solid-js/web";
-import { surfaceClass, surfaceStyle } from "../ui/Surface";
+import { surface } from "../ui/Surface";
 import Toggle from "../ui/Toggle";
 import { useAnchoredPopover } from "../ui/useAnchoredPopover";
 import LevelMeter from "./LevelMeter";
@@ -66,14 +66,16 @@ const RecordPopover: Component<{
     return dev?.label || "System default";
   };
 
+  const chrome = surface({ portalled: true });
+
   return (
     <Show when={open()}>
       <Portal>
         <div
           ref={panelRef}
           data-testid="record-popover"
-          class={`fixed z-50 ${surfaceClass()} p-3 min-w-[280px] space-y-3`}
-          style={{ ...panelStyle(), ...surfaceStyle }}
+          class={`fixed z-50 ${chrome.class} p-3 min-w-[280px] space-y-3`}
+          style={{ ...panelStyle(), ...chrome.style }}
         >
           <div class="text-sm font-medium text-fg">Record workspace</div>
 

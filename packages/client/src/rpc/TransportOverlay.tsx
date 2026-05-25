@@ -13,7 +13,7 @@
 import { type Component, Show } from "solid-js";
 import { match } from "ts-pattern";
 import { forceUpdateAndReload } from "../pwa";
-import { surfaceClass } from "../ui/Surface";
+import { surface } from "../ui/Surface";
 import { lifecycle } from "./rpc";
 
 const TransportOverlay: Component = () => {
@@ -26,7 +26,7 @@ const TransportOverlay: Component = () => {
     <Show when={visible()}>
       <div class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center pointer-events-none">
         <div
-          class={`${surfaceClass()} p-6 max-w-sm text-sm pointer-events-auto`}
+          class={`${surface().class} p-6 max-w-sm text-sm pointer-events-auto`}
           data-testid="transport-overlay"
         >
           {match(lifecycle())

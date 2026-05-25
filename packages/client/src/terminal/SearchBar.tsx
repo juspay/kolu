@@ -16,7 +16,7 @@ import {
   Show,
 } from "solid-js";
 import { ChevronDownIcon, ChevronUpIcon, CloseIcon } from "../ui/Icons";
-import { surfaceClass } from "../ui/Surface";
+import { surface } from "../ui/Surface";
 import Tip from "../ui/Tip";
 
 const SEARCH_OPTIONS: ISearchOptions = {
@@ -143,7 +143,7 @@ const SearchBar: Component<{
   return (
     <Show when={props.open}>
       <div
-        class={`absolute top-1 right-3 z-10 flex items-center gap-1.5 ${surfaceClass({ radius: "xl", shadow: "soft" })} px-2 py-1.5`}
+        class={`absolute top-1 right-3 z-10 flex items-center gap-1.5 ${surface({ radius: "xl", shadow: "soft" }).class} px-2 py-1.5`}
       >
         <input
           ref={inputRef}

@@ -17,7 +17,7 @@ import { match } from "ts-pattern";
 import { useAnchoredPopover } from "../ui/useAnchoredPopover";
 import { WarningIcon } from "../ui/Icons";
 import { writeTextToClipboard } from "../ui/clipboard";
-import { surfaceClass, surfaceStyle } from "../ui/Surface";
+import { surface } from "../ui/Surface";
 
 const AUTH_COMMAND = "gh auth login -s repo,read:org";
 
@@ -122,6 +122,8 @@ const PrUnavailablePopover: Component<{
     panelMinWidth: 280,
   });
 
+  const chrome = surface({ radius: "xl", portalled: true });
+
   return (
     <Show when={props.open}>
       <Portal>
@@ -130,8 +132,8 @@ const PrUnavailablePopover: Component<{
           data-testid="pr-unavailable-popover"
           role="dialog"
           aria-label={reasonForSource(props.source)}
-          class={`fixed z-50 ${surfaceClass({ radius: "xl" })} p-3 w-[280px] space-y-2 text-xs`}
-          style={{ ...panelStyle(), ...surfaceStyle }}
+          class={`fixed z-50 ${chrome.class} p-3 w-[280px] space-y-2 text-xs`}
+          style={{ ...panelStyle(), ...chrome.style }}
         >
           <ProviderUnavailableContent source={props.source} />
         </div>

@@ -2,30 +2,36 @@
  *
  *  The canonical incantation behind every floating panel in the app:
  *  dialog content, popovers, the empty-state card, the disconnect overlay.
- *  Each call site previously inlined the same 6-utility string and drifted
+ *  Each call site previously inlined the same six-utility string and drifted
  *  on per-site variations (radius tier, shadow weight) that this helper
  *  now names.
  *
  *  Variants:
  *    - `radius`: `"2xl"` (default) for modal dialogs and primary popovers,
- *      `"xl"` for compact dialogs (intent editor, find bar).
+ *      `"xl"` for compact dialogs (intent editor, find bar), `"lg"`/`"md"`
+ *      for menu surfaces (anchored option lists, context menus).
  *    - `shadow`: `"default"` (`shadow-black/50`, modal weight) or
- *      `"soft"` (`shadow-black/40`, popover/floating weight).
+ *      `"soft"` (`shadow-black/40`, popover/floating weight), or `"light"`
+ *      (`shadow-lg shadow-black/40`, menu weight).
  *
- *  Pair with `surfaceStyle` whenever the surface lives inside a Corvu
- *  portal (`Dialog.Content`, popovers rendered via `solid-js/web` Portal).
- *  Firefox intermittently drops the `bg-surface-1` utility on portalled
- *  content; the inline background-color is a redundant fallback that
- *  guarantees the fill, and the duplication is the workaround. */
+ *  Pass `portalled: true` whenever the panel renders inside a Corvu portal
+ *  (`Dialog.Content`) or a SolidJS `Portal`. The returned `style` then
+ *  carries an inline `background-color` fallback — Firefox intermittently
+ *  drops the `bg-surface-1` utility on portalled content, and the inline
+ *  duplication is the workaround. Non-portal callers receive an empty
+ *  `style` object; spreading it is a no-op. */
 
 import type { JSX } from "solid-js";
 
 const RADIUS_CLASS = {
+  md: "rounded-md",
+  lg: "rounded-lg",
   xl: "rounded-xl",
   "2xl": "rounded-2xl",
 } as const;
 
 const SHADOW_CLASS = {
+  light: "shadow-lg shadow-black/40",
   soft: "shadow-2xl shadow-black/40",
   default: "shadow-2xl shadow-black/50",
 } as const;
@@ -33,15 +39,19 @@ const SHADOW_CLASS = {
 export type SurfaceRadius = keyof typeof RADIUS_CLASS;
 export type SurfaceShadow = keyof typeof SHADOW_CLASS;
 
-export function surfaceClass(opts?: {
-  radius?: SurfaceRadius;
-  shadow?: SurfaceShadow;
-}): string {
-  const radius = RADIUS_CLASS[opts?.radius ?? "2xl"];
-  const shadow = SHADOW_CLASS[opts?.shadow ?? "default"];
-  return `bg-surface-1 border border-edge ${radius} ${shadow}`;
-}
-
-export const surfaceStyle: JSX.CSSProperties = {
+const PORTAL_BG_FALLBACK: JSX.CSSProperties = {
   "background-color": "var(--color-surface-1)",
 };
+
+export function surface(opts?: {
+  radius?: SurfaceRadius;
+  shadow?: SurfaceShadow;
+  portalled?: boolean;
+}): { class: string; style: JSX.CSSProperties } {
+  const radius = RADIUS_CLASS[opts?.radius ?? "2xl"];
+  const shadow = SHADOW_CLASS[opts?.shadow ?? "default"];
+  return {
+    class: `bg-surface-1 border border-edge ${radius} ${shadow}`,
+    style: opts?.portalled ? PORTAL_BG_FALLBACK : {},
+  };
+}
