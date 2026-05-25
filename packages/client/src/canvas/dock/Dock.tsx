@@ -310,7 +310,7 @@ const DockGroupHeader: Component<{
         classList={{ "-rotate-90": props.folded }}
         aria-hidden="true"
       >
-        ▾
+        <ChevronDownIcon class="w-2.5 h-2.5" />
       </span>
       <Show when={props.mode === "cards"}>
         <span
