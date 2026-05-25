@@ -142,7 +142,11 @@ const [foldedGroups, setFoldedGroups] = makePersisted(
         return Array.isArray(parsed)
           ? parsed.filter((s): s is string => typeof s === "string")
           : [];
-      } catch {
+      } catch (e) {
+        // Corrupt localStorage entry — fold state is purely cosmetic, so
+        // silently resetting to "all expanded" is safe. Log so DevTools
+        // shows the raw value if a developer needs to investigate.
+        console.warn("kolu-dock-folded-groups: resetting corrupt entry", e);
         return [];
       }
     },
