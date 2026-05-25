@@ -1,9 +1,14 @@
 /** Right panel state — singleton module.
  *
- *  Two storage layers because the right panel has two volatilities:
+ *  Three storage layers because the right panel has three volatilities:
  *
  *  - **Workspace chrome** (collapsed, size, codeTabTreeSize) lives on
  *    `preferences.rightPanel` — global to the user, set once and forgotten.
+ *    Drives the desktop Resizable's collapsed/expanded geometry.
+ *  - **Mobile drawer open state** is session-local, NOT persisted. Dismissing
+ *    the bottom-drawer host on a phone is an ephemeral gesture; persisting
+ *    it into account prefs would mean the next desktop session opens with
+ *    the panel collapsed for reasons the user never expressed on desktop.
  *  - **Per-terminal task state** (activeTab, codeMode, per-mode selected
  *    file) lives in an in-memory store keyed by terminal id; mutations
  *    push to the server via `client.terminal.setRightPanel`, which writes
@@ -21,6 +26,7 @@ import {
   type TerminalId,
   rightPanelView,
 } from "kolu-common/surface";
+import { createSignal } from "solid-js";
 import { createStore, produce } from "solid-js/store";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { client, preferences, updatePreferences } from "../wire";
@@ -35,6 +41,13 @@ const MAX_TREE_SIZE = 0.9;
 const [perTerminal, setPerTerminal] = createStore<
   Record<TerminalId, RightPanelPerTerminalState>
 >({});
+
+/** Session-local visibility of the mobile bottom-drawer host. Distinct from
+ *  the persisted `preferences.rightPanel.collapsed` bit so dismissing the
+ *  drawer on mobile doesn't cross-contaminate the desktop chrome preference.
+ *  `RightPanelLayout`'s mobile branch owns the open/close gestures; the
+ *  desktop branch ignores this signal entirely. */
+const [drawerOpen, setDrawerOpen] = createSignal(false);
 
 function ensureState(id: TerminalId): void {
   if (perTerminal[id]) return;
@@ -114,6 +127,12 @@ export function useRightPanel() {
       }
     },
 
+    // ── Mobile drawer (session-local) ────────────────────────────────
+    /** Whether the mobile bottom-drawer host is open. Only meaningful on
+     *  mobile — desktop reads `collapsed()` instead. Not persisted. */
+    drawerOpen,
+    setDrawerOpen,
+
     // ── Per-terminal task state ──────────────────────────────────────
     /** DU view of the active tab — `{ kind: "inspector" }` or
      *  `{ kind: "code", mode }`. Matches `match(...).with(...).exhaustive()`. */
@@ -136,24 +155,21 @@ export function useRightPanel() {
         activeTab: "code",
         ...(mode !== undefined && { codeMode: mode }),
       }),
-    /** Atomic "open the Code tab at `mode`" — uncollapse the panel,
-     *  switch to Code, set the requested sub-mode. The collapse flip is
-     *  a global write; the tab/mode flip is a per-terminal write.
+    /** Atomic "set the Code tab at `mode`" — switch to Code, set the
+     *  requested sub-mode. Does NOT touch visibility (collapsed pref or
+     *  drawer-open signal); the host (`RightPanelLayout`) watches the
+     *  paired `pendingOpen` signal seeded by `openInCodeTab` and ensures
+     *  the surface is visible per its own semantics (desktop expand vs.
+     *  mobile drawer open). Keeping visibility out of this function is
+     *  what lets one persisted bit live on the desktop side without
+     *  mobile gestures polluting it.
      *
-     *  Short-circuits when the panel is already open at the right tab+mode —
-     *  every diff→browse and browse→browse `openCodeAt` would otherwise
-     *  round-trip two writes to the server. When the panel is collapsed, the
-     *  per-terminal write still fires (the tab/mode may need updating even
-     *  though the panel is opening fresh). */
+     *  Short-circuits when the tab+mode is already current — every
+     *  diff→browse and browse→browse `openCodeAt` would otherwise
+     *  round-trip an idempotent write to the server. */
     openCodeAt: (mode: CodeTabView) => {
       const cur = activeState();
-      const wasCollapsed = rp().collapsed;
-      if (!wasCollapsed && cur.activeTab === "code" && cur.codeMode === mode) {
-        return;
-      }
-      if (wasCollapsed) {
-        updatePreferences({ rightPanel: { collapsed: false } });
-      }
+      if (cur.activeTab === "code" && cur.codeMode === mode) return;
       mutateActive({ activeTab: "code", codeMode: mode });
     },
     /** Change the sub-mode within the Code tab. */

@@ -21,8 +21,9 @@
 import Drawer from "@corvu/drawer";
 import Resizable from "@corvu/resizable";
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
-import { type Component, type JSX, Show } from "solid-js";
+import { type Component, createEffect, type JSX, on, Show } from "solid-js";
 import { isMobile } from "../useMobile";
+import { pendingOpen } from "./openInCodeTab";
 import RightPanel from "./RightPanel";
 import { useRightPanel } from "./useRightPanel";
 
@@ -39,6 +40,22 @@ const RightPanelLayout: Component<{
 }> = (props) => {
   const rightPanel = useRightPanel();
 
+  // Each host owns its own "make visible" semantics in response to a
+  // producer's `openInCodeTab` request. Desktop uncollapse writes to
+  // persisted prefs; mobile open is session-local. The hook never
+  // learns the platform — visibility dispatch lives here.
+  createEffect(
+    on(
+      pendingOpen,
+      (req) => {
+        if (!req) return;
+        if (isMobile()) rightPanel.setDrawerOpen(true);
+        else if (rightPanel.collapsed()) rightPanel.expandPanel();
+      },
+      { defer: true },
+    ),
+  );
+
   return (
     <Show
       when={!isMobile()}
@@ -51,11 +68,8 @@ const RightPanelLayout: Component<{
           </div>
           <Drawer
             side="bottom"
-            open={!rightPanel.collapsed()}
-            onOpenChange={(open) => {
-              if (open) rightPanel.expandPanel();
-              else rightPanel.collapsePanel();
-            }}
+            open={rightPanel.drawerOpen()}
+            onOpenChange={rightPanel.setDrawerOpen}
           >
             <Drawer.Portal>
               <Drawer.Overlay
@@ -73,7 +87,7 @@ const RightPanelLayout: Component<{
                   <RightPanel
                     terminalId={props.terminalId}
                     meta={props.meta}
-                    onToggle={rightPanel.togglePanel}
+                    onToggle={() => rightPanel.setDrawerOpen(false)}
                     themeName={props.themeName}
                     onThemeClick={props.onThemeClick}
                   />

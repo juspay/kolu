@@ -106,16 +106,19 @@ const MobileChromeSheet: Component<{
           data-testid="inspector-toggle"
           class="h-9 w-9 flex items-center justify-center text-fg-2 bg-surface-2 rounded-lg border border-edge active:bg-surface-3"
           classList={{
-            "bg-surface-3 text-fg": !rightPanel.collapsed(),
+            "bg-surface-3 text-fg": rightPanel.drawerOpen(),
           }}
           onPointerDown={(e) => e.stopPropagation()}
           onClick={() => {
-            rightPanel.togglePanel();
+            // Mobile drawer is session-local — do NOT call togglePanel,
+            // which writes the desktop chrome preference. This is the
+            // whole reason `drawerOpen` exists as a separate signal.
+            rightPanel.setDrawerOpen(!rightPanel.drawerOpen());
             props.onClose();
           }}
           aria-label="Toggle inspector"
         >
-          <InspectorToggleIcon active={!rightPanel.collapsed()} />
+          <InspectorToggleIcon active={rightPanel.drawerOpen()} />
         </button>
       </div>
     </div>
