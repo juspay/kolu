@@ -1,15 +1,16 @@
-/** Dock row ranking — the single source for "what live terminals does
- *  the dock show, in what order".
+/** Dock row ranking — pure bucket-classifier + recency-sort over the
+ *  live-terminal id list.
  *
- *  Desktop `Dock.tsx`, `MobileDockDrawer.tsx`, and the `Cmd+1..9`
- *  keyboard shortcut all read the same `rankDockRows` output, so the
- *  visual row order and the row that a numeric shortcut activates can
- *  never disagree. Without this single source the Alt-held hint chips
- *  can lie about which terminal `Cmd+N` targets — the dock paints rows
- *  with parked terminals dimmed and pushed down, but a parallel
- *  pure-recency derivation in `ActionContext.dockOrderedIds` would
- *  send the keystroke to whichever terminal had the most recent
- *  `lastActivityAt` regardless of its dock position.
+ *  All consumers reach this function through `useDockOrder()` (the
+ *  desktop `Dock`, `MobileDockDrawer`, and `App.tsx`'s `dockOrderedIds`
+ *  feeding `Cmd+1..9` all read the same singleton output). That seam
+ *  enforces structurally what this comment used to ask for as a
+ *  convention: the visual row order and the row a numeric shortcut
+ *  activates can't disagree, because there is exactly one derivation
+ *  pipeline. Direct callers of `rankDockRows` bypass `useDockOrder` and
+ *  lose access to the tree projection that the dock actually renders —
+ *  reach for the singleton unless you have a specific reason to ignore
+ *  the tree layer (e.g. unit tests of this module).
  *
  *  Kept separate from `dockModel.ts`: that module uses a four-bucket
  *  scheme (`awaiting/working/idle/none`) that the canvas minimap also
