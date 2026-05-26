@@ -28,9 +28,8 @@ import {
 import type { Logger } from "kolu-shared";
 import {
   type RpcEvent,
-  RpcEventSchema,
+  RpcFrameSchema,
   type RpcResponse,
-  RpcResponseSchema,
 } from "kolu-remote-agent/protocol";
 
 // ── State machine ─────────────────────────────────────────────────────
@@ -311,18 +310,20 @@ export class HostSession {
       return;
     }
 
-    // Discriminate by `kind` — the agent writes one of `response` or
-    // `event` frames (it never sends `request`).
-    const frame = parsed as { kind?: string };
-    if (frame.kind === "response") {
-      const resp = RpcResponseSchema.safeParse(parsed);
-      if (!resp.success) return;
-      this.onResponse(resp.data);
-    } else if (frame.kind === "event") {
-      const evt = RpcEventSchema.safeParse(parsed);
-      if (!evt.success) return;
-      this.onEvent(evt.data);
+    // Single-source dispatch through the protocol's discriminated
+    // union — `RpcFrameSchema` validates kind + payload in one parse,
+    // so adding a new frame variant lands in protocol.ts only.
+    const frame = RpcFrameSchema.safeParse(parsed);
+    if (!frame.success) {
+      this.log.warn({ issues: frame.error.issues, line }, "invalid rpc frame");
+      return;
     }
+    if (frame.data.kind === "response") {
+      this.onResponse(frame.data);
+    } else if (frame.data.kind === "event") {
+      this.onEvent(frame.data);
+    }
+    // `request` is never sent by the agent; if it appears we ignore.
   }
 
   private onResponse(resp: RpcResponse): void {
