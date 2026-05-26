@@ -6,10 +6,11 @@
  *  Android "navigation drawer" gesture — swipe from the left edge, or
  *  tap the thin left-edge handle, to reveal the terminal list.
  *
- *  Scope kept tight on purpose: rows are simple (`dot · branch · time`,
- *  with a foreground line on non-agent rows). No reply input and no
- *  xterm buffer tail — the user's intent here is "switch to that other
- *  terminal", not "respond inline".
+ *  Rows match the desktop bare-dock layout — `[agent] branch [pips]
+ *  time` over a CSS subgrid — but with uniform `py-3` so every tap
+ *  target clears the iOS / Android 44-48 px minimum. No reply input
+ *  and no xterm buffer tail; the user's intent here is "switch to
+ *  that other terminal", not "respond inline".
  *
  *  Row order mirrors the desktop dock: same `useDockOrder` singleton,
  *  so the mobile drawer and desktop never disagree on group order, row
@@ -126,7 +127,6 @@ const MobileRow: Component<{
   });
   const active = () => store.activeId() === props.id;
   const unread = () => store.isUnread(props.id);
-  const live = () => props.bucket === "awaiting" || props.bucket === "working";
   const foreground = (m: TerminalMetadata) =>
     m.foreground?.title ?? m.foreground?.name ?? null;
   return (
@@ -144,19 +144,11 @@ const MobileRow: Component<{
           // drag-to-dismiss from claiming the tap.
           onPointerDown={(e) => e.stopPropagation()}
           onClick={() => props.onSelect(props.id)}
-          class="relative w-full grid grid-cols-subgrid col-span-full items-center -ml-[3px] pl-[3px] border-l-[3px] border-l-transparent border-b border-b-edge/15 text-left transition-colors duration-150 cursor-pointer active:bg-surface-2 data-[active]:bg-surface-2 data-[active]:border-l-accent"
-          classList={{
-            "py-3": live(),
-            "py-2": !live(),
-          }}
+          class="relative w-full grid grid-cols-subgrid col-span-full items-center py-3 -ml-[3px] pl-[3px] border-l-[3px] border-l-transparent border-b border-b-edge/15 text-left transition-colors duration-150 cursor-pointer active:bg-surface-2 data-[active]:bg-surface-2 data-[active]:border-l-accent"
         >
           <AgentSlot agent={c().meta.agent} />
           <span
-            class="font-medium leading-tight truncate min-w-0"
-            classList={{
-              "text-[0.95rem]": live(),
-              "text-[0.85rem]": !live(),
-            }}
+            class="font-medium text-[0.9rem] leading-tight truncate min-w-0"
             style={{
               color: c().info.annotationColor,
             }}
