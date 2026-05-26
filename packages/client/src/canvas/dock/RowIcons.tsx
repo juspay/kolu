@@ -2,11 +2,15 @@
  *  "has a PR, has an agent, has sub-terminals" without unfolding the
  *  full chrome.
  *
- *  Each pip lives in a **fixed-width slot** so the icon columns line
- *  up vertically across rows — scanning the dock you can tell which
- *  rows have a PR by looking at one column, which have an agent at
- *  the next, etc. Empty slots collapse to a blank cell of the same
- *  width rather than pulling other icons leftward.
+ *  Emits **three cells**, one per pip type, designed to sit directly
+ *  inside `RepoSection`'s 6-column CSS-subgrid so the pip columns
+ *  align vertically across every row in the section. When a column
+ *  has no pip on any row in the section, the column auto-collapses
+ *  to 0 (no width is reserved for slots nobody uses), so a section
+ *  whose rows all lack PRs gives that width back to the branch
+ *  label. Cells are empty `<span>`s rather than `<Show>`-conditional
+ *  null so the subgrid placement stays stable: cell 3 is always PR,
+ *  cell 4 is always agent, cell 5 is always sub-count.
  *
  *  Pips are presence-only — no number, no label, no token count. The
  *  bucket dot already encodes agent state (awaiting / working /
@@ -30,9 +34,25 @@ import { type Component, Show } from "solid-js";
 import { Dynamic } from "solid-js/web";
 import ChecksIndicator from "../../terminal/ChecksIndicator";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
-import { agentIcons } from "../../ui/agentDisplay";
+import { agentIcons, stateLabels } from "../../ui/agentDisplay";
 import { PrStateIcon } from "../../ui/Icons";
 import { SubCountChip } from "./SubCountChip";
+
+/** Per-state color + animation for the agent pip — single source so
+ *  the dock's pip matches every other agent-state surface in the app
+ *  (the tile chrome's `AgentIndicator`, the canvas minimap's badge
+ *  dot, the workspace switcher's agent column). `thinking` pulses,
+ *  `tool_use` spins; both colour as `busy`. `waiting` and
+ *  `awaiting_user` pulse in `warning`. */
+const AGENT_PIP_STATE: Record<
+  AgentInfo["state"],
+  { color: string; animation: string }
+> = {
+  thinking: { color: "text-busy", animation: "animate-pulse" },
+  tool_use: { color: "text-busy", animation: "animate-spin" },
+  waiting: { color: "text-warning", animation: "animate-pulse" },
+  awaiting_user: { color: "text-warning", animation: "animate-pulse" },
+};
 
 const CHECKS_LABEL: Record<GitHubCheckStatus, string> = {
   pass: "Checks: pass",
@@ -45,20 +65,6 @@ function prTooltip(pr: GitHubPrInfo): string {
   return `${prLabel(pr)}${checks}`;
 }
 
-/** Fixed-width slot wrapper — children right-align inside so the
- *  rendered icons sit flush against the *next* slot's left edge and
- *  the columns visually align across rows regardless of which slots
- *  are populated. */
-const Slot: Component<{
-  /** Tailwind width utility (`w-6`, `w-7`, …). */
-  width: string;
-  children: unknown;
-}> = (props) => (
-  <span class={`${props.width} flex items-center justify-end gap-1 shrink-0`}>
-    {props.children as never}
-  </span>
-);
-
 export const RowIcons: Component<{
   meta: TerminalMetadata;
   info: TerminalDisplayInfo;
@@ -66,7 +72,7 @@ export const RowIcons: Component<{
   const pr = (): GitHubPrInfo | null => prValue(props.meta.pr);
   return (
     <>
-      <Slot width="w-7">
+      <span class="flex items-center justify-end gap-1">
         <Show when={pr()}>
           {(p) => (
             <a
@@ -85,13 +91,13 @@ export const RowIcons: Component<{
             </a>
           )}
         </Show>
-      </Slot>
-      <Slot width="w-4">
+      </span>
+      <span class="flex items-center justify-end">
         <Show when={props.meta.agent}>
           {(agent) => <AgentPip agent={agent()} />}
         </Show>
-      </Slot>
-      <Slot width="w-7">
+      </span>
+      <span class="flex items-center justify-end">
         <Show when={props.info.subCount > 0}>
           <SubCountChip
             count={props.info.subCount}
@@ -99,19 +105,21 @@ export const RowIcons: Component<{
             testId="dock-sub-count"
           />
         </Show>
-      </Slot>
+      </span>
     </>
   );
 };
 
 const AgentPip: Component<{ agent: AgentInfo }> = (props) => {
   const Icon = () => agentIcons[props.agent.kind];
+  const cfg = () => AGENT_PIP_STATE[props.agent.state];
   return (
     <span
-      class="shrink-0 text-fg-3"
+      class={`shrink-0 inline-flex ${cfg().color} ${cfg().animation}`}
       data-testid="dock-row-agent-pip"
       data-agent-kind={props.agent.kind}
-      title={props.agent.kind}
+      data-agent-state={props.agent.state}
+      title={`${props.agent.kind} · ${stateLabels[props.agent.state]}`}
     >
       <Dynamic component={Icon()} class="w-3 h-3" />
     </span>

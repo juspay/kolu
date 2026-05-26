@@ -9,14 +9,20 @@
  *     animations. Click any swatch to expand; click the chevron at the
  *     top to switch to cards.
  *  2. **cards** (default) — rows grouped by repo. Each repo gets a
- *     small section header (uppercase name + repo-colored swatch + row
- *     count); rows below it stack as compact `dot · branch · pips ·
- *     time` lines. Pips carry presence-only signal — PR state icon,
- *     agent-kind logo, sub-terminal chip — so the row scans as "has a
- *     PR, has an agent" at a glance. The active row gets a quiet
- *     highlight (`bg-surface-2` + a 3 px accent left-edge stripe);
- *     row geometry stays constant so the dock never reflows when the
- *     active terminal changes.
+ *     small section header (uppercase name + repo-colored swatch +
+ *     row count); rows below stack as `branch · pips · time` lines.
+ *     The agent-kind pip carries state directly via colour + cadence
+ *     (busy + pulse/spin for `working`, warning + pulse for
+ *     `awaiting`), so a single icon does double duty as "which
+ *     agent" + "what is it doing now" — no redundant status dot.
+ *     PR pip is a link to the PR with the live checks verdict in its
+ *     tooltip; the sub-terminal chip surfaces when there are nested
+ *     terminals. The active row gets a quiet highlight
+ *     (`bg-surface-2` + 3 px accent left-edge stripe); row geometry
+ *     stays constant so the dock never reflows when the active
+ *     terminal changes. Pip columns share a CSS subgrid across each
+ *     section so a column whose rows all lack a pip collapses to
+ *     0 width and gives that space back to the branch label.
  *
  *  The activity-window chip (`24h`/`12h`/`All`) is a hard filter, not a
  *  dim: rows past the window disappear from the dock entirely; a small
@@ -331,12 +337,19 @@ const RepoSection: Component<{
    *  row per render. Built once per tree update by `RailOrCards`. */
   flatIndexOf: ReadonlyMap<TerminalId, number>;
 }> = (props) => (
+  // Section is the grid container. Six columns: dot · branch ·
+  // pr-pip · agent-pip · sub-count · time. Branch is `minmax(0,1fr)`
+  // so it stretches and truncates; the pip columns are `auto`, so
+  // any column whose rows are entirely empty collapses to 0 instead
+  // of stealing branch width. Each DockRow is a subgrid item that
+  // inherits these columns, keeping the icons aligned vertically
+  // across rows.
   <section
     data-testid="dock-section"
     data-repo={props.group.name}
-    class="flex flex-col"
+    class="grid grid-cols-[minmax(0,1fr)_auto_auto_auto_auto] gap-x-2 px-3"
   >
-    <div class="flex items-center gap-2 px-3 pt-3 pb-1">
+    <div class="col-span-full flex items-center gap-2 pt-3 pb-1">
       <span
         aria-hidden="true"
         class="w-2 h-2 rounded-sm shrink-0"
@@ -405,10 +418,9 @@ const DockRow: Component<{
           data-unread={unread() ? "" : undefined}
           data-sub-count={c().info.subCount > 0 ? c().info.subCount : undefined}
           onClick={() => store.activate(props.id)}
-          class="relative w-full grid grid-cols-[18px_minmax(0,1fr)_auto] items-center gap-x-2 px-3 py-1.5 text-left cursor-pointer transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 hover:bg-surface-2/40 data-[active]:bg-surface-2 data-[active]:shadow-[inset_3px_0_0_var(--color-accent)]"
+          class="relative w-full grid grid-cols-subgrid col-span-full items-center py-1.5 text-left cursor-pointer transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 hover:bg-surface-2/40 data-[active]:bg-surface-2 data-[active]:shadow-[inset_3px_0_0_var(--color-accent)]"
           title="Jump to this terminal"
         >
-          <BucketDot bucket={props.bucket} active={active()} />
           <span
             class="font-medium text-[0.85rem] leading-tight truncate min-w-0"
             style={{
@@ -419,12 +431,10 @@ const DockRow: Component<{
               markdown={annotationLine(c().meta.intent, c().info.key.label)}
             />
           </span>
-          <div class="flex items-center gap-1.5 shrink-0">
-            <RowIcons meta={c().meta} info={c().info} />
-            <span class="font-mono text-[0.6rem] tabular-nums text-fg-3 min-w-[3.25rem] text-right">
-              {formatTimeAgo(c().meta.lastActivityAt)}
-            </span>
-          </div>
+          <RowIcons meta={c().meta} info={c().info} />
+          <span class="font-mono text-[0.6rem] tabular-nums text-fg-3 text-right">
+            {formatTimeAgo(c().meta.lastActivityAt)}
+          </span>
           <Show when={unread()}>
             <span
               class="absolute -top-0.5 right-1 inline-flex h-2 w-2"
@@ -451,7 +461,7 @@ const DockRow: Component<{
             {(fg) => (
               <span
                 data-testid="dock-quiet-foreground"
-                class="col-start-2 col-end-4 font-mono text-[0.65rem] text-fg-2 truncate min-w-0"
+                class="col-start-1 col-end-[-1] font-mono text-[0.65rem] text-fg-2 truncate min-w-0"
               >
                 {fg()}
               </span>
@@ -462,24 +472,6 @@ const DockRow: Component<{
     </Show>
   );
 };
-
-/** Bucket-coloured status disk. Sole state cue on inactive rows; on
- *  active rows it inverts to white so it stays visible against the
- *  accent flood. Awaiting breathes, working pulses, idle/none hold a
- *  flat dim disk. */
-const BucketDot: Component<{ bucket: DockRowBucket; active: boolean }> = (
-  props,
-) => (
-  <span
-    aria-hidden="true"
-    data-bucket={props.bucket}
-    class="dock-row-dot block w-2 h-2 rounded-full justify-self-center"
-    classList={{
-      "dock-rail-awaiting": props.bucket === "awaiting" && !props.active,
-      "dock-rail-working": props.bucket === "working" && !props.active,
-    }}
-  />
-);
 
 /** Rail-mode row — one colored swatch per terminal. The bucket comes
  *  from the same `RankedDockRow` the cards mode renders, so the rail's

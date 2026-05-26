@@ -83,12 +83,15 @@ const MobileSection: Component<{
   group: DockGroup;
   onSelect: (id: TerminalId) => void;
 }> = (props) => (
+  // Subgrid container — same shape as the desktop dock. Empty pip
+  // columns collapse to 0 width so the branch label gets every
+  // pixel that isn't being used by a live pip.
   <section
     data-testid="mobile-dock-section"
     data-repo={props.group.name}
-    class="flex flex-col"
+    class="grid grid-cols-[minmax(0,1fr)_auto_auto_auto_auto] gap-x-3 px-3"
   >
-    <div class="flex items-center gap-2 px-3 pt-3 pb-1">
+    <div class="col-span-full flex items-center gap-2 pt-3 pb-1">
       <span
         aria-hidden="true"
         class="w-2.5 h-2.5 rounded-sm shrink-0"
@@ -141,13 +144,12 @@ const MobileRow: Component<{
           // drag-to-dismiss from claiming the tap.
           onPointerDown={(e) => e.stopPropagation()}
           onClick={() => props.onSelect(props.id)}
-          class="relative w-full grid grid-cols-[20px_minmax(0,1fr)_auto] items-center gap-x-3 px-3 text-left transition-colors duration-150 cursor-pointer active:bg-surface-2 border-b border-edge/15 data-[active]:bg-surface-2 data-[active]:shadow-[inset_3px_0_0_var(--color-accent)]"
+          class="relative w-full grid grid-cols-subgrid col-span-full items-center text-left transition-colors duration-150 cursor-pointer active:bg-surface-2 border-b border-edge/15 data-[active]:bg-surface-2 data-[active]:shadow-[inset_3px_0_0_var(--color-accent)]"
           classList={{
             "py-3": live(),
             "py-2": !live(),
           }}
         >
-          <BucketDot bucket={props.bucket} />
           <span
             class="font-medium leading-tight truncate min-w-0"
             classList={{
@@ -162,12 +164,10 @@ const MobileRow: Component<{
               markdown={annotationLine(c().meta.intent, c().info.key.label)}
             />
           </span>
-          <div class="flex items-center gap-1.5 shrink-0">
-            <RowIcons meta={c().meta} info={c().info} />
-            <span class="font-mono text-[0.65rem] tabular-nums text-fg-3 min-w-[3.5rem] text-right">
-              {formatTimeAgo(c().meta.lastActivityAt)}
-            </span>
-          </div>
+          <RowIcons meta={c().meta} info={c().info} />
+          <span class="font-mono text-[0.65rem] tabular-nums text-fg-3 text-right">
+            {formatTimeAgo(c().meta.lastActivityAt)}
+          </span>
           <Show when={unread()}>
             <span
               aria-hidden="true"
@@ -178,7 +178,7 @@ const MobileRow: Component<{
             {(fg) => (
               <span
                 data-testid="mobile-dock-foreground"
-                class="col-start-2 col-end-4 font-mono text-[0.7rem] text-fg-2 truncate min-w-0"
+                class="col-start-1 col-end-[-1] font-mono text-[0.7rem] text-fg-2 truncate min-w-0"
               >
                 {fg()}
               </span>
@@ -189,17 +189,5 @@ const MobileRow: Component<{
     </Show>
   );
 };
-
-const BucketDot: Component<{ bucket: DockRowBucket }> = (props) => (
-  <span
-    aria-hidden="true"
-    data-bucket={props.bucket}
-    class="dock-row-dot block w-2.5 h-2.5 rounded-full justify-self-center"
-    classList={{
-      "dock-rail-awaiting": props.bucket === "awaiting",
-      "dock-rail-working": props.bucket === "working",
-    }}
-  />
-);
 
 export default MobileDockDrawer;
