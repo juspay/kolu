@@ -33,7 +33,7 @@ import { SafeClipboardProvider, writeTextToClipboard } from "../ui/clipboard";
 import "@xterm/xterm/css/xterm.css";
 import type { TerminalId } from "kolu-common/surface";
 import { DEFAULT_SCROLLBACK } from "kolu-common/config";
-import { rejectionFor } from "kolu-common/upload";
+import { rejectionFor, sizeRejectionFor } from "kolu-common/upload";
 import { FONT_FAMILY } from "terminal-themes";
 import { ACTIONS, matchesAnyShortcut } from "../input/actions";
 import { matchesKeybind } from "../input/keyboard";
@@ -786,14 +786,20 @@ const Terminal: Component<{
           // paste event (not navigator.clipboard.read) so no explicit
           // clipboard-read permission is needed.
           async function uploadPastedImage(file: File) {
-            const base64 = bufferToBase64(await file.arrayBuffer());
+            const reason = sizeRejectionFor("clipboard image", file.size);
+            if (reason !== null) {
+              toast.error(reason);
+              return;
+            }
             try {
+              const base64 = bufferToBase64(await file.arrayBuffer());
               await client.terminal.pasteImage({
                 id: props.terminalId,
                 data: base64,
               });
             } catch (err) {
-              console.error("Failed to upload clipboard image:", err);
+              const message = err instanceof Error ? err.message : String(err);
+              toast.error(`Failed to upload clipboard image: ${message}`);
             }
           }
 
