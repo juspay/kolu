@@ -21,16 +21,17 @@ When(
         if (!target) throw new Error("No focused terminal container");
         const dt = new DataTransfer();
         dt.items.add(new File([content], name, { type: "text/plain" }));
-        const fire = (type: string) =>
-          target.dispatchEvent(
-            new DragEvent(type, {
-              bubbles: true,
-              cancelable: true,
-              dataTransfer: dt,
-            }),
-          );
-        fire("dragover");
-        fire("drop");
+        // Inline the two dispatches rather than a `fire(type)` helper:
+        // esbuild's keep-names transform decorates inner functions with
+        // a `__name(...)` call that doesn't exist inside page.evaluate's
+        // browser-side eval context, so a named arrow here would crash.
+        const init = {
+          bubbles: true,
+          cancelable: true,
+          dataTransfer: dt,
+        } as const;
+        target.dispatchEvent(new DragEvent("dragover", init));
+        target.dispatchEvent(new DragEvent("drop", init));
       },
       { name, content },
     );
