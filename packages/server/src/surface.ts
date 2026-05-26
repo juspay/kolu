@@ -58,6 +58,8 @@ import { store } from "./state.ts";
 import { getTerminalBackendFor } from "./terminalBackend/index.ts";
 import { getTerminal, listTerminals } from "./terminal-registry.ts";
 
+const localBackend = getTerminalBackendFor({ kind: "local" });
+
 // `t` is the host router builder; both `surfaceRouter` and the raw oRPC
 // handlers in `router.ts` plug procedures into it. Exported so `router.ts`
 // can call `t.terminal.create.handler(...)` etc. against the same builder.
@@ -202,47 +204,33 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
       // touching this block again.
       gitStatus: {
         read: async (input) =>
-          getTerminalBackendFor({ kind: "local" }).git.getStatus(
-            input.repoPath,
-            input.mode,
-          ),
+          localBackend.git.getStatus(input.repoPath, input.mode),
         install: (input, cb) =>
-          getTerminalBackendFor({ kind: "local" }).fs.subscribeRepoChange(
-            input.repoPath,
-            cb,
-          ),
+          localBackend.fs.subscribeRepoChange(input.repoPath, cb),
         isEqual: gitStatusOutputEqual,
       },
       gitDiff: {
         read: async (input) =>
-          getTerminalBackendFor({ kind: "local" }).git.getDiff(
+          localBackend.git.getDiff(
             input.repoPath,
             input.filePath,
             input.mode,
             input.oldPath,
           ),
         install: (input, cb) =>
-          getTerminalBackendFor({ kind: "local" }).fs.subscribeRepoChange(
-            input.repoPath,
-            cb,
-          ),
+          localBackend.fs.subscribeRepoChange(input.repoPath, cb),
         isEqual: gitDiffOutputEqual,
       },
       fsListAll: {
-        read: async (input) =>
-          getTerminalBackendFor({ kind: "local" }).fs.listAll(input.repoPath),
+        read: async (input) => localBackend.fs.listAll(input.repoPath),
         install: (input, cb) =>
-          getTerminalBackendFor({ kind: "local" }).fs.subscribeRepoChange(
-            input.repoPath,
-            cb,
-          ),
+          localBackend.fs.subscribeRepoChange(input.repoPath, cb),
         isEqual: fsListAllOutputEqual,
       },
       fsReadFile: {
         read: async (input): Promise<FsReadFileOutput> => {
-          const backend = getTerminalBackendFor({ kind: "local" });
           if (isIframePreviewable(input.filePath)) {
-            const mtimeMs = await backend.fs.statFileMtimeMs(
+            const mtimeMs = await localBackend.fs.statFileMtimeMs(
               input.repoPath,
               input.filePath,
             );
@@ -255,14 +243,14 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
               ),
             };
           }
-          const { content, truncated } = await backend.fs.readFile(
+          const { content, truncated } = await localBackend.fs.readFile(
             input.repoPath,
             input.filePath,
           );
           return { kind: "text", content, truncated };
         },
         install: (input, cb) =>
-          getTerminalBackendFor({ kind: "local" }).fs.subscribeFileChange(
+          localBackend.fs.subscribeFileChange(
             input.repoPath,
             input.filePath,
             cb,
