@@ -45,22 +45,19 @@ function uniquePath(dir: string, name: string): string {
  *  creating the dir on first use. Returns the on-disk path so the
  *  caller can bracketed-paste it into the PTY.
  *
- *  `name` is sanitized first. When `unique` is true (default), a
- *  collision suffix protects existing files in the dir — this is the
- *  drag-and-drop path. When `unique` is false, the path is reused as-is
- *  and a prior file with the same name is overwritten — that's the
- *  clipboard-image path, where every paste is "the latest screenshot"
- *  and accumulating `image-N.png` artifacts would be noise. */
+ *  `name` is sanitized; a collision suffix (`-1`, `-2`, …) protects
+ *  any prior file in the dir from being clobbered. Two pastes in
+ *  flight — image then drop, drop then drop, or two pastes before the
+ *  agent has consumed the first — each get their own path so the
+ *  bracketed-paste references survive a late read. */
 export function saveTerminalFile(
   terminalId: string,
   name: string,
   base64Data: string,
-  { unique = true }: { unique?: boolean } = {},
 ): string {
   const dir = dirFor(terminalId);
   mkdirSync(dir, { recursive: true });
-  const safeName = sanitizeUploadName(name);
-  const path = unique ? uniquePath(dir, safeName) : join(dir, safeName);
+  const path = uniquePath(dir, sanitizeUploadName(name));
   writeFileSync(path, Buffer.from(base64Data, "base64"));
   return path;
 }

@@ -160,9 +160,7 @@ export const appRouter = t.router({
       if (reason !== null) {
         throw new ORPCError("BAD_REQUEST", { message: reason });
       }
-      const path = saveTerminalFile(input.id, "image.png", input.data, {
-        unique: false,
-      });
+      const path = saveTerminalFile(input.id, "image.png", input.data);
       bracketedPastePath(entry, path);
       log.info({ terminal: input.id, bytes, path }, "paste image");
     }),
