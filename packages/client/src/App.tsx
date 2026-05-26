@@ -13,6 +13,7 @@ import {
   type Component,
   createEffect,
   createMemo,
+  createResource,
   createSignal,
   on,
   Show,
@@ -281,6 +282,43 @@ const App: Component = () => {
     setCloseConfirmTarget({ id, meta, splitCount, worktreeRemoval });
   }
 
+  // R-2: SSH aliases from the user's `~/.ssh/config`. Fetched once on
+  // mount; refetch would be wired if the picker needs live updates
+  // (e.g. file-system watcher on the ssh config).
+  const [sshHostsResource] = createResource(async () => {
+    try {
+      const { hosts } = await client.server.listSshHosts();
+      return hosts;
+    } catch (err) {
+      toast.error(
+        `Failed to list SSH hosts: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return [];
+    }
+  });
+  const sshHosts = () => sshHostsResource() ?? [];
+
+  async function handleCreateOnHost(host: string): Promise<void> {
+    const id = toast.loading(`Connecting to ${host}…`);
+    try {
+      const result = await client.server.installSshAgent({ host });
+      if (!result.ok) {
+        toast.error(
+          `Failed to install agent on ${host}: ${result.message ?? "unknown error"}`,
+          { id },
+        );
+        return;
+      }
+      await crud.handleCreate(undefined, undefined, { kind: "ssh", host });
+      toast.success(`Terminal opened on ${host}`, { id });
+    } catch (err) {
+      toast.error(
+        `Failed to create terminal on ${host}: ${err instanceof Error ? err.message : String(err)}`,
+        { id },
+      );
+    }
+  }
+
   const commands = createCommands({
     ...actionContext,
     handleCopyTerminalText: () => void crud.handleCopyTerminalText(),
@@ -309,6 +347,8 @@ const App: Component = () => {
     canvasAutoArrange: arrange.handleCanvasAutoArrange,
     workspaceEntries,
     recencyOf,
+    sshHosts,
+    handleCreateOnHost: (host) => void handleCreateOnHost(host),
   });
 
   // Reset state on close and return focus to terminal

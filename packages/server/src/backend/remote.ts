@@ -27,7 +27,14 @@ import type {
 } from "kolu-common/backend";
 import type { TerminalLocation } from "kolu-common/surface";
 import { log } from "../log.ts";
+import {
+  getTerminal,
+  registerTerminal,
+  type TerminalProcess,
+  unregisterTerminal,
+} from "../terminal-registry.ts";
 import type { AgentClient, HostSession } from "./host-session.ts";
+import { remoteHandle } from "./remote-handle.ts";
 
 /** Lazily resolve the agent client — throws a typed error if the
  *  session isn't connected yet. Each method body uses this to surface
@@ -58,28 +65,44 @@ export class RemoteBackend implements Backend {
       initialMetadata: opts.initialMetadata,
     });
     this.session.registerTerminal(id);
+
+    // Register a shadow entry in the kolu server's terminal-registry so
+    // router-level operations (`terminal.attach`, `sendInput`, `resize`,
+    // `kill`, `screenState`) find the terminal. `handle` is a PtyHandle-
+    // shaped proxy that forwards via session.client.
+    const handle = remoteHandle({
+      id,
+      cwd: opts.cwd ?? "/",
+      session: this.session,
+    });
+    const metaMod = await import("../meta/index.ts");
+    const meta = metaMod.createMetadata(opts.cwd ?? "/", this.id);
+    if (opts.initialMetadata) Object.assign(meta, opts.initialMetadata);
+    meta.connectionState = this.session.connectionState();
+    const entry: TerminalProcess = {
+      info: { id },
+      meta,
+      handle,
+      stopProviders: () => {},
+    };
+    // Register BEFORE subscribing — onStateChange fires the listener
+    // synchronously with the current state (snapshot-then-delta), and
+    // the listener's `getTerminal(id)` lookup must succeed for the
+    // initial metadata publish to flow.
+    registerTerminal(id, entry);
+    entry.stopProviders = this.session.onStateChange((s) => {
+      const e = getTerminal(id);
+      if (e) {
+        metaMod.updateServerLiveMetadata(e, id, (m) => {
+          m.connectionState = s;
+        });
+      }
+    });
+
     return {
       id,
-      write: (data) => {
-        void clientOf(this.session)
-          .terminal.write({ id, data })
-          .catch((err) => {
-            log.warn(
-              { host: this.session.host, id, err },
-              "remote write failed",
-            );
-          });
-      },
-      resize: (cols, rows) => {
-        void clientOf(this.session)
-          .terminal.resize({ id, cols, rows })
-          .catch((err) => {
-            log.warn(
-              { host: this.session.host, id, err },
-              "remote resize failed",
-            );
-          });
-      },
+      write: (data) => handle.write(data),
+      resize: (cols, rows) => handle.resize(cols, rows),
     };
   }
 
@@ -166,6 +189,8 @@ export class RemoteBackend implements Backend {
         );
       });
     this.session.unregisterTerminal(terminalId);
+    // Remove the server-side shadow entry too.
+    unregisterTerminal(terminalId);
     return true;
   }
 

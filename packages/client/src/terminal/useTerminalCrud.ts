@@ -108,6 +108,7 @@ export function useTerminalCrud(deps: {
   async function handleCreate(
     cwd?: string,
     initial?: InitialTerminalMetadata,
+    location?: import("kolu-common/surface").TerminalLocation,
   ): Promise<TerminalId> {
     if (store.activeMeta()?.git) showTipOnce(CONTEXTUAL_TIPS.worktree);
 
@@ -134,6 +135,7 @@ export function useTerminalCrud(deps: {
         rightPanel: initial?.rightPanel,
         lastActivityAt: initial?.lastActivityAt,
         intent: initial?.intent,
+        location,
       })
       .catch((err: Error) => {
         toast.error(`Failed to create terminal: ${err.message}`);

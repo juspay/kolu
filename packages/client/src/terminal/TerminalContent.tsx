@@ -8,6 +8,8 @@ import Resizable from "@corvu/resizable";
 import type { ITheme } from "@xterm/xterm";
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import { type Component, For, Show } from "solid-js";
+import { DisconnectedOverlay } from "./DisconnectedOverlay";
+import { HostChip } from "./HostChip";
 import SubPanelTabBar from "./SubPanelTabBar";
 import Terminal from "./Terminal";
 import { useSubPanel } from "./useSubPanel";
@@ -80,7 +82,11 @@ const TerminalContent: Component<{
       onSizesChange={handleSizesChange}
       class="flex-1 min-h-0"
     >
-      <Resizable.Panel as="div" class="min-h-0 overflow-hidden" minSize={0.2}>
+      <Resizable.Panel
+        as="div"
+        class="min-h-0 overflow-hidden relative"
+        minSize={0.2}
+      >
         <Terminal
           terminalId={props.terminalId}
           visible={props.visible}
@@ -90,6 +96,30 @@ const TerminalContent: Component<{
           onSearchOpenChange={props.onSearchOpenChange}
           onFocus={handleMainFocus}
         />
+        {/* R-2: remote-terminal chrome — HostChip in the corner,
+            DisconnectedOverlay covers the tile when the connection
+            drops. Local terminals render neither (HostChip's
+            internal Show gates on location.kind === "ssh"; the
+            overlay's `visible()` predicate gates on connectionState).
+            Self-healing — pulling meta from the props.getMetadata
+            accessor keeps this reactive to entry.meta updates. */}
+        <Show when={props.getMetadata(props.terminalId)}>
+          {(meta) => (
+            <>
+              <div class="absolute top-1 right-1 pointer-events-none">
+                <HostChip location={meta().location} />
+              </div>
+              <DisconnectedOverlay
+                location={meta().location}
+                connectionState={meta().connectionState}
+                onReconnect={() => {
+                  /* R-3: trigger HostSession.reconnect via RPC */
+                }}
+                onClose={() => props.onCloseTerminal(props.terminalId)}
+              />
+            </>
+          )}
+        </Show>
       </Resizable.Panel>
 
       {/* Resize handle — invisible hit zone, visible on hover */}

@@ -132,6 +132,12 @@ export interface CommandDeps extends ActionContext {
   // accessor the "Search workspaces" group walks to populate its rows.
   workspaceEntries: Accessor<DockSourceEntry[]>;
   recencyOf: (id: TerminalId) => number;
+  // R-2: SSH aliases from `~/.ssh/config` (server-side `listSshHosts`
+  // RPC). Drives "New terminal on $host" entries in the palette.
+  sshHosts: Accessor<{ alias: string }[]>;
+  // Create a terminal on a specific SSH host. Installs the agent on
+  // first use, then dispatches to RemoteBackend.
+  handleCreateOnHost: (host: string) => void;
   // Debug
   simulateAlert: () => void;
   handleClearLocalStorage: () => void;
@@ -201,6 +207,15 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
                 },
               ]
             : []),
+          // R-2: SSH host entries from `~/.ssh/config`.
+          ...deps.sshHosts().map(
+            (h): PaletteItem => ({
+              kind: "action",
+              name: `On ${h.alias}`,
+              description: `New terminal on remote host ${h.alias}`,
+              onSelect: () => deps.handleCreateOnHost(h.alias),
+            }),
+          ),
         ];
       },
     },
