@@ -23,9 +23,15 @@
   --color-rule: #1a1814;
   --color-rule-strong: #2a2620;
 
-  --color-amber: #e7b87a;
-  --color-amber-bright: #f4cf97;
-  --color-amber-dim: #a08256;
+  /* Brand amber — vibrant gold used for headings, CTA, links, and the
+     thin accent bars in the feature grid. Previously a muted peach
+     (#e7b87a / #f4cf97 / #a08256) that read as "soft editorial
+     beige" — the *shell* of the site is supposed to pop, especially
+     against the dark terminal mockups, so this palette is calibrated
+     for saturation without going full neon. */
+  --color-amber: #ffb020;
+  --color-amber-bright: #ffd45a;
+  --color-amber-dim: #b88420;
 
   /* Live-state accents — *electric*, not pastel. Used wherever the
      surface reflects *change* (agent working/awaiting in the dock,
@@ -73,9 +79,11 @@
   --color-ink-faint: #bfb8a6;
   --color-rule: #e1dac6;
   --color-rule-strong: #c9c1ab;
-  --color-amber: #9a5e1e;
-  --color-amber-bright: #7d4a14;
-  --color-amber-dim: #c2956a;
+  /* Light-mode amber — deeper, more solid versions of the dark gold.
+     Still saturated, still loud against warm paper. */
+  --color-amber: #b86c00;
+  --color-amber-bright: #8a4f00;
+  --color-amber-dim: #d49a4e;
   /* Light-mode live-state accents — deepened versions of the electric
      dark tokens. Still saturated, still loud against warm paper. */
   --color-live-teal: #007a6c;
