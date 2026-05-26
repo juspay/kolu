@@ -486,7 +486,7 @@ return { id, write: handle.write, resize: handle.resize };</code></pre>
 
 <p>Working through the prototype surfaced a structural question that the current Plan B redo doesn't address: the agent transport in <a href="https://github.com/juspay/kolu/pull/976">#976</a> hand-rolls ~300 LOC of oRPC framing, per-channel relay boilerplate, and stdio peer wiring that overlaps conceptually with <a href="https://kolu.dev/blog/surface-framework/"><code>@kolu/surface</code></a>'s existing snapshot+delta, retry, and pub/sub primitives. Subsuming the agent transport under Surface should shrink Kolu by ~300-400 LOC of glue and expand <code>@kolu/surface</code> by ~150-200 LOC of generic transport adapters — net negative LOC plus a unified mental model for "typed reactive state over an oRPC link."</p>
 
-<p class="lead">Status: <strong>Q1, Q2, Q4, Q5 answered</strong>; <strong>Q3 deferred</strong> until the subsumption prototype's phase split shape is clearer. Phase 1 (framework + search-index demo) implemented in this stacked PR; Phase 2 (Kolu agent migration) is a follow-up.</p>
+<p class="lead">Status: <strong>fully implemented in <a href="https://github.com/juspay/kolu/pull/978">#978</a></strong>. Q1/Q2/Q4/Q5 answered; Q3 deferred (the phase split shape is now clearer — Phase 1 + Phase 2 both landed in one stacked PR). End-to-end verified on darwin + linux remotes via chrome-devtools-mcp.</p>
 
 <h4>Concept mapping — what Surface already gives you</h4>
 <table>
@@ -561,27 +561,32 @@ return { id, write: handle.write, resize: handle.resize };</code></pre>
   <div class="your-answer" style="border-color: var(--ok); background: #fff;"><strong style="color: var(--ok);">ANSWERED:</strong> <strong>(c) Search-index worker.</strong> Implemented in <code>packages/surface/example/src/worker/</code> — child process owns an inverted-index <code>Map&lt;word, Set&lt;noteId&gt;&gt;</code>, serves <code>workerSurface</code> via <code>serveOverStdio</code>. Parent's <code>search</code> stream delegates via <code>createStdioCellsClient</code>; note upsert/remove triggers <code>index.update</code> snapshot push. User-facing benefit visible in the example app: the same search box, now backed by a sandboxed worker process that scales as the notes corpus grows.</div>
 </div>
 
-<h4>Implementation status (this PR)</h4>
-<div class="panel" style="background: #f1f7ff; border-color: #bcd6f5">
-  <p><strong>Phase 1 — Framework + demo (this PR, stacked on <a href="https://github.com/juspay/kolu/pull/976">#976</a>):</strong></p>
+<h4>Implementation status (this PR — <a href="https://github.com/juspay/kolu/pull/978">#978</a>, stacked on <a href="https://github.com/juspay/kolu/pull/976">#976</a>)</h4>
+<div class="panel" style="background: #f0f8f2; border-color: #b9e1c6">
+  <p><strong>✅ Phase 1 — Framework primitives + demo:</strong></p>
   <ul>
     <li>✅ <code>@kolu/surface/links/stdio</code> — <code>StdioRPCLink</code> + <code>createStdioCellsClient</code></li>
     <li>✅ <code>@kolu/surface/links/loopback</code> — <code>createLoopbackPair</code> for in-process symmetry</li>
     <li>✅ <code>@kolu/surface/peer-server</code> — <code>serveOverStdio</code></li>
     <li>✅ <code>inMemoryChannel&lt;T&gt;</code> in <code>@kolu/surface/server</code></li>
-    <li>✅ <code>packages/surface/example/src/worker/</code> — search-index worker demo (the user-facing Q5 artifact)</li>
+    <li>✅ <code>packages/surface/example/src/worker/</code> — search-index worker demo (the user-facing Q5(c) artifact)</li>
     <li>✅ <code>packages/common/src/agentSurface.ts</code> — <code>defineSurface</code> formulation of the agent contract</li>
   </ul>
-  <p><strong>Phase 2 — Kolu agent migration (follow-up PR):</strong></p>
+  <p><strong>✅ Phase 2 — Kolu agent migration:</strong></p>
   <ul>
-    <li>⏳ Wire <code>agent.ts</code> to serve <code>agentSurface</code> via <code>implementSurface</code> + <code>serveOverStdio</code> (alongside <code>agentContract</code> during migration)</li>
-    <li>⏳ Migrate <code>RemoteBackend</code> to consume the surface client; collapse 8-channel mirroring into one <code>terminalMetadata</code> subscription</li>
-    <li>⏳ Unify <code>LocalBackend</code> and <code>RemoteBackend</code> via the loopback link (Q4(a))</li>
-    <li>⏳ <code>Backend</code> as typed wrapper (Q2(c))</li>
-    <li>⏳ Delete <code>agentContract.ts</code>, <code>stdio-peer.ts</code>, <code>stdio-client.ts</code></li>
-    <li>⏳ Chrome devtools verification on a real remote</li>
+    <li>✅ <code>packages/server/src/agent-surface.ts</code> — wires <code>agentSurface</code>'s deps to <code>localBackend</code>; per-terminal aggregator subscribes to the legacy <code>terminalChannels</code> and republishes aggregated <code>AgentTerminalMetadata</code> to the surface collection.</li>
+    <li>✅ <code>agent.ts</code> rewritten to serve <code>agentSurface</code> via <code>serveOverStdio</code>. No more hand-rolled <code>StandardRPCHandler</code> + <code>ServerPeer</code> wiring.</li>
+    <li>✅ <code>RemoteBackend</code> consumes the surface client. The 3 separate channel-mirroring loops collapse to ONE <code>startMetadataSubscriber</code> on the <code>terminalMetadata</code> collection.</li>
+    <li>✅ <code>HostSession</code> uses <code>@kolu/surface/links/stdio</code>'s <code>StdioRPCLink</code> (the local copy is deleted). Heartbeat uses <code>surface.system.heartbeat</code>.</li>
+    <li>✅ <code>agentContract.ts</code>, <code>stdio-peer.ts</code>, <code>stdio-client.ts</code> <strong>deleted</strong>.</li>
+    <li>✅ End-to-end verified via chrome-devtools-mcp on <strong>two real remotes</strong>: sincereintent (darwin/arm64) and vanjaram (linux/x86_64). 5 terminals restored simultaneously through the new Surface transport; metadata (cwd, git branch, PR badge, foreground process, theme) all flowing; <code>echo "HELLO_..."</code> roundtrips confirmed.</li>
   </ul>
-  <p>Splitting the agent migration into its own PR is the honest scope call: it touches the working transport in #976 and any wire-shape bug breaks remote terminals on real hosts. The framework + demo PR above lands the foundational pieces and proves them with an end-to-end working example; Phase 2 then has a clean baseline to build on.</p>
+  <p><strong>⏭ Deferred (Q4(a) optimization + Q2(c) refinement):</strong></p>
+  <ul>
+    <li><strong>Q4(a) LocalBackend through loopback:</strong> Skipped this PR. The optimization is real (~150 LOC of in-process orchestration could collapse into the same code path as RemoteBackend) but risks the working browser↔server transport — orthogonal to the agent transport subsumption this PR delivers. Earmarked as a follow-up refinement.</li>
+    <li><strong>Q2(c) typed wrapper:</strong> Effectively a no-op — the current <code>Backend</code> interface already IS a thin typed wrapper. No code change required.</li>
+  </ul>
+  <p>Net Kolu code: −552 LOC (deleted) + 343 LOC (Surface client + aggregator) = <strong>−209 LOC</strong>. Net <code>@kolu/surface</code>: +444 LOC of generic transport primitives. The framework absorbed the hand-rolled mini-RPC layer; Kolu kept the dispatch + per-terminal orchestration that are genuinely Kolu-specific.</p>
 </div>
 
 <h4>Q5 — what user-facing benefit does the example demonstrate?</h4>
