@@ -38,28 +38,25 @@ import { agentIcons, stateLabels } from "../../ui/agentDisplay";
 import { PrStateIcon } from "../../ui/Icons";
 import { SubCountChip } from "./SubCountChip";
 
-/** Per-state animation for the agent pip — and an `alert` tint
- *  reserved for the one state that actually wants the user's eye
- *  (`waiting` / `awaiting_user`).
+/** Per-state colour + animation for the agent pip. Palette matches
+ *  the bucket-level vocabulary the workspace switcher and minimap
+ *  already use (`canvas/dockModel.ts:AGENT_BUCKETS`) — awaiting →
+ *  `text-alert` (orange), working → `text-accent` (the teal brand
+ *  colour). Three live-terminal surfaces — dock, switcher,
+ *  minimap — now share the same "alert orange = needs your
+ *  attention" / "accent = alive" cue. (The tile chrome's
+ *  `AgentIndicator` uses a state-level palette — `warning` /
+ *  `busy` — so it can split `thinking` vs `tool_use` at full
+ *  label size; the dock is bucket-only.)
  *
- *  Working states (`thinking` + `tool_use`) keep a neutral
- *  `text-fg-2` and lean on **motion alone** (spin) to read as
- *  "alive". The dock already carries three sources of colour per
- *  row — section swatch (repo identity), branch label, occasional
- *  PR pip — so adding a fourth colour for every working agent
- *  pushed the row past calm. Animation is the right channel for
- *  "actively churning"; colour stays the channel for "needs you".
- *
- *  Awaiting states pulse in `alert` (the same orange the workspace
- *  switcher's `awaiting` column and the unread-ping dot use). Three
- *  live-terminal surfaces — dock, switcher, minimap — now share the
- *  same "alert orange = needs your attention" cue. */
+ *  Working states (`thinking` + `tool_use`) BOTH spin so the dock
+ *  scans as spin = working, pulse = awaiting at a glance. */
 const AGENT_PIP_STATE: Record<
   AgentInfo["state"],
   { color: string; animation: string }
 > = {
-  thinking: { color: "text-fg-2", animation: "animate-spin" },
-  tool_use: { color: "text-fg-2", animation: "animate-spin" },
+  thinking: { color: "text-accent", animation: "animate-spin" },
+  tool_use: { color: "text-accent", animation: "animate-spin" },
   waiting: { color: "text-alert", animation: "animate-pulse" },
   awaiting_user: { color: "text-alert", animation: "animate-pulse" },
 };

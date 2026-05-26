@@ -90,9 +90,9 @@ const MobileSection: Component<{
   <section
     data-testid="mobile-dock-section"
     data-repo={props.group.name}
-    class="grid grid-cols-[auto_minmax(0,1fr)_auto_auto_auto] gap-x-3 px-3"
+    class="grid grid-cols-[auto_minmax(0,1fr)_auto_auto_auto] gap-x-3 pl-6 pr-3"
   >
-    <div class="col-span-full flex items-center gap-2 -mx-3 px-3 py-2 bg-surface-2/60 border-y border-edge/30">
+    <div class="col-span-full flex items-center gap-2 -ml-6 -mr-3 pl-3 pr-3 py-2 bg-surface-2/60 border-y border-edge/30">
       <span
         aria-hidden="true"
         class="w-2.5 h-2.5 rounded-sm shrink-0"
@@ -144,7 +144,7 @@ const MobileRow: Component<{
           // drag-to-dismiss from claiming the tap.
           onPointerDown={(e) => e.stopPropagation()}
           onClick={() => props.onSelect(props.id)}
-          class="relative w-full grid grid-cols-subgrid col-span-full items-center py-3 -mx-3 border-l-[3px] border-l-transparent border-b border-b-edge/15 text-left transition-colors duration-150 cursor-pointer active:bg-surface-2 data-[active]:bg-surface-2 data-[active]:border-l-accent"
+          class="relative w-full grid grid-cols-subgrid col-span-full items-center py-3 -ml-6 -mr-3 border-l-[3px] border-l-transparent border-b border-b-edge/15 text-left transition-colors duration-150 cursor-pointer active:bg-surface-2 data-[active]:bg-accent/15 data-[active]:border-l-accent"
         >
           <AgentSlot agent={c().meta.agent} />
           <span
