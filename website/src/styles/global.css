@@ -27,13 +27,16 @@
   --color-amber-bright: #f4cf97;
   --color-amber-dim: #a08256;
 
-  /* Live-state accents — bright, saturated. Used wherever the surface
-     reflects *change* (agent working/awaiting in the dock, repo tile
-     identity on the canvas, chip glows). These intentionally read
-     louder than the muted editorial palette so the eye lands on them. */
-  --color-live-teal: #5ee8d4;
-  --color-live-alert: #ff9a3c;
-  --color-live-violet: #c5a3ff;
+  /* Live-state accents — *electric*, not pastel. Used wherever the
+     surface reflects *change* (agent working/awaiting in the dock,
+     tile identity on the canvas, code-tree selection, PASS pings).
+     Calibrated against the real Kolu app's saturated repo palette —
+     the earlier muted version made the marketing page look dimmer
+     than the product it advertises. */
+  --color-live-teal: #00ffd4;
+  --color-live-alert: #ff6b1a;
+  --color-live-violet: #ff3ec9;
+  --color-live-lime: #7cff5b;
 
   /* macOS-style window-control dots — used by every faux terminal frame
      on the site. Kept as tokens so all frames stay in lockstep. */
@@ -73,11 +76,12 @@
   --color-amber: #9a5e1e;
   --color-amber-bright: #7d4a14;
   --color-amber-dim: #c2956a;
-  /* Light-mode live-state accents — deepened so they stay saturated on
-     warm paper without losing the "this is live" loudness. */
-  --color-live-teal: #0a8576;
-  --color-live-alert: #c45e10;
-  --color-live-violet: #6e3fb8;
+  /* Light-mode live-state accents — deepened versions of the electric
+     dark tokens. Still saturated, still loud against warm paper. */
+  --color-live-teal: #007a6c;
+  --color-live-alert: #b34800;
+  --color-live-violet: #c5008a;
+  --color-live-lime: #1a8500;
 }
 
 [data-theme="dark"] {
