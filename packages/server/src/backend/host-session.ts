@@ -27,7 +27,6 @@ import { spawn, type ChildProcessByStdio } from "node:child_process";
 import type { Readable, Writable } from "node:stream";
 import { createORPCClient } from "@orpc/client";
 import type { ContractRouterClient } from "@orpc/contract";
-import type { agentContract } from "kolu-common/agentContract";
 import type { agentSurface } from "kolu-common/agentSurface";
 import type { ConnectionState } from "kolu-common/surface";
 import { StdioRPCLink } from "@kolu/surface/links/stdio";
@@ -67,11 +66,9 @@ function projectExternal(s: InternalState): ConnectionState {
   }
 }
 
-/** Typed client against `agentContract` (legacy — kept while
- *  RemoteBackend migrates method-by-method to `agentSurface`). */
-export type AgentClient = ContractRouterClient<typeof agentContract>;
-
-/** Typed client against `agentSurface` (the migration target). */
+/** Typed client against `agentSurface`. Sole client now that the
+ *  Surface migration is complete; the legacy `agentContract`-based
+ *  `AgentClient` was removed along with `agentContract.ts`. */
 export type AgentSurfaceClient = ContractRouterClient<
   typeof agentSurface.contract
 >;
@@ -85,11 +82,7 @@ export class HostSession {
     | ChildProcessByStdio<Writable, Readable, Readable>
     | undefined;
   private link: StdioRPCLink | undefined;
-  /** Typed agent client (legacy) — undefined until `connect()` finishes. */
-  client: AgentClient | undefined;
-  /** Typed surface client — undefined until `connect()` finishes. Shares
-   *  the same underlying StdioRPCLink as `client`, so both contracts go
-   *  through one ClientPeer and one stdio framing. */
+  /** Typed surface client — undefined until `connect()` finishes. */
   surfaceClient: AgentSurfaceClient | undefined;
 
   constructor(public readonly host: string) {
@@ -181,7 +174,6 @@ export class HostSession {
         reason: code === 0 ? "user-closed" : "server-not-running",
       });
       this.subprocess = undefined;
-      this.client = undefined;
       this.surfaceClient = undefined;
       this.link?.dispose();
       this.link = undefined;
@@ -200,7 +192,6 @@ export class HostSession {
       read: subprocess.stdout,
       write: subprocess.stdin,
     });
-    this.client = createORPCClient<AgentClient>(this.link);
     this.surfaceClient = createORPCClient<AgentSurfaceClient>(this.link);
 
     // Don't transition to "connected" until we've actually heard from
@@ -272,7 +263,6 @@ export class HostSession {
     this.subprocess = undefined;
     this.link?.dispose();
     this.link = undefined;
-    this.client = undefined;
     this.surfaceClient = undefined;
 
     for (let attempt = 1; attempt <= MAX_RECONNECT_ATTEMPTS; attempt++) {

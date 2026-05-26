@@ -8,7 +8,6 @@
   "exports": {
     "./surface": "./src/surface.ts",
     "./backend": "./src/backend.ts",
-    "./agentContract": "./src/agentContract.ts",
     "./agentSurface": "./src/agentSurface.ts",
     "./contract": "./src/contract.ts",
     "./errors": "./src/errors.ts",
