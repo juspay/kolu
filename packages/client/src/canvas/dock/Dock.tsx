@@ -307,7 +307,7 @@ const DockGroupHeader: Component<{
       class="flex items-center gap-1.5 text-left cursor-pointer transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40"
       classList={{
         // Depth 0 — repo landmark
-        "bg-surface-2/40 border-b border-edge/30 px-2 py-1 text-fg-1 hover:text-fg-0":
+        "bg-surface-2/40 border-b border-edge/30 px-2 py-1 text-fg-2 hover:text-fg":
           props.group.depth === 0 && props.mode === "cards",
         // Depth 1 — branch subsection: no tint, lighter color, tighter
         // padding, indented from the repo header so the hierarchy reads.
@@ -348,7 +348,7 @@ const DockGroupHeader: Component<{
         <span
           class="truncate min-w-0"
           classList={{
-            "font-mono text-[0.65rem] uppercase tracking-[0.08em] font-semibold":
+            "font-mono text-[0.65rem] uppercase tracking-[0.08em] font-semibold text-fg":
               props.group.depth === 0,
             "text-[0.72rem] font-normal": props.group.depth === 1,
           }}

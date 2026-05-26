@@ -100,7 +100,7 @@ const GroupHeader: Component<{ group: DockTreeGroup }> = (props) => (
     <span
       class="font-mono text-[0.65rem] uppercase tracking-[0.1em] truncate min-w-0"
       classList={{
-        "font-semibold text-fg-1": props.group.depth === 0,
+        "font-semibold text-fg": props.group.depth === 0,
       }}
     >
       {props.group.label}
