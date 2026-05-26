@@ -656,40 +656,42 @@ const features = [
     background-size: 24px 24px;
   }
 
+  /* Tile base — shared shape. --tile-accent is set by each numbered
+     variant; border-top and drop shadow read it so each tile's color
+     identity is declared exactly once. */
   .canvas-tile {
     position: absolute;
     border: 1px solid var(--color-rule-strong);
+    border-top: 2px solid var(--tile-accent);
     border-radius: 5px;
     background: var(--color-void);
     overflow: hidden;
     font-family: var(--font-mono);
     font-size: 0.68rem;
     line-height: 1.6;
+    box-shadow: 0 8px 24px -8px
+      color-mix(in srgb, var(--tile-accent) 30%, transparent);
   }
-
   .canvas-tile-1 {
+    --tile-accent: var(--color-live-teal);
     left: 3%;
     top: 8%;
     width: 40%;
     height: 64%;
-    border-top: 2px solid var(--color-live-teal);
-    box-shadow: 0 8px 24px -8px color-mix(in srgb, var(--color-live-teal) 30%, transparent);
   }
   .canvas-tile-2 {
+    --tile-accent: var(--color-live-alert);
     left: 46%;
     top: 22%;
     width: 36%;
     height: 68%;
-    border-top: 2px solid var(--color-live-alert);
-    box-shadow: 0 8px 24px -8px color-mix(in srgb, var(--color-live-alert) 30%, transparent);
   }
   .canvas-tile-3 {
+    --tile-accent: var(--color-live-violet);
     left: 60%;
     top: 2%;
     width: 36%;
     height: 38%;
-    border-top: 2px solid var(--color-live-violet);
-    box-shadow: 0 8px 24px -8px color-mix(in srgb, var(--color-live-violet) 30%, transparent);
   }
 
   .canvas-tile-bar {
@@ -701,25 +703,27 @@ const features = [
     align-items: center;
     gap: 0.4rem;
   }
+  /* Dot base — size + shape shared. Color variants set --dot-color; the
+     background and box-shadow both read it so each variant declares
+     color exactly once (plus optional animation cadence). */
   .canvas-tile-dot {
     width: 7px;
     height: 7px;
     border-radius: 50%;
     display: inline-block;
+    background: var(--dot-color);
+    box-shadow: 0 0 6px var(--dot-color);
   }
   .canvas-dot-teal {
-    background: var(--color-live-teal);
-    box-shadow: 0 0 6px var(--color-live-teal);
+    --dot-color: var(--color-live-teal);
     animation: pulse-dot 1.2s ease-in-out infinite;
   }
   .canvas-dot-alert {
-    background: var(--color-live-alert);
-    box-shadow: 0 0 6px var(--color-live-alert);
+    --dot-color: var(--color-live-alert);
     animation: pulse-dot 1.4s ease-in-out infinite;
   }
   .canvas-dot-violet {
-    background: var(--color-live-violet);
-    box-shadow: 0 0 6px var(--color-live-violet);
+    --dot-color: var(--color-live-violet);
   }
   .canvas-tile-state {
     margin-left: auto;
@@ -746,7 +750,7 @@ const features = [
     color: var(--color-ink-dim);
   }
 
-  /* Legend dots */
+  /* Legend dots — same --dot-color pattern as .canvas-tile-dot. */
   .legend-pip {
     display: inline-block;
     width: 8px;
@@ -754,19 +758,12 @@ const features = [
     border-radius: 50%;
     margin-right: 0.55em;
     vertical-align: middle;
+    background: var(--dot-color);
+    box-shadow: 0 0 6px var(--dot-color);
   }
-  .legend-pip-teal {
-    background: var(--color-live-teal);
-    box-shadow: 0 0 6px var(--color-live-teal);
-  }
-  .legend-pip-alert {
-    background: var(--color-live-alert);
-    box-shadow: 0 0 6px var(--color-live-alert);
-  }
-  .legend-pip-violet {
-    background: var(--color-live-violet);
-    box-shadow: 0 0 6px var(--color-live-violet);
-  }
+  .legend-pip-teal { --dot-color: var(--color-live-teal); }
+  .legend-pip-alert { --dot-color: var(--color-live-alert); }
+  .legend-pip-violet { --dot-color: var(--color-live-violet); }
 
   /* ── Responsive: stack hero on small screens ─────────────────────── */
 
