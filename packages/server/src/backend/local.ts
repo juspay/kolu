@@ -141,10 +141,7 @@ export class LocalBackend implements Backend {
       opts.cwd,
     );
 
-    const meta = createMetadata(handle.cwd);
-    // Backend identity is persisted on the metadata so session restore
-    // picks the same backend (R-2 adds SSH).
-    meta.location = { kind: "local" };
+    const meta = createMetadata(handle.cwd, this.id);
     // Seed client-owned initial metadata BEFORE startProviders so the first
     // `terminalMetadata` collection yield carries these fields (see #642).
     // `createMetadata` is the source of truth for which fields exist;

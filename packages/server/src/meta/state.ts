@@ -18,6 +18,7 @@ import type {
   LiveTerminalFields,
   ServerPersistedTerminalFields,
   TerminalClientMetadata,
+  TerminalLocation,
   TerminalMetadata,
 } from "kolu-common/surface";
 import { prUnavailableReason, prValue } from "kolu-github/schemas";
@@ -26,15 +27,22 @@ import { terminalsDirtyChannel } from "../publisher.ts";
 import { surfaceCtx } from "../surface.ts";
 import type { TerminalProcess } from "../terminal-registry.ts";
 
-/** Create initial metadata state for a new terminal. `lastActivityAt: 0`
- *  means "no agent transition observed yet" — the only event that lifts
- *  the recency clock. Idle terminals tie at 0 and fall back to canvas
- *  position. `location` and `connectionState` default to local + live;
- *  the R-2 spawn path on a remote backend overwrites `location` and
- *  drives `connectionState` from the host session's state machine. */
-export function createMetadata(cwd: string): TerminalMetadata {
+/** Create initial metadata state for a new terminal. `lastActivityAt:
+ *  0` means "no agent transition observed yet" — the only event that
+ *  lifts the recency clock. Idle terminals tie at 0 and fall back to
+ *  canvas position.
+ *
+ *  `location` is supplied by the caller (the backend that's creating
+ *  the terminal — `LocalBackend` passes `{ kind: "local" }`,
+ *  `RemoteBackend` will pass `{ kind: "ssh", host }` in R-2). Making
+ *  the caller pass it removes the "default-then-override" pattern that
+ *  earlier let two write sites disagree silently. */
+export function createMetadata(
+  cwd: string,
+  location: TerminalLocation,
+): TerminalMetadata {
   return {
-    location: { kind: "local" },
+    location,
     cwd,
     git: null,
     pr: { kind: "pending" },
