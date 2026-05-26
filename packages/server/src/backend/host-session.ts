@@ -139,7 +139,7 @@ export class HostSession {
       log.warn({ host: this.host }, "HostSession.connect: already connected");
       return;
     }
-    const argv = await remoteAgentCommand(this.host);
+    const argv = remoteAgentCommand(this.host);
     log.info({ host: this.host, argv }, "HostSession: spawning ssh subprocess");
 
     // First arg is "ssh", rest are args. spawn() takes them split.

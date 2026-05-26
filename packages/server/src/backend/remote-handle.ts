@@ -15,6 +15,7 @@
  */
 
 import type { PtyHandle } from "kolu-pty";
+import { log } from "../log.ts";
 import type { HostSession } from "./host-session.ts";
 
 export function remoteHandle(opts: {
@@ -28,16 +29,38 @@ export function remoteHandle(opts: {
     process: "", // Foreground-process detection is server-local on R-2.
     foregroundPid: undefined,
     write(data: string): void {
-      if (!opts.session.client) return;
+      if (!opts.session.client) {
+        log.warn(
+          { host: opts.session.host, id: opts.id },
+          "remoteHandle.write: session not connected; dropping input",
+        );
+        return;
+      }
       void opts.session.client.terminal
         .write({ id: opts.id, data })
-        .catch(() => {});
+        .catch((err: Error) => {
+          log.error(
+            { host: opts.session.host, id: opts.id, err },
+            "remoteHandle.write: agent RPC failed",
+          );
+        });
     },
     resize(cols: number, rows: number): void {
-      if (!opts.session.client) return;
+      if (!opts.session.client) {
+        log.warn(
+          { host: opts.session.host, id: opts.id },
+          "remoteHandle.resize: session not connected; dropping resize",
+        );
+        return;
+      }
       void opts.session.client.terminal
         .resize({ id: opts.id, cols, rows })
-        .catch(() => {});
+        .catch((err: Error) => {
+          log.error(
+            { host: opts.session.host, id: opts.id, err },
+            "remoteHandle.resize: agent RPC failed",
+          );
+        });
     },
     getScreenState(): string {
       // Late-joiner snapshot is R-3; channel data fills on subscribe.
@@ -47,8 +70,21 @@ export function remoteHandle(opts: {
       return "";
     },
     dispose(): void {
-      if (!opts.session.client) return;
-      void opts.session.client.terminal.kill({ id: opts.id }).catch(() => {});
+      if (!opts.session.client) {
+        log.warn(
+          { host: opts.session.host, id: opts.id },
+          "remoteHandle.dispose: session not connected; skipping RPC kill",
+        );
+        return;
+      }
+      void opts.session.client.terminal
+        .kill({ id: opts.id })
+        .catch((err: Error) => {
+          log.error(
+            { host: opts.session.host, id: opts.id, err },
+            "remoteHandle.dispose: agent RPC kill failed",
+          );
+        });
     },
   };
 }

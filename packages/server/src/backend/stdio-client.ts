@@ -14,6 +14,7 @@
 import { StandardRPCLink } from "@orpc/client/standard";
 import { ClientPeer } from "@orpc/standard-server-peer";
 import type { Readable, Writable } from "node:stream";
+import { log } from "../log.ts";
 import { makeStdioSend, readStdioMessages } from "./stdio-peer.ts";
 
 export interface StdioRPCLinkOptions {
@@ -32,9 +33,14 @@ export class StdioRPCLink extends StandardRPCLink<object> {
     const stopRead = readStdioMessages(options.stdout, async (msg) => {
       try {
         await peer.message(msg);
-      } catch {
-        // peer.message can throw if the codec rejects malformed bytes;
-        // recover at the next message boundary.
+      } catch (err) {
+        // Codec mismatch / truncation — log so a protocol error isn't
+        // invisible, then continue reading from the next message
+        // boundary.
+        log.warn(
+          { err, frameBytes: msg.byteLength },
+          "stdio-client: peer.message threw",
+        );
       }
     });
 

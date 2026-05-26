@@ -19,6 +19,7 @@
 
 import type { Readable, Writable } from "node:stream";
 import type { EncodedMessage } from "@orpc/standard-server-peer";
+import { log } from "../log.ts";
 
 /** Build the `send` callback for a peer: encodes the message as base64
  *  and writes to `out` with a newline delimiter. */
@@ -54,8 +55,15 @@ export function readStdioMessages(
         try {
           const decoded = Buffer.from(line, "base64");
           void onMessage(decoded);
-        } catch {
-          // Ignore malformed frames — recover at next newline.
+        } catch (err) {
+          // Recover at next newline — a malformed frame shouldn't poison
+          // the rest of the stream — but surface the error so a protocol
+          // mismatch isn't invisible. `frameLength` helps diagnose
+          // truncation / encoding skew at the framing layer.
+          log.warn(
+            { err, frameLength: line.length },
+            "stdio-peer: malformed frame; skipping",
+          );
         }
       }
       nl = buf.indexOf("\n");

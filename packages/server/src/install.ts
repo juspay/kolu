@@ -1,24 +1,31 @@
 /**
- * Agent installation — ship the kolu binary to a remote SSH host via
- * `nix copy`.
+ * Agent installation — ship the kolu binary to a remote SSH host.
  *
  * Plan B's pivot for binary shipping: the remote already has Nix
  * (kolu's entire user base does — that's how they got kolu), so
  * shipping the agent reduces to:
  *
- *   nix copy --to ssh://$host .#kolu
+ *   ssh $host nix run <flakeRef> -- --stdio
  *
- * Nix handles arch resolution, closure transfer, content-addressed
- * dedup, and verification. Replaces Zed's three-strategy
- * `ensure_server_binary` dance with one nix call.
+ * Nix on the remote handles arch resolution, closure realisation,
+ * substitution, content-addressed dedup, and verification. The remote
+ * builds (or substitutes) the right derivation for its own system —
+ * no local cross-build, no nix copy of cross-arch closures (which
+ * fail with `Exec format error` when the local builder can't run the
+ * remote's binaries).
  *
- * **Pre-implementation review finding G**: `nix copy` of the local-arch
- * store path to a different-arch remote SILENTLY FAILS (substitution
- * misses). We detect the remote system first and either build for that
- * system locally (`nix build --system <remote-system>`) or fail with an
- * explicit error if cross-compilation isn't available. The prototype
- * implements the detection + explicit error path; cross-system build is
- * a TODO for R-3.
+ * **Configuration**: `KOLU_AGENT_FLAKE_REF` env var (default
+ * `github:juspay/kolu/remote-terminals-plan-b-r2`). For dev: set it to
+ * a local-pushed branch. For prod: pin to a tag.
+ *
+ * **Why not `nix copy` from local?** The earlier draft built kolu for
+ * the remote system locally (`nix build --system <remoteSystem>`) and
+ * `nix copy`'d the result. Cross-arch builds fail without a remote
+ * builder set up exactly right (the linux box has to either own the
+ * darwin binaries via substituter or offload to a remote darwin
+ * builder; the latter requires `max-jobs 0` plus `system-features
+ * matching plus trusted-user permission). Side-stepping all of that
+ * by having the remote do `nix run` natively is the simpler shape.
  */
 
 import { execFile } from "node:child_process";
@@ -27,146 +34,63 @@ import { log } from "./log.ts";
 
 const execFileP = promisify(execFile);
 
-/** Run `ssh $host nix eval --raw --impure --expr 'builtins.currentSystem'`
- *  to learn the remote's nix system tuple. */
-async function probeRemoteSystem(host: string): Promise<string> {
-  const { stdout } = await execFileP("ssh", [
-    host,
-    "nix",
-    "eval",
-    "--raw",
-    "--impure",
-    "--expr",
-    "builtins.currentSystem",
-  ]);
-  return stdout.trim();
-}
-
-/** Local nix system (e.g. `x86_64-linux`, `aarch64-darwin`). */
-async function localSystem(): Promise<string> {
-  const { stdout } = await execFileP("nix", [
-    "eval",
-    "--raw",
-    "--impure",
-    "--expr",
-    "builtins.currentSystem",
-  ]);
-  return stdout.trim();
-}
-
-/** Probe whether `storePath` is already realised on the remote — skip
- *  the copy if so. A non-zero exit from `nix-store --query` means the
- *  path is absent; any other error (SSH unreachable, auth failure) is
- *  logged and treated as "not realised" so the caller proceeds to
- *  `nix copy`, which will surface the real error. */
-async function isPathRealisedOnRemote(
-  host: string,
-  storePath: string,
-): Promise<boolean> {
-  try {
-    await execFileP("ssh", [
-      host,
-      "nix-store",
-      "--query",
-      "--requisites",
-      storePath,
-    ]);
-    return true;
-  } catch (err) {
-    log.warn(
-      { host, storePath, err },
-      "isPathRealisedOnRemote: probe failed, treating as not realised",
-    );
-    return false;
-  }
-}
-
-/** Resolve the running kolu binary's store path. The wrapper sets
- *  `KOLU_STORE_PATH` at install time, or we fall back to `nix eval`
- *  on the flake's `.#kolu` attribute. */
-async function getKoluStorePath(): Promise<string> {
-  const envHint = process.env.KOLU_STORE_PATH;
-  if (envHint) return envHint;
-  // Fallback: build the flake and read the store path.
-  const { stdout } = await execFileP("nix", ["eval", "--raw", ".#kolu"]);
-  return stdout.trim();
-}
-
-/** Build the kolu derivation for a specific Nix system tuple — used
- *  when the remote's `currentSystem` differs from ours. Returns the
- *  resulting store path. Falls back to "binary cache miss" error if
- *  the local builder can't cross-compile and no substituter has the
- *  artifact. */
-async function buildKoluForSystem(system: string): Promise<string> {
-  const { stdout } = await execFileP("nix", [
-    "build",
-    "--print-out-paths",
-    "--no-link",
-    "--system",
-    system,
-    `.#kolu`,
-  ]);
-  return stdout.trim();
+/** Flake ref that exposes the kolu `default` package. Settable via
+ *  `KOLU_AGENT_FLAKE_REF` env var; defaults to the remote-terminals
+ *  branch on juspay/kolu (the only branch with `kolu --stdio` until
+ *  R-2 lands on master). */
+function getAgentFlakeRef(): string {
+  return (
+    process.env.KOLU_AGENT_FLAKE_REF ??
+    "github:juspay/kolu/remote-terminals-plan-b-r2"
+  );
 }
 
 /**
- * Install the kolu agent on `host`. Idempotent — if the store path is
- * already realised on the remote, returns early.
+ * "Install" the kolu agent on `host` — for the `nix run` strategy this
+ * is a no-op probe: we ssh once to verify the host responds and nix is
+ * available. The first `nix run` invocation on the remote does the
+ * real "install" (substitute or build the closure).
  *
- * For cross-arch (local x86_64-linux ↔ remote aarch64-darwin), the
- * caller's local `.#kolu` derivation isn't valid on the remote's
- * system. The prototype detects this and throws `CrossArchUnsupported`
- * with a clear message; R-3 will add `nix build .#packages.<remoteSystem>.kolu`
- * before copying.
+ * Future enhancement: pre-warm the closure with a one-off
+ * `ssh $host nix build --no-link <flakeRef>` so the first real
+ * terminal-spawn isn't waiting on the cold build.
  */
 export async function installAgent(host: string): Promise<void> {
-  const [remoteSystem, lSystem] = await Promise.all([
-    probeRemoteSystem(host).catch(() => {
-      throw new Error(
-        `installAgent(${host}): could not probe remote nix system. ` +
-          `Is Nix installed on the remote? Plan B assumes Nix-on-remote.`,
-      );
-    }),
-    localSystem(),
-  ]);
-
-  let storePath: string;
-  if (remoteSystem !== lSystem) {
-    // Cross-arch: build kolu for the remote's system tuple locally
-    // before copying. Requires either a remote builder, a binary
-    // cache that has the derivation, or a local builder that can
-    // cross-compile. The `nix build --system` invocation surfaces
-    // the failure clearly if none of those are available.
-    log.info(
-      { host, localSystem: lSystem, remoteSystem },
-      "installAgent: cross-system build",
+  const flakeRef = getAgentFlakeRef();
+  log.info({ host, flakeRef }, "installAgent: probing remote nix");
+  try {
+    const { stdout } = await execFileP("ssh", [host, "nix", "--version"]);
+    log.info({ host, nixVersion: stdout.trim() }, "installAgent: nix probe ok");
+  } catch (err) {
+    log.error({ host, err }, "installAgent: nix probe failed");
+    throw new Error(
+      `installAgent(${host}): nix not available on remote. Plan B assumes Nix-on-remote. ` +
+        `Underlying: ${err instanceof Error ? err.message : String(err)}`,
     );
-    storePath = await buildKoluForSystem(remoteSystem);
-  } else {
-    storePath = await getKoluStorePath();
   }
-
   log.info(
-    { host, storePath, system: remoteSystem },
-    "installAgent: probing remote",
+    { host, flakeRef },
+    "installAgent: ok (the closure realises lazily on first agent spawn)",
   );
-
-  if (await isPathRealisedOnRemote(host, storePath)) {
-    log.info({ host, storePath }, "installAgent: already realised, skipping");
-    return;
-  }
-
-  log.info({ host, storePath }, "installAgent: nix copy");
-  await execFileP("nix", ["copy", "--to", `ssh://${host}`, storePath]);
-  log.info({ host, storePath }, "installAgent: done");
 }
 
 /** Build the remote command that runs `kolu --stdio` from the
- *  copied store path. Used by `HostSession` when spawning the ssh
- *  subprocess. The kolu CLI dispatches on the `--stdio` flag (see
- *  `index.ts`) — no positional subcommand is parsed by cleye in
- *  `strictFlags: true` mode. */
-export async function remoteAgentCommand(host: string): Promise<string[]> {
-  const storePath = await getKoluStorePath();
-  return ["ssh", host, `${storePath}/bin/kolu`, "--stdio"];
+ *  configured flake ref via `nix run`. Used by `HostSession` when
+ *  spawning the ssh subprocess.
+ *
+ *  The chain is: `ssh $host -- nix run <flakeRef> -- --stdio`. The
+ *  remote nix realises the closure (substituter cache hit, or local
+ *  build) and executes `<storePath>/bin/kolu --stdio`. */
+export function remoteAgentCommand(host: string): string[] {
+  const flakeRef = getAgentFlakeRef();
+  return [
+    "ssh",
+    host,
+    "nix",
+    "run",
+    "--accept-flake-config",
+    flakeRef,
+    "--",
+    "--stdio",
+  ];
 }
