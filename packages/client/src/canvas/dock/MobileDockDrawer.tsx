@@ -19,7 +19,6 @@ import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import { type Component, For, Show, createMemo } from "solid-js";
 import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
 import { annotationLine } from "../../intent/text";
-import AgentIndicator from "../../terminal/AgentIndicator";
 import { formatTimeAgo } from "../../terminal/staleness";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import {
@@ -30,9 +29,7 @@ import {
 import type { DockRowBucket } from "./dockRowRanking";
 import type { DockGroup } from "./dockTree";
 import { useDockOrder } from "./useDockOrder";
-import PrLine from "./PrLine";
 import { RowIcons } from "./RowIcons";
-import { SubCountChip } from "./SubCountChip";
 
 const MobileDockDrawer: Component<{
   onSelect: (id: TerminalId) => void;
@@ -166,9 +163,7 @@ const MobileRow: Component<{
             />
           </span>
           <div class="flex items-center gap-1.5 shrink-0">
-            <Show when={!active()}>
-              <RowIcons meta={c().meta} info={c().info} />
-            </Show>
+            <RowIcons meta={c().meta} info={c().info} />
             <span class="font-mono text-[0.65rem] tabular-nums text-fg-3">
               {formatTimeAgo(c().meta.lastActivityAt)}
             </span>
@@ -178,9 +173,6 @@ const MobileRow: Component<{
               aria-hidden="true"
               class="absolute top-1 right-1 w-2 h-2 rounded-full bg-alert"
             />
-          </Show>
-          <Show when={active()}>
-            <MobileActiveDetail meta={c().meta} subCount={c().info.subCount} />
           </Show>
           <Show when={!c().meta.agent && foreground(c().meta)}>
             {(fg) => (
@@ -197,29 +189,6 @@ const MobileRow: Component<{
     </Show>
   );
 };
-
-const MobileActiveDetail: Component<{
-  meta: TerminalMetadata;
-  subCount: number;
-}> = (props) => (
-  <div class="col-start-2 col-end-4 flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1 text-[0.7rem]">
-    <Show when={props.meta.agent}>
-      {(agent) => (
-        <div class="flex items-center gap-1.5 min-w-0">
-          <AgentIndicator agent={agent()} />
-        </div>
-      )}
-    </Show>
-    <PrLine meta={props.meta} size="md" />
-    <Show when={props.subCount > 0}>
-      <SubCountChip
-        count={props.subCount}
-        active
-        testId="mobile-dock-sub-count"
-      />
-    </Show>
-  </div>
-);
 
 const BucketDot: Component<{ bucket: DockRowBucket }> = (props) => (
   <span

@@ -11,12 +11,12 @@
  *  2. **cards** (default) — rows grouped by repo. Each repo gets a
  *     small section header (uppercase name + repo-colored swatch + row
  *     count); rows below it stack as compact `dot · branch · pips ·
- *     time` lines. Inactive rows carry presence-only pips (PR state
- *     icon, agent-kind logo, sub-terminal chip) so a quick scan reads
- *     as "has a PR, has an agent" without any labels. The active row
- *     gets a quiet highlight (`bg-surface-2` + a 3 px accent left-edge
- *     stripe) and unfolds the full detail line beneath — full PR
- *     badge with checks status, agent indicator with token count.
+ *     time` lines. Pips carry presence-only signal — PR state icon,
+ *     agent-kind logo, sub-terminal chip — so the row scans as "has a
+ *     PR, has an agent" at a glance. The active row gets a quiet
+ *     highlight (`bg-surface-2` + a 3 px accent left-edge stripe);
+ *     row geometry stays constant so the dock never reflows when the
+ *     active terminal changes.
  *
  *  The activity-window chip (`24h`/`12h`/`All`) is a hard filter, not a
  *  dim: rows past the window disappear from the dock entirely; a small
@@ -36,12 +36,10 @@
 import { makePersisted } from "@solid-primitives/storage";
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import { type Component, For, Show, createMemo, createSignal } from "solid-js";
-import AgentIndicator from "../../terminal/AgentIndicator";
 import { formatTimeAgo } from "../../terminal/staleness";
 import IntentGlyph from "../../intent/IntentGlyph";
 import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
 import { annotationLine } from "../../intent/text";
-import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { RowIcons } from "./RowIcons";
 import {
@@ -57,8 +55,6 @@ import { useViewPosture } from "../useViewPosture";
 import type { DockRowBucket } from "./dockRowRanking";
 import type { DockGroup, DockTree } from "./dockTree";
 import { useDockOrder } from "./useDockOrder";
-import PrLine from "./PrLine";
-import { SubCountChip } from "./SubCountChip";
 
 export type DockMode = "rail" | "cards";
 
@@ -424,9 +420,7 @@ const DockRow: Component<{
             />
           </span>
           <div class="flex items-center gap-1.5 shrink-0">
-            <Show when={!active()}>
-              <RowIcons meta={c().meta} info={c().info} />
-            </Show>
+            <RowIcons meta={c().meta} info={c().info} />
             <span class="font-mono text-[0.6rem] tabular-nums text-fg-3">
               {formatTimeAgo(c().meta.lastActivityAt)}
             </span>
@@ -451,8 +445,8 @@ const DockRow: Component<{
           </Show>
           {/* Plain-shell foreground process — `nix build`, `pu connect`,
            *  etc. Surfaced only when there's no agent in the row, since
-           *  agent-bearing rows already have identity from the active
-           *  detail line. */}
+           *  agent-bearing rows already carry the agent-kind pip on
+           *  the right. */}
           <Show when={!c().meta.agent && foreground(c().meta)}>
             {(fg) => (
               <span
@@ -463,40 +457,11 @@ const DockRow: Component<{
               </span>
             )}
           </Show>
-          <Show when={active()}>
-            <ActiveDetail meta={c().meta} info={c().info} />
-          </Show>
         </button>
       )}
     </Show>
   );
 };
-
-/** Active-only detail line — agent state + PR badge + sub-count chip.
- *  Hidden on inactive rows so the dock scans as a clean column of
- *  `dot · branch · time`. */
-const ActiveDetail: Component<{
-  meta: TerminalMetadata;
-  info: TerminalDisplayInfo;
-}> = (props) => (
-  <div class="col-start-2 col-end-4 flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1 text-[0.6rem]">
-    <Show when={props.meta.agent}>
-      {(agent) => (
-        <div class="flex items-center gap-1.5 min-w-0">
-          <AgentIndicator agent={agent()} />
-        </div>
-      )}
-    </Show>
-    <PrLine meta={props.meta} />
-    <Show when={props.info.subCount > 0}>
-      <SubCountChip
-        count={props.info.subCount}
-        active
-        testId="dock-sub-count"
-      />
-    </Show>
-  </div>
-);
 
 /** Bucket-coloured status disk. Sole state cue on inactive rows; on
  *  active rows it inverts to white so it stays visible against the
