@@ -9,8 +9,9 @@
  *  chip inherits the row's text tone.
  *
  *  `testId` is required (not optional with a default) so each call
- *  site is testable by a stable, distinct id — desktop uses
- *  `dock-sub-count`, mobile uses `mobile-dock-sub-count`. */
+ *  site is testable by a stable id. Both desktop and mobile dock rows
+ *  render this via the shared `RowIcons` component, which passes
+ *  `testId="dock-sub-count"`. */
 
 import type { Component } from "solid-js";
 import { SplitToggleIcon } from "../../ui/Icons";
