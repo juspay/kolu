@@ -2,14 +2,21 @@
  *
  *  Pure projection: `rankDockRows` recency-sorts across all terminals;
  *  this module rearranges that into repo-bucketed sections so the user
- *  sees `repo → branches` as the primary structure. Inside a section,
- *  rows sort by bucket priority (awaiting first) then recency — so a
- *  repo's awaiting row floats to the top of its own list. Sections
- *  themselves sort by **pure recency** — the most recently-active
- *  repo first, regardless of which bucket its rows occupy — because
- *  "which repo did I just touch" is a stronger mental anchor than
- *  "which repo has the loudest bucket". An awaiting agent inside a
- *  quiet repo still pulls attention via its row's animated pip, not
+ *  sees `repo → branches` as the primary structure.
+ *
+ *  Inside a section, rows are first **clustered by branch/intent
+ *  label** so two terminals on the same branch stay adjacent in the
+ *  list. Within a cluster, rows sort by bucket priority (awaiting
+ *  first) then recency. Clusters themselves order by their top row's
+ *  `(bucket, -ts)` key — so the same-branch sibling of an awaiting
+ *  agent rides up with it instead of getting separated by a stranger
+ *  branch with newer activity.
+ *
+ *  Sections themselves sort by **pure recency** — the most recently-
+ *  active repo first, regardless of which bucket its rows occupy —
+ *  because "which repo did I just touch" is a stronger mental anchor
+ *  than "which repo has the loudest bucket". An awaiting agent inside
+ *  a quiet repo still pulls attention via its row's animated pip, not
  *  by promoting the whole repo above another that just changed.
  *
  *  Parked rows are filtered out — the activity-window selector becomes a
@@ -58,7 +65,10 @@ export function buildDockTree(
   ranked: readonly RankedDockRow[],
   getDisplayInfo: (id: TerminalId) => TerminalDisplayInfo | undefined,
 ): DockTree {
-  const byName = new Map<string, { color: string; rows: RankedDockRow[] }>();
+  const byName = new Map<
+    string,
+    { color: string; byLabel: Map<string, RankedDockRow[]> }
+  >();
   let parkedCount = 0;
 
   for (const row of ranked) {
@@ -68,24 +78,44 @@ export function buildDockTree(
     }
     const info = getDisplayInfo(row.id);
     if (!info) continue;
-    const existing = byName.get(info.key.group);
-    if (existing) {
-      existing.rows.push(row);
-    } else {
-      byName.set(info.key.group, { color: info.repoColor, rows: [row] });
+    let group = byName.get(info.key.group);
+    if (!group) {
+      group = { color: info.repoColor, byLabel: new Map() };
+      byName.set(info.key.group, group);
     }
+    const list = group.byLabel.get(info.key.label);
+    if (list) list.push(row);
+    else group.byLabel.set(info.key.label, [row]);
   }
 
   const groups: DockGroup[] = [...byName.entries()].map(([name, g]) => ({
     name,
     color: g.color,
-    rows: [...g.rows].sort(compareRows),
+    rows: flattenLabelClusters(g.byLabel),
   }));
 
   groups.sort(compareGroups);
 
   const flatRows = groups.flatMap((g) => g.rows);
   return { groups, flatRows, parkedCount };
+}
+
+/** Sort rows inside each label cluster by `(bucket, -ts)`, then order
+ *  clusters by their already-sorted top row using the same key — so
+ *  the same-branch sibling of an awaiting agent stays adjacent to it
+ *  even when another branch in the same repo has more recent
+ *  activity in between. */
+function flattenLabelClusters(
+  byLabel: Map<string, RankedDockRow[]>,
+): RankedDockRow[] {
+  for (const list of byLabel.values()) list.sort(compareRows);
+  const ordered = [...byLabel.values()].sort((a, b) => {
+    const ra = a[0];
+    const rb = b[0];
+    if (!ra || !rb) return 0;
+    return compareRows(ra, rb);
+  });
+  return ordered.flatMap((list) => list);
 }
 
 function compareRows(a: RankedDockRow, b: RankedDockRow): number {

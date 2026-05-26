@@ -9,7 +9,7 @@ function row(id: string, bucket: DockRowBucket, ts: number): RankedDockRow {
 }
 
 function makeGetInfo(
-  entries: Record<string, { group: string; color: string }>,
+  entries: Record<string, { group: string; color: string; label?: string }>,
 ): (id: TerminalId) => TerminalDisplayInfo | undefined {
   return (id) => {
     const e = entries[id as string];
@@ -27,7 +27,7 @@ function makeGetInfo(
         lastActivityAt: 0,
       },
       subCount: 0,
-      key: { group: e.group, label: "main" },
+      key: { group: e.group, label: e.label ?? "main" },
     };
   };
 }
@@ -120,6 +120,25 @@ describe("buildDockTree", () => {
     const tree = buildDockTree(ranked, getInfo);
     expect(tree.flatRows.map((r) => r.id)).toEqual(["a"]);
     expect(tree.parkedCount).toBe(0);
+  });
+
+  it("keeps same-branch terminals adjacent within a section, regardless of recency", () => {
+    const ranked = [
+      row("a", "working", 1000), // feat-x — newest of all three
+      row("b", "idle", 500), // feat-y — between a and c in pure ts order
+      row("c", "idle", 200), // feat-x — older than b, but same branch as a
+    ];
+    const getInfo = makeGetInfo({
+      a: { group: "kolu", color: "#aaa", label: "feat-x" },
+      b: { group: "kolu", color: "#aaa", label: "feat-y" },
+      c: { group: "kolu", color: "#aaa", label: "feat-x" },
+    });
+    const tree = buildDockTree(ranked, getInfo);
+    // Cluster feat-x (headline a@working) outranks cluster feat-y
+    // (headline b@idle) on bucket. Within feat-x, a@1000 beats c@200
+    // on recency. Pure-recency order would have interleaved as
+    // [a, b, c]; clustering keeps a and c adjacent.
+    expect(tree.groups[0]?.rows.map((r) => r.id)).toEqual(["a", "c", "b"]);
   });
 
   it("an empty input yields zero groups and zero parked", () => {
