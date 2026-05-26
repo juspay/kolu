@@ -63,6 +63,11 @@ function splitKeywordAndValue(line: string): [string, string] | null {
   return [m[1], m[2] ?? ""];
 }
 
+/** True when a trimmed line ends with `\` — signals Host continuation. */
+function hasContinuation(line: string): boolean {
+  return line.trimEnd().endsWith("\\");
+}
+
 function parseHostBlocks(config: string): HostBlock[] {
   const blocks: HostBlock[] = [];
   let aliases = new Set<string>();
@@ -70,10 +75,10 @@ function parseHostBlocks(config: string): HostBlock[] {
   let needsContinuation = false;
 
   for (const rawLine of config.split("\n")) {
-    const line = rawLine.replace(/^\s+/, "");
+    const line = rawLine.trimStart();
 
     if (needsContinuation) {
-      needsContinuation = line.replace(/\s+$/, "").endsWith("\\");
+      needsContinuation = hasContinuation(line);
       parseHosts(line, aliases);
       continue;
     }
@@ -89,7 +94,7 @@ function parseHostBlocks(config: string): HostBlock[] {
         hostname = null;
       }
       parseHosts(value, aliases);
-      needsContinuation = line.replace(/\s+$/, "").endsWith("\\");
+      needsContinuation = hasContinuation(line);
     } else if (keyword.toLowerCase() === "hostname") {
       const first = value.split(/\s+/)[0];
       hostname = first ?? null;
@@ -109,14 +114,13 @@ export function parseSshConfigHosts(config: string): string[] {
   const blocks = parseHostBlocks(config);
   const hosts = new Set<string>();
   for (const block of blocks) {
-    const filterByHostname =
+    // If the block declares a HostName, let that decide whether the whole
+    // block is a git remote. Otherwise fall back to checking each alias.
+    const hostnameIsGit =
       block.hostname !== null ? isGitProviderDomain(block.hostname) : null;
     for (const alias of block.aliases) {
-      const skip =
-        filterByHostname !== null
-          ? filterByHostname
-          : isGitProviderDomain(alias);
-      if (!skip) hosts.add(alias);
+      const isGit = hostnameIsGit ?? isGitProviderDomain(alias);
+      if (!isGit) hosts.add(alias);
     }
   }
   return Array.from(hosts).sort();
