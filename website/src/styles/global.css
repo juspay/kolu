@@ -36,6 +36,12 @@
   --color-live-violet: #c5a3ff;
   --color-live-rose: #ff8aa6;
 
+  /* macOS-style window-control dots — used by every faux terminal frame
+     on the site. Kept as tokens so all frames stay in lockstep. */
+  --color-dot-close: #ff5f56;
+  --color-dot-minimize: #ffbd2e;
+  --color-dot-maximize: #27c93f;
+
   /* Rarely used — kept for legacy favicon echo only. */
   --color-brand-red: #ef4444;
   --color-brand-amber: #f59e0b;

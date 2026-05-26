@@ -164,9 +164,9 @@ const features = [
         </div>
         <div class="hero-term-stack">
           <div class="hero-term-titlebar">
-            <span class="hero-tldot" style="background:#ff5f56"></span>
-            <span class="hero-tldot" style="background:#ffbd2e"></span>
-            <span class="hero-tldot" style="background:#27c93f"></span>
+            <span class="hero-tldot hero-tldot-close"></span>
+            <span class="hero-tldot hero-tldot-minimize"></span>
+            <span class="hero-tldot hero-tldot-maximize"></span>
             <span class="hero-term-label">
               kolu · <span class="hero-branch">feat-dock</span> · #974
             </span>
@@ -348,9 +348,9 @@ const features = [
         <div
           class="flex items-center gap-2 px-4 py-2.5 border-b border-rule bg-void-raised"
         >
-          <span class="size-2.5 rounded-full bg-[#ff5f56]"></span>
-          <span class="size-2.5 rounded-full bg-[#ffbd2e]"></span>
-          <span class="size-2.5 rounded-full bg-[#27c93f]"></span>
+          <span class="size-2.5 rounded-full bg-dot-close"></span>
+          <span class="size-2.5 rounded-full bg-dot-minimize"></span>
+          <span class="size-2.5 rounded-full bg-dot-maximize"></span>
           <span class="mono text-[0.68rem] text-ink-muted tracking-wider ml-3">
             ~/dev — zsh
           </span>
@@ -531,6 +531,15 @@ const features = [
     height: 8px;
     border-radius: 50%;
     display: inline-block;
+  }
+  .hero-tldot-close {
+    background: var(--color-dot-close);
+  }
+  .hero-tldot-minimize {
+    background: var(--color-dot-minimize);
+  }
+  .hero-tldot-maximize {
+    background: var(--color-dot-maximize);
   }
   .hero-term-label {
     margin-left: 0.3rem;
