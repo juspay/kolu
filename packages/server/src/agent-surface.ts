@@ -1,8 +1,7 @@
 /**
  * Agent-surface implementation — wires `agentSurface` (from
  * `kolu-common/agentSurface`) to the in-process `localBackend` so the
- * agent process can serve the surface alongside (during migration) or
- * instead of (post-migration) the hand-rolled `agentContract`.
+ * agent process serves the surface alongside its PTY orchestration.
  *
  * What lives here:
  *
@@ -11,15 +10,18 @@
  *     delegating to `localBackend` and the terminal registry.
  *   - A per-terminal aggregator that subscribes to the legacy
  *     `terminalChannels` (cwd, git, agent, pr, foreground,
- *     commandRun, data) and republishes the aggregated
+ *     commandRun) and republishes the aggregated
  *     `AgentTerminalMetadata` projection through the surface's
  *     `terminalMetadata` collection channel. Started at terminal
  *     spawn; stopped at kill.
- *   - The wired-up router fragment and surface ctx for `agent.ts` to
- *     merge into its top-level oRPC router.
+ *
+ * `buildAgentSurface()` returns the router + a pair of
+ * `{startAggregator, stopAggregator}` closures that already have
+ * `ctx` captured — no module-level mutable state, no temporal
+ * contract to remember.
  */
 
-import { implement } from "@orpc/server";
+import { implement, ORPCError } from "@orpc/server";
 import {
   agentSurface,
   type AgentTerminalMetadata,
@@ -29,19 +31,7 @@ import { implementSurface, inMemoryChannel } from "@kolu/surface/server";
 import { localBackend } from "./backend/local.ts";
 import { log } from "./log.ts";
 import { terminalChannels } from "./publisher.ts";
-import {
-  getTerminal,
-  registerTerminal as _registerTerminal,
-  terminalEntries,
-  unregisterTerminal as _unregisterTerminal,
-} from "./terminal-registry.ts";
-import { ORPCError } from "@orpc/server";
-
-// Silence unused-import diagnostics — keep the imports as explicit
-// declarations of what this module CAN reach for, even when the live
-// surface deps don't reference them directly.
-void _registerTerminal;
-void _unregisterTerminal;
+import { getTerminal, terminalEntries } from "./terminal-registry.ts";
 
 /** Project the full `TerminalMetadata` (which includes
  *  client-managed fields like themeName/canvasLayout/etc.) down to
@@ -60,12 +50,26 @@ export function projectAgentMetadata(
   };
 }
 
-/** Build the agent's surface router fragment + ctx. The fragment goes
- *  under the `surface` key in the agent's top-level oRPC router; the
- *  `ctx` is held by the aggregator so per-terminal updates publish
- *  through the framework's collection channels. */
+/** Channels whose every publish should trigger an aggregated
+ *  `terminalMetadata` republish. Note: `title` is intentionally
+ *  excluded — it isn't in `AgentTerminalMetadata` (it's an in-process
+ *  transient consumed by the agent's own providers, not a field the
+ *  surface ships), so subscribing here would just generate no-op
+ *  republishes. */
+const AGGREGATED_KINDS = [
+  "cwd",
+  "git",
+  "commandRun",
+  "agent",
+  "pr",
+  "foreground",
+] as const;
+
+/** Build the agent's surface router fragment, ctx, and lifecycle
+ *  closures for the per-terminal aggregator. The aggregator captures
+ *  `ctx` directly — callers don't have to set a global. */
 export function buildAgentSurface() {
-  return implementSurface(agentSurface, {
+  const surface = implementSurface(agentSurface, {
     // biome-ignore lint/suspicious/noExplicitAny: per-call typed via the framework's generic helper
     channel: <T>(_name: string): any => inMemoryChannel<T>(),
 
@@ -78,20 +82,14 @@ export function buildAgentSurface() {
           }
           return map;
         },
-        // `upsert` and `remove` here are framework-internal hooks. The
-        // terminal registry IS the source of truth — the aggregator
-        // calls `ctx.collections.terminalMetadata.upsert(id, projection)`
-        // to publish, but the registry handles actual creation/deletion
-        // through the terminal.spawn/kill procedures below. So these
-        // are no-ops on persistence; the framework still fires the
-        // perKeyBus.publish from inside the wrapped upsert, which is
-        // what subscribers actually see.
-        upsert: (_id, _value) => {
-          // intentional no-op — see comment above
-        },
-        remove: (_id) => {
-          // intentional no-op — see comment above
-        },
+        // The terminal registry IS the persistence layer — these are
+        // no-ops because the framework's wrapped upsert/remove still
+        // fires `perKeyBus.publish` after the no-op, which is what
+        // subscribers see. The aggregator below uses
+        // `ctx.collections.terminalMetadata.upsert(...)` to drive that
+        // publish.
+        upsert: (_id, _value) => {},
+        remove: (_id) => {},
       },
     },
 
@@ -133,16 +131,11 @@ export function buildAgentSurface() {
             cwd: input.cwd,
             initialMetadata: input.initialMetadata,
           });
-          // Start aggregator after spawn so providers' subsequent
-          // publishes flow through to the surface's terminalMetadata
-          // channel. Started here (not in localBackend.spawnPty)
-          // because the aggregator needs ctx, which we don't have
-          // until implementSurface returns.
-          startAgentMetadataAggregator(handle.id);
+          startAggregator(handle.id);
           return { id: handle.id };
         },
         kill: async ({ input }) => {
-          stopAgentMetadataAggregator(input.id);
+          stopAggregator(input.id);
           return localBackend.killTerminal(input.id);
         },
         write: async ({ input }) => {
@@ -196,87 +189,62 @@ export function buildAgentSurface() {
       },
     },
   });
-}
 
-// ── Per-terminal metadata aggregator ──────────────────────────────────
+  const { router, ctx } = surface;
 
-/** Holds the ctx + active aggregator AbortControllers. ctx is set once
- *  by `setAgentSurfaceCtx` after implementSurface returns. */
-interface AggregatorState {
-  ctx: ReturnType<typeof buildAgentSurface>["ctx"] | null;
-  active: Map<string, AbortController>;
-}
-const state: AggregatorState = { ctx: null, active: new Map() };
+  // ── Per-terminal aggregator (ctx captured by closure) ───────────────
+  //
+  // One `() => void` per terminal: collects all `consume()` cleanup
+  // fns into a single composed teardown so `stopAggregator(id)`
+  // actually unsubscribes (no more leaked subscribers until process
+  // exit). The previous AbortController-based shape was a teardown
+  // contract the implementation didn't honor — the consume() return
+  // values were discarded.
+  const active = new Map<string, () => void>();
 
-/** Called by `agent.ts` after constructing the surface to inject ctx
- *  into the aggregator. */
-export function setAgentSurfaceCtx(
-  ctx: ReturnType<typeof buildAgentSurface>["ctx"],
-): void {
-  state.ctx = ctx;
-}
-
-/** Subscribe to the legacy `terminalChannels` for `id` and republish
- *  the aggregated `AgentTerminalMetadata` projection whenever any of
- *  them updates. The aggregator owns one AbortController per terminal;
- *  `stopAgentMetadataAggregator(id)` cleans up. */
-export function startAgentMetadataAggregator(id: string): void {
-  if (state.active.has(id)) return;
-  if (!state.ctx) {
-    log.warn({ id }, "agent-surface: aggregator started before ctx set");
-    return;
-  }
-  const ctrl = new AbortController();
-  state.active.set(id, ctrl);
-
-  const publish = (): void => {
+  const publishFor = (id: string): void => {
     const entry = getTerminal(id);
     if (!entry) return;
-    state.ctx?.collections.terminalMetadata.upsert(
+    ctx.collections.terminalMetadata.upsert(
       id,
       projectAgentMetadata(entry.meta),
     );
   };
 
-  // Initial publish — gets the collection seeded with the current
-  // projection so subscribers' first snapshot reflects state at
-  // aggregator-start time.
-  publish();
+  function startAggregator(id: string): void {
+    if (active.has(id)) return;
+    // Initial publish — seeds the collection with the current
+    // projection so subscribers' first snapshot reflects state at
+    // aggregator-start time.
+    publishFor(id);
 
-  // Subscribe to each per-terminal channel and republish on any
-  // event. The publishes all flow through one collection channel,
-  // coalescing the 8-channel firehose into one snapshot stream.
-  const subscribeKinds = [
-    "cwd",
-    "title",
-    "git",
-    "commandRun",
-    "agent",
-    "pr",
-    "foreground",
-  ] as const;
-  for (const kind of subscribeKinds) {
-    terminalChannels[kind](id).consume({
-      onEvent: publish,
-      onError: (err) =>
-        log.warn({ id, kind, err }, "agent-surface: aggregator consume error"),
+    const cleanups: Array<() => void> = [];
+    for (const kind of AGGREGATED_KINDS) {
+      cleanups.push(
+        terminalChannels[kind](id).consume({
+          onEvent: () => publishFor(id),
+          onError: (err) =>
+            log.warn(
+              { id, kind, err },
+              "agent-surface: aggregator consume error",
+            ),
+        }),
+      );
+    }
+    active.set(id, () => {
+      for (const fn of cleanups) fn();
     });
+    log.info({ id }, "agent-surface: aggregator started");
   }
-  // The AbortController doesn't currently tear down the consumers —
-  // each terminalChannel.consume returns its own cleanup. For the
-  // first migration cut, the publisher's MemoryPublisher just keeps
-  // them around until process exit, which is fine because the agent
-  // process dies with its parent's stdio anyway. A future tightening
-  // can wire ctrl.signal through.
-  log.info({ id }, "agent-surface: aggregator started");
-}
 
-/** Stop the aggregator for `id`. */
-export function stopAgentMetadataAggregator(id: string): void {
-  const ctrl = state.active.get(id);
-  if (!ctrl) return;
-  ctrl.abort();
-  state.active.delete(id);
-  state.ctx?.collections.terminalMetadata.remove(id);
-  log.info({ id }, "agent-surface: aggregator stopped");
+  function stopAggregator(id: string): void {
+    const cleanup = active.get(id);
+    if (!cleanup) return;
+    cleanup();
+    active.delete(id);
+    ctx.collections.terminalMetadata.remove(id);
+    log.info({ id }, "agent-surface: aggregator stopped");
+  }
+
+  return { router, ctx, startAggregator, stopAggregator };
 }

@@ -22,7 +22,7 @@
 import { implement } from "@orpc/server";
 import { serveOverStdio } from "@kolu/surface/peer-server";
 import { agentSurface } from "kolu-common/agentSurface";
-import { buildAgentSurface, setAgentSurfaceCtx } from "./agent-surface.ts";
+import { buildAgentSurface } from "./agent-surface.ts";
 import { log } from "./log.ts";
 
 /**
@@ -35,8 +35,7 @@ import { log } from "./log.ts";
  * then serves over the process's stdin/stdout.
  */
 export async function runAgent(): Promise<void> {
-  const { router: surfaceFragment, ctx: surfaceCtx } = buildAgentSurface();
-  setAgentSurfaceCtx(surfaceCtx);
+  const { router: surfaceFragment } = buildAgentSurface();
 
   const t = implement(agentSurface.contract);
   // biome-ignore lint/suspicious/noExplicitAny: see comment.
