@@ -312,3 +312,14 @@ Then(
     );
   },
 );
+
+Then(
+  "the dock should show {int} row(s)",
+  async function (this: KoluWorld, expected: number) {
+    await this.page.waitForFunction(
+      ({ sel, count }) => document.querySelectorAll(sel).length === count,
+      { sel: '[data-testid="dock-row"]', count: expected },
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
