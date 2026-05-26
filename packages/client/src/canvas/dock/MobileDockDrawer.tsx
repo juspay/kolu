@@ -132,8 +132,15 @@ const MobileRow: Component<{
   return (
     <Show when={combined()}>
       {(c) => (
-        <button
-          type="button"
+        // Row is `<div role="button">` rather than `<button>` so the
+        // `<a>` PR pip inside `RowIcons` is valid HTML. Activation
+        // keyboard handlers mirror native button behaviour
+        // (Enter + Space). Same trade-off the desktop dock makes;
+        // see `Dock.tsx` for the longer rationale.
+        // biome-ignore lint/a11y/useSemanticElements: native button would nest invalid interactive HTML — see Dock.tsx
+        <div
+          role="button"
+          tabIndex={0}
           data-testid="mobile-dock-row"
           data-terminal-id={props.id}
           data-bucket={props.bucket}
@@ -144,6 +151,12 @@ const MobileRow: Component<{
           // drag-to-dismiss from claiming the tap.
           onPointerDown={(e) => e.stopPropagation()}
           onClick={() => props.onSelect(props.id)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              props.onSelect(props.id);
+            }
+          }}
           class="relative w-full grid grid-cols-subgrid col-span-full items-center py-3 -ml-6 -mr-3 border-l-[3px] border-l-transparent border-b border-b-edge/15 text-left transition-colors duration-150 cursor-pointer active:bg-surface-2 data-[active]:bg-accent/15 data-[active]:border-l-accent"
         >
           <AgentSlot agent={c().meta.agent} />
@@ -177,7 +190,7 @@ const MobileRow: Component<{
               </span>
             )}
           </Show>
-        </button>
+        </div>
       )}
     </Show>
   );

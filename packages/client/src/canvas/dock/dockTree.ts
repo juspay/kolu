@@ -115,7 +115,7 @@ function flattenLabelClusters(
     if (!ra || !rb) return 0;
     return compareRows(ra, rb);
   });
-  return ordered.flatMap((list) => list);
+  return ordered.flat();
 }
 
 function compareRows(a: RankedDockRow, b: RankedDockRow): number {

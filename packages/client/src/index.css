@@ -310,6 +310,11 @@ body {
 .dock-rail-chip[data-bucket="none"] {
   opacity: 0.5;
 }
+/* Active wins the dim — a freshly-created plain shell that becomes
+ * active in rail mode would otherwise still read as half-dim. */
+.dock-rail-chip[data-bucket="none"][data-active] {
+  opacity: 1;
+}
 @keyframes dock-chip-breathe {
   0%,
   100% {

@@ -81,6 +81,14 @@ const CHECK_GLYPH: Record<GitHubCheckStatus, string> = {
  *  a stacked tooltip. */
 function prTooltip(pr: GitHubPrInfo): string {
   if (pr.checks === null) return prLabel(pr);
+  // Older server payloads emit `checks` (the rollup) without
+  // `checkRuns` (the per-check list); schema defaults the latter to
+  // `[]`. Show only the aggregate verdict in that case — the
+  // parenthesized "0✓ 0… 0✗" tally would otherwise misrepresent a
+  // real check status as "no checks ran".
+  if (pr.checkRuns.length === 0) {
+    return `${prLabel(pr)}\n\nChecks: ${CHECKS_LABEL[pr.checks]}`;
+  }
   const counts = pr.checkRuns.reduce(
     (acc, c) => {
       acc[c.outcome] += 1;
@@ -92,9 +100,7 @@ function prTooltip(pr: GitHubPrInfo): string {
   const list = pr.checkRuns
     .map((c: GitHubCheck) => `  ${CHECK_GLYPH[c.outcome]} ${c.name}`)
     .join("\n");
-  return list
-    ? `${prLabel(pr)}\n\n${summary}\n${list}`
-    : `${prLabel(pr)}\n\n${summary}`;
+  return `${prLabel(pr)}\n\n${summary}\n${list}`;
 }
 
 /** Right-side pips (PR + sub-count) — emitted as two grid cells that

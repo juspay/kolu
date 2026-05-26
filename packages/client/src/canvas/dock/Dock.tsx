@@ -420,8 +420,19 @@ const DockRow: Component<{
   return (
     <Show when={combined()}>
       {(c) => (
-        <button
-          type="button"
+        // Row is `<div role="button">` rather than `<button>` so the
+        // `<a>` PR pip inside (`RowIcons.tsx`) is valid HTML. Nested
+        // interactive elements (`<a>` inside `<button>`) produce
+        // unreliable keyboard / screen-reader behaviour; the div+role
+        // pattern keeps the row activatable via mouse, Enter, and
+        // Space without that nesting. Biome's a11y rule wants a
+        // native `<button>` here, but that's exactly what we can't
+        // use — the PR pip must remain a real link (Cmd-click, right-
+        // click context menu) and HTML forbids `<a>` inside `<button>`.
+        // biome-ignore lint/a11y/useSemanticElements: see comment above — native button would nest invalid interactive HTML
+        <div
+          role="button"
+          tabIndex={0}
           data-testid="dock-row"
           data-terminal-id={props.id}
           data-bucket={props.bucket}
@@ -430,6 +441,12 @@ const DockRow: Component<{
           data-unread={unread() ? "" : undefined}
           data-sub-count={c().info.subCount > 0 ? c().info.subCount : undefined}
           onClick={() => store.activate(props.id)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              store.activate(props.id);
+            }
+          }}
           class="relative w-full grid grid-cols-subgrid col-span-full items-center py-1.5 -ml-6 -mr-3 border-l-[3px] border-l-transparent text-left cursor-pointer transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 hover:bg-surface-2/40 data-[active]:bg-accent/15 data-[active]:border-l-accent"
           title="Jump to this terminal"
         >
@@ -477,7 +494,7 @@ const DockRow: Component<{
               </span>
             )}
           </Show>
-        </button>
+        </div>
       )}
     </Show>
   );
