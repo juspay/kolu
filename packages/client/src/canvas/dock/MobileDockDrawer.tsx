@@ -97,6 +97,12 @@ const MobileSection: Component<{
   </section>
 );
 
+/** Mobile counterpart to `Dock.tsx`'s `DockRow`. Geometry is shared
+ *  (two-line subgrid, agent slot + branch + sub-count + time on
+ *  line 1, PR pip + subline on line 2); the two diverge on touch
+ *  target sizing, the Corvu drag-to-dismiss pointer-down trap, and
+ *  the absence of a `Cmd+N` shortcut hint. Update both files when
+ *  row geometry changes. */
 const MobileRow: Component<{
   id: TerminalId;
   bucket: DockRowBucket;

@@ -411,7 +411,15 @@ const RepoSection: Component<{
  *  is empty when the row has none, collapsing the column back into
  *  branch width. Active row gets a quiet highlight (`bg-accent/15` +
  *  3 px accent left stripe) but identical geometry, so the dock
- *  doesn't reflow on activation. */
+ *  doesn't reflow on activation.
+ *
+ *  Mobile variant lives in `MobileDockDrawer.tsx`'s `MobileRow`.
+ *  The two are intentionally separate — touch-target sizing,
+ *  pointer-down gesture interception (Corvu drawer drag-to-dismiss),
+ *  and the desktop-only `Cmd+N` shortcut hint are real divergence
+ *  axes that a `BaseRow` extraction would have to expose as props.
+ *  Both reviewers agreed: keep them separate, link via this comment.
+ *  Update both files when row geometry changes. */
 const DockRow: Component<{
   id: TerminalId;
   bucket: DockRowBucket;
