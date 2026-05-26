@@ -490,26 +490,6 @@ const features = [
     color: color-mix(in srgb, var(--color-live-violet) 70%, var(--color-ink));
   }
 
-  .live-chip-working {
-    animation: glow-working 1.6s ease-in-out infinite;
-  }
-  .live-chip-awaiting {
-    animation: breath-ring 1.4s ease-in-out infinite;
-    background: color-mix(in srgb, var(--color-live-alert) 16%, transparent);
-    color: color-mix(in srgb, var(--color-live-alert) 80%, var(--color-ink));
-  }
-  .live-badge {
-    position: absolute;
-    top: -4px;
-    right: -4px;
-    width: 9px;
-    height: 9px;
-    background: var(--color-live-alert);
-    border-radius: 50%;
-    box-shadow: 0 0 0 2px var(--color-void-sunk), 0 0 8px var(--color-live-alert);
-    animation: pulse-dot 1.1s ease-in-out infinite;
-  }
-
   .hero-term-stack {
     flex: 1;
     display: flex;
@@ -566,10 +546,6 @@ const features = [
     background: var(--color-live-teal);
     box-shadow: 0 0 8px var(--color-live-teal);
   }
-  .live-dot {
-    animation: pulse-dot 1.1s ease-in-out infinite;
-  }
-
   .hero-term-body {
     flex: 1;
     padding: 1rem 1.15rem;
