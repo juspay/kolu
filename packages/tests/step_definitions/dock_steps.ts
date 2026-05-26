@@ -6,8 +6,12 @@ import { type KoluWorld, MOD_KEY, POLL_TIMEOUT } from "../support/world.ts";
 const DOCK_SELECTOR = '[data-testid="dock"]';
 const RAIL_SELECTOR = '[data-testid="dock-rail"]';
 const MODE_TOGGLE_SELECTOR = '[data-testid="dock-mode-toggle"]';
-const CARD_SELECTOR = '[data-testid="dock-card"]';
-const WORKING_SELECTOR = '[data-testid="dock-working"]';
+// Row bucket is the semantic state we assert against — the unified
+// DockRow component carries `data-bucket="awaiting|working|idle|none"`
+// instead of branching its testid by bucket.
+const AWAITING_ROW_SELECTOR =
+  '[data-testid="dock-row"][data-bucket="awaiting"]';
+const WORKING_ROW_SELECTOR = '[data-testid="dock-row"][data-bucket="working"]';
 const QUIET_FOREGROUND_SELECTOR = '[data-testid="dock-quiet-foreground"]';
 const CHROME_DOCK_TOGGLE_SELECTOR = '[data-testid="dock-toggle"]';
 const DOCK_WINDOW_TRIGGER_SELECTOR = '[data-testid="dock-window-trigger"]';
@@ -46,10 +50,14 @@ Then("the dock should not be visible", async function (this: KoluWorld) {
 Then(
   "the dock should show {int} card(s)",
   async function (this: KoluWorld, expected: number) {
+    // "card" is the legacy name for an awaiting row — the bare dock no
+    // longer has a distinct full-card variant, but the feature file
+    // still reads "1 card" and that maps cleanly onto the awaiting
+    // bucket count.
     await this.page.waitForFunction(
       ({ selector, count }) =>
         document.querySelectorAll(selector).length === count,
-      { selector: CARD_SELECTOR, count: expected },
+      { selector: AWAITING_ROW_SELECTOR, count: expected },
       { timeout: POLL_TIMEOUT },
     );
   },
@@ -61,7 +69,7 @@ Then(
     await this.page.waitForFunction(
       ({ selector, count }) =>
         document.querySelectorAll(selector).length === count,
-      { selector: WORKING_SELECTOR, count: expected },
+      { selector: WORKING_ROW_SELECTOR, count: expected },
       { timeout: POLL_TIMEOUT },
     );
   },

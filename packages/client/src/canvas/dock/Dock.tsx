@@ -8,21 +8,25 @@
  *     terminal. State-cadenced (breathe / pulse) via `dock-rail-*`
  *     animations. Click any swatch to expand; click the chevron at the
  *     top to switch to cards.
- *  2. **cards** (default) — recency-sorted variant rows: awaiting
- *     terminals get full cards with xterm-buffer tail + reply input;
- *     working terminals get compact pills; idle terminals get a faded
- *     row; parked (`isStale`) terminals get a tiny dimmed row.
+ *  2. **cards** (default) — rows grouped by repo. Each repo gets a
+ *     small section header (uppercase name + repo-colored swatch + row
+ *     count); rows below it stack as compact `dot · branch · time`
+ *     lines. The dot color carries bucket state (awaiting / working /
+ *     idle / none); the only chrome on an inactive row is its label and
+ *     time. The active row floods to accent and reveals an inline detail
+ *     line — agent indicator + PR badge — so triage info is one click
+ *     away rather than crowding every row.
  *
- *  Workspace search lives in the unified command palette (#912) — the
- *  dock's search-icon button delegates to `onOpenWorkspaceSearch`,
- *  which opens the palette pre-drilled into "Search workspaces".
- *  `Mod+Shift+K` reaches the same surface.
+ *  The activity-window chip (`24h`/`12h`/`All`) is a hard filter, not a
+ *  dim: rows past the window disappear from the dock entirely; a small
+ *  footer surfaces the hidden count and offers a one-click "show all"
+ *  escape via `setActivityWindow("all")`.
  *
  *  In maximized-tile mode the dock renders as a flush left-edge sidebar
  *  with opaque background, full canvas height, separator on the right.
- *  The maximized tile reflows next to it (CanvasTile reads
- *  `dockMaximizedWidth`). In tiled mode the dock floats over the canvas
- *  with the existing radius/shadow surface.
+ *  In tiled mode the dock floats over the canvas — the same opaque
+ *  surface, rounded with a drop shadow, so canvas tiles don't bleed
+ *  through.
  *
  *  Auto-hides only when the workspace has no terminals — once the user
  *  has any terminal at all, the dock stays on screen, since it is the
@@ -30,19 +34,9 @@
 
 import { makePersisted } from "@solid-primitives/storage";
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
-import {
-  type Component,
-  For,
-  Match,
-  Show,
-  Switch,
-  createMemo,
-  createSignal,
-} from "solid-js";
-import { toast } from "solid-sonner";
-import IntentBody from "../../intent/IntentBody";
+import { type Component, For, Show, createMemo, createSignal } from "solid-js";
 import AgentIndicator from "../../terminal/AgentIndicator";
-import { formatTimeAgo, useStaleCheck } from "../../terminal/staleness";
+import { formatTimeAgo } from "../../terminal/staleness";
 import IntentGlyph from "../../intent/IntentGlyph";
 import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
 import { annotationLine } from "../../intent/text";
@@ -56,11 +50,11 @@ import {
 } from "../../terminal/activityWindow";
 import { ChevronDownIcon, PlusIcon, SearchIcon } from "../../ui/Icons";
 import { OptionMenu } from "../../ui/OptionMenu";
-import { client } from "../../wire";
 import { isPlatformModifier } from "../../input/keyboard";
-import { useTileTheme } from "../useTileTheme";
 import { useViewPosture } from "../useViewPosture";
-import { type DockRowBucket, rankDockRows } from "./dockRowRanking";
+import type { DockRowBucket } from "./dockRowRanking";
+import type { DockGroup, DockTree } from "./dockTree";
+import { useDockOrder } from "./useDockOrder";
 import PrLine from "./PrLine";
 import { SubCountChip } from "./SubCountChip";
 
@@ -71,9 +65,6 @@ export type DockMode = "rail" | "cards";
 const RAIL_WIDTH_PX = 40;
 const CARDS_WIDTH_PX = 288;
 
-/** Width in pixels for a given mode. Drives both the outer aside's
- *  inline `width` style and (in maximized posture) the dock's flex
- *  footprint as a left-panel sibling of the canvas. */
 function dockWidth(mode: DockMode): number {
   return mode === "rail" ? RAIL_WIDTH_PX : CARDS_WIDTH_PX;
 }
@@ -128,33 +119,22 @@ const Dock: Component<{
   onOpenWorkspaceSearch: () => void;
   onCreate: () => void;
 }> = (props) => {
-  const store = useTerminalStore();
-  const isStale = useStaleCheck();
+  const tree = useDockOrder();
   const posture = useViewPosture();
+  const hasAnyRow = () => tree().flatIds.length > 0 || tree().parkedCount > 0;
 
-  const ranked = createMemo(() =>
-    rankDockRows(store.terminalIds(), store.getMetadata, isStale),
-  );
-
-  const liveIds = createMemo(() => ranked().map((r) => r.id));
-  const bucketOf = createMemo(() => {
-    const map = new Map<TerminalId, DockRowBucket>();
-    for (const r of ranked()) map.set(r.id, r.bucket);
-    return map;
-  });
-
-  // Maximized = flush sidebar; tiled = floating overlay. Two distinct
-  // shells share the same inner body so rendering logic stays singular.
   return (
-    <Show when={liveIds().length > 0}>
+    <Show when={hasAnyRow()}>
       <aside
         data-testid="dock"
         data-mode={dockMode()}
         data-maximized={posture.maximized() ? "" : undefined}
-        class="flex flex-col select-none overflow-hidden"
+        class="flex flex-col select-none overflow-hidden bg-surface-1"
         classList={{
           // Tiled: absolute float inside the canvas; positions over
-          // tiles rather than reflowing them.
+          // tiles rather than reflowing them. Opaque background (see
+          // base class) so canvas tiles don't bleed through the seams
+          // between rows or behind the rounded corners.
           "absolute z-30 top-20 left-4 rounded-2xl shadow-2xl shadow-black/40":
             !posture.maximized(),
           "max-h-[calc(100vh-22rem)]": !posture.maximized(),
@@ -164,15 +144,13 @@ const Dock: Component<{
           // parent flex container (`stretch` is the default
           // `align-items`); a right-edge separator reads as a hard
           // panel boundary rather than a floating card.
-          "relative shrink-0 h-full border-r border-edge bg-surface-1":
-            posture.maximized(),
+          "relative shrink-0 h-full border-r border-edge": posture.maximized(),
         }}
         style={{ width: `${dockWidth(dockMode())}px` }}
       >
         <RailOrCards
           mode={dockMode()}
-          liveIds={liveIds()}
-          bucketOf={bucketOf()}
+          tree={tree()}
           onCreate={props.onCreate}
           onOpenWorkspaceSearch={props.onOpenWorkspaceSearch}
         />
@@ -181,12 +159,13 @@ const Dock: Component<{
   );
 };
 
-/** Rail / cards body — vertical stack of dock rows preceded by a header
- *  with the `+` new-terminal button and the mode chevron. */
+/** Rail / cards body — header on top, scrolling content below, optional
+ *  hidden-by-window footer at the bottom. Rail iterates the flat row
+ *  list (one swatch per terminal); cards iterates the grouped tree
+ *  (section header + rows per repo). */
 const RailOrCards: Component<{
   mode: DockMode;
-  liveIds: TerminalId[];
-  bucketOf: Map<TerminalId, DockRowBucket>;
+  tree: DockTree;
   onCreate: () => void;
   onOpenWorkspaceSearch: () => void;
 }> = (props) => {
@@ -198,27 +177,33 @@ const RailOrCards: Component<{
         onOpenWorkspaceSearch={props.onOpenWorkspaceSearch}
       />
       <div class="flex flex-col overflow-y-auto overflow-x-hidden scrollbar-none flex-1 min-h-0">
-        <For each={props.liveIds}>
-          {(id, index) => (
-            <DockRow
-              id={id}
-              bucket={props.bucketOf.get(id) ?? "none"}
-              mode={props.mode}
-              index={index()}
-            />
-          )}
-        </For>
+        <Show
+          when={props.mode === "rail"}
+          fallback={
+            <For each={props.tree.groups}>
+              {(group) => (
+                <RepoSection group={group} flatIds={props.tree.flatIds} />
+              )}
+            </For>
+          }
+        >
+          <For each={props.tree.flatIds}>
+            {(id, index) => (
+              <RailRow id={id} flatIndex={index()} tree={props.tree} />
+            )}
+          </For>
+        </Show>
       </div>
+      <HiddenFooter parkedCount={props.tree.parkedCount} />
     </div>
   );
 };
 
 /** Dock header — `+` new terminal, workspace-search trigger, an activity-
- *  window selector (governs how aggressively non-awaiting rows fade into
- *  the parked bucket; attention-state agents are exempt regardless of
- *  age), and the rail ↔ cards mode toggle. Layout is row in cards mode
- *  (icons sit on one line at the top), column in rail mode (stacked
- *  vertically inside the narrow rail width). */
+ *  window selector (governs how aggressively rows fall off the dock;
+ *  picking a tighter window hides more), and the rail ↔ cards mode
+ *  toggle. Layout is row in cards mode (icons on one line at the top),
+ *  column in rail mode (stacked vertically inside the narrow rail). */
 const DockHeader: Component<{
   mode: DockMode;
   onCreate: () => void;
@@ -277,13 +262,11 @@ const DockHeader: Component<{
 /** Activity-window chip: shows the current short label (`24h`, `4h`,
  *  `All`, …) and opens an `OptionMenu` of all options. Same shared
  *  signal the minimap reads, so picking `12h` here also tightens the
- *  minimap's fade. Attention-state agents bypass this entirely — they
- *  never become parked, regardless of which window is selected.
+ *  minimap's fade.
  *
  *  Always anchors `bottom-start` because the dock lives at the left
  *  edge of the viewport — `bottom-end` would push the 180px-wide panel
- *  LEFT of the trigger and clip it off-screen. (See useAnchoredPopover
- *  for the panel-min-width clamp.) */
+ *  LEFT of the trigger and clip it off-screen. */
 const ActivityWindowMenu: Component = () => {
   const [menuOpen, setMenuOpen] = createSignal(false);
   const [triggerRef, setTriggerRef] = createSignal<HTMLButtonElement>();
@@ -320,24 +303,59 @@ const ActivityWindowMenu: Component = () => {
   );
 };
 
-/** A row in the unified dock surface: rail-segment on the left
- *  (per-card `repoColor`, also the click target for collapse/expand)
- *  + content on the right (full card / pill / idle row / parked row /
- *  nothing if rail).
- *
- *  Carries the surface-agnostic "list of live terminals" semantics that
- *  the chrome-bar workspace-switcher pill row used to own: same
- *  `data-active` / `data-unread` / `data-agent-state` attributes so
- *  step definitions and the activity-alerts pipeline can keep treating
- *  the dock row as "the entry for this terminal" without caring which
- *  surface hosts it. */
+/** Repo section — a small header (uppercase name + colored swatch +
+ *  row count) over the group's rows. Always rendered, even for
+ *  single-repo workspaces — a consistent structure beats a
+ *  degenerate-case collapse. */
+const RepoSection: Component<{
+  group: DockGroup;
+  flatIds: TerminalId[];
+}> = (props) => (
+  <section
+    data-testid="dock-section"
+    data-repo={props.group.name}
+    class="flex flex-col"
+  >
+    <div class="flex items-center gap-2 px-3 pt-3 pb-1">
+      <span
+        aria-hidden="true"
+        class="w-2 h-2 rounded-sm shrink-0"
+        style={{ "background-color": props.group.color }}
+      />
+      <span
+        class="font-mono text-[0.6rem] font-bold uppercase tracking-[0.14em] text-fg-2 truncate min-w-0"
+        title={props.group.name}
+      >
+        {props.group.name}
+      </span>
+      <span class="ml-auto font-mono text-[0.6rem] tabular-nums text-fg-3 shrink-0">
+        {props.group.rows.length}
+      </span>
+    </div>
+    <For each={props.group.rows}>
+      {(row) => (
+        <DockRow
+          id={row.id}
+          bucket={row.bucket}
+          flatIndex={props.flatIds.indexOf(row.id)}
+        />
+      )}
+    </For>
+  </section>
+);
+
+/** A row in cards mode — `dot · branch · time` with an active-only
+ *  detail line. Replaces the previous three variant bodies; bucket
+ *  drives the dot's color and animation, plus the foreground sub-line
+ *  on plain-shell rows. The reply-input form and full intent body are
+ *  gone — the user activates the row and replies in the terminal. */
 const DockRow: Component<{
   id: TerminalId;
   bucket: DockRowBucket;
-  mode: DockMode;
-  /** Zero-based row index in the recency-sorted list. Used to paint
-   *  the `Cmd+1..9` hint on the first nine rows while Alt is held. */
-  index: number;
+  /** Position in the dock-wide flat row order. `< 9` qualifies the row
+   *  for a `Cmd+(flatIndex+1)` shortcut hint while the platform
+   *  modifier is held. */
+  flatIndex: number;
 }> = (props) => {
   const store = useTerminalStore();
   const combined = createMemo(() => {
@@ -348,18 +366,152 @@ const DockRow: Component<{
   });
   const active = () => store.activeId() === props.id;
   const unread = () => store.isUnread(props.id);
-  // First nine rows get a Cmd+i hint while the platform modifier is
-  // held. The mapping matches `switchTo1..9` in `actions.ts`, which
-  // targets the same dock row order this row's `index` belongs to.
-  const showShortcutHint = () => modHeld() && props.index < 9;
+  const showShortcutHint = () => modHeld() && props.flatIndex < 9;
+  const foreground = (meta: TerminalMetadata) =>
+    meta.foreground?.title ?? meta.foreground?.name ?? null;
+  return (
+    <Show when={combined()}>
+      {(c) => (
+        <button
+          type="button"
+          data-testid="dock-row"
+          data-terminal-id={props.id}
+          data-bucket={props.bucket}
+          data-agent-state={c().meta.agent?.state}
+          data-active={active() ? "" : undefined}
+          data-unread={unread() ? "" : undefined}
+          data-sub-count={c().info.subCount > 0 ? c().info.subCount : undefined}
+          onClick={() => store.activate(props.id)}
+          class="relative w-full grid grid-cols-[18px_minmax(0,1fr)_auto] items-center gap-x-2 px-3 py-1.5 text-left cursor-pointer transition-[margin,border-radius,box-shadow,background-color,color] duration-300 ease-out focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 data-[active]:m-1.5 data-[active]:rounded-lg data-[active]:bg-accent data-[active]:text-white data-[active]:[&_.text-fg-2]:text-white/85 data-[active]:[&_.text-fg-3]:text-white/70 data-[active]:shadow-[var(--dock-active-halo)] data-[active]:animate-[dock-row-activate_0.36s_cubic-bezier(0.34,1.45,0.6,1),dock-row-flash_0.48s_ease-out] motion-reduce:transition-none motion-reduce:data-[active]:animate-none hover:bg-surface-2/40"
+          title="Jump to this terminal"
+        >
+          <BucketDot bucket={props.bucket} active={active()} />
+          <span
+            class="font-medium text-[0.85rem] leading-tight truncate min-w-0"
+            style={{
+              color: active() ? undefined : c().info.annotationColor,
+            }}
+          >
+            <IntentMarkdownInline
+              markdown={annotationLine(c().meta.intent, c().info.key.label)}
+            />
+          </span>
+          <span class="font-mono text-[0.6rem] tabular-nums text-fg-3 shrink-0">
+            {formatTimeAgo(c().meta.lastActivityAt)}
+          </span>
+          <Show when={unread()}>
+            <span
+              class="absolute -top-0.5 right-1 inline-flex h-2 w-2"
+              aria-hidden="true"
+            >
+              <span class="absolute inline-flex h-full w-full rounded-full bg-alert opacity-75 animate-ping" />
+              <span class="relative inline-flex rounded-full h-2 w-2 bg-alert" />
+            </span>
+          </Show>
+          <Show when={showShortcutHint()}>
+            <span
+              data-testid="dock-row-shortcut-hint"
+              class="absolute top-0.5 left-0.5 inline-flex items-center justify-center h-3.5 min-w-3.5 px-1 rounded bg-accent text-surface-1 font-mono text-[0.55rem] font-bold tabular-nums pointer-events-none"
+              aria-hidden="true"
+            >
+              {props.flatIndex + 1}
+            </span>
+          </Show>
+          {/* Plain-shell foreground process — `nix build`, `pu connect`,
+           *  etc. Surfaced only when there's no agent in the row, since
+           *  agent-bearing rows already have identity from the active
+           *  detail line. */}
+          <Show when={!c().meta.agent && foreground(c().meta)}>
+            {(fg) => (
+              <span
+                data-testid="dock-quiet-foreground"
+                class="col-start-2 col-end-4 font-mono text-[0.65rem] text-fg-2 truncate min-w-0"
+              >
+                {fg()}
+              </span>
+            )}
+          </Show>
+          <Show when={active()}>
+            <ActiveDetail meta={c().meta} info={c().info} />
+          </Show>
+        </button>
+      )}
+    </Show>
+  );
+};
+
+/** Active-only detail line — agent state + PR badge + sub-count chip.
+ *  Hidden on inactive rows so the dock scans as a clean column of
+ *  `dot · branch · time`. */
+const ActiveDetail: Component<{
+  meta: TerminalMetadata;
+  info: TerminalDisplayInfo;
+}> = (props) => (
+  <div class="col-start-2 col-end-4 flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1 text-[0.6rem]">
+    <Show when={props.meta.agent}>
+      {(agent) => (
+        <div class="flex items-center gap-1.5 min-w-0">
+          <AgentIndicator agent={agent()} />
+        </div>
+      )}
+    </Show>
+    <PrLine meta={props.meta} />
+    <Show when={props.info.subCount > 0}>
+      <SubCountChip
+        count={props.info.subCount}
+        active
+        testId="dock-sub-count"
+      />
+    </Show>
+  </div>
+);
+
+/** Bucket-coloured status disk. Sole state cue on inactive rows; on
+ *  active rows it inverts to white so it stays visible against the
+ *  accent flood. Awaiting breathes, working pulses, idle/none hold a
+ *  flat dim disk. */
+const BucketDot: Component<{ bucket: DockRowBucket; active: boolean }> = (
+  props,
+) => (
+  <span
+    aria-hidden="true"
+    data-bucket={props.bucket}
+    class="dock-row-dot block w-2 h-2 rounded-full justify-self-center"
+    classList={{
+      "dock-rail-awaiting": props.bucket === "awaiting" && !props.active,
+      "dock-rail-working": props.bucket === "working" && !props.active,
+    }}
+  />
+);
+
+/** Rail-mode row — one colored swatch per terminal, identical to the
+ *  pre-grouping rail behavior. `flatIds`-driven so the swatch order
+ *  matches the cards-mode flat order (and `Cmd+1..9` targets the same
+ *  row regardless of mode). */
+const RailRow: Component<{
+  id: TerminalId;
+  flatIndex: number;
+  tree: DockTree;
+}> = (props) => {
+  const store = useTerminalStore();
+  const combined = createMemo(() => {
+    const info = store.getDisplayInfo(props.id);
+    const meta = store.getMetadata(props.id);
+    if (!info || !meta) return null;
+    const bucket = bucketFor(props.id, props.tree);
+    return { info, meta, bucket };
+  });
+  const active = () => store.activeId() === props.id;
+  const unread = () => store.isUnread(props.id);
+  const showShortcutHint = () => modHeld() && props.flatIndex < 9;
   return (
     <Show when={combined()}>
       {(c) => (
         <div
-          class="flex flex-row items-stretch border-b border-edge/15 last:border-b-0 relative transition-[margin,border-radius,box-shadow] duration-300 ease-out data-[active]:m-1.5 data-[active]:rounded-lg data-[active]:border-b-transparent data-[active]:shadow-[var(--dock-active-halo)] data-[active]:animate-[dock-row-activate_0.36s_cubic-bezier(0.34,1.45,0.6,1),dock-row-flash_0.48s_ease-out] motion-reduce:transition-none motion-reduce:data-[active]:animate-none"
+          class="relative flex items-stretch border-b border-edge/15 last:border-b-0"
           data-testid="dock-row"
           data-terminal-id={props.id}
-          data-bucket={props.bucket}
+          data-bucket={c().bucket}
           data-agent-state={c().meta.agent?.state}
           data-active={active() ? "" : undefined}
           data-unread={unread() ? "" : undefined}
@@ -374,67 +526,42 @@ const DockRow: Component<{
               <span class="relative inline-flex rounded-full h-2 w-2 bg-alert" />
             </span>
           </Show>
-          {/* Active-terminal indicator lives in index.css, keyed on
-           *  `[data-testid="dock-row"][data-active]` (set on the row
-           *  above). Lifted-card geometry + accent flood + one-shot
-           *  pop-in animation — see the "Active dock row" section in
-           *  `index.css`. Mobile drawer shares the same CSS block via
-           *  its own `[data-testid="mobile-dock-row"][data-active]`. */}
           <Show when={showShortcutHint()}>
             <span
               data-testid="dock-row-shortcut-hint"
               class="absolute top-1 left-1 z-10 inline-flex items-center justify-center h-4 min-w-4 px-1 rounded bg-accent text-surface-1 font-mono text-[0.6rem] font-bold tabular-nums pointer-events-none"
               aria-hidden="true"
             >
-              {props.index + 1}
+              {props.flatIndex + 1}
             </span>
           </Show>
           <RailSegment
             id={props.id}
             repoColor={c().info.repoColor}
-            bucket={props.bucket}
-            mode={props.mode}
+            bucket={c().bucket}
             intent={c().meta.intent}
           />
-          <Show when={props.mode === "cards"}>
-            <div class="flex-1 min-w-0">
-              <RowBody
-                id={props.id}
-                bucket={props.bucket}
-                info={c().info}
-                meta={c().meta}
-              />
-            </div>
-          </Show>
         </div>
       )}
     </Show>
   );
 };
 
-/** Colored rail segment — one per dock row. Clicking the segment
- *  activates the corresponding terminal (in rail mode this is the only
- *  visible click target for the row; in cards mode the body has its
- *  own activator and the rail is a slim affordance to the side). The
- *  rail/cards mode toggle lives on the header chevron, not here. A
- *  `dock-rail-*` filter animation cycles the segment's brightness so
- *  state-cadence (breathe / pulse) survives the unified-surface
- *  treatment. */
+/** Colored rail segment — one per dock row in rail mode. Clicking
+ *  activates the corresponding terminal. A `dock-rail-*` filter
+ *  animation cycles the segment's brightness so state-cadence (breathe
+ *  / pulse) survives even in the minimal rail surface. */
 const RailSegment: Component<{
   id: TerminalId;
   repoColor: string;
   bucket: DockRowBucket;
-  mode: DockMode;
   intent: string | undefined;
 }> = (props) => {
   const store = useTerminalStore();
   // The breath/pulse animation belongs only to live attention states.
-  // Idle/parked/none rails stay flat so the visual budget reads "live
-  // signal here" without false positives. Accessor (not const) so the
-  // class re-evaluates when `props.bucket` changes — `props` is reactive,
-  // a plain `const` would capture the bucket at mount and the animation
-  // would stick to a stale state across awaiting → working → idle
-  // transitions.
+  // Idle/none rails stay flat so the visual budget reads "live signal
+  // here" without false positives. Parked rows never reach the rail —
+  // they're filtered before tree construction.
   const animClass = () =>
     props.bucket === "awaiting"
       ? "dock-rail-awaiting"
@@ -447,17 +574,15 @@ const RailSegment: Component<{
       data-testid="dock-rail"
       data-agent-bucket={props.bucket}
       onClick={() => store.activate(props.id)}
-      class={`shrink-0 cursor-pointer transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 flex items-center justify-center ${
-        props.mode === "rail" ? "w-full h-6" : "w-1.5"
-      } ${animClass()}`}
+      class={`shrink-0 w-full h-6 cursor-pointer transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 flex items-center justify-center ${animClass()}`}
       classList={{
-        "opacity-50": props.bucket === "parked" || props.bucket === "none",
+        "opacity-50": props.bucket === "none",
       }}
       style={{ "background-color": props.repoColor }}
       title="Jump to this terminal"
       aria-label="Jump to this terminal"
     >
-      <Show when={props.mode === "rail" && props.intent}>
+      <Show when={props.intent}>
         <IntentGlyph
           intent={props.intent}
           class="block text-base leading-none mix-blend-multiply"
@@ -467,371 +592,42 @@ const RailSegment: Component<{
   );
 };
 
-/** Annotation slot shared by all three Dock body variants — renders
- *  intent line-1 (or the branch-name fallback) as inline markdown with
- *  the slot's tint color.  Only the font-size class varies per variant. */
-const DockAnnotation: Component<{
-  meta: TerminalMetadata;
-  info: TerminalDisplayInfo;
-  class: string;
-  active: boolean;
-}> = (props) => (
-  <span
-    data-testid="dock-annotation"
-    class={`${props.class} truncate min-w-0`}
-    // Drop the inline color when active so the parent body's white
-    // cascades through — an inline annotationColor wins against
-    // `!important` via specificity; undefined removes the inline.
-    style={{ color: props.active ? undefined : props.info.annotationColor }}
-  >
-    <IntentMarkdownInline
-      markdown={annotationLine(props.meta.intent, props.info.key.label)}
-    />
-  </span>
-);
-
-/** Dispatches each row to its variant body. Bundling the variant switch
- *  in one place keeps `DockRow` shape uniform — every bucket has the
- *  same outer "rail + body" geometry regardless of which variant the
- *  body renders. Each body derives its own `active` state from the
- *  terminal store — no prop threading needed since all three already
- *  call `useTerminalStore()` and have `props.id`. */
-const RowBody: Component<{
-  id: TerminalId;
-  bucket: DockRowBucket;
-  info: TerminalDisplayInfo;
-  meta: TerminalMetadata;
-}> = (props) => {
-  return (
-    <Switch
-      fallback={
-        <QuietRowBody
-          id={props.id}
-          info={props.info}
-          meta={props.meta}
-          bucket={props.bucket}
-        />
-      }
-    >
-      <Match when={props.bucket === "awaiting"}>
-        <AwaitingCardBody id={props.id} info={props.info} meta={props.meta} />
-      </Match>
-      <Match when={props.bucket === "working"}>
-        <WorkingPillBody id={props.id} info={props.info} meta={props.meta} />
-      </Match>
-    </Switch>
-  );
-};
-
-/** Awaiting card body — content for an awaiting row.
- *
- *  Replaces the previous xterm-buffer-tail render with the terminal's
- *  intent markdown. Rationale: the agent's live state is already
- *  communicated by the bucket pulse + `DockMetaRow`; what's missing in
- *  a busy dock is *which* terminal this is — the user's intent note is
- *  exactly that, and it stays stable while the buffer below it
- *  scrolls. When intent is unset the card collapses to header + reply. */
-const AwaitingCardBody: Component<{
-  id: TerminalId;
-  info: TerminalDisplayInfo;
-  meta: TerminalMetadata;
-}> = (props) => {
-  const store = useTerminalStore();
-  const tileTheme = useTileTheme();
-  const theme = createMemo(() => tileTheme(props.id));
-  const active = () => store.activeId() === props.id;
-  const [value, setValue] = createSignal("");
-
-  async function submit(e: SubmitEvent) {
-    e.preventDefault();
-    const text = value().trim();
-    if (text.length === 0) return;
-    // INVARIANT: TUI agents that ship distinct parsers for text and
-    // CR (Codex Ratatui is the known case) require text+CR to arrive
-    // as TWO separate PTY writes spaced ≥50ms apart.
-    const ok = await client.terminal
-      .sendInput({ id: props.id, data: text })
-      .then(() => true)
-      .catch((err: Error) => {
-        toast.error(`Failed to send input: ${err.message}`);
-        return false;
-      });
-    if (!ok) return;
-    setValue("");
-    setTimeout(() => {
-      void client.terminal
-        .sendInput({ id: props.id, data: "\r" })
-        .catch((err: Error) => {
-          toast.error(`Failed to send CR: ${err.message}`);
-        });
-    }, 50);
+/** Find a terminal's bucket inside the dock tree. The tree groups rows
+ *  by repo and keeps the bucket per row; rail mode iterates `flatIds`
+ *  and needs to look the bucket back up to drive the breath/pulse
+ *  animation. */
+function bucketFor(id: TerminalId, tree: DockTree): DockRowBucket {
+  for (const group of tree.groups) {
+    for (const row of group.rows) {
+      if (row.id === id) return row.bucket;
+    }
   }
+  return "none";
+}
 
-  return (
-    <div
-      data-testid="dock-card"
-      data-terminal-id={props.id}
-      class="px-2.5 py-2.5 flex flex-col gap-1.5 transition-colors duration-200 ease-out"
-      classList={{
-        // Active body floods to accent → main text inherits white,
-        // and the dim subtitle utilities (`text-fg-2`, `text-fg-3`)
-        // get brightened via descendant overrides so the PR line,
-        // timestamp, and agent-indicator token count stay readable
-        // against the accent flood. CSS specificity ensures the
-        // descendant arbitrary selectors win over the bare
-        // `.text-fg-*` utilities.
-        "text-white [&_.text-fg-2]:text-white/85 [&_.text-fg-3]:text-white/70":
-          active(),
-      }}
-      style={{
-        "background-color": active() ? "var(--color-accent)" : theme().bg,
-        color: active() ? undefined : theme().fg,
-      }}
-    >
-      <button
-        type="button"
-        onClick={() => store.activate(props.id)}
-        class="flex flex-col gap-1 text-left cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 rounded"
-        title="Jump to this terminal"
-      >
-        <div class="flex items-baseline justify-between gap-2 min-w-0">
-          <span
-            class="font-mono text-[0.7rem] font-bold uppercase tracking-[0.14em] truncate min-w-0"
-            style={{
-              color: active() ? undefined : props.info.repoColor,
-            }}
-          >
-            {props.info.key.group}
-          </span>
-          <div class="flex items-baseline gap-2 min-w-0">
-            <DockAnnotation
-              meta={props.meta}
-              info={props.info}
-              class="text-[0.95rem] font-semibold leading-tight"
-              active={active()}
-            />
-            <Show when={props.info.subCount > 0}>
-              <SubCountChip
-                count={props.info.subCount}
-                active={active()}
-                testId="dock-sub-count"
-              />
-            </Show>
-          </div>
-        </div>
-        <DockMetaRow meta={props.meta} />
-        <PrLine meta={props.meta} />
-        <IntentBody intent={props.meta.intent} testId="dock-intent" />
-      </button>
-      <form onSubmit={submit}>
-        <input
-          type="text"
-          data-testid="dock-reply"
-          value={value()}
-          onInput={(e) => setValue(e.currentTarget.value)}
-          placeholder="Reply…"
-          class="w-full rounded px-2 py-1 text-[0.8rem] focus:outline-none focus:ring-2 focus:ring-accent/40 placeholder:opacity-60"
-          style={{
-            color: "inherit",
-            "background-color":
-              "color-mix(in oklch, currentColor 8%, transparent)",
-            border:
-              "1px solid color-mix(in oklch, currentColor 25%, transparent)",
-          }}
-          autocomplete="off"
-          autocorrect="off"
-          spellcheck={false}
-        />
-      </form>
-    </div>
-  );
-};
-
-/** Working pill body — compact row content for a `thinking`/`tool_use`
- *  terminal. */
-const WorkingPillBody: Component<{
-  id: TerminalId;
-  info: TerminalDisplayInfo;
-  meta: TerminalMetadata;
-}> = (props) => {
-  const store = useTerminalStore();
-  const tileTheme = useTileTheme();
-  const theme = createMemo(() => tileTheme(props.id));
-  const active = () => store.activeId() === props.id;
-  return (
+/** Footer line shown when the activity-window filter dropped at least
+ *  one row from the dock. The "show all" link flips the window to
+ *  `"all"`, surfacing every parked row at its real bucket — the same
+ *  signal the minimap and other consumers read, so the relaxation is
+ *  one persistent choice, not a dock-local override. */
+const HiddenFooter: Component<{ parkedCount: number }> = (props) => (
+  <Show when={props.parkedCount > 0 && activityWindow() !== "all"}>
     <button
       type="button"
-      data-testid="dock-working"
-      data-terminal-id={props.id}
-      onClick={() => store.activate(props.id)}
-      class="w-full px-2.5 py-1 flex flex-col gap-0.5 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 text-left transition-colors duration-200 ease-out"
-      classList={{
-        // Active body floods to accent → main text inherits white,
-        // and the dim subtitle utilities (`text-fg-2`, `text-fg-3`)
-        // get brightened via descendant overrides so the PR line,
-        // timestamp, and agent-indicator token count stay readable
-        // against the accent flood. CSS specificity ensures the
-        // descendant arbitrary selectors win over the bare
-        // `.text-fg-*` utilities.
-        "text-white [&_.text-fg-2]:text-white/85 [&_.text-fg-3]:text-white/70":
-          active(),
-      }}
-      style={{
-        "background-color": active() ? "var(--color-accent)" : theme().bg,
-        color: active() ? undefined : theme().fg,
-      }}
-      title="Jump to this terminal"
+      data-testid="dock-hidden-footer"
+      onClick={() => setActivityWindow("all")}
+      class="flex items-center gap-1.5 px-3 py-2 border-t border-edge/40 text-[0.65rem] text-fg-3 hover:text-fg hover:bg-surface-2/40 transition-colors text-left cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40"
+      title="Show every terminal, regardless of activity window"
     >
-      <div class="flex items-baseline justify-between gap-2 min-w-0">
-        <span
-          class="font-mono text-[0.65rem] font-bold uppercase tracking-[0.14em] truncate min-w-0"
-          style={{
-            color: active() ? undefined : props.info.repoColor,
-          }}
-        >
-          {props.info.key.group}
-        </span>
-        <div class="flex items-baseline gap-2 min-w-0">
-          <DockAnnotation
-            meta={props.meta}
-            info={props.info}
-            class="text-[0.85rem] font-semibold leading-tight"
-            active={active()}
-          />
-          <Show when={props.info.subCount > 0}>
-            <SubCountChip
-              count={props.info.subCount}
-              active={active()}
-              testId="dock-sub-count"
-            />
-          </Show>
-        </div>
-      </div>
-      <DockMetaRow meta={props.meta} />
-      <PrLine meta={props.meta} />
-      <IntentBody intent={props.meta.intent} testId="dock-intent" />
+      <span class="tabular-nums">{props.parkedCount}</span>
+      <span class="truncate">
+        hidden by{" "}
+        <span class="font-mono">{windowOption(activityWindow()).short}</span>{" "}
+        window
+      </span>
+      <span class="ml-auto text-accent shrink-0">show all</span>
     </button>
-  );
-};
-
-/** Quiet row — idle / parked / none. Compact variant with repo +
- *  branch on row 1; when the terminal is running a foreground process
- *  (e.g. `pu connect srid1`, `nix build`, `npm run dev`), a second
- *  row surfaces that title so plain shells aren't reduced to bare
- *  `~ ~` labels. Falls back to the branch row alone when no
- *  foreground is running. Faded for parked. */
-const QuietRowBody: Component<{
-  id: TerminalId;
-  info: TerminalDisplayInfo;
-  meta: TerminalMetadata;
-  bucket: DockRowBucket;
-}> = (props) => {
-  const store = useTerminalStore();
-  const active = () => store.activeId() === props.id;
-  const foreground = () =>
-    props.meta.foreground?.title ?? props.meta.foreground?.name ?? null;
-  return (
-    <button
-      type="button"
-      data-testid="dock-quiet"
-      data-terminal-id={props.id}
-      data-bucket={props.bucket}
-      onClick={() => store.activate(props.id)}
-      class="w-full px-2.5 py-1 flex flex-col gap-0.5 min-w-0 cursor-pointer text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 transition-colors duration-200 ease-out"
-      classList={{
-        "bg-surface-1/40 hover:bg-surface-2/50": !active(),
-        "bg-accent text-white [&_.text-fg-2]:text-white/85 [&_.text-fg-3]:text-white/70":
-          active(),
-        // Parked dim only when not active; an active parked row pops
-        // at full opacity, matching the existing mobile behavior at
-        // `MobileDockDrawer.tsx`.
-        "opacity-60": props.bucket === "parked" && !active(),
-      }}
-      title={props.info.meta.cwd}
-    >
-      <div class="flex items-baseline gap-2 min-w-0">
-        <span
-          class="font-mono text-[0.6rem] font-bold uppercase tracking-[0.14em] truncate min-w-0"
-          style={{
-            color: active() ? undefined : props.info.repoColor,
-          }}
-        >
-          {props.info.key.group}
-        </span>
-        <DockAnnotation
-          meta={props.meta}
-          info={props.info}
-          class="text-[0.75rem]"
-          active={active()}
-        />
-        <Show
-          when={
-            props.info.subCount > 0 || formatTimeAgo(props.meta.lastActivityAt)
-          }
-        >
-          <div class="ml-auto flex items-baseline gap-2 shrink-0">
-            <Show when={props.info.subCount > 0}>
-              <SubCountChip
-                count={props.info.subCount}
-                active={active()}
-                testId="dock-sub-count"
-              />
-            </Show>
-            <Show when={formatTimeAgo(props.meta.lastActivityAt)}>
-              {(label) => (
-                <span class="font-mono text-[0.55rem] tabular-nums text-fg-3 shrink-0">
-                  {label()}
-                </span>
-              )}
-            </Show>
-          </div>
-        </Show>
-      </div>
-      {/* Identity preservation for parked-but-known agent terminals:
-       *  surface the AgentIndicator on the compact row so a 20h-stale
-       *  `waiting` agent reads as "OpenCode · waiting · 22.0K" instead
-       *  of a plain shell. The full `AwaitingCardBody` (reply input,
-       *  tail preview) is reserved for fresh awaiting agents — see
-       *  `dockRowRanking.ts` — and this surface only carries the
-       *  compact pill so a queue of stale waiters doesn't dominate
-       *  the dock height. */}
-      <Show when={props.meta.agent}>
-        {(agent) => (
-          <div class="flex items-center gap-1.5 min-w-0 text-[0.6rem] text-fg-3">
-            <AgentIndicator agent={agent()} />
-          </div>
-        )}
-      </Show>
-      <Show when={foreground()}>
-        {(fg) => (
-          <span
-            data-testid="dock-quiet-foreground"
-            class="font-mono text-[0.65rem] text-fg-2 truncate min-w-0"
-          >
-            {fg()}
-          </span>
-        )}
-      </Show>
-      <IntentBody intent={props.meta.intent} testId="dock-intent" />
-    </button>
-  );
-};
-
-/** Shared "agent indicator (left) + lastActive (right)" sub-line. */
-const DockMetaRow: Component<{ meta: TerminalMetadata }> = (props) => {
-  const lastActive = () => formatTimeAgo(props.meta.lastActivityAt);
-  return (
-    <Show when={props.meta.agent}>
-      {(agent) => (
-        <div class="flex items-center justify-between gap-2 min-w-0 text-[0.6rem] text-fg-3">
-          <AgentIndicator agent={agent()} />
-          <Show when={lastActive()}>
-            {(label) => <span class="tabular-nums shrink-0">{label()}</span>}
-          </Show>
-        </div>
-      )}
-    </Show>
-  );
-};
+  </Show>
+);
 
 export default Dock;

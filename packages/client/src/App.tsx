@@ -27,7 +27,7 @@ import CanvasWatermark from "./canvas/CanvasWatermark";
 import { useCanvasArrange } from "./canvas/useCanvasArrange";
 import { buildWorkspaceEntries } from "./canvas/dockModel";
 import { toggleRailCards } from "./canvas/dock/Dock";
-import { rankDockRows } from "./canvas/dock/dockRowRanking";
+import { useDockOrder } from "./canvas/dock/useDockOrder";
 import TerminalCanvas from "./canvas/TerminalCanvas";
 import TileTitleActions from "./canvas/TileTitleActions";
 import { createCommands } from "./commands";
@@ -54,7 +54,6 @@ import TipBanner from "./settings/TipBanner";
 import { useColorScheme } from "./settings/useColorScheme";
 import { useTips } from "./settings/useTips";
 import { useVisualViewportHeight } from "./useVisualViewportHeight";
-import { useStaleCheck } from "./terminal/staleness";
 import TerminalContent from "./terminal/TerminalContent";
 import TerminalMeta from "./terminal/TerminalMeta";
 import { useSubPanel } from "./terminal/useSubPanel";
@@ -87,8 +86,9 @@ const App: Component = () => {
 
   // Workspace search feeds — the live-terminal source list and recency
   // accessor consumed by the unified command palette's "Search
-  // workspaces" group. `rankDockRows` shares row order with the dock
-  // so the `Cmd+1..9` shortcut targets the same row the dock paints.
+  // workspaces" group. `useDockOrder` is the same singleton memo the
+  // desktop dock and mobile drawer read, so `Cmd+1..9` targets the
+  // exact row the dock paints (group-bucketed, parked rows filtered).
   const workspaceEntries = createMemo(() =>
     buildWorkspaceEntries(
       store.terminalIds(),
@@ -98,12 +98,8 @@ const App: Component = () => {
   );
   const recencyOf = (id: TerminalId): number =>
     store.getMetadata(id)?.lastActivityAt ?? 0;
-  const isStale = useStaleCheck();
-  const orderedIds = createMemo(() =>
-    rankDockRows(store.terminalIds(), store.getMetadata, isStale).map(
-      (row) => row.id,
-    ),
-  );
+  const dockTree = useDockOrder();
+  const orderedIds = createMemo(() => dockTree().flatIds);
 
   // Fetch server identity for document title, watermark, and PWA chrome color.
   const [identity, setIdentity] = createSignal<ServerIdentity>();
