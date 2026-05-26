@@ -33,34 +33,43 @@ import {
 } from "kolu-github/schemas";
 import { type Component, Show } from "solid-js";
 import { Dynamic } from "solid-js/web";
+import { agentBucket, bucketDescriptor } from "../dockModel";
 import ChecksIndicator from "../../terminal/ChecksIndicator";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import { agentIcons, stateLabels } from "../../ui/agentDisplay";
 import { PrStateIcon } from "../../ui/Icons";
 import { SubCountChip } from "./SubCountChip";
 
-/** Per-state colour + animation for the agent pip. Palette matches
- *  the bucket-level vocabulary the workspace switcher and minimap
- *  already use (`canvas/dockModel.ts:AGENT_BUCKETS`) — awaiting →
- *  `text-alert` (orange), working → `text-accent` (the teal brand
- *  colour). Three live-terminal surfaces — dock, switcher,
- *  minimap — now share the same "alert orange = needs your
- *  attention" / "accent = alive" cue. (The tile chrome's
- *  `AgentIndicator` uses a state-level palette — `warning` /
- *  `busy` — so it can split `thinking` vs `tool_use` at full
- *  label size; the dock is bucket-only.)
- *
- *  Working states (`thinking` + `tool_use`) BOTH spin so the dock
- *  scans as spin = working, pulse = awaiting at a glance. */
-const AGENT_PIP_STATE: Record<
-  AgentInfo["state"],
-  { color: string; animation: string }
-> = {
-  thinking: { color: "text-accent", animation: "animate-spin" },
-  tool_use: { color: "text-accent", animation: "animate-spin" },
-  waiting: { color: "text-alert", animation: "animate-pulse" },
-  awaiting_user: { color: "text-alert", animation: "animate-pulse" },
+/** Pip animation by bucket — `working` spins (continuous motion),
+ *  `awaiting` pulses (rhythmic attention). The bucket→colour mapping
+ *  lives in `AGENT_BUCKETS` (`canvas/dockModel.ts`); we derive it
+ *  through `bucketDescriptor` rather than re-declaring colours
+ *  here, so the dock pip, the workspace switcher's column header,
+ *  and the canvas minimap all read the same "alert orange = needs
+ *  you / accent = alive" cue from one source. Animation is the only
+ *  channel the dock owns that the other surfaces don't, so it stays
+ *  local. (The tile chrome's `AgentIndicator` keeps its own
+ *  state-level `warning`/`busy` palette so it can split `thinking`
+ *  vs `tool_use` at full label size; the dock is bucket-only.) */
+const PIP_ANIM_BY_BUCKET: Record<"awaiting" | "working", string> = {
+  awaiting: "animate-pulse",
+  working: "animate-spin",
 };
+
+function pipConfig(agent: AgentInfo): { color: string; animation: string } {
+  const bucket = agentBucket(agent);
+  if (bucket === "awaiting" || bucket === "working") {
+    return {
+      color: bucketDescriptor(bucket).textClass,
+      animation: PIP_ANIM_BY_BUCKET[bucket],
+    };
+  }
+  // `agentBucket` only returns `awaiting`/`working`/`none` for the
+  // four live states; the `none` arm is unreachable when an
+  // `AgentInfo` is in hand but the type isn't aware. Return a
+  // neutral fallback so the pip stays visible.
+  return { color: bucketDescriptor("none").textClass, animation: "" };
+}
 
 const CHECKS_LABEL: Record<GitHubCheckStatus, string> = {
   pass: "all pass",
@@ -162,7 +171,7 @@ export const AgentSlot: Component<{
 
 const AgentPip: Component<{ agent: AgentInfo }> = (props) => {
   const Icon = () => agentIcons[props.agent.kind];
-  const cfg = () => AGENT_PIP_STATE[props.agent.state];
+  const cfg = () => pipConfig(props.agent);
   return (
     <span
       class={`shrink-0 inline-flex ${cfg().color} ${cfg().animation}`}
