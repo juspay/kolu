@@ -21,7 +21,6 @@ import { loadOpenCodeTranscript } from "kolu-opencode";
 import { transcriptToHtml } from "kolu-transcript-html";
 import { match } from "ts-pattern";
 import { getBackendFor } from "./backend/index.ts";
-import { saveTerminalFile } from "./terminalScratch.ts";
 import { serverHostname, serverProcessId } from "./hostname.ts";
 import { log } from "./log.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
@@ -68,6 +67,22 @@ export const appRouter = t.router({
       identity: pwaIdentityForHostname(serverHostname),
       processId: serverProcessId,
     })),
+    listSshHosts: t.server.listSshHosts.handler(async () => {
+      const { parseSshConfig } = await import("./sshHosts.ts");
+      return { hosts: parseSshConfig() };
+    }),
+    installSshAgent: t.server.installSshAgent.handler(async ({ input }) => {
+      try {
+        const { installAgent } = await import("./backend/install.ts");
+        await installAgent(input.host);
+        return { ok: true };
+      } catch (e) {
+        return {
+          ok: false,
+          message: e instanceof Error ? e.message : String(e),
+        };
+      }
+    }),
   },
   terminal: {
     create: t.terminal.create.handler(async ({ input }) =>
@@ -168,7 +183,14 @@ export const appRouter = t.router({
       if (reason !== null) {
         throw new ORPCError("BAD_REQUEST", { message: reason });
       }
-      const path = saveTerminalFile(input.id, "image.png", input.data);
+      // R-2 finding I: route through Backend.uploadFile so remote
+      // tiles land bytes on the agent's filesystem, not the kolu
+      // server's. The path returned is what the agent's PTY sees.
+      const path = await getBackendFor(entry.meta.location).uploadFile(
+        input.id,
+        "image.png",
+        input.data,
+      );
       bracketedPastePath(entry, path);
       log.info({ terminal: input.id, bytes, path }, "paste image");
     }),
@@ -180,7 +202,11 @@ export const appRouter = t.router({
       if (reason !== null) {
         throw new ORPCError("BAD_REQUEST", { message: reason });
       }
-      const path = saveTerminalFile(input.id, input.name, input.data);
+      const path = await getBackendFor(entry.meta.location).uploadFile(
+        input.id,
+        input.name,
+        input.data,
+      );
       bracketedPastePath(entry, path);
       log.info(
         { terminal: input.id, name: input.name, bytes, path },
@@ -210,6 +236,17 @@ export const appRouter = t.router({
     exportTranscriptHtml: t.terminal.exportTranscriptHtml.handler(
       async ({ input }) => {
         const term = requireTerminal(input.id);
+        // R-2 finding L: explicitly guard remote terminals until the
+        // agent-side provider relocation lands (the transcript loaders
+        // read on-disk session files that only exist on the agent
+        // host). Without this guard the loader silently fails with
+        // "transcript not found" — misleading.
+        if (term.meta.location.kind === "ssh") {
+          throw new ORPCError("NOT_IMPLEMENTED", {
+            message:
+              "Transcript export for remote terminals lands in R-3 — the transcript files live on the agent host, not the kolu server. Today's loader reads server-local paths only.",
+          });
+        }
         const agent = term.meta.agent;
         if (!agent) {
           throw new ORPCError("PRECONDITION_FAILED", {

@@ -68,9 +68,32 @@ const argv = cli({
       description:
         "Allow running inside a nix shell, forwarding only these comma-separated env vars to PTY shells (dev/test only). Uses built-in default list if set to 'default'.",
     },
+    // R-2: `kolu --stdio` (or `kolu agent --stdio` after a subcommand
+    // refactor) runs the binary as a remote agent — same code, oRPC
+    // transport over stdin/stdout instead of HTTP+WebSocket. Wires to
+    // `runAgent` in `./agent.ts`. The kolu server's `RemoteBackend`
+    // spawns this on the remote host via `ssh -tt $host kolu --stdio`.
+    stdio: {
+      type: Boolean,
+      description:
+        "Run as a remote agent: serve LocalBackend over oRPC on stdin/stdout instead of starting the HTTP server. Used by `RemoteBackend` over `ssh`.",
+      default: false,
+    },
   },
   strictFlags: true,
 });
+
+// R-2: dispatch to agent mode BEFORE the server setup below. The agent
+// shares everything (logger, koluRoot, configureNixShellEnv) but never
+// touches the Hono/WebSocket server.
+if (argv.flags.stdio) {
+  configureNixShellEnv(argv.flags.allowNixShellWithEnvWhitelist);
+  ensureKoluRoot();
+  if (argv.flags.verbose) log.level = "debug";
+  const { runAgent } = await import("./agent.ts");
+  await runAgent();
+  process.exit(0);
+}
 
 const PWA_BACKGROUND_COLOR = "#0c0c0e";
 

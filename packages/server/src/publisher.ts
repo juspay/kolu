@@ -25,6 +25,12 @@
 import { publisherChannel } from "@kolu/surface/server";
 import { MemoryPublisher } from "@orpc/experimental-publisher/memory";
 import type { GitInfo } from "kolu-git/schemas";
+import type { PrResult } from "kolu-github/schemas";
+import type {
+  AgentInfo,
+  ConnectionState,
+  Foreground,
+} from "kolu-common/surface";
 
 // `MemoryPublisher` constrains its generic to `Record<string, object>`,
 // which excludes the primitive payloads we publish (data strings, exit
@@ -59,6 +65,25 @@ export const terminalChannels = {
    *  each event is an isolated "the user just typed this" notice. */
   commandRun: (id: string) =>
     publisherChannel<string>(publisher, `commandRun:${id}`),
+  // ── R-2 channels: rich-surface metadata that previously was written
+  // by in-process providers via direct entry.meta mutation. Made wire-
+  // visible so RemoteBackend can subscribe to the agent's providers
+  // (the agent runs the provider DAG locally; the kolu server consumes
+  // the resulting streams). LocalBackend publishes these alongside its
+  // in-process mutations so the channels carry the same data either way.
+  /** AI coding agent state. Null between sessions. */
+  agent: (id: string) =>
+    publisherChannel<AgentInfo | null>(publisher, `agent:${id}`),
+  /** GitHub PR resolution for the terminal's current branch. */
+  pr: (id: string) => publisherChannel<PrResult>(publisher, `pr:${id}`),
+  /** Foreground process name + title (OSC 2 / proc-fs). */
+  foreground: (id: string) =>
+    publisherChannel<Foreground | null>(publisher, `foreground:${id}`),
+  /** Backend connection state — always `"live"` for local; transitions
+   *  through `"connecting"` / `"disconnected"` for remote via
+   *  HostSession's state machine. */
+  connectionState: (id: string) =>
+    publisherChannel<ConnectionState>(publisher, `connectionState:${id}`),
 } as const;
 
 /** Singleton broadcast: terminal state mutated. Drives session

@@ -132,12 +132,44 @@ export const ServerInfoSchema = z.object({
   processId: z.string().uuid(),
 });
 
+/** R-2: a discovered SSH host (from `~/.ssh/config`). Drives the
+ *  command-palette "New terminal on $host" entries. */
+export const SshHostSchema = z.object({
+  alias: z.string().min(1),
+});
+export type SshHost = z.infer<typeof SshHostSchema>;
+
+export const ListSshHostsOutputSchema = z.object({
+  hosts: z.array(SshHostSchema),
+});
+
+/** R-2: install the kolu agent on a remote host via `nix copy`.
+ *  Idempotent — repeated calls with the same host short-circuit if
+ *  the store path is already realised. Triggered explicitly by the
+ *  host-picker UI before any backend op on that host. */
+export const InstallSshAgentInputSchema = z.object({
+  host: z.string().min(1),
+});
+export const InstallSshAgentOutputSchema = z.object({
+  ok: z.boolean(),
+  message: z.string().optional(),
+});
+
 // ── The contract ──────────────────────────────────────────────────────
 
 export const contract = oc.router({
   ...surface.contract,
   server: {
     info: oc.output(ServerInfoSchema),
+    /** R-2: list SSH aliases the user can target. Drives the
+     *  command-palette host picker. Server-side because the client
+     *  cannot read `~/.ssh/config`. */
+    listSshHosts: oc.output(ListSshHostsOutputSchema),
+    /** R-2: install the kolu agent on a remote host. Called once per
+     *  host from the picker flow before the first terminal create. */
+    installSshAgent: oc
+      .input(InstallSshAgentInputSchema)
+      .output(InstallSshAgentOutputSchema),
   },
   terminal: {
     create: oc.input(TerminalCreateInputSchema).output(TerminalInfoSchema),

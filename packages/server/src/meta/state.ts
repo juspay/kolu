@@ -23,7 +23,7 @@ import type {
 } from "kolu-common/surface";
 import { prUnavailableReason, prValue } from "kolu-github/schemas";
 import { log } from "../log.ts";
-import { terminalsDirtyChannel } from "../publisher.ts";
+import { terminalChannels, terminalsDirtyChannel } from "../publisher.ts";
 import { surfaceCtx } from "../surface.ts";
 import type { TerminalProcess } from "../terminal-registry.ts";
 
@@ -85,6 +85,17 @@ function publishSnapshot(entry: TerminalProcess, terminalId: string): void {
     "metadata publish",
   );
   surfaceCtx.collections.terminalMetadata.upsert(terminalId, { ...m });
+  // R-2: publish per-channel snapshots so `Backend.terminalChannel`
+  // consumers (notably `RemoteBackend` proxying via oRPC) see the same
+  // data the in-process providers produce. For local-only deployments
+  // there are no subscribers to these channels, so the cost is the
+  // publisher's empty-subscriber-list branch. Required for the
+  // agent-side `LocalBackend` (the binary running on the SSH host) to
+  // surface rich metadata back to the kolu server.
+  terminalChannels.agent(terminalId).publish(m.agent);
+  terminalChannels.pr(terminalId).publish(m.pr);
+  terminalChannels.foreground(terminalId).publish(m.foreground);
+  terminalChannels.connectionState(terminalId).publish(m.connectionState);
 }
 
 /** `publishSnapshot` + fire `terminals:dirty`. Use this from any path

@@ -3,16 +3,34 @@
  *
  * Owns the PTY lifecycle, every per-terminal provider that watches the
  * local filesystem (git, github, foreground process, agent reconcilers),
- * and the local one-shot fs/git ops the Code tab consumes. The kolu
- * server's `terminals.ts` / `router.ts` no longer reach into
- * `kolu-git` / `kolu-anyagent` / `kolu-pty` directly for terminal-scoped
- * work — every per-terminal entry point goes through this class. The
- * `meta/*` orchestrators stay where they sit in `../meta/`, but the only
- * caller is this file; from outside the backend they are invisible.
+ * and the local fs/git ops the Code tab consumes (one-shot and
+ * subscription forms). The kolu server's `terminals.ts` / `router.ts`
+ * no longer reach into `kolu-git` / `kolu-anyagent` / `kolu-pty`
+ * directly for terminal-scoped work — every per-terminal entry point
+ * goes through this class.
  *
- * R-2 will add `RemoteBackend(connection)` that satisfies the same
- * interface by proxying every op via oRPC over `ssh stdio` to a
- * `kolu agent --stdio` peer.
+ * R-2 expansions over R-1:
+ *  - Publishes to the new `agent` / `pr` / `foreground` /
+ *    `connectionState` channels so `RemoteBackend` (or the kolu server
+ *    when it consumes channels uniformly) sees the same data stream
+ *    the in-process providers produce.
+ *  - Implements `BackendFs`/`BackendGit` subscription methods — wraps
+ *    `kolu-git`'s callback-based watchers in async generators so the
+ *    interface shape carries over to `RemoteBackend` (where the
+ *    subscriptions flow over oRPC streams).
+ *  - Implements `Backend.uploadFile` — wraps the existing
+ *    `saveTerminalFile` (server's local scratch). `RemoteBackend`'s
+ *    `uploadFile` will RPC to the agent so paste/upload targets the
+ *    agent's filesystem, not the kolu-server's.
+ *
+ * The agent-detection providers (`claude-code`, `codex`, `opencode`,
+ * `github` PR poll, foreground process) currently run inside this
+ * class via `startProviders` — they read PIDs from the local PtyHandle.
+ * In a full R-2 world, the agent host's `LocalBackend` runs these and
+ * publishes to channels; the kolu server's `RemoteBackend` subscribes.
+ * The prototype keeps the providers running server-side for local
+ * tiles; the channel publishes below are the seam that R-3 will
+ * complete by routing remote terminals' provider output through them.
  */
 
 import { ORPCError } from "@orpc/server";
@@ -24,18 +42,19 @@ import type {
   TerminalChannelMap,
   TerminalHandle,
 } from "kolu-common/backend";
-import type { TerminalLocation } from "kolu-common/surface";
 import { DEFAULT_SCROLLBACK } from "kolu-common/config";
+import type { TerminalLocation } from "kolu-common/surface";
 import {
   type GitResult,
   getDiff,
   getStatus,
   listAll,
   readFile,
+  subscribeFileChange,
+  subscribeRepoChange,
 } from "kolu-git";
 import { spawnPty } from "kolu-pty";
 import pkg from "../../package.json" with { type: "json" };
-import { cleanupTerminalScratch } from "../terminalScratch.ts";
 import { koluShellDir } from "../koluRoot.ts";
 import { log } from "../log.ts";
 import {
@@ -44,6 +63,8 @@ import {
   updateServerMetadata,
 } from "../meta/index.ts";
 import { terminalChannels } from "../publisher.ts";
+import { saveTerminalFile } from "../terminalScratch.ts";
+import { cleanupTerminalScratch } from "../terminalScratch.ts";
 import {
   getTerminal,
   registerTerminal,
@@ -51,10 +72,10 @@ import {
   unregisterTerminal,
 } from "../terminal-registry.ts";
 
-/** Throw an `ORPCError` if a `GitResult` is `err`; otherwise return the
- *  value. The router used to do this — moved here so the kolu-git error
- *  taxonomy is bound at the backend boundary, not at the wire. */
-function unwrap<T>(result: GitResult<T>): T {
+/** Shared `GitResult` unwrap → `ORPCError` mapping. Both backends import
+ *  this so the kolu-git error taxonomy is bound once at the backend
+ *  boundary. R-2 finding M. */
+export function unwrapBackendGit<T>(result: GitResult<T>): T {
   if (result.ok) return result.value;
   switch (result.error.code) {
     case "NOT_A_REPO":
@@ -76,23 +97,58 @@ function unwrap<T>(result: GitResult<T>): T {
   }
 }
 
+/** Wrap a callback-based watcher (the shape `kolu-git`'s subscribe
+ *  functions expose) as an `AsyncIterable<void>` for `Backend.fs/git`
+ *  consumers. First yield is the initial "subscription armed" tick;
+ *  subsequent yields fire on each watcher event. */
+function watcherToAsyncIterable(
+  install: (cb: () => void) => () => void,
+  signal?: AbortSignal,
+): AsyncIterable<void> {
+  return {
+    async *[Symbol.asyncIterator]() {
+      const queue: Array<void> = [];
+      let resolveNext: ((v: void) => void) | null = null;
+      const stop = install(() => {
+        if (resolveNext) {
+          const r = resolveNext;
+          resolveNext = null;
+          r();
+        } else queue.push(undefined);
+      });
+      const onAbort = () => {
+        stop();
+        if (resolveNext) {
+          const r = resolveNext;
+          resolveNext = null;
+          r();
+        }
+      };
+      signal?.addEventListener("abort", onAbort, { once: true });
+      try {
+        // Initial snapshot tick.
+        yield;
+        while (!signal?.aborted) {
+          if (queue.length > 0) {
+            queue.shift();
+            yield;
+          } else {
+            await new Promise<void>((r) => {
+              resolveNext = r;
+            });
+          }
+        }
+      } finally {
+        stop();
+        signal?.removeEventListener("abort", onAbort);
+      }
+    },
+  };
+}
+
 export class LocalBackend implements Backend {
   readonly id: TerminalLocation = { kind: "local" };
 
-  /**
-   * Spawn a new terminal on this backend.
-   *
-   * Pipeline:
-   *  1. Spawn the PTY with `kolu-pty` and wire its OSC callbacks to the
-   *     in-process `terminalChannels.*` publishers.
-   *  2. Create metadata (`createMetadata`), seed client-owned fields
-   *     from `opts.initialMetadata` BEFORE starting providers so the
-   *     first `terminalMetadata` collection yield carries them (#642).
-   *  3. Register the entry in the shared `terminal-registry`.
-   *  4. Start the meta/* provider DAG (`startProviders`).
-   *  5. Return a `TerminalHandle` whose `dispose()` calls back into
-   *     `killTerminal(id)` — kill-convergence invariant.
-   */
   async spawnPty(opts: PtySpawnOpts): Promise<TerminalHandle> {
     const id = crypto.randomUUID();
     const tlog = log.child({ terminal: id });
@@ -107,9 +163,6 @@ export class LocalBackend implements Backend {
         onData: (data) => terminalChannels.data(id).publish(data),
         onExit: (exitCode) => {
           tlog.info({ exitCode }, "exited");
-          // `wasNatural`: entry still in registry ⟹ PTY exited on its own.
-          // Explicit kills (`killTerminal` / `killAllTerminals`) unregister
-          // first, so `getTerminal` returns `undefined` here for killed PTYs.
           const entry = getTerminal(id);
           const wasNatural = entry !== undefined;
           if (entry) {
@@ -135,10 +188,6 @@ export class LocalBackend implements Backend {
     );
 
     const meta = createMetadata(handle.cwd, this.id);
-    // Seed client-owned initial metadata BEFORE startProviders so the first
-    // `terminalMetadata` collection yield carries these fields (see #642).
-    // `createMetadata` is the source of truth for which fields exist;
-    // `Object.assign` only writes the ones the caller supplied.
     if (opts.initialMetadata) Object.assign(meta, opts.initialMetadata);
 
     const entry: TerminalProcess = {
@@ -147,22 +196,20 @@ export class LocalBackend implements Backend {
       handle,
       stopProviders: () => {},
     };
-    // Register BEFORE starting providers (providers may emit immediately).
     registerTerminal(id, entry);
     entry.stopProviders = startProviders(entry, id);
 
     tlog.info({ pid: handle.pid }, "created");
 
+    // Connection state is `"live"` from spawn for local terminals;
+    // publish once so any subscriber sees the initial snapshot.
+    // RemoteBackend's HostSession drives this from its state machine.
+    terminalChannels.connectionState(id).publish("live");
+
     return {
       id,
       write: (data) => handle.write(data),
       resize: (cols, rows) => handle.resize(cols, rows),
-      // Kill-convergence: dispose() is observationally identical to
-      // backend.killTerminal(id). Both end at the same teardown path
-      // (`killTerminal` below).
-      dispose: () => {
-        this.killTerminal(id);
-      },
     };
   }
 
@@ -171,9 +218,6 @@ export class LocalBackend implements Backend {
     kind: K,
     signal?: AbortSignal,
   ): AsyncIterable<TerminalChannelMap[K]> {
-    // The publisher's typed channels already enforce a per-kind payload
-    // type; cast back to the public Backend shape (which the interface
-    // narrows per K).
     return terminalChannels[kind](terminalId).subscribe(
       signal,
     ) as AsyncIterable<TerminalChannelMap[K]>;
@@ -185,10 +229,6 @@ export class LocalBackend implements Backend {
     log
       .child({ terminal: terminalId })
       .info({ pid: entry.handle.pid }, "killing");
-    // Order matters: stop providers and unregister BEFORE disposing the
-    // PTY. The PTY's `onExit` callback (above) checks `getTerminal(id)`
-    // to decide `wasNatural`; if we disposed first, it could race and
-    // mis-classify this kill as natural.
     unregisterTerminal(terminalId);
     this.killTerminalEntry(entry);
     return true;
@@ -204,20 +244,44 @@ export class LocalBackend implements Backend {
     entry.handle.dispose();
   }
 
+  async uploadFile(
+    terminalId: string,
+    name: string,
+    base64Data: string,
+  ): Promise<string> {
+    // Local-side scratch dir (per-terminal). `RemoteBackend.uploadFile`
+    // will RPC to the agent so the file lands on the agent's
+    // filesystem.
+    return saveTerminalFile(terminalId, name, base64Data);
+  }
+
   fs: BackendFs = {
-    listAll: async (path) => unwrap(await listAll(path, log)),
+    listAll: async (path) => unwrapBackendGit(await listAll(path, log)),
     readFile: async (repoPath, filePath) =>
-      unwrap(await readFile(repoPath, filePath, log)),
+      unwrapBackendGit(await readFile(repoPath, filePath, log)),
+    subscribeRepoChange: (repoPath, signal) =>
+      watcherToAsyncIterable(
+        (cb) => subscribeRepoChange(repoPath, cb, log),
+        signal,
+      ),
+    subscribeFileChange: (repoPath, filePath, signal) =>
+      watcherToAsyncIterable(
+        (cb) => subscribeFileChange(repoPath, filePath, cb, log),
+        signal,
+      ),
   };
 
   git: BackendGit = {
     getDiff: async (repoPath, filePath, mode, oldPath) =>
-      unwrap(await getDiff(repoPath, filePath, mode, log, oldPath)),
+      unwrapBackendGit(await getDiff(repoPath, filePath, mode, log, oldPath)),
     getStatus: async (repoPath, mode) =>
-      unwrap(await getStatus(repoPath, mode, log)),
+      unwrapBackendGit(await getStatus(repoPath, mode, log)),
+    subscribeRepoChange: (repoPath, signal) =>
+      watcherToAsyncIterable(
+        (cb) => subscribeRepoChange(repoPath, cb, log),
+        signal,
+      ),
   };
 }
 
-/** Singleton — the kolu server's one local backend. R-2 adds a
- *  per-host `RemoteBackend` registry; this stays the local instance. */
 export const localBackend = new LocalBackend();

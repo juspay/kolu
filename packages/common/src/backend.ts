@@ -3,9 +3,9 @@
  *
  * A `Backend` is identified by `BackendId` (local machine, or a specific
  * SSH host) and owns every per-terminal stream + one-shot op a terminal
- * needs. R-1 ships `LocalBackend` only; R-2 adds `RemoteBackend` whose
+ * needs. R-1 shipped `LocalBackend`; R-2 adds `RemoteBackend` whose
  * methods proxy via oRPC over `ssh stdio` to a `kolu agent --stdio`
- * instance on the remote host.
+ * peer.
  *
  * The interface is the single transport boundary in the system. The
  * server's `meta/*.ts` orchestrators are dissolved into `LocalBackend`
@@ -19,94 +19,78 @@
  * `STREAM_RETRY` plumbing — `kolu agent --stdio` is just another oRPC
  * peer, no bespoke reconnect logic needed.
  *
- * Invariants enforced by convention (not by types):
+ * R-2 expanded the channel set so remote terminals' rich surfaces
+ * (agent badge, PR badge, foreground process, connection state) work
+ * over the wire — pre-implementation review (finding B) caught that
+ * R-1's channel set was insufficient; without these channels, remote
+ * tiles silently lose all rich-surface metadata.
  *
- * 1. **Kill convergence.** Both `Backend.killTerminal(id)` and
- *    `TerminalHandle.dispose()` must end at the same termination logic
- *    inside the backend — neither path may skip provider teardown,
- *    clipboard cleanup, or registry deregistration. R-2's `RemoteBackend`
- *    must wire `dispose()` through to `killTerminal` so RPC kill and
- *    handle-dispose are observationally indistinguishable.
+ * Invariants:
+ *
+ * 1. **Kill convergence.** `Backend.killTerminal(id)` is the SOLE
+ *    termination path. `TerminalHandle` no longer carries `dispose()` —
+ *    handle-as-control-surface and kill-as-lifecycle were two roles
+ *    smuggled through one method. R-2 pre-impl finding H.
  *
  * 2. **Snapshot-then-delta streams.** Every `terminalChannel<K>`
  *    iterator's first yield is a full state snapshot; subsequent yields
- *    are deltas. Without this, reconnect via `STREAM_RETRY` silently
- *    accumulates onto stale client state.
+ *    are deltas.
  *
- * Gap acknowledged for R-2: `packages/server/src/surface.ts`'s `streams`
- * block (gitStatus, gitDiff, fsListAll, fsReadFile) still calls
- * `kolu-git` directly rather than routing through `Backend.fs`/
- * `Backend.git`. For R-1 the Code tab works because every backend is
- * local; for R-2 those streams must route through the backend or remote
- * tiles will silently read the kolu-server's local filesystem instead of
- * the agent's. Tracked in the R-2 PR description.
+ * 3. **Backend owns its filesystem.** `BackendFs`/`BackendGit` cover
+ *    both one-shot ops AND watcher subscriptions — same axis ("where
+ *    the FS lives"). R-2 closes the R-1 gap where `surface.ts` streams
+ *    called `kolu-git` directly.
  */
 
+import type {
+  AgentInfo,
+  ConnectionState,
+  Foreground,
+  TerminalLocation,
+} from "./surface";
 import type {
   GitDiffMode,
   GitDiffOutput,
   GitInfo,
   GitStatusOutput,
 } from "kolu-git/schemas";
-import type { InitialTerminalMetadata, TerminalLocation } from "./surface";
+import type { PrResult } from "kolu-github/schemas";
+import type { InitialTerminalMetadata } from "./surface";
 
-/** Seed metadata for a new terminal. Same shape as
- *  `InitialTerminalMetadata` (used by the `terminal.create` RPC input)
- *  plus the parent-link, which the client-create RPC carries as a
- *  top-level field for clarity. Bundled here so the backend has one
- *  `Object.assign`-shaped opt rather than seven optional fields. */
+/** Seed metadata for a new terminal. */
 export interface TerminalSeed extends InitialTerminalMetadata {
-  /** Sub-terminal link — present when this terminal is a child of an
-   *  existing one. The backend just records the link on the new
-   *  terminal's metadata; it does NOT decide which backend to spawn
-   *  on. Sub-terminal location inheritance ("a child of a remote tile
-   *  spawns on the same remote") is the resolver's job — R-2 will
-   *  extend `getBackendFor` (or a creation-time variant) to look up
-   *  `parentId`'s backend before dispatching, so the inheritance lives
-   *  at one site instead of being replicated at every
-   *  `createTerminal` caller. */
+  /** Sub-terminal link. Location inheritance (a child of a remote tile
+   *  spawns on the same host) is the resolver's job — see
+   *  `getBackendForCreate` in `packages/server/src/backend/index.ts`. */
   parentId?: string;
 }
 
-/** Inputs for `Backend.spawnPty`. Mirrors today's `createTerminal` shape
- *  without any backend-specific extras — both LocalBackend and
- *  RemoteBackend accept the same options.
- *
- *  `initialMetadata` seeds the client-owned metadata fields (theme,
- *  canvasLayout, parentId, subPanel, rightPanel, intent) BEFORE the
- *  backend's providers emit their first publish — so the first
- *  `terminalMetadata` collection yield carries them, and the canvas
- *  default-cascade effect can't race the providers' churn (#642). The
- *  backend doesn't interpret the contents — it just sets the fields on
- *  the new terminal's metadata before starting providers.
- *
- *  `onExit` fires whenever the PTY process exits — naturally (shell typed
- *  `exit`, crash) or as a result of an explicit `dispose()` /
- *  `killTerminal()`. The `wasNatural` flag distinguishes the two so the
- *  caller knows whether to fan out session-save signals: only natural
- *  exit triggers an autosave; explicit kill already accounted for the
- *  registry change. (`killAllTerminals` drains the registry before
- *  disposing, so every kill-all callback observes `wasNatural=false` and
- *  shutdown doesn't write phantom empty sessions.) */
 export interface PtySpawnOpts {
   cwd?: string;
   initialMetadata?: TerminalSeed;
+  /** Fires on PTY exit with `wasNatural` distinguishing shell-exited
+   *  from explicit-kill. See module doc. */
   onExit?: (exitCode: number, wasNatural: boolean) => void;
 }
 
-/** A live terminal owned by a backend. `id` is shared across the system
- *  (the wire `TerminalId`); `write`/`resize`/`dispose` are the control
- *  surface. `dispose()` is observationally identical to
- *  `Backend.killTerminal(id)` — see the kill-convergence invariant in
- *  the module doc. */
+/** A live terminal owned by a backend. Pure control-surface — write
+ *  input, change dimensions. Termination is `Backend.killTerminal(id)`,
+ *  not on the handle (kill-convergence invariant). */
 export interface TerminalHandle {
   readonly id: string;
   write(data: string): void;
   resize(cols: number, rows: number): void;
-  dispose(): void;
 }
 
-/** Per-terminal streaming channels. Snapshot-then-delta on every key. */
+/** Per-terminal streaming channels. Snapshot-then-delta on every key.
+ *
+ *  R-2 channel-set expansion:
+ *  - `agent`, `pr`, `foreground` — were written by in-process providers
+ *    on R-1, which works for local but is invisible to RemoteBackend.
+ *    Now flow over channels so the agent process's providers reach the
+ *    kolu server.
+ *  - `connectionState` — driven by `HostSession`'s state machine for
+ *    remote terminals; `LocalBackend` publishes "live" once at spawn. */
 export interface TerminalChannelMap {
   /** Raw PTY bytes — high-throughput stream. */
   data: string;
@@ -118,22 +102,46 @@ export interface TerminalChannelMap {
   git: GitInfo | null;
   /** OSC 633;E preexec command lines (raw). */
   commandRun: string;
+  /** AI coding agent state (Claude Code, OpenCode, Codex). */
+  agent: AgentInfo | null;
+  /** GitHub PR resolution. */
+  pr: PrResult;
+  /** Foreground process detected via OSC 2 / kqueue. */
+  foreground: Foreground | null;
+  /** Backend connection state — `"live"` for local, transitions
+   *  through `"connecting"` / `"disconnected"` for remote. */
+  connectionState: ConnectionState;
 }
 
-/** One-shot filesystem ops scoped to whatever filesystem the backend
- *  represents. For `LocalBackend` this is the local FS; for
- *  `RemoteBackend` it's the remote agent's FS. The kolu server treats
- *  them identically. */
+/** Filesystem ops scoped to the backend's filesystem.
+ *
+ *  Subscription methods return AsyncIterables so the same shape carries
+ *  over oRPC (RemoteBackend) and over in-process callbacks
+ *  (LocalBackend wraps `kolu-git`'s callback-based watchers via an
+ *  async generator). The yielded `void` is a "something changed"
+ *  signal — consumers re-read via `listAll` / `readFile`. */
 export interface BackendFs {
   listAll(repoPath: string): Promise<string[]>;
   readFile(
     repoPath: string,
     filePath: string,
   ): Promise<{ content: string; truncated: boolean }>;
+  /** Yield once per filesystem change anywhere under `repoPath`. The
+   *  first yield is a no-op snapshot so consumers can `read` once
+   *  before the first delta arrives. */
+  subscribeRepoChange(
+    repoPath: string,
+    signal?: AbortSignal,
+  ): AsyncIterable<void>;
+  /** Yield once per filesystem change to `filePath` (or its containing
+   *  dir, for create/delete). */
+  subscribeFileChange(
+    repoPath: string,
+    filePath: string,
+    signal?: AbortSignal,
+  ): AsyncIterable<void>;
 }
 
-/** One-shot git ops. Types mirror `kolu-git/schemas` so the wire shape
- *  is identical regardless of backend. */
 export interface BackendGit {
   getDiff(
     repoPath: string,
@@ -142,61 +150,67 @@ export interface BackendGit {
     oldPath?: string,
   ): Promise<GitDiffOutput>;
   getStatus(repoPath: string, mode: GitDiffMode): Promise<GitStatusOutput>;
+  /** Same shape as `BackendFs.subscribeRepoChange` — kolu-git's git
+   *  watcher uses the same parcel-watcher subscription under the hood,
+   *  so this is presented as a separate name for the
+   *  not-coincidentally-identical purpose: "git state at this repo
+   *  changed." */
+  subscribeRepoChange(
+    repoPath: string,
+    signal?: AbortSignal,
+  ): AsyncIterable<void>;
 }
 
 /**
- * The Backend interface — see module doc. R-1 ships `LocalBackend`. R-2
- * adds `RemoteBackend` and the binary serving its protocol
- * (`kolu agent --stdio`).
+ * The Backend interface — see module doc.
  *
  * Per-terminal screen-state reads (`getScreenState`, `getScreenText`)
- * deliberately do NOT live here: the xterm-headless emulator buffer is
- * per-terminal local state that survives backend swaps (a Phase-3
- * remote-agent reattach still serializes the local emulator's
- * scrollback). The emulator lives next to its handle in the registry;
- * callers read it via `getTerminal(id)?.handle.getScreenState()` rather
- * than through this interface.
+ * stay on `entry.handle` (the kolu server's `TerminalControl` view of a
+ * terminal) — emulator state is per-terminal local state and survives
+ * backend swaps. Callers go through the registry, not this interface.
  */
 export interface Backend {
-  /** Stable identity for this backend instance — `{ kind: "local" }` or
-   *  `{ kind: "ssh", host }`. Persisted on each terminal's
-   *  `ServerPersistedTerminalFields.location` so session restore picks
-   *  the same backend a terminal previously lived on. */
+  /** Stable identity — `{ kind: "local" }` or `{ kind: "ssh", host }`. */
   readonly id: TerminalLocation;
 
   /** Create a new terminal owned by this backend. */
   spawnPty(opts: PtySpawnOpts): Promise<TerminalHandle>;
 
-  /** Subscribe to a terminal's stream of `kind`. Snapshot-then-delta;
-   *  late joiners (e.g. tab refresh) receive the current snapshot
-   *  before any deltas. Aborting the iterator closes the subscription. */
+  /** Subscribe to a terminal's stream of `kind`. Snapshot-then-delta. */
   terminalChannel<K extends keyof TerminalChannelMap>(
     terminalId: string,
     kind: K,
     signal?: AbortSignal,
   ): AsyncIterable<TerminalChannelMap[K]>;
 
-  /** Kill a terminal owned by this backend. Returns true if the
-   *  terminal was registered and the kill ran; false if the id was
-   *  unknown (already cleaned up). Observationally identical to calling
-   *  `dispose()` on the same terminal's handle — see kill-convergence
-   *  invariant in the module doc. */
+  /** Kill a terminal. Single termination path — see kill-convergence
+   *  invariant in module doc. Returns `true` if the kill ran. */
   killTerminal(terminalId: string): boolean;
 
-  /** Tear down a terminal whose entry the caller already holds — used
-   *  by bulk-kill paths that drain the registry first and want the
-   *  per-entry teardown without a second registry lookup. The contract
-   *  is "same teardown as `killTerminal`, applied to a specific entry
-   *  the caller is responsible for having removed from the shared
-   *  registry already." Single entry point keeps the kill-convergence
-   *  invariant holding across bulk and single-target paths. */
+  /** Bulk-kill teardown for `killAllTerminals` — the drain-before-
+   *  dispose pattern has already emptied the registry, so this
+   *  variant takes the entry directly. RemoteBackend reads only
+   *  `entry.info.id` (and RPCs); LocalBackend uses the full handle +
+   *  stopProviders. The wide structural type honors both. */
   killTerminalEntry(entry: {
     info: { id: string };
     handle: { dispose(): void };
     stopProviders: () => void;
   }): void;
 
-  /** Filesystem and git one-shot ops on the backend's filesystem. */
+  /** Save uploaded bytes into the backend's per-terminal scratch
+   *  directory and return the absolute path the agent on this backend
+   *  sees. Used by `terminal.pasteImage` / `terminal.uploadFile` —
+   *  R-1's implementation in `router.ts` wrote to the kolu-server's
+   *  local scratch dir, which is the wrong host for remote tiles.
+   *  R-2 finding I. */
+  uploadFile(
+    terminalId: string,
+    name: string,
+    base64Data: string,
+  ): Promise<string>;
+
+  /** Filesystem + git ops on the backend's filesystem. */
   readonly fs: BackendFs;
   readonly git: BackendGit;
 }
