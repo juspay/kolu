@@ -20,10 +20,10 @@ import { prValue } from "kolu-github/schemas";
 import { loadOpenCodeTranscript } from "kolu-opencode";
 import { transcriptToHtml } from "kolu-transcript-html";
 import { match } from "ts-pattern";
+import { getBackendFor } from "./backend/index.ts";
 import { saveTerminalFile } from "./terminalScratch.ts";
 import { serverHostname, serverProcessId } from "./hostname.ts";
 import { log } from "./log.ts";
-import { terminalChannels } from "./publisher.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import { surfaceRouter, t, unwrapGit } from "./surface.ts";
 import { getTerminal, type TerminalProcess } from "./terminal-registry.ts";
@@ -133,10 +133,18 @@ export const appRouter = t.router({
      * Yields serialized screen state first (for late-joining clients),
      * then streams live output. Subscribe-before-serialize ordering
      * guarantees no output is lost between snapshot and live stream.
+     *
+     * The data stream is routed through `backend.terminalChannel(id,
+     * "data")` so R-2's `RemoteBackend` swaps in without a router
+     * change. The emulator's `getScreenState()` stays on the local
+     * `entry.handle` — emulator state is per-terminal, not
+     * per-backend (the xterm-headless buffer survives backend swaps,
+     * e.g. R-3's reattach).
      */
     attach: t.terminal.attach.handler(async function* ({ input, signal }) {
       const entry = requireTerminal(input.id);
-      const live = terminalChannels.data(input.id).subscribe(signal);
+      const backend = getBackendFor(entry);
+      const live = backend.terminalChannel(input.id, "data", signal);
       const screenState = entry.handle.getScreenState();
       if (screenState) yield screenState;
       for await (const data of live) yield data;

@@ -5,11 +5,13 @@ import { assignColors, buildTerminalDisplayInfos } from "./terminalDisplay";
 
 function makeMeta(overrides: Partial<TerminalMetadata> = {}): TerminalMetadata {
   return {
+    location: { kind: "local" },
     cwd: "/home/user/project",
     git: null,
     pr: { kind: "pending" },
     agent: null,
     foreground: null,
+    connectionState: "live",
     lastActivityAt: 0,
     ...overrides,
   };

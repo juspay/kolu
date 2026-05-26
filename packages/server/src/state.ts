@@ -98,7 +98,7 @@ type PersistedState = z.infer<typeof PersistedStateSchema>;
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.23.0";
+const SCHEMA_VERSION = "1.24.0";
 
 // Callers must pass an explicit directory via KOLU_STATE_DIR. A bare launch
 // with no env would silently clobber whatever happens to live at conf's
@@ -439,8 +439,39 @@ export const store = new Conf<PersistedState>({
         rightPanel: rest as typeof current.rightPanel,
       } as Preferences);
     },
+    // R-1: `TerminalLocation` discriminated union added on
+    // `ServerPersistedTerminalFieldsSchema`. Every pre-R-1 terminal
+    // lived on the local machine, so the migration stamps each saved
+    // terminal with `{ kind: "local" }`. Idempotent — re-running on
+    // already-migrated data leaves the field alone. The schema's
+    // `.default({ kind: "local" })` is the secondary safety net for
+    // disk shapes that somehow skip this migration (e.g. tests
+    // bypassing the Conf instance); the migration is the primary path
+    // that flips real users' disks forward at server start.
+    "1.24.0": (store: Conf<PersistedState>) => {
+      const session = store.get("session");
+      if (!session) return;
+      const terminals = (
+        session.terminals as unknown as Record<string, unknown>[]
+      ).map(injectLocalLocation);
+      store.set("session", {
+        ...session,
+        terminals: terminals as typeof session.terminals,
+      });
+    },
   },
 });
+
+/** Pure helper for the 1.24.0 migration: inject `location: { kind:
+ *  "local" }` if absent. Exposed so tests can exercise the migration
+ *  shape directly without spinning up a fresh Conf instance with the
+ *  prior `projectVersion`. */
+export function injectLocalLocation(
+  t: Record<string, unknown>,
+): Record<string, unknown> {
+  if ("location" in t) return t;
+  return { ...t, location: { kind: "local" } };
+}
 
 // Early validation so corrupt state shows up in journalctl immediately at
 // startup, not only when the first client connects. Validates the aggregate

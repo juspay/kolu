@@ -48,6 +48,33 @@ import { z } from "zod";
 
 export const TerminalIdSchema = z.string().uuid();
 
+/**
+ * Backend identity — discriminated union picking the per-terminal world a
+ * terminal lives in. `LocalBackend` (this machine) is the only kind in
+ * R-1; `RemoteBackend` (`{ kind: "ssh"; host }`) lands in R-2. The shape
+ * is on the persisted schema so saved sessions remember which backend a
+ * terminal belonged to and restore picks the same one. Default
+ * (`{ kind: "local" }`) absorbs every saved session shipped before R-1
+ * via Zod `.default(...)`.
+ */
+export const TerminalLocationSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("local") }),
+  z.object({ kind: z.literal("ssh"), host: z.string().min(1) }),
+]);
+export type TerminalLocation = z.infer<typeof TerminalLocationSchema>;
+
+/**
+ * Connection state — per-terminal, observable when the backend is remote.
+ * Local terminals are always `"live"`. The enum sits on the live fields
+ * because reconnect activity is transient state never written to disk.
+ */
+export const ConnectionStateSchema = z.enum([
+  "live",
+  "connecting",
+  "disconnected",
+]);
+export type ConnectionState = z.infer<typeof ConnectionStateSchema>;
+
 export const AgentKindSchema = z.enum(["claude-code", "codex", "opencode"]);
 
 export const AgentInfoSchema = z.discriminatedUnion("kind", [
@@ -141,6 +168,12 @@ export const RightPanelPerTerminalStateSchema = z.object({
  * `LiveTerminalFieldsSchema`. See the partition comment above.
  */
 export const ServerPersistedTerminalFieldsSchema = z.object({
+  /** Where this terminal lives — local (default, every pre-R-1 saved
+   *  session resolves here) or a specific SSH host. Backend identity, not
+   *  a parallel `host?: string` field — keeping the discriminated-union
+   *  shape means every consumer pattern-matches and can never see a half-
+   *  filled host string. */
+  location: TerminalLocationSchema.default({ kind: "local" }),
   cwd: z.string(),
   git: GitInfoSchema.nullable(),
   /** Normalized agent CLI invocation last observed in this terminal (e.g.
@@ -204,6 +237,9 @@ export const LiveTerminalFieldsSchema = z.object({
   agent: AgentInfoSchema.nullable(),
   /** Foreground process name — detected via OSC 2 title change events. */
   foreground: ForegroundSchema.nullable(),
+  /** Backend connection state — observable when `location.kind === "ssh"`.
+   *  Always `"live"` for local terminals (RemoteBackend lands in R-2). */
+  connectionState: ConnectionStateSchema.default("live"),
 });
 
 /**
@@ -264,10 +300,13 @@ export const InitialTerminalMetadataSchema = z.object({
 // ── Terminal cell value + raw-procedure shared schemas ────────────────
 
 /** Wire shape for the `terminalList` cell. Identity only — metadata
- *  flows through the `terminalMetadata` collection. */
+ *  flows through the `terminalMetadata` collection. `pid` was dropped in
+ *  R-1 because a remote terminal has no local pid and no client renders
+ *  it (a remote tile would have leaked a misleading local-ssh-subprocess
+ *  pid). Server-side debug logging keeps the pid inside `TerminalProcess`
+ *  out of band. */
 export const TerminalInfoSchema = z.object({
   id: TerminalIdSchema,
-  pid: z.number(),
 });
 
 /** Shared by both `terminal.attach` (raw oRPC streaming) and the

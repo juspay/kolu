@@ -38,11 +38,13 @@ function makeAgent(overrides: Partial<AgentInfo> = {}): AgentInfo {
 
 function makeMeta(overrides: Partial<TerminalMetadata> = {}): TerminalMetadata {
   return {
+    location: { kind: "local" },
     cwd: "/home/user/kolu",
     git: makeGit(),
     pr: { kind: "absent" },
     agent: null,
     foreground: null,
+    connectionState: "live",
     lastActivityAt: 0,
     ...overrides,
   };

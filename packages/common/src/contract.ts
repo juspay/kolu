@@ -27,6 +27,7 @@ import {
   TerminalAttachInputSchema,
   TerminalIdSchema,
   TerminalInfoSchema,
+  TerminalLocationSchema,
 } from "./surface";
 import {
   ExportTranscriptHtmlInputSchema,
@@ -39,6 +40,10 @@ export const TerminalCreateInputSchema = z
   .object({
     cwd: z.string().optional(),
     parentId: TerminalIdSchema.optional(),
+    /** Backend location for this terminal. Sub-terminals inherit the
+     *  parent's location regardless of what the caller sends. Absent =
+     *  `{ kind: "local" }`. */
+    location: TerminalLocationSchema.optional(),
   })
   .merge(InitialTerminalMetadataSchema);
 

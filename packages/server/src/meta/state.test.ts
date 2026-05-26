@@ -19,13 +19,15 @@ import {
 
 function fakeTerminal(): TerminalProcess {
   return {
-    info: { id: "term-pub-test", pid: 0 },
+    info: { id: "term-pub-test" },
     meta: {
+      location: { kind: "local" },
       cwd: "/tmp",
       git: null,
       pr: { kind: "pending" },
       agent: null,
       foreground: null,
+      connectionState: "live",
       lastActivityAt: 0,
     },
     // Tests never touch the PTY handle; the publish path doesn't read it.

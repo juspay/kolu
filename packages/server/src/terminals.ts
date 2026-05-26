@@ -1,14 +1,27 @@
 /**
- * Terminal lifecycle: spawn PTYs, wire them to metadata providers, and
- * manage create/kill/update operations. The underlying `Map` and its
- * simple accessors (`getTerminal`, `listTerminals`, `terminalCount`,
- * `countActiveClaudeSessions`, the `TerminalProcess` shape) live in
- * `./terminal-registry.ts` so `./meta/*` can depend on the registry
- * without closing a cycle back through this file.
+ * Terminal lifecycle adapter — translates the wire-level
+ * (`router.ts`-facing) terminal verbs into `LocalBackend` operations
+ * and fans the surface side effects (`terminalList`, `terminals:dirty`,
+ * `terminalExit` event) into the framework.
  *
- * External callers that used to import state-reads + lifecycle from
- * `./terminals.ts` as a single module keep their import path — this
- * file re-exports the registry surface they need.
+ * After R-1, `LocalBackend` is the canonical owner of PTY lifecycle and
+ * the `meta/*` provider DAG. This file is the thin shim where router
+ * handlers (`terminal.create`, `terminal.kill`, `terminal.setX`)
+ * delegate. The underlying `Map` + the registry accessors
+ * (`getTerminal`, `listTerminals`, `terminalCount`, …) still live in
+ * `./terminal-registry.ts` — both the backend and this file mutate the
+ * same shared store.
+ *
+ * Client-owned metadata setters (theme/intent/canvas/sub-panel/right-
+ * panel/parent/active) live here too — they're surface-level mutations
+ * that don't belong to a specific backend (they describe the kolu UI's
+ * relationship to a terminal, not the terminal's relationship to its
+ * host).
+ *
+ * R-2 will introduce a `getBackendFor(location)` registry that returns
+ * either `localBackend` or a `RemoteBackend(host)`; `createTerminal`
+ * will pick the right one. For R-1 every terminal lives on
+ * `localBackend`.
  */
 
 import type {
@@ -18,28 +31,17 @@ import type {
   TerminalId,
   TerminalInfo,
 } from "kolu-common/surface";
-import { DEFAULT_SCROLLBACK } from "kolu-common/config";
-import { spawnPty } from "kolu-pty";
-import pkg from "../package.json" with { type: "json" };
+import { localBackend } from "./backend/local.ts";
 import { cleanupTerminalScratch } from "./terminalScratch.ts";
-import { koluShellDir } from "./koluRoot.ts";
 import { log } from "./log.ts";
-import {
-  createMetadata,
-  startProviders,
-  updateClientMetadata,
-  updateServerMetadata,
-} from "./meta/index.ts";
-import { terminalChannels, terminalsDirtyChannel } from "./publisher.ts";
+import { updateClientMetadata } from "./meta/index.ts";
+import { terminalsDirtyChannel } from "./publisher.ts";
 import { surfaceCtx } from "./surface.ts";
 import {
   drainTerminals,
-  getTerminal,
   listTerminals,
-  registerTerminal,
-  type TerminalProcess,
   terminalEntries,
-  unregisterTerminal,
+  getTerminal,
 } from "./terminal-registry.ts";
 
 // Re-export registry accessors + type so external callers (router.ts,
@@ -70,6 +72,7 @@ export function snapshotSession(): {
         pr: _pr,
         agent: _agent,
         foreground: _foreground,
+        connectionState: _connectionState,
         ...persisted
       } = entry.meta;
       return { id, ...persisted };
@@ -86,116 +89,68 @@ function emitChanged(): void {
 /** Notify that terminal membership changed (create/kill).
  *  Drives the live `surface.terminalList.get` stream to clients. The
  *  surface owns the publish channel; calling `set` triggers the
- *  framework's apply+publish chain (the `terminalList` cell's store is a
- *  no-op since the registry is canonical). */
+ *  framework's apply+publish chain (the `terminalList` cell's store is
+ *  a no-op since the registry is canonical). */
 function emitListChanged(): void {
   surfaceCtx.cells.terminalList.set(listTerminals());
 }
 
-/** Create a new terminal, spawn a PTY process. `initial` seeds
- *  client-owned metadata before `startProviders` runs, so the first
- *  `terminalMetadata` collection read carries it — used by session
- *  restore to avoid racing post-hoc `setCanvasLayout` / `setTheme` /
- *  `setSubPanel` RPCs against the client's canvas-cascade effect (#642). */
-export function createTerminal(
+/** Create a new terminal on the backend identified by the (resolved)
+ *  location. R-1: every terminal lives on `localBackend`; R-2 picks the
+ *  backend by `initial.location` (with sub-terminals inheriting their
+ *  parent's location regardless of the input).
+ *
+ *  `initial` seeds the client-owned metadata fields before the
+ *  backend's providers emit their first publish, so the first
+ *  `terminalMetadata` collection yield carries them — required by the
+ *  canvas-cascade race fix in #642. */
+export async function createTerminal(
   cwd?: string,
   parentId?: string,
   initial?: InitialTerminalMetadata,
-): TerminalInfo {
-  const id = crypto.randomUUID();
-  const tlog = log.child({ terminal: id });
-
-  const handle = spawnPty(
-    tlog,
-    id,
-    {
-      rcDir: koluShellDir,
-      termProgramVersion: pkg.version,
-      scrollback: DEFAULT_SCROLLBACK,
-      onData: (data) => {
-        terminalChannels.data(id).publish(data);
-      },
-      // On natural exit: notify clients, then remove from server state
-      onExit: (exitCode) => {
-        tlog.info({ exitCode }, "exited");
-        const entry = getTerminal(id);
-        if (entry) {
-          entry.stopProviders();
-          cleanupTerminalScratch(id);
-        }
-        surfaceCtx.events.terminalExit.publish({ id }, exitCode);
-        // Only save session on natural exit (entry still in map).
-        // killAllTerminals clears the map first, so entry is gone — skip.
-        const wasNaturalExit = unregisterTerminal(id);
-        if (wasNaturalExit) {
-          emitChanged();
-          emitListChanged();
-        }
-      },
-      // PTY callback (OSC 0/2): notify process provider that title changed
-      onTitleChange: (title) => {
-        terminalChannels.title(id).publish(title);
-      },
-      // PTY callback (OSC 633;E): raw preexec command line. Agent parsing,
-      // the per-terminal stash, and the recent-agents MRU all live in
-      // `meta/agent-command.ts`, fed via this channel.
-      onCommandRun: (raw) => {
-        terminalChannels.commandRun(id).publish(raw);
-      },
-      // PTY callback (OSC 7): update metadata CWD, notify providers via cwd channel
-      onCwd: (newCwd) => {
-        const entry = getTerminal(id);
-        if (entry) {
-          updateServerMetadata(entry, id, (m) => {
-            m.cwd = newCwd;
-          });
-          terminalChannels.cwd(id).publish(newCwd);
-        }
-      },
-    },
+): Promise<TerminalInfo> {
+  const handle = await localBackend.spawnPty({
     cwd,
-  );
+    initialMetadata: {
+      ...(parentId !== undefined && { parentId }),
+      ...(initial?.themeName && { themeName: initial.themeName }),
+      ...(initial?.canvasLayout && { canvasLayout: initial.canvasLayout }),
+      ...(initial?.subPanel && { subPanel: initial.subPanel }),
+      ...(initial?.rightPanel && { rightPanel: initial.rightPanel }),
+      ...(initial?.lastActivityAt !== undefined && {
+        lastActivityAt: initial.lastActivityAt,
+      }),
+      ...(initial?.intent && { intent: initial.intent }),
+    },
+    onExit: (exitCode, wasNatural) => {
+      surfaceCtx.events.terminalExit.publish({ id: handle.id }, exitCode);
+      // Only fire dirty/list signals on natural exit. Explicit kills
+      // (`killTerminal`, `killAllTerminals`) already handled the fanout
+      // at their entry point — see kill-convergence invariant in
+      // backend.ts's module doc.
+      if (wasNatural) {
+        emitChanged();
+        emitListChanged();
+      }
+    },
+  });
 
-  const meta = createMetadata(handle.cwd);
-  if (parentId) meta.parentId = parentId;
-  // Seed client-owned initial metadata BEFORE startProviders so the first
-  // `terminalMetadata` collection yield carries these fields (see #642).
-  if (initial?.themeName) meta.themeName = initial.themeName;
-  if (initial?.canvasLayout) meta.canvasLayout = initial.canvasLayout;
-  if (initial?.subPanel) meta.subPanel = initial.subPanel;
-  if (initial?.rightPanel) meta.rightPanel = initial.rightPanel;
-  if (initial?.lastActivityAt !== undefined)
-    meta.lastActivityAt = initial.lastActivityAt;
-  if (initial?.intent) meta.intent = initial.intent;
-  const entry: TerminalProcess = {
-    info: { id, pid: handle.pid },
-    meta,
-    handle,
-    stopProviders: () => {},
-  };
-  // Start providers after entry is in the map (providers may emit immediately)
-  registerTerminal(id, entry);
-  entry.stopProviders = startProviders(entry, id);
-
-  tlog.info({ pid: handle.pid, total: listTerminals().length }, "created");
   emitChanged();
   emitListChanged();
-  return entry.info;
+  return { id: handle.id };
 }
 
-/** Kill a terminal's PTY process and remove it from the map. Returns final info, or undefined if not found. */
+/** Kill a terminal: backend tears down PTY + providers, then surface
+ *  signals fan out. Returns final `TerminalInfo` for the killed
+ *  terminal, or undefined if the id was unknown. */
 export function killTerminal(id: TerminalId): TerminalInfo | undefined {
   const entry = getTerminal(id);
   if (!entry) return undefined;
-
-  log.child({ terminal: id }).info({ pid: entry.handle.pid }, "killing");
-  entry.stopProviders();
-  entry.handle.dispose();
-  cleanupTerminalScratch(id);
-  unregisterTerminal(id);
+  const info = entry.info;
+  localBackend.killTerminal(id);
   emitChanged();
   emitListChanged();
-  return entry.info;
+  return info;
 }
 
 /** Set or clear a terminal's parent relationship. */
@@ -233,8 +188,7 @@ export function setCanvasLayout(
  *
  *  Equality-gated: the client RPCs this on every drag tick of the
  *  resizable handle, so without a guard each mouse-move would fan a
- *  full per-key metadata publish to every connected client. Same shape
- *  as `meta/agent-command.ts`'s `lastAgentCommand` gate. */
+ *  full per-key metadata publish to every connected client. */
 export function setSubPanelState(
   id: TerminalId,
   state: { collapsed: boolean; panelSize: number },
@@ -254,14 +208,7 @@ export function setSubPanelState(
 }
 
 /** Store a terminal's right-panel per-terminal state (client-reported).
- *  Publishes via metadata so other clients (and the same client after a
- *  refresh) pick up the change from the same channel as every other
- *  client-owned metadata field.
- *
- *  Equality-gated like `setSubPanelState` — the client RPCs this on every
- *  file-tree click and tab-toggle, so without a guard each interaction
- *  would fan a full per-key metadata publish. Deep-compares
- *  `selectedFileByMode` since the user clicks files often. */
+ *  Equality-gated like `setSubPanelState`. */
 export function setRightPanelState(
   id: TerminalId,
   state: RightPanelPerTerminalState,
@@ -323,10 +270,14 @@ export function setTerminalIntent(id: TerminalId, intent: string): void {
   });
 }
 
-/** Kill and remove all terminals. Used by tests to reset server state between scenarios. */
+/** Kill and remove all terminals. Used by tests to reset server state
+ *  between scenarios.
+ *
+ *  Drain-before-dispose ordering: the registry is cleared FIRST so each
+ *  PTY's `onExit` callback observes `getTerminal(id) === undefined` and
+ *  reports `wasNatural=false`. That gate prevents shutdown from writing
+ *  phantom empty sessions to disk via the autosave loop. */
 export function killAllTerminals(): void {
-  // Snapshot entries and clear map BEFORE disposing — prevents onExit
-  // callbacks from finding terminals and triggering session saves.
   const entries = drainTerminals();
   log.info({ count: entries.length }, "killing all terminals");
   for (const entry of entries) {
