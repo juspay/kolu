@@ -215,12 +215,12 @@ const features = [
             </span>
           </div>
           <div class="hero-term-body">
-            <div><span class="hero-prompt">~/code/kolu</span> <span class="hero-prompt">❯</span> <span class="hero-cmd">claude</span></div>
+            <div><span class="hero-prompt">~/code/kolu</span> <span class="hero-prompt">❯</span> claude</div>
             <div class="hero-dim">› reading <span class="hero-path">website/src/pages/index.astro</span></div>
             <div class="hero-dim">› reading <span class="hero-path">README.md</span></div>
-            <div class="hero-out">⏺ The hero softens the strongest line in the repo —</div>
-            <div class="hero-out">&nbsp;&nbsp;"treats terminals as the thesis, not the substrate"</div>
-            <div class="hero-out">&nbsp;&nbsp;— into a clause mid-paragraph. Let me rebuild it.</div>
+            <div>⏺ The hero softens the strongest line in the repo —</div>
+            <div>&nbsp;&nbsp;"treats terminals as the thesis, not the substrate"</div>
+            <div>&nbsp;&nbsp;— into a clause mid-paragraph. Let me rebuild it.</div>
             <div class="hero-dim">› <span class="hero-tool">Edit</span> website/src/pages/index.astro</div>
             <div class="hero-dim">&nbsp;&nbsp;<span class="hero-add">+</span> Your terminals are the workspace.</div>
             <div class="hero-dim">&nbsp;&nbsp;<span class="hero-del">-</span> A terminal-native cockpit for coding agents</div>
@@ -609,9 +609,10 @@ const features = [
     overflow: hidden;
     min-height: 16rem;
   }
+  /* .hero-cmd and .hero-out were no-op rules (both set color: ink, the
+     body default). Removed; the corresponding HTML elements now use the
+     inherited ink color directly. */
   .hero-prompt { color: var(--color-amber-dim); }
-  .hero-cmd { color: var(--color-ink); }
-  .hero-out { color: var(--color-ink); }
   .hero-dim { color: var(--color-ink-muted); }
   .hero-path { color: var(--color-amber-bright); }
   .hero-tool { color: var(--color-live-teal); font-weight: 500; }
