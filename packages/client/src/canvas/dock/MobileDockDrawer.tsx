@@ -30,7 +30,7 @@ import {
 import type { DockRowBucket } from "./dockRowRanking";
 import type { DockGroup } from "./dockTree";
 import { useDockOrder } from "./useDockOrder";
-import { AgentSlot, RowIcons } from "./RowIcons";
+import { AgentSlot, PrPip, SubCountCell } from "./RowIcons";
 import { rowSubline } from "./rowSubline";
 
 const MobileDockDrawer: Component<{
@@ -85,21 +85,21 @@ const MobileSection: Component<{
   group: DockGroup;
   onSelect: (id: TerminalId) => void;
 }> = (props) => (
-  // Subgrid container — same shape as the desktop dock. Empty pip
-  // columns collapse to 0 width so the branch label gets every
-  // pixel that isn't being used by a live pip.
+  // Subgrid container — same shape as the desktop dock. Four cols:
+  // agent · branch · sub-count · time. PR pip lives on line 2 (left)
+  // alongside the subline, anchored to col 2 left edge so PR icons
+  // align across every section.
   <section
     data-testid="mobile-dock-section"
     data-repo={props.group.name}
-    class="grid grid-cols-[20px_minmax(0,1fr)_auto_auto_auto] gap-x-3 pl-6 pr-3"
+    class="grid grid-cols-[20px_minmax(0,1fr)_auto_auto] gap-x-3 pl-6 pr-3"
   >
     <div class="col-span-full flex items-center gap-2 -ml-6 -mr-3 pl-3 pr-3 py-2 bg-surface-2/60 border-y border-edge/30">
       <span
-        aria-hidden="true"
-        class="w-2.5 h-2.5 rounded-sm shrink-0"
-        style={{ "background-color": props.group.color }}
-      />
-      <span class="font-mono text-[0.65rem] font-bold uppercase tracking-[0.14em] text-fg-2 truncate min-w-0">
+        data-testid="mobile-dock-section-name"
+        class="font-mono text-[0.65rem] font-bold uppercase tracking-[0.14em] truncate min-w-0"
+        style={{ color: props.group.color }}
+      >
         {props.group.name}
       </span>
       <span class="ml-auto font-mono text-[0.65rem] tabular-nums text-fg-3 shrink-0">
@@ -132,10 +132,11 @@ const MobileRow: Component<{
     <Show when={combined()}>
       {(c) => (
         // Row is `<div role="button">` rather than `<button>` so the
-        // `<a>` PR pip inside `RowIcons` is valid HTML. Activation
-        // keyboard handlers mirror native button behaviour
-        // (Enter + Space). Same trade-off the desktop dock makes;
-        // see `Dock.tsx` for the longer rationale.
+        // `<a>` PR pip on line 2 stays valid HTML (no `<a>` inside
+        // `<button>` nesting). Activation keyboard handlers mirror
+        // native button behaviour (Enter + Space). Same trade-off
+        // the desktop dock makes; see `Dock.tsx` for the longer
+        // rationale.
         // biome-ignore lint/a11y/useSemanticElements: native button would nest invalid interactive HTML — see Dock.tsx
         <div
           role="button"
@@ -169,7 +170,7 @@ const MobileRow: Component<{
               markdown={annotationLine(c().meta.intent, c().info.key.label)}
             />
           </span>
-          <RowIcons meta={c().meta} info={c().info} />
+          <SubCountCell subCount={c().info.subCount} />
           <span class="font-mono text-[0.65rem] tabular-nums text-fg-3 text-right">
             {formatTimeAgo(c().meta.lastActivityAt)}
           </span>
@@ -179,35 +180,37 @@ const MobileRow: Component<{
               class="absolute top-1.5 right-2 w-1.5 h-1.5 rounded-full bg-alert animate-pulse"
             />
           </Show>
-          {/* Second line under the branch — agent summary / state for
-           *  agent rows, foreground process title for plain shells.
-           *  Mirrors the desktop dock's `rowSubline` rule; placeholder
-           *  keeps every row two-line tall when nothing applies. */}
-          <Show
-            when={rowSubline(c().meta)}
-            fallback={
-              <span
-                aria-hidden="true"
-                class="col-start-2 col-end-[-1] font-mono text-[0.7rem] leading-tight invisible"
-              >
-                &nbsp;
-              </span>
-            }
-          >
-            {(line) => (
-              <span
-                data-testid={
-                  c().meta.agent
-                    ? "mobile-dock-agent-subline"
-                    : "mobile-dock-foreground"
-                }
-                class="col-start-2 col-end-[-1] font-mono text-[0.7rem] leading-tight text-fg-2 truncate min-w-0"
-                title={line()}
-              >
-                {line()}
-              </span>
-            )}
-          </Show>
+          {/* Second line — flex row spanning col 2 → end. PR pip on
+           *  the left (anchored to col 2 left edge so it aligns
+           *  across every section), subline text following. */}
+          <div class="col-start-2 col-end-[-1] flex items-center gap-1.5 min-w-0">
+            <PrPip meta={c().meta} />
+            <Show
+              when={rowSubline(c().meta)}
+              fallback={
+                <span
+                  aria-hidden="true"
+                  class="font-mono text-[0.7rem] leading-tight invisible"
+                >
+                  &nbsp;
+                </span>
+              }
+            >
+              {(line) => (
+                <span
+                  data-testid={
+                    c().meta.agent
+                      ? "mobile-dock-agent-subline"
+                      : "mobile-dock-foreground"
+                  }
+                  class="font-mono text-[0.7rem] leading-tight text-fg-2 truncate min-w-0"
+                  title={line()}
+                >
+                  {line()}
+                </span>
+              )}
+            </Show>
+          </div>
         </div>
       )}
     </Show>

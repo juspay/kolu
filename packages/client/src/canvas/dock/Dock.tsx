@@ -52,7 +52,7 @@ import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
 import { annotationLine } from "../../intent/text";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
-import { AgentSlot, RowIcons } from "./RowIcons";
+import { AgentSlot, PrPip, SubCountCell } from "./RowIcons";
 import { rowSubline } from "./rowSubline";
 import {
   activityWindow,
@@ -345,33 +345,35 @@ const RepoSection: Component<{
    *  row per render. Built once per tree update by `RailOrCards`. */
   flatIndexOf: ReadonlyMap<TerminalId, number>;
 }> = (props) => (
-  // Section is the grid container. Six columns: dot · branch ·
-  // pr-pip · agent-pip · sub-count · time. Branch is `minmax(0,1fr)`
-  // so it stretches and truncates; the pip columns are `auto`, so
-  // any column whose rows are entirely empty collapses to 0 instead
-  // of stealing branch width. Each DockRow is a subgrid item that
-  // inherits these columns, keeping the icons aligned vertically
-  // across rows.
+  // Section is the grid container. Four columns: agent · branch ·
+  // sub-count · time. PR pip is NOT a grid column — it lives inline
+  // on line 2 (left of the subline text), so its X-position is
+  // anchored to col 2's left edge and stays consistent across every
+  // section regardless of how the right-side columns sized
+  // themselves. Branch is `minmax(0,1fr)` so it stretches and
+  // truncates; sub-count and time are `auto`, so an empty sub-count
+  // column collapses to 0 and gives its width back to the branch.
+  // Each DockRow is a subgrid item that inherits these columns,
+  // keeping the icons aligned vertically across rows in one section.
   <section
     data-testid="dock-section"
     data-repo={props.group.name}
-    class="grid grid-cols-[16px_minmax(0,1fr)_auto_auto_auto] gap-x-2 pl-6 pr-3"
+    class="grid grid-cols-[16px_minmax(0,1fr)_auto_auto] gap-x-2 pl-6 pr-3"
   >
     {/* Header is a band — bg-surface-2 plus a hairline divider top
      *  and bottom — so a `KOLU` / `NIXOS-CONFIG` label reads as a
      *  section break rather than a faint label that blends into
-     *  the rows. Header text sits at `pl-3` (12 px) from the dock's
-     *  outer edge; row content sits at `pl-6` (24 px) inside the
-     *  section's grid, so the header reads as an outdented parent
-     *  and the rows nest visually beneath it. */}
+     *  the rows. The repo identity is carried by colouring the name
+     *  itself (no separate swatch); count stays neutral. Header
+     *  text sits at `pl-3` (12 px) from the dock's outer edge; row
+     *  content sits at `pl-6` (24 px) inside the section's grid, so
+     *  the header reads as an outdented parent and the rows nest
+     *  visually beneath it. */}
     <div class="col-span-full flex items-center gap-2 -ml-6 -mr-3 pl-3 pr-3 py-1.5 bg-surface-2/60 border-y border-edge/30">
       <span
-        aria-hidden="true"
-        class="w-2 h-2 rounded-sm shrink-0"
-        style={{ "background-color": props.group.color }}
-      />
-      <span
-        class="font-mono text-[0.6rem] font-bold uppercase tracking-[0.14em] text-fg-2 truncate min-w-0"
+        data-testid="dock-section-name"
+        class="font-mono text-[0.6rem] font-bold uppercase tracking-[0.14em] truncate min-w-0"
+        style={{ color: props.group.color }}
         title={props.group.name}
       >
         {props.group.name}
@@ -392,12 +394,17 @@ const RepoSection: Component<{
   </section>
 );
 
-/** A row in cards mode — `agent · branch · pips · time`. Pips are
- *  presence-only icons (PR state + checks dot, sub-terminal chip)
- *  rendered via `RowIcons`; the active row gets a quiet highlight
- *  (`bg-accent/15` + a 3 px accent left-edge stripe) and shares the
- *  same row geometry as inactive rows, so the dock doesn't reflow on
- *  activation. */
+/** A row in cards mode — two lines:
+ *
+ *    Line 1: `agent · branch · sub-count · time`
+ *    Line 2: `[PR pip] subline`  (col 2 → end)
+ *
+ *  The PR pip rides on line 2 at the leftmost X (anchored to col 2's
+ *  left edge) so PR icons align across every section. Sub-count cell
+ *  is empty when the row has none, collapsing the column back into
+ *  branch width. Active row gets a quiet highlight (`bg-accent/15` +
+ *  3 px accent left stripe) but identical geometry, so the dock
+ *  doesn't reflow on activation. */
 const DockRow: Component<{
   id: TerminalId;
   bucket: DockRowBucket;
@@ -420,14 +427,14 @@ const DockRow: Component<{
     <Show when={combined()}>
       {(c) => (
         // Row is `<div role="button">` rather than `<button>` so the
-        // `<a>` PR pip inside (`RowIcons.tsx`) is valid HTML. Nested
-        // interactive elements (`<a>` inside `<button>`) produce
-        // unreliable keyboard / screen-reader behaviour; the div+role
-        // pattern keeps the row activatable via mouse, Enter, and
-        // Space without that nesting. Biome's a11y rule wants a
-        // native `<button>` here, but that's exactly what we can't
-        // use — the PR pip must remain a real link (Cmd-click, right-
-        // click context menu) and HTML forbids `<a>` inside `<button>`.
+        // `<a>` PR pip on line 2 stays valid HTML. Nested interactive
+        // elements (`<a>` inside `<button>`) produce unreliable
+        // keyboard / screen-reader behaviour; the div+role pattern
+        // keeps the row activatable via mouse, Enter, and Space
+        // without that nesting. Biome's a11y rule wants a native
+        // `<button>` here, but that's exactly what we can't use —
+        // the PR pip must remain a real link (Cmd-click, right-click
+        // context menu) and HTML forbids `<a>` inside `<button>`.
         // biome-ignore lint/a11y/useSemanticElements: see comment above — native button would nest invalid interactive HTML
         <div
           role="button"
@@ -460,7 +467,7 @@ const DockRow: Component<{
               markdown={annotationLine(c().meta.intent, c().info.key.label)}
             />
           </span>
-          <RowIcons meta={c().meta} info={c().info} />
+          <SubCountCell subCount={c().info.subCount} />
           <span class="font-mono text-[0.6rem] tabular-nums text-fg-3 text-right">
             {formatTimeAgo(c().meta.lastActivityAt)}
           </span>
@@ -479,39 +486,40 @@ const DockRow: Component<{
               {props.flatIndex + 1}
             </span>
           </Show>
-          {/* Second line under the branch — agent summary / state for
-           *  agent rows, foreground process title for plain shells.
-           *  When nothing applies (idle plain shell), an invisible
-           *  placeholder claims the line so every row in the dock is
-           *  uniformly two-line tall (no reflow on activation). The
-           *  visible variants carry distinct testids
-           *  (`dock-agent-subline` / `dock-quiet-foreground`); the
-           *  placeholder is aria-hidden and unselectable. */}
-          <Show
-            when={rowSubline(c().meta)}
-            fallback={
-              <span
-                aria-hidden="true"
-                class="col-start-2 col-end-[-1] font-mono text-[0.65rem] leading-tight invisible"
-              >
-                &nbsp;
-              </span>
-            }
-          >
-            {(line) => (
-              <span
-                data-testid={
-                  c().meta.agent
-                    ? "dock-agent-subline"
-                    : "dock-quiet-foreground"
-                }
-                class="col-start-2 col-end-[-1] font-mono text-[0.65rem] leading-tight text-fg-2 truncate min-w-0"
-                title={line()}
-              >
-                {line()}
-              </span>
-            )}
-          </Show>
+          {/* Second line — flex row spanning col 2 → end. Leads with
+           *  the PR pip (left edge anchored to col 2 left, so PR
+           *  icons align across every section) followed by the
+           *  subline text (agent summary / state, or foreground
+           *  process title, or an invisible placeholder keeping the
+           *  row two-line tall). */}
+          <div class="col-start-2 col-end-[-1] flex items-center gap-1.5 min-w-0">
+            <PrPip meta={c().meta} />
+            <Show
+              when={rowSubline(c().meta)}
+              fallback={
+                <span
+                  aria-hidden="true"
+                  class="font-mono text-[0.65rem] leading-tight invisible"
+                >
+                  &nbsp;
+                </span>
+              }
+            >
+              {(line) => (
+                <span
+                  data-testid={
+                    c().meta.agent
+                      ? "dock-agent-subline"
+                      : "dock-quiet-foreground"
+                  }
+                  class="font-mono text-[0.65rem] leading-tight text-fg-2 truncate min-w-0"
+                  title={line()}
+                >
+                  {line()}
+                </span>
+              )}
+            </Show>
+          </div>
         </div>
       )}
     </Show>
