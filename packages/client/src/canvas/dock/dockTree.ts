@@ -26,19 +26,7 @@
 
 import type { TerminalId } from "kolu-common/surface";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
-import type { DockRowBucket, RankedDockRow } from "./dockRowRanking";
-
-/** Within-group sort priority. Matches `dockRowRanking`'s priority,
- *  re-declared so a future divergence here can't silently drift the
- *  ranking module. `parked` is unreachable inside groups (filtered out
- *  upstream); listed for exhaustiveness. */
-const BUCKET_PRIORITY: Record<DockRowBucket, number> = {
-  awaiting: 0,
-  working: 1,
-  idle: 2,
-  parked: 3,
-  none: 4,
-};
+import { DOCK_ROW_BUCKET_PRIORITY, type RankedDockRow } from "./dockRowRanking";
 
 export type DockGroup = {
   /** `info.key.group` — git repo name or cwd basename. */
@@ -97,8 +85,8 @@ export function buildDockTree(
 }
 
 function compareRows(a: RankedDockRow, b: RankedDockRow): number {
-  const pa = BUCKET_PRIORITY[a.bucket];
-  const pb = BUCKET_PRIORITY[b.bucket];
+  const pa = DOCK_ROW_BUCKET_PRIORITY[a.bucket];
+  const pb = DOCK_ROW_BUCKET_PRIORITY[b.bucket];
   if (pa !== pb) return pa - pb;
   return b.ts - a.ts;
 }
