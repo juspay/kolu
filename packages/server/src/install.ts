@@ -55,7 +55,10 @@ async function localSystem(): Promise<string> {
 }
 
 /** Probe whether `storePath` is already realised on the remote — skip
- *  the copy if so. */
+ *  the copy if so. A non-zero exit from `nix-store --query` means the
+ *  path is absent; any other error (SSH unreachable, auth failure) is
+ *  logged and treated as "not realised" so the caller proceeds to
+ *  `nix copy`, which will surface the real error. */
 async function isPathRealisedOnRemote(
   host: string,
   storePath: string,
@@ -69,7 +72,11 @@ async function isPathRealisedOnRemote(
       storePath,
     ]);
     return true;
-  } catch {
+  } catch (err) {
+    log.warn(
+      { host, storePath, err },
+      "isPathRealisedOnRemote: probe failed, treating as not realised",
+    );
     return false;
   }
 }

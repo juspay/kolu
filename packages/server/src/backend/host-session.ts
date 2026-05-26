@@ -120,7 +120,16 @@ export class HostSession {
       "HostSession: state transition",
     );
     if (prevExternal !== nextExternal) {
-      for (const cb of this.stateListeners) cb(nextExternal);
+      for (const cb of this.stateListeners) {
+        try {
+          cb(nextExternal);
+        } catch (err) {
+          log.error(
+            { host: this.host, err },
+            "HostSession: state listener threw",
+          );
+        }
+      }
     }
   }
 

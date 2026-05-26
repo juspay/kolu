@@ -33,6 +33,7 @@ import {
   FsReadFileOutputSchema,
   GitDiffInputSchema,
   GitDiffOutputSchema,
+  GitInfoSchema,
   GitStatusInputSchema,
   GitStatusOutputSchema,
 } from "kolu-git/schemas";
@@ -44,7 +45,6 @@ import {
   InitialTerminalMetadataSchema,
   TerminalIdSchema,
 } from "./surface";
-import { GitInfoSchema } from "kolu-git/schemas";
 import { PrResultSchema } from "kolu-github/schemas";
 
 // ── Terminal lifecycle ────────────────────────────────────────────────

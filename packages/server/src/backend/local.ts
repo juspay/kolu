@@ -63,8 +63,10 @@ import {
   updateServerMetadata,
 } from "../meta/index.ts";
 import { terminalChannels } from "../publisher.ts";
-import { saveTerminalFile } from "../terminalScratch.ts";
-import { cleanupTerminalScratch } from "../terminalScratch.ts";
+import {
+  cleanupTerminalScratch,
+  saveTerminalFile,
+} from "../terminalScratch.ts";
 import {
   getTerminal,
   registerTerminal,
@@ -100,37 +102,41 @@ export function unwrapBackendGit<T>(result: GitResult<T>): T {
 /** Wrap a callback-based watcher (the shape `kolu-git`'s subscribe
  *  functions expose) as an `AsyncIterable<void>` for `Backend.fs/git`
  *  consumers. First yield is the initial "subscription armed" tick;
- *  subsequent yields fire on each watcher event. */
+ *  subsequent yields fire on each watcher event.
+ *
+ *  The pending flag is a single boolean, not a queue — since the payload
+ *  is `void`, coalescing all pending events into one is always correct
+ *  (the consumer re-reads the full state on each yield regardless). This
+ *  prevents unbounded growth on high-frequency event bursts (e.g. a
+ *  large `git checkout` touching hundreds of files). */
 function watcherToAsyncIterable(
   install: (cb: () => void) => () => void,
   signal?: AbortSignal,
 ): AsyncIterable<void> {
   return {
     async *[Symbol.asyncIterator]() {
-      const queue: Array<void> = [];
-      let resolveNext: ((v: void) => void) | null = null;
+      let pending = false;
+      let resolveNext: (() => void) | null = null;
       const stop = install(() => {
         if (resolveNext) {
           const r = resolveNext;
           resolveNext = null;
           r();
-        } else queue.push(undefined);
+        } else {
+          pending = true;
+        }
       });
       const onAbort = () => {
         stop();
-        if (resolveNext) {
-          const r = resolveNext;
-          resolveNext = null;
-          r();
-        }
+        resolveNext?.();
       };
       signal?.addEventListener("abort", onAbort, { once: true });
       try {
         // Initial snapshot tick.
         yield;
         while (!signal?.aborted) {
-          if (queue.length > 0) {
-            queue.shift();
+          if (pending) {
+            pending = false;
             yield;
           } else {
             await new Promise<void>((r) => {

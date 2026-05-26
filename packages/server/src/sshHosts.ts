@@ -16,7 +16,7 @@
  * `server.listSshHosts` oRPC procedure.
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -29,9 +29,13 @@ export interface SshHost {
 function aliasesFromHostLine(value: string): string[] {
   return value
     .split(/\s+/)
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0)
-    .filter((s) => !s.startsWith("!") && !s.includes("*") && !s.includes("?"));
+    .filter(
+      (s) =>
+        s.length > 0 &&
+        !s.startsWith("!") &&
+        !s.includes("*") &&
+        !s.includes("?"),
+    );
 }
 
 /**
@@ -44,8 +48,14 @@ function aliasesFromHostLine(value: string): string[] {
  */
 export function parseSshConfig(): SshHost[] {
   const path = join(homedir(), ".ssh", "config");
-  if (!existsSync(path)) return [];
-  const raw = readFileSync(path, "utf8");
+  let raw: string;
+  try {
+    raw = readFileSync(path, "utf8");
+  } catch (e: unknown) {
+    // File absent is expected; any other error is a real problem.
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw e;
+  }
   const out: SshHost[] = [];
   const seen = new Set<string>();
   for (const line of raw.split("\n")) {
