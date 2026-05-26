@@ -100,6 +100,15 @@ export const TerminalPasteImageInputSchema = z.object({
   data: z.string(),
 });
 
+export const TerminalUploadFileInputSchema = z.object({
+  id: TerminalIdSchema,
+  /** Filename as the user dropped it. The server sanitizes before writing
+   *  — only the basename's safe characters survive. */
+  name: z.string().min(1),
+  /** Base64-encoded file bytes. */
+  data: z.string(),
+});
+
 export const TerminalSetParentInputSchema = z.object({
   id: TerminalIdSchema,
   parentId: TerminalIdSchema.nullable(),
@@ -146,6 +155,7 @@ export const contract = oc.router({
     screenState: oc.input(TerminalAttachInputSchema).output(z.string()),
     screenText: oc.input(TerminalScreenTextInputSchema).output(z.string()),
     pasteImage: oc.input(TerminalPasteImageInputSchema).output(z.void()),
+    uploadFile: oc.input(TerminalUploadFileInputSchema).output(z.void()),
     kill: oc.input(TerminalAttachInputSchema).output(TerminalInfoSchema),
     setParent: oc.input(TerminalSetParentInputSchema).output(z.void()),
     /** Test-only: kill and remove all terminals. */

@@ -14,12 +14,13 @@ import { loadClaudeCodeTranscript } from "kolu-claude-code";
 import { loadCodexTranscript } from "kolu-codex";
 import type { Transcript, TranscriptPr } from "kolu-common/transcript";
 import { TerminalNotFoundError } from "kolu-common/errors";
+import { rejectionFor } from "kolu-common/upload";
 import { worktreeCreate, worktreeRemove } from "kolu-git";
 import { prValue } from "kolu-github/schemas";
 import { loadOpenCodeTranscript } from "kolu-opencode";
 import { transcriptToHtml } from "kolu-transcript-html";
 import { match } from "ts-pattern";
-import { saveClipboardImage } from "./clipboard.ts";
+import { saveClipboardImage, saveDroppedFile } from "./clipboard.ts";
 import { serverHostname, serverProcessId } from "./hostname.ts";
 import { log } from "./log.ts";
 import { terminalChannels } from "./publisher.ts";
@@ -44,6 +45,13 @@ function requireTerminal(id: string): TerminalProcess {
   const entry = getTerminal(id);
   if (!entry) throw new TerminalNotFoundError(id);
   return entry;
+}
+
+/** Decoded byte length of a base64 string — `(len * 3/4)` minus padding.
+ *  Lets handlers gate on size without materializing the Buffer. */
+function base64DecodedLength(data: string): number {
+  const padding = data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0;
+  return Math.floor((data.length * 3) / 4) - padding;
 }
 
 export const appRouter = t.router({
@@ -140,18 +148,29 @@ export const appRouter = t.router({
 
     pasteImage: t.terminal.pasteImage.handler(async ({ input }) => {
       const entry = requireTerminal(input.id);
-      // base64 → decoded byte count: (len * 3/4) minus padding
-      const padding = input.data.endsWith("==")
-        ? 2
-        : input.data.endsWith("=")
-          ? 1
-          : 0;
-      const bytes = Math.floor((input.data.length * 3) / 4) - padding;
+      const bytes = base64DecodedLength(input.data);
       const path = saveClipboardImage(input.id, input.data);
       // Bracketed-paste the saved path into the PTY. Agents that accept
       // paste-as-file-path (codex, Claude Code) auto-attach the image.
       entry.handle.write(`\x1b[200~${path}\x1b[201~`);
       log.info({ terminal: input.id, bytes, path }, "paste image");
+    }),
+
+    uploadFile: t.terminal.uploadFile.handler(async ({ input }) => {
+      const entry = requireTerminal(input.id);
+      const bytes = base64DecodedLength(input.data);
+      const reason = rejectionFor(input.name, bytes);
+      if (reason !== null) {
+        throw new ORPCError("BAD_REQUEST", { message: reason });
+      }
+      const path = saveDroppedFile(input.id, input.name, input.data);
+      // Bracketed-paste the saved path into the PTY so agents that accept
+      // paste-as-file-path (codex, Claude Code) pick it up.
+      entry.handle.write(`\x1b[200~${path}\x1b[201~`);
+      log.info(
+        { terminal: input.id, name: input.name, bytes, path },
+        "upload file",
+      );
     }),
 
     kill: t.terminal.kill.handler(async ({ input }) => {

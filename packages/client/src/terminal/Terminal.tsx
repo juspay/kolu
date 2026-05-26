@@ -33,6 +33,7 @@ import { SafeClipboardProvider, writeTextToClipboard } from "../ui/clipboard";
 import "@xterm/xterm/css/xterm.css";
 import type { TerminalId } from "kolu-common/surface";
 import { DEFAULT_SCROLLBACK } from "kolu-common/config";
+import { rejectionFor } from "kolu-common/upload";
 import { FONT_FAMILY } from "terminal-themes";
 import { ACTIONS, matchesAnyShortcut } from "../input/actions";
 import { matchesKeybind } from "../input/keyboard";
@@ -818,6 +819,56 @@ const Terminal: Component<{
             { capture: true },
           );
 
+          // Drag-and-drop file upload. Files dropped on the terminal are
+          // uploaded to the server, which saves them under the terminal's
+          // clipboard directory and bracketed-pastes the path into the PTY
+          // — the same shape as Ctrl+V image paste, just sourced from
+          // DataTransfer instead of ClipboardData.
+          async function uploadDroppedFile(file: File) {
+            const reason = rejectionFor(file.name, file.size);
+            if (reason !== null) {
+              toast.error(reason);
+              return;
+            }
+            try {
+              const base64 = bufferToBase64(await file.arrayBuffer());
+              await client.terminal.uploadFile({
+                id: props.terminalId,
+                name: file.name,
+                data: base64,
+              });
+            } catch (err) {
+              const message = err instanceof Error ? err.message : String(err);
+              toast.error(`Failed to upload "${file.name}": ${message}`);
+            }
+          }
+
+          makeEventListener(containerRef, "dragover", (e: DragEvent) => {
+            // Only react when the drag carries files — text/HTML drags
+            // belong to the browser / xterm.
+            if (!e.dataTransfer?.types.includes("Files")) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = "copy";
+            containerRef.dataset.dropTarget = "";
+          });
+          makeEventListener(containerRef, "dragleave", (e: DragEvent) => {
+            // dragleave fires when the cursor crosses any child element
+            // boundary too; gate on relatedTarget leaving the container so
+            // the highlight doesn't flicker mid-drag.
+            const next = e.relatedTarget as Node | null;
+            if (next && containerRef.contains(next)) return;
+            delete containerRef.dataset.dropTarget;
+          });
+          makeEventListener(containerRef, "drop", (e: DragEvent) => {
+            const files = e.dataTransfer?.files;
+            if (!files || files.length === 0) return;
+            e.preventDefault();
+            delete containerRef.dataset.dropTarget;
+            for (const file of Array.from(files)) {
+              void uploadDroppedFile(file);
+            }
+          });
+
           // Cleanup is registered synchronously near the top of the component body
           // (see comment there). It references `terminal`, `webgl`, and the local
           // refs via closure, and handles null state if this onMount body never ran
@@ -850,8 +901,10 @@ const Terminal: Component<{
       />
       <div
         ref={containerRef}
-        // touch-manipulation: eliminate 300ms tap delay and prevent double-tap-to-zoom on mobile
-        class="w-full h-full overflow-hidden touch-manipulation"
+        // touch-manipulation: eliminate 300ms tap delay and prevent double-tap-to-zoom on mobile.
+        // data-[drop-target]: inset ring while a file drag is hovering — set/cleared by the
+        // dragover/drop/dragleave listeners in onMount.
+        class="w-full h-full overflow-hidden touch-manipulation data-[drop-target]:outline data-[drop-target]:outline-2 data-[drop-target]:-outline-offset-2 data-[drop-target]:outline-sky-400/70"
         data-terminal-id={props.terminalId}
         data-visible={props.visible ? "" : undefined}
         data-focused={props.focused !== false ? "" : undefined}
