@@ -183,7 +183,7 @@ const features = [
 
       <!-- Right: faux xterm frame, dock on its left edge -->
       <div class="reveal reveal-3 hero-term">
-        <div class="hero-term-dock" aria-hidden="true">
+        <div class="dock-col hero-term-dock" aria-hidden="true">
           {
             dockChips.map((c) => (
               <div
@@ -250,7 +250,7 @@ const features = [
     </div>
 
     <div class="canvas-strip">
-      <div class="canvas-strip-dock" aria-hidden="true">
+      <div class="dock-col canvas-strip-dock" aria-hidden="true">
         {
           dockChips.map((c) => (
             <div
@@ -502,15 +502,20 @@ const features = [
     min-height: 22rem;
   }
 
-  .hero-term-dock {
+  /* Shared column layout for the dock strip on both hero and canvas demo.
+     Each variant overrides only its unique surface (background, z-index). */
+  .dock-col {
     width: 48px;
-    background: color-mix(in srgb, var(--color-void-sunk) 80%, transparent);
     border-right: 1px solid var(--color-rule);
     padding: 8px 6px;
     display: flex;
     flex-direction: column;
     gap: 8px;
     align-items: center;
+  }
+
+  .hero-term-dock {
+    background: color-mix(in srgb, var(--color-void-sunk) 80%, transparent);
   }
 
   .hero-chip {
@@ -639,14 +644,7 @@ const features = [
   }
 
   .canvas-strip-dock {
-    width: 48px;
     background: color-mix(in srgb, var(--color-void) 92%, transparent);
-    border-right: 1px solid var(--color-rule);
-    padding: 8px 6px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    align-items: center;
     z-index: 2;
   }
 
