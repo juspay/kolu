@@ -16,7 +16,7 @@
  *  so the mobile drawer and desktop never disagree on group order, row
  *  order, or which rows are hidden by the activity window. */
 
-import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
+import type { TerminalId } from "kolu-common/surface";
 import { type Component, For, Show, createMemo } from "solid-js";
 import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
 import { annotationLine } from "../../intent/text";
@@ -31,6 +31,7 @@ import type { DockRowBucket } from "./dockRowRanking";
 import type { DockGroup } from "./dockTree";
 import { useDockOrder } from "./useDockOrder";
 import { AgentSlot, RowIcons } from "./RowIcons";
+import { rowSubline } from "./rowSubline";
 
 const MobileDockDrawer: Component<{
   onSelect: (id: TerminalId) => void;
@@ -127,8 +128,6 @@ const MobileRow: Component<{
   });
   const active = () => store.activeId() === props.id;
   const unread = () => store.isUnread(props.id);
-  const foreground = (m: TerminalMetadata) =>
-    m.foreground?.title ?? m.foreground?.name ?? null;
   return (
     <Show when={combined()}>
       {(c) => (
@@ -180,11 +179,12 @@ const MobileRow: Component<{
               class="absolute top-1.5 right-2 w-1.5 h-1.5 rounded-full bg-alert animate-pulse"
             />
           </Show>
-          {/* Agent rows render an invisible placeholder of the same
-           *  height as the plain-shell foreground line so every row
-           *  in the drawer is uniformly two-line tall. */}
+          {/* Second line under the branch — agent summary / state for
+           *  agent rows, foreground process title for plain shells.
+           *  Mirrors the desktop dock's `rowSubline` rule; placeholder
+           *  keeps every row two-line tall when nothing applies. */}
           <Show
-            when={!c().meta.agent && foreground(c().meta)}
+            when={rowSubline(c().meta)}
             fallback={
               <span
                 aria-hidden="true"
@@ -194,12 +194,17 @@ const MobileRow: Component<{
               </span>
             }
           >
-            {(fg) => (
+            {(line) => (
               <span
-                data-testid="mobile-dock-foreground"
+                data-testid={
+                  c().meta.agent
+                    ? "mobile-dock-agent-subline"
+                    : "mobile-dock-foreground"
+                }
                 class="col-start-2 col-end-[-1] font-mono text-[0.7rem] leading-tight text-fg-2 truncate min-w-0"
+                title={line()}
               >
-                {fg()}
+                {line()}
               </span>
             )}
           </Show>

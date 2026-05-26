@@ -53,6 +53,7 @@ import { annotationLine } from "../../intent/text";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { AgentSlot, RowIcons } from "./RowIcons";
+import { rowSubline } from "./rowSubline";
 import {
   activityWindow,
   setActivityWindow,
@@ -415,8 +416,6 @@ const DockRow: Component<{
   const active = () => store.activeId() === props.id;
   const unread = () => store.isUnread(props.id);
   const showShortcutHint = () => modHeld() && props.flatIndex < 9;
-  const foreground = (meta: TerminalMetadata) =>
-    meta.foreground?.title ?? meta.foreground?.name ?? null;
   return (
     <Show when={combined()}>
       {(c) => (
@@ -480,14 +479,16 @@ const DockRow: Component<{
               {props.flatIndex + 1}
             </span>
           </Show>
-          {/* Plain-shell foreground process — `nix build`, `pu
-           *  connect`, etc. — rendered as a second line under the
-           *  branch. Agent rows render an invisible placeholder of
-           *  the same height so every row in the dock is uniformly
-           *  two-line tall (no reflow between rows with vs without
-           *  agents). */}
+          {/* Second line under the branch — agent summary / state for
+           *  agent rows, foreground process title for plain shells.
+           *  When nothing applies (idle plain shell), an invisible
+           *  placeholder claims the line so every row in the dock is
+           *  uniformly two-line tall (no reflow on activation). The
+           *  visible variants carry distinct testids
+           *  (`dock-agent-subline` / `dock-quiet-foreground`); the
+           *  placeholder is aria-hidden and unselectable. */}
           <Show
-            when={!c().meta.agent && foreground(c().meta)}
+            when={rowSubline(c().meta)}
             fallback={
               <span
                 aria-hidden="true"
@@ -497,12 +498,17 @@ const DockRow: Component<{
               </span>
             }
           >
-            {(fg) => (
+            {(line) => (
               <span
-                data-testid="dock-quiet-foreground"
+                data-testid={
+                  c().meta.agent
+                    ? "dock-agent-subline"
+                    : "dock-quiet-foreground"
+                }
                 class="col-start-2 col-end-[-1] font-mono text-[0.65rem] leading-tight text-fg-2 truncate min-w-0"
+                title={line()}
               >
-                {fg()}
+                {line()}
               </span>
             )}
           </Show>
