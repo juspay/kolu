@@ -17,16 +17,10 @@ import {
   prLabel,
 } from "kolu-github/schemas";
 
-const CHECKS_LABEL: Record<GitHubCheckStatus, string> = {
-  pass: "all pass",
-  pending: "pending",
-  fail: "fail",
-};
-
-const CHECK_GLYPH: Record<GitHubCheckStatus, string> = {
-  pass: "✓",
-  pending: "…",
-  fail: "✗",
+const CHECKS: Record<GitHubCheckStatus, { label: string; glyph: string }> = {
+  pass: { label: "all pass", glyph: "✓" },
+  pending: { label: "pending", glyph: "…" },
+  fail: { label: "fail", glyph: "✗" },
 };
 
 export function prTooltip(pr: GitHubPrInfo): string {
@@ -37,7 +31,7 @@ export function prTooltip(pr: GitHubPrInfo): string {
   // parenthesized "0✓ 0… 0✗" tally would otherwise misrepresent a
   // real check status as "no checks ran".
   if (pr.checkRuns.length === 0) {
-    return `${prLabel(pr)}\n\nChecks: ${CHECKS_LABEL[pr.checks]}`;
+    return `${prLabel(pr)}\n\nChecks: ${CHECKS[pr.checks].label}`;
   }
   const counts = pr.checkRuns.reduce(
     (acc, c) => {
@@ -46,9 +40,9 @@ export function prTooltip(pr: GitHubPrInfo): string {
     },
     { pass: 0, pending: 0, fail: 0 },
   );
-  const summary = `Checks: ${CHECKS_LABEL[pr.checks]} (${counts.pass}✓ ${counts.pending}… ${counts.fail}✗)`;
+  const summary = `Checks: ${CHECKS[pr.checks].label} (${counts.pass}✓ ${counts.pending}… ${counts.fail}✗)`;
   const list = pr.checkRuns
-    .map((c) => `  ${CHECK_GLYPH[c.outcome]} ${c.name}`)
+    .map((c) => `  ${CHECKS[c.outcome].glyph} ${c.name}`)
     .join("\n");
   return `${prLabel(pr)}\n\n${summary}\n${list}`;
 }
