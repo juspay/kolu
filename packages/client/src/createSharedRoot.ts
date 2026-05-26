@@ -4,10 +4,7 @@
  *  across every consumer" — `useDockOrder` (one canonical dock tree
  *  for the desktop dock, mobile drawer, and `Cmd+1..9` keyboard
  *  shortcut), `staleness.getNowTicker` (one 60-second clock signal
- *  for every stale-check consumer in the app). Both implementations
- *  were the same five lines: a module-scope `cached` variable, a
- *  `createRoot(() => …)` on first call, and a return-the-cached
- *  accessor on every subsequent call.
+ *  for every stale-check consumer in the app).
  *
  *  This helper names the pattern. The factory runs once inside a
  *  `createRoot` so the reactive owner is the app itself — disposing
@@ -24,10 +21,13 @@
 import { createRoot } from "solid-js";
 
 export function createSharedRoot<T>(factory: () => T): () => T {
-  let cached: T | undefined;
+  // Box the result so the "not yet initialized" state is distinct from
+  // any falsy value `T` might legally hold (null, 0, false, …).
+  let box: { value: T } | undefined;
   return () => {
-    if (cached !== undefined) return cached;
-    cached = createRoot(factory);
-    return cached;
+    if (!box) {
+      box = { value: createRoot(factory) };
+    }
+    return box.value;
   };
 }
