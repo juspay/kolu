@@ -4,10 +4,15 @@
  *  `dockMode` persists across reloads so a 13" laptop can stay on the
  *  rail while a 27" desktop sits on cards.
  *
- *  1. **rail** — narrow strip of repo-colored swatches, one per live
- *     terminal. State-cadenced (breathe / pulse) via `dock-rail-*`
- *     animations. Click any swatch to expand; click the chevron at the
- *     top to switch to cards.
+ *  1. **rail** — narrow strip of two-letter chips, one per live
+ *     terminal. Each chip carries first letter of the repo + first
+ *     letter of the branch/intent so two terminals in the same repo
+ *     stay distinguishable. Repo color tints the chip; bucket state
+ *     animates its ring (breath for `awaiting`, spin-glow for
+ *     `working`); active wears an accent halo; unread shows an alert
+ *     badge top-right. Tiny tinted dividers between repo groups
+ *     carry the cards-mode section-header colour into the rail so
+ *     the two modes share one repo-identity vocabulary.
  *  2. **cards** (default) — rows grouped by repo. Each repo gets a
  *     small section header (uppercase name + repo-colored swatch +
  *     row count); rows below stack as `branch · pips · time` lines.
@@ -43,9 +48,9 @@ import { makePersisted } from "@solid-primitives/storage";
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import { type Component, For, Show, createMemo, createSignal } from "solid-js";
 import { formatTimeAgo } from "../../terminal/staleness";
-import IntentGlyph from "../../intent/IntentGlyph";
 import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
 import { annotationLine } from "../../intent/text";
+import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { AgentSlot, RowIcons } from "./RowIcons";
 import {
@@ -64,19 +69,10 @@ import { useDockOrder } from "./useDockOrder";
 
 export type DockMode = "rail" | "cards";
 
-// 40px so the 24px-wide header buttons (`w-6`) + 8px of `px-1` padding
-// fit without overflowing the rail's outer width.
-const RAIL_WIDTH_PX = 40;
+// 44 px so the 32 px chips have ~6 px breathing room and the
+// 26 px-wide header buttons fit comfortably stacked.
+const RAIL_WIDTH_PX = 44;
 const CARDS_WIDTH_PX = 288;
-
-// Breath/pulse animation belongs only to live attention states. Idle,
-// none, and parked rails stay flat — undefined entries fall back to
-// "". Parked rows are filtered before tree construction so the bucket
-// is listed only for exhaustiveness on the lookup type.
-const RAIL_ANIM: Partial<Record<DockRowBucket, string>> = {
-  awaiting: "dock-rail-awaiting",
-  working: "dock-rail-working",
-};
 
 /** Width in pixels for a given mode. Drives both the outer aside's
  *  inline `width` style and (in maximized posture) the dock's flex
@@ -210,9 +206,20 @@ const RailOrCards: Component<{
             </For>
           }
         >
-          <For each={props.tree.flatRows}>
-            {(row, index) => (
-              <RailRow id={row.id} bucket={row.bucket} flatIndex={index()} />
+          <For each={props.tree.groups}>
+            {(group) => (
+              <>
+                <RailSectionMark color={group.color} name={group.name} />
+                <For each={group.rows}>
+                  {(row) => (
+                    <RailChip
+                      id={row.id}
+                      bucket={row.bucket}
+                      flatIndex={flatIndexOf().get(row.id) ?? -1}
+                    />
+                  )}
+                </For>
+              </>
             )}
           </For>
         </Show>
@@ -478,11 +485,29 @@ const DockRow: Component<{
   );
 };
 
-/** Rail-mode row — one colored swatch per terminal. The bucket comes
- *  from the same `RankedDockRow` the cards mode renders, so the rail's
- *  breathe/pulse animation can never disagree with cards on which row
- *  is awaiting/working. */
-const RailRow: Component<{
+/** Repo divider strip rendered between rail sections. A 24 × 2 px
+ *  tinted bar carrying the same `info.repoColor` the cards-mode
+ *  section header uses — so the two modes share one repo-identity
+ *  vocabulary even at the 44 px rail width. */
+const RailSectionMark: Component<{ color: string; name: string }> = (props) => (
+  <div
+    aria-hidden="true"
+    data-testid="dock-rail-section"
+    data-repo={props.name}
+    class="dock-rail-section-mark"
+    style={{ "background-color": props.color }}
+    title={props.name}
+  />
+);
+
+/** Rail-mode chip — 32 px tile carrying two-letter initials (repo
+ *  letter + branch/intent letter). Repo color tints the bg and the
+ *  ring; bucket state animates the ring (breath for `awaiting`,
+ *  spin-glow for `working`, flat for `idle`/`none`); active wears an
+ *  accent halo; unread shows an alert badge top-right. The bucket
+ *  comes from the same `RankedDockRow` the cards mode reads, so the
+ *  two modes can never disagree on which terminal is awaiting. */
+const RailChip: Component<{
   id: TerminalId;
   bucket: DockRowBucket;
   flatIndex: number;
@@ -499,82 +524,69 @@ const RailRow: Component<{
   const showShortcutHint = () => modHeld() && props.flatIndex < 9;
   return (
     <Show when={combined()}>
-      {(c) => (
-        <div
-          class="relative flex items-stretch border-b border-edge/15 last:border-b-0"
-          data-testid="dock-row"
-          data-terminal-id={props.id}
-          data-bucket={props.bucket}
-          data-agent-state={c().meta.agent?.state}
-          data-active={active() ? "" : undefined}
-          data-unread={unread() ? "" : undefined}
-          data-sub-count={c().info.subCount > 0 ? c().info.subCount : undefined}
-        >
-          <Show when={unread()}>
-            <span
-              class="absolute -top-1 right-1 inline-flex h-2 w-2"
-              aria-hidden="true"
-            >
-              <span class="absolute inline-flex h-full w-full rounded-full bg-alert opacity-75 animate-ping" />
-              <span class="relative inline-flex rounded-full h-2 w-2 bg-alert" />
+      {(c) => {
+        const labels = () => chipInitials(c().meta, c().info);
+        return (
+          <button
+            type="button"
+            data-testid="dock-rail"
+            data-terminal-id={props.id}
+            data-bucket={props.bucket}
+            data-agent-state={c().meta.agent?.state}
+            data-active={active() ? "" : undefined}
+            data-unread={unread() ? "" : undefined}
+            data-sub-count={
+              c().info.subCount > 0 ? c().info.subCount : undefined
+            }
+            onClick={() => store.activate(props.id)}
+            class="dock-rail-chip"
+            style={{
+              "--chip-tint": c().info.repoColor,
+              "--chip-ring": c().info.repoColor,
+            }}
+            title={chipTooltip(c().info, props.bucket)}
+            aria-label={chipTooltip(c().info, props.bucket)}
+          >
+            <Show when={showShortcutHint()}>
+              <span
+                data-testid="dock-row-shortcut-hint"
+                class="dock-rail-chip-hint"
+                aria-hidden="true"
+              >
+                {props.flatIndex + 1}
+              </span>
+            </Show>
+            <span class="dock-rail-chip-text" aria-hidden="true">
+              {labels().repo}
+              <span class="dock-rail-chip-sub">{labels().sub}</span>
             </span>
-          </Show>
-          <Show when={showShortcutHint()}>
-            <span
-              data-testid="dock-row-shortcut-hint"
-              class="absolute top-1 left-1 z-10 inline-flex items-center justify-center h-4 min-w-4 px-1 rounded bg-accent text-surface-1 font-mono text-[0.6rem] font-bold tabular-nums pointer-events-none"
-              aria-hidden="true"
-            >
-              {props.flatIndex + 1}
-            </span>
-          </Show>
-          <RailSegment
-            id={props.id}
-            repoColor={c().info.repoColor}
-            bucket={props.bucket}
-            intent={c().meta.intent}
-          />
-        </div>
-      )}
+          </button>
+        );
+      }}
     </Show>
   );
 };
 
-/** Colored rail segment — one per dock row in rail mode. Clicking
- *  activates the corresponding terminal. A `dock-rail-*` filter
- *  animation cycles the segment's brightness so state-cadence (breathe
- *  / pulse) survives even in the minimal rail surface. */
-const RailSegment: Component<{
-  id: TerminalId;
-  repoColor: string;
-  bucket: DockRowBucket;
-  intent: string | undefined;
-}> = (props) => {
-  const store = useTerminalStore();
-  const animClass = () => RAIL_ANIM[props.bucket] ?? "";
-  return (
-    <button
-      type="button"
-      data-testid="dock-rail"
-      data-agent-bucket={props.bucket}
-      onClick={() => store.activate(props.id)}
-      class={`shrink-0 w-full h-6 cursor-pointer transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 flex items-center justify-center ${animClass()}`}
-      classList={{
-        "opacity-50": props.bucket === "none",
-      }}
-      style={{ "background-color": props.repoColor }}
-      title="Jump to this terminal"
-      aria-label="Jump to this terminal"
-    >
-      <Show when={props.intent}>
-        <IntentGlyph
-          intent={props.intent}
-          class="block text-base leading-none mix-blend-multiply"
-        />
-      </Show>
-    </button>
-  );
-};
+/** Two-letter chip label: first alpha char of the repo, first alpha
+ *  char of the intent (line 1) or branch (after the last `/`).
+ *  `feat/dock-bare` → `d` (after-the-slash); falls back to `?` when
+ *  no alpha char is present. The branch fallback splits on `/` so a
+ *  workflow-style prefix (`feat/`, `fix/`, `wip/`) doesn't shadow
+ *  the meaningful tail. */
+function chipInitials(
+  meta: TerminalMetadata,
+  info: TerminalDisplayInfo,
+): { repo: string; sub: string } {
+  const repo = (info.key.group.match(/[a-z0-9]/i)?.[0] ?? "?").toUpperCase();
+  const branchTail = info.key.label.split("/").pop() ?? info.key.label;
+  const subSource = meta.intent || branchTail;
+  const sub = (subSource.match(/[a-z0-9]/i)?.[0] ?? "?").toLowerCase();
+  return { repo, sub };
+}
+
+function chipTooltip(info: TerminalDisplayInfo, bucket: DockRowBucket): string {
+  return `${info.key.group} · ${info.key.label} · ${bucket}`;
+}
 
 /** Footer line shown when the activity-window filter dropped at least
  *  one row from the dock. The "show all" link flips the window to
