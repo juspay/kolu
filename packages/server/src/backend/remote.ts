@@ -239,30 +239,18 @@ export class RemoteBackend implements Backend {
 
     // Remaining channels (cwd, git, agent, pr, foreground) all live
     // inside the aggregated `terminalMetadata` collection. Derive each
-    // by subscribing to the collection and projecting per-snapshot.
+    // by subscribing once and projecting per-snapshot. The key names
+    // on `AgentTerminalMetadata` match the `TerminalChannelMap` kinds
+    // exactly — no switch needed.
     return {
       async *[Symbol.asyncIterator]() {
         const it = await client.surface.terminalMetadata.get({
           key: terminalId,
         });
+        const field = kind as keyof AgentTerminalMetadata &
+          keyof TerminalChannelMap;
         for await (const snapshot of it) {
-          switch (kind) {
-            case "cwd":
-              yield snapshot.cwd as TerminalChannelMap[K];
-              break;
-            case "git":
-              yield snapshot.git as TerminalChannelMap[K];
-              break;
-            case "agent":
-              yield snapshot.agent as TerminalChannelMap[K];
-              break;
-            case "pr":
-              yield snapshot.pr as TerminalChannelMap[K];
-              break;
-            case "foreground":
-              yield snapshot.foreground as TerminalChannelMap[K];
-              break;
-          }
+          yield snapshot[field] as TerminalChannelMap[K];
         }
       },
     };
