@@ -91,6 +91,14 @@ function publishSnapshotAndDirty(
   terminalsDirtyChannel.publish({});
 }
 
+/** Atomically mutate server-persisted metadata (`cwd`, `git`,
+ *  `lastAgentCommand`, `lastActivityAt`) and publish. The mutator is
+ *  narrowed to `ServerPersistedTerminalFields` — bidirectional fence: a
+ *  provider cannot write client-owned fields (themeName, parentId, …)
+ *  AND cannot write live-only fields (pr, agent, foreground) through
+ *  this function. The latter half is the structural guarantee that the
+ *  `terminals:dirty` firehose can't grow back: every live-field write
+ *  must go through `updateServerLiveMetadata`. Fires `terminals:dirty`. */
 export function updateServerMetadata(
   entry: TerminalProcess,
   terminalId: string,
@@ -100,6 +108,12 @@ export function updateServerMetadata(
   publishSnapshotAndDirty(entry, terminalId);
 }
 
+/** Atomically mutate live-only server metadata (`pr`, `agent`,
+ *  `foreground`) and publish — without firing `terminals:dirty`. The
+ *  mutator type is `LiveTerminalFields`, a compile-time fence: writing
+ *  any persisted field through this function is a type error.
+ *  Together with the matching narrowing on `updateServerMetadata`,
+ *  this is the structural guarantee that the firehose can't grow back. */
 export function updateServerLiveMetadata(
   entry: TerminalProcess,
   terminalId: string,
@@ -109,6 +123,11 @@ export function updateServerLiveMetadata(
   publishSnapshot(entry, terminalId);
 }
 
+/** Atomically mutate client-owned metadata (`themeName`, `parentId`,
+ *  `canvasLayout`, `subPanel`, `rightPanel`, `intent`) and publish. The
+ *  mutator is narrowed to `TerminalClientMetadata` so RPC handlers
+ *  cannot accidentally overwrite provider-owned state. Every client
+ *  field is persisted, so this always fires `terminals:dirty`. */
 export function updateClientMetadata(
   entry: TerminalProcess,
   terminalId: string,
