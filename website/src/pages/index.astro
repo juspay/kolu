@@ -553,9 +553,17 @@ const features = [
           <div class="text-ink-muted">
             <span class="text-amber"># run (or update) kolu — serves on 127.0.0.1:7681</span>
           </div>
-          <div class="flex items-start gap-2 mt-1">
+          <div class="flex items-start gap-2 mt-1 relative pr-16">
             <span class="text-amber-dim select-none">$</span>
             <span class="text-ink">nix <span class="text-ink-dim">--refresh</span> run <span class="text-amber">github:juspay/kolu</span></span>
+            <button
+              type="button"
+              class="copy-cli-btn"
+              data-clipboard="nix --refresh run github:juspay/kolu"
+              aria-label="Copy command to clipboard"
+            >
+              <span class="copy-cli-label">copy</span>
+            </button>
           </div>
 
           <div class="text-ink-muted mt-4">
@@ -1268,5 +1276,59 @@ const features = [
     .hero-term { min-height: 18rem; }
     .hero-term-body { min-height: 12rem; font-size: 0.72rem; }
   }
+
+  /* ── Copy-to-clipboard button on the primary nix-run command ──────── */
+  .copy-cli-btn {
+    position: absolute;
+    top: -0.15rem;
+    right: 0;
+    font-family: var(--font-mono);
+    font-size: 0.6rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 0.15rem 0.5rem;
+    border-radius: 3px;
+    border: 1px solid var(--color-rule-strong);
+    background: color-mix(in srgb, var(--color-void-raised) 70%, transparent);
+    color: var(--color-ink-muted);
+    cursor: pointer;
+    transition:
+      color 120ms ease,
+      border-color 120ms ease,
+      background 120ms ease;
+  }
+  .copy-cli-btn:hover {
+    color: var(--color-amber);
+    border-color: var(--color-amber);
+  }
+  .copy-cli-btn.is-done {
+    color: var(--color-live-lime);
+    border-color: var(--color-live-lime);
+    background: color-mix(in srgb, var(--color-live-lime) 12%, transparent);
+  }
 </style>
+
+<script>
+  // Wire up the copy-to-clipboard button on the primary CLI snippet.
+  // Plain DOM script — Astro hoists this and ships it as a module.
+  document.querySelectorAll<HTMLButtonElement>(".copy-cli-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const text = btn.getAttribute("data-clipboard");
+      if (!text) return;
+      const label = btn.querySelector<HTMLElement>(".copy-cli-label");
+      const original = label?.textContent ?? "copy";
+      try {
+        await navigator.clipboard.writeText(text);
+        if (label) label.textContent = "copied";
+        btn.classList.add("is-done");
+      } catch {
+        if (label) label.textContent = "press ⌘C";
+      }
+      window.setTimeout(() => {
+        if (label) label.textContent = original;
+        btn.classList.remove("is-done");
+      }, 1400);
+    });
+  });
+</script>
 
