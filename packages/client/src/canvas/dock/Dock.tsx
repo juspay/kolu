@@ -52,7 +52,7 @@ import { ChevronDownIcon, PlusIcon, SearchIcon } from "../../ui/Icons";
 import { OptionMenu } from "../../ui/OptionMenu";
 import { isPlatformModifier } from "../../input/keyboard";
 import { useViewPosture } from "../useViewPosture";
-import type { DockRowBucket } from "./dockRowRanking";
+import type { DockRowBucket, RankedDockRow } from "./dockRowRanking";
 import type { DockGroup, DockTree } from "./dockTree";
 import { useDockOrder } from "./useDockOrder";
 import PrLine from "./PrLine";
@@ -121,7 +121,7 @@ const Dock: Component<{
 }> = (props) => {
   const tree = useDockOrder();
   const posture = useViewPosture();
-  const hasAnyRow = () => tree().flatIds.length > 0 || tree().parkedCount > 0;
+  const hasAnyRow = () => tree().flatRows.length > 0 || tree().parkedCount > 0;
 
   return (
     <Show when={hasAnyRow()}>
@@ -182,14 +182,14 @@ const RailOrCards: Component<{
           fallback={
             <For each={props.tree.groups}>
               {(group) => (
-                <RepoSection group={group} flatIds={props.tree.flatIds} />
+                <RepoSection group={group} flatRows={props.tree.flatRows} />
               )}
             </For>
           }
         >
-          <For each={props.tree.flatIds}>
-            {(id, index) => (
-              <RailRow id={id} flatIndex={index()} tree={props.tree} />
+          <For each={props.tree.flatRows}>
+            {(row, index) => (
+              <RailRow id={row.id} bucket={row.bucket} flatIndex={index()} />
             )}
           </For>
         </Show>
@@ -309,7 +309,7 @@ const ActivityWindowMenu: Component = () => {
  *  degenerate-case collapse. */
 const RepoSection: Component<{
   group: DockGroup;
-  flatIds: TerminalId[];
+  flatRows: readonly RankedDockRow[];
 }> = (props) => (
   <section
     data-testid="dock-section"
@@ -337,7 +337,7 @@ const RepoSection: Component<{
         <DockRow
           id={row.id}
           bucket={row.bucket}
-          flatIndex={props.flatIds.indexOf(row.id)}
+          flatIndex={props.flatRows.findIndex((r) => r.id === row.id)}
         />
       )}
     </For>
@@ -484,22 +484,21 @@ const BucketDot: Component<{ bucket: DockRowBucket; active: boolean }> = (
   />
 );
 
-/** Rail-mode row — one colored swatch per terminal, identical to the
- *  pre-grouping rail behavior. `flatIds`-driven so the swatch order
- *  matches the cards-mode flat order (and `Cmd+1..9` targets the same
- *  row regardless of mode). */
+/** Rail-mode row — one colored swatch per terminal. The bucket comes
+ *  from the same `RankedDockRow` the cards mode renders, so the rail's
+ *  breathe/pulse animation can never disagree with cards on which row
+ *  is awaiting/working. */
 const RailRow: Component<{
   id: TerminalId;
+  bucket: DockRowBucket;
   flatIndex: number;
-  tree: DockTree;
 }> = (props) => {
   const store = useTerminalStore();
   const combined = createMemo(() => {
     const info = store.getDisplayInfo(props.id);
     const meta = store.getMetadata(props.id);
     if (!info || !meta) return null;
-    const bucket = bucketFor(props.id, props.tree);
-    return { info, meta, bucket };
+    return { info, meta };
   });
   const active = () => store.activeId() === props.id;
   const unread = () => store.isUnread(props.id);
@@ -511,7 +510,7 @@ const RailRow: Component<{
           class="relative flex items-stretch border-b border-edge/15 last:border-b-0"
           data-testid="dock-row"
           data-terminal-id={props.id}
-          data-bucket={c().bucket}
+          data-bucket={props.bucket}
           data-agent-state={c().meta.agent?.state}
           data-active={active() ? "" : undefined}
           data-unread={unread() ? "" : undefined}
@@ -538,7 +537,7 @@ const RailRow: Component<{
           <RailSegment
             id={props.id}
             repoColor={c().info.repoColor}
-            bucket={c().bucket}
+            bucket={props.bucket}
             intent={c().meta.intent}
           />
         </div>
@@ -591,19 +590,6 @@ const RailSegment: Component<{
     </button>
   );
 };
-
-/** Find a terminal's bucket inside the dock tree. The tree groups rows
- *  by repo and keeps the bucket per row; rail mode iterates `flatIds`
- *  and needs to look the bucket back up to drive the breath/pulse
- *  animation. */
-function bucketFor(id: TerminalId, tree: DockTree): DockRowBucket {
-  for (const group of tree.groups) {
-    for (const row of group.rows) {
-      if (row.id === id) return row.bucket;
-    }
-  }
-  return "none";
-}
 
 /** Footer line shown when the activity-window filter dropped at least
  *  one row from the dock. The "show all" link flips the window to

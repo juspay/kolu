@@ -67,10 +67,10 @@ describe("buildDockTree", () => {
     expect(tree.parkedCount).toBe(2);
     expect(tree.groups).toHaveLength(1);
     expect(tree.groups[0]?.name).toBe("kolu");
-    expect(tree.flatIds).toEqual(["a"]);
+    expect(tree.flatRows.map((r) => r.id)).toEqual(["a"]);
   });
 
-  it("flatIds matches the rendered row sequence across groups", () => {
+  it("flatRows matches the rendered row sequence across groups", () => {
     const ranked = [
       row("a", "idle", 100),
       row("b", "awaiting", 200),
@@ -86,7 +86,7 @@ describe("buildDockTree", () => {
     const tree = buildDockTree(ranked, getInfo);
     // kolu(awaiting) > pierre(working) > justci(none).
     // Within kolu, awaiting before idle.
-    expect(tree.flatIds).toEqual(["b", "a", "c", "d"]);
+    expect(tree.flatRows.map((r) => r.id)).toEqual(["b", "a", "c", "d"]);
   });
 
   it("recency breaks bucket ties both within groups and across groups", () => {
@@ -114,14 +114,14 @@ describe("buildDockTree", () => {
       // b has no entry → buildTerminalDisplayInfos hasn't resolved it yet.
     });
     const tree = buildDockTree(ranked, getInfo);
-    expect(tree.flatIds).toEqual(["a"]);
+    expect(tree.flatRows.map((r) => r.id)).toEqual(["a"]);
     expect(tree.parkedCount).toBe(0);
   });
 
   it("an empty input yields zero groups and zero parked", () => {
     const tree = buildDockTree([], () => undefined);
     expect(tree.groups).toEqual([]);
-    expect(tree.flatIds).toEqual([]);
+    expect(tree.flatRows.map((r) => r.id)).toEqual([]);
     expect(tree.parkedCount).toBe(0);
   });
 });

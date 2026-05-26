@@ -99,7 +99,13 @@ const App: Component = () => {
   const recencyOf = (id: TerminalId): number =>
     store.getMetadata(id)?.lastActivityAt ?? 0;
   const dockTree = useDockOrder();
-  const orderedIds = createMemo(() => dockTree().flatIds);
+  // `dockTree` is already a singleton memo and `.flatRows` is a stable
+  // projection per memo run; a second `createMemo` here just adds a
+  // reactive node without any recomputation benefit. The id-only view
+  // is computed at read time so `ActionContext` keeps its narrow
+  // `TerminalId[]` shape — rail and cards still consume the full
+  // `RankedDockRow` list directly via `dockTree().flatRows`.
+  const orderedIds = (): TerminalId[] => dockTree().flatRows.map((r) => r.id);
 
   // Fetch server identity for document title, watermark, and PWA chrome color.
   const [identity, setIdentity] = createSignal<ServerIdentity>();

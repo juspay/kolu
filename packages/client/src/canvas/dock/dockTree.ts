@@ -13,10 +13,12 @@
  *  so the dock can render a "N hidden by 24h window" footer with a
  *  one-click "show all" escape.
  *
- *  `flatIds` is the same row order the dock paints, but flat — the
- *  `Cmd+1..9` shortcut consumes this list (via `App.tsx` →
- *  `ActionContext.dockOrderedIds`) so the chord always activates the
- *  row visually first.
+ *  `flatRows` is the same row order the dock paints, but flat — rail
+ *  mode reads each row's `bucket` straight off this list for its
+ *  breathe/pulse animation, and `App.tsx` projects `.map(r => r.id)`
+ *  to feed `ActionContext.dockOrderedIds` so the `Cmd+1..9` chord
+ *  always activates the row visually first. One canonical sequence,
+ *  two views.
  *
  *  Repo identity comes from `info.key.group` — the same canonical key
  *  `placementPolicy.ts:getBucketFor` uses for canvas tile clustering,
@@ -49,8 +51,12 @@ export type DockGroup = {
 
 export type DockTree = {
   groups: DockGroup[];
-  /** Flat row order across all groups — feeds `Cmd+1..9`. */
-  flatIds: TerminalId[];
+  /** Flat row order across all groups — one canonical list that both
+   *  surfaces project from: rail mode reads each row's `bucket` for
+   *  its animation class, and `App.tsx` projects `.map(r => r.id)` to
+   *  drive `Cmd+1..9` activation. Single source of truth — no parallel
+   *  `flatIds` array to keep in sync with `flatRows`. */
+  flatRows: readonly RankedDockRow[];
   /** How many rows the activity window filtered out. The dock surfaces
    *  this as a footer hint with a "show all" link. */
   parkedCount: number;
@@ -86,8 +92,8 @@ export function buildDockTree(
 
   groups.sort(compareGroups);
 
-  const flatIds = groups.flatMap((g) => g.rows.map((r) => r.id));
-  return { groups, flatIds, parkedCount };
+  const flatRows = groups.flatMap((g) => g.rows);
+  return { groups, flatRows, parkedCount };
 }
 
 function compareRows(a: RankedDockRow, b: RankedDockRow): number {
