@@ -14,7 +14,7 @@ import { loadClaudeCodeTranscript } from "kolu-claude-code";
 import { loadCodexTranscript } from "kolu-codex";
 import type { Transcript, TranscriptPr } from "kolu-common/transcript";
 import { TerminalNotFoundError } from "kolu-common/errors";
-import { rejectionFor } from "kolu-common/upload";
+import { rejectionFor, sizeRejectionFor } from "kolu-common/upload";
 import { worktreeCreate, worktreeRemove } from "kolu-git";
 import { prValue } from "kolu-github/schemas";
 import { loadOpenCodeTranscript } from "kolu-opencode";
@@ -156,6 +156,10 @@ export const appRouter = t.router({
     pasteImage: t.terminal.pasteImage.handler(async ({ input }) => {
       const entry = requireTerminal(input.id);
       const bytes = base64DecodedLength(input.data);
+      const reason = sizeRejectionFor("clipboard image", bytes);
+      if (reason !== null) {
+        throw new ORPCError("BAD_REQUEST", { message: reason });
+      }
       const path = saveClipboardImage(input.id, input.data);
       bracketedPastePath(entry, path);
       log.info({ terminal: input.id, bytes, path }, "paste image");

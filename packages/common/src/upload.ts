@@ -97,9 +97,16 @@ export function rejectionFor(name: string, bytes: number): string | null {
   if (!isAllowedUploadName(name)) {
     return `File type not allowed: "${name}". Allowed extensions: ${ALLOWED_UPLOAD_EXTENSIONS.join(", ")}`;
   }
+  return sizeRejectionFor(name, bytes);
+}
+
+/** Size-only rejection — for upload surfaces that have no filename to
+ *  validate (clipboard image paste). Same wording as the full
+ *  `rejectionFor` size branch so the message is consistent. */
+export function sizeRejectionFor(label: string, bytes: number): string | null {
   if (bytes > MAX_UPLOAD_BYTES) {
     const mb = (MAX_UPLOAD_BYTES / (1024 * 1024)).toFixed(0);
-    return `File too large: "${name}" exceeds the ${mb} MB limit`;
+    return `File too large: "${label}" exceeds the ${mb} MB limit`;
   }
   return null;
 }
