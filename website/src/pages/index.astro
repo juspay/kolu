@@ -731,17 +731,16 @@ const features = [
     display: inline-flex;
     align-items: center;
   }
-  .canvas-state-working {
-    color: var(--color-live-teal);
-  }
+  /* Title-bar state label + body echo line share the accent color. */
+  .canvas-state-working,
   .canvas-state-working-text {
     color: var(--color-live-teal);
   }
-  .canvas-state-awaiting {
+  .canvas-state-awaiting,
+  .canvas-state-awaiting-text {
     color: var(--color-live-alert);
   }
   .canvas-state-awaiting-text {
-    color: var(--color-live-alert);
     font-weight: 500;
   }
 
