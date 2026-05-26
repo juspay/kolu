@@ -16,7 +16,3 @@ packages/client/public/fonts
 /.do-results.json
 .kolu-dev/
 .ralph-logs/
-# Talk-mode HTML artifacts (single-source-of-truth for in-session
-# design discussions — see `.claude/skills/talk`). Live alongside
-# the repo so the runner can render them, but never committed.
-talk-*.html
