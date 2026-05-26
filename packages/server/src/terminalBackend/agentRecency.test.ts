@@ -1,6 +1,6 @@
 import type { AgentInfo } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
-import { shouldBumpRecencyForAgentChange } from "./agent.ts";
+import { shouldBumpRecencyForAgentChange } from "./agentRecency.ts";
 
 function claude(state: AgentInfo["state"]): AgentInfo {
   return {

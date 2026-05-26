@@ -15,7 +15,7 @@ import {
   updateClientMetadata,
   updateServerLiveMetadata,
   updateServerMetadata,
-} from "./state.ts";
+} from "./metadata.ts";
 
 function fakeTerminal(): TerminalProcess {
   return {
@@ -30,7 +30,6 @@ function fakeTerminal(): TerminalProcess {
     },
     // Tests never touch the PTY handle; the publish path doesn't read it.
     handle: {} as TerminalProcess["handle"],
-    stopProviders: () => {},
   };
 }
 
