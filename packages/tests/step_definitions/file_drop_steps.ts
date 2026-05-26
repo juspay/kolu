@@ -19,23 +19,18 @@ When(
           "[data-focused][data-terminal-id]",
         );
         if (!target) throw new Error("No focused terminal container");
-        const file = new File([content], name, { type: "text/plain" });
         const dt = new DataTransfer();
-        dt.items.add(file);
-        target.dispatchEvent(
-          new DragEvent("dragover", {
-            bubbles: true,
-            cancelable: true,
-            dataTransfer: dt,
-          }),
-        );
-        target.dispatchEvent(
-          new DragEvent("drop", {
-            bubbles: true,
-            cancelable: true,
-            dataTransfer: dt,
-          }),
-        );
+        dt.items.add(new File([content], name, { type: "text/plain" }));
+        const fire = (type: string) =>
+          target.dispatchEvent(
+            new DragEvent(type, {
+              bubbles: true,
+              cancelable: true,
+              dataTransfer: dt,
+            }),
+          );
+        fire("dragover");
+        fire("drop");
       },
       { name, content },
     );
