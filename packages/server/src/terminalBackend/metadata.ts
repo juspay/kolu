@@ -1,17 +1,31 @@
 /**
- * Metadata state mutators — the `createMetadata` / `updateServerMetadata`
- * / `updateClientMetadata` helpers providers + lifecycle code call to
- * atomically mutate + publish a terminal's metadata.
+ * Metadata state mutators — `createMetadata` / `updateServerMetadata` /
+ * `updateServerLiveMetadata` / `updateClientMetadata`. Three write
+ * verbs, narrowed by the field group their mutator is allowed to
+ * touch.
  *
- * Split out of `./index.ts` so `./index.ts` can be an orchestrator that
- * imports providers without the providers needing to reach back through
- * it for the update helpers. That reach-back closed the Biome
- * `noImportCycles` loop called out in #710 (`./index.ts` ↔ `./agent.ts` /
- * `./git.ts` / `./github.ts` / `./process.ts` / `./agent-command.ts`).
+ * The mutator-type narrowing is a bidirectional compile-time fence:
+ * each helper can only write the fields it owns, so a provider cannot
+ * accidentally write `canvasLayout`, an RPC handler cannot accidentally
+ * write `git`, and a live-field write cannot accidentally re-trigger
+ * the `terminals:dirty` autosave firehose.
  *
- * This file imports only `TerminalProcess` (type) from
- * `../terminal-registry.ts`, which is a leaf — so nothing here re-enters
- * the meta/providers graph.
+ *   - `updateServerMetadata` — server-persisted fields (cwd, git,
+ *     lastAgentCommand, lastActivityAt). Mutator typed to
+ *     `ServerPersistedTerminalFields`. Fires `terminals:dirty`.
+ *   - `updateServerLiveMetadata` — live-only fields (pr, agent,
+ *     foreground). Mutator typed to `LiveTerminalFields`. Does NOT fire
+ *     `terminals:dirty` — that's the point: the agent stream watcher
+ *     publishes at ~150ms during streaming, and most of those publishes
+ *     touch only live state.
+ *   - `updateClientMetadata` — client-persisted fields (themeName,
+ *     parentId, canvasLayout, subPanel, rightPanel, intent). Every
+ *     client field is persisted, so this fires `terminals:dirty`.
+ *
+ * Used by both `LocalTerminalBackend`'s internal providers and by
+ * `terminals.ts`'s client-facing metadata setters. Lives next to the
+ * backend implementation because the publish path is intrinsic to "how
+ * a terminal's metadata becomes visible".
  */
 
 import type {
@@ -42,16 +56,11 @@ export function createMetadata(cwd: string): TerminalMetadata {
 }
 
 /** Log + emit the current metadata snapshot to the surface collection.
- *  Shared tail for every update variant — the publish/audit path is
- *  identical regardless of who wrote the fields. Distinct from
- *  `publishSnapshotAndDirty` (below): this one does NOT fire
- *  `terminals:dirty`, so live-only writes (agent stream sub-info, pr poll
- *  results, foreground process churn) don't schedule autosaves whose
- *  persisted bytes would be byte-identical to the previous snapshot.
- *
- *  The name is "snapshot", not "persist": no I/O happens here. The
- *  `terminals:dirty` channel is the *signal* that downstream
- *  `session.ts` listens for and translates into a write to disk. */
+ *  Distinct from `publishSnapshotAndDirty`: this one does NOT fire
+ *  `terminals:dirty`, so live-only writes (agent stream sub-info, pr
+ *  poll results, foreground process churn) don't schedule autosaves
+ *  whose persisted bytes would be byte-identical to the previous
+ *  snapshot. */
 function publishSnapshot(entry: TerminalProcess, terminalId: string): void {
   const m = entry.meta;
   const pr = prValue(m.pr);
@@ -66,7 +75,6 @@ function publishSnapshot(entry: TerminalProcess, terminalId: string): void {
       checks: pr?.checks ?? null,
       prStatus: m.pr.kind,
       ...(prUnavailable && { prUnavailable }),
-      // Only include agent/foreground fields when present to avoid noisy null logs
       ...(m.agent && { agent: `${m.agent.kind}:${m.agent.state}` }),
       ...(m.foreground && { foreground: m.foreground.name }),
     },
@@ -75,11 +83,6 @@ function publishSnapshot(entry: TerminalProcess, terminalId: string): void {
   surfaceCtx.collections.terminalMetadata.upsert(terminalId, { ...m });
 }
 
-/** `publishSnapshot` + fire `terminals:dirty`. Use this from any path
- *  that wrote a persisted field — the dirty signal tells `session.ts`'s
- *  autosave loop to debounce-save the snapshot. The actual disk write
- *  is downstream; this function is named for what it *does* (signal
- *  dirty), not what eventually happens (a write). */
 function publishSnapshotAndDirty(
   entry: TerminalProcess,
   terminalId: string,
@@ -94,7 +97,7 @@ function publishSnapshotAndDirty(
  *  provider cannot write client-owned fields (themeName, parentId, …)
  *  AND cannot write live-only fields (pr, agent, foreground) through
  *  this function. The latter half is the structural guarantee that the
- *  terminals:dirty firehose can't grow back: every live-field write
+ *  `terminals:dirty` firehose can't grow back: every live-field write
  *  must go through `updateServerLiveMetadata`. Fires `terminals:dirty`. */
 export function updateServerMetadata(
   entry: TerminalProcess,
@@ -110,8 +113,7 @@ export function updateServerMetadata(
  *  mutator type is `LiveTerminalFields`, a compile-time fence: writing
  *  any persisted field through this function is a type error.
  *  Together with the matching narrowing on `updateServerMetadata`,
- *  this is the structural guarantee that the firehose can't grow
- *  back. */
+ *  this is the structural guarantee that the firehose can't grow back. */
 export function updateServerLiveMetadata(
   entry: TerminalProcess,
   terminalId: string,
@@ -121,11 +123,11 @@ export function updateServerLiveMetadata(
   publishSnapshot(entry, terminalId);
 }
 
-/** Atomically mutate client-owned metadata (themeName, parentId,
- *  canvasLayout, subPanel) and publish. The mutator is narrowed to
- *  `TerminalClientMetadata` so RPC handlers cannot accidentally overwrite
- *  provider-owned state. Every client field is persisted, so this always
- *  fires `terminals:dirty`. */
+/** Atomically mutate client-owned metadata (`themeName`, `parentId`,
+ *  `canvasLayout`, `subPanel`, `rightPanel`, `intent`) and publish. The
+ *  mutator is narrowed to `TerminalClientMetadata` so RPC handlers
+ *  cannot accidentally overwrite provider-owned state. Every client
+ *  field is persisted, so this always fires `terminals:dirty`. */
 export function updateClientMetadata(
   entry: TerminalProcess,
   terminalId: string,

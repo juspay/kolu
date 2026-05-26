@@ -23,9 +23,9 @@ import { match } from "ts-pattern";
 import { saveTerminalFile } from "./terminalScratch.ts";
 import { serverHostname, serverProcessId } from "./hostname.ts";
 import { log } from "./log.ts";
-import { terminalChannels } from "./publisher.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import { surfaceRouter, t, unwrapGit } from "./surface.ts";
+import { getTerminalBackendFor } from "./terminalBackend/index.ts";
 import { getTerminal, type TerminalProcess } from "./terminal-registry.ts";
 import {
   createTerminal,
@@ -136,7 +136,9 @@ export const appRouter = t.router({
      */
     attach: t.terminal.attach.handler(async function* ({ input, signal }) {
       const entry = requireTerminal(input.id);
-      const live = terminalChannels.data(input.id).subscribe(signal);
+      const live = getTerminalBackendFor({
+        kind: "local",
+      }).subscribeTerminalChannel(input.id, "data", signal);
       const screenState = entry.handle.getScreenState();
       if (screenState) yield screenState;
       for await (const data of live) yield data;
