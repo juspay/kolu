@@ -38,16 +38,39 @@
  *  file name is `RowPips` (a noun for the thing) rather than
  *  `RowIcons` (a noun for the file). */
 
-import type { AgentInfo, TerminalMetadata } from "kolu-common/surface";
+import type {
+  AgentInfo,
+  TerminalId,
+  TerminalMetadata,
+} from "kolu-common/surface";
 import { type GitHubPrInfo, prValue } from "kolu-github/schemas";
-import { type Component, Show } from "solid-js";
+import { type Component, Show, createMemo } from "solid-js";
 import { Dynamic } from "solid-js/web";
 import { agentBucket, bucketDescriptor } from "../dockModel";
 import ChecksIndicator from "../../terminal/ChecksIndicator";
 import { prTooltip } from "../../terminal/prTooltip";
+import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
+import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { agentIcons, stateLabels } from "../../ui/agentDisplay";
 import { PrStateIcon } from "../../ui/Icons";
 import { SubCountChip } from "./SubCountChip";
+
+/** Per-row combined reactive data — `info` + `meta` in a single memo.
+ *  Three components (`DockRow`, `RailChip`, `MobileRow`) build the same
+ *  `createMemo(() => { const info = …; const meta = …; … })` pattern.
+ *  This factory extracts that once: call it in a component body,
+ *  read the accessor to get `{ info, meta }` or `null`. */
+export function createDockRowData(
+  id: TerminalId,
+): () => { info: TerminalDisplayInfo; meta: TerminalMetadata } | null {
+  const store = useTerminalStore();
+  return createMemo(() => {
+    const info = store.getDisplayInfo(id);
+    const meta = store.getMetadata(id);
+    if (!info || !meta) return null;
+    return { info, meta };
+  });
+}
 
 /** Pip animation by bucket — `working` spins (continuous motion),
  *  `awaiting` pulses (rhythmic attention). The bucket→colour mapping

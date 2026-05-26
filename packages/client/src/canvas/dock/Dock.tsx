@@ -54,7 +54,7 @@ import { annotationLine } from "../../intent/text";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { HiddenFooter } from "./HiddenFooter";
-import { AgentSlot, PrPip, SubCountCell } from "./RowPips";
+import { AgentSlot, PrPip, SubCountCell, createDockRowData } from "./RowPips";
 import { rowSubline } from "./rowSubline";
 import {
   activityWindow,
@@ -429,12 +429,7 @@ const DockRow: Component<{
   flatIndex: number;
 }> = (props) => {
   const store = useTerminalStore();
-  const combined = createMemo(() => {
-    const info = store.getDisplayInfo(props.id);
-    const meta = store.getMetadata(props.id);
-    if (!info || !meta) return null;
-    return { info, meta };
-  });
+  const combined = createDockRowData(props.id);
   const active = () => store.activeId() === props.id;
   const unread = () => store.isUnread(props.id);
   const modHeld = useModHeld();
@@ -570,12 +565,7 @@ const RailChip: Component<{
   flatIndex: number;
 }> = (props) => {
   const store = useTerminalStore();
-  const combined = createMemo(() => {
-    const info = store.getDisplayInfo(props.id);
-    const meta = store.getMetadata(props.id);
-    if (!info || !meta) return null;
-    return { info, meta };
-  });
+  const combined = createDockRowData(props.id);
   const active = () => store.activeId() === props.id;
   const unread = () => store.isUnread(props.id);
   const modHeld = useModHeld();

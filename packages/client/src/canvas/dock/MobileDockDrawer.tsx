@@ -17,7 +17,7 @@
  *  order, or which rows are hidden by the activity window. */
 
 import type { TerminalId } from "kolu-common/surface";
-import { type Component, For, Show, createMemo } from "solid-js";
+import { type Component, For, Show } from "solid-js";
 import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
 import { annotationLine } from "../../intent/text";
 import { formatTimeAgo } from "../../terminal/staleness";
@@ -26,7 +26,7 @@ import type { DockRowBucket } from "./dockRowRanking";
 import type { DockGroup } from "./dockTree";
 import { HiddenFooter } from "./HiddenFooter";
 import { useDockOrder } from "./useDockOrder";
-import { AgentSlot, PrPip, SubCountCell } from "./RowPips";
+import { AgentSlot, PrPip, SubCountCell, createDockRowData } from "./RowPips";
 import { rowSubline } from "./rowSubline";
 
 const MobileDockDrawer: Component<{
@@ -109,12 +109,7 @@ const MobileRow: Component<{
   onSelect: (id: TerminalId) => void;
 }> = (props) => {
   const store = useTerminalStore();
-  const combined = createMemo(() => {
-    const info = store.getDisplayInfo(props.id);
-    const meta = store.getMetadata(props.id);
-    if (!info || !meta) return null;
-    return { info, meta };
-  });
+  const combined = createDockRowData(props.id);
   const active = () => store.activeId() === props.id;
   const unread = () => store.isUnread(props.id);
   return (
