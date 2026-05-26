@@ -8,7 +8,7 @@
  */
 
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { basename, extname, join } from "node:path";
+import { basename, join, parse } from "node:path";
 import { koluClipboardDir } from "./koluRoot.ts";
 
 function dirFor(terminalId: string): string {
@@ -31,12 +31,11 @@ function sanitizeUploadName(rawName: string): string {
 /** Pick a path that doesn't collide with an existing file in the same
  *  terminal directory. Appends `-1`, `-2`, … before the extension. */
 function uniquePath(dir: string, name: string): string {
-  const base = name.slice(0, name.length - extname(name).length);
-  const ext = extname(name);
+  const { name: stem, ext } = parse(name);
   let candidate = join(dir, name);
   let i = 1;
   while (existsSync(candidate)) {
-    candidate = join(dir, `${base}-${i}${ext}`);
+    candidate = join(dir, `${stem}-${i}${ext}`);
     i++;
   }
   return candidate;
