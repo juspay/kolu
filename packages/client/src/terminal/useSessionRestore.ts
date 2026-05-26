@@ -31,6 +31,7 @@ export function useSessionRestore(deps: {
   handleCreate: (
     cwd?: string,
     initial?: InitialTerminalMetadata,
+    location?: import("kolu-common/surface").TerminalLocation,
   ) => Promise<TerminalId>;
   handleCreateSubTerminal: (
     parentId: TerminalId,
@@ -241,14 +242,22 @@ export function useSessionRestore(deps: {
       // so the canvas cascade effect sees the saved layout on its first run
       // and skips the default-cascade branch (#642).
       for (const t of topLevel) {
-        const newId = await deps.handleCreate(t.cwd, {
-          themeName: t.themeName,
-          canvasLayout: t.canvasLayout,
-          subPanel: t.subPanel,
-          rightPanel: t.rightPanel,
-          lastActivityAt: t.lastActivityAt,
-          intent: t.intent,
-        });
+        const newId = await deps.handleCreate(
+          t.cwd,
+          {
+            themeName: t.themeName,
+            canvasLayout: t.canvasLayout,
+            subPanel: t.subPanel,
+            rightPanel: t.rightPanel,
+            lastActivityAt: t.lastActivityAt,
+            intent: t.intent,
+          },
+          // R-2: thread the saved `location` through so a remote
+          // terminal restores on its original host (otherwise the
+          // resolver defaults to localBackend and the tile silently
+          // reopens locally).
+          t.location,
+        );
         oldToNew.set(t.id, newId);
         // Step 2: in-loop assert. Combined with step 1, this puts the
         // intended active in place before the first canvas mount.

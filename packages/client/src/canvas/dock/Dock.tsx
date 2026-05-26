@@ -42,6 +42,7 @@ import {
 import { toast } from "solid-sonner";
 import IntentBody from "../../intent/IntentBody";
 import AgentIndicator from "../../terminal/AgentIndicator";
+import { HostChip } from "../../terminal/HostChip";
 import { formatTimeAgo, useStaleCheck } from "../../terminal/staleness";
 import IntentGlyph from "../../intent/IntentGlyph";
 import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
@@ -595,14 +596,17 @@ const AwaitingCardBody: Component<{
         title="Jump to this terminal"
       >
         <div class="flex items-baseline justify-between gap-2 min-w-0">
-          <span
-            class="font-mono text-[0.7rem] font-bold uppercase tracking-[0.14em] truncate min-w-0"
-            style={{
-              color: active() ? undefined : props.info.repoColor,
-            }}
-          >
-            {props.info.key.group}
-          </span>
+          <div class="flex items-center gap-1.5 min-w-0">
+            <span
+              class="font-mono text-[0.7rem] font-bold uppercase tracking-[0.14em] truncate min-w-0"
+              style={{
+                color: active() ? undefined : props.info.repoColor,
+              }}
+            >
+              {props.info.key.group}
+            </span>
+            <HostChip location={props.meta.location} />
+          </div>
           <div class="flex items-baseline gap-2 min-w-0">
             <DockAnnotation
               meta={props.meta}
@@ -683,14 +687,17 @@ const WorkingPillBody: Component<{
       title="Jump to this terminal"
     >
       <div class="flex items-baseline justify-between gap-2 min-w-0">
-        <span
-          class="font-mono text-[0.65rem] font-bold uppercase tracking-[0.14em] truncate min-w-0"
-          style={{
-            color: active() ? undefined : props.info.repoColor,
-          }}
-        >
-          {props.info.key.group}
-        </span>
+        <div class="flex items-center gap-1.5 min-w-0">
+          <span
+            class="font-mono text-[0.65rem] font-bold uppercase tracking-[0.14em] truncate min-w-0"
+            style={{
+              color: active() ? undefined : props.info.repoColor,
+            }}
+          >
+            {props.info.key.group}
+          </span>
+          <HostChip location={props.meta.location} />
+        </div>
         <div class="flex items-baseline gap-2 min-w-0">
           <DockAnnotation
             meta={props.meta}
@@ -758,6 +765,7 @@ const QuietRowBody: Component<{
         >
           {props.info.key.group}
         </span>
+        <HostChip location={props.meta.location} />
         <DockAnnotation
           meta={props.meta}
           info={props.info}

@@ -19,6 +19,7 @@ import { annotationLine } from "../intent/text";
 import { PrStateIcon, WorktreeIcon } from "../ui/Icons";
 import Tip from "../ui/Tip";
 import ChecksIndicator from "./ChecksIndicator";
+import { HostChip } from "./HostChip";
 import { PrUnavailableButton } from "./PrUnavailablePopover";
 import type { TerminalDisplayInfo } from "./terminalDisplay";
 
@@ -55,6 +56,7 @@ const TerminalMeta: Component<{
                 </span>
               )}
             </Show>
+            <HostChip location={info().meta.location} />
             <Show when={info().meta.git?.isWorktree}>
               <WorktreeBadge />
             </Show>

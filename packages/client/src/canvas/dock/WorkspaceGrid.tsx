@@ -24,6 +24,7 @@ import {
   createSignal,
   on,
 } from "solid-js";
+import { HostChip } from "../../terminal/HostChip";
 import IntentBody from "../../intent/IntentBody";
 import { formatTimeAgo, useIdleClassifier } from "../../terminal/staleness";
 import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
@@ -521,12 +522,15 @@ const WorkspaceCard: Component<{
        *  headline below; rendering the glyph again as a separate chip
        *  would duplicate it. */}
       <div class="flex items-center justify-between gap-2 min-w-0">
-        <span
-          class="font-mono text-[0.6rem] font-bold uppercase tracking-[0.16em] truncate min-w-0"
-          style={{ color: props.entry.info.repoColor }}
-        >
-          {props.entry.repoName}
-        </span>
+        <div class="flex items-center gap-1.5 min-w-0">
+          <span
+            class="font-mono text-[0.6rem] font-bold uppercase tracking-[0.16em] truncate min-w-0"
+            style={{ color: props.entry.info.repoColor }}
+          >
+            {props.entry.repoName}
+          </span>
+          <HostChip location={props.entry.info.meta.location} />
+        </div>
         <Show when={pr()}>
           {(summary) => (
             <span

@@ -6,6 +6,7 @@ import { type Component, createMemo, createSignal, For, Show } from "solid-js";
 import { ACTIONS } from "./input/actions";
 import { formatKeybind } from "./input/keyboard";
 import Kbd from "./ui/Kbd";
+import { HostChip } from "./terminal/HostChip";
 import { surface } from "./ui/Surface";
 import Toggle from "./ui/Toggle";
 
@@ -122,8 +123,11 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
                           <For each={group.terminals}>
                             {(t) => (
                               <div title={t.cwd}>
-                                <div class="text-sm text-fg-2 truncate leading-snug">
-                                  {terminalKey(t).label}
+                                <div class="flex items-center gap-1.5 text-sm text-fg-2 truncate leading-snug">
+                                  <span class="truncate min-w-0">
+                                    {terminalKey(t).label}
+                                  </span>
+                                  <HostChip location={t.location} />
                                 </div>
                                 <Show
                                   when={
