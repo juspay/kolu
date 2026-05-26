@@ -51,13 +51,14 @@ export interface AgentPtyProviderOptions {
   onSessionAllocated?: (remoteSessionId: string) => void;
 }
 
-interface AgentPtyMessage {
-  /** `"data"` for stdout bytes (string), `"exit"` for terminal exit
-   *  (numeric code). Phase 3 prototype protocol — Phase 3.x can grow
-   *  resize, title, etc. */
-  kind: "data" | "exit";
-  payload: string | number;
-}
+/** Tagged-union event payload streamed by the agent for an open PTY
+ *  session. The agent emits `spawned` as the first event after a
+ *  `terminal.spawn` subscription is registered, carrying the
+ *  `remoteSessionId` the persisted schema reattaches by. */
+type AgentPtyMessage =
+  | { kind: "spawned"; remoteSessionId: string }
+  | { kind: "data"; payload: string }
+  | { kind: "exit"; payload: number };
 
 export function agentPtyProvider(opts: AgentPtyProviderOptions): PtyProvider {
   return {
@@ -71,45 +72,35 @@ export function agentPtyProvider(opts: AgentPtyProviderOptions): PtyProvider {
       let allocatedSessionId: string | null = opts.remoteSessionId ?? null;
       let disposed = false;
 
-      // Phase 3: subscribe to the agent's terminal stream. The agent
-      // sends a tagged-union: `{kind:"data", payload:string}` for
-      // bytes, `{kind:"exit", payload:number}` for exit.
+      // The agent streams a tagged-union: `spawned` (first frame for
+      // a fresh spawn, carries the remote session id), `data` (PTY
+      // bytes), `exit` (PTY exited). For `terminal.attach` the agent
+      // skips the `spawned` frame — the caller already has the id.
       const onEvent = (raw: unknown): void => {
         const msg = raw as AgentPtyMessage;
-        if (msg.kind === "data" && typeof msg.payload === "string") {
+        if (msg.kind === "spawned") {
+          allocatedSessionId = msg.remoteSessionId;
+          opts.onSessionAllocated?.(msg.remoteSessionId);
+        } else if (msg.kind === "data") {
           spawnOpts.onData(msg.payload);
-        } else if (msg.kind === "exit" && typeof msg.payload === "number") {
+        } else if (msg.kind === "exit") {
           spawnOpts.onExit(msg.payload);
         }
       };
 
-      // Kick off spawn-or-attach. The actual subscribe is async; we
-      // hand back a handle synchronously and the data callbacks start
-      // firing once the agent responds.
+      // Kick off spawn-or-attach via subscribe — the first event for
+      // a spawn is `{kind:"spawned", remoteSessionId}`, then bytes.
+      // The agent's TerminalSpawnResultSchema in protocol.ts already
+      // promises remoteSessionId on the response path; emitting it as
+      // the first stream event keeps the subscribe-shape uniform with
+      // every other domain (git.subscribeInfo etc.) and avoids a
+      // separate `terminal.info` round-trip that wasn't actually
+      // declared in the protocol.
       const method = allocatedSessionId ? "terminal.attach" : "terminal.spawn";
       const args = allocatedSessionId
         ? { remoteSessionId: allocatedSessionId }
         : { cwd: spawnCwd, cols: 80, rows: 24 };
       token = opts.session.subscribe(method, args, onEvent);
-
-      // For spawn, the agent's response carries the new remoteSessionId.
-      // We retrieve it via a separate call after subscribing (the
-      // subscribe path returns a token id immediately; the session-id
-      // metadata is fetched once via a `terminal.info` round-trip).
-      if (!allocatedSessionId) {
-        void opts.session
-          .call("terminal.info", { spawnTag: method })
-          .then((info) => {
-            const id = (info as { remoteSessionId?: string }).remoteSessionId;
-            if (id) {
-              allocatedSessionId = id;
-              opts.onSessionAllocated?.(id);
-            }
-          })
-          .catch((err: Error) => {
-            tlog.error({ err }, "agent terminal.info failed");
-          });
-      }
 
       return {
         // For agent-owned PTYs there's no local OS pid that maps to
