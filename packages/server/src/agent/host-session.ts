@@ -400,9 +400,13 @@ export class HostSession {
       if (this.state.kind === "heartbeatMissed") {
         this.transitionTo({ kind: "connected" });
       }
-    } catch {
+    } catch (err) {
       const missed =
         this.state.kind === "heartbeatMissed" ? this.state.missed + 1 : 1;
+      // Per-miss visibility — without this the only signal is the
+      // counter monotonically climbing, hiding any unexpected exception
+      // (vs the expected timeout).
+      this.log.debug({ err, missed }, "heartbeat ping failed");
       if (missed >= MAX_MISSED_HEARTBEATS) {
         this.log.warn(
           { missed },
