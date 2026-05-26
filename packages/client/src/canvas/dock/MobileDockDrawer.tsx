@@ -164,7 +164,7 @@ const MobileRow: Component<{
           </span>
           <div class="flex items-center gap-1.5 shrink-0">
             <RowIcons meta={c().meta} info={c().info} />
-            <span class="font-mono text-[0.65rem] tabular-nums text-fg-3">
+            <span class="font-mono text-[0.65rem] tabular-nums text-fg-3 min-w-[3.5rem] text-right">
               {formatTimeAgo(c().meta.lastActivityAt)}
             </span>
           </div>
