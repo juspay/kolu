@@ -33,7 +33,7 @@ function makeGetInfo(
 }
 
 describe("buildDockTree", () => {
-  it("groups rows by repo and sorts groups by their top row's bucket", () => {
+  it("groups by repo; sections sort by pure recency; within-group bucket-first", () => {
     const ranked = [
       row("a", "working", 1000),
       row("b", "awaiting", 500),
@@ -45,11 +45,13 @@ describe("buildDockTree", () => {
       c: { group: "kolu", color: "#aaa" },
     });
     const tree = buildDockTree(ranked, getInfo);
-    // pierre's top row is awaiting → outranks kolu (top: working).
-    expect(tree.groups.map((g) => g.name)).toEqual(["pierre", "kolu"]);
-    expect(tree.groups[0]?.rows.map((r) => r.id)).toEqual(["b"]);
+    // Pure recency: kolu's newest row (c@2000) beats pierre's newest
+    // (b@500), so kolu sorts first — bucket priority doesn't promote
+    // pierre's awaiting row above kolu at the section level.
+    expect(tree.groups.map((g) => g.name)).toEqual(["kolu", "pierre"]);
     // Within kolu, working (a) outranks idle (c) on bucket priority.
-    expect(tree.groups[1]?.rows.map((r) => r.id)).toEqual(["a", "c"]);
+    expect(tree.groups[0]?.rows.map((r) => r.id)).toEqual(["a", "c"]);
+    expect(tree.groups[1]?.rows.map((r) => r.id)).toEqual(["b"]);
   });
 
   it("filters parked rows entirely and surfaces the count", () => {
@@ -84,12 +86,13 @@ describe("buildDockTree", () => {
       d: { group: "justci", color: "#ccc" },
     });
     const tree = buildDockTree(ranked, getInfo);
-    // kolu(awaiting) > pierre(working) > justci(none).
-    // Within kolu, awaiting before idle.
-    expect(tree.flatRows.map((r) => r.id)).toEqual(["b", "a", "c", "d"]);
+    // Section order by pure recency: pierre(max=300) > kolu(max=200) >
+    // justci(max=0). Within kolu, awaiting (b) sorts before idle (a)
+    // on bucket priority.
+    expect(tree.flatRows.map((r) => r.id)).toEqual(["c", "b", "a", "d"]);
   });
 
-  it("recency breaks bucket ties both within groups and across groups", () => {
+  it("recency drives section order; bucket priority drives within-group", () => {
     const ranked = [
       row("a", "working", 100),
       row("b", "working", 500),
@@ -101,8 +104,9 @@ describe("buildDockTree", () => {
       c: { group: "kolu", color: "#aaa" },
     });
     const tree = buildDockTree(ranked, getInfo);
-    // Both repos' top rows are working — pierre wins on recency (b@500
-    // beats kolu's top c@300). Within kolu, c@300 beats a@100.
+    // Pierre's newest row (b@500) beats kolu's newest (c@300), so
+    // pierre sorts first. Within kolu, c@300 beats a@100 on recency
+    // (same bucket → recency tiebreak).
     expect(tree.groups.map((g) => g.name)).toEqual(["pierre", "kolu"]);
     expect(tree.groups[1]?.rows.map((r) => r.id)).toEqual(["c", "a"]);
   });

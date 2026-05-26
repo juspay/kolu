@@ -3,10 +3,14 @@
  *  Pure projection: `rankDockRows` recency-sorts across all terminals;
  *  this module rearranges that into repo-bucketed sections so the user
  *  sees `repo → branches` as the primary structure. Inside a section,
- *  rows sort by bucket priority (awaiting first) then recency. Sections
- *  then sort by the priority of their own top row, so a repo whose
- *  topmost row is `awaiting` floats above a repo whose topmost row is
- *  `working` or `idle`.
+ *  rows sort by bucket priority (awaiting first) then recency — so a
+ *  repo's awaiting row floats to the top of its own list. Sections
+ *  themselves sort by **pure recency** — the most recently-active
+ *  repo first, regardless of which bucket its rows occupy — because
+ *  "which repo did I just touch" is a stronger mental anchor than
+ *  "which repo has the loudest bucket". An awaiting agent inside a
+ *  quiet repo still pulls attention via its row's animated pip, not
+ *  by promoting the whole repo above another that just changed.
  *
  *  Parked rows are filtered out — the activity-window selector becomes a
  *  hard hide, not a dim. The dropped count is surfaced as `parkedCount`
@@ -91,17 +95,20 @@ function compareRows(a: RankedDockRow, b: RankedDockRow): number {
   return b.ts - a.ts;
 }
 
-/** Sections sort by their top row's `(bucket-priority, -ts)` tuple.
- *  The top row is each group's headline; comparing groups by their
- *  headlines means a repo whose hottest row is `awaiting` always
- *  outranks a repo whose hottest row is merely `working` — the dock's
- *  vertical order reads "needs attention → has recent work → quiet"
- *  across repos and within repos with the same rule. Groups always
- *  have ≥1 row (constructed from non-empty buckets), so `rows[0]` is
- *  defined. */
+/** Sections sort by **pure recency** — the most recently-active row
+ *  in the group wins, with no bucket-priority preamble. "Which repo
+ *  did I just touch?" is the question this answers, independent of
+ *  whether the touched row is awaiting / working / idle / none.
+ *  Attention still propagates inside a section via the row's
+ *  animated pip; the section order doesn't second-guess it. Groups
+ *  always have ≥1 row (constructed from non-empty buckets), so
+ *  `Math.max(...rows.map(r => r.ts))` is defined. */
 function compareGroups(a: DockGroup, b: DockGroup): number {
-  const ra = a.rows[0];
-  const rb = b.rows[0];
-  if (!ra || !rb) return 0;
-  return compareRows(ra, rb);
+  return groupRecency(b) - groupRecency(a);
+}
+
+function groupRecency(g: DockGroup): number {
+  let max = 0;
+  for (const r of g.rows) if (r.ts > max) max = r.ts;
+  return max;
 }
