@@ -315,7 +315,10 @@ export class HostSession {
     // so adding a new frame variant lands in protocol.ts only.
     const frame = RpcFrameSchema.safeParse(parsed);
     if (!frame.success) {
-      this.log.warn({ issues: frame.error.issues, line }, "invalid rpc frame");
+      // Wire-contract violation — the agent emitted something we
+      // can't parse. This is a real protocol failure, not a degraded
+      // state; log at error so it shows up in operator dashboards.
+      this.log.error({ issues: frame.error.issues, line }, "invalid rpc frame");
       return;
     }
     if (frame.data.kind === "response") {
@@ -442,7 +445,10 @@ export class HostSession {
   }
 
   private onChildExit(code: number | null, signal: string | null): void {
-    this.log.warn({ code, signal }, "agent subprocess exited");
+    // Subprocess exit is a real failure (reconnect may still fix it,
+    // but the existing session is gone) — log at error so it
+    // surfaces in operator dashboards.
+    this.log.error({ code, signal }, "agent subprocess exited");
     this.stopHeartbeat();
     if (
       this.state.kind === "connected" ||
