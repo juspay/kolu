@@ -1,24 +1,42 @@
-/** Tiny inline icons rendered on every dock row.
+/** Presence pips that ride on every dock row.
  *
- *  Three exports, one per slot the row needs:
+ *  Three independent change axes share this file because each
+ *  produces a small JSX cell consumed identically by both the
+ *  desktop dock and the mobile drawer. The file groups them so the
+ *  two callers can `import { AgentSlot, PrPip, SubCountCell }`
+ *  rather than reach into three single-export modules:
  *
- *    - `AgentSlot` — first column. Always renders a grid cell so
- *      subgrid placement stays stable; empty for rows without an
- *      agent. The bucket dot encodes state via colour + animation
- *      (`awaiting` pulses, `working` spins), so a single icon does
- *      double duty as "which agent" + "what is it doing now".
- *    - `PrPip` — leading glyph on row line 2. Inline (not a grid
- *      cell): wherever the caller puts it, the PR icon sits at that
- *      X. We put it at the left edge of line 2, before the subline
- *      text. That gives one consistent X-position for the PR pip
- *      across every section regardless of how the section's right-
- *      side columns sized themselves. PR is a real `<a>` to
- *      `pr.url` — Cmd-click opens GitHub directly; the row's outer
- *      click handler doesn't intercept (stopPropagation). Tooltip
- *      via `prTooltip` carries the multi-line checks breakdown.
- *    - `SubCountCell` — last column of line 1 (when sub-terminals
- *      exist). Empty span when count is 0 so the column collapses
- *      and gives its width back to the branch label. */
+ *    - `AgentSlot` (agent-kind + bucket-state visualization) —
+ *      first grid column. Always renders a cell so subgrid
+ *      placement stays stable; empty for rows without an agent.
+ *      The icon encodes state via colour + animation (`awaiting`
+ *      pulses, `working` spins), so it does double duty as "which
+ *      agent" + "what is it doing now". Volatility axis: agent
+ *      bucket / state palette (changed when `AGENT_BUCKETS` was
+ *      extracted).
+ *    - `PrPip` (PR state + checks tooltip) — leading glyph on
+ *      row line 2. Inline, not a grid cell: wherever the caller
+ *      puts it, the PR icon sits at that X. The desktop and
+ *      mobile docks both place it at the left edge of line 2 so
+ *      PR pips align across sections regardless of how the
+ *      right-side columns sized themselves. The `<a>` is a real
+ *      link to `pr.url` (Cmd-click opens GitHub directly); the
+ *      row's outer click handler doesn't intercept
+ *      (stopPropagation). Tooltip via `prTooltip` carries the
+ *      multi-line checks breakdown. Volatility axis: PR display
+ *      composition (changed when `prTooltip` was unified).
+ *    - `SubCountCell` (sub-terminal chip wrapper) — last grid
+ *      column of line 1 when present. Empty span collapses the
+ *      column to 0 when the row has no sub-terminals, giving the
+ *      width back to the branch label. Volatility axis: sub-
+ *      terminal presence visualization (low-volatility today).
+ *
+ *  Each export could be split into its own file the moment one of
+ *  these axes diverges enough to justify the boundary; for now
+ *  the location grouping is honest because the file is small
+ *  (~120 lines) and the three pieces are consumed together. The
+ *  file name is `RowPips` (a noun for the thing) rather than
+ *  `RowIcons` (a noun for the file). */
 
 import type { AgentInfo, TerminalMetadata } from "kolu-common/surface";
 import { type GitHubPrInfo, prValue } from "kolu-github/schemas";

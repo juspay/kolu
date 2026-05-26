@@ -26,7 +26,7 @@ import type { DockRowBucket } from "./dockRowRanking";
 import type { DockGroup } from "./dockTree";
 import { HiddenFooter } from "./HiddenFooter";
 import { useDockOrder } from "./useDockOrder";
-import { AgentSlot, PrPip, SubCountCell } from "./RowIcons";
+import { AgentSlot, PrPip, SubCountCell } from "./RowPips";
 import { rowSubline } from "./rowSubline";
 
 const MobileDockDrawer: Component<{

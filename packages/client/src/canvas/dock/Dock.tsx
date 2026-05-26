@@ -54,7 +54,7 @@ import { annotationLine } from "../../intent/text";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { HiddenFooter } from "./HiddenFooter";
-import { AgentSlot, PrPip, SubCountCell } from "./RowIcons";
+import { AgentSlot, PrPip, SubCountCell } from "./RowPips";
 import { rowSubline } from "./rowSubline";
 import {
   activityWindow,
