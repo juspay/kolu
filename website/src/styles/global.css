@@ -34,7 +34,6 @@
   --color-live-teal: #5ee8d4;
   --color-live-alert: #ff9a3c;
   --color-live-violet: #c5a3ff;
-  --color-live-rose: #ff8aa6;
 
   /* macOS-style window-control dots — used by every faux terminal frame
      on the site. Kept as tokens so all frames stay in lockstep. */
@@ -79,7 +78,6 @@
   --color-live-teal: #0a8576;
   --color-live-alert: #c45e10;
   --color-live-violet: #6e3fb8;
-  --color-live-rose: #c83a64;
 }
 
 [data-theme="dark"] {
