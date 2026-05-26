@@ -74,6 +74,9 @@ const RAIL_ANIM: Partial<Record<DockRowBucket, string>> = {
   working: "dock-rail-working",
 };
 
+/** Width in pixels for a given mode. Drives both the outer aside's
+ *  inline `width` style and (in maximized posture) the dock's flex
+ *  footprint as a left-panel sibling of the canvas. */
 function dockWidth(mode: DockMode): number {
   return mode === "rail" ? RAIL_WIDTH_PX : CARDS_WIDTH_PX;
 }
