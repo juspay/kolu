@@ -141,6 +141,10 @@ function bufferToBase64(buf: ArrayBuffer): string {
   );
 }
 
+function errMsg(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 const Terminal: Component<{
   terminalId: TerminalId;
   visible: boolean;
@@ -798,8 +802,7 @@ const Terminal: Component<{
                 data: base64,
               });
             } catch (err) {
-              const message = err instanceof Error ? err.message : String(err);
-              toast.error(`Failed to upload clipboard image: ${message}`);
+              toast.error(`Failed to upload clipboard image: ${errMsg(err)}`);
             }
           }
 
@@ -844,8 +847,7 @@ const Terminal: Component<{
                 data: base64,
               });
             } catch (err) {
-              const message = err instanceof Error ? err.message : String(err);
-              toast.error(`Failed to upload "${file.name}": ${message}`);
+              toast.error(`Failed to upload "${file.name}": ${errMsg(err)}`);
             }
           }
 
@@ -868,9 +870,12 @@ const Terminal: Component<{
           makeEventListener(containerRef, "drop", (e: DragEvent) => {
             const files = e.dataTransfer?.files;
             if (!files || files.length === 0) return;
+            // Prevent browser navigation (default action when dropping a file
+            // onto a page). Must come after the guard: only cancel drops we
+            // actually handle so text/HTML drags fall through unimpeded.
             e.preventDefault();
             delete containerRef.dataset.dropTarget;
-            for (const file of Array.from(files)) {
+            for (const file of files) {
               void uploadDroppedFile(file);
             }
           });
