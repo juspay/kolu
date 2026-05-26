@@ -20,7 +20,7 @@ import { prValue } from "kolu-github/schemas";
 import { loadOpenCodeTranscript } from "kolu-opencode";
 import { transcriptToHtml } from "kolu-transcript-html";
 import { match } from "ts-pattern";
-import { saveClipboardImage, saveDroppedFile } from "./clipboard.ts";
+import { saveTerminalFile } from "./clipboard.ts";
 import { serverHostname, serverProcessId } from "./hostname.ts";
 import { log } from "./log.ts";
 import { terminalChannels } from "./publisher.ts";
@@ -160,7 +160,9 @@ export const appRouter = t.router({
       if (reason !== null) {
         throw new ORPCError("BAD_REQUEST", { message: reason });
       }
-      const path = saveClipboardImage(input.id, input.data);
+      const path = saveTerminalFile(input.id, "image.png", input.data, {
+        unique: false,
+      });
       bracketedPastePath(entry, path);
       log.info({ terminal: input.id, bytes, path }, "paste image");
     }),
@@ -172,7 +174,7 @@ export const appRouter = t.router({
       if (reason !== null) {
         throw new ORPCError("BAD_REQUEST", { message: reason });
       }
-      const path = saveDroppedFile(input.id, input.name, input.data);
+      const path = saveTerminalFile(input.id, input.name, input.data);
       bracketedPastePath(entry, path);
       log.info(
         { terminal: input.id, name: input.name, bytes, path },
