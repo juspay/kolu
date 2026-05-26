@@ -28,7 +28,9 @@ CI=true nix run github:juspay/ci -- run --host x86_64-linux="$host"     # --host
 pu destroy "$host"
 ```
 
-**Flake → comment on [#320](https://github.com/juspay/kolu/issues/320)** with scenario/platform/error excerpt/PR. At least one platform must have `ci::e2e@<platform>` fully passed before `/do` considers itself done, even if the green came from a positional retry.
+**Flake → comment on [#320](https://github.com/juspay/kolu/issues/320)** with scenario/platform/error excerpt/PR.
+
+**Evidence required → all GitHub status checks green per `just ci protect`.** `/do` is done only when every required status check is green on the PR's current `HEAD`. Source the required list from `just ci protect --dry-run` — it prints the `<recipe>@<platform>` contexts the canonical DAG produces, which are exactly the contexts branch protection gates on. Verify with `gh pr checks` against the SHA from `git rev-parse HEAD`; a green from a positional retry counts (final state matters), but a pass on a stale SHA does not.
 
 ## Documentation
 
