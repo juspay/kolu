@@ -391,14 +391,12 @@ const RepoSection: Component<{
   </section>
 );
 
-/** A row in cards mode — `dot · branch · icons · time`, with an
- *  active-only detail line below. Bucket drives the dot's color and
- *  animation; tiny inline icons (PR state, agent kind, sub-terminal
- *  count) carry presence-only signal so an inactive row reads as
- *  "has a PR, has an agent" at a glance without the full PrLine /
- *  AgentIndicator clutter. The active row gets a subtle highlight
- *  (lifted surface + accent left-edge stripe) and the full detail
- *  line beneath. */
+/** A row in cards mode — `agent · branch · pips · time`. Pips are
+ *  presence-only icons (PR state + checks dot, sub-terminal chip)
+ *  rendered via `RowIcons`; the active row gets a quiet highlight
+ *  (`bg-accent/15` + a 3 px accent left-edge stripe) and shares the
+ *  same row geometry as inactive rows, so the dock doesn't reflow on
+ *  activation. */
 const DockRow: Component<{
   id: TerminalId;
   bucket: DockRowBucket;
