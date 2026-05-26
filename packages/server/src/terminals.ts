@@ -28,6 +28,10 @@ import { getTerminalBackendFor } from "./terminalBackend/index.ts";
 import { terminalsDirtyChannel } from "./publisher.ts";
 import { getTerminal, terminalEntries } from "./terminal-registry.ts";
 
+// R-1: a single local backend. R-2 will route by `location.kind` per
+// call site via `getTerminalBackendForCreate` — this const goes away then.
+const localBackend = getTerminalBackendFor({ kind: "local" });
+
 // Re-export registry accessors + type so external callers (router.ts,
 // diagnostics.ts, index.ts) keep a single import path.
 export {
@@ -76,17 +80,14 @@ export function createTerminal(
   initial?: InitialTerminalMetadata,
 ): TerminalInfo {
   const id = crypto.randomUUID();
-  // R-1: all terminals are local; R-2's `getTerminalBackendForCreate`
-  // resolver will read `parentId` to inherit the parent's location.
-  const backend = getTerminalBackendFor({ kind: "local" });
-  return backend.spawnPty(id, { cwd, parentId, initialMetadata: initial });
+  // R-2's `getTerminalBackendForCreate` will read `parentId` to inherit
+  // the parent's location — at that point `localBackend` goes away.
+  return localBackend.spawnPty(id, { cwd, parentId, initialMetadata: initial });
 }
 
 /** Kill a terminal. Returns final info, or undefined if not found. */
 export function killTerminal(id: TerminalId): TerminalInfo | undefined {
-  const entry = getTerminal(id);
-  if (!entry) return undefined;
-  return getTerminalBackendFor({ kind: "local" }).killTerminal(id);
+  return localBackend.killTerminal(id);
 }
 
 /** Set or clear a terminal's parent relationship. */
@@ -217,5 +218,5 @@ export function setTerminalIntent(id: TerminalId, intent: string): void {
 
 /** Kill and remove all terminals. Used by tests to reset server state between scenarios. */
 export function killAllTerminals(): void {
-  getTerminalBackendFor({ kind: "local" }).killAllTerminals();
+  localBackend.killAllTerminals();
 }
