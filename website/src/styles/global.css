@@ -8,30 +8,34 @@
 
 /* --- Design tokens --------------------------------------------------------
 
-  Editorial terminal aesthetic: warm off-black, warm off-white ink, a single
-  amber accent borrowed from the kolu tiered-step palette. The full rainbow
-  lives in the favicon; everywhere else, restraint.
+  Cool-neutral terminal aesthetic: pure off-black / cool light gray
+  backgrounds, neutral ink, and a brand accent pulled straight from
+  the Kolu logo (the tiered-step favicon's purple top step,
+  #a855f7 / #7e22ce). Earlier iterations leaned warm — cream paper,
+  amber dots, peach accents — which read as "boring brown" against
+  the vivid terminal mockups. This palette has zero warmth and is
+  consistent with the logo's identity.
 -------------------------------------------------------------------------- */
 @theme {
-  --color-void: #0a0a0a;
-  --color-void-raised: #121110;
-  --color-void-sunk: #050505;
-  --color-ink: #e8e5dd;
-  --color-ink-dim: #a9a59a;
-  --color-ink-muted: #6f6b61;
-  --color-ink-faint: #3a3832;
-  --color-rule: #1a1814;
-  --color-rule-strong: #2a2620;
+  --color-void: #0a0a0d;
+  --color-void-raised: #131318;
+  --color-void-sunk: #050507;
+  --color-ink: #e8e8ed;
+  --color-ink-dim: #a8a8b2;
+  --color-ink-muted: #6e6e78;
+  --color-ink-faint: #3a3a42;
+  --color-rule: #18181d;
+  --color-rule-strong: #28282f;
 
-  /* Brand amber — vibrant gold used for headings, CTA, links, and the
-     thin accent bars in the feature grid. Previously a muted peach
-     (#e7b87a / #f4cf97 / #a08256) that read as "soft editorial
-     beige" — the *shell* of the site is supposed to pop, especially
-     against the dark terminal mockups, so this palette is calibrated
-     for saturation without going full neon. */
-  --color-amber: #ffb020;
-  --color-amber-bright: #ffd45a;
-  --color-amber-dim: #b88420;
+  /* Brand accent — logo-purple (the top step of the tiered-step
+     favicon, #a855f7). Token name stayed `amber` so every existing
+     site class still reads `text-amber*` / `bg-amber*`; only the
+     *value* shifts to purple. The full logo rainbow is also
+     exposed below via --color-brand-* so feature-row accents and
+     similar can pull from the same identity. */
+  --color-amber: #a855f7;
+  --color-amber-bright: #c084fc;
+  --color-amber-dim: #7e22ce;
 
   /* Live-state accents — *electric*, not pastel. Used wherever the
      surface reflects *change* (agent working/awaiting in the dock,
@@ -61,7 +65,15 @@
   --font-mono:
     "JetBrains Mono Variable", ui-monospace, "SF Mono", Menlo, Consolas,
     monospace;
-  --font-sans: "Fraunces Variable", ui-serif, Georgia, serif;
+  /* Terminal-native sans — system UI stack across platforms (SF Pro on
+     macOS, Segoe UI Variable on Windows, Cantarell/Inter on Linux/Android).
+     Pairs naturally with JetBrains Mono for chrome accents without
+     descending into all-mono. Used for body, H1/display, and feature
+     headings. Fraunces serif is reserved for blog prose only. */
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI Variable", "Segoe UI", "Inter", Roboto, "Helvetica Neue",
+    sans-serif;
 }
 
 /* --- Theme switch --------------------------------------------------------- */
@@ -70,20 +82,21 @@
    <html data-theme="light|dark"> before first paint (no FOUC). */
 
 [data-theme="light"] {
-  --color-void: #faf6ec;
-  --color-void-raised: #f2ecdb;
-  --color-void-sunk: #ebe4d0;
-  --color-ink: #241f17;
-  --color-ink-dim: #554e40;
-  --color-ink-muted: #857e6e;
-  --color-ink-faint: #bfb8a6;
-  --color-rule: #e1dac6;
-  --color-rule-strong: #c9c1ab;
-  /* Light-mode amber — deeper, more solid versions of the dark gold.
-     Still saturated, still loud against warm paper. */
-  --color-amber: #b86c00;
-  --color-amber-bright: #8a4f00;
-  --color-amber-dim: #d49a4e;
+  /* Light-mode shell — cool off-white (very slight blue tint) and
+     cool grays. Zero warmth: no cream paper, no beige rules, no warm
+     brown ink. The accent stays in the logo's purple family. */
+  --color-void: #f5f5f8;
+  --color-void-raised: #eeeef2;
+  --color-void-sunk: #e5e5eb;
+  --color-ink: #18181c;
+  --color-ink-dim: #4a4a52;
+  --color-ink-muted: #7c7c84;
+  --color-ink-faint: #b8b8c0;
+  --color-rule: #d8d8de;
+  --color-rule-strong: #c0c0c8;
+  --color-amber: #7e22ce;
+  --color-amber-bright: #6b21a8;
+  --color-amber-dim: #c084fc;
   /* Light-mode live-state accents — deepened versions of the electric
      dark tokens. Still saturated, still loud against warm paper. */
   --color-live-teal: #007a6c;
@@ -105,7 +118,9 @@
 html {
   background: var(--color-void);
   /* Subtle character-cell lattice — evokes a terminal without shouting.
-     Dot opacity blended per theme via --dot-rgb below. */
+     Dot opacity blended per theme via --dot-color below. Hue pulled
+     from the logo's purple step so the bg texture carries brand
+     identity without competing with content. */
   background-image: radial-gradient(
     circle at 1px 1px,
     var(--dot-color) 1px,
@@ -113,19 +128,15 @@ html {
   );
   background-size: 24px 24px;
   background-attachment: fixed;
-  --dot-color: rgba(231, 184, 122, 0.04);
+  --dot-color: rgba(168, 85, 247, 0.06);
 }
 
 html[data-theme="light"] {
-  --dot-color: rgba(154, 94, 30, 0.08);
+  --dot-color: rgba(126, 34, 206, 0.08);
 }
 
 body {
-  font-family: var(--font-serif);
-  font-variation-settings:
-    "opsz" 14,
-    "SOFT" 50,
-    "WONK" 0;
+  font-family: var(--font-sans);
   color: var(--color-ink);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
@@ -138,23 +149,20 @@ body {
 
 /* --- Typography utilities -------------------------------------------------- */
 
+/* Display headings — tight tech-sans with a slight negative tracking
+   so the wordmark + H1 read as confidently constructed (matching the
+   tiled-step logo's geometry) rather than editorial. */
 .display {
-  font-family: var(--font-serif);
-  font-variation-settings:
-    "opsz" 144,
-    "SOFT" 20,
-    "WONK" 1;
-  letter-spacing: -0.035em;
+  font-family: var(--font-sans);
+  font-weight: 700;
+  letter-spacing: -0.04em;
   line-height: 0.95;
 }
 
 .display-sm {
-  font-family: var(--font-serif);
-  font-variation-settings:
-    "opsz" 72,
-    "SOFT" 30,
-    "WONK" 0;
-  letter-spacing: -0.02em;
+  font-family: var(--font-sans);
+  font-weight: 650;
+  letter-spacing: -0.025em;
   line-height: 1.05;
 }
 
