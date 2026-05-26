@@ -31,6 +31,7 @@ import type { DockRowBucket } from "./dockRowRanking";
 import type { DockGroup } from "./dockTree";
 import { useDockOrder } from "./useDockOrder";
 import PrLine from "./PrLine";
+import { RowIcons } from "./RowIcons";
 import { SubCountChip } from "./SubCountChip";
 
 const MobileDockDrawer: Component<{
@@ -143,7 +144,7 @@ const MobileRow: Component<{
           // drag-to-dismiss from claiming the tap.
           onPointerDown={(e) => e.stopPropagation()}
           onClick={() => props.onSelect(props.id)}
-          class="w-full grid grid-cols-[20px_minmax(0,1fr)_auto] items-center gap-x-3 px-3 text-left transition-[margin,border-radius,box-shadow,background-color,color] duration-300 ease-out cursor-pointer active:bg-surface-2 border-b border-edge/15 data-[active]:m-1.5 data-[active]:rounded-lg data-[active]:border-b-transparent data-[active]:bg-accent data-[active]:text-white data-[active]:[&_.text-fg-2]:text-white/85 data-[active]:[&_.text-fg-3]:text-white/70 data-[active]:shadow-[var(--dock-active-halo)] data-[active]:animate-[dock-row-activate_0.36s_cubic-bezier(0.34,1.45,0.6,1),dock-row-flash_0.48s_ease-out] motion-reduce:transition-none motion-reduce:data-[active]:animate-none"
+          class="relative w-full grid grid-cols-[20px_minmax(0,1fr)_auto] items-center gap-x-3 px-3 text-left transition-colors duration-150 cursor-pointer active:bg-surface-2 border-b border-edge/15 data-[active]:bg-surface-2 data-[active]:shadow-[inset_3px_0_0_var(--color-accent)]"
           classList={{
             "py-3": live(),
             "py-2": !live(),
@@ -157,20 +158,25 @@ const MobileRow: Component<{
               "text-[0.85rem]": !live(),
             }}
             style={{
-              color: active() ? undefined : c().info.annotationColor,
+              color: c().info.annotationColor,
             }}
           >
             <IntentMarkdownInline
               markdown={annotationLine(c().meta.intent, c().info.key.label)}
             />
           </span>
-          <span class="font-mono text-[0.65rem] tabular-nums text-fg-3 shrink-0">
-            {formatTimeAgo(c().meta.lastActivityAt)}
-          </span>
+          <div class="flex items-center gap-1.5 shrink-0">
+            <Show when={!active()}>
+              <RowIcons meta={c().meta} info={c().info} />
+            </Show>
+            <span class="font-mono text-[0.65rem] tabular-nums text-fg-3">
+              {formatTimeAgo(c().meta.lastActivityAt)}
+            </span>
+          </div>
           <Show when={unread()}>
             <span
               aria-hidden="true"
-              class="col-start-3 row-start-1 w-2 h-2 rounded-full bg-alert"
+              class="absolute top-1 right-1 w-2 h-2 rounded-full bg-alert"
             />
           </Show>
           <Show when={active()}>

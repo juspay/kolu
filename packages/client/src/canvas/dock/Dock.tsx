@@ -10,12 +10,13 @@
  *     top to switch to cards.
  *  2. **cards** (default) — rows grouped by repo. Each repo gets a
  *     small section header (uppercase name + repo-colored swatch + row
- *     count); rows below it stack as compact `dot · branch · time`
- *     lines. The dot color carries bucket state (awaiting / working /
- *     idle / none); the only chrome on an inactive row is its label and
- *     time. The active row floods to accent and reveals an inline detail
- *     line — agent indicator + PR badge — so triage info is one click
- *     away rather than crowding every row.
+ *     count); rows below it stack as compact `dot · branch · pips ·
+ *     time` lines. Inactive rows carry presence-only pips (PR state
+ *     icon, agent-kind logo, sub-terminal chip) so a quick scan reads
+ *     as "has a PR, has an agent" without any labels. The active row
+ *     gets a quiet highlight (`bg-surface-2` + a 3 px accent left-edge
+ *     stripe) and unfolds the full detail line beneath — full PR
+ *     badge with checks status, agent indicator with token count.
  *
  *  The activity-window chip (`24h`/`12h`/`All`) is a hard filter, not a
  *  dim: rows past the window disappear from the dock entirely; a small
@@ -42,6 +43,7 @@ import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
 import { annotationLine } from "../../intent/text";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
+import { RowIcons } from "./RowIcons";
 import {
   activityWindow,
   setActivityWindow,
@@ -366,11 +368,14 @@ const RepoSection: Component<{
   </section>
 );
 
-/** A row in cards mode — `dot · branch · time` with an active-only
- *  detail line. Replaces the previous three variant bodies; bucket
- *  drives the dot's color and animation, plus the foreground sub-line
- *  on plain-shell rows. The reply-input form and full intent body are
- *  gone — the user activates the row and replies in the terminal. */
+/** A row in cards mode — `dot · branch · icons · time`, with an
+ *  active-only detail line below. Bucket drives the dot's color and
+ *  animation; tiny inline icons (PR state, agent kind, sub-terminal
+ *  count) carry presence-only signal so an inactive row reads as
+ *  "has a PR, has an agent" at a glance without the full PrLine /
+ *  AgentIndicator clutter. The active row gets a subtle highlight
+ *  (lifted surface + accent left-edge stripe) and the full detail
+ *  line beneath. */
 const DockRow: Component<{
   id: TerminalId;
   bucket: DockRowBucket;
@@ -404,23 +409,28 @@ const DockRow: Component<{
           data-unread={unread() ? "" : undefined}
           data-sub-count={c().info.subCount > 0 ? c().info.subCount : undefined}
           onClick={() => store.activate(props.id)}
-          class="relative w-full grid grid-cols-[18px_minmax(0,1fr)_auto] items-center gap-x-2 px-3 py-1.5 text-left cursor-pointer transition-[margin,border-radius,box-shadow,background-color,color] duration-300 ease-out focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 data-[active]:m-1.5 data-[active]:rounded-lg data-[active]:bg-accent data-[active]:text-white data-[active]:[&_.text-fg-2]:text-white/85 data-[active]:[&_.text-fg-3]:text-white/70 data-[active]:shadow-[var(--dock-active-halo)] data-[active]:animate-[dock-row-activate_0.36s_cubic-bezier(0.34,1.45,0.6,1),dock-row-flash_0.48s_ease-out] motion-reduce:transition-none motion-reduce:data-[active]:animate-none hover:bg-surface-2/40"
+          class="relative w-full grid grid-cols-[18px_minmax(0,1fr)_auto] items-center gap-x-2 px-3 py-1.5 text-left cursor-pointer transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 hover:bg-surface-2/40 data-[active]:bg-surface-2 data-[active]:shadow-[inset_3px_0_0_var(--color-accent)]"
           title="Jump to this terminal"
         >
           <BucketDot bucket={props.bucket} active={active()} />
           <span
             class="font-medium text-[0.85rem] leading-tight truncate min-w-0"
             style={{
-              color: active() ? undefined : c().info.annotationColor,
+              color: c().info.annotationColor,
             }}
           >
             <IntentMarkdownInline
               markdown={annotationLine(c().meta.intent, c().info.key.label)}
             />
           </span>
-          <span class="font-mono text-[0.6rem] tabular-nums text-fg-3 shrink-0">
-            {formatTimeAgo(c().meta.lastActivityAt)}
-          </span>
+          <div class="flex items-center gap-1.5 shrink-0">
+            <Show when={!active()}>
+              <RowIcons meta={c().meta} info={c().info} />
+            </Show>
+            <span class="font-mono text-[0.6rem] tabular-nums text-fg-3">
+              {formatTimeAgo(c().meta.lastActivityAt)}
+            </span>
+          </div>
           <Show when={unread()}>
             <span
               class="absolute -top-0.5 right-1 inline-flex h-2 w-2"

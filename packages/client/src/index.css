@@ -290,38 +290,16 @@ body {
   }
 }
 
-/* ── Active dock row — pieces Tailwind can't express ─────────
- * The bulk of the lifted-card treatment lives as Tailwind utilities
- * on the row itself (`data-[active]:` variants for margin /
- * border-radius / shadow / animation in `DockRow` and the mobile
- * `Row`). The body bg / fg flood lives as conditional inline styles
- * in each body variant (`AwaitingCardBody`, `WorkingPillBody`,
- * `QuietRowBody`) — the body components take `active` and paint
- * accent / white when set, themed `theme().bg` / `theme().fg`
- * otherwise. Here we keep only what neither route can carry: the
- * shared resting halo, the activation keyframes, the rail-cadence
- * quiet + parked-opacity restore (cross-cutting selectors against
- * elements that don't take an `active` prop), and the
- * prefers-reduced-motion override.
- *
- * `--dock-active-halo` is the resting glow that the active row
- * settles to after the flash. Defined once so the Tailwind shadow
- * utility on the row and the `@keyframes dock-row-flash` 100% frame
- * stay in lockstep — change one knob, both surfaces follow. */
-[data-testid="dock-row"],
-[data-testid="mobile-dock-row"] {
-  --dock-active-halo:
-    0 0 0 1.5px color-mix(in oklch, var(--color-accent) 80%, transparent),
-    0 6px 24px -4px color-mix(in oklch, var(--color-accent) 55%, transparent),
-    0 2px 6px -2px rgba(0, 0, 0, 0.4);
-}
-
-/* Quiet the rail's bucket-cadence on active rows. `RailSegment` never
- * learns about `active()`; this is purely presentational. Parked /
- * none rails keep full opacity when active. Scoped to `dock-row`
- * because the rail and `data-agent-bucket` only exist on the desktop
- * dock — mobile's row has no rail-class or bucket-attribute
- * descendants, so a mobile-prefixed selector would match nothing. */
+/* ── Active dock row — quiet rail cadence ────────────────────
+ * The active row's bg + accent-stripe treatment lives as Tailwind
+ * utilities on the row itself (`data-[active]:bg-surface-2 +
+ * data-[active]:shadow-[inset_3px_0_0_var(--color-accent)]` in both
+ * `DockRow` and the mobile `Row`). This block carries only the
+ * cross-cutting selector that can't be expressed at the row level:
+ * suppressing the rail's `dock-rail-*` cadence on the active row so
+ * the bucket dot doesn't keep breathing once the row is chosen.
+ * Scoped to `dock-row` because `mobile-dock-row` has no rail-class
+ * descendants. */
 [data-testid="dock-row"][data-active] .dock-rail-awaiting,
 [data-testid="dock-row"][data-active] .dock-rail-working {
   animation: none;
@@ -331,44 +309,6 @@ body {
 [data-testid="dock-row"][data-active] [data-agent-bucket="none"] {
   opacity: 1;
 }
-
-/* One-shot pop-in fires every time an element first matches
- * `[data-active]` — i.e. every activation, whether from a mouse
- * click (Dock body `onClick`) or a keyboard shortcut (`Cmd+1..9`
- * in `input/actions.ts`). Both routes call `store.activate(id)`,
- * which flips the attribute. */
-@keyframes dock-row-activate {
-  0% {
-    transform: scale(0.96);
-  }
-  55% {
-    transform: scale(1.025);
-  }
-  100% {
-    transform: scale(1);
-  }
-}
-@keyframes dock-row-flash {
-  0% {
-    box-shadow:
-      0 0 0 0 color-mix(in oklch, var(--color-accent) 90%, transparent),
-      0 6px 24px -4px color-mix(in oklch, var(--color-accent) 55%, transparent),
-      0 2px 6px -2px rgba(0, 0, 0, 0.4);
-  }
-  35% {
-    box-shadow:
-      0 0 0 4px color-mix(in oklch, var(--color-accent) 85%, transparent),
-      0 8px 36px -2px color-mix(in oklch, var(--color-accent) 75%, transparent),
-      0 2px 6px -2px rgba(0, 0, 0, 0.4);
-  }
-  100% {
-    box-shadow: var(--dock-active-halo);
-  }
-}
-/* prefers-reduced-motion is expressed at the row consumers via
- * Tailwind's `motion-reduce:` variant (see `DockRow` in Dock.tsx and
- * the mobile `Row` in MobileDockDrawer.tsx). No CSS media query
- * needed here. */
 
 /* ── Canvas grid background ─────────────────────────────────── */
 /* Fine line grid gives spatial grounding to the freeform canvas.
