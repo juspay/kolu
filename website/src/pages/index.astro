@@ -155,8 +155,8 @@ const features = [
       <!-- Right: faux xterm frame, dock on its left edge -->
       <div class="reveal reveal-3 hero-term">
         <div class="hero-term-dock" aria-hidden="true">
-          <div class="hero-chip live-chip-working" title="kolu · feat-dock — claude · thinking">Kd</div>
-          <div class="hero-chip live-chip-awaiting" title="kolu · feat-canvas — codex · awaiting you">
+          <div class="hero-chip hero-chip-repo-a live-chip-working" title="kolu · feat-dock — claude · thinking">Kd</div>
+          <div class="hero-chip hero-chip-repo-a live-chip-awaiting" title="kolu · feat-canvas — codex · awaiting you">
             <span class="live-badge"></span>Kc
           </div>
           <div class="hero-chip hero-chip-repo-b" title="api · main — zsh">Am</div>
@@ -212,8 +212,8 @@ const features = [
 
     <div class="canvas-strip">
       <div class="canvas-strip-dock" aria-hidden="true">
-        <div class="hero-chip live-chip-working">Kd</div>
-        <div class="hero-chip live-chip-awaiting"><span class="live-badge"></span>Kc</div>
+        <div class="hero-chip hero-chip-repo-a live-chip-working">Kd</div>
+        <div class="hero-chip hero-chip-repo-a live-chip-awaiting"><span class="live-badge"></span>Kc</div>
         <div class="hero-chip hero-chip-repo-b is-active">Am</div>
         <div class="hero-chip hero-chip-repo-c">Db</div>
       </div>
@@ -473,10 +473,13 @@ const features = [
     border: 1px solid var(--color-rule-strong);
     color: var(--color-ink);
     position: relative;
-    background: color-mix(in srgb, var(--color-live-teal) 14%, transparent);
+    background: var(--color-void-raised);
   }
   .hero-chip.is-active {
     box-shadow: 0 0 0 2px var(--color-amber);
+  }
+  .hero-chip-repo-a {
+    background: color-mix(in srgb, var(--color-live-teal) 14%, transparent);
   }
   .hero-chip-repo-b {
     background: color-mix(in srgb, var(--color-live-alert) 14%, transparent);
