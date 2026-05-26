@@ -192,6 +192,7 @@ describe("buildDockModel", () => {
           url: "https://github.com/juspay/kolu/pull/828",
           state: "open",
           checks: "pending",
+          checkRuns: [],
         },
       },
     }),

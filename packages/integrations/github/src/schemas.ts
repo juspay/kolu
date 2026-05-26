@@ -19,6 +19,16 @@ export type GitHubCheckStatus = z.infer<typeof GitHubCheckStatusSchema>;
 export const GitHubPrStateSchema = z.enum(["open", "closed", "merged"]);
 export type GitHubPrState = z.infer<typeof GitHubPrStateSchema>;
 
+/** Per-check entry from GitHub's `statusCheckRollup`. The dock pip's
+ *  tooltip lists these so a reviewer sees which specific gate is red
+ *  without opening the PR. `name` is the CheckRun's name (e.g.
+ *  `ci::biome@x86_64-linux`) or the StatusContext's `context`. */
+export const GitHubCheckSchema = z.object({
+  name: z.string(),
+  outcome: GitHubCheckStatusSchema,
+});
+export type GitHubCheck = z.infer<typeof GitHubCheckSchema>;
+
 export const GitHubPrInfoSchema = z.object({
   number: z.number(),
   title: z.string(),
@@ -27,6 +37,10 @@ export const GitHubPrInfoSchema = z.object({
   state: GitHubPrStateSchema,
   /** Combined CI status: pending, pass, or fail. Null if no checks configured. */
   checks: GitHubCheckStatusSchema.nullable(),
+  /** Per-check breakdown — same data `checks` rolls up. Empty when no
+   *  checks are configured. `.default([])` so an older server emitting
+   *  payloads without this field still parses on a newer client. */
+  checkRuns: z.array(GitHubCheckSchema).default([]),
 });
 export type GitHubPrInfo = z.infer<typeof GitHubPrInfoSchema>;
 

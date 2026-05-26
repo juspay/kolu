@@ -7,7 +7,12 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { Logger } from "kolu-shared";
-import { classifyGhError, deriveCheckStatus, prResultEqual } from "./github.ts";
+import {
+  classifyGhError,
+  deriveCheckStatus,
+  extractChecks,
+  prResultEqual,
+} from "./github.ts";
 import { GitHubPrStateSchema, type PrResult } from "./schemas.ts";
 
 const execFileAsync = promisify(execFile);
@@ -71,6 +76,7 @@ export async function resolveGitHubPr(
         url: data.url,
         state: GitHubPrStateSchema.parse(data.state.toLowerCase()),
         checks: deriveCheckStatus(data.statusCheckRollup),
+        checkRuns: extractChecks(data.statusCheckRollup),
       },
     };
   } catch (err) {

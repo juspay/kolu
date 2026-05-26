@@ -25,6 +25,7 @@
 
 import type { AgentInfo, TerminalMetadata } from "kolu-common/surface";
 import {
+  type GitHubCheck,
   type GitHubCheckStatus,
   type GitHubPrInfo,
   prLabel,
@@ -62,14 +63,38 @@ const AGENT_PIP_STATE: Record<
 };
 
 const CHECKS_LABEL: Record<GitHubCheckStatus, string> = {
-  pass: "Checks: pass",
-  pending: "Checks: pending",
-  fail: "Checks: fail",
+  pass: "all pass",
+  pending: "pending",
+  fail: "fail",
 };
 
+const CHECK_GLYPH: Record<GitHubCheckStatus, string> = {
+  pass: "✓",
+  pending: "…",
+  fail: "✗",
+};
+
+/** Multi-line PR tooltip — `#N Title` headline, a one-line check
+ *  summary, then a per-check list so the user sees exactly which
+ *  gate is red without opening the PR. `title` attributes preserve
+ *  newlines natively across modern browsers, so this all renders as
+ *  a stacked tooltip. */
 function prTooltip(pr: GitHubPrInfo): string {
-  const checks = pr.checks ? ` — ${CHECKS_LABEL[pr.checks]}` : "";
-  return `${prLabel(pr)}${checks}`;
+  if (pr.checks === null) return prLabel(pr);
+  const counts = pr.checkRuns.reduce(
+    (acc, c) => {
+      acc[c.outcome] += 1;
+      return acc;
+    },
+    { pass: 0, pending: 0, fail: 0 },
+  );
+  const summary = `Checks: ${CHECKS_LABEL[pr.checks]} (${counts.pass}✓ ${counts.pending}… ${counts.fail}✗)`;
+  const list = pr.checkRuns
+    .map((c: GitHubCheck) => `  ${CHECK_GLYPH[c.outcome]} ${c.name}`)
+    .join("\n");
+  return list
+    ? `${prLabel(pr)}\n\n${summary}\n${list}`
+    : `${prLabel(pr)}\n\n${summary}`;
 }
 
 /** Right-side pips (PR + sub-count) — emitted as two grid cells that
