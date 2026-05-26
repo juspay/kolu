@@ -64,6 +64,11 @@ export class RemoteBackend implements Backend {
       cwd: opts.cwd,
       initialMetadata: opts.initialMetadata,
     });
+    // First successful RPC roundtrip — the agent is alive. Mark ready
+    // so HostSession's heartbeat loop starts (it was deliberately
+    // deferred to avoid timing out the cold `nix run` realisation,
+    // which can take minutes on first use).
+    this.session.markReady();
     this.session.registerTerminal(id);
 
     // Register a shadow entry in the kolu server's terminal-registry so

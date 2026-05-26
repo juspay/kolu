@@ -37,14 +37,14 @@ export default defineConfig({
     },
   },
   server: {
-    port: 5173,
+    port: Number(process.env.KOLU_VITE_PORT ?? 5173),
     // Prevent browser from caching dev assets — stale modules cause subtle bugs on refresh.
     headers: { "Cache-Control": "no-store" },
     proxy: {
-      "/api": `http://localhost:${DEFAULT_PORT}`,
-      "/manifest.webmanifest": `http://localhost:${DEFAULT_PORT}`,
+      "/api": `http://localhost:${process.env.KOLU_API_PORT ?? DEFAULT_PORT}`,
+      "/manifest.webmanifest": `http://localhost:${process.env.KOLU_API_PORT ?? DEFAULT_PORT}`,
       "/rpc": {
-        target: `http://localhost:${DEFAULT_PORT}`,
+        target: `http://localhost:${process.env.KOLU_API_PORT ?? DEFAULT_PORT}`,
         ws: true,
       },
     },

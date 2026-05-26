@@ -188,6 +188,23 @@ export class HostSession {
     });
     this.client = createORPCClient<AgentClient>(this.link);
 
+    // Don't transition to "connected" until we've actually heard from
+    // the agent. First-time `nix run` on a cold remote can take
+    // minutes to realise the closure; starting the heartbeat clock now
+    // would tear down the connection before the agent even boots. The
+    // first successful RPC (typically `terminal.spawn` from
+    // RemoteBackend) calls `markReady()` to flip the state and start
+    // the heartbeat loop.
+    log.info(
+      { host: this.host },
+      "HostSession.connect: subprocess spawned; waiting for first RPC",
+    );
+  }
+
+  /** Called by RemoteBackend after the first RPC roundtrips. Marks the
+   *  session ready and starts the heartbeat loop. Idempotent. */
+  markReady(): void {
+    if (this.state.kind === "connected") return;
     this.transition({ kind: "connected" });
     this.startHeartbeat();
   }
