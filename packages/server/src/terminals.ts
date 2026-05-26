@@ -31,7 +31,7 @@ import type {
   TerminalId,
   TerminalInfo,
 } from "kolu-common/surface";
-import { getBackendFor, localBackend } from "./backend/index.ts";
+import { getBackendFor, getBackendForCreate } from "./backend/index.ts";
 import { log } from "./log.ts";
 import { updateClientMetadata } from "./meta/index.ts";
 import { terminalsDirtyChannel } from "./publisher.ts";
@@ -108,7 +108,12 @@ export async function createTerminal(
   parentId?: string,
   initial?: InitialTerminalMetadata,
 ): Promise<TerminalInfo> {
-  const handle = await localBackend.spawnPty({
+  // R-2 finding (Hickey post-impl): route through the resolver so
+  // sub-terminals inherit the parent's location and (in R-3) remote
+  // requests land on the right backend. R-1's `localBackend` direct
+  // call left `getBackendForCreate` as dead code.
+  const backend = getBackendForCreate({ parentId });
+  const handle = await backend.spawnPty({
     cwd,
     initialMetadata: {
       ...initial,
