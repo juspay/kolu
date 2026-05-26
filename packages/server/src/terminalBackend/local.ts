@@ -108,20 +108,27 @@ function emitTerminalListChanged(): void {
 
 // ── Agent-command tracker (was `meta/agent-command.ts`) ────────────────
 
-/** Per-terminal stash of the basename of the agent CLI running in the
- *  foreground right now. Cleared when the user types a non-agent
- *  command. Ephemeral; consumed by the agent detectors below to
- *  correlate the PTY foreground process with the right `AgentProvider`
- *  (codex often runs under the `node` kernel basename via npm shim, so
- *  matching on `entry.handle.process` alone is insufficient). */
-const currentAgent = new Map<TerminalId, string | null>();
-
-function startAgentCommandTracker(terminalId: TerminalId): () => void {
-  currentAgent.set(terminalId, null);
-  const cleanup = terminalChannels.commandRun(terminalId).consume({
+/** Subscribe to the terminal's `commandRun` channel, parse each
+ *  payload as an agent command, and update the two state slots:
+ *
+ *   - `record.currentAgent` — basename of the binary in the
+ *     foreground right now; cleared when the user types a non-agent
+ *     command. Ephemeral, lives on the per-local-terminal record so
+ *     it shares one container with the rest of `LocalTerminalBackend`'s
+ *     internal state (PtyHandle, cleanup) — disposing the record drops
+ *     the value automatically. Read by the agent detectors below.
+ *   - `m.lastAgentCommand` — full normalized invocation of the most
+ *     recent *agent* command in this terminal, preserved across
+ *     intervening non-agent input. Lives on `TerminalMetadata` so the
+ *     session snapshotter picks it up automatically. */
+function startAgentCommandTracker(
+  record: LocalTerminalRecord,
+  terminalId: TerminalId,
+): () => void {
+  return terminalChannels.commandRun(terminalId).consume({
     onEvent: (raw) => {
       const normalized = parseAgentCommand(raw);
-      currentAgent.set(terminalId, normalized?.split(" ")[0] ?? null);
+      record.currentAgent = normalized?.split(" ")[0] ?? null;
       if (normalized) {
         const entry = getTerminal(terminalId);
         if (entry && entry.meta.lastAgentCommand !== normalized) {
@@ -138,10 +145,6 @@ function startAgentCommandTracker(terminalId: TerminalId): () => void {
         "publisher subscription failed",
       ),
   });
-  return () => {
-    cleanup();
-    currentAgent.delete(terminalId);
-  };
 }
 
 // ── Git provider (was `meta/git.ts`) ───────────────────────────────────
@@ -300,7 +303,7 @@ function readForegroundBasenameOnce(
 function snapshotTerminalState(
   ptyHandle: PtyHandle,
   cwd: string,
-  terminalId: string,
+  currentAgent: string | null,
   plog: Logger,
 ): AgentTerminalState {
   let basename: string | null | undefined;
@@ -315,9 +318,7 @@ function snapshotTerminalState(
         basename = readForegroundBasenameOnce(ptyHandle, plog);
       return basename;
     },
-    lastAgentCommandName: shellIdle
-      ? null
-      : (currentAgent.get(terminalId) ?? null),
+    lastAgentCommandName: shellIdle ? null : currentAgent,
   };
 }
 
@@ -388,7 +389,7 @@ function setAgentMetadata(
 function startAgentProvider<Session, Info extends AgentInfoShape>(
   provider: AgentProvider<Session, Info>,
   entry: TerminalProcess,
-  ptyHandle: PtyHandle,
+  record: LocalTerminalRecord,
   terminalId: string,
 ): () => void {
   const plog = log.child({ provider: provider.kind, terminal: terminalId });
@@ -402,9 +403,9 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
 
   function reconcile() {
     const state = snapshotTerminalState(
-      ptyHandle,
+      record.ptyHandle,
       entry.meta.cwd,
-      terminalId,
+      record.currentAgent,
       plog,
     );
 
@@ -526,31 +527,31 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
  *  reconcile. */
 function startProviders(
   entry: TerminalProcess,
-  ptyHandle: PtyHandle,
+  record: LocalTerminalRecord,
   terminalId: string,
 ): () => void {
-  const stopAgentCommand = startAgentCommandTracker(terminalId);
+  const stopAgentCommand = startAgentCommandTracker(record, terminalId);
   const stopGit = startGitProvider(entry, terminalId);
   const stopGitHubPr = startGitHubPrProvider(entry, terminalId);
   const stopClaude = startAgentProvider(
     claudeCodeProvider,
     entry,
-    ptyHandle,
+    record,
     terminalId,
   );
   const stopCodex = startAgentProvider(
     codexProvider,
     entry,
-    ptyHandle,
+    record,
     terminalId,
   );
   const stopOpenCode = startAgentProvider(
     opencodeProvider,
     entry,
-    ptyHandle,
+    record,
     terminalId,
   );
-  const stopProcess = startProcessProvider(entry, ptyHandle, terminalId);
+  const stopProcess = startProcessProvider(entry, record.ptyHandle, terminalId);
   return () => {
     stopAgentCommand();
     stopGit();
@@ -593,8 +594,18 @@ const localGit: TerminalBackendGit = {
 
 // ── Backend implementation ─────────────────────────────────────────────
 
+/** All per-local-terminal state lives here. The PtyHandle is the
+ *  concrete node-pty handle (its dispose/process/foregroundPid methods
+ *  are why it can't be the abstract `TerminalHandle`); `currentAgent`
+ *  is the ephemeral stash maintained by the agent-command tracker
+ *  (basename of the binary in the foreground right now, or null when
+ *  the shell is idle / running a non-agent command); `stopProviders`
+ *  tears down every per-terminal subscription on kill. The record is
+ *  disposed atomically — dropping the entry from `records` drops all
+ *  three together. */
 interface LocalTerminalRecord {
   ptyHandle: PtyHandle;
+  currentAgent: string | null;
   stopProviders: () => void;
 }
 
@@ -681,8 +692,16 @@ class LocalTerminalBackend implements TerminalBackend {
     };
 
     registerTerminal(id, entry);
-    const stopProviders = startProviders(entry, ptyHandle, id);
-    this.records.set(id, { ptyHandle, stopProviders });
+    // Build the record BEFORE starting providers — the agent-command
+    // tracker writes `record.currentAgent` and the agent detectors read
+    // it. `stopProviders` is patched in after the call.
+    const record: LocalTerminalRecord = {
+      ptyHandle,
+      currentAgent: null,
+      stopProviders: () => {},
+    };
+    this.records.set(id, record);
+    record.stopProviders = startProviders(entry, record, id);
 
     tlog.info({ pid: ptyHandle.pid, total: listTerminals().length }, "created");
     emitTerminalsDirty();
