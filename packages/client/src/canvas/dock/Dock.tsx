@@ -423,7 +423,7 @@ const DockRow: Component<{
           data-unread={unread() ? "" : undefined}
           data-sub-count={c().info.subCount > 0 ? c().info.subCount : undefined}
           onClick={() => store.activate(props.id)}
-          class="relative w-full grid grid-cols-subgrid col-span-full items-center py-1.5 -ml-[3px] pl-[3px] border-l-[3px] border-l-transparent text-left cursor-pointer transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 hover:bg-surface-2/40 data-[active]:bg-surface-2 data-[active]:border-l-accent"
+          class="relative w-full grid grid-cols-subgrid col-span-full items-center py-1.5 -mx-3 border-l-[3px] border-l-transparent text-left cursor-pointer transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 hover:bg-surface-2/40 data-[active]:bg-surface-2 data-[active]:border-l-accent"
           title="Jump to this terminal"
         >
           <AgentSlot agent={c().meta.agent} />
