@@ -107,22 +107,15 @@ export class LocalBackend implements Backend {
         onData: (data) => terminalChannels.data(id).publish(data),
         onExit: (exitCode) => {
           tlog.info({ exitCode }, "exited");
-          // `wasNatural` is decided by whether the entry was still in
-          // the registry at the moment the PTY exited. Explicit kills
-          // (`killTerminal` here, or `killAllTerminals` via the
-          // drain-before-dispose ordering) unregister first, so this
-          // callback sees `wasNatural=false` and the caller knows to
-          // skip the session-save fanout (which they already did at
-          // explicit-kill time, or are intentionally skipping during
-          // shutdown).
-          const wasNatural = getTerminal(id) !== undefined;
-          if (wasNatural) {
-            const entry = getTerminal(id);
-            if (entry) {
-              entry.stopProviders();
-              cleanupTerminalScratch(id);
-              unregisterTerminal(id);
-            }
+          // `wasNatural`: entry still in registry ⟹ PTY exited on its own.
+          // Explicit kills (`killTerminal` / `killAllTerminals`) unregister
+          // first, so `getTerminal` returns `undefined` here for killed PTYs.
+          const entry = getTerminal(id);
+          const wasNatural = entry !== undefined;
+          if (entry) {
+            entry.stopProviders();
+            cleanupTerminalScratch(id);
+            unregisterTerminal(id);
           }
           opts.onExit?.(exitCode, wasNatural);
         },

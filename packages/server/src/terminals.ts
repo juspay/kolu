@@ -111,17 +111,11 @@ export async function createTerminal(
   const handle = await localBackend.spawnPty({
     cwd,
     initialMetadata: {
+      ...initial,
       ...(parentId !== undefined && { parentId }),
-      ...(initial?.themeName && { themeName: initial.themeName }),
-      ...(initial?.canvasLayout && { canvasLayout: initial.canvasLayout }),
-      ...(initial?.subPanel && { subPanel: initial.subPanel }),
-      ...(initial?.rightPanel && { rightPanel: initial.rightPanel }),
-      ...(initial?.lastActivityAt !== undefined && {
-        lastActivityAt: initial.lastActivityAt,
-      }),
-      ...(initial?.intent && { intent: initial.intent }),
     },
     onExit: (exitCode, wasNatural) => {
+      // `handle` is assigned before `onExit` can fire (PTY exits after spawn).
       surfaceCtx.events.terminalExit.publish({ id: handle.id }, exitCode);
       // Only fire dirty/list signals on natural exit. Explicit kills
       // (`killTerminal`, `killAllTerminals`) already handled the fanout
