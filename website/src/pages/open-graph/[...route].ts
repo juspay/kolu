@@ -16,14 +16,14 @@
 
 import { getCollection } from "astro:content";
 import { OGImageRoute } from "astro-og-canvas";
+import { SITE_DESCRIPTION } from "../../site";
 
 const blog = await getCollection("blog");
 
 const pages: Record<string, { title: string; description: string }> = {
   site: {
     title: "kolu",
-    description:
-      "Your terminals are the workspace. Real xterm.js tiles on an infinite canvas — claude, codex, opencode, anything you run in a shell.",
+    description: SITE_DESCRIPTION,
   },
   ...Object.fromEntries(
     blog.map(({ id, data }) => [
