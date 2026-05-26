@@ -185,11 +185,7 @@ export function prResultEqual(a: PrResult, b: PrResult): boolean {
 function checkRunsEqual(a: GitHubCheck[], b: GitHubCheck[]): boolean {
   if (a === b) return true;
   if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i++) {
-    const ai = a[i];
-    const bi = b[i];
-    if (!ai || !bi) return false;
-    if (ai.name !== bi.name || ai.outcome !== bi.outcome) return false;
-  }
-  return true;
+  return a.every(
+    (ai, i) => ai.name === b[i]?.name && ai.outcome === b[i]?.outcome,
+  );
 }
