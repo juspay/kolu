@@ -185,20 +185,10 @@ const App: Component = () => {
     if (id) store.activate(id);
   }
 
-  // Intent editor singleton — bound to store accessors + RPC. The dialog
+  // Intent editor singleton — reads store + RPC directly. The dialog
   // is mounted at the App root; the chip in TerminalMeta and the palette
   // command both call `intentEditor.openTerminal(id)` to surface it.
-  const intentEditor = useIntentEditor({
-    activeId: store.activeId,
-    getTerminalIntent: (id) => store.getMetadata(id)?.intent,
-    setTerminalIntent: (id, intent) => {
-      void client.terminal
-        .setIntent({ id, intent })
-        .catch((err: Error) =>
-          toast.error(`Failed to save intent: ${err.message}`),
-        );
-    },
-  });
+  const intentEditor = useIntentEditor();
 
   const arrange = useCanvasArrange({
     store,

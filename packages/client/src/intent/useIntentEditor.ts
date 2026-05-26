@@ -5,12 +5,17 @@
  *    - `openTerminal(id)` — read current intent, allow Clear when set.
  *    - `openActive()` — convenience around `store.activeId()`.
  *
- *  Persistence is delegated; this module knows nothing about RPCs.
- *  Callers wire `getTerminalIntent` and `setTerminalIntent` to the
- *  client RPC layer. */
+ *  Persistence is local: the singleton reads / writes through
+ *  `useTerminalStore` and `client.terminal.setIntent` directly. The
+ *  previous `IntentEditorDeps` argument moved those reads / writes to
+ *  the App-root call site, which was an unenforceable convention
+ *  ("deps never change identity") held together by a comment. */
 
 import type { TerminalId } from "kolu-common/surface";
 import { createRoot, createSignal } from "solid-js";
+import { toast } from "solid-sonner";
+import { useTerminalStore } from "../terminal/useTerminalStore";
+import { client } from "../wire";
 
 export type IntentEditorSession = {
   title: string;
@@ -20,32 +25,33 @@ export type IntentEditorSession = {
   clear?: () => void;
 };
 
-export type IntentEditorDeps = {
-  getTerminalIntent: (id: TerminalId) => string | undefined;
-  /** Set or clear intent. Empty string clears (the wire contract
-   *  encodes that — see `terminal.setIntent` in `contract.ts`). */
-  setTerminalIntent: (id: TerminalId, intent: string) => void;
-  activeId: () => TerminalId | null;
-};
-
-function init(deps: IntentEditorDeps) {
+function init() {
+  const store = useTerminalStore();
   const [session, setSession] = createSignal<IntentEditorSession | null>(null);
 
   const close = () => setSession(null);
 
+  const writeIntent = (id: TerminalId, intent: string) => {
+    void client.terminal
+      .setIntent({ id, intent })
+      .catch((err: Error) =>
+        toast.error(`Failed to save intent: ${err.message}`),
+      );
+  };
+
   function openTerminal(id: TerminalId) {
-    const initialValue = deps.getTerminalIntent(id) ?? "";
+    const initialValue = store.getMetadata(id)?.intent ?? "";
     setSession({
       title: "Edit intent",
       initialValue,
       allowClear: initialValue.trim().length > 0,
-      save: (intent) => deps.setTerminalIntent(id, intent),
-      clear: () => deps.setTerminalIntent(id, ""),
+      save: (intent) => writeIntent(id, intent),
+      clear: () => writeIntent(id, ""),
     });
   }
 
   function openActive() {
-    const id = deps.activeId();
+    const id = store.activeId();
     if (id !== null) openTerminal(id);
   }
 
@@ -71,10 +77,8 @@ function init(deps: IntentEditorDeps) {
 
 let cached: ReturnType<typeof init> | undefined;
 
-/** Lazy singleton — deps are captured on first call. Subsequent calls
- *  with different deps are ignored (deliberate; the deps come from the
- *  app root and never change identity over the app's lifetime). */
-export function useIntentEditor(deps: IntentEditorDeps) {
-  if (!cached) cached = createRoot(() => init(deps));
+/** Lazy module-scope singleton. */
+export function useIntentEditor() {
+  if (!cached) cached = createRoot(() => init());
   return cached;
 }
