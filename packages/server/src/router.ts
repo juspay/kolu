@@ -20,7 +20,7 @@ import { prValue } from "kolu-github/schemas";
 import { loadOpenCodeTranscript } from "kolu-opencode";
 import { transcriptToHtml } from "kolu-transcript-html";
 import { match } from "ts-pattern";
-import { saveTerminalFile } from "./clipboard.ts";
+import { saveTerminalFile } from "./terminalScratch.ts";
 import { serverHostname, serverProcessId } from "./hostname.ts";
 import { log } from "./log.ts";
 import { terminalChannels } from "./publisher.ts";

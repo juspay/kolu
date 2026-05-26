@@ -21,7 +21,7 @@ import type {
 import { DEFAULT_SCROLLBACK } from "kolu-common/config";
 import { spawnPty } from "kolu-pty";
 import pkg from "../package.json" with { type: "json" };
-import { cleanupClipboardDir } from "./clipboard.ts";
+import { cleanupTerminalScratch } from "./terminalScratch.ts";
 import { koluShellDir } from "./koluRoot.ts";
 import { log } from "./log.ts";
 import {
@@ -121,7 +121,7 @@ export function createTerminal(
         const entry = getTerminal(id);
         if (entry) {
           entry.stopProviders();
-          cleanupClipboardDir(id);
+          cleanupTerminalScratch(id);
         }
         surfaceCtx.events.terminalExit.publish({ id }, exitCode);
         // Only save session on natural exit (entry still in map).
@@ -191,7 +191,7 @@ export function killTerminal(id: TerminalId): TerminalInfo | undefined {
   log.child({ terminal: id }).info({ pid: entry.handle.pid }, "killing");
   entry.stopProviders();
   entry.handle.dispose();
-  cleanupClipboardDir(id);
+  cleanupTerminalScratch(id);
   unregisterTerminal(id);
   emitChanged();
   emitListChanged();
@@ -332,7 +332,7 @@ export function killAllTerminals(): void {
   for (const entry of entries) {
     entry.stopProviders();
     entry.handle.dispose();
-    cleanupClipboardDir(entry.info.id);
+    cleanupTerminalScratch(entry.info.id);
   }
   emitListChanged();
 }

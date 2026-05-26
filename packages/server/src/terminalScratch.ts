@@ -4,15 +4,15 @@
  * land here via `saveTerminalFile`. The `router.ts` handlers call it
  * and then bracketed-paste the returned path into the PTY so agents
  * that accept paste-as-file-path (codex, Claude Code) can read the
- * file.
+ * file. `cleanupTerminalScratch` wipes the dir on terminal exit.
  */
 
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { basename, join, parse } from "node:path";
-import { koluClipboardDir } from "./koluRoot.ts";
+import { koluScratchDir } from "./koluRoot.ts";
 
 function dirFor(terminalId: string): string {
-  return join(koluClipboardDir, terminalId);
+  return join(koluScratchDir, terminalId);
 }
 
 /** Strip everything but the basename and collapse any character that
@@ -64,6 +64,6 @@ export function saveTerminalFile(
 
 /** Remove a terminal's scratch directory. Safe to call when the dir
  *  was never created. */
-export function cleanupClipboardDir(terminalId: string): void {
+export function cleanupTerminalScratch(terminalId: string): void {
   rmSync(dirFor(terminalId), { recursive: true, force: true });
 }
