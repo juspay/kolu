@@ -11,7 +11,7 @@
 import type { GitInfoProvider, GitInfoSubscription } from "kolu-git";
 import type { GitInfo } from "kolu-git/schemas";
 import type { Logger } from "kolu-shared";
-import type { HostSessionLike } from "./types.ts";
+import type { HostSessionLike } from "./host-session.ts";
 
 export function remoteGitInfoProvider(
   session: HostSessionLike,

@@ -21,7 +21,8 @@
  * `kolu-remote-agent/src/index.ts` with `TODO Phase 3` markers.
  */
 
-import type { HostSessionLike, Logger } from "kolu-shared";
+import type { HostSessionLike } from "kolu-remote-client";
+import type { Logger } from "kolu-shared";
 import type { PtyHandle, PtyProvider, PtySpawnOptions } from "./pty.ts";
 
 export interface AgentPtyProviderOptions {

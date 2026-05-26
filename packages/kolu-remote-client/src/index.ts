@@ -14,6 +14,6 @@
  * filesystem — Zed's symmetry, expressed through TypeScript.
  */
 
+export type { HostSessionLike } from "./host-session.ts";
 export { remoteFsProvider } from "./remote-fs-provider.ts";
 export { remoteGitInfoProvider } from "./remote-git-info-provider.ts";
-export type { HostSessionLike } from "./types.ts";

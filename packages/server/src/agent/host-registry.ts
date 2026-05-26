@@ -19,7 +19,8 @@
  * click. A future cleanup pass can add an idle TTL.
  */
 
-import type { HostSessionLike, Logger } from "kolu-shared";
+import type { HostSessionLike } from "kolu-remote-client";
+import type { Logger } from "kolu-shared";
 import { ensureAgent } from "./bootstrap.ts";
 import { HostSession } from "./host-session.ts";
 

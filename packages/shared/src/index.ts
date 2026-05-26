@@ -5,6 +5,5 @@
  *  and the agent integrations (Claude Code transcripts, OpenCode/Codex
  *  WAL subscriptions). The agent-specific contracts live in `anyagent`. */
 
-export type { HostSessionLike } from "./host-session.ts";
 export type { Logger } from "./log.ts";
 export { readTailLines, type TailReadConfig } from "./tail-lines.ts";

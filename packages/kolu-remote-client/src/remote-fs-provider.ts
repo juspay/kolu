@@ -16,7 +16,7 @@
 import type { FsProvider } from "kolu-git";
 import type { GitResult } from "kolu-git";
 import type { Logger } from "kolu-shared";
-import type { HostSessionLike } from "./types.ts";
+import type { HostSessionLike } from "./host-session.ts";
 
 export function remoteFsProvider(session: HostSessionLike): FsProvider {
   return {

@@ -1,8 +1,14 @@
-/** Narrow consumer interface for a per-host RPC channel. Defined
- *  here in kolu-shared so any package that needs to consume a
- *  session (kolu-remote-client, kolu-pty's agentPtyProvider,
- *  kolu-server's meta/* orchestrators) can import the type without
- *  closing a cycle into kolu-server's concrete `HostSession` class.
+/** Narrow consumer interface for a per-host RPC channel.
+ *
+ *  Lives in `kolu-remote-client` because that's the package whose
+ *  whole reason for being is "talk to a remote agent over a typed
+ *  session". `kolu-pty`'s `agentPtyProvider` and `kolu-server`'s
+ *  host-registry both import from here; no dependency cycle.
+ *
+ *  Earlier draft placed this in `kolu-shared` for deduplication, but
+ *  that maximised blast radius: any change to this high-volatility
+ *  transport interface would ripple type-check across every package
+ *  in the monorepo, when only ~3 actually consume it.
  *
  *  The narrowing is deliberate: callers see `call` + `subscribe` and
  *  nothing else. The state machine, heartbeat, reconnect, and

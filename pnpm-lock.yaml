@@ -420,6 +420,9 @@ importers:
       '@xterm/headless':
         specifier: ^6.0.0
         version: 6.0.0
+      kolu-remote-client:
+        specifier: workspace:*
+        version: link:../../kolu-remote-client
       kolu-shared:
         specifier: workspace:*
         version: link:../../shared
