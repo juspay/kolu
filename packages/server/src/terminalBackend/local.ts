@@ -667,19 +667,17 @@ class LocalTerminalBackend implements TerminalBackend {
       meta.lastActivityAt = initial.lastActivityAt;
     if (initial?.intent) meta.intent = initial.intent;
 
-    // `handle` exposes only the abstract `TerminalHandle` shape — write,
-    // resize, screen state. `dispose`/`process`/`foregroundPid` stay
-    // private to this backend (held on `LocalTerminalRecord`).
+    // `PtyHandle` structurally satisfies `TerminalHandle` (write,
+    // resize, getScreenState, getScreenText, pid). The extra methods
+    // `PtyHandle` carries (dispose, process, foregroundPid) are hidden
+    // at the type boundary — `TerminalProcess.handle` is typed as
+    // `TerminalHandle`, so external consumers (router.ts) can't reach
+    // them. Direct assignment instead of a wrap closure avoids
+    // allocating 4 closure-bound delegates per terminal.
     const entry: TerminalProcess = {
       info: { id, pid: ptyHandle.pid },
       meta,
-      handle: {
-        pid: ptyHandle.pid,
-        write: (data) => ptyHandle.write(data),
-        resize: (cols, rows) => ptyHandle.resize(cols, rows),
-        getScreenState: () => ptyHandle.getScreenState(),
-        getScreenText: (start, end) => ptyHandle.getScreenText(start, end),
-      },
+      handle: ptyHandle,
     };
 
     registerTerminal(id, entry);
