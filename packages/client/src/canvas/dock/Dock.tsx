@@ -53,6 +53,7 @@ import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
 import { annotationLine } from "../../intent/text";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
+import { HiddenFooter } from "./HiddenFooter";
 import { AgentSlot, PrPip, SubCountCell } from "./RowIcons";
 import { rowSubline } from "./rowSubline";
 import {
@@ -636,30 +637,5 @@ function chipInitials(
 function chipTooltip(info: TerminalDisplayInfo, bucket: DockRowBucket): string {
   return `${info.key.group} · ${info.key.label} · ${bucket}`;
 }
-
-/** Footer line shown when the activity-window filter dropped at least
- *  one row from the dock. The "show all" link flips the window to
- *  `"all"`, surfacing every parked row at its real bucket — the same
- *  signal the minimap and other consumers read, so the relaxation is
- *  one persistent choice, not a dock-local override. */
-const HiddenFooter: Component<{ parkedCount: number }> = (props) => (
-  <Show when={props.parkedCount > 0 && activityWindow() !== "all"}>
-    <button
-      type="button"
-      data-testid="dock-hidden-footer"
-      onClick={() => setActivityWindow("all")}
-      class="flex items-center gap-1.5 px-3 py-2 border-t border-edge/40 text-[0.65rem] text-fg-3 hover:text-fg hover:bg-surface-2/40 transition-colors text-left cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40"
-      title="Show every terminal, regardless of activity window"
-    >
-      <span class="tabular-nums">{props.parkedCount}</span>
-      <span class="truncate">
-        hidden by{" "}
-        <span class="font-mono">{windowOption(activityWindow()).short}</span>{" "}
-        window
-      </span>
-      <span class="ml-auto text-accent shrink-0">show all</span>
-    </button>
-  </Show>
-);
 
 export default Dock;

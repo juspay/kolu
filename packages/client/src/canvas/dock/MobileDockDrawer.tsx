@@ -22,13 +22,9 @@ import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
 import { annotationLine } from "../../intent/text";
 import { formatTimeAgo } from "../../terminal/staleness";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
-import {
-  activityWindow,
-  setActivityWindow,
-  windowOption,
-} from "../../terminal/activityWindow";
 import type { DockRowBucket } from "./dockRowRanking";
 import type { DockGroup } from "./dockTree";
+import { HiddenFooter } from "./HiddenFooter";
 import { useDockOrder } from "./useDockOrder";
 import { AgentSlot, PrPip, SubCountCell } from "./RowIcons";
 import { rowSubline } from "./rowSubline";
@@ -56,24 +52,11 @@ const MobileDockDrawer: Component<{
           {(group) => <MobileSection group={group} onSelect={handleSelect} />}
         </For>
       </div>
-      <Show when={tree().parkedCount > 0 && activityWindow() !== "all"}>
-        <button
-          type="button"
-          data-testid="mobile-dock-hidden-footer"
-          onClick={() => setActivityWindow("all")}
-          class="flex items-center gap-2 px-3 py-3 border-t border-edge/40 text-[0.75rem] text-fg-3 active:bg-surface-2 text-left cursor-pointer"
-        >
-          <span class="tabular-nums">{tree().parkedCount}</span>
-          <span>
-            hidden by{" "}
-            <span class="font-mono">
-              {windowOption(activityWindow()).short}
-            </span>{" "}
-            window
-          </span>
-          <span class="ml-auto text-accent shrink-0">show all</span>
-        </button>
-      </Show>
+      <HiddenFooter
+        parkedCount={tree().parkedCount}
+        compact
+        testId="mobile-dock-hidden-footer"
+      />
     </div>
   );
 };
