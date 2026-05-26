@@ -607,6 +607,12 @@ importers:
       '@orpc/server':
         specifier: ^1.13.13
         version: 1.13.13(ws@8.20.1)
+      '@orpc/standard-server':
+        specifier: ^1.13.13
+        version: 1.13.13
+      '@orpc/standard-server-peer':
+        specifier: ^1.13.13
+        version: 1.13.13
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11

@@ -395,6 +395,90 @@ export function inMemoryStore<T>(initial: T): CellStore<T> {
   };
 }
 
+/** In-memory Channel — broadcast pub/sub within a single process.
+ *
+ *  Each `subscribe(signal)` returns a fresh async iterator with its own
+ *  pending queue; `publish(value)` pushes into every live queue and
+ *  wakes the corresponding waiter. Use for ephemeral channels inside a
+ *  single Node process — particularly stdio-served surfaces where the
+ *  process IS the only producer and the wire ships the values to a
+ *  remote consumer. Cross-process pub/sub belongs in `publisherChannel`
+ *  with an `@orpc/experimental-publisher` instance.
+ *
+ *  Backpressure: unbounded. Pending values queue until consumed. For
+ *  high-frequency producers consumers can't keep up with, wrap with a
+ *  bounded queue at the call site. For Surface's snapshot+delta model
+ *  this is fine — each yield replaces, not accumulates. */
+export function inMemoryChannel<T>(): Channel<T> {
+  interface Subscriber {
+    pending: T[];
+    resolve: (() => void) | null;
+    aborted: boolean;
+  }
+  const subs = new Set<Subscriber>();
+
+  const wake = (s: Subscriber): void => {
+    if (s.resolve) {
+      const r = s.resolve;
+      s.resolve = null;
+      r();
+    }
+  };
+
+  const subscribe = (signal: AbortSignal | undefined): AsyncIterable<T> => {
+    const sub: Subscriber = { pending: [], resolve: null, aborted: false };
+    subs.add(sub);
+    const onAbort = () => {
+      sub.aborted = true;
+      wake(sub);
+    };
+    signal?.addEventListener("abort", onAbort);
+    return {
+      async *[Symbol.asyncIterator]() {
+        try {
+          while (!sub.aborted) {
+            if (sub.pending.length > 0) {
+              // Shift in a way that handles T = void (where `undefined`
+              // is a valid value): use length check, not value check.
+              const next = sub.pending.shift() as T;
+              yield next;
+              continue;
+            }
+            await new Promise<void>((r) => {
+              sub.resolve = r;
+            });
+          }
+        } finally {
+          signal?.removeEventListener("abort", onAbort);
+          subs.delete(sub);
+        }
+      },
+    };
+  };
+
+  return {
+    publish(value: T): void {
+      for (const sub of subs) {
+        sub.pending.push(value);
+        wake(sub);
+      }
+    },
+    subscribe,
+    consume({ onEvent, onError }): () => void {
+      const controller = new AbortController();
+      void (async () => {
+        try {
+          for await (const value of subscribe(controller.signal))
+            onEvent(value);
+        } catch (err) {
+          if (!controller.signal.aborted) onError(err);
+        }
+      })();
+      return () => controller.abort();
+    },
+  };
+}
+
 /** CellStore backed by a `conf`-style key-value store. Reads/writes one
  *  top-level key on the underlying store; the rest of the on-disk shape
  *  is owned by the consumer (so multiple cells can share one Conf with
