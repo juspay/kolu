@@ -29,7 +29,7 @@ import {
 import type { DockRowBucket } from "./dockRowRanking";
 import type { DockGroup } from "./dockTree";
 import { useDockOrder } from "./useDockOrder";
-import { RowIcons } from "./RowIcons";
+import { AgentSlot, RowIcons } from "./RowIcons";
 
 const MobileDockDrawer: Component<{
   onSelect: (id: TerminalId) => void;
@@ -89,7 +89,7 @@ const MobileSection: Component<{
   <section
     data-testid="mobile-dock-section"
     data-repo={props.group.name}
-    class="grid grid-cols-[minmax(0,1fr)_auto_auto_auto_auto] gap-x-3 px-3"
+    class="grid grid-cols-[auto_minmax(0,1fr)_auto_auto_auto] gap-x-3 px-3"
   >
     <div class="col-span-full flex items-center gap-2 pt-3 pb-1">
       <span
@@ -144,12 +144,13 @@ const MobileRow: Component<{
           // drag-to-dismiss from claiming the tap.
           onPointerDown={(e) => e.stopPropagation()}
           onClick={() => props.onSelect(props.id)}
-          class="relative w-full grid grid-cols-subgrid col-span-full items-center text-left transition-colors duration-150 cursor-pointer active:bg-surface-2 border-b border-edge/15 data-[active]:bg-surface-2 data-[active]:shadow-[inset_3px_0_0_var(--color-accent)]"
+          class="relative w-full grid grid-cols-subgrid col-span-full items-center -ml-[3px] pl-[3px] border-l-[3px] border-l-transparent border-b border-b-edge/15 text-left transition-colors duration-150 cursor-pointer active:bg-surface-2 data-[active]:bg-surface-2 data-[active]:border-l-accent"
           classList={{
             "py-3": live(),
             "py-2": !live(),
           }}
         >
+          <AgentSlot agent={c().meta.agent} />
           <span
             class="font-medium leading-tight truncate min-w-0"
             classList={{
@@ -178,7 +179,7 @@ const MobileRow: Component<{
             {(fg) => (
               <span
                 data-testid="mobile-dock-foreground"
-                class="col-start-1 col-end-[-1] font-mono text-[0.7rem] text-fg-2 truncate min-w-0"
+                class="col-start-2 col-end-[-1] font-mono text-[0.7rem] text-fg-2 truncate min-w-0"
               >
                 {fg()}
               </span>

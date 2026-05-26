@@ -47,7 +47,7 @@ import IntentGlyph from "../../intent/IntentGlyph";
 import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
 import { annotationLine } from "../../intent/text";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
-import { RowIcons } from "./RowIcons";
+import { AgentSlot, RowIcons } from "./RowIcons";
 import {
   activityWindow,
   setActivityWindow,
@@ -347,7 +347,7 @@ const RepoSection: Component<{
   <section
     data-testid="dock-section"
     data-repo={props.group.name}
-    class="grid grid-cols-[minmax(0,1fr)_auto_auto_auto_auto] gap-x-2 px-3"
+    class="grid grid-cols-[auto_minmax(0,1fr)_auto_auto_auto] gap-x-2 px-3"
   >
     <div class="col-span-full flex items-center gap-2 pt-3 pb-1">
       <span
@@ -418,9 +418,10 @@ const DockRow: Component<{
           data-unread={unread() ? "" : undefined}
           data-sub-count={c().info.subCount > 0 ? c().info.subCount : undefined}
           onClick={() => store.activate(props.id)}
-          class="relative w-full grid grid-cols-subgrid col-span-full items-center py-1.5 text-left cursor-pointer transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 hover:bg-surface-2/40 data-[active]:bg-surface-2 data-[active]:shadow-[inset_3px_0_0_var(--color-accent)]"
+          class="relative w-full grid grid-cols-subgrid col-span-full items-center py-1.5 -ml-[3px] pl-[3px] border-l-[3px] border-l-transparent text-left cursor-pointer transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 hover:bg-surface-2/40 data-[active]:bg-surface-2 data-[active]:border-l-accent"
           title="Jump to this terminal"
         >
+          <AgentSlot agent={c().meta.agent} />
           <span
             class="font-medium text-[0.85rem] leading-tight truncate min-w-0"
             style={{
@@ -461,7 +462,7 @@ const DockRow: Component<{
             {(fg) => (
               <span
                 data-testid="dock-quiet-foreground"
-                class="col-start-1 col-end-[-1] font-mono text-[0.65rem] text-fg-2 truncate min-w-0"
+                class="col-start-2 col-end-[-1] font-mono text-[0.65rem] text-fg-2 truncate min-w-0"
               >
                 {fg()}
               </span>

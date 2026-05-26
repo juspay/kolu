@@ -38,20 +38,26 @@ import { agentIcons, stateLabels } from "../../ui/agentDisplay";
 import { PrStateIcon } from "../../ui/Icons";
 import { SubCountChip } from "./SubCountChip";
 
-/** Per-state color + animation for the agent pip — single source so
- *  the dock's pip matches every other agent-state surface in the app
- *  (the tile chrome's `AgentIndicator`, the canvas minimap's badge
- *  dot, the workspace switcher's agent column). `thinking` pulses,
- *  `tool_use` spins; both colour as `busy`. `waiting` and
- *  `awaiting_user` pulse in `warning`. */
+/** Per-state color + animation for the agent pip. Colours match the
+ *  bucket-level palette the workspace switcher and minimap use (see
+ *  `AGENT_BUCKETS` in `canvas/dockModel.ts`) — awaiting → `alert`,
+ *  working → `accent` — so the three live-terminal surfaces present
+ *  one consistent agent-state vocabulary. (The tile chrome's
+ *  `AgentIndicator` uses a state-level palette — `warning` /
+ *  `busy` — for finer thinking-vs-tool_use distinction at full
+ *  label size; the dock is bucket-only and stays in the bucket
+ *  palette.)
+ *
+ *  Working states (`thinking` + `tool_use`) BOTH spin so the dock
+ *  scans as spin = working, pulse = awaiting at a glance. */
 const AGENT_PIP_STATE: Record<
   AgentInfo["state"],
   { color: string; animation: string }
 > = {
-  thinking: { color: "text-busy", animation: "animate-pulse" },
-  tool_use: { color: "text-busy", animation: "animate-spin" },
-  waiting: { color: "text-warning", animation: "animate-pulse" },
-  awaiting_user: { color: "text-warning", animation: "animate-pulse" },
+  thinking: { color: "text-accent", animation: "animate-spin" },
+  tool_use: { color: "text-accent", animation: "animate-spin" },
+  waiting: { color: "text-alert", animation: "animate-pulse" },
+  awaiting_user: { color: "text-alert", animation: "animate-pulse" },
 };
 
 const CHECKS_LABEL: Record<GitHubCheckStatus, string> = {
@@ -65,6 +71,11 @@ function prTooltip(pr: GitHubPrInfo): string {
   return `${prLabel(pr)}${checks}`;
 }
 
+/** Right-side pips (PR + sub-count) — emitted as two grid cells that
+ *  share columns with sibling rows in the section's subgrid. Agent
+ *  pip is NOT here; it lives in the row's first column (see
+ *  `AgentSlot`), so the row's most action-bearing icon sits at the
+ *  left edge where the eye lands first. */
 export const RowIcons: Component<{
   meta: TerminalMetadata;
   info: TerminalDisplayInfo;
@@ -93,11 +104,6 @@ export const RowIcons: Component<{
         </Show>
       </span>
       <span class="flex items-center justify-end">
-        <Show when={props.meta.agent}>
-          {(agent) => <AgentPip agent={agent()} />}
-        </Show>
-      </span>
-      <span class="flex items-center justify-end">
         <Show when={props.info.subCount > 0}>
           <SubCountChip
             count={props.info.subCount}
@@ -109,6 +115,18 @@ export const RowIcons: Component<{
     </>
   );
 };
+
+/** First-column agent slot. Always renders a cell so subgrid placement
+ *  stays stable; the cell is empty for rows without an agent (the
+ *  section's first column then collapses to 0 width if no row in the
+ *  section has an agent). */
+export const AgentSlot: Component<{
+  agent: TerminalMetadata["agent"];
+}> = (props) => (
+  <span class="flex items-center justify-center">
+    <Show when={props.agent}>{(agent) => <AgentPip agent={agent()} />}</Show>
+  </span>
+);
 
 const AgentPip: Component<{ agent: AgentInfo }> = (props) => {
   const Icon = () => agentIcons[props.agent.kind];
