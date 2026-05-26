@@ -91,7 +91,7 @@ const MobileSection: Component<{
     data-repo={props.group.name}
     class="grid grid-cols-[auto_minmax(0,1fr)_auto_auto_auto] gap-x-3 px-3"
   >
-    <div class="col-span-full flex items-center gap-2 pt-3 pb-1">
+    <div class="col-span-full flex items-center gap-2 -mx-3 px-3 py-2 bg-surface-2/60 border-y border-edge/30">
       <span
         aria-hidden="true"
         class="w-2.5 h-2.5 rounded-sm shrink-0"

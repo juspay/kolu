@@ -349,7 +349,12 @@ const RepoSection: Component<{
     data-repo={props.group.name}
     class="grid grid-cols-[auto_minmax(0,1fr)_auto_auto_auto] gap-x-2 px-3"
   >
-    <div class="col-span-full flex items-center gap-2 pt-3 pb-1">
+    {/* Header is a band — bg-surface-2 plus a hairline divider top
+     *  and bottom — so a `KOLU` / `NIXOS-CONFIG` label reads as a
+     *  section break rather than a faint label that blends into
+     *  the rows. `-mx-3` lets the band extend to the section's
+     *  outer edges while the rows keep their `px-3` indentation. */}
+    <div class="col-span-full flex items-center gap-2 -mx-3 px-3 py-1.5 bg-surface-2/60 border-y border-edge/30">
       <span
         aria-hidden="true"
         class="w-2 h-2 rounded-sm shrink-0"
