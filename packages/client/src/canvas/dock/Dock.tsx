@@ -65,6 +65,15 @@ export type DockMode = "rail" | "cards";
 const RAIL_WIDTH_PX = 40;
 const CARDS_WIDTH_PX = 288;
 
+// Breath/pulse animation belongs only to live attention states. Idle,
+// none, and parked rails stay flat — undefined entries fall back to
+// "". Parked rows are filtered before tree construction so the bucket
+// is listed only for exhaustiveness on the lookup type.
+const RAIL_ANIM: Partial<Record<DockRowBucket, string>> = {
+  awaiting: "dock-rail-awaiting",
+  working: "dock-rail-working",
+};
+
 function dockWidth(mode: DockMode): number {
   return mode === "rail" ? RAIL_WIDTH_PX : CARDS_WIDTH_PX;
 }
@@ -567,16 +576,7 @@ const RailSegment: Component<{
   intent: string | undefined;
 }> = (props) => {
   const store = useTerminalStore();
-  // The breath/pulse animation belongs only to live attention states.
-  // Idle/none rails stay flat so the visual budget reads "live signal
-  // here" without false positives. Parked rows never reach the rail —
-  // they're filtered before tree construction.
-  const animClass = () =>
-    props.bucket === "awaiting"
-      ? "dock-rail-awaiting"
-      : props.bucket === "working"
-        ? "dock-rail-working"
-        : "";
+  const animClass = () => RAIL_ANIM[props.bucket] ?? "";
   return (
     <button
       type="button"
