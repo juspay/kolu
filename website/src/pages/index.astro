@@ -432,11 +432,12 @@ const features = [
 </BaseLayout>
 
 <!-- ── Component-scoped styles ─────────────────────────────────────────
-     Live-state animation keyframes live in global.css so they're available
-     site-wide. This block carries the layout + colors specific to the
-     hero terminal frame and the canvas demo strip.
+     Page-local: only the hero terminal frame and canvas demo strip
+     consume these classes. The reusable live-state vocabulary
+     (.live-chip-*, .live-badge, .live-dot, .live-spinner) lives in
+     global.css alongside its keyframes and reduced-motion override.
 -->
-<style is:global>
+<style>
   /* ── Hero terminal frame ─────────────────────────────────────────── */
 
   .hero-term {
