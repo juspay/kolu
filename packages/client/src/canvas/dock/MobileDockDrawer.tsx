@@ -90,7 +90,7 @@ const MobileSection: Component<{
   <section
     data-testid="mobile-dock-section"
     data-repo={props.group.name}
-    class="grid grid-cols-[auto_minmax(0,1fr)_auto_auto_auto] gap-x-3 pl-6 pr-3"
+    class="grid grid-cols-[20px_minmax(0,1fr)_auto_auto_auto] gap-x-3 pl-6 pr-3"
   >
     <div class="col-span-full flex items-center gap-2 -ml-6 -mr-3 pl-3 pr-3 py-2 bg-surface-2/60 border-y border-edge/30">
       <span
@@ -180,11 +180,24 @@ const MobileRow: Component<{
               class="absolute top-1.5 right-2 w-1.5 h-1.5 rounded-full bg-alert animate-pulse"
             />
           </Show>
-          <Show when={!c().meta.agent && foreground(c().meta)}>
+          {/* Agent rows render an invisible placeholder of the same
+           *  height as the plain-shell foreground line so every row
+           *  in the drawer is uniformly two-line tall. */}
+          <Show
+            when={!c().meta.agent && foreground(c().meta)}
+            fallback={
+              <span
+                aria-hidden="true"
+                class="col-start-2 col-end-[-1] font-mono text-[0.7rem] leading-tight invisible"
+              >
+                &nbsp;
+              </span>
+            }
+          >
             {(fg) => (
               <span
                 data-testid="mobile-dock-foreground"
-                class="col-start-2 col-end-[-1] font-mono text-[0.7rem] text-fg-2 truncate min-w-0"
+                class="col-start-2 col-end-[-1] font-mono text-[0.7rem] leading-tight text-fg-2 truncate min-w-0"
               >
                 {fg()}
               </span>

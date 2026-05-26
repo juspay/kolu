@@ -354,7 +354,7 @@ const RepoSection: Component<{
   <section
     data-testid="dock-section"
     data-repo={props.group.name}
-    class="grid grid-cols-[auto_minmax(0,1fr)_auto_auto_auto] gap-x-2 pl-6 pr-3"
+    class="grid grid-cols-[16px_minmax(0,1fr)_auto_auto_auto] gap-x-2 pl-6 pr-3"
   >
     {/* Header is a band — bg-surface-2 plus a hairline divider top
      *  and bottom — so a `KOLU` / `NIXOS-CONFIG` label reads as a
@@ -480,15 +480,27 @@ const DockRow: Component<{
               {props.flatIndex + 1}
             </span>
           </Show>
-          {/* Plain-shell foreground process — `nix build`, `pu connect`,
-           *  etc. Surfaced only when there's no agent in the row, since
-           *  agent-bearing rows already carry the agent-kind pip on
-           *  the right. */}
-          <Show when={!c().meta.agent && foreground(c().meta)}>
+          {/* Plain-shell foreground process — `nix build`, `pu
+           *  connect`, etc. — rendered as a second line under the
+           *  branch. Agent rows render an invisible placeholder of
+           *  the same height so every row in the dock is uniformly
+           *  two-line tall (no reflow between rows with vs without
+           *  agents). */}
+          <Show
+            when={!c().meta.agent && foreground(c().meta)}
+            fallback={
+              <span
+                aria-hidden="true"
+                class="col-start-2 col-end-[-1] font-mono text-[0.65rem] leading-tight invisible"
+              >
+                &nbsp;
+              </span>
+            }
+          >
             {(fg) => (
               <span
                 data-testid="dock-quiet-foreground"
-                class="col-start-2 col-end-[-1] font-mono text-[0.65rem] text-fg-2 truncate min-w-0"
+                class="col-start-2 col-end-[-1] font-mono text-[0.65rem] leading-tight text-fg-2 truncate min-w-0"
               >
                 {fg()}
               </span>
