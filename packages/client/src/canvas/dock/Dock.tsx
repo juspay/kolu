@@ -52,7 +52,7 @@ import { ChevronDownIcon, PlusIcon, SearchIcon } from "../../ui/Icons";
 import { OptionMenu } from "../../ui/OptionMenu";
 import { isPlatformModifier } from "../../input/keyboard";
 import { useViewPosture } from "../useViewPosture";
-import type { DockRowBucket, RankedDockRow } from "./dockRowRanking";
+import type { DockRowBucket } from "./dockRowRanking";
 import type { DockGroup, DockTree } from "./dockTree";
 import { useDockOrder } from "./useDockOrder";
 import PrLine from "./PrLine";
@@ -169,6 +169,13 @@ const RailOrCards: Component<{
   onCreate: () => void;
   onOpenWorkspaceSearch: () => void;
 }> = (props) => {
+  // Pre-built `id → flat position` map. RepoSection used to compute
+  // each row's flat index via `findIndex` over `flatRows`, costing
+  // O(rows²) per render. The map is rebuilt only when the tree
+  // changes (one O(n) pass) and every row reads its position in O(1).
+  const flatIndexOf = createMemo(
+    () => new Map(props.tree.flatRows.map((r, i) => [r.id, i])),
+  );
   return (
     <div class="flex flex-col w-full min-h-0">
       <DockHeader
@@ -182,7 +189,7 @@ const RailOrCards: Component<{
           fallback={
             <For each={props.tree.groups}>
               {(group) => (
-                <RepoSection group={group} flatRows={props.tree.flatRows} />
+                <RepoSection group={group} flatIndexOf={flatIndexOf()} />
               )}
             </For>
           }
@@ -309,7 +316,10 @@ const ActivityWindowMenu: Component = () => {
  *  degenerate-case collapse. */
 const RepoSection: Component<{
   group: DockGroup;
-  flatRows: readonly RankedDockRow[];
+  /** Pre-built `id → flat position` lookup so each row's `Cmd+N` hint
+   *  index is an O(1) read instead of an O(rows) `findIndex` scan per
+   *  row per render. Built once per tree update by `RailOrCards`. */
+  flatIndexOf: ReadonlyMap<TerminalId, number>;
 }> = (props) => (
   <section
     data-testid="dock-section"
@@ -337,7 +347,7 @@ const RepoSection: Component<{
         <DockRow
           id={row.id}
           bucket={row.bucket}
-          flatIndex={props.flatRows.findIndex((r) => r.id === row.id)}
+          flatIndex={props.flatIndexOf.get(row.id) ?? -1}
         />
       )}
     </For>
