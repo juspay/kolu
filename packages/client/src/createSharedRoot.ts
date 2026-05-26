@@ -24,12 +24,10 @@
 import { createRoot } from "solid-js";
 
 export function createSharedRoot<T>(factory: () => T): () => T {
-  let cached: T | null = null;
-  let initialized = false;
+  let cached: T | undefined;
   return () => {
-    if (initialized) return cached as T;
+    if (cached !== undefined) return cached;
     cached = createRoot(factory);
-    initialized = true;
     return cached;
   };
 }
