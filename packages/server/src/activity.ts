@@ -87,7 +87,7 @@ export function trackRecentRepo(repoRoot: string, repoName: string): void {
 }
 
 /** Upsert a normalized agent command into the recent agents MRU.
- *  Called from `meta/agent-command.ts` whenever the preexec OSC 633;E
+ *  Called from `LocalTerminalBackend`'s agent-command tracker whenever the preexec OSC 633;E
  *  handler fires with a command whose first token matches a known agent
  *  binary. The `command` string is the normalized form produced by
  *  `parseAgentCommand` — raw prompt text has already been stripped. */

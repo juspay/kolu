@@ -7,7 +7,7 @@
  *     `router.ts`.
  *   - `surfaceCtx` — typed `cells / collections / events` mutation map.
  *     Domain modules (`activity.ts`, `session.ts`, `terminals.ts`,
- *     `meta/state.ts`) import this and call `surfaceCtx.cells.X.set(...)`,
+ *     `terminalBackend/metadata.ts`) import this and call `surfaceCtx.cells.X.set(...)`,
  *     `surfaceCtx.collections.X.upsert(k, v)`, `surfaceCtx.events.X.publish(i, p)`.
  *     The framework owns the apply+publish chain (and per-input event
  *     channel); domain code never sees a channel name string.
@@ -44,15 +44,8 @@ import {
   type FsReadFileOutput,
   fsReadFileOutputEqual,
   type GitResult,
-  getDiff,
-  getStatus,
   gitDiffOutputEqual,
   gitStatusOutputEqual,
-  listAll,
-  readFile,
-  statFileMtimeMs,
-  subscribeFileChange,
-  subscribeRepoChange,
 } from "kolu-git";
 import {
   buildIframePreviewUrl,
@@ -62,6 +55,7 @@ import { log } from "./log.ts";
 import { publisher } from "./publisher.ts";
 import { cancelPendingAutosave, getSavedSession } from "./session.ts";
 import { store } from "./state.ts";
+import { getTerminalBackendFor } from "./terminalBackend/index.ts";
 import { getTerminal, listTerminals } from "./terminal-registry.ts";
 
 // `t` is the host router builder; both `surfaceRouter` and the raw oRPC
@@ -194,7 +188,7 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
         // Server-internal collection: clients can't write. The `upsert`/
         // `remove` no-ops let `surfaceCtx.collections.terminalMetadata.upsert`
         // publish without re-mutating the registry (the registry is the
-        // store; meta/state.ts mutates entry.meta in place before
+        // store; `terminalBackend/metadata.ts` mutates entry.meta in place before
         // calling ctx.upsert).
         upsert: () => {},
         remove: () => {},
@@ -202,38 +196,55 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
     },
 
     streams: {
+      // fs/git streams are per-host one-shot ops; R-1 has only the
+      // local backend, but every read/install dispatches through the
+      // resolver so R-2 can branch on a `location` input without
+      // touching this block again.
       gitStatus: {
         read: async (input) =>
-          unwrapGit(await getStatus(input.repoPath, input.mode, log)),
-        install: (input, cb) => subscribeRepoChange(input.repoPath, cb, log),
+          getTerminalBackendFor({ kind: "local" }).git.getStatus(
+            input.repoPath,
+            input.mode,
+          ),
+        install: (input, cb) =>
+          getTerminalBackendFor({ kind: "local" }).fs.subscribeRepoChange(
+            input.repoPath,
+            cb,
+          ),
         isEqual: gitStatusOutputEqual,
       },
       gitDiff: {
         read: async (input) =>
-          unwrapGit(
-            await getDiff(
-              input.repoPath,
-              input.filePath,
-              input.mode,
-              log,
-              input.oldPath,
-            ),
+          getTerminalBackendFor({ kind: "local" }).git.getDiff(
+            input.repoPath,
+            input.filePath,
+            input.mode,
+            input.oldPath,
           ),
-        install: (input, cb) => subscribeRepoChange(input.repoPath, cb, log),
+        install: (input, cb) =>
+          getTerminalBackendFor({ kind: "local" }).fs.subscribeRepoChange(
+            input.repoPath,
+            cb,
+          ),
         isEqual: gitDiffOutputEqual,
       },
       fsListAll: {
-        read: async (input) => ({
-          paths: unwrapGit(await listAll(input.repoPath, log)),
-        }),
-        install: (input, cb) => subscribeRepoChange(input.repoPath, cb, log),
+        read: async (input) =>
+          getTerminalBackendFor({ kind: "local" }).fs.listAll(input.repoPath),
+        install: (input, cb) =>
+          getTerminalBackendFor({ kind: "local" }).fs.subscribeRepoChange(
+            input.repoPath,
+            cb,
+          ),
         isEqual: fsListAllOutputEqual,
       },
       fsReadFile: {
         read: async (input): Promise<FsReadFileOutput> => {
+          const backend = getTerminalBackendFor({ kind: "local" });
           if (isIframePreviewable(input.filePath)) {
-            const mtimeMs = unwrapGit(
-              await statFileMtimeMs(input.repoPath, input.filePath, log),
+            const mtimeMs = await backend.fs.statFileMtimeMs(
+              input.repoPath,
+              input.filePath,
             );
             return {
               kind: "binary",
@@ -244,13 +255,18 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
               ),
             };
           }
-          const { content, truncated } = unwrapGit(
-            await readFile(input.repoPath, input.filePath, log),
+          const { content, truncated } = await backend.fs.readFile(
+            input.repoPath,
+            input.filePath,
           );
           return { kind: "text", content, truncated };
         },
         install: (input, cb) =>
-          subscribeFileChange(input.repoPath, input.filePath, cb, log),
+          getTerminalBackendFor({ kind: "local" }).fs.subscribeFileChange(
+            input.repoPath,
+            input.filePath,
+            cb,
+          ),
         isEqual: fsReadFileOutputEqual,
       },
     },
