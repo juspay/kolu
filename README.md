@@ -20,9 +20,11 @@ Two principles shape what kolu is and isn't:
 
 [Install Nix](https://nixos.asia/en/install) and then run:
 
+The same command runs kolu and updates it — `--refresh` busts Nix's flake cache so you always pull the latest commit:
+
 ```sh
-nix run github:juspay/kolu       # serve on 127.0.0.1:7681
-nix run github:juspay/kolu -- --host 0.0.0.0 --port 8080  # expose on LAN
+nix --refresh run github:juspay/kolu       # serve on 127.0.0.1:7681
+nix --refresh run github:juspay/kolu -- --host 0.0.0.0 --port 8080  # expose on LAN
 ```
 
 Open http://127.0.0.1:7681 (or the address you chose above).
