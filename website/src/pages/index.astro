@@ -724,16 +724,25 @@ const features = [
   .hero-chip.is-active {
     box-shadow: 0 0 0 2px var(--color-amber);
   }
+  /* Each repo chip is a saturated swatch + matching text + matching
+     border, mixed against the chip's own surface (not transparent) so
+     the tint is solid and readable in both modes. The previous 14%
+     transparent overlay washed out on light bg and read tan/brown for
+     the alert family. */
   .hero-chip-repo-a {
-    background: color-mix(in srgb, var(--color-live-teal) 14%, transparent);
+    background: color-mix(in srgb, var(--color-live-teal) 28%, var(--color-void-raised));
+    color: var(--color-live-teal);
+    border-color: color-mix(in srgb, var(--color-live-teal) 50%, var(--color-rule-strong));
   }
   .hero-chip-repo-b {
-    background: color-mix(in srgb, var(--color-live-alert) 14%, transparent);
-    color: color-mix(in srgb, var(--color-live-alert) 70%, var(--color-ink));
+    background: color-mix(in srgb, var(--color-live-alert) 28%, var(--color-void-raised));
+    color: var(--color-live-alert);
+    border-color: color-mix(in srgb, var(--color-live-alert) 50%, var(--color-rule-strong));
   }
   .hero-chip-repo-c {
-    background: color-mix(in srgb, var(--color-live-violet) 14%, transparent);
-    color: color-mix(in srgb, var(--color-live-violet) 70%, var(--color-ink));
+    background: color-mix(in srgb, var(--color-live-violet) 28%, var(--color-void-raised));
+    color: var(--color-live-violet);
+    border-color: color-mix(in srgb, var(--color-live-violet) 50%, var(--color-rule-strong));
   }
 
   .hero-term-stack {

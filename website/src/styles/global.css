@@ -44,7 +44,7 @@
      the earlier muted version made the marketing page look dimmer
      than the product it advertises. */
   --color-live-teal: #00ffd4;
-  --color-live-alert: #ff6b1a;
+  --color-live-alert: #ef4444;
   --color-live-violet: #ff3ec9;
   --color-live-lime: #7cff5b;
 
@@ -100,7 +100,7 @@
   /* Light-mode live-state accents — deepened versions of the electric
      dark tokens. Still saturated, still loud against warm paper. */
   --color-live-teal: #007a6c;
-  --color-live-alert: #b34800;
+  --color-live-alert: #dc2626;
   --color-live-violet: #c5008a;
   --color-live-lime: #1a8500;
 }
@@ -334,10 +334,12 @@ body {
   animation: glow-working 1.6s ease-in-out infinite;
 }
 
+/* Awaiting state is shown via the breath-ring animation and the
+   live-badge dot — NOT by overriding the chip's repo background.
+   That keeps the chip's identity (its repo tint) intact while the
+   ring + badge convey the state. */
 .live-chip-awaiting {
   animation: breath-ring 1.4s ease-in-out infinite;
-  background: color-mix(in srgb, var(--color-live-alert) 16%, transparent);
-  color: color-mix(in srgb, var(--color-live-alert) 80%, var(--color-ink));
 }
 
 .live-badge {
