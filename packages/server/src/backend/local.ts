@@ -196,11 +196,19 @@ export class LocalBackend implements Backend {
     // PTY. The PTY's `onExit` callback (above) checks `getTerminal(id)`
     // to decide `wasNatural`; if we disposed first, it could race and
     // mis-classify this kill as natural.
-    entry.stopProviders();
-    cleanupTerminalScratch(terminalId);
     unregisterTerminal(terminalId);
-    entry.handle.dispose();
+    this.killTerminalEntry(entry);
     return true;
+  }
+
+  killTerminalEntry(entry: {
+    info: { id: string };
+    handle: { dispose(): void };
+    stopProviders: () => void;
+  }): void {
+    entry.stopProviders();
+    cleanupTerminalScratch(entry.info.id);
+    entry.handle.dispose();
   }
 
   fs: BackendFs = {

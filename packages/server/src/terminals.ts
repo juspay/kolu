@@ -31,8 +31,7 @@ import type {
   TerminalId,
   TerminalInfo,
 } from "kolu-common/surface";
-import { localBackend } from "./backend/local.ts";
-import { cleanupTerminalScratch } from "./terminalScratch.ts";
+import { getBackendFor, localBackend } from "./backend/index.ts";
 import { log } from "./log.ts";
 import { updateClientMetadata } from "./meta/index.ts";
 import { terminalsDirtyChannel } from "./publisher.ts";
@@ -147,7 +146,7 @@ export function killTerminal(id: TerminalId): TerminalInfo | undefined {
   const entry = getTerminal(id);
   if (!entry) return undefined;
   const info = entry.info;
-  localBackend.killTerminal(id);
+  getBackendFor(entry.meta.location).killTerminal(id);
   emitChanged();
   emitListChanged();
   return info;
@@ -280,10 +279,13 @@ export function setTerminalIntent(id: TerminalId, intent: string): void {
 export function killAllTerminals(): void {
   const entries = drainTerminals();
   log.info({ count: entries.length }, "killing all terminals");
+  // Route per-entry teardown through each terminal's backend so this
+  // path stays in lockstep with `killTerminal` and `dispose()` — see
+  // the kill-convergence invariant in `backend.ts`. R-2's
+  // `RemoteBackend.killTerminalEntry` will issue the RPC kill against
+  // the agent without the loop ever knowing the backend kind.
   for (const entry of entries) {
-    entry.stopProviders();
-    entry.handle.dispose();
-    cleanupTerminalScratch(entry.info.id);
+    getBackendFor(entry.meta.location).killTerminalEntry(entry);
   }
   emitListChanged();
 }

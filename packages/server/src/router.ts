@@ -143,7 +143,7 @@ export const appRouter = t.router({
      */
     attach: t.terminal.attach.handler(async function* ({ input, signal }) {
       const entry = requireTerminal(input.id);
-      const backend = getBackendFor(entry);
+      const backend = getBackendFor(entry.meta.location);
       const live = backend.terminalChannel(input.id, "data", signal);
       const screenState = entry.handle.getScreenState();
       if (screenState) yield screenState;

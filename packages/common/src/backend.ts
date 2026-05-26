@@ -178,6 +178,19 @@ export interface Backend {
    *  invariant in the module doc. */
   killTerminal(terminalId: string): boolean;
 
+  /** Tear down a terminal whose entry the caller already holds — used
+   *  by bulk-kill paths that drain the registry first and want the
+   *  per-entry teardown without a second registry lookup. The contract
+   *  is "same teardown as `killTerminal`, applied to a specific entry
+   *  the caller is responsible for having removed from the shared
+   *  registry already." Single entry point keeps the kill-convergence
+   *  invariant holding across bulk and single-target paths. */
+  killTerminalEntry(entry: {
+    info: { id: string };
+    handle: { dispose(): void };
+    stopProviders: () => void;
+  }): void;
+
   /** Filesystem and git one-shot ops on the backend's filesystem. */
   readonly fs: BackendFs;
   readonly git: BackendGit;
