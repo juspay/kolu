@@ -47,6 +47,7 @@
 import { makePersisted } from "@solid-primitives/storage";
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import { type Component, For, Show, createMemo, createSignal } from "solid-js";
+import { createSharedRoot } from "../../createSharedRoot";
 import { formatTimeAgo } from "../../terminal/staleness";
 import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
 import { annotationLine } from "../../intent/text";
@@ -87,20 +88,25 @@ function dockWidth(mode: DockMode): number {
 // `Cmd+1..9` will target. Same modifier as the shortcut itself — the
 // hint and the chord that fires it share one key, so users learn the
 // mapping by holding-then-pressing without re-mapping a separate
-// discovery modifier in their head. Module-scope so a single pair of
-// window listeners fans out to every DockRow.
-const [modHeld, setModHeld] = createSignal(false);
-if (typeof window !== "undefined") {
-  const refresh = (e: KeyboardEvent) => setModHeld(isPlatformModifier(e));
-  const clear = () => setModHeld(false);
-  window.addEventListener("keydown", refresh);
-  window.addEventListener("keyup", refresh);
-  // Tab-away can drop the keyup that would otherwise reset state; the
-  // hint would visibly stick to "mod held" until the user re-focused
-  // and pressed the modifier again. Blur and visibility-change both reset.
-  window.addEventListener("blur", clear);
-  document.addEventListener("visibilitychange", clear);
-}
+// discovery modifier in their head. The signal + four window listeners
+// live inside a `createSharedRoot` so they participate in the same
+// reactive-owner lifecycle as the other module-scope singletons (no
+// orphan listeners running outside an owner, tearable down in tests).
+const useModHeld = createSharedRoot(() => {
+  const [modHeld, setModHeld] = createSignal(false);
+  if (typeof window !== "undefined") {
+    const refresh = (e: KeyboardEvent) => setModHeld(isPlatformModifier(e));
+    const clear = () => setModHeld(false);
+    window.addEventListener("keydown", refresh);
+    window.addEventListener("keyup", refresh);
+    // Tab-away can drop the keyup that would otherwise reset state; the
+    // hint would visibly stick to "mod held" until the user re-focused
+    // and pressed the modifier again. Blur + visibility-change reset.
+    window.addEventListener("blur", clear);
+    document.addEventListener("visibilitychange", clear);
+  }
+  return modHeld;
+});
 
 /** Two-state mode persisted per-device. `"cards"` is the default — the
  *  dock surfaces real context first, ambient compression on opt-in. */
@@ -422,6 +428,7 @@ const DockRow: Component<{
   });
   const active = () => store.activeId() === props.id;
   const unread = () => store.isUnread(props.id);
+  const modHeld = useModHeld();
   const showShortcutHint = () => modHeld() && props.flatIndex < 9;
   return (
     <Show when={combined()}>
@@ -562,6 +569,7 @@ const RailChip: Component<{
   });
   const active = () => store.activeId() === props.id;
   const unread = () => store.isUnread(props.id);
+  const modHeld = useModHeld();
   const showShortcutHint = () => modHeld() && props.flatIndex < 9;
   return (
     <Show when={combined()}>
