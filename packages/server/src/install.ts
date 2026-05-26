@@ -14,12 +14,14 @@
  * fail with `Exec format error` when the local builder can't run the
  * remote's binaries).
  *
- * **Configuration**: `KOLU_AGENT_FLAKE_REF` env var (default
- * `github:juspay/kolu/surface-subsumption-r2-stack` — the branch on
- * which kolu-server learned to speak `agentSurface`). For dev: set it
- * to a local-pushed branch. For prod: pin to a tag. **Bump the default
- * whenever the wire contract changes**, otherwise the kolu-server's
- * typed client and the remote agent diverge and every RPC 404s.
+ * **Configuration**: `KOLU_AGENT_FLAKE_REF` env var, **required** —
+ * no default. The kolu-server's typed surface client and the remote
+ * agent's router must be built from the same source; a baked-in
+ * fallback masks wire-shape drift (kolu-server speaks
+ * `surface.X`, agent still has `agentContract.X` → every RPC 404s
+ * silently). Failing fast at the first remote-terminal spawn forces
+ * the operator to pick a ref explicitly. Set it to a pushed branch
+ * (dev) or a release tag (prod).
  *
  * **Why not `nix copy` from local?** The earlier draft built kolu for
  * the remote system locally (`nix build --system <remoteSystem>`) and
@@ -37,16 +39,29 @@ import { log } from "./log.ts";
 
 const execFileP = promisify(execFile);
 
-/** Flake ref that exposes the kolu `default` package. Settable via
- *  `KOLU_AGENT_FLAKE_REF` env var; defaults to this PR's branch
- *  (the one that speaks `agentSurface`). Without this update, a
- *  kolu-server built from this branch would spawn an old agent from
- *  PR #976 and every `surface.*` call would 404. */
+/** Flake ref that exposes the kolu `default` package. Required — no
+ *  default. The kolu-server speaks `agentSurface` over the wire; the
+ *  agent it spawns must speak the same shape, which means the agent
+ *  has to be built from a flake that includes this surface. A baked-
+ *  in fallback would hide the contract-drift bug class (server calls
+ *  `surface.X`, agent serves `agentContract.X`, every RPC 404s) — so
+ *  this function throws if the env var is unset, forcing the operator
+ *  to choose a ref explicitly. Called per remote-terminal spawn, so
+ *  the failure surfaces at the first attempt to use the feature, not
+ *  at process start (kolu still runs fine for local terminals
+ *  without this set). */
 function getAgentFlakeRef(): string {
-  return (
-    process.env.KOLU_AGENT_FLAKE_REF ??
-    "github:juspay/kolu/surface-subsumption-r2-stack"
-  );
+  const ref = process.env.KOLU_AGENT_FLAKE_REF;
+  if (!ref) {
+    throw new Error(
+      "KOLU_AGENT_FLAKE_REF is required for remote terminals. " +
+        "Set it to a pushed branch (dev) or a release tag (prod) — " +
+        "e.g. KOLU_AGENT_FLAKE_REF=github:juspay/kolu/master. " +
+        "No default is provided because a stale default would mask " +
+        "wire-shape drift between kolu-server and the remote agent.",
+    );
+  }
+  return ref;
 }
 
 /**
