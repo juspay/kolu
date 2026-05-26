@@ -12,8 +12,9 @@
  *  ("deps never change identity") held together by a comment. */
 
 import type { TerminalId } from "kolu-common/surface";
-import { createRoot, createSignal } from "solid-js";
+import { createSignal } from "solid-js";
 import { toast } from "solid-sonner";
+import { createSharedRoot } from "../createSharedRoot";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { client } from "../wire";
 
@@ -75,10 +76,4 @@ function init() {
   } as const;
 }
 
-let cached: ReturnType<typeof init> | undefined;
-
-/** Lazy module-scope singleton. */
-export function useIntentEditor() {
-  if (!cached) cached = createRoot(() => init());
-  return cached;
-}
+export const useIntentEditor = createSharedRoot(init);
