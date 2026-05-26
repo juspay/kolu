@@ -12,7 +12,8 @@
  *  The mobile pull-handle has its own one-row layout — see
  *  `TerminalMetaCompact`. */
 
-import { prLabel, prUnavailableSource, prValue } from "kolu-github/schemas";
+import { prUnavailableSource, prValue } from "kolu-github/schemas";
+import { prTooltip } from "./prTooltip";
 import { type Component, Show } from "solid-js";
 import { IntentMarkdownInline } from "../intent/IntentMarkdown";
 import { annotationLine } from "../intent/text";
@@ -122,7 +123,7 @@ const TerminalMeta: Component<{
                 <span
                   class="flex items-center gap-1 text-fg-2 truncate min-w-0"
                   data-testid="terminal-meta-pr"
-                  title={prLabel(pr())}
+                  title={prTooltip(pr())}
                 >
                   <PrStateIcon state={pr().state} class="w-3 h-3" />
                   <Show when={pr().checks}>
@@ -196,7 +197,7 @@ export const TerminalMetaCompact: Component<{
                 target="_blank"
                 rel="noopener noreferrer"
                 class="text-xs font-mono text-fg-3 hover:text-accent shrink-0"
-                title={prLabel(pr())}
+                title={prTooltip(pr())}
                 onClick={(e) => e.stopPropagation()}
                 onPointerDown={(e) => e.stopPropagation()}
               >

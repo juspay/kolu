@@ -24,17 +24,12 @@
  *  hover surfaces `#123 Title — Checks: pending`. */
 
 import type { AgentInfo, TerminalMetadata } from "kolu-common/surface";
-import {
-  type GitHubCheck,
-  type GitHubCheckStatus,
-  type GitHubPrInfo,
-  prLabel,
-  prValue,
-} from "kolu-github/schemas";
+import { type GitHubPrInfo, prValue } from "kolu-github/schemas";
 import { type Component, Show } from "solid-js";
 import { Dynamic } from "solid-js/web";
 import { agentBucket, bucketDescriptor } from "../dockModel";
 import ChecksIndicator from "../../terminal/ChecksIndicator";
+import { prTooltip } from "../../terminal/prTooltip";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import { agentIcons, stateLabels } from "../../ui/agentDisplay";
 import { PrStateIcon } from "../../ui/Icons";
@@ -69,47 +64,6 @@ function pipConfig(agent: AgentInfo): { color: string; animation: string } {
   // `AgentInfo` is in hand but the type isn't aware. Return a
   // neutral fallback so the pip stays visible.
   return { color: bucketDescriptor("none").textClass, animation: "" };
-}
-
-const CHECKS_LABEL: Record<GitHubCheckStatus, string> = {
-  pass: "all pass",
-  pending: "pending",
-  fail: "fail",
-};
-
-const CHECK_GLYPH: Record<GitHubCheckStatus, string> = {
-  pass: "✓",
-  pending: "…",
-  fail: "✗",
-};
-
-/** Multi-line PR tooltip — `#N Title` headline, a one-line check
- *  summary, then a per-check list so the user sees exactly which
- *  gate is red without opening the PR. `title` attributes preserve
- *  newlines natively across modern browsers, so this all renders as
- *  a stacked tooltip. */
-function prTooltip(pr: GitHubPrInfo): string {
-  if (pr.checks === null) return prLabel(pr);
-  // Older server payloads emit `checks` (the rollup) without
-  // `checkRuns` (the per-check list); schema defaults the latter to
-  // `[]`. Show only the aggregate verdict in that case — the
-  // parenthesized "0✓ 0… 0✗" tally would otherwise misrepresent a
-  // real check status as "no checks ran".
-  if (pr.checkRuns.length === 0) {
-    return `${prLabel(pr)}\n\nChecks: ${CHECKS_LABEL[pr.checks]}`;
-  }
-  const counts = pr.checkRuns.reduce(
-    (acc, c) => {
-      acc[c.outcome] += 1;
-      return acc;
-    },
-    { pass: 0, pending: 0, fail: 0 },
-  );
-  const summary = `Checks: ${CHECKS_LABEL[pr.checks]} (${counts.pass}✓ ${counts.pending}… ${counts.fail}✗)`;
-  const list = pr.checkRuns
-    .map((c: GitHubCheck) => `  ${CHECK_GLYPH[c.outcome]} ${c.name}`)
-    .join("\n");
-  return `${prLabel(pr)}\n\n${summary}\n${list}`;
 }
 
 /** Right-side pips (PR + sub-count) — emitted as two grid cells that

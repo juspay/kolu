@@ -5,6 +5,7 @@
 import Dialog from "@corvu/dialog";
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import { prValue } from "kolu-github/schemas";
+import { prTooltip } from "./terminal/prTooltip";
 import { type Component, Show } from "solid-js";
 import ChecksIndicator from "./terminal/ChecksIndicator";
 import { PrStateIcon, WorktreeIcon } from "./ui/Icons";
@@ -139,6 +140,7 @@ const CloseConfirm: Component<{
                 rel="noopener noreferrer"
                 class="flex items-center gap-1.5 text-xs bg-surface-2 rounded-lg px-2.5 py-2 hover:bg-surface-3 transition-colors"
                 data-testid="close-confirm-pr"
+                title={prTooltip(pr())}
               >
                 <PrStateIcon state={pr().state} class="w-3.5 h-3.5 shrink-0" />
                 <Show when={pr().checks}>

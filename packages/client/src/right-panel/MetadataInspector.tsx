@@ -3,7 +3,7 @@
 
 import type { TerminalMetadata } from "kolu-common/surface";
 import { prUnavailableSource, prValue } from "kolu-github/schemas";
-import { type Component, Show } from "solid-js";
+import { type Component, For, Show } from "solid-js";
 import { Dynamic } from "solid-js/web";
 import ChecksIndicator from "../terminal/ChecksIndicator";
 import { ProviderUnavailableContent } from "../terminal/PrUnavailablePopover";
@@ -98,6 +98,31 @@ const MetadataInspector: Component<{
                         <span class="capitalize">{checks()}</span>
                       </Row>
                     )}
+                  </Show>
+                  {/* Per-check breakdown rendered inline — same data
+                   *  the dock-pip / tile-title tooltip carries, but
+                   *  inspector has the real estate to lay it out
+                   *  vertically so a fail/pending list is scannable
+                   *  without hovering. Skipped when the server
+                   *  hasn't sent per-check entries (older payload). */}
+                  <Show when={pr().checkRuns.length > 0}>
+                    <Row label="Checks">
+                      <ul
+                        data-testid="inspector-pr-checks"
+                        class="flex flex-col gap-0.5 text-[11px]"
+                      >
+                        <For each={pr().checkRuns}>
+                          {(c) => (
+                            <li class="flex items-center gap-1.5 min-w-0">
+                              <ChecksIndicator status={c.outcome} />
+                              <span class="font-mono truncate min-w-0">
+                                {c.name}
+                              </span>
+                            </li>
+                          )}
+                        </For>
+                      </ul>
+                    </Row>
                   </Show>
                 </div>
               </Section>

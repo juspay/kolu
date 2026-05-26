@@ -36,8 +36,9 @@ import {
   type DockEntry,
   type DockSourceEntry,
 } from "../dockModel";
-import { prLabel, prValue } from "kolu-github/schemas";
+import { prValue } from "kolu-github/schemas";
 import ChecksIndicator from "../../terminal/ChecksIndicator";
+import { prTooltip } from "../../terminal/prTooltip";
 import { PrStateIcon } from "../../ui/Icons";
 import { agentLabel, metaLine, tokenLine } from "./dockRowChrome";
 
@@ -532,7 +533,7 @@ const WorkspaceCard: Component<{
             <span
               class="flex items-center gap-1 text-[0.65rem] text-fg-2 shrink-0"
               data-testid="workspace-switcher-card-pr"
-              title={prLabel(summary())}
+              title={prTooltip(summary())}
             >
               <PrStateIcon state={summary().state} class="w-3 h-3" />
               <Show when={summary().checks}>
