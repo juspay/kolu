@@ -298,39 +298,70 @@ const DockGroupHeader: Component<{
       data-group-depth={props.group.depth}
       data-folded={props.folded ? "" : undefined}
       onClick={() => toggleGroupFold(props.group.key)}
-      class="flex items-center gap-1.5 text-left text-fg-2 hover:text-fg-1 transition-colors border-b border-edge/30 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40"
+      // Two visual tiers — repo headers are the landmark band (uppercase
+      // tracked mono on a tinted strip with a swatch), branch sub-headers
+      // are an inline subsection marker (lowercase sans, muted, no tint,
+      // no swatch). The visual weight has to drop sharply at depth 1 or
+      // a multi-branch repo's stack of sub-headers reads as a wall of
+      // identical caps headers competing with the actual rows.
+      class="flex items-center gap-1.5 text-left cursor-pointer transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40"
       classList={{
-        "px-2 py-1": props.mode === "cards",
-        "px-1 py-1 justify-center": props.mode === "rail",
-        "bg-surface-2/40": props.group.depth === 0 && props.mode === "cards",
-        "pl-5": props.group.depth === 1 && props.mode === "cards",
+        // Depth 0 — repo landmark
+        "bg-surface-2/40 border-b border-edge/30 px-2 py-1 text-fg-1 hover:text-fg-0":
+          props.group.depth === 0 && props.mode === "cards",
+        // Depth 1 — branch subsection: no tint, lighter color, tighter
+        // padding, indented from the repo header so the hierarchy reads.
+        "px-2 py-[3px] pl-6 text-fg-3 hover:text-fg-2":
+          props.group.depth === 1 && props.mode === "cards",
+        // Rail mode — just the chevron centered in the narrow strip.
+        "px-1 py-1 justify-center text-fg-2": props.mode === "rail",
       }}
       title={props.folded ? "Expand group" : "Collapse group"}
       aria-expanded={!props.folded}
     >
       <span
-        class="shrink-0 inline-flex items-center justify-center w-3 h-3 text-fg-3 transition-transform duration-200"
-        classList={{ "-rotate-90": props.folded }}
+        class="shrink-0 inline-flex items-center justify-center transition-transform duration-200"
+        classList={{
+          "w-3 h-3 text-fg-3": props.group.depth === 0,
+          "w-2.5 h-2.5 text-fg-3/70": props.group.depth === 1,
+          "-rotate-90": props.folded,
+        }}
         aria-hidden="true"
       >
-        <ChevronDownIcon class="w-2.5 h-2.5" />
+        <ChevronDownIcon
+          class={
+            props.group.depth === 0 ? "w-2.5 h-2.5" : "w-[0.5rem] h-[0.5rem]"
+          }
+        />
       </span>
       <Show when={props.mode === "cards"}>
+        {/* Color swatch lives on the repo landmark only; branch
+         *  sub-headers nested inside it inherit identity from the
+         *  parent, so a second swatch would just add visual noise. */}
+        <Show when={props.group.depth === 0}>
+          <span
+            aria-hidden="true"
+            class="shrink-0 w-2 h-2 rounded-sm"
+            style={{ "background-color": props.group.color }}
+          />
+        </Show>
         <span
-          aria-hidden="true"
-          class="shrink-0 w-2 h-2 rounded-sm"
-          style={{ "background-color": props.group.color }}
-        />
-        <span
-          class="font-mono text-[0.65rem] uppercase tracking-[0.08em] truncate min-w-0"
+          class="truncate min-w-0"
           classList={{
-            "font-semibold text-fg-1": props.group.depth === 0,
-            "text-fg-2": props.group.depth === 1,
+            "font-mono text-[0.65rem] uppercase tracking-[0.08em] font-semibold":
+              props.group.depth === 0,
+            "text-[0.72rem] font-normal": props.group.depth === 1,
           }}
         >
           {props.group.label}
         </span>
-        <span class="ml-auto text-[0.65rem] font-mono text-fg-3 tabular-nums shrink-0">
+        <span
+          class="ml-auto font-mono text-fg-3 tabular-nums shrink-0"
+          classList={{
+            "text-[0.65rem]": props.group.depth === 0,
+            "text-[0.6rem] opacity-70": props.group.depth === 1,
+          }}
+        >
           {props.group.terminalCount}
         </span>
       </Show>
