@@ -10,6 +10,35 @@ const posts = (await getCollection('blog')).sort(
 );
 const latest = posts[0];
 
+// Marketing dock — one demo roster, rendered twice (hero terminal frame
+// + canvas demo strip). Keeping the chip list as data avoids two parallel
+// blocks of markup that have to stay visually consistent by memory.
+type DockChip = {
+  label: string;
+  repoTint: 'a' | 'b' | 'c';
+  state?: 'working' | 'awaiting';
+  hasBadge?: boolean;
+  title: string;
+};
+
+const dockChips: DockChip[] = [
+  {
+    label: 'Kd',
+    repoTint: 'a',
+    state: 'working',
+    title: 'kolu · feat-dock — claude · thinking',
+  },
+  {
+    label: 'Kc',
+    repoTint: 'a',
+    state: 'awaiting',
+    hasBadge: true,
+    title: 'kolu · feat-canvas — codex · awaiting you',
+  },
+  { label: 'Am', repoTint: 'b', title: 'api · main — zsh' },
+  { label: 'Db', repoTint: 'c', title: 'docs · blog' },
+];
+
 // Features — ordered to lead with what makes kolu unmistakable (real
 // xterm.js tiles on a 2D canvas with live agent status). Positioning
 // claims (agent-agnostic, zero setup) follow as *consequences* of the
@@ -155,12 +184,22 @@ const features = [
       <!-- Right: faux xterm frame, dock on its left edge -->
       <div class="reveal reveal-3 hero-term">
         <div class="hero-term-dock" aria-hidden="true">
-          <div class="hero-chip hero-chip-repo-a live-chip-working" title="kolu · feat-dock — claude · thinking">Kd</div>
-          <div class="hero-chip hero-chip-repo-a live-chip-awaiting" title="kolu · feat-canvas — codex · awaiting you">
-            <span class="live-badge"></span>Kc
-          </div>
-          <div class="hero-chip hero-chip-repo-b" title="api · main — zsh">Am</div>
-          <div class="hero-chip hero-chip-repo-c" title="docs · blog">Db</div>
+          {
+            dockChips.map((c) => (
+              <div
+                class:list={[
+                  'hero-chip',
+                  `hero-chip-repo-${c.repoTint}`,
+                  c.state === 'working' && 'live-chip-working',
+                  c.state === 'awaiting' && 'live-chip-awaiting',
+                ]}
+                title={c.title}
+              >
+                {c.hasBadge && <span class="live-badge" />}
+                {c.label}
+              </div>
+            ))
+          }
         </div>
         <div class="hero-term-stack">
           <div class="hero-term-titlebar">
@@ -212,10 +251,23 @@ const features = [
 
     <div class="canvas-strip">
       <div class="canvas-strip-dock" aria-hidden="true">
-        <div class="hero-chip hero-chip-repo-a live-chip-working">Kd</div>
-        <div class="hero-chip hero-chip-repo-a live-chip-awaiting"><span class="live-badge"></span>Kc</div>
-        <div class="hero-chip hero-chip-repo-b is-active">Am</div>
-        <div class="hero-chip hero-chip-repo-c">Db</div>
+        {
+          dockChips.map((c) => (
+            <div
+              class:list={[
+                'hero-chip',
+                `hero-chip-repo-${c.repoTint}`,
+                c.state === 'working' && 'live-chip-working',
+                c.state === 'awaiting' && 'live-chip-awaiting',
+                c.label === 'Am' && 'is-active',
+              ]}
+              title={c.title}
+            >
+              {c.hasBadge && <span class="live-badge" />}
+              {c.label}
+            </div>
+          ))
+        }
       </div>
       <div class="canvas-strip-area">
         <div class="canvas-tile canvas-tile-1">
