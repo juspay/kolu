@@ -91,6 +91,11 @@ export type GitBaseRef = z.infer<typeof GitBaseRefSchema>;
 export const GitStatusInputSchema = z.object({
   repoPath: z.string(),
   mode: GitDiffModeSchema,
+  /** Terminal whose Code tab is requesting this status — dispatches the
+   *  call to the right Backend (local vs. remote agent). Optional for
+   *  backwards compatibility with non-terminal call sites; surface.ts
+   *  falls back to localBackend when absent. */
+  terminalId: z.string().uuid().optional(),
 });
 
 export const GitStatusOutputSchema = z.object({
@@ -108,6 +113,8 @@ export const GitDiffInputSchema = z.object({
   /** Original path before rename/copy — passed from the file list so
    *  getDiff can read old content at the correct path. */
   oldPath: z.string().optional(),
+  /** Terminal whose Code tab is requesting this diff — see GitStatusInputSchema. */
+  terminalId: z.string().uuid().optional(),
 });
 
 /** Raw parts needed by the client-side diff renderer (`@pierre/diffs`'s
@@ -143,6 +150,8 @@ export type GitDiffOutput = z.infer<typeof GitDiffOutputSchema>;
 export const FsListAllInputSchema = z.object({
   /** Absolute path to the repo root. */
   repoPath: z.string(),
+  /** Terminal whose Code tab is requesting this listing — see GitStatusInputSchema. */
+  terminalId: z.string().uuid().optional(),
 });
 
 export const FsListAllOutputSchema = z.object({

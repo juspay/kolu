@@ -113,6 +113,52 @@ export function unwrapGit<T>(result: GitResult<T>): T {
   throw new ORPCError(status, { message });
 }
 
+/** Install a repo-change watcher on the right backend.
+ *
+ *  R-2: routes through `Backend.fs.subscribeRepoChange` so remote tiles'
+ *  Code tab watches the agent's filesystem changes. The terminal-id
+ *  dispatch axis is what tells us which backend owns the repo. When
+ *  absent (legacy non-terminal callers), falls back to localBackend.
+ *  Adapter wraps the AsyncIterable contract back into the install/cb
+ *  shape `@kolu/surface` expects. */
+function repoWatcherInstall(
+  terminalId: string | undefined,
+  repoPath: string,
+  cb: () => void,
+): () => void {
+  let stopped = false;
+  let abortFn: (() => void) | undefined;
+  void (async () => {
+    const { getBackendFor, localBackend } = await import("./backend/index.ts");
+    const { getTerminal } = await import("./terminal-registry.ts");
+    const entry = terminalId ? getTerminal(terminalId) : undefined;
+    const backend = entry ? getBackendFor(entry.meta.location) : localBackend;
+    const ctrl = new AbortController();
+    abortFn = () => ctrl.abort();
+    if (stopped) {
+      ctrl.abort();
+      return;
+    }
+    try {
+      for await (const _ of backend.fs.subscribeRepoChange(
+        repoPath,
+        ctrl.signal,
+      )) {
+        cb();
+      }
+    } catch (err) {
+      log.error(
+        { err, terminalId, repoPath },
+        "repoWatcherInstall: watcher iterator threw",
+      );
+    }
+  })();
+  return () => {
+    stopped = true;
+    abortFn?.();
+  };
+}
+
 const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
   implementSurface(surface, {
     channel: <T>(name: string) => publisherChannel<T>(publisher, name),
@@ -203,30 +249,62 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
 
     streams: {
       gitStatus: {
-        read: async (input) =>
-          unwrapGit(await getStatus(input.repoPath, input.mode, log)),
-        install: (input, cb) => subscribeRepoChange(input.repoPath, cb, log),
+        read: async (input) => {
+          const { getBackendFor, localBackend } = await import(
+            "./backend/index.ts"
+          );
+          const { getTerminal } = await import("./terminal-registry.ts");
+          const entry = input.terminalId
+            ? getTerminal(input.terminalId)
+            : undefined;
+          const backend = entry
+            ? getBackendFor(entry.meta.location)
+            : localBackend;
+          return backend.git.getStatus(input.repoPath, input.mode);
+        },
+        install: (input, cb) =>
+          repoWatcherInstall(input.terminalId, input.repoPath, cb),
         isEqual: gitStatusOutputEqual,
       },
       gitDiff: {
-        read: async (input) =>
-          unwrapGit(
-            await getDiff(
-              input.repoPath,
-              input.filePath,
-              input.mode,
-              log,
-              input.oldPath,
-            ),
-          ),
-        install: (input, cb) => subscribeRepoChange(input.repoPath, cb, log),
+        read: async (input) => {
+          const { getBackendFor, localBackend } = await import(
+            "./backend/index.ts"
+          );
+          const { getTerminal } = await import("./terminal-registry.ts");
+          const entry = input.terminalId
+            ? getTerminal(input.terminalId)
+            : undefined;
+          const backend = entry
+            ? getBackendFor(entry.meta.location)
+            : localBackend;
+          return backend.git.getDiff(
+            input.repoPath,
+            input.filePath,
+            input.mode,
+            input.oldPath,
+          );
+        },
+        install: (input, cb) =>
+          repoWatcherInstall(input.terminalId, input.repoPath, cb),
         isEqual: gitDiffOutputEqual,
       },
       fsListAll: {
-        read: async (input) => ({
-          paths: unwrapGit(await listAll(input.repoPath, log)),
-        }),
-        install: (input, cb) => subscribeRepoChange(input.repoPath, cb, log),
+        read: async (input) => {
+          const { getBackendFor, localBackend } = await import(
+            "./backend/index.ts"
+          );
+          const { getTerminal } = await import("./terminal-registry.ts");
+          const entry = input.terminalId
+            ? getTerminal(input.terminalId)
+            : undefined;
+          const backend = entry
+            ? getBackendFor(entry.meta.location)
+            : localBackend;
+          return { paths: await backend.fs.listAll(input.repoPath) };
+        },
+        install: (input, cb) =>
+          repoWatcherInstall(input.terminalId, input.repoPath, cb),
         isEqual: fsListAllOutputEqual,
       },
       fsReadFile: {
