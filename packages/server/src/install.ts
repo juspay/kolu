@@ -89,6 +89,14 @@ export function remoteAgentCommand(host: string): string[] {
     "nix",
     "run",
     "--accept-flake-config",
+    // `--refresh` so nix re-resolves the flake ref on every connect.
+    // Without it, the remote caches the resolved store path and keeps
+    // running an older build of the agent — which silently breaks
+    // contract changes (e.g. terminal.spawn input added an `id` field
+    // and old agents ignore it, so their generated id mismatches the
+    // kolu server's pre-generated id and every later terminal.write /
+    // resize fails with "terminal not found on agent").
+    "--refresh",
     flakeRef,
     "--",
     "--stdio",
