@@ -54,6 +54,13 @@ function base64DecodedLength(data: string): number {
   return Math.floor((data.length * 3) / 4) - padding;
 }
 
+/** Bracketed-paste an on-disk path into a terminal so agents that accept
+ *  paste-as-file-path (codex, Claude Code) attach the file. Shared by every
+ *  handler that uploads content to per-terminal scratch storage. */
+function bracketedPastePath(entry: TerminalProcess, path: string): void {
+  entry.handle.write(`\x1b[200~${path}\x1b[201~`);
+}
+
 export const appRouter = t.router({
   ...surfaceRouter,
   server: {
@@ -150,9 +157,7 @@ export const appRouter = t.router({
       const entry = requireTerminal(input.id);
       const bytes = base64DecodedLength(input.data);
       const path = saveClipboardImage(input.id, input.data);
-      // Bracketed-paste the saved path into the PTY. Agents that accept
-      // paste-as-file-path (codex, Claude Code) auto-attach the image.
-      entry.handle.write(`\x1b[200~${path}\x1b[201~`);
+      bracketedPastePath(entry, path);
       log.info({ terminal: input.id, bytes, path }, "paste image");
     }),
 
@@ -164,9 +169,7 @@ export const appRouter = t.router({
         throw new ORPCError("BAD_REQUEST", { message: reason });
       }
       const path = saveDroppedFile(input.id, input.name, input.data);
-      // Bracketed-paste the saved path into the PTY so agents that accept
-      // paste-as-file-path (codex, Claude Code) pick it up.
-      entry.handle.write(`\x1b[200~${path}\x1b[201~`);
+      bracketedPastePath(entry, path);
       log.info(
         { terminal: input.id, name: input.name, bytes, path },
         "upload file",
