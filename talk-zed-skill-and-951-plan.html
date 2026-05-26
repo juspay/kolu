@@ -233,7 +233,8 @@
           </ol>
         </li>
         <li><a href="#r3">R-3 — PTY ownership + reattach (resilience)</a></li>
-        <li><a href="#surface-subsumption">Open refinement: Backend ↔ Surface subsumption <span class="pill warn">needs answers</span></a></li>
+        <li><a href="#surface-subsumption">Refinement: Backend ↔ Surface subsumption <span class="pill ok">shipped #978</span></a></li>
+        <li><a href="#three-pr-retro">Three-PR retrospective — the phase split we'd ship now</a></li>
       </ol>
     </li>
     <li><a href="#plan-a-archive">Plan A — Additive (archived, collapsed)</a></li>
@@ -257,20 +258,26 @@
 </div>
 
 <h3 id="at-a-glance">Phases at a glance</h3>
-<p>Three phases. R-1 is a pure refactor with no user-visible change; R-2 ships the entire remote feature surface in one go; R-3 adds network-blip resilience. R-2's six sub-slices (2a–2f) are an internal build order, not separate ships — none of them is a user-facing feature on its own.</p>
+<p>What we actually shipped is three phases (R-1, R-2 with hand-rolled transport, plus a refinement PR #978 absorbing the transport into <code>@kolu/surface</code>). With three PRs of hindsight, <strong>the redo plan is four phases</strong>: R-1, R-1.5 (framework gaps in <code>@kolu/surface</code>), R-2 (agent using framework), R-3. See the <a href="#three-pr-retro">three-PR retrospective</a> for the full reasoning.</p>
 <table>
-  <tr><th style="width:7%">Phase</th><th>One-line gist</th><th>User-facing change</th><th style="width:14%">Status</th></tr>
+  <tr><th style="width:7%">Phase</th><th>One-line gist</th><th>User-facing change</th><th style="width:18%">Status</th></tr>
   <tr>
     <td><strong>R-1</strong></td>
     <td>Server spine collapses around one <code>Backend</code> interface. <code>LocalBackend</code> wraps the in-process providers; <code>meta/*.ts</code> orchestrators dissolve into it. One transport boundary in the system.</td>
     <td><strong>None.</strong> Pure refactor — behavior is byte-identical.</td>
     <td><span class="pill ok">prototyped</span> <a href="https://github.com/juspay/kolu/pull/973">#973</a></td>
   </tr>
+  <tr style="background: #fff8e6">
+    <td><strong>R-1.5</strong></td>
+    <td><code>@kolu/surface</code> grows stdio link, loopback link, peer-server, and in-memory channel. Validated end-to-end by a user-facing demo (search-index worker child process) in the framework's own example app.</td>
+    <td><strong>None directly</strong> to Kolu users. To framework consumers: "<code>@kolu/surface</code> now supports subprocess-worker patterns."</td>
+    <td><span class="pill ok">prototyped</span> <a href="https://github.com/juspay/kolu/pull/978">#978</a> (after-the-fact; redo lands it before R-2)</td>
+  </tr>
   <tr>
     <td><strong>R-2</strong></td>
-    <td>Same kolu binary runs as <code>kolu --stdio</code> on the remote via <code>ssh nix run --refresh</code>. <code>RemoteBackend</code> proxies the entire <code>Backend</code> surface over oRPC on stdio. Agent has zero remote-specific logic — just another oRPC peer.</td>
+    <td>Same kolu binary runs as <code>kolu --stdio</code> on the remote via <code>ssh nix run</code>. <code>RemoteBackend</code> consumes <code>agentSurface</code> via R-1.5's framework primitives. Agent has zero remote-specific logic.</td>
     <td><strong>Everything.</strong> Remote terminals work end-to-end: PTY, branch chip, agent badge, GitHub PR, Code tab, file upload, session restore, <code>HostChip</code> on every surface, install flow.</td>
-    <td><span class="pill ok">prototyped</span> <a href="https://github.com/juspay/kolu/pull/976">#976</a></td>
+    <td><span class="pill ok">prototyped</span> <a href="https://github.com/juspay/kolu/pull/976">#976</a> + <a href="https://github.com/juspay/kolu/pull/978">#978</a></td>
   </tr>
   <tr>
     <td><strong>R-3</strong></td>
@@ -482,7 +489,7 @@ return { id, write: handle.write, resize: handle.resize };</code></pre>
 </table>
 
 <!-- ====================== SURFACE SUBSUMPTION ====================== -->
-<h3 id="surface-subsumption">Open refinement: Backend ↔ Surface subsumption<span class="pill warn">needs answers</span></h3>
+<h3 id="surface-subsumption">Refinement: Backend ↔ Surface subsumption<span class="pill ok">shipped <a href="https://github.com/juspay/kolu/pull/978">#978</a></span></h3>
 
 <p>Working through the prototype surfaced a structural question that the current Plan B redo doesn't address: the agent transport in <a href="https://github.com/juspay/kolu/pull/976">#976</a> hand-rolls ~300 LOC of oRPC framing, per-channel relay boilerplate, and stdio peer wiring that overlaps conceptually with <a href="https://kolu.dev/blog/surface-framework/"><code>@kolu/surface</code></a>'s existing snapshot+delta, retry, and pub/sub primitives. Subsuming the agent transport under Surface should shrink Kolu by ~300-400 LOC of glue and expand <code>@kolu/surface</code> by ~150-200 LOC of generic transport adapters — net negative LOC plus a unified mental model for "typed reactive state over an oRPC link."</p>
 
@@ -531,14 +538,14 @@ return { id, write: handle.write, resize: handle.resize };</code></pre>
   <div class="your-answer" style="border-color: var(--ok); background: #fff;"><strong style="color: var(--ok);">RECOMMENDED:</strong> <strong>(c) typed wrapper</strong>, given the criterion "Kolu as little code as possible." Reasoning: (b) saves ~30 LOC at the seam but spreads <code>Map&lt;TerminalLocation, SurfaceClient&gt;</code> lookup logic across every call site (each meta consumer writes <code>clientForTerminal(id).rpc.terminal.write(...)</code>), adding ~50-80 LOC in scattered dispatch over time. (c) wins on <em>net</em> LOC across the codebase, not just at the seam, and keeps a named class for future per-backend behavior (caching, retry policy, instrumentation) without paying for them today.</div>
 </div>
 
-<div class="panel question" style="border-left-color: #888; background: #f5f5f3;">
-  <p><span class="q-tag" style="background: #888;">Q3 ⏸</span> <strong>Where does the <code>@kolu/surface</code> framework work land</strong> in the phased plan?</p>
+<div class="panel question" style="border-left-color: var(--ok); background: #f0f8f2;">
+  <p><span class="q-tag" style="background: var(--ok);">Q3 ✓</span> <strong>Where does the <code>@kolu/surface</code> framework work land</strong> in the phased plan?</p>
   <ul id="q3">
-    <li><strong>(a) New R-1.5 phase.</strong> Between R-1 and R-2, dedicated to expanding <code>@kolu/surface</code>: stdio adapter, non-Solid client, in-memory storage. Lands with its own tests in <code>@kolu/surface</code>; R-2 just consumes it. Phase count grows to 4. Cleanest volatility separation.</li>
-    <li><strong>(b) Folded into R-2's slice 2b.</strong> The framework gaps fill out R-2's 2b slice. Phase count stays at 3; R-2 grows internally. Single PR boundary contains both framework expansion and agent migration.</li>
-    <li><strong>(c) Expand R-1.</strong> R-1 already rewrites the server spine; expanding <code>@kolu/surface</code> is more spine work. Larger R-1, simpler R-2. Lowy would flag two axes braided into one PR.</li>
+    <li><strong>(a) New R-1.5 phase.</strong> Between R-1 and R-2, dedicated to expanding <code>@kolu/surface</code>: stdio adapter, non-Solid client, in-memory storage. Lands with its own tests; R-2 just consumes it. Cleanest volatility separation.</li>
+    <li>(b) Folded into R-2's slice 2b.</li>
+    <li>(c) Expand R-1.</li>
   </ul>
-  <div class="your-answer" style="border-color: #888; background: #fff;"><strong style="color: #888;">DEFERRED:</strong> to be decided after the subsumption prototype lands. The right phase split for the framework work will be clearer once the actual code shape is in hand — premature commitment now risks naming a phase split that doesn't fit what the prototype reveals.</div>
+  <div class="your-answer" style="border-color: var(--ok); background: #fff;"><strong style="color: var(--ok);">ANSWERED post-hoc:</strong> <strong>(a) New R-1.5 phase.</strong> What we did instead was build the hand-rolled transport in R-2 (#976), then subsume into the framework in <a href="https://github.com/juspay/kolu/pull/978">#978</a>. That ordering wasted Lowy budget — see the <a href="#three-pr-retro">three-PR retrospective</a> below: the framework gaps belong before R-2, not after.</div>
 </div>
 
 <div class="panel question" style="border-left-color: var(--ok); background: #f0f8f2;">
@@ -625,6 +632,92 @@ return { id, write: handle.write, resize: handle.resize };</code></pre>
 </table>
 
 <p>Net effect on the redo plan: <em>simpler</em>. Hand-rolled wire plumbing is replaced with framework primitives; the kolu-server consumer code shrinks; <code>@kolu/surface</code> grows in scope but the additions are generic (not Kolu-coupled). The honest reframe: <strong>Plan B's redo is incomplete without Surface subsumption</strong> — the prototype hand-rolled a mini-RPC framework that <code>@kolu/surface</code> should own.</p>
+
+<!-- ====================== THREE-PR RETROSPECTIVE ====================== -->
+<h3 id="three-pr-retro">Three-PR retrospective — the phase split we'd ship now</h3>
+
+<p>Three prototype PRs have landed (<a href="https://github.com/juspay/kolu/pull/973">#973</a>, <a href="https://github.com/juspay/kolu/pull/976">#976</a>, <a href="https://github.com/juspay/kolu/pull/978">#978</a>) and verified end-to-end on darwin + linux remotes. With that grounding, the original Plan B's 3-phase shape (R-1 → R-2 → R-3) <strong>is not what we'd ship from scratch.</strong> The redo plan, fully informed:</p>
+
+<table>
+  <tr><th>Phase</th><th>Gist</th><th>User-facing change</th><th>What changed vs. earlier writeup</th></tr>
+  <tr>
+    <td><strong>R-1</strong></td>
+    <td>Server spine around one <code>Backend</code> interface. <code>LocalBackend</code> wraps existing providers; <code>meta/*.ts</code> dissolves.</td>
+    <td>None — pure refactor.</td>
+    <td>Unchanged from original Plan B.</td>
+  </tr>
+  <tr style="background: #fff8e6">
+    <td><strong>R-1.5</strong><span class="pill warn" style="margin-left:6px">NEW</span></td>
+    <td><code>@kolu/surface</code> grows generic transport primitives: stdio link (<code>links/stdio</code>), in-process loopback (<code>links/loopback</code>), peer-server (<code>serveOverStdio</code>), in-memory channel. <strong>Validated by a worker sub-example in the framework's own example app</strong> (the search-index demo) — never has framework-only utility; only ships if a user-facing pattern exercises it end-to-end.</td>
+    <td>None directly to Kolu users. To framework consumers: "<code>@kolu/surface</code> now works for subprocess-worker patterns, not just browser↔server."</td>
+    <td><strong>Was missing.</strong> Original plan put this work inside R-2's slice 2b (option Q3(b)). The prototype showed that's wrong — the framework work and the agent migration are two volatility axes, and braiding them in one PR meant we shipped a hand-rolled transport in R-2 (#976) then deleted it in #978 to absorb into the framework. The redo separates these.</td>
+  </tr>
+  <tr>
+    <td><strong>R-2</strong></td>
+    <td>Agent + <code>RemoteBackend</code> using R-1.5's framework primitives <em>from the start</em>. <code>agentSurface</code> declared via <code>defineSurface</code>; agent uses <code>serveOverStdio</code>; <code>RemoteBackend</code> uses <code>createStdioCellsClient</code>; 9 channels → 1 collection + streams.</td>
+    <td><strong>Everything.</strong> Remote terminals work end-to-end: PTY, branch chip, agent badge, GitHub PR, Code tab, file upload, session restore, host chip on every surface.</td>
+    <td>Internals collapse dramatically. Slice 2b ("stdio framing + narrow contract") was ~300 LOC of hand-rolled framing in the original; here it's <code>defineSurface({...})</code> + <code>implementSurface</code>. Slice 2e ("channel-mirroring") collapses to ONE collection subscription. No <code>stdio-peer.ts</code>, no <code>stdio-client.ts</code>, no <code>relayChannel&lt;K&gt;</code> boilerplate.</td>
+  </tr>
+  <tr>
+    <td><strong>R-3</strong></td>
+    <td>PTY ownership + reattach. Stable <code>remoteSessionId</code>; <code>attachPty</code>; scrollback replay; version handshake replaces <code>--refresh</code>; idle GC.</td>
+    <td>Remote terminals <strong>survive network blips</strong> — laptop sleep, wifi drop, reconnect with full scrollback restored.</td>
+    <td>Smaller in scope than originally framed — "PTYs live on the agent's machine" already fell out of R-2. Version handshake is the new addition (forced by lesson #5 below).</td>
+  </tr>
+</table>
+
+<h4>Lessons that drive the redo (extracted from the three landed PRs)</h4>
+
+<table>
+  <tr><th>#</th><th>Lesson</th><th>Where the prototype taught it</th></tr>
+  <tr>
+    <td>1</td>
+    <td><strong>Hand-rolled transport adapters mask framework work.</strong> If the code you're writing in your application would benefit any oRPC consumer (not just yours), it belongs in the framework. <code>stdio-peer.ts</code> + <code>stdio-client.ts</code> looked Kolu-specific because they lived in <code>packages/server/src/backend/</code>, but the diff to lift them into <code>@kolu/surface/links/stdio</code> was almost mechanical — zero Kolu specifics inside.</td>
+    <td>#976 wrote the transport in Kolu; #978 deleted Kolu's copy and absorbed it into <code>@kolu/surface</code>.</td>
+  </tr>
+  <tr>
+    <td>2</td>
+    <td><strong>Per-entity reactive state wants collections, not parameterized streams.</strong> The 8 metadata channels in #976 each took <code>{id}</code> as input — a textbook <code>Stream&lt;{id}, T&gt;</code> shape. But "what changed about entity X" is what <code>Collection&lt;K, V&gt;</code> is for; snapshot+key-tracking semantics come built-in. Stream is for keyed compute (search results); collection is for keyed state.</td>
+    <td>#978's Q1(a) collapse — 8 streams to 1 collection — was the architectural payoff.</td>
+  </tr>
+  <tr>
+    <td>3</td>
+    <td><strong>Framework code needs an end-to-end demo, not just unit tests.</strong> The Q5 search-index worker exists not as documentation but as a falsifiability test: if writing the demo against the framework primitives feels awkward, the primitives are at the wrong altitude. The demo also doubles as a copy-paste recipe for any consumer building a subprocess worker.</td>
+    <td>The search-index worker in #978 caught the <code>t.router(fragment)</code> re-wrap requirement (otherwise StandardRPCHandler 404s on the surface fragment); the kolu agent migration would have hit the same wall without the demo flushing it out first.</td>
+  </tr>
+  <tr>
+    <td>4</td>
+    <td><strong>The "shadow entry sync, I/O async" pattern belongs in the <code>Backend</code> contract.</strong> What makes the instant-tile UX work is registering a connecting-state entry synchronously, then doing all the I/O (ssh, nix run, terminal.spawn RPC) on a later tick. Today this lives in <code>RemoteBackend.spawnPty</code> as a special pattern; cost-free to bake into the interface itself (<code>LocalBackend</code>'s I/O is instantaneous so it's a no-op there).</td>
+    <td>Retrofitted into <code>RemoteBackend</code> in #976 after the user complained about the blank-tile UX.</td>
+  </tr>
+  <tr>
+    <td>5</td>
+    <td><strong>Wire-shape drift is a real bug class — fail fast, no defaults.</strong> If kolu-server and the remote agent are built from different sources, every RPC 404s silently (kolu-server speaks <code>surface.X</code>, agent serves <code>agentContract.X</code>). A baked-in default flake ref masks this — operators must opt into a specific ref, and a stale default makes the bug invisible. The redo: <code>KOLU_AGENT_FLAKE_REF</code> is <strong>required</strong>, throws at first remote-spawn if unset, error message explains the rationale.</td>
+    <td>Caught by the user during the chrome-devtools verification of #978 — the dev kolu hit "Not Found" because <code>install.ts</code>'s default still pointed at #976. Fixed in <code>506640de</code>.</td>
+  </tr>
+  <tr>
+    <td>6</td>
+    <td><strong>Cold remote realisation can take minutes — design for it.</strong> First <code>nix run</code> on a fresh remote builds the closure; without UX accommodation the user stares at a blank tile. Three mitigations: instant tile + connecting overlay, pre-generated terminal id (so the kolu-server can register before the RPC roundtrips), deferred heartbeat via <code>markReady()</code> (heartbeat doesn't start until the first RPC succeeds, so the 5s × 5 timeout doesn't fire during the build).</td>
+    <td>Hit live during the first #976 verification on sincereintent — the prototype's blank-tile-for-3-minutes UX forced all three mitigations.</td>
+  </tr>
+</table>
+
+<h4>Phase boundaries in the redo</h4>
+
+<p>Three-phase becomes four-phase: R-1, <strong>R-1.5</strong>, R-2, R-3. The added R-1.5 isn't a complication — it's the volatility-correct split that the original plan glossed over and the prototype's #976→#978 churn revealed.</p>
+
+<p>The trade-off table revisited:</p>
+
+<table>
+  <tr><th>Dimension</th><th>What we actually shipped</th><th>What we'd ship redoing</th></tr>
+  <tr><td>Phase count</td><td>3 (R-1, R-2 with hand-rolled transport, then "Surface subsumption refinement" PR #978)</td><td>4 (R-1, R-1.5 framework, R-2 using framework, R-3)</td></tr>
+  <tr><td>Wasted work</td><td>#976's <code>stdio-peer.ts</code> / <code>stdio-client.ts</code> / per-channel boilerplate (~300 LOC) was deleted in #978</td><td>None — framework primitives land once, R-2 consumes them</td></tr>
+  <tr><td>"What's the first user-visible ship?"</td><td>End of #976 (R-2 with hand-rolled transport)</td><td>End of R-2 (with framework primitives) — same point, cleaner internals</td></tr>
+  <tr><td>Drift bug class (kolu-server ↔ agent contract divergence)</td><td>Discovered post-hoc in #978 verification (env-var default trap)</td><td>Fail-fast <code>KOLU_AGENT_FLAKE_REF</code> from R-2 onwards — no default, throws on missing, error message names the bug class</td></tr>
+  <tr><td>Framework altitude</td><td>Hand-rolled stdio adapter in Kolu first, lifted to framework after</td><td>Framework gains stdio adapter in R-1.5, validated by a non-Kolu example demo (search-index worker) before R-2 consumes it</td></tr>
+</table>
+
+<p>This is the plan we'd hand to a future "implement #951 from scratch" run.</p>
 
 <!-- ============================================================ -->
 <h2 id="plan-a-archive">Plan A — Additive (archived)</h2>
