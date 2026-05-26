@@ -239,85 +239,178 @@ const features = [
   </div>
 
   <!-- ── CANVAS DEMO STRIP ────────────────────────────────────────────────
-       Full-bleed band showing the kolu canvas with three terminal tiles
-       and the dock. Captioned beneath with annotations so the user reads
-       "infinite canvas of real terminals", not a metaphorical canvas.
+       Three-column band matching the real Kolu layout: repo-grouped dock
+       cards on the left, the canvas with a *split* terminal in the centre
+       (agent on top, `just test` shell below — splits live INSIDE a tile,
+       not as separate tiles), and the Code-tab file browser on the right.
+       Modelled directly from screenshots of the running app at
+       http://127.0.0.1:<random>/ so the marketing visual stays honest.
   -->
-  <section class="mx-auto max-w-[72rem] px-6 py-16">
+  <section class="mx-auto max-w-[78rem] px-6 py-16">
     <div class="mb-6 flex items-baseline justify-between">
       <p class="eyebrow">what you're looking at</p>
-      <p class="mono text-[0.72rem] text-ink-faint">a 2D canvas of real terminals</p>
+      <p class="mono text-[0.72rem] text-ink-faint">a real Kolu workspace · dock · canvas · code</p>
     </div>
 
-    <div class="canvas-strip">
-      <div class="dock-col canvas-strip-dock" aria-hidden="true">
-        {
-          dockChips.map((c) => (
-            <div
-              class:list={[
-                'hero-chip',
-                `hero-chip-repo-${c.repoTint}`,
-                c.state === 'working' && 'live-chip-working',
-                c.state === 'awaiting' && 'live-chip-awaiting',
-                c.label === 'Am' && 'is-active',
-              ]}
-              title={c.title}
-            >
-              {c.hasBadge && <span class="live-badge" />}
-              {c.label}
-            </div>
-          ))
-        }
-      </div>
-      <div class="canvas-strip-area">
-        <div class="canvas-tile canvas-tile-1">
-          <div class="canvas-tile-bar">
-            <span class="canvas-tile-dot canvas-dot-teal"></span>
-            <span>kolu · feat-dock</span>
-            <span class="canvas-tile-state canvas-state-working">
-              <span class="live-spinner"></span>&nbsp;claude · thinking
+    <div class="ckv2">
+      <!-- LEFT: dock cards, repo-grouped -->
+      <aside class="ckv2-dock" aria-hidden="true">
+        <div class="ckv2-dock-head">
+          <span class="ckv2-dock-icon">+</span>
+          <span class="ckv2-dock-icon">⌕</span>
+          <span class="ckv2-dock-window">24h</span>
+        </div>
+        <section class="ckv2-section">
+          <h4 class="ckv2-section-head ckv2-hue-kolu">
+            <span>KOLU</span><span class="ckv2-count">2</span>
+          </h4>
+          <div class="ckv2-card ckv2-card-active">
+            <span class="ckv2-card-icon">✳</span>
+            <span class="ckv2-card-branch ckv2-hue-kolu">liable-idiom</span>
+            <span class="ckv2-card-sub">▭1</span>
+            <span class="ckv2-card-time">now</span>
+            <p class="ckv2-card-intent">Homepage: terminal-as-hero rebuild</p>
+          </div>
+          <div class="ckv2-card">
+            <span class="ckv2-card-icon">✳</span>
+            <span class="ckv2-card-branch ckv2-hue-kolu">remote-terminals</span>
+            <span class="ckv2-card-time">
+              now<span class="ckv2-card-badge live-badge"></span>
+            </span>
+            <p class="ckv2-card-intent">Carve TerminalBackend abstraction</p>
+          </div>
+        </section>
+        <section class="ckv2-section">
+          <h4 class="ckv2-section-head ckv2-hue-emanote">
+            <span>EMANOTE</span><span class="ckv2-count">1</span>
+          </h4>
+          <div class="ckv2-card">
+            <span class="ckv2-card-icon">✳</span>
+            <span class="ckv2-card-branch ckv2-hue-emanote">doc-org</span>
+            <span class="ckv2-card-sub">▭1</span>
+            <span class="ckv2-card-time">1h</span>
+            <p class="ckv2-card-intent">Reorganise docs around reader concern</p>
+          </div>
+        </section>
+        <section class="ckv2-section">
+          <h4 class="ckv2-section-head ckv2-hue-afp">
+            <span>AFP-BOOK</span><span class="ckv2-count">1</span>
+          </h4>
+          <div class="ckv2-card">
+            <span class="ckv2-card-icon">✳</span>
+            <span class="ckv2-card-branch ckv2-hue-afp">master</span>
+            <span class="ckv2-card-time">3h</span>
+            <p class="ckv2-card-intent">Transcribe chapter 1 from AFP.pdf</p>
+          </div>
+        </section>
+      </aside>
+
+      <!-- CENTRE: canvas with one split tile + one idle tile -->
+      <div class="ckv2-canvas">
+        <!-- Primary tile: claude on top, shell with `just test` in a split below -->
+        <div class="ckv2-tile ckv2-tile-main">
+          <div class="ckv2-tilebar ckv2-tilebar-kolu">
+            <span class="ckv2-tilebar-dot live-dot"></span>
+            <span class="ckv2-tilebar-label">
+              <span class="ckv2-tilebar-repo ckv2-hue-kolu">kolu</span>
+              <span class="ckv2-tilebar-sep">·</span>
+              <span class="ckv2-tilebar-branch">liable-idiom</span>
+              <span class="ckv2-tilebar-sep">·</span>
+              <span class="ckv2-tilebar-pr">#980</span>
+            </span>
+            <span class="ckv2-tilebar-state">
+              <span class="live-spinner"></span>&nbsp;Running tools 282K
             </span>
           </div>
-          <div class="canvas-tile-body">
-            <div><span class="hero-prompt">❯</span> claude</div>
-            <div class="hero-dim">› Edit index.astro</div>
-            <div class="canvas-state-working-text">⏺ Reframing the hero…</div>
+          <div class="ckv2-split-top">
+            <div><span class="hero-prompt">~/code/kolu</span> <span class="hero-prompt">❯</span> claude</div>
+            <div class="hero-dim">› Read <span class="hero-path">website/src/pages/index.astro</span></div>
+            <div class="ckv2-working">⏺ Replacing canvas strip with the real Kolu layout —</div>
+            <div class="ckv2-working">&nbsp;&nbsp;splits live inside a tile, code browser on the right.</div>
+            <div class="hero-dim">› <span class="hero-tool">Edit</span> website/src/pages/index.astro</div>
+          </div>
+          <div class="ckv2-split-bar">
+            <span class="ckv2-split-tab">liable-idiom</span>
+            <span class="ckv2-spacer"></span>
+            <span class="ckv2-split-btn">+</span>
+            <span class="ckv2-split-btn">▾ Hide</span>
+          </div>
+          <div class="ckv2-split-bot">
+            <div>
+              <span class="ckv2-lime">srid</span>
+              <span class="hero-dim">on</span>
+              <span class="hero-path">pureintent</span>
+              <span class="hero-dim">·</span>
+              <span class="ckv2-lime">liable-idiom</span>
+              <span class="hero-dim">via</span>
+              <span class="ckv2-lime">v24.13.0</span>
+            </div>
+            <div><span class="hero-prompt">❯</span> just test</div>
+            <div class="ckv2-lime">PASS &nbsp;358 scenarios (2880 steps) · 1m11s</div>
             <div><span class="cursor" aria-hidden="true"></span></div>
           </div>
         </div>
-        <div class="canvas-tile canvas-tile-2">
-          <div class="canvas-tile-bar">
-            <span class="canvas-tile-dot canvas-dot-alert"></span>
-            <span>kolu · feat-canvas</span>
-            <span class="canvas-tile-state canvas-state-awaiting">
-              codex · awaiting you
+
+        <!-- Secondary tile: awaiting -->
+        <div class="ckv2-tile ckv2-tile-side">
+          <div class="ckv2-tilebar ckv2-tilebar-emanote">
+            <span class="ckv2-tilebar-dot ckv2-tilebar-dot-alert"></span>
+            <span class="ckv2-tilebar-label">
+              <span class="ckv2-tilebar-repo ckv2-hue-emanote">emanote</span>
+              <span class="ckv2-tilebar-sep">·</span>
+              <span class="ckv2-tilebar-branch">doc-org</span>
+              <span class="ckv2-tilebar-sep">·</span>
+              <span class="ckv2-tilebar-pr">#747</span>
             </span>
+            <span class="ckv2-tilebar-state ckv2-state-awaiting">codex · awaiting</span>
           </div>
-          <div class="canvas-tile-body">
+          <div class="ckv2-side-body">
             <div class="hero-dim">⠿ proposed plan ready</div>
             <div class="hero-dim">⠿ 3 files, 142 lines</div>
-            <div class="canvas-state-awaiting-text">? approve diff (y/N)</div>
-          </div>
-        </div>
-        <div class="canvas-tile canvas-tile-3">
-          <div class="canvas-tile-bar">
-            <span class="canvas-tile-dot canvas-dot-violet"></span>
-            <span>api · main</span>
-            <span class="canvas-tile-state">zsh</span>
-          </div>
-          <div class="canvas-tile-body">
-            <div><span class="hero-prompt">❯</span> just test</div>
-            <div class="hero-dim">PASS &nbsp;6 tests · 0.4s</div>
+            <div class="ckv2-awaiting-text">? approve diff (y/N)</div>
           </div>
         </div>
       </div>
+
+      <!-- RIGHT: code browser (Inspector | Code tabs, file tree, content) -->
+      <aside class="ckv2-code" aria-hidden="true">
+        <div class="ckv2-code-tabs">
+          <span class="ckv2-code-tab">Inspector</span>
+          <span class="ckv2-code-tab ckv2-code-tab-active">Code</span>
+          <span class="ckv2-spacer"></span>
+          <span class="ckv2-code-view">All files ⌄</span>
+        </div>
+        <div class="ckv2-code-body">
+          <div class="ckv2-tree">
+            <div class="ckv2-tree-row">▸ .agency</div>
+            <div class="ckv2-tree-row">▸ .claude</div>
+            <div class="ckv2-tree-row">▾ website</div>
+            <div class="ckv2-tree-row ckv2-tree-i1">▾ src</div>
+            <div class="ckv2-tree-row ckv2-tree-i2">▾ pages</div>
+            <div class="ckv2-tree-row ckv2-tree-i3 ckv2-tree-active">index.astro</div>
+            <div class="ckv2-tree-row ckv2-tree-i2">▸ styles</div>
+            <div class="ckv2-tree-row ckv2-tree-i1">▪ site.ts</div>
+            <div class="ckv2-tree-row">▪ README.md</div>
+          </div>
+          <div class="ckv2-source">
+            <div class="ckv2-source-line"><span class="ckv2-lineno">137</span><span class="ckv2-tok-keyword">&lt;h1</span> <span class="ckv2-tok-attr">class</span>=<span class="ckv2-tok-str">"display"</span><span class="ckv2-tok-keyword">&gt;</span></div>
+            <div class="ckv2-source-line"><span class="ckv2-lineno">138</span>  Your <span class="ckv2-tok-keyword">&lt;span&gt;</span><span class="ckv2-tok-em">terminals</span><span class="ckv2-tok-keyword">&lt;/span&gt;</span></div>
+            <div class="ckv2-source-line"><span class="ckv2-lineno">139</span>  are the workspace.</div>
+            <div class="ckv2-source-line"><span class="ckv2-lineno">140</span><span class="ckv2-tok-keyword">&lt;/h1&gt;</span></div>
+            <div class="ckv2-source-line ckv2-source-empty"><span class="ckv2-lineno">141</span></div>
+            <div class="ckv2-source-line"><span class="ckv2-lineno">142</span><span class="ckv2-tok-comment">{/* anti-positioning */}</span></div>
+            <div class="ckv2-source-line"><span class="ckv2-lineno">143</span><span class="ckv2-tok-keyword">&lt;p</span> <span class="ckv2-tok-attr">class</span>=<span class="ckv2-tok-str">"mono"</span><span class="ckv2-tok-keyword">&gt;</span></div>
+            <div class="ckv2-source-line"><span class="ckv2-lineno">144</span>  Not a chat-UI wrapper.</div>
+          </div>
+        </div>
+      </aside>
     </div>
 
     <ul class="canvas-legend mono text-[0.7rem] mt-4 grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-2 text-ink-muted">
-      <li><span class="legend-pip legend-pip-teal"></span>working</li>
+      <li><span class="legend-pip legend-pip-teal"></span>agent working</li>
       <li><span class="legend-pip legend-pip-alert"></span>awaiting you</li>
       <li><span class="legend-pip legend-pip-violet"></span>repo identity</li>
-      <li>↔︎ tiles drag &amp; resize on a 24px grid</li>
+      <li>↔ splits live inside a tile · code browser is its own panel</li>
     </ul>
   </section>
 
@@ -630,126 +723,379 @@ const features = [
     align-items: center;
   }
 
-  /* ── Canvas demo strip ───────────────────────────────────────────── */
+  /* ── Canvas demo strip v2 ────────────────────────────────────────────
+     Three-column layout mirroring the running Kolu app:
+     dock cards (left) · canvas with split tile (centre) · code browser (right).
+     Per-repo hue tokens use ckv2-hue-* to match the screenshot palette. */
 
-  .canvas-strip {
-    position: relative;
-    height: 22rem;
+  .ckv2 {
+    display: grid;
+    grid-template-columns: 14rem 1fr 16rem;
+    gap: 0;
     border: 1px solid var(--color-rule-strong);
     border-radius: 8px;
     background: var(--color-void-sunk);
     overflow: hidden;
+    box-shadow: 0 0 80px -25px color-mix(in srgb, var(--color-live-violet) 30%, transparent);
+    min-height: 28rem;
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+  }
+
+  /* Repo hues — saturated jewel tones echoing Kolu's golden-angle
+     `oklch(0.78 0.22 hue)` repo palette. */
+  .ckv2-hue-kolu { --repo-hue: #ff5fb3; }
+  .ckv2-hue-emanote { --repo-hue: #5be0a8; }
+  .ckv2-hue-afp { --repo-hue: #ff8a4a; }
+
+  /* ── Dock (left) ─────────────────────────────────────────────────── */
+  .ckv2-dock {
+    background: color-mix(in srgb, var(--color-void) 96%, transparent);
+    border-right: 1px solid var(--color-rule);
     display: flex;
-    box-shadow: 0 0 60px -20px color-mix(in srgb, var(--color-live-violet) 25%, transparent);
+    flex-direction: column;
+    gap: 0.1rem;
+    padding: 0.5rem 0;
+    overflow: hidden;
   }
-
-  .canvas-strip-dock {
-    background: color-mix(in srgb, var(--color-void) 92%, transparent);
-    z-index: 2;
+  .ckv2-dock-head {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.2rem 0.65rem 0.55rem;
+    border-bottom: 1px solid var(--color-rule);
+    color: var(--color-ink-muted);
   }
-
-  .canvas-strip-area {
-    flex: 1;
-    position: relative;
-    background-image:
-      radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--color-amber) 18%, transparent) 1px, transparent 0);
-    background-size: 24px 24px;
-  }
-
-  /* Tile base — shared shape. --tile-accent is set by each numbered
-     variant; border-top and drop shadow read it so each tile's color
-     identity is declared exactly once. */
-  .canvas-tile {
-    position: absolute;
+  .ckv2-dock-icon,
+  .ckv2-dock-window {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.2rem;
+    height: 1.2rem;
     border: 1px solid var(--color-rule-strong);
-    border-top: 2px solid var(--tile-accent);
+    border-radius: 4px;
+    font-size: 0.66rem;
+  }
+  .ckv2-dock-window {
+    width: auto;
+    padding: 0 0.4rem;
+    color: var(--color-live-teal);
+    border-color: color-mix(in srgb, var(--color-live-teal) 50%, var(--color-rule-strong));
+  }
+
+  .ckv2-section {
+    padding: 0.45rem 0.65rem 0.2rem;
+  }
+  .ckv2-section-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin: 0 0 0.35rem;
+    font-size: 0.62rem;
+    letter-spacing: 0.14em;
+    color: var(--repo-hue);
+    font-weight: 600;
+  }
+  .ckv2-count {
+    color: var(--color-ink-faint);
+    font-weight: 400;
+  }
+
+  .ckv2-card {
+    display: grid;
+    grid-template-columns: auto 1fr auto auto;
+    gap: 0.4rem;
+    align-items: baseline;
+    padding: 0.3rem 0.35rem;
+    border-radius: 4px;
+    border-left: 2px solid transparent;
+    margin-bottom: 0.15rem;
+  }
+  .ckv2-card-active {
+    background: color-mix(in srgb, var(--repo-hue) 9%, transparent);
+    border-left-color: var(--repo-hue);
+    box-shadow: inset 0 0 0 1px
+      color-mix(in srgb, var(--repo-hue) 22%, transparent);
+  }
+  .ckv2-card-icon {
+    color: var(--color-live-alert);
+    font-size: 0.78rem;
+    line-height: 1;
+  }
+  .ckv2-card-branch {
+    font-weight: 600;
+    color: var(--repo-hue);
+    font-size: 0.7rem;
+  }
+  .ckv2-card-sub {
+    font-size: 0.6rem;
+    color: var(--color-ink-muted);
+    border: 1px solid var(--color-rule-strong);
+    border-radius: 3px;
+    padding: 0 0.25rem;
+  }
+  .ckv2-card-time {
+    font-size: 0.62rem;
+    color: var(--color-ink-muted);
+    white-space: nowrap;
+    position: relative;
+  }
+  .ckv2-card-badge {
+    position: static;
+    margin-left: 0.25em;
+    display: inline-block;
+    vertical-align: 1px;
+    top: auto;
+    right: auto;
+  }
+  .ckv2-card-intent {
+    grid-column: 2 / -1;
+    margin: 0.15rem 0 0;
+    font-family: var(--font-serif);
+    font-size: 0.78rem;
+    color: var(--color-ink-dim);
+    line-height: 1.25;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* ── Canvas (centre) ─────────────────────────────────────────────── */
+  .ckv2-canvas {
+    position: relative;
+    background-image: radial-gradient(
+      circle at 1px 1px,
+      color-mix(in srgb, var(--color-amber) 22%, transparent) 1px,
+      transparent 0
+    );
+    background-size: 24px 24px;
+    padding: 1rem;
+    display: flex;
+    gap: 0.8rem;
+    align-items: flex-start;
+  }
+
+  .ckv2-tile {
+    border: 1px solid var(--color-rule-strong);
     border-radius: 5px;
     background: var(--color-void);
     overflow: hidden;
-    font-family: var(--font-mono);
-    font-size: 0.68rem;
-    line-height: 1.6;
-    box-shadow: 0 8px 24px -8px
-      color-mix(in srgb, var(--tile-accent) 30%, transparent);
+    display: flex;
+    flex-direction: column;
   }
-  .canvas-tile-1 {
-    --tile-accent: var(--color-live-teal);
-    left: 3%;
-    top: 8%;
-    width: 40%;
-    height: 64%;
+  .ckv2-tile-main {
+    flex: 1.6;
+    min-width: 0;
+    box-shadow: 0 8px 32px -10px
+      color-mix(in srgb, var(--color-live-violet) 40%, transparent);
   }
-  .canvas-tile-2 {
-    --tile-accent: var(--color-live-alert);
-    left: 46%;
-    top: 22%;
-    width: 36%;
-    height: 68%;
-  }
-  .canvas-tile-3 {
-    --tile-accent: var(--color-live-violet);
-    left: 60%;
-    top: 2%;
-    width: 36%;
-    height: 38%;
+  .ckv2-tile-side {
+    flex: 1;
+    min-width: 0;
+    align-self: stretch;
+    box-shadow: 0 8px 24px -10px
+      color-mix(in srgb, var(--color-live-alert) 35%, transparent);
   }
 
-  .canvas-tile-bar {
-    padding: 0.3rem 0.55rem;
-    color: var(--color-ink-muted);
-    border-bottom: 1px solid var(--color-rule);
-    background: color-mix(in srgb, var(--color-void-raised) 70%, transparent);
+  .ckv2-tilebar {
     display: flex;
     align-items: center;
-    gap: 0.4rem;
+    gap: 0.45rem;
+    padding: 0.3rem 0.55rem;
+    border-bottom: 1px solid var(--color-rule);
+    background: color-mix(in srgb, var(--color-void-raised) 80%, transparent);
+    border-top: 2px solid var(--repo-hue);
+    font-size: 0.66rem;
   }
-  /* Dot base — size + shape shared. Color variants set --dot-color; the
-     background and box-shadow both read it so each variant declares
-     color exactly once (plus optional animation cadence). */
-  .canvas-tile-dot {
+  .ckv2-tilebar-kolu { --repo-hue: #ff5fb3; }
+  .ckv2-tilebar-emanote { --repo-hue: #5be0a8; }
+  .ckv2-tilebar-dot {
     width: 7px;
     height: 7px;
     border-radius: 50%;
-    display: inline-block;
-    background: var(--dot-color);
-    box-shadow: 0 0 6px var(--dot-color);
+    background: var(--color-live-teal);
+    box-shadow: 0 0 8px var(--color-live-teal);
+    flex-shrink: 0;
   }
-  .canvas-dot-teal {
-    --dot-color: var(--color-live-teal);
-    animation: pulse-dot 1.2s ease-in-out infinite;
+  .ckv2-tilebar-dot-alert {
+    background: var(--color-live-alert);
+    box-shadow: 0 0 8px var(--color-live-alert);
+    animation: pulse-dot 1.3s ease-in-out infinite;
   }
-  .canvas-dot-alert {
-    --dot-color: var(--color-live-alert);
-    animation: pulse-dot 1.4s ease-in-out infinite;
+  .ckv2-tilebar-label {
+    color: var(--color-ink-dim);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
-  .canvas-dot-violet {
-    --dot-color: var(--color-live-violet);
+  .ckv2-tilebar-repo {
+    color: var(--repo-hue);
+    font-weight: 600;
   }
-  .canvas-tile-state {
+  .ckv2-tilebar-sep {
+    color: var(--color-ink-faint);
+    margin: 0 0.25em;
+  }
+  .ckv2-tilebar-branch {
+    color: var(--color-ink);
+  }
+  .ckv2-tilebar-pr {
+    color: var(--color-amber-bright);
+  }
+  .ckv2-tilebar-state {
     margin-left: auto;
-    color: var(--color-ink-muted);
+    color: var(--color-live-teal);
     display: inline-flex;
     align-items: center;
+    white-space: nowrap;
   }
-  /* Title-bar state label + body echo line share the accent color. */
-  .canvas-state-working,
-  .canvas-state-working-text {
-    color: var(--color-live-teal);
-  }
-  .canvas-state-awaiting,
-  .canvas-state-awaiting-text {
+  .ckv2-state-awaiting {
     color: var(--color-live-alert);
-  }
-  .canvas-state-awaiting-text {
     font-weight: 500;
   }
 
-  .canvas-tile-body {
-    padding: 0.5rem 0.65rem;
-    color: var(--color-ink-dim);
+  .ckv2-split-top,
+  .ckv2-split-bot,
+  .ckv2-side-body {
+    padding: 0.55rem 0.7rem;
+    color: var(--color-ink);
+    line-height: 1.55;
+    font-size: 0.68rem;
+    flex: 1;
+    min-height: 0;
+  }
+  .ckv2-split-top {
+    flex: 1.2;
+  }
+  .ckv2-split-bot {
+    background: color-mix(in srgb, var(--color-void-sunk) 70%, transparent);
+  }
+  .ckv2-working {
+    color: var(--color-live-teal);
+  }
+  .ckv2-awaiting-text {
+    color: var(--color-live-alert);
+    font-weight: 500;
+  }
+  .ckv2-lime {
+    color: var(--color-live-lime);
+    font-weight: 500;
   }
 
-  /* Legend dots — same --dot-color pattern as .canvas-tile-dot. */
+  .ckv2-split-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.2rem 0.55rem;
+    border-top: 1px solid var(--color-rule);
+    border-bottom: 1px solid var(--color-rule);
+    background: color-mix(in srgb, var(--color-void-raised) 95%, transparent);
+    font-size: 0.62rem;
+    color: var(--color-ink-muted);
+  }
+  .ckv2-split-tab {
+    padding: 0.1rem 0.45rem;
+    border-radius: 3px;
+    background: color-mix(in srgb, var(--color-void) 85%, transparent);
+    color: var(--color-ink-dim);
+  }
+  .ckv2-split-btn {
+    padding: 0 0.3rem;
+  }
+  .ckv2-spacer {
+    flex: 1;
+  }
+
+  /* ── Code browser (right) ────────────────────────────────────────── */
+  .ckv2-code {
+    background: var(--color-void-sunk);
+    border-left: 1px solid var(--color-rule);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .ckv2-code-tabs {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.35rem 0.65rem;
+    border-bottom: 1px solid var(--color-rule);
+    background: color-mix(in srgb, var(--color-void-raised) 60%, transparent);
+    font-size: 0.66rem;
+  }
+  .ckv2-code-tab {
+    color: var(--color-ink-muted);
+    padding-bottom: 0.15rem;
+    border-bottom: 1px solid transparent;
+  }
+  .ckv2-code-tab-active {
+    color: var(--color-live-teal);
+    border-bottom-color: var(--color-live-teal);
+  }
+  .ckv2-code-view {
+    color: var(--color-ink-muted);
+    font-size: 0.6rem;
+  }
+  .ckv2-code-body {
+    flex: 1;
+    display: grid;
+    grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+    min-height: 0;
+  }
+  .ckv2-tree {
+    padding: 0.5rem 0.5rem 0.5rem 0.55rem;
+    border-right: 1px solid var(--color-rule);
+    overflow: hidden;
+    font-size: 0.64rem;
+    line-height: 1.7;
+    color: var(--color-ink-muted);
+  }
+  .ckv2-tree-row {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    padding: 0 0.2rem;
+    border-radius: 3px;
+  }
+  .ckv2-tree-i1 { padding-left: 0.8rem; }
+  .ckv2-tree-i2 { padding-left: 1.4rem; }
+  .ckv2-tree-i3 { padding-left: 2rem; }
+  .ckv2-tree-active {
+    background: color-mix(in srgb, var(--color-live-teal) 18%, transparent);
+    color: var(--color-live-teal);
+    font-weight: 500;
+  }
+
+  .ckv2-source {
+    padding: 0.5rem 0.6rem;
+    font-size: 0.62rem;
+    line-height: 1.65;
+    color: var(--color-ink);
+    overflow: hidden;
+  }
+  .ckv2-source-line {
+    white-space: nowrap;
+    overflow: hidden;
+  }
+  .ckv2-source-empty {
+    min-height: 1em;
+  }
+  .ckv2-lineno {
+    display: inline-block;
+    width: 2.2em;
+    color: var(--color-ink-faint);
+    margin-right: 0.5em;
+    text-align: right;
+  }
+  .ckv2-tok-keyword { color: var(--color-live-violet); }
+  .ckv2-tok-attr { color: var(--color-live-teal); }
+  .ckv2-tok-str { color: var(--color-live-lime); }
+  .ckv2-tok-em { color: var(--color-amber-bright); font-style: italic; }
+  .ckv2-tok-comment { color: var(--color-ink-muted); font-style: italic; }
+
+  /* ── Legend dots — shared with hero (referenced via legend-pip-* in
+     both the canvas strip caption and any future site-wide legend). */
   .legend-pip {
     display: inline-block;
     width: 8px;
@@ -764,13 +1110,23 @@ const features = [
   .legend-pip-alert { --dot-color: var(--color-live-alert); }
   .legend-pip-violet { --dot-color: var(--color-live-violet); }
 
-  /* ── Responsive: stack hero on small screens ─────────────────────── */
+  /* ── Responsive: stack hero + collapse code panel on small screens ── */
 
+  @media (max-width: 900px) {
+    .ckv2 {
+      grid-template-columns: 1fr;
+      min-height: 0;
+    }
+    .ckv2-code {
+      display: none;
+    }
+    .ckv2-canvas {
+      flex-direction: column;
+    }
+  }
   @media (max-width: 768px) {
     .hero-term { min-height: 18rem; }
     .hero-term-body { min-height: 12rem; font-size: 0.72rem; }
-    .canvas-strip { height: 18rem; }
-    .canvas-tile { font-size: 0.6rem; }
   }
 </style>
 
