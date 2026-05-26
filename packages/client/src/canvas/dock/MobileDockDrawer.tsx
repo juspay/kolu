@@ -164,7 +164,7 @@ const MobileRow: Component<{
           <Show when={unread()}>
             <span
               aria-hidden="true"
-              class="absolute top-1 right-1 w-2 h-2 rounded-full bg-alert"
+              class="absolute top-1.5 right-2 w-1.5 h-1.5 rounded-full bg-alert animate-pulse"
             />
           </Show>
           <Show when={!c().meta.agent && foreground(c().meta)}>

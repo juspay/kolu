@@ -445,12 +445,9 @@ const DockRow: Component<{
           </span>
           <Show when={unread()}>
             <span
-              class="absolute -top-0.5 right-1 inline-flex h-2 w-2"
               aria-hidden="true"
-            >
-              <span class="absolute inline-flex h-full w-full rounded-full bg-alert opacity-75 animate-ping" />
-              <span class="relative inline-flex rounded-full h-2 w-2 bg-alert" />
-            </span>
+              class="absolute top-1.5 right-2 w-1.5 h-1.5 rounded-full bg-alert animate-pulse"
+            />
           </Show>
           <Show when={showShortcutHint()}>
             <span
