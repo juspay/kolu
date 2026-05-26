@@ -150,7 +150,6 @@ const features = [
 
         <p
           class="reveal reveal-3 mt-6 max-w-xl text-lg leading-relaxed text-ink-dim"
-          style="font-variation-settings: 'opsz' 14, 'SOFT' 60;"
         >
           <span class="mono text-ink">claude</span>, <span class="mono text-ink">codex</span>, <span
             class="mono text-ink">opencode</span
@@ -282,7 +281,7 @@ const features = [
           </h4>
           <div class="ckv2-card ckv2-card-active">
             <span class="ckv2-card-icon">✳</span>
-            <span class="ckv2-card-branch ckv2-hue-kolu">liable-idiom</span>
+            <span class="ckv2-card-branch ckv2-hue-kolu">hero</span>
             <span class="ckv2-card-agent ckv2-agent-claude">claude</span>
             <span class="ckv2-card-sub">▭1</span>
             <span class="ckv2-card-time">now</span>
@@ -290,7 +289,7 @@ const features = [
           </div>
           <div class="ckv2-card">
             <span class="ckv2-card-icon">✳</span>
-            <span class="ckv2-card-branch ckv2-hue-kolu">remote-terminals</span>
+            <span class="ckv2-card-branch ckv2-hue-kolu">ssh</span>
             <span class="ckv2-card-agent ckv2-agent-opencode">opencode</span>
             <span class="ckv2-card-time">
               now<span class="ckv2-card-badge live-badge"></span>
@@ -304,7 +303,7 @@ const features = [
           </h4>
           <div class="ckv2-card">
             <span class="ckv2-card-icon">✳</span>
-            <span class="ckv2-card-branch ckv2-hue-emanote">doc-org</span>
+            <span class="ckv2-card-branch ckv2-hue-emanote">docs</span>
             <span class="ckv2-card-agent ckv2-agent-codex">codex</span>
             <span class="ckv2-card-sub">▭1</span>
             <span class="ckv2-card-time">1h</span>
@@ -325,17 +324,21 @@ const features = [
         </section>
       </aside>
 
-      <!-- CENTRE: canvas with one split tile + one idle tile -->
+      <!-- CENTRE: canvas with 3 tiles in random, slightly overlapping
+           positions — mirrors real Kolu's free-floating canvas where
+           tiles are dragged around on a 24px grid, not arranged on a
+           rail. Each tile carries a distinct theme so they read as
+           separate xterm instances. -->
       <div class="ckv2-canvas">
-        <!-- Primary tile: claude on top, shell with `just test` in a split below.
+        <!-- Tile 1 (anchor): claude on top, shell with `just test` split.
              theme-solarized = deep blue-cyan palette. -->
-        <div class="ckv2-tile ckv2-tile-main theme-solarized">
+        <div class="ckv2-tile ckv2-tile-1 theme-solarized">
           <div class="ckv2-tilebar ckv2-tilebar-kolu">
             <span class="ckv2-tilebar-dot live-dot"></span>
             <span class="ckv2-tilebar-label">
               <span class="ckv2-tilebar-repo ckv2-hue-kolu">kolu</span>
               <span class="ckv2-tilebar-sep">·</span>
-              <span class="ckv2-tilebar-branch">liable-idiom</span>
+              <span class="ckv2-tilebar-branch">hero</span>
               <span class="ckv2-tilebar-sep">·</span>
               <span class="ckv2-tilebar-pr">#980</span>
             </span>
@@ -352,7 +355,7 @@ const features = [
             <div class="hero-dim">› <span class="hero-tool">Edit</span> website/src/pages/index.astro</div>
           </div>
           <div class="ckv2-split-bar">
-            <span class="ckv2-split-tab">liable-idiom</span>
+            <span class="ckv2-split-tab">hero</span>
             <span class="ckv2-spacer"></span>
             <span class="ckv2-split-btn">+</span>
             <span class="ckv2-split-btn">▾ Hide</span>
@@ -363,7 +366,7 @@ const features = [
               <span class="hero-dim">on</span>
               <span class="hero-path">pureintent</span>
               <span class="hero-dim">·</span>
-              <span class="ckv2-lime">liable-idiom</span>
+              <span class="ckv2-lime">hero</span>
               <span class="hero-dim">via</span>
               <span class="ckv2-lime">v24.13.0</span>
             </div>
@@ -373,14 +376,14 @@ const features = [
           </div>
         </div>
 
-        <!-- Secondary tile: awaiting. theme-hax0r = warm dark amber palette. -->
-        <div class="ckv2-tile ckv2-tile-side theme-hax0r">
+        <!-- Tile 2: codex awaiting. theme-hax0r = warm dark amber palette. -->
+        <div class="ckv2-tile ckv2-tile-2 theme-hax0r">
           <div class="ckv2-tilebar ckv2-tilebar-emanote">
             <span class="ckv2-tilebar-dot ckv2-tilebar-dot-alert"></span>
             <span class="ckv2-tilebar-label">
               <span class="ckv2-tilebar-repo ckv2-hue-emanote">emanote</span>
               <span class="ckv2-tilebar-sep">·</span>
-              <span class="ckv2-tilebar-branch">doc-org</span>
+              <span class="ckv2-tilebar-branch">docs</span>
               <span class="ckv2-tilebar-sep">·</span>
               <span class="ckv2-tilebar-pr">#747</span>
             </span>
@@ -393,6 +396,26 @@ const features = [
             <div><span class="ckv2-codex-marker">***</span> Update File: <span class="hero-path">docs/reader-guide.md</span></div>
             <div class="hero-dim">@@ -12,3 +12,7 @@</div>
             <div class="ckv2-awaiting-text">⏵ approve patch? (y/N)</div>
+          </div>
+        </div>
+
+        <!-- Tile 3: opencode running. theme-phala = deep magenta palette. -->
+        <div class="ckv2-tile ckv2-tile-3 theme-phala">
+          <div class="ckv2-tilebar ckv2-tilebar-kolu">
+            <span class="ckv2-tilebar-dot live-dot"></span>
+            <span class="ckv2-tilebar-label">
+              <span class="ckv2-tilebar-repo ckv2-hue-kolu">kolu</span>
+              <span class="ckv2-tilebar-sep">·</span>
+              <span class="ckv2-tilebar-branch">ssh</span>
+            </span>
+            <span class="ckv2-tilebar-state">opencode · thinking</span>
+            <span class="ckv2-tilebar-theme">Phala Green Dark</span>
+          </div>
+          <div class="ckv2-side-body">
+            <div class="hero-dim">opencode</div>
+            <div class="ckv2-working">▌ planning</div>
+            <div class="hero-dim">└ list every backend a kolu</div>
+            <div class="hero-dim">&nbsp;&nbsp;TerminalBackend impl should cover</div>
           </div>
         </div>
       </div>
@@ -614,21 +637,22 @@ const features = [
      terminal can pick its own — the demo mirrors that with three
      distinct palettes across the page so the hero, canvas main tile,
      and canvas side tile each read as a separate terminal.
-     The shared block pins dark-palette ink + amber tokens *inside*
-     the terminal regardless of page theme, so light-mode visitors
-     still see legible terminal output on the dark theme bg. */
+     The shared block pins cool-neutral ink + logo-purple amber tokens
+     *inside* the terminal regardless of page theme, so light-mode
+     visitors still see legible terminal output on the dark theme bg
+     without any warm bleedthrough from the page-level light palette. */
   .theme-phala,
   .theme-solarized,
   .theme-hax0r {
-    --color-ink: #e8e5dd;
-    --color-ink-dim: #a9a59a;
-    --color-ink-muted: #6f6b61;
-    --color-ink-faint: #3a3832;
-    --color-amber: #ffb020;
-    --color-amber-bright: #ffd45a;
-    --color-amber-dim: #b88420;
-    --color-rule: #1a1814;
-    --color-rule-strong: #2a2620;
+    --color-ink: #e8e8ed;
+    --color-ink-dim: #a8a8b2;
+    --color-ink-muted: #6e6e78;
+    --color-ink-faint: #3a3a42;
+    --color-amber: #a855f7;
+    --color-amber-bright: #c084fc;
+    --color-amber-dim: #7e22ce;
+    --color-rule: #18181d;
+    --color-rule-strong: #28282f;
     color: var(--color-ink);
   }
   .theme-phala {
@@ -942,8 +966,7 @@ const features = [
   .ckv2-card-intent {
     grid-column: 2 / -1;
     margin: 0.15rem 0 0;
-    font-family: var(--font-serif);
-    font-size: 0.78rem;
+    font-size: 0.74rem;
     color: var(--color-ink-dim);
     line-height: 1.25;
     overflow: hidden;
@@ -960,32 +983,43 @@ const features = [
       transparent 0
     );
     background-size: 24px 24px;
-    padding: 1rem;
-    display: flex;
-    gap: 0.8rem;
-    align-items: flex-start;
+    min-height: 26rem;
   }
 
+  /* Tiles float on the canvas at hand-picked positions that read as
+     "scattered, slightly overlapping" — like the real product where
+     terminals are dragged onto the canvas, not arranged on a rail. */
   .ckv2-tile {
+    position: absolute;
     border: 1px solid var(--color-rule-strong);
     border-radius: 5px;
     background: var(--term-bg, var(--color-void));
     overflow: hidden;
     display: flex;
     flex-direction: column;
-  }
-  .ckv2-tile-main {
-    flex: 1.6;
-    min-width: 0;
     box-shadow: 0 8px 32px -10px
       color-mix(in srgb, var(--term-glow, var(--color-live-violet)) 50%, transparent);
   }
-  .ckv2-tile-side {
-    flex: 1;
-    min-width: 0;
-    align-self: stretch;
-    box-shadow: 0 8px 24px -10px
-      color-mix(in srgb, var(--term-glow, var(--color-live-alert)) 45%, transparent);
+  .ckv2-tile-1 {
+    left: 1%;
+    top: 8%;
+    width: 46%;
+    height: 88%;
+    z-index: 3;
+  }
+  .ckv2-tile-2 {
+    left: 49%;
+    top: 2%;
+    width: 38%;
+    height: 50%;
+    z-index: 2;
+  }
+  .ckv2-tile-3 {
+    left: 54%;
+    top: 56%;
+    width: 44%;
+    height: 42%;
+    z-index: 1;
   }
 
   .ckv2-tilebar {
@@ -1145,16 +1179,17 @@ const features = [
   .ckv2-code-body {
     flex: 1;
     display: grid;
-    grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+    grid-template-rows: auto minmax(0, 1fr);
     min-height: 0;
   }
   .ckv2-tree {
     padding: 0.5rem 0.5rem 0.5rem 0.55rem;
-    border-right: 1px solid var(--color-rule);
+    border-bottom: 1px solid var(--color-rule);
     overflow: hidden;
     font-size: 0.64rem;
     line-height: 1.7;
     color: var(--color-ink-muted);
+    max-height: 12rem;
   }
   .ckv2-tree-row {
     white-space: nowrap;
