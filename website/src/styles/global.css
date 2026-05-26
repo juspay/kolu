@@ -27,6 +27,15 @@
   --color-amber-bright: #f4cf97;
   --color-amber-dim: #a08256;
 
+  /* Live-state accents — bright, saturated. Used wherever the surface
+     reflects *change* (agent working/awaiting in the dock, repo tile
+     identity on the canvas, chip glows). These intentionally read
+     louder than the muted editorial palette so the eye lands on them. */
+  --color-live-teal: #5ee8d4;
+  --color-live-alert: #ff9a3c;
+  --color-live-violet: #c5a3ff;
+  --color-live-rose: #ff8aa6;
+
   /* Rarely used — kept for legacy favicon echo only. */
   --color-brand-red: #ef4444;
   --color-brand-amber: #f59e0b;
@@ -59,6 +68,12 @@
   --color-amber: #9a5e1e;
   --color-amber-bright: #7d4a14;
   --color-amber-dim: #c2956a;
+  /* Light-mode live-state accents — deepened so they stay saturated on
+     warm paper without losing the "this is live" loudness. */
+  --color-live-teal: #0a8576;
+  --color-live-alert: #c45e10;
+  --color-live-violet: #6e3fb8;
+  --color-live-rose: #c83a64;
 }
 
 [data-theme="dark"] {
@@ -199,6 +214,101 @@ body {
 @keyframes blink {
   50% {
     opacity: 0;
+  }
+}
+
+/* --- Live-state animations -----------------------------------------------
+   Used by the hero terminal frame and canvas demo strip to convey that
+   the dock chips and agent pips are tracking real, changing state — the
+   "this is live" feel without shipping xterm.js on the marketing page. */
+
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.55;
+    transform: scale(0.85);
+  }
+}
+
+@keyframes breath-ring {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1.5px var(--color-live-alert),
+      0 0 12px -2px var(--color-live-alert);
+  }
+  50% {
+    box-shadow:
+      0 0 0 3px var(--color-live-alert),
+      0 0 22px -1px var(--color-live-alert);
+  }
+}
+
+@keyframes glow-working {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1.5px var(--color-live-teal),
+      0 0 12px -2px var(--color-live-teal);
+    filter: brightness(1);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1.5px var(--color-live-teal),
+      0 0 22px 0 var(--color-live-teal);
+    filter: brightness(1.25);
+  }
+}
+
+@keyframes braille-spin {
+  0% {
+    content: "⠋";
+  }
+  12% {
+    content: "⠙";
+  }
+  24% {
+    content: "⠹";
+  }
+  36% {
+    content: "⠸";
+  }
+  48% {
+    content: "⠼";
+  }
+  60% {
+    content: "⠴";
+  }
+  72% {
+    content: "⠦";
+  }
+  84% {
+    content: "⠧";
+  }
+  100% {
+    content: "⠇";
+  }
+}
+
+.live-spinner::before {
+  content: "⠋";
+  display: inline-block;
+  width: 1ch;
+  color: var(--color-live-teal);
+  animation: braille-spin 1s steps(1) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live-spinner::before,
+  .live-dot,
+  .live-chip-working,
+  .live-chip-awaiting,
+  .live-badge {
+    animation: none !important;
   }
 }
 

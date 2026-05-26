@@ -22,7 +22,7 @@ interface Props {
 
 const {
   title,
-  description = "A terminal-native cockpit for coding agents. Bring your own CLI, run them anywhere.",
+  description = "Your terminals are the workspace. Real xterm.js tiles on an infinite canvas for claude, codex, opencode — anything you run in a shell.",
   ogImageRoute = "site",
   ogType = "website",
   pubDate,
@@ -31,7 +31,7 @@ const {
 
 const fullTitle =
   title === "kolu"
-    ? "kolu — a terminal-native cockpit for coding agents"
+    ? "kolu — your terminals are the workspace"
     : `${title} · kolu`;
 
 const canonical = new URL(Astro.url.pathname, Astro.site);
@@ -64,7 +64,7 @@ const ogImageUrl = new URL(
     <meta property="og:image:type" content="image/png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
-    <meta property="og:image:alt" content={ogType === "article" ? `${title} — kolu` : "kolu — a terminal-native cockpit for coding agents"} />
+    <meta property="og:image:alt" content={ogType === "article" ? `${title} — kolu` : "kolu — your terminals are the workspace"} />
     {ogType === "article" && pubDate && (
       <meta property="article:published_time" content={pubDate.toISOString()} />
     )}
@@ -81,7 +81,7 @@ const ogImageUrl = new URL(
     <meta name="twitter:title" content={fullTitle} />
     <meta name="twitter:description" content={description} />
     <meta name="twitter:image" content={ogImageUrl} />
-    <meta name="twitter:image:alt" content={ogType === "article" ? `${title} — kolu` : "kolu — a terminal-native cockpit for coding agents"} />
+    <meta name="twitter:image:alt" content={ogType === "article" ? `${title} — kolu` : "kolu — your terminals are the workspace"} />
 
     <meta name="color-scheme" content="dark light" />
 

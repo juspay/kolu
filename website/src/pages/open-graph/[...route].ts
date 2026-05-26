@@ -23,7 +23,7 @@ const pages: Record<string, { title: string; description: string }> = {
   site: {
     title: "kolu",
     description:
-      "A terminal-native cockpit for coding agents. Bring your own CLI, run them anywhere.",
+      "Your terminals are the workspace. Real xterm.js tiles on an infinite canvas — claude, codex, opencode, anything you run in a shell.",
   },
   ...Object.fromEntries(
     blog.map(({ id, data }) => [
