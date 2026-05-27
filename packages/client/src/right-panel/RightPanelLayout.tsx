@@ -37,6 +37,7 @@ import {
   Show,
 } from "solid-js";
 import { useViewPosture } from "../canvas/useViewPosture";
+import { capturePointerGesture } from "../canvas/viewport/capturePointerGesture";
 import { isMobile } from "../useMobile";
 import { pendingOpen } from "./openInCodeTab";
 import RightPanel from "./RightPanel";
@@ -73,11 +74,12 @@ const DesktopHost: Component<HostProps> = (props) => {
     ),
   );
 
-  // Pointer-driven drag handle on the panel's left edge. Container width
-  // is read on `pointerdown` (not tracked reactively) so the gesture
-  // doesn't pay an observer subscription for the steady state; the
-  // gesture survives moves over the canvas via `setPointerCapture`,
-  // which would otherwise hand the cursor to the canvas's pan handler.
+  // Pointer-driven drag handle on the panel's left edge. Wiring + teardown
+  // delegate to `capturePointerGesture` — the same primitive tile-resize,
+  // canvas pan, and minimap drag use — so future changes to gesture
+  // semantics (cursor handling, cancel keys, escape-to-revert) land once.
+  // Container width is read on `pointerdown` (not tracked reactively) so
+  // the gesture doesn't pay an observer subscription for the steady state.
   const onResizeStart = (e: PointerEvent) => {
     if (e.button !== 0) return;
     e.preventDefault();
@@ -85,22 +87,18 @@ const DesktopHost: Component<HostProps> = (props) => {
     if (!container) return;
     const cw = container.getBoundingClientRect().width;
     if (cw <= 0) return;
-    const handle = e.currentTarget as HTMLElement;
     const startX = e.clientX;
     const startSize = rightPanel.panelSize();
-    handle.setPointerCapture(e.pointerId);
-
-    const onMove = (ev: PointerEvent) => {
-      const delta = (startX - ev.clientX) / cw;
-      rightPanel.setPanelSize(startSize + delta);
-    };
-    const onUp = (ev: PointerEvent) => {
-      handle.releasePointerCapture(ev.pointerId);
-      handle.removeEventListener("pointermove", onMove);
-      handle.removeEventListener("pointerup", onUp);
-    };
-    handle.addEventListener("pointermove", onMove);
-    handle.addEventListener("pointerup", onUp);
+    capturePointerGesture(
+      {
+        onMove: (ev) => {
+          const delta = (startX - ev.clientX) / cw;
+          rightPanel.setPanelSize(startSize + delta);
+        },
+        onEnd: () => {},
+      },
+      new AbortController(),
+    );
   };
 
   // Width rendered as percentage so first paint matches the persisted
