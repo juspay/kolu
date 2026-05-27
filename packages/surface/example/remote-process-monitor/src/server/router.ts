@@ -158,9 +158,17 @@ export function buildRouter(opts: BuildRouterOptions) {
   return { router, session };
 }
 
+/** The subset of `implementSurface(...).ctx` the bridge pumps actually
+ *  call. Keep this in sync with the surface's cells/collections —
+ *  every cell/collection actually written from a pump must appear
+ *  here, otherwise the pumps compile against a narrower-than-real
+ *  type and a typo / missing-write goes undetected. */
 type FragmentCtx = {
   ctx: {
-    cells: { system: { set: (v: SystemInfo) => void } };
+    cells: {
+      system: { set: (v: SystemInfo) => void };
+      connection: { set: (v: ConnectionInfo) => void };
+    };
     collections: {
       processes: {
         upsert: (k: Pid, v: Process) => void;
