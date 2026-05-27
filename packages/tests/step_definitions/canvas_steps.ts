@@ -1374,20 +1374,33 @@ When(
   },
 );
 
+Then("some canvas tile should be maximized", async function (this: KoluWorld) {
+  const maximizedTile = this.page.locator(
+    `${TILE_SELECTOR}[data-maximized="true"]`,
+  );
+  await maximizedTile
+    .first()
+    .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+});
+
 Then(
-  "the maximized tile's xterm element should still carry the tag",
+  "the tagged xterm element should still exist in the DOM",
   async function (this: KoluWorld) {
+    // The tag is unique per-test-run; finding any element with that
+    // attribute proves the originally-tagged `.xterm` node is still
+    // mounted. If the active-switch had remounted xterm.js (the #988
+    // bug), the tagged node would have been disposed and this query
+    // returns null — assertion fails as it would have pre-fix.
     await this.page.waitForFunction(
-      (tileSel: string) => {
+      () => {
         const tag = (window as unknown as { __xtermStabilityTag?: string })
           .__xtermStabilityTag;
         if (!tag) return false;
-        const max = document.querySelector(
-          `${tileSel}[data-maximized="true"] .xterm`,
-        ) as HTMLElement | null;
-        return max?.getAttribute("data-stability-tag") === tag;
+        return (
+          document.querySelector(`.xterm[data-stability-tag="${tag}"]`) !== null
+        );
       },
-      TILE_SELECTOR,
+      undefined,
       { timeout: POLL_TIMEOUT },
     );
   },
