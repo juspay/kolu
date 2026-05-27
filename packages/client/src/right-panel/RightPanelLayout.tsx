@@ -24,6 +24,7 @@ import Drawer from "@corvu/drawer";
 import Resizable from "@corvu/resizable";
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import { type Component, createEffect, type JSX, on, Show } from "solid-js";
+import { useCanvasViewport } from "../canvas/viewport/useCanvasViewport";
 import { useViewPosture } from "../canvas/useViewPosture";
 import { isMobile } from "../useMobile";
 import { pendingOpen } from "./openInCodeTab";
@@ -45,6 +46,7 @@ type HostProps = {
 const DesktopResizableHost: Component<HostProps> = (props) => {
   const rightPanel = useRightPanel();
   const posture = useViewPosture();
+  const viewport = useCanvasViewport();
 
   // Producer arrivals (terminal `path:line` taps, comments-tray jumps)
   // uncollapse the side panel — visibility used to live inside
@@ -111,10 +113,28 @@ const DesktopResizableHost: Component<HostProps> = (props) => {
           // grid backdrop. `overflow-hidden` stays — the visible
           // portion of the card's shadow lives inside the `p-4` inset
           // anyway.
+          //
+          // The `style` block synchronises this pane's grid background
+          // with the canvas pane's pan/zoom-driven grid (sourced from
+          // the singleton `useCanvasViewport`). Without sync, each
+          // pane drew its grid from its own element origin and the
+          // lines didn't align at the Resizable handle — the user saw
+          // it as "a 2nd canvas" next to the real one. With sync,
+          // both panes share the same background-position and -size,
+          // so the grid reads as one continuous surface that both
+          // panes happen to expose.
           class="min-w-0 min-h-0 overflow-hidden"
           classList={{
             "p-4 canvas-grid-bg": !posture.maximized(),
           }}
+          style={
+            !posture.maximized()
+              ? {
+                  "background-position": viewport.gridBgPosition(),
+                  "background-size": viewport.gridBgSize(),
+                }
+              : undefined
+          }
           minSize={0}
         >
           {/* Render unconditionally so CodeTab's selectedPath signal and
