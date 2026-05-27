@@ -333,44 +333,57 @@ async function pumpProcessesSnapshot(
   try {
     for await (const msg of await client.surface.processesSnapshot.get({})) {
       frames += 1;
-      if (msg.kind === "snapshot") {
-        // Full reset — drop any PIDs we'd seen previously that aren't
-        // in the new snapshot, then upsert everything in the snapshot.
-        const next = new Set(msg.entries.map(([pid]) => pid));
-        for (const pid of [...seenPids]) {
-          if (!next.has(pid)) {
-            fragment.ctx.collections.processes.remove(pid);
-            seenPids.delete(pid);
-          }
-        }
-        for (const [pid, value] of msg.entries) {
-          fragment.ctx.collections.processes.upsert(pid, value);
-          seenPids.add(pid);
-        }
-        log(
-          `processes: snapshot frame #${frames} — ${msg.entries.length} PIDs (cold-start or reconnect)`,
-        );
-      } else {
-        for (const [pid, value] of msg.upserts) {
-          fragment.ctx.collections.processes.upsert(pid, value);
-          seenPids.add(pid);
-        }
-        for (const pid of msg.removes) {
-          fragment.ctx.collections.processes.remove(pid);
-          seenPids.delete(pid);
-        }
-        if (msg.upserts.length > 0 || msg.removes.length > 0) {
-          log(
-            `processes: delta frame #${frames} — upsert=${msg.upserts.length} remove=${msg.removes.length} total=${seenPids.size}`,
-          );
-        }
-      }
-      // Re-publish to browser subscribers. The parent's own
-      // `processesSnapshot.source` consumes this bus.
+      applySnapshotMessage(msg, seenPids, fragment, frames);
+      // Independent activity: re-publish to browser subscribers via
+      // the parent's local bus. Verbatim forward — no inspection of
+      // frame contents here; the mirror logic above is the only
+      // place that knows the discriminated-union shape.
       browserSnapshotBus.publish(msg);
     }
     log(`processes: snapshot stream closed (${frames} frames total)`);
   } catch (err) {
     log(`processes: snapshot stream error: ${(err as Error).message}`);
+  }
+}
+
+/** Apply one `processesSnapshot` frame to the parent's local
+ *  collection — full reset on `snapshot`, incremental delta on
+ *  `delta`. Mutates `seenPids` so subsequent snapshots can drop
+ *  PIDs that disappeared between yields. */
+function applySnapshotMessage(
+  msg: ProcessesSnapshotMsg,
+  seenPids: Set<Pid>,
+  fragment: FragmentCtx,
+  frameNumber: number,
+): void {
+  if (msg.kind === "snapshot") {
+    const next = new Set(msg.entries.map(([pid]) => pid));
+    for (const pid of [...seenPids]) {
+      if (!next.has(pid)) {
+        fragment.ctx.collections.processes.remove(pid);
+        seenPids.delete(pid);
+      }
+    }
+    for (const [pid, value] of msg.entries) {
+      fragment.ctx.collections.processes.upsert(pid, value);
+      seenPids.add(pid);
+    }
+    log(
+      `processes: snapshot frame #${frameNumber} — ${msg.entries.length} PIDs (cold-start or reconnect)`,
+    );
+    return;
+  }
+  for (const [pid, value] of msg.upserts) {
+    fragment.ctx.collections.processes.upsert(pid, value);
+    seenPids.add(pid);
+  }
+  for (const pid of msg.removes) {
+    fragment.ctx.collections.processes.remove(pid);
+    seenPids.delete(pid);
+  }
+  if (msg.upserts.length > 0 || msg.removes.length > 0) {
+    log(
+      `processes: delta frame #${frameNumber} — upsert=${msg.upserts.length} remove=${msg.removes.length} total=${seenPids.size}`,
+    );
   }
 }
