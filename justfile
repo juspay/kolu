@@ -68,7 +68,7 @@ test-unit: install
 test: install
     #!/usr/bin/env bash
     set -euo pipefail
-    KOLU_SERVER="${KOLU_SERVER:-$(nix build .#koluBin --print-out-paths)/bin/kolu}"
+    KOLU_SERVER="${KOLU_SERVER:-$(nix build .#koluBin --no-link --print-out-paths)/bin/kolu}"
     cd packages/tests
     {{ nix_shell_e2e }} pnpm install
     KOLU_SERVER="$KOLU_SERVER" CUCUMBER_PARALLEL={{ cucumber_parallel }} {{ nix_shell_e2e }} pnpm test
@@ -116,9 +116,9 @@ fmt: install
 fmt-check: install
     {{ nix_shell }} sh -c 'biome format . && nixpkgs-fmt --check *.nix nix/**/*.nix website/*.nix'
 
-# Nix build (server + client)
+# Nix build (server + client) — prints store path, no ./result symlink
 build:
-    nix build
+    nix build --no-link --print-out-paths
 
 # Run the combined server+client binary
 run:
