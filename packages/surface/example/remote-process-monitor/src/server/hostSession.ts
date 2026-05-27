@@ -113,17 +113,21 @@ export class HostSession {
     });
   }
 
-  /** Acquire a reference. The first acquire spawns the ssh subprocess
-   *  and provisions the closure (if needed). Resolves with a typed
-   *  client once the link is live. Subsequent acquires share the same
-   *  client without re-spawning. **Callers must match each `acquire`
-   *  with a `release`** — use `pin()` for the long-lived bridge case. */
+  /** Acquire a scoped reference. The first acquire spawns the ssh
+   *  subprocess and provisions the closure (if needed). Resolves with a
+   *  typed client once the link is live. Subsequent acquires share the
+   *  same client without re-spawning. **Callers must match each
+   *  successful `acquire` with a `release`** — use `pin()` for the
+   *  long-lived bridge case.
+   *
+   *  Order matters: spawn FIRST, then bump refCount on success. The
+   *  reverse (the old code's pattern) leaked a ref when `spawn()`
+   *  rejected — the `await` threw, the caller's try/finally never ran,
+   *  and `refCount` stayed bumped forever. */
   async acquire(): Promise<AgentClient> {
+    const client = await this.ensureSpawned();
     this.refCount += 1;
-    if (this.clientPromise === null) {
-      this.clientPromise = this.spawn();
-    }
-    return this.clientPromise;
+    return client;
   }
 
   /** Release a reference. When refs reach zero, tear down the session. */
@@ -139,9 +143,26 @@ export class HostSession {
    *  zero in between. Use ONCE per HostSession from the long-lived
    *  bridge code. Encodes the "this session must outlive its
    *  short-lived consumers" intent that an unmatched `acquire()` would
-   *  otherwise hide as a leak. */
+   *  otherwise hide as a leak.
+   *
+   *  Unlike `acquire()`, pin bumps refCount FIRST — the intent is "keep
+   *  this session alive across spawn failures so the reconnect loop
+   *  keeps trying", which requires refCount > 0 for `scheduleReconnect`
+   *  to fire its retry. */
   pin(): Promise<AgentClient> {
-    return this.acquire();
+    this.refCount += 1;
+    return this.ensureSpawned();
+  }
+
+  /** Lazy-start the spawn cycle. Idempotent — multiple callers race
+   *  onto the same in-flight `clientPromise`. Separated from `acquire`
+   *  so `acquire` can fail-safe on its ref bump and `pin` can do the
+   *  opposite. */
+  private ensureSpawned(): Promise<AgentClient> {
+    if (this.clientPromise === null) {
+      this.clientPromise = this.spawn();
+    }
+    return this.clientPromise;
   }
 
   /** Immediately drop the session regardless of ref count. Used on
@@ -149,6 +170,21 @@ export class HostSession {
   destroy(): void {
     this.destroyed = true;
     this.teardown("session destroyed");
+  }
+
+  /** Has `destroy()` been called? Used by the bridge's outer pump loop
+   *  to break out cleanly on shutdown. */
+  isDestroyed(): boolean {
+    return this.destroyed;
+  }
+
+  /** The currently in-flight client promise (or `null` between a child
+   *  exit and `scheduleReconnect`'s timer firing). Each `spawn()` call
+   *  reassigns `clientPromise`, so the bridge can detect "the agent
+   *  was respawned" by observing identity drift between successive
+   *  reads. */
+  currentClient(): Promise<AgentClient> | null {
+    return this.clientPromise;
   }
 
   private updateState(patch: Partial<HostSessionState>): void {

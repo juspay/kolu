@@ -138,11 +138,15 @@ export function buildRouter(opts: BuildRouterOptions) {
   });
 
   // ── Bridge remote agent surface → parent's local surface ──────────
-  // Start a background pump that acquires the session, subscribes to
-  // the remote system/processes streams, and mirrors deltas into the
-  // local fragment ctx. Reconnects ride on top because the framework's
-  // `ClientRetryPlugin` re-issues the subscription with snapshot-then-
-  // delta semantics on each transport blip.
+  // Start a background pump that pins the session, then loops over each
+  // successive AgentClient the session produces — each time the agent
+  // process is respawned (after a transport drop), the bridge fetches
+  // the new client and restarts all pumps against it. The framework's
+  // `ClientRetryPlugin` is NOT load-bearing here: stdio links don't
+  // recover mid-stream (the underlying streams die with the process), so
+  // the only reliable recovery is to re-issue the subscriptions on the
+  // *new* client. The outer loop is what implements "reconnect → state
+  // reconciles" (row 12 of the falsifiability checklist).
   void bridgeAgentToParent(session, fragment, browserSnapshotBus);
 
   // `implementSurface` returns a router *fragment* — `{ surface: ... }`
@@ -186,31 +190,100 @@ function log(line: string): void {
   process.stderr.write(`[bridge] ${line}\n`);
 }
 
-/** Acquire the agent client and pump remote system+processes deltas into
- *  the parent's local fragment ctx. Each stream loop runs fire-and-forget;
- *  errors at stream end (transport blip, abort) are expected end-of-life
- *  noise — the session's reconnect loop drives the next subscribe. */
+/** Pin the session, then loop: fetch the current AgentClient, run all
+ *  three pumps against it concurrently, wait for them to end (which
+ *  happens when the link errors — stdio process death), then wait for
+ *  the session to provide a fresh client (post-reconnect) and repeat.
+ *
+ *  Why a loop, not just `ClientRetryPlugin`: the retry plugin re-issues
+ *  RPCs on the same `RPCLink`, which is bound to one pair of stdio
+ *  streams. When the agent process exits, those streams are dead — no
+ *  amount of re-issuing recovers them. Recovery requires a *new* client
+ *  bound to a *new* spawn's streams, which is exactly what the session's
+ *  `scheduleReconnect` produces. The bridge has to walk that succession. */
 async function bridgeAgentToParent(
   session: HostSession,
   fragment: FragmentCtx,
   browserSnapshotBus: Channel<ProcessesSnapshotMsg>,
 ): Promise<void> {
   log("pinning HostSession (parent-lifetime ref)…");
-  let client: AgentClient;
-  try {
-    client = await session.pin();
-  } catch (err) {
-    log(
-      `pin failed: ${(err as Error).message} — session reconnect drives next attempt`,
-    );
-    return;
+  // Pin once. Swallow the initial promise — we'll fetch a fresh client
+  // (possibly a re-spawned one) in the loop below regardless of whether
+  // this first spawn succeeded.
+  session.pin().catch(() => {
+    /* logged via state cell; loop handles recovery */
+  });
+
+  let lastClient: AgentClient | null = null;
+  while (!session.isDestroyed()) {
+    let client: AgentClient;
+    try {
+      client = await waitForNextClient(session, lastClient);
+    } catch (err) {
+      log(`bridge: waiting for next client failed: ${(err as Error).message}`);
+      break;
+    }
+    lastClient = client;
+    log("agent client ready; starting pumps");
+    // Race all three pumps; when any settles (typically because the
+    // stdio link died), let the other two finish too. `allSettled`
+    // would also work but `race` lets us tear out faster — the dead
+    // link will surface in the others on their next await anyway.
+    await Promise.allSettled([
+      pumpSystemCell(client, session, fragment),
+      pumpProcessesSnapshot(client, fragment, browserSnapshotBus),
+      pumpCpuCores(client, fragment),
+    ]);
+    log("bridge: pumps ended (link likely died) — awaiting next client");
   }
-  log("agent client ready; starting pumps");
-  // Don't release on background termination — the session is the
-  // long-lived parent-side singleton and we want it kept warm.
-  void pumpSystemCell(client, session, fragment);
-  void pumpProcessesSnapshot(client, fragment, browserSnapshotBus);
-  void pumpCpuCores(client, fragment);
+  log("bridge: session destroyed — exiting reconnect loop");
+}
+
+/** Block until the session exposes a NEW `clientPromise` instance
+ *  (i.e. one whose identity differs from the previous iteration's
+ *  client). Resolves with the awaited client. Throws if the session is
+ *  destroyed before a fresh client appears.
+ *
+ *  Identity-comparison is the trick that avoids spinning: when pumps
+ *  end because the link errored, the child's `exit` handler clears
+ *  `clientPromise` to null and `scheduleReconnect` later sets it to a
+ *  new promise. Until that new promise exists, `currentClient()`
+ *  returns either null or the same dead-handle the pumps just
+ *  abandoned — we wait through both. */
+function waitForNextClient(
+  session: HostSession,
+  previous: AgentClient | null,
+): Promise<AgentClient> {
+  return new Promise((resolve, reject) => {
+    const tryResolve = async (): Promise<boolean> => {
+      if (session.isDestroyed()) {
+        reject(new Error("session destroyed"));
+        return true;
+      }
+      const cp = session.currentClient();
+      if (cp === null) return false;
+      try {
+        const c = await cp;
+        if (c !== previous) {
+          resolve(c);
+          return true;
+        }
+      } catch {
+        // Spawn rejected — stay in the loop; the next state change
+        // (scheduleReconnect's timer firing) will surface a fresh
+        // clientPromise.
+      }
+      return false;
+    };
+    void tryResolve().then((done) => {
+      if (done) return;
+      const unsub = session.onState(() => {
+        void tryResolve().then((doneNow) => {
+          if (doneNow) unsub();
+        });
+      });
+    });
+  });
 }
 
 /** Generic mirror: subscribe to the agent's `Collection<K,V>` (via
