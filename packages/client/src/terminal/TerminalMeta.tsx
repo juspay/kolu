@@ -20,6 +20,7 @@ import { annotationLine } from "../intent/text";
 import { PrStateIcon, WorktreeIcon } from "../ui/Icons";
 import Tip from "../ui/Tip";
 import ChecksIndicator from "./ChecksIndicator";
+import HostChip from "./HostChip";
 import { PrUnavailableButton } from "./PrUnavailablePopover";
 import type { TerminalDisplayInfo } from "./terminalDisplay";
 
@@ -44,6 +45,7 @@ const TerminalMeta: Component<{
            *  repo name) — visible space is reserved for the OSC 2
            *  process title. */}
           <div class="flex items-center gap-1.5 min-h-7 text-sm font-medium min-w-0">
+            <HostChip location={info().meta.location} />
             <NameSpan info={info()} />
             <Show when={info().key.suffix}>
               {(suffix) => (

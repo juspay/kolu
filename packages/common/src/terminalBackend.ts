@@ -43,6 +43,7 @@
  *    work.
  */
 
+import { z } from "zod";
 import type {
   FsListAllOutput,
   GitDiffMode,
@@ -59,9 +60,11 @@ import type {
  *  `sincereintent` resolves through `~/.ssh/config`). The agent runs
  *  there as `kolu --stdio`, invoked via `ssh $host <agentPath> --stdio`
  *  after `@kolu/surface-nix-host` has copied + realised the .drv. */
-export type TerminalLocation =
-  | { kind: "local" }
-  | { kind: "remote"; host: string };
+export const TerminalLocationSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("local") }),
+  z.object({ kind: z.literal("remote"), host: z.string().min(1) }),
+]);
+export type TerminalLocation = z.infer<typeof TerminalLocationSchema>;
 
 /** Per-terminal channel payload types — the streams a backend exposes
  *  for one terminal id. Subscribing returns the payload type

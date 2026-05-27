@@ -150,7 +150,10 @@ export class RemoteTerminalBackend implements TerminalBackend {
     tlog.info({ cwd: opts.cwd }, "remote spawn initiated");
 
     const handle = new RemotePtyHandle(this.host, id, this);
-    const meta = createMetadata(opts.cwd ?? "");
+    const meta = createMetadata(opts.cwd ?? "", {
+      kind: "remote",
+      host: this.host,
+    });
     if (opts.parentId) meta.parentId = opts.parentId;
     const initial = opts.initialMetadata;
     if (initial?.themeName) meta.themeName = initial.themeName;

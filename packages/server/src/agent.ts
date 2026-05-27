@@ -99,6 +99,9 @@ export function serveAgent(
  *  `git`, `agent`, `pr`, `foreground`, `lastAgentCommand`,
  *  `lastActivityAt` stay defaulted. */
 function seedMetadata(cwd: string): AgentTerminalMetadata {
+  // Agent terminals are "local" from the agent's perspective. When the
+  // parent mirrors this collection into its own `terminalMetadata`,
+  // it overwrites `location` with `{kind:"remote", host}`.
   return {
     cwd,
     git: null,
@@ -106,6 +109,7 @@ function seedMetadata(cwd: string): AgentTerminalMetadata {
     agent: null,
     foreground: null,
     lastActivityAt: 0,
+    location: { kind: "local" },
   };
 }
 

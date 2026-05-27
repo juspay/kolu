@@ -27,6 +27,7 @@
 
 import { defineSurface, type SurfaceTypes } from "@kolu/surface/define";
 import { TaskProgressSchema } from "anyagent/schemas";
+import { TerminalLocationSchema } from "./terminalBackend";
 import { ClaudeCodeInfoSchema } from "kolu-claude-code/schemas";
 import { CodexInfoSchema } from "kolu-codex/schemas";
 import {
@@ -152,6 +153,12 @@ export const ServerPersistedTerminalFieldsSchema = z.object({
    *  semantic-key transition (`kind`/`sessionId`/`state`). Idle terminals
    *  stay at `0` and fall back to canvas position. */
   lastActivityAt: z.number().default(0),
+  /** Where this terminal lives. `{kind:"local"}` for in-process PTYs;
+   *  `{kind:"remote", host}` for terminals running on an ssh-config
+   *  host via a `kolu --stdio` agent. Optional so persisted sessions
+   *  from before remote-terminal support migrate as local; read sites
+   *  default via `meta.location ?? { kind: "local" }`. */
+  location: TerminalLocationSchema.optional(),
 });
 
 /**

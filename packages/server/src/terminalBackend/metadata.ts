@@ -34,6 +34,7 @@ import type {
   TerminalClientMetadata,
   TerminalMetadata,
 } from "kolu-common/surface";
+import type { TerminalLocation } from "kolu-common/terminalBackend";
 import { prUnavailableReason, prValue } from "kolu-github/schemas";
 import { log } from "../log.ts";
 import { terminalsDirtyChannel } from "../publisher.ts";
@@ -44,7 +45,10 @@ import type { TerminalProcess } from "../terminal-registry.ts";
  *  means "no agent transition observed yet" — the only event that lifts
  *  the recency clock. Idle terminals tie at 0 and fall back to canvas
  *  position. */
-export function createMetadata(cwd: string): TerminalMetadata {
+export function createMetadata(
+  cwd: string,
+  location: TerminalLocation = { kind: "local" },
+): TerminalMetadata {
   return {
     cwd,
     git: null,
@@ -52,6 +56,7 @@ export function createMetadata(cwd: string): TerminalMetadata {
     agent: null,
     foreground: null,
     lastActivityAt: 0,
+    location,
   };
 }
 

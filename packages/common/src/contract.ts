@@ -35,13 +35,7 @@ import {
 
 // ── Raw oRPC procedure I/O schemas ────────────────────────────────────
 
-// Wire shape for `TerminalLocation` — kept in lockstep with the
-// runtime type in `./terminalBackend.ts`. Validated at the create RPC
-// boundary; downstream code uses the runtime type.
-export const TerminalLocationSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("local") }),
-  z.object({ kind: z.literal("remote"), host: z.string().min(1) }),
-]);
+import { TerminalLocationSchema } from "./terminalBackend";
 
 export const TerminalCreateInputSchema = z
   .object({
