@@ -17,7 +17,7 @@ export function forEachLine(
   onLine: (line: string) => void,
 ): void {
   for (const line of chunk.split("\n")) {
-    if (line.trim().length > 0) onLine(line);
+    if (line.trim()) onLine(line);
   }
 }
 
