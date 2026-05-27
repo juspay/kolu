@@ -35,6 +35,7 @@ import { inMemoryCell } from "@kolu/surface/server";
 import type { ContractRouterClient } from "@orpc/contract";
 import type { ClientRetryPluginContext } from "@orpc/client/plugins";
 import type { surface } from "../common/surface";
+import { isLocalHost } from "./host";
 import { provisionAgent } from "./nixCopy";
 
 export type ConnectionState =
@@ -206,8 +207,7 @@ export class HostSession {
     const realisedAgentPath = provision.agentPath;
 
     this.updateState({ connection: "connecting" });
-    const isLocal =
-      this.opts.host === "localhost" || this.opts.host === "127.0.0.1";
+    const isLocal = isLocalHost(this.opts.host);
     const child = isLocal
       ? spawn(`${realisedAgentPath}/bin/process-monitor-agent`, ["--stdio"], {
           stdio: ["pipe", "pipe", "pipe"],

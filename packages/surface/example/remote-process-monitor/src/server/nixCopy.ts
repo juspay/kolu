@@ -30,6 +30,7 @@
  */
 
 import { spawn } from "node:child_process";
+import { isLocalHost } from "./host";
 
 export interface ProvisionOptions {
   host: string;
@@ -50,7 +51,7 @@ export type ProvisionResult =
 export async function provisionAgent(
   opts: ProvisionOptions,
 ): Promise<ProvisionResult> {
-  const isLocal = opts.host === "localhost" || opts.host === "127.0.0.1";
+  const isLocal = isLocalHost(opts.host);
 
   // 1. Copy the .drv (and its build-inputs) to the remote. Skipped
   //    for localhost — the .drv is already in /nix/store.
