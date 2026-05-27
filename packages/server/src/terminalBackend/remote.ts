@@ -31,14 +31,27 @@
  *     `meta.connectionState` for the `<DisconnectedOverlay>`.
  */
 
-import { SerializeAddon } from "@xterm/addon-serialize";
-import { Terminal } from "@xterm/headless";
+import { createRequire } from "node:module";
+import type { Terminal as HeadlessTerminal } from "@xterm/headless";
+import type { SerializeAddon as SerializeAddonType } from "@xterm/addon-serialize";
 import {
   type AgentClient,
   mirrorRemoteCollection,
 } from "@kolu/surface-nix-host";
 import { DEFAULT_SCROLLBACK } from "kolu-common/config";
 import { getScreenText } from "kolu-pty";
+
+// `@xterm/headless` and `@xterm/addon-serialize` ship as CJS; their
+// ESM named exports don't survive Node's default resolver. Match
+// kolu-pty's load pattern (createRequire) so types come from the
+// ambient `import type` declarations above.
+const require_ = createRequire(import.meta.url);
+const { Terminal } =
+  require_("@xterm/headless") as typeof import("@xterm/headless");
+const { SerializeAddon } =
+  require_(
+    "@xterm/addon-serialize",
+  ) as typeof import("@xterm/addon-serialize");
 import type {
   AgentContract,
   AgentTerminalMetadata,
@@ -94,8 +107,8 @@ class RemotePtyHandle implements TerminalHandle {
    *  — which lives here instead of having to round-trip another RPC to
    *  the agent. Resize mirrors the agent so the headless buffer's
    *  geometry stays in sync. */
-  readonly headless: Terminal;
-  private readonly serializeAddon: SerializeAddon;
+  readonly headless: HeadlessTerminal;
+  private readonly serializeAddon: SerializeAddonType;
 
   constructor(
     private readonly host: string,
