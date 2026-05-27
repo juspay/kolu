@@ -278,6 +278,14 @@ export class HostSession {
 
   private scheduleReconnect(): void {
     if (this.destroyed || this.reconnectTimer !== null) return;
+    // Exponential backoff is keyed on attempts-so-far, not "this is
+    // attempt N after the failure". The previous code post-incremented
+    // and then subtracted one to compensate (`2 ** (count - 1)`), which
+    // is correct but reads like two off-by-ones cancelling. Decouple:
+    // compute the delay from the pre-increment count, then bump.
+    // Sequence: 2s, 4s, 8s, 16s — capped at 60s — then "gave up" on
+    // the next call.
+    const attemptsSoFar = this.consecutiveFailures;
     this.consecutiveFailures += 1;
     if (this.consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
       this.addLocalProgress(
@@ -285,14 +293,8 @@ export class HostSession {
       );
       return;
     }
-    // Exponential backoff with a cap — a permanent failure (untrusted
-    // remote, unreachable host, missing closure) shouldn't hammer the
-    // remote every 2s. 2s, 4s, 8s, 16s, 32s, then cap at 60s.
     const baseDelay = this.opts.reconnectDelayMs ?? 2000;
-    const delay = Math.min(
-      baseDelay * 2 ** (this.consecutiveFailures - 1),
-      60_000,
-    );
+    const delay = Math.min(baseDelay * 2 ** attemptsSoFar, 60_000);
     this.addLocalProgress(
       `reconnecting in ${delay}ms… (attempt ${this.consecutiveFailures}/${MAX_CONSECUTIVE_FAILURES})`,
     );
