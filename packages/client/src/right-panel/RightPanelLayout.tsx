@@ -101,19 +101,20 @@ const DesktopResizableHost: Component<HostProps> = (props) => {
         </Show>
         <Resizable.Panel
           as="div"
-          // `p-4` (when floating) creates the inset gap that gives the
-          // floating card chrome (rounded + shadow) room to read. The
-          // inset cascades the body bg, which contrasts with the
-          // panel's `bg-surface-0` — the right pane reads as its own
-          // distinct region (not a visual extension of the canvas),
-          // matching the user's mental model that "canvas = terminals,
-          // right panel = inspector". An earlier attempt added
-          // `canvas-grid-bg` here to fake visual continuity with the
-          // canvas; it dissolved the region boundary instead.
-          // `overflow-hidden` stays — the visible portion of the
-          // shadow lives inside the `p-4` inset anyway.
+          // `p-4` + `canvas-grid-bg` (when floating) make the inset
+          // gap a transparent-into-the-canvas region — the same grid
+          // pattern the Dock floats over on the canvas pane extends
+          // through this pane too, so the floating right card visibly
+          // sits *on* the canvas instead of inside a separate gray
+          // region. The card itself stays opaque via `bg-surface-0`,
+          // so its rounded chrome + shadow read clearly against the
+          // grid backdrop. `overflow-hidden` stays — the visible
+          // portion of the card's shadow lives inside the `p-4` inset
+          // anyway.
           class="min-w-0 min-h-0 overflow-hidden"
-          classList={{ "p-4": !posture.maximized() }}
+          classList={{
+            "p-4 canvas-grid-bg": !posture.maximized(),
+          }}
           minSize={0}
         >
           {/* Render unconditionally so CodeTab's selectedPath signal and
