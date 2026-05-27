@@ -20,6 +20,7 @@ let
       ./pnpm-lock.yaml
       ./tsconfig.base.json
       ./packages/surface
+      ./packages/surface-nix-host
       ./packages/solid-pierre
       ./packages/common
       ./packages/integrations
@@ -178,7 +179,14 @@ let
     makeWrapper ${koluBin}/bin/kolu $out/bin/kolu \
       --run 'export KOLU_STATE_DIR="''${XDG_CONFIG_HOME:-$HOME/.config}/kolu"'
   '';
+
+  # @kolu/surface remote-process-monitor demo — derivations live next
+  # to the demo source, not here. Pass through the workspace-wide
+  # `src` + `pnpmDeps` so the fixed-output fetch is cached once.
+  remoteProcessMonitor = import ./packages/surface/example/remote-process-monitor/default.nix {
+    inherit pkgs src pnpmDeps;
+  };
 in
 {
   inherit default koluBin koluEnv pnpmDeps;
-}
+} // remoteProcessMonitor

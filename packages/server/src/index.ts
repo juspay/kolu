@@ -117,9 +117,10 @@ const rpcPlugins = [
 ];
 
 // --- oRPC HTTP handler (non-streaming calls) ---
-// biome-ignore lint/suspicious/noExplicitAny: appRouter mixes implementSurface's
-// Lazy<Router> spread with hand-listed namespaces; oRPC's RPCHandler input
-// type doesn't accept that union. The runtime shape is a valid router.
+// appRouter mixes implementSurface's Lazy<Router> spread with
+// hand-listed namespaces; oRPC's RPCHandler input type doesn't accept
+// that union. The runtime shape is a valid router.
+// biome-ignore lint/suspicious/noExplicitAny: see comment above
 const rpcHandler = new RPCHandler(appRouter as any, { plugins: rpcPlugins });
 app.use("/rpc/*", async (c, next) => {
   const { matched, response } = await rpcHandler.handle(c.req.raw, {

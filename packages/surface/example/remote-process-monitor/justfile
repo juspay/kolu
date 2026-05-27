@@ -1,0 +1,55 @@
+# @kolu/surface remote-process-monitor — standalone example.
+#
+# Run from this directory: `just dev` boots the parent server + Vite
+# client. The parent spawns the agent via `ssh $HOST $AGENT_PATH/bin/
+# process-monitor-agent --stdio` — `AGENT_PATH` resolves to the
+# `.#process-monitor-agent` flake derivation (built once per change to
+# the agent's source, cached after). Defaults: HOST=localhost; needs
+# passwordless ssh into HOST.
+#
+# Run just the agent directly via `nix run .#process-monitor-agent --
+# --stdio` (from the repo root) for stdio-only smoke tests.
+
+repo_root := justfile_directory() / "../../../.."
+nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop ' + repo_root + ' --accept-flake-config -c' }
+
+# List available recipes
+default:
+    @just --list
+
+# Install pnpm deps (delegates to the workspace at the repo root)
+install:
+    cd {{ repo_root }} && {{ nix_shell }} pnpm install
+
+# Boot parent (:7720) + Vite (:5175). Resolves the agent's `.drv` for
+# the *target host's* architecture (probed via `ssh $HOST uname -ms`),
+# then exports `KOLU_AGENT_DRV` so the parent's HostSession can ship the
+# derivation to the host and realise it there. This is platform-neutral
+# — copying a built linux closure to a darwin remote is the bug we
+# explicitly avoid.
+dev host='localhost' *args: install
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ "{{ host }}" = "localhost" ] || [ "{{ host }}" = "127.0.0.1" ]; then
+      sys=$(nix eval --raw --impure --expr builtins.currentSystem)
+    else
+      uname_out=$(ssh -o BatchMode=yes {{ host }} uname -ms)
+      case "$uname_out" in
+        "Darwin arm64")  sys=aarch64-darwin ;;
+        "Darwin x86_64") sys=x86_64-darwin ;;
+        "Linux x86_64")  sys=x86_64-linux ;;
+        "Linux aarch64") sys=aarch64-linux ;;
+        *) echo "» unsupported remote uname: $uname_out" >&2; exit 1 ;;
+      esac
+    fi
+    echo "» target host: {{ host }} (system=$sys)"
+    drv=$(nix eval --raw "{{ repo_root }}#packages.$sys.process-monitor-agent.drvPath")
+    echo "» agent .drv:  $drv"
+    cd {{ justfile_directory() }}
+    HOST={{ host }} \
+    KOLU_AGENT_DRV=$drv \
+    {{ nix_shell }} pnpm run dev {{ args }}
+
+# Typecheck this example only
+typecheck:
+    cd {{ justfile_directory() }} && {{ nix_shell }} pnpm typecheck

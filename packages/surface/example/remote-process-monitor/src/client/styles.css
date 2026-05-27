@@ -1,0 +1,17 @@
+@import "tailwindcss";
+
+:root {
+  font-family:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu,
+    Cantarell, "Helvetica Neue", Arial, sans-serif;
+}
+
+html[data-theme="dark"] {
+  background: #0b0d12;
+  color: #e6e9f0;
+}
+
+html[data-theme="light"] {
+  background: #f7f8fb;
+  color: #1a1d23;
+}

@@ -24,7 +24,8 @@ const DIST_DIR = process.env.KOLU_SURFACE_EXAMPLE_DIST;
 const app = new Hono();
 
 // ── HTTP RPC (mutations + one-shot queries) ───────────────────────────
-const httpHandler = new RPCHandler(appRouter);
+// biome-ignore lint/suspicious/noExplicitAny: see WsRPCHandler note below
+const httpHandler = new RPCHandler(appRouter as any);
 app.use("/rpc/*", async (c, next) => {
   const { matched, response } = await httpHandler.handle(c.req.raw, {
     prefix: "/rpc",
@@ -75,7 +76,8 @@ const server = serve(
 );
 
 // ── WebSocket RPC (streaming subscriptions) ───────────────────────────
-const wsHandler = new WsRPCHandler(appRouter);
+const wsHandler = // biome-ignore lint/suspicious/noExplicitAny: appRouter mixes implementSurface's Lazy<Router> spread with hand-listed namespaces; oRPC's RPCHandler input type doesn't accept that union. Runtime shape is a valid router (matches Kolu's own server.ts pattern).
+  new WsRPCHandler(appRouter as any);
 const wss = new WebSocketServer({ noServer: true });
 wss.on("connection", (peer) => {
   void wsHandler.upgrade(peer);
