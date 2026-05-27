@@ -33,3 +33,20 @@ export const CHROME_ICON_BUTTON_CLASS =
  *  three-button pill row. Used by right panel sub-tabs. */
 export const COMPACT_ICON_BUTTON_CLASS =
   "flex items-center justify-center w-6 h-6 rounded transition-colors cursor-pointer";
+
+/** Cards-mode dock right-gutter — Tailwind class string applied to
+ *  `RepoSection`'s grid container so the right-aligned columns (time
+ *  label, "show all" footer link) sit a consistent distance from the
+ *  card's rounded right edge. Mirrors the 24 px left indent (`pl-6`).
+ *
+ *  Paired with `DOCK_CARDS_GUTTER_NEG_CLASS`: any descendant that
+ *  bleeds to the dock card's right edge (hover/active row backgrounds,
+ *  section-header full-bleed band) cancels this padding with the
+ *  negative-margin twin. Move them together. */
+export const DOCK_CARDS_GUTTER_CLASS = "pr-6";
+
+/** Negative-margin twin of `DOCK_CARDS_GUTTER_CLASS`. Applied to
+ *  descendants of `RepoSection` whose background must extend through
+ *  the parent's right padding to the dock card's right edge — row
+ *  hover/active surfaces and the section-header band. */
+export const DOCK_CARDS_GUTTER_NEG_CLASS = "-mr-6";
