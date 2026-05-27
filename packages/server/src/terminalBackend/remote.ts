@@ -49,6 +49,7 @@ import {
   terminalEntries as terminalEntriesIter,
   unregisterTerminal,
 } from "../terminal-registry.ts";
+import { startHeartbeat } from "./heartbeat.ts";
 import { createMetadata, updateServerLiveMetadata } from "./metadata.ts";
 import { getKoluHostSessionAsync } from "./remoteSession.ts";
 
@@ -166,6 +167,25 @@ export class RemoteTerminalBackend implements TerminalBackend {
           });
         }
       }
+    });
+    // App-level liveness probe — catches stuck-agent cases that the
+    // transport can't see (ssh + agent process both alive, but agent
+    // is deadlocked). On enough misses we destroy the session; the
+    // next callAgent will re-acquire and the HostSession's reconnect
+    // loop will respawn.
+    startHeartbeat({
+      session,
+      onUnhealthy: () => {
+        log.error(
+          { host: this.host },
+          "remote agent heartbeat exhausted — destroying session",
+        );
+        session.destroy();
+        // Drop the cached client so the next callAgent re-pins.
+        this.clientPromise = null;
+        this.connectedAcked = false;
+        this.stateSubscribed = false;
+      },
     });
   }
 
