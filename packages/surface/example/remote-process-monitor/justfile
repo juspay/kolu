@@ -22,9 +22,9 @@ install:
     cd {{ repo_root }} && {{ nix_shell }} pnpm install
 
 # Boot parent (:7720) + Vite (:5175); parent nix-builds the agent
-dev *args: install
+dev host='localhost' *args: install
     cd {{ justfile_directory() }} && \
-    HOST="${HOST:-localhost}" {{ nix_shell }} pnpm run dev {{ args }}
+    HOST={{ host }} {{ nix_shell }} pnpm run dev {{ args }}
 
 # Typecheck this example only
 typecheck:

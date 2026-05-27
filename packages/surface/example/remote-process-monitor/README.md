@@ -33,27 +33,22 @@ The browser's `app.cells.system.use(...)` and `app.collections.processes.use(...
 
 ```sh
 cd packages/surface/example/remote-process-monitor
-just dev
+just dev                   # host defaults to localhost
+just dev user@somehost     # any ssh target
 ```
 
-Open <http://localhost:5175>. Requires passwordless ssh into `HOST` (defaults to `localhost` — set up `~/.ssh/authorized_keys` for your own user if you haven't).
+Open <http://localhost:5175>. Requires passwordless ssh into the target (set up `~/.ssh/authorized_keys` for your own user if you haven't).
 
-`just dev` boots the parent server (`:7720`) + Vite client (`:5175`). The parent's `HostSession` spawns `ssh $HOST $AGENT_PATH/bin/process-monitor-agent --stdio`; `AGENT_PATH` resolves automatically by `nix build`ing the `.#process-monitor-agent` derivation. Override with `AGENT_PATH=/some/store/path` if you've built it ahead of time.
+`just dev` boots the parent server (`:7720`) + Vite client (`:5175`). The parent's `HostSession` spawns `ssh $host $AGENT_PATH/bin/process-monitor-agent --stdio`; `AGENT_PATH` resolves automatically by `nix build`ing the `.#process-monitor-agent` derivation. Override with `AGENT_PATH=/some/store/path` if you've built it ahead of time.
 
-To smoke-test the agent in isolation (stdio framing, broken-stdout reproducer):
+For a real remote (first connect), the parent probes the host for the closure (`ssh $host test -e $AGENT_PATH`) and triggers `nix copy --to ssh://$host $AGENT_PATH` if missing. The UI shows copy progress while waiting; subsequent connects skip the copy.
+
+To smoke-test the agent in isolation:
 
 ```sh
 nix run .#process-monitor-agent -- --stdio                     # normal mode
 nix run .#process-monitor-agent -- --stdio --broken-stdout-log # lesson #4
 ```
-
-For a real remote, just override `HOST`:
-
-```sh
-HOST=user@host just dev
-```
-
-The parent probes the remote for the closure (`ssh $host test -e $AGENT_PATH`) and triggers `nix copy --to ssh://$host $AGENT_PATH` if missing. The UI shows copy progress while waiting; subsequent connects skip the copy.
 
 ## Falsifiability checklist — what to watch
 
