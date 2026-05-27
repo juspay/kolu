@@ -18,13 +18,24 @@
  */
 
 import { createMemo, For, Show } from "solid-js";
-import { DEFAULT_SYSTEM, type Pid } from "../common/surface";
+import {
+  DEFAULT_CONNECTION,
+  DEFAULT_SYSTEM,
+  type Pid,
+} from "../common/surface";
 import { app } from "./wire";
 
 export default function App() {
-  // System cell: snapshot-then-delta. Server authority — the parent
-  // owns the connection state; we just read it.
+  // System cell: snapshot-then-delta of OS metrics from the remote
+  // agent. Server authority — the parent forwards the agent's reads.
   const system = app.cells.system.use({});
+
+  // Connection cell: snapshot-then-delta of the parent-to-agent link
+  // lifecycle. Independent of `system` — the link can be "copying" or
+  // "disconnected" while `system` still holds the last good snapshot.
+  // The overlay attaches before `connect()` returns and sees the
+  // initial `connecting` state (R-1.5 falsifiability row 4).
+  const connection = app.cells.connection.use({});
 
   // Processes collection. Per-key subscriptions are built via the
   // bound `keys` and `byKey` accessors.
@@ -50,14 +61,17 @@ export default function App() {
   };
 
   const currentSystem = createMemo(() => system.value() ?? DEFAULT_SYSTEM);
+  const currentConnection = createMemo(
+    () => connection.value() ?? DEFAULT_CONNECTION,
+  );
 
   return (
     <div class="min-h-screen p-4 font-mono text-sm">
       <div class="mx-auto max-w-5xl rounded border border-gray-400 dark:border-gray-700">
         <Header />
         <Show
-          when={currentSystem().state === "connected"}
-          fallback={<ConnectingOverlay state={currentSystem().state} />}
+          when={currentConnection().state === "connected"}
+          fallback={<ConnectingOverlay state={currentConnection().state} />}
         >
           <ProcessTable
             pids={sortedPids()}
@@ -71,7 +85,7 @@ export default function App() {
 
   function Header() {
     const stateColor = createMemo(() => {
-      const st = currentSystem().state;
+      const st = currentConnection().state;
       if (st === "connected") return "text-green-600 dark:text-green-400";
       if (st === "disconnected") return "text-red-600 dark:text-red-400";
       return "text-amber-600 dark:text-amber-400";
@@ -101,7 +115,7 @@ export default function App() {
                 {currentSystem().hostname || "—"}
               </span>
             </span>
-            <span class={stateColor()}>● {currentSystem().state}</span>
+            <span class={stateColor()}>● {currentConnection().state}</span>
           </div>
           <div class="text-xs text-gray-600 dark:text-gray-400">
             poll: every 2s

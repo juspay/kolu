@@ -30,7 +30,12 @@ import {
   inMemoryStore,
 } from "@kolu/surface/server";
 import { serveOverStdio } from "@kolu/surface/peer-server";
-import { type Pid, type Process, surface } from "../common/surface";
+import {
+  DEFAULT_CONNECTION,
+  type Pid,
+  type Process,
+  surface,
+} from "../common/surface";
 import { createProcReader } from "./proc";
 
 const POLL_INTERVAL_MS = 2000;
@@ -115,7 +120,16 @@ async function main(): Promise<void> {
   // `<Show keyed>` cell-aware diff.)
   const fragment = implementSurface(surface, {
     channel: <T>(_name: string) => inMemoryChannel<T>(),
-    cells: { system: { store: systemStore } },
+    cells: {
+      system: { store: systemStore },
+      // `connection` lives in the shared surface so the browser can
+      // subscribe via the framework's snapshot-then-delta. The agent
+      // has no visibility into the parent↔agent link from the inside
+      // (lesson #6 — the link's health is the *parent's* observation,
+      // not the agent's), so the agent serves the default and the
+      // parent overrides on its own surface implementation.
+      connection: { store: inMemoryStore({ ...DEFAULT_CONNECTION }) },
+    },
     collections: {
       processes: {
         readAll: () => processSnapshot,

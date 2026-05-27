@@ -22,15 +22,18 @@ import {
   type Channel,
   implementSurface,
   inMemoryChannel,
+  inMemoryStore,
 } from "@kolu/surface/server";
 import {
+  type ConnectionInfo,
+  DEFAULT_CONNECTION,
   DEFAULT_SYSTEM,
   type Pid,
   type Process,
   type SystemInfo,
   surface,
 } from "../common/surface";
-import { type AgentClient, type HostSession } from "./hostSession";
+import type { AgentClient, HostSession } from "./hostSession";
 
 export interface BuildRouterOptions {
   session: HostSession;
@@ -41,18 +44,20 @@ export interface BuildRouterOptions {
  *  flows through once the link is live. */
 export function buildRouter(opts: BuildRouterOptions) {
   const session = opts.session;
-  let systemValue: SystemInfo = { ...DEFAULT_SYSTEM };
-  const systemStore: CellStore<SystemInfo> = {
-    get: () => systemValue,
-    set: (v) => {
-      systemValue = v;
-    },
-  };
+  const systemStore: CellStore<SystemInfo> = inMemoryStore({
+    ...DEFAULT_SYSTEM,
+  });
+  const connectionStore: CellStore<ConnectionInfo> = inMemoryStore({
+    ...DEFAULT_CONNECTION,
+  });
   const processCache = new Map<Pid, Process>();
 
   const fragment = implementSurface(surface, {
     channel: <T>(_name: string): Channel<T> => inMemoryChannel<T>(),
-    cells: { system: { store: systemStore } },
+    cells: {
+      system: { store: systemStore },
+      connection: { store: connectionStore },
+    },
     collections: {
       processes: {
         readAll: () => processCache,
@@ -87,13 +92,9 @@ export function buildRouter(opts: BuildRouterOptions) {
     },
   });
 
-  // ── Mirror session connection state → parent's `system.state` ─────
+  // ── Mirror session connection state → parent's `connection` cell ──
   session.onState((s) => {
-    const merged: SystemInfo = {
-      ...systemValue,
-      state: s.connection,
-    };
-    fragment.ctx.cells.system.set(merged);
+    fragment.ctx.cells.connection.set({ state: s.connection });
   });
 
   // ── Bridge remote agent surface → parent's local surface ──────────
@@ -116,33 +117,19 @@ export function buildRouter(opts: BuildRouterOptions) {
     // Don't release on background termination — the session is the
     // long-lived parent-side singleton and we want it kept warm.
 
-    // System cell: snapshot-then-delta from agent ↔ parent.
+    // System cell: snapshot-then-delta from agent ↔ parent. Connection
+    // lifecycle lives in a separate cell — the agent reports OS data,
+    // nothing else.
     void (async () => {
       try {
         for await (const remoteSystem of await client.surface.system.get({})) {
           session.markConnected();
-          fragment.ctx.cells.system.set({
-            ...remoteSystem,
-            // Parent's state takes precedence over the agent's
-            // always-"connected" marker — we already know we're
-            // connected, but the parent might override during a
-            // reconnect blip.
-            state: session.current().connection,
-          });
-          // Keep the local `systemValue` in sync so subsequent
-          // session.onState() updates see the live OS data.
-          systemValue = {
-            ...remoteSystem,
-            state: session.current().connection,
-          };
+          fragment.ctx.cells.system.set(remoteSystem);
         }
-      } catch (err) {
+      } catch {
         // Stream end / abort — session reconnect logic takes over.
-        const reason = `agent system stream ended: ${(err as Error).message}`;
-        // Don't surface to the user UNLESS the session is genuinely
-        // dead; the session's own onState will already paint
-        // "disconnected" if so.
-        void reason;
+        // The session's `onState` will already publish a disconnected
+        // ConnectionInfo if the link is genuinely dead.
       }
     })();
 

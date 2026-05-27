@@ -46,18 +46,18 @@ const SystemSchema = z.object({
   /** Resolved hostname inside the agent (parent shows this in the
    *  header chip — useful when the parent ssh'd by an alias). */
   hostname: z.string(),
-  /** Lifecycle state of the parent-to-agent link. The agent always
-   *  reports `"connected"`; the parent overrides during pre-link
-   *  phases (`"copying"` while `nix copy` runs, `"connecting"` while
-   *  ssh handshake completes, `"disconnected"` after a blip) so the
-   *  browser's overlay reflects the live state without needing a
-   *  second channel.
-   *
-   *  Row 4 of the falsifiability checklist hinges on this — the
-   *  parent's surface is read via `useCell(system)`, which yields the
-   *  current value synchronously to a new subscriber. The browser
-   *  attaches its overlay before `connect()` returns and still sees
-   *  the initial `connecting` state. */
+});
+
+/** Parent-to-agent link lifecycle. Owned by the parent's `HostSession`;
+ *  the agent has no business reporting on a link it doesn't see from
+ *  the inside.
+ *
+ *  Row 4 of the R-1.5 falsifiability checklist hinges on this — the
+ *  browser subscribes via `useCell(connection)`, which yields the
+ *  current value synchronously to a new subscriber. The browser
+ *  attaches its overlay before `connect()` returns and still sees the
+ *  initial `connecting` state. */
+const ConnectionSchema = z.object({
   state: z.enum(["copying", "connecting", "connected", "disconnected"]),
 });
 
@@ -68,6 +68,9 @@ export const DEFAULT_SYSTEM: z.infer<typeof SystemSchema> = {
   uptime: 0,
   os: "unknown",
   hostname: "",
+};
+
+export const DEFAULT_CONNECTION: z.infer<typeof ConnectionSchema> = {
   state: "connecting",
 };
 
@@ -76,6 +79,10 @@ export const surface = defineSurface({
     system: {
       schema: SystemSchema,
       default: DEFAULT_SYSTEM,
+    },
+    connection: {
+      schema: ConnectionSchema,
+      default: DEFAULT_CONNECTION,
     },
   },
   collections: {
@@ -102,3 +109,5 @@ type SF = SurfaceTypes<typeof surface.spec>;
 export type Pid = SF["collections"]["processes"]["Key"];
 export type Process = SF["collections"]["processes"]["Value"];
 export type SystemInfo = SF["cells"]["system"]["Value"];
+export type ConnectionInfo = SF["cells"]["connection"]["Value"];
+export type ConnectionState = ConnectionInfo["state"];

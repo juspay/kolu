@@ -62,7 +62,6 @@ function linuxReader(): ProcReader {
         uptime: up,
         os: "linux",
         hostname: hostname(),
-        state: "connected",
       };
     },
     readProcesses: async () => {
@@ -171,7 +170,6 @@ function darwinReader(): ProcReader {
         uptime: uptime(),
         os: "darwin",
         hostname: hostname(),
-        state: "connected",
       };
     },
     readProcesses: async () => {
@@ -210,7 +208,6 @@ function stubReader(): ProcReader {
         uptime: uptime(),
         os: "unknown",
         hostname: hostname(),
-        state: "connected",
       };
     },
     readProcesses: async () => {
