@@ -140,6 +140,12 @@ const CanvasTile: Component<{
       data-active={props.active ? "true" : undefined}
       data-maximized={isMaximized() ? "true" : undefined}
       data-dimmed={props.dimmed ? "true" : undefined}
+      // `inert` (when covered) removes the subtree from tab order, blocks
+      // pointer events, and hides from assistive tech in one go — matches
+      // the pre-#988 `visibility: hidden` wrapper without re-introducing
+      // it. xterm.js writes still land in the buffer (no render dependency
+      // on inert), so the dock's buffer previews stay populated.
+      inert={isCovered()}
       aria-hidden={isCovered() ? "true" : undefined}
       class="flex flex-col overflow-hidden border transition-shadow duration-200"
       classList={{
