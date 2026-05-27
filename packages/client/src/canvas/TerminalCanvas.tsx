@@ -388,7 +388,7 @@ const TerminalCanvas: Component<{
        *  in maximized mode it's `relative shrink-0` (real left-panel
        *  flex sibling, like RightPanelLayout's right panel — the
        *  canvas takes the remaining width via `flex-1`); in tiled
-       *  mode it's `absolute z-30 top-20 left-4` (floats over the
+       *  mode it's `absolute z-30 top-12 left-4` (floats over the
        *  canvas). The wrapper is `relative` so the dock's absolute
        *  coordinates in tiled mode resolve to the same `top: 5rem,
        *  left: 1rem` they did when mounted inside the canvas div.
