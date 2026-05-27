@@ -27,7 +27,13 @@ export const HiddenFooter: Component<{
   compact?: boolean;
   testId?: string;
 }> = (props) => {
-  const showRelax = () => props.parkedCount > 0 && activityWindow() !== "all";
+  // When `activityWindow === "all"` the threshold is null and no row can
+  // be parked — so `parkedCount > 0` is structurally impossible there.
+  // That collapses three states into two: a filter is active (show the
+  // "N hidden by … window" sentence) or it isn't (label the chip plainly
+  // so the strip doesn't read "0 hidden by All window").
+  const filterActive = () => activityWindow() !== "all";
+  const showRelax = () => props.parkedCount > 0 && filterActive();
   return (
     <div
       data-testid={props.testId ?? "dock-hidden-footer"}
@@ -41,14 +47,18 @@ export const HiddenFooter: Component<{
         "px-3 py-2 text-[0.65rem]": props.compact !== true,
       }}
     >
-      <span class="tabular-nums">{props.parkedCount}</span>
-      <span>hidden by</span>
+      <Show when={filterActive()} fallback={<span>Activity window</span>}>
+        <span class="tabular-nums">{props.parkedCount}</span>
+        <span>hidden by</span>
+      </Show>
       <ActivityWindowChip
         anchor="top-start"
         testIdPrefix="dock-window"
         class="h-5 min-w-5 px-1 rounded-md text-[0.65rem] hover:bg-surface-2/70"
       />
-      <span>window</span>
+      <Show when={filterActive()}>
+        <span>window</span>
+      </Show>
       <Show when={showRelax()}>
         <button
           type="button"
