@@ -17,15 +17,22 @@
 import { exec as execCb } from "node:child_process";
 import { readFile, readdir } from "node:fs/promises";
 import {
+  cpus,
+  freemem,
   hostname,
+  loadavg,
   platform,
   totalmem,
-  freemem,
-  loadavg,
   uptime,
 } from "node:os";
 import { promisify } from "node:util";
-import type { Pid, Process, SystemInfo } from "../common/surface";
+import type {
+  CoreId,
+  CpuCore,
+  Pid,
+  Process,
+  SystemInfo,
+} from "../common/surface";
 
 const exec = promisify(execCb);
 
@@ -33,6 +40,47 @@ export interface ProcReader {
   os: SystemInfo["os"];
   readSystem: () => Promise<SystemInfo>;
   readProcesses: () => Promise<Map<Pid, Process>>;
+  /** Per-core busy% since the last call. The first call seeds the
+   *  baseline and returns 0% across the board (no delta to measure
+   *  yet). Universally available via `node:os.cpus()` — same shape on
+   *  linux and darwin. */
+  readCpuCores: () => Map<CoreId, CpuCore>;
+}
+
+/** Closure that retains the previous `cpus()` snapshot for delta-busy
+ *  computation. Per-core CPU usage is a *rate*, not a level — needs
+ *  the previous tick's timing to compute. */
+function createCpuCoresReader(): () => Map<CoreId, CpuCore> {
+  let prev = cpus();
+  return () => {
+    const cur = cpus();
+    const result = new Map<CoreId, CpuCore>();
+    for (let i = 0; i < cur.length; i++) {
+      const c = cur[i];
+      const p = prev[i];
+      if (c === undefined || p === undefined) continue;
+      const idleDelta = c.times.idle - p.times.idle;
+      const totalDelta =
+        c.times.user +
+        c.times.nice +
+        c.times.sys +
+        c.times.idle +
+        c.times.irq -
+        (p.times.user +
+          p.times.nice +
+          p.times.sys +
+          p.times.idle +
+          p.times.irq);
+      const usagePct = totalDelta > 0 ? (1 - idleDelta / totalDelta) * 100 : 0;
+      result.set(i, {
+        usagePct: Math.round(usagePct * 10) / 10,
+        speedMHz: c.speed,
+        model: c.model.trim(),
+      });
+    }
+    prev = cur;
+    return result;
+  };
 }
 
 export function createProcReader(): ProcReader {
@@ -45,8 +93,10 @@ export function createProcReader(): ProcReader {
 // ── Linux: /proc reader ─────────────────────────────────────────────────
 
 function linuxReader(): ProcReader {
+  const readCpuCores = createCpuCoresReader();
   return {
     os: "linux",
+    readCpuCores,
     readSystem: async () => {
       const [loadAvgs, mem, up] = await Promise.all([
         readFile("/proc/loadavg", "utf-8").then((s) =>
@@ -156,8 +206,10 @@ function userFromUid(uid: number): string {
 const PS_LINE_RE = /^(\d+)\s+(\S+)\s+([\d.]+)\s+([\d.]+)\s+(.*)$/;
 
 function darwinReader(): ProcReader {
+  const readCpuCores = createCpuCoresReader();
   return {
     os: "darwin",
+    readCpuCores,
     readSystem: async () => {
       // os.loadavg() works on darwin; sysctl fallback only needed for
       // very old node versions.
@@ -198,8 +250,10 @@ function darwinReader(): ProcReader {
 // ── Stub fallback (unknown OS / unsupported environment) ────────────────
 
 function stubReader(): ProcReader {
+  const readCpuCores = createCpuCoresReader();
   return {
     os: "unknown",
+    readCpuCores,
     readSystem: async () => {
       const la = loadavg();
       return {

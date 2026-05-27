@@ -36,6 +36,8 @@ import {
 } from "@kolu/surface/server";
 import { serveOverStdio } from "@kolu/surface/peer-server";
 import {
+  type CoreId,
+  type CpuCore,
   DEFAULT_CONNECTION,
   type Pid,
   type Process,
@@ -77,6 +79,11 @@ async function main(): Promise<void> {
   const processSnapshot = new Map<Pid, Process>();
   for (const [pid, value] of await reader.readProcesses())
     processSnapshot.set(pid, value);
+  // Seed CPU-core baseline so the first delta has a previous tick to
+  // compare against — first call returns mostly-zero usages.
+  const cpuCoreSnapshot = new Map<CoreId, CpuCore>();
+  for (const [core, value] of reader.readCpuCores())
+    cpuCoreSnapshot.set(core, value);
 
   // Build the surface implementation. The `processes` collection's
   // `readAll` yields the current snapshot; `upsert`/`remove` are the
@@ -111,6 +118,15 @@ async function main(): Promise<void> {
         },
         remove: (key) => {
           processSnapshot.delete(key);
+        },
+      },
+      cpuCores: {
+        readAll: () => cpuCoreSnapshot,
+        upsert: (key, value) => {
+          cpuCoreSnapshot.set(key, value);
+        },
+        remove: (key) => {
+          cpuCoreSnapshot.delete(key);
         },
       },
     },
@@ -176,6 +192,14 @@ async function main(): Promise<void> {
       }
       if (upserts.length > 0 || removes.length > 0) {
         snapshotDeltaBus.publish({ kind: "delta", upserts, removes });
+      }
+
+      // Per-core CPU usage — published through the framework's
+      // Collection<K,T>. Small-N (4-32 cores) so per-key fan-out is
+      // exactly the right shape: each core gets its own reactive
+      // subscription in the browser.
+      for (const [core, value] of reader.readCpuCores()) {
+        fragment.ctx.collections.cpuCores.upsert(core, value);
       }
     } catch (err) {
       log(`tick error: ${(err as Error).message}`);

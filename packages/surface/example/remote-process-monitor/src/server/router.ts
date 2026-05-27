@@ -20,17 +20,22 @@
 import { implement } from "@orpc/server";
 import {
   type CellStore,
+  type Channel,
   implementSurface,
+  inMemoryChannel,
   inMemoryPublisher,
   inMemoryStore,
   publisherChannel,
 } from "@kolu/surface/server";
 import {
   type ConnectionInfo,
+  type CoreId,
+  type CpuCore,
   DEFAULT_CONNECTION,
   DEFAULT_SYSTEM,
   type Pid,
   type Process,
+  type ProcessesSnapshotMsg,
   type SystemInfo,
   surface,
 } from "../common/surface";
@@ -52,6 +57,13 @@ export function buildRouter(opts: BuildRouterOptions) {
     ...DEFAULT_CONNECTION,
   });
   const processCache = new Map<Pid, Process>();
+  const coreCache = new Map<CoreId, CpuCore>();
+  // Local snapshot bus — every msg the parent receives from the
+  // agent's snapshot stream is also re-published here so the parent's
+  // own `processesSnapshot` source (consumed by the browser) can
+  // forward the same data without re-subscribing to the agent.
+  const browserSnapshotBus: Channel<ProcessesSnapshotMsg> =
+    inMemoryChannel<ProcessesSnapshotMsg>();
 
   // `inMemoryPublisher` dedupes channels by name so the framework's
   // publish-site and subscribe-site land on the same `Channel<T>`.
@@ -81,21 +93,30 @@ export function buildRouter(opts: BuildRouterOptions) {
           processCache.delete(key);
         },
       },
+      cpuCores: {
+        readAll: () => coreCache,
+        upsert: (key, value) => {
+          coreCache.set(key, value);
+        },
+        remove: (key) => {
+          coreCache.delete(key);
+        },
+      },
     },
     streams: {
-      // Browser doesn't consume this stream directly (the framework's
-      // `processes` collection — wired above — is what the UI binds
-      // to). It still has to be implemented because the shared surface
-      // declares it. Yield never; the framework just keeps the stream
-      // open for the lifetime of the subscriber and aborts cleanly
-      // when they disconnect.
+      // Browser-facing snapshot stream — yields the parent's current
+      // process cache on subscribe (synchronous snapshot from local
+      // state, no agent round-trip needed) then forwards every delta
+      // / snapshot the agent publishes via the parent's local bus.
       processesSnapshot: {
         source: async function* (_input, signal) {
-          await new Promise<void>((resolve) => {
-            if (signal === undefined) return;
-            if (signal.aborted) resolve();
-            else signal.addEventListener("abort", () => resolve());
-          });
+          yield {
+            kind: "snapshot",
+            entries: [...processCache.entries()],
+          } satisfies ProcessesSnapshotMsg;
+          for await (const msg of browserSnapshotBus.subscribe(signal)) {
+            yield msg;
+          }
         },
       },
     },
@@ -124,7 +145,7 @@ export function buildRouter(opts: BuildRouterOptions) {
   // local fragment ctx. Reconnects ride on top because the framework's
   // `ClientRetryPlugin` re-issues the subscription with snapshot-then-
   // delta semantics on each transport blip.
-  void bridgeAgentToParent(session, fragment);
+  void bridgeAgentToParent(session, fragment, browserSnapshotBus);
 
   // `implementSurface` returns a router *fragment* — `{ surface: ... }`
   // wrapping the per-key namespaces. Passing it directly to RPCHandler
@@ -145,6 +166,10 @@ type FragmentCtx = {
         upsert: (k: Pid, v: Process) => void;
         remove: (k: Pid) => void;
       };
+      cpuCores: {
+        upsert: (k: CoreId, v: CpuCore) => void;
+        remove: (k: CoreId) => void;
+      };
     };
   };
 };
@@ -162,6 +187,7 @@ function log(line: string): void {
 async function bridgeAgentToParent(
   session: HostSession,
   fragment: FragmentCtx,
+  browserSnapshotBus: Channel<ProcessesSnapshotMsg>,
 ): Promise<void> {
   log("acquiring HostSession…");
   let client: AgentClient;
@@ -177,7 +203,56 @@ async function bridgeAgentToParent(
   // Don't release on background termination — the session is the
   // long-lived parent-side singleton and we want it kept warm.
   void pumpSystemCell(client, session, fragment);
-  void pumpProcessesSnapshot(client, fragment);
+  void pumpProcessesSnapshot(client, fragment, browserSnapshotBus);
+  void pumpCpuCores(client, fragment);
+}
+
+/** Mirror the agent's `cpuCores` collection via the framework's
+ *  per-key Collection<K,T> model — the SMALL-N use case the primitive
+ *  is designed for. ~4-32 cores → ~4-32 per-key subscribes; trivial
+ *  to fan out. Contrast with `processes` (600+), which over-stresses
+ *  the per-key model and gets the bulk `processesSnapshot` stream
+ *  treatment instead. */
+async function pumpCpuCores(
+  client: AgentClient,
+  fragment: FragmentCtx,
+): Promise<void> {
+  const open = new Map<CoreId, AbortController>();
+  try {
+    for await (const keys of await client.surface.cpuCores.keys({})) {
+      const next = new Set(keys);
+      for (const core of next) {
+        if (open.has(core)) continue;
+        const ctl = new AbortController();
+        open.set(core, ctl);
+        void (async () => {
+          try {
+            const stream = await client.surface.cpuCores.get(
+              { key: core },
+              { signal: ctl.signal },
+            );
+            for await (const value of stream) {
+              if (ctl.signal.aborted) break;
+              fragment.ctx.collections.cpuCores.upsert(core, value);
+            }
+          } catch {
+            /* aborted / core vanished — orchestrator cleans up */
+          }
+        })();
+      }
+      for (const [core, ctl] of [...open]) {
+        if (next.has(core)) continue;
+        ctl.abort();
+        open.delete(core);
+        fragment.ctx.collections.cpuCores.remove(core);
+      }
+    }
+    log("cpuCores: keys stream closed");
+  } catch (err) {
+    log(`cpuCores: keys stream error: ${(err as Error).message}`);
+  } finally {
+    for (const ctl of open.values()) ctl.abort();
+  }
 }
 
 /** Mirror the agent's system cell into the parent's local cell. */
@@ -215,6 +290,7 @@ async function pumpSystemCell(
 async function pumpProcessesSnapshot(
   client: AgentClient,
   fragment: FragmentCtx,
+  browserSnapshotBus: Channel<ProcessesSnapshotMsg>,
 ): Promise<void> {
   const seenPids = new Set<Pid>();
   let frames = 0;
@@ -253,6 +329,9 @@ async function pumpProcessesSnapshot(
           );
         }
       }
+      // Re-publish to browser subscribers. The parent's own
+      // `processesSnapshot.source` consumes this bus.
+      browserSnapshotBus.publish(msg);
     }
     log(`processes: snapshot stream closed (${frames} frames total)`);
   } catch (err) {

@@ -13,8 +13,12 @@
  * still sees the initial `state === "connecting"` (or `"copying"`).
  */
 
-import { createMemo, createSignal, For, Show } from "solid-js";
+import { streamCall } from "@kolu/surface/client";
+import { createMemo, createSignal, For, onCleanup, Show } from "solid-js";
+import { createStore, reconcile } from "solid-js/store";
 import {
+  type CoreId,
+  type CpuCore,
   DEFAULT_CONNECTION,
   DEFAULT_SYSTEM,
   type Pid,
@@ -41,9 +45,39 @@ export default function App() {
   // The overlay attaches before `connect()` returns and sees the
   // initial `connecting` state (R-1.5 falsifiability row 4).
   const connection = app.cells.connection.use({});
-  const processes = app.collections.processes.use({
-    onError: (err) => console.error("processes subscription failed", err),
-  });
+
+  // Processes table — driven by the bulk `processesSnapshot` stream,
+  // NOT the per-key `processes` collection. For a 600+ row htop view,
+  // N+1 per-key WS subscribes drip rows one at a time even over local
+  // WS; one snapshot frame lands the whole table at once. The framework
+  // collection stays available on the surface for small-N use cases
+  // (R-2's `terminalMetadata` is the canonical fit — ~3-20 keys, where
+  // per-key reactivity is exactly what you want).
+  const [processes, setProcesses] = createStore<Record<Pid, Process>>({});
+  const ctl = new AbortController();
+  onCleanup(() => ctl.abort());
+  void (async () => {
+    try {
+      const stream = await streamCall(
+        app.rpc.surface.processesSnapshot.get,
+        {},
+        { signal: ctl.signal },
+      );
+      for await (const msg of stream) {
+        if (msg.kind === "snapshot") {
+          const next: Record<Pid, Process> = {};
+          for (const [pid, value] of msg.entries) next[pid] = value;
+          setProcesses(reconcile(next));
+        } else {
+          for (const [pid, value] of msg.upserts) setProcesses(pid, value);
+          for (const pid of msg.removes) setProcesses(pid, undefined!);
+        }
+      }
+    } catch (err) {
+      if (!ctl.signal.aborted)
+        console.error("processesSnapshot stream failed", err);
+    }
+  })();
 
   const [filter, setFilter] = createSignal("");
   const [sortKey, setSortKey] = createSignal<SortKey>("cpu");
@@ -53,14 +87,29 @@ export default function App() {
     () => connection.value() ?? DEFAULT_CONNECTION,
   );
 
+  const allPids = createMemo<Pid[]>(() =>
+    Object.keys(processes).map((k) => Number(k)),
+  );
+
+  // CPU cores — Collection<K,T> via the framework's per-key hook.
+  // Small-N (typical 4-32), so per-key fan-out is exactly the right
+  // shape; each core gets its own reactive subscription, the strip
+  // updates per-cell independently.
+  const cores = app.collections.cpuCores.use({
+    onError: (err) => console.error("cpuCores subscription failed", err),
+  });
+  const coreIds = createMemo<CoreId[]>(() =>
+    [...cores.keys()].sort((a, b) => a - b),
+  );
+
   /** Pre-resolved {pid, proc} entries — sorted, filtered, ready to render.
-   *  Per-key subscriptions are read via `processes.byKey` inside the memo
-   *  so the sort/filter recompute whenever any value changes. */
+   *  Reads run through the SolidJS Store's per-key reactive proxy so
+   *  only changed PIDs invalidate the memo's inputs. */
   const visibleRows = createMemo(() => {
     const q = filter().trim().toLowerCase();
     const rows: Array<{ pid: Pid; proc: Process }> = [];
-    for (const pid of processes.keys()) {
-      const proc = processes.byKey(pid)?.();
+    for (const pid of allPids()) {
+      const proc = processes[pid];
       if (proc === undefined) continue;
       if (
         q.length > 0 &&
@@ -90,17 +139,18 @@ export default function App() {
         <Header
           system={currentSystem()}
           connection={currentConnection()}
-          count={processes.keys().length}
+          count={allPids().length}
         />
         <Show
           when={currentConnection().state === "connected"}
           fallback={<ConnectingOverlay state={currentConnection().state} />}
         >
+          <CpuStrip coreIds={coreIds()} getCore={(id) => cores.byKey(id)?.()} />
           <FilterBar
             filter={filter()}
             onFilter={setFilter}
             visible={visibleRows().length}
-            total={processes.keys().length}
+            total={allPids().length}
           />
           <ProcessTable
             rows={visibleRows()}
@@ -359,4 +409,53 @@ function pctClass(pct: number): string {
   if (pct > 50) return "font-semibold text-red-500";
   if (pct > 10) return "text-amber-500";
   return "text-gray-700 dark:text-gray-400";
+}
+
+/** Per-core CPU strip — one cell per core, each its own
+ *  `Collection<K,T>` per-key subscription. Re-renders only the cells
+ *  whose core changed (Solid `<For keyed>` semantics + per-key
+ *  reactive identity from `app.collections.cpuCores.use()`). */
+function CpuStrip(props: {
+  coreIds: readonly CoreId[];
+  getCore: (id: CoreId) => CpuCore | undefined;
+}) {
+  return (
+    <Show when={props.coreIds.length > 0}>
+      <div class="border-b border-gray-200 px-4 py-2 dark:border-gray-800">
+        <div class="mb-1 text-xs uppercase tracking-wide text-gray-500">
+          CPU cores ({props.coreIds.length})
+        </div>
+        <div class="grid grid-cols-4 gap-2 md:grid-cols-8">
+          <For each={props.coreIds}>
+            {(id) => <CpuCoreCell id={id} get={() => props.getCore(id)} />}
+          </For>
+        </div>
+      </div>
+    </Show>
+  );
+}
+
+function CpuCoreCell(props: { id: CoreId; get: () => CpuCore | undefined }) {
+  const core = createMemo(() => props.get());
+  const pct = () => core()?.usagePct ?? 0;
+  const barColor = createMemo(() => {
+    const p = pct();
+    if (p > 80) return "bg-red-500";
+    if (p > 50) return "bg-amber-500";
+    return "bg-emerald-500";
+  });
+  return (
+    <div class="flex items-center gap-1 text-xs">
+      <span class="w-6 shrink-0 text-gray-500 tabular-nums">c{props.id}</span>
+      <div class="h-2 flex-1 overflow-hidden rounded bg-gray-100 dark:bg-gray-800">
+        <div
+          class={`h-full transition-all ${barColor()}`}
+          style={{ width: `${Math.min(100, pct()).toFixed(1)}%` }}
+        />
+      </div>
+      <span class="w-10 shrink-0 text-right tabular-nums text-gray-700 dark:text-gray-300">
+        {pct().toFixed(0)}%
+      </span>
+    </div>
+  );
 }

@@ -33,6 +33,14 @@ const ProcessSchema = z.object({
   memPct: z.number(),
   command: z.string(),
 });
+
+const CpuCoreSchema = z.object({
+  /** Busy-percentage since the previous poll tick (0-100). */
+  usagePct: z.number(),
+  /** Reported clock speed in MHz (often a sticky max on Linux). */
+  speedMHz: z.number(),
+  model: z.string(),
+});
 const SystemSchema = z.object({
   /** 1-minute, 5-minute, 15-minute load averages. */
   loadAvg: z.tuple([z.number(), z.number(), z.number()]),
@@ -111,6 +119,16 @@ export const surface = defineSurface({
       keySchema: PidSchema,
       schema: ProcessSchema,
     },
+    /** Per-core CPU usage — small-N (typical 4-32) Collection<K,T>
+     *  showcase. Each core is independently observable via the
+     *  framework's per-key reactive identity, which is exactly the
+     *  shape a "view N rows side by side" UI wants when N is small.
+     *  R-2's `terminalMetadata` collection is the same fit (3-20
+     *  terminals); see plan §R-1.5 row 3. */
+    cpuCores: {
+      keySchema: z.number().int().nonnegative(),
+      schema: CpuCoreSchema,
+    },
   },
   streams: {
     processesSnapshot: {
@@ -135,6 +153,8 @@ type SF = SurfaceTypes<typeof surface.spec>;
 
 export type Pid = SF["collections"]["processes"]["Key"];
 export type Process = SF["collections"]["processes"]["Value"];
+export type CoreId = SF["collections"]["cpuCores"]["Key"];
+export type CpuCore = SF["collections"]["cpuCores"]["Value"];
 export type SystemInfo = SF["cells"]["system"]["Value"];
 export type ConnectionInfo = SF["cells"]["connection"]["Value"];
 export type ConnectionState = ConnectionInfo["state"];
