@@ -82,7 +82,10 @@ const DesktopResizableHost: Component<HostProps> = (props) => {
         <Show when={!rightPanel.collapsed()}>
           <Resizable.Handle
             data-testid="right-panel-handle"
-            class="shrink-0 w-0 relative before:absolute before:inset-y-0 before:-left-1 before:w-2 before:cursor-col-resize before:hover:bg-accent/30 before:transition-colors"
+            // `z-50` lifts the handle above the maximized-tile overlay
+            // (`z-40` in `TerminalCanvas`) so the user can still drag
+            // the panel edge to resize when a tile is maximized.
+            class="shrink-0 w-0 relative z-50 before:absolute before:inset-y-0 before:-left-1 before:w-2 before:cursor-col-resize before:hover:bg-accent/30 before:transition-colors"
             aria-label="Resize inspector panel"
           />
         </Show>
