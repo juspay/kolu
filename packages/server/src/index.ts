@@ -13,9 +13,9 @@
  * nor wants.
  */
 
-export {};
+import { isStdioAgent } from "./log.ts";
 
-if (process.argv.includes("--stdio")) {
+if (isStdioAgent) {
   const { runAgent } = await import("./agent.ts");
   await runAgent();
   process.exit(0);

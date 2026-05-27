@@ -27,7 +27,11 @@ const base = {
   serverId: serverProcessId,
 };
 
-const isStdioAgent = process.argv.includes("--stdio");
+/** True when this process is the stdio agent (`kolu --stdio`). Read at
+ *  module load so the logger destination can be decided before any
+ *  import-time log call fires. Exported so `index.ts` reuses the same
+ *  decision (no second `process.argv.includes(...)` site to drift). */
+export const isStdioAgent = process.argv.includes("--stdio");
 
 export const log: Logger = isStdioAgent
   ? pino({ level, base }, pino.destination({ dest: 2, sync: true }))
