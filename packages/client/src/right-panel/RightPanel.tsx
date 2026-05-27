@@ -42,6 +42,14 @@ const RightPanel: Component<{
    *  pure presenter and lets `aria-hidden` track actual visibility on
    *  both surfaces. */
   visible: boolean;
+  /** Float as a card (rounded + shadow + inset) rather than sitting
+   *  flush with a hard `border-l`. The desktop host derives this from
+   *  `useViewPosture().maximized()` — tiled canvas = floating card,
+   *  parallel to the Dock's tiled posture (`Dock.tsx:158`). Mobile
+   *  always passes `false`: the panel already sits inside a floating
+   *  `Drawer.Content`, and an inner card-on-card would double up the
+   *  chrome. */
+  floating: boolean;
 }> = (props) => {
   const rightPanel = useRightPanel();
 
@@ -51,7 +59,20 @@ const RightPanel: Component<{
   return (
     <div
       data-testid="right-panel"
-      class="flex flex-col h-full min-w-0 overflow-hidden bg-surface-0 border-l border-edge"
+      data-floating={props.floating ? "" : undefined}
+      class="flex flex-col min-w-0 overflow-hidden bg-surface-0"
+      classList={{
+        // Flush: full-height sibling with a hard left-edge separator.
+        // Mirrors the Dock's `border-r border-edge` in maximized mode
+        // (`Dock.tsx:167`).
+        "h-full border-l border-edge": !props.floating,
+        // Floating: card chrome inside the host's positioned parent
+        // (desktop = `Resizable.Panel`, see `RightPanelLayout.tsx`).
+        // `absolute inset-2` avoids the `h-full + margin` overflow trap
+        // and keeps the resize-handle hit area in the inset gap.
+        "absolute inset-2 rounded-2xl shadow-2xl shadow-black/40 border border-edge":
+          props.floating,
+      }}
       // Panel stays mounted across collapse on desktop so CodeTab's local
       // state survives (#818); RightPanelLayout shrinks it to ~0 width via
       // Resizable `sizes=[1,0]`. `aria-hidden` reflects actual visibility

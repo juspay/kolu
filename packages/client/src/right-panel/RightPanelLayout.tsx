@@ -24,6 +24,7 @@ import Drawer from "@corvu/drawer";
 import Resizable from "@corvu/resizable";
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import { type Component, createEffect, type JSX, on, Show } from "solid-js";
+import { useViewPosture } from "../canvas/useViewPosture";
 import { isMobile } from "../useMobile";
 import { pendingOpen } from "./openInCodeTab";
 import RightPanel from "./RightPanel";
@@ -43,6 +44,7 @@ type HostProps = {
 
 const DesktopResizableHost: Component<HostProps> = (props) => {
   const rightPanel = useRightPanel();
+  const posture = useViewPosture();
 
   // Producer arrivals (terminal `path:line` taps, comments-tray jumps)
   // uncollapse the side panel — visibility used to live inside
@@ -88,7 +90,12 @@ const DesktopResizableHost: Component<HostProps> = (props) => {
         </Show>
         <Resizable.Panel
           as="div"
-          class="min-w-0 min-h-0 overflow-hidden"
+          // `relative` anchors `RightPanel`'s `absolute inset-2` floating
+          // chrome in tiled mode. `overflow-hidden` was dropped so the
+          // floating card's left/down shadow can extend past this pane's
+          // edge into the adjacent canvas; the inner `RightPanel` still
+          // clips its own scroll regions.
+          class="min-w-0 min-h-0 relative"
           minSize={0}
         >
           {/* Render unconditionally so CodeTab's selectedPath signal and
@@ -102,6 +109,7 @@ const DesktopResizableHost: Component<HostProps> = (props) => {
             themeName={props.themeName}
             onThemeClick={props.onThemeClick}
             visible={!rightPanel.collapsed()}
+            floating={!posture.maximized()}
           />
         </Resizable.Panel>
       </Resizable>
@@ -154,6 +162,10 @@ const MobileDrawerHost: Component<HostProps> = (props) => {
                 themeName={props.themeName}
                 onThemeClick={props.onThemeClick}
                 visible={rightPanel.drawerOpen()}
+                // The drawer itself is already a floating surface
+                // (`rounded-t-lg shadow-xl` above); an inner floating
+                // card would double up the chrome.
+                floating={false}
               />
             </div>
           </Drawer.Content>
