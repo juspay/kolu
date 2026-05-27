@@ -35,7 +35,7 @@ import { inMemoryCell } from "@kolu/surface/server";
 import type { ContractRouterClient } from "@orpc/contract";
 import type { ClientRetryPluginContext } from "@orpc/client/plugins";
 import type { surface } from "../common/surface";
-import { forEachLine, isLocalHost } from "./host";
+import { buildAgentCommand, forEachLine } from "./host";
 import { provisionAgent } from "./nixCopy";
 
 export type ConnectionState =
@@ -220,24 +220,11 @@ export class HostSession {
     const realisedAgentPath = provision.agentPath;
 
     this.updateState({ connection: "connecting" });
-    const isLocal = isLocalHost(this.opts.host);
-    const child = isLocal
-      ? spawn(`${realisedAgentPath}/bin/process-monitor-agent`, ["--stdio"], {
-          stdio: ["pipe", "pipe", "pipe"],
-        })
-      : spawn(
-          "ssh",
-          [
-            "-o",
-            "BatchMode=yes",
-            "-o",
-            "ServerAliveInterval=10",
-            this.opts.host,
-            `${realisedAgentPath}/bin/process-monitor-agent`,
-            "--stdio",
-          ],
-          { stdio: ["pipe", "pipe", "pipe"] },
-        );
+    const { command, args } = buildAgentCommand(
+      this.opts.host,
+      realisedAgentPath,
+    );
+    const child = spawn(command, args, { stdio: ["pipe", "pipe", "pipe"] });
     this.child = child;
 
     child.stderr?.setEncoding("utf-8");
