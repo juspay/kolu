@@ -179,12 +179,32 @@ let
       --run 'export KOLU_STATE_DIR="''${XDG_CONFIG_HOME:-$HOME/.config}/kolu"'
   '';
 
+  # Minimal workspace tree (source + pnpm-installed node_modules) the
+  # surface-example agents need at runtime. Skips the kolu build's
+  # vite-bundle step and node-gyp rebuild — neither is used by the
+  # agent. Reuses kolu's `pnpmDeps` so the fixed-output dep fetch is
+  # cached across both derivations.
+  surfaceExampleBase = pkgs.stdenv.mkDerivation {
+    pname = "surface-example-base";
+    version = "0.1.0";
+    inherit src;
+    nativeBuildInputs = [ pkgs.nodejs pkgs.pnpm pkgs.pnpmConfigHook ];
+    inherit pnpmDeps;
+    dontBuild = true;
+    dontFixup = true;
+    installPhase = ''
+      runHook preInstall
+      cp -r . $out
+      runHook postInstall
+    '';
+  };
+
   # @kolu/surface remote-process-monitor demo's agent. Run with
   # `nix run .#process-monitor-agent -- --stdio` (or via HostSession's
   # `ssh $HOST $AGENT_PATH/bin/process-monitor-agent --stdio` spawn —
   # `resolveAgentPath` builds this derivation when AGENT_PATH is unset).
-  # Reuses the kolu derivation's node_modules tree (workspace symlinks
-  # already wire `@kolu/surface` and `@orpc/*` for the agent).
+  # Backed by `surfaceExampleBase` (cheap: pnpm install + copy, no vite
+  # bundle, no node-gyp rebuild — neither is used by the agent).
   processMonitorAgent = pkgs.runCommand "process-monitor-agent"
     {
       nativeBuildInputs = [ pkgs.makeWrapper ];
@@ -192,7 +212,7 @@ let
     } ''
     mkdir -p $out/bin
     makeWrapper ${pkgs.tsx}/bin/tsx $out/bin/process-monitor-agent \
-      --add-flags "${kolu}/packages/surface/example/remote-process-monitor/src/agent/main.ts" \
+      --add-flags "${surfaceExampleBase}/packages/surface/example/remote-process-monitor/src/agent/main.ts" \
       --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs ]}
   '';
 in
