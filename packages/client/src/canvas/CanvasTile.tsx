@@ -5,8 +5,10 @@
  *
  *  Two display modes:
  *  - **Tiled** (default): absolute-positioned at the saved canvas layout,
- *    draggable + resizable, transform follows canvas pan/zoom.
- *  - **Maximized**: fixed inset-0 covering the canvas viewport. Drag/resize
+ *    draggable + resizable. Pan/zoom is composed into each tile's own
+ *    `transform` rather than a shared wrapper, so the maximized branch can
+ *    sit as a sibling without remounting on every active-id change (#988).
+ *  - **Maximized**: `inset-0 z-40` covering the canvas viewport. Drag/resize
  *    disabled. The maximize signal lives in `TerminalCanvas`, exposed here
  *    so chrome reflects state and double-click toggles it. */
 
@@ -24,15 +26,24 @@ import {
   tileTitleBarBorder,
 } from "./tileChrome";
 import { DEFAULT_TILE_H, DEFAULT_TILE_W } from "./tilePlacement";
+import { tileTransformCSS } from "./viewport/coordinates";
 
 export type { TileTheme };
+
+/** Per-tile render mode — one tile is in `"maximized"` (fills the viewport,
+ *  drag/resize disabled), all others are in `"covered"` when the canvas is
+ *  maximized (mounted, streaming, but visually behind the z-40 cover and
+ *  hidden from assistive tech), or `"tiled"` when the canvas is not
+ *  maximized (normal pan/zoom rendering). Unifying these into one union
+ *  makes the impossible state `maximized && covered` unrepresentable. */
+export type CanvasTileMode = "tiled" | "maximized" | "covered";
 
 const CanvasTile: Component<{
   id: string;
   active: boolean;
-  /** When true, the tile fills the canvas viewport (fixed inset-0) and
-   *  drag/resize are disabled. Toggled by double-clicking the title bar. */
-  maximized: boolean;
+  /** Per-tile render mode. Derived in `TerminalCanvas` from the canvas-wide
+   *  posture (`useViewPosture`) and `activeId`. */
+  mode: CanvasTileMode;
   /** Presentational hint — when true and the tile is not active, render
    *  faded so an inactive ("parked") tile recedes visually. The decision
    *  itself lives in the caller; the tile shell only honors the bit. */
@@ -57,8 +68,16 @@ const CanvasTile: Component<{
     direction: ResizeDirection,
     e: PointerEvent,
   ) => void;
+  /** Canvas viewport pan/zoom — composed into the tile's own transform so
+   *  pan/zoom changes scale & translate this tile in screen-space without
+   *  a wrapper transform. `left/top` stay set to the canvas-space layout
+   *  so test selectors and tools that read tile positions keep working. */
+  panX: () => number;
+  panY: () => number;
   zoom: () => number;
 }> = (props) => {
+  const isMaximized = () => props.mode === "maximized";
+  const isCovered = () => props.mode === "covered";
   const { id } = props;
   const draggable = createDraggable(id);
   const layout = () =>
@@ -72,30 +91,45 @@ const CanvasTile: Component<{
   const inactiveOpacity = () => (props.dimmed ? 0.55 : 0.92);
 
   // While maximized: ignore drag transform and pin to viewport. While
-  // tiled: absolute-positioned at layout(), drag transform follows.
-  const tiledStyle = () => ({
-    left: `${layout().x}px`,
-    top: `${layout().y}px`,
-    width: `${layout().w}px`,
-    height: `${layout().h}px`,
-    "background-color": bg(),
-    "border-color": props.repoColor,
-    // Active tile's right edge points at the inspector panel — repoColor
-    // on the other three edges, accent on the right. Longhand wins after
-    // shorthand in the same declaration block.
-    "border-right-color":
-      props.active && !props.maximized
-        ? "var(--color-accent)"
-        : props.repoColor,
-    "z-index": props.active ? 10 : 1,
-    opacity: props.active ? 1 : inactiveOpacity(),
-    "box-shadow": props.active
-      ? `0 8px 32px rgba(0,0,0,0.4), 0 0 0 1px var(--color-accent)`
-      : `0 2px 8px rgba(0,0,0,0.2)`,
-    // Drag transform is screen-space — divide by zoom so the tile
-    // moves at the correct rate in the scaled canvas coordinate system.
-    transform: `translate(${draggable.transform.x / props.zoom()}px, ${draggable.transform.y / props.zoom()}px)`,
-  });
+  // tiled: absolute-positioned at layout(), with pan/zoom and drag delta
+  // composed into the tile's own transform so the pan/zoom wrapper that
+  // used to host all tiles can go away (its containing-block side-effect
+  // forced the maximized tile into a sibling render branch — see #988).
+  // Transform formula lives in `coordinates.ts` alongside `canvasTransformCSS`
+  // so pan/zoom math stays in one file.
+  const tiledStyle = () => {
+    const l = layout();
+    return {
+      left: `${l.x}px`,
+      top: `${l.y}px`,
+      width: `${l.w}px`,
+      height: `${l.h}px`,
+      "background-color": bg(),
+      "border-color": props.repoColor,
+      // Active tile's right edge points at the inspector panel — repoColor
+      // on the other three edges, accent on the right. Longhand wins after
+      // shorthand in the same declaration block.
+      "border-right-color":
+        props.active && !isMaximized()
+          ? "var(--color-accent)"
+          : props.repoColor,
+      "z-index": props.active ? 10 : 1,
+      opacity: props.active ? 1 : inactiveOpacity(),
+      "box-shadow": props.active
+        ? `0 8px 32px rgba(0,0,0,0.4), 0 0 0 1px var(--color-accent)`
+        : `0 2px 8px rgba(0,0,0,0.2)`,
+      "transform-origin": "0 0",
+      transform: tileTransformCSS(
+        l.x,
+        l.y,
+        props.panX(),
+        props.panY(),
+        props.zoom(),
+        draggable.transform.x,
+        draggable.transform.y,
+      ),
+    };
+  };
 
   return (
     <div
@@ -104,23 +138,32 @@ const CanvasTile: Component<{
       data-canvas-tile=""
       data-terminal-id={id}
       data-active={props.active ? "true" : undefined}
-      data-maximized={props.maximized ? "true" : undefined}
+      data-maximized={isMaximized() ? "true" : undefined}
       data-dimmed={props.dimmed ? "true" : undefined}
+      // `inert` (when covered) removes the subtree from tab order, blocks
+      // pointer events, and hides from assistive tech in one go — matches
+      // the pre-#988 `visibility: hidden` wrapper without re-introducing
+      // it. xterm.js writes still land in the buffer (no render dependency
+      // on inert), so the dock's buffer previews stay populated.
+      inert={isCovered()}
+      aria-hidden={isCovered() ? "true" : undefined}
       class="flex flex-col overflow-hidden border transition-shadow duration-200"
       classList={{
-        // Maximized stays `absolute` so it fills the canvas container —
-        // NOT `fixed`, because the transformed pan/zoom wrapper would
-        // otherwise become its containing block. The dock sits
-        // outside this container as a flex sibling in maximized posture
-        // (TerminalCanvas), so the tile naturally fills the remaining
-        // viewport without needing a left-inset (#904).
+        // Maximized uses `absolute inset-0 z-40` to cover the canvas
+        // container. Since #988 dropped the pan/zoom wrapper div, the
+        // nearest positioned ancestor is `canvas-grid-bg` (real viewport
+        // rect, untransformed), so `inset-0` resolves cleanly to the
+        // canvas's screen-space without any inverse-transform tricks.
+        // The dock sits outside this container as a flex sibling in
+        // maximized posture (TerminalCanvas), so the tile naturally
+        // fills the remaining viewport without needing a left-inset (#904).
         absolute: true,
-        "inset-0 z-40": props.maximized,
-        "rounded-xl": !props.maximized,
-        "shadow-xl": props.active && !props.maximized,
-        "border-transparent": props.maximized,
+        "inset-0 z-40": isMaximized(),
+        "rounded-xl": !isMaximized(),
+        "shadow-xl": props.active && !isMaximized(),
+        "border-transparent": isMaximized(),
       }}
-      style={props.maximized ? { "background-color": bg() } : tiledStyle()}
+      style={isMaximized() ? { "background-color": bg() } : tiledStyle()}
       onMouseDown={() => props.onSelect()}
     >
       {/* Title bar — uses tile foreground at low opacity for guaranteed
@@ -137,7 +180,7 @@ const CanvasTile: Component<{
         data-testid="canvas-tile-titlebar"
         class="flex items-start gap-2 px-3 py-1.5 shrink-0 select-none"
         classList={{
-          "cursor-grab active:cursor-grabbing": !props.maximized,
+          "cursor-grab active:cursor-grabbing": !isMaximized(),
         }}
         style={{
           "background-color": tileTitleBarBg(props.theme),
@@ -160,7 +203,7 @@ const CanvasTile: Component<{
           e.stopPropagation();
           props.onToggleMaximize();
         }}
-        {...(props.maximized ? {} : draggable.dragActivators)}
+        {...(props.mode === "tiled" ? draggable.dragActivators : {})}
       >
         <div class="flex-1 min-w-0">{props.renderTitle()}</div>
         <div class="flex items-center gap-1 shrink-0">
@@ -177,9 +220,9 @@ const CanvasTile: Component<{
               e.stopPropagation();
               props.onToggleMaximize();
             }}
-            title={props.maximized ? "Restore to canvas" : "Maximize"}
+            title={isMaximized() ? "Restore to canvas" : "Maximize"}
           >
-            <Show when={props.maximized} fallback={<MaximizeIcon />}>
+            <Show when={isMaximized()} fallback={<MaximizeIcon />}>
               <RestoreIcon />
             </Show>
           </button>
@@ -207,9 +250,10 @@ const CanvasTile: Component<{
 
       {/* Resize handles — 4 edges + 4 corners. Invisible; cursor change is the
        *  affordance. Corners are declared after edges in the record so DOM
-       *  order paints them on top of the edge strips they overlap. Disabled
-       *  while maximized — there's nothing to resize against. */}
-      <Show when={!props.maximized}>
+       *  order paints them on top of the edge strips they overlap. Only in
+       *  `tiled` mode — maximized has nothing to resize against, covered tiles
+       *  are inert and should not have interactive handles in the DOM. */}
+      <Show when={props.mode === "tiled"}>
         <For each={Object.entries(RESIZE_HANDLES)}>
           {([direction, handle]) => (
             <div

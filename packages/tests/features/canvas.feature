@@ -391,6 +391,25 @@ Feature: Canvas workspace
     Then no canvas tile should be maximized
     And there should be no page errors
 
+  Scenario: Switching the active terminal while maximized does not remount the xterm
+    # Regression for #988: switching active in maximized mode used to move
+    # the active tile between the tiled `<For>` and a separate `<Show keyed>`
+    # branch, forcing a full xterm.js remount (document.fonts.load wait,
+    # XTerm constructor, addon graph, stream re-attach, server screenState
+    # replay). Visible to users as ~200-500ms of blank/lag every switch.
+    # The fix moves all tiles to one render list with pan/zoom composed
+    # per-tile, so switching is a pure CSS class flip — the xterm DOM node
+    # and its xterm.js Terminal instance survive across switches.
+    Given I create a terminal
+    Then there should be 2 canvas tiles
+    When I double-click the title bar of canvas tile 1
+    Then canvas tile 1 should be maximized
+    When I tag canvas tile 2's xterm element
+    And I press Control+Tab
+    Then some canvas tile should be maximized
+    And the tagged xterm element should still exist in the DOM
+    And there should be no page errors
+
   @mobile
   Scenario: Canvas is not rendered on mobile
     Then the canvas grid background should not be visible
