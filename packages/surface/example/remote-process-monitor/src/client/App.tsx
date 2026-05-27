@@ -1,62 +1,79 @@
 /**
- * Remote process monitor — single-page UI.
+ * Remote process monitor — htop-flavoured single-page UI.
  *
- * Layout (mirroring plan §R-1.5):
- *
- *   ┌─ Remote process monitor ───────────────────────────────────────────┐
- *   │ Host: prod-web-01  ● connected     [ Disconnect ]   poll: every 2s │
- *   │ Load: 1.42 / 1.18 / 0.97   Mem: 6.2 / 16.0 GB   Uptime: 14d 3h     │
- *   ├────────────────────────────────────────────────────────────────────┤
- *   │ PID    USER    CPU%   MEM%   COMMAND                               │
- *   │ …                                                                  │
- *   └────────────────────────────────────────────────────────────────────┘
+ * Header strip = host + connection chip + live process count + load /
+ * mem / uptime / OS, with a usage bar across the top.
+ * Body = process table sorted by descending CPU% (click headers to
+ * re-sort by user / mem / pid); a search box above the table filters
+ * by PID, user, or command substring.
  *
  * The "connecting overlay" exhibits row 4 of the falsifiability table:
- * the parent's `system` cell yields its current value synchronously on
- * subscribe — the overlay attaches before `connect()` returns and still
- * sees the initial `state === "connecting"` (or `"copying"`).
+ * the parent's `connection` cell yields its current value synchronously
+ * on subscribe — the overlay attaches before `connect()` returns and
+ * still sees the initial `state === "connecting"` (or `"copying"`).
  */
 
-import { createMemo, For, Show } from "solid-js";
+import { createMemo, createSignal, For, Show } from "solid-js";
 import {
   DEFAULT_CONNECTION,
   DEFAULT_SYSTEM,
   type Pid,
+  type Process,
 } from "../common/surface";
 import { app } from "./wire";
 
 const STATE_COLOR: Record<string, string> = {
-  connected: "text-green-600 dark:text-green-400",
-  disconnected: "text-red-600 dark:text-red-400",
-  copying: "text-amber-600 dark:text-amber-400",
-  connecting: "text-amber-600 dark:text-amber-400",
+  connected: "text-emerald-500",
+  disconnected: "text-red-500",
+  copying: "text-amber-500",
+  connecting: "text-amber-500",
 };
+
+type SortKey = "cpu" | "mem" | "pid" | "user";
 
 export default function App() {
   // System cell: snapshot-then-delta of OS metrics from the remote
   // agent. Server authority — the parent forwards the agent's reads.
   const system = app.cells.system.use({});
-
   // Connection cell: snapshot-then-delta of the parent-to-agent link
   // lifecycle. Independent of `system` — the link can be "copying" or
   // "disconnected" while `system` still holds the last good snapshot.
   // The overlay attaches before `connect()` returns and sees the
   // initial `connecting` state (R-1.5 falsifiability row 4).
   const connection = app.cells.connection.use({});
-
-  // Processes collection. Per-key subscriptions are built via the
-  // bound `keys` and `byKey` accessors.
   const processes = app.collections.processes.use({
     onError: (err) => console.error("processes subscription failed", err),
   });
 
-  // Sort by descending CPU%, stable secondary by PID. Re-evaluates
-  // whenever the key set changes; per-PID values aren't in the sort
-  // path (the SolidJS reactive identity stays stable across CPU
-  // jiggles).
-  const sortedPids = createMemo(() => {
-    const keys = processes.keys();
-    return [...keys].sort((a, b) => a - b);
+  const [filter, setFilter] = createSignal("");
+  const [sortKey, setSortKey] = createSignal<SortKey>("cpu");
+
+  const currentSystem = createMemo(() => system.value() ?? DEFAULT_SYSTEM);
+  const currentConnection = createMemo(
+    () => connection.value() ?? DEFAULT_CONNECTION,
+  );
+
+  /** Pre-resolved {pid, proc} entries — sorted, filtered, ready to render.
+   *  Per-key subscriptions are read via `processes.byKey` inside the memo
+   *  so the sort/filter recompute whenever any value changes. */
+  const visibleRows = createMemo(() => {
+    const q = filter().trim().toLowerCase();
+    const rows: Array<{ pid: Pid; proc: Process }> = [];
+    for (const pid of processes.keys()) {
+      const proc = processes.byKey(pid)?.();
+      if (proc === undefined) continue;
+      if (
+        q.length > 0 &&
+        !String(pid).includes(q) &&
+        !proc.user.toLowerCase().includes(q) &&
+        !proc.command.toLowerCase().includes(q)
+      )
+        continue;
+      rows.push({ pid, proc });
+    }
+    const cmp = comparator(sortKey());
+    rows.sort(cmp);
+    return rows;
   });
 
   const killProcess = async (pid: number, signal: "TERM" | "KILL") => {
@@ -67,93 +84,168 @@ export default function App() {
     }
   };
 
-  const currentSystem = createMemo(() => system.value() ?? DEFAULT_SYSTEM);
-  const currentConnection = createMemo(
-    () => connection.value() ?? DEFAULT_CONNECTION,
-  );
-
   return (
-    <div class="min-h-screen p-4 font-mono text-sm">
-      <div class="mx-auto max-w-5xl rounded border border-gray-400 dark:border-gray-700">
-        <Header />
+    <div class="min-h-screen bg-gray-50 p-4 font-mono text-sm dark:bg-gray-950">
+      <div class="mx-auto max-w-6xl overflow-hidden rounded border border-gray-300 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-900">
+        <Header
+          system={currentSystem()}
+          connection={currentConnection()}
+          count={processes.keys().length}
+        />
         <Show
           when={currentConnection().state === "connected"}
           fallback={<ConnectingOverlay state={currentConnection().state} />}
         >
+          <FilterBar
+            filter={filter()}
+            onFilter={setFilter}
+            visible={visibleRows().length}
+            total={processes.keys().length}
+          />
           <ProcessTable
-            pids={sortedPids()}
-            getProc={(pid) => processes.byKey(pid)?.()}
+            rows={visibleRows()}
+            sortKey={sortKey()}
+            onSort={setSortKey}
             onKill={killProcess}
           />
         </Show>
       </div>
     </div>
   );
-
-  function Header() {
-    const stateColor = createMemo(
-      () =>
-        STATE_COLOR[currentConnection().state] ??
-        "text-amber-600 dark:text-amber-400",
-    );
-    const memGb = createMemo(() => ({
-      used: (currentSystem().memUsed / 1e9).toFixed(1),
-      total: (currentSystem().memTotal / 1e9).toFixed(1),
-    }));
-    const uptimeFmt = createMemo(() => {
-      const u = currentSystem().uptime;
-      const d = Math.floor(u / 86400);
-      const h = Math.floor((u % 86400) / 3600);
-      const m = Math.floor((u % 3600) / 60);
-      if (d > 0) return `${d}d ${h}h`;
-      if (h > 0) return `${h}h ${m}m`;
-      return `${m}m`;
-    });
-    return (
-      <div class="border-b border-gray-400 px-3 py-2 dark:border-gray-700">
-        <div class="flex items-center justify-between">
-          <div class="flex items-center gap-3">
-            <span class="font-semibold">Remote process monitor</span>
-            <span>·</span>
-            <span>
-              Host:{" "}
-              <span class="font-semibold">
-                {currentSystem().hostname || "—"}
-              </span>
-            </span>
-            <span class={stateColor()}>● {currentConnection().state}</span>
-          </div>
-          <div class="text-xs text-gray-600 dark:text-gray-400">
-            poll: every 2s
-          </div>
-        </div>
-        <div class="mt-1 flex gap-4 text-xs text-gray-700 dark:text-gray-300">
-          <span>
-            Load: {currentSystem().loadAvg[0].toFixed(2)} /{" "}
-            {currentSystem().loadAvg[1].toFixed(2)} /{" "}
-            {currentSystem().loadAvg[2].toFixed(2)}
-          </span>
-          <span>
-            Mem: {memGb().used} / {memGb().total} GB
-          </span>
-          <span>Uptime: {uptimeFmt()}</span>
-          <span>OS: {currentSystem().os}</span>
-        </div>
-      </div>
-    );
-  }
 }
 
-const OVERLAY_MSG: Record<string, string> = {
-  copying: "Copying agent to remote…",
-  connecting: "Connecting…",
-  disconnected: "Disconnected. Retrying…",
-};
+function comparator(key: SortKey): (a: Row, b: Row) => number {
+  if (key === "cpu")
+    return (a, b) => b.proc.cpuPct - a.proc.cpuPct || a.pid - b.pid;
+  if (key === "mem")
+    return (a, b) => b.proc.memPct - a.proc.memPct || a.pid - b.pid;
+  if (key === "user")
+    return (a, b) => a.proc.user.localeCompare(b.proc.user) || a.pid - b.pid;
+  return (a, b) => a.pid - b.pid;
+}
+
+type Row = { pid: Pid; proc: Process };
+
+function Header(props: {
+  system: ReturnType<() => typeof DEFAULT_SYSTEM>;
+  connection: ReturnType<() => typeof DEFAULT_CONNECTION>;
+  count: number;
+}) {
+  const memPct = () => {
+    const total = props.system.memTotal;
+    return total > 0 ? (100 * props.system.memUsed) / total : 0;
+  };
+  const memGb = () => ({
+    used: (props.system.memUsed / 1e9).toFixed(1),
+    total: (props.system.memTotal / 1e9).toFixed(1),
+  });
+  const uptimeFmt = () => {
+    const u = props.system.uptime;
+    const d = Math.floor(u / 86400);
+    const h = Math.floor((u % 86400) / 3600);
+    const m = Math.floor((u % 3600) / 60);
+    if (d > 0) return `${d}d ${h}h`;
+    if (h > 0) return `${h}h ${m}m`;
+    return `${m}m`;
+  };
+  return (
+    <div class="border-b border-gray-200 dark:border-gray-800">
+      <UsageBar pct={memPct()} />
+      <div class="flex items-center justify-between px-4 py-2">
+        <div class="flex items-center gap-3">
+          <span class="font-semibold">remote-process-monitor</span>
+          <span class="text-gray-400">·</span>
+          <span>
+            <span class="text-gray-500">host:</span>{" "}
+            <span class="font-semibold">{props.system.hostname || "—"}</span>
+          </span>
+          <span class={STATE_COLOR[props.connection.state]}>
+            ● {props.connection.state}
+          </span>
+          <span class="text-gray-500">·</span>
+          <span class="text-gray-500">
+            {props.count} {props.count === 1 ? "process" : "processes"}
+          </span>
+        </div>
+        <span class="text-xs text-gray-500">poll: every 2s</span>
+      </div>
+      <div class="flex flex-wrap gap-4 border-t border-gray-100 px-4 py-1.5 text-xs text-gray-700 dark:border-gray-800 dark:text-gray-300">
+        <span>
+          load{" "}
+          <span class="font-semibold">
+            {props.system.loadAvg[0].toFixed(2)}
+          </span>{" "}
+          <span class="text-gray-400">
+            {props.system.loadAvg[1].toFixed(2)}
+          </span>{" "}
+          <span class="text-gray-400">
+            {props.system.loadAvg[2].toFixed(2)}
+          </span>
+        </span>
+        <span>
+          mem <span class="font-semibold">{memGb().used}</span>
+          <span class="text-gray-400">/{memGb().total} GB</span>
+          <span class="ml-1 text-gray-400">({memPct().toFixed(0)}%)</span>
+        </span>
+        <span>
+          uptime <span class="font-semibold">{uptimeFmt()}</span>
+        </span>
+        <span>
+          os <span class="font-semibold">{props.system.os}</span>
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/** Thin top bar showing total memory usage at a glance. */
+function UsageBar(props: { pct: number }) {
+  const colour = () => {
+    if (props.pct > 85) return "bg-red-500";
+    if (props.pct > 65) return "bg-amber-500";
+    return "bg-emerald-500";
+  };
+  return (
+    <div class="h-1 w-full bg-gray-100 dark:bg-gray-800">
+      <div
+        class={`h-full transition-all ${colour()}`}
+        style={{ width: `${Math.min(100, props.pct).toFixed(1)}%` }}
+      />
+    </div>
+  );
+}
+
+function FilterBar(props: {
+  filter: string;
+  onFilter: (q: string) => void;
+  visible: number;
+  total: number;
+}) {
+  return (
+    <div class="flex items-center gap-2 border-b border-gray-200 px-4 py-2 dark:border-gray-800">
+      <input
+        type="text"
+        placeholder="filter pid / user / command"
+        class="w-64 rounded border border-gray-300 bg-gray-50 px-2 py-0.5 text-xs focus:border-emerald-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800"
+        value={props.filter}
+        onInput={(e) => props.onFilter(e.currentTarget.value)}
+      />
+      <span class="text-xs text-gray-500">
+        showing {props.visible} of {props.total}
+      </span>
+    </div>
+  );
+}
 
 function ConnectingOverlay(props: { state: string }) {
-  const msg = () => OVERLAY_MSG[props.state] ?? "Initializing…";
+  const msg = () =>
+    ({
+      copying: "Copying agent to remote…",
+      connecting: "Connecting…",
+      disconnected: "Disconnected. Retrying…",
+    })[props.state] ?? "Initializing…";
   return (
-    <div class="px-4 py-8 text-center text-gray-600 dark:text-gray-400">
+    <div class="px-4 py-12 text-center text-gray-600 dark:text-gray-400">
       <div class="mb-2 text-lg">{msg()}</div>
       <div class="text-xs">
         First connect provisions the agent closure via <code>nix copy</code>.
@@ -164,60 +256,107 @@ function ConnectingOverlay(props: { state: string }) {
 }
 
 function ProcessTable(props: {
-  pids: readonly number[];
-  getProc: (
-    pid: number,
-  ) =>
-    | { user: string; cpuPct: number; memPct: number; command: string }
-    | undefined;
+  rows: readonly Row[];
+  sortKey: SortKey;
+  onSort: (k: SortKey) => void;
   onKill: (pid: number, signal: "TERM" | "KILL") => void;
 }) {
   return (
-    <table class="w-full">
-      <thead>
-        <tr class="border-b border-gray-300 text-xs uppercase text-gray-600 dark:border-gray-700 dark:text-gray-400">
-          <th class="px-3 py-1 text-left">PID</th>
-          <th class="px-3 py-1 text-left">User</th>
-          <th class="px-3 py-1 text-right">CPU%</th>
-          <th class="px-3 py-1 text-right">Mem%</th>
-          <th class="px-3 py-1 text-left">Command</th>
-          <th class="px-3 py-1 text-right">Action</th>
-        </tr>
-      </thead>
-      <tbody>
-        <For each={props.pids}>
-          {(pid) => {
-            const proc = createMemo(() => props.getProc(pid));
-            return (
-              <Show when={proc()}>
-                {(p) => (
-                  <tr class="border-b border-gray-200 dark:border-gray-800">
-                    <td class="px-3 py-1 text-left tabular-nums">{pid}</td>
-                    <td class="px-3 py-1 text-left">{p().user}</td>
-                    <td class="px-3 py-1 text-right tabular-nums">
-                      {p().cpuPct.toFixed(1)}
-                    </td>
-                    <td class="px-3 py-1 text-right tabular-nums">
-                      {p().memPct.toFixed(1)}
-                    </td>
-                    <td class="truncate px-3 py-1 text-left">{p().command}</td>
-                    <td class="px-3 py-1 text-right">
-                      <button
-                        type="button"
-                        class="rounded border border-gray-400 px-2 py-0.5 text-xs text-red-700 hover:bg-red-50 dark:border-gray-600 dark:text-red-400 dark:hover:bg-red-950"
-                        onClick={() => props.onKill(pid, "TERM")}
-                        title="Send SIGTERM"
-                      >
-                        kill
-                      </button>
-                    </td>
-                  </tr>
-                )}
-              </Show>
-            );
-          }}
-        </For>
-      </tbody>
-    </table>
+    <div class="max-h-[70vh] overflow-y-auto">
+      <table class="w-full">
+        <thead class="sticky top-0 bg-gray-50 text-xs uppercase text-gray-500 dark:bg-gray-900 dark:text-gray-400">
+          <tr class="border-b border-gray-200 dark:border-gray-800">
+            <SortableTh
+              label="PID"
+              align="right"
+              active={props.sortKey === "pid"}
+              onClick={() => props.onSort("pid")}
+            />
+            <SortableTh
+              label="USER"
+              align="left"
+              active={props.sortKey === "user"}
+              onClick={() => props.onSort("user")}
+            />
+            <SortableTh
+              label="CPU%"
+              align="right"
+              active={props.sortKey === "cpu"}
+              onClick={() => props.onSort("cpu")}
+            />
+            <SortableTh
+              label="MEM%"
+              align="right"
+              active={props.sortKey === "mem"}
+              onClick={() => props.onSort("mem")}
+            />
+            <th class="px-3 py-1.5 text-left">COMMAND</th>
+            <th class="px-3 py-1.5 text-right" />
+          </tr>
+        </thead>
+        <tbody>
+          <For each={props.rows}>
+            {(row) => (
+              <tr class="border-b border-gray-100 hover:bg-gray-50 dark:border-gray-800/50 dark:hover:bg-gray-800/40">
+                <td class="px-3 py-0.5 text-right tabular-nums">{row.pid}</td>
+                <td class="px-3 py-0.5 text-left">{row.proc.user}</td>
+                <td
+                  class={`px-3 py-0.5 text-right tabular-nums ${pctClass(row.proc.cpuPct)}`}
+                >
+                  {row.proc.cpuPct.toFixed(1)}
+                </td>
+                <td
+                  class={`px-3 py-0.5 text-right tabular-nums ${pctClass(row.proc.memPct)}`}
+                >
+                  {row.proc.memPct.toFixed(1)}
+                </td>
+                <td class="max-w-md truncate px-3 py-0.5 text-left text-gray-700 dark:text-gray-300">
+                  {row.proc.command}
+                </td>
+                <td class="px-3 py-0.5 text-right">
+                  <button
+                    type="button"
+                    class="rounded border border-gray-300 px-1.5 text-xs text-red-600 hover:bg-red-50 dark:border-gray-700 dark:text-red-400 dark:hover:bg-red-950/40"
+                    onClick={() => props.onKill(row.pid, "TERM")}
+                    title="Send SIGTERM"
+                  >
+                    kill
+                  </button>
+                </td>
+              </tr>
+            )}
+          </For>
+        </tbody>
+      </table>
+    </div>
   );
+}
+
+function SortableTh(props: {
+  label: string;
+  align: "left" | "right";
+  active: boolean;
+  onClick: () => void;
+}) {
+  const alignClass = () =>
+    props.align === "right" ? "text-right" : "text-left";
+  return (
+    <th class={`px-3 py-1.5 ${alignClass()}`}>
+      <button
+        type="button"
+        class={`cursor-pointer ${props.active ? "text-emerald-600 dark:text-emerald-400" : ""}`}
+        onClick={props.onClick}
+      >
+        {props.label}
+        {props.active ? " ▾" : ""}
+      </button>
+    </th>
+  );
+}
+
+/** htop-ish band: green low / amber mid / red high. */
+function pctClass(pct: number): string {
+  if (pct > 50) return "font-semibold text-red-500";
+  if (pct > 10) return "text-amber-500";
+  return "text-gray-700 dark:text-gray-400";
 }
