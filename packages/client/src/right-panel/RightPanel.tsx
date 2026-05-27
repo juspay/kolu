@@ -106,36 +106,56 @@ const RightPanel: Component<{
     window.addEventListener("pointerup", onUp);
   }
 
-  /** Desktop visibility — collapsed swaps the visible body from the
-   *  tab content to the 44 px rail and back. Both bodies stay mounted
-   *  when the shell is active (display-toggled, not Show-toggled), so
-   *  CodeTab's selectedPath signal and Pierre's tree expansion survive
-   *  collapse round-trips (#818). The drawer instance (`shell=false`)
-   *  always shows its tab content — the drawer host owns visibility
-   *  itself, and there's no rail concept on mobile.
+  /** Discriminated state for the panel's outer shell. One derivation
+   *  fans out into shell positioning, width, rail/content visibility,
+   *  and the resize-handle gate — adding a new arm (e.g. PiP) becomes
+   *  "add one case to `shellState()`, update the match sites the
+   *  compiler points at" instead of editing four independent
+   *  conditionals scattered across the component.
    *
+   *  - `no-shell`: mobile drawer instance. Shell prop is false; the
+   *    drawer host (`RightPanelLayout`) supplies the outer surface,
+   *    so we render only tab content and let the drawer own width.
+   *  - `float`: desktop tiled posture, expanded. Absolute floating
+   *    rounded card anchored top-right — mirrors the Dock's tiled
+   *    card on the opposite canvas edge.
+   *  - `flush`: desktop maximized posture, expanded. Flex-sibling
+   *    sidebar with a left-edge separator — mirrors the Dock's
+   *    maximized chrome.
+   *  - `rail`: desktop, collapsed (either posture). 44 px-wide flex
+   *    sibling with just the expand chevron. NOT absolute in tiled
+   *    mode — #986 documents `position: absolute` on the collapsed
+   *    shell as one of the three xterm.js link-decoration triggers.
+   *
+   *  Both rail and content stay mounted across all desktop states
+   *  (display-toggled via `class`) so CodeTab's selectedPath signal
+   *  and Pierre's tree expansion survive collapse round-trips (#818).
    *  `display: none` on parts WITHIN this component is safe; #986's
-   *  warning specifically calls out a `display: none` wrapper AROUND
-   *  the inner `RightPanel`, not the inner subtrees. */
+   *  third trigger is specifically a `display: none` wrapper AROUND
+   *  the entire `RightPanel`, not its inner subtrees. */
+  type ShellState = "no-shell" | "float" | "flush" | "rail";
+  const shellState = (): ShellState => {
+    if (!props.shell) return "no-shell";
+    if (!props.visible) return "rail";
+    return posture.mode() === "tiled" ? "float" : "flush";
+  };
+
   const contentClass = () =>
-    !props.shell || props.visible
-      ? "flex flex-col h-full min-w-0 overflow-hidden bg-surface-0"
-      : "hidden";
+    shellState() === "rail"
+      ? "hidden"
+      : "flex flex-col h-full min-w-0 overflow-hidden bg-surface-0";
   const railClass = () =>
-    props.shell && !props.visible
+    shellState() === "rail"
       ? "flex flex-col items-center pt-2 h-full bg-surface-1"
       : "hidden";
 
-  /** Width of the shell aside. Collapsed in shell mode → 44 px rail;
-   *  expanded → persisted `panelSize` fraction × parent width; no shell
-   *  (mobile drawer) → undefined (`<aside>` fills the drawer body via
-   *  `h-full`, no explicit width). */
-  const shellWidth = () => {
-    if (!props.shell) return undefined;
-    return props.visible
-      ? `${rightPanel.panelSize() * 100}%`
-      : `${RAIL_WIDTH_PX}px`;
-  };
+  const shellWidth = () =>
+    match(shellState())
+      .with("no-shell", () => undefined)
+      .with("rail", () => `${RAIL_WIDTH_PX}px`)
+      .with("float", () => `${rightPanel.panelSize() * 100}%`)
+      .with("flush", () => `${rightPanel.panelSize() * 100}%`)
+      .exhaustive();
 
   return (
     // Outer `<aside>` is positioning + width only: NO `flex flex-col`
@@ -146,37 +166,29 @@ const RightPanel: Component<{
     // pattern). The inner `<div>` carries the visual chrome instead.
     <aside
       data-testid="right-panel"
-      data-maximized={
-        props.shell && posture.mode() === "maximized" ? "" : undefined
-      }
-      data-collapsed={props.shell && !props.visible ? "" : undefined}
+      data-shell-state={shellState()}
+      data-maximized={shellState() === "flush" ? "" : undefined}
+      data-collapsed={shellState() === "rail" ? "" : undefined}
       classList={{
-        // No shell (mobile): fill the drawer body. The drawer already
+        // `no-shell` (mobile): fill the drawer body. The drawer already
         // provides the floating surface.
-        "h-full block": !props.shell,
-        // Shell + tiled + expanded: absolute float on the right edge
-        // of the canvas — mirror of the Dock's tiled chrome
-        // (`Dock.tsx`) on the opposite side. `top-12` (48 px) clears
-        // the 44 px chrome bar by 4 px and lines up with the dock's
-        // anchor; `bottom-4` lets the floating card extend to most of
-        // the canvas height (Inspector + Code with file tree are tall).
+        "h-full block": shellState() === "no-shell",
+        // `float` (tiled, expanded): absolute floating rounded card on
+        // the right edge of the canvas — mirror of the Dock's tiled
+        // chrome (`Dock.tsx`) on the opposite side. `top-12` (48 px)
+        // clears the 44 px chrome bar by 4 px and lines up with the
+        // dock's anchor; `bottom-4` lets the floating card extend to
+        // most of the canvas height (Inspector + Code with file tree
+        // are tall).
         "absolute z-30 top-12 right-4 bottom-4 rounded-2xl shadow-2xl shadow-black/40 overflow-hidden":
-          props.shell && posture.mode() === "tiled" && props.visible,
-        // Everything else with a shell renders as a real right-panel
-        // flex sibling of the canvas with a left-edge separator:
-        //  - Tiled + collapsed: 44 px rail (NOT absolute — #986
-        //    documents `position: absolute` on the collapsed shell as
-        //    an xterm.js link-decoration interaction trigger). The
-        //    canvas's `flex-1` gives back the 44 px the rail consumes.
-        //  - Maximized + expanded: mirror of the Dock's maximized
-        //    chrome on the opposite side. A hard panel boundary, not
-        //    a floating card.
-        //  - Maximized + collapsed: 44 px rail flex sibling using the
-        //    same left-edge separator as the expanded sibling.
+          shellState() === "float",
+        // `flush` and `rail` both render as a real right-panel flex
+        // sibling of the canvas with a left-edge separator. `rail`
+        // stays in flex flow (NOT absolute) per #986's first xterm.js
+        // link-decoration trigger; the canvas's `flex-1` gives back
+        // the 44 px the rail consumes.
         "relative shrink-0 h-full border-l border-edge overflow-hidden":
-          props.shell &&
-          (posture.mode() === "maximized" ||
-            (posture.mode() === "tiled" && !props.visible)),
+          shellState() === "flush" || shellState() === "rail",
       }}
       style={shellWidth() ? { width: shellWidth() } : undefined}
       aria-hidden={!props.visible}
