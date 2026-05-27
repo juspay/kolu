@@ -486,6 +486,51 @@ export function inMemoryChannel<T>(): Channel<T> {
   };
 }
 
+/** Name-keyed in-process pub/sub. Same shape `publisherChannel` already
+ *  expects from `@orpc/experimental-publisher`'s `MemoryPublisher`, so
+ *  the canonical wiring works uniformly:
+ *
+ *  ```ts
+ *  const publisher = inMemoryPublisher();
+ *  implementSurface(surface, {
+ *    channel: <T>(name) => publisherChannel<T>(publisher, name),
+ *    ...
+ *  });
+ *  ```
+ *
+ *  Why this exists: `implementSurface`'s `channel:` dep is called *once
+ *  per publish/subscribe site* — the surface owns names like
+ *  `"<key>:changed"` and `"<key>:<k>"`. The consumer must return the
+ *  *same* `Channel<T>` instance for the same name, or the framework's
+ *  publishes go to one channel and the subscribers register on
+ *  another. A bare `inMemoryChannel<T>()` factory (`channel: (name) =>
+ *  inMemoryChannel()`) silently drops every delta because each call
+ *  creates a fresh channel — the registry layer is doing the
+ *  load-bearing work of binding name → instance. */
+export function inMemoryPublisher(): {
+  publish<T>(channel: string, payload: T): void;
+  subscribe<T>(
+    channel: string,
+    opts: { signal?: AbortSignal },
+  ): AsyncIterable<T>;
+} {
+  const channels = new Map<string, Channel<unknown>>();
+  const get = (name: string): Channel<unknown> => {
+    let c = channels.get(name);
+    if (c === undefined) {
+      c = inMemoryChannel<unknown>();
+      channels.set(name, c);
+    }
+    return c;
+  };
+  return {
+    publish: <T>(name: string, payload: T) =>
+      get(name).publish(payload as unknown),
+    subscribe: <T>(name: string, opts: { signal?: AbortSignal }) =>
+      get(name).subscribe(opts?.signal) as AsyncIterable<T>,
+  };
+}
+
 /** Snapshot-then-delta observable cell. Combines a value (read via
  *  `current()`, written via `set()`) with a `Channel<T>` interface
  *  that fires `onEvent(current)` *synchronously* on consume before

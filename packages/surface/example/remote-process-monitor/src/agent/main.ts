@@ -29,8 +29,9 @@
 import { implement } from "@orpc/server";
 import {
   implementSurface,
-  inMemoryChannel,
+  inMemoryPublisher,
   inMemoryStore,
+  publisherChannel,
 } from "@kolu/surface/server";
 import { serveOverStdio } from "@kolu/surface/peer-server";
 import {
@@ -80,8 +81,12 @@ async function main(): Promise<void> {
   // single in-process write seam (the poll loop calls
   // `fragment.ctx.collections.processes.upsert/remove`, which mutates
   // the snapshot AND publishes through the framework's keyed channels).
+  // `inMemoryPublisher` is the load-bearing piece — it dedupes
+  // channels by name so the framework's publish-site and subscribe-
+  // site call paths land on the same `Channel<T>` instance.
+  const publisher = inMemoryPublisher();
   const fragment = implementSurface(surface, {
-    channel: <T>(_name: string) => inMemoryChannel<T>(),
+    channel: <T>(name: string) => publisherChannel<T>(publisher, name),
     cells: {
       system: { store: systemStore },
       // `connection` lives in the shared surface so the browser can

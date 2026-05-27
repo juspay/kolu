@@ -20,10 +20,10 @@
 import { implement } from "@orpc/server";
 import {
   type CellStore,
-  type Channel,
   implementSurface,
-  inMemoryChannel,
+  inMemoryPublisher,
   inMemoryStore,
+  publisherChannel,
 } from "@kolu/surface/server";
 import {
   type ConnectionInfo,
@@ -53,8 +53,11 @@ export function buildRouter(opts: BuildRouterOptions) {
   });
   const processCache = new Map<Pid, Process>();
 
+  // `inMemoryPublisher` dedupes channels by name so the framework's
+  // publish-site and subscribe-site land on the same `Channel<T>`.
+  const publisher = inMemoryPublisher();
   const fragment = implementSurface(surface, {
-    channel: <T>(_name: string): Channel<T> => inMemoryChannel<T>(),
+    channel: <T>(name: string) => publisherChannel<T>(publisher, name),
     cells: {
       system: { store: systemStore },
       connection: { store: connectionStore },
