@@ -54,10 +54,12 @@ Then("the right panel should be visible", async function (this: KoluWorld) {
 });
 
 Then("the right panel should not be visible", async function (this: KoluWorld) {
-  // After the keep-mounted refactor (#818), the panel stays in the DOM but
-  // Resizable shrinks it to ~0 width when collapsed (a 1px `border-l` is
-  // all that remains, so Playwright's `state: "hidden"` would still see it
-  // as visible). Assert effective collapse via bounding-box width instead.
+  // Panel stays mounted across collapse so CodeTab's local state survives
+  // (#818). In maximized mode the shell shrinks to 0 px; in tiled mode
+  // the shell is `display: none`. Either way the inner panel's bounding
+  // box reads zero width — assert that rather than `state: "hidden"`,
+  // which doesn't trip for a width-0 element with the shell still in
+  // the layout tree.
   await this.page.waitForFunction(
     () => {
       const el = document.querySelector('[data-testid="right-panel"]');
@@ -68,6 +70,45 @@ Then("the right panel should not be visible", async function (this: KoluWorld) {
     { timeout: POLL_TIMEOUT },
   );
 });
+
+Then(
+  "the right panel should be in maximized mode",
+  async function (this: KoluWorld) {
+    // `data-maximized=""` is set on the right-panel shell when posture is
+    // maximized — the shell renders as a flush flex sibling of the canvas
+    // (real right panel) rather than the floating absolute overlay it
+    // uses in tiled mode. Same attribute pattern as the dock.
+    await this.page.waitForFunction(
+      () => {
+        const shell = document.querySelector(
+          '[data-testid="right-panel-shell"]',
+        );
+        return shell?.hasAttribute("data-maximized") ?? false;
+      },
+      null,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+Then(
+  "the right panel should be in tiled mode",
+  async function (this: KoluWorld) {
+    // Absence of `data-maximized` on the shell = tiled posture (the
+    // shell renders as an absolute float over the canvas grid).
+    await this.page.waitForFunction(
+      () => {
+        const shell = document.querySelector(
+          '[data-testid="right-panel-shell"]',
+        );
+        if (!shell) return false;
+        return !shell.hasAttribute("data-maximized");
+      },
+      null,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
 
 Then(
   "the inspector should show a CWD section",

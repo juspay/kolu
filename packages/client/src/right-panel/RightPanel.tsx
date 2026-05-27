@@ -51,12 +51,15 @@ const RightPanel: Component<{
   return (
     <div
       data-testid="right-panel"
-      class="flex flex-col h-full min-w-0 overflow-hidden bg-surface-0 border-l border-edge"
+      class="flex flex-col h-full min-w-0 overflow-hidden bg-surface-0"
       // Panel stays mounted across collapse on desktop so CodeTab's local
-      // state survives (#818); RightPanelLayout shrinks it to ~0 width via
-      // Resizable `sizes=[1,0]`. `aria-hidden` reflects actual visibility
-      // — driven by the host, not the desktop pref, so the contract holds
-      // on the mobile drawer host too.
+      // state survives (#818); RightPanelLayout shrinks the shell to 0 px
+      // in maximized mode and removes it from layout via `hidden` in
+      // tiled mode. The maximized-mode left separator lives on the shell
+      // (`border-l border-edge`), not here, so the tiled floating card
+      // has no leftover divider line. `aria-hidden` reflects actual
+      // visibility — driven by the host, not the desktop pref, so the
+      // contract holds on the mobile drawer host too.
       aria-hidden={!props.visible}
     >
       {/* Tab bar */}

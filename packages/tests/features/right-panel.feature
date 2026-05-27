@@ -99,6 +99,24 @@ Feature: Right panel (inspector)
     And the Code tab should be active
     And there should be no page errors
 
+  Scenario: Right panel mirrors the dock's tiled-vs-maximized posture pairing
+    # The right panel mirrors the dock: in tiled mode it floats as a
+    # rounded card over the canvas grid, anchored top-right; in
+    # maximized-tile mode it collapses to a flush right sidebar with a
+    # hard separator and the canvas reflows next to it. Same `data-`
+    # attribute pattern as the dock (`dock.feature`'s maximized scenario)
+    # so the two surfaces share one posture vocabulary.
+    When I press the toggle inspector shortcut
+    Then the right panel should be visible
+    And the right panel should be in tiled mode
+    When I double-click the title bar of canvas tile 1
+    Then canvas tile 1 should be maximized
+    And the right panel should be in maximized mode
+    When I double-click the title bar of canvas tile 1
+    Then no canvas tile should be maximized
+    And the right panel should be in tiled mode
+    And there should be no page errors
+
   Scenario: Active tab is per-terminal (each terminal remembers its own)
     # Terminal 1 (from Background) — switch to Code, leaving terminal 2 untouched
     When I press the toggle inspector shortcut
