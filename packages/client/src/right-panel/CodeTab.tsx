@@ -460,10 +460,12 @@ const CodeTab: Component<{
           <FileSearchInput value={searchQuery()} onChange={setSearchQuery} />
         </div>
 
-        {/* Vertical split between tree and content. Mirrors the horizontal
-         *  split in `RightPanelLayout` — same `@corvu/resizable` shell,
-         *  vertical orientation. Split fraction persists via
-         *  `rightPanel.codeTabTreeSize` so reload restores the user's layout. */}
+        {/* Vertical split between tree and content via `@corvu/resizable`.
+         *  Split fraction persists via `rightPanel.codeTabTreeSize` so reload
+         *  restores the user's layout. (The horizontal panel resize lives in
+         *  `RightPanelLayout`'s `DesktopHost` and is hand-rolled atop
+         *  `capturePointerGesture` — Resizable's flex-split shape was
+         *  incompatible with the panel's posture-driven absolute float.) */}
         <Resizable
           orientation="vertical"
           sizes={[
