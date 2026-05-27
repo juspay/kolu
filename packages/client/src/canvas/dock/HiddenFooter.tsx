@@ -59,7 +59,11 @@ export const HiddenFooter: Component<{
       <ActivityWindowChip
         anchor="top-start"
         testIdPrefix={props.chipTestIdPrefix ?? "dock-window"}
-        class="h-5 min-w-5 px-1 rounded-md text-[0.65rem] hover:bg-surface-2/70"
+        class={`rounded-md hover:bg-surface-2/70 ${
+          props.compact === true
+            ? "h-6 min-w-6 px-1.5 text-[0.75rem]"
+            : "h-5 min-w-5 px-1 text-[0.65rem]"
+        }`}
       />
       <Show when={filterActive()}>
         <span>window</span>
