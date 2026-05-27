@@ -176,7 +176,10 @@ const RightPanel: Component<{
         "relative shrink-0 h-full border-l border-edge overflow-hidden":
           shellState() === "flush" || shellState() === "rail",
       }}
-      style={shellWidth() ? { width: shellWidth() } : undefined}
+      style={(() => {
+        const w = shellWidth();
+        return w ? { width: w } : undefined;
+      })()}
       aria-hidden={!props.visible}
     >
       {/* Resize handle — thin strip on the panel's outer-left edge.
