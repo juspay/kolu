@@ -127,19 +127,54 @@ export class HostSession {
   }
 
   private updateState(patch: Partial<HostSessionState>): void {
-    const next: HostSessionState = { ...this.stateCell.current(), ...patch };
+    const prev = this.stateCell.current();
+    const next: HostSessionState = { ...prev, ...patch };
     // Cap the progress-lines tail so we don't OOM on a long-running
     // session that produces many copy/restart cycles.
     if (patch.progressLines !== undefined) {
       next.progressLines = patch.progressLines.slice(-MAX_PROGRESS_LINES);
     }
+    if (patch.connection !== undefined)
+      this.logTransition(prev.connection, patch.connection);
+    if (patch.lastError !== undefined && patch.lastError !== null) {
+      process.stderr.write(
+        `[host:${this.opts.host}] lastError: ${patch.lastError}\n`,
+      );
+    }
     this.stateCell.set(next);
   }
 
-  private addProgress(line: string): void {
+  /** Parent-side lifecycle event (nix copy progress, ssh spawn errors,
+   *  reconnect timer, teardown). Logged to stderr with a `[local]` tag
+   *  and accumulated in the connection cell's progress ring. */
+  private addLocalProgress(line: string): void {
+    process.stderr.write(`[host:${this.opts.host} local] ${line}\n`);
     this.updateState({
-      progressLines: [...this.stateCell.current().progressLines, line],
+      progressLines: [
+        ...this.stateCell.current().progressLines,
+        `[local] ${line}`,
+      ],
     });
+  }
+
+  /** A line the *remote* agent wrote to its own stderr, forwarded
+   *  through the ssh subprocess. Tagged `[remote]` so the parent's
+   *  own activity is distinguishable in the same log. */
+  private addRemoteProgress(line: string): void {
+    process.stderr.write(`[host:${this.opts.host} remote] ${line}\n`);
+    this.updateState({
+      progressLines: [
+        ...this.stateCell.current().progressLines,
+        `[remote] ${line}`,
+      ],
+    });
+  }
+
+  private logTransition(from: ConnectionState, to: ConnectionState): void {
+    if (from === to) return;
+    process.stderr.write(
+      `[host:${this.opts.host} local] connection: ${from} → ${to}\n`,
+    );
   }
 
   private async spawn(): Promise<AgentClient> {
@@ -147,7 +182,7 @@ export class HostSession {
     const provision = await provisionAgent({
       host: this.opts.host,
       agentPath: this.opts.agentPath,
-      onProgress: (line) => this.addProgress(line),
+      onProgress: (line) => this.addLocalProgress(line),
     });
     if (!provision.ok) {
       const reason = provision.reason ?? "nix copy failed";
@@ -175,13 +210,13 @@ export class HostSession {
     child.stderr?.setEncoding("utf-8");
     child.stderr?.on("data", (chunk: string) => {
       for (const line of chunk.split("\n")) {
-        if (line.trim().length > 0) this.addProgress(`[agent stderr] ${line}`);
+        if (line.trim().length > 0) this.addRemoteProgress(line);
       }
     });
 
     child.on("exit", (code, signal) => {
       const reason = `agent exited (code=${code}, signal=${signal})`;
-      this.addProgress(reason);
+      this.addLocalProgress(reason);
       this.updateState({ connection: "disconnected", lastError: reason });
       this.child = null;
       this.clientPromise = null;
@@ -190,7 +225,7 @@ export class HostSession {
 
     child.on("error", (err) => {
       const reason = `ssh failed to spawn: ${err.message}`;
-      this.addProgress(reason);
+      this.addLocalProgress(reason);
       this.updateState({ connection: "disconnected", lastError: reason });
       this.child = null;
       this.clientPromise = null;
@@ -222,7 +257,7 @@ export class HostSession {
   private scheduleReconnect(): void {
     if (this.destroyed || this.reconnectTimer !== null) return;
     const delay = this.opts.reconnectDelayMs ?? 2000;
-    this.addProgress(`reconnecting in ${delay}ms…`);
+    this.addLocalProgress(`reconnecting in ${delay}ms…`);
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       if (this.destroyed || this.refCount === 0) return;
@@ -239,7 +274,7 @@ export class HostSession {
       this.reconnectTimer = null;
     }
     if (this.child !== null) {
-      this.addProgress(`tearing down (${reason})`);
+      this.addLocalProgress(`tearing down (${reason})`);
       try {
         this.child.kill("SIGTERM");
       } catch {

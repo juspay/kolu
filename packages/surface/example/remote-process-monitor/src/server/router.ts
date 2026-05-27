@@ -132,6 +132,12 @@ type FragmentCtx = {
   };
 };
 
+/** Demo-side logging — every interesting bridge event goes to stderr
+ *  so `just dev` / `nix run` users see the full data flow. */
+function log(line: string): void {
+  process.stderr.write(`[bridge] ${line}\n`);
+}
+
 /** Acquire the agent client and pump remote system+processes deltas into
  *  the parent's local fragment ctx. Each stream loop runs fire-and-forget;
  *  errors at stream end (transport blip, abort) are expected end-of-life
@@ -140,14 +146,17 @@ async function bridgeAgentToParent(
   session: HostSession,
   fragment: FragmentCtx,
 ): Promise<void> {
+  log("acquiring HostSession…");
   let client: AgentClient;
   try {
     client = await session.acquire();
-  } catch {
-    // session.spawn surfaces failure through state; bail out and
-    // let the session's reconnect loop drive subsequent attempts.
+  } catch (err) {
+    log(
+      `acquire failed: ${(err as Error).message} — session reconnect drives next attempt`,
+    );
     return;
   }
+  log("agent client ready; starting pumps");
   // Don't release on background termination — the session is the
   // long-lived parent-side singleton and we want it kept warm.
   void pumpSystemCell(client, session, fragment);
@@ -160,13 +169,17 @@ async function pumpSystemCell(
   session: HostSession,
   fragment: FragmentCtx,
 ): Promise<void> {
+  let n = 0;
   try {
     for await (const remoteSystem of await client.surface.system.get({})) {
+      n += 1;
+      if (n === 1) log("system: first snapshot → marking connected");
       session.markConnected();
       fragment.ctx.cells.system.set(remoteSystem);
     }
-  } catch {
-    // Stream end / abort — session reconnect logic takes over.
+    log(`system: stream closed cleanly after ${n} yields`);
+  } catch (err) {
+    log(`system: stream error after ${n} yields: ${(err as Error).message}`);
   }
 }
 
@@ -182,9 +195,13 @@ async function pumpProcessesCollection(
   fragment: FragmentCtx,
 ): Promise<void> {
   const open = new Map<Pid, AbortController>();
+  let keysYields = 0;
   try {
     for await (const keys of await client.surface.processes.keys({})) {
+      keysYields += 1;
       const next = new Set(keys);
+      let opened = 0;
+      let removed = 0;
       // Open per-key streams for new PIDs — fire-and-forget; the loop
       // runs in parallel so cold-start fills as fast as the link can
       // carry the subscribes.
@@ -192,6 +209,7 @@ async function pumpProcessesCollection(
         if (open.has(pid)) continue;
         const ctl = new AbortController();
         open.set(pid, ctl);
+        opened += 1;
         void pumpProcessValue(client, pid, fragment, ctl.signal);
       }
       // Close streams for departed PIDs and drop them from the parent's
@@ -202,10 +220,19 @@ async function pumpProcessesCollection(
         ctl.abort();
         open.delete(pid);
         fragment.ctx.collections.processes.remove(pid);
+        removed += 1;
+      }
+      // Only log when the key set actually moves — the framework
+      // re-emits the same key array on every value-only delta.
+      if (opened > 0 || removed > 0) {
+        log(
+          `processes: keys-yield #${keysYields} — opened=${opened} closed=${removed} total=${open.size}`,
+        );
       }
     }
-  } catch {
-    /* keys stream end — session reconnect drives the next subscribe */
+    log(`processes: keys stream closed (${keysYields} yields total)`);
+  } catch (err) {
+    log(`processes: keys stream error: ${(err as Error).message}`);
   } finally {
     // Abort every still-open per-key stream so the agent can release
     // its subscriber slots cleanly.

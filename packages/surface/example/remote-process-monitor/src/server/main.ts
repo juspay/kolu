@@ -26,9 +26,9 @@
  */
 
 import { serve } from "@hono/node-server";
+import { serveStatic } from "@hono/node-server/serve-static";
 import { RPCHandler } from "@orpc/server/ws";
 import { Hono } from "hono";
-import { serveStatic } from "@hono/node-server/serve-static";
 import { WebSocketServer } from "ws";
 import { destroyAllSessions, getHostSession } from "./hostSession";
 import { resolveAgentPath } from "./nixCopy";
@@ -38,19 +38,24 @@ const HOST = process.env.HOST ?? "localhost";
 const FLAKE = process.env.AGENT_FLAKE ?? ".#process-monitor-agent";
 const PORT = Number(process.env.PORT ?? 7720);
 
+/** Tag every parent-side log so `[server]` lines are visually distinct
+ *  from `[host:<h> local]` (HostSession) and `[host:<h> remote]`
+ *  (forwarded agent stderr). Demo logs are intentionally chatty. */
+function log(line: string): void {
+  process.stderr.write(`[server] ${line}\n`);
+}
+
 async function main(): Promise<void> {
-  process.stderr.write(
-    `remote-process-monitor parent: host=${HOST}, resolving agent closure '${FLAKE}'…\n`,
-  );
+  log(`host=${HOST}, resolving agent closure '${FLAKE}'…`);
 
   const agentPath = await resolveAgentPath(FLAKE);
   if (agentPath === null) {
-    process.stderr.write(
-      `Cannot resolve agent closure for '${FLAKE}'. Set AGENT_PATH to a built /nix/store path, or run inside a flake with '#process-monitor-agent'.\n`,
+    log(
+      `Cannot resolve agent closure for '${FLAKE}'. Set AGENT_PATH to a built /nix/store path, or run inside a flake with '#process-monitor-agent'.`,
     );
     process.exit(1);
   }
-  process.stderr.write(`agent closure: ${agentPath}\n`);
+  log(`agent closure: ${agentPath}`);
 
   const session = getHostSession({ host: HOST, agentPath });
   const { router } = buildRouter({ session });
@@ -60,6 +65,7 @@ async function main(): Promise<void> {
   const distDir = process.env.KOLU_SURFACE_EXAMPLE_DIST;
   if (distDir !== undefined && distDir.length > 0) {
     app.use("*", serveStatic({ root: distDir }));
+    log(`serving client bundle from ${distDir}`);
   } else {
     app.get("/", (c) =>
       c.text(
@@ -78,8 +84,8 @@ async function main(): Promise<void> {
       // Print the "listening" line ONLY after the bind completes —
       // otherwise Vite's WS proxy races the parent's nix-build step
       // and logs spurious ECONNREFUSED until the bind catches up.
-      process.stderr.write(
-        `remote-process-monitor listening on http://${info.address}:${info.port} (host=${HOST})\n`,
+      log(
+        `listening on http://${info.address}:${info.port} (open http://localhost:${info.port}/)`,
       );
     },
   );
@@ -89,6 +95,8 @@ async function main(): Promise<void> {
   const wsHandler = new RPCHandler(router as any);
   const wss = new WebSocketServer({ noServer: true });
   wss.on("connection", (ws) => {
+    log("browser ws connect");
+    ws.on("close", () => log("browser ws disconnect"));
     void wsHandler.upgrade(
       ws as unknown as Parameters<typeof wsHandler.upgrade>[0],
     );
@@ -116,7 +124,7 @@ async function main(): Promise<void> {
   });
 
   const shutdown = (sig: string) => {
-    process.stderr.write(`${sig}: destroying host sessions\n`);
+    log(`${sig}: destroying host sessions`);
     destroyAllSessions();
     // `httpServer.close()` waits for in-flight connections to drain.
     // The browser's WebSocket is long-lived — it never closes on its
@@ -145,6 +153,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  process.stderr.write(`fatal: ${(err as Error).message}\n`);
+  process.stderr.write(`[server] fatal: ${(err as Error).message}\n`);
   process.exit(1);
 });
