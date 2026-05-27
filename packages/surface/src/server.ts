@@ -416,11 +416,31 @@ export function inMemoryStore<T>(initial: T): CellStore<T> {
  *  `publisherChannel`, there is no cross-channel microtask delay — that
  *  delay is a wire-publisher concern (multiple channels racing on the same
  *  tick). In-process, the same JS scheduler handles ordering. */
-export function inMemoryChannel<T>(): Channel<T> {
+export interface InMemoryChannel<T> extends Channel<T> {
+  /** Number of currently-attached subscribers. Used by
+   *  `inMemoryPublisher` to evict empty per-name channels on
+   *  unsubscribe — a process monitor keyed-by-PID accumulates
+   *  thousands of dead names otherwise. */
+  subscriberCount(): number;
+  /** Fires when the subscriber count transitions from >0 to 0. The
+   *  publisher uses this to drop the name from its map; null on a
+   *  fresh channel so the publisher can detect "channel had a sub at
+   *  some point then went idle" vs "never had one". */
+  onIdle(cb: () => void): void;
+}
+
+export function inMemoryChannel<T>(): InMemoryChannel<T> {
   const subscribers = new Set<{
     push: (value: T) => void;
     close: (reason?: unknown) => void;
   }>();
+  let idleCb: (() => void) | null = null;
+  const removeSub = (sub: {
+    push: (value: T) => void;
+    close: (reason?: unknown) => void;
+  }): void => {
+    if (subscribers.delete(sub) && subscribers.size === 0) idleCb?.();
+  };
   const subscribe = (signal: AbortSignal | undefined): AsyncIterable<T> => {
     const queue: T[] = [];
     const waiters: Array<{
@@ -449,7 +469,17 @@ export function inMemoryChannel<T>(): Channel<T> {
       },
     };
     subscribers.add(sub);
-    const onAbort = () => sub.close(signal?.reason);
+    // Abort handler must ALSO drop the sub from the set — otherwise
+    // an aborted subscriber that never has `iterator.return()` called
+    // on it (e.g. consumer just rejected its pending next() and
+    // abandoned the iterator) stays in `subscribers` forever, getting
+    // every subsequent publish's `sub.push()` (which is now a no-op
+    // because `closed === true`, but the dead entry sits in memory).
+    const onAbort = () => {
+      sub.close(signal?.reason);
+      signal?.removeEventListener("abort", onAbort);
+      removeSub(sub);
+    };
     signal?.addEventListener("abort", onAbort);
     return {
       [Symbol.asyncIterator]() {
@@ -468,9 +498,9 @@ export function inMemoryChannel<T>(): Channel<T> {
             );
           },
           return(): Promise<IteratorResult<T>> {
-            subscribers.delete(sub);
             signal?.removeEventListener("abort", onAbort);
             sub.close();
+            removeSub(sub);
             return Promise.resolve({ value: undefined, done: true });
           },
         };
@@ -483,6 +513,10 @@ export function inMemoryChannel<T>(): Channel<T> {
     },
     subscribe,
     consume: buildConsume(subscribe),
+    subscriberCount: () => subscribers.size,
+    onIdle: (cb) => {
+      idleCb = cb;
+    },
   };
 }
 
@@ -514,20 +548,34 @@ export function inMemoryPublisher(): {
     opts: { signal?: AbortSignal },
   ): AsyncIterable<T>;
 } {
-  const channels = new Map<string, Channel<unknown>>();
-  const get = (name: string): Channel<unknown> => {
-    let c = channels.get(name);
-    if (c === undefined) {
-      c = inMemoryChannel<unknown>();
-      channels.set(name, c);
-    }
-    return c;
-  };
+  const channels = new Map<string, InMemoryChannel<unknown>>();
+  // Lazy + drop semantics for publish-side names: if no subscriber has
+  // ever attached to `name`, drop the payload on the floor rather than
+  // create an empty channel that lives forever. The process-monitor
+  // demo publishes to `processes:<pid>:value` on every poll for every
+  // PID — even when no one is subscribed — and the framework keeps
+  // ~600 PIDs hot. Without this guard, every PID ever seen accumulates
+  // a permanent (and unused) `InMemoryChannel` instance.
   return {
-    publish: <T>(name: string, payload: T) =>
-      get(name).publish(payload as unknown),
-    subscribe: <T>(name: string, opts: { signal?: AbortSignal }) =>
-      get(name).subscribe(opts?.signal) as AsyncIterable<T>,
+    publish: <T>(name: string, payload: T) => {
+      const c = channels.get(name);
+      if (c !== undefined) c.publish(payload as unknown);
+    },
+    subscribe: <T>(name: string, opts: { signal?: AbortSignal }) => {
+      let c = channels.get(name);
+      if (c === undefined) {
+        c = inMemoryChannel<unknown>();
+        channels.set(name, c);
+        // Self-evict on idle: when the last subscriber detaches, drop
+        // the name from the map so a future publish to that name is a
+        // no-op again. Without this, every short-lived subscription
+        // leaves a permanent channel behind.
+        c.onIdle(() => {
+          if (channels.get(name) === c) channels.delete(name);
+        });
+      }
+      return c.subscribe(opts?.signal) as AsyncIterable<T>;
+    },
   };
 }
 

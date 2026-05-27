@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { inMemoryChannel } from "./server";
+import { inMemoryChannel, inMemoryPublisher } from "./server";
 
 describe("inMemoryChannel", () => {
   it("delivers publishes to every live subscriber in order", async () => {
@@ -79,6 +79,83 @@ describe("inMemoryChannel", () => {
     ctl.abort();
     await run;
     expect(seen).toEqual(["a"]);
+  });
+
+  it("abort removes the subscriber from the set (no leak on abandoned iterators)", async () => {
+    // Regression: aborted subscribers used to stay in the subscribers
+    // Set until `iterator.return()` ran — consumers that just rejected
+    // out of next() without calling return() left dead entries.
+    const chan = inMemoryChannel<number>();
+    expect(chan.subscriberCount()).toBe(0);
+    const ctl = new AbortController();
+    const run = (async () => {
+      try {
+        for await (const _v of chan.subscribe(ctl.signal)) {
+          /* no-op */
+        }
+      } catch {
+        /* abort surfaces as rejection */
+      }
+    })();
+    await Promise.resolve();
+    expect(chan.subscriberCount()).toBe(1);
+    ctl.abort();
+    await run;
+    expect(chan.subscriberCount()).toBe(0);
+  });
+
+  it("inMemoryPublisher drops publishes with no current subscribers", async () => {
+    // Regression: publish used to lazily create a channel for every
+    // name on every publish, retaining it forever even when no one
+    // subscribed (e.g. per-PID `processes:<pid>:value` in the process
+    // monitor — thousands of stranded channels per long session).
+    const pub = inMemoryPublisher();
+    // Publish with no subscribers → no-op, no channel created.
+    pub.publish("nobody-listening", 42);
+    // Subscribe, then publish, then unsubscribe.
+    const ctl = new AbortController();
+    const seen: number[] = [];
+    const run = (async () => {
+      try {
+        for await (const v of pub.subscribe<number>("alive", {
+          signal: ctl.signal,
+        })) {
+          seen.push(v);
+        }
+      } catch {
+        /* abort rejection */
+      }
+    })();
+    await Promise.resolve();
+    pub.publish("alive", 1);
+    pub.publish("alive", 2);
+    await new Promise((r) => setTimeout(r, 5));
+    expect(seen).toEqual([1, 2]);
+    ctl.abort();
+    await run;
+    // After unsubscribe, publishing to "alive" is again a no-op — and
+    // because the channel was evicted, re-subscribing yields a fresh
+    // one (no replay of post-abort publishes).
+    pub.publish("alive", 999);
+    const ctl2 = new AbortController();
+    const seen2: number[] = [];
+    const run2 = (async () => {
+      try {
+        for await (const v of pub.subscribe<number>("alive", {
+          signal: ctl2.signal,
+        })) {
+          seen2.push(v);
+        }
+      } catch {
+        /* abort */
+      }
+    })();
+    await Promise.resolve();
+    pub.publish("alive", 3);
+    await new Promise((r) => setTimeout(r, 5));
+    expect(seen2).toEqual([3]); // no 999, channel was fresh
+    ctl2.abort();
+    await run2;
   });
 
   it("consume() invokes onEvent per publish and cleans up via the returned fn", async () => {
