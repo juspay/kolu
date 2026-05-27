@@ -8,17 +8,11 @@ import {
   type JSX,
   Show,
 } from "solid-js";
-import {
-  activityWindow,
-  setActivityWindow,
-  WINDOW_OPTIONS,
-  windowOption,
-} from "../terminal/activityWindow";
 import { formatTimeAgo, useStaleCheck } from "../terminal/staleness";
 import type { TerminalDisplayInfo } from "../terminal/terminalDisplay";
 import { useTerminalStore } from "../terminal/useTerminalStore";
+import { ActivityWindowChip } from "../ui/ActivityWindowChip";
 import { GridIcon } from "../ui/Icons";
-import { OptionMenu } from "../ui/OptionMenu";
 import {
   handleMinimapClick,
   startTileDrag,
@@ -120,8 +114,6 @@ const CanvasMinimap: Component<{
   // dock-row bucket classifier and the badge gate, so a user who
   // shortens the window in one place shortens it everywhere.
   const isParked = useStaleCheck();
-  const [menuOpen, setMenuOpen] = createSignal(false);
-  const [triggerRef, setTriggerRef] = createSignal<HTMLButtonElement>();
 
   // ── Bounding box of all tiles ──
   const bounds = createMemo(() => {
@@ -476,33 +468,12 @@ const CanvasMinimap: Component<{
             onClick={() => props.onAutoArrange?.()}
           />
         </Show>
-        <button
-          type="button"
-          ref={setTriggerRef}
-          data-testid="minimap-window-trigger"
-          data-enabled={activityWindow() !== "all" ? "" : undefined}
-          data-window={activityWindow()}
-          class="flex items-center justify-center min-w-[2.5rem] h-8 px-1 hover:bg-surface-3/60 transition-colors cursor-pointer border-l border-edge/40 text-xs tabular-nums"
-          classList={{
-            "text-fg-2 hover:text-fg": activityWindow() === "all",
-            "text-accent": activityWindow() !== "all",
-          }}
-          title={`Minimap: ${windowOption(activityWindow()).label} — click to change`}
-          onClick={() => setMenuOpen((prev) => !prev)}
-        >
-          {windowOption(activityWindow()).short}
-        </button>
+        <ActivityWindowChip
+          anchor="top-end"
+          testIdPrefix="minimap-window"
+          class="min-w-[2.5rem] h-8 px-1 border-l border-edge/40 text-xs hover:bg-surface-3/60"
+        />
       </div>
-      <OptionMenu
-        triggerRef={triggerRef}
-        open={menuOpen}
-        onDismiss={() => setMenuOpen(false)}
-        anchor="top-end"
-        options={WINDOW_OPTIONS}
-        value={activityWindow()}
-        onSelect={setActivityWindow}
-        testIdPrefix="minimap-window"
-      />
     </div>
   );
 };

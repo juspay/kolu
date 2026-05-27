@@ -273,7 +273,6 @@ const features = [
         <div class="ckv2-dock-head">
           <span class="ckv2-dock-icon">+</span>
           <span class="ckv2-dock-icon">⌕</span>
-          <span class="ckv2-dock-window">24h</span>
         </div>
         <section class="ckv2-section">
           <h4 class="ckv2-section-head ckv2-hue-kolu">
@@ -322,6 +321,13 @@ const features = [
             <p class="ckv2-card-intent">Bump nixpkgs, rebuild home-manager</p>
           </div>
         </section>
+        <div class="ckv2-dock-foot">
+          <span class="ckv2-dock-foot-count">2</span>
+          <span>hidden by</span>
+          <span class="ckv2-dock-window">24h</span>
+          <span>window</span>
+          <span class="ckv2-dock-foot-relax">show all</span>
+        </div>
       </aside>
 
       <!-- CENTRE: canvas with 3 tiles in random, slightly overlapping
@@ -894,6 +900,23 @@ const features = [
     padding: 0 0.4rem;
     color: var(--color-live-teal);
     border-color: color-mix(in srgb, var(--color-live-teal) 50%, var(--color-rule-strong));
+  }
+  .ckv2-dock-foot {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.4rem 0.65rem;
+    border-top: 1px solid var(--color-rule);
+    color: var(--color-ink-muted);
+    font-size: 0.62rem;
+  }
+  .ckv2-dock-foot-count {
+    font-variant-numeric: tabular-nums;
+  }
+  .ckv2-dock-foot-relax {
+    margin-left: auto;
+    color: var(--color-live-teal);
+    cursor: pointer;
   }
 
   .ckv2-section {

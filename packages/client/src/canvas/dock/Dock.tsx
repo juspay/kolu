@@ -30,10 +30,13 @@
  *     section so a column whose rows all lack a pip collapses to
  *     0 width and gives that space back to the branch label.
  *
- *  The activity-window chip (`24h`/`12h`/`All`) is a hard filter, not a
- *  dim: rows past the window disappear from the dock entirely; a small
- *  footer surfaces the hidden count and offers a one-click "show all"
- *  escape via `setActivityWindow("all")`.
+ *  The activity-window picker (`24h`/`12h`/`All`) is a hard filter, not
+ *  a dim: rows past the window disappear from the dock entirely. The
+ *  picker lives inline inside `HiddenFooter` at the bottom of the dock
+ *  alongside the parked-count disclosure ("N hidden by [Wh] window"),
+ *  so cause and effect share one zone — and the same strip offers a
+ *  one-click "show all" escape via `setActivityWindow("all")` whenever
+ *  the window is hiding something.
  *
  *  In maximized-tile mode the dock renders as a flush left-edge sidebar
  *  with opaque background, full canvas height, separator on the right.
@@ -58,14 +61,7 @@ import { HiddenFooter } from "./HiddenFooter";
 import { chipInitials } from "./chipInitials";
 import { AgentSlot, PrPip, SubCountCell, createDockRowData } from "./RowPips";
 import { rowSubline } from "./rowSubline";
-import {
-  activityWindow,
-  setActivityWindow,
-  WINDOW_OPTIONS,
-  windowOption,
-} from "../../terminal/activityWindow";
 import { ChevronDownIcon, PlusIcon, SearchIcon } from "../../ui/Icons";
-import { OptionMenu } from "../../ui/OptionMenu";
 import { isPlatformModifier } from "../../input/keyboard";
 import { useViewPosture } from "../useViewPosture";
 import type { DockRowBucket } from "./dockRowRanking";
@@ -275,7 +271,6 @@ const DockHeader: Component<{
       >
         <SearchIcon class="w-3.5 h-3.5" />
       </button>
-      <ActivityWindowMenu />
       <button
         type="button"
         data-testid="dock-mode-toggle"
@@ -296,50 +291,6 @@ const DockHeader: Component<{
         </span>
       </button>
     </div>
-  );
-};
-
-/** Activity-window chip: shows the current short label (`24h`, `4h`,
- *  `All`, …) and opens an `OptionMenu` of all options. Same shared
- *  signal the minimap reads, so picking `12h` here also tightens the
- *  minimap's fade.
- *
- *  Always anchors `bottom-start` because the dock lives at the left
- *  edge of the viewport — `bottom-end` would push the 180px-wide panel
- *  LEFT of the trigger and clip it off-screen. */
-const ActivityWindowMenu: Component = () => {
-  const [menuOpen, setMenuOpen] = createSignal(false);
-  const [triggerRef, setTriggerRef] = createSignal<HTMLButtonElement>();
-  const current = () => windowOption(activityWindow());
-  return (
-    <>
-      <button
-        type="button"
-        ref={setTriggerRef}
-        data-testid="dock-window-trigger"
-        data-window={activityWindow()}
-        class="flex items-center justify-center h-6 min-w-6 px-1 rounded-md cursor-pointer text-[0.65rem] font-mono tabular-nums hover:bg-surface-2/70 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
-        classList={{
-          "text-fg-3 hover:text-fg": activityWindow() === "all",
-          "text-accent": activityWindow() !== "all",
-        }}
-        aria-label={`Activity window: ${current().label}`}
-        title={`Activity window: ${current().label} — click to change`}
-        onClick={() => setMenuOpen((prev) => !prev)}
-      >
-        {current().short}
-      </button>
-      <OptionMenu
-        triggerRef={triggerRef}
-        open={menuOpen}
-        onDismiss={() => setMenuOpen(false)}
-        anchor="bottom-start"
-        options={WINDOW_OPTIONS}
-        value={activityWindow()}
-        onSelect={setActivityWindow}
-        testIdPrefix="dock-window"
-      />
-    </>
   );
 };
 

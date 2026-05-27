@@ -4,8 +4,9 @@
  *  the caller renders the panel via `<Portal>` and binds both. The hook
  *  owns:
  *    - viewport-clamped positioning (`bottom-start` left-anchored,
- *      `bottom-end` right-anchored, or `top-end` right-anchored above the
- *      trigger — recomputed on open/trigger change),
+ *      `bottom-end` right-anchored, `top-start` left-anchored above the
+ *      trigger, or `top-end` right-anchored above the trigger —
+ *      recomputed on open/trigger change),
  *    - document-level outside-click dismiss (active only while open),
  *    - Escape-key dismiss (same).
  *
@@ -16,7 +17,11 @@
 import { createEventListener } from "@solid-primitives/event-listener";
 import { createEffect, createSignal, type JSX } from "solid-js";
 
-export type AnchorSide = "bottom-start" | "bottom-end" | "top-end";
+export type AnchorSide =
+  | "bottom-start"
+  | "bottom-end"
+  | "top-start"
+  | "top-end";
 
 export type UseAnchoredPopoverOpts = {
   /** Accessor for the trigger element. Allows signal-backed refs that
@@ -30,10 +35,12 @@ export type UseAnchoredPopoverOpts = {
    *  Escape. The hook never mutates state itself. */
   onDismiss: () => void;
   /** Defaults to `"bottom-start"` (left-anchored, viewport-clamped).
-   *  `"bottom-end"` right-anchors to the trigger. */
+   *  `"bottom-end"` right-anchors to the trigger; `"top-start"` and
+   *  `"top-end"` open upward (panel sits above the trigger). */
   anchor?: AnchorSide;
-  /** Min panel width — used for viewport clamping when
-   *  `anchor === "bottom-start"`. Defaults to 0 (no clamp). */
+  /** Min panel width — used for viewport clamping on the left-anchored
+   *  variants (`"bottom-start"` and `"top-start"`). Defaults to 0
+   *  (no clamp). */
   panelMinWidth?: number;
   /** Vertical offset below the trigger's bottom edge. Defaults to 4px. */
   offset?: number;
@@ -62,25 +69,29 @@ export function useAnchoredPopover(
     if (!t) return;
     const r = t.getBoundingClientRect();
     const offset = opts.offset ?? 4;
+    // Upward anchors set `bottom` in viewport coordinates so the panel's
+    // bottom edge sits above the trigger without measuring panel height.
+    const upward = opts.anchor === "top-end" || opts.anchor === "top-start";
     if (opts.anchor === "top-end") {
-      // Anchor the panel's bottom edge to the trigger's top edge (with
-      // gap) by setting `bottom` in viewport coordinates — no panel-height
-      // measurement needed.
       setPos({
         bottom: window.innerHeight - r.top + offset,
         right: window.innerWidth - r.right,
       });
       return;
     }
-    const top = r.bottom + offset;
     if (opts.anchor === "bottom-end") {
-      setPos({ top, right: window.innerWidth - r.right });
+      setPos({ top: r.bottom + offset, right: window.innerWidth - r.right });
       return;
     }
+    // Left-anchored variants share the viewport clamp.
     const minW = opts.panelMinWidth ?? 0;
     const maxLeft = window.innerWidth - minW - VIEWPORT_PAD;
     const left = Math.max(VIEWPORT_PAD, Math.min(r.left, maxLeft));
-    setPos({ top, left });
+    if (upward) {
+      setPos({ bottom: window.innerHeight - r.top + offset, left });
+      return;
+    }
+    setPos({ top: r.bottom + offset, left });
   };
 
   // Document listeners exist only while the popover is open — passing

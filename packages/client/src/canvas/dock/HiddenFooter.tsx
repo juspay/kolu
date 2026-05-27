@@ -1,53 +1,65 @@
-/** Activity-window overflow disclosure — the "N hidden by <window>
- *  — show all" strip rendered at the bottom of the dock when the
- *  filter has parked rows.
+/** Activity-window footer strip — the single bottom-of-dock home for
+ *  both the activity-window picker and the "what is the window
+ *  hiding right now?" disclosure. Sits at the bottom of the dock body
+ *  (desktop) and the mobile drawer; the `compact` prop selects touch
+ *  sizing (taller, slightly larger type).
  *
- *  Owns one volatility axis: how the dock surfaces *and offers an
- *  escape from* rows the activity window has hidden. Consumed by
- *  both the desktop `Dock` and the mobile `MobileDockDrawer`; the
- *  `compact` prop selects mobile sizing (taller tap target, no
- *  desktop hover/focus styling that doesn't apply on touch).
+ *  Always rendered. When nothing is parked, the strip honestly reads
+ *  "0 hidden by 4h window" — the disclosure's empty state, not invented
+ *  copy. The picker chip is inline inside the sentence, so the user
+ *  reaches the control next to where its effect is visible (no
+ *  ping-pong between dock header and dock footer).
  *
- *  Clicking sets `activityWindow("all")` — the same shared signal
- *  the minimap and other consumers read, so the relaxation is one
- *  persistent choice, not a dock-local override. */
+ *  "show all" is a fast-relax shortcut and only renders when it would
+ *  actually do something (`parkedCount > 0 && activityWindow !== "all"`);
+ *  in every other state the picker chip alone is the way to widen the
+ *  window. */
 
 import { type Component, Show } from "solid-js";
+import { ActivityWindowChip } from "../../ui/ActivityWindowChip";
 import {
   activityWindow,
   setActivityWindow,
-  windowOption,
 } from "../../terminal/activityWindow";
 
 export const HiddenFooter: Component<{
   parkedCount: number;
   compact?: boolean;
   testId?: string;
-}> = (props) => (
-  <Show when={props.parkedCount > 0 && activityWindow() !== "all"}>
-    <button
-      type="button"
+}> = (props) => {
+  const showRelax = () => props.parkedCount > 0 && activityWindow() !== "all";
+  return (
+    <div
       data-testid={props.testId ?? "dock-hidden-footer"}
-      onClick={() => setActivityWindow("all")}
       classList={{
         // Common: bordered top edge, neutral text, left-aligned content.
-        "flex items-center gap-1.5 border-t border-edge/40 text-fg-3 text-left cursor-pointer": true,
-        // Touch (mobile drawer): larger vertical padding, slightly
-        // bigger type so the row clears 44 px tap target.
-        "px-3 py-3 text-[0.75rem] active:bg-surface-2": props.compact === true,
-        // Pointer (desktop): tight padding, hover + focus affordances.
-        "px-3 py-2 text-[0.65rem] hover:text-fg hover:bg-surface-2/40 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40":
-          props.compact !== true,
+        "flex items-center gap-1.5 border-t border-edge/40 text-fg-3 text-left": true,
+        // Touch (mobile drawer): larger vertical padding, slightly bigger
+        // type so the strip clears 44px tap target.
+        "px-3 py-3 text-[0.75rem]": props.compact === true,
+        // Pointer (desktop): tight padding.
+        "px-3 py-2 text-[0.65rem]": props.compact !== true,
       }}
-      title="Show every terminal, regardless of activity window"
     >
       <span class="tabular-nums">{props.parkedCount}</span>
-      <span class="truncate">
-        hidden by{" "}
-        <span class="font-mono">{windowOption(activityWindow()).short}</span>{" "}
-        window
-      </span>
-      <span class="ml-auto text-accent shrink-0">show all</span>
-    </button>
-  </Show>
-);
+      <span>hidden by</span>
+      <ActivityWindowChip
+        anchor="top-start"
+        testIdPrefix="dock-window"
+        class="h-5 min-w-5 px-1 rounded-md text-[0.65rem] hover:bg-surface-2/70"
+      />
+      <span>window</span>
+      <Show when={showRelax()}>
+        <button
+          type="button"
+          data-testid="dock-hidden-show-all"
+          onClick={() => setActivityWindow("all")}
+          class="ml-auto text-accent shrink-0 cursor-pointer hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 rounded"
+          title="Show every terminal, regardless of activity window"
+        >
+          show all
+        </button>
+      </Show>
+    </div>
+  );
+};
