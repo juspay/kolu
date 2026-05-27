@@ -35,7 +35,7 @@ export function chipInitials(
   info: TerminalDisplayInfo,
 ): { repo: string; sub: string; subIsGlyph: boolean } {
   const repo = (info.key.group.match(/[a-z0-9]/i)?.[0] ?? "?").toUpperCase();
-  const branchTail = info.key.label.split("/").pop() ?? info.key.label;
+  const branchTail = info.key.label.split("/").pop() ?? "";
   const intentGlyph = meta.intent ? intentLeadGlyph(meta.intent) : "";
   if (intentGlyph) {
     return ASCII_ALPHANUM.test(intentGlyph)
