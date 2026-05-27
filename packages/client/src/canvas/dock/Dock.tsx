@@ -67,6 +67,10 @@ import {
 import { ChevronDownIcon, PlusIcon, SearchIcon } from "../../ui/Icons";
 import { OptionMenu } from "../../ui/OptionMenu";
 import { isPlatformModifier } from "../../input/keyboard";
+import {
+  POSTURED_MAXIMIZED_FLUSH,
+  POSTURED_TILED_FLOAT,
+} from "../posturedSurfaceChrome";
 import { useViewPosture } from "../useViewPosture";
 import type { DockRowBucket } from "./dockRowRanking";
 import type { DockGroup, DockTree } from "./dockTree";
@@ -156,9 +160,10 @@ const Dock: Component<{
           // Tiled: absolute float inside the canvas; positions over
           // tiles rather than reflowing them. Opaque background (see
           // base class) so canvas tiles don't bleed through the seams
-          // between rows or behind the rounded corners.
-          "absolute z-30 top-20 left-4 rounded-2xl shadow-2xl shadow-black/40":
-            !posture.maximized(),
+          // between rows or behind the rounded corners. Shared chrome
+          // lives in `posturedSurfaceChrome.ts` so a chrome-bar height
+          // change (`top-20`) updates one constant, not two surfaces.
+          [`${POSTURED_TILED_FLOAT} left-4`]: !posture.maximized(),
           "max-h-[calc(100vh-22rem)]": !posture.maximized(),
           // Maximized: real left-panel flex sibling of the canvas. The
           // canvas takes the remaining space via `flex-1` next to us
@@ -166,7 +171,8 @@ const Dock: Component<{
           // parent flex container (`stretch` is the default
           // `align-items`); a right-edge separator reads as a hard
           // panel boundary rather than a floating card.
-          "relative shrink-0 h-full border-r border-edge": posture.maximized(),
+          [`${POSTURED_MAXIMIZED_FLUSH} border-r border-edge`]:
+            posture.maximized(),
         }}
         style={{ width: `${dockWidth(dockMode())}px` }}
       >

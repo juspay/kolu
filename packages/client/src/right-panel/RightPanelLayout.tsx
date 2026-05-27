@@ -36,6 +36,10 @@ import {
   on,
   Show,
 } from "solid-js";
+import {
+  POSTURED_MAXIMIZED_FLUSH,
+  POSTURED_TILED_FLOAT,
+} from "../canvas/posturedSurfaceChrome";
 import { useViewPosture } from "../canvas/useViewPosture";
 import { capturePointerGesture } from "../canvas/viewport/capturePointerGesture";
 import { isMobile } from "../useMobile";
@@ -135,18 +139,21 @@ const DesktopHost: Component<HostProps> = (props) => {
         class="bg-surface-0 flex overflow-hidden"
         classList={{
           // Tiled: float over the canvas grid as a rounded card, mirroring
-          // the dock's tiled-mode treatment on the opposite edge — same
-          // `z-30` and `top-20` so both surfaces sit on the same continuous
-          // canvas grid. Vertical extent diverges intentionally: the dock
-          // uses `max-h-[calc(100vh-22rem)]` (shrink-to-content for finite
-          // row lists), the panel uses `bottom-4` because the Code tab's
-          // file tree benefits from every available pixel.
-          "absolute z-30 top-20 right-4 bottom-4 rounded-2xl shadow-2xl shadow-black/40":
+          // the dock's tiled-mode treatment on the opposite edge — both
+          // surfaces share `POSTURED_TILED_FLOAT` (z-order, `top-20`,
+          // corner radius, shadow) so a chrome-bar height change ripples
+          // through one constant, not two surfaces. Vertical extent
+          // diverges intentionally: the dock uses `max-h-[calc(100vh-22rem)]`
+          // (shrink-to-content for finite row lists), the panel uses
+          // `bottom-4` because the Code tab's file tree benefits from
+          // every available pixel.
+          [`${POSTURED_TILED_FLOAT} right-4 bottom-4`]:
             !posture.maximized() && !rightPanel.collapsed(),
           // Maximized: real flex sibling of the canvas — flush right
           // sidebar with a hard separator on its left edge. Canvas
           // reflows into the remaining width via its `flex-1`.
-          "relative shrink-0 h-full border-l border-edge": posture.maximized(),
+          [`${POSTURED_MAXIMIZED_FLUSH} border-l border-edge`]:
+            posture.maximized(),
           // Tiled + collapsed: drop out of layout. Component stays
           // mounted (CodeTab's Pierre tree expansion survives) but
           // the floating shadow doesn't leak as a visual sliver.
