@@ -57,7 +57,7 @@ export async function provisionAgent(
   //    for localhost — the .drv is already in /nix/store.
   if (!isLocal) {
     opts.onProgress(`${opts.host}: copying derivation '${opts.drvPath}'…`);
-    const copyRes = await runProc(
+    const copyRes = await runProgress(
       "nix",
       [
         "copy",
@@ -100,11 +100,10 @@ export async function provisionAgent(
         "--realise",
         opts.drvPath,
       ];
-  const realiseRes = await runProc(
+  const realiseRes = await runCapture(
     realiseArgv[0] as string,
     realiseArgv.slice(1),
     opts.onProgress,
-    /* capture stdout */ true,
   );
   if (!realiseRes.ok) {
     return {
@@ -112,7 +111,7 @@ export async function provisionAgent(
       reason: `${opts.host}: 'nix-store --realise' exited with code ${realiseRes.code}`,
     };
   }
-  const agentPath = (realiseRes.stdout ?? "").trim();
+  const agentPath = realiseRes.stdout.trim();
   if (agentPath.length === 0) {
     return {
       ok: false,
@@ -123,45 +122,55 @@ export async function provisionAgent(
   return { ok: true, agentPath };
 }
 
-interface ProcResult {
+interface ExitResult {
   ok: boolean;
   code: number | null;
-  stdout?: string;
+}
+interface CaptureResult extends ExitResult {
+  stdout: string;
 }
 
-/** Run a child process and forward its stderr lines to `onProgress`.
- *  When `captureStdout` is set, the resulting stdout is buffered and
- *  returned (used by `nix-store --realise` to read the output path);
- *  otherwise stdout is ignored. */
-function runProc(
+/** Run a child process with stdout ignored; forward stderr lines to
+ *  `onProgress`. Used for `nix copy` where the only output the parent
+ *  cares about is progress chatter on stderr. */
+function runProgress(
   cmd: string,
   args: readonly string[],
   onProgress: (line: string) => void,
-  captureStdout = false,
-): Promise<ProcResult> {
+): Promise<ExitResult> {
   return new Promise((resolve) => {
-    const proc = spawn(cmd, [...args], {
-      stdio: ["ignore", captureStdout ? "pipe" : "ignore", "pipe"],
-    });
-    let stdout = "";
-    if (captureStdout && proc.stdout !== null) {
-      proc.stdout.setEncoding("utf-8");
-      proc.stdout.on("data", (chunk: string) => {
-        stdout += chunk;
-      });
-    }
+    const proc = spawn(cmd, [...args], { stdio: ["ignore", "ignore", "pipe"] });
     proc.stderr?.setEncoding("utf-8");
     proc.stderr?.on("data", (chunk: string) => forEachLine(chunk, onProgress));
-    proc.on("exit", (code) => {
-      resolve({
-        ok: code === 0,
-        code,
-        ...(captureStdout ? { stdout } : {}),
-      });
-    });
+    proc.on("exit", (code) => resolve({ ok: code === 0, code }));
     proc.on("error", (err) => {
       onProgress(`${cmd}: ${err.message}`);
       resolve({ ok: false, code: null });
+    });
+  });
+}
+
+/** Run a child process and buffer its stdout; forward stderr lines to
+ *  `onProgress`. Used for `nix-store --realise` where the output path
+ *  comes back on stdout. */
+function runCapture(
+  cmd: string,
+  args: readonly string[],
+  onProgress: (line: string) => void,
+): Promise<CaptureResult> {
+  return new Promise((resolve) => {
+    const proc = spawn(cmd, [...args], { stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "";
+    proc.stdout?.setEncoding("utf-8");
+    proc.stdout?.on("data", (chunk: string) => {
+      stdout += chunk;
+    });
+    proc.stderr?.setEncoding("utf-8");
+    proc.stderr?.on("data", (chunk: string) => forEachLine(chunk, onProgress));
+    proc.on("exit", (code) => resolve({ ok: code === 0, code, stdout }));
+    proc.on("error", (err) => {
+      onProgress(`${cmd}: ${err.message}`);
+      resolve({ ok: false, code: null, stdout: "" });
     });
   });
 }
