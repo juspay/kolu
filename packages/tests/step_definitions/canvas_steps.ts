@@ -591,17 +591,18 @@ Given(
 
 // ── Gesture ownership: two-finger scroll on terminal must not pan the canvas ──
 
-/** Read the inner canvas transform div's transform (scale(z) translate(x, y)).
- *  Stable string identity is enough to prove pan/zoom did or didn't change.
- *  The transform div carries `data-testid="canvas-transform"` — querying by
- *  testid (rather than `firstElementChild`) keeps this robust against
- *  sibling overlays (watermark, future canvas-level chrome). */
+/** Read the canvas viewport transform string (`scale(z) translate(-pan…)`).
+ *  Surfaced as `data-viewport` on the canvas-container element since #988
+ *  retired the wrapper transform div in favour of per-tile composition —
+ *  we still need a pan/zoom-only observable for tests (a tile's own
+ *  `style.transform` also folds in layout coords + drag delta). Stable
+ *  string identity is enough to prove pan/zoom did or didn't change. */
 async function readCanvasTransform(world: KoluWorld): Promise<string> {
   return await world.page.evaluate(() => {
-    const inner = document.querySelector(
-      '[data-testid="canvas-transform"]',
+    const container = document.querySelector(
+      '[data-testid="canvas-container"]',
     ) as HTMLElement | null;
-    return inner?.style.transform ?? "";
+    return container?.getAttribute("data-viewport") ?? "";
   });
 }
 
@@ -834,10 +835,12 @@ Then(
       .__canvasTransform;
     await this.page.waitForFunction(
       (prev: string) => {
-        const inner = document.querySelector(
-          '[data-testid="canvas-transform"]',
+        const container = document.querySelector(
+          '[data-testid="canvas-container"]',
         ) as HTMLElement | null;
-        return inner !== null && inner.style.transform !== prev;
+        return (
+          container !== null && container.getAttribute("data-viewport") !== prev
+        );
       },
       before ?? "",
       { timeout: POLL_TIMEOUT },
@@ -865,14 +868,11 @@ Then("the minimap map should be visible", async function (this: KoluWorld) {
 
 When("I save the canvas viewport state", async function (this: KoluWorld) {
   const state = await this.page.evaluate((sel: string) => {
-    const container = document.querySelector(sel);
-    const inner = document.querySelector(
-      '[data-testid="canvas-transform"]',
-    ) as HTMLElement | null;
+    const container = document.querySelector(sel) as HTMLElement | null;
     if (!container) return null;
     return {
       zoom: container.getAttribute("data-zoom"),
-      transform: inner?.style.transform,
+      transform: container.getAttribute("data-viewport"),
     };
   }, CANVAS_SELECTOR);
   this.savedViewportState = state;
@@ -936,10 +936,13 @@ Then(
     const saved = this.savedViewportState;
     await this.page.waitForFunction(
       (prev: { transform: string | null }) => {
-        const inner = document.querySelector(
-          '[data-testid="canvas-transform"]',
+        const container = document.querySelector(
+          '[data-testid="canvas-container"]',
         ) as HTMLElement | null;
-        return inner !== null && inner.style.transform !== prev.transform;
+        return (
+          container !== null &&
+          container.getAttribute("data-viewport") !== prev.transform
+        );
       },
       { transform: saved?.transform ?? null },
       { timeout: POLL_TIMEOUT },

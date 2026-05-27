@@ -398,6 +398,7 @@ const TerminalCanvas: Component<{
           ref={(el) => viewport.setContainerRef(el, isWheelTargetTerminal)}
           data-testid="canvas-container"
           data-zoom={viewport.zoom()}
+          data-viewport={viewport.canvasTransform()}
           class="flex-1 min-w-0 overflow-hidden relative canvas-grid-bg"
           style={{
             "background-position": viewport.gridBgPosition(),
@@ -414,21 +415,11 @@ const TerminalCanvas: Component<{
            *  canvas without a containing-block trap. Switching activeId in
            *  maximized mode reduces to a CSS class reshuffle on already-
            *  mounted tiles: no Terminal remount, no `document.fonts.load`,
-           *  no stream re-attach, no scrollback replay (#988). */}
-          <div
-            data-testid="canvas-transform"
-            aria-hidden="true"
-            style={{
-              position: "absolute",
-              left: "0",
-              top: "0",
-              width: "0",
-              height: "0",
-              "pointer-events": "none",
-              "transform-origin": "0 0",
-              transform: viewport.canvasTransform(),
-            }}
-          />
+           *  no stream re-attach, no scrollback replay (#988).
+           *
+           *  `data-viewport` on `canvas-container` carries the pan/zoom-only
+           *  CSS string so tests can observe viewport state independently of
+           *  per-tile transforms (which also fold in layout coords + drag). */}
           <For each={props.tileIds}>
             {(id) => {
               const active = () => store.activeId() === id;
