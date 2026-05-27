@@ -6,13 +6,13 @@
  *  dock at the canvas's left edge (#903), so the chrome bar
  *  no longer hosts a workspace switcher slot.
  *
- *  Two positioning modes, switched on `canvasMaximized`:
- *  - Canvas mode (default): absolute overlay above the canvas. Pure
- *    transparent so the grid reads through and the chrome looks like
- *    it floats ON the canvas, not capping it. When the right panel
- *    is open, the overlay's right edge stops at the panel's left
- *    edge so the controls cluster doesn't sit on top of the panel's
- *    tab bar.
+ *  Two positioning modes, switched on `posture.mode()`:
+ *  - Tiled (default): absolute overlay above the canvas, spanning the
+ *    full viewport width. Pure transparent so the grid reads through
+ *    and the chrome looks like it floats ON the canvas, not capping
+ *    it. The right panel anchors at `top-12` (just below the bar) in
+ *    tiled mode, so the bar no longer has to shrink its right edge
+ *    around the panel.
  *  - Maximized mode: docked in flex flow so the maximized terminal
  *    owns the rest of the viewport without the terminal's own title
  *    bar overlapping the chrome.
@@ -49,14 +49,15 @@ const ChromeBar: Component<{
   const [settingsOpen, setSettingsOpen] = createSignal(false);
 
   // Dock only when the terminal is maximized, so its own title bar
-  // doesn't collide with the chrome. Panel-open stays on the floating
-  // overlay — the `right:` offset below keeps controls off the panel.
-  const docked = () => posture.maximized();
+  // doesn't collide with the chrome. In tiled mode the bar floats
+  // full-width: the right panel anchors at `top-12` below the bar, so
+  // the controls cluster has no panel to dodge.
+  const docked = () => posture.mode() === "maximized";
 
   return (
     <header
       data-testid="chrome-bar"
-      data-maximized={posture.maximized() ? "" : undefined}
+      data-maximized={posture.mode() === "maximized" ? "" : undefined}
       // pointer-events-none on the root so the transparent gaps don't
       // eat clicks meant for the canvas under the overlay. Interactive
       // children (identity row, workspace switcher, control cluster) re-enable
@@ -69,22 +70,9 @@ const ChromeBar: Component<{
       // maximized tile (z-40 in the canvas) then paints on top of the
       // panel at the App root's auto-z layer (DOM order wins).
       classList={{
-        "absolute top-0 left-0 z-50": !docked(),
+        "absolute top-0 left-0 right-0 z-50": !docked(),
         "relative shrink-0 z-50": docked(),
       }}
-      style={
-        docked()
-          ? undefined
-          : {
-              // Stop the floating chrome's right edge at the right
-              // panel's left edge so the controls cluster (inspector,
-              // settings, ⌘K) doesn't sit on top of the panel's tab
-              // bar. `panelSize` is a [0..1] fraction of viewport width.
-              right: rightPanel.collapsed()
-                ? 0
-                : `${rightPanel.panelSize() * 100}vw`,
-            }
-      }
     >
       {/* Identity: logo (→ kolu.dev) + connection dot. App name lives as
        *  a corner watermark on the canvas, not in the chrome. */}

@@ -11,7 +11,7 @@ import { type Component, createEffect, For, on, Show } from "solid-js";
 import { match } from "ts-pattern";
 import { useViewPosture } from "../canvas/useViewPosture";
 import { CHROME_ICON_BUTTON_CLASS } from "../ui/chromeSpacing";
-import { ChevronRightIcon } from "../ui/Icons";
+import { ChevronDownIcon } from "../ui/Icons";
 import { ACTIVE_TERMINAL_ACCENT } from "./activeTerminalAccent";
 import CodeTab from "./CodeTab";
 import MetadataInspector from "./MetadataInspector";
@@ -31,6 +31,11 @@ const TAB_LABEL: Record<RightPanelTabKind, string> = {
   inspector: "Inspector",
   code: "Code",
 };
+
+/** Width of the collapsed rail, mirroring the dock's `RAIL_WIDTH_PX`.
+ *  44 px gives a square 7×7 hit target for the expand chevron without
+ *  the rail bleeding into the canvas behind it. */
+const RAIL_WIDTH_PX = 44;
 
 const RightPanel: Component<{
   terminalId: TerminalId | null;
@@ -106,134 +111,228 @@ const RightPanel: Component<{
     window.addEventListener("pointerup", onUp);
   }
 
+  /** Desktop visibility — collapsed swaps the visible body from the
+   *  tab content to the 44 px rail and back. Both bodies stay mounted
+   *  when the shell is active (display-toggled, not Show-toggled), so
+   *  CodeTab's selectedPath signal and Pierre's tree expansion survive
+   *  collapse round-trips (#818). The drawer instance (`shell=false`)
+   *  always shows its tab content — the drawer host owns visibility
+   *  itself, and there's no rail concept on mobile.
+   *
+   *  `display: none` on parts WITHIN this component is safe; #986's
+   *  warning specifically calls out a `display: none` wrapper AROUND
+   *  the inner `RightPanel`, not the inner subtrees. */
+  const contentClass = () =>
+    !props.shell || props.visible
+      ? "flex flex-col h-full min-w-0 overflow-hidden bg-surface-0"
+      : "hidden";
+  const railClass = () =>
+    props.shell && !props.visible
+      ? "flex flex-col items-center pt-2 h-full bg-surface-1"
+      : "hidden";
+
+  /** Width of the shell aside. Collapsed in shell mode → 44 px rail;
+   *  expanded → persisted `panelSize` fraction × parent width; no shell
+   *  (mobile drawer) → undefined (`<aside>` fills the drawer body via
+   *  `h-full`, no explicit width). */
+  const shellWidth = () => {
+    if (!props.shell) return undefined;
+    return props.visible
+      ? `${rightPanel.panelSize() * 100}%`
+      : `${RAIL_WIDTH_PX}px`;
+  };
+
   return (
+    // Outer `<aside>` is positioning + width only: NO `flex flex-col`
+    // and NO `bg-surface-0` on the shell base — #986 documents these
+    // as xterm.js link-decoration interaction triggers (the second
+    // `path:line` click after a manual collapse can silently stop
+    // firing `openInCodeTab` when the collapsed shell carries either
+    // pattern). The inner `<div>` carries the visual chrome instead.
     <aside
       data-testid="right-panel"
-      data-maximized={props.shell && posture.maximized() ? "" : undefined}
-      class="flex flex-col min-w-0 overflow-hidden bg-surface-0"
+      data-maximized={
+        props.shell && posture.mode() === "maximized" ? "" : undefined
+      }
+      data-collapsed={props.shell && !props.visible ? "" : undefined}
       classList={{
         // No shell (mobile): fill the drawer body. The drawer already
         // provides the floating surface.
-        "h-full": !props.shell,
-        // Shell + tiled: absolute float on the right edge of the
-        // canvas — mirror of the Dock's tiled chrome (`Dock.tsx`
-        // line 160) on the opposite side. The dock uses
-        // `max-h-[calc(100vh-22rem)]` because its content (chip rail
-        // or repo cards) is naturally short; the right panel's
-        // content is much taller (Inspector + Code with file tree +
-        // editor), so we constrain via `bottom-4` to take the full
-        // vertical extent of the canvas instead.
-        "absolute z-30 top-20 right-4 bottom-4 rounded-2xl shadow-2xl shadow-black/40":
-          props.shell && !posture.maximized(),
-        // Shell + maximized: real right-panel flex sibling of the
-        // canvas — mirror of the Dock's maximized chrome (`Dock.tsx`
-        // line 169). A left-edge separator reads as a hard panel
-        // boundary rather than a floating card.
-        "relative shrink-0 h-full border-l border-edge":
-          props.shell && posture.maximized(),
+        "h-full block": !props.shell,
+        // Shell + tiled + expanded: absolute float on the right edge
+        // of the canvas — mirror of the Dock's tiled chrome
+        // (`Dock.tsx`) on the opposite side. `top-12` (48 px) clears
+        // the 44 px chrome bar by 4 px and lines up with the dock's
+        // anchor; `bottom-4` lets the floating card extend to most of
+        // the canvas height (Inspector + Code with file tree are tall).
+        "absolute z-30 top-12 right-4 bottom-4 rounded-2xl shadow-2xl shadow-black/40 overflow-hidden":
+          props.shell && posture.mode() === "tiled" && props.visible,
+        // Everything else with a shell renders as a real right-panel
+        // flex sibling of the canvas with a left-edge separator:
+        //  - Tiled + collapsed: 44 px rail (NOT absolute — #986
+        //    documents `position: absolute` on the collapsed shell as
+        //    an xterm.js link-decoration interaction trigger). The
+        //    canvas's `flex-1` gives back the 44 px the rail consumes.
+        //  - Maximized + expanded: mirror of the Dock's maximized
+        //    chrome on the opposite side. A hard panel boundary, not
+        //    a floating card.
+        //  - Maximized + collapsed: 44 px rail flex sibling using the
+        //    same left-edge separator as the expanded sibling.
+        "relative shrink-0 h-full border-l border-edge overflow-hidden":
+          props.shell &&
+          (posture.mode() === "maximized" ||
+            (posture.mode() === "tiled" && !props.visible)),
       }}
-      style={
-        props.shell
-          ? {
-              // Collapsed → 0 width so `right-panel.feature`'s
-              // `boundingClientRect().width <= 1` assertion passes and
-              // the panel stops consuming flex space in maximized
-              // mode. The DOM stays mounted so `CodeTab`'s selectedPath
-              // signal + Pierre's tree expansion survive collapse
-              // (#818). Width comes from the persisted `panelSize`
-              // fraction × the parent's width.
-              width: props.visible ? `${rightPanel.panelSize() * 100}%` : "0px",
-            }
-          : undefined
-      }
+      style={shellWidth() ? { width: shellWidth() } : undefined}
       aria-hidden={!props.visible}
     >
       {/* Resize handle — thin strip on the panel's outer-left edge.
-       *  Custom pointer-event drag (no Corvu Resizable in the new
-       *  Dock-mirror structure). Only rendered when the shell is
-       *  active and the panel is visible, since there's nothing to
-       *  resize on the mobile drawer (`shell=false`) or when
-       *  collapsed (`visible=false` → width=0). */}
+       *  Hit zone widened to 12 px via `before:-left-1.5 before:w-3`
+       *  so the pointer target isn't a 1 px sliver; `z-50` lifts it
+       *  above the maximized canvas tile's `z-40` (#986). Only
+       *  rendered when the shell is active and the panel is expanded
+       *  — nothing to resize on the mobile drawer (`shell=false`) or
+       *  on the collapsed 44 px rail (`visible=false`). */}
       <Show when={props.shell && props.visible}>
         <div
           data-testid="right-panel-handle"
-          class="absolute top-0 left-0 bottom-0 w-1 cursor-col-resize hover:bg-accent/30 transition-colors z-10"
+          title="Resize inspector panel"
+          class="absolute inset-y-0 left-0 w-0 z-50 before:absolute before:inset-y-0 before:-left-1.5 before:w-3 before:cursor-col-resize before:hover:bg-accent/30 before:transition-colors"
           onPointerDown={onHandlePointerDown}
         />
       </Show>
-      {/* Tab bar */}
-      <div class="flex items-center h-8 shrink-0 bg-surface-1 border-b border-edge">
-        <For each={TAB_KINDS}>
-          {(kind) => {
-            const isActive = () => rightPanel.activeTab().kind === kind;
-            return (
+
+      {/* Collapsed rail body — narrow chevron-only column. The
+       *  `ChevronDownIcon` rotated 90° clockwise points LEFT (toward
+       *  the canvas), mirroring the dock-rail's `-rotate-90` chevron
+       *  which points RIGHT (also toward the canvas) across the
+       *  vertical canvas axis. Always mounted (display-toggled via
+       *  `railClass()`) so the parent layout doesn't shift on
+       *  expand/collapse. */}
+      <div class={railClass()}>
+        <button
+          type="button"
+          data-testid="right-panel-rail-expand"
+          class="flex items-center justify-center w-7 h-7 rounded-md cursor-pointer text-fg-3 hover:text-fg hover:bg-surface-2/70 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+          onClick={() => rightPanel.expandPanel()}
+          aria-label="Expand inspector"
+          title="Expand inspector"
+        >
+          <span class="inline-flex rotate-90">
+            <ChevronDownIcon class="w-3.5 h-3.5" />
+          </span>
+        </button>
+      </div>
+
+      {/* Tab content — always mounted (display-toggled via
+       *  `contentClass()`) so `CodeTab`'s selectedPath signal and
+       *  Pierre's tree expansion survive collapse round-trips (#818).
+       *  The visibility flip is a class swap on this wrapper, not a
+       *  wrapper-around-RightPanel `display: none`, which #986 calls
+       *  out as an xterm.js link-decoration interaction trigger. */}
+      <div class={contentClass()}>
+        {/* Tab bar — chevron on the canvas-facing edge (top-left),
+         *  mirroring the dock header's top-right chevron across the
+         *  vertical canvas axis. `ChevronDownIcon` rotated
+         *  `-rotate-90` (CCW) points RIGHT, indicating the collapse
+         *  direction (toward the right edge of the viewport). */}
+        <div class="flex items-center h-8 shrink-0 bg-surface-1 border-b border-edge">
+          <Show when={props.shell}>
+            <div class="flex items-center gap-0.5 pl-1">
               <button
                 type="button"
-                data-testid={`right-panel-tab-${kind}`}
-                data-active={isActive()}
-                class={`h-full px-3 text-xs cursor-pointer transition-colors ${
-                  isActive()
-                    ? "font-medium text-fg-2 bg-surface-0 border-b-2"
-                    : "text-fg-3/50 hover:text-fg-2 hover:bg-surface-0/50 border-b-2 border-transparent"
-                }`}
-                style={{
-                  "border-bottom-color": isActive()
-                    ? ACTIVE_TERMINAL_ACCENT
-                    : undefined,
-                }}
-                onClick={() => showKind(kind)}
+                class={`${CHROME_ICON_BUTTON_CLASS} text-fg-3/70 hover:text-fg-2 hover:bg-surface-0/50`}
+                onClick={props.onToggle}
+                aria-label="Collapse panel"
               >
-                {TAB_LABEL[kind]}
+                <span class="inline-flex -rotate-90">
+                  <ChevronDownIcon class="w-3.5 h-3.5" />
+                </span>
               </button>
-            );
-          }}
-        </For>
-        <div class="flex-1" />
-        <div class="flex items-center gap-0.5 pr-1">
-          <button
-            type="button"
-            class={`${CHROME_ICON_BUTTON_CLASS} text-fg-3/70 hover:text-fg-2 hover:bg-surface-0/50`}
-            onClick={props.onToggle}
-            aria-label="Collapse panel"
-          >
-            <ChevronRightIcon class="w-3.5 h-3.5" />
-          </button>
-        </div>
-      </div>
-      {/* Both tabs are always rendered; the inactive one is display:none.
-       *  Mounting both keeps each tab's local state (CodeTab's selected file,
-       *  Pierre's tree expansion, scroll position) alive across tab switches
-       *  — wrapping a single `match(...).exhaustive()` over `activeTab()`
-       *  would unmount the inactive sibling and discard that state. The
-       *  shape below iterates `TAB_KINDS` (already compile-exhaustive over
-       *  RightPanelTabKind via the `Record<RightPanelTabKind, …>` typings
-       *  on TAB_LABEL) so both bodies mount once, then `match(kind)` picks
-       *  which component to render per slot — exhaustive *and* both-mounted. */}
-      <div class="flex-1 min-h-0 overflow-hidden">
-        <For each={TAB_KINDS}>
-          {(kind) => {
-            const isActive = () => rightPanel.activeTab().kind === kind;
-            return (
-              <div
-                class={isActive() ? "h-full" : "hidden"}
-                aria-hidden={!isActive()}
+            </div>
+          </Show>
+          <For each={TAB_KINDS}>
+            {(kind) => {
+              const isActive = () => rightPanel.activeTab().kind === kind;
+              return (
+                <button
+                  type="button"
+                  data-testid={`right-panel-tab-${kind}`}
+                  data-active={isActive()}
+                  class={`h-full px-3 text-xs cursor-pointer transition-colors ${
+                    isActive()
+                      ? "font-medium text-fg-2 bg-surface-0 border-b-2"
+                      : "text-fg-3/50 hover:text-fg-2 hover:bg-surface-0/50 border-b-2 border-transparent"
+                  }`}
+                  style={{
+                    "border-bottom-color": isActive()
+                      ? ACTIVE_TERMINAL_ACCENT
+                      : undefined,
+                  }}
+                  onClick={() => showKind(kind)}
+                >
+                  {TAB_LABEL[kind]}
+                </button>
+              );
+            }}
+          </For>
+          <div class="flex-1" />
+          {/* Mobile drawer keeps its own dismiss chevron at the
+           *  top-right of the tab bar, distinct from the desktop
+           *  canvas-facing chevron above. */}
+          <Show when={!props.shell}>
+            <div class="flex items-center gap-0.5 pr-1">
+              <button
+                type="button"
+                class={`${CHROME_ICON_BUTTON_CLASS} text-fg-3/70 hover:text-fg-2 hover:bg-surface-0/50`}
+                onClick={props.onToggle}
+                aria-label="Collapse panel"
               >
-                {match(kind)
-                  .with("inspector", () => (
-                    <MetadataInspector
-                      meta={props.meta}
-                      themeName={props.themeName}
-                      onThemeClick={props.onThemeClick}
-                    />
-                  ))
-                  .with("code", () => (
-                    <CodeTab terminalId={props.terminalId} meta={props.meta} />
-                  ))
-                  .exhaustive()}
-              </div>
-            );
-          }}
-        </For>
+                <span class="inline-flex -rotate-90">
+                  <ChevronDownIcon class="w-3.5 h-3.5" />
+                </span>
+              </button>
+            </div>
+          </Show>
+        </div>
+        {/* Both tabs are always rendered; the inactive one is display:none.
+         *  Mounting both keeps each tab's local state (CodeTab's selected file,
+         *  Pierre's tree expansion, scroll position) alive across tab switches
+         *  — wrapping a single `match(...).exhaustive()` over `activeTab()`
+         *  would unmount the inactive sibling and discard that state. The
+         *  shape below iterates `TAB_KINDS` (already compile-exhaustive over
+         *  RightPanelTabKind via the `Record<RightPanelTabKind, …>` typings
+         *  on TAB_LABEL) so both bodies mount once, then `match(kind)` picks
+         *  which component to render per slot — exhaustive *and* both-mounted. */}
+        <div class="flex-1 min-h-0 overflow-hidden">
+          <For each={TAB_KINDS}>
+            {(kind) => {
+              const isActive = () => rightPanel.activeTab().kind === kind;
+              return (
+                <div
+                  class={isActive() ? "h-full" : "hidden"}
+                  aria-hidden={!isActive()}
+                >
+                  {match(kind)
+                    .with("inspector", () => (
+                      <MetadataInspector
+                        meta={props.meta}
+                        themeName={props.themeName}
+                        onThemeClick={props.onThemeClick}
+                      />
+                    ))
+                    .with("code", () => (
+                      <CodeTab
+                        terminalId={props.terminalId}
+                        meta={props.meta}
+                      />
+                    ))
+                    .exhaustive()}
+                </div>
+              );
+            }}
+          </For>
+        </div>
       </div>
     </aside>
   );

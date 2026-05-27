@@ -461,16 +461,20 @@ const TerminalCanvas: Component<{
                  *  registration would race the first's cleanup. */}
                 <div
                   data-testid="canvas-transform"
-                  aria-hidden={posture.maximized() ? "true" : undefined}
+                  aria-hidden={
+                    posture.mode() === "maximized" ? "true" : undefined
+                  }
                   style={{
                     "transform-origin": "0 0",
                     transform: viewport.canvasTransform(),
-                    visibility: posture.maximized() ? "hidden" : "visible",
+                    visibility:
+                      posture.mode() === "maximized" ? "hidden" : "visible",
                   }}
                 >
                   <For
                     each={props.tileIds.filter(
-                      (id) => !posture.maximized() || store.activeId() !== id,
+                      (id) =>
+                        posture.mode() === "tiled" || store.activeId() !== id,
                     )}
                   >
                     {(id) => renderTile(id, false)}
@@ -481,7 +485,10 @@ const TerminalCanvas: Component<{
                  *  transform, covering the canvas. The maximized tile is
                  *  inset by the dock's reserved sidebar width so the dock
                  *  reads as a true sidebar (#904 part 1). */}
-                <Show when={posture.maximized() && store.activeId()} keyed>
+                <Show
+                  when={posture.mode() === "maximized" && store.activeId()}
+                  keyed
+                >
                   {(id) => renderTile(id, true)}
                 </Show>
               </>
@@ -490,7 +497,7 @@ const TerminalCanvas: Component<{
 
           {/* Minimap: spatial dashboard; hides in fullscreen-single-tile mode
            *  since there's nothing spatial to summarize. */}
-          <Show when={!posture.maximized()}>
+          <Show when={posture.mode() === "tiled"}>
             <CanvasMinimap
               tileIds={props.tileIds}
               layouts={layouts()}
