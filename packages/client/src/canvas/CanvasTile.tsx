@@ -30,12 +30,20 @@ import { tileTransformCSS } from "./viewport/coordinates";
 
 export type { TileTheme };
 
+/** Per-tile render mode — one tile is in `"maximized"` (fills the viewport,
+ *  drag/resize disabled), all others are in `"covered"` when the canvas is
+ *  maximized (mounted, streaming, but visually behind the z-40 cover and
+ *  hidden from assistive tech), or `"tiled"` when the canvas is not
+ *  maximized (normal pan/zoom rendering). Unifying these into one union
+ *  makes the impossible state `maximized && covered` unrepresentable. */
+export type CanvasTileMode = "tiled" | "maximized" | "covered";
+
 const CanvasTile: Component<{
   id: string;
   active: boolean;
-  /** When true, the tile fills the canvas viewport (fixed inset-0) and
-   *  drag/resize are disabled. Toggled by double-clicking the title bar. */
-  maximized: boolean;
+  /** Per-tile render mode. Derived in `TerminalCanvas` from the canvas-wide
+   *  posture (`useViewPosture`) and `activeId`. */
+  mode: CanvasTileMode;
   /** Presentational hint — when true and the tile is not active, render
    *  faded so an inactive ("parked") tile recedes visually. The decision
    *  itself lives in the caller; the tile shell only honors the bit. */
@@ -67,13 +75,9 @@ const CanvasTile: Component<{
   panX: () => number;
   panY: () => number;
   zoom: () => number;
-  /** True for non-active tiles in maximized mode — visually covered by the
-   *  maximized tile's z-40 layer, but still in the DOM (so their PTYs keep
-   *  streaming). Marks the tile `aria-hidden` so screen readers don't
-   *  traverse covered content, matching pre-#988 behaviour where the
-   *  pan/zoom wrapper carried `aria-hidden` in maximized mode. */
-  coveredByMaximized: boolean;
 }> = (props) => {
+  const isMaximized = () => props.mode === "maximized";
+  const isCovered = () => props.mode === "covered";
   const { id } = props;
   const draggable = createDraggable(id);
   const layout = () =>
@@ -106,7 +110,7 @@ const CanvasTile: Component<{
       // on the other three edges, accent on the right. Longhand wins after
       // shorthand in the same declaration block.
       "border-right-color":
-        props.active && !props.maximized
+        props.active && !isMaximized()
           ? "var(--color-accent)"
           : props.repoColor,
       "z-index": props.active ? 10 : 1,
@@ -134,9 +138,9 @@ const CanvasTile: Component<{
       data-canvas-tile=""
       data-terminal-id={id}
       data-active={props.active ? "true" : undefined}
-      data-maximized={props.maximized ? "true" : undefined}
+      data-maximized={isMaximized() ? "true" : undefined}
       data-dimmed={props.dimmed ? "true" : undefined}
-      aria-hidden={props.coveredByMaximized ? "true" : undefined}
+      aria-hidden={isCovered() ? "true" : undefined}
       class="flex flex-col overflow-hidden border transition-shadow duration-200"
       classList={{
         // Maximized uses `absolute inset-0 z-40` to cover the canvas
@@ -148,12 +152,12 @@ const CanvasTile: Component<{
         // maximized posture (TerminalCanvas), so the tile naturally
         // fills the remaining viewport without needing a left-inset (#904).
         absolute: true,
-        "inset-0 z-40": props.maximized,
-        "rounded-xl": !props.maximized,
-        "shadow-xl": props.active && !props.maximized,
-        "border-transparent": props.maximized,
+        "inset-0 z-40": isMaximized(),
+        "rounded-xl": !isMaximized(),
+        "shadow-xl": props.active && !isMaximized(),
+        "border-transparent": isMaximized(),
       }}
-      style={props.maximized ? { "background-color": bg() } : tiledStyle()}
+      style={isMaximized() ? { "background-color": bg() } : tiledStyle()}
       onMouseDown={() => props.onSelect()}
     >
       {/* Title bar — uses tile foreground at low opacity for guaranteed
@@ -170,7 +174,7 @@ const CanvasTile: Component<{
         data-testid="canvas-tile-titlebar"
         class="flex items-start gap-2 px-3 py-1.5 shrink-0 select-none"
         classList={{
-          "cursor-grab active:cursor-grabbing": !props.maximized,
+          "cursor-grab active:cursor-grabbing": !isMaximized(),
         }}
         style={{
           "background-color": tileTitleBarBg(props.theme),
@@ -193,7 +197,7 @@ const CanvasTile: Component<{
           e.stopPropagation();
           props.onToggleMaximize();
         }}
-        {...(props.maximized ? {} : draggable.dragActivators)}
+        {...(isMaximized() ? {} : draggable.dragActivators)}
       >
         <div class="flex-1 min-w-0">{props.renderTitle()}</div>
         <div class="flex items-center gap-1 shrink-0">
@@ -210,9 +214,9 @@ const CanvasTile: Component<{
               e.stopPropagation();
               props.onToggleMaximize();
             }}
-            title={props.maximized ? "Restore to canvas" : "Maximize"}
+            title={isMaximized() ? "Restore to canvas" : "Maximize"}
           >
-            <Show when={props.maximized} fallback={<MaximizeIcon />}>
+            <Show when={isMaximized()} fallback={<MaximizeIcon />}>
               <RestoreIcon />
             </Show>
           </button>
@@ -242,7 +246,7 @@ const CanvasTile: Component<{
        *  affordance. Corners are declared after edges in the record so DOM
        *  order paints them on top of the edge strips they overlap. Disabled
        *  while maximized — there's nothing to resize against. */}
-      <Show when={!props.maximized}>
+      <Show when={!isMaximized()}>
         <For each={Object.entries(RESIZE_HANDLES)}>
           {([direction, handle]) => (
             <div

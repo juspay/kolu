@@ -36,7 +36,7 @@ import { useTerminalStore } from "../terminal/useTerminalStore";
 import { savedSessionSub } from "../wire";
 import Dock from "./dock/Dock";
 import CanvasMinimap from "./CanvasMinimap";
-import CanvasTile from "./CanvasTile";
+import CanvasTile, { type CanvasTileMode } from "./CanvasTile";
 import CanvasWatermark from "./CanvasWatermark";
 import { applyResize, type ResizeDirection } from "./resizeGeometry";
 import type { TileLayout } from "./TileLayout";
@@ -423,16 +423,19 @@ const TerminalCanvas: Component<{
           <For each={props.tileIds}>
             {(id) => {
               const active = () => store.activeId() === id;
-              const maximized = () => posture.maximized() && active();
-              const coveredByMaximized = () => posture.maximized() && !active();
+              const mode = (): CanvasTileMode =>
+                !posture.maximized()
+                  ? "tiled"
+                  : active()
+                    ? "maximized"
+                    : "covered";
               return (
                 <Show when={store.getDisplayInfo(id)}>
                   {(info) => (
                     <CanvasTile
                       id={id}
                       active={active()}
-                      maximized={maximized()}
-                      coveredByMaximized={coveredByMaximized()}
+                      mode={mode()}
                       dimmed={isStale(
                         store.getMetadata(id)?.lastActivityAt ?? 0,
                       )}
