@@ -115,7 +115,12 @@ const DesktopOverlayHost: Component<HostProps> = (props) => {
        *  computed `width` style, mirroring the old Resizable
        *  `sizes=[1,0]` collapse contract. */}
       <div
-        class="absolute z-10 right-0 top-0 bottom-0 transition-[width] duration-150 ease-out"
+        // `z-50` sits above the maximized-tile overlay (`z-40` in
+        // `TerminalCanvas`) so the right panel stays visible when the
+        // user maximizes a tile. The chrome bar is also `z-50` but
+        // renders in a separate region (top 44px) above the
+        // RightPanelLayout wrapper, so they don't collide.
+        class="absolute z-50 right-0 top-0 bottom-0 transition-[width] duration-150 ease-out"
         classList={{
           // The `p-4` inset gives the floating card breathing room
           // against the underlying canvas, parallel to the Dock's
