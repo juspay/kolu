@@ -31,9 +31,10 @@
 
 import { type ChildProcess, spawn } from "node:child_process";
 import { createStdioCellsClient } from "@kolu/surface/links/stdio";
+import { inMemoryCell } from "@kolu/surface/server";
 import type { ContractRouterClient } from "@orpc/contract";
 import type { ClientRetryPluginContext } from "@orpc/client/plugins";
-import { surface } from "../common/surface";
+import type { surface } from "../common/surface";
 import { provisionAgent } from "./nixCopy";
 
 export type ConnectionState =
@@ -69,32 +70,35 @@ export class HostSession {
   private refCount = 0;
   private child: ChildProcess | null = null;
   private clientPromise: Promise<AgentClient> | null = null;
-  private state: HostSessionState = {
+  /** The session's observable state — current snapshot + delta stream
+   *  in one. The framework's `inMemoryCell` owns the snapshot-then-
+   *  delta contract, so this class doesn't hand-roll a listener set or
+   *  a synchronous initial fire. */
+  private readonly stateCell = inMemoryCell<HostSessionState>({
     connection: "copying",
     progressLines: [],
     lastError: null,
-  };
-  private readonly listeners = new Set<(s: HostSessionState) => void>();
+  });
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private destroyed = false;
 
   constructor(private readonly opts: HostSessionOptions) {}
 
-  /** Snapshot of the current session state. Used by `onState` to fire
-   *  the initial synchronous yield. */
+  /** Snapshot of the current session state. */
   current(): HostSessionState {
-    return this.state;
+    return this.stateCell.current();
   }
 
   /** Snapshot-then-delta listener. Fires `cb(currentState)`
    *  synchronously before returning, then on every subsequent state
    *  change. Returns an `unsubscribe` fn. */
   onState(cb: (s: HostSessionState) => void): () => void {
-    cb(this.state);
-    this.listeners.add(cb);
-    return () => {
-      this.listeners.delete(cb);
-    };
+    return this.stateCell.consume({
+      onEvent: cb,
+      onError: () => {
+        /* the cell never errors — onError is required by Channel<T> shape */
+      },
+    });
   }
 
   /** Acquire a reference. The first acquire spawns the ssh subprocess
@@ -123,19 +127,18 @@ export class HostSession {
   }
 
   private updateState(patch: Partial<HostSessionState>): void {
-    const next: HostSessionState = { ...this.state, ...patch };
+    const next: HostSessionState = { ...this.stateCell.current(), ...patch };
     // Cap the progress-lines tail so we don't OOM on a long-running
     // session that produces many copy/restart cycles.
     if (patch.progressLines !== undefined) {
       next.progressLines = patch.progressLines.slice(-MAX_PROGRESS_LINES);
     }
-    this.state = next;
-    for (const cb of this.listeners) cb(this.state);
+    this.stateCell.set(next);
   }
 
   private addProgress(line: string): void {
     this.updateState({
-      progressLines: [...this.state.progressLines, line],
+      progressLines: [...this.stateCell.current().progressLines, line],
     });
   }
 
@@ -212,7 +215,7 @@ export class HostSession {
   /** Called by the parent's router after the first RPC roundtrips
    *  successfully. Transitions to `connected` exactly once per spawn. */
   markConnected(): void {
-    if (this.state.connection === "connecting")
+    if (this.stateCell.current().connection === "connecting")
       this.updateState({ connection: "connected" });
   }
 

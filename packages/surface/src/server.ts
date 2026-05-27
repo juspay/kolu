@@ -486,6 +486,52 @@ export function inMemoryChannel<T>(): Channel<T> {
   };
 }
 
+/** Snapshot-then-delta observable cell. Combines a value (read via
+ *  `current()`, written via `set()`) with a `Channel<T>` interface
+ *  that fires `onEvent(current)` *synchronously* on consume before
+ *  forwarding subsequent `set()` calls.
+ *
+ *  Use case: any in-process mutable state observers want to track with
+ *  the same snapshot-then-delta contract `useCell` already gives wire
+ *  consumers. The demo's `HostSession.onState(cb)` is the canonical
+ *  example — without this, every such observer hand-rolls a
+ *  `Set<callback>` plus a synchronous initial fire, and every variant
+ *  is a chance for the initial fire to be forgotten.
+ *
+ *  Distinct from `inMemoryStore<T>` (read/write only, no observation)
+ *  and `inMemoryChannel<T>` (observation only, no current value). The
+ *  conjunction is the useful primitive.
+ *
+ *  `publish(v)` is an alias for `set(v)` so the cell still satisfies
+ *  the `Channel<T>` interface that `implementSurface` expects when one
+ *  is passed as the `channel:` dep — meaning the same cell can serve
+ *  in-process observers AND back a framework-managed surface cell. */
+export function inMemoryCell<T>(initial: T): Channel<T> & {
+  current(): T;
+  set(value: T): void;
+} {
+  let value = initial;
+  const deltas = inMemoryChannel<T>();
+  return {
+    current: () => value,
+    set: (v) => {
+      value = v;
+      deltas.publish(v);
+    },
+    publish: (v) => {
+      value = v;
+      deltas.publish(v);
+    },
+    subscribe: (signal) => deltas.subscribe(signal),
+    consume: ({ onEvent, onError }) => {
+      // Snapshot first — the consumer sees the initial state before
+      // any deltas could possibly arrive.
+      onEvent(value);
+      return deltas.consume({ onEvent, onError });
+    },
+  };
+}
+
 /** Build the `consume` half of a `Channel<T>` from its `subscribe` half.
  *  Owns an `AbortController` per subscriber, runs a fire-and-forget loop,
  *  suppresses post-abort errors (those are end-of-life noise, not a real
