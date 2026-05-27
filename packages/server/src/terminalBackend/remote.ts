@@ -314,7 +314,16 @@ function buildRemoteFs(backend: RemoteTerminalBackend): TerminalBackendFs {
             { repoPath },
             { signal: ac.signal },
           );
-          for await (const _ of iter) onChange();
+          // First yield = subscription is alive = link is connected.
+          // Mirrors the demo's pump-loop pattern.
+          let first = true;
+          for await (const _ of iter) {
+            if (first) {
+              session.markConnected();
+              first = false;
+            }
+            onChange();
+          }
         } catch (err) {
           if (!ac.signal.aborted)
             log.warn({ err, repoPath }, "remote repo-change pump failed");
@@ -332,7 +341,14 @@ function buildRemoteFs(backend: RemoteTerminalBackend): TerminalBackendFs {
             { repoPath, filePath },
             { signal: ac.signal },
           );
-          for await (const _ of iter) onChange();
+          let first = true;
+          for await (const _ of iter) {
+            if (first) {
+              session.markConnected();
+              first = false;
+            }
+            onChange();
+          }
         } catch (err) {
           if (!ac.signal.aborted)
             log.warn(
