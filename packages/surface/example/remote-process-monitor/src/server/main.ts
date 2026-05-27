@@ -115,11 +115,33 @@ async function main(): Promise<void> {
     );
   });
 
-  process.on("SIGINT", () => {
-    process.stderr.write("shutdown: destroying host sessions\n");
+  const shutdown = (sig: string) => {
+    process.stderr.write(`${sig}: destroying host sessions\n`);
     destroyAllSessions();
-    httpServer.close(() => process.exit(0));
-  });
+    // `httpServer.close()` waits for in-flight connections to drain.
+    // The browser's WebSocket is long-lived — it never closes on its
+    // own — so a Ctrl+C hangs forever without forcing connections shut.
+    // `closeAllConnections()` (Node ≥ 18.2) kills sockets immediately.
+    wss.close();
+    for (const ws of wss.clients) {
+      try {
+        ws.terminate();
+      } catch {
+        /* already gone */
+      }
+    }
+    const srv = httpServer as unknown as {
+      closeAllConnections?: () => void;
+      close: (cb?: () => void) => void;
+    };
+    srv.closeAllConnections?.();
+    srv.close(() => process.exit(0));
+    // Belt-and-braces: if close() still hangs (unexpected stuck
+    // socket), exit forcibly after a short grace window.
+    setTimeout(() => process.exit(0), 1000).unref();
+  };
+  process.on("SIGINT", () => shutdown("SIGINT"));
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
 }
 
 main().catch((err) => {

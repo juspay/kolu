@@ -104,7 +104,7 @@ export function buildRouter(opts: BuildRouterOptions) {
   // local fragment ctx. Reconnects ride on top because the framework's
   // `ClientRetryPlugin` re-issues the subscription with snapshot-then-
   // delta semantics on each transport blip.
-  void bridgeAgentToParent(session, fragment, processCache);
+  void bridgeAgentToParent(session, fragment);
 
   // `implementSurface` returns a router *fragment* — `{ surface: ... }`
   // wrapping the per-key namespaces. Passing it directly to RPCHandler
@@ -136,7 +136,6 @@ type FragmentCtx = {
 async function bridgeAgentToParent(
   session: HostSession,
   fragment: FragmentCtx,
-  processCache: Map<Pid, Process>,
 ): Promise<void> {
   let client: AgentClient;
   try {
@@ -149,7 +148,7 @@ async function bridgeAgentToParent(
   // Don't release on background termination — the session is the
   // long-lived parent-side singleton and we want it kept warm.
   void pumpSystemCell(client, session, fragment);
-  void pumpProcessesCollection(client, processCache, fragment);
+  void pumpProcessesCollection(client, fragment);
 }
 
 /** Mirror the agent's system cell into the parent's local cell. */
@@ -168,57 +167,66 @@ async function pumpSystemCell(
   }
 }
 
-/** Mirror the agent's processes collection into the parent's cache. */
+/** Mirror the agent's processes collection into the parent's cache by
+ *  keeping ONE long-lived per-key stream open per PID. Each per-key
+ *  stream yields the initial value (snapshot) then every subsequent
+ *  upsert (delta) — `pumpProcessValue` forwards each yield to the
+ *  parent's collection ctx. New PIDs spawn streams in parallel as the
+ *  agent's `keys` stream notifies us; departed PIDs abort their stream
+ *  and `remove()` from the parent's collection. */
 async function pumpProcessesCollection(
   client: AgentClient,
-  processCache: Map<Pid, Process>,
   fragment: FragmentCtx,
 ): Promise<void> {
+  const open = new Map<Pid, AbortController>();
   try {
     for await (const keys of await client.surface.processes.keys({})) {
-      await reconcileProcesses(client, keys, processCache, fragment);
+      const next = new Set(keys);
+      // Open per-key streams for new PIDs — fire-and-forget; the loop
+      // runs in parallel so cold-start fills as fast as the link can
+      // carry the subscribes.
+      for (const pid of next) {
+        if (open.has(pid)) continue;
+        const ctl = new AbortController();
+        open.set(pid, ctl);
+        void pumpProcessValue(client, pid, fragment, ctl.signal);
+      }
+      // Close streams for departed PIDs and drop them from the parent's
+      // collection. (The wrapped remove publishes the absence through
+      // the framework's keyed channels — browser sees the deletion.)
+      for (const [pid, ctl] of [...open]) {
+        if (next.has(pid)) continue;
+        ctl.abort();
+        open.delete(pid);
+        fragment.ctx.collections.processes.remove(pid);
+      }
     }
   } catch {
-    /* stream end — session reconnect drives the next subscribe */
+    /* keys stream end — session reconnect drives the next subscribe */
+  } finally {
+    // Abort every still-open per-key stream so the agent can release
+    // its subscriber slots cleanly.
+    for (const ctl of open.values()) ctl.abort();
   }
 }
 
-/** Diff the agent's current key set against the parent's process
- *  cache, fetching new pids and removing departed ones. Per-pid value
- *  refresh isn't covered here (the parent only sees keys deltas);
- *  values flow through `system.get` poll cadence at 2s intervals
- *  alongside the system snapshot. For a richer per-pid stream, R-2
- *  would generate per-key channels through the framework. */
-async function reconcileProcesses(
+/** Long-lived per-PID stream: first yield = snapshot, subsequent yields
+ *  = deltas from the agent's poll loop. Aborts cleanly on signal (PID
+ *  departure) or stream error (transport blip / `processes.get` says
+ *  "key not found" because the PID vanished between `keys` and `get`). */
+async function pumpProcessValue(
   client: AgentClient,
-  keys: readonly Pid[],
-  cache: Map<Pid, Process>,
+  pid: Pid,
   fragment: FragmentCtx,
+  signal: AbortSignal,
 ): Promise<void> {
-  const next = new Set(keys);
-  // Remove departed — the framework's wrapped remove updates `cache`
-  // for us (via the `remove` dep we provided to `implementSurface`)
-  // and publishes through the keyed channels.
-  for (const pid of cache.keys()) {
-    if (!next.has(pid)) fragment.ctx.collections.processes.remove(pid);
-  }
-  // Fetch new
-  for (const pid of next) {
-    if (cache.has(pid)) continue;
-    try {
-      const stream = await client.surface.processes.get({ key: pid });
-      // Take the first yield only — current value snapshot.
-      const iter = stream[Symbol.asyncIterator]();
-      const result = await iter.next();
-      if (!result.done && result.value !== undefined) {
-        // The wrapped upsert writes through to `cache` and publishes.
-        fragment.ctx.collections.processes.upsert(pid, result.value);
-      }
-      // Eagerly close the iterator after the snapshot — value
-      // refreshes ride the system poll cadence.
-      await iter.return?.(undefined);
-    } catch {
-      /* pid vanished between keys yield and get — ignore */
+  try {
+    const stream = await client.surface.processes.get({ key: pid }, { signal });
+    for await (const value of stream) {
+      if (signal.aborted) break;
+      fragment.ctx.collections.processes.upsert(pid, value);
     }
+  } catch {
+    // PID vanished / aborted — the orchestrator handles cleanup.
   }
 }
