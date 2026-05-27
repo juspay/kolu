@@ -4,9 +4,10 @@
  *  `dockMode` persists across reloads so a 13" laptop can stay on the
  *  rail while a 27" desktop sits on cards.
  *
- *  1. **rail** — narrow strip of two-letter chips, one per live
- *     terminal. Each chip carries first letter of the repo + first
- *     letter of the branch/intent so two terminals in the same repo
+ *  1. **rail** — narrow strip of two-glyph chips, one per live
+ *     terminal. Each chip carries first letter of the repo + the intent's
+ *     lead grapheme (emoji when the user leads with one, otherwise first
+ *     alphanumeric of the branch tail) so two terminals in the same repo
  *     stay distinguishable. Repo color tints the chip; bucket state
  *     animates its ring (breath for `awaiting`, spin-glow for
  *     `working`); active wears an accent halo; unread shows an alert
@@ -553,8 +554,8 @@ const RailSectionMark: Component<{ color: string; name: string }> = (props) => (
   />
 );
 
-/** Rail-mode chip — 32 px tile carrying two-letter initials (repo
- *  letter + branch/intent letter). Repo color tints the bg and the
+/** Rail-mode chip — 32 px tile carrying two-glyph initials (repo
+ *  letter + intent lead grapheme or branch letter). Repo color tints the bg and the
  *  ring; bucket state animates the ring (breath for `awaiting`,
  *  spin-glow for `working`, flat for `idle`/`none`); active wears an
  *  accent halo; unread shows an alert badge top-right. The bucket
