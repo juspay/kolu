@@ -9,6 +9,13 @@ _Complexity creeps along two axes — space and time. Hickey catches
 one; Löwy catches the other. A single-lens review only audits half
 the code._
 
+<aside class="tip">
+  <p class="tip-label eyebrow">Quick start</p>
+  <div class="tip-body">
+    <p>Want to run the two-lens review on your own PRs? <a href="https://agency.srid.ca/">agency.srid.ca</a> ships <code>/hickey</code> and <code>/lowy</code> as agent skills you drop into Claude Code (and other harnesses) — point them at a diff and read the findings.</p>
+  </div>
+</aside>
+
 Code goes wrong along two axes, not one. The code as it stands
 right now can be _spatially_ wrong — concepts braided together,
 names that mean two things, seams that aren't really seams. The same code can
