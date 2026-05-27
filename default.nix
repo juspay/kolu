@@ -215,8 +215,52 @@ let
       --add-flags "${surfaceExampleBase}/packages/surface/example/remote-process-monitor/src/agent/main.ts" \
       --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs ]}
   '';
+
+  # Vite-built client bundle for the remote-process-monitor demo.
+  # Served by the parent at the same port as the WebSocket RPC.
+  processMonitorClient = pkgs.stdenv.mkDerivation {
+    pname = "process-monitor-client";
+    version = "0.1.0";
+    inherit src;
+    nativeBuildInputs = [ pkgs.nodejs pkgs.pnpm pkgs.pnpmConfigHook ];
+    inherit pnpmDeps;
+    dontFixup = true;
+    buildPhase = ''
+      runHook preBuild
+      pnpm --filter @kolu/surface-example-remote-process-monitor build:client
+      runHook postBuild
+    '';
+    installPhase = ''
+      runHook preInstall
+      cp -r packages/surface/example/remote-process-monitor/dist $out
+      runHook postInstall
+    '';
+  };
+
+  # `nix run .#process-monitor-monitor` — the whole three-tier demo as
+  # a single binary. Serves the client bundle and the WS RPC on port
+  # 7720; spawns the agent via `ssh $HOST $agentClosure/bin/... --stdio`
+  # (defaults to localhost). Override HOST / PORT via env at run time.
+  # The agent closure is baked in so the parent doesn't need to
+  # `nix build` at startup; the `nix` binary is still on PATH for the
+  # cold-remote `nix copy` provisioning path.
+  processMonitorMonitor = pkgs.runCommand "process-monitor-monitor"
+    {
+      nativeBuildInputs = [ pkgs.makeWrapper ];
+      meta.mainProgram = "process-monitor-monitor";
+    } ''
+    mkdir -p $out/bin
+    makeWrapper ${pkgs.tsx}/bin/tsx $out/bin/process-monitor-monitor \
+      --add-flags "${surfaceExampleBase}/packages/surface/example/remote-process-monitor/src/server/main.ts" \
+      --set-default HOST localhost \
+      --set-default PORT 7720 \
+      --set KOLU_SURFACE_EXAMPLE_DIST "${processMonitorClient}" \
+      --set-default AGENT_PATH "${processMonitorAgent}" \
+      --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.openssh pkgs.nix ]}
+  '';
 in
 {
   inherit default koluBin koluEnv pnpmDeps;
   process-monitor-agent = processMonitorAgent;
+  process-monitor-monitor = processMonitorMonitor;
 }
