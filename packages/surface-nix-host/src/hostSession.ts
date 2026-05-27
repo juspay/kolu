@@ -1,40 +1,36 @@
 /**
- * `HostSession` — ref-counted ssh subprocess per `(host, agentPath)`.
+ * `HostSession<C>` — ref-counted ssh subprocess per `(host, drvPath)`,
+ * generic over a `@kolu/surface` contract type `C`.
  *
- * Row 6 of the falsifiability checklist: watching multiple things on the
- * same host shares ONE ssh subprocess + ONE stdio link. New subscriptions
- * `acquire()` a session (spawning if absent, incrementing a ref count if
- * present); each subscription's matching `release()` decrements the count
- * and tears down the session when it hits zero.
+ * Multiple subscriptions against the same host share ONE ssh
+ * subprocess + ONE stdio link. New consumers `acquire()` a session
+ * (spawning if absent, bumping a ref count if present); each
+ * subscription's matching `release()` decrements the count and tears
+ * down the session when it hits zero.
  *
- * Connection state lifecycle (row 4 — snapshot-then-delta on listeners):
+ * Connection state lifecycle (snapshot-then-delta on `onState`):
  *
- *     copying      ──nixCopy ok──▶ connecting
- *     connecting   ──first RPC──▶ connected
- *     connected    ──read end ──▶ disconnected ──reconnect──▶ copying
+ *     copying      ──provisionAgent ok──▶ connecting
+ *     connecting   ──first RPC ────────▶ connected
+ *     connected    ──read end  ────────▶ disconnected ──reconnect──▶ copying
  *
  * New listeners attached via `onState` see the *current* state
- * synchronously (the snapshot) before any deltas arrive. The cell-shape
- * matches what the framework's `useCell` consumer expects.
+ * synchronously before any deltas arrive — matching the snapshot-then-
+ * delta contract `@kolu/surface`'s `useCell` consumers expect.
  *
- * Row 12 (reconnect → state reconciles, no ghosts): when the link dies,
- * we tear down the current stdio client and respawn after a short
- * backoff. Re-subscribe is handled by the framework's
- * `ClientRetryPlugin` — the parent's collection subscriber receives a
- * fresh snapshot via the stdio link's snapshot-then-delta invariant, and
- * processes that ended during the gap drop out cleanly.
- *
- * Row 9 (remote command builder): the spawn invocation is the agent's
- * argv — `ssh $host $agentPath/bin/process-monitor-agent --stdio`. The
- * shape mirrors R-2's `install.ts` `remoteAgentCommand(host, path?)`.
+ * When the link dies (the agent process exits, ssh drops), the session
+ * clears the stdio client and respawns after an exponentially-backed-
+ * off delay, capped at 60 s, with `MAX_CONSECUTIVE_FAILURES` as a
+ * give-up gate (so a permanently-misconfigured remote — e.g.
+ * `trusted-users` not granting the parent's user — fails loudly
+ * instead of spinning).
  */
 
 import { type ChildProcess, spawn } from "node:child_process";
 import { createStdioCellsClient } from "@kolu/surface/links/stdio";
 import { inMemoryCell } from "@kolu/surface/server";
-import type { ContractRouterClient } from "@orpc/contract";
 import type { ClientRetryPluginContext } from "@orpc/client/plugins";
-import type { surface } from "../common/surface";
+import type { AnyContractRouter, ContractRouterClient } from "@orpc/contract";
 import { buildAgentCommand, forEachLine } from "./host";
 import { provisionAgent } from "./nixCopy";
 
@@ -59,22 +55,32 @@ export interface HostSessionOptions {
    *  the target host (no-op for localhost) and realises it there to
    *  get a target-arch-correct output path. */
   drvPath: string;
+  /** Executable name inside the realised closure (e.g.
+   *  `process-monitor-agent`, `kolu-terminal-agent`). The full spawn
+   *  path is `${agentPath}/bin/${binary}`. */
+  binary: string;
   /** How long between disconnect and reconnect attempts. Default 2s. */
   reconnectDelayMs?: number;
 }
 
-export type AgentClient = ContractRouterClient<
-  typeof surface.contract,
+/** The typed RPC client produced by a successful `acquire`/`pin`/
+ *  `currentClient`. Generic so consumers can name their own:
+ *
+ *  ```ts
+ *  type MyClient = AgentClient<typeof myContract>;
+ *  ``` */
+export type AgentClient<C extends AnyContractRouter> = ContractRouterClient<
+  C,
   ClientRetryPluginContext
 >;
 
 const MAX_PROGRESS_LINES = 20;
 const MAX_CONSECUTIVE_FAILURES = 5;
 
-export class HostSession {
+export class HostSession<C extends AnyContractRouter> {
   private refCount = 0;
   private child: ChildProcess | null = null;
-  private clientPromise: Promise<AgentClient> | null = null;
+  private clientPromise: Promise<AgentClient<C>> | null = null;
   /** The session's observable state — current snapshot + delta stream
    *  in one. The framework's `inMemoryCell` owns the snapshot-then-
    *  delta contract, so this class doesn't hand-roll a listener set or
@@ -124,7 +130,7 @@ export class HostSession {
    *  reverse (the old code's pattern) leaked a ref when `spawn()`
    *  rejected — the `await` threw, the caller's try/finally never ran,
    *  and `refCount` stayed bumped forever. */
-  async acquire(): Promise<AgentClient> {
+  async acquire(): Promise<AgentClient<C>> {
     const client = await this.ensureSpawned();
     this.refCount += 1;
     return client;
@@ -149,7 +155,7 @@ export class HostSession {
    *  this session alive across spawn failures so the reconnect loop
    *  keeps trying", which requires refCount > 0 for `scheduleReconnect`
    *  to fire its retry. */
-  pin(): Promise<AgentClient> {
+  pin(): Promise<AgentClient<C>> {
     this.refCount += 1;
     return this.ensureSpawned();
   }
@@ -158,7 +164,7 @@ export class HostSession {
    *  onto the same in-flight `clientPromise`. Separated from `acquire`
    *  so `acquire` can fail-safe on its ref bump and `pin` can do the
    *  opposite. */
-  private ensureSpawned(): Promise<AgentClient> {
+  private ensureSpawned(): Promise<AgentClient<C>> {
     if (this.clientPromise === null) {
       this.clientPromise = this.spawn();
     }
@@ -183,7 +189,7 @@ export class HostSession {
    *  reassigns `clientPromise`, so the bridge can detect "the agent
    *  was respawned" by observing identity drift between successive
    *  reads. */
-  currentClient(): Promise<AgentClient> | null {
+  currentClient(): Promise<AgentClient<C>> | null {
     return this.clientPromise;
   }
 
@@ -238,7 +244,7 @@ export class HostSession {
     );
   }
 
-  private async spawn(): Promise<AgentClient> {
+  private async spawn(): Promise<AgentClient<C>> {
     this.updateState({ connection: "copying", lastError: null });
     const provision = await provisionAgent({
       host: this.opts.host,
@@ -256,10 +262,11 @@ export class HostSession {
     const realisedAgentPath = provision.agentPath;
 
     this.updateState({ connection: "connecting" });
-    const { command, args } = buildAgentCommand(
-      this.opts.host,
-      realisedAgentPath,
-    );
+    const { command, args } = buildAgentCommand({
+      host: this.opts.host,
+      agentPath: realisedAgentPath,
+      binary: this.opts.binary,
+    });
     const child = spawn(command, args, { stdio: ["pipe", "pipe", "pipe"] });
     this.child = child;
 
@@ -289,15 +296,14 @@ export class HostSession {
     if (child.stdin === null || child.stdout === null) {
       throw new Error("ssh subprocess has no stdin/stdout — unreachable");
     }
-    const client = createStdioCellsClient<typeof surface.contract>({
+    const client = createStdioCellsClient<C>({
       read: child.stdout,
       write: child.stdin,
     });
 
-    // Lesson #6: defer "connected" until the first RPC roundtrips.
-    // We don't have a synchronous signal from the link, so we
-    // optimistically transition once `acquire()` is called and the
-    // first real subscription completes — see `markConnectedOnce`.
+    // Defer "connected" until the first RPC actually roundtrips —
+    // consumers signal that via `markConnected()`. The stdio link has
+    // no synchronous "open" event we could hook here.
     return client;
   }
 
@@ -360,20 +366,32 @@ export class HostSession {
   }
 }
 
-// ── HostSession pool (one per (host, drvPath)) ──────────────────────────
+// ── HostSession pool (one per (host, drvPath, binary)) ─────────────────
 
-const pool = new Map<string, HostSession>();
+const pool = new Map<string, HostSession<AnyContractRouter>>();
 
-/** Get-or-create a `HostSession` for `(host, drvPath)`. Multiple
- *  callers asking for the same pair share the same session. */
-export function getHostSession(opts: HostSessionOptions): HostSession {
-  const key = `${opts.host}::${opts.drvPath}`;
+/** Get-or-create a `HostSession` for `(host, drvPath, binary)`.
+ *  Multiple callers asking for the same triple share the same session.
+ *
+ *  Generic over `C extends AnyContractRouter` — the contract type the
+ *  agent on the other side serves. Pass it explicitly so the returned
+ *  session's `acquire()`/`pin()`/`currentClient()` return a typed
+ *  client:
+ *
+ *  ```ts
+ *  const session = getHostSession<typeof myContract>({...});
+ *  const client = await session.pin();  // ContractRouterClient<typeof myContract, …>
+ *  ``` */
+export function getHostSession<C extends AnyContractRouter>(
+  opts: HostSessionOptions,
+): HostSession<C> {
+  const key = `${opts.host}::${opts.drvPath}::${opts.binary}`;
   let session = pool.get(key);
   if (session === undefined) {
-    session = new HostSession(opts);
+    session = new HostSession<C>(opts) as HostSession<AnyContractRouter>;
     pool.set(key, session);
   }
-  return session;
+  return session as HostSession<C>;
 }
 
 /** Destroy every pooled session (e.g. on server shutdown). */

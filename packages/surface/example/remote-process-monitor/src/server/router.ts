@@ -27,6 +27,12 @@ import {
   inMemoryStore,
 } from "@kolu/surface/server";
 import {
+  type AgentClient,
+  type HostSession,
+  mirrorRemoteCollection,
+  waitForNextClient,
+} from "@kolu/surface-nix-host";
+import {
   type ConnectionInfo,
   type CoreId,
   type CpuCore,
@@ -38,10 +44,11 @@ import {
   type SystemInfo,
   surface,
 } from "../common/surface";
-import type { AgentClient, HostSession } from "./hostSession";
+
+type ProcessMonitorAgent = AgentClient<typeof surface.contract>;
 
 export interface BuildRouterOptions {
-  session: HostSession;
+  session: HostSession<typeof surface.contract>;
 }
 
 /** Build the parent's oRPC router. The session's connection state
@@ -195,14 +202,11 @@ function log(line: string): void {
  *  happens when the link errors — stdio process death), then wait for
  *  the session to provide a fresh client (post-reconnect) and repeat.
  *
- *  Why a loop, not just `ClientRetryPlugin`: the retry plugin re-issues
- *  RPCs on the same `RPCLink`, which is bound to one pair of stdio
- *  streams. When the agent process exits, those streams are dead — no
- *  amount of re-issuing recovers them. Recovery requires a *new* client
- *  bound to a *new* spawn's streams, which is exactly what the session's
- *  `scheduleReconnect` produces. The bridge has to walk that succession. */
+ *  The reconnect-loop primitive itself (`waitForNextClient`) lives in
+ *  `@kolu/surface-nix-host`; this function is the demo-specific
+ *  composition (which pumps to run on each cycle). */
 async function bridgeAgentToParent(
-  session: HostSession,
+  session: HostSession<typeof surface.contract>,
   fragment: FragmentCtx,
   browserSnapshotBus: Channel<ProcessesSnapshotMsg>,
 ): Promise<void> {
@@ -214,9 +218,9 @@ async function bridgeAgentToParent(
     /* logged via state cell; loop handles recovery */
   });
 
-  let lastClient: AgentClient | null = null;
+  let lastClient: ProcessMonitorAgent | null = null;
   while (!session.isDestroyed()) {
-    let client: AgentClient;
+    let client: ProcessMonitorAgent;
     try {
       client = await waitForNextClient(session, lastClient);
     } catch (err) {
@@ -225,10 +229,6 @@ async function bridgeAgentToParent(
     }
     lastClient = client;
     log("agent client ready; starting pumps");
-    // Race all three pumps; when any settles (typically because the
-    // stdio link died), let the other two finish too. `allSettled`
-    // would also work but `race` lets us tear out faster — the dead
-    // link will surface in the others on their next await anyway.
     await Promise.allSettled([
       pumpSystemCell(client, session, fragment),
       pumpProcessesSnapshot(client, fragment, browserSnapshotBus),
@@ -239,125 +239,15 @@ async function bridgeAgentToParent(
   log("bridge: session destroyed — exiting reconnect loop");
 }
 
-/** Block until the session exposes a NEW `clientPromise` instance
- *  (i.e. one whose identity differs from the previous iteration's
- *  client). Resolves with the awaited client. Throws if the session is
- *  destroyed before a fresh client appears.
- *
- *  Identity-comparison is the trick that avoids spinning: when pumps
- *  end because the link errored, the child's `exit` handler clears
- *  `clientPromise` to null and `scheduleReconnect` later sets it to a
- *  new promise. Until that new promise exists, `currentClient()`
- *  returns either null or the same dead-handle the pumps just
- *  abandoned — we wait through both. */
-function waitForNextClient(
-  session: HostSession,
-  previous: AgentClient | null,
-): Promise<AgentClient> {
-  return new Promise((resolve, reject) => {
-    const tryResolve = async (): Promise<boolean> => {
-      if (session.isDestroyed()) {
-        reject(new Error("session destroyed"));
-        return true;
-      }
-      const cp = session.currentClient();
-      if (cp === null) return false;
-      try {
-        const c = await cp;
-        if (c !== previous) {
-          resolve(c);
-          return true;
-        }
-      } catch {
-        // Spawn rejected — stay in the loop; the next state change
-        // (scheduleReconnect's timer firing) will surface a fresh
-        // clientPromise.
-      }
-      return false;
-    };
-    void tryResolve().then((done) => {
-      if (done) return;
-      const unsub = session.onState(() => {
-        void tryResolve().then((doneNow) => {
-          if (doneNow) unsub();
-        });
-      });
-    });
-  });
-}
-
-/** Generic mirror: subscribe to the agent's `Collection<K,V>` (via
- *  its framework-derived `keys` + `get(key)` streams) and pump every
- *  observed value into the parent's local collection in real time.
- *
- *  The per-key model is the right fit when N is small (4-32 keys) —
- *  R-2's `RemoteTerminalBackend` will use this exact shape for its
- *  `terminalMetadata` collection. Extracted ahead of R-2 so the
- *  per-key bridge isn't copy-pasted with subtle finally-block
- *  differences later.
- *
- *  Each per-key stream stays open for the key's lifetime so deltas
- *  flow without re-subscribing. Departed keys see their stream
- *  aborted and the entry removed from the parent's collection. */
-async function mirrorRemoteCollection<K, V>(opts: {
-  label: string;
-  /** Eager-or-lazy: a Promise of the keys stream (matches the shape
-   *  the framework's typed client returns for `<coll>.keys(...)`). */
-  keys: Promise<AsyncIterable<readonly K[]>>;
-  get: (key: K, signal: AbortSignal) => Promise<AsyncIterable<V>>;
-  onUpsert: (key: K, value: V) => void;
-  onRemove: (key: K) => void;
-}): Promise<void> {
-  const open = new Map<K, AbortController>();
-  try {
-    for await (const keys of await opts.keys) {
-      const next = new Set(keys);
-      for (const key of next) {
-        if (open.has(key)) continue;
-        const ctl = new AbortController();
-        open.set(key, ctl);
-        void (async () => {
-          try {
-            const stream = await opts.get(key, ctl.signal);
-            for await (const value of stream) {
-              if (ctl.signal.aborted) break;
-              opts.onUpsert(key, value);
-            }
-          } catch (err) {
-            // AbortError is expected (key departed — orchestrator removes
-            // it below). Any other error means the per-key stream died
-            // unexpectedly; log so it's visible without crashing the pump.
-            if ((err as Error).name !== "AbortError") {
-              log(
-                `${opts.label}: per-key stream error for ${String(key)}: ${(err as Error).message}`,
-              );
-            }
-          }
-        })();
-      }
-      for (const [key, ctl] of [...open]) {
-        if (next.has(key)) continue;
-        ctl.abort();
-        open.delete(key);
-        opts.onRemove(key);
-      }
-    }
-    log(`${opts.label}: keys stream closed`);
-  } catch (err) {
-    log(`${opts.label}: keys stream error: ${(err as Error).message}`);
-  } finally {
-    for (const ctl of open.values()) ctl.abort();
-  }
-}
-
 /** Mirror the agent's `cpuCores` collection — small-N showcase of
  *  `mirrorRemoteCollection`. */
 function pumpCpuCores(
-  client: AgentClient,
+  client: ProcessMonitorAgent,
   fragment: FragmentCtx,
 ): Promise<void> {
   return mirrorRemoteCollection<CoreId, CpuCore>({
     label: "cpuCores",
+    log,
     keys: client.surface.cpuCores.keys({}) as Promise<
       AsyncIterable<readonly CoreId[]>
     >,
@@ -373,8 +263,8 @@ function pumpCpuCores(
 
 /** Mirror the agent's system cell into the parent's local cell. */
 async function pumpSystemCell(
-  client: AgentClient,
-  session: HostSession,
+  client: ProcessMonitorAgent,
+  session: HostSession<typeof surface.contract>,
   fragment: FragmentCtx,
 ): Promise<void> {
   let n = 0;
@@ -404,7 +294,7 @@ async function pumpSystemCell(
  *  one-row-at-a-time fill). With the bulk stream, cold-start is O(1)
  *  RPCs regardless of process count. */
 async function pumpProcessesSnapshot(
-  client: AgentClient,
+  client: ProcessMonitorAgent,
   fragment: FragmentCtx,
   browserSnapshotBus: Channel<ProcessesSnapshotMsg>,
 ): Promise<void> {

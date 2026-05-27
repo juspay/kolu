@@ -1,32 +1,32 @@
 /**
- * `.drv`-copy provisioning for the remote agent.
+ * `.drv`-copy provisioning for a remote agent.
  *
- * The model: the parent has a *derivation* (`.drv`) — a platform-
+ * The model: the caller has a *derivation* (`.drv`) — a platform-
  * neutral description of how to build the agent — and ships THAT to
  * the remote, which realises (builds) it for its own architecture. No
  * pre-built linux closure smuggled onto a darwin host.
  *
- *   1. Operator sets `KOLU_AGENT_DRV` to a `/nix/store/…-agent.drv`
- *      path. No fallback — if unset, the parent fails loudly. (Lesson
- *      #2: matched-pair-by-operator-named-input; same shape R-2's
- *      `KOLU_AGENT_FLAKE_REF` will take.)
- *   2. `nix copy --to ssh-ng://$host --derivation $KOLU_AGENT_DRV`
- *      pushes the .drv (plus its inputs' .drvs and source paths the
- *      remote doesn't have).
- *   3. `ssh $host nix-store --realise $KOLU_AGENT_DRV` builds it on
- *      the remote, returning the output path on the remote's store.
- *   4. The output path becomes `agentPath`; the parent then
- *      `ssh $host $agentPath/bin/process-monitor-agent --stdio`s.
+ *   1. Caller passes a `/nix/store/…-agent.drv` path. The package
+ *      doesn't care HOW the caller obtained it; `nix eval --raw
+ *      .#packages.<system>.<agent>.drvPath` is the typical recipe
+ *      (probe the remote arch via `ssh $host uname -ms` first so the
+ *      derivation is for the *remote's* architecture).
+ *   2. `nix copy --derivation --to ssh-ng://$host $drvPath` pushes the
+ *      .drv (plus its inputs' .drvs and source paths the remote
+ *      doesn't have).
+ *   3. `ssh $host nix-store --realise $drvPath` builds it on the
+ *      remote, returning the output path on the remote's store.
+ *   4. The output path becomes `agentPath`; the caller then spawns
+ *      `ssh $host $agentPath/bin/<binary> --stdio` via `HostSession`.
  *
  * Localhost shortcut: the .drv is already in the local store, so
- * `nix-store --realise` is just a local build. The copy step is a
- * no-op.
+ * `nix-store --realise` is a local build. The copy step is a no-op.
  *
- * Computing `KOLU_AGENT_DRV` is the operator's job — the just recipe
- * does it via `nix eval --raw .#packages.<system>.process-monitor-agent.drvPath`,
- * detecting the remote's system via `ssh $host uname -ms` first. That
- * way the derivation is built for the *remote's* architecture even
- * when the parent is a different OS/arch.
+ * **Nix is the contract, not the implementation.** No tarball, Docker,
+ * or prebuilt-binary fallback exists or will. The whole point of this
+ * package is "use Nix for cross-arch deployment of typed stdio
+ * agents"; consumers that don't want Nix should pick a different
+ * transport layer.
  */
 
 import { spawn } from "node:child_process";

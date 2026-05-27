@@ -20,6 +20,7 @@ let
       ./pnpm-lock.yaml
       ./tsconfig.base.json
       ./packages/surface
+      ./packages/surface-nix-host
       ./packages/solid-pierre
       ./packages/common
       ./packages/integrations

@@ -33,7 +33,8 @@ import { serveStatic } from "@hono/node-server/serve-static";
 import { RPCHandler } from "@orpc/server/ws";
 import { Hono } from "hono";
 import { WebSocketServer } from "ws";
-import { destroyAllSessions, getHostSession } from "./hostSession";
+import { destroyAllSessions, getHostSession } from "@kolu/surface-nix-host";
+import type { surface } from "../common/surface";
 import { buildRouter } from "./router";
 
 const HOST = process.env.HOST ?? "localhost";
@@ -56,7 +57,11 @@ async function main(): Promise<void> {
   }
   log(`host=${HOST}, agent drv=${DRV_PATH}`);
 
-  const session = getHostSession({ host: HOST, drvPath: DRV_PATH });
+  const session = getHostSession<typeof surface.contract>({
+    host: HOST,
+    drvPath: DRV_PATH,
+    binary: "process-monitor-agent",
+  });
   const { router } = buildRouter({ session });
 
   // ── HTTP server: serve client bundle in production ─────────────────

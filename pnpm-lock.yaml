@@ -624,6 +624,25 @@ importers:
         specifier: ^4.1.2
         version: 4.1.2(@types/node@22.19.15)(vite@6.4.2(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.47.1)(tsx@4.21.0)(yaml@2.8.3))
 
+  packages/surface-nix-host:
+    dependencies:
+      '@kolu/surface':
+        specifier: workspace:*
+        version: link:../surface
+      '@orpc/client':
+        specifier: ^1.13.13
+        version: 1.13.13
+      '@orpc/contract':
+        specifier: ^1.13.13
+        version: 1.13.13
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.15
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+
   packages/surface/example:
     dependencies:
       '@hono/node-server':
@@ -699,6 +718,9 @@ importers:
       '@kolu/surface':
         specifier: workspace:*
         version: link:../..
+      '@kolu/surface-nix-host':
+        specifier: workspace:*
+        version: link:../../../surface-nix-host
       '@orpc/client':
         specifier: ^1.13.13
         version: 1.13.13
