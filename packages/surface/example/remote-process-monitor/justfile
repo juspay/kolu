@@ -21,10 +21,17 @@ default:
 install:
     cd {{ repo_root }} && {{ nix_shell }} pnpm install
 
-# Boot parent (:7720) + Vite (:5175); parent nix-builds the agent
+# Boot parent (:7720) + Vite (:5175); pre-builds the agent so the parent
+# binds promptly and Vite's WS proxy doesn't race with `nix build`
 dev host='localhost' *args: install
-    cd {{ justfile_directory() }} && \
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "» building .#process-monitor-agent…"
+    AGENT_PATH=$(nix build {{ repo_root }}#process-monitor-agent --no-link --print-out-paths --accept-flake-config)
+    echo "» agent closure: $AGENT_PATH"
+    cd {{ justfile_directory() }}
     HOST={{ host }} \
+    AGENT_PATH=$AGENT_PATH \
     AGENT_FLAKE={{ repo_root }}#process-monitor-agent \
     {{ nix_shell }} pnpm run dev {{ args }}
 

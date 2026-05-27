@@ -40,7 +40,7 @@ const PORT = Number(process.env.PORT ?? 7720);
 
 async function main(): Promise<void> {
   process.stderr.write(
-    `remote-process-monitor parent: host=${HOST}, port=${PORT}\n`,
+    `remote-process-monitor parent: host=${HOST}, resolving agent closure '${FLAKE}'…\n`,
   );
 
   const agentPath = await resolveAgentPath(FLAKE);
@@ -68,11 +68,21 @@ async function main(): Promise<void> {
     );
   }
 
-  const httpServer = serve({
-    fetch: app.fetch,
-    port: PORT,
-    hostname: "0.0.0.0",
-  });
+  const httpServer = serve(
+    {
+      fetch: app.fetch,
+      port: PORT,
+      hostname: "0.0.0.0",
+    },
+    (info) => {
+      // Print the "listening" line ONLY after the bind completes —
+      // otherwise Vite's WS proxy races the parent's nix-build step
+      // and logs spurious ECONNREFUSED until the bind catches up.
+      process.stderr.write(
+        `remote-process-monitor listening on http://${info.address}:${info.port} (host=${HOST})\n`,
+      );
+    },
+  );
 
   // ── WebSocket: oRPC over @orpc/server/ws ───────────────────────────
   // biome-ignore lint/suspicious/noExplicitAny: same Lazy<Router> spread typing dance as kolu/server.ts uses on its own appRouter.
