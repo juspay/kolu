@@ -11,6 +11,7 @@
  * publishes route through the same channels.
  */
 
+import { implement } from "@orpc/server";
 import { implementSurface, publisherChannel } from "@kolu/surface/server";
 import { surface } from "../common/surface";
 import {
@@ -94,7 +95,15 @@ const { router: surfaceRouter } = implementSurface(surface, {
   },
 });
 
-export const appRouter = surfaceRouter;
+// `implementSurface` returns a fragment shaped `{ surface: t.router(...) }`
+// — a router fragment that the consumer wraps once via
+// `implement(contract).router({...fragment})` (or spreads alongside other
+// namespaces, as Kolu's main router does). Passing the fragment straight
+// to `RPCHandler` produces a `/surface/surface/...` double-prefix in the
+// matcher tree (every client request 404s).
+export const appRouter = implement(surface.contract).router({
+  ...surfaceRouter,
+});
 
 // ── Helpers (autosave debounce) ────────────────────────────────────────
 

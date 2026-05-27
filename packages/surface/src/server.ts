@@ -395,6 +395,281 @@ export function inMemoryStore<T>(initial: T): CellStore<T> {
   };
 }
 
+/** Single-process broadcast pub/sub `Channel<T>` for surfaces served from a
+ *  Node-only process where the `@orpc/experimental-publisher` dependency is
+ *  overkill. Each `publish` delivers to every live subscriber synchronously
+ *  via per-subscriber queues; `subscribe` returns an `AsyncIterable<T>` that
+ *  yields each future publish until `signal` aborts.
+ *
+ *  Use this when:
+ *    - the surface is served from one process (no horizontal scale),
+ *    - there's no need for a wire-level publisher,
+ *    - you want the same `Channel<T>` shape `implementSurface` already
+ *      expects — i.e. a drop-in substitute for `publisherChannel`.
+ *
+ *  Subscriber backpressure: each subscriber gets its own bounded promise
+ *  queue. If a subscriber falls behind, its queue grows in memory — the
+ *  channel does not drop. Consumers must keep up or unsubscribe.
+ *
+ *  Ordering: a single `publish` synchronously fans out to all subscribers'
+ *  queues before returning, so per-subscriber ordering is preserved. Unlike
+ *  `publisherChannel`, there is no cross-channel microtask delay — that
+ *  delay is a wire-publisher concern (multiple channels racing on the same
+ *  tick). In-process, the same JS scheduler handles ordering. */
+export interface InMemoryChannel<T> extends Channel<T> {
+  /** Number of currently-attached subscribers. Used by
+   *  `inMemoryPublisher` to evict empty per-name channels on
+   *  unsubscribe — a process monitor keyed-by-PID accumulates
+   *  thousands of dead names otherwise. */
+  subscriberCount(): number;
+  /** Fires when the subscriber count transitions from >0 to 0. The
+   *  publisher uses this to drop the name from its map; null on a
+   *  fresh channel so the publisher can detect "channel had a sub at
+   *  some point then went idle" vs "never had one". */
+  onIdle(cb: () => void): void;
+}
+
+export function inMemoryChannel<T>(): InMemoryChannel<T> {
+  const subscribers = new Set<{
+    push: (value: T) => void;
+    close: (reason?: unknown) => void;
+  }>();
+  let idleCb: (() => void) | null = null;
+  const removeSub = (sub: {
+    push: (value: T) => void;
+    close: (reason?: unknown) => void;
+  }): void => {
+    if (subscribers.delete(sub) && subscribers.size === 0) idleCb?.();
+  };
+  const subscribe = (signal: AbortSignal | undefined): AsyncIterable<T> => {
+    const queue: T[] = [];
+    const waiters: Array<{
+      resolve: (r: IteratorResult<T>) => void;
+      reject: (e: unknown) => void;
+    }> = [];
+    let closed = false;
+    let closeReason: unknown;
+    const sub = {
+      push: (value: T) => {
+        if (closed) return;
+        const waiter = waiters.shift();
+        if (waiter) waiter.resolve({ value, done: false });
+        else queue.push(value);
+      },
+      close: (reason?: unknown) => {
+        if (closed) return;
+        closed = true;
+        closeReason = reason;
+        while (waiters.length > 0) {
+          const waiter = waiters.shift();
+          if (!waiter) break;
+          if (reason !== undefined) waiter.reject(reason);
+          else waiter.resolve({ value: undefined, done: true });
+        }
+      },
+    };
+    subscribers.add(sub);
+    // Abort handler must ALSO drop the sub from the set — otherwise
+    // an aborted subscriber that never has `iterator.return()` called
+    // on it (e.g. consumer just rejected its pending next() and
+    // abandoned the iterator) stays in `subscribers` forever, getting
+    // every subsequent publish's `sub.push()` (which is now a no-op
+    // because `closed === true`, but the dead entry sits in memory).
+    const onAbort = () => {
+      sub.close(signal?.reason);
+      signal?.removeEventListener("abort", onAbort);
+      removeSub(sub);
+    };
+    signal?.addEventListener("abort", onAbort);
+    return {
+      [Symbol.asyncIterator]() {
+        return {
+          next(): Promise<IteratorResult<T>> {
+            if (queue.length > 0) {
+              const value = queue.shift() as T;
+              return Promise.resolve({ value, done: false });
+            }
+            if (closed) {
+              if (closeReason !== undefined) return Promise.reject(closeReason);
+              return Promise.resolve({ value: undefined, done: true });
+            }
+            return new Promise((resolve, reject) =>
+              waiters.push({ resolve, reject }),
+            );
+          },
+          return(): Promise<IteratorResult<T>> {
+            signal?.removeEventListener("abort", onAbort);
+            sub.close();
+            removeSub(sub);
+            return Promise.resolve({ value: undefined, done: true });
+          },
+        };
+      },
+    };
+  };
+  return {
+    publish: (value) => {
+      for (const sub of subscribers) sub.push(value);
+    },
+    subscribe,
+    consume: buildConsume(subscribe),
+    subscriberCount: () => subscribers.size,
+    onIdle: (cb) => {
+      idleCb = cb;
+    },
+  };
+}
+
+/** Name-keyed in-process pub/sub. Same shape `publisherChannel` already
+ *  expects from `@orpc/experimental-publisher`'s `MemoryPublisher`, so
+ *  the canonical wiring works uniformly:
+ *
+ *  ```ts
+ *  const publisher = inMemoryPublisher();
+ *  implementSurface(surface, {
+ *    channel: <T>(name) => publisherChannel<T>(publisher, name),
+ *    ...
+ *  });
+ *  ```
+ *
+ *  Why this exists: `implementSurface`'s `channel:` dep is called *once
+ *  per publish/subscribe site* — the surface owns names like
+ *  `"<key>:changed"` and `"<key>:<k>"`. The consumer must return the
+ *  *same* `Channel<T>` instance for the same name, or the framework's
+ *  publishes go to one channel and the subscribers register on
+ *  another. A bare `inMemoryChannel<T>()` factory (`channel: (name) =>
+ *  inMemoryChannel()`) silently drops every delta because each call
+ *  creates a fresh channel — the registry layer is doing the
+ *  load-bearing work of binding name → instance. */
+export function inMemoryPublisher(): {
+  publish<T>(channel: string, payload: T): void;
+  subscribe<T>(
+    channel: string,
+    opts: { signal?: AbortSignal },
+  ): AsyncIterable<T>;
+} {
+  const channels = new Map<string, InMemoryChannel<unknown>>();
+  // Lazy + drop semantics for publish-side names: if no subscriber has
+  // ever attached to `name`, drop the payload on the floor rather than
+  // create an empty channel that lives forever. The process-monitor
+  // demo publishes to `processes:<pid>:value` on every poll for every
+  // PID — even when no one is subscribed — and the framework keeps
+  // ~600 PIDs hot. Without this guard, every PID ever seen accumulates
+  // a permanent (and unused) `InMemoryChannel` instance.
+  return {
+    publish: <T>(name: string, payload: T) => {
+      const c = channels.get(name);
+      if (c !== undefined) c.publish(payload as unknown);
+    },
+    subscribe: <T>(name: string, opts: { signal?: AbortSignal }) => {
+      let c = channels.get(name);
+      if (c === undefined) {
+        c = inMemoryChannel<unknown>();
+        channels.set(name, c);
+        // Self-evict on idle: when the last subscriber detaches, drop
+        // the name from the map so a future publish to that name is a
+        // no-op again. Without this, every short-lived subscription
+        // leaves a permanent channel behind.
+        c.onIdle(() => {
+          if (channels.get(name) === c) channels.delete(name);
+        });
+      }
+      return c.subscribe(opts?.signal) as AsyncIterable<T>;
+    },
+  };
+}
+
+/** Convenience: one-liner factory for the canonical `channel:` dep
+ *  shape `implementSurface` expects, backed by a private
+ *  `inMemoryPublisher`. Hides the two-step
+ *  `const publisher = inMemoryPublisher(); channel: (name) =>
+ *  publisherChannel(publisher, name)` cassette that every in-process
+ *  consumer was repeating verbatim. Same semantics: one channel
+ *  instance per name, shared by every call.
+ *
+ *  ```ts
+ *  implementSurface(surface, {
+ *    channel: inMemoryChannelByName(),
+ *    cells: { ... },
+ *  });
+ *  ```
+ *
+ *  Use `inMemoryPublisher` + `publisherChannel` directly when you
+ *  need the publisher reference for something else (cross-cell
+ *  publishes, instrumentation, etc.); reach for this helper for the
+ *  90% case where you just want named in-process channels. */
+export function inMemoryChannelByName(): <T>(name: string) => Channel<T> {
+  const publisher = inMemoryPublisher();
+  return <T>(name: string) => publisherChannel<T>(publisher, name);
+}
+
+/** Snapshot-then-delta observable cell. Combines a value (read via
+ *  `current()`, written via `set()`) with a `Channel<T>` interface
+ *  that fires `onEvent(current)` *synchronously* on consume before
+ *  forwarding subsequent `set()` calls.
+ *
+ *  Use case: any in-process mutable state observers want to track with
+ *  the same snapshot-then-delta contract `useCell` already gives wire
+ *  consumers. The demo's `HostSession.onState(cb)` is the canonical
+ *  example — without this, every such observer hand-rolls a
+ *  `Set<callback>` plus a synchronous initial fire, and every variant
+ *  is a chance for the initial fire to be forgotten.
+ *
+ *  Distinct from `inMemoryStore<T>` (read/write only, no observation)
+ *  and `inMemoryChannel<T>` (observation only, no current value). The
+ *  conjunction is the useful primitive.
+ *
+ *  `publish(v)` is an alias for `set(v)` so the cell still satisfies
+ *  the `Channel<T>` interface that `implementSurface` expects when one
+ *  is passed as the `channel:` dep — meaning the same cell can serve
+ *  in-process observers AND back a framework-managed surface cell. */
+export function inMemoryCell<T>(initial: T): Channel<T> & {
+  current(): T;
+  set(value: T): void;
+} {
+  let value = initial;
+  const deltas = inMemoryChannel<T>();
+  return {
+    current: () => value,
+    set: (v) => {
+      value = v;
+      deltas.publish(v);
+    },
+    publish: (v) => {
+      value = v;
+      deltas.publish(v);
+    },
+    subscribe: (signal) => deltas.subscribe(signal),
+    consume: ({ onEvent, onError }) => {
+      // Snapshot first — the consumer sees the initial state before
+      // any deltas could possibly arrive.
+      onEvent(value);
+      return deltas.consume({ onEvent, onError });
+    },
+  };
+}
+
+/** Build the `consume` half of a `Channel<T>` from its `subscribe` half.
+ *  Owns an `AbortController` per subscriber, runs a fire-and-forget loop,
+ *  suppresses post-abort errors (those are end-of-life noise, not a real
+ *  failure). Identical body for every `Channel<T>` implementation — the
+ *  only thing they vary in is `subscribe`. */
+function buildConsume<T>(
+  subscribe: (signal: AbortSignal | undefined) => AsyncIterable<T>,
+): Channel<T>["consume"] {
+  return ({ onEvent, onError }) => {
+    const controller = new AbortController();
+    void (async () => {
+      try {
+        for await (const value of subscribe(controller.signal)) onEvent(value);
+      } catch (err) {
+        if (!controller.signal.aborted) onError(err);
+      }
+    })();
+    return () => controller.abort();
+  };
+}
+
 /** CellStore backed by a `conf`-style key-value store. Reads/writes one
  *  top-level key on the underlying store; the rest of the on-disk shape
  *  is owned by the consumer (so multiple cells can share one Conf with
@@ -455,18 +730,7 @@ export function publisherChannel<T>(
       void publisher.publish(channelName, value);
     },
     subscribe,
-    consume: ({ onEvent, onError }) => {
-      const controller = new AbortController();
-      void (async () => {
-        try {
-          for await (const value of subscribe(controller.signal))
-            onEvent(value);
-        } catch (err) {
-          if (!controller.signal.aborted) onError(err);
-        }
-      })();
-      return () => controller.abort();
-    },
+    consume: buildConsume(subscribe),
   };
 }
 
