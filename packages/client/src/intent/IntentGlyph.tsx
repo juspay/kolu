@@ -4,9 +4,10 @@
  *  in the workspace switcher card). Owns the unset fallback
  *  (`<Show when>`) so each call site is a one-liner.
  *
- *  Takes a scalar `intent: string | undefined`. The component does the
- *  first-grapheme extraction itself — call sites pass `meta.intent`
- *  directly.
+ *  Takes a scalar `intent: string | undefined`. The component delegates
+ *  glyph extraction to `intentLeadGlyph` in `./text`, which is the same
+ *  helper the dock rail chip uses — so both surfaces agree on what the
+ *  intent's lead glyph is.
  *
  *  Co-located with the rest of the intent rendering tier in
  *  `packages/client/src/intent/` so a change to how intent is
@@ -14,39 +15,16 @@
  *  the unrelated `terminal/` directory. */
 
 import { type Component, Show, createMemo } from "solid-js";
-import { firstIntentLine } from "./text";
-
-/** Stateless. Hoisted to module scope so `firstGrapheme` doesn't
- *  allocate a new segmenter on every reactive update. Created lazily
- *  inside `firstGrapheme` because `Intl.Segmenter` isn't available in
- *  every runtime (SSR / very old browsers). */
-const segmenter =
-  typeof Intl !== "undefined" && "Segmenter" in Intl
-    ? new Intl.Segmenter(undefined, { granularity: "grapheme" })
-    : undefined;
-
-/** Extract the first grapheme cluster from a string. Falls back to the
- *  first codepoint when `Intl.Segmenter` isn't available. Empty input
- *  returns the empty string. */
-function firstGrapheme(s: string): string {
-  if (s.length === 0) return "";
-  if (segmenter) {
-    const first = segmenter.segment(s)[Symbol.iterator]().next();
-    if (!first.done) return first.value.segment;
-  }
-  return [...s][0] ?? "";
-}
+import { intentLeadGlyph } from "./text";
 
 const IntentGlyph: Component<{
   intent: string | undefined;
   /** Tailwind size + spacing applied to the outer span. */
   class?: string;
 }> = (props) => {
-  const glyph = createMemo(() => {
-    const i = props.intent;
-    if (!i) return "";
-    return firstGrapheme(firstIntentLine(i));
-  });
+  const glyph = createMemo(() =>
+    props.intent ? intentLeadGlyph(props.intent) : "",
+  );
   return (
     <Show when={glyph()}>
       {(g) => (

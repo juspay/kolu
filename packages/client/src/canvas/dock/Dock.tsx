@@ -45,7 +45,7 @@
  *  primary navigator. */
 
 import { makePersisted } from "@solid-primitives/storage";
-import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
+import type { TerminalId } from "kolu-common/surface";
 import { type Component, For, Show, createMemo, createSignal } from "solid-js";
 import { createSharedRoot } from "../../createSharedRoot";
 import { formatTimeAgo } from "../../terminal/staleness";
@@ -54,6 +54,7 @@ import { annotationLine } from "../../intent/text";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { HiddenFooter } from "./HiddenFooter";
+import { chipInitials } from "./chipInitials";
 import { AgentSlot, PrPip, SubCountCell, createDockRowData } from "./RowPips";
 import { rowSubline } from "./rowSubline";
 import {
@@ -606,7 +607,12 @@ const RailChip: Component<{
             </Show>
             <span class="dock-rail-chip-text" aria-hidden="true">
               {labels().repo}
-              <span class="dock-rail-chip-sub">{labels().sub}</span>
+              <span
+                class="dock-rail-chip-sub"
+                data-glyph={labels().subIsGlyph ? "" : undefined}
+              >
+                {labels().sub}
+              </span>
             </span>
           </button>
         );
@@ -614,23 +620,6 @@ const RailChip: Component<{
     </Show>
   );
 };
-
-/** Two-letter chip label: first alpha char of the repo, first alpha
- *  char of the intent (line 1) or branch (after the last `/`).
- *  `feat/dock-bare` → `d` (after-the-slash); falls back to `?` when
- *  no alpha char is present. The branch fallback splits on `/` so a
- *  workflow-style prefix (`feat/`, `fix/`, `wip/`) doesn't shadow
- *  the meaningful tail. */
-function chipInitials(
-  meta: TerminalMetadata,
-  info: TerminalDisplayInfo,
-): { repo: string; sub: string } {
-  const repo = (info.key.group.match(/[a-z0-9]/i)?.[0] ?? "?").toUpperCase();
-  const branchTail = info.key.label.split("/").pop() ?? info.key.label;
-  const subSource = meta.intent || branchTail;
-  const sub = (subSource.match(/[a-z0-9]/i)?.[0] ?? "?").toLowerCase();
-  return { repo, sub };
-}
 
 function chipTooltip(info: TerminalDisplayInfo, bucket: DockRowBucket): string {
   return `${info.key.group} · ${info.key.label} · ${bucket}`;
