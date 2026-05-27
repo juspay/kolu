@@ -601,6 +601,12 @@ importers:
       '@orpc/server':
         specifier: ^1.13.13
         version: 1.13.13(ws@8.20.1)
+      '@orpc/standard-server':
+        specifier: ^1.13.13
+        version: 1.13.13
+      '@orpc/standard-server-peer':
+        specifier: ^1.13.13
+        version: 1.13.13
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11
@@ -636,6 +642,67 @@ importers:
         specifier: ^1.13.13
         version: 1.13.13
       '@orpc/experimental-publisher':
+        specifier: ^1.13.13
+        version: 1.13.13
+      '@orpc/server':
+        specifier: ^1.13.13
+        version: 1.13.13(ws@8.20.1)
+      hono:
+        specifier: ^4.12.16
+        version: 4.12.18
+      partysocket:
+        specifier: ^1.1.16
+        version: 1.1.16(react@19.2.5)
+      solid-js:
+        specifier: ^1.9.0
+        version: 1.9.11
+      ws:
+        specifier: ^8.20.1
+        version: 8.20.1
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@tailwindcss/vite':
+        specifier: ^4.1.0
+        version: 4.2.2(vite@6.4.2(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.47.1)(tsx@4.21.0)(yaml@2.8.3))
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.15
+      '@types/ws':
+        specifier: ^8.18.1
+        version: 8.18.1
+      concurrently:
+        specifier: ^9.1.0
+        version: 9.2.1
+      tailwindcss:
+        specifier: ^4.1.0
+        version: 4.2.2
+      tsx:
+        specifier: ^4.19.0
+        version: 4.21.0
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+      vite:
+        specifier: ^6.4.2
+        version: 6.4.2(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.47.1)(tsx@4.21.0)(yaml@2.8.3)
+      vite-plugin-solid:
+        specifier: ^2.11.0
+        version: 2.11.11(solid-js@1.9.11)(vite@6.4.2(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.47.1)(tsx@4.21.0)(yaml@2.8.3))
+
+  packages/surface/example/remote-process-monitor:
+    dependencies:
+      '@hono/node-server':
+        specifier: ^1.19.13
+        version: 1.19.13(hono@4.12.18)
+      '@kolu/surface':
+        specifier: workspace:*
+        version: link:../..
+      '@orpc/client':
+        specifier: ^1.13.13
+        version: 1.13.13
+      '@orpc/contract':
         specifier: ^1.13.13
         version: 1.13.13
       '@orpc/server':

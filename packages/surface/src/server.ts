@@ -395,6 +395,108 @@ export function inMemoryStore<T>(initial: T): CellStore<T> {
   };
 }
 
+/** Single-process broadcast pub/sub `Channel<T>` for surfaces served from a
+ *  Node-only process where the `@orpc/experimental-publisher` dependency is
+ *  overkill. Each `publish` delivers to every live subscriber synchronously
+ *  via per-subscriber queues; `subscribe` returns an `AsyncIterable<T>` that
+ *  yields each future publish until `signal` aborts.
+ *
+ *  Use this when:
+ *    - the surface is served from one process (no horizontal scale),
+ *    - there's no need for a wire-level publisher,
+ *    - you want the same `Channel<T>` shape `implementSurface` already
+ *      expects — i.e. a drop-in substitute for `publisherChannel`.
+ *
+ *  Subscriber backpressure: each subscriber gets its own bounded promise
+ *  queue. If a subscriber falls behind, its queue grows in memory — the
+ *  channel does not drop. Consumers must keep up or unsubscribe.
+ *
+ *  Ordering: a single `publish` synchronously fans out to all subscribers'
+ *  queues before returning, so per-subscriber ordering is preserved. Unlike
+ *  `publisherChannel`, there is no cross-channel microtask delay — that
+ *  delay is a wire-publisher concern (multiple channels racing on the same
+ *  tick). In-process, the same JS scheduler handles ordering. */
+export function inMemoryChannel<T>(): Channel<T> {
+  const subscribers = new Set<{
+    push: (value: T) => void;
+    close: (reason?: unknown) => void;
+  }>();
+  const subscribe = (signal: AbortSignal | undefined): AsyncIterable<T> => {
+    const queue: T[] = [];
+    const waiters: Array<{
+      resolve: (r: IteratorResult<T>) => void;
+      reject: (e: unknown) => void;
+    }> = [];
+    let closed = false;
+    let closeReason: unknown;
+    const sub = {
+      push: (value: T) => {
+        if (closed) return;
+        const waiter = waiters.shift();
+        if (waiter) waiter.resolve({ value, done: false });
+        else queue.push(value);
+      },
+      close: (reason?: unknown) => {
+        if (closed) return;
+        closed = true;
+        closeReason = reason;
+        while (waiters.length > 0) {
+          const waiter = waiters.shift();
+          if (!waiter) break;
+          if (reason !== undefined) waiter.reject(reason);
+          else waiter.resolve({ value: undefined, done: true });
+        }
+      },
+    };
+    subscribers.add(sub);
+    const onAbort = () => sub.close(signal?.reason);
+    signal?.addEventListener("abort", onAbort);
+    return {
+      [Symbol.asyncIterator]() {
+        return {
+          next(): Promise<IteratorResult<T>> {
+            if (queue.length > 0) {
+              const value = queue.shift() as T;
+              return Promise.resolve({ value, done: false });
+            }
+            if (closed) {
+              if (closeReason !== undefined) return Promise.reject(closeReason);
+              return Promise.resolve({ value: undefined, done: true });
+            }
+            return new Promise((resolve, reject) =>
+              waiters.push({ resolve, reject }),
+            );
+          },
+          return(): Promise<IteratorResult<T>> {
+            subscribers.delete(sub);
+            signal?.removeEventListener("abort", onAbort);
+            sub.close();
+            return Promise.resolve({ value: undefined, done: true });
+          },
+        };
+      },
+    };
+  };
+  return {
+    publish: (value) => {
+      for (const sub of subscribers) sub.push(value);
+    },
+    subscribe,
+    consume: ({ onEvent, onError }) => {
+      const controller = new AbortController();
+      void (async () => {
+        try {
+          for await (const value of subscribe(controller.signal))
+            onEvent(value);
+        } catch (err) {
+          if (!controller.signal.aborted) onError(err);
+        }
+      })();
+      return () => controller.abort();
+    },
+  };
+}
+
 /** CellStore backed by a `conf`-style key-value store. Reads/writes one
  *  top-level key on the underlying store; the rest of the on-disk shape
  *  is owned by the consumer (so multiple cells can share one Conf with
