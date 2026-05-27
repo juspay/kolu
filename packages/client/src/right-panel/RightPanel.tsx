@@ -11,7 +11,7 @@ import { type Component, createMemo, For, Show } from "solid-js";
 import { match, P } from "ts-pattern";
 import { useViewPosture } from "../canvas/useViewPosture";
 import { CHROME_ICON_BUTTON_CLASS, RAIL_WIDTH_PX } from "../ui/chromeSpacing";
-import { ChevronDownIcon } from "../ui/Icons";
+import { ChevronDownIcon, CodeBracketIcon, InfoIcon } from "../ui/Icons";
 import { ACTIVE_TERMINAL_ACCENT } from "./activeTerminalAccent";
 import CodeTab from "./CodeTab";
 import MetadataInspector from "./MetadataInspector";
@@ -131,10 +131,27 @@ const RightPanel: Component<{
     shellState() === "rail"
       ? "hidden"
       : "flex flex-col h-full min-w-0 overflow-hidden bg-surface-0";
-  const railClass = () =>
-    shellState() === "rail"
-      ? "flex flex-col items-center pt-2 h-full bg-surface-1"
-      : "hidden";
+
+  /** Visual chrome for the collapsed rail body. Posture-conditional so
+   *  the tiled rail reads as a floating card tucked against the right
+   *  edge (rounded-left, shadow, brighter bg-surface-2 to lift off the
+   *  canvas grid) and the maximized rail reads as a flush column
+   *  inside the outer aside's `border-l` boundary.
+   *
+   *  Tiled top offset: `mt-12` mirrors the dock card's `top-12` and the
+   *  expanded panel's `top-12` so all three surfaces line up on a single
+   *  horizontal axis just below the chrome bar. `mb-4` matches the
+   *  expanded float's `bottom-4` so the rail visually inset from the
+   *  bottom edge of the canvas too. Done via margins instead of
+   *  `position: absolute` on the collapsed shell per #986's xterm-link
+   *  warning (rule #1). */
+  const railClass = () => {
+    if (shellState() !== "rail") return "hidden";
+    if (posture.mode() === "tiled") {
+      return "mt-12 mb-4 h-[calc(100%-4rem)] flex flex-col items-center pt-2 gap-1 overflow-hidden rounded-l-2xl shadow-2xl shadow-black/40 bg-surface-2";
+    }
+    return "h-full flex flex-col items-center pt-2 gap-1 bg-surface-1";
+  };
 
   const shellWidth = () =>
     match(shellState())
@@ -168,13 +185,23 @@ const RightPanel: Component<{
         // are tall).
         "absolute z-30 top-12 right-4 bottom-4 rounded-2xl shadow-2xl shadow-black/40 overflow-hidden":
           shellState() === "float",
-        // `flush` and `rail` both render as a real right-panel flex
-        // sibling of the canvas with a left-edge separator. `rail`
-        // stays in flex flow (NOT absolute) per #986's first xterm.js
-        // link-decoration trigger; the canvas's `flex-1` gives back
-        // the 44 px the rail consumes.
+        // `flush` (maximized + expanded) and maximized-rail both render
+        // as a flush flex sibling with a `border-l` separator — mirrors
+        // the Dock's maximized chrome on the opposite edge. Stays in
+        // flex flow (NOT absolute) per #986's xterm-link rule #1.
         "relative shrink-0 h-full border-l border-edge overflow-hidden":
-          shellState() === "flush" || shellState() === "rail",
+          shellState() === "flush" ||
+          (shellState() === "rail" && posture.mode() === "maximized"),
+        // Tiled-rail: outer aside is a transparent positioning slot.
+        // The rail's visible chrome (rounded-l card + drop shadow)
+        // lives on the inner `railClass()` div so it can offset by
+        // `mt-12` to clear the chrome bar without using
+        // `position: absolute` on the collapsed shell — that pattern
+        // is #986's xterm-link rule #1. `overflow-visible` (the
+        // default) lets the inner card's shadow extend out into the
+        // canvas grid.
+        "relative shrink-0 h-full":
+          shellState() === "rail" && posture.mode() === "tiled",
       }}
       style={(() => {
         const w = shellWidth();
@@ -198,13 +225,26 @@ const RightPanel: Component<{
         />
       </Show>
 
-      {/* Collapsed rail body — narrow chevron-only column. The
-       *  `ChevronDownIcon` rotated 90° clockwise points LEFT (toward
-       *  the canvas), mirroring the dock-rail's `-rotate-90` chevron
-       *  which points RIGHT (also toward the canvas) across the
-       *  vertical canvas axis. Always mounted (display-toggled via
-       *  `railClass()`) so the parent layout doesn't shift on
-       *  expand/collapse. */}
+      {/* Collapsed rail body — narrow icon-stack column.
+       *
+       *  Three pips, top to bottom:
+       *    1. Expand chevron (restores the last-active tab).
+       *    2. Inspector pip (expands + switches to Inspector).
+       *    3. Code pip (expands + switches to Code).
+       *
+       *  The pip whose kind matches `rightPanel.activeTab().kind` wears
+       *  an accent treatment (`bg-accent/15` + accent ring) so a glance
+       *  at the rail tells you which tab the panel will land on. This
+       *  is the dock-mirror affordance set: the dock rail has three
+       *  header buttons (+ search + mode), the right-panel rail has
+       *  three navigation pips. The right-panel side has fewer entities
+       *  to compress (two tabs) so we don't add chips below the pips —
+       *  unlike the dock rail's per-terminal chip column.
+       *
+       *  Chevron rotation: `rotate-90` on a downward chevron points
+       *  LEFT (toward the canvas), mirroring the dock-rail's `-rotate-90`
+       *  chevron which points RIGHT (also toward the canvas) across the
+       *  vertical canvas axis. */}
       <div class={railClass()}>
         <button
           type="button"
@@ -217,6 +257,36 @@ const RightPanel: Component<{
           <span class="inline-flex rotate-90">
             <ChevronDownIcon class="w-3.5 h-3.5" />
           </span>
+        </button>
+        <button
+          type="button"
+          data-testid="right-panel-rail-inspector"
+          data-active={
+            rightPanel.activeTab().kind === "inspector" ? "" : undefined
+          }
+          class="flex items-center justify-center w-7 h-7 rounded-md cursor-pointer text-fg-3 hover:text-fg hover:bg-surface-2/70 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 data-[active]:bg-accent/15 data-[active]:text-accent data-[active]:ring-1 data-[active]:ring-inset data-[active]:ring-accent/35"
+          onClick={() => {
+            rightPanel.expandPanel();
+            rightPanel.showInspector();
+          }}
+          aria-label="Expand to Inspector"
+          title="Inspector"
+        >
+          <InfoIcon class="w-3.5 h-3.5" />
+        </button>
+        <button
+          type="button"
+          data-testid="right-panel-rail-code"
+          data-active={rightPanel.activeTab().kind === "code" ? "" : undefined}
+          class="flex items-center justify-center w-7 h-7 rounded-md cursor-pointer text-fg-3 hover:text-fg hover:bg-surface-2/70 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 data-[active]:bg-accent/15 data-[active]:text-accent data-[active]:ring-1 data-[active]:ring-inset data-[active]:ring-accent/35"
+          onClick={() => {
+            rightPanel.expandPanel();
+            rightPanel.showCode();
+          }}
+          aria-label="Expand to Code"
+          title="Code"
+        >
+          <CodeBracketIcon class="w-3.5 h-3.5" />
         </button>
       </div>
 
