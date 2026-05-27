@@ -119,6 +119,14 @@ const TerminalCanvas: Component<{
    *  every focus change — reads happen inside the returned JSX's props
    *  (fine-grained reactivity), not around the render-prop effect. */
   renderTileBody: (id: TerminalId, active: () => boolean) => JSX.Element;
+  /** Slot for the right panel (Inspector + Code tabs). Rendered as a
+   *  sibling of the Dock in the outer flex container so it mirrors
+   *  the Dock's posture-aware behaviour exactly — float in tiled,
+   *  flush sibling in maximized. The panel owns its own chrome and
+   *  positioning via `useViewPosture`; this slot is just a mount
+   *  point. Omitted on mobile (where the right panel lives in a
+   *  bottom drawer instead). */
+  rightPanel?: JSX.Element;
 }> = (props) => {
   const viewport = useCanvasViewport();
   const store = useTerminalStore();
@@ -512,6 +520,12 @@ const TerminalCanvas: Component<{
             />
           </Show>
         </div>
+        {/* Right panel slot — sibling of Dock + canvas-container in the
+         *  outer flex. Owns its own posture-aware chrome (mirrors
+         *  Dock's tiled-float / maximized-flush pattern on the opposite
+         *  side). Omitted on mobile, where the right panel lives in a
+         *  bottom drawer wired up in App.tsx. */}
+        {props.rightPanel}
       </div>
     </DragDropProvider>
   );

@@ -43,6 +43,7 @@ import MobileKeyBar from "./MobileKeyBar";
 import MobileTileView from "./MobileTileView";
 import { useRecorder } from "./recorder/useRecorder";
 import WebcamOverlay from "./recorder/WebcamOverlay";
+import RightPanel from "./right-panel/RightPanel";
 import RightPanelLayout from "./right-panel/RightPanelLayout";
 import { useRightPanel } from "./right-panel/useRightPanel";
 import { client } from "./wire";
@@ -83,6 +84,13 @@ const App: Component = () => {
   const subPanel = useSubPanel();
   const rightPanel = useRightPanel();
   const { colorScheme } = useColorScheme();
+
+  // The desktop pendingOpen→expandPanel effect lives inside the
+  // `RightPanel` component itself (which is also rendered inside
+  // `TerminalCanvas` on desktop). Mobile's equivalent lives inside
+  // `RightPanelLayout`. Both branches need to share the same owner
+  // scope as the surface they control, otherwise the `on(pendingOpen,
+  // ..., { defer: true })` silently drops subsequent fires.
 
   // Workspace search feeds — the live-terminal source list and recency
   // accessor consumed by the unified command palette's "Search
@@ -535,15 +543,15 @@ const App: Component = () => {
               </div>
             }
           >
-            <RightPanelLayout
-              terminalId={store.activeId()}
-              meta={store.activeMeta()}
-              themeName={activeThemeName()}
-              onThemeClick={() => openPaletteGroup("Set theme")}
-              contentClass={isMobile() ? "flex-col" : undefined}
-            >
-              {match(isMobile())
-                .with(true, () => (
+            {match(isMobile())
+              .with(true, () => (
+                <RightPanelLayout
+                  terminalId={store.activeId()}
+                  meta={store.activeMeta()}
+                  themeName={activeThemeName()}
+                  onThemeClick={() => openPaletteGroup("Set theme")}
+                  contentClass="flex-col"
+                >
                   <MobileTileView
                     orderedIds={orderedIds()}
                     status={wsStatus()}
@@ -552,41 +560,52 @@ const App: Component = () => {
                     renderBody={renderMobileTileBody}
                     bottomBar={<MobileKeyBar activeId={store.activeId} />}
                   />
-                ))
-                .with(false, () => (
-                  <TerminalCanvas
-                    tileIds={store.terminalIds()}
-                    watermark={appTitle()}
-                    getLayout={(id) => store.getMetadata(id)?.canvasLayout}
-                    placeNew={arrange.placeNew}
-                    onLayoutChange={arrange.applyTileGeometry}
-                    onAutoArrange={arrange.handleCanvasAutoArrange}
-                    onSelect={store.setActiveSilently}
-                    onClose={(id) => closeTerminal(id)}
-                    onOpenWorkspaceSearch={() =>
-                      openPaletteGroup("Search workspaces")
-                    }
-                    onCreate={() => openPaletteGroup("New terminal")}
-                    renderTileTitle={(id) => (
-                      <TerminalMeta
-                        info={store.getDisplayInfo(id)}
-                        onOpenIntent={() => intentEditor.openTerminal(id)}
-                      />
-                    )}
-                    renderTileTitleActions={(id) => (
-                      <TileTitleActions
-                        id={id}
-                        onOpenPaletteGroup={openPaletteGroup}
-                        onToggleSubPanel={handleToggleSubPanel}
-                        onOpenSearch={() => setSearchOpen(true)}
-                        onScreenshot={handleScreenshotTerminal}
-                      />
-                    )}
-                    renderTileBody={renderCanvasTileBody}
-                  />
-                ))
-                .exhaustive()}
-            </RightPanelLayout>
+                </RightPanelLayout>
+              ))
+              .with(false, () => (
+                <TerminalCanvas
+                  tileIds={store.terminalIds()}
+                  watermark={appTitle()}
+                  getLayout={(id) => store.getMetadata(id)?.canvasLayout}
+                  placeNew={arrange.placeNew}
+                  onLayoutChange={arrange.applyTileGeometry}
+                  onAutoArrange={arrange.handleCanvasAutoArrange}
+                  onSelect={store.setActiveSilently}
+                  onClose={(id) => closeTerminal(id)}
+                  onOpenWorkspaceSearch={() =>
+                    openPaletteGroup("Search workspaces")
+                  }
+                  onCreate={() => openPaletteGroup("New terminal")}
+                  renderTileTitle={(id) => (
+                    <TerminalMeta
+                      info={store.getDisplayInfo(id)}
+                      onOpenIntent={() => intentEditor.openTerminal(id)}
+                    />
+                  )}
+                  renderTileTitleActions={(id) => (
+                    <TileTitleActions
+                      id={id}
+                      onOpenPaletteGroup={openPaletteGroup}
+                      onToggleSubPanel={handleToggleSubPanel}
+                      onOpenSearch={() => setSearchOpen(true)}
+                      onScreenshot={handleScreenshotTerminal}
+                    />
+                  )}
+                  renderTileBody={renderCanvasTileBody}
+                  rightPanel={
+                    <RightPanel
+                      terminalId={store.activeId()}
+                      meta={store.activeMeta()}
+                      onToggle={rightPanel.togglePanel}
+                      themeName={activeThemeName()}
+                      onThemeClick={() => openPaletteGroup("Set theme")}
+                      visible={!rightPanel.collapsed()}
+                      shell={true}
+                    />
+                  }
+                />
+              ))
+              .exhaustive()}
           </Show>
         </Show>
       </div>

@@ -1,122 +1,44 @@
-/** RightPanelLayout — picks the host that surfaces the right panel.
+/** RightPanelLayout — mobile-only host for the right panel.
  *
- *  Two hosts, one content subtree:
- *  - Desktop (`DesktopResizableHost`): `@corvu/resizable` horizontal split.
- *    Visibility is the persisted `preferences.rightPanel.collapsed` bit;
- *    `sizes=[1,0]` keeps the handle in the DOM when collapsed.
- *  - Mobile (`MobileDrawerHost`): `@corvu/drawer side="bottom"`. Visibility
- *    is the session-local `useRightPanel.drawerOpen()` signal — dismissing
- *    the drawer on a phone is not the same volatility as toggling the
- *    desktop chrome preference (see `useRightPanel.ts` header).
+ *  On mobile, the right panel hosts as a `@corvu/drawer side="bottom"`.
+ *  Visibility is the session-local `useRightPanel.drawerOpen()` signal
+ *  — dismissing the drawer on a phone is not the same volatility as
+ *  toggling the desktop chrome preference (see `useRightPanel.ts`).
  *
- *  Each host owns its own response to `pendingOpen` (the producer signal
- *  seeded by `openInCodeTab`): desktop calls `expandPanel`, mobile calls
- *  `setDrawerOpen(true)`. Splitting into sibling components makes
- *  `isMobile()` the *only* platform-dispatch site, instead of leaking it
- *  into a `createEffect(on(pendingOpen, …))` body where SolidJS would also
- *  track it implicitly as a reactive read.
+ *  On desktop the right panel is rendered inline by `TerminalCanvas` as
+ *  a sibling of the Dock in the outer flex container; it owns its own
+ *  posture-aware chrome via `useViewPosture` and mirrors the Dock's
+ *  tiled-float / maximized-flush pattern. The desktop pendingOpen→
+ *  expandPanel effect lives in `App.tsx`.
  *
- *  Selection, mode, and tab kind share `useRightPanel` across hosts — a
- *  phone session that ends on `foo.html` reopens on desktop with
+ *  Selection, mode, and tab kind share `useRightPanel` across hosts —
+ *  a phone session that ends on `foo.html` reopens on desktop with
  *  `foo.html` already selected. */
 
 import Drawer from "@corvu/drawer";
-import Resizable from "@corvu/resizable";
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
-import { type Component, createEffect, type JSX, on, Show } from "solid-js";
-import { isMobile } from "../useMobile";
+import { type Component, createEffect, type JSX, on } from "solid-js";
 import { pendingOpen } from "./openInCodeTab";
 import RightPanel from "./RightPanel";
 import { useRightPanel } from "./useRightPanel";
 
 type HostProps = {
   children: JSX.Element;
-  /** Active terminal id. Used by the Code tab's iframe-preview path to
-   *  build the per-terminal file-serving URL. */
   terminalId: TerminalId | null;
   meta: TerminalMetadata | null;
   themeName?: string;
   onThemeClick?: () => void;
-  /** Extra class on the content wrapper (e.g. "flex flex-col" for Focus mode). */
+  /** Extra class on the content wrapper (e.g. "flex-col" for the
+   *  mobile column stack). */
   contentClass?: string;
 };
 
-const DesktopResizableHost: Component<HostProps> = (props) => {
+const RightPanelLayout: Component<HostProps> = (props) => {
   const rightPanel = useRightPanel();
 
   // Producer arrivals (terminal `path:line` taps, comments-tray jumps)
-  // uncollapse the side panel — visibility used to live inside
-  // `openCodeAt`, but moving it here keeps the hook platform-free.
-  createEffect(
-    on(
-      pendingOpen,
-      (req) => {
-        if (!req) return;
-        if (rightPanel.collapsed()) rightPanel.expandPanel();
-      },
-      { defer: true },
-    ),
-  );
-
-  return (
-    <div class="flex-1 min-h-0 min-w-0 flex overflow-hidden">
-      <Resizable
-        orientation="horizontal"
-        sizes={
-          rightPanel.collapsed()
-            ? [1, 0]
-            : [1 - rightPanel.panelSize(), rightPanel.panelSize()]
-        }
-        onSizesChange={(sizes) => {
-          if (sizes[1] !== undefined) rightPanel.setPanelSize(sizes[1]);
-        }}
-        class="flex-1 min-h-0 overflow-hidden"
-      >
-        <Resizable.Panel
-          as="div"
-          class={`min-w-0 min-h-0 flex ${props.contentClass ?? ""}`}
-          minSize={0.3}
-        >
-          {props.children}
-        </Resizable.Panel>
-        <Show when={!rightPanel.collapsed()}>
-          <Resizable.Handle
-            data-testid="right-panel-handle"
-            // `z-50` lifts the handle above the maximized-tile overlay
-            // (`z-40` in `TerminalCanvas`) so the user can still drag
-            // the panel edge to resize when a tile is maximized.
-            class="shrink-0 w-0 relative z-50 before:absolute before:inset-y-0 before:-left-1 before:w-2 before:cursor-col-resize before:hover:bg-accent/30 before:transition-colors"
-            aria-label="Resize inspector panel"
-          />
-        </Show>
-        <Resizable.Panel
-          as="div"
-          class="min-w-0 min-h-0 overflow-hidden"
-          minSize={0}
-        >
-          {/* Render unconditionally so CodeTab's selectedPath signal and
-           *  Pierre's tree expansion survive collapse — Resizable already
-           *  shrinks this panel to zero width via sizes=[1,0] above. An
-           *  inner <Show> would unmount and discard that state. */}
-          <RightPanel
-            terminalId={props.terminalId}
-            meta={props.meta}
-            onToggle={rightPanel.togglePanel}
-            themeName={props.themeName}
-            onThemeClick={props.onThemeClick}
-            visible={!rightPanel.collapsed()}
-          />
-        </Resizable.Panel>
-      </Resizable>
-    </div>
-  );
-};
-
-const MobileDrawerHost: Component<HostProps> = (props) => {
-  const rightPanel = useRightPanel();
-
-  // Producer arrivals open the drawer. Setter is idempotent so repeated
-  // taps on the same `path:line` don't fire spurious open transitions.
+  // open the drawer. Setter is idempotent so repeated taps on the same
+  // `path:line` don't fire spurious open transitions.
   createEffect(
     on(
       pendingOpen,
@@ -157,24 +79,16 @@ const MobileDrawerHost: Component<HostProps> = (props) => {
                 themeName={props.themeName}
                 onThemeClick={props.onThemeClick}
                 visible={rightPanel.drawerOpen()}
+                // The drawer already provides the floating surface;
+                // skip the posture-aware shell so we don't double up
+                // the card chrome.
+                shell={false}
               />
             </div>
           </Drawer.Content>
         </Drawer.Portal>
       </Drawer>
     </>
-  );
-};
-
-const RightPanelLayout: Component<HostProps> = (props) => {
-  // The single platform-dispatch site. Each branch is its own component
-  // so reactive ownership (effects, derived signals) sits inside the
-  // active host only — switching viewports tears down the inactive
-  // host's effects cleanly.
-  return (
-    <Show when={!isMobile()} fallback={<MobileDrawerHost {...props} />}>
-      <DesktopResizableHost {...props} />
-    </Show>
   );
 };
 
