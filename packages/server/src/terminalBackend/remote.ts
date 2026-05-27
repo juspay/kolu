@@ -20,8 +20,14 @@
  * side (or running them parent-side on agent's streams) is follow-up.
  */
 
-import type { AgentClient } from "@kolu/surface-nix-host";
-import type { AgentContract } from "kolu-common/agentSurface";
+import {
+  type AgentClient,
+  mirrorRemoteCollection,
+} from "@kolu/surface-nix-host";
+import type {
+  AgentContract,
+  AgentTerminalMetadata,
+} from "kolu-common/agentSurface";
 import type {
   PtySpawnOpts,
   TerminalBackend,
@@ -50,7 +56,11 @@ import {
   unregisterTerminal,
 } from "../terminal-registry.ts";
 import { startHeartbeat } from "./heartbeat.ts";
-import { createMetadata, updateServerLiveMetadata } from "./metadata.ts";
+import {
+  createMetadata,
+  updateServerLiveMetadata,
+  updateServerMetadata,
+} from "./metadata.ts";
 import { getKoluHostSessionAsync } from "./remoteSession.ts";
 
 /** Per-terminal record the backend keeps internally so the data-pump
@@ -185,6 +195,60 @@ export class RemoteTerminalBackend implements TerminalBackend {
         this.clientPromise = null;
         this.connectedAcked = false;
         this.stateSubscribed = false;
+      },
+    });
+    // Bridge the agent's `terminalMetadata` collection into the
+    // parent's. Every update on the agent side (spawn seed, cwd
+    // change from OSC 7, and — once the provider DAG lives
+    // agent-side — git/agent/pr/foreground events) flows here.
+    void this.bridgeMetadata().catch((err) =>
+      log.warn({ err, host: this.host }, "remote metadata mirror failed"),
+    );
+  }
+
+  private async bridgeMetadata(): Promise<void> {
+    const client = await this.callAgent(async (c) => c);
+    await mirrorRemoteCollection<TerminalId, AgentTerminalMetadata>({
+      label: `${this.host}/terminalMetadata`,
+      log: (line) => log.warn({ host: this.host }, line),
+      keys: client.surface.terminalMetadata.keys({}),
+      get: (id, signal) =>
+        client.surface.terminalMetadata.get({ key: id }, { signal }),
+      onUpsert: (id, agentMeta) => {
+        const entry = getTerminal(id);
+        if (!entry) return;
+        // The agent's `AgentTerminalMetadata` is the server-half of
+        // the parent's `TerminalMetadata` (no themeName / canvasLayout /
+        // subPanel / rightPanel / parentId / intent). Merge it in,
+        // preserving the parent-only fields. Override `location` to
+        // `{kind:"remote", host}` — the agent's view is always
+        // "local" from its own perspective.
+        updateServerLiveMetadata(entry, id, (m) => {
+          // `m` is narrowed to LiveTerminalFields; merge the live
+          // half explicitly. ServerPersistedTerminalFields (cwd,
+          // git, lastAgentCommand, lastActivityAt) go through
+          // `updateServerMetadata` — wrap separately to land them.
+          m.pr = agentMeta.pr;
+          m.agent = agentMeta.agent;
+          m.foreground = agentMeta.foreground;
+          // connectionState stays parent-side (mirrored from
+          // session.onState above) — don't let the agent overwrite.
+        });
+        updateServerMetadata(entry, id, (m) => {
+          m.cwd = agentMeta.cwd;
+          m.git = agentMeta.git;
+          m.lastAgentCommand = agentMeta.lastAgentCommand;
+          if (agentMeta.lastActivityAt > 0)
+            m.lastActivityAt = agentMeta.lastActivityAt;
+          m.location = { kind: "remote", host: this.host };
+        });
+      },
+      onRemove: (_id) => {
+        // The kill flow already calls `surfaceCtx.collections.terminalMetadata.remove`
+        // synchronously when the parent decides to kill, and the
+        // registry is the source of truth for "does this terminal
+        // still exist". Mirror-side remove notifications are
+        // redundant.
       },
     });
   }

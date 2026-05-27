@@ -115,13 +115,18 @@ function seedMetadata(cwd: string): AgentTerminalMetadata {
 
 /** Build the implementation deps for `agentSurface`, given an internal
  *  terminal map + metadata snapshot + a publishExit callback that the
- *  caller wires after the fragment is built. */
+ *  caller wires after the fragment is built. `publishMetadata` is the
+ *  publish-side companion to the deps' storage `upsert` — calling it
+ *  fires the framework's keyed channel so the parent's
+ *  `mirrorRemoteCollection` sees the update. Forward-refed like
+ *  `publishExit`. */
 export function buildAgentDeps(opts: {
   terminals: Map<TerminalId, AgentTerminal>;
   metadataSnapshot: Map<TerminalId, AgentTerminalMetadata>;
   publishExit: (id: TerminalId, exitCode: number) => void;
+  publishMetadata: (id: TerminalId, meta: AgentTerminalMetadata) => void;
 }): AgentImplDeps {
-  const { terminals, metadataSnapshot, publishExit } = opts;
+  const { terminals, metadataSnapshot, publishExit, publishMetadata } = opts;
 
   function requireTerminal(id: TerminalId): AgentTerminal {
     const t = terminals.get(id);
@@ -219,7 +224,7 @@ export function buildAgentDeps(opts: {
                 const t = terminals.get(input.id);
                 if (t) {
                   t.meta = { ...t.meta, cwd: next };
-                  metadataSnapshot.set(input.id, t.meta);
+                  publishMetadata(input.id, t.meta);
                 }
                 cwdCh.publish(next);
               },
@@ -227,7 +232,6 @@ export function buildAgentDeps(opts: {
             input.cwd,
           );
           const meta = seedMetadata(handle.cwd);
-          metadataSnapshot.set(input.id, meta);
           const info: TerminalInfo = { id: input.id, pid: handle.pid };
           terminals.set(input.id, {
             info,
@@ -238,6 +242,7 @@ export function buildAgentDeps(opts: {
             title,
             commandRun,
           });
+          publishMetadata(input.id, meta);
           tlog.info({ pid: handle.pid }, "spawned");
           return info;
         },
@@ -356,15 +361,18 @@ export async function runAgent(): Promise<void> {
   const terminals = new Map<TerminalId, AgentTerminal>();
   const metadataSnapshot = new Map<TerminalId, AgentTerminalMetadata>();
 
-  // `publishExit` is wired after `serveAgent` builds the fragment.
-  // Until then, exits before the wire is up just fall on the floor —
-  // which only matters if a PTY's onExit fires synchronously during
-  // spawnPty, which it doesn't.
+  // `publishExit` and `publishMetadata` are wired after `serveAgent`
+  // builds the fragment — neither can fire before the spawn handler
+  // runs (which only happens via an inbound RPC, i.e. after the wire
+  // is alive), so the forward-ref no-op default is safe.
   let publishExit: (id: TerminalId, exitCode: number) => void = () => {};
+  let publishMetadata: (id: TerminalId, meta: AgentTerminalMetadata) => void =
+    () => {};
   const deps = buildAgentDeps({
     terminals,
     metadataSnapshot,
     publishExit: (id, ec) => publishExit(id, ec),
+    publishMetadata: (id, meta) => publishMetadata(id, meta),
   });
 
   log.info("serving agent surface over stdio");
@@ -373,6 +381,8 @@ export async function runAgent(): Promise<void> {
   });
   publishExit = (id, exitCode) =>
     fragment.ctx.events.terminalExit.publish({ id }, exitCode);
+  publishMetadata = (id, meta) =>
+    fragment.ctx.collections.terminalMetadata.upsert(id, meta);
 
   // Graceful shutdown — parent's HostSession.teardown sends SIGTERM
   // when it disposes a session. Log the signal before exit so the

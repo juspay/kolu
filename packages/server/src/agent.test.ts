@@ -78,6 +78,7 @@ function startLoopbackAgent() {
     terminals,
     metadataSnapshot,
     publishExit: () => {},
+    publishMetadata: () => {},
   });
   const pair = createLoopbackPair();
   const { serveDone } = serveAgent(deps, { transport: pair.server });
