@@ -17,7 +17,6 @@ import { implement } from "@orpc/server";
 import {
   serveOverStdio,
   type ServeOverStdioOptions,
-  type StdioTransport,
 } from "@kolu/surface/peer-server";
 import {
   implementSurface,
@@ -44,9 +43,7 @@ export type AgentImplDeps = ImplementSurfaceDeps<typeof agentSurface.spec>;
  *  the cast + biome-ignore in exactly one place. */
 export function serveAgent(
   deps: AgentImplDeps,
-  opts: Omit<ServeOverStdioOptions<object>, "router"> & {
-    transport?: StdioTransport;
-  } = {},
+  opts: Omit<ServeOverStdioOptions<object>, "router"> = {},
 ): Promise<void> {
   const fragment = implementSurface(agentSurface, deps);
   const router = implement(agentSurface.contract).router({
