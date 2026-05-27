@@ -56,11 +56,20 @@ export function buildRouter(opts: BuildRouterOptions) {
     collections: {
       processes: {
         readAll: () => processCache,
-        upsert: () => {
-          throw new Error("processes is read-only from the browser");
+        // The framework's wrapped upsert/remove call these deps first
+        // and only then publish through the keyed channels. If we throw
+        // here (to "guard against browser writes"), the framework's own
+        // bridging path — `ctx.collections.processes.upsert(...)` from
+        // `reconcileProcesses` — also throws and the publish never fires.
+        // Browser-vs-server isn't a write-vs-read distinction inside the
+        // process; it's a wire-protocol distinction (the browser-facing
+        // contract simply doesn't expose `upsert` / `remove`). So these
+        // deps stay as the single in-process write seam.
+        upsert: (key, value) => {
+          processCache.set(key, value);
         },
-        remove: () => {
-          throw new Error("processes is read-only from the browser");
+        remove: (key) => {
+          processCache.delete(key);
         },
       },
     },
@@ -186,12 +195,11 @@ async function reconcileProcesses(
   },
 ): Promise<void> {
   const next = new Set(keys);
-  // Remove departed
+  // Remove departed — the framework's wrapped remove updates `cache`
+  // for us (via the `remove` dep we provided to `implementSurface`)
+  // and publishes through the keyed channels.
   for (const pid of cache.keys()) {
-    if (!next.has(pid)) {
-      cache.delete(pid);
-      fragment.ctx.collections.processes.remove(pid);
-    }
+    if (!next.has(pid)) fragment.ctx.collections.processes.remove(pid);
   }
   // Fetch new
   for (const pid of next) {
@@ -202,7 +210,7 @@ async function reconcileProcesses(
       const iter = stream[Symbol.asyncIterator]();
       const result = await iter.next();
       if (!result.done && result.value !== undefined) {
-        cache.set(pid, result.value);
+        // The wrapped upsert writes through to `cache` and publishes.
         fragment.ctx.collections.processes.upsert(pid, result.value);
       }
       // Eagerly close the iterator after the snapshot — value
