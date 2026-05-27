@@ -28,9 +28,12 @@ export const ActivityWindowChip: Component<{
    *  trigger); minimap uses `"top-end"` (upward, right-aligned). */
   anchor: AnchorSide;
   /** Drives `data-testid` on both the trigger button (`<prefix>-trigger`)
-   *  and each option (`<prefix>-option-<value>`). Keep stable per
-   *  surface so e2e selectors continue to resolve. */
-  testIdPrefix: string;
+   *  and each option (`<prefix>-option-<value>`). The literal union is
+   *  the contract — e2e selectors in `dock_steps.ts` / `canvas_steps.ts`
+   *  hard-code these prefixes, so adding a third surface must extend the
+   *  union (and the matching step files) deliberately, not be a freeform
+   *  string at the call site. */
+  testIdPrefix: "dock-window" | "minimap-window";
   /** Tailwind classes for the trigger's own chrome — size, padding,
    *  border. Colour state (accent when filtered, neutral when `all`)
    *  and the shared hover/focus/font are baked in below. */
