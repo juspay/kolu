@@ -4,20 +4,31 @@
  * instance per host; the underlying `HostSession` is shared (refcounted
  * by `pin()`) across all terminals on that host.
  *
- * **MVP scope**: PTY lifecycle (spawn / kill / write / resize), data
- * stream forwarding, fs/git pass-through. `getScreenState` /
- * `getScreenText` return "" for now — the xterm.js client accumulates
- * from the live data stream after attach, which is correct for fresh
- * spawn (no scrollback to snapshot). Reconnect resilience (recovering
- * screen state after a WebSocket drop) ships with the per-terminal
- * mirrored xterm-headless seam in a follow-up.
+ * Architecture:
  *
- * **No provider DAG** yet — git watcher, github PR watcher, agent
- * detectors (claude/codex/opencode), foreground-process observer all
- * live on `LocalTerminalBackend` today. Remote terminals carry only
- * the cwd that comes back through `terminalCwd` stream + the static
- * seed metadata published at spawn. Porting providers to the agent
- * side (or running them parent-side on agent's streams) is follow-up.
+ *   - **PTY lifecycle**: `terminal.{spawn,kill,write,resize}` RPCs to
+ *     the agent. `spawnPty` registers synchronously (placeholder
+ *     pid=0); async tail pins the session, calls agent's spawn, and
+ *     updates pid + starts the four per-terminal stream pumps.
+ *   - **Data streams**: agent's `terminalData/Cwd/Title/CommandRun`
+ *     streams are pumped into the parent's existing `terminalChannels`
+ *     bus, so the kolu-server's `terminal.attach` and the agent
+ *     detectors / providers running on the AGENT consume them
+ *     identically to local terminals.
+ *   - **Provider DAG runs on the agent** (see
+ *     `./providers.ts`+`agent.ts`) — git watcher, github PR, claude/
+ *     codex/opencode detectors, foreground-process observer all read
+ *     state on the same machine the PTY lives on. The parent's
+ *     `mirrorRemoteCollection` bridges agent-side `terminalMetadata`
+ *     into the parent's own `terminalMetadata` collection.
+ *   - **`getScreenState` / `getScreenText`**: a parent-side mirrored
+ *     `@xterm/headless` terminal is fed by the data pump, so reconnect
+ *     after a WebSocket drop reads the buffered scrollback locally
+ *     instead of round-tripping another RPC.
+ *   - **`fs` / `git`**: forwarded to the agent procedures.
+ *   - **Heartbeat layer** detects stuck-agent cases (`./heartbeat.ts`).
+ *   - **`HostSession.onState`** transitions feed
+ *     `meta.connectionState` for the `<DisconnectedOverlay>`.
  */
 
 import { SerializeAddon } from "@xterm/addon-serialize";
