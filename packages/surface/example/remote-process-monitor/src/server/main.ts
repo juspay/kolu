@@ -93,10 +93,22 @@ async function main(): Promise<void> {
   // ── WebSocket: oRPC over @orpc/server/ws ───────────────────────────
   // biome-ignore lint/suspicious/noExplicitAny: same Lazy<Router> spread typing dance as kolu/server.ts uses on its own appRouter.
   const wsHandler = new RPCHandler(router as any);
-  const wss = new WebSocketServer({ noServer: true });
+  const wss = new WebSocketServer({
+    noServer: true,
+    // 8 MiB per inbound frame — the framework's processes-collection
+    // cold-start sends a 597-item key array in a single frame, which
+    // is comfortably under 1 MiB; raise the cap so we can't quietly
+    // hit it as the demo scales.
+    maxPayload: 8 * 1024 * 1024,
+  });
   wss.on("connection", (ws) => {
     log("browser ws connect");
-    ws.on("close", () => log("browser ws disconnect"));
+    ws.on("close", (code, reason) =>
+      log(
+        `browser ws disconnect (code=${code} reason=${reason.toString() || "<none>"})`,
+      ),
+    );
+    ws.on("error", (err) => log(`browser ws error: ${err.message}`));
     void wsHandler.upgrade(
       ws as unknown as Parameters<typeof wsHandler.upgrade>[0],
     );

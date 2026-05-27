@@ -65,6 +65,7 @@ export type AgentClient = ContractRouterClient<
 >;
 
 const MAX_PROGRESS_LINES = 20;
+const MAX_CONSECUTIVE_FAILURES = 5;
 
 export class HostSession {
   private refCount = 0;
@@ -81,6 +82,13 @@ export class HostSession {
   });
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private destroyed = false;
+  /** Count of consecutive failures since the last successful "connected"
+   *  transition. Drives the exponential backoff on `scheduleReconnect`
+   *  AND the give-up gate (after `MAX_CONSECUTIVE_FAILURES` we stop
+   *  retrying and surface a permanent disconnect — useful when the
+   *  remote nix-daemon won't accept the closure at all and the loop
+   *  would otherwise spam forever). */
+  private consecutiveFailures = 0;
 
   constructor(private readonly opts: HostSessionOptions) {}
 
@@ -250,14 +258,32 @@ export class HostSession {
   /** Called by the parent's router after the first RPC roundtrips
    *  successfully. Transitions to `connected` exactly once per spawn. */
   markConnected(): void {
-    if (this.stateCell.current().connection === "connecting")
+    if (this.stateCell.current().connection === "connecting") {
+      this.consecutiveFailures = 0;
       this.updateState({ connection: "connected" });
+    }
   }
 
   private scheduleReconnect(): void {
     if (this.destroyed || this.reconnectTimer !== null) return;
-    const delay = this.opts.reconnectDelayMs ?? 2000;
-    this.addLocalProgress(`reconnecting in ${delay}ms…`);
+    this.consecutiveFailures += 1;
+    if (this.consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+      this.addLocalProgress(
+        `gave up after ${MAX_CONSECUTIVE_FAILURES} consecutive failures — fix the underlying issue (often: remote nix-daemon needs your user in 'trusted-users' to accept unsigned closures) and restart the parent`,
+      );
+      return;
+    }
+    // Exponential backoff with a cap — a permanent failure (untrusted
+    // remote, unreachable host, missing closure) shouldn't hammer the
+    // remote every 2s. 2s, 4s, 8s, 16s, 32s, then cap at 60s.
+    const baseDelay = this.opts.reconnectDelayMs ?? 2000;
+    const delay = Math.min(
+      baseDelay * 2 ** (this.consecutiveFailures - 1),
+      60_000,
+    );
+    this.addLocalProgress(
+      `reconnecting in ${delay}ms… (attempt ${this.consecutiveFailures}/${MAX_CONSECUTIVE_FAILURES})`,
+    );
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       if (this.destroyed || this.refCount === 0) return;

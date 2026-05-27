@@ -94,7 +94,20 @@ export async function provisionAgent(
   return new Promise<ProvisionResult>((resolve) => {
     const proc = spawn(
       "nix",
-      ["copy", "--to", `ssh-ng://${opts.host}`, opts.agentPath],
+      [
+        "copy",
+        // The remote daemon's `require-sigs` policy rejects unsigned
+        // paths unless the sending user is in `trusted-users`.
+        // `--no-check-sigs` skips the *local* check; the remote also
+        // needs the sender trusted for this to actually take effect.
+        // If neither side is configured, the error message is clear
+        // ("lacks a signature by a trusted key") and we stop retrying
+        // after a few attempts via the backoff cap in HostSession.
+        "--no-check-sigs",
+        "--to",
+        `ssh-ng://${opts.host}`,
+        opts.agentPath,
+      ],
       { stdio: ["ignore", "pipe", "pipe"] },
     );
     proc.stderr?.setEncoding("utf-8");
