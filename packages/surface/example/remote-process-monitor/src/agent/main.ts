@@ -69,13 +69,9 @@ async function main(): Promise<void> {
 
   const systemStore = inMemoryStore(await reader.readSystem());
   let processSnapshot = await reader.readProcesses();
-  const processBus = inMemoryChannel<{
-    kind: "snapshot" | "upsert" | "remove";
-    pid: Pid;
-    value?: Process;
-    /** Present on `kind === "snapshot"` only — full keyed map. */
-    snapshot?: Map<Pid, Process>;
-  }>();
+  const processBus = inMemoryChannel<
+    { kind: "upsert"; pid: Pid; value: Process } | { kind: "remove"; pid: Pid }
+  >();
 
   // Poll loop: refresh system + processes, diff against previous,
   // publish per-PID upsert/remove deltas.
@@ -166,9 +162,9 @@ async function main(): Promise<void> {
   // `implementSurface`.
   processBus.consume({
     onEvent: (msg) => {
-      if (msg.kind === "upsert" && msg.value !== undefined) {
+      if (msg.kind === "upsert") {
         fragment.ctx.collections.processes.upsert(msg.pid, msg.value);
-      } else if (msg.kind === "remove") {
+      } else {
         fragment.ctx.collections.processes.remove(msg.pid);
       }
     },
