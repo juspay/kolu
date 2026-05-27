@@ -74,6 +74,27 @@ export const DEFAULT_CONNECTION: z.infer<typeof ConnectionSchema> = {
   state: "connecting",
 };
 
+/** Snapshot-then-delta `Stream<>` shape — the bulk-friendly counterpart
+ *  to the per-key `processes` collection. With 600+ PIDs, the
+ *  collection's N+1 subscribes drip a row per round-trip over a
+ *  high-latency `ssh` link; this stream yields the entire keyed map
+ *  in one frame (snapshot) then per-tick delta sets. The UI consumes
+ *  this for the htop table; the per-key `processes` collection stays
+ *  on the surface for the framework's "row 3: snapshot-then-delta on
+ *  collections" demonstration (and remains the right shape for "watch
+ *  one specific PID" use cases). */
+const ProcessesSnapshotMessage = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("snapshot"),
+    entries: z.array(z.tuple([PidSchema, ProcessSchema])),
+  }),
+  z.object({
+    kind: z.literal("delta"),
+    upserts: z.array(z.tuple([PidSchema, ProcessSchema])),
+    removes: z.array(PidSchema),
+  }),
+]);
+
 export const surface = defineSurface({
   cells: {
     system: {
@@ -89,6 +110,12 @@ export const surface = defineSurface({
     processes: {
       keySchema: PidSchema,
       schema: ProcessSchema,
+    },
+  },
+  streams: {
+    processesSnapshot: {
+      inputSchema: z.object({}),
+      outputSchema: ProcessesSnapshotMessage,
     },
   },
   procedures: {
@@ -111,3 +138,4 @@ export type Process = SF["collections"]["processes"]["Value"];
 export type SystemInfo = SF["cells"]["system"]["Value"];
 export type ConnectionInfo = SF["cells"]["connection"]["Value"];
 export type ConnectionState = ConnectionInfo["state"];
+export type ProcessesSnapshotMsg = SF["streams"]["processesSnapshot"]["Output"];

@@ -82,6 +82,23 @@ export function buildRouter(opts: BuildRouterOptions) {
         },
       },
     },
+    streams: {
+      // Browser doesn't consume this stream directly (the framework's
+      // `processes` collection — wired above — is what the UI binds
+      // to). It still has to be implemented because the shared surface
+      // declares it. Yield never; the framework just keeps the stream
+      // open for the lifetime of the subscriber and aborts cleanly
+      // when they disconnect.
+      processesSnapshot: {
+        source: async function* (_input, signal) {
+          await new Promise<void>((resolve) => {
+            if (signal === undefined) return;
+            if (signal.aborted) resolve();
+            else signal.addEventListener("abort", () => resolve());
+          });
+        },
+      },
+    },
     procedures: {
       process: {
         kill: async ({ input }) => {
@@ -160,7 +177,7 @@ async function bridgeAgentToParent(
   // Don't release on background termination — the session is the
   // long-lived parent-side singleton and we want it kept warm.
   void pumpSystemCell(client, session, fragment);
-  void pumpProcessesCollection(client, fragment);
+  void pumpProcessesSnapshot(client, fragment);
 }
 
 /** Mirror the agent's system cell into the parent's local cell. */
@@ -183,80 +200,62 @@ async function pumpSystemCell(
   }
 }
 
-/** Mirror the agent's processes collection into the parent's cache by
- *  keeping ONE long-lived per-key stream open per PID. Each per-key
- *  stream yields the initial value (snapshot) then every subsequent
- *  upsert (delta) — `pumpProcessValue` forwards each yield to the
- *  parent's collection ctx. New PIDs spawn streams in parallel as the
- *  agent's `keys` stream notifies us; departed PIDs abort their stream
- *  and `remove()` from the parent's collection. */
-async function pumpProcessesCollection(
+/** Mirror the agent's processes via the BULK `processesSnapshot`
+ *  stream — ONE long-lived stream, regardless of process count. Each
+ *  yield is either a full keyed-snapshot (first frame on subscribe,
+ *  or on every reconnect via `ClientRetryPlugin`) or a per-tick delta.
+ *  Both shapes apply to the parent's local collection in a single
+ *  batch.
+ *
+ *  This replaces the older "keys-stream + N per-key subscribes"
+ *  bridge — fine over local stdio but a noticeable drip over a
+ *  high-latency `ssh` link (600 PIDs × ~10ms RTT ≈ 6 seconds of
+ *  one-row-at-a-time fill). With the bulk stream, cold-start is O(1)
+ *  RPCs regardless of process count. */
+async function pumpProcessesSnapshot(
   client: AgentClient,
   fragment: FragmentCtx,
 ): Promise<void> {
-  const open = new Map<Pid, AbortController>();
-  let keysYields = 0;
+  const seenPids = new Set<Pid>();
+  let frames = 0;
   try {
-    for await (const keys of await client.surface.processes.keys({})) {
-      keysYields += 1;
-      const next = new Set(keys);
-      let opened = 0;
-      let removed = 0;
-      // Open per-key streams for new PIDs — fire-and-forget; the loop
-      // runs in parallel so cold-start fills as fast as the link can
-      // carry the subscribes.
-      for (const pid of next) {
-        if (open.has(pid)) continue;
-        const ctl = new AbortController();
-        open.set(pid, ctl);
-        opened += 1;
-        void pumpProcessValue(client, pid, fragment, ctl.signal);
-      }
-      // Close streams for departed PIDs and drop them from the parent's
-      // collection. (The wrapped remove publishes the absence through
-      // the framework's keyed channels — browser sees the deletion.)
-      for (const [pid, ctl] of [...open]) {
-        if (next.has(pid)) continue;
-        ctl.abort();
-        open.delete(pid);
-        fragment.ctx.collections.processes.remove(pid);
-        removed += 1;
-      }
-      // Only log when the key set actually moves — the framework
-      // re-emits the same key array on every value-only delta.
-      if (opened > 0 || removed > 0) {
+    for await (const msg of await client.surface.processesSnapshot.get({})) {
+      frames += 1;
+      if (msg.kind === "snapshot") {
+        // Full reset — drop any PIDs we'd seen previously that aren't
+        // in the new snapshot, then upsert everything in the snapshot.
+        const next = new Set(msg.entries.map(([pid]) => pid));
+        for (const pid of [...seenPids]) {
+          if (!next.has(pid)) {
+            fragment.ctx.collections.processes.remove(pid);
+            seenPids.delete(pid);
+          }
+        }
+        for (const [pid, value] of msg.entries) {
+          fragment.ctx.collections.processes.upsert(pid, value);
+          seenPids.add(pid);
+        }
         log(
-          `processes: keys-yield #${keysYields} — opened=${opened} closed=${removed} total=${open.size}`,
+          `processes: snapshot frame #${frames} — ${msg.entries.length} PIDs (cold-start or reconnect)`,
         );
+      } else {
+        for (const [pid, value] of msg.upserts) {
+          fragment.ctx.collections.processes.upsert(pid, value);
+          seenPids.add(pid);
+        }
+        for (const pid of msg.removes) {
+          fragment.ctx.collections.processes.remove(pid);
+          seenPids.delete(pid);
+        }
+        if (msg.upserts.length > 0 || msg.removes.length > 0) {
+          log(
+            `processes: delta frame #${frames} — upsert=${msg.upserts.length} remove=${msg.removes.length} total=${seenPids.size}`,
+          );
+        }
       }
     }
-    log(`processes: keys stream closed (${keysYields} yields total)`);
+    log(`processes: snapshot stream closed (${frames} frames total)`);
   } catch (err) {
-    log(`processes: keys stream error: ${(err as Error).message}`);
-  } finally {
-    // Abort every still-open per-key stream so the agent can release
-    // its subscriber slots cleanly.
-    for (const ctl of open.values()) ctl.abort();
-  }
-}
-
-/** Long-lived per-PID stream: first yield = snapshot, subsequent yields
- *  = deltas from the agent's poll loop. Aborts cleanly on signal (PID
- *  departure) or stream error (transport blip / `processes.get` says
- *  "key not found" because the PID vanished between `keys` and `get`). */
-async function pumpProcessValue(
-  client: AgentClient,
-  pid: Pid,
-  fragment: FragmentCtx,
-  signal: AbortSignal,
-): Promise<void> {
-  try {
-    const stream = await client.surface.processes.get({ key: pid }, { signal });
-    for await (const value of stream) {
-      if (signal.aborted) break;
-      fragment.ctx.collections.processes.upsert(pid, value);
-    }
-  } catch {
-    // PID vanished / aborted — the orchestrator handles cleanup.
+    log(`processes: snapshot stream error: ${(err as Error).message}`);
   }
 }

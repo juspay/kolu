@@ -29,6 +29,7 @@
 import { implement } from "@orpc/server";
 import {
   implementSurface,
+  inMemoryChannel,
   inMemoryPublisher,
   inMemoryStore,
   publisherChannel,
@@ -38,6 +39,7 @@ import {
   DEFAULT_CONNECTION,
   type Pid,
   type Process,
+  type ProcessesSnapshotMsg,
   surface,
 } from "../common/surface";
 import { createProcReader } from "./proc";
@@ -85,6 +87,10 @@ async function main(): Promise<void> {
   // channels by name so the framework's publish-site and subscribe-
   // site call paths land on the same `Channel<T>` instance.
   const publisher = inMemoryPublisher();
+  // Bulk-snapshot channel — `processesSnapshot` stream subscribers
+  // read the current map on first subscribe, then forward every
+  // delta the poll loop publishes here.
+  const snapshotDeltaBus = inMemoryChannel<ProcessesSnapshotMsg>();
   const fragment = implementSurface(surface, {
     channel: <T>(name: string) => publisherChannel<T>(publisher, name),
     cells: {
@@ -105,6 +111,19 @@ async function main(): Promise<void> {
         },
         remove: (key) => {
           processSnapshot.delete(key);
+        },
+      },
+    },
+    streams: {
+      processesSnapshot: {
+        source: async function* (_input, signal) {
+          yield {
+            kind: "snapshot",
+            entries: [...processSnapshot.entries()],
+          } satisfies ProcessesSnapshotMsg;
+          for await (const delta of snapshotDeltaBus.subscribe(signal)) {
+            yield delta;
+          }
         },
       },
     },
@@ -135,6 +154,8 @@ async function main(): Promise<void> {
         reader.readProcesses(),
       ]);
       fragment.ctx.cells.system.set(nextSystem);
+      const upserts: Array<[Pid, Process]> = [];
+      const removes: Pid[] = [];
       for (const [pid, value] of nextProcesses) {
         const prev = processSnapshot.get(pid);
         if (
@@ -144,11 +165,17 @@ async function main(): Promise<void> {
           prev.command !== value.command
         ) {
           fragment.ctx.collections.processes.upsert(pid, value);
+          upserts.push([pid, value]);
         }
       }
       for (const pid of [...processSnapshot.keys()]) {
-        if (!nextProcesses.has(pid))
+        if (!nextProcesses.has(pid)) {
           fragment.ctx.collections.processes.remove(pid);
+          removes.push(pid);
+        }
+      }
+      if (upserts.length > 0 || removes.length > 0) {
+        snapshotDeltaBus.publish({ kind: "delta", upserts, removes });
       }
     } catch (err) {
       log(`tick error: ${(err as Error).message}`);
