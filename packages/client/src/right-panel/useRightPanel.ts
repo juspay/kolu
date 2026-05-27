@@ -113,20 +113,23 @@ export function useRightPanel() {
     reportToServer(id);
   }
 
+  const clampPanelSize = (size: number) =>
+    Math.min(MAX_PANEL_FRACTION, Math.max(MIN_PANEL_FRACTION, size));
+
   return {
     // ── Workspace chrome (global) ────────────────────────────────────
     collapsed: () => rp().collapsed,
-    panelSize: () => rp().size,
+    // Clamp on read too: a session restored from a pre-clamp era (when
+    // the floor was 0.05) can carry a stored value below today's
+    // `MIN_PANEL_FRACTION`. Clamping only at write would let that stale
+    // value render through the gate.
+    panelSize: () => clampPanelSize(rp().size),
     togglePanel: () =>
       updatePreferences({ rightPanel: { collapsed: !rp().collapsed } }),
     collapsePanel: () => updatePreferences({ rightPanel: { collapsed: true } }),
     expandPanel: () => updatePreferences({ rightPanel: { collapsed: false } }),
     setPanelSize: (size: number) => {
-      const clamped = Math.min(
-        MAX_PANEL_FRACTION,
-        Math.max(MIN_PANEL_FRACTION, size),
-      );
-      updatePreferences({ rightPanel: { size: clamped } });
+      updatePreferences({ rightPanel: { size: clampPanelSize(size) } });
     },
     /** Vertical split fraction inside the Code tab — tree pane occupies
      *  this share, content pane gets the rest. Persisted across reload. */
