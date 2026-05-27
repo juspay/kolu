@@ -43,7 +43,8 @@ import MobileKeyBar from "./MobileKeyBar";
 import MobileTileView from "./MobileTileView";
 import { useRecorder } from "./recorder/useRecorder";
 import WebcamOverlay from "./recorder/WebcamOverlay";
-import RightPanelLayout from "./right-panel/RightPanelLayout";
+import RightPanel from "./right-panel/RightPanel";
+import RightPanelDrawer from "./right-panel/RightPanelDrawer";
 import { useRightPanel } from "./right-panel/useRightPanel";
 import { client } from "./wire";
 import { serverProcessId, wsStatus } from "./rpc/rpc";
@@ -83,6 +84,12 @@ const App: Component = () => {
   const subPanel = useSubPanel();
   const rightPanel = useRightPanel();
   const { colorScheme } = useColorScheme();
+
+  // `openInCodeTab` (in `right-panel/openInCodeTab.ts`) dispatches both
+  // desktop uncollapse and mobile drawer-open imperatively from the
+  // producer call. There is no `on(pendingOpen, ...)` subscriber here —
+  // the deferred-effect shape lost re-fires under the production Solid
+  // build (see `openInCodeTab.ts`'s header for the canary scenario).
 
   // Workspace search feeds — the live-terminal source list and recency
   // accessor consumed by the unified command palette's "Search
@@ -535,15 +542,15 @@ const App: Component = () => {
               </div>
             }
           >
-            <RightPanelLayout
-              terminalId={store.activeId()}
-              meta={store.activeMeta()}
-              themeName={activeThemeName()}
-              onThemeClick={() => openPaletteGroup("Set theme")}
-              contentClass={isMobile() ? "flex-col" : undefined}
-            >
-              {match(isMobile())
-                .with(true, () => (
+            {match(isMobile())
+              .with(true, () => (
+                <RightPanelDrawer
+                  terminalId={store.activeId()}
+                  meta={store.activeMeta()}
+                  themeName={activeThemeName()}
+                  onThemeClick={() => openPaletteGroup("Set theme")}
+                  contentClass="flex-col"
+                >
                   <MobileTileView
                     orderedIds={orderedIds()}
                     status={wsStatus()}
@@ -552,41 +559,52 @@ const App: Component = () => {
                     renderBody={renderMobileTileBody}
                     bottomBar={<MobileKeyBar activeId={store.activeId} />}
                   />
-                ))
-                .with(false, () => (
-                  <TerminalCanvas
-                    tileIds={store.terminalIds()}
-                    watermark={appTitle()}
-                    getLayout={(id) => store.getMetadata(id)?.canvasLayout}
-                    placeNew={arrange.placeNew}
-                    onLayoutChange={arrange.applyTileGeometry}
-                    onAutoArrange={arrange.handleCanvasAutoArrange}
-                    onSelect={store.setActiveSilently}
-                    onClose={(id) => closeTerminal(id)}
-                    onOpenWorkspaceSearch={() =>
-                      openPaletteGroup("Search workspaces")
-                    }
-                    onCreate={() => openPaletteGroup("New terminal")}
-                    renderTileTitle={(id) => (
-                      <TerminalMeta
-                        info={store.getDisplayInfo(id)}
-                        onOpenIntent={() => intentEditor.openTerminal(id)}
-                      />
-                    )}
-                    renderTileTitleActions={(id) => (
-                      <TileTitleActions
-                        id={id}
-                        onOpenPaletteGroup={openPaletteGroup}
-                        onToggleSubPanel={handleToggleSubPanel}
-                        onOpenSearch={() => setSearchOpen(true)}
-                        onScreenshot={handleScreenshotTerminal}
-                      />
-                    )}
-                    renderTileBody={renderCanvasTileBody}
-                  />
-                ))
-                .exhaustive()}
-            </RightPanelLayout>
+                </RightPanelDrawer>
+              ))
+              .with(false, () => (
+                <TerminalCanvas
+                  tileIds={store.terminalIds()}
+                  watermark={appTitle()}
+                  getLayout={(id) => store.getMetadata(id)?.canvasLayout}
+                  placeNew={arrange.placeNew}
+                  onLayoutChange={arrange.applyTileGeometry}
+                  onAutoArrange={arrange.handleCanvasAutoArrange}
+                  onSelect={store.setActiveSilently}
+                  onClose={(id) => closeTerminal(id)}
+                  onOpenWorkspaceSearch={() =>
+                    openPaletteGroup("Search workspaces")
+                  }
+                  onCreate={() => openPaletteGroup("New terminal")}
+                  renderTileTitle={(id) => (
+                    <TerminalMeta
+                      info={store.getDisplayInfo(id)}
+                      onOpenIntent={() => intentEditor.openTerminal(id)}
+                    />
+                  )}
+                  renderTileTitleActions={(id) => (
+                    <TileTitleActions
+                      id={id}
+                      onOpenPaletteGroup={openPaletteGroup}
+                      onToggleSubPanel={handleToggleSubPanel}
+                      onOpenSearch={() => setSearchOpen(true)}
+                      onScreenshot={handleScreenshotTerminal}
+                    />
+                  )}
+                  renderTileBody={renderCanvasTileBody}
+                  rightPanel={
+                    <RightPanel
+                      terminalId={store.activeId()}
+                      meta={store.activeMeta()}
+                      onToggle={rightPanel.togglePanel}
+                      themeName={activeThemeName()}
+                      onThemeClick={() => openPaletteGroup("Set theme")}
+                      visible={!rightPanel.collapsed()}
+                      shell={true}
+                    />
+                  }
+                />
+              ))
+              .exhaustive()}
           </Show>
         </Show>
       </div>

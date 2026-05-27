@@ -119,6 +119,14 @@ const TerminalCanvas: Component<{
    *  every focus change — reads happen inside the returned JSX's props
    *  (fine-grained reactivity), not around the render-prop effect. */
   renderTileBody: (id: TerminalId, active: () => boolean) => JSX.Element;
+  /** Slot for the right panel (Inspector + Code tabs). Rendered as a
+   *  sibling of the Dock in the outer flex container so it mirrors
+   *  the Dock's posture-aware behaviour exactly — float in tiled,
+   *  flush sibling in maximized. The panel owns its own chrome and
+   *  positioning via `useViewPosture`; this slot is just a mount
+   *  point. Omitted on mobile (where the right panel lives in a
+   *  bottom drawer instead). */
+  rightPanel?: JSX.Element;
 }> = (props) => {
   const viewport = useCanvasViewport();
   const store = useTerminalStore();
@@ -378,9 +386,9 @@ const TerminalCanvas: Component<{
       {/* Outer flex container — single mount point for the activity
        *  dock. The dock owns its own posture-conditional positioning:
        *  in maximized mode it's `relative shrink-0` (real left-panel
-       *  flex sibling, like RightPanelLayout's right panel — the
+       *  flex sibling, like RightPanelDrawer's right panel — the
        *  canvas takes the remaining width via `flex-1`); in tiled
-       *  mode it's `absolute z-30 top-20 left-4` (floats over the
+       *  mode it's `absolute z-30 top-12 left-4` (floats over the
        *  canvas). The wrapper is `relative` so the dock's absolute
        *  coordinates in tiled mode resolve to the same `top: 5rem,
        *  left: 1rem` they did when mounted inside the canvas div.
@@ -424,7 +432,7 @@ const TerminalCanvas: Component<{
             {(id) => {
               const active = () => store.activeId() === id;
               const mode = (): CanvasTileMode =>
-                !posture.maximized()
+                posture.mode() === "tiled"
                   ? "tiled"
                   : active()
                     ? "maximized"
@@ -467,7 +475,7 @@ const TerminalCanvas: Component<{
 
           {/* Minimap: spatial dashboard; hides in fullscreen-single-tile mode
            *  since there's nothing spatial to summarize. */}
-          <Show when={!posture.maximized()}>
+          <Show when={posture.mode() === "tiled"}>
             <CanvasMinimap
               tileIds={props.tileIds}
               layouts={layouts()}
@@ -497,6 +505,12 @@ const TerminalCanvas: Component<{
             />
           </Show>
         </div>
+        {/* Right panel slot — sibling of Dock + canvas-container in the
+         *  outer flex. Owns its own posture-aware chrome (mirrors
+         *  Dock's tiled-float / maximized-flush pattern on the opposite
+         *  side). Omitted on mobile, where the right panel lives in a
+         *  bottom drawer wired up in App.tsx. */}
+        {props.rightPanel}
       </div>
     </DragDropProvider>
   );

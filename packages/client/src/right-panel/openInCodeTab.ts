@@ -2,9 +2,21 @@
  *  — terminal-link click, right-click "Open path:N" context-menu entry,
  *  future surfaces — calls `openInCodeTab(...)` instead of writing the
  *  preferences patch and pending-request signal separately. The function
- *  encapsulates the paired writes (panel-uncollapse + tab + browse-mode +
- *  pending request) so the SolidJS effect-ordering invariant lives here,
- *  not at every call site.
+ *  encapsulates the paired writes (tab + browse-mode + visibility
+ *  uncollapse + pending request) so the SolidJS effect-ordering
+ *  invariant lives here, not at every call site.
+ *
+ *  Visibility (desktop uncollapse / mobile drawer open) is dispatched
+ *  imperatively from here rather than via a deferred `createEffect(on(
+ *  pendingOpen, ...))` subscriber. The deferred-effect shape worked in
+ *  dev but lost subsequent fires under the production Solid build —
+ *  even with `equals: false` on the signal — when the same `req` value
+ *  flowed through twice with a manual collapse in between (the
+ *  `file-ref-link.feature` "re-click after collapse" canary). Driving
+ *  visibility from the producer call itself sidesteps that elision
+ *  path entirely; the `pendingOpen` signal remains for the *content*
+ *  consumer (`CodeTab` re-paints the highlight when the same `ref`
+ *  arrives twice).
  *
  *  Latest request wins; callers don't clear it. Each call mints a fresh
  *  request object — two clicks on the same `path:line` are distinct by
@@ -14,6 +26,7 @@
 import type { CodeTabView } from "kolu-common/surface";
 import { batch, createSignal } from "solid-js";
 import type { LineRef } from "../ui/lineRef";
+import { isMobile } from "../useMobile";
 import { useRightPanel } from "./useRightPanel";
 
 export interface OpenInCodeTabRequest {
@@ -40,21 +53,31 @@ export interface OpenInCodeTabRequest {
 // (split panels, multi-window), this signal must move into a
 // SolidJS context or scope to a per-panel store, otherwise concurrent
 // consumers will race on each other's pending requests.
-const [pending, setPending] = createSignal<OpenInCodeTabRequest | null>(null);
+//
+// `equals: false` forces every `setPending(req)` to notify subscribers
+// regardless of value identity — `CodeTab` re-paints the highlight on
+// every fire, even when the user clicks the same `path:line` twice
+// in a row.
+const [pending, setPending] = createSignal<OpenInCodeTabRequest | null>(null, {
+  equals: false,
+});
 
 export const pendingOpen = pending;
 
 /** Open the right panel's Code tab at `req.targetMode` showing `req.ref`.
- *  The two reactive writes (preferences patch + pending-request signal)
- *  are wrapped in `batch()` so downstream effects see both changes in
- *  the same reactive transaction — one tick instead of two. Pure
- *  optimization since the `resetKey`-vs-pendingOpen race was removed
- *  (selection is now per-slot, so no effect clears `selectedPath`);
- *  kept because the merged tick still avoids a flash of intermediate
- *  state during navigation. */
+ *  Three reactive writes wrapped in `batch()` so downstream effects see
+ *  the changes in one reactive transaction: per-terminal tab/mode
+ *  (`openCodeAt`), workspace visibility (uncollapse desktop / open mobile
+ *  drawer), and the producer signal (`setPending`). */
 export function openInCodeTab(req: OpenInCodeTabRequest): void {
+  const rp = useRightPanel();
   batch(() => {
-    useRightPanel().openCodeAt(req.targetMode);
+    rp.openCodeAt(req.targetMode);
+    if (isMobile()) {
+      rp.setDrawerOpen(true);
+    } else if (rp.collapsed()) {
+      rp.expandPanel();
+    }
     setPending(req);
   });
 }

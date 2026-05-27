@@ -49,20 +49,23 @@ When(
 // ── Assertions ──
 
 Then("the right panel should be visible", async function (this: KoluWorld) {
-  const panel = this.page.locator('[data-testid="right-panel"]');
-  await panel.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  // The expanded panel renders its tab bar (Inspector + Code) inside
+  // the shell; the collapsed shell is a 44 px rail with just the
+  // expand chevron. "Visible" means the tab content area exists —
+  // assert one of its tab buttons is reachable.
+  const tab = this.page.locator('[data-testid="right-panel-tab-inspector"]');
+  await tab.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
 });
 
 Then("the right panel should not be visible", async function (this: KoluWorld) {
-  // After the keep-mounted refactor (#818), the panel stays in the DOM but
-  // Resizable shrinks it to ~0 width when collapsed (a 1px `border-l` is
-  // all that remains, so Playwright's `state: "hidden"` would still see it
-  // as visible). Assert effective collapse via bounding-box width instead.
+  // The collapsed shell renders the 44 px rail (`right-panel-rail-
+  // expand` chevron). Assert the tab bar's content is gone — the
+  // shell's `data-collapsed` attribute is the canonical state seam.
   await this.page.waitForFunction(
     () => {
-      const el = document.querySelector('[data-testid="right-panel"]');
-      if (!el) return true;
-      return (el as HTMLElement).getBoundingClientRect().width <= 1;
+      const shell = document.querySelector('[data-testid="right-panel"]');
+      if (!shell) return true;
+      return shell.hasAttribute("data-collapsed");
     },
     null,
     { timeout: POLL_TIMEOUT },

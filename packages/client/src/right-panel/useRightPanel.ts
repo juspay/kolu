@@ -45,7 +45,7 @@ const [perTerminal, setPerTerminal] = createStore<
 /** Session-local visibility of the mobile bottom-drawer host. Distinct from
  *  the persisted `preferences.rightPanel.collapsed` bit so dismissing the
  *  drawer on mobile doesn't cross-contaminate the desktop chrome preference.
- *  `RightPanelLayout`'s mobile branch owns the open/close gestures; the
+ *  `RightPanelDrawer`'s mobile branch owns the open/close gestures; the
  *  desktop branch ignores this signal entirely. */
 const [drawerOpen, setDrawerOpen] = createSignal(false);
 
@@ -157,7 +157,7 @@ export function useRightPanel() {
       }),
     /** Atomic "set the Code tab at `mode`" — switch to Code, set the
      *  requested sub-mode. Does NOT touch visibility (collapsed pref or
-     *  drawer-open signal); the host (`RightPanelLayout`) watches the
+     *  drawer-open signal); the host (`RightPanelDrawer`) watches the
      *  paired `pendingOpen` signal seeded by `openInCodeTab` and ensures
      *  the surface is visible per its own semantics (desktop expand vs.
      *  mobile drawer open). Keeping visibility out of this function is
