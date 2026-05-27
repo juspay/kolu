@@ -42,14 +42,6 @@ const RightPanel: Component<{
    *  pure presenter and lets `aria-hidden` track actual visibility on
    *  both surfaces. */
   visible: boolean;
-  /** Float as a card (rounded + shadow + inset) rather than sitting
-   *  flush with a hard `border-l`. The desktop host derives this from
-   *  `useViewPosture().maximized()` — tiled canvas = floating card,
-   *  parallel to the Dock's tiled posture (`Dock.tsx:158`). Mobile
-   *  always passes `false`: the panel already sits inside a floating
-   *  `Drawer.Content`, and an inner card-on-card would double up the
-   *  chrome. */
-  floating: boolean;
 }> = (props) => {
   const rightPanel = useRightPanel();
 
@@ -59,37 +51,7 @@ const RightPanel: Component<{
   return (
     <div
       data-testid="right-panel"
-      data-floating={props.floating ? "" : undefined}
       class="flex flex-col h-full min-w-0 overflow-hidden bg-surface-0 border-l border-edge"
-      classList={{
-        // Floating: rounded card + three-layer drop shadow +
-        // full-perimeter border, on top of the always-on
-        // `border-l border-edge` base. Mirrors the Dock's tiled chrome
-        // (`Dock.tsx:158`) but with a substantially stronger shadow
-        // recipe — Tailwind's `shadow-2xl` washed out against both
-        // canvas themes, so the shadow is built explicitly:
-        //   - a 1px hairline ring (`0 0 0 1px rgba(0,0,0,0.06)`) for
-        //     edge definition in light mode;
-        //   - a close 16px-blur drop for the "right on the canvas"
-        //     impression;
-        //   - a 48px-blur ambient that gives the card real depth.
-        // `border border-edge` adds a theme-aware perimeter on top so
-        // the card edge reads even when the shadow doesn't — gated on
-        // `visible` so it only applies while the panel is expanded.
-        //
-        // The base `border-l border-edge` stays in both postures —
-        // dropping it left the collapsed (parent shrunk to 0)
-        // `Resizable.Panel` with a child of *exactly* zero width, and
-        // Corvu's `sizes=[1,0]` → user-size re-distribution silently
-        // no-ops in that state (it appears to need at least 1px of
-        // residual width on the pane to re-grow it). `border` on all
-        // sides only activates when `visible`, so the collapsed
-        // bounding-rect width stays at 1px (still ≤ the
-        // `right-panel.feature` threshold).
-        "rounded-2xl shadow-[0_0_0_1px_rgba(0,0,0,0.06),0_8px_16px_rgba(0,0,0,0.18),0_24px_48px_-8px_rgba(0,0,0,0.35)]":
-          props.floating,
-        "border border-edge": props.floating && props.visible,
-      }}
       // Panel stays mounted across collapse on desktop so CodeTab's local
       // state survives (#818); RightPanelLayout shrinks it to ~0 width via
       // Resizable `sizes=[1,0]`. `aria-hidden` reflects actual visibility

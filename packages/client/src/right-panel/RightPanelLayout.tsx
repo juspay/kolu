@@ -1,19 +1,13 @@
 /** RightPanelLayout — picks the host that surfaces the right panel.
  *
  *  Two hosts, one content subtree:
- *  - Desktop (`DesktopOverlayHost`): the canvas takes the full wrapper
- *    width and the right panel is an `absolute right-4 top-4 bottom-4`
- *    overlay on top of it. This is what lets the canvas grid (and any
- *    terminal tile sitting in the bottom-right) read continuously
- *    behind the floating card — a true sibling Resizable split made
- *    the right portion look like an empty "second canvas". The drag
- *    handle is now a custom pointer-event affair anchored to the
- *    panel's left edge.
- *  - Mobile (`MobileDrawerHost`): `@corvu/drawer side="bottom"`.
- *    Visibility is the session-local `useRightPanel.drawerOpen()`
- *    signal — dismissing the drawer on a phone is not the same
- *    volatility as toggling the desktop chrome preference (see
- *    `useRightPanel.ts` header).
+ *  - Desktop (`DesktopResizableHost`): `@corvu/resizable` horizontal split.
+ *    Visibility is the persisted `preferences.rightPanel.collapsed` bit;
+ *    `sizes=[1,0]` keeps the handle in the DOM when collapsed.
+ *  - Mobile (`MobileDrawerHost`): `@corvu/drawer side="bottom"`. Visibility
+ *    is the session-local `useRightPanel.drawerOpen()` signal — dismissing
+ *    the drawer on a phone is not the same volatility as toggling the
+ *    desktop chrome preference (see `useRightPanel.ts` header).
  *
  *  Each host owns its own response to `pendingOpen` (the producer signal
  *  seeded by `openInCodeTab`): desktop calls `expandPanel`, mobile calls
@@ -27,6 +21,7 @@
  *  `foo.html` already selected. */
 
 import Drawer from "@corvu/drawer";
+import Resizable from "@corvu/resizable";
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import { type Component, createEffect, type JSX, on, Show } from "solid-js";
 import { isMobile } from "../useMobile";
@@ -46,13 +41,8 @@ type HostProps = {
   contentClass?: string;
 };
 
-const MIN_PANEL_SIZE = 0.1;
-const MAX_PANEL_SIZE = 0.7;
-
-const DesktopOverlayHost: Component<HostProps> = (props) => {
+const DesktopResizableHost: Component<HostProps> = (props) => {
   const rightPanel = useRightPanel();
-
-  let wrapperRef: HTMLDivElement | undefined;
 
   // Producer arrivals (terminal `path:line` taps, comments-tray jumps)
   // uncollapse the side panel — visibility used to live inside
@@ -68,96 +58,53 @@ const DesktopOverlayHost: Component<HostProps> = (props) => {
     ),
   );
 
-  // Custom drag handle — captures pointer events on the wrapper while
-  // the user is dragging the panel's left edge, so the drag is robust
-  // against cursor leaving the 16px-wide hot-zone. Width is stored as
-  // a fraction of the wrapper width to survive viewport resize.
-  function onHandlePointerDown(e: PointerEvent) {
-    e.preventDefault();
-    if (!wrapperRef) return;
-    const wrapperWidth = wrapperRef.getBoundingClientRect().width;
-    if (wrapperWidth === 0) return;
-    const startX = e.clientX;
-    const startSize = rightPanel.panelSize();
-    const onMove = (ev: PointerEvent) => {
-      // Dragging *leftward* makes the panel wider — the panel grows
-      // from the right edge into the canvas.
-      const delta = (startX - ev.clientX) / wrapperWidth;
-      const next = Math.max(
-        MIN_PANEL_SIZE,
-        Math.min(MAX_PANEL_SIZE, startSize + delta),
-      );
-      rightPanel.setPanelSize(next);
-    };
-    const onUp = () => {
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-    };
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
-  }
-
   return (
-    <div
-      ref={wrapperRef}
-      class={`flex-1 min-h-0 min-w-0 flex overflow-hidden relative ${props.contentClass ?? ""}`}
-    >
-      {/* Canvas takes the full wrapper width — the right panel overlays
-       *  it instead of taking sibling flex space, so the canvas-grid
-       *  (and any tile positioned in the bottom-right corner) reads
-       *  continuously behind the floating card. */}
-      {props.children}
-
-      {/* Floating right panel, absolutely positioned on the right edge.
-       *  Width is derived from `panelSize` × wrapper width; when
-       *  collapsed the wrapper still mounts the panel (preserving
-       *  CodeTab state per #818) but shrinks it to 0 width via the
-       *  computed `width` style, mirroring the old Resizable
-       *  `sizes=[1,0]` collapse contract. */}
-      <div
-        // `z-50` sits above the maximized-tile overlay (`z-40` in
-        // `TerminalCanvas`) so the right panel stays visible when the
-        // user maximizes a tile. The chrome bar is also `z-50` but
-        // renders in a separate region (top 44px) above the
-        // RightPanelLayout wrapper, so they don't collide.
-        class="absolute z-50 right-0 top-0 bottom-0 transition-[width] duration-150 ease-out"
-        classList={{
-          // The `p-4` inset gives the floating card breathing room
-          // against the underlying canvas, parallel to the Dock's
-          // `top-20 left-4`. We keep it on regardless of maximize
-          // posture so the right panel never disappears or snaps to
-          // flush — the previous "flush in maximize" variant was
-          // confusing because the panel went visually missing when
-          // its `bg-surface-0` blended with the maximized terminal.
-          "p-4": !rightPanel.collapsed(),
+    <div class="flex-1 min-h-0 min-w-0 flex overflow-hidden">
+      <Resizable
+        orientation="horizontal"
+        sizes={
+          rightPanel.collapsed()
+            ? [1, 0]
+            : [1 - rightPanel.panelSize(), rightPanel.panelSize()]
+        }
+        onSizesChange={(sizes) => {
+          if (sizes[1] !== undefined) rightPanel.setPanelSize(sizes[1]);
         }}
-        style={{
-          width: rightPanel.collapsed()
-            ? "0px"
-            : `${rightPanel.panelSize() * 100}%`,
-        }}
-        aria-hidden={rightPanel.collapsed()}
+        class="flex-1 min-h-0 overflow-hidden"
       >
-        <RightPanel
-          terminalId={props.terminalId}
-          meta={props.meta}
-          onToggle={rightPanel.togglePanel}
-          themeName={props.themeName}
-          onThemeClick={props.onThemeClick}
-          visible={!rightPanel.collapsed()}
-          floating={true}
-        />
-        {/* Drag handle — a thin strip in the `p-4` inset gap on the
-         *  panel's outer-left edge, so the user is grabbing what looks
-         *  like the card's left edge. Hidden when collapsed. */}
+        <Resizable.Panel
+          as="div"
+          class={`min-w-0 min-h-0 flex ${props.contentClass ?? ""}`}
+          minSize={0.3}
+        >
+          {props.children}
+        </Resizable.Panel>
         <Show when={!rightPanel.collapsed()}>
-          <div
+          <Resizable.Handle
             data-testid="right-panel-handle"
-            class="absolute top-0 bottom-0 left-0 w-4 cursor-col-resize hover:bg-accent/30 transition-colors"
-            onPointerDown={onHandlePointerDown}
+            class="shrink-0 w-0 relative before:absolute before:inset-y-0 before:-left-1 before:w-2 before:cursor-col-resize before:hover:bg-accent/30 before:transition-colors"
+            aria-label="Resize inspector panel"
           />
         </Show>
-      </div>
+        <Resizable.Panel
+          as="div"
+          class="min-w-0 min-h-0 overflow-hidden"
+          minSize={0}
+        >
+          {/* Render unconditionally so CodeTab's selectedPath signal and
+           *  Pierre's tree expansion survive collapse — Resizable already
+           *  shrinks this panel to zero width via sizes=[1,0] above. An
+           *  inner <Show> would unmount and discard that state. */}
+          <RightPanel
+            terminalId={props.terminalId}
+            meta={props.meta}
+            onToggle={rightPanel.togglePanel}
+            themeName={props.themeName}
+            onThemeClick={props.onThemeClick}
+            visible={!rightPanel.collapsed()}
+          />
+        </Resizable.Panel>
+      </Resizable>
     </div>
   );
 };
@@ -207,10 +154,6 @@ const MobileDrawerHost: Component<HostProps> = (props) => {
                 themeName={props.themeName}
                 onThemeClick={props.onThemeClick}
                 visible={rightPanel.drawerOpen()}
-                // The drawer itself is already a floating surface
-                // (`rounded-t-lg shadow-xl` above); an inner floating
-                // card would double up the chrome.
-                floating={false}
               />
             </div>
           </Drawer.Content>
@@ -227,7 +170,7 @@ const RightPanelLayout: Component<HostProps> = (props) => {
   // host's effects cleanly.
   return (
     <Show when={!isMobile()} fallback={<MobileDrawerHost {...props} />}>
-      <DesktopOverlayHost {...props} />
+      <DesktopResizableHost {...props} />
     </Show>
   );
 };
