@@ -4,9 +4,10 @@
  *  `dockMode` persists across reloads so a 13" laptop can stay on the
  *  rail while a 27" desktop sits on cards.
  *
- *  1. **rail** — narrow strip of two-letter chips, one per live
- *     terminal. Each chip carries first letter of the repo + first
- *     letter of the branch/intent so two terminals in the same repo
+ *  1. **rail** — narrow strip of two-glyph chips, one per live
+ *     terminal. Each chip carries first letter of the repo + the intent's
+ *     lead grapheme (emoji when the user leads with one, otherwise first
+ *     alphanumeric of the branch tail) so two terminals in the same repo
  *     stay distinguishable. Repo color tints the chip; bucket state
  *     animates its ring (breath for `awaiting`, spin-glow for
  *     `working`); active wears an accent halo; unread shows an alert
@@ -45,7 +46,7 @@
  *  primary navigator. */
 
 import { makePersisted } from "@solid-primitives/storage";
-import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
+import type { TerminalId } from "kolu-common/surface";
 import { type Component, For, Show, createMemo, createSignal } from "solid-js";
 import { createSharedRoot } from "../../createSharedRoot";
 import { formatTimeAgo } from "../../terminal/staleness";
@@ -54,6 +55,7 @@ import { annotationLine } from "../../intent/text";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { HiddenFooter } from "./HiddenFooter";
+import { chipInitials } from "./chipInitials";
 import { AgentSlot, PrPip, SubCountCell, createDockRowData } from "./RowPips";
 import { rowSubline } from "./rowSubline";
 import {
@@ -552,8 +554,8 @@ const RailSectionMark: Component<{ color: string; name: string }> = (props) => (
   />
 );
 
-/** Rail-mode chip — 32 px tile carrying two-letter initials (repo
- *  letter + branch/intent letter). Repo color tints the bg and the
+/** Rail-mode chip — 32 px tile carrying two-glyph initials (repo
+ *  letter + intent lead grapheme or branch letter). Repo color tints the bg and the
  *  ring; bucket state animates the ring (breath for `awaiting`,
  *  spin-glow for `working`, flat for `idle`/`none`); active wears an
  *  accent halo; unread shows an alert badge top-right. The bucket
@@ -606,7 +608,12 @@ const RailChip: Component<{
             </Show>
             <span class="dock-rail-chip-text" aria-hidden="true">
               {labels().repo}
-              <span class="dock-rail-chip-sub">{labels().sub}</span>
+              <span
+                class="dock-rail-chip-sub"
+                data-glyph={labels().subIsGlyph ? "" : undefined}
+              >
+                {labels().sub}
+              </span>
             </span>
           </button>
         );
@@ -614,23 +621,6 @@ const RailChip: Component<{
     </Show>
   );
 };
-
-/** Two-letter chip label: first alpha char of the repo, first alpha
- *  char of the intent (line 1) or branch (after the last `/`).
- *  `feat/dock-bare` → `d` (after-the-slash); falls back to `?` when
- *  no alpha char is present. The branch fallback splits on `/` so a
- *  workflow-style prefix (`feat/`, `fix/`, `wip/`) doesn't shadow
- *  the meaningful tail. */
-function chipInitials(
-  meta: TerminalMetadata,
-  info: TerminalDisplayInfo,
-): { repo: string; sub: string } {
-  const repo = (info.key.group.match(/[a-z0-9]/i)?.[0] ?? "?").toUpperCase();
-  const branchTail = info.key.label.split("/").pop() ?? info.key.label;
-  const subSource = meta.intent || branchTail;
-  const sub = (subSource.match(/[a-z0-9]/i)?.[0] ?? "?").toLowerCase();
-  return { repo, sub };
-}
 
 function chipTooltip(info: TerminalDisplayInfo, bucket: DockRowBucket): string {
   return `${info.key.group} · ${info.key.label} · ${bucket}`;

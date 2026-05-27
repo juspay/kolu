@@ -299,6 +299,17 @@ body {
   font-weight: 500;
   margin-left: 1px;
 }
+/* Emoji / symbol sub-glyph — drop the fade and the monospace weight so
+   the icon reads at the same visual weight as the cards-mode intent
+   line that the user actually typed. */
+.dock-rail-chip-sub[data-glyph] {
+  opacity: 1;
+  font-weight: 400;
+  font-family:
+    "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", ui-monospace,
+    SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
 .dock-rail-chip[data-bucket="awaiting"] {
   border-color: var(--color-alert);
   animation: dock-chip-breathe 1.6s ease-in-out infinite;
