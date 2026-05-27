@@ -9,7 +9,9 @@
  *  a sibling of the Dock in the outer flex container; it owns its own
  *  posture-aware chrome via `useViewPosture` and mirrors the Dock's
  *  tiled-float / maximized-flush pattern. The desktop pendingOpen→
- *  expandPanel effect lives in `App.tsx`.
+ *  expandPanel effect lives inside the `RightPanel` component itself
+ *  (gated by `props.shell === true`), so the `shell=false` instance
+ *  rendered here is a no-op for that signal.
  *
  *  Selection, mode, and tab kind share `useRightPanel` across hosts —
  *  a phone session that ends on `foo.html` reopens on desktop with
