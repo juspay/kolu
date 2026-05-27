@@ -69,7 +69,7 @@ import { StandardRPCHandler } from "@orpc/server/standard";
 import type { StandardRPCHandlerOptions } from "@orpc/server/standard";
 import { ServerPeer } from "@orpc/standard-server-peer";
 import type { Readable, Writable } from "node:stream";
-import { decodeFrame, encodeFrame } from "./links/stdio";
+import { encodeFrame, readFramedLines } from "./links/stdio";
 
 /** Transport override for `serveOverStdio`. Default is `process.stdin`
  *  for `read` and `process.stdout` for `write`. */
@@ -142,43 +142,21 @@ export function serveOverStdio<T extends Context>(
 
   const peer = new ServerPeer((message) => writeLine(encodeFrame(message)));
 
-  return new Promise<void>((resolve, reject) => {
-    transport.read.setEncoding("utf-8");
-    let buffer = "";
-    transport.read.on("data", (chunk: string) => {
-      buffer += chunk;
-      let nl = buffer.indexOf("\n");
-      while (nl !== -1) {
-        const line = buffer.slice(0, nl).trim();
-        buffer = buffer.slice(nl + 1);
-        nl = buffer.indexOf("\n");
-        if (line.length === 0) continue;
-        if (!firstRequestSeen) {
-          firstRequestSeen = true;
-          opts.onFirstRequest?.();
-        }
-        void peer.message(
-          decodeFrame(line),
-          createServerPeerHandleRequestFn(
-            handler,
-            opts.requestContext ??
-              ({} as HandleStandardServerPeerMessageOptions<T>),
-          ),
-        );
-      }
-    });
-    transport.read.on("end", () => {
-      peer.close();
-      resolve();
-    });
-    transport.read.on("close", () => {
-      peer.close();
-      resolve();
-    });
-    transport.read.on("error", (err) => {
-      peer.close();
-      reject(err);
-    });
+  return readFramedLines(transport.read, (frame) => {
+    if (!firstRequestSeen) {
+      firstRequestSeen = true;
+      opts.onFirstRequest?.();
+    }
+    void peer.message(
+      frame,
+      createServerPeerHandleRequestFn(
+        handler,
+        opts.requestContext ??
+          ({} as HandleStandardServerPeerMessageOptions<T>),
+      ),
+    );
+  }).finally(() => {
+    peer.close();
   });
 }
 

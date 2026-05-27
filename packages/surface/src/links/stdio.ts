@@ -178,8 +178,13 @@ export function decodeFrame(line: string): Uint8Array {
  *  Why hand-roll instead of `readline`: `readline` adds another async
  *  layer and obscures the framing assumption. The whole protocol is
  *  "one base64 line = one frame", and the loop expressing it directly is
- *  20 lines. */
-async function readFramedLines(
+ *  20 lines.
+ *
+ *  Exported so `serveOverStdio` (the server-side counterpart) can share
+ *  the exact same framing — base64+newline is the wire shape, not a
+ *  client-specific concern, and a divergence between client and server
+ *  framing loops would be the worst kind of silent bug. */
+export async function readFramedLines(
   read: Readable,
   onFrame: (frame: Uint8Array) => void,
 ): Promise<void> {
