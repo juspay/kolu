@@ -253,8 +253,11 @@ const DockHeader: Component<{
   const railLayout = () => props.mode === "rail";
   return (
     <div
-      class="flex items-center gap-1 px-1 py-1 border-b border-edge/40 shrink-0"
-      classList={{ "flex-col": railLayout() }}
+      class="flex items-center gap-1 py-1 border-b border-edge/40 shrink-0"
+      classList={{
+        "px-1 flex-col": railLayout(),
+        "pl-1 pr-3": !railLayout(),
+      }}
     >
       <button
         type="button"
@@ -323,7 +326,7 @@ const RepoSection: Component<{
   <section
     data-testid="dock-section"
     data-repo={props.group.name}
-    class="grid grid-cols-[16px_minmax(0,1fr)_auto_auto] gap-x-2 pl-6 pr-3"
+    class="grid grid-cols-[16px_minmax(0,1fr)_auto_auto] gap-x-2 pl-6 pr-6"
   >
     {/* Header is a band — bg-surface-2 plus a hairline divider top
      *  and bottom — so a `KOLU` / `NIXOS-CONFIG` label reads as a
@@ -334,7 +337,7 @@ const RepoSection: Component<{
      *  content sits at `pl-6` (24 px) inside the section's grid, so
      *  the header reads as an outdented parent and the rows nest
      *  visually beneath it. */}
-    <div class="col-span-full flex items-center gap-2 -ml-6 -mr-3 pl-3 pr-3 py-1.5 bg-surface-2/60 border-y border-edge/30">
+    <div class="col-span-full flex items-center gap-2 -ml-6 -mr-6 pl-3 pr-3 py-1.5 bg-surface-2/60 border-y border-edge/30">
       <span
         data-testid="dock-section-name"
         class="font-mono text-[0.6rem] font-bold uppercase tracking-[0.14em] truncate min-w-0"
@@ -422,7 +425,7 @@ const DockRow: Component<{
               store.activate(props.id);
             }
           }}
-          class="relative w-full grid grid-cols-subgrid col-span-full items-center py-1.5 -ml-6 -mr-3 border-l-[3px] border-l-transparent text-left cursor-pointer transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 hover:bg-surface-2/40 data-[active]:bg-accent/15 data-[active]:border-l-accent"
+          class="relative w-full grid grid-cols-subgrid col-span-full items-center py-1.5 -ml-6 -mr-6 border-l-[3px] border-l-transparent text-left cursor-pointer transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 hover:bg-surface-2/40 data-[active]:bg-accent/15 data-[active]:border-l-accent"
           title="Jump to this terminal"
         >
           <AgentSlot agent={c().meta.agent} />

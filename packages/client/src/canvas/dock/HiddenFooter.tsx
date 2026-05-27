@@ -48,8 +48,10 @@ export const HiddenFooter: Component<{
         // Touch (mobile drawer): larger vertical padding, slightly bigger
         // type so the strip clears 44px tap target.
         "px-3 py-3 text-[0.75rem]": props.compact === true,
-        // Pointer (desktop): tight padding.
-        "px-3 py-2 text-[0.65rem]": props.compact !== true,
+        // Pointer (desktop): right padding matches the dock cards' row
+        // gutter (`pr-6`) so "show all" sits in the same column as the
+        // time labels above it.
+        "pl-3 pr-6 py-2 text-[0.65rem]": props.compact !== true,
       }}
     >
       <Show when={filterActive()} fallback={<span>Activity window</span>}>
