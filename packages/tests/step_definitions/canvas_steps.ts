@@ -1343,13 +1343,25 @@ Then("no canvas tile should be maximized", async function (this: KoluWorld) {
 When(
   "I tag canvas tile {int}'s xterm element",
   async function (this: KoluWorld, index: number) {
+    // xterm.js's `onMount` awaits `document.fonts.load` before creating
+    // the `.xterm` DOM node, so on a slow host the element may not exist
+    // when this step first fires. Poll until it does, then tag it.
+    await this.page.waitForFunction(
+      ({ sel, i }: { sel: string; i: number }) => {
+        const tile = document
+          .querySelectorAll(`${sel} [data-terminal-id][data-visible]`)
+          .item(i) as HTMLElement | null;
+        return tile?.querySelector(".xterm") != null;
+      },
+      { sel: CANVAS_SELECTOR, i: index - 1 },
+      { timeout: POLL_TIMEOUT },
+    );
     await this.page.evaluate(
       ({ sel, i }: { sel: string; i: number }) => {
         const tile = document
           .querySelectorAll(`${sel} [data-terminal-id][data-visible]`)
           .item(i) as HTMLElement | null;
-        if (!tile) throw new Error(`canvas tile ${i + 1} not found`);
-        const xterm = tile.querySelector(".xterm") as HTMLElement | null;
+        const xterm = tile?.querySelector(".xterm") as HTMLElement | null;
         if (!xterm) throw new Error(`xterm element in tile ${i + 1} not found`);
         const tag = `xterm-${Date.now()}-${Math.random()}`;
         xterm.setAttribute("data-stability-tag", tag);
