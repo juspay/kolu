@@ -14,6 +14,15 @@ import { surface } from "../common/surface";
 const wsUrl = `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/rpc/ws`;
 export const ws = new PartySocket(wsUrl);
 
+// Vite HMR re-evaluates this module on edits — without this dispose
+// hook each reload leaks a PartySocket (and the parent server logs a
+// fresh `browser ws connect` every time a client file is saved).
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    ws.close();
+  });
+}
+
 export const app = surfaceClient<
   typeof surface.spec,
   ContractRouterClient<typeof surface.contract, ClientRetryPluginContext>
