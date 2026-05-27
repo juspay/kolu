@@ -8,7 +8,7 @@ import type {
   TerminalMetadata,
 } from "kolu-common/surface";
 import { type Component, createMemo, For, Show } from "solid-js";
-import { match } from "ts-pattern";
+import { match, P } from "ts-pattern";
 import { useViewPosture } from "../canvas/useViewPosture";
 import { CHROME_ICON_BUTTON_CLASS, RAIL_WIDTH_PX } from "../ui/chromeSpacing";
 import { ChevronDownIcon } from "../ui/Icons";
@@ -140,8 +140,7 @@ const RightPanel: Component<{
     match(shellState())
       .with("no-shell", () => undefined)
       .with("rail", () => `${RAIL_WIDTH_PX}px`)
-      .with("float", () => `${rightPanel.panelSize() * 100}%`)
-      .with("flush", () => `${rightPanel.panelSize() * 100}%`)
+      .with(P.union("float", "flush"), () => `${rightPanel.panelSize() * 100}%`)
       .exhaustive();
 
   return (
