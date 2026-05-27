@@ -147,14 +147,27 @@ export function serveOverStdio<T extends Context>(
       firstRequestSeen = true;
       opts.onFirstRequest?.();
     }
-    void peer.message(
-      frame,
-      createServerPeerHandleRequestFn(
-        handler,
-        opts.requestContext ??
-          ({} as HandleStandardServerPeerMessageOptions<T>),
-      ),
-    );
+    // Mirror the client-side handling in `links/stdio.ts` — a malformed
+    // frame (e.g. agent stdout corruption per lesson #4, or a flap on
+    // the wire) makes `peer.message` reject. Catch it here; the alternative
+    // is an unhandled-rejection that crashes the agent. Already-in-flight
+    // RPCs continue to work; the bad frame just doesn't decode.
+    peer
+      .message(
+        frame,
+        createServerPeerHandleRequestFn(
+          handler,
+          opts.requestContext ??
+            ({} as HandleStandardServerPeerMessageOptions<T>),
+        ),
+      )
+      .catch((err) => {
+        process.stderr.write(
+          `[@kolu/surface/peer-server] inbound frame parse failure: ${
+            (err as Error).message
+          }\n`,
+        );
+      });
   }).finally(() => {
     peer.close();
   });
