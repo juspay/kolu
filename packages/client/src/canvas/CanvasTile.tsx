@@ -26,6 +26,7 @@ import {
   tileTitleBarBorder,
 } from "./tileChrome";
 import { DEFAULT_TILE_H, DEFAULT_TILE_W } from "./tilePlacement";
+import { tileTransformCSS } from "./viewport/coordinates";
 
 export type { TileTheme };
 
@@ -84,18 +85,10 @@ const CanvasTile: Component<{
   // composed into the tile's own transform so the pan/zoom wrapper that
   // used to host all tiles can go away (its containing-block side-effect
   // forced the maximized tile into a sibling render branch — see #988).
-  //
-  // Position math: a canvas-space point (l.x, l.y) maps to screen-space
-  // ((l.x - panX) * z, (l.y - panY) * z). With `transform-origin: 0 0`,
-  // `scale(z)` keeps the element's top-left anchored at its natural
-  // `(left, top)`, so we add `translate(l.x*(z-1) - panX*z + dragX, …)`
-  // to shift the post-scale top-left to the target screen position.
-  // Drag delta is added in screen-space directly (no `/z` divisor).
+  // Transform formula lives in `coordinates.ts` alongside `canvasTransformCSS`
+  // so pan/zoom math stays in one file.
   const tiledStyle = () => {
-    const z = props.zoom();
     const l = layout();
-    const tx = l.x * (z - 1) - props.panX() * z + draggable.transform.x;
-    const ty = l.y * (z - 1) - props.panY() * z + draggable.transform.y;
     return {
       left: `${l.x}px`,
       top: `${l.y}px`,
@@ -116,7 +109,15 @@ const CanvasTile: Component<{
         ? `0 8px 32px rgba(0,0,0,0.4), 0 0 0 1px var(--color-accent)`
         : `0 2px 8px rgba(0,0,0,0.2)`,
       "transform-origin": "0 0",
-      transform: `translate(${tx}px, ${ty}px) scale(${z})`,
+      transform: tileTransformCSS(
+        l.x,
+        l.y,
+        props.panX(),
+        props.panY(),
+        props.zoom(),
+        draggable.transform.x,
+        draggable.transform.y,
+      ),
     };
   };
 
