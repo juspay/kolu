@@ -552,26 +552,31 @@ body {
   margin-bottom: 1.5em;
 }
 
-/* Tip / callout component — `<Tip title="…">` in MDX posts. Amber
-   accent + a faint amber-tinted background separates it from a regular
-   pull-quote blockquote without going full GitHub-admonition. */
+/* Tip / callout component — `<Tip title="…">` in MDX posts. Rendered as
+   a tinted rounded card with a run-in label, deliberately different
+   visual grammar from blockquotes (which use a left-bar + italic with
+   no fill) so the two don't blur into each other on the page. */
 .prose-editorial .tip {
-  border-left: 3px solid var(--color-amber);
-  background: color-mix(in srgb, var(--color-amber) 8%, transparent);
-  border-radius: 0 0.5rem 0.5rem 0;
+  background: color-mix(
+    in srgb,
+    var(--color-amber) 5%,
+    var(--color-void-raised)
+  );
+  border-radius: 0.5rem;
   padding: 0.9rem 1.15rem;
   margin: 2em 0;
   font-style: normal;
   color: var(--color-ink);
 }
-.prose-editorial .tip .tip-label {
+.prose-editorial .tip > .tip-label {
+  float: left;
+  margin-right: 0.4em;
   color: var(--color-amber);
-  margin: 0 0 0.4em;
 }
-.prose-editorial .tip .tip-body > :first-child {
+.prose-editorial .tip > .tip-label + * {
   margin-top: 0;
 }
-.prose-editorial .tip .tip-body > :last-child {
+.prose-editorial .tip > :last-child {
   margin-bottom: 0;
 }
 
