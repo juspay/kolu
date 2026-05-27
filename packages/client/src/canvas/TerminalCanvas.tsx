@@ -386,7 +386,7 @@ const TerminalCanvas: Component<{
       {/* Outer flex container — single mount point for the activity
        *  dock. The dock owns its own posture-conditional positioning:
        *  in maximized mode it's `relative shrink-0` (real left-panel
-       *  flex sibling, like RightPanelLayout's right panel — the
+       *  flex sibling, like RightPanelDrawer's right panel — the
        *  canvas takes the remaining width via `flex-1`); in tiled
        *  mode it's `absolute z-30 top-12 left-4` (floats over the
        *  canvas). The wrapper is `relative` so the dock's absolute

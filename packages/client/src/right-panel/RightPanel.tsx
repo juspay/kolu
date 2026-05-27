@@ -101,7 +101,7 @@ const RightPanel: Component<{
    *  conditionals scattered across the component.
    *
    *  - `no-shell`: mobile drawer instance. Shell prop is false; the
-   *    drawer host (`RightPanelLayout`) supplies the outer surface,
+   *    drawer host (`RightPanelDrawer`) supplies the outer surface,
    *    so we render only tab content and let the drawer own width.
    *  - `float`: desktop tiled posture, expanded. Absolute floating
    *    rounded card anchored top-right — mirrors the Dock's tiled

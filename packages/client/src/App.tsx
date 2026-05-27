@@ -45,7 +45,7 @@ import { useRecorder } from "./recorder/useRecorder";
 import WebcamOverlay from "./recorder/WebcamOverlay";
 import { pendingOpen } from "./right-panel/openInCodeTab";
 import RightPanel from "./right-panel/RightPanel";
-import RightPanelLayout from "./right-panel/RightPanelLayout";
+import RightPanelDrawer from "./right-panel/RightPanelDrawer";
 import { useRightPanel } from "./right-panel/useRightPanel";
 import { client } from "./wire";
 import { serverProcessId, wsStatus } from "./rpc/rpc";
@@ -94,7 +94,7 @@ const App: Component = () => {
   // with the same `req` reference still notify subscribers (production
   // Solid otherwise elides identical-value re-fires). Mobile's
   // equivalent (drawerOpen instead of expandPanel) lives inside
-  // `RightPanelLayout` for the same owner-stability reason on the
+  // `RightPanelDrawer` for the same owner-stability reason on the
   // mobile branch. `defer: true` skips the initial null observation.
   createEffect(
     on(
@@ -560,7 +560,7 @@ const App: Component = () => {
           >
             {match(isMobile())
               .with(true, () => (
-                <RightPanelLayout
+                <RightPanelDrawer
                   terminalId={store.activeId()}
                   meta={store.activeMeta()}
                   themeName={activeThemeName()}
@@ -575,7 +575,7 @@ const App: Component = () => {
                     renderBody={renderMobileTileBody}
                     bottomBar={<MobileKeyBar activeId={store.activeId} />}
                   />
-                </RightPanelLayout>
+                </RightPanelDrawer>
               ))
               .with(false, () => (
                 <TerminalCanvas

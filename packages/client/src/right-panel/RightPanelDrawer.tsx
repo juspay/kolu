@@ -1,4 +1,4 @@
-/** RightPanelLayout — mobile-only host for the right panel.
+/** RightPanelDrawer — mobile-only host for the right panel.
  *
  *  On mobile, the right panel hosts as a `@corvu/drawer side="bottom"`.
  *  Visibility is the session-local `useRightPanel.drawerOpen()` signal
@@ -9,9 +9,8 @@
  *  a sibling of the Dock in the outer flex container; it owns its own
  *  posture-aware chrome via `useViewPosture` and mirrors the Dock's
  *  tiled-float / maximized-flush pattern. The desktop pendingOpen→
- *  expandPanel effect lives inside the `RightPanel` component itself
- *  (gated by `props.shell === true`), so the `shell=false` instance
- *  rendered here is a no-op for that signal.
+ *  expandPanel effect lives in `App.tsx` so the mobile branch here
+ *  only handles the drawer-open seam.
  *
  *  Selection, mode, and tab kind share `useRightPanel` across hosts —
  *  a phone session that ends on `foo.html` reopens on desktop with
@@ -35,7 +34,7 @@ type HostProps = {
   contentClass?: string;
 };
 
-const RightPanelLayout: Component<HostProps> = (props) => {
+const RightPanelDrawer: Component<HostProps> = (props) => {
   const rightPanel = useRightPanel();
 
   // Producer arrivals (terminal `path:line` taps, comments-tray jumps)
@@ -94,4 +93,4 @@ const RightPanelLayout: Component<HostProps> = (props) => {
   );
 };
 
-export default RightPanelLayout;
+export default RightPanelDrawer;
