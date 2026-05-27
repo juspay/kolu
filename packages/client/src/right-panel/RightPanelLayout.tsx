@@ -84,29 +84,36 @@ const DesktopResizableHost: Component<HostProps> = (props) => {
         <Show when={!rightPanel.collapsed()}>
           <Resizable.Handle
             data-testid="right-panel-handle"
-            class="shrink-0 w-0 relative before:absolute before:inset-y-0 before:-left-1 before:w-2 before:cursor-col-resize before:hover:bg-accent/30 before:transition-colors"
+            class="shrink-0 w-0 relative before:absolute before:inset-y-0 before:cursor-col-resize before:hover:bg-accent/30 before:transition-colors"
+            classList={{
+              // Maximized (panel is flush at the pane boundary): the
+              // drag hot-zone straddles the boundary as a thin strip.
+              "before:-left-1 before:w-2": posture.maximized(),
+              // Floating (panel sits 1rem inside the pane via the
+              // host's `p-4`): expand the hot-zone to cover the entire
+              // inset gap so the user grabs what looks like the
+              // panel's left edge, not the invisible pane boundary
+              // 16px to its left.
+              "before:left-0 before:w-4": !posture.maximized(),
+            }}
             aria-label="Resize inspector panel"
           />
         </Show>
         <Resizable.Panel
           as="div"
-          // `p-4` + `canvas-grid-bg` (when floating) creates the inset
-          // gap that lets the floating card chrome (rounded + shadow)
-          // read against the canvas's grid pattern — the same grid the
-          // Dock floats over on the other side of the layout — so the
-          // right panel reads as floating *on* the canvas rather than
-          // sitting in a separate region. Without the grid extension,
-          // the inset area cascades the body bg, which is visually
-          // disconnected from the canvas pane next door.
-          // `min-w-0 min-h-0` lets the pane collapse to zero width
-          // when the Resizable shrinks it to `sizes=[1,0]`
-          // (`right-panel.feature` asserts this). `overflow-hidden`
-          // stays — the visible portion of the shadow lives inside
-          // the `p-4` inset anyway.
+          // `p-4` (when floating) creates the inset gap that gives the
+          // floating card chrome (rounded + shadow) room to read. The
+          // inset cascades the body bg, which contrasts with the
+          // panel's `bg-surface-0` — the right pane reads as its own
+          // distinct region (not a visual extension of the canvas),
+          // matching the user's mental model that "canvas = terminals,
+          // right panel = inspector". An earlier attempt added
+          // `canvas-grid-bg` here to fake visual continuity with the
+          // canvas; it dissolved the region boundary instead.
+          // `overflow-hidden` stays — the visible portion of the
+          // shadow lives inside the `p-4` inset anyway.
           class="min-w-0 min-h-0 overflow-hidden"
-          classList={{
-            "p-4 canvas-grid-bg": !posture.maximized(),
-          }}
+          classList={{ "p-4": !posture.maximized() }}
           minSize={0}
         >
           {/* Render unconditionally so CodeTab's selectedPath signal and
