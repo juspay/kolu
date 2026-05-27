@@ -37,11 +37,21 @@ just dev                   # host defaults to localhost
 just dev user@somehost     # any ssh target
 ```
 
-Open <http://localhost:5175>. Requires passwordless ssh into the target (set up `~/.ssh/authorized_keys` for your own user if you haven't).
+Open <http://localhost:5175>. Requires passwordless ssh into the target (set up `~/.ssh/authorized_keys` for your own user if you haven't), and the remote's nix-daemon must trust the parent's user (`trusted-users` in `nix.conf`) so it accepts the unsigned closure the parent ships.
 
-`just dev` boots the parent server (`:7720`) + Vite client (`:5175`). The parent's `HostSession` spawns `ssh $host $AGENT_PATH/bin/process-monitor-agent --stdio`; `AGENT_PATH` resolves automatically by `nix build`ing the `.#process-monitor-agent` derivation. Override with `AGENT_PATH=/some/store/path` if you've built it ahead of time.
+`just dev` boots the parent server (`:7720`) + Vite client (`:5175`). It probes the host's architecture via `ssh $host uname -ms`, then evaluates `nix eval --raw .#packages.<remote-system>.process-monitor-agent.drvPath` to get the *target-arch* derivation, and exports it as `KOLU_AGENT_DRV`. The parent's `HostSession` then:
 
-For a real remote (first connect), the parent probes the host for the closure (`ssh $host test -e $AGENT_PATH`) and triggers `nix copy --to ssh://$host $AGENT_PATH` if missing. The UI shows copy progress while waiting; subsequent connects skip the copy.
+1. `nix copy --derivation --to ssh-ng://$host $KOLU_AGENT_DRV` — ships the `.drv` (plus any inputs the remote doesn't have) to the host.
+2. `ssh $host nix-store --realise $KOLU_AGENT_DRV` — builds it on the remote, returning a path on the remote's store.
+3. `ssh $host $realisedPath/bin/process-monitor-agent --stdio` — runs it.
+
+`KOLU_AGENT_DRV` is **required, no fallback** — the operator is the only one who knows which derivation/architecture is correct. The UI shows copy + realise progress while waiting; subsequent connects skip both if the closure is already realised on the remote.
+
+The whole demo also ships as a single binary that bakes its own agent `.drv` for the current system:
+
+```sh
+nix run .#process-monitor-monitor -- user@somehost
+```
 
 To smoke-test the agent in isolation:
 
@@ -61,9 +71,9 @@ The plan's 12-row table maps to observable behavior in this app:
 5. **Deferred heartbeat** — no heartbeat in this PR; the link survives a cold `nix copy` of arbitrary length because there's no premature "disconnected" transition. The parent transitions to `connected` only after the first system snapshot arrives.
 6. **Single host session per host** — opening multiple browser tabs against the same parent shares ONE ssh subprocess. `getHostSession({host, agentPath})` ref-counts.
 7. **Instant pane + async fill** — the monitor pane renders the moment the browser connects (with a "Copying…" / "Connecting…" overlay); transport readiness is signalled by the first snapshot arriving.
-8. **Wire-shape drift impossible by construction** — the parent copies its own locally-built closure to the remote, so parent and agent are always the same nix derivation. (R-2 uses a required flake-ref env var; the demo sidesteps the drift class entirely.)
+8. **Wire-shape drift impossible by construction** — the parent ships a target-arch `.drv` (computed once via `nix eval --raw .#packages.<remote-system>.process-monitor-agent.drvPath`) and realises it on the remote, so parent and agent are always the same nix derivation. (R-2 uses a required `KOLU_AGENT_FLAKE_REF` env var; this demo's `KOLU_AGENT_DRV` is the file-shape twin.)
 9. **Remote command builder** — `HostSession.spawn` builds `ssh -o BatchMode=yes $host $agentPath/bin/process-monitor-agent --stdio`. File-shape twin of R-2's `install.ts` `remoteAgentCommand`.
-10. **Auto nix copy provisioning** — first connect runs `nix copy --to ssh://$host $agent` (skipped on localhost or when the closure is already present); progress lines are forwarded to the UI's progress tail.
+10. **Auto `.drv` provisioning** — first connect runs `nix copy --derivation --to ssh-ng://$host $KOLU_AGENT_DRV` then `ssh $host nix-store --realise $KOLU_AGENT_DRV` (the copy is skipped on localhost; realise is a local build there). Progress lines are forwarded to the UI's progress tail.
 11. **Stdout is the protocol; logs go to fd 2** — agent logs route to `process.stderr` via the local `log()` helper. Run `pnpm run dev:agent -- --broken-stdout-log` to reproduce lesson #4 — the parent's link surfaces `SyntaxError: Unexpected token '«'` rather than hanging.
 12. **Reconnect → state reconciles, no ghosts** — kill the agent (`pkill -f process-monitor-agent` on the remote, or `Ctrl-C` on the localhost dev agent). The session's reconnect timer fires after 2s; the processes collection re-snaps on the new link; processes that ended during the gap drop out of the UI cleanly.
 

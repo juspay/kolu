@@ -610,7 +610,7 @@ new StdioRPCLink<T>({ read, write, ...standardRPCLinkOptions })   // for custom 
 
 // Server (agent process)
 serveOverStdio({
-  router,                          // implementSurface(...).router — pass it directly, no extra wrap
+  router,                          // see "Router wrapping" note below — must be `implement(contract).router({...fragment.router})`
   transport?: { read, write },     // defaults to process.stdin / process.stdout
   handlerOptions?,                 // forwarded to StandardRPCHandler
   onFirstRequest?: () => void,     // lifecycle hook — fires once after the first inbound frame decodes
@@ -622,6 +622,8 @@ createLoopbackPair(): {
   server: { read: PassThrough; write: PassThrough };
 }
 ```
+
+**Router wrapping (footgun).** `implementSurface` returns a router *fragment* shaped `{ surface: <namespaces> }`. Passing that fragment straight to `serveOverStdio` or `RPCHandler` produces a double prefix in the matcher tree (`/surface/surface/<key>`), so every client request 404s. Wrap once with `implement(surface.contract).router({...fragment.router})` (re-exported as `implement` from `@kolu/surface/peer-server`) before handing the router to the transport. Pinned by `implementSurface.test.ts`.
 
 **Stdout is the protocol channel.** When `transport` is unset, `process.stdout` carries base64+newline-framed peer messages — a stray `console.log` or pino write to fd 1 corrupts the next frame and the parent peer dies with `SyntaxError: Unexpected token '«'`. `serveOverStdio` defensively redirects `console.log` to `process.stderr` for the default-transport case; consumers that use other loggers (pino, winston) must route them to fd 2 themselves. The `--broken-stdout-log` variant in the remote-process-monitor agent reproduces this failure mode for the regression test.
 

@@ -10,7 +10,6 @@
     "dev:client": "vite",
     "dev:agent": "tsx src/agent/main.ts --stdio",
     "build:client": "vite build",
-    "build:agent": "tsc -p tsconfig.agent.json",
     "typecheck": "tsc --noEmit",
     "start": "tsx src/server/main.ts"
   },
