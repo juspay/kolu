@@ -12,7 +12,7 @@ the code._
 <aside class="tip">
   <p class="tip-label eyebrow">Quick start</p>
   <div class="tip-body">
-    <p>Want to run the two-lens review on your own PRs? <a href="https://agency.srid.ca/">agency.srid.ca</a> ships <code>/hickey</code> and <code>/lowy</code> as agent skills you drop into Claude Code (and other harnesses) — point them at a diff and read the findings.</p>
+    <p>The reviewer agents in this post are available as <code>/hickey</code> and <code>/lowy</code> skills from <a href="https://agency.srid.ca/">agency.srid.ca</a>.</p>
   </div>
 </aside>
 
