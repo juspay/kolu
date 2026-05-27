@@ -43,7 +43,6 @@ import MobileKeyBar from "./MobileKeyBar";
 import MobileTileView from "./MobileTileView";
 import { useRecorder } from "./recorder/useRecorder";
 import WebcamOverlay from "./recorder/WebcamOverlay";
-import { pendingOpen } from "./right-panel/openInCodeTab";
 import RightPanel from "./right-panel/RightPanel";
 import RightPanelDrawer from "./right-panel/RightPanelDrawer";
 import { useRightPanel } from "./right-panel/useRightPanel";
@@ -86,26 +85,11 @@ const App: Component = () => {
   const rightPanel = useRightPanel();
   const { colorScheme } = useColorScheme();
 
-  // Producer arrivals (terminal `path:line` taps, comments-tray jumps)
-  // uncollapse the desktop right panel. The effect lives at App scope
-  // — `App` is a long-lived root owner, so the subscription never gets
-  // disposed mid-session by a re-mount. `openInCodeTab` uses
-  // `equals: false` on `pendingOpen` so consecutive `setPending` calls
-  // with the same `req` reference still notify subscribers (production
-  // Solid otherwise elides identical-value re-fires). Mobile's
-  // equivalent (drawerOpen instead of expandPanel) lives inside
-  // `RightPanelDrawer` for the same owner-stability reason on the
-  // mobile branch. `defer: true` skips the initial null observation.
-  createEffect(
-    on(
-      pendingOpen,
-      (req) => {
-        if (!req || isMobile()) return;
-        if (rightPanel.collapsed()) rightPanel.expandPanel();
-      },
-      { defer: true },
-    ),
-  );
+  // `openInCodeTab` (in `right-panel/openInCodeTab.ts`) dispatches both
+  // desktop uncollapse and mobile drawer-open imperatively from the
+  // producer call. There is no `on(pendingOpen, ...)` subscriber here —
+  // the deferred-effect shape lost re-fires under the production Solid
+  // build (see `openInCodeTab.ts`'s header for the canary scenario).
 
   // Workspace search feeds — the live-terminal source list and recency
   // accessor consumed by the unified command palette's "Search

@@ -8,9 +8,10 @@
  *  On desktop the right panel is rendered inline by `TerminalCanvas` as
  *  a sibling of the Dock in the outer flex container; it owns its own
  *  posture-aware chrome via `useViewPosture` and mirrors the Dock's
- *  tiled-float / maximized-flush pattern. The desktop pendingOpen→
- *  expandPanel effect lives in `App.tsx` so the mobile branch here
- *  only handles the drawer-open seam.
+ *  tiled-float / maximized-flush pattern. Both visibility seams —
+ *  desktop uncollapse and mobile drawer-open — are dispatched
+ *  imperatively from `openInCodeTab` itself; there is no `on(
+ *  pendingOpen, ...)` subscriber here for the same reason.
  *
  *  Selection, mode, and tab kind share `useRightPanel` across hosts —
  *  a phone session that ends on `foo.html` reopens on desktop with
@@ -18,8 +19,7 @@
 
 import Drawer from "@corvu/drawer";
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
-import { type Component, createEffect, type JSX, on } from "solid-js";
-import { pendingOpen } from "./openInCodeTab";
+import { type Component, type JSX } from "solid-js";
 import RightPanel from "./RightPanel";
 import { useRightPanel } from "./useRightPanel";
 
@@ -36,20 +36,6 @@ type HostProps = {
 
 const RightPanelDrawer: Component<HostProps> = (props) => {
   const rightPanel = useRightPanel();
-
-  // Producer arrivals (terminal `path:line` taps, comments-tray jumps)
-  // open the drawer. Setter is idempotent so repeated taps on the same
-  // `path:line` don't fire spurious open transitions.
-  createEffect(
-    on(
-      pendingOpen,
-      (req) => {
-        if (!req) return;
-        rightPanel.setDrawerOpen(true);
-      },
-      { defer: true },
-    ),
-  );
 
   return (
     <>
