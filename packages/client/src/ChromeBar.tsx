@@ -72,19 +72,16 @@ const ChromeBar: Component<{
         "absolute top-0 left-0 z-50": !docked(),
         "relative shrink-0 z-50": docked(),
       }}
-      style={
-        docked()
-          ? undefined
-          : {
-              // Stop the floating chrome's right edge at the right
-              // panel's left edge so the controls cluster (inspector,
-              // settings, ⌘K) doesn't sit on top of the panel's tab
-              // bar. `panelSize` is a [0..1] fraction of viewport width.
-              right: rightPanel.collapsed()
-                ? 0
-                : `${rightPanel.panelSize() * 100}vw`,
-            }
-      }
+      // Tiled-mode chrome bar runs the full viewport width — `right: 0`
+      // is mandatory because `absolute + left: 0` alone leaves the
+      // bar at intrinsic content width, which collapses the
+      // `flex-1` spacer and pulls the controls cluster left. The
+      // right panel now sits `top-12` below the chrome bar's
+      // `bottom: 44px`, so the controls on the bar's right edge no
+      // longer collide with the panel's tab bar the way they did
+      // when the panel was a flush full-height sidebar reaching up
+      // to `top: 0`.
+      style={docked() ? undefined : { right: 0 }}
     >
       {/* Identity: logo (→ kolu.dev) + connection dot. App name lives as
        *  a corner watermark on the canvas, not in the chrome. */}
