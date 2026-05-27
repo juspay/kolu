@@ -90,19 +90,23 @@ const DesktopResizableHost: Component<HostProps> = (props) => {
         </Show>
         <Resizable.Panel
           as="div"
-          // `p-3` (when floating) creates the inset gap that lets the
-          // floating card chrome (rounded + shadow) read against the
-          // underlying background, while still letting `RightPanel`
-          // collapse to zero width when the Resizable shrinks this pane
-          // to `sizes=[1,0]` (`right-panel.feature` asserts this).
-          // Sized to roughly match the Dock's `left-4` inset so the two
-          // floating cards feel symmetrically lifted off the canvas.
-          // `overflow-hidden` stays — the visible portion of the card's
-          // shadow lives inside the `p-3` inset anyway, and dropping
-          // overflow lets some inner scroll regions bleed past the
-          // pane boundary during resize transitions.
+          // `p-4` + `canvas-grid-bg` (when floating) creates the inset
+          // gap that lets the floating card chrome (rounded + shadow)
+          // read against the canvas's grid pattern — the same grid the
+          // Dock floats over on the other side of the layout — so the
+          // right panel reads as floating *on* the canvas rather than
+          // sitting in a separate region. Without the grid extension,
+          // the inset area cascades the body bg, which is visually
+          // disconnected from the canvas pane next door.
+          // `min-w-0 min-h-0` lets the pane collapse to zero width
+          // when the Resizable shrinks it to `sizes=[1,0]`
+          // (`right-panel.feature` asserts this). `overflow-hidden`
+          // stays — the visible portion of the shadow lives inside
+          // the `p-4` inset anyway.
           class="min-w-0 min-h-0 overflow-hidden"
-          classList={{ "p-3": !posture.maximized() }}
+          classList={{
+            "p-4 canvas-grid-bg": !posture.maximized(),
+          }}
           minSize={0}
         >
           {/* Render unconditionally so CodeTab's selectedPath signal and

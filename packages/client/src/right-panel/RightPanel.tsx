@@ -62,16 +62,20 @@ const RightPanel: Component<{
       data-floating={props.floating ? "" : undefined}
       class="flex flex-col h-full min-w-0 overflow-hidden bg-surface-0 border-l border-edge"
       classList={{
-        // Floating: rounded card + layered shadow + full-perimeter
-        // border, on top of the always-on `border-l border-edge` base.
-        // Mirrors the Dock's tiled chrome (`Dock.tsx:158`), but adds:
-        //   - a two-layer shadow (close + diffuse) so the lift reads
-        //     against both the dark canvas (where `shadow-black/40` is
-        //     already subtle) and the light canvas (where a soft
-        //     shadow washes out against the off-white bg);
-        //   - `border border-edge` to define the card perimeter when
-        //     the shadow alone isn't enough — gated on `visible` so it
-        //     only applies while the panel is expanded.
+        // Floating: rounded card + three-layer drop shadow +
+        // full-perimeter border, on top of the always-on
+        // `border-l border-edge` base. Mirrors the Dock's tiled chrome
+        // (`Dock.tsx:158`) but with a substantially stronger shadow
+        // recipe — Tailwind's `shadow-2xl` washed out against both
+        // canvas themes, so the shadow is built explicitly:
+        //   - a 1px hairline ring (`0 0 0 1px rgba(0,0,0,0.06)`) for
+        //     edge definition in light mode;
+        //   - a close 16px-blur drop for the "right on the canvas"
+        //     impression;
+        //   - a 48px-blur ambient that gives the card real depth.
+        // `border border-edge` adds a theme-aware perimeter on top so
+        // the card edge reads even when the shadow doesn't — gated on
+        // `visible` so it only applies while the panel is expanded.
         //
         // The base `border-l border-edge` stays in both postures —
         // dropping it left the collapsed (parent shrunk to 0)
@@ -82,7 +86,7 @@ const RightPanel: Component<{
         // sides only activates when `visible`, so the collapsed
         // bounding-rect width stays at 1px (still ≤ the
         // `right-panel.feature` threshold).
-        "rounded-2xl shadow-[0_2px_8px_rgba(0,0,0,0.18),0_16px_32px_-8px_rgba(0,0,0,0.32)]":
+        "rounded-2xl shadow-[0_0_0_1px_rgba(0,0,0,0.06),0_8px_16px_rgba(0,0,0,0.18),0_24px_48px_-8px_rgba(0,0,0,0.35)]":
           props.floating,
         "border border-edge": props.floating && props.visible,
       }}
