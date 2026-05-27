@@ -5,8 +5,10 @@
  *
  *  Two display modes:
  *  - **Tiled** (default): absolute-positioned at the saved canvas layout,
- *    draggable + resizable, transform follows canvas pan/zoom.
- *  - **Maximized**: fixed inset-0 covering the canvas viewport. Drag/resize
+ *    draggable + resizable. Pan/zoom is composed into each tile's own
+ *    `transform` rather than a shared wrapper, so the maximized branch can
+ *    sit as a sibling without remounting on every active-id change (#988).
+ *  - **Maximized**: `inset-0 z-40` covering the canvas viewport. Drag/resize
  *    disabled. The maximize signal lives in `TerminalCanvas`, exposed here
  *    so chrome reflects state and double-click toggles it. */
 
@@ -57,6 +59,12 @@ const CanvasTile: Component<{
     direction: ResizeDirection,
     e: PointerEvent,
   ) => void;
+  /** Canvas viewport pan/zoom — composed into the tile's own transform so
+   *  pan/zoom changes scale & translate this tile in screen-space without
+   *  a wrapper transform. `left/top` stay set to the canvas-space layout
+   *  so test selectors and tools that read tile positions keep working. */
+  panX: () => number;
+  panY: () => number;
   zoom: () => number;
 }> = (props) => {
   const { id } = props;
@@ -72,30 +80,45 @@ const CanvasTile: Component<{
   const inactiveOpacity = () => (props.dimmed ? 0.55 : 0.92);
 
   // While maximized: ignore drag transform and pin to viewport. While
-  // tiled: absolute-positioned at layout(), drag transform follows.
-  const tiledStyle = () => ({
-    left: `${layout().x}px`,
-    top: `${layout().y}px`,
-    width: `${layout().w}px`,
-    height: `${layout().h}px`,
-    "background-color": bg(),
-    "border-color": props.repoColor,
-    // Active tile's right edge points at the inspector panel — repoColor
-    // on the other three edges, accent on the right. Longhand wins after
-    // shorthand in the same declaration block.
-    "border-right-color":
-      props.active && !props.maximized
-        ? "var(--color-accent)"
-        : props.repoColor,
-    "z-index": props.active ? 10 : 1,
-    opacity: props.active ? 1 : inactiveOpacity(),
-    "box-shadow": props.active
-      ? `0 8px 32px rgba(0,0,0,0.4), 0 0 0 1px var(--color-accent)`
-      : `0 2px 8px rgba(0,0,0,0.2)`,
-    // Drag transform is screen-space — divide by zoom so the tile
-    // moves at the correct rate in the scaled canvas coordinate system.
-    transform: `translate(${draggable.transform.x / props.zoom()}px, ${draggable.transform.y / props.zoom()}px)`,
-  });
+  // tiled: absolute-positioned at layout(), with pan/zoom and drag delta
+  // composed into the tile's own transform so the pan/zoom wrapper that
+  // used to host all tiles can go away (its containing-block side-effect
+  // forced the maximized tile into a sibling render branch — see #988).
+  //
+  // Position math: a canvas-space point (l.x, l.y) maps to screen-space
+  // ((l.x - panX) * z, (l.y - panY) * z). With `transform-origin: 0 0`,
+  // `scale(z)` keeps the element's top-left anchored at its natural
+  // `(left, top)`, so we add `translate(l.x*(z-1) - panX*z + dragX, …)`
+  // to shift the post-scale top-left to the target screen position.
+  // Drag delta is added in screen-space directly (no `/z` divisor).
+  const tiledStyle = () => {
+    const z = props.zoom();
+    const l = layout();
+    const tx = l.x * (z - 1) - props.panX() * z + draggable.transform.x;
+    const ty = l.y * (z - 1) - props.panY() * z + draggable.transform.y;
+    return {
+      left: `${l.x}px`,
+      top: `${l.y}px`,
+      width: `${l.w}px`,
+      height: `${l.h}px`,
+      "background-color": bg(),
+      "border-color": props.repoColor,
+      // Active tile's right edge points at the inspector panel — repoColor
+      // on the other three edges, accent on the right. Longhand wins after
+      // shorthand in the same declaration block.
+      "border-right-color":
+        props.active && !props.maximized
+          ? "var(--color-accent)"
+          : props.repoColor,
+      "z-index": props.active ? 10 : 1,
+      opacity: props.active ? 1 : inactiveOpacity(),
+      "box-shadow": props.active
+        ? `0 8px 32px rgba(0,0,0,0.4), 0 0 0 1px var(--color-accent)`
+        : `0 2px 8px rgba(0,0,0,0.2)`,
+      "transform-origin": "0 0",
+      transform: `translate(${tx}px, ${ty}px) scale(${z})`,
+    };
+  };
 
   return (
     <div
@@ -108,12 +131,14 @@ const CanvasTile: Component<{
       data-dimmed={props.dimmed ? "true" : undefined}
       class="flex flex-col overflow-hidden border transition-shadow duration-200"
       classList={{
-        // Maximized stays `absolute` so it fills the canvas container —
-        // NOT `fixed`, because the transformed pan/zoom wrapper would
-        // otherwise become its containing block. The dock sits
-        // outside this container as a flex sibling in maximized posture
-        // (TerminalCanvas), so the tile naturally fills the remaining
-        // viewport without needing a left-inset (#904).
+        // Maximized uses `absolute inset-0 z-40` to cover the canvas
+        // container. Since #988 dropped the pan/zoom wrapper div, the
+        // nearest positioned ancestor is `canvas-grid-bg` (real viewport
+        // rect, untransformed), so `inset-0` resolves cleanly to the
+        // canvas's screen-space without any inverse-transform tricks.
+        // The dock sits outside this container as a flex sibling in
+        // maximized posture (TerminalCanvas), so the tile naturally
+        // fills the remaining viewport without needing a left-inset (#904).
         absolute: true,
         "inset-0 z-40": props.maximized,
         "rounded-xl": !props.maximized,

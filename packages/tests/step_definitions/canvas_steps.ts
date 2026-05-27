@@ -1303,11 +1303,10 @@ When(
 Then(
   "canvas tile {int} should be maximized",
   async function (this: KoluWorld, _index: number) {
-    // The maximized tile lives in its own render branch; the tiled
-    // section keeps the other tiles mounted at `visibility: hidden` so
-    // their PTY streams keep filling their buffers (#904). `nth(index-1)`
-    // can resolve to a hidden tiled-section tile rather than the visible
-    // maximized one — match on `data-maximized="true"` instead.
+    // Since #988, all tiles render in one stable list and the maximized
+    // tile is CSS-promoted (`inset-0 z-40`) rather than rendered in a
+    // separate branch. `nth(index-1)` can still resolve to a non-
+    // maximized sibling of the same list, so match on `data-maximized="true"`.
     const maximizedTile = this.page.locator(
       `${TILE_SELECTOR}[data-maximized="true"]`,
     );
@@ -1329,3 +1328,52 @@ Then("no canvas tile should be maximized", async function (this: KoluWorld) {
     { timeout: POLL_TIMEOUT },
   );
 });
+
+// ── Tile xterm-instance stability (regression for #988) ──
+//
+// Detect xterm.js remounts across an active-id switch in maximized mode.
+// The tag is a unique attribute set on the `.xterm` DOM node — it survives
+// iff the same DOM node survives. Today's broken behaviour replaces the
+// node on every switch; the fix promotes a tile to maximized via CSS only,
+// leaving the node intact.
+
+When(
+  "I tag canvas tile {int}'s xterm element",
+  async function (this: KoluWorld, index: number) {
+    await this.page.evaluate(
+      ({ sel, i }: { sel: string; i: number }) => {
+        const tile = document
+          .querySelectorAll(`${sel} [data-terminal-id][data-visible]`)
+          .item(i) as HTMLElement | null;
+        if (!tile) throw new Error(`canvas tile ${i + 1} not found`);
+        const xterm = tile.querySelector(".xterm") as HTMLElement | null;
+        if (!xterm) throw new Error(`xterm element in tile ${i + 1} not found`);
+        const tag = `xterm-${Date.now()}-${Math.random()}`;
+        xterm.setAttribute("data-stability-tag", tag);
+        (
+          window as unknown as { __xtermStabilityTag?: string }
+        ).__xtermStabilityTag = tag;
+      },
+      { sel: CANVAS_SELECTOR, i: index - 1 },
+    );
+  },
+);
+
+Then(
+  "the maximized tile's xterm element should still carry the tag",
+  async function (this: KoluWorld) {
+    await this.page.waitForFunction(
+      (tileSel: string) => {
+        const tag = (window as unknown as { __xtermStabilityTag?: string })
+          .__xtermStabilityTag;
+        if (!tag) return false;
+        const max = document.querySelector(
+          `${tileSel}[data-maximized="true"] .xterm`,
+        ) as HTMLElement | null;
+        return max?.getAttribute("data-stability-tag") === tag;
+      },
+      TILE_SELECTOR,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
