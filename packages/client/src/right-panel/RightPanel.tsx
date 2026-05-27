@@ -7,7 +7,7 @@ import type {
   TerminalId,
   TerminalMetadata,
 } from "kolu-common/surface";
-import { type Component, For, Show } from "solid-js";
+import { type Component, createMemo, For, Show } from "solid-js";
 import { match } from "ts-pattern";
 import { useViewPosture } from "../canvas/useViewPosture";
 import { CHROME_ICON_BUTTON_CLASS, RAIL_WIDTH_PX } from "../ui/chromeSpacing";
@@ -121,11 +121,11 @@ const RightPanel: Component<{
    *  third trigger is specifically a `display: none` wrapper AROUND
    *  the entire `RightPanel`, not its inner subtrees. */
   type ShellState = "no-shell" | "float" | "flush" | "rail";
-  const shellState = (): ShellState => {
+  const shellState = createMemo((): ShellState => {
     if (!props.shell) return "no-shell";
     if (!props.visible) return "rail";
     return posture.mode() === "tiled" ? "float" : "flush";
-  };
+  });
 
   const contentClass = () =>
     shellState() === "rail"
