@@ -125,9 +125,12 @@ const DesktopHost: Component<HostProps> = (props) => {
         class="bg-surface-0 flex overflow-hidden"
         classList={{
           // Tiled: float over the canvas grid as a rounded card, mirroring
-          // the dock's tiled-mode treatment on the opposite edge. Same
-          // `z-30` and inset metrics so both surfaces sit on the same
-          // continuous canvas grid.
+          // the dock's tiled-mode treatment on the opposite edge — same
+          // `z-30` and `top-20` so both surfaces sit on the same continuous
+          // canvas grid. Vertical extent diverges intentionally: the dock
+          // uses `max-h-[calc(100vh-22rem)]` (shrink-to-content for finite
+          // row lists), the panel uses `bottom-4` because the Code tab's
+          // file tree benefits from every available pixel.
           "absolute z-30 top-20 right-4 bottom-4 rounded-2xl shadow-2xl shadow-black/40":
             !posture.maximized() && !rightPanel.collapsed(),
           // Maximized: real flex sibling of the canvas — flush right
