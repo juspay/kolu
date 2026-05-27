@@ -46,9 +46,10 @@ import {
   listTerminals,
   registerTerminal,
   type TerminalProcess,
+  terminalEntries as terminalEntriesIter,
   unregisterTerminal,
 } from "../terminal-registry.ts";
-import { createMetadata } from "./metadata.ts";
+import { createMetadata, updateServerLiveMetadata } from "./metadata.ts";
 import { getKoluHostSessionAsync } from "./remoteSession.ts";
 
 /** Per-terminal record the backend keeps internally so the data-pump
@@ -116,6 +117,7 @@ export class RemoteTerminalBackend implements TerminalBackend {
    *  subsequent RPC reuses it. */
   private clientPromise: Promise<AgentClient<AgentContract>> | null = null;
   private connectedAcked = false;
+  private stateSubscribed = false;
 
   /** Run one RPC against the pinned client. Pin happens at most once
    *  per backend (per host). `markConnected()` runs at most once
@@ -127,6 +129,12 @@ export class RemoteTerminalBackend implements TerminalBackend {
       this.clientPromise = getKoluHostSessionAsync(this.host).then((s) =>
         s.pin(),
       );
+      // Subscribe to the session's connection-state changes once per
+      // backend (per host). Every terminal on this host shares the
+      // same underlying ssh subprocess, so they share the connection
+      // state too — push the current state into each terminal's
+      // `meta.connectionState` so the client's overlay can render.
+      void this.ensureStateSubscription();
     }
     const client = await this.clientPromise;
     const result = await fn(client);
@@ -136,6 +144,29 @@ export class RemoteTerminalBackend implements TerminalBackend {
       this.connectedAcked = true;
     }
     return result;
+  }
+
+  private async ensureStateSubscription(): Promise<void> {
+    if (this.stateSubscribed) return;
+    this.stateSubscribed = true;
+    const session = await getKoluHostSessionAsync(this.host);
+    session.onState((s) => {
+      // Broadcast the new state to every terminal that lives on this
+      // host. `onState` fires the current value synchronously on
+      // subscribe (snapshot-then-delta), so the first call seeds the
+      // connectionState for tiles that registered before the session
+      // resolved.
+      for (const [id, entry] of terminalEntriesIter()) {
+        if (
+          entry.meta.location?.kind === "remote" &&
+          entry.meta.location.host === this.host
+        ) {
+          updateServerLiveMetadata(entry, id, (m) => {
+            m.connectionState = s.connection;
+          });
+        }
+      }
+    });
   }
 
   /** Backend's host. Exposed for fs/git op pumps that need to obtain

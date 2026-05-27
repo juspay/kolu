@@ -204,6 +204,18 @@ export const ClientPersistedTerminalFieldsSchema = z.object({
  * fire `terminals:dirty` — that's how the agent-stream firehose is
  * kept off the autosave channel.
  */
+/** Remote-terminal connection lifecycle observed parent-side. The
+ *  agent has no equivalent — from its perspective every terminal is
+ *  always connected. Mirrors `@kolu/surface-nix-host`'s ConnectionState
+ *  shape but kept as a local type so the schema doesn't take a runtime
+ *  dependency on that package. */
+export const TerminalConnectionStateSchema = z.enum([
+  "copying",
+  "connecting",
+  "connected",
+  "disconnected",
+]);
+
 export const LiveTerminalFieldsSchema = z.object({
   /** GitHub PR resolution — discriminated union (see PrResultSchema). */
   pr: PrResultSchema,
@@ -211,6 +223,10 @@ export const LiveTerminalFieldsSchema = z.object({
   agent: AgentInfoSchema.nullable(),
   /** Foreground process name — detected via OSC 2 title change events. */
   foreground: ForegroundSchema.nullable(),
+  /** Remote terminals only — current state of the ssh+agent
+   *  connection. Undefined for local terminals (always implicitly
+   *  connected). Drives the `<DisconnectedOverlay>` on the tile. */
+  connectionState: TerminalConnectionStateSchema.optional(),
 });
 
 /**
@@ -391,6 +407,9 @@ export const PreferencesPatchSchema = PreferencesSchema.omit({
 //     These aren't surface entries themselves — they're building blocks
 //     of one. `z.infer<typeof Schema>` here keeps the wiring local.
 
+export type TerminalConnectionState = z.infer<
+  typeof TerminalConnectionStateSchema
+>;
 export type AgentKind = z.infer<typeof AgentKindSchema>;
 export type AgentInfo = z.infer<typeof AgentInfoSchema>;
 export type ClaudeCodeInfo = z.infer<typeof ClaudeCodeInfoSchema>;

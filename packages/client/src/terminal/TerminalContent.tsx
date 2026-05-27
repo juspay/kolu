@@ -8,6 +8,7 @@ import Resizable from "@corvu/resizable";
 import type { ITheme } from "@xterm/xterm";
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import { type Component, For, Show } from "solid-js";
+import DisconnectedOverlay from "./DisconnectedOverlay";
 import SubPanelTabBar from "./SubPanelTabBar";
 import Terminal from "./Terminal";
 import { useSubPanel } from "./useSubPanel";
@@ -80,7 +81,11 @@ const TerminalContent: Component<{
       onSizesChange={handleSizesChange}
       class="flex-1 min-h-0"
     >
-      <Resizable.Panel as="div" class="min-h-0 overflow-hidden" minSize={0.2}>
+      <Resizable.Panel
+        as="div"
+        class="min-h-0 overflow-hidden relative"
+        minSize={0.2}
+      >
         <Terminal
           terminalId={props.terminalId}
           visible={props.visible}
@@ -89,6 +94,9 @@ const TerminalContent: Component<{
           searchOpen={props.searchOpen}
           onSearchOpenChange={props.onSearchOpenChange}
           onFocus={handleMainFocus}
+        />
+        <DisconnectedOverlay
+          state={props.getMetadata(props.terminalId)?.connectionState}
         />
       </Resizable.Panel>
 
