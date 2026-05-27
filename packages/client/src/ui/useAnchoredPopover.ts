@@ -42,7 +42,9 @@ export type UseAnchoredPopoverOpts = {
    *  variants (`"bottom-start"` and `"top-start"`). Defaults to 0
    *  (no clamp). */
   panelMinWidth?: number;
-  /** Vertical offset below the trigger's bottom edge. Defaults to 4px. */
+  /** Gap between the trigger and the panel edge. Defaults to 4px.
+   *  For `bottom-*` anchors the panel opens below the trigger; for `top-*`
+   *  anchors the panel opens above — the offset is the gap in both cases. */
   offset?: number;
 };
 
