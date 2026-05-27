@@ -424,6 +424,7 @@ const TerminalCanvas: Component<{
             {(id) => {
               const active = () => store.activeId() === id;
               const maximized = () => posture.maximized() && active();
+              const coveredByMaximized = () => posture.maximized() && !active();
               return (
                 <Show when={store.getDisplayInfo(id)}>
                   {(info) => (
@@ -431,6 +432,7 @@ const TerminalCanvas: Component<{
                       id={id}
                       active={active()}
                       maximized={maximized()}
+                      coveredByMaximized={coveredByMaximized()}
                       dimmed={isStale(
                         store.getMetadata(id)?.lastActivityAt ?? 0,
                       )}

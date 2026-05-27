@@ -67,6 +67,12 @@ const CanvasTile: Component<{
   panX: () => number;
   panY: () => number;
   zoom: () => number;
+  /** True for non-active tiles in maximized mode — visually covered by the
+   *  maximized tile's z-40 layer, but still in the DOM (so their PTYs keep
+   *  streaming). Marks the tile `aria-hidden` so screen readers don't
+   *  traverse covered content, matching pre-#988 behaviour where the
+   *  pan/zoom wrapper carried `aria-hidden` in maximized mode. */
+  coveredByMaximized: boolean;
 }> = (props) => {
   const { id } = props;
   const draggable = createDraggable(id);
@@ -130,6 +136,7 @@ const CanvasTile: Component<{
       data-active={props.active ? "true" : undefined}
       data-maximized={props.maximized ? "true" : undefined}
       data-dimmed={props.dimmed ? "true" : undefined}
+      aria-hidden={props.coveredByMaximized ? "true" : undefined}
       class="flex flex-col overflow-hidden border transition-shadow duration-200"
       classList={{
         // Maximized uses `absolute inset-0 z-40` to cover the canvas
