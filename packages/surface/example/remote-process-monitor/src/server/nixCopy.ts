@@ -30,7 +30,7 @@
  */
 
 import { spawn } from "node:child_process";
-import { isLocalHost } from "./host";
+import { forEachLine, isLocalHost } from "./host";
 
 export interface ProvisionOptions {
   host: string;
@@ -151,11 +151,7 @@ function runProc(
       });
     }
     proc.stderr?.setEncoding("utf-8");
-    proc.stderr?.on("data", (chunk: string) => {
-      for (const line of chunk.split("\n")) {
-        if (line.trim().length > 0) onProgress(line);
-      }
-    });
+    proc.stderr?.on("data", (chunk: string) => forEachLine(chunk, onProgress));
     proc.on("exit", (code) => {
       resolve({
         ok: code === 0,

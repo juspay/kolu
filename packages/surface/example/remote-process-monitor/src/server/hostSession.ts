@@ -35,7 +35,7 @@ import { inMemoryCell } from "@kolu/surface/server";
 import type { ContractRouterClient } from "@orpc/contract";
 import type { ClientRetryPluginContext } from "@orpc/client/plugins";
 import type { surface } from "../common/surface";
-import { isLocalHost } from "./host";
+import { forEachLine, isLocalHost } from "./host";
 import { provisionAgent } from "./nixCopy";
 
 export type ConnectionState =
@@ -228,11 +228,9 @@ export class HostSession {
     this.child = child;
 
     child.stderr?.setEncoding("utf-8");
-    child.stderr?.on("data", (chunk: string) => {
-      for (const line of chunk.split("\n")) {
-        if (line.trim().length > 0) this.addRemoteProgress(line);
-      }
-    });
+    child.stderr?.on("data", (chunk: string) =>
+      forEachLine(chunk, (line) => this.addRemoteProgress(line)),
+    );
 
     child.on("exit", (code, signal) => {
       const reason = `agent exited (code=${code}, signal=${signal})`;
