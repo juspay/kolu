@@ -179,89 +179,13 @@ let
       --run 'export KOLU_STATE_DIR="''${XDG_CONFIG_HOME:-$HOME/.config}/kolu"'
   '';
 
-  # Minimal workspace tree (source + pnpm-installed node_modules) the
-  # surface-example agents need at runtime. Skips the kolu build's
-  # vite-bundle step and node-gyp rebuild — neither is used by the
-  # agent. Reuses kolu's `pnpmDeps` so the fixed-output dep fetch is
-  # cached across both derivations.
-  surfaceExampleBase = pkgs.stdenv.mkDerivation {
-    pname = "surface-example-base";
-    version = "0.1.0";
-    inherit src;
-    nativeBuildInputs = [ pkgs.nodejs pkgs.pnpm pkgs.pnpmConfigHook ];
-    inherit pnpmDeps;
-    dontBuild = true;
-    dontFixup = true;
-    installPhase = ''
-      runHook preInstall
-      cp -r . $out
-      runHook postInstall
-    '';
+  # @kolu/surface remote-process-monitor demo — derivations live next
+  # to the demo source, not here. Pass through the workspace-wide
+  # `src` + `pnpmDeps` so the fixed-output fetch is cached once.
+  remoteProcessMonitor = import ./packages/surface/example/remote-process-monitor/default.nix {
+    inherit pkgs src pnpmDeps;
   };
-
-  # @kolu/surface remote-process-monitor demo's agent. Run with
-  # `nix run .#process-monitor-agent -- --stdio` (or via HostSession's
-  # `ssh $HOST $AGENT_PATH/bin/process-monitor-agent --stdio` spawn —
-  # `resolveAgentPath` builds this derivation when AGENT_PATH is unset).
-  # Backed by `surfaceExampleBase` (cheap: pnpm install + copy, no vite
-  # bundle, no node-gyp rebuild — neither is used by the agent).
-  processMonitorAgent = pkgs.runCommand "process-monitor-agent"
-    {
-      nativeBuildInputs = [ pkgs.makeWrapper ];
-      meta.mainProgram = "process-monitor-agent";
-    } ''
-    mkdir -p $out/bin
-    makeWrapper ${pkgs.tsx}/bin/tsx $out/bin/process-monitor-agent \
-      --add-flags "${surfaceExampleBase}/packages/surface/example/remote-process-monitor/src/agent/main.ts" \
-      --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs ]}
-  '';
-
-  # Vite-built client bundle for the remote-process-monitor demo.
-  # Served by the parent at the same port as the WebSocket RPC.
-  processMonitorClient = pkgs.stdenv.mkDerivation {
-    pname = "process-monitor-client";
-    version = "0.1.0";
-    inherit src;
-    nativeBuildInputs = [ pkgs.nodejs pkgs.pnpm pkgs.pnpmConfigHook ];
-    inherit pnpmDeps;
-    dontFixup = true;
-    buildPhase = ''
-      runHook preBuild
-      pnpm --filter @kolu/surface-example-remote-process-monitor build:client
-      runHook postBuild
-    '';
-    installPhase = ''
-      runHook preInstall
-      cp -r packages/surface/example/remote-process-monitor/dist $out
-      runHook postInstall
-    '';
-  };
-
-  # `nix run .#process-monitor-monitor` — the whole three-tier demo as
-  # a single binary. Serves the client bundle and the WS RPC on port
-  # 7720; spawns the agent via `ssh $HOST $agentPath/bin/... --stdio`
-  # (defaults to localhost). The wrapper bakes in `KOLU_AGENT_DRV` for
-  # the *current* system; for a real cross-arch remote (e.g.
-  # `HOST=user@some-darwin-box`), set `KOLU_AGENT_DRV` to a darwin
-  # `.drv` path before invoking `nix run`. The `nix` binary on PATH
-  # is what does the `nix copy --derivation` + remote realise.
-  processMonitorMonitor = pkgs.runCommand "process-monitor-monitor"
-    {
-      nativeBuildInputs = [ pkgs.makeWrapper ];
-      meta.mainProgram = "process-monitor-monitor";
-    } ''
-    mkdir -p $out/bin
-    makeWrapper ${pkgs.tsx}/bin/tsx $out/bin/process-monitor-monitor \
-      --add-flags "${surfaceExampleBase}/packages/surface/example/remote-process-monitor/src/server/main.ts" \
-      --set-default HOST localhost \
-      --set-default PORT 7720 \
-      --set KOLU_SURFACE_EXAMPLE_DIST "${processMonitorClient}" \
-      --set-default KOLU_AGENT_DRV "${processMonitorAgent.drvPath}" \
-      --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.openssh pkgs.nix ]}
-  '';
 in
 {
   inherit default koluBin koluEnv pnpmDeps;
-  process-monitor-agent = processMonitorAgent;
-  process-monitor-monitor = processMonitorMonitor;
-}
+} // remoteProcessMonitor
