@@ -13,19 +13,13 @@ A minimal in-memory notes app demonstrating all four `@kolu/surface` primitives 
 
 ## Run
 
-From the repo root:
+From this directory:
 
 ```sh
-just cells-example
+just dev
 ```
 
-This enters the Nix devshell, installs deps if needed, and starts the server (port 7700) plus the Vite dev server (port 5174) in parallel. Open <http://localhost:5174> — Vite proxies `/rpc/*` (HTTP + WebSocket) to the Hono server.
-
-For an explicit invocation outside `just`:
-
-```sh
-nix develop -c pnpm --filter @kolu/surface-example dev
-```
+The recipe enters the Nix devshell (skipping re-entry if you're already inside one), installs deps if needed, and starts the server (port 7700) plus the Vite dev server (port 5174) in parallel. Open <http://localhost:5174> — Vite proxies `/rpc/*` (HTTP + WebSocket) to the Hono server.
 
 The example is self-contained: in-memory note store, no persistence between restarts. Stop and restart to reset the dataset.
 

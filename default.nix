@@ -178,7 +178,25 @@ let
     makeWrapper ${koluBin}/bin/kolu $out/bin/kolu \
       --run 'export KOLU_STATE_DIR="''${XDG_CONFIG_HOME:-$HOME/.config}/kolu"'
   '';
+
+  # @kolu/surface remote-process-monitor demo's agent. Run with
+  # `nix run .#process-monitor-agent -- --stdio` (or via HostSession's
+  # `ssh $HOST $AGENT_PATH/bin/process-monitor-agent --stdio` spawn —
+  # `resolveAgentPath` builds this derivation when AGENT_PATH is unset).
+  # Reuses the kolu derivation's node_modules tree (workspace symlinks
+  # already wire `@kolu/surface` and `@orpc/*` for the agent).
+  processMonitorAgent = pkgs.runCommand "process-monitor-agent"
+    {
+      nativeBuildInputs = [ pkgs.makeWrapper ];
+      meta.mainProgram = "process-monitor-agent";
+    } ''
+    mkdir -p $out/bin
+    makeWrapper ${pkgs.tsx}/bin/tsx $out/bin/process-monitor-agent \
+      --add-flags "${kolu}/packages/surface/example/remote-process-monitor/src/agent/main.ts" \
+      --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs ]}
+  '';
 in
 {
   inherit default koluBin koluEnv pnpmDeps;
+  process-monitor-agent = processMonitorAgent;
 }

@@ -1,0 +1,31 @@
+# @kolu/surface remote-process-monitor — standalone example.
+#
+# Run from this directory: `just dev` boots the parent server + Vite
+# client. The parent spawns the agent via `ssh $HOST $AGENT_PATH/bin/
+# process-monitor-agent --stdio` — `AGENT_PATH` resolves to the
+# `.#process-monitor-agent` flake derivation (built once per change to
+# the agent's source, cached after). Defaults: HOST=localhost; needs
+# passwordless ssh into HOST.
+#
+# Run just the agent directly via `nix run .#process-monitor-agent --
+# --stdio` (from the repo root) for stdio-only smoke tests.
+
+repo_root := justfile_directory() / "../../../.."
+nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop ' + repo_root + ' --accept-flake-config -c' }
+
+# List available recipes
+default:
+    @just --list
+
+# Install pnpm deps (delegates to the workspace at the repo root)
+install:
+    cd {{ repo_root }} && {{ nix_shell }} pnpm install
+
+# Boot parent (:7720) + Vite (:5175); parent nix-builds the agent
+dev *args: install
+    cd {{ justfile_directory() }} && \
+    HOST="${HOST:-localhost}" {{ nix_shell }} pnpm run dev {{ args }}
+
+# Typecheck this example only
+typecheck:
+    cd {{ justfile_directory() }} && {{ nix_shell }} pnpm typecheck

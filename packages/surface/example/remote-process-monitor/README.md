@@ -31,26 +31,29 @@ The browser's `app.cells.system.use(...)` and `app.collections.processes.use(...
 
 ## Run locally
 
-The simplest path uses `localhost` as the ssh target and an explicit agent path (skips `nix build`):
-
 ```sh
-# In one terminal — run the agent directly via tsx (no nix copy needed)
 cd packages/surface/example/remote-process-monitor
-pnpm run dev:agent
-
-# In another — point the parent at it
-AGENT_PATH=$(pwd)/src/agent/main.ts HOST=localhost pnpm run dev
+just dev
 ```
 
-Open <http://localhost:5175>.
+Open <http://localhost:5175>. Requires passwordless ssh into `HOST` (defaults to `localhost` — set up `~/.ssh/authorized_keys` for your own user if you haven't).
 
-For a real remote, build the agent's nix closure, `nix copy` it to the host (auto-handled by the parent on first connect), and pass `HOST=user@host`:
+`just dev` boots the parent server (`:7720`) + Vite client (`:5175`). The parent's `HostSession` spawns `ssh $HOST $AGENT_PATH/bin/process-monitor-agent --stdio`; `AGENT_PATH` resolves automatically by `nix build`ing the `.#process-monitor-agent` derivation. Override with `AGENT_PATH=/some/store/path` if you've built it ahead of time.
+
+To smoke-test the agent in isolation (stdio framing, broken-stdout reproducer):
 
 ```sh
-HOST=user@host pnpm run dev
+nix run .#process-monitor-agent -- --stdio                     # normal mode
+nix run .#process-monitor-agent -- --stdio --broken-stdout-log # lesson #4
 ```
 
-The parent runs `nix build .#process-monitor-agent --print-out-paths` to resolve the closure, probes the remote for it via `ssh $host test -e $agentPath`, and triggers `nix copy --to ssh://$host $agentPath` if it's not already there. The UI shows copy progress while waiting.
+For a real remote, just override `HOST`:
+
+```sh
+HOST=user@host just dev
+```
+
+The parent probes the remote for the closure (`ssh $host test -e $AGENT_PATH`) and triggers `nix copy --to ssh://$host $AGENT_PATH` if missing. The UI shows copy progress while waiting; subsequent connects skip the copy.
 
 ## Falsifiability checklist — what to watch
 
@@ -73,4 +76,4 @@ The plan's 12-row table maps to observable behavior in this app:
 
 - **A real CLI for `kill` signal selection.** The UI hardcodes `TERM`. The procedure schema accepts `KILL`/`HUP`/`INT` — a button group is left as an exercise.
 - **Per-PID streaming value refresh.** The collection's `byKey` snapshot is filled on first key arrival; subsequent value changes ride the system poll cadence rather than per-key channels. R-2 would generate per-key channels for richer per-tile updates.
-- **A nix derivation.** The demo runs with `AGENT_PATH=…/main.ts` and `tsx`. Adding a packaged derivation that builds the agent into `$out/bin/process-monitor-agent` is a follow-up.
+- **Standalone `nix run` for the whole demo.** The agent ships as a flake derivation (`.#process-monitor-agent`), but the parent server + Vite client still run from source via `just dev`. Bundling the parent + a pre-built client into a single `nix run .#process-monitor-monitor` is straightforward and a reasonable follow-up.
