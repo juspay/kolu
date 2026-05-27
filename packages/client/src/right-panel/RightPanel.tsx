@@ -7,7 +7,7 @@ import type {
   TerminalId,
   TerminalMetadata,
 } from "kolu-common/surface";
-import { type Component, createEffect, For, on, Show } from "solid-js";
+import { type Component, For, Show } from "solid-js";
 import { match } from "ts-pattern";
 import { useViewPosture } from "../canvas/useViewPosture";
 import { CHROME_ICON_BUTTON_CLASS, RAIL_WIDTH_PX } from "../ui/chromeSpacing";
@@ -15,7 +15,6 @@ import { ChevronDownIcon } from "../ui/Icons";
 import { ACTIVE_TERMINAL_ACCENT } from "./activeTerminalAccent";
 import CodeTab from "./CodeTab";
 import MetadataInspector from "./MetadataInspector";
-import { pendingOpen } from "./openInCodeTab";
 import { useRightPanel } from "./useRightPanel";
 
 /** Ordered tab kinds shown in the tab bar. Adding a new kind to the
@@ -57,24 +56,12 @@ const RightPanel: Component<{
     kind === "inspector" ? rightPanel.showInspector() : rightPanel.showCode();
 
   // Producer arrivals (terminal `path:line` taps, comments-tray jumps)
-  // uncollapse the panel — registered here (inside the same owner
-  // scope as the rendered panel) rather than in `App.tsx` because the
-  // App-root version silently dropped subsequent `pendingOpen` fires
-  // in this layout. Mobile's drawer-open equivalent stays in
-  // `RightPanelLayout`. The shell guard mirrors the mobile branch's
-  // semantics — when this `RightPanel` is the desktop instance the
-  // shell wraps the floating card, so an expand is the right
-  // response; the mobile drawer instance never has `shell=true`.
-  createEffect(
-    on(
-      pendingOpen,
-      (req) => {
-        if (!req || !props.shell) return;
-        if (rightPanel.collapsed()) rightPanel.expandPanel();
-      },
-      { defer: true },
-    ),
-  );
+  // uncollapse the panel — that effect now lives in `App.tsx`'s
+  // desktop branch (the same reactive owner as this component, since
+  // `DesktopResizableHost` no longer wraps us). `openInCodeTab` uses
+  // `equals: false` on `pendingOpen` so consecutive `setPending` calls
+  // notify subscribers regardless of value identity; that's the bug
+  // fix that lets the effect live at App scope without dropping fires.
 
   // Custom resize: pointer-event drag on a thin strip at the panel's
   // outer-left edge. Width is stored as a fraction of the parent's

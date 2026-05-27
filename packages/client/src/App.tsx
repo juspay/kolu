@@ -43,6 +43,7 @@ import MobileKeyBar from "./MobileKeyBar";
 import MobileTileView from "./MobileTileView";
 import { useRecorder } from "./recorder/useRecorder";
 import WebcamOverlay from "./recorder/WebcamOverlay";
+import { pendingOpen } from "./right-panel/openInCodeTab";
 import RightPanel from "./right-panel/RightPanel";
 import RightPanelLayout from "./right-panel/RightPanelLayout";
 import { useRightPanel } from "./right-panel/useRightPanel";
@@ -85,12 +86,26 @@ const App: Component = () => {
   const rightPanel = useRightPanel();
   const { colorScheme } = useColorScheme();
 
-  // The desktop pendingOpen→expandPanel effect lives inside the
-  // `RightPanel` component itself (which is also rendered inside
-  // `TerminalCanvas` on desktop). Mobile's equivalent lives inside
-  // `RightPanelLayout`. Both branches need to share the same owner
-  // scope as the surface they control, otherwise the `on(pendingOpen,
-  // ..., { defer: true })` silently drops subsequent fires.
+  // Producer arrivals (terminal `path:line` taps, comments-tray jumps)
+  // uncollapse the desktop right panel. The effect lives at App scope
+  // — `App` is a long-lived root owner, so the subscription never gets
+  // disposed mid-session by a re-mount. `openInCodeTab` uses
+  // `equals: false` on `pendingOpen` so consecutive `setPending` calls
+  // with the same `req` reference still notify subscribers (production
+  // Solid otherwise elides identical-value re-fires). Mobile's
+  // equivalent (drawerOpen instead of expandPanel) lives inside
+  // `RightPanelLayout` for the same owner-stability reason on the
+  // mobile branch. `defer: true` skips the initial null observation.
+  createEffect(
+    on(
+      pendingOpen,
+      (req) => {
+        if (!req || isMobile()) return;
+        if (rightPanel.collapsed()) rightPanel.expandPanel();
+      },
+      { defer: true },
+    ),
+  );
 
   // Workspace search feeds — the live-terminal source list and recency
   // accessor consumed by the unified command palette's "Search
