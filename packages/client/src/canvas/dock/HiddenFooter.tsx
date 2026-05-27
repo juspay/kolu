@@ -15,7 +15,7 @@
  *  in every other state the picker chip alone is the way to widen the
  *  window. */
 
-import { type Component, Show } from "solid-js";
+import { type Component, createMemo, Show } from "solid-js";
 import { ActivityWindowChip } from "../../ui/ActivityWindowChip";
 import {
   activityWindow,
@@ -37,8 +37,8 @@ export const HiddenFooter: Component<{
   // That collapses three states into two: a filter is active (show the
   // "N hidden by … window" sentence) or it isn't (label the chip plainly
   // so the strip doesn't read "0 hidden by All window").
-  const filterActive = () => activityWindow() !== "all";
-  const showRelax = () => props.parkedCount > 0 && filterActive();
+  const filterActive = createMemo(() => activityWindow() !== "all");
+  const showRelax = createMemo(() => props.parkedCount > 0 && filterActive());
   return (
     <div
       data-testid={props.testId ?? "dock-hidden-footer"}
