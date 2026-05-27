@@ -37,13 +37,13 @@ export const ActivityWindowChip: Component<{
   class?: string;
 }> = (props) => {
   const [menuOpen, setMenuOpen] = createSignal(false);
-  const [triggerRef, setTriggerRef] = createSignal<HTMLButtonElement>();
+  let triggerEl: HTMLButtonElement | undefined;
   const current = () => windowOption(activityWindow());
   return (
     <>
       <button
         type="button"
-        ref={setTriggerRef}
+        ref={triggerEl}
         data-testid={`${props.testIdPrefix}-trigger`}
         data-window={activityWindow()}
         data-enabled={activityWindow() !== "all" ? "" : undefined}
@@ -59,7 +59,7 @@ export const ActivityWindowChip: Component<{
         {current().short}
       </button>
       <OptionMenu
-        triggerRef={triggerRef}
+        triggerRef={() => triggerEl}
         open={menuOpen}
         onDismiss={() => setMenuOpen(false)}
         anchor={props.anchor}
