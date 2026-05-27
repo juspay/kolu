@@ -482,18 +482,28 @@ export function inMemoryChannel<T>(): Channel<T> {
       for (const sub of subscribers) sub.push(value);
     },
     subscribe,
-    consume: ({ onEvent, onError }) => {
-      const controller = new AbortController();
-      void (async () => {
-        try {
-          for await (const value of subscribe(controller.signal))
-            onEvent(value);
-        } catch (err) {
-          if (!controller.signal.aborted) onError(err);
-        }
-      })();
-      return () => controller.abort();
-    },
+    consume: buildConsume(subscribe),
+  };
+}
+
+/** Build the `consume` half of a `Channel<T>` from its `subscribe` half.
+ *  Owns an `AbortController` per subscriber, runs a fire-and-forget loop,
+ *  suppresses post-abort errors (those are end-of-life noise, not a real
+ *  failure). Identical body for every `Channel<T>` implementation — the
+ *  only thing they vary in is `subscribe`. */
+function buildConsume<T>(
+  subscribe: (signal: AbortSignal | undefined) => AsyncIterable<T>,
+): Channel<T>["consume"] {
+  return ({ onEvent, onError }) => {
+    const controller = new AbortController();
+    void (async () => {
+      try {
+        for await (const value of subscribe(controller.signal)) onEvent(value);
+      } catch (err) {
+        if (!controller.signal.aborted) onError(err);
+      }
+    })();
+    return () => controller.abort();
   };
 }
 
@@ -557,18 +567,7 @@ export function publisherChannel<T>(
       void publisher.publish(channelName, value);
     },
     subscribe,
-    consume: ({ onEvent, onError }) => {
-      const controller = new AbortController();
-      void (async () => {
-        try {
-          for await (const value of subscribe(controller.signal))
-            onEvent(value);
-        } catch (err) {
-          if (!controller.signal.aborted) onError(err);
-        }
-      })();
-      return () => controller.abort();
-    },
+    consume: buildConsume(subscribe),
   };
 }
 
