@@ -30,9 +30,8 @@ import { implement } from "@orpc/server";
 import {
   implementSurface,
   inMemoryChannel,
-  inMemoryPublisher,
+  inMemoryChannelByName,
   inMemoryStore,
-  publisherChannel,
 } from "@kolu/surface/server";
 import { serveOverStdio } from "@kolu/surface/peer-server";
 import {
@@ -93,13 +92,12 @@ async function main(): Promise<void> {
   // `inMemoryPublisher` is the load-bearing piece — it dedupes
   // channels by name so the framework's publish-site and subscribe-
   // site call paths land on the same `Channel<T>` instance.
-  const publisher = inMemoryPublisher();
   // Bulk-snapshot channel — `processesSnapshot` stream subscribers
   // read the current map on first subscribe, then forward every
   // delta the poll loop publishes here.
   const snapshotDeltaBus = inMemoryChannel<ProcessesSnapshotMsg>();
   const fragment = implementSurface(surface, {
-    channel: <T>(name: string) => publisherChannel<T>(publisher, name),
+    channel: inMemoryChannelByName(),
     cells: {
       system: { store: systemStore },
       // `connection` lives in the shared surface so the browser can

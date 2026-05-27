@@ -23,9 +23,8 @@ import {
   type Channel,
   implementSurface,
   inMemoryChannel,
-  inMemoryPublisher,
+  inMemoryChannelByName,
   inMemoryStore,
-  publisherChannel,
 } from "@kolu/surface/server";
 import {
   type ConnectionInfo,
@@ -65,11 +64,10 @@ export function buildRouter(opts: BuildRouterOptions) {
   const browserSnapshotBus: Channel<ProcessesSnapshotMsg> =
     inMemoryChannel<ProcessesSnapshotMsg>();
 
-  // `inMemoryPublisher` dedupes channels by name so the framework's
-  // publish-site and subscribe-site land on the same `Channel<T>`.
-  const publisher = inMemoryPublisher();
   const fragment = implementSurface(surface, {
-    channel: <T>(name: string) => publisherChannel<T>(publisher, name),
+    // Name-keyed in-memory channel factory — publish/subscribe sites
+    // land on the same `Channel<T>` instance per name.
+    channel: inMemoryChannelByName(),
     cells: {
       system: { store: systemStore },
       connection: { store: connectionStore },

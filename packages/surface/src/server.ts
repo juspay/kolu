@@ -531,6 +531,30 @@ export function inMemoryPublisher(): {
   };
 }
 
+/** Convenience: one-liner factory for the canonical `channel:` dep
+ *  shape `implementSurface` expects, backed by a private
+ *  `inMemoryPublisher`. Hides the two-step
+ *  `const publisher = inMemoryPublisher(); channel: (name) =>
+ *  publisherChannel(publisher, name)` cassette that every in-process
+ *  consumer was repeating verbatim. Same semantics: one channel
+ *  instance per name, shared by every call.
+ *
+ *  ```ts
+ *  implementSurface(surface, {
+ *    channel: inMemoryChannelByName(),
+ *    cells: { ... },
+ *  });
+ *  ```
+ *
+ *  Use `inMemoryPublisher` + `publisherChannel` directly when you
+ *  need the publisher reference for something else (cross-cell
+ *  publishes, instrumentation, etc.); reach for this helper for the
+ *  90% case where you just want named in-process channels. */
+export function inMemoryChannelByName(): <T>(name: string) => Channel<T> {
+  const publisher = inMemoryPublisher();
+  return <T>(name: string) => publisherChannel<T>(publisher, name);
+}
+
 /** Snapshot-then-delta observable cell. Combines a value (read via
  *  `current()`, written via `set()`) with a `Channel<T>` interface
  *  that fires `onEvent(current)` *synchronously* on consume before
