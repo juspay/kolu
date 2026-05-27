@@ -142,7 +142,9 @@ function runProgress(
     const proc = spawn(cmd, [...args], { stdio: ["ignore", "ignore", "pipe"] });
     proc.stderr?.setEncoding("utf-8");
     proc.stderr?.on("data", (chunk: string) => forEachLine(chunk, onProgress));
-    proc.on("exit", (code) => resolve({ ok: code === 0, code }));
+    // Use "close" (not "exit") so the last stderr chunk is guaranteed
+    // flushed before we resolve — "exit" fires before stdio streams drain.
+    proc.on("close", (code) => resolve({ ok: code === 0, code }));
     proc.on("error", (err) => {
       onProgress(`${cmd}: ${err.message}`);
       resolve({ ok: false, code: null });
@@ -167,7 +169,8 @@ function runCapture(
     });
     proc.stderr?.setEncoding("utf-8");
     proc.stderr?.on("data", (chunk: string) => forEachLine(chunk, onProgress));
-    proc.on("exit", (code) => resolve({ ok: code === 0, code, stdout }));
+    // Use "close" (not "exit") so stdout/stderr are fully drained first.
+    proc.on("close", (code) => resolve({ ok: code === 0, code, stdout }));
     proc.on("error", (err) => {
       onProgress(`${cmd}: ${err.message}`);
       resolve({ ok: false, code: null, stdout: "" });
