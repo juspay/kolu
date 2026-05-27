@@ -75,7 +75,8 @@ async function main(): Promise<void> {
   });
 
   // ── WebSocket: oRPC over @orpc/server/ws ───────────────────────────
-  const wsHandler = new RPCHandler(router);
+  // biome-ignore lint/suspicious/noExplicitAny: same Lazy<Router> spread typing dance as kolu/server.ts uses on its own appRouter.
+  const wsHandler = new RPCHandler(router as any);
   const wss = new WebSocketServer({ noServer: true });
   wss.on("connection", (ws) => {
     void wsHandler.upgrade(

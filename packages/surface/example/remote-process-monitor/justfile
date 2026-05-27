@@ -24,7 +24,9 @@ install:
 # Boot parent (:7720) + Vite (:5175); parent nix-builds the agent
 dev host='localhost' *args: install
     cd {{ justfile_directory() }} && \
-    HOST={{ host }} {{ nix_shell }} pnpm run dev {{ args }}
+    HOST={{ host }} \
+    AGENT_FLAKE={{ repo_root }}#process-monitor-agent \
+    {{ nix_shell }} pnpm run dev {{ args }}
 
 # Typecheck this example only
 typecheck:

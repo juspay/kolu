@@ -17,6 +17,7 @@
  * keeping its own state for an imperative mutation.
  */
 
+import { implement } from "@orpc/server";
 import {
   type CellStore,
   type Channel,
@@ -105,7 +106,15 @@ export function buildRouter(opts: BuildRouterOptions) {
   // delta semantics on each transport blip.
   void bridgeAgentToParent(session, fragment, processCache);
 
-  return { router: fragment.router, session };
+  // `implementSurface` returns a router *fragment* — `{ surface: ... }`
+  // wrapping the per-key namespaces. Passing it directly to RPCHandler
+  // produces a `surface/surface/...` double-prefix in the matcher tree
+  // (no procedure matches what the client sends). Wrap once via
+  // `implement(contract).router({...fragment})` to flatten the prefix
+  // — this is the same pattern Kolu's own server uses when spreading
+  // the surface fragment alongside raw oRPC procedures.
+  const router = implement(surface.contract).router({ ...fragment.router });
+  return { router, session };
 }
 
 type FragmentCtx = {
