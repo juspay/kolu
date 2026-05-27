@@ -10,7 +10,7 @@ import type {
 import { type Component, createEffect, For, on, Show } from "solid-js";
 import { match } from "ts-pattern";
 import { useViewPosture } from "../canvas/useViewPosture";
-import { CHROME_ICON_BUTTON_CLASS } from "../ui/chromeSpacing";
+import { CHROME_ICON_BUTTON_CLASS, RAIL_WIDTH_PX } from "../ui/chromeSpacing";
 import { ChevronDownIcon } from "../ui/Icons";
 import { ACTIVE_TERMINAL_ACCENT } from "./activeTerminalAccent";
 import CodeTab from "./CodeTab";
@@ -31,11 +31,6 @@ const TAB_LABEL: Record<RightPanelTabKind, string> = {
   inspector: "Inspector",
   code: "Code",
 };
-
-/** Width of the collapsed rail, mirroring the dock's `RAIL_WIDTH_PX`.
- *  44 px gives a square 7×7 hit target for the expand chevron without
- *  the rail bleeding into the canvas behind it. */
-const RAIL_WIDTH_PX = 44;
 
 const RightPanel: Component<{
   terminalId: TerminalId | null;

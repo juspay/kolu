@@ -1,5 +1,6 @@
 /** Chrome spacing tokens — shared density vocabulary for the canvas tile
- *  title bar and the right-panel tab bar.
+ *  title bar, the right-panel tab bar, and the rail/sidebar widths shared
+ *  by the dock and the right panel.
  *
  *  Scope: **sizing/spacing only.** No color formulas (those live in
  *  `canvas/tileChrome.ts` for per-theme derivations or in Tailwind
@@ -7,6 +8,14 @@
  *  "chrome density vocabulary" — the height, padding, and icon-button
  *  footprint that should scale together if the product targets denser
  *  or sparser displays. */
+
+/** Width of the collapsed dock rail AND the collapsed right-panel rail.
+ *  The two surfaces share the value so the canvas grid reads with one
+ *  consistent gutter on both sides — 44 px gives the 32 px chips ~6 px
+ *  breathing room and the 26 px-wide header buttons fit comfortably
+ *  stacked. Single source so neither side can drift independently when
+ *  rail density changes. */
+export const RAIL_WIDTH_PX = 44;
 
 /** Icon-button sized for a chrome bar (title bar, tab bar). Square 28px
  *  hit area, lg radius. Used by canvas tile chrome (maximize, close) and

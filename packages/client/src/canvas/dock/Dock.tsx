@@ -64,6 +64,7 @@ import {
   WINDOW_OPTIONS,
   windowOption,
 } from "../../terminal/activityWindow";
+import { RAIL_WIDTH_PX } from "../../ui/chromeSpacing";
 import { ChevronDownIcon, PlusIcon, SearchIcon } from "../../ui/Icons";
 import { OptionMenu } from "../../ui/OptionMenu";
 import { isPlatformModifier } from "../../input/keyboard";
@@ -74,9 +75,9 @@ import { useDockOrder } from "./useDockOrder";
 
 export type DockMode = "rail" | "cards";
 
-// 44 px so the 32 px chips have ~6 px breathing room and the
-// 26 px-wide header buttons fit comfortably stacked.
-const RAIL_WIDTH_PX = 44;
+// Rail width is shared with the right-panel rail via
+// `RAIL_WIDTH_PX` in `ui/chromeSpacing.ts` so the two collapsed
+// surfaces stay visually paired across the canvas axis.
 const CARDS_WIDTH_PX = 288;
 
 /** Width in pixels for a given mode. Drives both the outer aside's
