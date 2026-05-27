@@ -66,9 +66,9 @@ export function snapshotSession(): {
 }
 
 /** Resolve the backend a new terminal should land on. Honors an
- *  explicit `location` from the create RPC; falls back to inheriting
- *  the parent terminal's location (sub-terminals stay on the same
- *  host); defaults to local. */
+ *  explicit `location` from the create RPC; otherwise inherits the
+ *  parent terminal's location (sub-terminals stay on the same host);
+ *  defaults to local. */
 function resolveCreateLocation(opts: {
   location?: TerminalLocation;
   parentId?: string;
@@ -76,13 +76,7 @@ function resolveCreateLocation(opts: {
   if (opts.location) return opts.location;
   if (opts.parentId) {
     const parent = getTerminal(opts.parentId);
-    // `parentMeta.location` isn't tracked yet (TerminalMetadata stays
-    // free of location for now — backend dispatch already infers it).
-    // For MVP, sub-terminal location inheritance is best-effort: we
-    // look up the parent's registry entry and ask the backend
-    // registry index which backend owns it. Until that machinery is
-    // added, default to local.
-    if (parent) return { kind: "local" };
+    if (parent) return parent.location;
   }
   return { kind: "local" };
 }
@@ -104,23 +98,12 @@ export function createTerminal(
 }
 
 /** Kill a terminal. Returns final info, or undefined if not found.
- *  Dispatches by location — local kill goes to `LocalTerminalBackend`,
- *  remote kill forwards over the agent surface. */
+ *  Dispatches by `entry.location` so the agent's PTY on a remote
+ *  host gets killed via the agent surface rather than orphaned. */
 export function killTerminal(id: TerminalId): TerminalInfo | undefined {
-  // The registry doesn't track location yet; for MVP, attempt local
-  // first, then iterate any remote backends. Once `meta.location` is
-  // populated, this becomes a single dispatch.
   const entry = getTerminal(id);
   if (!entry) return undefined;
-  // `getTerminalBackendFor({kind: "local"})` is the local singleton;
-  // local kill is a no-op if the terminal lives elsewhere (returns
-  // undefined). Until per-terminal location is tracked, we fan kill
-  // attempts: local first, then any cached remote backend.
-  const localResult = getTerminalBackendFor({ kind: "local" }).killTerminal(id);
-  if (localResult) return localResult;
-  // Remote fallback — every remote backend tries; the one that owns
-  // the terminal wins. Best-effort until terminals carry location.
-  return undefined;
+  return getTerminalBackendFor(entry.location).killTerminal(id);
 }
 
 /** Set or clear a terminal's parent relationship. */

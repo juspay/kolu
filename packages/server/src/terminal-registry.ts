@@ -15,7 +15,10 @@ import type {
   TerminalInfo,
   TerminalMetadata,
 } from "kolu-common/surface";
-import type { TerminalHandle } from "kolu-common/terminalBackend";
+import type {
+  TerminalHandle,
+  TerminalLocation,
+} from "kolu-common/terminalBackend";
 
 /** Server-side terminal state. `info` is the wire shape sent in the
  *  `terminalList` cell snapshot; `meta` is mutated in place by the
@@ -23,11 +26,14 @@ import type { TerminalHandle } from "kolu-common/terminalBackend";
  *  `terminalMetadata` collection from `terminalBackend/metadata.ts`;
  *  `handle` is the abstract control surface (write / resize / screen
  *  state — NO `dispose()`, the backend's `killTerminal` is the sole
- *  termination path). */
+ *  termination path); `location` records which backend owns this
+ *  terminal so dispatch sites (kill, sub-terminal inheritance) don't
+ *  need a per-host lookup. */
 export interface TerminalProcess {
   info: TerminalInfo;
   meta: TerminalMetadata;
   handle: TerminalHandle;
+  location: TerminalLocation;
 }
 
 const terminals = new Map<TerminalId, TerminalProcess>();

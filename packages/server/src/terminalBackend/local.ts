@@ -690,6 +690,7 @@ class LocalTerminalBackend implements TerminalBackend {
       info: { id, pid: ptyHandle.pid },
       meta,
       handle: ptyHandle,
+      location: { kind: "local" },
     };
 
     registerTerminal(id, entry);

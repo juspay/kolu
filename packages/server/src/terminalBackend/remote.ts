@@ -150,6 +150,7 @@ export class RemoteTerminalBackend implements TerminalBackend {
       info: { id, pid: 0 },
       meta,
       handle,
+      location: { kind: "remote", host: this.host },
     };
     registerTerminal(id, entry);
     surfaceCtx.collections.terminalMetadata.upsert(id, { ...meta });

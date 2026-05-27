@@ -30,6 +30,7 @@ function fakeTerminal(): TerminalProcess {
     },
     // Tests never touch the PTY handle; the publish path doesn't read it.
     handle: {} as TerminalProcess["handle"],
+    location: { kind: "local" },
   };
 }
 
