@@ -36,6 +36,7 @@ import {
   POSTURED_TILED_FLOAT,
 } from "../canvas/posturedSurfaceChrome";
 import { useViewPosture } from "../canvas/useViewPosture";
+import { capturePointerGesture } from "../canvas/viewport/capturePointerGesture";
 import { isMobile } from "../useMobile";
 import { pendingOpen } from "./openInCodeTab";
 import RightPanel from "./RightPanel";
@@ -56,6 +57,14 @@ type HostProps = {
 const DesktopHost: Component<HostProps> = (props) => {
   const rightPanel = useRightPanel();
   const posture = useViewPosture();
+  // Ref on the outer wrapper — read on tiled-mode pointerdown to
+  // convert pixel deltas to the persisted `panelSize` fraction. The
+  // Resizable shell owns this conversion in maximized mode; tiled mode
+  // can't reuse its `Resizable.Handle` because the floating panel is
+  // lifted out of flex flow (the handle would visually land at the
+  // canvas's right edge, not the floating card's left edge).
+  let layoutEl: HTMLDivElement | undefined;
+  let abortTiledResize: AbortController | null = null;
 
   // Producer arrivals (terminal `path:line` taps, comments-tray jumps)
   // uncollapse the side panel — visibility used to live inside
@@ -71,8 +80,40 @@ const DesktopHost: Component<HostProps> = (props) => {
     ),
   );
 
+  const onTiledResizeStart = (e: PointerEvent) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    if (!layoutEl) return;
+    const cw = layoutEl.getBoundingClientRect().width;
+    if (cw <= 0) return;
+    const startX = e.clientX;
+    const startSize = rightPanel.panelSize();
+    abortTiledResize?.abort();
+    abortTiledResize = new AbortController();
+    capturePointerGesture(
+      {
+        onMove: (ev) => {
+          // Pointer moves left → delta positive → panel grows. Matches the
+          // tiled card's anchor (`right-4`): pulling the left edge leftward
+          // widens the card while its right edge stays pinned.
+          const delta = (startX - ev.clientX) / cw;
+          rightPanel.setPanelSize(startSize + delta);
+        },
+        onEnd: () => {
+          abortTiledResize = null;
+        },
+      },
+      abortTiledResize,
+    );
+  };
+
   return (
-    <div class="flex-1 min-h-0 min-w-0 flex overflow-hidden relative">
+    <div
+      ref={(el) => {
+        layoutEl = el;
+      }}
+      class="flex-1 min-h-0 min-w-0 flex overflow-hidden relative"
+    >
       <Resizable
         orientation="horizontal"
         sizes={
@@ -92,7 +133,15 @@ const DesktopHost: Component<HostProps> = (props) => {
         >
           {props.children}
         </Resizable.Panel>
-        <Show when={!rightPanel.collapsed()}>
+        {/* Resizable.Handle drives drag in maximized mode (the flex
+         *  split where it visually lands between canvas and panel). In
+         *  tiled mode the floating card is absolutely positioned, so
+         *  the Resizable's flex-flow handle would land at the canvas's
+         *  right edge instead of the card's left edge — tiled mode
+         *  gets its own pointer handle anchored to the panel's left
+         *  edge below. Same `data-testid="right-panel-handle"` so the
+         *  attached-handle e2e assertion finds whichever is mounted. */}
+        <Show when={!rightPanel.collapsed() && posture.maximized()}>
           <Resizable.Handle
             data-testid="right-panel-handle"
             class="shrink-0 w-0 relative before:absolute before:inset-y-0 before:-left-1 before:w-2 before:cursor-col-resize before:hover:bg-accent/30 before:transition-colors"
@@ -134,6 +183,19 @@ const DesktopHost: Component<HostProps> = (props) => {
           }
           minSize={0}
         >
+          {/* Tiled-mode drag handle — anchored to the floating card's
+           *  left edge with a `cursor-col-resize` hit zone that extends
+           *  slightly outside the card so the pointer target isn't
+           *  flush with the rounded corner. Writes through to the
+           *  same `setPanelSize` Resizable's `onSizesChange` does. */}
+          <Show when={!posture.maximized() && !rightPanel.collapsed()}>
+            <div
+              data-testid="right-panel-handle"
+              title="Resize inspector panel"
+              class="absolute top-0 bottom-0 left-0 w-1.5 z-10 cursor-col-resize hover:bg-accent/30 transition-colors"
+              onPointerDown={onTiledResizeStart}
+            />
+          </Show>
           {/* Render unconditionally so CodeTab's selectedPath signal and
            *  Pierre's tree expansion survive collapse — Resizable already
            *  shrinks this panel to zero width via sizes=[1,0] above. An
