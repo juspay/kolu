@@ -12,17 +12,20 @@
  * snapshot-then-delta invariant — just with process data instead of
  * terminal data.
  *
- * Configuration:
+ * Configuration (env vars):
  *
- *   HOST           — ssh target (default: localhost — see plan §R-1.5
- *                    "Localhost is a valid target")
- *   AGENT_PATH     — pre-built agent /nix/store path; overrides
- *                    `nix build` (handy during `pnpm dev`)
- *   AGENT_FLAKE    — flake ref to build with; default
- *                    `.#process-monitor-agent`
- *   PORT           — HTTP+WS port (default 7720)
- *   KOLU_SURFACE_EXAMPLE_DIST  — when set, serve the prebuilt client
- *                    bundle from this dir (production mode)
+ *   HOST                          ssh target (default: localhost — see
+ *                                 plan §R-1.5 "Localhost is a valid target")
+ *   KOLU_AGENT_DRV  (required)    path to the agent's `.drv`; the
+ *                                 derivation is shipped to the target
+ *                                 host and realised there for the
+ *                                 right architecture. **No fallback** —
+ *                                 the operator names this explicitly
+ *                                 (lesson #2: matched-pair-by-operator-
+ *                                 named-input).
+ *   PORT                          HTTP+WS port (default 7720)
+ *   KOLU_SURFACE_EXAMPLE_DIST     when set, serve the pre-built client
+ *                                 bundle from this dir (production mode)
  */
 
 import { serve } from "@hono/node-server";
@@ -31,11 +34,10 @@ import { RPCHandler } from "@orpc/server/ws";
 import { Hono } from "hono";
 import { WebSocketServer } from "ws";
 import { destroyAllSessions, getHostSession } from "./hostSession";
-import { resolveAgentPath } from "./nixCopy";
 import { buildRouter } from "./router";
 
 const HOST = process.env.HOST ?? "localhost";
-const FLAKE = process.env.AGENT_FLAKE ?? ".#process-monitor-agent";
+const DRV_PATH = process.env.KOLU_AGENT_DRV;
 const PORT = Number(process.env.PORT ?? 7720);
 
 /** Tag every parent-side log so `[server]` lines are visually distinct
@@ -46,18 +48,15 @@ function log(line: string): void {
 }
 
 async function main(): Promise<void> {
-  log(`host=${HOST}, resolving agent closure '${FLAKE}'…`);
-
-  const agentPath = await resolveAgentPath(FLAKE);
-  if (agentPath === null) {
+  if (DRV_PATH === undefined || DRV_PATH.length === 0) {
     log(
-      `Cannot resolve agent closure for '${FLAKE}'. Set AGENT_PATH to a built /nix/store path, or run inside a flake with '#process-monitor-agent'.`,
+      "KOLU_AGENT_DRV is required (no fallback). Set it to the agent's .drv path — e.g. `KOLU_AGENT_DRV=$(nix eval --raw .#packages.<system>.process-monitor-agent.drvPath)`.",
     );
     process.exit(1);
   }
-  log(`agent closure: ${agentPath}`);
+  log(`host=${HOST}, agent drv=${DRV_PATH}`);
 
-  const session = getHostSession({ host: HOST, agentPath });
+  const session = getHostSession({ host: HOST, drvPath: DRV_PATH });
   const { router } = buildRouter({ session });
 
   // ── HTTP server: serve client bundle in production ─────────────────

@@ -239,11 +239,12 @@ let
 
   # `nix run .#process-monitor-monitor` — the whole three-tier demo as
   # a single binary. Serves the client bundle and the WS RPC on port
-  # 7720; spawns the agent via `ssh $HOST $agentClosure/bin/... --stdio`
-  # (defaults to localhost). Override HOST / PORT via env at run time.
-  # The agent closure is baked in so the parent doesn't need to
-  # `nix build` at startup; the `nix` binary is still on PATH for the
-  # cold-remote `nix copy` provisioning path.
+  # 7720; spawns the agent via `ssh $HOST $agentPath/bin/... --stdio`
+  # (defaults to localhost). The wrapper bakes in `KOLU_AGENT_DRV` for
+  # the *current* system; for a real cross-arch remote (e.g.
+  # `HOST=user@some-darwin-box`), set `KOLU_AGENT_DRV` to a darwin
+  # `.drv` path before invoking `nix run`. The `nix` binary on PATH
+  # is what does the `nix copy --derivation` + remote realise.
   processMonitorMonitor = pkgs.runCommand "process-monitor-monitor"
     {
       nativeBuildInputs = [ pkgs.makeWrapper ];
@@ -255,7 +256,7 @@ let
       --set-default HOST localhost \
       --set-default PORT 7720 \
       --set KOLU_SURFACE_EXAMPLE_DIST "${processMonitorClient}" \
-      --set-default AGENT_PATH "${processMonitorAgent}" \
+      --set-default KOLU_AGENT_DRV "${processMonitorAgent.drvPath}" \
       --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.openssh pkgs.nix ]}
   '';
 in

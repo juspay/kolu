@@ -54,7 +54,10 @@ export interface HostSessionState {
 
 export interface HostSessionOptions {
   host: string;
-  agentPath: string;
+  /** Path to the agent's `.drv`. The session ships this derivation to
+   *  the target host (no-op for localhost) and realises it there to
+   *  get a target-arch-correct output path. */
+  drvPath: string;
   /** How long between disconnect and reconnect attempts. Default 2s. */
   reconnectDelayMs?: number;
 }
@@ -189,30 +192,39 @@ export class HostSession {
     this.updateState({ connection: "copying", lastError: null });
     const provision = await provisionAgent({
       host: this.opts.host,
-      agentPath: this.opts.agentPath,
+      drvPath: this.opts.drvPath,
       onProgress: (line) => this.addLocalProgress(line),
     });
     if (!provision.ok) {
-      const reason = provision.reason ?? "nix copy failed";
-      this.updateState({ connection: "disconnected", lastError: reason });
+      this.updateState({
+        connection: "disconnected",
+        lastError: provision.reason,
+      });
       this.scheduleReconnect();
-      throw new Error(reason);
+      throw new Error(provision.reason);
     }
+    const realisedAgentPath = provision.agentPath;
 
     this.updateState({ connection: "connecting" });
-    const child = spawn(
-      "ssh",
-      [
-        "-o",
-        "BatchMode=yes",
-        "-o",
-        "ServerAliveInterval=10",
-        this.opts.host,
-        `${this.opts.agentPath}/bin/process-monitor-agent`,
-        "--stdio",
-      ],
-      { stdio: ["pipe", "pipe", "pipe"] },
-    );
+    const isLocal =
+      this.opts.host === "localhost" || this.opts.host === "127.0.0.1";
+    const child = isLocal
+      ? spawn(`${realisedAgentPath}/bin/process-monitor-agent`, ["--stdio"], {
+          stdio: ["pipe", "pipe", "pipe"],
+        })
+      : spawn(
+          "ssh",
+          [
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "ServerAliveInterval=10",
+            this.opts.host,
+            `${realisedAgentPath}/bin/process-monitor-agent`,
+            "--stdio",
+          ],
+          { stdio: ["pipe", "pipe", "pipe"] },
+        );
     this.child = child;
 
     child.stderr?.setEncoding("utf-8");
@@ -312,14 +324,14 @@ export class HostSession {
   }
 }
 
-// ── HostSession pool (one per (host, agentPath)) ────────────────────────
+// ── HostSession pool (one per (host, drvPath)) ──────────────────────────
 
 const pool = new Map<string, HostSession>();
 
-/** Get-or-create a `HostSession` for `(host, agentPath)`. Multiple
+/** Get-or-create a `HostSession` for `(host, drvPath)`. Multiple
  *  callers asking for the same pair share the same session. */
 export function getHostSession(opts: HostSessionOptions): HostSession {
-  const key = `${opts.host}::${opts.agentPath}`;
+  const key = `${opts.host}::${opts.drvPath}`;
   let session = pool.get(key);
   if (session === undefined) {
     session = new HostSession(opts);
