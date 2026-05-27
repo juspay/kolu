@@ -90,16 +90,19 @@ const DesktopResizableHost: Component<HostProps> = (props) => {
         </Show>
         <Resizable.Panel
           as="div"
-          // `p-2` (when floating) creates the inset gap that lets the
+          // `p-3` (when floating) creates the inset gap that lets the
           // floating card chrome (rounded + shadow) read against the
           // underlying background, while still letting `RightPanel`
           // collapse to zero width when the Resizable shrinks this pane
           // to `sizes=[1,0]` (`right-panel.feature` asserts this).
-          // `overflow-hidden` was dropped so the floating card's shadow
-          // can extend past this pane's edge into the adjacent canvas;
-          // the inner `RightPanel` still clips its own scroll regions.
-          class="min-w-0 min-h-0"
-          classList={{ "p-2": !posture.maximized() }}
+          // Sized to roughly match the Dock's `left-4` inset so the two
+          // floating cards feel symmetrically lifted off the canvas.
+          // `overflow-hidden` stays — the visible portion of the card's
+          // shadow lives inside the `p-3` inset anyway, and dropping
+          // overflow lets some inner scroll regions bleed past the
+          // pane boundary during resize transitions.
+          class="min-w-0 min-h-0 overflow-hidden"
+          classList={{ "p-3": !posture.maximized() }}
           minSize={0}
         >
           {/* Render unconditionally so CodeTab's selectedPath signal and

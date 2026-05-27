@@ -60,27 +60,31 @@ const RightPanel: Component<{
     <div
       data-testid="right-panel"
       data-floating={props.floating ? "" : undefined}
-      class="flex flex-col h-full min-w-0 overflow-hidden bg-surface-0"
+      class="flex flex-col h-full min-w-0 overflow-hidden bg-surface-0 border-l border-edge"
       classList={{
-        // Flush: hard left-edge separator. Mirrors the Dock's
-        // `border-r border-edge` in maximized mode (`Dock.tsx:167`).
-        "border-l border-edge": !props.floating,
-        // Floating: card chrome — rounded corners + drop shadow,
-        // matching the Dock's tiled chrome (`Dock.tsx:158`). The inset
-        // gap that gives the card its "lifted off the canvas" look
-        // comes from `p-2` on the host's parent (see
-        // `RightPanelLayout.tsx`), not from `m-2`/`inset-2` on this
-        // element. Margin would overflow `h-full`; `absolute inset-2`
-        // would lose its width constraint when the Resizable shrinks
-        // the parent to 0 (Chromium ignores `right` under over-
-        // constraint, falling back to intrinsic content width), keeping
-        // the panel visible after collapse and breaking the
-        // `right-panel.feature` collapse assertions. No `border` either
-        // — the rounded shadow already separates the card from the
-        // canvas, and a `border` on all sides would push the panel's
-        // collapsed `boundingClientRect().width` above the 1px test
-        // threshold.
-        "rounded-2xl shadow-2xl shadow-black/40": props.floating,
+        // Floating: rounded card + layered shadow + full-perimeter
+        // border, on top of the always-on `border-l border-edge` base.
+        // Mirrors the Dock's tiled chrome (`Dock.tsx:158`), but adds:
+        //   - a two-layer shadow (close + diffuse) so the lift reads
+        //     against both the dark canvas (where `shadow-black/40` is
+        //     already subtle) and the light canvas (where a soft
+        //     shadow washes out against the off-white bg);
+        //   - `border border-edge` to define the card perimeter when
+        //     the shadow alone isn't enough — gated on `visible` so it
+        //     only applies while the panel is expanded.
+        //
+        // The base `border-l border-edge` stays in both postures —
+        // dropping it left the collapsed (parent shrunk to 0)
+        // `Resizable.Panel` with a child of *exactly* zero width, and
+        // Corvu's `sizes=[1,0]` → user-size re-distribution silently
+        // no-ops in that state (it appears to need at least 1px of
+        // residual width on the pane to re-grow it). `border` on all
+        // sides only activates when `visible`, so the collapsed
+        // bounding-rect width stays at 1px (still ≤ the
+        // `right-panel.feature` threshold).
+        "rounded-2xl shadow-[0_2px_8px_rgba(0,0,0,0.18),0_16px_32px_-8px_rgba(0,0,0,0.32)]":
+          props.floating,
+        "border border-edge": props.floating && props.visible,
       }}
       // Panel stays mounted across collapse on desktop so CodeTab's local
       // state survives (#818); RightPanelLayout shrinks it to ~0 width via
