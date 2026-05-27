@@ -116,7 +116,8 @@ export class HostSession {
   /** Acquire a reference. The first acquire spawns the ssh subprocess
    *  and provisions the closure (if needed). Resolves with a typed
    *  client once the link is live. Subsequent acquires share the same
-   *  client without re-spawning. */
+   *  client without re-spawning. **Callers must match each `acquire`
+   *  with a `release`** — use `pin()` for the long-lived bridge case. */
   async acquire(): Promise<AgentClient> {
     this.refCount += 1;
     if (this.clientPromise === null) {
@@ -129,6 +130,18 @@ export class HostSession {
   release(): void {
     this.refCount = Math.max(0, this.refCount - 1);
     if (this.refCount === 0) this.teardown("ref-count reached zero");
+  }
+
+  /** Pin the session open for the lifetime of the parent process —
+   *  bumps the ref count by one *without* a matching `release`, so the
+   *  session stays warm even when transient callers (e.g. the `kill`
+   *  procedure's per-call acquire/release pair) bring the count to
+   *  zero in between. Use ONCE per HostSession from the long-lived
+   *  bridge code. Encodes the "this session must outlive its
+   *  short-lived consumers" intent that an unmatched `acquire()` would
+   *  otherwise hide as a leak. */
+  pin(): Promise<AgentClient> {
+    return this.acquire();
   }
 
   /** Immediately drop the session regardless of ref count. Used on

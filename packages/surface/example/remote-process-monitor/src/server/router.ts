@@ -197,13 +197,13 @@ async function bridgeAgentToParent(
   fragment: FragmentCtx,
   browserSnapshotBus: Channel<ProcessesSnapshotMsg>,
 ): Promise<void> {
-  log("acquiring HostSession…");
+  log("pinning HostSession (parent-lifetime ref)…");
   let client: AgentClient;
   try {
-    client = await session.acquire();
+    client = await session.pin();
   } catch (err) {
     log(
-      `acquire failed: ${(err as Error).message} — session reconnect drives next attempt`,
+      `pin failed: ${(err as Error).message} — session reconnect drives next attempt`,
     );
     return;
   }
