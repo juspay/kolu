@@ -40,7 +40,16 @@ export interface OpenInCodeTabRequest {
 // (split panels, multi-window), this signal must move into a
 // SolidJS context or scope to a per-panel store, otherwise concurrent
 // consumers will race on each other's pending requests.
-const [pending, setPending] = createSignal<OpenInCodeTabRequest | null>(null);
+//
+// `equals: false` forces every `setPending(req)` to notify subscribers
+// regardless of value identity. Without it, the Solid production
+// build could elide a re-fire on rapid consecutive clicks where the
+// pre-built bundle's reactive tracking saw the second `req` reference
+// as "no change" — `file-ref-link.feature`'s "Re-clicking the same
+// file-ref after closing the panel" was the canary.
+const [pending, setPending] = createSignal<OpenInCodeTabRequest | null>(null, {
+  equals: false,
+});
 
 export const pendingOpen = pending;
 
