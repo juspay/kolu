@@ -71,7 +71,6 @@ export function useAnchoredPopover(
     const offset = opts.offset ?? 4;
     // Upward anchors set `bottom` in viewport coordinates so the panel's
     // bottom edge sits above the trigger without measuring panel height.
-    const upward = opts.anchor === "top-end" || opts.anchor === "top-start";
     if (opts.anchor === "top-end") {
       setPos({
         bottom: window.innerHeight - r.top + offset,
@@ -83,11 +82,13 @@ export function useAnchoredPopover(
       setPos({ top: r.bottom + offset, right: window.innerWidth - r.right });
       return;
     }
-    // Left-anchored variants share the viewport clamp.
+    // Left-anchored variants share the viewport clamp; the only
+    // distinction is whether to anchor by the trigger's top edge
+    // (`top-start`, upward) or bottom edge (`bottom-start`, downward).
     const minW = opts.panelMinWidth ?? 0;
     const maxLeft = window.innerWidth - minW - VIEWPORT_PAD;
     const left = Math.max(VIEWPORT_PAD, Math.min(r.left, maxLeft));
-    if (upward) {
+    if (opts.anchor === "top-start") {
       setPos({ bottom: window.innerHeight - r.top + offset, left });
       return;
     }
