@@ -250,8 +250,15 @@ async function mirrorRemoteCollection<K, V>(opts: {
               if (ctl.signal.aborted) break;
               opts.onUpsert(key, value);
             }
-          } catch {
-            /* aborted / key vanished — orchestrator cleans up below */
+          } catch (err) {
+            // AbortError is expected (key departed — orchestrator removes
+            // it below). Any other error means the per-key stream died
+            // unexpectedly; log so it's visible without crashing the pump.
+            if ((err as Error).name !== "AbortError") {
+              log(
+                `${opts.label}: per-key stream error for ${String(key)}: ${(err as Error).message}`,
+              );
+            }
           }
         })();
       }
