@@ -73,6 +73,14 @@ const MobileSection: Component<{
   // agent · branch · sub-count · time. PR pip lives on line 2 (left)
   // alongside the subline, anchored to col 2 left edge so PR icons
   // align across every section.
+  //
+  // Mobile keeps a tighter right gutter (`pr-3` / `-mr-3`) than the
+  // desktop dock's `DOCK_CARDS_GUTTER_CLASS` (`pr-6` / `-mr-6`) —
+  // touch rows already pad vertically with `py-3`, and the drawer
+  // hugs the viewport edge rather than floating as a rounded card.
+  // Promote to a `MOBILE_DOCK_GUTTER_CLASS` constant the moment a
+  // second file consumes it; until then the three literal sites here
+  // are colocated within ~70 lines.
   <section
     data-testid="mobile-dock-section"
     data-repo={props.group.name}
