@@ -60,18 +60,27 @@ const RightPanel: Component<{
     <div
       data-testid="right-panel"
       data-floating={props.floating ? "" : undefined}
-      class="flex flex-col min-w-0 overflow-hidden bg-surface-0"
+      class="flex flex-col h-full min-w-0 overflow-hidden bg-surface-0"
       classList={{
-        // Flush: full-height sibling with a hard left-edge separator.
-        // Mirrors the Dock's `border-r border-edge` in maximized mode
-        // (`Dock.tsx:167`).
-        "h-full border-l border-edge": !props.floating,
-        // Floating: card chrome inside the host's positioned parent
-        // (desktop = `Resizable.Panel`, see `RightPanelLayout.tsx`).
-        // `absolute inset-2` avoids the `h-full + margin` overflow trap
-        // and keeps the resize-handle hit area in the inset gap.
-        "absolute inset-2 rounded-2xl shadow-2xl shadow-black/40 border border-edge":
-          props.floating,
+        // Flush: hard left-edge separator. Mirrors the Dock's
+        // `border-r border-edge` in maximized mode (`Dock.tsx:167`).
+        "border-l border-edge": !props.floating,
+        // Floating: card chrome — rounded corners + drop shadow,
+        // matching the Dock's tiled chrome (`Dock.tsx:158`). The inset
+        // gap that gives the card its "lifted off the canvas" look
+        // comes from `p-2` on the host's parent (see
+        // `RightPanelLayout.tsx`), not from `m-2`/`inset-2` on this
+        // element. Margin would overflow `h-full`; `absolute inset-2`
+        // would lose its width constraint when the Resizable shrinks
+        // the parent to 0 (Chromium ignores `right` under over-
+        // constraint, falling back to intrinsic content width), keeping
+        // the panel visible after collapse and breaking the
+        // `right-panel.feature` collapse assertions. No `border` either
+        // — the rounded shadow already separates the card from the
+        // canvas, and a `border` on all sides would push the panel's
+        // collapsed `boundingClientRect().width` above the 1px test
+        // threshold.
+        "rounded-2xl shadow-2xl shadow-black/40": props.floating,
       }}
       // Panel stays mounted across collapse on desktop so CodeTab's local
       // state survives (#818); RightPanelLayout shrinks it to ~0 width via

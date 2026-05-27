@@ -90,12 +90,16 @@ const DesktopResizableHost: Component<HostProps> = (props) => {
         </Show>
         <Resizable.Panel
           as="div"
-          // `relative` anchors `RightPanel`'s `absolute inset-2` floating
-          // chrome in tiled mode. `overflow-hidden` was dropped so the
-          // floating card's left/down shadow can extend past this pane's
-          // edge into the adjacent canvas; the inner `RightPanel` still
-          // clips its own scroll regions.
-          class="min-w-0 min-h-0 relative"
+          // `p-2` (when floating) creates the inset gap that lets the
+          // floating card chrome (rounded + shadow) read against the
+          // underlying background, while still letting `RightPanel`
+          // collapse to zero width when the Resizable shrinks this pane
+          // to `sizes=[1,0]` (`right-panel.feature` asserts this).
+          // `overflow-hidden` was dropped so the floating card's shadow
+          // can extend past this pane's edge into the adjacent canvas;
+          // the inner `RightPanel` still clips its own scroll regions.
+          class="min-w-0 min-h-0"
+          classList={{ "p-2": !posture.maximized() }}
           minSize={0}
         >
           {/* Render unconditionally so CodeTab's selectedPath signal and
