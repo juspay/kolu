@@ -213,52 +213,82 @@ async function bridgeAgentToParent(
   void pumpCpuCores(client, fragment);
 }
 
-/** Mirror the agent's `cpuCores` collection via the framework's
- *  per-key Collection<K,T> model — the SMALL-N use case the primitive
- *  is designed for. ~4-32 cores → ~4-32 per-key subscribes; trivial
- *  to fan out. Contrast with `processes` (600+), which over-stresses
- *  the per-key model and gets the bulk `processesSnapshot` stream
- *  treatment instead. */
-async function pumpCpuCores(
-  client: AgentClient,
-  fragment: FragmentCtx,
-): Promise<void> {
-  const open = new Map<CoreId, AbortController>();
+/** Generic mirror: subscribe to the agent's `Collection<K,V>` (via
+ *  its framework-derived `keys` + `get(key)` streams) and pump every
+ *  observed value into the parent's local collection in real time.
+ *
+ *  The per-key model is the right fit when N is small (4-32 keys) —
+ *  R-2's `RemoteTerminalBackend` will use this exact shape for its
+ *  `terminalMetadata` collection. Extracted ahead of R-2 so the
+ *  per-key bridge isn't copy-pasted with subtle finally-block
+ *  differences later.
+ *
+ *  Each per-key stream stays open for the key's lifetime so deltas
+ *  flow without re-subscribing. Departed keys see their stream
+ *  aborted and the entry removed from the parent's collection. */
+async function mirrorRemoteCollection<K, V>(opts: {
+  label: string;
+  /** Eager-or-lazy: a Promise of the keys stream (matches the shape
+   *  the framework's typed client returns for `<coll>.keys(...)`). */
+  keys: Promise<AsyncIterable<readonly K[]>>;
+  get: (key: K, signal: AbortSignal) => Promise<AsyncIterable<V>>;
+  onUpsert: (key: K, value: V) => void;
+  onRemove: (key: K) => void;
+}): Promise<void> {
+  const open = new Map<K, AbortController>();
   try {
-    for await (const keys of await client.surface.cpuCores.keys({})) {
+    for await (const keys of await opts.keys) {
       const next = new Set(keys);
-      for (const core of next) {
-        if (open.has(core)) continue;
+      for (const key of next) {
+        if (open.has(key)) continue;
         const ctl = new AbortController();
-        open.set(core, ctl);
+        open.set(key, ctl);
         void (async () => {
           try {
-            const stream = await client.surface.cpuCores.get(
-              { key: core },
-              { signal: ctl.signal },
-            );
+            const stream = await opts.get(key, ctl.signal);
             for await (const value of stream) {
               if (ctl.signal.aborted) break;
-              fragment.ctx.collections.cpuCores.upsert(core, value);
+              opts.onUpsert(key, value);
             }
           } catch {
-            /* aborted / core vanished — orchestrator cleans up */
+            /* aborted / key vanished — orchestrator cleans up below */
           }
         })();
       }
-      for (const [core, ctl] of [...open]) {
-        if (next.has(core)) continue;
+      for (const [key, ctl] of [...open]) {
+        if (next.has(key)) continue;
         ctl.abort();
-        open.delete(core);
-        fragment.ctx.collections.cpuCores.remove(core);
+        open.delete(key);
+        opts.onRemove(key);
       }
     }
-    log("cpuCores: keys stream closed");
+    log(`${opts.label}: keys stream closed`);
   } catch (err) {
-    log(`cpuCores: keys stream error: ${(err as Error).message}`);
+    log(`${opts.label}: keys stream error: ${(err as Error).message}`);
   } finally {
     for (const ctl of open.values()) ctl.abort();
   }
+}
+
+/** Mirror the agent's `cpuCores` collection — small-N showcase of
+ *  `mirrorRemoteCollection`. */
+function pumpCpuCores(
+  client: AgentClient,
+  fragment: FragmentCtx,
+): Promise<void> {
+  return mirrorRemoteCollection<CoreId, CpuCore>({
+    label: "cpuCores",
+    keys: client.surface.cpuCores.keys({}) as Promise<
+      AsyncIterable<readonly CoreId[]>
+    >,
+    get: (key, signal) =>
+      client.surface.cpuCores.get({ key }, { signal }) as Promise<
+        AsyncIterable<CpuCore>
+      >,
+    onUpsert: (key, value) =>
+      fragment.ctx.collections.cpuCores.upsert(key, value),
+    onRemove: (key) => fragment.ctx.collections.cpuCores.remove(key),
+  });
 }
 
 /** Mirror the agent's system cell into the parent's local cell. */
