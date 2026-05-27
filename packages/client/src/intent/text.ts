@@ -34,10 +34,10 @@ export function firstGrapheme(s: string): string {
 const MARKDOWN_CHROME = /^[\s*_`#>~]+/;
 
 /** First glyph of the intent's display line — the cluster that
- *  represents this intent at a single-character size (dock chip,
- *  IntentGlyph). Strips leading markdown chrome so emoji and letters
- *  win over decorative punctuation. Returns the empty string when the
- *  intent has nothing renderable. */
+ *  represents this intent at a single-character size (dock rail chip).
+ *  Strips leading markdown chrome so emoji and letters win over
+ *  decorative punctuation. Returns the empty string when the intent
+ *  has nothing renderable. */
 export function intentLeadGlyph(intent: string): string {
   return firstGrapheme(firstIntentLine(intent).replace(MARKDOWN_CHROME, ""));
 }
