@@ -14,9 +14,11 @@
  *   (no args)                 print usage to stderr and exit 1.
  *
  * The agent polls `proc` and `system` every `POLL_INTERVAL_MS` and
- * publishes deltas through an `inMemoryChannel`. New subscribers see a
- * full snapshot as their first yield (the snapshot-then-delta invariant)
- * and per-PID upserts/removes thereafter.
+ * pushes deltas through the surface's typed `ctx` — the framework
+ * mutates the snapshot AND publishes per-key updates in one call. New
+ * subscribers see a full snapshot as their first yield
+ * (snapshot-then-delta invariant) and per-PID upserts/removes
+ * thereafter.
  *
  * **Stdout is the protocol channel.** All logging goes to fd 2
  * (`process.stderr.write`). The framework's `serveOverStdio` defensively
@@ -68,52 +70,15 @@ async function main(): Promise<void> {
   log(`process-monitor-agent: os=${reader.os}, pid=${process.pid}`);
 
   const systemStore = inMemoryStore(await reader.readSystem());
-  let processSnapshot = await reader.readProcesses();
-  const processBus = inMemoryChannel<
-    { kind: "upsert"; pid: Pid; value: Process } | { kind: "remove"; pid: Pid }
-  >();
-
-  // Poll loop: refresh system + processes, diff against previous,
-  // publish per-PID upsert/remove deltas.
-  const tick = async (): Promise<void> => {
-    try {
-      const [nextSystem, nextProcesses] = await Promise.all([
-        reader.readSystem(),
-        reader.readProcesses(),
-      ]);
-      systemStore.set(nextSystem);
-      for (const [pid, value] of nextProcesses) {
-        const prev = processSnapshot.get(pid);
-        if (
-          prev === undefined ||
-          prev.cpuPct !== value.cpuPct ||
-          prev.memPct !== value.memPct ||
-          prev.command !== value.command
-        ) {
-          processBus.publish({ kind: "upsert", pid, value });
-        }
-      }
-      for (const pid of processSnapshot.keys()) {
-        if (!nextProcesses.has(pid))
-          processBus.publish({ kind: "remove", pid });
-      }
-      processSnapshot = nextProcesses;
-    } catch (err) {
-      log(`tick error: ${(err as Error).message}`);
-    }
-  };
-  const interval = setInterval(() => {
-    void tick();
-  }, POLL_INTERVAL_MS);
+  const processSnapshot = new Map<Pid, Process>();
+  for (const [pid, value] of await reader.readProcesses())
+    processSnapshot.set(pid, value);
 
   // Build the surface implementation. The `processes` collection's
-  // `readAll` yields the current snapshot; the framework derives the
-  // `processes:keys` and per-key channels from the surface, but we
-  // bridge the agent-side poll bus to per-key publishes via `onChange`.
-  // (For brevity here, the framework's collection wiring takes the
-  // `readAll` snapshot on subscribe and re-polls via the source channel
-  // on each publish; per-key dedup happens client-side via the
-  // `<Show keyed>` cell-aware diff.)
+  // `readAll` yields the current snapshot; `upsert`/`remove` are the
+  // single in-process write seam (the poll loop calls
+  // `fragment.ctx.collections.processes.upsert/remove`, which mutates
+  // the snapshot AND publishes through the framework's keyed channels).
   const fragment = implementSurface(surface, {
     channel: <T>(_name: string) => inMemoryChannel<T>(),
     cells: {
@@ -129,13 +94,11 @@ async function main(): Promise<void> {
     collections: {
       processes: {
         readAll: () => processSnapshot,
-        upsert: () => {
-          // No external write path — the poll loop owns the snapshot.
-          // `kill` removes via signal; the next tick re-reads /proc.
-          throw new Error("processes collection is read-only from clients");
+        upsert: (key, value) => {
+          processSnapshot.set(key, value);
         },
-        remove: () => {
-          throw new Error("processes collection is read-only from clients");
+        remove: (key) => {
+          processSnapshot.delete(key);
         },
       },
     },
@@ -156,20 +119,38 @@ async function main(): Promise<void> {
     },
   });
 
-  // Bridge process bus → collection's keyed-channel publishes. The
-  // surface owns the channel names (`processes:<pid>`, `processes:keys`)
-  // — we plumb the deltas into them via the typed ctx returned by
-  // `implementSurface`.
-  processBus.consume({
-    onEvent: (msg) => {
-      if (msg.kind === "upsert") {
-        fragment.ctx.collections.processes.upsert(msg.pid, msg.value);
-      } else {
-        fragment.ctx.collections.processes.remove(msg.pid);
+  // Poll loop: refresh system + processes, diff against current
+  // `processSnapshot`, push deltas through the framework's ctx (which
+  // mutates the snapshot AND publishes to subscribers in one step).
+  const tick = async (): Promise<void> => {
+    try {
+      const [nextSystem, nextProcesses] = await Promise.all([
+        reader.readSystem(),
+        reader.readProcesses(),
+      ]);
+      systemStore.set(nextSystem);
+      for (const [pid, value] of nextProcesses) {
+        const prev = processSnapshot.get(pid);
+        if (
+          prev === undefined ||
+          prev.cpuPct !== value.cpuPct ||
+          prev.memPct !== value.memPct ||
+          prev.command !== value.command
+        ) {
+          fragment.ctx.collections.processes.upsert(pid, value);
+        }
       }
-    },
-    onError: (err) => log(`process bus error: ${(err as Error).message}`),
-  });
+      for (const pid of [...processSnapshot.keys()]) {
+        if (!nextProcesses.has(pid))
+          fragment.ctx.collections.processes.remove(pid);
+      }
+    } catch (err) {
+      log(`tick error: ${(err as Error).message}`);
+    }
+  };
+  const interval = setInterval(() => {
+    void tick();
+  }, POLL_INTERVAL_MS);
 
   // ── Lesson #4 (deliberately broken variant) ─────────────────────────
   if (brokenStdoutLog) {
