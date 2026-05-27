@@ -203,7 +203,7 @@ const CanvasTile: Component<{
           e.stopPropagation();
           props.onToggleMaximize();
         }}
-        {...(isMaximized() ? {} : draggable.dragActivators)}
+        {...(props.mode === "tiled" ? draggable.dragActivators : {})}
       >
         <div class="flex-1 min-w-0">{props.renderTitle()}</div>
         <div class="flex items-center gap-1 shrink-0">
@@ -250,9 +250,10 @@ const CanvasTile: Component<{
 
       {/* Resize handles — 4 edges + 4 corners. Invisible; cursor change is the
        *  affordance. Corners are declared after edges in the record so DOM
-       *  order paints them on top of the edge strips they overlap. Disabled
-       *  while maximized — there's nothing to resize against. */}
-      <Show when={!isMaximized()}>
+       *  order paints them on top of the edge strips they overlap. Only in
+       *  `tiled` mode — maximized has nothing to resize against, covered tiles
+       *  are inert and should not have interactive handles in the DOM. */}
+      <Show when={props.mode === "tiled"}>
         <For each={Object.entries(RESIZE_HANDLES)}>
           {([direction, handle]) => (
             <div
