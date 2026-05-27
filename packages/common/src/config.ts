@@ -7,10 +7,6 @@
  * only typeless constants that don't depend on the surface domain.
  */
 
-/** Default terminal grid dimensions (matches xterm/VT100 standard). */
-export const DEFAULT_COLS = 80;
-export const DEFAULT_ROWS = 24;
-
 /** Default server port. */
 export const DEFAULT_PORT = 7681;
 
@@ -20,5 +16,10 @@ export const DEFAULT_FONT_SIZE = 14;
 /** Scrollback buffer size in lines. Sized for multi-hour Claude sessions
  *  so PDF export (see `exportScrollbackAsPdf.ts`) captures a useful window —
  *  the export reads from this same ring buffer. Per-line memory in xterm
- *  is small, so 50K is low tens of MB per terminal in the worst case. */
+ *  is small, so 50K is low tens of MB per terminal in the worst case.
+ *
+ *  Single source of truth for both the client's visible scrollback and the
+ *  server's headless ring buffer — kolu-server's `terminals.ts` reads this
+ *  and passes it to `spawnPty` so the server-side headless terminal stays
+ *  in lock-step with what the client renders. */
 export const DEFAULT_SCROLLBACK = 50_000;

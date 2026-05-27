@@ -5,10 +5,12 @@
 import Dialog from "@corvu/dialog";
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import { prValue } from "kolu-github/schemas";
+import { prTooltip } from "./terminal/prTooltip";
 import { type Component, Show } from "solid-js";
 import ChecksIndicator from "./terminal/ChecksIndicator";
 import { PrStateIcon, WorktreeIcon } from "./ui/Icons";
 import ModalDialog from "./ui/ModalDialog";
+import { surface } from "./ui/Surface";
 
 /** Reasons why the "Remove worktree" action is suppressed.
  *
@@ -57,6 +59,7 @@ const CloseConfirm: Component<{
   };
   const splitCount = () => props.target?.splitCount ?? 0;
   const closeLabel = () => (splitCount() > 0 ? "Close all" : "Close terminal");
+  const chrome = surface({ portalled: true });
 
   return (
     <ModalDialog
@@ -68,9 +71,9 @@ const CloseConfirm: Component<{
       size="sm"
     >
       <Dialog.Content
-        class="bg-surface-1 border border-edge rounded-2xl shadow-2xl shadow-black/50 p-5 text-sm space-y-4"
+        class={`${chrome.class} p-5 text-sm space-y-4`}
+        style={chrome.style}
         data-testid="close-confirm"
-        style={{ "background-color": "var(--color-surface-1)" }}
       >
         <Dialog.Label class="font-semibold text-fg">
           <Show
@@ -137,6 +140,7 @@ const CloseConfirm: Component<{
                 rel="noopener noreferrer"
                 class="flex items-center gap-1.5 text-xs bg-surface-2 rounded-lg px-2.5 py-2 hover:bg-surface-3 transition-colors"
                 data-testid="close-confirm-pr"
+                title={prTooltip(pr())}
               >
                 <PrStateIcon state={pr().state} class="w-3.5 h-3.5 shrink-0" />
                 <Show when={pr().checks}>

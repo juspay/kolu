@@ -14,18 +14,19 @@ import pkg from "../package.json" with { type: "json" };
 import { getCacheControlHeader } from "./cacheControl.ts";
 import { startDiagnostics } from "./diagnostics.ts";
 import { serverHostname } from "./hostname.ts";
+import { mountArtifactSdk } from "@kolu/artifact-sdk/server";
 import {
   resolvePreviewPath,
   serveResolvedFile,
   TERMINAL_FILE_ROUTE_BASE,
   TERMINAL_FILE_ROUTE_FILE_SEGMENT,
 } from "./iframePreviewRoute.ts";
+import { configureNixShellEnv } from "kolu-pty";
 import { ensureKoluRoot, shutdownCleanup } from "./koluRoot.ts";
 import { log } from "./log.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import { appRouter } from "./router.ts";
 import { initSessionAutoSave } from "./session.ts";
-import { configureNixShellEnv } from "./shell.ts";
 import { getTerminal } from "./terminal-registry.ts";
 import { snapshotSession } from "./terminals.ts";
 import { resolveTlsOptions } from "./tls.ts";
@@ -116,9 +117,10 @@ const rpcPlugins = [
 ];
 
 // --- oRPC HTTP handler (non-streaming calls) ---
-// biome-ignore lint/suspicious/noExplicitAny: appRouter mixes implementSurface's
-// Lazy<Router> spread with hand-listed namespaces; oRPC's RPCHandler input
-// type doesn't accept that union. The runtime shape is a valid router.
+// appRouter mixes implementSurface's Lazy<Router> spread with
+// hand-listed namespaces; oRPC's RPCHandler input type doesn't accept
+// that union. The runtime shape is a valid router.
+// biome-ignore lint/suspicious/noExplicitAny: see comment above
 const rpcHandler = new RPCHandler(appRouter as any, { plugins: rpcPlugins });
 app.use("/rpc/*", async (c, next) => {
   const { matched, response } = await rpcHandler.handle(c.req.raw, {
@@ -154,6 +156,15 @@ process.on("unhandledRejection", (reason) => {
 
 // --- Health endpoint ---
 app.get("/api/health", (c) => c.text("kolu"));
+
+// --- Artifact-SDK (comments-on-files) mount ---
+// Self-contained — registers the SDK bundle route and a middleware that
+// splices the SDK <script> into text/html responses on the iframe-preview
+// route. The byte-streaming `iframePreviewRoute` below stays untouched.
+mountArtifactSdk(app, {
+  sdkScriptPath: "/api/artifact-sdk.js",
+  htmlRoutePrefix: `${TERMINAL_FILE_ROUTE_BASE}/:terminalId/${TERMINAL_FILE_ROUTE_FILE_SEGMENT}/*`,
+});
 
 // --- Iframe preview file route ---
 // Serves repo files referenced by `FsReadFileOutput.kind === "binary"`.

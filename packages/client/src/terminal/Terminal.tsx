@@ -27,11 +27,13 @@ import {
   runWithOwner,
   Show,
 } from "solid-js";
+import { toast } from "solid-sonner";
 import { match } from "ts-pattern";
-import { copyTextWithToast, SafeClipboardProvider } from "./clipboard";
+import { SafeClipboardProvider, writeTextToClipboard } from "../ui/clipboard";
 import "@xterm/xterm/css/xterm.css";
 import type { TerminalId } from "kolu-common/surface";
 import { DEFAULT_SCROLLBACK } from "kolu-common/config";
+import { rejectionFor, sizeRejectionFor } from "kolu-common/upload";
 import { FONT_FAMILY } from "terminal-themes";
 import { ACTIONS, matchesAnyShortcut } from "../input/actions";
 import { matchesKeybind } from "../input/keyboard";
@@ -137,6 +139,10 @@ function bufferToBase64(buf: ArrayBuffer): string {
   return btoa(
     Array.from(new Uint8Array(buf), (b) => String.fromCharCode(b)).join(""),
   );
+}
+
+function errMsg(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }
 
 const Terminal: Component<{
@@ -525,6 +531,50 @@ const Terminal: Component<{
               screen.setAttribute("aria-readonly", "true");
               screen.style.caretColor = "transparent";
               screen.style.outline = "none";
+              // iOS Safari rejects the soft keyboard when focus shuffles
+              // mid-gesture from the contenteditable above to xterm's
+              // opacity-0 helper textarea — which is exactly what happens
+              // when the wrapper-click handler (line 500) fires
+              // term.focus() right after the browser auto-focuses
+              // .xterm-screen on pointerdown. preventDefault on pointerdown
+              // blocks the contenteditable auto-focus.
+              //
+              // Defer the focus call to pointerup, gated on a tap-sized
+              // movement threshold: taps summon the keyboard, touch-scrolls
+              // don't. pointerup still fires inside the user-gesture window
+              // iOS requires for programmatic focus, and the call sees the
+              // same "single focus event, no shuffle" iOS heuristic the
+              // pointerdown variant did. Threshold is generous enough to
+              // tolerate finger jitter on a real tap but tighter than the
+              // ~1-cell-height step the scroll handler at line 716 reads as
+              // "scroll started".
+              const TAP_THRESHOLD_PX = 10;
+              const isTap = (dx: number, dy: number) =>
+                Math.hypot(dx, dy) <= TAP_THRESHOLD_PX;
+              let activeTap: {
+                pointerId: number;
+                startX: number;
+                startY: number;
+              } | null = null;
+              makeEventListener(screen, "pointerdown", (e: PointerEvent) => {
+                e.preventDefault();
+                activeTap = {
+                  pointerId: e.pointerId,
+                  startX: e.clientX,
+                  startY: e.clientY,
+                };
+              });
+              makeEventListener(screen, "pointerup", (e: PointerEvent) => {
+                if (activeTap === null || e.pointerId !== activeTap.pointerId)
+                  return;
+                const { startX, startY } = activeTap;
+                activeTap = null;
+                if (!isTap(e.clientX - startX, e.clientY - startY)) return;
+                term.focus();
+              });
+              makeEventListener(screen, "pointercancel", (e: PointerEvent) => {
+                if (activeTap?.pointerId === e.pointerId) activeTap = null;
+              });
             }
           }
           // Kolu-owned bridge consumed by e2e step definitions —
@@ -583,10 +633,12 @@ const Terminal: Component<{
               e.preventDefault();
               const selection = term.getSelection();
               if (selection)
-                void copyTextWithToast(selection, {
-                  success: "Copied selection to clipboard",
-                  failure: "Failed to copy selection",
-                });
+                writeTextToClipboard(selection)
+                  .then(() => toast.success("Copied selection to clipboard"))
+                  .catch((err: Error) => {
+                    console.error("Failed to copy selection:", err);
+                    toast.error(`Failed to copy selection: ${err.message}`);
+                  });
               return false;
             }
 
@@ -738,14 +790,19 @@ const Terminal: Component<{
           // paste event (not navigator.clipboard.read) so no explicit
           // clipboard-read permission is needed.
           async function uploadPastedImage(file: File) {
-            const base64 = bufferToBase64(await file.arrayBuffer());
+            const reason = sizeRejectionFor("clipboard image", file.size);
+            if (reason !== null) {
+              toast.error(reason);
+              return;
+            }
             try {
+              const base64 = bufferToBase64(await file.arrayBuffer());
               await client.terminal.pasteImage({
                 id: props.terminalId,
                 data: base64,
               });
             } catch (err) {
-              console.error("Failed to upload clipboard image:", err);
+              toast.error(`Failed to upload clipboard image: ${errMsg(err)}`);
             }
           }
 
@@ -770,6 +827,58 @@ const Terminal: Component<{
             },
             { capture: true },
           );
+
+          // Drag-and-drop file upload. Files dropped on the terminal are
+          // uploaded to the server, which saves them under the terminal's
+          // clipboard directory and bracketed-pastes the path into the PTY
+          // — the same shape as Ctrl+V image paste, just sourced from
+          // DataTransfer instead of ClipboardData.
+          async function uploadDroppedFile(file: File) {
+            const reason = rejectionFor(file.name, file.size);
+            if (reason !== null) {
+              toast.error(reason);
+              return;
+            }
+            try {
+              const base64 = bufferToBase64(await file.arrayBuffer());
+              await client.terminal.uploadFile({
+                id: props.terminalId,
+                name: file.name,
+                data: base64,
+              });
+            } catch (err) {
+              toast.error(`Failed to upload "${file.name}": ${errMsg(err)}`);
+            }
+          }
+
+          makeEventListener(containerRef, "dragover", (e: DragEvent) => {
+            // Only react when the drag carries files — text/HTML drags
+            // belong to the browser / xterm.
+            if (!e.dataTransfer?.types.includes("Files")) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = "copy";
+            containerRef.dataset.dropTarget = "";
+          });
+          makeEventListener(containerRef, "dragleave", (e: DragEvent) => {
+            // dragleave fires when the cursor crosses any child element
+            // boundary too; gate on relatedTarget leaving the container so
+            // the highlight doesn't flicker mid-drag.
+            const next = e.relatedTarget as Node | null;
+            if (next && containerRef.contains(next)) return;
+            delete containerRef.dataset.dropTarget;
+          });
+          makeEventListener(containerRef, "drop", (e: DragEvent) => {
+            const files = e.dataTransfer?.files;
+            if (!files || files.length === 0) return;
+            // Prevent browser navigation (default action when dropping a file
+            // onto a page). Must come after the guard: only cancel drops we
+            // actually handle so text/HTML drags fall through unimpeded.
+            e.preventDefault();
+            delete containerRef.dataset.dropTarget;
+            for (const file of files) {
+              void uploadDroppedFile(file);
+            }
+          });
 
           // Cleanup is registered synchronously near the top of the component body
           // (see comment there). It references `terminal`, `webgl`, and the local
@@ -803,8 +912,10 @@ const Terminal: Component<{
       />
       <div
         ref={containerRef}
-        // touch-manipulation: eliminate 300ms tap delay and prevent double-tap-to-zoom on mobile
-        class="w-full h-full overflow-hidden touch-manipulation"
+        // touch-manipulation: eliminate 300ms tap delay and prevent double-tap-to-zoom on mobile.
+        // data-[drop-target]: inset ring while a file drag is hovering — set/cleared by the
+        // dragover/drop/dragleave listeners in onMount.
+        class="w-full h-full overflow-hidden touch-manipulation data-[drop-target]:outline data-[drop-target]:outline-2 data-[drop-target]:-outline-offset-2 data-[drop-target]:outline-sky-400/70"
         data-terminal-id={props.terminalId}
         data-visible={props.visible ? "" : undefined}
         data-focused={props.focused !== false ? "" : undefined}

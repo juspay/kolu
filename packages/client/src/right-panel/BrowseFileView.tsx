@@ -1,20 +1,27 @@
 /** Pure presenter for a text file in the Code tab's browse mode. Receives
- *  the file body as props and renders Pierre's syntax-highlighted `FileView`.
+ *  the file body as props and renders Pierre's syntax-highlighted `CodeView`
+ *  (single-item, file shape) wrapped in `CommentTextSurface` so character-
+ *  range selections get the floating "+ Comment" pill and existing comments
+ *  highlight in place.
+ *
  *  Subscription, loading, error, and kind-dispatch live one level up in
- *  `BrowseFileDispatcher` so the views stay single-strategy — `BrowseFileView`
- *  for `kind: "text"`, `BrowsePreviewView` for `kind: "binary"`. */
+ *  `BrowseFileDispatcher` so the views stay single-strategy. */
 
 import {
-  FileView,
+  CodeView,
+  type CodeViewItem,
+  fileItem,
   type SelectedLineRange,
-  Virtualizer,
+  useCodeViewSelection,
 } from "@kolu/solid-pierre";
-import { type Component, Show } from "solid-js";
+import { type Component, createMemo, Show } from "solid-js";
 import { toast } from "solid-sonner";
+import { CommentTextSurface } from "../comments/CommentTextSurface";
 import { pierreDiffsStyle } from "../ui/pierreTheme";
 import CodeMenuFrame from "./CodeMenuFrame";
 
 export type BrowseFileViewProps = {
+  terminalId: string;
   filePath: string;
   content: string;
   /** True if the file exceeded the server's size limit and was truncated. */
@@ -28,6 +35,13 @@ export type BrowseFileViewProps = {
 };
 
 const BrowseFileView: Component<BrowseFileViewProps> = (props) => {
+  // One file = one-element items array. The wrapper still handles
+  // virtualization, version-tracked content updates, and selection — Pierre
+  // doesn't distinguish the single-item case at the API boundary.
+  const items = createMemo<CodeViewItem[]>(() => [
+    fileItem(props.filePath, props.filePath, props.content),
+  ]);
+
   return (
     <>
       <Show when={props.truncated}>
@@ -35,35 +49,42 @@ const BrowseFileView: Component<BrowseFileViewProps> = (props) => {
           File truncated (exceeds 1 MB)
         </div>
       </Show>
-      <CodeMenuFrame
+      <CommentTextSurface
+        terminalId={props.terminalId}
         path={props.filePath}
-        initialSelectedLines={props.initialSelectedLines}
+        contentTick={props.content}
+        class="h-full w-full"
       >
-        {(selection) => (
-          // `<Virtualizer>` upgrades `<FileView>` to Pierre's
-          // `VirtualizedFile` for very large files
-          // (#809 / #514 Phase 8). Without it, `<FileView>` uses
-          // the vanilla `File` class — same behavior as before.
-          <Virtualizer
-            class="h-full w-full overflow-auto"
-            style={pierreDiffsStyle}
-          >
-            <FileView
-              name={props.filePath}
-              contents={props.content}
-              theme={props.theme}
-              overflow="wrap"
-              enableLineSelection
-              onLineSelected={selection.handleSelect}
-              selectedLines={selection.range()}
-              onError={(err) =>
-                toast.error(`File render failed: ${err.message}`)
-              }
-              class="w-full"
-            />
-          </Virtualizer>
-        )}
-      </CodeMenuFrame>
+        <CodeMenuFrame
+          path={props.filePath}
+          initialSelectedLines={props.initialSelectedLines}
+        >
+          {(lineSelection) => {
+            const codeViewSelection = useCodeViewSelection(
+              () => props.filePath,
+              lineSelection.range,
+            );
+            return (
+              <CodeView
+                items={items()}
+                theme={props.theme}
+                overflow="wrap"
+                enableLineSelection
+                selectedLines={codeViewSelection()}
+                onSelectedLinesChange={(s) =>
+                  lineSelection.handleSelect(s?.range ?? null)
+                }
+                onError={(err) =>
+                  toast.error(`File render failed: ${err.message}`)
+                }
+                class="h-full w-full overflow-auto"
+                style={pierreDiffsStyle}
+                data-testid="pierre-file-view"
+              />
+            );
+          }}
+        </CodeMenuFrame>
+      </CommentTextSurface>
     </>
   );
 };

@@ -1,5 +1,6 @@
 import * as assert from "node:assert";
 import { Then, When } from "@cucumber/cucumber";
+import { tapBackdropAtSafePoint } from "../support/drawer.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
 // ── Chrome (top pull-down) drawer ─────────────────────────────────────
@@ -167,18 +168,7 @@ When("I tap the mobile dock handle", async function (this: KoluWorld) {
 });
 
 When("I tap the mobile dock backdrop", async function (this: KoluWorld) {
-  // The dock drawer is `side="left"` and covers the left ~78vw. The
-  // backdrop spans the full viewport but Drawer.Content (z-50) sits on
-  // top of it across the drawer's bounding box. Tap on the *right*
-  // edge of the viewport where only the backdrop is visible — the
-  // default `.tap()` center-of-element lands inside the drawer content
-  // and is consumed by it, not the backdrop.
-  const backdrop = this.page.locator(DOCK_BACKDROP);
-  const box = await backdrop.boundingBox();
-  assert.ok(box, "Dock backdrop has no bounding box");
-  await backdrop.tap({
-    position: { x: box.width - 20, y: box.height / 2 },
-  });
+  await tapBackdropAtSafePoint(this, DOCK_BACKDROP, "left");
 });
 
 When("I tap the inactive mobile dock row", async function (this: KoluWorld) {

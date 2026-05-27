@@ -4,7 +4,7 @@
 import { makeEventListener } from "@solid-primitives/event-listener";
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import { type Accessor, createEffect, on } from "solid-js";
-import { isAttentionState } from "../ui/agentDisplay";
+import { isAttentionState } from "./agentState";
 import { preferences } from "../wire";
 import { useStaleCheck } from "./staleness";
 import type { TerminalSubject } from "./terminalSubject";
@@ -32,10 +32,18 @@ export function useTerminalAlerts(deps: {
 
   // Stale terminals are excluded — but the attention mark itself
   // stays, so a fresh agent transition (which bumps `lastActivityAt`
-  // and unparks) wakes the badge back up.
-  const isAttentionLive = (id: TerminalId) =>
-    deps.hasBadgeAttention(id) &&
-    !isStale(deps.getMetadata(id)?.lastActivityAt ?? 0);
+  // and unparks) wakes the badge back up. `isStale` is purely
+  // temporal: a `waiting` agent past the activity window suppresses
+  // the badge along with every other stale terminal — by design, so a
+  // user who's been away long enough doesn't get a phantom badge from
+  // yesterday's queue. The dock still surfaces those terminals via
+  // their parked-row AgentIndicator; the OS badge is for "act now".
+  const isAttentionLive = (id: TerminalId) => {
+    if (!deps.hasBadgeAttention(id)) return false;
+    const meta = deps.getMetadata(id);
+    if (!meta) return false;
+    return !isStale(meta.lastActivityAt);
+  };
 
   // Badge the PWA dock icon with terminals that need attention. The
   // effect re-runs on every staleness tick (~60s), so guard against

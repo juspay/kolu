@@ -38,7 +38,9 @@
       // and corrupt files. Astro has its own formatter (future: astro fmt).
       "!**/*.astro",
       // One-off heap-snapshot analyzers; not part of the product surface.
-      "!docs/perf-investigations/scripts"
+      "!docs/perf-investigations/scripts",
+      // Top-level HTML files are design / plan artifacts, not shipping code.
+      "!*.html"
     ]
   },
   // Biome is now the sole formatter — Prettier has been retired (#710).

@@ -76,6 +76,41 @@ export const SubPanelStateSchema = z.object({
   panelSize: z.number(),
 });
 
+/** Sub-view of the Code tab: local/branch diff modes or the file browser. */
+export const CodeTabViewSchema = z.enum(["local", "branch", "browse"]);
+
+/** Which tab is currently displayed in the right panel. */
+export const RightPanelTabKindSchema = z.enum(["inspector", "code"]);
+
+/** Per-terminal right-panel state — which tab is open, which sub-mode
+ *  the Code tab is in, and which file the user last selected in each
+ *  mode. The three fields move together because they are *about* the
+ *  terminal's task (reviewing branch X, browsing repo, inspecting agent
+ *  output) — switching terminals should restore them as a unit.
+ *
+ *  `selectedFileByMode` is per-mode so flipping between local↔branch↔browse
+ *  within a single terminal keeps each mode's last-viewed file, mirroring
+ *  the prior `(repo, mode)`-keyed localStorage slot behaviour.
+ *
+ *  Storage is flat (`activeTab` + `codeMode` as parallel fields) so Solid's
+ *  shallow-merge `setStore` is correct. Consumption should go through the
+ *  `rightPanelView()` DU projection — pattern-matching on `activeTab` /
+ *  `codeMode` separately leaks the storage shape across the DU seam and
+ *  defeats the "codeMode survives Inspector toggle" invariant. */
+export const RightPanelPerTerminalStateSchema = z.object({
+  activeTab: RightPanelTabKindSchema,
+  codeMode: CodeTabViewSchema,
+  /** Repo-relative file paths keyed by Code-tab sub-mode. Absence of a
+   *  key means "no selection" for that mode. */
+  selectedFileByMode: z
+    .object({
+      local: z.string().optional(),
+      branch: z.string().optional(),
+      browse: z.string().optional(),
+    })
+    .optional(),
+});
+
 // ── Terminal metadata fields, organized by write-authority + persistence ──
 //
 // Invariant: every terminal-metadata field appears in EXACTLY ONE of
@@ -129,13 +164,25 @@ export const ServerPersistedTerminalFieldsSchema = z.object({
  * `LiveTerminalFieldsSchema`. See the partition comment above.
  */
 export const ClientPersistedTerminalFieldsSchema = z.object({
-  themeName: z.string().optional(),
+  themeName: z.string().min(1).optional(),
   /** If set, this terminal is a sub-terminal of the given parent. */
   parentId: z.string().optional(),
   /** Canvas tile position/size — client-reported, used for session restore. */
   canvasLayout: CanvasLayoutSchema.optional(),
   /** Sub-panel collapsed/size state — client-reported, used for session restore. */
   subPanel: SubPanelStateSchema.optional(),
+  /** Right-panel per-terminal state — client-reported. Holds the fields
+   *  that are *about* the terminal's task (active tab, code sub-mode,
+   *  per-mode file selection). The remaining right-panel fields (collapsed,
+   *  size, codeTabTreeSize) stay on preferences as workspace-level chrome. */
+  rightPanel: RightPanelPerTerminalStateSchema.optional(),
+  /** User-set freeform annotation — multiline markdown. The first line
+   *  doubles as a glanceable tag (rendered as a chip next to the repo
+   *  name and painted onto the dock rail swatch); the full body shows
+   *  in the canvas-tile top-border pill, the dock-awaiting card, the
+   *  workspace switcher card, and the intent editor. Empty / undefined
+   *  collapses every render site to its no-intent shape. */
+  intent: z.string().min(1).optional(),
 });
 
 /**
@@ -206,10 +253,12 @@ export const TerminalMetadataSchema = PersistedTerminalFieldsSchema.merge(
  *  keeps recency ordering stable across restart — without it,
  *  `createMetadata` would reset every restored terminal to `0`. */
 export const InitialTerminalMetadataSchema = z.object({
-  themeName: z.string().optional(),
+  themeName: z.string().min(1).optional(),
   canvasLayout: CanvasLayoutSchema.optional(),
   subPanel: SubPanelStateSchema.optional(),
+  rightPanel: RightPanelPerTerminalStateSchema.optional(),
   lastActivityAt: z.number().optional(),
+  intent: z.string().min(1).optional(),
 });
 
 // ── Terminal cell value + raw-procedure shared schemas ────────────────
@@ -282,25 +331,15 @@ export const SavedSessionSchema = z.object({
 
 export const ColorSchemeSchema = z.enum(["light", "dark", "system"]);
 
-/** Sub-view of the Code tab: local/branch diff modes or the file browser. */
-export const CodeTabViewSchema = z.enum(["local", "branch", "browse"]);
-
-/** Which tab is currently displayed in the right panel. */
-export const RightPanelTabKindSchema = z.enum(["inspector", "code"]);
-
-/** Right-panel preferences. `activeTab` and `codeMode` live as flat fields so
- *  the storage layer's shallow merge is correct — Solid's `setStore` deep-merge
- *  cannot preserve discriminated-union variant invariants without a per-path
- *  `reconcile` escape hatch. Storing `codeMode` independently of `activeTab`
- *  also lets the Code tab restore its last sub-mode when the user toggles
- *  back from Inspector. The DU view (`{ kind: "inspector" } | { kind: "code",
- *  mode }`) is exposed via `rightPanelView()` for ergonomic pattern-matching
- *  at use sites. */
+/** Right-panel preferences — workspace-level layout chrome. The fields
+ *  *about* what each terminal is doing (active tab, code sub-mode,
+ *  selected file) live on `RightPanelPerTerminalStateSchema` against the
+ *  terminal record, not here. Splitting follows the volatility seam: panel
+ *  width and tree-pane split are tuned once and stay put; active tab and
+ *  code-mode flip per terminal task. */
 export const RightPanelPrefsSchema = z.object({
   collapsed: z.boolean(),
   size: z.number(),
-  activeTab: RightPanelTabKindSchema,
-  codeMode: CodeTabViewSchema,
   /** Vertical split fraction (0–1) inside the Code tab: tree pane occupies
    *  this share, content pane gets the rest. Persisted so layout survives
    *  reload, mirroring the horizontal `size` field's behavior. */
@@ -374,6 +413,9 @@ export type SavedTerminal = z.infer<typeof SavedTerminalSchema>;
 export type ColorScheme = z.infer<typeof ColorSchemeSchema>;
 export type CodeTabView = z.infer<typeof CodeTabViewSchema>;
 export type RightPanelTabKind = z.infer<typeof RightPanelTabKindSchema>;
+export type RightPanelPerTerminalState = z.infer<
+  typeof RightPanelPerTerminalStateSchema
+>;
 
 /** Discriminated-union view of the right panel's active tab. Derived from the
  *  flat `activeTab` + `codeMode` storage shape — see `rightPanelView()`. Use
@@ -397,15 +439,23 @@ export const DEFAULT_PREFERENCES: z.infer<typeof PreferencesSchema> = {
   rightPanel: {
     collapsed: true,
     size: 0.25,
-    activeTab: "inspector",
-    codeMode: "local",
     codeTabTreeSize: 0.35,
   },
 };
 
-/** Project the flat `RightPanelPrefs` shape onto its DU view. Storage stays
- *  flat (Solid's setStore shallow-merges correctly); use sites get the
- *  exhaustive-match-friendly DU. */
+/** Default per-terminal right-panel state — seeded into the in-memory
+ *  store when a terminal has no `rightPanel` record yet (fresh terminals,
+ *  or terminals from a session predating this schema). */
+export const DEFAULT_RIGHT_PANEL_PER_TERMINAL: z.infer<
+  typeof RightPanelPerTerminalStateSchema
+> = {
+  activeTab: "inspector",
+  codeMode: "local",
+};
+
+/** Project the flat `RightPanelPerTerminalState` shape onto its DU view.
+ *  Storage stays flat (Solid's setStore shallow-merges correctly); use sites
+ *  get the exhaustive-match-friendly DU. */
 export function rightPanelView(p: {
   activeTab: RightPanelTabKind;
   codeMode: CodeTabView;

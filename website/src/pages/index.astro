@@ -10,51 +10,85 @@ const posts = (await getCollection('blog')).sort(
 );
 const latest = posts[0];
 
-// Features: numbered, mono-labelled. One row breaks the 2-col grid (the first
-// tile spans 2 cols on large screens) — the rest align to a calm rhythm.
+// Marketing dock — one demo roster, rendered twice (hero terminal frame
+// + canvas demo strip). Keeping the chip list as data avoids two parallel
+// blocks of markup that have to stay visually consistent by memory.
+type DockChip = {
+  label: string;
+  repoTint: 'a' | 'b' | 'c';
+  state?: 'working' | 'awaiting';
+  hasBadge?: boolean;
+  title: string;
+};
+
+const dockChips: DockChip[] = [
+  {
+    label: 'Kd',
+    repoTint: 'a',
+    state: 'working',
+    title: 'kolu · feat-dock — claude · thinking',
+  },
+  {
+    label: 'Kc',
+    repoTint: 'a',
+    state: 'awaiting',
+    hasBadge: true,
+    title: 'kolu · feat-canvas — codex · awaiting you',
+  },
+  { label: 'Am', repoTint: 'b', title: 'api · main — zsh' },
+  { label: 'Db', repoTint: 'c', title: 'docs · blog' },
+];
+
+// Features — ordered to lead with what makes kolu unmistakable (real
+// xterm.js tiles on a 2D canvas with live agent status). Positioning
+// claims (agent-agnostic, zero setup) follow as *consequences* of the
+// terminal-as-substrate decision, not as the headline.
+//
+// The first tile spans 2 cols on large screens so the terminal story
+// reads loudest.
 const features = [
   {
     num: '01',
-    key: 'agent-agnostic',
-    title: 'Agent-agnostic, by design',
-    body: "The terminal is the universal interface. claude, codex, opencode, or whatever ships next week all work the same way — because they're just programs you run in a shell. No adapters, no registry, no vendor lock-in.",
+    key: 'real-terminals',
+    title: 'Real terminals. Real xterm.js.',
+    body: "Every kolu tile is a full xterm.js terminal — WebGL rendering, clickable URLs, inline images (sixel, iTerm2, kitty), splits, tabs, 200+ themes, a mobile key bar. The terminal is the universal interface, so anything you run in a shell — claude, codex, opencode, a plain zsh — gets first-class status with zero adapter code.",
     wide: true,
   },
   {
     num: '02',
-    key: 'zero-setup',
-    title: 'Zero setup',
-    body: 'Kolu populates its UI from what you already do. Recent repos track your cd events. Run an agent CLI once — it appears in the palette the next time you need it.',
+    key: 'canvas',
+    title: 'Infinite 2D canvas',
+    body: "Every terminal is a draggable, resizable tile. Pan, zoom, snap-to-grid. The left-edge dock is the canonical navigator — chip rail or repo-grouped cards. Cmd+Shift+K opens the unified palette into a workspace grid with repo facets and agent-state columns. On phones, the active tile fills the screen and the same dock lives behind a left-edge swipe.",
   },
   {
     num: '03',
-    key: 'canvas',
-    title: 'Infinite canvas',
-    body: "Every terminal is a draggable, resizable tile on a 2D canvas. Pan, zoom, snap-to-grid. The left-edge dock is the canonical navigator — rail of repo-colored swatches or cards with reply input on awaiting agents — and Cmd+Shift+K opens the unified palette into a workspace grid with repo facets and agent-state columns. In maximized mode the dock renders as an opaque sidebar so an agent on another terminal still surfaces. On phones, the active tile fills the screen and the same dock lives behind a left-edge swipe.",
+    key: 'agent-status',
+    title: 'Live agent status in the dock',
+    body: "Detects Claude Code, Codex, and OpenCode sessions — thinking, tool use, waiting on you. Each dock row carries a repo-tinted chip that pulses while the agent is working and breathes when it's waiting, so a glance tells you which agent needs attention.",
   },
   {
     num: '04',
-    key: 'agent-status',
-    title: 'Live agent status',
-    body: "Detects Claude Code, Codex, and OpenCode sessions: thinking, tool use, waiting. Each terminal's row in the dock carries a repo-colored rail that pulses while the agent is working and breathes when it's waiting on you, so a glance tells you which agent needs attention.",
+    key: 'agent-agnostic',
+    title: 'Agent-agnostic, by design',
+    body: "claude, codex, opencode, or whatever ships next week — kolu doesn't wrap any of them. No adapters, no registry, no vendor lock-in. Drop to a plain shell whenever you want.",
   },
   {
     num: '05',
+    key: 'zero-setup',
+    title: 'Zero setup — kolu watches what you do',
+    body: 'Recent repos track your cd events. Run an agent CLI once — it appears in the palette the next time you create a worktree. Branch, PR, CI status derive from each terminal\'s CWD. The surface grows with your workflow, not with a preferences pane.',
+  },
+  {
+    num: '06',
     key: 'git-aware',
     title: 'Git & GitHub aware',
     body: "Repo name, branch, PR number, CI status derived from each terminal's CWD. Worktree create + agent launch in one palette step.",
   },
   {
-    num: '06',
-    key: 'xterm',
-    title: 'Terminals done right',
-    body: 'xterm.js with WebGL rendering, clickable URLs, inline images (sixel, iTerm2, kitty), splits, tabs, 200+ themes, and a mobile key bar for touch devices.',
-  },
-  {
     num: '07',
-    key: 'recording',
-    title: 'Record your workspace',
-    body: 'One click in the chrome bar captures the whole Kolu tab with microphone and optional webcam PiP, streamed straight to a local .webm. Pause/resume with ⌘⇧., mic picker with live level meter, circular webcam overlay baked into the recording.',
+    key: 'comment-on-any-file',
+    title: 'Comment on any file',
+    body: "Select text in any file the Code tab shows — source, branch diff, or rendered HTML artifact the agent produced — and a floating pill lets you leave a free-text note anchored to the exact quote. Notes accumulate in a per-terminal tray across every file you touch. \"Copy to clipboard\" flushes the queue as plain Markdown ready to paste back into the agent's prompt — the agent re-locates each comment by quote-matching, robust to file edits.",
   },
   {
     num: '08',
@@ -62,64 +96,153 @@ const features = [
     title: 'Share what your agent did',
     body: 'Export any Claude Code, Codex, or OpenCode session as a single self-contained .html — warm-parchment editorial layout, shiki-tokenized code, real diff views for every Edit/Write/apply_patch, j/k prompt navigation, dark/light toggle. No external assets, no upload — opens offline in any browser.',
   },
+  {
+    num: '09',
+    key: 'recording',
+    title: 'Record your workspace',
+    body: 'One click in the chrome bar captures the whole kolu tab with microphone and optional webcam PiP, streamed straight to a local .webm. Pause/resume with ⌘⇧., mic picker with live level meter, circular webcam overlay baked into the recording.',
+  },
 ];
 ---
 
 <BaseLayout title="kolu">
-  <!-- ── HERO ─────────────────────────────────────────────────────────── -->
-  <section class="mx-auto max-w-[68rem] px-6 pt-24 pb-20 md:pt-36 md:pb-28 relative">
-    <!-- Decorative corner glyphs — evoke ASCII box drawing, very restrained -->
+  <!-- ── HERO ─────────────────────────────────────────────────────────────
+       Two-column: copy left, a faux xterm frame with the kolu dock on its
+       left edge on the right. The frame's chips and agent pip animate via
+       CSS to convey real, changing state — the "this is live" feel
+       without bundling xterm.js into the marketing page.
+  -->
+  <section class="mx-auto max-w-[72rem] px-6 pt-20 pb-16 md:pt-28 md:pb-20 relative">
     <span
       aria-hidden="true"
-      class="absolute top-12 left-6 mono text-ink-faint text-xs tracking-widest hidden md:block"
+      class="absolute top-10 left-6 mono text-ink-faint text-xs tracking-widest hidden md:block"
     >
       ┌ kolu
     </span>
     <span
       aria-hidden="true"
-      class="absolute top-12 right-6 mono text-ink-faint text-xs tracking-widest hidden md:block"
+      class="absolute top-10 right-6 mono text-ink-faint text-xs tracking-widest hidden md:block"
     >
       v0.1 ┐
     </span>
 
-    <p class="eyebrow reveal reveal-1">an agentic development environment</p>
+    <div class="grid md:grid-cols-[0.85fr_1.15fr] gap-8 md:gap-10 items-stretch mt-8">
+      <!-- Left: copy pane -->
+      <div class="reveal reveal-1 flex flex-col justify-center">
+        <p class="eyebrow flex items-center gap-2">
+          <span class="text-amber-dim">$</span>
+          <span>kolu — terminals as the thesis</span>
+        </p>
 
-    <h1
-      class="display reveal reveal-2 mt-5 text-[3.4rem] sm:text-[4.6rem] md:text-[6rem] max-w-4xl"
-    >
-      A terminal-native cockpit <span class="text-amber">for</span>
-      <br class="hidden sm:block" />coding agents<span class="cursor" aria-hidden="true"></span>
-    </h1>
+        <h1
+          class="display reveal reveal-2 mt-5 text-[3rem] sm:text-[3.6rem] md:text-[4.4rem]"
+        >
+          Your <span class="text-amber">terminals</span><br />are the workspace.<span
+            class="cursor"
+            aria-hidden="true"></span>
+        </h1>
 
-    <p
-      class="reveal reveal-3 mt-10 max-w-xl text-lg leading-relaxed text-ink-dim"
-      style="font-variation-settings: 'opsz' 14, 'SOFT' 60;"
-    >
-      Open source. Bring your own CLI, run it anywhere. Kolu treats the
-      terminal as the universal interface — so <span class="mono text-ink">claude</span>, <span
-        class="mono text-ink">codex</span>, <span class="mono text-ink">opencode</span
-      >, or whatever ships next week all work the same way.
-    </p>
+        <p
+          class="reveal reveal-3 mt-6 mono text-[0.78rem] text-ink-muted leading-relaxed"
+        >
+          Not a chat-UI wrapper.<br />Not an editor fork.
+        </p>
 
-    <div class="reveal reveal-4 mt-10 flex flex-wrap items-center gap-3">
-      <a
-        href="#run"
-        class="inline-flex items-center gap-2 rounded-sm bg-amber text-void px-5 py-2.5 mono text-[0.82rem] font-medium hover:bg-amber-bright transition-colors"
-      >
-        <span aria-hidden="true">$</span> run with nix
-      </a>
-      <a
-        href="https://github.com/juspay/kolu"
-        rel="noopener"
-        class="inline-flex items-center gap-2 rounded-sm border border-rule-strong px-5 py-2.5 mono text-[0.82rem] text-ink hover:border-ink-dim hover:bg-void-raised transition-colors"
-      >
-        <svg viewBox="0 0 16 16" class="size-3.5 fill-current" aria-hidden="true">
-          <path
-            d="M8 0a8 8 0 0 0-2.53 15.59c.4.07.55-.17.55-.38v-1.34c-2.22.48-2.69-1.07-2.69-1.07-.36-.92-.89-1.17-.89-1.17-.73-.5.05-.49.05-.49.8.06 1.23.82 1.23.82.72 1.23 1.88.87 2.34.67.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.58.82-2.14-.08-.2-.36-1.01.08-2.11 0 0 .67-.21 2.2.82a7.63 7.63 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.91.08 2.11.51.56.82 1.27.82 2.14 0 3.06-1.86 3.75-3.64 3.95.29.25.54.73.54 1.48v2.2c0 .21.15.46.55.38A8 8 0 0 0 8 0Z"
-          ></path>
-        </svg>
-        juspay/kolu
-      </a>
+        <p
+          class="reveal reveal-3 mt-6 max-w-xl text-lg leading-relaxed text-ink-dim"
+        >
+          <span class="mono text-ink">claude</span>, <span class="mono text-ink">codex</span>, <span
+            class="mono text-ink">opencode</span
+          > — anything you can run in a shell, runs in kolu. Real <span class="mono text-ink">xterm.js</span>
+          tiles on an infinite 2D canvas, with a dock that surfaces every agent's
+          live state at a glance.
+        </p>
+
+        <div class="reveal reveal-4 mt-8 flex flex-wrap items-center gap-3">
+          <a
+            href="#run"
+            class="inline-flex items-center gap-2 rounded-sm bg-amber text-void px-5 py-2.5 mono text-[0.82rem] font-medium hover:bg-amber-bright transition-colors"
+          >
+            <span aria-hidden="true">$</span> run with nix
+          </a>
+          <a
+            href="https://github.com/juspay/kolu"
+            rel="noopener"
+            class="inline-flex items-center gap-2 rounded-sm border border-rule-strong px-5 py-2.5 mono text-[0.82rem] text-ink hover:border-ink-dim hover:bg-void-raised transition-colors"
+          >
+            <svg viewBox="0 0 16 16" class="size-3.5 fill-current" aria-hidden="true">
+              <path
+                d="M8 0a8 8 0 0 0-2.53 15.59c.4.07.55-.17.55-.38v-1.34c-2.22.48-2.69-1.07-2.69-1.07-.36-.92-.89-1.17-.89-1.17-.73-.5.05-.49.05-.49.8.06 1.23.82 1.23.82.72 1.23 1.88.87 2.34.67.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.58.82-2.14-.08-.2-.36-1.01.08-2.11 0 0 .67-.21 2.2.82a7.63 7.63 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.91.08 2.11.51.56.82 1.27.82 2.14 0 3.06-1.86 3.75-3.64 3.95.29.25.54.73.54 1.48v2.2c0 .21.15.46.55.38A8 8 0 0 0 8 0Z"
+              ></path>
+            </svg>
+            juspay/kolu
+          </a>
+        </div>
+      </div>
+
+      <!-- Right: faux xterm frame, dock on its left edge.
+           theme-phala = deep purple-magenta palette (one of Kolu's 200+
+           themes); the other tiles on the page wear different themes. -->
+      <div class="reveal reveal-3 hero-term theme-phala">
+        <div class="dock-col hero-term-dock" aria-hidden="true">
+          {
+            dockChips.map((c) => (
+              <div
+                class:list={[
+                  'hero-chip',
+                  `hero-chip-repo-${c.repoTint}`,
+                  c.state === 'working' && 'live-chip-working',
+                  c.state === 'awaiting' && 'live-chip-awaiting',
+                ]}
+                title={c.title}
+              >
+                {c.hasBadge && <span class="live-badge" />}
+                {c.label}
+              </div>
+            ))
+          }
+        </div>
+        <div class="hero-term-stack">
+          <div class="hero-term-titlebar">
+            <span class="hero-tldot hero-tldot-close"></span>
+            <span class="hero-tldot hero-tldot-minimize"></span>
+            <span class="hero-tldot hero-tldot-maximize"></span>
+            <span class="hero-term-label">
+              kolu · <span class="hero-branch">feat-dock</span> · #974
+            </span>
+            <span class="hero-agent-pip">
+              <span class="hero-agent-dot live-dot"></span>
+              <span>claude · thinking · 47K</span>
+            </span>
+            <span class="hero-term-theme">Phala Green Dark</span>
+          </div>
+          <div class="hero-term-body">
+            <div><span class="hero-prompt">~/code/kolu</span> <span class="hero-prompt">❯</span> claude</div>
+            <div class="hero-blank">&nbsp;</div>
+            <div>
+              <span class="hero-user">&gt;</span> Rebuild the hero so it leads with terminals,
+            </div>
+            <div>
+              <span class="hero-user">&nbsp;&nbsp;</span> not with the generic ADE phrasing.
+            </div>
+            <div class="hero-blank">&nbsp;</div>
+            <div class="hero-narr">⏺ I'll replace the centered serif hero with a two-column</div>
+            <div class="hero-narr">&nbsp;&nbsp;layout — copy on the left, an animated xterm frame</div>
+            <div class="hero-narr">&nbsp;&nbsp;on the right that <em>is</em> the demo.</div>
+            <div class="hero-blank">&nbsp;</div>
+            <div>
+              <span class="hero-tool-bullet">●</span>
+              <span class="hero-tool">Read</span>(<span class="hero-path">website/src/pages/index.astro</span>)
+            </div>
+            <div class="hero-dim">&nbsp;&nbsp;⎿ 432 lines</div>
+            <div>
+              <span class="hero-tool-bullet">●</span>
+              <span class="hero-tool">Edit</span>(<span class="hero-path">website/src/pages/index.astro</span>)
+            </div>
+            <div class="hero-dim">&nbsp;&nbsp;⎿ Updated <span class="hero-add">6 lines</span><span class="cursor" aria-hidden="true"></span></div>
+          </div>
+        </div>
+      </div>
     </div>
   </section>
 
@@ -130,11 +253,226 @@ const features = [
     <span class="flex-1 h-px bg-rule"></span>
   </div>
 
+  <!-- ── CANVAS DEMO STRIP ────────────────────────────────────────────────
+       Three-column band matching the real Kolu layout: repo-grouped dock
+       cards on the left, the canvas with a *split* terminal in the centre
+       (agent on top, `just test` shell below — splits live INSIDE a tile,
+       not as separate tiles), and the Code-tab file browser on the right.
+       Modelled directly from screenshots of the running app at
+       http://127.0.0.1:<random>/ so the marketing visual stays honest.
+  -->
+  <section class="mx-auto max-w-[78rem] px-6 py-16">
+    <div class="mb-6 flex items-baseline justify-between">
+      <p class="eyebrow">what you're looking at</p>
+      <p class="mono text-[0.72rem] text-ink-faint">dock · canvas · code panel</p>
+    </div>
+
+    <div class="ckv2">
+      <!-- LEFT: dock cards, repo-grouped -->
+      <aside class="ckv2-dock" aria-hidden="true">
+        <div class="ckv2-dock-head">
+          <span class="ckv2-dock-icon">+</span>
+          <span class="ckv2-dock-icon">⌕</span>
+        </div>
+        <section class="ckv2-section">
+          <h4 class="ckv2-section-head ckv2-hue-kolu">
+            <span>KOLU</span><span class="ckv2-count">2</span>
+          </h4>
+          <div class="ckv2-card ckv2-card-active">
+            <span class="ckv2-card-icon">✳</span>
+            <span class="ckv2-card-branch ckv2-hue-kolu">hero</span>
+            <span class="ckv2-card-agent ckv2-agent-claude">claude</span>
+            <span class="ckv2-card-sub">▭1</span>
+            <span class="ckv2-card-time">now</span>
+            <p class="ckv2-card-intent">Homepage: terminal-as-hero rebuild</p>
+          </div>
+          <div class="ckv2-card">
+            <span class="ckv2-card-icon">✳</span>
+            <span class="ckv2-card-branch ckv2-hue-kolu">ssh</span>
+            <span class="ckv2-card-agent ckv2-agent-opencode">opencode</span>
+            <span class="ckv2-card-time">
+              now<span class="ckv2-card-badge live-badge"></span>
+            </span>
+            <p class="ckv2-card-intent">Carve TerminalBackend abstraction</p>
+          </div>
+        </section>
+        <section class="ckv2-section">
+          <h4 class="ckv2-section-head ckv2-hue-emanote">
+            <span>EMANOTE</span><span class="ckv2-count">1</span>
+          </h4>
+          <div class="ckv2-card">
+            <span class="ckv2-card-icon">✳</span>
+            <span class="ckv2-card-branch ckv2-hue-emanote">docs</span>
+            <span class="ckv2-card-agent ckv2-agent-codex">codex</span>
+            <span class="ckv2-card-sub">▭1</span>
+            <span class="ckv2-card-time">1h</span>
+            <p class="ckv2-card-intent">Reorganise docs around reader concern</p>
+          </div>
+        </section>
+        <section class="ckv2-section">
+          <h4 class="ckv2-section-head ckv2-hue-dotfiles">
+            <span>DOTFILES</span><span class="ckv2-count">1</span>
+          </h4>
+          <div class="ckv2-card">
+            <span class="ckv2-card-icon">✳</span>
+            <span class="ckv2-card-branch ckv2-hue-dotfiles">main</span>
+            <span class="ckv2-card-agent ckv2-agent-zsh">zsh</span>
+            <span class="ckv2-card-time">3h</span>
+            <p class="ckv2-card-intent">Bump nixpkgs, rebuild home-manager</p>
+          </div>
+        </section>
+        <div class="ckv2-dock-foot">
+          <span class="ckv2-dock-foot-count">2</span>
+          <span>hidden by</span>
+          <span class="ckv2-dock-window">24h</span>
+          <span>window</span>
+          <span class="ckv2-dock-foot-relax">show all</span>
+        </div>
+      </aside>
+
+      <!-- CENTRE: canvas with 3 tiles in random, slightly overlapping
+           positions — mirrors real Kolu's free-floating canvas where
+           tiles are dragged around on a 24px grid, not arranged on a
+           rail. Each tile carries a distinct theme so they read as
+           separate xterm instances. -->
+      <div class="ckv2-canvas">
+        <!-- Tile 1 (anchor): claude on top, shell with `just test` split.
+             theme-solarized = deep blue-cyan palette. -->
+        <div class="ckv2-tile ckv2-tile-1 theme-solarized">
+          <div class="ckv2-tilebar ckv2-tilebar-kolu">
+            <span class="ckv2-tilebar-dot live-dot"></span>
+            <span class="ckv2-tilebar-label">
+              <span class="ckv2-tilebar-repo ckv2-hue-kolu">kolu</span>
+              <span class="ckv2-tilebar-sep">·</span>
+              <span class="ckv2-tilebar-branch">hero</span>
+              <span class="ckv2-tilebar-sep">·</span>
+              <span class="ckv2-tilebar-pr">#980</span>
+            </span>
+            <span class="ckv2-tilebar-state">
+              <span class="live-spinner"></span>&nbsp;Running tools 282K
+            </span>
+            <span class="ckv2-tilebar-theme">Solarized Dark</span>
+          </div>
+          <div class="ckv2-split-top">
+            <div><span class="hero-prompt">~/code/kolu</span> <span class="hero-prompt">❯</span> claude</div>
+            <div class="hero-dim">› Read <span class="hero-path">website/src/pages/index.astro</span></div>
+            <div class="ckv2-working">⏺ Replacing canvas strip with the real Kolu layout —</div>
+            <div class="ckv2-working">&nbsp;&nbsp;splits live inside a tile, code browser on the right.</div>
+            <div class="hero-dim">› <span class="hero-tool">Edit</span> website/src/pages/index.astro</div>
+          </div>
+          <div class="ckv2-split-bar">
+            <span class="ckv2-split-tab">hero</span>
+            <span class="ckv2-spacer"></span>
+            <span class="ckv2-split-btn">+</span>
+            <span class="ckv2-split-btn">▾ Hide</span>
+          </div>
+          <div class="ckv2-split-bot">
+            <div>
+              <span class="ckv2-lime">srid</span>
+              <span class="hero-dim">on</span>
+              <span class="hero-path">pureintent</span>
+              <span class="hero-dim">·</span>
+              <span class="ckv2-lime">hero</span>
+              <span class="hero-dim">via</span>
+              <span class="ckv2-lime">v24.13.0</span>
+            </div>
+            <div><span class="hero-prompt">❯</span> just test</div>
+            <div class="ckv2-lime">PASS &nbsp;358 scenarios (2880 steps) · 1m11s</div>
+            <div><span class="cursor" aria-hidden="true"></span></div>
+          </div>
+        </div>
+
+        <!-- Tile 2: codex awaiting. theme-hax0r = warm dark amber palette. -->
+        <div class="ckv2-tile ckv2-tile-2 theme-hax0r">
+          <div class="ckv2-tilebar ckv2-tilebar-emanote">
+            <span class="ckv2-tilebar-dot ckv2-tilebar-dot-alert"></span>
+            <span class="ckv2-tilebar-label">
+              <span class="ckv2-tilebar-repo ckv2-hue-emanote">emanote</span>
+              <span class="ckv2-tilebar-sep">·</span>
+              <span class="ckv2-tilebar-branch">docs</span>
+              <span class="ckv2-tilebar-sep">·</span>
+              <span class="ckv2-tilebar-pr">#747</span>
+            </span>
+            <span class="ckv2-tilebar-state ckv2-state-awaiting">codex · awaiting</span>
+            <span class="ckv2-tilebar-theme">HaX0R R3D</span>
+          </div>
+          <div class="ckv2-side-body">
+            <div class="hero-dim">codex</div>
+            <div><span class="ckv2-codex-marker">***</span> Begin Patch</div>
+            <div><span class="ckv2-codex-marker">***</span> Update File: <span class="hero-path">docs/reader-guide.md</span></div>
+            <div class="hero-dim">@@ -12,3 +12,7 @@</div>
+            <div class="ckv2-awaiting-text">⏵ approve patch? (y/N)</div>
+          </div>
+        </div>
+
+        <!-- Tile 3: opencode running. theme-phala = deep magenta palette. -->
+        <div class="ckv2-tile ckv2-tile-3 theme-phala">
+          <div class="ckv2-tilebar ckv2-tilebar-kolu">
+            <span class="ckv2-tilebar-dot live-dot"></span>
+            <span class="ckv2-tilebar-label">
+              <span class="ckv2-tilebar-repo ckv2-hue-kolu">kolu</span>
+              <span class="ckv2-tilebar-sep">·</span>
+              <span class="ckv2-tilebar-branch">ssh</span>
+            </span>
+            <span class="ckv2-tilebar-state">opencode · thinking</span>
+            <span class="ckv2-tilebar-theme">Phala Green Dark</span>
+          </div>
+          <div class="ckv2-side-body">
+            <div class="hero-dim">opencode</div>
+            <div class="ckv2-working">▌ planning</div>
+            <div class="hero-dim">└ list every backend a kolu</div>
+            <div class="hero-dim">&nbsp;&nbsp;TerminalBackend impl should cover</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- RIGHT: code browser (Inspector | Code tabs, file tree, content) -->
+      <aside class="ckv2-code" aria-hidden="true">
+        <div class="ckv2-code-tabs">
+          <span class="ckv2-code-tab">Inspector</span>
+          <span class="ckv2-code-tab ckv2-code-tab-active">Code</span>
+          <span class="ckv2-spacer"></span>
+          <span class="ckv2-code-view">All files ⌄</span>
+        </div>
+        <div class="ckv2-code-body">
+          <div class="ckv2-tree">
+            <div class="ckv2-tree-row">▸ .agency</div>
+            <div class="ckv2-tree-row">▸ .claude</div>
+            <div class="ckv2-tree-row">▾ website</div>
+            <div class="ckv2-tree-row ckv2-tree-i1">▾ src</div>
+            <div class="ckv2-tree-row ckv2-tree-i2">▾ pages</div>
+            <div class="ckv2-tree-row ckv2-tree-i3 ckv2-tree-active">index.astro</div>
+            <div class="ckv2-tree-row ckv2-tree-i2">▸ styles</div>
+            <div class="ckv2-tree-row ckv2-tree-i1">▪ site.ts</div>
+            <div class="ckv2-tree-row">▪ README.md</div>
+          </div>
+          <div class="ckv2-source">
+            <div class="ckv2-source-line"><span class="ckv2-lineno">137</span><span class="ckv2-tok-keyword">&lt;h1</span> <span class="ckv2-tok-attr">class</span>=<span class="ckv2-tok-str">"display"</span><span class="ckv2-tok-keyword">&gt;</span></div>
+            <div class="ckv2-source-line"><span class="ckv2-lineno">138</span>  Your <span class="ckv2-tok-keyword">&lt;span&gt;</span><span class="ckv2-tok-em">terminals</span><span class="ckv2-tok-keyword">&lt;/span&gt;</span></div>
+            <div class="ckv2-source-line"><span class="ckv2-lineno">139</span>  are the workspace.</div>
+            <div class="ckv2-source-line"><span class="ckv2-lineno">140</span><span class="ckv2-tok-keyword">&lt;/h1&gt;</span></div>
+            <div class="ckv2-source-line ckv2-source-empty"><span class="ckv2-lineno">141</span></div>
+            <div class="ckv2-source-line"><span class="ckv2-lineno">142</span><span class="ckv2-tok-comment">{/* anti-positioning */}</span></div>
+            <div class="ckv2-source-line"><span class="ckv2-lineno">143</span><span class="ckv2-tok-keyword">&lt;p</span> <span class="ckv2-tok-attr">class</span>=<span class="ckv2-tok-str">"mono"</span><span class="ckv2-tok-keyword">&gt;</span></div>
+            <div class="ckv2-source-line"><span class="ckv2-lineno">144</span>  Not a chat-UI wrapper.</div>
+          </div>
+        </div>
+      </aside>
+    </div>
+
+    <ul class="canvas-legend mono text-[0.7rem] mt-4 grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-2 text-ink-muted">
+      <li><span class="legend-pip legend-pip-teal"></span>agent working</li>
+      <li><span class="legend-pip legend-pip-alert"></span>awaiting you</li>
+      <li><span class="legend-pip legend-pip-violet"></span>repo identity</li>
+      <li>↔ splits live inside a tile · code browser is its own panel</li>
+    </ul>
+  </section>
+
   <!-- ── FEATURES ─────────────────────────────────────────────────────── -->
   <section class="mx-auto max-w-[68rem] px-6 py-20">
     <div class="mb-14 flex items-baseline justify-between">
       <p class="eyebrow">what you get</p>
-      <p class="mono text-[0.72rem] text-ink-faint">08 features</p>
+      <p class="mono text-[0.72rem] text-ink-faint">09 features</p>
     </div>
 
     <ul class="grid md:grid-cols-2 gap-px bg-rule">
@@ -209,9 +547,9 @@ const features = [
         <div
           class="flex items-center gap-2 px-4 py-2.5 border-b border-rule bg-void-raised"
         >
-          <span class="size-2.5 rounded-full bg-[#ff5f56]"></span>
-          <span class="size-2.5 rounded-full bg-[#ffbd2e]"></span>
-          <span class="size-2.5 rounded-full bg-[#27c93f]"></span>
+          <span class="size-2.5 rounded-full bg-dot-close"></span>
+          <span class="size-2.5 rounded-full bg-dot-minimize"></span>
+          <span class="size-2.5 rounded-full bg-dot-maximize"></span>
           <span class="mono text-[0.68rem] text-ink-muted tracking-wider ml-3">
             ~/dev — zsh
           </span>
@@ -219,11 +557,19 @@ const features = [
         <!-- Terminal body -->
         <div class="p-5 mono text-[0.82rem] leading-relaxed">
           <div class="text-ink-muted">
-            <span class="text-amber"># serve on 127.0.0.1:7681</span>
+            <span class="text-amber"># run (or update) kolu — serves on 127.0.0.1:7681</span>
           </div>
-          <div class="flex items-start gap-2 mt-1">
+          <div class="flex items-start gap-2 mt-1 relative pr-16">
             <span class="text-amber-dim select-none">$</span>
-            <span class="text-ink">nix run <span class="text-amber">github:juspay/kolu</span></span>
+            <span class="text-ink">nix <span class="text-ink-dim">--refresh</span> run <span class="text-amber">github:juspay/kolu</span></span>
+            <button
+              type="button"
+              class="copy-cli-btn"
+              data-clipboard="nix --refresh run github:juspay/kolu"
+              aria-label="Copy command to clipboard"
+            >
+              <span class="copy-cli-label">copy</span>
+            </button>
           </div>
 
           <div class="text-ink-muted mt-4">
@@ -291,3 +637,730 @@ const features = [
     )
   }
 </BaseLayout>
+
+<!-- ── Component-scoped styles ─────────────────────────────────────────
+     Page-local: only the hero terminal frame and canvas demo strip
+     consume these classes. The reusable live-state vocabulary
+     (.live-chip-*, .live-badge, .live-dot, .live-spinner) lives in
+     global.css alongside its keyframes and reduced-motion override.
+-->
+<style>
+  /* ── Hero terminal frame ─────────────────────────────────────────── */
+
+  /* Per-tile theme palettes. Real Kolu ships 200+ xterm themes and each
+     terminal can pick its own — the demo mirrors that with three
+     distinct palettes across the page so the hero, canvas main tile,
+     and canvas side tile each read as a separate terminal.
+     The shared block pins cool-neutral ink + logo-purple amber tokens
+     *inside* the terminal regardless of page theme, so light-mode
+     visitors still see legible terminal output on the dark theme bg
+     without any warm bleedthrough from the page-level light palette. */
+  .theme-phala,
+  .theme-solarized,
+  .theme-hax0r {
+    --color-ink: #e8e8ed;
+    --color-ink-dim: #a8a8b2;
+    --color-ink-muted: #6e6e78;
+    --color-ink-faint: #3a3a42;
+    --color-amber: #a855f7;
+    --color-amber-bright: #c084fc;
+    --color-amber-dim: #7e22ce;
+    --color-rule: #18181d;
+    --color-rule-strong: #28282f;
+    color: var(--color-ink);
+  }
+  .theme-phala {
+    --term-bg: #160721;
+    --term-bg-bar: #1f0a2e;
+    --term-glow: var(--color-live-violet);
+  }
+  .theme-solarized {
+    --term-bg: #02161c;
+    --term-bg-bar: #032936;
+    --term-glow: var(--color-live-teal);
+  }
+  .theme-hax0r {
+    --term-bg: #1a0a04;
+    --term-bg-bar: #2a1208;
+    --term-glow: var(--color-live-alert);
+  }
+
+  .hero-term {
+    display: flex;
+    border: 1px solid var(--color-rule-strong);
+    border-radius: 6px;
+    background: var(--term-bg, var(--color-void));
+    overflow: hidden;
+    box-shadow: 0 0 80px -25px
+      color-mix(in srgb, var(--term-glow, var(--color-live-teal)) 45%, transparent);
+    min-height: 22rem;
+  }
+
+  /* Shared column layout for the dock strip on both hero and canvas demo.
+     Each variant overrides only its unique surface (background, z-index). */
+  .dock-col {
+    width: 48px;
+    border-right: 1px solid var(--color-rule);
+    padding: 8px 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .hero-term-dock {
+    background: color-mix(in srgb, var(--color-void-sunk) 80%, transparent);
+  }
+
+  .hero-chip {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--color-rule-strong);
+    color: var(--color-ink);
+    position: relative;
+    background: var(--color-void-raised);
+  }
+  .hero-chip.is-active {
+    box-shadow: 0 0 0 2px var(--color-amber);
+  }
+  /* Each repo chip is a saturated swatch + matching text + matching
+     border, mixed against the chip's own surface (not transparent) so
+     the tint is solid and readable in both modes. The previous 14%
+     transparent overlay washed out on light bg and read tan/brown for
+     the alert family. */
+  .hero-chip-repo-a {
+    background: color-mix(in srgb, var(--color-live-teal) 28%, var(--color-void-raised));
+    color: var(--color-live-teal);
+    border-color: color-mix(in srgb, var(--color-live-teal) 50%, var(--color-rule-strong));
+  }
+  .hero-chip-repo-b {
+    background: color-mix(in srgb, var(--color-live-alert) 28%, var(--color-void-raised));
+    color: var(--color-live-alert);
+    border-color: color-mix(in srgb, var(--color-live-alert) 50%, var(--color-rule-strong));
+  }
+  .hero-chip-repo-c {
+    background: color-mix(in srgb, var(--color-live-violet) 28%, var(--color-void-raised));
+    color: var(--color-live-violet);
+    border-color: color-mix(in srgb, var(--color-live-violet) 50%, var(--color-rule-strong));
+  }
+
+  .hero-term-stack {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  .hero-term-titlebar {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    padding: 0.55rem 0.85rem;
+    border-bottom: 1px solid var(--color-rule);
+    background: var(--term-bg-bar, color-mix(in srgb, var(--color-void-raised) 70%, transparent));
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    color: var(--color-ink-muted);
+    flex-wrap: wrap;
+  }
+  .hero-term-theme {
+    color: var(--term-glow, var(--color-live-violet));
+    font-size: 0.62rem;
+    padding-left: 0.5rem;
+    margin-left: 0.5rem;
+    border-left: 1px solid var(--color-rule);
+  }
+  .hero-tldot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+  }
+  .hero-tldot-close {
+    background: var(--color-dot-close);
+  }
+  .hero-tldot-minimize {
+    background: var(--color-dot-minimize);
+  }
+  .hero-tldot-maximize {
+    background: var(--color-dot-maximize);
+  }
+  .hero-term-label {
+    margin-left: 0.3rem;
+  }
+  .hero-branch {
+    color: var(--color-amber-bright);
+  }
+  .hero-agent-pip {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45em;
+    color: var(--color-live-teal);
+    font-weight: 500;
+  }
+  .hero-agent-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    display: inline-block;
+    background: var(--color-live-teal);
+    box-shadow: 0 0 8px var(--color-live-teal);
+  }
+  .hero-term-body {
+    flex: 1;
+    padding: 1rem 1.15rem;
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    line-height: 1.65;
+    color: var(--color-ink);
+    overflow: hidden;
+    min-height: 16rem;
+  }
+  /* .hero-cmd and .hero-out were no-op rules (both set color: ink, the
+     body default). Removed; the corresponding HTML elements now use the
+     inherited ink color directly. */
+  /* Real-claude output tokens: user prompt > teal, narrative ⏺ ink-dim
+     italic narrative, ● tool-bullet in lime, tool name in violet,
+     path in amber-bright, ⎿ result lines in ink-muted. */
+  .hero-prompt { color: var(--color-amber-dim); }
+  .hero-dim { color: var(--color-ink-muted); }
+  .hero-path { color: var(--color-amber-bright); }
+  .hero-tool { color: var(--color-live-violet); font-weight: 500; }
+  .hero-user { color: var(--color-live-teal); font-weight: 600; }
+  .hero-narr { color: var(--color-ink); }
+  .hero-tool-bullet { color: var(--color-live-lime); }
+  .hero-add { color: var(--color-live-lime); font-weight: 500; }
+  .hero-del { color: var(--color-live-alert); }
+  .hero-blank { line-height: 0.6; }
+
+  /* ── Canvas demo strip v2 ────────────────────────────────────────────
+     Three-column layout mirroring the running Kolu app:
+     dock cards (left) · canvas with split tile (centre) · code browser (right).
+     Per-repo hue tokens use ckv2-hue-* to match the screenshot palette. */
+
+  .ckv2 {
+    display: grid;
+    grid-template-columns: 14rem 1fr 16rem;
+    gap: 0;
+    border: 1px solid var(--color-rule-strong);
+    border-radius: 8px;
+    background: var(--color-void-sunk);
+    overflow: hidden;
+    box-shadow: 0 0 80px -25px color-mix(in srgb, var(--color-live-violet) 30%, transparent);
+    min-height: 28rem;
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+  }
+
+  /* Repo hues — saturated jewel tones echoing Kolu's golden-angle
+     `oklch(0.78 0.22 hue)` repo palette. */
+  .ckv2-hue-kolu { --repo-hue: #ff5fb3; }
+  .ckv2-hue-emanote { --repo-hue: #5be0a8; }
+  .ckv2-hue-dotfiles { --repo-hue: #c08eff; }
+
+  /* ── Dock (left) ─────────────────────────────────────────────────── */
+  .ckv2-dock {
+    background: color-mix(in srgb, var(--color-void) 96%, transparent);
+    border-right: 1px solid var(--color-rule);
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    padding: 0.5rem 0;
+    overflow: hidden;
+  }
+  .ckv2-dock-head {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.2rem 0.65rem 0.55rem;
+    border-bottom: 1px solid var(--color-rule);
+    color: var(--color-ink-muted);
+  }
+  .ckv2-dock-icon,
+  .ckv2-dock-window {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.2rem;
+    height: 1.2rem;
+    border: 1px solid var(--color-rule-strong);
+    border-radius: 4px;
+    font-size: 0.66rem;
+  }
+  .ckv2-dock-window {
+    width: auto;
+    padding: 0 0.4rem;
+    color: var(--color-live-teal);
+    border-color: color-mix(in srgb, var(--color-live-teal) 50%, var(--color-rule-strong));
+  }
+  .ckv2-dock-foot {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.4rem 0.65rem;
+    border-top: 1px solid var(--color-rule);
+    color: var(--color-ink-muted);
+    font-size: 0.62rem;
+  }
+  .ckv2-dock-foot-count {
+    font-variant-numeric: tabular-nums;
+  }
+  .ckv2-dock-foot-relax {
+    margin-left: auto;
+    color: var(--color-live-teal);
+    cursor: pointer;
+  }
+
+  .ckv2-section {
+    padding: 0.45rem 0.65rem 0.2rem;
+  }
+  .ckv2-section-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin: 0 0 0.35rem;
+    font-size: 0.62rem;
+    letter-spacing: 0.14em;
+    color: var(--repo-hue);
+    font-weight: 600;
+  }
+  .ckv2-count {
+    color: var(--color-ink-faint);
+    font-weight: 400;
+  }
+
+  .ckv2-card {
+    display: grid;
+    grid-template-columns: auto 1fr auto auto auto;
+    gap: 0.35rem;
+    align-items: baseline;
+    padding: 0.3rem 0.35rem;
+    border-radius: 4px;
+    border-left: 2px solid transparent;
+    margin-bottom: 0.15rem;
+  }
+  /* Agent CLI chip — visible chip per card so claude/codex/opencode
+     each get equal billing, matching Kolu's per-terminal CLI detection.
+     Each agent has its own accent so the eye can scan for "which agents
+     are active right now". */
+  .ckv2-card-agent {
+    font-size: 0.58rem;
+    padding: 0.04rem 0.32rem;
+    border-radius: 3px;
+    line-height: 1.4;
+    letter-spacing: 0.02em;
+    background: color-mix(in srgb, var(--agent-hue, var(--color-ink-faint)) 14%, transparent);
+    color: var(--agent-hue, var(--color-ink-dim));
+    border: 1px solid
+      color-mix(in srgb, var(--agent-hue, var(--color-rule-strong)) 40%, transparent);
+  }
+  .ckv2-agent-claude { --agent-hue: var(--color-live-teal); }
+  .ckv2-agent-codex { --agent-hue: var(--color-live-violet); }
+  .ckv2-agent-opencode { --agent-hue: var(--color-live-lime); }
+  .ckv2-agent-zsh { --agent-hue: var(--color-ink-muted); }
+  .ckv2-card-active {
+    background: color-mix(in srgb, var(--repo-hue) 9%, transparent);
+    border-left-color: var(--repo-hue);
+    box-shadow: inset 0 0 0 1px
+      color-mix(in srgb, var(--repo-hue) 22%, transparent);
+  }
+  .ckv2-card-icon {
+    color: var(--color-live-alert);
+    font-size: 0.78rem;
+    line-height: 1;
+  }
+  .ckv2-card-branch {
+    font-weight: 600;
+    color: var(--repo-hue);
+    font-size: 0.7rem;
+  }
+  .ckv2-card-sub {
+    font-size: 0.6rem;
+    color: var(--color-ink-muted);
+    border: 1px solid var(--color-rule-strong);
+    border-radius: 3px;
+    padding: 0 0.25rem;
+  }
+  .ckv2-card-time {
+    font-size: 0.62rem;
+    color: var(--color-ink-muted);
+    white-space: nowrap;
+    position: relative;
+  }
+  .ckv2-card-badge {
+    position: static;
+    margin-left: 0.25em;
+    display: inline-block;
+    vertical-align: 1px;
+    top: auto;
+    right: auto;
+  }
+  .ckv2-card-intent {
+    grid-column: 2 / -1;
+    margin: 0.15rem 0 0;
+    font-size: 0.74rem;
+    color: var(--color-ink-dim);
+    line-height: 1.25;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* ── Canvas (centre) ─────────────────────────────────────────────── */
+  .ckv2-canvas {
+    position: relative;
+    background-image: radial-gradient(
+      circle at 1px 1px,
+      color-mix(in srgb, var(--color-amber) 22%, transparent) 1px,
+      transparent 0
+    );
+    background-size: 24px 24px;
+    min-height: 26rem;
+  }
+
+  /* Tiles float on the canvas at hand-picked positions that read as
+     "scattered, slightly overlapping" — like the real product where
+     terminals are dragged onto the canvas, not arranged on a rail. */
+  .ckv2-tile {
+    position: absolute;
+    border: 1px solid var(--color-rule-strong);
+    border-radius: 5px;
+    background: var(--term-bg, var(--color-void));
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 8px 32px -10px
+      color-mix(in srgb, var(--term-glow, var(--color-live-violet)) 50%, transparent);
+  }
+  .ckv2-tile-1 {
+    left: 1%;
+    top: 8%;
+    width: 46%;
+    height: 88%;
+    z-index: 3;
+  }
+  .ckv2-tile-2 {
+    left: 49%;
+    top: 2%;
+    width: 38%;
+    height: 50%;
+    z-index: 2;
+  }
+  .ckv2-tile-3 {
+    left: 54%;
+    top: 56%;
+    width: 44%;
+    height: 42%;
+    z-index: 1;
+  }
+
+  .ckv2-tilebar {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.3rem 0.55rem;
+    border-bottom: 1px solid var(--color-rule);
+    background: var(--term-bg-bar, color-mix(in srgb, var(--color-void-raised) 80%, transparent));
+    border-top: 2px solid var(--repo-hue);
+    font-size: 0.66rem;
+  }
+  .ckv2-tilebar-theme {
+    color: var(--term-glow, var(--color-live-teal));
+    font-size: 0.6rem;
+    padding-left: 0.45rem;
+    margin-left: 0.4rem;
+    border-left: 1px solid var(--color-rule);
+    white-space: nowrap;
+  }
+  .ckv2-tilebar-kolu { --repo-hue: #ff5fb3; }
+  .ckv2-tilebar-emanote { --repo-hue: #5be0a8; }
+  .ckv2-tilebar-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--color-live-teal);
+    box-shadow: 0 0 8px var(--color-live-teal);
+    flex-shrink: 0;
+  }
+  .ckv2-tilebar-dot-alert {
+    background: var(--color-live-alert);
+    box-shadow: 0 0 8px var(--color-live-alert);
+    animation: pulse-dot 1.3s ease-in-out infinite;
+  }
+  .ckv2-tilebar-label {
+    color: var(--color-ink-dim);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .ckv2-tilebar-repo {
+    color: var(--repo-hue);
+    font-weight: 600;
+  }
+  .ckv2-tilebar-sep {
+    color: var(--color-ink-faint);
+    margin: 0 0.25em;
+  }
+  .ckv2-tilebar-branch {
+    color: var(--color-ink);
+  }
+  .ckv2-tilebar-pr {
+    color: var(--color-amber-bright);
+  }
+  .ckv2-tilebar-state {
+    margin-left: auto;
+    color: var(--color-live-teal);
+    display: inline-flex;
+    align-items: center;
+    white-space: nowrap;
+  }
+  .ckv2-state-awaiting {
+    color: var(--color-live-alert);
+    font-weight: 500;
+  }
+
+  .ckv2-split-top,
+  .ckv2-split-bot,
+  .ckv2-side-body {
+    padding: 0.55rem 0.7rem;
+    color: var(--color-ink);
+    line-height: 1.55;
+    font-size: 0.68rem;
+    flex: 1;
+    min-height: 0;
+  }
+  .ckv2-split-top {
+    flex: 1.2;
+  }
+  .ckv2-split-bot {
+    background: color-mix(in srgb, var(--color-void-sunk) 70%, transparent);
+  }
+  .ckv2-working {
+    color: var(--color-live-teal);
+  }
+  .ckv2-awaiting-text {
+    color: var(--color-live-alert);
+    font-weight: 500;
+  }
+  .ckv2-lime {
+    color: var(--color-live-lime);
+    font-weight: 500;
+  }
+  /* codex emits `*** Begin Patch` / `*** Update File:` markers as its
+     apply_patch envelope. The triple-star is the visually distinctive
+     bit — codex output never looks like claude's `● Tool(args)` form. */
+  .ckv2-codex-marker {
+    color: var(--color-live-violet);
+    font-weight: 600;
+  }
+
+  .ckv2-split-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.2rem 0.55rem;
+    border-top: 1px solid var(--color-rule);
+    border-bottom: 1px solid var(--color-rule);
+    background: color-mix(in srgb, var(--color-void-raised) 95%, transparent);
+    font-size: 0.62rem;
+    color: var(--color-ink-muted);
+  }
+  .ckv2-split-tab {
+    padding: 0.1rem 0.45rem;
+    border-radius: 3px;
+    background: color-mix(in srgb, var(--color-void) 85%, transparent);
+    color: var(--color-ink-dim);
+  }
+  .ckv2-split-btn {
+    padding: 0 0.3rem;
+  }
+  .ckv2-spacer {
+    flex: 1;
+  }
+
+  /* ── Code browser (right) ────────────────────────────────────────── */
+  .ckv2-code {
+    background: var(--color-void-sunk);
+    border-left: 1px solid var(--color-rule);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .ckv2-code-tabs {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.35rem 0.65rem;
+    border-bottom: 1px solid var(--color-rule);
+    background: color-mix(in srgb, var(--color-void-raised) 60%, transparent);
+    font-size: 0.66rem;
+  }
+  .ckv2-code-tab {
+    color: var(--color-ink-muted);
+    padding-bottom: 0.15rem;
+    border-bottom: 1px solid transparent;
+  }
+  .ckv2-code-tab-active {
+    color: var(--color-live-teal);
+    border-bottom-color: var(--color-live-teal);
+  }
+  .ckv2-code-view {
+    color: var(--color-ink-muted);
+    font-size: 0.6rem;
+  }
+  .ckv2-code-body {
+    flex: 1;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    min-height: 0;
+  }
+  .ckv2-tree {
+    padding: 0.5rem 0.5rem 0.5rem 0.55rem;
+    border-bottom: 1px solid var(--color-rule);
+    overflow: hidden;
+    font-size: 0.64rem;
+    line-height: 1.7;
+    color: var(--color-ink-muted);
+    max-height: 12rem;
+  }
+  .ckv2-tree-row {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    padding: 0 0.2rem;
+    border-radius: 3px;
+  }
+  .ckv2-tree-i1 { padding-left: 0.8rem; }
+  .ckv2-tree-i2 { padding-left: 1.4rem; }
+  .ckv2-tree-i3 { padding-left: 2rem; }
+  .ckv2-tree-active {
+    background: color-mix(in srgb, var(--color-live-teal) 18%, transparent);
+    color: var(--color-live-teal);
+    font-weight: 500;
+  }
+
+  .ckv2-source {
+    padding: 0.5rem 0.6rem;
+    font-size: 0.62rem;
+    line-height: 1.65;
+    color: var(--color-ink);
+    overflow: hidden;
+  }
+  .ckv2-source-line {
+    white-space: nowrap;
+    overflow: hidden;
+  }
+  .ckv2-source-empty {
+    min-height: 1em;
+  }
+  .ckv2-lineno {
+    display: inline-block;
+    width: 2.2em;
+    color: var(--color-ink-faint);
+    margin-right: 0.5em;
+    text-align: right;
+  }
+  .ckv2-tok-keyword { color: var(--color-live-violet); }
+  .ckv2-tok-attr { color: var(--color-live-teal); }
+  .ckv2-tok-str { color: var(--color-live-lime); }
+  .ckv2-tok-em { color: var(--color-amber-bright); font-style: italic; }
+  .ckv2-tok-comment { color: var(--color-ink-muted); font-style: italic; }
+
+  /* ── Legend dots — shared with hero (referenced via legend-pip-* in
+     both the canvas strip caption and any future site-wide legend). */
+  .legend-pip {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 0.55em;
+    vertical-align: middle;
+    background: var(--dot-color);
+    box-shadow: 0 0 6px var(--dot-color);
+  }
+  .legend-pip-teal { --dot-color: var(--color-live-teal); }
+  .legend-pip-alert { --dot-color: var(--color-live-alert); }
+  .legend-pip-violet { --dot-color: var(--color-live-violet); }
+
+  /* ── Responsive: stack hero + collapse code panel on small screens ── */
+
+  @media (max-width: 900px) {
+    .ckv2 {
+      grid-template-columns: 1fr;
+      min-height: 0;
+    }
+    .ckv2-code {
+      display: none;
+    }
+    .ckv2-canvas {
+      flex-direction: column;
+    }
+  }
+  @media (max-width: 768px) {
+    .hero-term { min-height: 18rem; }
+    .hero-term-body { min-height: 12rem; font-size: 0.72rem; }
+  }
+
+  /* ── Copy-to-clipboard button on the primary nix-run command ──────── */
+  .copy-cli-btn {
+    position: absolute;
+    top: -0.15rem;
+    right: 0;
+    font-family: var(--font-mono);
+    font-size: 0.6rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 0.15rem 0.5rem;
+    border-radius: 3px;
+    border: 1px solid var(--color-rule-strong);
+    background: color-mix(in srgb, var(--color-void-raised) 70%, transparent);
+    color: var(--color-ink-muted);
+    cursor: pointer;
+    transition:
+      color 120ms ease,
+      border-color 120ms ease,
+      background 120ms ease;
+  }
+  .copy-cli-btn:hover {
+    color: var(--color-amber);
+    border-color: var(--color-amber);
+  }
+  .copy-cli-btn.is-done {
+    color: var(--color-live-lime);
+    border-color: var(--color-live-lime);
+    background: color-mix(in srgb, var(--color-live-lime) 12%, transparent);
+  }
+</style>
+
+<script>
+  // Wire up the copy-to-clipboard button on the primary CLI snippet.
+  // Plain DOM script — Astro hoists this and ships it as a module.
+  document.querySelectorAll<HTMLButtonElement>(".copy-cli-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const text = btn.getAttribute("data-clipboard");
+      if (!text) return;
+      const label = btn.querySelector<HTMLElement>(".copy-cli-label");
+      const original = label?.textContent ?? "copy";
+      try {
+        await navigator.clipboard.writeText(text);
+        if (label) label.textContent = "copied";
+        btn.classList.add("is-done");
+      } catch {
+        if (label) label.textContent = "press ⌘C";
+      }
+      window.setTimeout(() => {
+        if (label) label.textContent = original;
+        btn.classList.remove("is-done");
+      }, 1400);
+    });
+  });
+</script>
+

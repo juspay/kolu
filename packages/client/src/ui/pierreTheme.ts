@@ -71,7 +71,7 @@ export const pierreTreesStyle: JSX.CSSProperties = {
   "--trees-density-override": "0.85",
 };
 
-/** Apply to any `@pierre/diffs` FileDiff / File host.
+/** Apply to any `@pierre/diffs` `CodeView` host.
  *
  *  Pierre's diffs CSS reads bare variables (`--diffs-font-size`) for fonts and
  *  `-override` suffix for colors — see `@pierre/diffs/src/style.css`. Don't

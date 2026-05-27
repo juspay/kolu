@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isStale, STALE_THRESHOLD_MS } from "./staleness";
+import { isStale } from "./staleness";
 
 const HOUR = 60 * 60 * 1000;
 
@@ -39,11 +39,5 @@ describe("isStale", () => {
     },
   ])("$why", ({ lastActivityAt, thresholdMs, expected }) => {
     expect(isStale(lastActivityAt, now, thresholdMs)).toBe(expected);
-  });
-});
-
-describe("STALE_THRESHOLD_MS", () => {
-  it("is 4 hours", () => {
-    expect(STALE_THRESHOLD_MS).toBe(4 * HOUR);
   });
 });

@@ -218,14 +218,18 @@ retainer-walking, and wrong turns to find. That's the shape of this
 kind of work; the ratio of code-volume to investigation-time is
 always roughly zero.
 
-I consume them via the juspay/xterm.js fork and `pnpm.overrides`,
-stacked as a Kolu-consumption branch:
+While these were unreleased, I consumed them via a `juspay/xterm.js`
+fork pinned in `pnpm.overrides`. #5817 has since merged upstream, and
+#5821 was closed in favour of the equivalent
+[#5831](https://github.com/xtermjs/xterm.js/pull/5831) (clear the
+observer reference on dispose); both shipped in the upstream
+`6.1.0-beta` line, so the override is now a plain version pin against
+the auto-published betas built from `xtermjs/xterm.js@master`:
 
 ```json
-"@xterm/xterm": "github:juspay/xterm.js#fix/kolu-xterm-fixes-built"
+"@xterm/xterm": "6.1.0-beta.225",
+"@xterm/addon-webgl": "0.20.0-beta.224"
 ```
-
-When upstream merges, the override collapses to a plain version bump.
 
 ## What I'd tell past-me
 

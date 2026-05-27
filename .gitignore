@@ -12,6 +12,7 @@ packages/tests/reports/
 packages/client/public/fonts
 .worktrees
 .logs/
+.ci/
 /.do-results.json
 .kolu-dev/
 .ralph-logs/

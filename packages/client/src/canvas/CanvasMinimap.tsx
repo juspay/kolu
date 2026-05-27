@@ -1,6 +1,5 @@
 /** Canvas minimap — spatial overview of all tiles + integrated zoom controls. */
 
-import { makePersisted } from "@solid-primitives/storage";
 import {
   type Component,
   createMemo,
@@ -9,18 +8,11 @@ import {
   type JSX,
   Show,
 } from "solid-js";
-import { Portal } from "solid-js/web";
-import {
-  isMinimapWindow,
-  type MinimapWindow,
-  WINDOW_VALUES,
-  windowOption,
-} from "../terminal/activityWindow";
-import { formatTimeAgo, useStaleCheckWith } from "../terminal/staleness";
+import { formatTimeAgo, useStaleCheck } from "../terminal/staleness";
 import type { TerminalDisplayInfo } from "../terminal/terminalDisplay";
 import { useTerminalStore } from "../terminal/useTerminalStore";
+import { ActivityWindowChip } from "../ui/ActivityWindowChip";
 import { GridIcon } from "../ui/Icons";
-import { useAnchoredPopover } from "../ui/useAnchoredPopover";
 import {
   handleMinimapClick,
   startTileDrag,
@@ -118,29 +110,10 @@ const CanvasMinimap: Component<{
   const tileTheme = useTileTheme();
   const [hoveringViewport, setHoveringViewport] = createSignal(false);
   const [draggingViewport, setDraggingViewport] = createSignal(false);
-  // Per-device viewing preference — stays in localStorage rather than
-  // syncing through server preferences.
-  const [windowSel, setWindowSel] = makePersisted(
-    createSignal<MinimapWindow>("all"),
-    {
-      name: "kolu-minimap-window",
-      serialize: (v) => v,
-      deserialize: (raw) => (isMinimapWindow(raw) ? raw : "all"),
-    },
-  );
-  const isParked = useStaleCheckWith(
-    () => windowOption(windowSel()).thresholdMs,
-  );
-  const [menuOpen, setMenuOpen] = createSignal(false);
-  const [triggerRef, setTriggerRef] = createSignal<HTMLButtonElement>();
-  const { panelRef: menuPanelRef, panelStyle: menuPanelStyle } =
-    useAnchoredPopover({
-      triggerRef,
-      open: menuOpen,
-      onDismiss: () => setMenuOpen(false),
-      anchor: "top-end",
-    });
-  const currentWindowLabel = createMemo(() => windowOption(windowSel()).label);
+  // Shared per-device activity window — same signal consumed by the
+  // dock-row bucket classifier and the badge gate, so a user who
+  // shortens the window in one place shortens it everywhere.
+  const isParked = useStaleCheck();
 
   // ── Bounding box of all tiles ──
   const bounds = createMemo(() => {
@@ -495,55 +468,12 @@ const CanvasMinimap: Component<{
             onClick={() => props.onAutoArrange?.()}
           />
         </Show>
-        <button
-          type="button"
-          ref={setTriggerRef}
-          data-testid="minimap-window-trigger"
-          data-enabled={windowSel() !== "all" ? "" : undefined}
-          data-window={windowSel()}
-          class="flex items-center justify-center min-w-[2.5rem] h-8 px-1 hover:bg-surface-3/60 transition-colors cursor-pointer border-l border-edge/40 text-xs tabular-nums"
-          classList={{
-            "text-fg-2 hover:text-fg": windowSel() === "all",
-            "text-accent": windowSel() !== "all",
-          }}
-          title={`Minimap: ${currentWindowLabel()} — click to change`}
-          onClick={() => setMenuOpen((prev) => !prev)}
-        >
-          {windowOption(windowSel()).short}
-        </button>
+        <ActivityWindowChip
+          anchor="top-end"
+          testIdPrefix="minimap-window"
+          class="min-w-[2.5rem] h-8 px-1 border-l border-edge/40 text-xs hover:bg-surface-3/60"
+        />
       </div>
-      <Show when={menuOpen()}>
-        <Portal>
-          <div
-            ref={menuPanelRef}
-            data-testid="minimap-window-menu"
-            class="fixed z-50 flex flex-col bg-surface-1 border border-edge rounded-lg shadow-lg shadow-black/40 p-1 min-w-[160px]"
-            style={menuPanelStyle()}
-          >
-            <For each={WINDOW_VALUES}>
-              {(value) => (
-                <button
-                  type="button"
-                  data-testid={`minimap-window-option-${value}`}
-                  data-selected={windowSel() === value ? "" : undefined}
-                  class="text-left text-xs px-2 py-1.5 rounded-md transition-colors cursor-pointer"
-                  classList={{
-                    "bg-accent/20 text-accent": windowSel() === value,
-                    "text-fg-2 hover:bg-surface-3 hover:text-fg":
-                      windowSel() !== value,
-                  }}
-                  onClick={() => {
-                    setWindowSel(value);
-                    setMenuOpen(false);
-                  }}
-                >
-                  {windowOption(value).label}
-                </button>
-              )}
-            </For>
-          </div>
-        </Portal>
-      </Show>
     </div>
   );
 };

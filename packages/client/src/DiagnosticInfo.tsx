@@ -11,9 +11,11 @@ import { serverProcessId, wsStatus } from "./rpc/rpc";
 import { getTerminalRefs } from "./terminal/terminalRefs";
 import { getDiagnostics } from "./terminal/useTerminalDiagnostics";
 import { webglLifecycleSnapshot } from "./terminal/webglTracker";
+import { writeTextToClipboard } from "./ui/clipboard";
 import ModalDialog, { refocusTerminal } from "./ui/ModalDialog";
 import Row from "./ui/Row";
 import Section from "./ui/Section";
+import { surface } from "./ui/Surface";
 import { isMobile } from "./useMobile";
 
 /** WebGL2 support detection creates a throwaway canvas + WebGL context
@@ -114,15 +116,23 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
     };
   });
 
-  function copyJson() {
-    void navigator.clipboard
-      .writeText(JSON.stringify(snapshot(), null, 2))
-      .then(() => toast.success("Diagnostic info copied"))
-      .catch((err: Error) => toast.error(`Failed to copy: ${err.message}`));
+  async function copyJson() {
+    try {
+      await writeTextToClipboard(JSON.stringify(snapshot(), null, 2));
+      toast.success("Diagnostic info copied");
+    } catch (err) {
+      console.error("Failed to copy diagnostic info:", err);
+      toast.error(`Failed to copy diagnostic info: ${(err as Error).message}`);
+    }
   }
 
+  const chrome = surface({ portalled: true });
+
   return (
-    <div class="bg-surface-1 border border-edge rounded-2xl shadow-2xl shadow-black/50 overflow-hidden flex flex-col max-h-[80vh]">
+    <div
+      class={`${chrome.class} overflow-hidden flex flex-col max-h-[80vh]`}
+      style={chrome.style}
+    >
       <div class="flex items-center justify-between px-4 py-2.5 border-b border-edge shrink-0">
         <Dialog.Label class="font-semibold text-fg text-sm">
           Diagnostic info

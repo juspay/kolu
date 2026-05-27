@@ -6,7 +6,10 @@ import { type Component, createMemo, createSignal, For, Show } from "solid-js";
 import { ACTIONS } from "./input/actions";
 import { formatKeybind } from "./input/keyboard";
 import Kbd from "./ui/Kbd";
+import { surface } from "./ui/Surface";
 import Toggle from "./ui/Toggle";
+
+const chrome = surface();
 
 const features = [
   // Show the alt chord (Cmd+Enter): Cmd+T is intercepted by browsers outside
@@ -90,7 +93,7 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
       data-testid="empty-state"
       class="flex items-center justify-center h-full"
     >
-      <div class="bg-surface-1 border border-edge rounded-2xl shadow-2xl shadow-black/50 p-5 max-w-md w-full">
+      <div class={`${chrome.class} p-5 max-w-md w-full`}>
         <Show when={props.savedSession}>
           {(session) => {
             const subCount = () =>

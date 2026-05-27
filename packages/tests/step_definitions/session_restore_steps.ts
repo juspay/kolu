@@ -7,6 +7,7 @@ import {
   type KoluWorld,
   WORKSPACE_SWITCHER_ENTRY_SELECTOR,
   POLL_TIMEOUT,
+  HYDRATION_TIMEOUT,
 } from "../support/world.ts";
 
 /** Post the saved-session payload to the server. Used both at scenario
@@ -85,7 +86,7 @@ Then(
     //   3. Wait for the card with the remaining budget.
     await this.page
       .locator('[data-testid="empty-state"]')
-      .waitFor({ state: "visible", timeout: 15000 });
+      .waitFor({ state: "visible", timeout: HYDRATION_TIMEOUT });
     const card = this.page.locator('[data-testid="session-restore"]');
     // Fast path: card already visible (happy-hydration run). `.catch(() => false)`
     // because Playwright's isVisible() can throw on transient DOM states during
@@ -96,7 +97,7 @@ Then(
     } else if (this.savedSessionTerminalCount !== undefined) {
       await postSavedSession(this, this.savedSessionTerminalCount);
     }
-    await card.waitFor({ state: "visible", timeout: 10000 });
+    await card.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },
 );
 

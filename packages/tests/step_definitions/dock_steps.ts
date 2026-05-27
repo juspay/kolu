@@ -6,10 +6,15 @@ import { type KoluWorld, MOD_KEY, POLL_TIMEOUT } from "../support/world.ts";
 const DOCK_SELECTOR = '[data-testid="dock"]';
 const RAIL_SELECTOR = '[data-testid="dock-rail"]';
 const MODE_TOGGLE_SELECTOR = '[data-testid="dock-mode-toggle"]';
-const CARD_SELECTOR = '[data-testid="dock-card"]';
-const WORKING_SELECTOR = '[data-testid="dock-working"]';
+// Row bucket is the semantic state we assert against — the unified
+// DockRow component carries `data-bucket="awaiting|working|idle|none"`
+// instead of branching its testid by bucket.
+const AWAITING_ROW_SELECTOR =
+  '[data-testid="dock-row"][data-bucket="awaiting"]';
+const WORKING_ROW_SELECTOR = '[data-testid="dock-row"][data-bucket="working"]';
 const QUIET_FOREGROUND_SELECTOR = '[data-testid="dock-quiet-foreground"]';
 const CHROME_DOCK_TOGGLE_SELECTOR = '[data-testid="dock-toggle"]';
+const DOCK_WINDOW_TRIGGER_SELECTOR = '[data-testid="dock-window-trigger"]';
 
 Then("the dock should be visible", async function (this: KoluWorld) {
   await this.page
@@ -45,10 +50,14 @@ Then("the dock should not be visible", async function (this: KoluWorld) {
 Then(
   "the dock should show {int} card(s)",
   async function (this: KoluWorld, expected: number) {
+    // "card" is the legacy name for an awaiting row — the bare dock no
+    // longer has a distinct full-card variant, but the feature file
+    // still reads "1 card" and that maps cleanly onto the awaiting
+    // bucket count.
     await this.page.waitForFunction(
       ({ selector, count }) =>
         document.querySelectorAll(selector).length === count,
-      { selector: CARD_SELECTOR, count: expected },
+      { selector: AWAITING_ROW_SELECTOR, count: expected },
       { timeout: POLL_TIMEOUT },
     );
   },
@@ -60,7 +69,7 @@ Then(
     await this.page.waitForFunction(
       ({ selector, count }) =>
         document.querySelectorAll(selector).length === count,
-      { selector: WORKING_SELECTOR, count: expected },
+      { selector: WORKING_ROW_SELECTOR, count: expected },
       { timeout: POLL_TIMEOUT },
     );
   },
@@ -108,10 +117,11 @@ When(
 );
 
 When("I press the dock toggle shortcut", async function (this: KoluWorld) {
-  // `Cmd+B` (or `Ctrl+B` on non-macOS) drives `toggleDock` — same
-  // behavior as the chrome-bar dock-toggle button and the in-header
-  // chevron.
-  await this.page.keyboard.press(`${MOD_KEY}+b`);
+  // `Cmd+Shift+B` (or `Ctrl+Shift+B` on non-macOS) drives
+  // `toggleDock` — same behavior as the chrome-bar dock-toggle
+  // button and the in-header chevron. Ctrl+B without shift is
+  // reserved for the PTY (see prohibitedKeybinds.ts).
+  await this.page.keyboard.press(`${MOD_KEY}+Shift+B`);
   await this.waitForFrame();
 });
 
@@ -156,7 +166,11 @@ When(
 );
 
 const SHORTCUT_HINT_SELECTOR = '[data-testid="dock-row-shortcut-hint"]';
-const ACTIVE_INDICATOR_SELECTOR = '[data-testid="dock-row-active-indicator"]';
+// The active row is identified by the `data-active` attribute on the row
+// itself — the visual treatment (lifted-card geometry, accent flood,
+// pop-in animation) is painted by CSS keyed on that attribute. See the
+// "Active dock row" section in `packages/client/src/index.css`.
+const ACTIVE_INDICATOR_SELECTOR = '[data-testid="dock-row"][data-active]';
 
 Then(
   "the dock should show {int} active row indicator",
@@ -213,5 +227,47 @@ Then(
       },
       { timeout: POLL_TIMEOUT },
     );
+  },
+);
+
+Then(
+  "the dock window trigger should be visible",
+  async function (this: KoluWorld) {
+    await this.page
+      .locator(DOCK_WINDOW_TRIGGER_SELECTOR)
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+Then(
+  /^the dock window should be "(all|4h|12h|24h|48h)"$/,
+  async function (this: KoluWorld, expected: string) {
+    await this.page.waitForFunction(
+      ({ sel, want }: { sel: string; want: string }) => {
+        const el = document.querySelector(sel) as HTMLElement | null;
+        return el?.getAttribute("data-window") === want;
+      },
+      { sel: DOCK_WINDOW_TRIGGER_SELECTOR, want: expected },
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+When("I click the dock window trigger", async function (this: KoluWorld) {
+  const button = this.page.locator(DOCK_WINDOW_TRIGGER_SELECTOR);
+  await button.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  await button.click();
+  await this.waitForFrame();
+});
+
+When(
+  /^I pick the dock window option "(all|4h|12h|24h|48h)"$/,
+  async function (this: KoluWorld, value: string) {
+    const opt = this.page.locator(
+      `[data-testid="dock-window-option-${value}"]`,
+    );
+    await opt.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await opt.click();
+    await this.waitForFrame();
   },
 );

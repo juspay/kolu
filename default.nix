@@ -20,6 +20,7 @@ let
       ./pnpm-lock.yaml
       ./tsconfig.base.json
       ./packages/surface
+      ./packages/surface-nix-host
       ./packages/solid-pierre
       ./packages/common
       ./packages/integrations
@@ -31,6 +32,7 @@ let
       ./packages/client
       ./packages/transcript-core
       ./packages/transcript-html
+      ./packages/artifact-sdk
     ];
   };
 
@@ -45,7 +47,7 @@ let
     # hash-fresh` enforces this stays in sync with pnpm-lock.yaml by forcing
     # fetchPnpmDeps to re-execute (--rebuild), so stale artifacts in the
     # binary cache can't silently satisfy a hash that no longer matches.
-    hash = "sha256-kEFpKzoY/9NhP+P8oTJurCBZqsn++q1hbkXJyiXsc9E=";
+    hash = "sha256-3PHwtkW+K7ciV5GY++U/o0aAnPkTH07jff4XiaznzhY=";
     fetcherVersion = 3;
   };
 
@@ -99,7 +101,11 @@ let
       # of 395MB, halving the I/O and Nix NAR hashing time.
       rm -rf packages/client/src packages/client/node_modules
       pushd node_modules/.pnpm
-      rm -rf typescript@* @esbuild* esbuild@* \
+      # NOTE: esbuild is kept (NOT pruned) because @kolu/artifact-sdk's server
+      # module bundles the in-iframe SDK script at runtime via esbuild. The
+      # cost is ~15MB in the production NAR for one platform-specific binary;
+      # the simplicity win is no separate build-step coordination with Nix.
+      rm -rf typescript@* \
              lightningcss* rollup@* @rollup* \
              vitest@* @vitest* \
              vite@* vitefu@* vite-plugin-* @tailwindcss* tailwindcss@* \
@@ -173,7 +179,14 @@ let
     makeWrapper ${koluBin}/bin/kolu $out/bin/kolu \
       --run 'export KOLU_STATE_DIR="''${XDG_CONFIG_HOME:-$HOME/.config}/kolu"'
   '';
+
+  # @kolu/surface remote-process-monitor demo — derivations live next
+  # to the demo source, not here. Pass through the workspace-wide
+  # `src` + `pnpmDeps` so the fixed-output fetch is cached once.
+  remoteProcessMonitor = import ./packages/surface/example/remote-process-monitor/default.nix {
+    inherit pkgs src pnpmDeps;
+  };
 in
 {
   inherit default koluBin koluEnv pnpmDeps;
-}
+} // remoteProcessMonitor

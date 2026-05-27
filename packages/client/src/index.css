@@ -251,42 +251,185 @@ body {
   display: none;
 }
 
-/* ── Awaiting-dock rail animation ────────────────────────────
- * The dock's left rail segments carry per-card identity via `repoColor`
- * as their background. To also convey agent state (so the cadence
- * survives the collapsed-only view), the brightness of the segment
- * cycles — faster + sharper for "awaiting" (act now), slower + softer
- * for "working" (in motion). Tracks the cadence of `.pill-border-*`
- * for visual coherence with the rest of the app's state language. */
-.dock-rail-awaiting {
-  animation: dock-rail-breathe 1.6s ease-in-out infinite;
+/* ── Rail-mode chip ────────────────────────────────────────────
+ * Rail mode renders one 32 px chip per terminal showing two-letter
+ * initials (repo letter + branch/intent letter). Repo colour tints
+ * the chip's bg and ring; bucket state animates the ring (breath for
+ * awaiting, spin-glow for working, flat otherwise); active wears an
+ * accent halo; unread shows an alert badge top-right. Five signals
+ * stack on a single 32 × 32 tile.
+ *
+ * `--chip-tint` / `--chip-ring` are inline-set per-chip from
+ * `info.repoColor`; bucket / active / unread are data-attributes the
+ * selectors below react to. */
+.dock-rail-chip {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  margin: 0 auto;
+  border-radius: 8px;
+  background: color-mix(in oklch, var(--chip-tint) 18%, var(--color-surface-2));
+  border: 1.5px solid color-mix(in oklch, var(--chip-ring) 70%, transparent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 0.15s ease-out;
+  outline: none;
 }
-.dock-rail-working {
-  animation: dock-rail-pulse 2.4s ease-in-out infinite;
+.dock-rail-chip:hover {
+  transform: scale(1.06);
 }
-@keyframes dock-rail-breathe {
+.dock-rail-chip:focus-visible {
+  box-shadow: 0 0 0 2px
+    color-mix(in oklch, var(--color-accent) 50%, transparent);
+}
+.dock-rail-chip-text {
+  font:
+    700 13px ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+  letter-spacing: 0.02em;
+  color: var(--color-fg);
+  line-height: 1;
+}
+.dock-rail-chip-sub {
+  opacity: 0.55;
+  font-weight: 500;
+  margin-left: 1px;
+}
+/* Emoji / symbol sub-glyph — drop the fade and the monospace weight so
+   the icon reads at the same visual weight as the cards-mode intent
+   line that the user actually typed. */
+.dock-rail-chip-sub[data-glyph] {
+  opacity: 1;
+  font-weight: 400;
+  font-family:
+    "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", ui-monospace,
+    SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
+.dock-rail-chip[data-bucket="awaiting"] {
+  border-color: var(--color-alert);
+  animation: dock-chip-breathe 1.6s ease-in-out infinite;
+}
+.dock-rail-chip[data-bucket="working"] {
+  border-color: var(--color-accent);
+  animation: dock-chip-spin-glow 2.4s linear infinite;
+}
+.dock-rail-chip[data-bucket="none"] {
+  opacity: 0.5;
+}
+/* Active wins the dim — a freshly-created plain shell that becomes
+ * active in rail mode would otherwise still read as half-dim. */
+.dock-rail-chip[data-bucket="none"][data-active] {
+  opacity: 1;
+}
+@keyframes dock-chip-breathe {
   0%,
   100% {
-    filter: brightness(0.55) saturate(0.85);
+    box-shadow: 0 0 0 0 color-mix(in oklch, var(--color-alert) 70%, transparent);
   }
   50% {
-    filter: brightness(1.15);
+    box-shadow: 0 0 0 3px
+      color-mix(in oklch, var(--color-alert) 35%, transparent);
   }
 }
-@keyframes dock-rail-pulse {
-  0%,
-  100% {
-    filter: brightness(0.75) saturate(0.9);
+@keyframes dock-chip-spin-glow {
+  0% {
+    box-shadow: 2px 0 6px
+      color-mix(in oklch, var(--color-accent) 55%, transparent);
+  }
+  25% {
+    box-shadow: 0 2px 6px
+      color-mix(in oklch, var(--color-accent) 55%, transparent);
   }
   50% {
-    filter: brightness(1.05);
+    box-shadow: -2px 0 6px
+      color-mix(in oklch, var(--color-accent) 55%, transparent);
   }
+  75% {
+    box-shadow: 0 -2px 6px
+      color-mix(in oklch, var(--color-accent) 55%, transparent);
+  }
+  100% {
+    box-shadow: 2px 0 6px
+      color-mix(in oklch, var(--color-accent) 55%, transparent);
+  }
+}
+/* Active halo — same accent treatment cards mode uses for the active
+ * row, condensed into a ring around the chip. */
+.dock-rail-chip[data-active]::before {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 10px;
+  border: 2px solid var(--color-accent);
+  pointer-events: none;
+}
+/* Unread badge — same alert colour the cards-mode unread dot uses. */
+.dock-rail-chip[data-unread]::after {
+  content: "";
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-alert);
+  border: 2px solid var(--color-surface-1);
+  animation: dock-chip-unread-pulse 1.2s ease-in-out infinite;
+}
+@keyframes dock-chip-unread-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+.dock-rail-chip-hint {
+  position: absolute;
+  top: -4px;
+  left: -4px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 14px;
+  min-width: 14px;
+  padding: 0 3px;
+  border-radius: 4px;
+  background: var(--color-accent);
+  color: var(--color-surface-1);
+  font:
+    600 9px ui-monospace,
+    monospace;
+  pointer-events: none;
+}
+/* Repo divider — a 2 px tinted strip between adjacent chips from
+ * different repos, carrying the same repo color the section header
+ * uses in cards mode. Reads as a section break at 44 px width. */
+.dock-rail-section-mark {
+  width: 24px;
+  height: 2px;
+  border-radius: 1px;
+  margin: 4px auto 2px;
+  opacity: 0.7;
+}
+.dock-rail-section-mark:first-child {
+  margin-top: 0;
 }
 @media (prefers-reduced-motion: reduce) {
-  .dock-rail-awaiting,
-  .dock-rail-working {
+  .dock-rail-chip[data-bucket="awaiting"],
+  .dock-rail-chip[data-bucket="working"] {
     animation: none;
-    filter: brightness(1);
+    box-shadow: none;
+  }
+  .dock-rail-chip[data-unread]::after {
+    animation: none;
   }
 }
 

@@ -36,7 +36,7 @@ import { useTerminalStore } from "../terminal/useTerminalStore";
 import { savedSessionSub } from "../wire";
 import Dock from "./dock/Dock";
 import CanvasMinimap from "./CanvasMinimap";
-import CanvasTile from "./CanvasTile";
+import CanvasTile, { type CanvasTileMode } from "./CanvasTile";
 import CanvasWatermark from "./CanvasWatermark";
 import { applyResize, type ResizeDirection } from "./resizeGeometry";
 import type { TileLayout } from "./TileLayout";
@@ -398,6 +398,7 @@ const TerminalCanvas: Component<{
           ref={(el) => viewport.setContainerRef(el, isWheelTargetTerminal)}
           data-testid="canvas-container"
           data-zoom={viewport.zoom()}
+          data-viewport={viewport.canvasTransform()}
           class="flex-1 min-w-0 overflow-hidden relative canvas-grid-bg"
           style={{
             "background-position": viewport.gridBgPosition(),
@@ -407,78 +408,62 @@ const TerminalCanvas: Component<{
           <Show when={props.watermark}>
             {(text) => <CanvasWatermark text={text()} />}
           </Show>
-          {/* renderTile: one definition shared by tiled and maximized
-           *  branches — the only difference is the `maximized` boolean
-           *  and (for tiled) the active-state read derived from store. */}
-          {(() => {
-            const renderTile = (id: TerminalId, maximized: boolean) => (
-              <Show when={store.getDisplayInfo(id)}>
-                {(info) => (
-                  <CanvasTile
-                    id={id}
-                    active={maximized || store.activeId() === id}
-                    maximized={maximized}
-                    dimmed={isStale(store.getMetadata(id)?.lastActivityAt ?? 0)}
-                    theme={tileTheme(id)}
-                    repoColor={info().repoColor}
-                    onSelect={() => props.onSelect(id)}
-                    onClose={() => props.onClose(id)}
-                    onToggleMaximize={posture.toggle}
-                    renderTitle={() => props.renderTileTitle(id)}
-                    renderTitleActions={
-                      props.renderTileTitleActions
-                        ? () => props.renderTileTitleActions?.(id)
-                        : undefined
-                    }
-                    renderBody={() =>
-                      props.renderTileBody(id, () => store.activeId() === id)
-                    }
-                    layouts={layouts()}
-                    startResize={startResize}
-                    zoom={viewport.zoom}
-                  />
-                )}
-              </Show>
-            );
-            return (
-              <>
-                {/* Tiled canvas — tiles live inside the pan/zoom transform.
-                 *  Stays mounted in maximized mode (hidden behind the
-                 *  maximized tile's z-40 cover) so non-active xterm
-                 *  instances keep consuming the PTY stream and the dock's
-                 *  buffer previews remain populated (#904). The active
-                 *  terminal is filtered out in maximized mode so it
-                 *  doesn't double-mount alongside the maximized branch
-                 *  below — `terminalRefs` is keyed by id and the second
-                 *  registration would race the first's cleanup. */}
-                <div
-                  data-testid="canvas-transform"
-                  aria-hidden={posture.maximized() ? "true" : undefined}
-                  style={{
-                    "transform-origin": "0 0",
-                    transform: viewport.canvasTransform(),
-                    visibility: posture.maximized() ? "hidden" : "visible",
-                  }}
-                >
-                  <For
-                    each={props.tileIds.filter(
-                      (id) => !posture.maximized() || store.activeId() !== id,
-                    )}
-                  >
-                    {(id) => renderTile(id, false)}
-                  </For>
-                </div>
-
-                {/* Maximized view — only the active tile, outside any
-                 *  transform, covering the canvas. The maximized tile is
-                 *  inset by the dock's reserved sidebar width so the dock
-                 *  reads as a true sidebar (#904 part 1). */}
-                <Show when={posture.maximized() && store.activeId()} keyed>
-                  {(id) => renderTile(id, true)}
+          {/* All tiles render in one stable list, every render. Pan/zoom
+           *  composes into each tile's own `transform` (CanvasTile), so
+           *  there's no wrapper transform — which means the active tile in
+           *  maximized mode can use `absolute inset-0 z-40` to cover the
+           *  canvas without a containing-block trap. Switching activeId in
+           *  maximized mode reduces to a CSS class reshuffle on already-
+           *  mounted tiles: no Terminal remount, no `document.fonts.load`,
+           *  no stream re-attach, no scrollback replay (#988).
+           *
+           *  `data-viewport` on `canvas-container` carries the pan/zoom-only
+           *  CSS string so tests can observe viewport state independently of
+           *  per-tile transforms (which also fold in layout coords + drag). */}
+          <For each={props.tileIds}>
+            {(id) => {
+              const active = () => store.activeId() === id;
+              const mode = (): CanvasTileMode =>
+                !posture.maximized()
+                  ? "tiled"
+                  : active()
+                    ? "maximized"
+                    : "covered";
+              return (
+                <Show when={store.getDisplayInfo(id)}>
+                  {(info) => (
+                    <CanvasTile
+                      id={id}
+                      active={active()}
+                      mode={mode()}
+                      dimmed={isStale(
+                        store.getMetadata(id)?.lastActivityAt ?? 0,
+                      )}
+                      theme={tileTheme(id)}
+                      repoColor={info().repoColor}
+                      onSelect={() => props.onSelect(id)}
+                      onClose={() => props.onClose(id)}
+                      onToggleMaximize={posture.toggle}
+                      renderTitle={() => props.renderTileTitle(id)}
+                      renderTitleActions={
+                        props.renderTileTitleActions
+                          ? () => props.renderTileTitleActions?.(id)
+                          : undefined
+                      }
+                      renderBody={() =>
+                        props.renderTileBody(id, () => store.activeId() === id)
+                      }
+                      layouts={layouts()}
+                      startResize={startResize}
+                      panX={viewport.panX}
+                      panY={viewport.panY}
+                      zoom={viewport.zoom}
+                    />
+                  )}
                 </Show>
-              </>
-            );
-          })()}
+              );
+            }}
+          </For>
 
           {/* Minimap: spatial dashboard; hides in fullscreen-single-tile mode
            *  since there's nothing spatial to summarize. */}

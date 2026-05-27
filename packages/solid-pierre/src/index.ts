@@ -5,12 +5,10 @@
 
 export { ancestorDirectoryPaths, FileTree } from "./FileTree";
 export type { FileTreeProps } from "./FileTree";
-export { FileDiff } from "./FileDiff";
-export type { FileDiffProps } from "./FileDiff";
-export { FileView } from "./FileView";
-export type { FileViewProps } from "./FileView";
-export { Virtualizer, useVirtualizer } from "./Virtualizer";
-export type { VirtualizerProps } from "./Virtualizer";
+export { CodeView } from "./CodeView";
+export type { CodeViewProps } from "./CodeView";
+export { diffItem, fileItem } from "./codeViewItem";
+export { useCodeViewSelection } from "./useCodeViewSelection";
 
 // Re-export Pierre types consumers commonly need to type prop callbacks
 // without reaching into `@pierre/*` directly.
@@ -21,4 +19,8 @@ export type {
   FileTreeInitialExpansion,
   GitStatusEntry,
 } from "@pierre/trees";
-export type { SelectedLineRange, VirtualizerConfig } from "@pierre/diffs";
+export type {
+  CodeViewItem,
+  CodeViewLineSelection,
+  SelectedLineRange,
+} from "@pierre/diffs";

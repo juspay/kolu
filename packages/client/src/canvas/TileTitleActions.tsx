@@ -47,7 +47,7 @@ const TileTitleActions: Component<{
   const meta = () => store.getMetadata(props.id);
   const themeName = () =>
     store.activeId() === props.id ? activeThemeName() : meta()?.themeName;
-  const subCount = () => store.getSubTerminalIds(props.id).length;
+  const subCount = () => store.getDisplayInfo(props.id)?.subCount ?? 0;
   const splitExpanded = () =>
     subCount() > 0 && !subPanel.getSubPanel(props.id).collapsed;
 

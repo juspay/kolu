@@ -22,7 +22,7 @@ import {
   onCleanup,
   onMount,
 } from "solid-js";
-import { toError } from "./toError";
+import { safeApply } from "./safeApply";
 
 type FileTreeOptions = ConstructorParameters<typeof FileTreeClass>[0];
 type Composition = NonNullable<FileTreeOptions["composition"]>;
@@ -97,18 +97,8 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   // membership in this set is a reliable file-vs-folder discriminator.
   const fileSet = createMemo(() => new Set(props.paths));
 
-  // Known limitation: Pierre's vanilla `FileTree` doesn't expose a
-  // public `scrollToPath`. Its `scrollFocusedRowIntoView` (in
-  // `dist/render/FileTreeView.js`) is gated on `shouldOwnDomFocus`,
-  // which is set only by user-initiated handlers (row click, keyboard
-  // nav). Programmatic selection via `initialSelectedPaths` /
-  // `getItem(path)?.select()` marks the row `aria-selected="true"` but
-  // does NOT scroll the virtualizer to reveal it. For small trees the
-  // row happens to sit in the visible window; for large worktrees the
-  // selected row stays virtualized off-screen until the user scrolls.
-  // Filed upstream: https://github.com/pierrecomputer/pierre/issues/676
   onMount(() => {
-    try {
+    safeApply(() => {
       // Snapshot read of `props.selectedPath` for `initialExpandedPaths`.
       // The deferred resetPaths effect below reads it reactively for
       // subsequent changes — Pierre doesn't expose a hook to re-feed
@@ -146,9 +136,14 @@ export const FileTree: Component<FileTreeProps> = (props) => {
         },
       });
       tree.render({ containerWrapper: container });
-    } catch (e) {
-      props.onError(toError(e));
-    }
+      // Mirror the reactive selection effect: pin the "selected row is
+      // visible" invariant to this wrapper at both write sites instead
+      // of relying on Pierre's mount-time auto-scroll
+      // (`initialFocusedScrollAppliedRef`) to cover the constructor
+      // path. Idempotent — Pierre's view processes the explicit scroll
+      // request in the same render tick as its own first-mount scroll.
+      if (props.selectedPath) tree.scrollToPath(props.selectedPath);
+    }, props.onError);
   });
 
   // `resetPaths` takes the new path inventory and the directories to
@@ -178,7 +173,7 @@ export const FileTree: Component<FileTreeProps> = (props) => {
         () => props.selectedPath ?? null,
       ],
       ([paths, expandPaths, selectedPath], prev) => {
-        try {
+        safeApply(() => {
           // Snapshot Pierre's currently-expanded directories so they
           // survive `resetPaths`'s fresh-PathStore rebuild. Iterate both
           // the previous and new paths' ancestor sets to cover dirs that
@@ -211,9 +206,7 @@ export const FileTree: Component<FileTreeProps> = (props) => {
             ...ancestors,
           ];
           tree?.resetPaths(paths, { initialExpandedPaths: expanded });
-        } catch (e) {
-          props.onError(toError(e));
-        }
+        }, props.onError);
       },
       { defer: true },
     ),
@@ -223,11 +216,7 @@ export const FileTree: Component<FileTreeProps> = (props) => {
     on(
       () => props.gitStatus,
       (g) => {
-        try {
-          tree?.setGitStatus(g);
-        } catch (e) {
-          props.onError(toError(e));
-        }
+        safeApply(() => tree?.setGitStatus(g), props.onError);
       },
       { defer: true },
     ),
@@ -249,7 +238,7 @@ export const FileTree: Component<FileTreeProps> = (props) => {
     on(
       () => props.selectedPath ?? null,
       (path) => {
-        try {
+        safeApply(() => {
           const current = tree?.getSelectedPaths()[0] ?? null;
           if (current === path) return;
           if (path === null) {
@@ -258,10 +247,13 @@ export const FileTree: Component<FileTreeProps> = (props) => {
             }
           } else {
             tree?.getItem(path)?.select();
+            // `select()` marks aria-selected but doesn't move the
+            // virtualizer; deep paths in large worktrees would stay
+            // off-screen until the user scrolled. `scrollToPath`
+            // reveals the row.
+            tree?.scrollToPath(path);
           }
-        } catch (e) {
-          props.onError(toError(e));
-        }
+        }, props.onError);
       },
       { defer: true },
     ),

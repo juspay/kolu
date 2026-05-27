@@ -24,7 +24,10 @@ import {
   createSignal,
   on,
 } from "solid-js";
+import IntentBody from "../../intent/IntentBody";
 import { formatTimeAgo, useIdleClassifier } from "../../terminal/staleness";
+import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
+import { annotationLine } from "../../intent/text";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import {
   bucketDescriptor,
@@ -33,7 +36,11 @@ import {
   type DockEntry,
   type DockSourceEntry,
 } from "../dockModel";
-import { agentLabel, metaLine, prSummary, tokenLine } from "./dockRowChrome";
+import { prValue } from "kolu-github/schemas";
+import ChecksIndicator from "../../terminal/ChecksIndicator";
+import { prTooltip } from "../../terminal/prTooltip";
+import { PrStateIcon } from "../../ui/Icons";
+import { agentLabel, metaLine, tokenLine } from "./dockRowChrome";
 
 /** Slot tag on each card. The scroll-into-view effect queries by this
  *  value so the lookup stays scoped to *this* grid instance even if a
@@ -456,7 +463,7 @@ const WorkspaceCard: Component<{
   onSelect: () => void;
 }> = (props) => {
   const agent = () => props.entry.info.meta.agent;
-  const pr = () => prSummary(props.entry);
+  const pr = () => prValue(props.entry.info.meta.pr);
   const tokens = () => tokenLine(agent());
   const bucketInfo = () => bucketDescriptor(props.entry.bucket);
   const lastActive = () => formatTimeAgo(props.entry.info.meta.lastActivityAt);
@@ -507,7 +514,13 @@ const WorkspaceCard: Component<{
         </span>
       </Show>
 
-      {/* Eyebrow: repo identity + (right) PR # if resolved. */}
+      {/* Eyebrow: repo identity + (right) PR badge if resolved.
+       *  The merge-state icon + CI dot mirror the terminal title bar
+       *  and dock row, so the workspace switcher card speaks the same
+       *  PR vocabulary at a glance. The intent glyph is NOT rendered
+       *  here — line 1 of intent (or the branch fallback) lives in the
+       *  headline below; rendering the glyph again as a separate chip
+       *  would duplicate it. */}
       <div class="flex items-center justify-between gap-2 min-w-0">
         <span
           class="font-mono text-[0.6rem] font-bold uppercase tracking-[0.16em] truncate min-w-0"
@@ -517,21 +530,36 @@ const WorkspaceCard: Component<{
         </span>
         <Show when={pr()}>
           {(summary) => (
-            <span class="font-mono text-[0.65rem] tabular-nums text-fg-2 shrink-0">
-              #{summary().number}
+            <span
+              class="flex items-center gap-1 text-[0.65rem] text-fg-2 shrink-0"
+              data-testid="workspace-switcher-card-pr"
+              title={prTooltip(summary())}
+            >
+              <PrStateIcon state={summary().state} class="w-3 h-3" />
+              <Show when={summary().checks}>
+                {(checks) => <ChecksIndicator status={checks()} />}
+              </Show>
+              <span class="font-mono tabular-nums">#{summary().number}</span>
             </span>
           )}
         </Show>
       </div>
 
-      {/* Headline: branch label — DM Sans semibold, the human-readable
-       *  anchor of the card. */}
+      {/* Headline: annotation slot — intent line-1 if the user set
+       *  one, otherwise the branch label (the human-readable anchor
+       *  of the card). DM Sans semibold either way. */}
       <div class="mt-1 flex items-baseline gap-2 min-w-0">
         <span
+          data-testid="workspace-switcher-card-annotation"
           class="text-[0.95rem] font-semibold truncate leading-tight"
-          style={{ color: props.entry.info.branchColor }}
+          style={{ color: props.entry.info.annotationColor }}
         >
-          {props.entry.label}
+          <IntentMarkdownInline
+            markdown={annotationLine(
+              props.entry.info.meta.intent,
+              props.entry.label,
+            )}
+          />
         </span>
         <Show when={props.entry.suffix}>
           {(suffix) => (
@@ -577,22 +605,26 @@ const WorkspaceCard: Component<{
         </Show>
       </div>
 
-      {/* PR title row — only when resolved. */}
+      {/* PR title row — only when resolved. The eyebrow above carries
+       *  the merge-state icon, CI dot, and `#N`; this row is just the
+       *  title text so the badge vocabulary doesn't duplicate. */}
       <Show when={pr()}>
         {(summary) => (
-          <div class="mt-1 text-[0.7rem] text-fg-2 truncate">
-            <span class="truncate">{summary().title}</span>
-            <Show when={summary().checks}>
-              {(checks) => (
-                <span class="font-mono text-fg-3 tabular-nums">
-                  {" · "}
-                  {checks()}
-                </span>
-              )}
-            </Show>
+          <div class="mt-1 truncate text-[0.7rem] text-fg-2">
+            {summary().title}
           </div>
         )}
       </Show>
+
+      {/* Intent body — lines 2+ of the markdown when the user wrote a
+       *  multiline intent. Line 1 already lives in the annotation slot
+       *  above; the body renders only when there's prose past line 1.
+       *  Shared <IntentBody> so every dock + switcher render site
+       *  looks the same. */}
+      <IntentBody
+        intent={props.entry.info.meta.intent}
+        testId="workspace-switcher-card-intent"
+      />
     </button>
   );
 };

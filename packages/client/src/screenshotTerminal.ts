@@ -389,6 +389,15 @@ export async function screenshotTerminal(
     toast.error("Screenshot failed");
     return;
   }
+  // Image writes have no execCommand equivalent — if navigator.clipboard
+  // is undefined (plain-HTTP, non-localhost), the only honest answer is a
+  // diagnostic toast. See `ui/clipboard.ts` for the text-write fallback.
+  if (!navigator.clipboard?.write) {
+    toast.error(
+      "Screenshot-to-clipboard requires HTTPS or localhost — image writes have no fallback in non-secure contexts",
+    );
+    return;
+  }
   try {
     await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
     toast.success("Screenshot copied");

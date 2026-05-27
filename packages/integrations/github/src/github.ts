@@ -3,7 +3,12 @@
  *  publisher wiring. */
 
 import { match, P } from "ts-pattern";
-import type { GitHubPrInfo, PrResult, PrUnavailableSource } from "./schemas.ts";
+import type {
+  GitHubCheck,
+  GitHubPrInfo,
+  PrResult,
+  PrUnavailableSource,
+} from "./schemas.ts";
 
 /**
  * Derive combined check status from GitHub's statusCheckRollup entries.
@@ -22,12 +27,18 @@ import type { GitHubPrInfo, PrResult, PrUnavailableSource } from "./schemas.ts";
  */
 type CheckOutcome = "fail" | "pending" | "pass";
 
-function classifyCheck(check: {
+/** Single rollup entry as `gh pr view --json statusCheckRollup` returns
+ *  it. CheckRuns carry `name`; StatusContexts carry `context`. */
+type RollupEntry = {
   __typename?: string;
   status?: string;
   conclusion?: string;
   state?: string;
-}): CheckOutcome {
+  name?: string;
+  context?: string;
+};
+
+function classifyCheck(check: RollupEntry): CheckOutcome {
   if (check.__typename === "StatusContext") {
     return match(check.state?.toUpperCase())
       .with(P.union("FAILURE", "ERROR"), () => "fail" as const)
@@ -52,14 +63,7 @@ function classifyCheck(check: {
 }
 
 export function deriveCheckStatus(
-  rollup:
-    | Array<{
-        __typename?: string;
-        status?: string;
-        conclusion?: string;
-        state?: string;
-      }>
-    | undefined,
+  rollup: RollupEntry[] | undefined,
 ): GitHubPrInfo["checks"] {
   if (!rollup || rollup.length === 0) return null;
   // "fail" is terminal — short-circuit; "pending" is sticky until something fails.
@@ -70,6 +74,26 @@ export function deriveCheckStatus(
     if (outcome === "pending") worst = "pending";
   }
   return worst;
+}
+
+/** Per-check breakdown of the rollup — the same entries `deriveCheckStatus`
+ *  collapses, kept individual so the dock's PR pip tooltip can list which
+ *  specific gate is red. Returns `[]` when no checks are configured.
+ *
+ *  Name preference: `CheckRun.name` for Actions/Apps; `StatusContext.context`
+ *  for REST commit statuses; `?` as a last-resort fallback so the array
+ *  shape stays uniform even if gh returns an entry missing both. */
+export function extractChecks(
+  rollup: RollupEntry[] | undefined,
+): GitHubCheck[] {
+  if (!rollup) return [];
+  return rollup.map((c) => ({
+    name:
+      c.__typename === "StatusContext"
+        ? (c.context ?? "?")
+        : (c.name ?? c.context ?? "?"),
+    outcome: classifyCheck(c),
+  }));
 }
 
 /** Classify a `gh pr view` failure.
@@ -137,7 +161,8 @@ export function prResultEqual(a: PrResult, b: PrResult): boolean {
       a.value.title === b.value.title &&
       a.value.url === b.value.url &&
       a.value.state === b.value.state &&
-      a.value.checks === b.value.checks
+      a.value.checks === b.value.checks &&
+      checkRunsEqual(a.value.checkRuns, b.value.checkRuns)
     );
   }
   if (a.kind === "unavailable" && b.kind === "unavailable") {
@@ -150,4 +175,17 @@ export function prResultEqual(a: PrResult, b: PrResult): boolean {
   }
   // "pending" and "absent" have no payload — kind equality is enough.
   return true;
+}
+
+/** Shallow per-element equality for the per-check breakdown. Same length
+ *  + same `(name, outcome)` in the same order. Same order is fine
+ *  because `extractChecks` preserves the order gh returns — re-fetches
+ *  with no real change produce the same sequence, so a `===`-style
+ *  identity check survives ordinary polling without false positives. */
+function checkRunsEqual(a: GitHubCheck[], b: GitHubCheck[]): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  return a.every(
+    (ai, i) => ai.name === b[i]?.name && ai.outcome === b[i]?.outcome,
+  );
 }

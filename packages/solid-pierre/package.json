@@ -18,8 +18,8 @@
     "typescript": "^5.8.0"
   },
   "dependencies": {
-    "@pierre/diffs": "^1.1.20",
-    "@pierre/trees": "^1.0.0-beta.3",
+    "@pierre/diffs": "^1.2.1",
+    "@pierre/trees": "^1.0.0-beta.4",
     "solid-js": "^1.9.0"
   }
 }

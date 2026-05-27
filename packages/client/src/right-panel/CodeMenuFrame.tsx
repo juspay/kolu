@@ -1,9 +1,9 @@
-/** Wrap a `<FileDiff>` or `<FileView>` from `@kolu/solid-pierre` with the
- *  kolu line-selection + right-click "Copy path[:line]" affordance. The
- *  `<CodeContextMenu>` portal is mounted as a sibling and triggered from
- *  the host div's `contextmenu` event; the `LineSelection` protocol is
- *  threaded into the inner viewer via the children render fn so the
- *  selection range stays in sync with what the menu offers. */
+/** Wrap a `<CodeView>` from `@kolu/solid-pierre` with the kolu line-selection
+ *  + right-click "Copy path[:line]" affordance. The `<CodeContextMenu>`
+ *  portal is mounted as a sibling and triggered from the host div's
+ *  `contextmenu` event; the `LineSelection` protocol is threaded into the
+ *  inner viewer via the children render fn so the selection range stays in
+ *  sync with what the menu offers. */
 
 import type { SelectedLineRange } from "@kolu/solid-pierre";
 import type { Component, JSX } from "solid-js";

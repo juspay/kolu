@@ -14,7 +14,7 @@
  */
 
 import { WATCHER_DEBOUNCE_MS } from "./git-dir.ts";
-import { createDirFilenameWatcher } from "./shared-dir-filename-watcher.ts";
+import { createDirFilenameWatcher } from "kolu-io";
 
 const cwdGitWatcher = createDirFilenameWatcher({
   resolveDir: (cwd) => cwd,
@@ -28,3 +28,8 @@ export const watchCwdForGitDir = cwdGitWatcher.watch;
 /** Test-only inspector — number of distinct cwds with active shared
  *  watchers. Mirrors `_sharedHeadWatcherCount`. */
 export const _sharedCwdGitWatcherCount = cwdGitWatcher._watcherCount;
+
+/** Test-only teardown — symmetric with `_resetSharedHeadWatchers`. See
+ *  there for the cascade-breaking rationale (#955). Production code must
+ *  never call this. */
+export const _resetSharedCwdGitWatchers = cwdGitWatcher._reset;

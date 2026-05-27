@@ -13,7 +13,7 @@
  */
 
 import { resolveGitDir, WATCHER_DEBOUNCE_MS } from "./git-dir.ts";
-import { createDirFilenameWatcher } from "./shared-dir-filename-watcher.ts";
+import { createDirFilenameWatcher } from "kolu-io";
 
 const indexWatcher = createDirFilenameWatcher({
   resolveDir: resolveGitDir,

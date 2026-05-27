@@ -12,7 +12,10 @@
     "./client": "./src/client.ts",
     "./define": "./src/define.ts",
     "./server": "./src/server.ts",
-    "./solid": "./src/solid/index.ts"
+    "./solid": "./src/solid/index.ts",
+    "./links/stdio": "./src/links/stdio.ts",
+    "./links/loopback": "./src/links/loopback.ts",
+    "./peer-server": "./src/peer-server.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
@@ -27,6 +30,8 @@
     "@orpc/client": "^1.13.13",
     "@orpc/contract": "^1.13.13",
     "@orpc/server": "^1.13.13",
+    "@orpc/standard-server": "^1.13.13",
+    "@orpc/standard-server-peer": "^1.13.13",
     "solid-js": "^1.9.0",
     "zod": "^4.3.6"
   }

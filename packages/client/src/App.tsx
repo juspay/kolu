@@ -17,7 +17,7 @@ import {
   on,
   Show,
 } from "solid-js";
-import { Toaster } from "solid-sonner";
+import { toast, Toaster } from "solid-sonner";
 import { match } from "ts-pattern";
 import ChromeBar from "./ChromeBar";
 import CloseConfirm, { type CloseConfirmTarget } from "./CloseConfirm";
@@ -27,11 +27,13 @@ import CanvasWatermark from "./canvas/CanvasWatermark";
 import { useCanvasArrange } from "./canvas/useCanvasArrange";
 import { buildWorkspaceEntries } from "./canvas/dockModel";
 import { toggleRailCards } from "./canvas/dock/Dock";
-import { rankDockRows } from "./canvas/dock/dockRowRanking";
+import { useDockOrder } from "./canvas/dock/useDockOrder";
 import TerminalCanvas from "./canvas/TerminalCanvas";
 import TileTitleActions from "./canvas/TileTitleActions";
 import { createCommands } from "./commands";
 import DiagnosticInfo from "./DiagnosticInfo";
+import IntentEditorDialog from "./intent/IntentEditorDialog";
+import { useIntentEditor } from "./intent/useIntentEditor";
 import EmptyState from "./EmptyState";
 import { exportScrollbackAsPdf } from "./exportScrollbackAsPdf";
 import { exportSessionAsHtml } from "./exportSessionAsHtml";
@@ -48,14 +50,16 @@ import { serverProcessId, wsStatus } from "./rpc/rpc";
 import TransportOverlay from "./rpc/TransportOverlay";
 import ShortcutsHelp from "./ShortcutsHelp";
 import { screenshotTerminal } from "./screenshotTerminal";
+import TipBanner from "./settings/TipBanner";
 import { useColorScheme } from "./settings/useColorScheme";
 import { useTips } from "./settings/useTips";
-import { useStaleCheck } from "./terminal/staleness";
+import { useVisualViewportHeight } from "./useVisualViewportHeight";
 import TerminalContent from "./terminal/TerminalContent";
 import TerminalMeta from "./terminal/TerminalMeta";
 import { useSubPanel } from "./terminal/useSubPanel";
 import { useTerminals } from "./terminal/useTerminals";
 import ModalDialog, { refocusTerminal } from "./ui/ModalDialog";
+import { surface } from "./ui/Surface";
 import { isMobile } from "./useMobile";
 import { useThemeManager } from "./useThemeManager";
 
@@ -82,8 +86,9 @@ const App: Component = () => {
 
   // Workspace search feeds — the live-terminal source list and recency
   // accessor consumed by the unified command palette's "Search
-  // workspaces" group. `rankDockRows` shares row order with the dock
-  // so the `Cmd+1..9` shortcut targets the same row the dock paints.
+  // workspaces" group. `useDockOrder` is the same singleton memo the
+  // desktop dock and mobile drawer read, so `Cmd+1..9` targets the
+  // exact row the dock paints (group-bucketed, parked rows filtered).
   const workspaceEntries = createMemo(() =>
     buildWorkspaceEntries(
       store.terminalIds(),
@@ -93,12 +98,14 @@ const App: Component = () => {
   );
   const recencyOf = (id: TerminalId): number =>
     store.getMetadata(id)?.lastActivityAt ?? 0;
-  const isStale = useStaleCheck();
-  const orderedIds = createMemo(() =>
-    rankDockRows(store.terminalIds(), store.getMetadata, isStale).map(
-      (row) => row.id,
-    ),
-  );
+  const dockTree = useDockOrder();
+  // `dockTree` is already a singleton memo and `.flatRows` is a stable
+  // projection per memo run; a second `createMemo` here just adds a
+  // reactive node without any recomputation benefit. The id-only view
+  // is computed at read time so `ActionContext` keeps its narrow
+  // `TerminalId[]` shape — rail and cards still consume the full
+  // `RankedDockRow` list directly via `dockTree().flatRows`.
+  const orderedIds = (): TerminalId[] => dockTree().flatRows.map((r) => r.id);
 
   // Fetch server identity for document title, watermark, and PWA chrome color.
   const [identity, setIdentity] = createSignal<ServerIdentity>();
@@ -138,6 +145,10 @@ const App: Component = () => {
   const { initTipTriggers } = useTips();
   initTipTriggers({ terminalIds: store.terminalIds });
 
+  // Track the soft-keyboard-shrunk visible area on iOS — `--app-h` overrides
+  // the root `h-dvh` so the terminal grid refits into the visible region.
+  useVisualViewportHeight();
+
   /** Toggle sub-panel: create first split if none exist, otherwise toggle visibility. */
   function handleToggleSubPanel(parentId: TerminalId) {
     if (store.getSubTerminalIds(parentId).length === 0) {
@@ -173,6 +184,11 @@ const App: Component = () => {
     const id = store.activeId();
     if (id) store.activate(id);
   }
+
+  // Intent editor singleton — reads store + RPC directly. The dialog
+  // is mounted at the App root; the chip in TerminalMeta and the palette
+  // command both call `intentEditor.openTerminal(id)` to surface it.
+  const intentEditor = useIntentEditor();
 
   const arrange = useCanvasArrange({
     store,
@@ -245,7 +261,7 @@ const App: Component = () => {
       void crud.handleKill(id);
       return;
     }
-    const splitCount = store.getSubTerminalIds(id).length;
+    const splitCount = store.getDisplayInfo(id)?.subCount ?? 0;
     const worktreePath = meta.git?.isWorktree
       ? meta.git.worktreePath
       : undefined;
@@ -266,6 +282,7 @@ const App: Component = () => {
     committedThemeName,
     setPreviewThemeName,
     handleSetTheme,
+    handleEditActiveIntent: intentEditor.openActive,
     setAboutOpen,
     setDiagnosticInfoOpen,
     handleCreateWorktree: (repoPath, name, initialCommand) =>
@@ -350,10 +367,16 @@ const App: Component = () => {
   const showEmpty = () =>
     !session.isLoading() && store.terminalIds().length === 0;
 
+  const aboutChrome = surface({ portalled: true });
+
   return (
     <div
-      class="relative flex flex-col h-dvh bg-surface-0 text-fg font-sans"
+      class="relative flex flex-col bg-surface-0 text-fg font-sans"
       style={{
+        // `var(--app-h)` is set by useVisualViewportHeight to the
+        // soft-keyboard-shrunk visible area; `100dvh` is the fallback for
+        // browsers without VisualViewport (or before mount fires).
+        height: "var(--app-h, 100dvh)",
         "padding-top": "env(safe-area-inset-top)",
         "padding-bottom": "env(safe-area-inset-bottom)",
         "padding-left": "env(safe-area-inset-left)",
@@ -366,6 +389,7 @@ const App: Component = () => {
       </Show>
       <TransportOverlay />
       <WebcamOverlay />
+      <TipBanner />
       <Toaster
         position="bottom-right"
         theme={colorScheme()}
@@ -405,7 +429,10 @@ const App: Component = () => {
         onOpenChange={withRefocus(setAboutOpen)}
         size="sm"
       >
-        <Dialog.Content class="bg-surface-1 border border-edge rounded-2xl shadow-2xl shadow-black/50 p-6 text-sm">
+        <Dialog.Content
+          class={`${aboutChrome.class} p-6 text-sm`}
+          style={aboutChrome.style}
+        >
           <div class="flex items-center gap-2 mb-3">
             <img src="/favicon.svg" alt="kolu" class="w-6 h-6" />
             <span class="font-semibold text-fg">{appTitle()}</span>
@@ -541,7 +568,10 @@ const App: Component = () => {
                     }
                     onCreate={() => openPaletteGroup("New terminal")}
                     renderTileTitle={(id) => (
-                      <TerminalMeta info={store.getDisplayInfo(id)} />
+                      <TerminalMeta
+                        info={store.getDisplayInfo(id)}
+                        onOpenIntent={() => intentEditor.openTerminal(id)}
+                      />
                     )}
                     renderTileTitleActions={(id) => (
                       <TileTitleActions
@@ -560,6 +590,15 @@ const App: Component = () => {
           </Show>
         </Show>
       </div>
+      <IntentEditorDialog
+        open={intentEditor.open()}
+        title={intentEditor.title()}
+        value={intentEditor.value()}
+        allowClear={intentEditor.allowClear()}
+        onOpenChange={intentEditor.onOpenChange}
+        onSave={intentEditor.save}
+        onClear={intentEditor.clear}
+      />
     </div>
   );
 };

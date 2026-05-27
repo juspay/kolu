@@ -14,17 +14,18 @@ import { loadClaudeCodeTranscript } from "kolu-claude-code";
 import { loadCodexTranscript } from "kolu-codex";
 import type { Transcript, TranscriptPr } from "kolu-common/transcript";
 import { TerminalNotFoundError } from "kolu-common/errors";
+import { rejectionFor, sizeRejectionFor } from "kolu-common/upload";
 import { worktreeCreate, worktreeRemove } from "kolu-git";
 import { prValue } from "kolu-github/schemas";
 import { loadOpenCodeTranscript } from "kolu-opencode";
 import { transcriptToHtml } from "kolu-transcript-html";
 import { match } from "ts-pattern";
-import { saveClipboardImage } from "./clipboard.ts";
+import { saveTerminalFile } from "./terminalScratch.ts";
 import { serverHostname, serverProcessId } from "./hostname.ts";
 import { log } from "./log.ts";
-import { terminalChannels } from "./publisher.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import { surfaceRouter, t, unwrapGit } from "./surface.ts";
+import { getTerminalBackendFor } from "./terminalBackend/index.ts";
 import { getTerminal, type TerminalProcess } from "./terminal-registry.ts";
 import {
   createTerminal,
@@ -32,7 +33,9 @@ import {
   killTerminal,
   setActiveTerminalId,
   setCanvasLayout,
+  setRightPanelState,
   setSubPanelState,
+  setTerminalIntent,
   setTerminalParent,
   setTerminalTheme,
 } from "./terminals.ts";
@@ -42,6 +45,20 @@ function requireTerminal(id: string): TerminalProcess {
   const entry = getTerminal(id);
   if (!entry) throw new TerminalNotFoundError(id);
   return entry;
+}
+
+/** Decoded byte length of a base64 string — `(len * 3/4)` minus padding.
+ *  Lets handlers gate on size without materializing the Buffer. */
+function base64DecodedLength(data: string): number {
+  const padding = data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0;
+  return Math.floor((data.length * 3) / 4) - padding;
+}
+
+/** Bracketed-paste an on-disk path into a terminal so agents that accept
+ *  paste-as-file-path (codex, Claude Code) attach the file. Shared by every
+ *  handler that uploads content to per-terminal scratch storage. */
+function bracketedPastePath(entry: TerminalProcess, path: string): void {
+  entry.handle.write(`\x1b[200~${path}\x1b[201~`);
 }
 
 export const appRouter = t.router({
@@ -58,7 +75,9 @@ export const appRouter = t.router({
         themeName: input.themeName,
         canvasLayout: input.canvasLayout,
         subPanel: input.subPanel,
+        rightPanel: input.rightPanel,
         lastActivityAt: input.lastActivityAt,
+        intent: input.intent,
       }),
     ),
 
@@ -76,6 +95,15 @@ export const appRouter = t.router({
       setTerminalTheme(input.id, input.themeName);
     }),
 
+    setIntent: t.terminal.setIntent.handler(async ({ input }) => {
+      requireTerminal(input.id);
+      log.info(
+        { terminal: input.id, intentLength: input.intent.length },
+        "set intent",
+      );
+      setTerminalIntent(input.id, input.intent);
+    }),
+
     setCanvasLayout: t.terminal.setCanvasLayout.handler(async ({ input }) => {
       requireTerminal(input.id);
       setCanvasLayout(input.id, input.layout);
@@ -87,6 +115,12 @@ export const appRouter = t.router({
         collapsed: input.collapsed,
         panelSize: input.panelSize,
       });
+    }),
+
+    setRightPanel: t.terminal.setRightPanel.handler(async ({ input }) => {
+      requireTerminal(input.id);
+      const { id: _id, ...state } = input;
+      setRightPanelState(input.id, state);
     }),
 
     setActive: t.terminal.setActive.handler(async ({ input }) => {
@@ -102,7 +136,9 @@ export const appRouter = t.router({
      */
     attach: t.terminal.attach.handler(async function* ({ input, signal }) {
       const entry = requireTerminal(input.id);
-      const live = terminalChannels.data(input.id).subscribe(signal);
+      const live = getTerminalBackendFor({
+        kind: "local",
+      }).subscribeTerminalChannel(input.id, "data", signal);
       const screenState = entry.handle.getScreenState();
       if (screenState) yield screenState;
       for await (const data of live) yield data;
@@ -121,18 +157,29 @@ export const appRouter = t.router({
 
     pasteImage: t.terminal.pasteImage.handler(async ({ input }) => {
       const entry = requireTerminal(input.id);
-      // base64 → decoded byte count: (len * 3/4) minus padding
-      const padding = input.data.endsWith("==")
-        ? 2
-        : input.data.endsWith("=")
-          ? 1
-          : 0;
-      const bytes = Math.floor((input.data.length * 3) / 4) - padding;
-      const path = saveClipboardImage(input.id, input.data);
-      // Bracketed-paste the saved path into the PTY. Agents that accept
-      // paste-as-file-path (codex, Claude Code) auto-attach the image.
-      entry.handle.write(`\x1b[200~${path}\x1b[201~`);
+      const bytes = base64DecodedLength(input.data);
+      const reason = sizeRejectionFor("clipboard image", bytes);
+      if (reason !== null) {
+        throw new ORPCError("BAD_REQUEST", { message: reason });
+      }
+      const path = saveTerminalFile(input.id, "image.png", input.data);
+      bracketedPastePath(entry, path);
       log.info({ terminal: input.id, bytes, path }, "paste image");
+    }),
+
+    uploadFile: t.terminal.uploadFile.handler(async ({ input }) => {
+      const entry = requireTerminal(input.id);
+      const bytes = base64DecodedLength(input.data);
+      const reason = rejectionFor(input.name, bytes);
+      if (reason !== null) {
+        throw new ORPCError("BAD_REQUEST", { message: reason });
+      }
+      const path = saveTerminalFile(input.id, input.name, input.data);
+      bracketedPastePath(entry, path);
+      log.info(
+        { terminal: input.id, name: input.name, bytes, path },
+        "upload file",
+      );
     }),
 
     kill: t.terminal.kill.handler(async ({ input }) => {

@@ -16,6 +16,7 @@ import {
   savedSession as serverSavedSession,
   savedSessionSub,
 } from "../wire";
+import { useRightPanel } from "../right-panel/useRightPanel";
 import { useSubPanel } from "./useSubPanel";
 import type { TerminalStore } from "./useTerminalStore";
 
@@ -38,6 +39,7 @@ export function useSessionRestore(deps: {
 }) {
   const { store } = deps;
   const subPanel = useSubPanel();
+  const rightPanel = useRightPanel();
 
   const [savedSession, setSavedSession] = createSignal<SavedSession | null>(
     null,
@@ -82,9 +84,10 @@ export function useSessionRestore(deps: {
     serverActiveId: string | null,
   ) {
     // Canvas layouts live on metadata — no client-side seeding needed.
-    // Seed sub-panel state from server metadata.
+    // Seed sub-panel + right-panel state from server metadata.
     for (const { t, m } of entries) {
       if (m.subPanel) subPanel.seedPanel(t.id, m.subPanel);
+      if (m.rightPanel) rightPanel.seedPanel(t.id, m.rightPanel);
     }
 
     // Initialize sub-panel active tabs for parents with sub-terminals
@@ -242,7 +245,9 @@ export function useSessionRestore(deps: {
           themeName: t.themeName,
           canvasLayout: t.canvasLayout,
           subPanel: t.subPanel,
+          rightPanel: t.rightPanel,
           lastActivityAt: t.lastActivityAt,
+          intent: t.intent,
         });
         oldToNew.set(t.id, newId);
         // Step 2: in-loop assert. Combined with step 1, this puts the
@@ -256,6 +261,13 @@ export function useSessionRestore(deps: {
         // to the same tab. The server-persisted fields (collapsed, panelSize)
         // ride along via handleCreate above.
         if (t.subPanel) subPanel.seedPanel(newId, t.subPanel);
+        // Right-panel per-terminal state: the persisted record rides
+        // `handleCreate` (server seeds `meta.rightPanel` from
+        // `initial.rightPanel` in the first `terminal.list` snapshot);
+        // `seedPanel` here is the early-read optimization for the
+        // in-memory store, so reads that happen before the metadata
+        // collection resnapshots see the restored value.
+        if (t.rightPanel) rightPanel.seedPanel(newId, t.rightPanel);
         // Auto-launch the resume form of the previously captured agent
         // command, if the user didn't opt out. The command is already
         // normalized (prompts/positionals stripped by the allowlist at

@@ -6,6 +6,7 @@ import { ACTIONS, type ActionId } from "./input/actions";
 import { formatKeybind } from "./input/keyboard";
 import Kbd from "./ui/Kbd";
 import ModalDialog from "./ui/ModalDialog";
+import { surface } from "./ui/Surface";
 
 /** Curated display order for the shortcuts help overlay. Referencing actions
  *  by id (instead of restating label/keybind) keeps the overlay in sync with
@@ -30,6 +31,8 @@ const HELP_ORDER: readonly { id: ActionId; label?: string }[] = [
   { id: "shortcutsHelp" },
 ];
 
+const chrome = surface({ portalled: true });
+
 const ShortcutsHelp: Component<{
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -37,8 +40,8 @@ const ShortcutsHelp: Component<{
   <ModalDialog open={props.open} onOpenChange={props.onOpenChange} size="sm">
     <Dialog.Content
       data-testid="shortcuts-help"
-      class="bg-surface-1 border border-edge rounded-2xl shadow-2xl shadow-black/50 overflow-hidden"
-      style={{ "background-color": "var(--color-surface-1)" }}
+      class={`${chrome.class} overflow-hidden`}
+      style={chrome.style}
     >
       <Dialog.Label class="block px-4 py-3 border-b border-edge text-sm font-semibold text-fg">
         Keyboard Shortcuts

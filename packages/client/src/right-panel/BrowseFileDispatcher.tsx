@@ -1,6 +1,6 @@
 /** Owns the `fsReadFile` subscription for the Code tab's browse mode and
  *  routes by the wire-level `kind` discriminator:
- *    - `text`   → `BrowseFileView`   (Pierre's syntax-highlighted FileView)
+ *    - `text`   → `BrowseFileView`   (Pierre's syntax-highlighted CodeView)
  *    - `binary` → `BrowsePreviewView` (iframe at server-built URL)
  *
  *  Loading and error surfaces stay here so the two presenters underneath
@@ -57,6 +57,7 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
       <Match when={textContent()}>
         {(fc) => (
           <BrowseFileView
+            terminalId={props.terminalId}
             filePath={props.filePath}
             content={fc().content}
             truncated={fc().truncated}
@@ -66,7 +67,13 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
         )}
       </Match>
       <Match when={binaryContent()}>
-        {(fc) => <BrowsePreviewView filePath={props.filePath} url={fc().url} />}
+        {(fc) => (
+          <BrowsePreviewView
+            terminalId={props.terminalId}
+            filePath={props.filePath}
+            url={fc().url}
+          />
+        )}
       </Match>
     </Switch>
   );

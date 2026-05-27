@@ -47,7 +47,10 @@ This is a workspace-private package. Wire it into both server and client package
 
 The surface is opt-in. Reach for it when you're standing up a new app surface or writing a self-contained module; stay manual when an existing wire shape doesn't match the surface's verb-naming defaults (currently `get`/`patch`/`set`/`test__set` for cells, `keys`/`get`/`update`/`delete`/`test__set` for collections — see the example for the full set). The two approaches compose: spread `surface.contract` alongside a sibling `oc.router({...})` of raw procedures, and similarly for `implementSurface`'s output.
 
-See `## Surface` below and `packages/surface/example/` for a full end-to-end demo.
+See `## Surface` below and `packages/surface/example/` for two end-to-end demos:
+
+- **`example/` — notes app** (single-process WebSocket): exercises every primitive against an in-memory store. The canonical "first surface" tour.
+- **`example/remote-process-monitor/` — three-tier bridge**: a SolidJS browser ↔ Node parent ↔ remote agent over `ssh` stdio. The agent reads `/proc` (linux) or `sysctl` (darwin), exposes a typed surface, and the parent re-serves it to the browser using the framework's WebSocket transport. Exercises the R-1.5 additions — stdio link, peer-server, in-process loopback (for tests), in-memory channel — in the same shape Kolu R-2's `RemoteTerminalBackend` will use.
 
 ## Architecture
 
@@ -343,7 +346,7 @@ Concrete inventory — what every server-pushed reactive surface in Kolu maps to
 
 | Descriptor | Backs | Authority | Mutation | Persistence |
 |---|---|---|---|---|
-| `preferencesCell` | User preferences (theme, scrollLock, sound, rightPanel state, …) | `local` (instant UI) | `client.preferences.update(patch)` | `confStore("preferences")` |
+| `preferencesCell` | User preferences (theme, scrollLock, sound, right-panel workspace chrome — collapsed/size/codeTabTreeSize — …) | `local` (instant UI) | `client.preferences.update(patch)` | `confStore("preferences")` |
 | `terminalListCell` | Live terminal list — drives the dock, canvas tile set, mobile swipe order | `server` | _server-only_ (via `terminal.create` / `kill` mutations) | `inMemoryStore` (registry is canonical) |
 | `activityFeedCell` | Recent repos cd'd into + recent agent CLIs spotted via OSC 633;E | `server` | _server-only_ (via `trackRecentRepo` / `trackRecentAgent`) | `confStore("activityFeed")` |
 | `savedSessionCell` | Last-persisted snapshot of terminals + active id (drives session restore) | `server` | _server-only_ (debounced autosave on `terminals:dirty`) | `confStore("session")` |
@@ -352,7 +355,7 @@ Concrete inventory — what every server-pushed reactive surface in Kolu maps to
 
 | Descriptor | Backs | Mutation |
 |---|---|---|
-| `terminalMetadataCollection` | Per-terminal metadata (cwd, git, PR, agent state, foreground process, last-activity timestamp for switcher recency) — each terminal's tile chrome and inspector reads its own key | _server-only_ (providers under `meta/*.ts` route writes through `updateServerMetadata` for persisted fields and `updateServerLiveMetadata` for live-only fields — `pr`, `agent`, `foreground` — so the high-frequency agent-stream watcher doesn't fire `terminals:dirty` and trigger no-op session autosaves; the agent provider switches to the persisting variant on each semantic-key transition that bumps `lastActivityAt`) |
+| `terminalMetadataCollection` | Per-terminal metadata (cwd, git, PR, agent state, foreground process, last-activity timestamp for switcher recency, **right-panel per-terminal state** — activeTab, codeMode, per-mode selected file — and sub-panel state) — each terminal's tile chrome and inspector reads its own key | _server-only_ (providers inside `LocalTerminalBackend` route writes through `updateServerMetadata` for persisted fields and `updateServerLiveMetadata` for live-only fields — `pr`, `agent`, `foreground` — so the high-frequency agent-stream watcher doesn't fire `terminals:dirty` and trigger no-op session autosaves; the agent provider switches to the persisting variant on each semantic-key transition that bumps `lastActivityAt`) |
 
 ### Streams
 
@@ -377,7 +380,7 @@ Shapes that don't fit a descriptor stay as plain oRPC procedures.
 |---|---|---|
 | **Bidirectional binary stream** — subscribe-before-yield ordering, custom `onRetry` (xterm buffer reset before re-subscribe's first frame) | `terminal.attach` | `streamCall(client.terminal.attach, { id }, { signal, onRetry })` |
 | **One-shot queries** — request/response, no subscription dimension | `server.info`, `terminal.screenState`, `terminal.screenText`, `terminal.exportTranscriptHtml` | `await client.X.Y(input)` |
-| **Mutations** — request/response writes | `terminal.create` / `kill` / `killAll` / `resize` / `sendInput` / `setTheme` / `setCanvasLayout` / `setSubPanel` / `setActive` / `setParent` / `pasteImage`, `git.worktreeCreate` / `worktreeRemove`, `preferences.update` | `await client.X.Y(input)` (the retry plugin's `retry: 0` default fails them fast) |
+| **Mutations** — request/response writes | `terminal.create` / `kill` / `killAll` / `resize` / `sendInput` / `setTheme` / `setCanvasLayout` / `setSubPanel` / `setRightPanel` / `setActive` / `setParent` / `pasteImage` / `uploadFile`, `git.worktreeCreate` / `worktreeRemove`, `preferences.update` | `await client.X.Y(input)` (the retry plugin's `retry: 0` default fails them fast) |
 
 `streamCall` applies the same `STREAM_RETRY` context the descriptor hooks thread (and merges in an optional `onRetry` callback) so transport drops re-subscribe transparently — escape hatch for non-descriptor shapes, same retry semantics.
 
@@ -586,6 +589,7 @@ eventHandlers(event, { source }): { get }
 inMemoryStore<T>(initial): CellStore<T>
 confStore<T>(conf, key): CellStore<T>
 publisherChannel<T>(publisher, channelName): Channel<T>
+inMemoryChannel<T>(): Channel<T>   // single-process broadcast pub/sub; sibling of publisherChannel for Node-only consumers
 
 interface CellStore<T> { get(): T; set(v: T): void }
 interface Channel<T> {
@@ -594,6 +598,36 @@ interface Channel<T> {
   consume({ onEvent, onError }): () => void  // subscribe + dispatch + auto-cleanup
 }
 ```
+
+### Stdio transport (`@kolu/surface/links/stdio`, `@kolu/surface/links/loopback`, `@kolu/surface/peer-server`)
+
+Same typed reactive surface, but over an arbitrary `Readable`/`Writable` pair instead of WebSocket. Headline path: a Node parent spawns an `ssh $host $agent --stdio` subprocess and talks to it as if it were local. Used by `packages/surface/example/remote-process-monitor/` to bridge a browser to a `/proc` reader running on another machine; the same shape is what Kolu R-2's `RemoteTerminalBackend` will use for remote terminals.
+
+```ts
+// Client (parent process)
+createStdioCellsClient<C>({ read, write }): ContractRouterClient<C, ClientRetryPluginContext>
+new StdioRPCLink<T>({ read, write, ...standardRPCLinkOptions })   // for custom client construction
+
+// Server (agent process)
+serveOverStdio({
+  router,                          // see "Router wrapping" note below — must be `implement(contract).router({...fragment.router})`
+  transport?: { read, write },     // defaults to process.stdin / process.stdout
+  handlerOptions?,                 // forwarded to StandardRPCHandler
+  onFirstRequest?: () => void,     // lifecycle hook — fires once after the first inbound frame decodes
+}): Promise<void>                  // resolves when the read stream ends
+
+// In-process loopback (tests / "local backend wrapped in remote client shape")
+createLoopbackPair(): {
+  client: { read: PassThrough; write: PassThrough };
+  server: { read: PassThrough; write: PassThrough };
+}
+```
+
+**Router wrapping (footgun).** `implementSurface` returns a router *fragment* shaped `{ surface: <namespaces> }`. Passing that fragment straight to `serveOverStdio` or `RPCHandler` produces a double prefix in the matcher tree (`/surface/surface/<key>`), so every client request 404s. Wrap once with `implement(surface.contract).router({...fragment.router})` (re-exported as `implement` from `@kolu/surface/peer-server`) before handing the router to the transport. Pinned by `implementSurface.test.ts`.
+
+**Stdout is the protocol channel.** When `transport` is unset, `process.stdout` carries base64+newline-framed peer messages — a stray `console.log` or pino write to fd 1 corrupts the next frame and the parent peer dies with `SyntaxError: Unexpected token '«'`. `serveOverStdio` defensively redirects `console.log` to `process.stderr` for the default-transport case; consumers that use other loggers (pino, winston) must route them to fd 2 themselves. The `--broken-stdout-log` variant in the remote-process-monitor agent reproduces this failure mode for the regression test.
+
+**Why base64+newline framing?** ssh stdin/stdout is a raw byte stream with no message boundaries. Base64 produces ASCII bytes that never contain `\n`, then we append a newline per frame — a line-buffered reader decodes back to the original `Uint8Array` the peer codec consumes. No length prefix, no out-of-band escape rules; the framing fits in 20 lines on each side.
 
 `pollOnEvent` is the underlying snapshot+install+re-read helper, exposed for advanced cases. Most poll-shape streams should use the declarative `{ read, install, isEqual }` form on `implementSurface(...).streams.<key>` (above) — the framework synthesizes the `pollOnEvent` call.
 

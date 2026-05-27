@@ -35,3 +35,43 @@ Feature: Mobile soft keyboard
     And I tap the mobile key "enter"
     Then the active terminal should show "soft-recall-marker" 3 times
     And there should be no page errors
+
+  @mobile
+  Scenario: Tapping the terminal focuses xterm without a contenteditable focus shuffle
+    # Regression guard for the iOS focus-shuffle bug (#448 / Terminal.tsx
+    # pointerdown fix): .xterm-screen must never receive a focus event during
+    # the tap — that's the smoking gun for the shuffle iOS uses to reject the
+    # soft keyboard.
+    When I tap the terminal canvas
+    Then the xterm contenteditable screen should never have been focused
+    And xterm's helper textarea should be the active element
+    And there should be no page errors
+
+  @mobile
+  Scenario: Touch-scrolling the terminal does not summon the soft keyboard
+    # The pointerdown→focus pattern that unstuck the iOS keyboard would also
+    # fire at scroll-start — every swipe popped the keyboard mid-read. Defer
+    # the focus call to pointerup, gated on a tap-sized movement threshold:
+    # taps still summon the keyboard; scrolls don't.
+    When I touch-scroll inside the terminal canvas
+    Then xterm's helper textarea should not have been focused by the scroll
+    And there should be no page errors
+
+  @mobile
+  Scenario: A canceled gesture clears state so a trailing pointerup does not focus
+    # The pointercancel branch in the tap handler clears activeTap so a
+    # later pointerup (system-cancelled gesture, browser-glitch sequence)
+    # can't slip through and focus the textarea on its way past — popping
+    # the soft keyboard with nothing behind it.
+    When I cancel a pointer gesture on the terminal canvas mid-tap
+    Then xterm's helper textarea should not have been focused by the canceled gesture
+    And there should be no page errors
+
+  @mobile
+  Scenario: App root tracks visualViewport.height so the keyboard doesn't overlap the terminal
+    # iOS Safari overlays the soft keyboard on top of the layout viewport;
+    # `100dvh` doesn't shrink. useVisualViewportHeight sets `--app-h` on
+    # <html> so `var(--app-h, 100dvh)` on the App root tracks the visible
+    # area. Wire-check: --app-h must be populated after mount.
+    Then the --app-h CSS variable should match visualViewport.height
+    And there should be no page errors

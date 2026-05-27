@@ -14,6 +14,14 @@ const cliHasFeatureArgs = process.argv
 // `CUCUMBER_TAGS='@skip'` runs only skipped scenarios for local development.
 const tags = process.env.CUCUMBER_TAGS || "not @skip";
 
+// Scenario-level retry budget. Defaults to 0 (off) so local `just
+// test-quick` surfaces real failures on the first attempt — only CI sets
+// `CUCUMBER_RETRY=1` to absorb residual darwin-runner-load flakes after
+// the structural fixes in #955. Distinct volatility axis from
+// `support/hooks.ts::retryTransient`, which retries TCP-setup hiccups
+// only; the two coexist.
+const retry = parseInt(process.env.CUCUMBER_RETRY || "0", 10);
+
 export const ui = {
   ...(!cliHasFeatureArgs && { paths: ["features/**/*.feature"] }),
   import: ["step_definitions/**/*.ts", "support/**/*.ts"],
@@ -22,6 +30,7 @@ export const ui = {
   format: ["progress-bar", "pretty:/dev/stderr", "html:reports/report.html"],
   formatOptions: { snippetInterface: "async-await" },
   ...(parallel > 1 && { parallel }),
+  ...(retry > 0 && { retry }),
 };
 
 export default {};

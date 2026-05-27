@@ -58,6 +58,7 @@ function makeInfo(
     subCount: 0,
     repoColor: "oklch(0.75 0.14 20)",
     branchColor: "oklch(0.75 0.14 140)",
+    annotationColor: "oklch(0.75 0.14 140)",
     key: {
       group: meta.git?.repoName ?? "nogit",
       label: meta.git?.branch ?? meta.cwd,
@@ -191,6 +192,7 @@ describe("buildDockModel", () => {
           url: "https://github.com/juspay/kolu/pull/828",
           state: "open",
           checks: "pending",
+          checkRuns: [],
         },
       },
     }),
@@ -230,9 +232,13 @@ describe("buildDockModel", () => {
   });
 
   it("routes stale entries into the Idle column regardless of agent state", () => {
-    // Seed t1 (awaiting) and t3 (none) with lastActivityAt=1 so the
-    // classifier marks them parked; t2 and t4 stay at the default (0)
-    // and remain live.
+    // Stale-awaiting agents (laptop slept past the window) belong in
+    // Idle — the activity-window selector must actually compress them
+    // out of the Awaiting column, or it has no effect on the wall-of-
+    // yesterday's-cards problem it exists to solve. Identity for those
+    // entries is preserved at the *render* layer (`QuietRowBody` paints
+    // the AgentIndicator when `meta.agent` is set), not by promoting
+    // them back into the Awaiting bucket here.
     const seeded = entries.map((entry) =>
       entry.id === "t1" || entry.id === "t3"
         ? {
@@ -248,18 +254,20 @@ describe("buildDockModel", () => {
       idleClassifier: (lastActivityAt) =>
         lastActivityAt === 1 ? "4h-12h" : null,
     });
-    // Idle leads — picks up t1 (was awaiting) and t3 (was none).
+    // t1 (was awaiting) AND t3 (was no-agent) both route to Idle.
     expect(m.columns[0]?.entries.map((e) => e.id).sort()).toEqual(["t1", "t3"]);
-    // Awaiting now empty — t1 routed to Idle.
+    // Awaiting column empties — the t1 waiter compressed into Idle.
     expect(m.columns[1]?.entries).toHaveLength(0);
-    // Working still holds t2.
     expect(m.columns[2]?.entries.map((e) => e.id)).toEqual(["t2"]);
-    // No agent shrinks to t4 (lastActivityAt === 0 → classifier returns
-    // null → stays).
     expect(m.columns[3]?.entries.map((e) => e.id)).toEqual(["t4"]);
-    // Each entry knows its bucket so consumers don't re-derive it.
     expect(m.entries.find((e) => e.id === "t1")?.bucket).toBe("idle");
     expect(m.entries.find((e) => e.id === "t3")?.bucket).toBe("idle");
+    // The agent metadata survives the bucket move — render-layer
+    // consumers (QuietRowBody, MobileDockDrawer) read this to paint
+    // the AgentIndicator on parked rows.
+    expect(m.entries.find((e) => e.id === "t1")?.info.meta.agent?.state).toBe(
+      "waiting",
+    );
   });
 
   it("groups Idle entries by age into the 4-rung sub-bucket ladder", () => {

@@ -1,27 +1,13 @@
-import type {
-  AgentInfo,
-  TerminalId,
-  TerminalMetadata,
-} from "kolu-common/surface";
-import { match } from "ts-pattern";
+import type { AgentInfo, TerminalId } from "kolu-common/surface";
 import {
   type IdleBucket,
   IDLE_BUCKETS,
   type IdleBucketKey,
 } from "../terminal/activityWindow";
+import { isAttentionState, isWorkingState } from "../terminal/agentState";
 import type { TerminalDisplayInfo } from "../terminal/terminalDisplay";
 import type { TileLayout } from "./TileLayout";
 import { matchesAllTokens, tokenize } from "../search";
-
-type ResolvedPr = (TerminalMetadata["pr"] & { kind: "ok" })["value"];
-
-/** Narrow the PR carrier to its resolved value, or null for the
- *  unresolved kinds (`absent`/`pending`/`unavailable`). The single
- *  definition of "PR is resolved" — every surface reads through this
- *  so a future kind added to the union forces one edit, not three. */
-export function resolvedPr(pr: TerminalMetadata["pr"]): ResolvedPr | null {
-  return pr.kind === "ok" ? pr.value : null;
-}
 
 /** Live-terminal source row before a presentation-specific order is applied. */
 export interface DockSourceEntry {
@@ -209,24 +195,28 @@ export type DockModel = {
 export function agentBucket(
   agent: AgentInfo | null | undefined,
 ): Exclude<AgentBucketKind, "idle"> {
-  // The `waiting | awaiting_user` pair is the same equivalence class
-  // surfaced runtime-side by `isAttentionState` in `agentDisplay.ts` —
-  // ts-pattern is used here instead so `.exhaustive()` flags any future
-  // state literal that lands in `AgentInfo["state"]` without a bucket.
-  return match(agent?.state)
-    .with(undefined, () => "none" as const)
-    .with("waiting", "awaiting_user", () => "awaiting" as const)
-    .with("thinking", "tool_use", () => "working" as const)
-    .exhaustive();
+  const state = agent?.state;
+  if (state === undefined) return "none";
+  if (isAttentionState(state)) return "awaiting";
+  if (isWorkingState(state)) return "working";
+  // Exhaustiveness fence: AgentInfo["state"] partitions cleanly into
+  // attention + working today. Any future state literal added to the
+  // schema must join one predicate (or earn its own bucket) — `state
+  // satisfies never` compile-fails here until it does.
+  state satisfies never;
+  return "none";
 }
 
 /** Classify a terminal into a switcher column. Parked terminals (last
- *  agent transition older than the auto-park threshold, surfaced via the
- *  idle classifier as a non-null sub-bucket key) route to "idle"
+ *  agent transition older than the activity-window threshold, surfaced via
+ *  the idle classifier as a non-null sub-bucket key) route to "idle"
  *  regardless of current agent state — the unified mental model is
- *  "anything parked goes to one place". A `null` classifier result keeps
- *  the entry on its agent-state column; the classifier itself is what
- *  enforces the `lastActivityAt === 0` plain-shell exclusion. */
+ *  "anything past the threshold goes to one place." Identity for stale-
+ *  but-still-awaiting agents is preserved at the *render* layer
+ *  (`QuietRowBody` paints `AgentIndicator` when `meta.agent` is set).
+ *  A `null` classifier result keeps the entry on its agent-state column;
+ *  the classifier itself is what enforces the `lastActivityAt === 0`
+ *  plain-shell exclusion. */
 export function entryBucket(
   info: TerminalDisplayInfo,
   idleClassifier?: (lastActivityAt: number) => IdleBucketKey | null,

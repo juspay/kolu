@@ -15,11 +15,32 @@ import type { Browser, BrowserContext, Locator, Page } from "playwright";
 // them without `(window as any)` / `(this as any)` casts.
 import "kolu-common/test-hooks";
 
-setDefaultTimeout(30_000);
-
-const READY_TIMEOUT = 20_000;
-/** Shared timeout for element polling (waitFor / waitForFunction). Generous for darwin CI under load. */
+/** Per-step / per-hook budget for interaction polls — `waitFor` /
+ *  `waitForFunction` against a settled UI. Most step definitions reach
+ *  for this. */
 export const POLL_TIMEOUT = 20_000;
+
+/** Per-step budget for *hydration* polls — waiting for the app to mount
+ *  enough state that interaction is meaningful (server WS up, savedSession
+ *  reflected, file-tree populated). The hydration axis is volatile
+ *  separately from interaction: a loaded darwin runner can take 30 s+ for
+ *  the Pierre file tree to flip from empty to populated (branch mode +
+ *  server-side `git status` round-trip), but the *first* interaction
+ *  after that lands in ~200 ms. Splitting the constants keeps one slow
+ *  axis from forcing the rest of the suite to wait. Generous margin
+ *  here is on purpose — empirically the slow path hits 30 s on the
+ *  darwin CI runner, and the safety-net Cucumber retry only absorbs
+ *  one re-run per scenario. */
+export const HYDRATION_TIMEOUT = 60_000;
+
+const READY_TIMEOUT = HYDRATION_TIMEOUT;
+
+/** Cucumber outer-kill timeout. Derived so the relationship
+ *  `POLL_TIMEOUT < HYDRATION_TIMEOUT < setDefaultTimeout` is structural —
+ *  bumping either inner constant cannot silently make the outer envelope
+ *  too tight to surface the inner timeout's real error message. */
+const STEP_GUARD = 10_000;
+setDefaultTimeout(Math.max(POLL_TIMEOUT, HYDRATION_TIMEOUT) + STEP_GUARD);
 export const MOD_KEY = process.platform === "darwin" ? "Meta" : "Control";
 
 /** Locator for the app's settled state: either a visible terminal screen or the empty state tip. */
@@ -158,10 +179,36 @@ export class KoluWorld extends World {
     });
   }
 
-  /** Wait for the app to reach a stable state (restored terminals or empty state). */
-  async waitForSettled(timeout = READY_TIMEOUT) {
+  /** Wait for the app to reach a stable state (restored terminals or
+   *  empty state).
+   *
+   *  Pass `onTick` to drive a side effect (re-POST, `utimesSync` re-touch,
+   *  WAL nudge) on every poll iteration — the same self-heal pattern that
+   *  `pollFor` in `support/poll.ts` exposes. Used by step definitions that
+   *  race a server-side hydration effect against test fixtures (see
+   *  `session_restore_steps.ts`). */
+  async waitForSettled(
+    timeout = READY_TIMEOUT,
+    onTick?: () => void | Promise<void>,
+  ) {
     const settled = this.page.locator(SETTLED_SELECTOR);
-    await settled.first().waitFor({ state: "visible", timeout });
+    if (!onTick) {
+      await settled.first().waitFor({ state: "visible", timeout });
+      return;
+    }
+    const deadline = Date.now() + timeout;
+    while (Date.now() < deadline) {
+      if (
+        await settled
+          .first()
+          .isVisible()
+          .catch(() => false)
+      )
+        return;
+      await onTick();
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    await settled.first().waitFor({ state: "visible", timeout: 500 });
   }
 
   /** Wait for the app to settle, creating a terminal if empty state is shown. */

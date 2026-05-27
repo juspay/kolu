@@ -226,10 +226,13 @@ Each `Agent` prompt must be self-contained (sub-agents do not inherit this conve
 
 - The full task prompt plus anything relevant that **research** uncovered (file paths, intended approach, key constraints)
 - The scope to analyze: the actual diff, `git diff origin/HEAD...HEAD` — this is the same scope regardless of entry point (default or followup), since the branch at this point holds the primary feature commit (plus any cumulative followup commits) and no further work is pending
+- **Duplication-audit hint**, when the diff adds new files — check with `git diff --diff-filter=A --name-only origin/HEAD...HEAD` and only include the hint if the output is non-empty. The hint tells the reviewer to start with the codebase survey their skill describes (`hickey` Layer 3, `lowy` §1 "Check for prior encapsulation"): find the canonical in-repo pattern for the same *kind* of operation (picker, dialog, popover, list view, list-edit primitive, scheduler, error type, config loader, fetcher, …) and flag it as the headline finding if the diff reinvents rather than extends it. Skip the hint entirely when the diff has no new files — pure refactors and bug fixes inside existing abstractions don't benefit from the survey and the audit budget isn't worth it there.
 
 The sub-agent already knows to read its skill file and follow that methodology; don't re-state it in the prompt.
 
 **Do not seed structural questions.** The implementer's prompt must NOT include pre-formed questions like _"Is module X the right home for function Y?"_, _"Does the new field complect concerns A and B?"_, or _"Should constructor C be a sum?"_ — that framing shopping-lists the answer and produces circular reasoning at the reviewer (e.g. "primary consumer of `logPathFor` is `CommitStatus`" — true only because the implementer placed it there). Hickey and Lowy each have their own methodologies for generating findings; the reviewer reads the diff cold and surfaces what its lens shows. Anything beyond "here's the diff and the change rationale" is implementer bias bleeding into the review. If a specific concern feels worth flagging to the reviewer, that's evidence the implementer already smelled the problem — fix it in the diff before sending it to review, not by routing the question through a sub-agent for permission.
+
+The **duplication-audit hint** above is the one allowed exception: it's a meta-process reminder (run the survey your skill describes), not a seeded finding about *this* diff. It points the reviewer at the codebase, not at a specific concern within the diff — that's the line. If the diff doesn't add new files, drop the hint and let the lens run unprimed.
 
 **Model selection lives in the skill, not here.** Both `hickey/SKILL.md` and `lowy/SKILL.md` declare `model: sonnet` in their frontmatter — Claude Code honors this and runs the review on Sonnet to keep the per-task cost cheap; opencode/Codex ignore the field (it isn't part of the Agent Skills standard) and fall through to the active model, which is the right behavior for harnesses that don't have Sonnet. Don't pass `model:` at the `Agent` tool level — the skill frontmatter is the single source of truth.
 
@@ -337,10 +340,11 @@ Check whether a PR already exists for this branch (`gh pr view`).
    ```md
    ## [Hickey/Lowy](https://kolu.dev/blog/hickey-lowy/) Analysis
 
-   | # | Lens   | Finding                                  | Disposition       |
-   |---|--------|------------------------------------------|-------------------|
-   | 1 | Hickey | viewportDimensions complects two roles   | Fixed in this PR  |
-   | 2 | Lowy   | useViewport encapsulates ghost concern   | Fixed in this PR  |
+   | # | Lens   | Finding                                  | Disposition         |
+   |---|--------|------------------------------------------|---------------------|
+   | 1 | Hickey | viewportDimensions complects two roles   | Fixed in this PR    |
+   | 2 | Lowy   | useViewport encapsulates ghost concern   | Fixed in this PR    |
+   | 3 | Lowy   | clipboard.ts named after a consumer      | ⚠️ **No-op**        |
 
    ### Hickey rationale
    <prose from the hickey sub-agent>
@@ -349,7 +353,7 @@ Check whether a PR already exists for this branch (`gh pr view`).
    <prose from the lowy sub-agent>
    ```
 
-   The Disposition cell mirrors the sub-agent's Actions disposition verbatim — **Fixed in this PR** or **No-op** (deletion-only / subsumed by another finding). There is no Deferred disposition; if a sub-agent emitted one, the audit step above flipped it to Fixed in this PR. The Finding cell is the short bolded label the sub-agent emits at the start of each Actions entry. If both lenses produced zero findings, write a one-line "No findings — analysis below" instead of an empty table.
+   The Disposition cell mirrors the sub-agent's Actions disposition verbatim — **Fixed in this PR** or **No-op** (deletion-only / subsumed by another finding). **Render every No-op as `⚠️ **No-op**`** (warning emoji + bold) so the reviewer's eye lands on it; No-op rows are the ones a human most needs to scrutinize (a finding the reviewer acknowledged but didn't fix), and plain text lets them blend into the Fixed-in-this-PR rows above. There is no Deferred disposition; if a sub-agent emitted one, the audit step above flipped it to Fixed in this PR. The Finding cell is the short bolded label the sub-agent emits at the start of each Actions entry. If both lenses produced zero findings, write a one-line "No findings — analysis below" instead of an empty table.
 
 **If PR already exists** (followup runs, `--from` entry points):
 

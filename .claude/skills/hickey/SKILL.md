@@ -63,8 +63,10 @@ Hickey: _"Be particularly careful not to be fooled by code organization. There a
 For each new abstraction (component, module, signal, type) the code introduces:
 
 1. **Name what it represents at the domain level**, not the implementation level.
-2. **Search for existing abstractions serving the same domain concept.** If one exists, extending it is the default — not creating a parallel one.
+2. **Survey the codebase for the canonical in-repo pattern for the same *kind* of operation** — not just the same domain concept. If the diff adds a picker, find every other "pick a thing" surface in the project. If it adds a dialog or popover, find every other modal/overlay surface. If it adds a non-UI primitive (scheduler, error type, config loader, fetcher, state container), find the project's existing instance of that primitive kind. The implementer's "this is a new domain concept" framing is an easiness judgment; the *kind of operation* is the simplicity question. **When the canonical pattern exists and the diff reinvents it rather than extends it, surface that as the headline finding — before any micro-level critique inside the new abstraction.**
 3. **"Mirror existing pattern" is an easiness judgment, not a simplicity judgment.** Creating ComponentB because ComponentA exists and looks similar adds a concept. Extending ComponentA keeps concept count flat.
+
+**Budget heuristic.** The codebase survey in step 2 is worth its cost when the diff introduces a new top-level abstraction — typically signalled by new files added (`git diff --diff-filter=A --name-only origin/HEAD...HEAD` is non-empty) or a new exported component / module / type. Pure refactors, bug fixes, and line-level edits inside an existing abstraction don't trigger the survey.
 
 Two abstractions serving one user-level concern = accidental concept multiplication, even if each is internally clean. The structural layers below won't catch this — they check _within_ abstractions, not _across_ them.
 
@@ -90,6 +92,7 @@ Scan for known structural patterns plus **any additional patterns the project ha
 | Conditionals scattered across code | One decision braided across many sites | Rules, declarative policies, lookup tables |
 | Callbacks/closures over mutable state | Control flow + state + time | Streams, queues, immutable values |
 | Hand-rolled utility (tokenizer, parser, walker, normalizer, state machine, date/semver/URL helper, CLI arg parser) when a focused library solves the exact problem | *Scope decision* (how much to implement) with *implementation choice* (write it yourself) | Use the library. Hand-roll only when the library adds surface area you actively don't want, not when it would save you writing code you'd otherwise own. "Zero deps" is an easiness judgment dressed as a simplicity judgment — code you don't own is genuinely simpler than code you do own: it doesn't accumulate private test fixtures, it doesn't bitrot when requirements shift, and its edge cases are someone else's problem to fix. |
+| New abstraction (component, primitive, module) reimplementing an **in-repo canonical pattern** for the same *kind* of operation (picker, dialog, popover, list view, list-edit primitive, scheduler, error type, config loader, fetcher) | *Scope decision* (this is a new affordance) with *placement choice* (build it standalone) — when the project already has a canonical receptacle for this kind of operation | Reuse / extend the canonical pattern. The implementer's "different domain, so different abstraction" framing is easiness; the *kind of operation* is the simplicity bar. Surface this as the headline finding before any micro-level critique inside the new abstraction. **Detection**: run the Layer 3 codebase survey when the diff adds a new file or new top-level abstraction (`git diff --diff-filter=A --name-only origin/HEAD...HEAD` is non-empty). A standalone abstraction is justified only when the canonical pattern can't be extended without complecting two genuinely independent volatility axes — "the canonical one is shaped for a different domain" alone is not justification. |
 
 **Fragmentation patterns (things-that-belong-together split apart)**
 
@@ -163,8 +166,9 @@ After completing all layers, **invoke `/fact-check` on your own output**. The fa
 - _"we agree to update both"_ / _"we remember to clear X when Y changes"_ — discipline is not a type system.
 - _"lift X to be shared"_ — if you're lifting X to make it shared, X wants to *be* shared at its home, not projected from elsewhere.
 - _"X is the natural home for Y"_ / _"Y's primary consumer is X"_ / _"X already imports the surrounding context, so Y belongs there"_ — these are circular if Y currently lives in X. Run the alternative-placement test from the Layer 4 fragmentation catalog: name each module that consumes Y, place Y in each one in turn, compare which placement leaves the more cohesive module behind. "Primary consumer" determined without trying the alternatives is the question you stopped before answering.
+- _"the existing X is shaped for a different domain, so we need a new one"_ / _"this is a new kind of [picker/dialog/scheduler/error]"_ — "different domain, same *kind* of operation" is concept multiplication, not domain divergence. Run the Layer 3 codebase survey for the *kind* of operation (every other picker, every other dialog, every other instance of this primitive) before accepting the framing. The implementer anchored on the diff; the lens has to anchor on the canonical in-repo pattern.
 
-These catch fragmentation (Layer 2) and placement misses (Layer 4) that the reviewer glossed over. The prosecutor stance applies equally to findings never made and findings made-then-dismissed.
+These catch fragmentation (Layer 2), concept multiplication missed under diff-anchoring (Layer 3), and placement misses (Layer 4) that the reviewer glossed over. The prosecutor stance applies equally to findings never made and findings made-then-dismissed.
 
 If fact-check finds issues with your evaluation, revise before presenting to the user.
 

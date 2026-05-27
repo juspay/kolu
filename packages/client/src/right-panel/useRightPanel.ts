@@ -1,14 +1,35 @@
-/** Right panel state — singleton module. Tracks collapsed, size, active tab
- *  (`"inspector" | "code"`), and the last-used code-mode (restored on
- *  Inspector→Code toggle). Persisted via server preferences under
- *  `preferences.rightPanel`. Defaults to collapsed with the Inspector tab. */
+/** Right panel state — singleton module.
+ *
+ *  Three storage layers because the right panel has three volatilities:
+ *
+ *  - **Workspace chrome** (collapsed, size, codeTabTreeSize) lives on
+ *    `preferences.rightPanel` — global to the user, set once and forgotten.
+ *    Drives the desktop Resizable's collapsed/expanded geometry.
+ *  - **Mobile drawer open state** is session-local, NOT persisted. Dismissing
+ *    the bottom-drawer host on a phone is an ephemeral gesture; persisting
+ *    it into account prefs would mean the next desktop session opens with
+ *    the panel collapsed for reasons the user never expressed on desktop.
+ *  - **Per-terminal task state** (activeTab, codeMode, per-mode selected
+ *    file) lives in an in-memory store keyed by terminal id; mutations
+ *    push to the server via `client.terminal.setRightPanel`, which writes
+ *    `TerminalMetadata.rightPanel` for session restore. Pattern mirrors
+ *    `useSubPanel.ts` exactly.
+ *
+ *  Callers read/write for the *active* terminal — the API is parameterless,
+ *  resolving the current terminal id from `useTerminalStore` internally. */
 
 import {
   type CodeTabView,
+  DEFAULT_RIGHT_PANEL_PER_TERMINAL,
+  type RightPanelPerTerminalState,
   type RightPanelTab,
+  type TerminalId,
   rightPanelView,
 } from "kolu-common/surface";
-import { preferences, updatePreferences } from "../wire";
+import { createSignal } from "solid-js";
+import { createStore, produce } from "solid-js/store";
+import { useTerminalStore } from "../terminal/useTerminalStore";
+import { client, preferences, updatePreferences } from "../wire";
 
 const MIN_PANEL_SIZE = 0.05;
 /** Lower bound for the Code-tab vertical split — keep the tree and content
@@ -17,59 +38,79 @@ const MIN_PANEL_SIZE = 0.05;
 const MIN_TREE_SIZE = 0.1;
 const MAX_TREE_SIZE = 0.9;
 
+const [perTerminal, setPerTerminal] = createStore<
+  Record<TerminalId, RightPanelPerTerminalState>
+>({});
+
+/** Session-local visibility of the mobile bottom-drawer host. Distinct from
+ *  the persisted `preferences.rightPanel.collapsed` bit so dismissing the
+ *  drawer on mobile doesn't cross-contaminate the desktop chrome preference.
+ *  `RightPanelLayout`'s mobile branch owns the open/close gestures; the
+ *  desktop branch ignores this signal entirely. */
+const [drawerOpen, setDrawerOpen] = createSignal(false);
+
+function ensureState(id: TerminalId): void {
+  if (perTerminal[id]) return;
+  setPerTerminal(id, { ...DEFAULT_RIGHT_PANEL_PER_TERMINAL });
+}
+
+function reportToServer(id: TerminalId): void {
+  const s = perTerminal[id];
+  if (!s) return;
+  void client.terminal
+    .setRightPanel({
+      id,
+      activeTab: s.activeTab,
+      codeMode: s.codeMode,
+      selectedFileByMode: s.selectedFileByMode,
+    })
+    .catch((err: Error) =>
+      console.error("useRightPanel: setRightPanel RPC failed", err),
+    );
+}
+
 export function useRightPanel() {
+  const store = useTerminalStore();
   const rp = () => preferences().rightPanel;
 
+  /** Read the per-terminal record for the active terminal, falling back
+   *  to defaults when no terminal is active or the terminal has no record
+   *  yet. The returned object is read-only — write through the mutators. */
+  function activeState(): RightPanelPerTerminalState {
+    const id = store.activeId();
+    if (id === null) return DEFAULT_RIGHT_PANEL_PER_TERMINAL;
+    return perTerminal[id] ?? DEFAULT_RIGHT_PANEL_PER_TERMINAL;
+  }
+
+  /** Mutate the active terminal's per-terminal record. No-op when no
+   *  terminal is active — clicks on the panel before a terminal exists
+   *  are dropped silently.
+   *
+   *  Accepts either a shallow patch (`Partial<RightPanelPerTerminalState>`)
+   *  or a producer function for nested updates (e.g. mutating one key in
+   *  `selectedFileByMode`). Both paths share the same `ensureState →
+   *  setStore → reportToServer` triplet so future contract changes
+   *  (client-side equality gate, telemetry) land in one place. */
+  function mutateActive(
+    update:
+      | Partial<RightPanelPerTerminalState>
+      | ((s: RightPanelPerTerminalState) => void),
+  ): void {
+    const id = store.activeId();
+    if (id === null) return;
+    ensureState(id);
+    if (typeof update === "function") {
+      setPerTerminal(id, produce(update));
+    } else {
+      setPerTerminal(id, update);
+    }
+    reportToServer(id);
+  }
+
   return {
+    // ── Workspace chrome (global) ────────────────────────────────────
     collapsed: () => rp().collapsed,
     panelSize: () => rp().size,
-    /** DU view of the active tab — `{ kind: "inspector" }` or
-     *  `{ kind: "code", mode }`. Matches `match(...).with(...).exhaustive()`. */
-    activeTab: (): RightPanelTab => rightPanelView(rp()),
-    /** Persisted Code-tab sub-mode regardless of which tab is active.
-     *  CodeTab needs the mode even when the user has flipped over to
-     *  Inspector — selection / filter state is keyed by it, and the
-     *  fallback behaviour of reading `activeTab` would mask a "browse"
-     *  selection as "local" while Inspector is active and trigger a
-     *  spurious reset on the round-trip back. */
-    codeMode: (): CodeTabView => rp().codeMode,
-    /** Switch to Inspector. `codeMode` is preserved so toggling back to Code
-     *  restores the user's last sub-mode. */
-    showInspector: () =>
-      updatePreferences({ rightPanel: { activeTab: "inspector" } }),
-    /** Switch to Code tab. When `mode` is omitted, the persisted `codeMode`
-     *  is used — this is the round-trip case (Inspector→Code restores the
-     *  last view). Pass `mode` explicitly to override. */
-    showCode: (mode?: CodeTabView) =>
-      updatePreferences({
-        rightPanel: {
-          activeTab: "code",
-          ...(mode !== undefined && { codeMode: mode }),
-        },
-      }),
-    /** Atomic "open the Code tab at `mode`" — uncollapse the panel,
-     *  switch to Code, set the requested sub-mode. Single preferences
-     *  patch so the UI ticks once instead of three times when callers
-     *  need all three transitions together. Skips the patch when the
-     *  panel is already in the target state (every diff→browse and
-     *  browse→browse `openInCodeTab` would otherwise round-trip a
-     *  three-field preferences write to the server). */
-    openCodeAt: (mode: CodeTabView) => {
-      const cur = rp();
-      if (!cur.collapsed && cur.activeTab === "code" && cur.codeMode === mode) {
-        return;
-      }
-      updatePreferences({
-        rightPanel: {
-          collapsed: false,
-          activeTab: "code",
-          codeMode: mode,
-        },
-      });
-    },
-    /** Change the sub-mode within the Code tab. */
-    setCodeMode: (mode: CodeTabView) =>
-      updatePreferences({ rightPanel: { codeMode: mode } }),
     togglePanel: () =>
       updatePreferences({ rightPanel: { collapsed: !rp().collapsed } }),
     collapsePanel: () => updatePreferences({ rightPanel: { collapsed: true } }),
@@ -84,6 +125,87 @@ export function useRightPanel() {
       if (size >= MIN_TREE_SIZE && size <= MAX_TREE_SIZE) {
         updatePreferences({ rightPanel: { codeTabTreeSize: size } });
       }
+    },
+
+    // ── Mobile drawer (session-local) ────────────────────────────────
+    /** Whether the mobile bottom-drawer host is open. Only meaningful on
+     *  mobile — desktop reads `collapsed()` instead. Not persisted. */
+    drawerOpen,
+    setDrawerOpen,
+
+    // ── Per-terminal task state ──────────────────────────────────────
+    /** DU view of the active tab — `{ kind: "inspector" }` or
+     *  `{ kind: "code", mode }`. Matches `match(...).with(...).exhaustive()`. */
+    activeTab: (): RightPanelTab => rightPanelView(activeState()),
+    /** Persisted Code-tab sub-mode regardless of which tab is active.
+     *  CodeTab needs the mode even when the user has flipped over to
+     *  Inspector — selection / filter state is keyed by it, and the
+     *  fallback behaviour of reading `activeTab` would mask a "browse"
+     *  selection as "local" while Inspector is active and trigger a
+     *  spurious reset on the round-trip back. */
+    codeMode: (): CodeTabView => activeState().codeMode,
+    /** Switch to Inspector. `codeMode` is preserved so toggling back to Code
+     *  restores the user's last sub-mode. */
+    showInspector: () => mutateActive({ activeTab: "inspector" }),
+    /** Switch to Code tab. When `mode` is omitted, the persisted `codeMode`
+     *  is used — this is the round-trip case (Inspector→Code restores the
+     *  last view). Pass `mode` explicitly to override. */
+    showCode: (mode?: CodeTabView) =>
+      mutateActive({
+        activeTab: "code",
+        ...(mode !== undefined && { codeMode: mode }),
+      }),
+    /** Atomic "set the Code tab at `mode`" — switch to Code, set the
+     *  requested sub-mode. Does NOT touch visibility (collapsed pref or
+     *  drawer-open signal); the host (`RightPanelLayout`) watches the
+     *  paired `pendingOpen` signal seeded by `openInCodeTab` and ensures
+     *  the surface is visible per its own semantics (desktop expand vs.
+     *  mobile drawer open). Keeping visibility out of this function is
+     *  what lets one persisted bit live on the desktop side without
+     *  mobile gestures polluting it.
+     *
+     *  Short-circuits when the tab+mode is already current — every
+     *  diff→browse and browse→browse `openCodeAt` would otherwise
+     *  round-trip an idempotent write to the server. */
+    openCodeAt: (mode: CodeTabView) => {
+      const cur = activeState();
+      if (cur.activeTab === "code" && cur.codeMode === mode) return;
+      mutateActive({ activeTab: "code", codeMode: mode });
+    },
+    /** Change the sub-mode within the Code tab. */
+    setCodeMode: (mode: CodeTabView) => mutateActive({ codeMode: mode }),
+
+    /** Per-mode file selection — repo-relative path, or null when no file
+     *  is selected in this mode. Keyed by `(activeTerminal, mode)` so each
+     *  terminal remembers its own pick in each of local/branch/browse. */
+    selectedFile: (mode: CodeTabView): string | null =>
+      activeState().selectedFileByMode?.[mode] ?? null,
+    setSelectedFile: (mode: CodeTabView, path: string | null) => {
+      mutateActive((s) => {
+        const cur = s.selectedFileByMode ?? {};
+        if (path === null) {
+          if (!(mode in cur)) return;
+          const { [mode]: _, ...rest } = cur;
+          s.selectedFileByMode =
+            Object.keys(rest).length > 0 ? rest : undefined;
+        } else {
+          if (cur[mode] === path) return;
+          s.selectedFileByMode = { ...cur, [mode]: path };
+        }
+      });
+    },
+
+    // ── Session restore + lifecycle ──────────────────────────────────
+    /** Seed per-terminal state from server data — no report-back to
+     *  server. Called by `useSessionRestore` during hydration and after
+     *  recreating a saved terminal. */
+    seedPanel: (id: TerminalId, state: RightPanelPerTerminalState) => {
+      setPerTerminal(id, state);
+    },
+    /** Clean up state for a terminal that no longer exists. Mirrors
+     *  `useSubPanel.removePanel`. */
+    removePanel: (id: TerminalId) => {
+      setPerTerminal(produce((s) => delete s[id]));
     },
   } as const;
 }

@@ -257,6 +257,50 @@ Then(
 );
 
 Then(
+  "the active dock row should show sub-terminal count {int}",
+  async function (this: KoluWorld, expected: number) {
+    // Poll until data-sub-count reaches the expected value — the reactive
+    // attribute update is async relative to the sub-terminal DOM mounting.
+    await this.page.waitForFunction(
+      (n) =>
+        document
+          .querySelector('[data-testid="dock-row"][data-active]')
+          ?.getAttribute("data-sub-count") === String(n),
+      expected,
+      { timeout: POLL_TIMEOUT },
+    );
+    const chip = this.page.locator(
+      '[data-testid="dock-row"][data-active] [data-testid="dock-sub-count"]',
+    );
+    await chip.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const text = await chip.textContent();
+    assert.ok(
+      text?.includes(`${expected}`),
+      `Expected dock chip to show "${expected}", got "${text}"`,
+    );
+  },
+);
+
+Then(
+  "the active dock row should not show a sub-terminal count",
+  async function (this: KoluWorld) {
+    // Poll until data-sub-count is absent — reactive removal is async.
+    await this.page.waitForFunction(
+      () =>
+        document
+          .querySelector('[data-testid="dock-row"][data-active]')
+          ?.getAttribute("data-sub-count") === null,
+      { timeout: POLL_TIMEOUT },
+    );
+    const chip = this.page.locator(
+      '[data-testid="dock-row"][data-active] [data-testid="dock-sub-count"]',
+    );
+    const count = await chip.count();
+    assert.strictEqual(count, 0, "Expected no dock-sub-count chip");
+  },
+);
+
+Then(
   "the collapsed indicator should be visible",
   async function (this: KoluWorld) {
     // First wait for the tab bar to disappear (confirms collapse state settled)

@@ -1,6 +1,6 @@
 lockfile_version: '1'
-generated_at: '2026-05-14T21:33:28.845405+00:00'
-apm_version: 0.13.0
+generated_at: '2026-05-26T11:30:09.062863+00:00'
+apm_version: 0.14.1
 dependencies:
 - repo_url: anthropics/skills
   host: github.com
@@ -12,6 +12,17 @@ dependencies:
   - .agents/skills/frontend-design
   - .claude/skills/frontend-design
   content_hash: sha256:063a0e6448123cd359ad0044cc46b0e490cc7964d45ef4bb9fd842bd2ffbca67
+- repo_url: juspay/justci
+  host: github.com
+  resolved_commit: 172c86e92560e3889cb1e880bc0f8fa3b5973b6b
+  package_type: apm_package
+  deployed_files:
+  - .agents/skills/ci
+  - .claude/rules/workflow.md
+  - .claude/skills/ci
+  deployed_file_hashes:
+    .claude/rules/workflow.md: sha256:babf61cdd29cfc8f03b3d20f17b4bf13ef5f173dc05640bc83c505dca4b42010
+  content_hash: sha256:844ff355651a612ba41b065a98afc1ffb8d04981ecd67e005ed21040e27e5c8a
 - repo_url: juspay/nix-chrome-devtools-mcp
   host: github.com
   resolved_commit: 9c28516075f1a22e2cfd8986976ccb4b59bc60ed
@@ -42,7 +53,7 @@ dependencies:
   content_hash: sha256:67ff7ce606ad0378af382ad6cb84d9853bf70ec52d6fe40ed6b6f82ecd2c48c3
 - repo_url: srid/agency
   host: github.com
-  resolved_commit: b05ccf8b890ed7350df010d44ed272210cca82cb
+  resolved_commit: d2e2ffd0bb12f99b81d084ceca6bf99bda4b3587
   resolved_ref: master
   package_type: apm_package
   deployed_files:
@@ -83,7 +94,7 @@ dependencies:
     .codex/hooks/agency/scripts/do-stop-guard.sh: sha256:cb033f86c15ffd3d09d8e4b74a61f55a70def4cc4131cc013b7368a2d23f3f33
     .opencode/agents/hickey.md: sha256:10d9a4350a85752dc6658af8e0efb3d8be41803a2b6c73464e3d5b7a840435ad
     .opencode/agents/lowy.md: sha256:05aff7f6a91149a42c1fb9a3ca382a6f77bc39ac8a8d45436d443dd3349fb11e
-  content_hash: sha256:0b9a8edbb00aafa615dcf2a8420f7f5b3057f5306ebcf0faadaa9fd803513258
+  content_hash: sha256:b6cf9bc23f3cb4529a8c3390e38700cf46251eb787543b994941feceb83dc7c7
 mcp_servers:
 - chrome-devtools
 mcp_configs:
@@ -93,7 +104,6 @@ mcp_configs:
     registry: false
     command: .agents/skills/nix-chrome-devtools-mcp/bin/serve
 local_deployed_files:
-- .agents/skills/ci
 - .agents/skills/hk
 - .agents/skills/parcel
 - .agents/skills/perf-diagnose
@@ -110,7 +120,6 @@ local_deployed_files:
 - .claude/rules/state.md
 - .claude/rules/streaming.md
 - .claude/rules/toast-conventions.md
-- .claude/skills/ci
 - .claude/skills/hk
 - .claude/skills/parcel
 - .claude/skills/perf-diagnose
@@ -122,7 +131,7 @@ local_deployed_file_hashes:
   .claude/rules/apm-sources.md: sha256:90626875e2a63e5658f0b5e77524c9c4f949f4ce890bd1f1ce9a2663d4fc8ea7
   .claude/rules/apm-workflow.md: sha256:16f4fed3d8fe9b1e334444b8885443c2ac26963270d3df0f3505075cc3bd604d
   .claude/rules/architecture.md: sha256:0f47ba876432c25a2cd54e3ed7995e8bbbb8b383fe3b790b0b3e252949c18032
-  .claude/rules/conventions.md: sha256:d5db7128cfe0ba1a8a65259f56d180891d4e46a1007c273d73a14e4767349960
+  .claude/rules/conventions.md: sha256:c9f6ab7de674fb0da8b3d29f0e188db0cb67f96df774e270848b18323a12760b
   .claude/rules/e2e-testing.md: sha256:ecac44a197b0e2f73f2a85fc1b79e21b6ef1670275de0a9debdd54de1848f0af
   .claude/rules/nix.md: sha256:1ac0f3738deafba04c3af189c863990809999021f4e9d0e6b38969ec1460acf3
   .claude/rules/solidjs.md: sha256:a5cfe688d4399be719565de823ccacec874b9d2faa01d29897a7b40de1f49367

@@ -1,0 +1,32 @@
+# @kolu/surface notes app — standalone example.
+#
+# Run from this directory: `just dev` boots the in-memory notes server
+# + Vite client exercising all four `@kolu/surface` primitives
+# (cell, collection, stream, event).
+#
+# Uses the root devShell for tooling. Reuses the same IN_NIX_SHELL
+# detection the root justfile does so `just dev` inside `nix develop`
+# skips the re-entry.
+
+repo_root := justfile_directory() / "../../.."
+nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop ' + repo_root + ' --accept-flake-config -c' }
+
+# List available recipes
+default:
+    @just --list
+
+# Install pnpm deps (delegates to the workspace at the repo root)
+install:
+    cd {{ repo_root }} && {{ nix_shell }} pnpm install
+
+# Boot server (:7700) + Vite client (:5174). Open http://localhost:5174
+dev *args: install
+    cd {{ justfile_directory() }} && {{ nix_shell }} pnpm run dev {{ args }}
+
+# Build the static client bundle (vite build → dist/)
+build:
+    cd {{ justfile_directory() }} && {{ nix_shell }} pnpm run build:client
+
+# Typecheck this example only
+typecheck:
+    cd {{ justfile_directory() }} && {{ nix_shell }} pnpm typecheck

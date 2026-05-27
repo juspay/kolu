@@ -99,9 +99,19 @@ Feature: Right panel (inspector)
     And the Code tab should be active
     And there should be no page errors
 
-  @mobile
-  Scenario: Right panel hidden on mobile even when expanded in preferences
-    # Server has collapsed=false (expanded) but mobile viewport should suppress it
+  Scenario: Active tab is per-terminal (each terminal remembers its own)
+    # Terminal 1 (from Background) — switch to Code, leaving terminal 2 untouched
     When I press the toggle inspector shortcut
-    Then the right panel should not be visible
+    Then the right panel should be visible
+    When I click the Code tab
+    Then the Code tab should be active
+    # Create terminal 2 — it should have its own default activeTab (Inspector)
+    When I create a terminal
+    Then the Inspector tab should be active
+    # Switch back to terminal 1 — Code tab should still be active for it
+    When I press the switch to terminal 1 shortcut
+    Then the Code tab should be active
+    # Switch forward to terminal 2 — Inspector again
+    When I press the switch to terminal 2 shortcut
+    Then the Inspector tab should be active
     And there should be no page errors

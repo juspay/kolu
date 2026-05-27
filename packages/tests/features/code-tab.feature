@@ -667,3 +667,158 @@ Feature: Code tab (review + browse)
     Then the file browser should not show a file "pkg/before.ts"
     And the file browser should show a file "pkg/after.ts"
     And the directory "pkg" should be expanded in the file browser
+
+  # Same `--others --exclude-standard` path as the "Creating a file in
+  # an expanded folder" scenario above, but exercises the root-level
+  # untracked-file case (no `git add`, no parent dir to keep open). The
+  # All-files mode must surface a brand-new untracked file on the next
+  # debounced watcher tick — listAll's `--cached --others
+  # --exclude-standard` minus `--deleted` is what makes this work.
+  Scenario: New untracked file at the repo root appears live in All files
+    When I run "rm -rf /tmp/kolu-untracked-root && git init /tmp/kolu-untracked-root && cd /tmp/kolu-untracked-root"
+    And I run "git commit --allow-empty -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    When I click the terminal canvas
+    And I run "printf 'hello\n' > untracked.txt"
+    Then the file browser should show a file "untracked.txt"
+
+  # ── Comments on files (#881) ──
+  #
+  # End-to-end coverage of the select → pill → composer → tray → copy
+  # flow. Selection is driven by walking Pierre's shadow DOM to find
+  # the target text node, then calling `Selection.addRange` directly
+  # (Chromium fires `selectionchange` on the document for shadow-DOM
+  # selections, which the `useTextSelection` adapter listens to).
+  # Pure-logic coverage of the underlying anchoring + clipboard payload
+  # algorithms lives in `packages/artifact-sdk/src/core/findQuote.test.ts`,
+  # `packages/artifact-sdk/src/server/inject.test.ts`, and
+  # `packages/client/src/comments/formatMarkdown.test.ts`.
+
+  Scenario: Comments tray is hidden when the queue is empty
+    When I run "rm -rf /tmp/kolu-comments-empty && git init /tmp/kolu-comments-empty && cd /tmp/kolu-comments-empty"
+    And I run "printf 'hello\n' > a.md && git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    Then the comments tray should not be visible
+
+  Scenario: Selecting text in a file shows the floating comment pill
+    When I run "rm -rf /tmp/kolu-comments-pill && git init /tmp/kolu-comments-pill && cd /tmp/kolu-comments-pill"
+    And I run "printf 'unique-pill-marker line one\n' > a.md && git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    And I click the file "a.md" in the file browser
+    Then the file content should contain "unique-pill-marker"
+    When I select text "unique-pill-marker" in the file content
+    Then the comment pill should be visible
+
+  Scenario: Clicking the pill opens the composer; Save adds the comment to the tray
+    When I run "rm -rf /tmp/kolu-comments-save && git init /tmp/kolu-comments-save && cd /tmp/kolu-comments-save"
+    And I run "printf 'save-flow-marker here\n' > a.md && git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    And I click the file "a.md" in the file browser
+    Then the comments tray should not be visible
+    When I select text "save-flow-marker" in the file content
+    And I click the comment pill
+    Then the comment composer should be visible
+    When I type "agent should reword this" into the comment composer
+    And I click the composer "Save" button
+    Then the comment composer should not be visible
+    And the comments tray should be visible
+    And the comments tray should contain "agent should reword this"
+    And the comments tray should have 1 comments
+
+  Scenario: Cancel button dismisses the composer without saving
+    When I run "rm -rf /tmp/kolu-comments-cancel && git init /tmp/kolu-comments-cancel && cd /tmp/kolu-comments-cancel"
+    And I run "printf 'cancel-flow-marker\n' > a.md && git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    And I click the file "a.md" in the file browser
+    And I select text "cancel-flow-marker" in the file content
+    And I click the comment pill
+    And I type "draft that should be discarded" into the comment composer
+    And I click the composer "Cancel" button
+    Then the comment composer should not be visible
+    And the comments tray should not be visible
+
+  Scenario: Escape key dismisses the composer
+    When I run "rm -rf /tmp/kolu-comments-escape && git init /tmp/kolu-comments-escape && cd /tmp/kolu-comments-escape"
+    And I run "printf 'escape-flow-marker\n' > a.md && git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    And I click the file "a.md" in the file browser
+    And I select text "escape-flow-marker" in the file content
+    And I click the comment pill
+    Then the comment composer should be visible
+    When I press Escape in the composer
+    Then the comment composer should not be visible
+
+  Scenario: Comments accumulate across multiple files in the same worktree
+    When I run "rm -rf /tmp/kolu-comments-multi && git init /tmp/kolu-comments-multi && cd /tmp/kolu-comments-multi"
+    And I run "printf 'multi-A-marker\n' > a.md && printf 'multi-B-marker\n' > b.md && git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    And I click the file "a.md" in the file browser
+    And I select text "multi-A-marker" in the file content
+    And I click the comment pill
+    And I type "first note on A" into the comment composer
+    And I click the composer "Save" button
+    Then the comments tray should have 1 comments
+    When I click the file "b.md" in the file browser
+    And I select text "multi-B-marker" in the file content
+    And I click the comment pill
+    And I type "second note on B" into the comment composer
+    And I click the composer "Save" button
+    Then the comments tray should have 2 comments
+    And the comments tray should contain "first note on A"
+    And the comments tray should contain "second note on B"
+
+  Scenario: Per-comment × button removes just that one comment
+    When I run "rm -rf /tmp/kolu-comments-remove && git init /tmp/kolu-comments-remove && cd /tmp/kolu-comments-remove"
+    And I run "printf 'remove-X-marker\nremove-Y-marker\n' > a.md && git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    And I click the file "a.md" in the file browser
+    And I select text "remove-X-marker" in the file content
+    And I click the comment pill
+    And I type "note about alpha" into the comment composer
+    And I click the composer "Save" button
+    And I select text "remove-Y-marker" in the file content
+    And I click the comment pill
+    And I type "note about beta" into the comment composer
+    And I click the composer "Save" button
+    Then the comments tray should have 2 comments
+    When I remove the tray comment containing "note about alpha"
+    Then the comments tray should have 1 comments
+    And the comments tray should contain "note about beta"
+    And the comments tray should not contain "note about alpha"
+
+  Scenario: Discard all empties the queue and hides the tray
+    When I run "rm -rf /tmp/kolu-comments-discard && git init /tmp/kolu-comments-discard && cd /tmp/kolu-comments-discard"
+    And I run "printf 'discard-flow-marker\n' > a.md && git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    And I click the file "a.md" in the file browser
+    And I select text "discard-flow-marker" in the file content
+    And I click the comment pill
+    And I type "temporary note" into the comment composer
+    And I click the composer "Save" button
+    Then the comments tray should be visible
+    When I click the comments tray "Discard all" button
+    Then the comments tray should not be visible
+
+  Scenario: Tray and queued comments persist across a page reload
+    When I run "rm -rf /tmp/kolu-comments-persist && git init /tmp/kolu-comments-persist && cd /tmp/kolu-comments-persist"
+    And I run "printf 'persist-flow-marker\n' > a.md && git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    And I click the file "a.md" in the file browser
+    And I select text "persist-flow-marker" in the file content
+    And I click the comment pill
+    And I type "should survive reload" into the comment composer
+    And I click the composer "Save" button
+    Then the comments tray should contain "should survive reload"
+    When I reload the page
+    And I click the Code tab
+    Then the comments tray should contain "should survive reload"

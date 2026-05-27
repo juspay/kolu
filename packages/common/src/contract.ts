@@ -22,6 +22,7 @@ import { z } from "zod";
 import {
   CanvasLayoutSchema,
   InitialTerminalMetadataSchema,
+  RightPanelPerTerminalStateSchema,
   surface,
   TerminalAttachInputSchema,
   TerminalIdSchema,
@@ -54,7 +55,13 @@ export const TerminalSendInputSchema = z.object({
 
 export const TerminalSetThemeInputSchema = z.object({
   id: TerminalIdSchema,
-  themeName: z.string(),
+  themeName: z.string().min(1),
+});
+
+export const TerminalSetIntentInputSchema = z.object({
+  id: TerminalIdSchema,
+  /** Empty string clears the intent; any non-empty string sets it. */
+  intent: z.string(),
 });
 
 export const TerminalSetCanvasLayoutInputSchema = z.object({
@@ -67,6 +74,11 @@ export const TerminalSetSubPanelInputSchema = z.object({
   collapsed: z.boolean(),
   panelSize: z.number(),
 });
+
+export const TerminalSetRightPanelInputSchema =
+  RightPanelPerTerminalStateSchema.extend({
+    id: TerminalIdSchema,
+  });
 
 export const SetActiveTerminalInputSchema = z.object({
   id: TerminalIdSchema.nullable(),
@@ -85,6 +97,15 @@ export const TerminalScreenTextInputSchema = z.object({
 export const TerminalPasteImageInputSchema = z.object({
   id: TerminalIdSchema,
   /** Base64-encoded image data (PNG, JPEG, etc.) */
+  data: z.string(),
+});
+
+export const TerminalUploadFileInputSchema = z.object({
+  id: TerminalIdSchema,
+  /** Filename as the user dropped it. The server sanitizes before writing
+   *  — only the basename's safe characters survive. */
+  name: z.string().min(1),
+  /** Base64-encoded file bytes. */
   data: z.string(),
 });
 
@@ -118,10 +139,12 @@ export const contract = oc.router({
     resize: oc.input(TerminalResizeInputSchema).output(z.void()),
     sendInput: oc.input(TerminalSendInputSchema).output(z.void()),
     setTheme: oc.input(TerminalSetThemeInputSchema).output(z.void()),
+    setIntent: oc.input(TerminalSetIntentInputSchema).output(z.void()),
     setCanvasLayout: oc
       .input(TerminalSetCanvasLayoutInputSchema)
       .output(z.void()),
     setSubPanel: oc.input(TerminalSetSubPanelInputSchema).output(z.void()),
+    setRightPanel: oc.input(TerminalSetRightPanelInputSchema).output(z.void()),
     setActive: oc.input(SetActiveTerminalInputSchema).output(z.void()),
     /** Bidirectional binary stream — clients use `streamCall` with a
      *  custom `onRetry` (xterm buffer reset before re-subscribe). Doesn't
@@ -132,6 +155,7 @@ export const contract = oc.router({
     screenState: oc.input(TerminalAttachInputSchema).output(z.string()),
     screenText: oc.input(TerminalScreenTextInputSchema).output(z.string()),
     pasteImage: oc.input(TerminalPasteImageInputSchema).output(z.void()),
+    uploadFile: oc.input(TerminalUploadFileInputSchema).output(z.void()),
     kill: oc.input(TerminalAttachInputSchema).output(TerminalInfoSchema),
     setParent: oc.input(TerminalSetParentInputSchema).output(z.void()),
     /** Test-only: kill and remove all terminals. */

@@ -8,6 +8,7 @@ import { Portal } from "solid-js/web";
 import SegmentedControl, {
   type SegmentedControlOption,
 } from "../ui/SegmentedControl";
+import { surface } from "../ui/Surface";
 import Toggle from "../ui/Toggle";
 import { useAnchoredPopover } from "../ui/useAnchoredPopover";
 import SettingRow, { type Hint } from "./SettingRow";
@@ -64,17 +65,16 @@ const SettingsPopover: Component<{
     anchor: "bottom-end",
   });
 
+  const chrome = surface({ portalled: true });
+
   return (
     <Show when={props.open}>
       <Portal>
         <div
           ref={panelRef}
           data-testid="settings-popover"
-          class="fixed z-50 bg-surface-1 border border-edge rounded-2xl shadow-2xl shadow-black/50 p-4 min-w-[280px] space-y-4"
-          style={{
-            ...panelStyle(),
-            "background-color": "var(--color-surface-1)",
-          }}
+          class={`fixed z-50 ${chrome.class} p-4 min-w-[280px] space-y-4`}
+          style={{ ...panelStyle(), ...chrome.style }}
         >
           <SettingRow label="Theme" hint={SCHEME_HINT[colorScheme()]}>
             <SegmentedControl

@@ -10,6 +10,8 @@ import { type Component, createSignal, For, onCleanup, Show } from "solid-js";
 import { Dynamic, Portal } from "solid-js/web";
 import { toast } from "solid-sonner";
 import { match } from "ts-pattern";
+import { writeTextToClipboard } from "./clipboard";
+import { surface } from "./Surface";
 
 /** Two verbs over the same selection noun: copy a string to the clipboard,
  *  or invoke an action callback. The discriminator keeps the dispatch
@@ -86,16 +88,21 @@ export const CodeContextMenu: Component<{
 
   const handleItem = (item: CodeContextMenuItem) => {
     match(item)
-      .with({ kind: "copy" }, ({ textToCopy }) => {
-        navigator.clipboard
-          .writeText(textToCopy)
-          .then(() => toast.success(`Copied: ${textToCopy}`))
-          .catch((err: Error) => toast.error(`Failed to copy: ${err.message}`));
+      .with({ kind: "copy" }, async ({ textToCopy }) => {
+        try {
+          await writeTextToClipboard(textToCopy);
+          toast.success(`Copied: ${textToCopy}`);
+        } catch (err) {
+          console.error("Failed to copy:", err);
+          toast.error(`Failed to copy: ${(err as Error).message}`);
+        }
       })
       .with({ kind: "action" }, ({ onActivate }) => onActivate())
       .exhaustive();
     close();
   };
+
+  const chrome = surface({ radius: "md", shadow: "bare", portalled: true });
 
   return (
     <Show when={open()}>
@@ -103,8 +110,8 @@ export const CodeContextMenu: Component<{
         <div
           id="code-context-menu"
           role="menu"
-          class="fixed z-50 min-w-40 rounded-md border border-edge bg-surface-1 p-1 text-[11px] text-fg shadow-lg"
-          style={{ left: `${pos().x}px`, top: `${pos().y}px` }}
+          class={`fixed z-50 min-w-40 ${chrome.class} p-1 text-[11px] text-fg`}
+          style={{ left: `${pos().x}px`, top: `${pos().y}px`, ...chrome.style }}
         >
           <For each={items()}>
             {(item) => (

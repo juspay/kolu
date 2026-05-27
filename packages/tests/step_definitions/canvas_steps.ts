@@ -591,17 +591,18 @@ Given(
 
 // ── Gesture ownership: two-finger scroll on terminal must not pan the canvas ──
 
-/** Read the inner canvas transform div's transform (scale(z) translate(x, y)).
- *  Stable string identity is enough to prove pan/zoom did or didn't change.
- *  The transform div carries `data-testid="canvas-transform"` — querying by
- *  testid (rather than `firstElementChild`) keeps this robust against
- *  sibling overlays (watermark, future canvas-level chrome). */
+/** Read the canvas viewport transform string (`scale(z) translate(-pan…)`).
+ *  Surfaced as `data-viewport` on the canvas-container element since #988
+ *  retired the wrapper transform div in favour of per-tile composition —
+ *  we still need a pan/zoom-only observable for tests (a tile's own
+ *  `style.transform` also folds in layout coords + drag delta). Stable
+ *  string identity is enough to prove pan/zoom did or didn't change. */
 async function readCanvasTransform(world: KoluWorld): Promise<string> {
   return await world.page.evaluate(() => {
-    const inner = document.querySelector(
-      '[data-testid="canvas-transform"]',
+    const container = document.querySelector(
+      '[data-testid="canvas-container"]',
     ) as HTMLElement | null;
-    return inner?.style.transform ?? "";
+    return container?.getAttribute("data-viewport") ?? "";
   });
 }
 
@@ -834,10 +835,12 @@ Then(
       .__canvasTransform;
     await this.page.waitForFunction(
       (prev: string) => {
-        const inner = document.querySelector(
-          '[data-testid="canvas-transform"]',
+        const container = document.querySelector(
+          '[data-testid="canvas-container"]',
         ) as HTMLElement | null;
-        return inner !== null && inner.style.transform !== prev;
+        return (
+          container !== null && container.getAttribute("data-viewport") !== prev
+        );
       },
       before ?? "",
       { timeout: POLL_TIMEOUT },
@@ -865,14 +868,11 @@ Then("the minimap map should be visible", async function (this: KoluWorld) {
 
 When("I save the canvas viewport state", async function (this: KoluWorld) {
   const state = await this.page.evaluate((sel: string) => {
-    const container = document.querySelector(sel);
-    const inner = document.querySelector(
-      '[data-testid="canvas-transform"]',
-    ) as HTMLElement | null;
+    const container = document.querySelector(sel) as HTMLElement | null;
     if (!container) return null;
     return {
       zoom: container.getAttribute("data-zoom"),
-      transform: inner?.style.transform,
+      transform: container.getAttribute("data-viewport"),
     };
   }, CANVAS_SELECTOR);
   this.savedViewportState = state;
@@ -936,10 +936,13 @@ Then(
     const saved = this.savedViewportState;
     await this.page.waitForFunction(
       (prev: { transform: string | null }) => {
-        const inner = document.querySelector(
-          '[data-testid="canvas-transform"]',
+        const container = document.querySelector(
+          '[data-testid="canvas-container"]',
         ) as HTMLElement | null;
-        return inner !== null && inner.style.transform !== prev.transform;
+        return (
+          container !== null &&
+          container.getAttribute("data-viewport") !== prev.transform
+        );
       },
       { transform: saved?.transform ?? null },
       { timeout: POLL_TIMEOUT },
@@ -1303,11 +1306,10 @@ When(
 Then(
   "canvas tile {int} should be maximized",
   async function (this: KoluWorld, _index: number) {
-    // The maximized tile lives in its own render branch; the tiled
-    // section keeps the other tiles mounted at `visibility: hidden` so
-    // their PTY streams keep filling their buffers (#904). `nth(index-1)`
-    // can resolve to a hidden tiled-section tile rather than the visible
-    // maximized one — match on `data-maximized="true"` instead.
+    // Since #988, all tiles render in one stable list and the maximized
+    // tile is CSS-promoted (`inset-0 z-40`) rather than rendered in a
+    // separate branch. `nth(index-1)` can still resolve to a non-
+    // maximized sibling of the same list, so match on `data-maximized="true"`.
     const maximizedTile = this.page.locator(
       `${TILE_SELECTOR}[data-maximized="true"]`,
     );
@@ -1329,3 +1331,77 @@ Then("no canvas tile should be maximized", async function (this: KoluWorld) {
     { timeout: POLL_TIMEOUT },
   );
 });
+
+// ── Tile xterm-instance stability (regression for #988) ──
+//
+// Detect xterm.js remounts across an active-id switch in maximized mode.
+// The tag is a unique attribute set on the `.xterm` DOM node — it survives
+// iff the same DOM node survives. Today's broken behaviour replaces the
+// node on every switch; the fix promotes a tile to maximized via CSS only,
+// leaving the node intact.
+
+When(
+  "I tag canvas tile {int}'s xterm element",
+  async function (this: KoluWorld, index: number) {
+    // xterm.js's `onMount` awaits `document.fonts.load` before creating
+    // the `.xterm` DOM node, so on a slow host the element may not exist
+    // when this step first fires. Poll until it does, then tag it.
+    await this.page.waitForFunction(
+      ({ sel, i }: { sel: string; i: number }) => {
+        const tile = document
+          .querySelectorAll(`${sel} [data-terminal-id][data-visible]`)
+          .item(i) as HTMLElement | null;
+        return tile?.querySelector(".xterm") != null;
+      },
+      { sel: CANVAS_SELECTOR, i: index - 1 },
+      { timeout: POLL_TIMEOUT },
+    );
+    await this.page.evaluate(
+      ({ sel, i }: { sel: string; i: number }) => {
+        const tile = document
+          .querySelectorAll(`${sel} [data-terminal-id][data-visible]`)
+          .item(i) as HTMLElement | null;
+        const xterm = tile?.querySelector(".xterm") as HTMLElement | null;
+        if (!xterm) throw new Error(`xterm element in tile ${i + 1} not found`);
+        const tag = `xterm-${Date.now()}-${Math.random()}`;
+        xterm.setAttribute("data-stability-tag", tag);
+        (
+          window as unknown as { __xtermStabilityTag?: string }
+        ).__xtermStabilityTag = tag;
+      },
+      { sel: CANVAS_SELECTOR, i: index - 1 },
+    );
+  },
+);
+
+Then("some canvas tile should be maximized", async function (this: KoluWorld) {
+  const maximizedTile = this.page.locator(
+    `${TILE_SELECTOR}[data-maximized="true"]`,
+  );
+  await maximizedTile
+    .first()
+    .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+});
+
+Then(
+  "the tagged xterm element should still exist in the DOM",
+  async function (this: KoluWorld) {
+    // The tag is unique per-test-run; finding any element with that
+    // attribute proves the originally-tagged `.xterm` node is still
+    // mounted. If the active-switch had remounted xterm.js (the #988
+    // bug), the tagged node would have been disposed and this query
+    // returns null — assertion fails as it would have pre-fix.
+    await this.page.waitForFunction(
+      () => {
+        const tag = (window as unknown as { __xtermStabilityTag?: string })
+          .__xtermStabilityTag;
+        if (!tag) return false;
+        return (
+          document.querySelector(`.xterm[data-stability-tag="${tag}"]`) !== null
+        );
+      },
+      undefined,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);

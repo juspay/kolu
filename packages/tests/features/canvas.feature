@@ -238,9 +238,13 @@ Feature: Canvas workspace
     And the active canvas tile should be centered in the viewport
     And there should be no page errors
 
-  Scenario: Minimap window menu defaults to "all"
+  Scenario: Minimap window menu defaults to "24h"
+    # Default activity window is now `24h` — see DEFAULT_ACTIVITY_WINDOW
+    # in activityWindow.ts. The choice lives on a shared per-device
+    # signal that the dock header reads from the same source, so the
+    # default applies to both surfaces uniformly.
     Then the minimap window trigger should be visible
-    And the minimap window should be "all"
+    And the minimap window should be "24h"
     And there should be no page errors
 
   Scenario: Picking a minimap window option persists across reload
@@ -385,6 +389,25 @@ Feature: Canvas workspace
     Then canvas tile 1 should be maximized
     When I double-click the title bar of canvas tile 1
     Then no canvas tile should be maximized
+    And there should be no page errors
+
+  Scenario: Switching the active terminal while maximized does not remount the xterm
+    # Regression for #988: switching active in maximized mode used to move
+    # the active tile between the tiled `<For>` and a separate `<Show keyed>`
+    # branch, forcing a full xterm.js remount (document.fonts.load wait,
+    # XTerm constructor, addon graph, stream re-attach, server screenState
+    # replay). Visible to users as ~200-500ms of blank/lag every switch.
+    # The fix moves all tiles to one render list with pan/zoom composed
+    # per-tile, so switching is a pure CSS class flip — the xterm DOM node
+    # and its xterm.js Terminal instance survive across switches.
+    Given I create a terminal
+    Then there should be 2 canvas tiles
+    When I double-click the title bar of canvas tile 1
+    Then canvas tile 1 should be maximized
+    When I tag canvas tile 2's xterm element
+    And I press Control+Tab
+    Then some canvas tile should be maximized
+    And the tagged xterm element should still exist in the DOM
     And there should be no page errors
 
   @mobile

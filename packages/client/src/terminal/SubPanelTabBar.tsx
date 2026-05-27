@@ -3,6 +3,8 @@
 import { cwdBasename } from "kolu-common/path";
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import { type Component, For } from "solid-js";
+import { IntentMarkdownInline } from "../intent/IntentMarkdown";
+import { annotationLine } from "../intent/text";
 
 const SubPanelTabBar: Component<{
   subIds: TerminalId[];
@@ -20,26 +22,31 @@ const SubPanelTabBar: Component<{
     >
       <For each={props.subIds}>
         {(id, index) => {
+          const meta = () => props.getMetadata(id);
           const label = () => {
-            const m = props.getMetadata(id);
+            const m = meta();
             const base = m ? cwdBasename(m.cwd) : "terminal";
             // Append 1-based index when multiple tabs share the same name
-            if (props.subIds.length <= 1) return base;
-            return `${base} ${index() + 1}`;
+            const suffixed =
+              props.subIds.length <= 1 ? base : `${base} ${index() + 1}`;
+            // Supplant rule: intent line-1 takes the label slot when set.
+            return annotationLine(m?.intent, suffixed);
           };
           const isActive = () => props.activeSubTab === id;
           return (
             <div class="group relative">
               <button
                 type="button"
-                class="px-3 pr-6 py-1 rounded text-fg-3 hover:text-fg transition-colors cursor-pointer truncate max-w-[120px]"
+                class="flex items-center gap-1 px-3 pr-6 py-1 rounded text-fg-3 hover:text-fg transition-colors cursor-pointer truncate max-w-[120px]"
                 classList={{
                   "bg-surface-2 text-fg font-medium": isActive(),
                 }}
                 data-active={isActive() || undefined}
                 onClick={() => props.onSelect(id)}
               >
-                {label()}
+                <span class="truncate">
+                  <IntentMarkdownInline markdown={label()} />
+                </span>
               </button>
               <button
                 type="button"

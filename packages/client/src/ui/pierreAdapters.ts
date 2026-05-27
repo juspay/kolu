@@ -12,6 +12,7 @@ import type {
 } from "@kolu/solid-pierre";
 import type { GitChangeStatus } from "kolu-git/schemas";
 import { toast } from "solid-sonner";
+import { writeTextToClipboard } from "./clipboard";
 
 const GIT_STATUS_WORD: Record<GitChangeStatus, GitStatusEntry["status"]> = {
   M: "modified",
@@ -89,10 +90,12 @@ export function renderTreeContextMenu(
   };
 
   addItem("Copy path", () => {
-    navigator.clipboard
-      .writeText(item.path)
+    writeTextToClipboard(item.path)
       .then(() => toast.success(`Copied: ${item.path}`))
-      .catch((err: Error) => toast.error(`Failed to copy: ${err.message}`));
+      .catch((err: Error) => {
+        console.error("Failed to copy path:", err);
+        toast.error(`Failed to copy path: ${err.message}`);
+      });
   });
 
   return menu;

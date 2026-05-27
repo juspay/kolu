@@ -6,7 +6,7 @@
 
 import type { TerminalId } from "kolu-common/surface";
 import { nonEmpty } from "nonempty";
-import { createMemo, createRoot, createSignal } from "solid-js";
+import { createMemo, createSignal } from "solid-js";
 import { toast } from "solid-sonner";
 import {
   availableThemes,
@@ -16,6 +16,7 @@ import {
   pickTheme,
   resolveThemeBgs,
 } from "terminal-themes";
+import { createSharedRoot } from "./createSharedRoot";
 import { client } from "./wire";
 import { useTerminalStore } from "./terminal/useTerminalStore";
 
@@ -89,9 +90,4 @@ function init() {
   } as const;
 }
 
-let cached: ReturnType<typeof init> | undefined;
-
-export function useThemeManager() {
-  if (!cached) cached = createRoot(() => init());
-  return cached;
-}
+export const useThemeManager = createSharedRoot(init);

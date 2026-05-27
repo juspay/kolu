@@ -13,7 +13,10 @@
 import { type Component, Show } from "solid-js";
 import { match } from "ts-pattern";
 import { forceUpdateAndReload } from "../pwa";
+import { surface } from "../ui/Surface";
 import { lifecycle } from "./rpc";
+
+const chrome = surface();
 
 const TransportOverlay: Component = () => {
   const visible = () => {
@@ -25,7 +28,7 @@ const TransportOverlay: Component = () => {
     <Show when={visible()}>
       <div class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center pointer-events-none">
         <div
-          class="bg-surface-1 border border-edge rounded-2xl shadow-2xl shadow-black/50 p-6 max-w-sm text-sm pointer-events-auto"
+          class={`${chrome.class} p-6 max-w-sm text-sm pointer-events-auto`}
           data-testid="transport-overlay"
         >
           {match(lifecycle())

@@ -25,9 +25,10 @@ import { agentBucket } from "../dockModel";
  *  row) and routes through staleness, not the idle-bucket classifier. */
 export type DockRowBucket = "awaiting" | "working" | "idle" | "parked" | "none";
 
-/** Sort priority for rows that share `lastActivityAt` (most commonly
- *  several plain shells at `ts === 0`). Lower comes first. */
-const DOCK_ROW_BUCKET_PRIORITY: Record<DockRowBucket, number> = {
+/** Sort priority for dock rows. Lower number = higher priority (shown
+ *  first). Exported so `dockTree.ts` reuses the same table for within-
+ *  group sorting rather than declaring a parallel copy that can drift. */
+export const DOCK_ROW_BUCKET_PRIORITY: Record<DockRowBucket, number> = {
   awaiting: 0,
   working: 1,
   idle: 2,
@@ -57,7 +58,10 @@ export type RankedDockRow = {
 /** Project a terminal id list into the recency-sorted, bucket-classified
  *  row order the dock paints. Secondary key is bucket priority so
  *  never-touched plain shells don't outrank an idle terminal with the
- *  same `ts === 0`. */
+ *  same `ts === 0`. `isStale` is a pure-temporal predicate over
+ *  `lastActivityAt` — identity for stale-but-still-awaiting agents lives
+ *  at the render layer (`QuietRowBody` paints `AgentIndicator` when
+ *  `meta.agent` is set), not in the bucket decision here. */
 export function rankDockRows(
   ids: readonly TerminalId[],
   getMeta: (id: TerminalId) => TerminalMetadata | undefined,

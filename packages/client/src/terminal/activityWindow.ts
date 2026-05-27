@@ -1,37 +1,33 @@
-/** Activity-window vocabulary shared by the canvas minimap's window selector
- *  and the workspace switcher's Idle column.
+/** Activity-window vocabulary shared by every surface that asks "how stale
+ *  is too stale before I stop caring?" — the dock's row-bucket classifier,
+ *  the canvas minimap's tile fading, the workspace switcher's Idle column,
+ *  the canvas tile dimming, and the badge-attention gate.
  *
- *  Single source of truth: each window carries its display label and its
- *  staleness threshold (or `null` for "no filter"). Adding a new window is
- *  one entry in `WINDOWS` plus one in `WINDOW_VALUES` for display order.
- *
- *  The same threshold ladder (4h, 12h, 24h, 48h) drives the switcher's
- *  Idle sub-buckets — `IDLE_BUCKETS` derives directly from `WINDOWS`, so
- *  picking `12h` on the minimap is the same horizon as the `12–24h` /
- *  `24–48h` / `48h+` sub-rows in the switcher's Idle column. One vocab,
- *  two surfaces. */
+ *  One vocabulary, one persisted user choice — see `useActivityWindow`. */
 
 /** One hour in milliseconds. Lives here (and not in `staleness.ts`) so
- *  the threshold ladder used by `WINDOWS` and `STALE_THRESHOLD_MS` has a
- *  single source with a one-direction import — `staleness.ts` reads it
- *  from this module rather than the other way around, breaking the
- *  module-init cycle that would otherwise leave `HOUR_MS` in TDZ when
- *  `activityWindow.ts` evaluates first under the bundler's resolution
- *  order. */
+ *  the threshold ladder used by `WINDOWS` has a single source with a
+ *  one-direction import — `staleness.ts` reads it from this module rather
+ *  than the other way around, breaking the module-init cycle that would
+ *  otherwise leave `HOUR_MS` in TDZ when `activityWindow.ts` evaluates
+ *  first under the bundler's resolution order. */
 export const HOUR_MS = 60 * 60 * 1000;
 
-export type MinimapWindow = "all" | "4h" | "12h" | "24h" | "48h";
+import { makePersisted } from "@solid-primitives/storage";
+import { createSignal } from "solid-js";
+
+export type ActivityWindow = "all" | "4h" | "12h" | "24h" | "48h";
 
 export interface WindowOption {
-  /** Compact label shown inside the minimap trigger button. */
+  /** Compact label shown inside the trigger button. */
   short: string;
   /** Long label shown in the popover menu and tooltip. */
   label: string;
-  /** `null` disables the filter — every tile renders as a full rect. */
+  /** `null` disables the filter — every terminal counts as live. */
   thresholdMs: number | null;
 }
 
-/** Single source of truth — `as const satisfies Record<MinimapWindow, …>`
+/** Single source of truth — `as const satisfies Record<ActivityWindow, …>`
  *  preserves each row's per-key narrowing while still enforcing
  *  exhaustiveness against the union. The `all` row's `thresholdMs`
  *  type-narrows to `null`; every other row narrows to `number`. Internal
@@ -40,7 +36,7 @@ export interface WindowOption {
  *  `as number` cast — pushing the invariant to the type at its source per
  *  the `no-untyped-escape-hatches` rule. */
 const WINDOWS = {
-  all: { short: "All", label: "All terminals", thresholdMs: null },
+  all: { short: "All", label: "Show all terminals", thresholdMs: null },
   "4h": { short: "4h", label: "Active in last 4h", thresholdMs: 4 * HOUR_MS },
   "12h": {
     short: "12h",
@@ -57,12 +53,12 @@ const WINDOWS = {
     label: "Active in last 48h",
     thresholdMs: 48 * HOUR_MS,
   },
-} as const satisfies Record<MinimapWindow, WindowOption>;
+} as const satisfies Record<ActivityWindow, WindowOption>;
 
 /** Display-order list for the popover menu. Object iteration order is the
  *  declaration order above for string keys, but encode it once here so a
  *  reader doesn't have to rely on that invariant at every consumer. */
-export const WINDOW_VALUES: readonly MinimapWindow[] = [
+export const WINDOW_VALUES: readonly ActivityWindow[] = [
   "all",
   "4h",
   "12h",
@@ -70,13 +66,49 @@ export const WINDOW_VALUES: readonly MinimapWindow[] = [
   "48h",
 ];
 
-export function isMinimapWindow(value: string): value is MinimapWindow {
+export function isActivityWindow(value: string): value is ActivityWindow {
   return value in WINDOWS;
 }
 
-export function windowOption(w: MinimapWindow): WindowOption {
+export function windowOption(w: ActivityWindow): WindowOption {
   return WINDOWS[w];
 }
+
+/** Default activity window. `24h` because the immediate user pain is "I
+ *  closed the laptop overnight; this morning my waiting agents look like
+ *  plain shells" — a 24h horizon keeps yesterday's queue compressed into
+ *  parked rows where each row still carries its agent identity (the
+ *  parked-row AgentIndicator), without a wall of full reply cards
+ *  drowning out fresh waiters. */
+export const DEFAULT_ACTIVITY_WINDOW: ActivityWindow = "24h";
+
+/** Per-device user choice of activity window. Singleton — one persisted
+ *  store consumed by every surface that filters by staleness (dock,
+ *  minimap, tile fade, badge gate). Localstorage-backed via makePersisted
+ *  so the same setter from any surface updates every reader. */
+export const [activityWindow, setActivityWindow] = makePersisted(
+  createSignal<ActivityWindow>(DEFAULT_ACTIVITY_WINDOW),
+  {
+    name: "kolu-activity-window",
+    serialize: (v) => v,
+    deserialize: (raw): ActivityWindow =>
+      isActivityWindow(raw) ? raw : DEFAULT_ACTIVITY_WINDOW,
+  },
+);
+
+/** Reactive threshold (ms) for the currently-selected activity window.
+ *  `null` when the user picked `"all"` — staleness is disabled. */
+export function activityWindowThresholdMs(): number | null {
+  return WINDOWS[activityWindow()].thresholdMs;
+}
+
+/** Pre-built `{value, label}` list for the activity-window picker menus —
+ *  shared by the dock chip and the minimap chip so the option set is
+ *  defined exactly once. */
+export const WINDOW_OPTIONS: readonly {
+  value: ActivityWindow;
+  label: string;
+}[] = WINDOW_VALUES.map((value) => ({ value, label: WINDOWS[value].label }));
 
 /** Idle sub-bucket keys, ordered most-recent → oldest. The "4h-12h" entry
  *  is the freshest slice of the parked set: terminals that crossed the
@@ -94,19 +126,18 @@ export interface IdleBucket {
 }
 
 /** Windows whose `thresholdMs` is structurally `number` (not `null`) —
- *  i.e. every member of `MinimapWindow` except `"all"`. Used by
+ *  i.e. every member of `ActivityWindow` except `"all"`. Used by
  *  `IDLE_BUCKETS` to reference window boundaries via their literal keys
  *  while still reading `WINDOWS[k].thresholdMs` as a non-nullable
  *  `number` (no `!`, no unwrap helper, no throw). */
-type FiniteWindow = Exclude<MinimapWindow, "all">;
+type FiniteWindow = Exclude<ActivityWindow, "all">;
 
-/** Idle sub-bucket boundaries, expressed as pairs of `MinimapWindow`
+/** Idle sub-bucket boundaries, expressed as pairs of `ActivityWindow`
  *  keys. Each row's `minWindow`/`maxWindow` references — typed as
  *  `FiniteWindow` literals — make the derivation real: removing the
  *  `"24h"` window from `WINDOWS` becomes a type error here, not a
  *  silent runtime drift. The first row's `minWindow` is `"4h"` because
- *  the auto-park threshold lives at the same horizon as the `"4h"`
- *  window by construction. */
+ *  the smallest non-null filter horizon happens to be `"4h"`. */
 const SUB_BUCKET_SPECS = [
   { key: "4h-12h", label: "4–12h", minWindow: "4h", maxWindow: "12h" },
   { key: "12h-24h", label: "12–24h", minWindow: "12h", maxWindow: "24h" },

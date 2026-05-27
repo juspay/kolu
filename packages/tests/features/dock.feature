@@ -32,7 +32,7 @@ Feature: Dock
     When the dock is expanded
     Then the dock should be in "cards" mode
 
-  Scenario: Cmd+B toggles the dock between rail and cards
+  Scenario: Cmd+Shift+B toggles the dock between rail and cards
     # The keyboard shortcut should drive the same rail ↔ cards state
     # the in-header chevron drives. Cards is the default, so the first
     # press collapses to rail; the second expands back.
@@ -97,3 +97,21 @@ Feature: Dock
     # its own bg color, so the strip sits outside the body chrome.
     Given I create a terminal
     Then the dock should show 1 active row indicator
+
+  Scenario: Dock activity-window selector defaults to 24h and shares with the minimap
+    # The dock header carries a compact `24h ▾` chip mirroring the
+    # minimap's existing window picker. Both surfaces consume the same
+    # `kolu-activity-window` localStorage signal, so picking a window in
+    # one surface updates the other — one user truth, one persisted
+    # choice. Default `24h` (from `DEFAULT_ACTIVITY_WINDOW` in
+    # `activityWindow.ts`).
+    Then the dock window trigger should be visible
+    And the dock window should be "24h"
+    And the minimap window should be "24h"
+    When I click the dock window trigger
+    And I pick the dock window option "12h"
+    Then the dock window should be "12h"
+    # Shared signal: same value lands on the minimap trigger without
+    # an additional click.
+    And the minimap window should be "12h"
+    And there should be no page errors

@@ -111,6 +111,8 @@ export interface CommandDeps extends ActionContext {
   committedThemeName: Accessor<string>;
   setPreviewThemeName: (name: string | undefined) => void;
   handleSetTheme: (name: string) => void;
+  // Intent — opens the editor for the active terminal.
+  handleEditActiveIntent: () => void;
   // Dialogs
   setAboutOpen: (open: boolean) => void;
   setDiagnosticInfoOpen: (open: boolean) => void;
@@ -293,6 +295,18 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
             description:
               "Pick a theme whose background is perceptually distinct from every live terminal",
           }),
+          // Intent — the single picker (kolu#178). One palette entry,
+          // one editor; click → curated-emoji quick-row + markdown
+          // textarea + live preview. The chip in the title bar, the
+          // top-border pill, the dock-awaiting card, and the workspace
+          // switcher card all surface what's edited here.
+          {
+            kind: "action" as const,
+            name: "Edit intent",
+            section: "active-terminal" as const,
+            description: "Attach a freeform markdown note to this terminal",
+            onSelect: () => deps.handleEditActiveIntent(),
+          },
         ]
       : []),
 

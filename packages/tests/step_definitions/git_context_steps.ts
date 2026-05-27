@@ -158,16 +158,21 @@ Then(
 Then(
   "the workspace switcher should not show git context",
   async function (this: KoluWorld) {
-    const text = (
-      await this.page
-        .locator('[data-testid="terminal-meta-branch"]')
-        .first()
-        .textContent()
-    )?.trim();
-    assert.strictEqual(
-      text ?? "",
-      "",
-      `Expected empty branch in workspace switcher but found "${text}"`,
+    // Under the supplant rule the title-bar annotation slot shows the
+    // intent line-1 if set, else the branch, else an em-dash placeholder.
+    // "No git context" means no branch — the slot is either empty (old
+    // behavior, no longer reachable on non-git terminals) or shows the
+    // placeholder. Poll until the reactive update settles.
+    await this.page.waitForFunction(
+      () => {
+        const text = (
+          document.querySelector('[data-testid="terminal-meta-branch"]')
+            ?.textContent ?? ""
+        ).trim();
+        return text === "" || text === "—";
+      },
+      undefined,
+      { timeout: POLL_TIMEOUT },
     );
   },
 );

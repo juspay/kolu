@@ -14,9 +14,14 @@
  * Pierre lifecycle; this component is just data flow + chrome. */
 
 import Resizable from "@corvu/resizable";
-import { FileDiff, FileTree, Virtualizer } from "@kolu/solid-pierre";
+import {
+  CodeView,
+  type CodeViewItem,
+  diffItem,
+  FileTree,
+  useCodeViewSelection,
+} from "@kolu/solid-pierre";
 import type { GitDiffMode } from "kolu-git/schemas";
-import { makePersisted } from "@solid-primitives/storage";
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import {
   type Component,
@@ -29,6 +34,11 @@ import {
   Switch,
 } from "solid-js";
 import { toast } from "solid-sonner";
+import { CommentComposer } from "../comments/CommentComposer";
+import { CommentsTray } from "../comments/CommentsTray";
+import { CommentTextSurface } from "../comments/CommentTextSurface";
+import { useComposer } from "../comments/composerState";
+import { useCommentScrollRequest } from "../comments/scrollRequest";
 import { useColorScheme } from "../settings/useColorScheme";
 import { app } from "../wire";
 import { FileBrowseIcon, FileDiffIcon, GitBranchIcon } from "../ui/Icons";
@@ -95,49 +105,38 @@ const CodeTab: Component<{
   const setView = rightPanel.setCodeMode;
 
   const repoPath = () => props.meta?.git?.repoRoot ?? null;
+
+  // Dismiss any open comment composer when the user navigates away from
+  // the file/mode/repo the draft was anchored to. Without this, the
+  // composer floats over a different file's content and the user has
+  // to dismiss it manually. Draft body is lost, which matches every
+  // other modal-on-navigate behavior in kolu.
+  const composer = useComposer();
+  createEffect(
+    on(
+      () => [selectedPath(), view(), repoPath()] as const,
+      () => composer.close(),
+      { defer: true },
+    ),
+  );
   const isDiffView = () => view() !== "browse";
   const diffMode = (): GitDiffMode | undefined =>
     view() === "browse" ? undefined : (view() as GitDiffMode);
 
-  // Selection is keyed per (repoRoot, view) and persisted to localStorage.
-  // Each slot owns its own pick — switching modes / repos surfaces the
-  // right slot rather than clearing on transition, and a full browser
-  // reload restores whichever slot is current. `::` is collision-safe:
-  // `view()` is a typed enum so it can't contain `::`, and `repoPath()`
-  // is an absolute path or null. The `slotKey` memo doubles as the
-  // source of truth for the search-reset effect below — same value,
-  // single derivation.
+  // Selection is per-terminal, keyed by mode, stored in
+  // `TerminalMetadata.rightPanel.selectedFileByMode` via `useRightPanel`.
+  // Each (terminal, mode) slot owns its own pick — switching modes within
+  // a terminal restores that mode's last file; switching terminals
+  // restores that terminal's last (file, mode) pair.
   //
-  // `createSignal<Record>` is deliberate against the project rule
-  // (`createStore` over `createSignal<Record>` for keyed state): the
-  // fine-grained read tracking createStore offers isn't actually
-  // observed here because Pierre's `FileTree` snapshots `selectedPath`
-  // at mount via `initialSelectedPaths` and the host re-mounts that
-  // subtree on view transitions. The synchronous, whole-record
-  // semantics of a signal match this lifecycle; `createStore`'s
-  // late-arriving notifications on a not-yet-seen key produce a
-  // remount race where the new slot's pick is set AFTER FileTree's
-  // constructor reads it (verified empirically against the
-  // "right-click Open jumps to browse" regression suite).
-  const [selectedFilesByKey, setSelectedFilesByKey] = makePersisted(
-    createSignal<Record<string, string>>({}),
-    { name: "kolu-codetab-selected-files" },
-  );
-  const slotKey = createMemo(() => `${repoPath() ?? ""}::${view()}`);
-  const selectedPath = (): string | null =>
-    selectedFilesByKey()[slotKey()] ?? null;
+  // The `slotKey` memo doubles as the source of truth for the
+  // search-reset effect below; collision-safe by construction since
+  // `view()` is a typed enum and `repoPath()` is absolute-or-null.
+  const selectedPath = (): string | null => rightPanel.selectedFile(view());
   const setSelectedPath = (path: string | null) => {
-    const key = slotKey();
-    setSelectedFilesByKey((prev) => {
-      if (path === null) {
-        if (!(key in prev)) return prev;
-        const { [key]: _, ...rest } = prev;
-        return rest;
-      }
-      if (prev[key] === path) return prev;
-      return { ...prev, [key]: path };
-    });
+    rightPanel.setSelectedFile(view(), path);
   };
+  const slotKey = createMemo(() => `${repoPath() ?? ""}::${view()}`);
 
   // Filename filter — drives Pierre's tree filter externally. Reset on
   // mode switch so a stale needle doesn't hide the wrong file set.
@@ -202,13 +201,15 @@ const CodeTab: Component<{
 
   // Clear the filename filter when the slot changes — the search needle
   // was scoped to the previous file set and rarely makes sense post-
-  // switch. Selection itself is per-slot (see `selectedFilesByKey`
-  // above) so the new view automatically surfaces its own pick without
-  // a clear here. `slotKey` is memoized, so this fires only when the
-  // tuple genuinely changes — without the memo, `on(...)` would re-run
-  // its callback on every preferences tick (the upstream cell ticks on
-  // activity beyond tab/repo changes) and wipe the filter spuriously
-  // after #818 made CodeTab survive right-panel tab toggles.
+  // switch. Selection itself is per-slot (read/written via
+  // `rightPanel.selectedFile(mode)` → `selectedFileByMode` on the
+  // per-terminal record) so the new view automatically surfaces its own
+  // pick without a clear here. `slotKey` is memoized, so this fires
+  // only when the tuple genuinely changes — without the memo, `on(...)`
+  // would re-run its callback on every incidental tick of `repoPath()`
+  // (metadata cell) or `view()` (per-terminal in-memory store) and wipe
+  // the filter spuriously after #818 made CodeTab survive right-panel
+  // tab toggles.
   createEffect(
     on(
       slotKey,
@@ -586,14 +587,12 @@ const CodeTab: Component<{
             >
               {(path) => (
                 // `keyed` remounts this subtree whenever the selected file
-                // changes. Pierre's `FileDiff.render(newFileDiff)` reuses
-                // the same instance — its line-selection handlers don't
-                // re-bind to the new gutter elements, so right-clicking on
-                // a line in the second file would yield a "Copy path" menu
-                // with no "Copy path:line" entry. Per-file remount gives
-                // each file a fresh `FileDiff` and a clean
-                // `useLineSelection` range, which is also the right
-                // semantic — line refs don't survive across files.
+                // changes — line refs don't survive across files, so the
+                // `useLineSelection` controller resets cleanly with the
+                // surrounding subtree. The inner `<CodeView>` would also
+                // accept an in-place item swap via `updateItemId`, but
+                // remount is the simpler idiom here and the right semantic
+                // for the per-file menu state.
                 <Switch>
                   <Match when={isDiffView()}>
                     <Switch
@@ -624,48 +623,73 @@ const CodeTab: Component<{
                         )}
                       </Match>
                       <Match when={diff()}>
-                        {(d) => (
-                          <CodeMenuFrame
-                            path={path}
-                            onOpen={(ref) => {
-                              // Diff paths are repo-relative; cwd is irrelevant.
-                              const repo = repoPath();
-                              if (repo === null) return;
-                              openInCodeTab({
-                                ref,
-                                repoRoot: repo,
-                                targetMode: "browse",
-                              });
-                            }}
-                          >
-                            {(selection) => (
-                              // `<Virtualizer>` is the scroll container —
-                              // `<FileDiff>` consumes its context and
-                              // upgrades to Pierre's `VirtualizedFileDiff`,
-                              // windowing huge diffs (50k-line lockfile,
-                              // #809 / #514 Phase 8). Without this wrapper
-                              // `<FileDiff>` falls back to the vanilla
-                              // class — same as before.
-                              <Virtualizer
-                                class="h-full w-full overflow-auto"
-                                style={pierreDiffsStyle}
+                        {(d) => {
+                          const repo = repoPath();
+                          const tid = props.terminalId;
+                          if (repo === null || tid === null) return null;
+                          // Single-file diff → one CodeView item. The wrapper
+                          // virtualizes long diffs internally (50k-line lockfile,
+                          // #809 / #514 Phase 8) — no separate scroll context
+                          // component required.
+                          const items = createMemo<CodeViewItem[]>(() => {
+                            const item = diffItem(
+                              path,
+                              d().hunks[0] ?? "",
+                              (err) =>
+                                toast.error(
+                                  `Diff parse failed: ${err.message}`,
+                                ),
+                            );
+                            return item ? [item] : [];
+                          });
+                          return (
+                            <CommentTextSurface
+                              terminalId={tid}
+                              path={path}
+                              contentTick={d().hunks[0] ?? ""}
+                              class="h-full w-full"
+                            >
+                              <CodeMenuFrame
+                                path={path}
+                                onOpen={(ref) => {
+                                  openInCodeTab({
+                                    ref,
+                                    repoRoot: repo,
+                                    targetMode: "browse",
+                                  });
+                                }}
                               >
-                                <FileDiff
-                                  rawDiff={d().hunks[0] ?? ""}
-                                  theme={diffTheme()}
-                                  enableLineSelection
-                                  onLineSelected={selection.handleSelect}
-                                  onError={(err) =>
-                                    toast.error(
-                                      `Diff render failed: ${err.message}`,
-                                    )
-                                  }
-                                  class="w-full"
-                                />
-                              </Virtualizer>
-                            )}
-                          </CodeMenuFrame>
-                        )}
+                                {(selection) => {
+                                  const codeViewSelection =
+                                    useCodeViewSelection(
+                                      () => path,
+                                      selection.range,
+                                    );
+                                  return (
+                                    <CodeView
+                                      items={items()}
+                                      theme={diffTheme()}
+                                      diffStyle="unified"
+                                      enableLineSelection
+                                      selectedLines={codeViewSelection()}
+                                      onSelectedLinesChange={(s) =>
+                                        selection.handleSelect(s?.range ?? null)
+                                      }
+                                      onError={(err) =>
+                                        toast.error(
+                                          `Diff render failed: ${err.message}`,
+                                        )
+                                      }
+                                      class="h-full w-full overflow-auto"
+                                      style={pierreDiffsStyle}
+                                      data-testid="pierre-diff-view"
+                                    />
+                                  );
+                                }}
+                              </CodeMenuFrame>
+                            </CommentTextSurface>
+                          );
+                        }}
                       </Match>
                     </Switch>
                   </Match>
@@ -690,6 +714,48 @@ const CodeTab: Component<{
             </Show>
           </Resizable.Panel>
         </Resizable>
+        <Show when={repoPath() !== null && props.terminalId !== null}>
+          {(_present) => (
+            <>
+              <CommentsTray
+                terminalId={props.terminalId as string}
+                onJumpTo={(comment) => {
+                  const repo = repoPath();
+                  if (repo === null) return;
+                  // Two complementary highlights on land:
+                  //   1. Pierre's blue line bar (full-row selection)
+                  //      via `openInCodeTab` when we have a stored
+                  //      `lineRange` — the same machinery terminal
+                  //      `path:line` clicks use.
+                  //   2. The CSS Custom Highlight overlay's yellow
+                  //      underline on the exact quote — applied by
+                  //      `highlightOverlay` after the file mounts.
+                  // Plus a scroll request so the matched range lands
+                  // in view even if Pierre's `scrollToLine` and our
+                  // re-find disagree on the row.
+                  if (comment.lineRange) {
+                    openInCodeTab({
+                      ref: {
+                        path: comment.path,
+                        startLine: comment.lineRange.start,
+                        endLine: comment.lineRange.end,
+                      },
+                      repoRoot: repo,
+                      targetMode: "browse",
+                    });
+                  } else {
+                    setView("browse");
+                    setSelectedPath(comment.path);
+                  }
+                  useCommentScrollRequest().set({
+                    commentId: comment.id,
+                  });
+                }}
+              />
+              <CommentComposer terminalId={props.terminalId as string} />
+            </>
+          )}
+        </Show>
       </div>
     </Show>
   );

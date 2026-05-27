@@ -84,6 +84,7 @@ describe("prResultEqual", () => {
     url: "https://github.com/test/test/pull/1",
     state: "open",
     checks: "pass",
+    checkRuns: [],
   };
   const ok: PrResult = { kind: "ok", value: pr };
 

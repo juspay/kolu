@@ -7,6 +7,7 @@
   "sideEffects": false,
   "exports": {
     "./surface": "./src/surface.ts",
+    "./terminalBackend": "./src/terminalBackend.ts",
     "./contract": "./src/contract.ts",
     "./errors": "./src/errors.ts",
     "./config": "./src/config.ts",
@@ -14,7 +15,8 @@
     "./html": "./src/html.ts",
     "./terminalKey": "./src/terminalKey.ts",
     "./transcript": "./src/transcript.ts",
-    "./test-hooks": "./src/test-hooks.ts"
+    "./test-hooks": "./src/test-hooks.ts",
+    "./upload": "./src/upload.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

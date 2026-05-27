@@ -98,7 +98,7 @@ type PersistedState = z.infer<typeof PersistedStateSchema>;
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.21.0";
+const SCHEMA_VERSION = "1.23.0";
 
 // Callers must pass an explicit directory via KOLU_STATE_DIR. A bare launch
 // with no env would silently clobber whatever happens to live at conf's
@@ -392,10 +392,13 @@ export const store = new Conf<PersistedState>({
       const activeTab = tab?.kind === "code" ? "code" : "inspector";
       const codeMode = tab?.kind === "code" ? tab.mode : "local";
       const { tab: _tab, ...rest } = rp;
+      // Cast through `unknown` — the transitional shape carries `activeTab`
+      // and `codeMode` on `rightPanel` that 1.23.0 later strips, so the
+      // value here is intentionally wider than `Preferences`.
       store.set("preferences", {
         ...current,
         rightPanel: { ...rest, activeTab, codeMode },
-      } as Preferences);
+      } as unknown as Preferences);
     },
     // SavedTerminal.lastActivityAt added (#830). Seed legacy terminals to 0
     // so they fall back to canvas-position ordering until an agent
@@ -409,6 +412,32 @@ export const store = new Conf<PersistedState>({
         ...t,
       })) as typeof session.terminals;
       store.set("session", { ...session, terminals });
+    },
+    // SavedTerminal.intent added — optional multiline-markdown annotation.
+    // No backfill: the field is optional, so absent values continue to
+    // read as "unset" through the tightened Zod schema (`.min(1).optional()`).
+    // themeName was also tightened from `.optional()` to `.min(1).optional()`
+    // in the same schema bump; legacy sessions that had `themeName: ""`
+    // would now fail validation, but no path produced that shape — the
+    // theme setter always wrote a non-empty value or omitted the key.
+    "1.22.0": () => {},
+    // Right-panel `activeTab` and `codeMode` move from the global
+    // `preferences.rightPanel` to per-terminal `TerminalMetadata.rightPanel`
+    // — the two fields are *about* what each terminal is doing, so they
+    // should travel with the terminal. Strip them from the preferences
+    // blob; new per-terminal records seed lazily from
+    // `DEFAULT_RIGHT_PANEL_PER_TERMINAL` at first read. The CodeTab's
+    // legacy `kolu-codetab-selected-files` localStorage key is dropped
+    // client-side (no on-disk state to migrate).
+    "1.23.0": (store: Conf<PersistedState>) => {
+      const current = store.get("preferences") as Record<string, unknown>;
+      const rp = current.rightPanel as Record<string, unknown> | undefined;
+      if (!rp) return;
+      const { activeTab: _activeTab, codeMode: _codeMode, ...rest } = rp;
+      store.set("preferences", {
+        ...current,
+        rightPanel: rest as typeof current.rightPanel,
+      } as Preferences);
     },
   },
 });

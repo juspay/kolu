@@ -56,6 +56,16 @@ export function useShortcuts(ctx: ActionContext) {
     window,
     "keydown",
     (e: KeyboardEvent) => {
+      // Bail when focus is inside an opt-in modal — comment composer,
+      // command palette body, anything else that marks itself with
+      // `data-kolu-modal="true"`. Without this, capture-phase global
+      // shortcuts (this listener) fire BEFORE any bubble-phase handler
+      // the modal installs, so Cmd+Enter in a textarea would dispatch
+      // both "New terminal" (here) AND the modal's Save (later). Modals
+      // self-opt by setting the attribute; they keep full control of
+      // every keystroke while focused.
+      const target = e.target as Element | null;
+      if (target?.closest?.('[data-kolu-modal="true"]')) return;
       const handled = dispatch(e, ctx, advanceCycle);
       if (handled) {
         e.preventDefault();
