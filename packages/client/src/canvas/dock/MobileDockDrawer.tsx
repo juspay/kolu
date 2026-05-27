@@ -56,6 +56,7 @@ const MobileDockDrawer: Component<{
         parkedCount={tree().parkedCount}
         compact
         testId="mobile-dock-hidden-footer"
+        chipTestIdPrefix="mobile-dock-window"
       />
     </div>
   );

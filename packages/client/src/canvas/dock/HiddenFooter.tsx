@@ -26,6 +26,11 @@ export const HiddenFooter: Component<{
   parkedCount: number;
   compact?: boolean;
   testId?: string;
+  /** Per-surface namespace for the embedded `ActivityWindowChip`'s
+   *  testids. Distinct desktop/mobile prefixes keep simultaneous renders
+   *  (the rare case where both the desktop dock and the mobile drawer
+   *  are mounted) from colliding on `dock-window-trigger`. */
+  chipTestIdPrefix?: "dock-window" | "mobile-dock-window";
 }> = (props) => {
   // When `activityWindow === "all"` the threshold is null and no row can
   // be parked — so `parkedCount > 0` is structurally impossible there.
@@ -53,7 +58,7 @@ export const HiddenFooter: Component<{
       </Show>
       <ActivityWindowChip
         anchor="top-start"
-        testIdPrefix="dock-window"
+        testIdPrefix={props.chipTestIdPrefix ?? "dock-window"}
         class="h-5 min-w-5 px-1 rounded-md text-[0.65rem] hover:bg-surface-2/70"
       />
       <Show when={filterActive()}>
