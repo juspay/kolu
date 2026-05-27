@@ -25,6 +25,13 @@ import {
 } from "../common/surface";
 import { app } from "./wire";
 
+const STATE_COLOR: Record<string, string> = {
+  connected: "text-green-600 dark:text-green-400",
+  disconnected: "text-red-600 dark:text-red-400",
+  copying: "text-amber-600 dark:text-amber-400",
+  connecting: "text-amber-600 dark:text-amber-400",
+};
+
 export default function App() {
   // System cell: snapshot-then-delta of OS metrics from the remote
   // agent. Server authority — the parent forwards the agent's reads.
@@ -47,7 +54,7 @@ export default function App() {
   // whenever the key set changes; per-PID values aren't in the sort
   // path (the SolidJS reactive identity stays stable across CPU
   // jiggles).
-  const sortedPids = createMemo<readonly Pid[]>(() => {
+  const sortedPids = createMemo(() => {
     const keys = processes.keys();
     return [...keys].sort((a, b) => a - b);
   });
@@ -84,12 +91,11 @@ export default function App() {
   );
 
   function Header() {
-    const stateColor = createMemo(() => {
-      const st = currentConnection().state;
-      if (st === "connected") return "text-green-600 dark:text-green-400";
-      if (st === "disconnected") return "text-red-600 dark:text-red-400";
-      return "text-amber-600 dark:text-amber-400";
-    });
+    const stateColor = createMemo(
+      () =>
+        STATE_COLOR[currentConnection().state] ??
+        "text-amber-600 dark:text-amber-400",
+    );
     const memGb = createMemo(() => ({
       used: (currentSystem().memUsed / 1e9).toFixed(1),
       total: (currentSystem().memTotal / 1e9).toFixed(1),
@@ -138,13 +144,14 @@ export default function App() {
   }
 }
 
+const OVERLAY_MSG: Record<string, string> = {
+  copying: "Copying agent to remote…",
+  connecting: "Connecting…",
+  disconnected: "Disconnected. Retrying…",
+};
+
 function ConnectingOverlay(props: { state: string }) {
-  const msg = () => {
-    if (props.state === "copying") return "Copying agent to remote…";
-    if (props.state === "connecting") return "Connecting…";
-    if (props.state === "disconnected") return "Disconnected. Retrying…";
-    return "Initializing…";
-  };
+  const msg = () => OVERLAY_MSG[props.state] ?? "Initializing…";
   return (
     <div class="px-4 py-8 text-center text-gray-600 dark:text-gray-400">
       <div class="mb-2 text-lg">{msg()}</div>

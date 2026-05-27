@@ -128,7 +128,7 @@ async function main(): Promise<void> {
         reader.readSystem(),
         reader.readProcesses(),
       ]);
-      systemStore.set(nextSystem);
+      fragment.ctx.cells.system.set(nextSystem);
       for (const [pid, value] of nextProcesses) {
         const prev = processSnapshot.get(pid);
         if (

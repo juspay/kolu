@@ -98,8 +98,6 @@ function parseMeminfo(s: string): MemInfo {
   return { total: get("MemTotal"), available: get("MemAvailable") };
 }
 
-const _bootMs = Date.now() - uptime() * 1000;
-
 async function readProcLinux(pid: number): Promise<Process | null> {
   try {
     const [statRaw, statusRaw, cmdlineRaw] = await Promise.all([
@@ -154,6 +152,9 @@ function userFromUid(uid: number): string {
 
 // ── darwin: ps + sysctl reader ──────────────────────────────────────────
 
+// Compiled once — matches `ps -axo pid=,user=,pcpu=,pmem=,comm=` output lines.
+const PS_LINE_RE = /^(\d+)\s+(\S+)\s+([\d.]+)\s+([\d.]+)\s+(.*)$/;
+
 function darwinReader(): ProcReader {
   return {
     os: "darwin",
@@ -178,7 +179,7 @@ function darwinReader(): ProcReader {
       for (const line of stdout.split("\n")) {
         const trimmed = line.trim();
         if (trimmed.length === 0) continue;
-        const m = trimmed.match(/^(\d+)\s+(\S+)\s+([\d.]+)\s+([\d.]+)\s+(.*)$/);
+        const m = trimmed.match(PS_LINE_RE);
         if (!m) continue;
         const [, pidStr, user, cpu, mem, command] = m;
         if (!pidStr || !user || !cpu || !mem || !command) continue;

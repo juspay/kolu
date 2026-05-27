@@ -103,61 +103,75 @@ export function buildRouter(opts: BuildRouterOptions) {
   // local fragment ctx. Reconnects ride on top because the framework's
   // `ClientRetryPlugin` re-issues the subscription with snapshot-then-
   // delta semantics on each transport blip.
-  void (async () => {
-    let client: AgentClient;
-    try {
-      client = await session.acquire();
-    } catch {
-      // session.spawn surfaces failure through state; bail out and
-      // let the session's reconnect loop drive subsequent attempts.
-      // (The session emits `connection: "disconnected"` with a
-      // `lastError`; the browser sees that via `system.state`.)
-      return;
-    }
-    // Don't release on background termination — the session is the
-    // long-lived parent-side singleton and we want it kept warm.
-
-    // System cell: snapshot-then-delta from agent ↔ parent. Connection
-    // lifecycle lives in a separate cell — the agent reports OS data,
-    // nothing else.
-    void (async () => {
-      try {
-        for await (const remoteSystem of await client.surface.system.get({})) {
-          session.markConnected();
-          fragment.ctx.cells.system.set(remoteSystem);
-        }
-      } catch {
-        // Stream end / abort — session reconnect logic takes over.
-        // The session's `onState` will already publish a disconnected
-        // ConnectionInfo if the link is genuinely dead.
-      }
-    })();
-
-    // Processes collection: snapshot-then-delta. Each yield is the
-    // full keyed map (collection's `readAll` shape) — reconciliation
-    // against `processCache` produces per-key upsert/remove deltas.
-    void (async () => {
-      try {
-        for await (const keys of await client.surface.processes.keys({})) {
-          // `keys` is the live key list; we need per-key fetches to
-          // get the values. The framework's implementSurface auto-
-          // generated `processes.keys` and `processes.get(pid)`.
-          // For brevity in the demo, we fetch each new pid once;
-          // subsequent updates flow via the per-key stream when
-          // implementSurface generates one.
-          //
-          // Simpler model used here: keys stream gives us the live
-          // set; we drive per-key state via individual `get` calls
-          // on each new pid.
-          await reconcileProcesses(client, keys, processCache, fragment);
-        }
-      } catch {
-        /* stream end — session reconnect drives the next subscribe */
-      }
-    })();
-  })();
+  void bridgeAgentToParent(session, fragment, processCache);
 
   return { router: fragment.router, session };
+}
+
+type FragmentCtx = {
+  ctx: {
+    cells: { system: { set: (v: SystemInfo) => void } };
+    collections: {
+      processes: {
+        upsert: (k: Pid, v: Process) => void;
+        remove: (k: Pid) => void;
+      };
+    };
+  };
+};
+
+/** Acquire the agent client and pump remote system+processes deltas into
+ *  the parent's local fragment ctx. Each stream loop runs fire-and-forget;
+ *  errors at stream end (transport blip, abort) are expected end-of-life
+ *  noise — the session's reconnect loop drives the next subscribe. */
+async function bridgeAgentToParent(
+  session: HostSession,
+  fragment: FragmentCtx,
+  processCache: Map<Pid, Process>,
+): Promise<void> {
+  let client: AgentClient;
+  try {
+    client = await session.acquire();
+  } catch {
+    // session.spawn surfaces failure through state; bail out and
+    // let the session's reconnect loop drive subsequent attempts.
+    return;
+  }
+  // Don't release on background termination — the session is the
+  // long-lived parent-side singleton and we want it kept warm.
+  void pumpSystemCell(client, session, fragment);
+  void pumpProcessesCollection(client, processCache, fragment);
+}
+
+/** Mirror the agent's system cell into the parent's local cell. */
+async function pumpSystemCell(
+  client: AgentClient,
+  session: HostSession,
+  fragment: FragmentCtx,
+): Promise<void> {
+  try {
+    for await (const remoteSystem of await client.surface.system.get({})) {
+      session.markConnected();
+      fragment.ctx.cells.system.set(remoteSystem);
+    }
+  } catch {
+    // Stream end / abort — session reconnect logic takes over.
+  }
+}
+
+/** Mirror the agent's processes collection into the parent's cache. */
+async function pumpProcessesCollection(
+  client: AgentClient,
+  processCache: Map<Pid, Process>,
+  fragment: FragmentCtx,
+): Promise<void> {
+  try {
+    for await (const keys of await client.surface.processes.keys({})) {
+      await reconcileProcesses(client, keys, processCache, fragment);
+    }
+  } catch {
+    /* stream end — session reconnect drives the next subscribe */
+  }
 }
 
 /** Diff the agent's current key set against the parent's process
@@ -170,16 +184,7 @@ async function reconcileProcesses(
   client: AgentClient,
   keys: readonly Pid[],
   cache: Map<Pid, Process>,
-  fragment: {
-    ctx: {
-      collections: {
-        processes: {
-          upsert: (k: Pid, v: Process) => void;
-          remove: (k: Pid) => void;
-        };
-      };
-    };
-  },
+  fragment: FragmentCtx,
 ): Promise<void> {
   const next = new Set(keys);
   // Remove departed — the framework's wrapped remove updates `cache`
