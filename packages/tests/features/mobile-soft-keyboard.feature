@@ -71,7 +71,7 @@ Feature: Mobile soft keyboard
   Scenario: Switching terminals does not summon the soft keyboard
     # Selection ≠ keyboard focus on touch. Switching the active tile flips
     # which Terminal is visible/focused, but the reactive focus effects
-    # (visibility, focused-prop) are gated behind autoFocus()'s !isTouch()
+    # (visibility, focused-prop) are gated behind focusOnSelection()'s !isTouch()
     # check — so they must NOT focus xterm's helper textarea on a touch
     # device. A focus there pops the soft keyboard with no tap from the user.
     # Only the explicit tap handlers focus on touch.

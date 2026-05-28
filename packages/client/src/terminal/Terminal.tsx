@@ -283,7 +283,7 @@ const Terminal: Component<{
   // rise from an explicit tap (the wrapper-click and pointerup handlers in
   // onMount), never as a side-effect of switching/revealing a tile. So this is
   // a no-op on touch. Real taps still call terminal.focus() directly.
-  function autoFocus() {
+  function focusOnSelection() {
     if (!isTouch()) terminal?.focus();
   }
 
@@ -298,7 +298,7 @@ const Terminal: Component<{
         scrollLock.reset();
         terminal.scrollToBottom();
         debouncedFit();
-        if (props.focused !== false) autoFocus();
+        if (props.focused !== false) focusOnSelection();
       },
       { defer: true },
     ),
@@ -310,7 +310,7 @@ const Terminal: Component<{
       () => props.focused,
       (focused) => {
         if (focused && props.visible && terminal) {
-          autoFocus();
+          focusOnSelection();
         }
       },
       { defer: true },
@@ -337,7 +337,7 @@ const Terminal: Component<{
       () => props.searchOpen,
       (open) => {
         if (!open && props.visible && props.focused !== false && terminal)
-          autoFocus();
+          focusOnSelection();
       },
       { defer: true },
     ),
@@ -668,7 +668,7 @@ const Terminal: Component<{
           // at which point the visibility effect below calls debouncedFit().
           if (props.visible) {
             fitAddon.fit();
-            if (props.focused !== false) autoFocus();
+            if (props.focused !== false) focusOnSelection();
           }
 
           // Track user-initiated focus for "remember last focused" in sub-panel

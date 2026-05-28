@@ -160,7 +160,7 @@ export class KoluWorld extends World {
     await this.canvas.waitFor({ state: "visible", timeout });
     // Desktop auto-focuses xterm's textarea on mount — the signal that a
     // subsequent keyboard.type() will land — so wait for it. On touch, selection
-    // no longer auto-focuses (autoFocus() is a no-op there; the soft keyboard
+    // no longer auto-focuses (focusOnSelection() is a no-op there; the soft keyboard
     // must only rise on an explicit tap), so the terminal mounts unfocused by
     // design — gate on the helper textarea existing in the visible tile instead.
     await this.page.waitForFunction(
