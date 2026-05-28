@@ -29,8 +29,8 @@
  * transport layer.
  */
 
-import { spawn } from "node:child_process";
-import { forEachLine, isLocalHost } from "./host";
+import { isLocalHost } from "./host";
+import { runCapture, runProgress } from "./process";
 
 export interface ProvisionOptions {
   host: string;
@@ -120,60 +120,4 @@ export async function provisionAgent(
   }
   opts.onProgress(`${opts.host}: agent realised at ${agentPath}`);
   return { ok: true, agentPath };
-}
-
-interface ExitResult {
-  ok: boolean;
-  code: number | null;
-}
-interface CaptureResult extends ExitResult {
-  stdout: string;
-}
-
-/** Run a child process with stdout ignored; forward stderr lines to
- *  `onProgress`. Used for `nix copy` where the only output the parent
- *  cares about is progress chatter on stderr. */
-function runProgress(
-  cmd: string,
-  args: readonly string[],
-  onProgress: (line: string) => void,
-): Promise<ExitResult> {
-  return new Promise((resolve) => {
-    const proc = spawn(cmd, [...args], { stdio: ["ignore", "ignore", "pipe"] });
-    proc.stderr?.setEncoding("utf-8");
-    proc.stderr?.on("data", (chunk: string) => forEachLine(chunk, onProgress));
-    // Use "close" (not "exit") so the last stderr chunk is guaranteed
-    // flushed before we resolve — "exit" fires before stdio streams drain.
-    proc.on("close", (code) => resolve({ ok: code === 0, code }));
-    proc.on("error", (err) => {
-      onProgress(`${cmd}: ${err.message}`);
-      resolve({ ok: false, code: null });
-    });
-  });
-}
-
-/** Run a child process and buffer its stdout; forward stderr lines to
- *  `onProgress`. Used for `nix-store --realise` where the output path
- *  comes back on stdout. */
-function runCapture(
-  cmd: string,
-  args: readonly string[],
-  onProgress: (line: string) => void,
-): Promise<CaptureResult> {
-  return new Promise((resolve) => {
-    const proc = spawn(cmd, [...args], { stdio: ["ignore", "pipe", "pipe"] });
-    let stdout = "";
-    proc.stdout?.setEncoding("utf-8");
-    proc.stdout?.on("data", (chunk: string) => {
-      stdout += chunk;
-    });
-    proc.stderr?.setEncoding("utf-8");
-    proc.stderr?.on("data", (chunk: string) => forEachLine(chunk, onProgress));
-    // Use "close" (not "exit") so stdout/stderr are fully drained first.
-    proc.on("close", (code) => resolve({ ok: code === 0, code, stdout }));
-    proc.on("error", (err) => {
-      onProgress(`${cmd}: ${err.message}`);
-      resolve({ ok: false, code: null, stdout: "" });
-    });
-  });
 }
