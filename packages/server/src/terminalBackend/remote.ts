@@ -196,8 +196,21 @@ export class RemoteTerminalBackend implements TerminalBackend {
    *  for host-level pumps (metadata mirror, heartbeat); per-terminal
    *  pumps in `spawnAsync` consume the *current* client at spawn time
    *  and bind to its lifetime — agent restart kills those terminals
-   *  by construction (the agent has no memory of them after respawn). */
+   *  by construction (the agent has no memory of them after respawn).
+   *
+   *  Re-resolves if the cached session was destroyed (e.g. an explicit
+   *  `destroyAllSessions()` on shutdown that the backend outlived).
+   *  The pool guard in `getHostSession` would already hand back a fresh
+   *  instance, but the cached field here bypasses the pool — without
+   *  this guard the backend would stay glued to a dead session even
+   *  though a fresh one was available. */
   private async ensureSession(): Promise<HostSession<AgentContract>> {
+    if (this.session !== null && this.session.isDestroyed()) {
+      this.session = null;
+      this.sessionPromise = null;
+      this.bridgeStarted = false;
+      this.connectedAcked = false;
+    }
     if (this.session) return this.session;
     if (!this.sessionPromise) {
       this.sessionPromise = getKoluHostSessionAsync(this.host).then((s) => {

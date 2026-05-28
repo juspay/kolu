@@ -194,14 +194,23 @@ export class HostSession<C extends AnyContractRouter> {
    *
    *  SIGKILL (not SIGTERM) because the agent has demonstrably failed
    *  to service requests; a graceful signal is no safer than a forceful
-   *  one when the target is by definition unresponsive. */
+   *  one when the target is by definition unresponsive. SIGKILL is
+   *  uncatchable on Linux/Darwin so the existing `child.on("exit")`
+   *  handler is guaranteed to fire and drive the reconnect.
+   *
+   *  Counts against `MAX_CONSECUTIVE_FAILURES`: a heartbeat-thrashing
+   *  agent that recovers and re-fails N times in a row eventually
+   *  trips the same give-up gate as a permanently-misconfigured
+   *  remote. That conflation is intentional — both end states are
+   *  "the operator must intervene"; tracking them separately would
+   *  let an unrecoverable stuck-agent loop forever. */
   forceReconnect(reason: string): void {
     if (this.destroyed || this.child === null) return;
     this.addLocalProgress(`force reconnect: ${reason}`);
     try {
       this.child.kill("SIGKILL");
     } catch {
-      /* best-effort; child.on('exit') will fire if it ever exits */
+      /* best-effort; child.on('exit') fires when the process actually exits */
     }
   }
 
