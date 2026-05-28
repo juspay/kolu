@@ -159,12 +159,15 @@ Then(
       const handle = document.querySelector(
         '[data-testid="right-panel-handle"]',
       );
-      if (!handle) return { ok: false, dead: [{ reason: "handle missing" }] };
+      if (!handle) return { ok: false, setupError: "handle missing" } as const;
       const tile = document.querySelector(
         '[data-testid="canvas-tile"][data-active="true"]',
       ) as HTMLElement | null;
       if (!tile) {
-        return { ok: false, dead: [{ reason: "active tile missing" }] };
+        return {
+          ok: false,
+          setupError: "active tile missing",
+        } as const;
       }
       const handleRect = handle.getBoundingClientRect();
       const tileRect = tile.getBoundingClientRect();
@@ -186,11 +189,14 @@ Then(
           }
         }
       }
-      return { ok: dead.length === 0, dead };
+      return { ok: dead.length === 0, dead } as const;
     });
+    if (!result.ok && "setupError" in result) {
+      assert.fail(`Setup failed: ${result.setupError}`);
+    }
     assert.ok(
       result.ok,
-      `Resize handle is shadowed at: ${JSON.stringify(result.dead)}`,
+      `Resize handle is shadowed at: ${JSON.stringify("dead" in result ? result.dead : [])}`,
     );
   },
 );
