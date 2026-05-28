@@ -24,6 +24,7 @@ import type {
   TerminalId,
   TerminalInfo,
   TerminalMetadata,
+  TerminalServerMetadata,
 } from "kolu-common/surface";
 import type {
   PtySpawnOpts,
@@ -69,7 +70,6 @@ import {
 import {
   type ProviderChannels,
   type ProviderHooks,
-  type ProviderMeta,
   startProviders,
 } from "./providers.ts";
 
@@ -306,23 +306,25 @@ function buildChannels(id: TerminalId): ProviderChannels {
   };
 }
 
-/** Build the `ProviderHooks` for one terminal. The two update verbs
- *  bridge `ProviderMeta` (the providers' narrow view) onto the
+/** Build the `ProviderHooks` for one terminal. Both verbs bridge
+ *  `TerminalServerMetadata` (the providers' shared view) onto the
  *  registry's `TerminalProcess.meta` via `updateServer*Metadata` —
  *  same object identity, so the providers' own read path on
- *  `record.meta` sees the write immediately. The cast is sound
- *  because `TerminalMetadata` is structurally a superset of
- *  `ProviderMeta`. `trackRecent*` are passed straight through:
- *  the local backend owns the activity feed. */
+ *  `record.meta` sees the write immediately. The casts widen the
+ *  fence-narrowed mutator argument (`ServerPersistedTerminalFields` /
+ *  `LiveTerminalFields`) back to the providers' shared
+ *  `TerminalServerMetadata` view; sound because `entry.meta` is the
+ *  full `TerminalMetadata` at runtime. `trackRecent*` pass straight
+ *  through: the local backend owns the activity feed. */
 function buildHooks(entry: TerminalProcess, id: TerminalId): ProviderHooks {
   return {
     updateServerMetadata: (_record, mutate) =>
       updateServerMetadata(entry, id, (m) =>
-        mutate(m as unknown as ProviderMeta),
+        mutate(m as unknown as TerminalServerMetadata),
       ),
     updateServerLiveMetadata: (_record, mutate) =>
       updateServerLiveMetadata(entry, id, (m) =>
-        mutate(m as unknown as ProviderMeta),
+        mutate(m as unknown as TerminalServerMetadata),
       ),
     trackRecentRepo,
     trackRecentAgent,

@@ -37,8 +37,11 @@ import { codexProvider } from "kolu-codex";
 import { subscribeGitInfo } from "kolu-git";
 import type { GitInfo } from "kolu-git/schemas";
 import { subscribeGitHubPr } from "kolu-github";
-import type { PrResult } from "kolu-github/schemas";
-import type { AgentInfo, TerminalId } from "kolu-common/surface";
+import type {
+  AgentInfo,
+  TerminalId,
+  TerminalServerMetadata,
+} from "kolu-common/surface";
 import { opencodeProvider } from "kolu-opencode";
 import type { PtyHandle } from "kolu-pty";
 import type { Logger } from "kolu-shared";
@@ -49,27 +52,19 @@ import { shouldBumpRecencyForAgentChange } from "./agentRecency.ts";
 /** Minimal "terminal record" shape the provider DAG needs. Both
  *  backends construct one with their own internals (LocalTerminalRecord,
  *  AgentTerminal); the providers only touch `ptyHandle` + `meta` +
- *  `currentAgent` from here. */
+ *  `currentAgent` from here. `meta` is `TerminalServerMetadata` — the
+ *  canonical `ServerPersistedTerminalFields ∪ LiveTerminalFields` union
+ *  from `kolu-common/surface` (the same write-fence partition
+ *  `metadata.ts` enforces). Hosts whose own metadata is structurally a
+ *  superset (parent's `TerminalMetadata`, a future agent's
+ *  `AgentTerminalMetadata`) satisfy it directly. */
 export interface ProviderRecord {
   ptyHandle: PtyHandle;
-  meta: ProviderMeta;
+  meta: TerminalServerMetadata;
   /** Ephemeral basename of the agent binary at the foreground right
    *  now; written by the agent-command tracker, read by the agent
    *  detectors. Null when the shell is idle. */
   currentAgent: string | null;
-}
-
-/** Subset of metadata fields the providers read/write. Compatible
- *  with both `TerminalMetadata` (parent) and `AgentTerminalMetadata`
- *  (agent). */
-export interface ProviderMeta {
-  cwd: string;
-  git: GitInfo | null;
-  pr: PrResult;
-  agent: AgentInfo | null;
-  foreground: { name: string; title: string | null } | null;
-  lastAgentCommand?: string;
-  lastActivityAt: number;
 }
 
 /** Per-terminal channels the providers subscribe to. Both backends
@@ -84,20 +79,20 @@ export interface ProviderChannels {
 /** Host hooks — the providers call these to update metadata + emit
  *  side effects. The parent backend wires through
  *  `updateServerMetadata`/`updateServerLiveMetadata` (which publish
- *  via surfaceCtx). The agent wires through `publishMetadata` (which
- *  publishes via fragment.ctx). */
+ *  via surfaceCtx). A future agent host wires through its own publish
+ *  surface. */
 export interface ProviderHooks {
   updateServerMetadata: (
     record: ProviderRecord,
-    mutate: (meta: ProviderMeta) => void,
+    mutate: (meta: TerminalServerMetadata) => void,
   ) => void;
   updateServerLiveMetadata: (
     record: ProviderRecord,
-    mutate: (meta: ProviderMeta) => void,
+    mutate: (meta: TerminalServerMetadata) => void,
   ) => void;
-  /** Optional — parent-side activity-feed tracking. Agent has no
-   *  user-facing activity feed (the parent owns it), so this stays
-   *  undefined on the agent. */
+  /** Optional — parent-side activity-feed tracking. Hosts without a
+   *  user-facing activity feed (a future agent host) leave these
+   *  undefined. */
   trackRecentRepo?: (root: string, name: string) => void;
   trackRecentAgent?: (cmd: string) => void;
 }
