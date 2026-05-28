@@ -212,12 +212,8 @@ export const FileTree: Component<FileTreeProps> = (props) => {
               if (p !== keep) tree?.getItem(p)?.deselect();
             }
           };
-          if (path === null) {
-            // Clearing selection.
-            deselectOthers(null);
-          } else {
-            // Switching selection.
-            deselectOthers(path);
+          deselectOthers(path);
+          if (path !== null) {
             tree?.getItem(path)?.select();
             // `select()` marks aria-selected but doesn't move the
             // virtualizer; deep paths in large worktrees would stay
