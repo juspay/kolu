@@ -315,8 +315,9 @@ const CodeTab: Component<{
     for (const cand of cands) {
       const { exists } = await client.git
         .fsExists({ repoPath: repo, filePath: cand })
-        .catch((err: Error) => {
-          toast.error(`File reference probe failed: ${err.message}`);
+        .catch((err: unknown) => {
+          const message = err instanceof Error ? err.message : String(err);
+          toast.error(`File reference probe failed: ${message}`);
           return { exists: false };
         });
       if (pendingOpen() !== req) return;
