@@ -54,8 +54,21 @@ export const DOCK_CARDS_GUTTER_CLASS = "pr-6";
  *  column tracks inside its own (now extended) border box, so the
  *  parent's `pr-6` no longer constrains the right column. Re-apply
  *  `DOCK_CARDS_GUTTER_CLASS` directly to such descendants to push the
- *  inner columns back into the section's content area; the cancel-
- *  and-restore pair keeps the background bleeding while the content
- *  stays inset. Flex descendants (section header) don't need this —
- *  their `pr-3` content padding already sits inside the extended box. */
+ *  inner columns back into the section's content area. The right side
+ *  has to stay at the call site because the desktop / mobile rows
+ *  legitimately differ (24 px vs. 12 px); the left side does not —
+ *  see `DOCK_CARDS_SUBGRID_LEFT_RESTORE`. */
 export const DOCK_CARDS_GUTTER_NEG_CLASS = "-mr-6";
+
+/** Layout-coupling token (not a density token like the rest of this
+ *  file): cancel-and-restore the left dock gutter on a
+ *  `grid-cols-subgrid` descendant of `RepoSection`. Both the cancel
+ *  (`-ml-6`) and the restore (`pl-6`) have to ride on the same
+ *  element, and the left value is identical between desktop and
+ *  mobile rows, so the pair lives behind one symbol — applying just
+ *  the cancel without the restore would land the subgrid's first
+ *  column flush against the dock's left edge. The right-side cancel
+ *  + restore stays at the call site because desktop uses
+ *  `DOCK_CARDS_GUTTER_*` (24 px) while mobile uses `pr-3` / `-mr-3`
+ *  (12 px); see the comment in `MobileDockDrawer.tsx`. */
+export const DOCK_CARDS_SUBGRID_LEFT_RESTORE = "-ml-6 pl-6";
