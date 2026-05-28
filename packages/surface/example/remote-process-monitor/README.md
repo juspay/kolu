@@ -39,7 +39,7 @@ just dev user@somehost     # any ssh target
 
 Open <http://localhost:5175>. Requires passwordless ssh into the target (set up `~/.ssh/authorized_keys` for your own user if you haven't), and the remote's nix-daemon must trust the parent's user (`trusted-users` in `nix.conf`) so it accepts the unsigned closure the parent ships.
 
-`just dev` boots the parent server (`:7720`) + Vite client (`:5175`). It probes the host's architecture via `ssh $host uname -ms`, then evaluates `nix eval --raw .#packages.<remote-system>.process-monitor-agent.drvPath` to get the *target-arch* derivation, and exports it as `KOLU_AGENT_DRV`. The parent's `HostSession` then:
+`just dev` boots the parent server (`:7720`) + Vite client (`:5175`). It probes the host's architecture via `@kolu/surface-nix-host`'s `resolveSystem` (the thin CLI wrapper lives at [`src/probe-arch.ts`](src/probe-arch.ts) — one helper covers both the local and ssh paths), then evaluates `nix eval --raw .#packages.<remote-system>.process-monitor-agent.drvPath` to get the *target-arch* derivation, and exports it as `KOLU_AGENT_DRV`. The parent's `HostSession` then:
 
 1. `nix copy --derivation --to ssh-ng://$host $KOLU_AGENT_DRV` — ships the `.drv` (plus any inputs the remote doesn't have) to the host.
 2. `ssh $host nix-store --realise $KOLU_AGENT_DRV` — builds it on the remote, returning a path on the remote's store.

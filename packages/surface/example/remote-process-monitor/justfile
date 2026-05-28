@@ -22,30 +22,20 @@ install:
     cd {{ repo_root }} && {{ nix_shell }} pnpm install
 
 # Boot parent (:7720) + Vite (:5175). Resolves the agent's `.drv` for
-# the *target host's* architecture (probed via `ssh $HOST uname -ms`),
-# then exports `KOLU_AGENT_DRV` so the parent's HostSession can ship the
-# derivation to the host and realise it there. This is platform-neutral
-# — copying a built linux closure to a darwin remote is the bug we
-# explicitly avoid.
+# the *target host's* architecture via `@kolu/surface-nix-host`'s
+# `resolveSystem` (see `src/probe-arch.ts` — one library helper covers
+# both the local and ssh paths), then exports `KOLU_AGENT_DRV` so the
+# parent's HostSession can ship the derivation to the host and realise
+# it there. This is platform-neutral — copying a built linux closure
+# to a darwin remote is the bug we explicitly avoid.
 dev host='localhost' *args: install
     #!/usr/bin/env bash
     set -euo pipefail
-    if [ "{{ host }}" = "localhost" ] || [ "{{ host }}" = "127.0.0.1" ]; then
-      sys=$(nix eval --raw --impure --expr builtins.currentSystem)
-    else
-      uname_out=$(ssh -o BatchMode=yes {{ host }} uname -ms)
-      case "$uname_out" in
-        "Darwin arm64")  sys=aarch64-darwin ;;
-        "Darwin x86_64") sys=x86_64-darwin ;;
-        "Linux x86_64")  sys=x86_64-linux ;;
-        "Linux aarch64") sys=aarch64-linux ;;
-        *) echo "» unsupported remote uname: $uname_out" >&2; exit 1 ;;
-      esac
-    fi
+    cd {{ justfile_directory() }}
+    sys=$({{ nix_shell }} pnpm exec tsx src/probe-arch.ts {{ host }})
     echo "» target host: {{ host }} (system=$sys)"
     drv=$(nix eval --raw "{{ repo_root }}#packages.$sys.process-monitor-agent.drvPath")
     echo "» agent .drv:  $drv"
-    cd {{ justfile_directory() }}
     HOST={{ host }} \
     KOLU_AGENT_DRV=$drv \
     {{ nix_shell }} pnpm run dev {{ args }}
