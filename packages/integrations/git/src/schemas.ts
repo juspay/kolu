@@ -184,6 +184,20 @@ export const FsReadFileOutputSchema = z.discriminatedUnion("kind", [
 ]);
 export type FsReadFileOutput = z.infer<typeof FsReadFileOutputSchema>;
 
+export const FsExistsInputSchema = z.object({
+  /** Absolute path to the repo root. */
+  repoPath: z.string(),
+  /** Path relative to repo root. The same path-traversal guard `readFile`
+   *  uses applies — paths escaping `repoPath` are rejected, not reported
+   *  as `false`. */
+  filePath: z.string(),
+});
+
+export const FsExistsOutputSchema = z.object({
+  exists: z.boolean(),
+});
+export type FsExistsOutput = z.infer<typeof FsExistsOutputSchema>;
+
 // --- Derived types ---
 
 export type GitInfo = z.infer<typeof GitInfoSchema>;

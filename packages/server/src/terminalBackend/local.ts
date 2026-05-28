@@ -52,6 +52,7 @@ import type { AgentInfo, TerminalId, TerminalInfo } from "kolu-common/surface";
 import type { GitDiffMode } from "kolu-git/schemas";
 import {
   type FsListAllOutput,
+  fsExists,
   type GitDiffOutput,
   type GitStatusOutput,
   getDiff,
@@ -571,6 +572,9 @@ const localFs: TerminalBackendFs = {
   },
   async readFile(repoPath, filePath) {
     return unwrapGit(await readFile(repoPath, filePath, log));
+  },
+  async fsExists(repoPath, filePath) {
+    return unwrapGit(await fsExists(repoPath, filePath, log));
   },
   async statFileMtimeMs(repoPath, filePath) {
     return unwrapGit(await statFileMtimeMs(repoPath, filePath, log));

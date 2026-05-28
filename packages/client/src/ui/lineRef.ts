@@ -153,6 +153,28 @@ function basename(path: string): string {
   return i < 0 ? path : path.slice(i + 1);
 }
 
+/** Compose the candidate repo-relative paths a raw terminal-supplied path
+ *  could resolve to. The same composition `resolveLineRefPath` runs
+ *  internally, exposed for callers that need to probe candidates against
+ *  an authority other than the `fsListAll` file set — e.g. a server-side
+ *  `fsExists` probe for files git doesn't track.
+ *
+ *  Order is significant: cwd-relative composition comes first because
+ *  that's the disambiguation the user expects when they typed a
+ *  short path while standing in a subdirectory. Absolute paths return a
+ *  single candidate (their repo-stripped form, when under `repoRoot`).
+ *  Basename-uniqueness fallback is not included here — it inherently
+ *  requires the file list to know what's unique, and a gitignored file
+ *  whose basename collides with a tracked one shouldn't quietly take
+ *  over the click target. */
+export function lineRefCandidates(args: {
+  rawPath: string;
+  repoRoot: string;
+  cwd: string | undefined;
+}): string[] {
+  return Array.from(candidates(args));
+}
+
 function* candidates(args: {
   rawPath: string;
   repoRoot: string;

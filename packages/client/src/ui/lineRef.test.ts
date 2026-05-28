@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { formatLineRef, parseLineRefs, resolveLineRefPath } from "./lineRef";
+import {
+  formatLineRef,
+  lineRefCandidates,
+  parseLineRefs,
+  resolveLineRefPath,
+} from "./lineRef";
 
 describe("formatLineRef", () => {
   it("formats a single line and a range", () => {
@@ -269,5 +274,59 @@ describe("resolveLineRefPath", () => {
         repoPaths,
       }),
     ).toBe("src/app.ts");
+  });
+});
+
+describe("lineRefCandidates", () => {
+  const repoRoot = "/tmp/work";
+
+  it("yields cwd-relative then repo-relative for a bare path in a subdirectory", () => {
+    expect(
+      lineRefCandidates({
+        rawPath: "app.ts",
+        repoRoot,
+        cwd: "/tmp/work/nested/src",
+      }),
+    ).toEqual(["nested/src/app.ts", "app.ts"]);
+  });
+
+  it("yields only the repo-stripped form for an absolute path under repoRoot", () => {
+    expect(
+      lineRefCandidates({
+        rawPath: "/tmp/work/dist/build.js",
+        repoRoot,
+        cwd: repoRoot,
+      }),
+    ).toEqual(["dist/build.js"]);
+  });
+
+  it("yields nothing for an absolute path outside repoRoot", () => {
+    expect(
+      lineRefCandidates({
+        rawPath: "/tmp/other/foo.ts",
+        repoRoot,
+        cwd: repoRoot,
+      }),
+    ).toEqual([]);
+  });
+
+  it("yields the repo-relative candidate when cwd is undefined", () => {
+    expect(
+      lineRefCandidates({
+        rawPath: "src/app.ts",
+        repoRoot,
+        cwd: undefined,
+      }),
+    ).toEqual(["src/app.ts"]);
+  });
+
+  it("yields the repo-relative form even when the cwd-relative compose escapes the root", () => {
+    expect(
+      lineRefCandidates({
+        rawPath: "../app.ts",
+        repoRoot,
+        cwd: "/tmp/work",
+      }),
+    ).toEqual([]);
   });
 });

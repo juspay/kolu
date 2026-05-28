@@ -72,6 +72,19 @@ Feature: File-ref autolinking in terminal
     And the selected file should show content "alpha"
     And no line should be selected in the file content
 
+  Scenario: Clicking a gitignored path opens the file via the disk-probe fallback
+    When I run "git init /tmp/kolu-file-ref-ignored && cd /tmp/kolu-file-ref-ignored"
+    And I run "git commit --allow-empty -m init"
+    And I run "printf 'build/\n' > .gitignore"
+    And I run "mkdir -p build && printf 'red\ngreen\nblue\n' > build/artifact.txt"
+    And I run "echo 'see build/artifact.txt:2 for the color'"
+    And I trigger the terminal file-ref link "build/artifact.txt:2"
+    Then the right panel should be visible
+    And the Code tab should be active
+    And the Code tab mode should be "browse"
+    And the selected file should show content "green"
+    And line 2 should be selected in the file content
+
   Scenario: Bare basename without a line number resolves via unique-basename fallback
     When I run "git init /tmp/kolu-file-ref-noline-basename && cd /tmp/kolu-file-ref-noline-basename"
     And I run "git commit --allow-empty -m init"

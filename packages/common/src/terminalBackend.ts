@@ -114,6 +114,10 @@ export interface TerminalBackendFs {
     repoPath: string,
     filePath: string,
   ): Promise<{ content: string; truncated: boolean }>;
+  /** Existence probe for the terminal file-ref click resolver — falls
+   *  back to disk when `listAll` (which honors `.gitignore`) doesn't
+   *  see the path. Returns `true` only for regular files. */
+  fsExists(repoPath: string, filePath: string): Promise<boolean>;
   statFileMtimeMs(repoPath: string, filePath: string): Promise<number>;
   subscribeRepoChange(repoPath: string, onChange: () => void): () => void;
   subscribeFileChange(

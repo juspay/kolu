@@ -14,6 +14,8 @@
 
 import { eventIterator, oc } from "@orpc/contract";
 import {
+  FsExistsInputSchema,
+  FsExistsOutputSchema,
   WorktreeCreateInputSchema,
   WorktreeCreateOutputSchema,
   WorktreeRemoveInputSchema,
@@ -171,5 +173,11 @@ export const contract = oc.router({
       .input(WorktreeCreateInputSchema)
       .output(WorktreeCreateOutputSchema),
     worktreeRemove: oc.input(WorktreeRemoveInputSchema).output(z.void()),
+    /** Existence probe for the terminal file-ref click resolver — falls
+     *  back to disk when `fsListAll` (which honors `.gitignore`) doesn't
+     *  see the path. The tree-display filter is intentional; this lets a
+     *  click on a gitignored or freshly-created file still open in
+     *  preview. */
+    fsExists: oc.input(FsExistsInputSchema).output(FsExistsOutputSchema),
   },
 });

@@ -40,7 +40,7 @@ import { CommentTextSurface } from "../comments/CommentTextSurface";
 import { useComposer } from "../comments/composerState";
 import { useCommentScrollRequest } from "../comments/scrollRequest";
 import { useColorScheme } from "../settings/useColorScheme";
-import { app } from "../wire";
+import { app, client } from "../wire";
 import { FileBrowseIcon, FileDiffIcon, GitBranchIcon } from "../ui/Icons";
 import {
   renderTreeContextMenu,
@@ -51,7 +51,7 @@ import {
   pierreIconConfig,
   pierreTreesStyle,
 } from "../ui/pierreTheme";
-import { resolveLineRefPath } from "../ui/lineRef";
+import { lineRefCandidates, resolveLineRefPath } from "../ui/lineRef";
 import BrowseFileDispatcher from "./BrowseFileDispatcher";
 import CodeMenuFrame from "./CodeMenuFrame";
 import {
@@ -223,14 +223,32 @@ const CodeTab: Component<{
   // Consume-once record for the latest pendingOpen tick. Holds the
   // full request object (reference identity discriminates two
   // structurally-identical clicks — `openInCodeTab` mints a fresh
-  // object per call) alongside the resolved path. Storing the
+  // object per call) alongside the resolution stage. Storing the
   // request here lets `selectedRange` derive its value without
   // re-running `resolveLineRefPath` (single resolution site per
   // request).
-  const [handled, setHandled] = createSignal<{
+  //
+  // Discriminated by `stage`: `probing` is the mid-flight placeholder
+  // set before the disk-probe fallback fires; `in-tree`/`out-of-tree`
+  // both carry a resolved path and differ only in provenance (whether
+  // the path lives in the `fsListAll` set or only on disk); `miss` is
+  // the terminal "no candidate exists" state. The membership-clear
+  // effect reads `out-of-tree` so it doesn't wipe selections that the
+  // tree filter correctly excludes (gitignored / freshly-created
+  // files). `handled() === null` is reserved for "no request handled
+  // yet" — keeping freshness on the signal-level absence avoids
+  // multiplying that axis into the payload.
+  type HandledRecord = {
     request: OpenInCodeTabRequest;
-    resolvedPath: string | null;
-  } | null>(null);
+  } & (
+    | { stage: "probing" }
+    | { stage: "in-tree"; resolvedPath: string }
+    | { stage: "out-of-tree"; resolvedPath: string }
+    | { stage: "miss" }
+  );
+  const [handled, setHandled] = createSignal<HandledRecord | null>(null);
+  const resolvedPathOf = (h: HandledRecord): string | null =>
+    h.stage === "in-tree" || h.stage === "out-of-tree" ? h.resolvedPath : null;
 
   // Honor every `openInCodeTab` request — terminal file-ref clicks,
   // right-click "Open path:N" entries, and any future producer. The
@@ -239,6 +257,15 @@ const CodeTab: Component<{
   // a request fired during boot would toast "not found" on a path
   // that just hasn't been enumerated yet. `openInCodeTab` flips the
   // panel to browse mode itself; this effect only sets `selectedPath`.
+  //
+  // Two-stage resolution: first against the tree's file list (cheap,
+  // sync, and preserves the basename-uniqueness fallback for compiler
+  // output like `Foo.hs:42`); on miss, probe each composed candidate
+  // against the server's filesystem via `client.git.fsExists`. The
+  // second stage opens gitignored files (build artifacts, scratch
+  // HTML, log files) and freshly-created untracked files the stream
+  // snapshot hasn't picked up yet — both legitimate click targets the
+  // tree filter intentionally hides.
   createEffect(
     on(
       () => {
@@ -258,17 +285,67 @@ const CodeTab: Component<{
           cwd: req.cwd,
           repoPaths: paths,
         });
-        if (rel === null) {
-          toast.error(`File reference not found: ${req.ref.path}`);
-          setHandled({ request: req, resolvedPath: null });
+        if (rel !== null) {
+          setSelectedPath(rel);
+          setHandled({ request: req, stage: "in-tree", resolvedPath: rel });
           return;
         }
-        setSelectedPath(rel);
-        setHandled({ request: req, resolvedPath: rel });
+        // Tree miss — fall through to a disk probe before giving up.
+        // Stay synchronous inside the effect body (SolidJS reactive
+        // tracking ends at the first `await`); fire the probe and
+        // resolve in `.then`, re-checking that this request is still
+        // the latest before writing so a superseding click can't get
+        // stomped by a stale fallback result.
+        setHandled({ request: req, stage: "probing" });
+        void resolveByDiskProbe(req, repo);
       },
       { defer: true },
     ),
   );
+
+  async function resolveByDiskProbe(
+    req: OpenInCodeTabRequest,
+    repo: string,
+  ): Promise<void> {
+    const cands = lineRefCandidates({
+      rawPath: req.ref.path,
+      repoRoot: repo,
+      cwd: req.cwd,
+    });
+    for (const cand of cands) {
+      let result: { exists: boolean };
+      try {
+        result = await client.git.fsExists({ repoPath: repo, filePath: cand });
+      } catch (err: unknown) {
+        // RPC failure (network down, server error) — abort the probe
+        // entirely. Continuing to the next candidate would produce another
+        // identical error, then a misleading "not found" toast (the server
+        // may be reachable but temporarily unavailable; file presence
+        // is unknown, not denied). Transition handled out of `probing` so
+        // the membership-clear effect stops treating this request as an
+        // in-flight probe; `miss` is the right terminal stage since we
+        // couldn't confirm existence either way.
+        const message = err instanceof Error ? err.message : String(err);
+        toast.error(`File reference probe failed: ${message}`);
+        if (pendingOpen() === req && handled()?.stage === "probing") {
+          setHandled({ request: req, stage: "miss" });
+        }
+        return;
+      }
+      // Superseded by a newer click or an explicit user tree-navigation:
+      // `handleSelect` clears `handled` on a probing-stage tree-click so the
+      // probe can detect the user's choice and bow out without stomping it.
+      if (pendingOpen() !== req || handled()?.stage !== "probing") return;
+      if (result.exists) {
+        setSelectedPath(cand);
+        setHandled({ request: req, stage: "out-of-tree", resolvedPath: cand });
+        return;
+      }
+    }
+    if (pendingOpen() !== req || handled()?.stage !== "probing") return;
+    setHandled({ request: req, stage: "miss" });
+    toast.error(`File reference not found: ${req.ref.path}`);
+  }
 
   // Highlight range derives from the consume-once record: if the
   // request we last handled matches the latest pending one AND its
@@ -294,8 +371,9 @@ const CodeTab: Component<{
     const req = pendingOpen();
     if (!req) return null;
     const h = handled();
-    if (!h || h.request !== req || h.resolvedPath === null) return null;
-    if (h.resolvedPath !== selectedPath()) return null;
+    if (!h || h.request !== req) return null;
+    const rel = resolvedPathOf(h);
+    if (rel === null || rel !== selectedPath()) return null;
     // No-line refs (`src/Main.hs` with no `:N`) open the file with no
     // highlight — the user asked for the file, not a specific line.
     if (req.ref.startLine === null || req.ref.endLine === null) return null;
@@ -336,7 +414,26 @@ const CodeTab: Component<{
         const sk = slotKey();
         const isPending = isDiffView() ? status.pending() : allPaths.pending();
         const paths = treePaths();
-        return { s, sk, pathExists: !s || isPending || paths.includes(s) };
+        const h = handled();
+        // Out-of-tree selections (gitignored / untracked files opened
+        // via the fsExists fallback) intentionally won't appear in
+        // `treePaths()` — the tree filter is correct, but their
+        // presence in `selectedPath` is also correct. Treat the
+        // current handled record as authoritative for that case.
+        // Also suppress clearing during `probing`: the disk probe is
+        // mid-flight and the previous selection (which may itself be
+        // out-of-tree) should stay visible until the probe resolves —
+        // otherwise the gutter flashes "Select a file" for the duration
+        // of the RPC round-trip.
+        const outOfTree =
+          h !== null &&
+          (h.stage === "probing" ||
+            (h.stage === "out-of-tree" && h.resolvedPath === s));
+        return {
+          s,
+          sk,
+          pathExists: !s || isPending || paths.includes(s) || outOfTree,
+        };
       },
       (cur, prev) => {
         if (prev && prev.sk !== cur.sk) return;
@@ -366,11 +463,18 @@ const CodeTab: Component<{
     // user who treated their tree click as a fresh intent. Same-file
     // tree-clicks don't trip this branch (Pierre fires `onSelect(rel)`
     // after our own programmatic `setSelectedPath(rel)` and the path
-    // equals `handled.resolvedPath` in that case — leaving the highlight
-    // intact for the lifetime of the request).
+    // equals the handled record's resolvedPath in that case — leaving
+    // the highlight intact for the lifetime of the request).
     const h = handled();
-    if (h && h.resolvedPath !== null && h.resolvedPath !== path) {
-      setHandled(null);
+    if (h !== null) {
+      const rel = resolvedPathOf(h);
+      // `probing` has no `resolvedPath` to compare against, so the
+      // `rel !== null` guard alone would skip the clear. But the user
+      // just navigated away, so the in-flight probe must not overwrite
+      // their choice — clear unconditionally for probing.
+      if (h.stage === "probing" || (rel !== null && rel !== path)) {
+        setHandled(null);
+      }
     }
     setSelectedPath(path);
   };

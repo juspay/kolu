@@ -72,6 +72,32 @@ export async function readFile(
   }
 }
 
+/** Check whether a file exists on disk under `repoPath`, regardless of
+ *  whether git tracks or ignores it. The fallback oracle for terminal
+ *  file-ref clicks when `listAll` (which honors `.gitignore`) doesn't
+ *  see the path. Same path-traversal guard as `readFile` — a `..` that
+ *  escapes the root is rejected, not reported as `false`.
+ *
+ *  Returns `true` only for regular files. Directories return `false`
+ *  because the click consumer (`CodeTab` preview) can't render them. */
+export async function fsExists(
+  repoPath: string,
+  filePath: string,
+  log?: Logger,
+): Promise<GitResult<boolean>> {
+  const resolved = resolveUnder(repoPath, filePath, log);
+  if (!resolved.ok) return resolved as GitResult<boolean>;
+  try {
+    const s = await fsStat(resolved.value.abs);
+    return ok(s.isFile());
+  } catch (e: unknown) {
+    const errno = (e as NodeJS.ErrnoException).code;
+    if (errno === "ENOENT" || errno === "ENOTDIR") return ok(false);
+    const msg = e instanceof Error ? e.message : String(e);
+    return err({ code: "GIT_FAILED", message: `Failed to stat file: ${msg}` });
+  }
+}
+
 /** Stat a file's mtime in ms-since-epoch, used to cache-bust the iframe URL
  *  for binary previewable kinds. Same path-traversal guard as `readFile`. */
 export async function statFileMtimeMs(

@@ -286,5 +286,12 @@ export const appRouter = t.router({
       log.info({ worktree: input.worktreePath }, "worktree remove");
       unwrapGit(await worktreeRemove(input.worktreePath, log));
     }),
+    fsExists: t.git.fsExists.handler(async ({ input }) => {
+      const exists = await getTerminalBackendFor({ kind: "local" }).fs.fsExists(
+        input.repoPath,
+        input.filePath,
+      );
+      return { exists };
+    }),
   },
 });
