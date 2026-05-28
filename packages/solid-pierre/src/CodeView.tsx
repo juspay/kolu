@@ -124,6 +124,27 @@ export const CodeView: Component<CodeViewProps> = (props) => {
     return result.items;
   };
 
+  // Bring a programmatically-set selection into view. Pierre's
+  // `setSelectedLines` paints the highlight but never scrolls — and with
+  // virtualization an off-screen range isn't even in the DOM. A terminal
+  // `path:line` click on a line deep in the file would otherwise open the
+  // file scrolled to the top with the highlight invisible below the fold.
+  // `align: "nearest"` is the no-yank choice for prop-driven updates: it
+  // moves the minimum to reveal the range, so the echo of a user's own
+  // gutter click (which selects an already-visible line) is a no-op.
+  const scrollToSelection = (
+    selection: CodeViewLineSelection | null | undefined,
+    align: "center" | "nearest",
+  ): void => {
+    if (!selection) return;
+    instance?.scrollTo({
+      type: "range",
+      id: selection.id,
+      range: selection.range,
+      align,
+    });
+  };
+
   // Read every reactive prop at call time so a later prop change lands on
   // the existing CodeView instance via `setOptions` (theme toggle, etc.)
   // instead of forcing a reconstruct.
@@ -154,6 +175,10 @@ export const CodeView: Component<CodeViewProps> = (props) => {
         instance.setSelectedLines(props.selectedLines);
       }
       instance.render(true);
+      // An initial selection (e.g. file opened at a terminal `path:line`)
+      // centers — there is no prior scroll position to disturb at mount,
+      // so the navigation intent reads best with the range centered.
+      scrollToSelection(props.selectedLines, "center");
     }, props.onError);
   });
 
@@ -173,7 +198,10 @@ export const CodeView: Component<CodeViewProps> = (props) => {
     on(
       () => props.selectedLines,
       (s) =>
-        safeApply(() => instance?.setSelectedLines(s ?? null), props.onError),
+        safeApply(() => {
+          instance?.setSelectedLines(s ?? null);
+          scrollToSelection(s, "nearest");
+        }, props.onError),
       { defer: true },
     ),
   );

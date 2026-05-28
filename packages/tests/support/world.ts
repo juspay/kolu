@@ -46,6 +46,10 @@ export const MOD_KEY = process.platform === "darwin" ? "Meta" : "Control";
 /** Locator for the app's settled state: either a visible terminal screen or the empty state tip. */
 const SETTLED_SELECTOR =
   '[data-visible] .xterm-screen, [data-testid="empty-state"]';
+/** Touch-device media query — mirrors `isTouch` in packages/client/src/useMobile.ts.
+ *  The test package can't import from client src, so the literal is named here to
+ *  keep the one place it's duplicated legible and self-documenting. */
+const COARSE_POINTER_QUERY = "(pointer: coarse)";
 /** Canonical "list of terminals" affordance — one row per terminal in
  *  the dock. Replaced the chrome-bar workspace-switcher pill
  *  strip with #903; the surface is different, the semantics are the
@@ -158,9 +162,20 @@ export class KoluWorld extends World {
     if (!newId) throw new Error("Created terminal but no new id appeared");
 
     await this.canvas.waitFor({ state: "visible", timeout });
-    // Wait for xterm's textarea to receive focus (auto-focus in Terminal.tsx onMount)
+    // Desktop auto-focuses xterm's textarea on mount — the signal that a
+    // subsequent keyboard.type() will land — so wait for it. On touch, selection
+    // no longer auto-focuses (focusOnSelection() is a no-op there; the soft keyboard
+    // must only rise on an explicit tap), so the terminal mounts unfocused by
+    // design — gate on the helper textarea existing in the visible tile instead.
     await this.page.waitForFunction(
-      () => !!document.activeElement?.closest("[data-visible]"),
+      (coarsePointer) => {
+        const visible = document.querySelector("[data-visible]");
+        if (!visible) return false;
+        return matchMedia(coarsePointer).matches
+          ? !!visible.querySelector(".xterm-helper-textarea")
+          : !!document.activeElement?.closest("[data-visible]");
+      },
+      COARSE_POINTER_QUERY,
       { timeout },
     );
     return newId;
@@ -221,7 +236,26 @@ export class KoluWorld extends World {
     }
   }
 
+  /** Ensure a terminal matching `scope` holds keyboard focus before typing.
+   *  On touch, terminals no longer auto-focus on selection (the soft keyboard
+   *  must rise only on a tap), so this focuses the target's helper textarea —
+   *  the harness stand-in for that tap. Desktop terminals already hold focus,
+   *  so it no-ops there. */
+  async focusForTyping(scope: string) {
+    const focused = await this.page.evaluate(
+      (sel) => !!document.activeElement?.closest(sel),
+      scope,
+    );
+    if (!focused) {
+      await this.page
+        .locator(`${scope} .xterm-helper-textarea`)
+        .first()
+        .focus();
+    }
+  }
+
   async terminalRun(command: string) {
+    await this.focusForTyping("[data-visible]:not([data-sub-terminal])");
     await this.page.keyboard.type(command);
     await this.page.keyboard.press("Enter");
   }
