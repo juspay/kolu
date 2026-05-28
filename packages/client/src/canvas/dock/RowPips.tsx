@@ -153,7 +153,9 @@ export const StatePip: Component<{
   bucket: DockRowBucket;
   unread: boolean;
 }> = (props) => {
-  const variant = () => pipVariant(props.bucket, props.unread);
+  // createMemo so pipVariant runs once per (bucket, unread) change and the
+  // JSX reads a cached value rather than recomputing on each of the 6 read sites.
+  const variant = createMemo(() => pipVariant(props.bucket, props.unread));
   return (
     <span
       class="flex items-center justify-center"
