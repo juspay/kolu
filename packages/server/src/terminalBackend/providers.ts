@@ -87,7 +87,14 @@ export interface ProviderChannels {
  *  provider. The parent backend wires through
  *  `updateServerMetadata`/`updateServerLiveMetadata` directly; a
  *  future agent host wires through its own publish surface with the
- *  same fence applied. */
+ *  same fence applied.
+ *
+ *  `record` is passed to every hook so a future host whose update
+ *  function isn't already keyed by terminal id (e.g. an agent host
+ *  with a global publish surface) can look the record up in its own
+ *  registry to dispatch the write. The local backend already has
+ *  `entry` + `id` captured in `buildHooks`'s per-terminal closure,
+ *  so it ignores the argument — hence the `_record` prefix. */
 export interface ProviderHooks {
   updateServerMetadata: (
     record: ProviderRecord,
