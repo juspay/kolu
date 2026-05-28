@@ -433,7 +433,17 @@ const DockRow: Component<{
               store.activate(props.id);
             }
           }}
-          class={`relative w-full grid grid-cols-subgrid col-span-full items-center py-1.5 -ml-6 ${DOCK_CARDS_GUTTER_NEG_CLASS} border-l-[3px] border-l-transparent text-left cursor-pointer transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 hover:bg-surface-2/40 data-[active]:bg-accent/15 data-[active]:border-l-accent`}
+          // `pl-6 ${DOCK_CARDS_GUTTER_CLASS}` is load-bearing: the
+          // negative margins extend the row's border-box to the
+          // section's outer edges (so hover/active backgrounds bleed
+          // to the dock's rounded corners), but `grid-cols-subgrid`
+          // then computes its column tracks inside that extended box —
+          // so without re-padding the row, the auto-sized time column
+          // ends flush at the dock edge instead of inside the
+          // section's content area. PR #995 set the gutter on the
+          // section alone and missed this; the cancellation has to
+          // happen on the same element the subgrid lives on.
+          class={`relative w-full grid grid-cols-subgrid col-span-full items-center py-1.5 -ml-6 ${DOCK_CARDS_GUTTER_NEG_CLASS} pl-6 ${DOCK_CARDS_GUTTER_CLASS} border-l-[3px] border-l-transparent text-left cursor-pointer transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 hover:bg-surface-2/40 data-[active]:bg-accent/15 data-[active]:border-l-accent`}
           title="Jump to this terminal"
         >
           <StatePip bucket={props.bucket} unread={unread()} />

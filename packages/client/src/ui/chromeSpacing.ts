@@ -48,5 +48,14 @@ export const DOCK_CARDS_GUTTER_CLASS = "pr-6";
 /** Negative-margin twin of `DOCK_CARDS_GUTTER_CLASS`. Applied to
  *  descendants of `RepoSection` whose background must extend through
  *  the parent's right padding to the dock card's right edge — row
- *  hover/active surfaces and the section-header band. */
+ *  hover/active surfaces and the section-header band.
+ *
+ *  Subgrid caveat: a `grid-cols-subgrid` descendant recomputes its
+ *  column tracks inside its own (now extended) border box, so the
+ *  parent's `pr-6` no longer constrains the right column. Re-apply
+ *  `DOCK_CARDS_GUTTER_CLASS` directly to such descendants to push the
+ *  inner columns back into the section's content area; the cancel-
+ *  and-restore pair keeps the background bleeding while the content
+ *  stays inset. Flex descendants (section header) don't need this —
+ *  their `pr-3` content padding already sits inside the extended box. */
 export const DOCK_CARDS_GUTTER_NEG_CLASS = "-mr-6";
