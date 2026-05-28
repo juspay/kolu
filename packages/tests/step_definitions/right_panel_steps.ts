@@ -130,28 +130,38 @@ Then(
     // points across that 8px-wide strip and assert each one resolves to
     // the handle button via elementFromPoint.
     //
-    // Force the canvas tile's right edge to coincide with the handle's
-    // left edge before sampling. Canvas tiles use
-    // `position: absolute; z-index: 10`; without this step the default
-    // tile placement might not reach the boundary, and a passing
-    // assertion would only mean "no tile happened to overlap" — not
-    // "the handle stacks above tiles when they do."
+    // Force the active canvas tile's right edge to coincide with the
+    // handle's left edge before sampling. Canvas tiles use
+    // `position: absolute; z-index: 10` only when active (inactive tiles
+    // sit at z-index: 1 and cannot shadow the handle), so a generic
+    // `[data-testid="canvas-tile"]` lookup could pick an inactive tile,
+    // shift an irrelevant element, and silently pass. Without this
+    // step the default tile placement might not reach the boundary at
+    // all, and the assertion would only mean "no tile happened to
+    // overlap" — not "the handle stacks above tiles when they do."
+    //
+    // Positioning happens via the absolute `left` offset rather than by
+    // appending to the inline `transform`. That keeps the test on the
+    // tile's stable boundary (its bounding rect's right edge) instead
+    // of riding on `CanvasTile`'s internal transform composition — a
+    // separate volatility axis the assertion has no business coupling
+    // to.
     const result = await this.page.evaluate(() => {
       const handle = document.querySelector(
         '[data-testid="right-panel-handle"]',
       );
       if (!handle) return { ok: false, dead: [{ reason: "handle missing" }] };
       const tile = document.querySelector(
-        '[data-testid="canvas-tile"]',
+        '[data-testid="canvas-tile"][data-active="true"]',
       ) as HTMLElement | null;
-      if (!tile) return { ok: false, dead: [{ reason: "tile missing" }] };
+      if (!tile) {
+        return { ok: false, dead: [{ reason: "active tile missing" }] };
+      }
       const handleRect = handle.getBoundingClientRect();
       const tileRect = tile.getBoundingClientRect();
-      // Shift the tile so its right edge lands exactly on handle.left.
-      // CanvasTile sets its transform inline; appending a translateX
-      // shift preserves whatever the canvas arranger computed.
+      const currentLeft = parseFloat(tile.style.left || "0");
       const shift = handleRect.left - tileRect.right;
-      tile.style.transform = `${tile.style.transform} translateX(${shift}px)`;
+      tile.style.left = `${currentLeft + shift}px`;
       const newTileRect = tile.getBoundingClientRect();
       const dead: { x: number; y: number; covered: string }[] = [];
       for (const yFrac of [0.1, 0.3, 0.5, 0.7, 0.9]) {
