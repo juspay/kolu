@@ -16,7 +16,7 @@ import {
   Show,
 } from "solid-js";
 import { toast } from "solid-sonner";
-import { writeTextToClipboard } from "../ui/clipboard";
+import { writeTextToClipboard } from "@kolu/browser-clipboard";
 import { CloseIcon, CopyIcon } from "../ui/Icons";
 import ModalDialog from "../ui/ModalDialog";
 import { surface } from "../ui/Surface";

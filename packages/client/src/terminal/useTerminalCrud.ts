@@ -17,7 +17,7 @@ import {
 import { CONTEXTUAL_TIPS } from "../settings/tips";
 import { client, preferences } from "../wire";
 import { useTips } from "../settings/useTips";
-import { writeTextToClipboard } from "../ui/clipboard";
+import { writeTextToClipboard } from "@kolu/browser-clipboard";
 import { useRightPanel } from "../right-panel/useRightPanel";
 import { useSubPanel } from "./useSubPanel";
 import type { TerminalStore } from "./useTerminalStore";

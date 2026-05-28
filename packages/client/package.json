@@ -16,6 +16,7 @@
     "@corvu/resizable": "^0.2.5",
     "@corvu/tooltip": "^0.2.2",
     "@kolu/artifact-sdk": "workspace:*",
+    "@kolu/browser-clipboard": "workspace:*",
     "@kolu/canvas-layout": "workspace:*",
     "@kolu/solid-anchored-popover": "workspace:*",
     "@kolu/solid-canvas-viewport": "workspace:*",

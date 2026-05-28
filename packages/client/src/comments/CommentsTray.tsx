@@ -8,7 +8,7 @@
 
 import { type Component, createMemo, For, Show } from "solid-js";
 import { toast } from "solid-sonner";
-import { writeTextToClipboard } from "../ui/clipboard";
+import { writeTextToClipboard } from "@kolu/browser-clipboard";
 import { formatMarkdown } from "./formatMarkdown";
 import type { Comment } from "./types";
 import { useComments } from "./useComments";

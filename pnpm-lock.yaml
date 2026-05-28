@@ -44,6 +44,16 @@ importers:
         specifier: ^2.0.0
         version: 2.1.9(@types/node@22.19.15)(lightningcss@1.32.0)(terser@5.47.1)
 
+  packages/browser-clipboard:
+    dependencies:
+      '@xterm/addon-clipboard':
+        specifier: ^0.2.0
+        version: 0.2.0
+    devDependencies:
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+
   packages/canvas-layout:
     devDependencies:
       typescript:
@@ -70,6 +80,9 @@ importers:
       '@kolu/artifact-sdk':
         specifier: workspace:*
         version: link:../artifact-sdk
+      '@kolu/browser-clipboard':
+        specifier: workspace:*
+        version: link:../browser-clipboard
       '@kolu/canvas-layout':
         specifier: workspace:*
         version: link:../canvas-layout

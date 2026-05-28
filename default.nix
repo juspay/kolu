@@ -21,6 +21,7 @@ let
       ./tsconfig.base.json
       ./packages/surface
       ./packages/surface-nix-host
+      ./packages/browser-clipboard
       ./packages/canvas-layout
       ./packages/solid-anchored-popover
       ./packages/solid-canvas-viewport

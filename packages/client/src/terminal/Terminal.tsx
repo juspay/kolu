@@ -34,7 +34,8 @@ import {
 } from "solid-js";
 import { toast } from "solid-sonner";
 import { match } from "ts-pattern";
-import { SafeClipboardProvider, writeTextToClipboard } from "../ui/clipboard";
+import { writeTextToClipboard } from "@kolu/browser-clipboard";
+import { SafeClipboardProvider } from "@kolu/browser-clipboard/xterm";
 import "@xterm/xterm/css/xterm.css";
 import type { TerminalId } from "kolu-common/surface";
 import { DEFAULT_SCROLLBACK } from "kolu-common/config";
