@@ -3,13 +3,13 @@ import type { GitInfo } from "kolu-git/schemas";
 import { describe, expect, it } from "vitest";
 import type { IdleBucketKey } from "../terminal/activityWindow";
 import type { TerminalDisplayInfo } from "../terminal/terminalDisplay";
-import type { TileLayout } from "./TileLayout";
 import {
   agentBucket,
   buildDockModel,
   type DockSourceEntry,
   sortDockEntriesByRecency,
 } from "./dockModel";
+import type { TileLayout } from "./TileLayout";
 
 function makeGit(overrides: Partial<GitInfo> = {}): GitInfo {
   return {

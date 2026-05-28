@@ -23,10 +23,10 @@ import type {
   TerminalId,
   TerminalInfo,
 } from "kolu-common/surface";
-import { updateClientMetadata } from "./terminalBackend/metadata.ts";
-import { getTerminalBackendFor } from "./terminalBackend/index.ts";
 import { terminalsDirtyChannel } from "./publisher.ts";
 import { getTerminal, terminalEntries } from "./terminal-registry.ts";
+import { getTerminalBackendFor } from "./terminalBackend/index.ts";
+import { updateClientMetadata } from "./terminalBackend/metadata.ts";
 
 // R-1: a single local backend. R-2 will route by `location.kind` per
 // call site via `getTerminalBackendForCreate` — this const goes away then.

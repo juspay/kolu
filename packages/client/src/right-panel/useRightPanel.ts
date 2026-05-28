@@ -23,8 +23,8 @@ import {
   DEFAULT_RIGHT_PANEL_PER_TERMINAL,
   type RightPanelPerTerminalState,
   type RightPanelTab,
-  type TerminalId,
   rightPanelView,
+  type TerminalId,
 } from "kolu-common/surface";
 import { createSignal } from "solid-js";
 import { createStore, produce } from "solid-js/store";

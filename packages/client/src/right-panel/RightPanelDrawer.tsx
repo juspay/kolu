@@ -19,7 +19,7 @@
 
 import Drawer from "@corvu/drawer";
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
-import { type Component, type JSX } from "solid-js";
+import type { Component, JSX } from "solid-js";
 import RightPanel from "./RightPanel";
 import { useRightPanel } from "./useRightPanel";
 

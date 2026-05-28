@@ -11,8 +11,8 @@
  * publishes route through the same channels.
  */
 
-import { implement } from "@orpc/server";
 import { implementSurface, publisherChannel } from "@kolu/surface/server";
+import { implement } from "@orpc/server";
 import { surface } from "../common/surface";
 import {
   allNotes,

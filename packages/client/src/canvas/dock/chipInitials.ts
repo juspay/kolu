@@ -12,8 +12,8 @@
  *  share `packages/client/src/intent/text.ts`. */
 
 import type { TerminalMetadata } from "kolu-common/surface";
-import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import { intentLeadGlyph } from "../../intent/text";
+import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 
 const ASCII_ALPHANUM = /^[a-z0-9]$/i;
 

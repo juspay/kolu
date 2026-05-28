@@ -26,7 +26,7 @@
  */
 
 import { defineSurface, type SurfaceTypes } from "@kolu/surface/define";
-import { TaskProgressSchema } from "anyagent/schemas";
+import type { TaskProgressSchema } from "anyagent/schemas";
 import { ClaudeCodeInfoSchema } from "kolu-claude-code/schemas";
 import { CodexInfoSchema } from "kolu-codex/schemas";
 import {

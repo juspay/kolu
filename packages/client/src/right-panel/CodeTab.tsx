@@ -21,8 +21,8 @@ import {
   FileTree,
   useCodeViewSelection,
 } from "@kolu/solid-pierre";
-import type { GitDiffMode } from "kolu-git/schemas";
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
+import type { GitDiffMode } from "kolu-git/schemas";
 import {
   type Component,
   createEffect,
@@ -40,8 +40,8 @@ import { CommentTextSurface } from "../comments/CommentTextSurface";
 import { useComposer } from "../comments/composerState";
 import { useCommentScrollRequest } from "../comments/scrollRequest";
 import { useColorScheme } from "../settings/useColorScheme";
-import { app } from "../wire";
 import { FileBrowseIcon, FileDiffIcon, GitBranchIcon } from "../ui/Icons";
+import { resolveLineRefPath } from "../ui/lineRef";
 import {
   renderTreeContextMenu,
   toGitStatusEntries,
@@ -51,17 +51,17 @@ import {
   pierreIconConfig,
   pierreTreesStyle,
 } from "../ui/pierreTheme";
-import { resolveLineRefPath } from "../ui/lineRef";
+import { app } from "../wire";
 import BrowseFileDispatcher from "./BrowseFileDispatcher";
 import CodeMenuFrame from "./CodeMenuFrame";
+import FileSearchInput from "./FileSearchInput";
+import { projectFileTreeSearch } from "./fileSearch";
+import ModeChipPicker, { type ModeOption } from "./ModeChipPicker";
 import {
-  openInCodeTab,
   type OpenInCodeTabRequest,
+  openInCodeTab,
   pendingOpen,
 } from "./openInCodeTab";
-import { projectFileTreeSearch } from "./fileSearch";
-import FileSearchInput from "./FileSearchInput";
-import ModeChipPicker, { type ModeOption } from "./ModeChipPicker";
 import { useRightPanel } from "./useRightPanel";
 
 const EMPTY_STATE: Record<GitDiffMode, string> = {

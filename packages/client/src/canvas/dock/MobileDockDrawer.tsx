@@ -22,13 +22,13 @@ import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
 import { annotationLine } from "../../intent/text";
 import { formatTimeAgo } from "../../terminal/staleness";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
+import { DOCK_CARDS_SUBGRID_LEFT_RESTORE } from "../../ui/chromeSpacing";
 import type { DockRowBucket } from "./dockRowRanking";
 import type { DockGroup } from "./dockTree";
-import { DOCK_CARDS_SUBGRID_LEFT_RESTORE } from "../../ui/chromeSpacing";
 import { HiddenFooter } from "./HiddenFooter";
-import { useDockOrder } from "./useDockOrder";
-import { PrPip, StatePip, SubCountCell, createDockRowData } from "./RowPips";
+import { createDockRowData, PrPip, StatePip, SubCountCell } from "./RowPips";
 import { rowSubline } from "./rowSubline";
+import { useDockOrder } from "./useDockOrder";
 
 const MobileDockDrawer: Component<{
   onSelect: (id: TerminalId) => void;

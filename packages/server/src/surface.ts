@@ -28,25 +28,25 @@ import {
   implementSurface,
   publisherChannel,
 } from "@kolu/surface/server";
-import { ORPCError, implement } from "@orpc/server";
-import { match } from "ts-pattern";
+import { implement, ORPCError } from "@orpc/server";
+import { contract } from "kolu-common/contract";
+import { TerminalNotFoundError } from "kolu-common/errors";
 import type {
   ActivityFeed,
   Preferences,
   SavedSession,
   TerminalMetadata,
 } from "kolu-common/surface";
-import { contract } from "kolu-common/contract";
-import { TerminalNotFoundError } from "kolu-common/errors";
 import { surface } from "kolu-common/surface";
 import {
-  fsListAllOutputEqual,
   type FsReadFileOutput,
+  fsListAllOutputEqual,
   fsReadFileOutputEqual,
   type GitResult,
   gitDiffOutputEqual,
   gitStatusOutputEqual,
 } from "kolu-git";
+import { match } from "ts-pattern";
 import {
   buildIframePreviewUrl,
   isIframePreviewable,
@@ -55,8 +55,8 @@ import { log } from "./log.ts";
 import { publisher } from "./publisher.ts";
 import { cancelPendingAutosave, getSavedSession } from "./session.ts";
 import { store } from "./state.ts";
-import { getTerminalBackendFor } from "./terminalBackend/index.ts";
 import { getTerminal, listTerminals } from "./terminal-registry.ts";
+import { getTerminalBackendFor } from "./terminalBackend/index.ts";
 
 const localBackend = getTerminalBackendFor({ kind: "local" });
 

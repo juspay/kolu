@@ -12,16 +12,16 @@
  *  - `handleCanvasAutoArrange()` — the one-shot palette command. */
 
 import type { TerminalId } from "kolu-common/surface";
+import type { useTerminalCrud } from "../terminal/useTerminalCrud";
+import type { TerminalStore } from "../terminal/useTerminalStore";
 import { getBucketFor, resolvePlacementBucket } from "./placementPolicy";
 import {
   arrangeRepoIslands,
-  repackBucket,
   type RepoIslandTile,
+  repackBucket,
 } from "./repoIslands";
 import { layoutsEqual, type TileLayout } from "./TileLayout";
 import { usePendingLayouts } from "./usePendingLayouts";
-import type { useTerminalCrud } from "../terminal/useTerminalCrud";
-import type { TerminalStore } from "../terminal/useTerminalStore";
 
 export function useCanvasArrange(deps: {
   store: TerminalStore;

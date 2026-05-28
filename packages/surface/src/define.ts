@@ -29,7 +29,7 @@
  */
 
 import { type AnyContractRouter, eventIterator, oc } from "@orpc/contract";
-import { z, type ZodType } from "zod";
+import { type ZodType, z } from "zod";
 import type { Cell, Collection, Event, Stream } from "./index";
 import { cell, collection, event, stream } from "./index";
 

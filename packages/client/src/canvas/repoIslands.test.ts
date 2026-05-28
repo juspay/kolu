@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_TILE_H, DEFAULT_TILE_W } from "./tilePlacement";
-import { GRID_SIZE } from "./viewport/transforms";
 import {
   arrangeRepoIslands,
-  repackBucket,
   type RepoIslandTile,
+  repackBucket,
 } from "./repoIslands";
+import { DEFAULT_TILE_H, DEFAULT_TILE_W } from "./tilePlacement";
+import { GRID_SIZE } from "./viewport/transforms";
 
 const TILE_GAP = GRID_SIZE;
 

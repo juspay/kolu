@@ -15,7 +15,7 @@
  */
 
 import { exec as execCb } from "node:child_process";
-import { readFile, readdir } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import {
   cpus,
   freemem,
