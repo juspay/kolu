@@ -166,7 +166,9 @@ Then(
       const dead: { x: number; y: number; covered: string }[] = [];
       for (const yFrac of [0.1, 0.3, 0.5, 0.7, 0.9]) {
         const y = newTileRect.top + newTileRect.height * yFrac;
-        for (const dx of [-3, -1.5, 0, 1.5, 3]) {
+        // ::before extends to ±4px (`before:-left-1 before:w-2`); sample
+        // its full extent so the assertion enforces the whole hit zone.
+        for (const dx of [-4, -2, 0, 2, 4]) {
           const x = handleRect.left + dx;
           const el = document.elementFromPoint(x, y);
           const id = el?.getAttribute("data-testid");
