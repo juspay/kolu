@@ -10,7 +10,13 @@ nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop ' + jus
 # inside the default shell) must still enter .#e2e to get them.
 nix_shell_e2e := if env('PLAYWRIGHT_BROWSERS_PATH', '') != '' { '' } else { 'nix develop ' + justfile_directory() + '#e2e --accept-flake-config -c' }
 
-cucumber_parallel := env('CUCUMBER_PARALLEL', '4')
+# Default e2e worker count. Lowered 4→3 in R-4 (#1010): each worker now
+# also spawns a local PTY-host daemon (a second node process per
+# kolu-server), so the per-worker footprint grew. At 4 workers the
+# ephemeral linux CI container thrashed and the heaviest renders (Pierre
+# diff view in code-tab) blew the 60s locator timeout deterministically;
+# 3 workers restores headroom. Override with CUCUMBER_PARALLEL.
+cucumber_parallel := env('CUCUMBER_PARALLEL', '3')
 
 mod ai 'agents/ai.just'
 mod ci 'ci/mod.just'
