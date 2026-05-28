@@ -7,6 +7,11 @@
  */
 
 export {
+  resolveSystem,
+  UNAME_TO_NIX_SYSTEM,
+  unameToNixSystem,
+} from "./arch";
+export {
   buildAgentCommand,
   forEachLine,
   isLocalHost,
@@ -26,4 +31,10 @@ export {
   type ProvisionResult,
   provisionAgent,
 } from "./nixCopy";
+export {
+  type CaptureResult,
+  type ExitResult,
+  runCapture,
+  runProgress,
+} from "./process";
 export { waitForNextClient } from "./waitForNextClient";

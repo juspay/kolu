@@ -68,6 +68,9 @@ Remote-side requirement: the parent's user must be in `trusted-users` in the rem
 | `mirrorRemoteCollection<K,V>(opts)` | Helper: bridge a remote `Collection<K,V>` to a local one — keys stream + per-key value streams, with abort cleanup on key departure. |
 | `waitForNextClient(session, previous)` | Helper for the consumer's reconnect-loop: blocks until the session produces a *fresh* `AgentClient<C>` (post-reconnect). |
 | `buildAgentCommand({ host, agentPath, binary })` | Compute the spawn argv for an agent binary on a given host. Used internally; exported for consumers that need to invoke the agent directly (e.g. one-shot subprocess tests). |
+| `resolveSystem(host)` | Run `uname -ms` against `host` (locally for `isLocalHost`, over `ssh` otherwise) and map the output to a nix-system string. Throws on unsupported uname output. Pairs with a per-system `.drv` map the caller builds at its own build time. |
+| `UNAME_TO_NIX_SYSTEM`, `unameToNixSystem(out)` | The mapping table + pure helper underneath `resolveSystem`. Exported so a consumer can pre-validate its `.drv` map keys against the table at startup. |
+| `runCapture(cmd, args, onProgress)`, `runProgress(cmd, args, onProgress)` | Spawn-and-await helpers with consistent close-event-flush semantics. Used internally by `provisionAgent` and `resolveSystem`; exported so consumers can avoid re-rolling the same event-wiring dance. |
 | `isLocalHost(host)`, `forEachLine(chunk, cb)` | Small utilities shared by `nixCopy` and `HostSession`. |
 
 ## Lifecycle invariants
@@ -92,20 +95,36 @@ Remote-side requirement: the parent's user must be in `trusted-users` in the rem
 
 ## Computing `drvPath` for the target
 
-This is the caller's job. The typical recipe — used by the `remote-process-monitor` demo's `just dev` — probes the remote's architecture first, then asks `nix eval` for the per-system derivation path:
+The package solves the probe half of this — `resolveSystem(host)` runs `uname -ms` (locally or over `ssh`) and returns a nix-system string. The caller owns the policy of mapping that system to a derivation path; the typical shape is a JSON map baked at build time and looked up at runtime:
 
-```sh
-remote_sys=$(case "$(ssh "$host" uname -ms)" in
-  "Darwin arm64")  echo aarch64-darwin ;;
-  "Darwin x86_64") echo x86_64-darwin ;;
-  "Linux x86_64")  echo x86_64-linux ;;
-  "Linux aarch64") echo aarch64-linux ;;
-esac)
-drv=$(nix eval --raw ".#packages.$remote_sys.my-agent.drvPath")
-MY_AGENT_DRV=$drv node parent.js
+```ts
+import { resolveSystem, getHostSession } from "@kolu/surface-nix-host";
+
+// drvBySystem usually comes from a build-time env var or flake attr:
+//   { "x86_64-linux": "/nix/store/…-my-agent.drv",
+//     "aarch64-linux": "/nix/store/…-my-agent.drv",
+//     "aarch64-darwin": "/nix/store/…-my-agent.drv" }
+const drvBySystem: Record<string, string> = JSON.parse(
+  process.env.MY_AGENT_DRVS_JSON ?? "{}",
+);
+
+async function resolveDrv(host: string): Promise<string> {
+  const sys = await resolveSystem(host);
+  const drv = drvBySystem[sys];
+  if (!drv) {
+    throw new Error(`${host}: no .drv baked for ${sys}`);
+  }
+  return drv;
+}
+
+const session = getHostSession({
+  host,
+  drvPath: await resolveDrv(host),
+  binary: "my-agent",
+});
 ```
 
-The package itself does no architecture detection — that policy stays in the consumer (where it can vary: an interactive `just` recipe, a config file, a flake attribute baked at build time, …).
+The bash equivalent (single-host shell scripts, `just dev` recipes) is now a one-liner — `sys=$(ssh "$host" uname -ms)` plus a `case` — but the TypeScript consumer should reach for `resolveSystem` over reimplementing the table. The package still has no opinion on how the `drvBySystem` map gets populated: bake it via `builtins.toJSON` at flake-eval time, load it from a config file, or compute it at runtime — `resolveSystem` works for any of them.
 
 ## Status
 
