@@ -156,7 +156,7 @@ export const StatePip: Component<{
       class="flex items-center justify-center"
       data-testid="dock-row-pip"
       data-pip={variant()}
-      title={pipTitle(variant())}
+      title={PIP_TITLES[variant()]}
     >
       <Switch fallback={null}>
         <Match when={variant() === "attention"}>
@@ -176,17 +176,10 @@ export const StatePip: Component<{
   );
 };
 
-function pipTitle(variant: PipVariant): string {
-  switch (variant) {
-    case "attention":
-      return "Needs attention";
-    case "awaiting":
-      return "Awaiting input";
-    case "working":
-      return "Working";
-    case "idle":
-      return "Idle";
-    case "empty":
-      return "";
-  }
-}
+const PIP_TITLES: Record<PipVariant, string> = {
+  attention: "Needs attention",
+  awaiting: "Awaiting input",
+  working: "Working",
+  idle: "Idle",
+  empty: "",
+};
