@@ -3,13 +3,11 @@
  *  and routes Pierre throws through a required `onError` prop so silent
  *  failures can't escape into a blank pane. */
 
-export { ancestorDirectoryPaths, FileTree } from "./FileTree";
-export type { FileTreeProps } from "./FileTree";
-export { CodeView } from "./CodeView";
-export type { CodeViewProps } from "./CodeView";
-export { diffItem, fileItem } from "./codeViewItem";
-export { useCodeViewSelection } from "./useCodeViewSelection";
-
+export type {
+  CodeViewItem,
+  CodeViewLineSelection,
+  SelectedLineRange,
+} from "@pierre/diffs";
 // Re-export Pierre types consumers commonly need to type prop callbacks
 // without reaching into `@pierre/*` directly.
 export type {
@@ -19,8 +17,9 @@ export type {
   FileTreeInitialExpansion,
   GitStatusEntry,
 } from "@pierre/trees";
-export type {
-  CodeViewItem,
-  CodeViewLineSelection,
-  SelectedLineRange,
-} from "@pierre/diffs";
+export type { CodeViewProps } from "./CodeView";
+export { CodeView } from "./CodeView";
+export { diffItem, fileItem } from "./codeViewItem";
+export type { FileTreeProps } from "./FileTree";
+export { ancestorDirectoryPaths, FileTree } from "./FileTree";
+export { useCodeViewSelection } from "./useCodeViewSelection";

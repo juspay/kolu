@@ -3,8 +3,8 @@ import { Then, When } from "@cucumber/cucumber";
 import {
   type KoluWorld,
   MOD_KEY,
-  WORKSPACE_SWITCHER_ENTRY_SELECTOR,
   POLL_TIMEOUT,
+  WORKSPACE_SWITCHER_ENTRY_SELECTOR,
 } from "../support/world.ts";
 
 /** Synthesize a click directly on the close-button DOM node. Real-mouse

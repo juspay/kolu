@@ -1,8 +1,8 @@
 import { Given, Then, When } from "@cucumber/cucumber";
 import { pollFor } from "../support/poll.ts";
 import {
-  type KoluWorld,
   HYDRATION_TIMEOUT,
+  type KoluWorld,
   POLL_TIMEOUT,
 } from "../support/world.ts";
 

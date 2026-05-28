@@ -20,8 +20,8 @@
  *  the function jittered. */
 
 import type { TerminalId } from "kolu-common/surface";
-import { DEFAULT_TILE_H, DEFAULT_TILE_W } from "./tilePlacement";
 import type { TileLayout } from "./TileLayout";
+import { DEFAULT_TILE_H, DEFAULT_TILE_W } from "./tilePlacement";
 import { GRID_SIZE, snapToGrid } from "./viewport/transforms";
 
 /** Tile input for the layout. `bucket` is the clustering key the caller

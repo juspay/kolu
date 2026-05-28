@@ -28,25 +28,25 @@ import {
   implementSurface,
   publisherChannel,
 } from "@kolu/surface/server";
-import { ORPCError, implement } from "@orpc/server";
-import { match } from "ts-pattern";
+import { implement, ORPCError } from "@orpc/server";
+import { contract } from "kolu-common/contract";
+import { TerminalNotFoundError } from "kolu-common/errors";
 import type {
   ActivityFeed,
   Preferences,
   SavedSession,
   TerminalMetadata,
 } from "kolu-common/surface";
-import { contract } from "kolu-common/contract";
-import { TerminalNotFoundError } from "kolu-common/errors";
 import { surface } from "kolu-common/surface";
 import {
-  fsListAllOutputEqual,
   type FsReadFileOutput,
+  fsListAllOutputEqual,
   fsReadFileOutputEqual,
   type GitResult,
   gitDiffOutputEqual,
   gitStatusOutputEqual,
 } from "kolu-git";
+import { match } from "ts-pattern";
 import {
   buildIframePreviewUrl,
   isIframePreviewable,
@@ -55,8 +55,17 @@ import { log } from "./log.ts";
 import { publisher } from "./publisher.ts";
 import { cancelPendingAutosave, getSavedSession } from "./session.ts";
 import { store } from "./state.ts";
+// Load-order is cycle-sensitive: `terminalBackend/index.ts` must finish
+// loading (so `localTerminalBackend` is initialized) before line 61 below
+// calls `getTerminalBackendFor`. `terminal-registry.ts` participates in the
+// surface cycle via `local.ts`; if its import runs before
+// `terminalBackend/index.ts`, the cycle reaches line 61 in a state where
+// `localTerminalBackend` is still in TDZ. Biome's alphabetical sort would
+// swap these two lines and break the production build.
+// biome-ignore-start assist/source/organizeImports: cycle-sensitive load order
 import { getTerminalBackendFor } from "./terminalBackend/index.ts";
 import { getTerminal, listTerminals } from "./terminal-registry.ts";
+// biome-ignore-end assist/source/organizeImports: cycle-sensitive load order
 
 const localBackend = getTerminalBackendFor({ kind: "local" });
 

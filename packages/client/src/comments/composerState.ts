@@ -12,8 +12,8 @@
  *  RULE: clearing the selection while in `"pill"` returns to `"idle"`
  *  and dismisses the pill — click-away never leaves a stale pill behind. */
 
-import { createSignal } from "solid-js";
 import type { Locator, SelectionRect } from "@kolu/artifact-sdk/client";
+import { createSignal } from "solid-js";
 
 export type ComposerTarget = {
   /** Repo-relative path the new comment will be anchored to. */

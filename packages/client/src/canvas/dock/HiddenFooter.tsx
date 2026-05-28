@@ -16,12 +16,12 @@
  *  window. */
 
 import { type Component, createMemo, Show } from "solid-js";
-import { ActivityWindowChip } from "../../ui/ActivityWindowChip";
-import { DOCK_CARDS_GUTTER_CLASS } from "../../ui/chromeSpacing";
 import {
   activityWindow,
   setActivityWindow,
 } from "../../terminal/activityWindow";
+import { ActivityWindowChip } from "../../ui/ActivityWindowChip";
+import { DOCK_CARDS_GUTTER_CLASS } from "../../ui/chromeSpacing";
 
 export const HiddenFooter: Component<{
   parkedCount: number;

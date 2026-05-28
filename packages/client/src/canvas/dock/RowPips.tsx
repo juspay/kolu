@@ -45,7 +45,7 @@
 
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import { type GitHubPrInfo, prValue } from "kolu-github/schemas";
-import { type Component, Match, Show, Switch, createMemo } from "solid-js";
+import { type Component, createMemo, Match, Show, Switch } from "solid-js";
 import ChecksIndicator from "../../terminal/ChecksIndicator";
 import { prTooltip } from "../../terminal/prTooltip";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";

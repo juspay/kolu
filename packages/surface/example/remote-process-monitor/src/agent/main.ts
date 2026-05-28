@@ -26,14 +26,14 @@
  * `console.log` entirely for clarity. Lesson #4.
  */
 
-import { implement } from "@orpc/server";
+import { serveOverStdio } from "@kolu/surface/peer-server";
 import {
   implementSurface,
   inMemoryChannel,
   inMemoryChannelByName,
   inMemoryStore,
 } from "@kolu/surface/server";
-import { serveOverStdio } from "@kolu/surface/peer-server";
+import { implement } from "@orpc/server";
 import {
   type CoreId,
   type CpuCore,

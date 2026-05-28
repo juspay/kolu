@@ -17,7 +17,6 @@
  */
 
 import Conf from "conf";
-import type { GitInfo } from "kolu-git/schemas";
 import {
   type ActivityFeed,
   ActivityFeedSchema,
@@ -26,6 +25,7 @@ import {
   PreferencesSchema,
   SavedSessionSchema,
 } from "kolu-common/surface";
+import type { GitInfo } from "kolu-git/schemas";
 import { z } from "zod";
 import { log } from "./log.ts";
 

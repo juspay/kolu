@@ -10,13 +10,13 @@ import type {
 } from "kolu-common/surface";
 import { createEffect, createSignal } from "solid-js";
 import { toast } from "solid-sonner";
+import { useRightPanel } from "../right-panel/useRightPanel";
 import { lifecycle } from "../rpc/rpc";
 import {
   client,
-  savedSession as serverSavedSession,
   savedSessionSub,
+  savedSession as serverSavedSession,
 } from "../wire";
-import { useRightPanel } from "../right-panel/useRightPanel";
 import { useSubPanel } from "./useSubPanel";
 import type { TerminalStore } from "./useTerminalStore";
 

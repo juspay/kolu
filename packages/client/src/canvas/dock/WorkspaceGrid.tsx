@@ -14,21 +14,25 @@
 
 import { makeEventListener } from "@solid-primitives/event-listener";
 import type { TerminalId } from "kolu-common/surface";
+import { prValue } from "kolu-github/schemas";
 import {
   type Component,
-  For,
-  Index,
-  Show,
   createEffect,
   createMemo,
   createSignal,
+  For,
+  Index,
   on,
+  Show,
 } from "solid-js";
 import IntentBody from "../../intent/IntentBody";
-import { formatTimeAgo, useIdleClassifier } from "../../terminal/staleness";
 import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
 import { annotationLine } from "../../intent/text";
+import ChecksIndicator from "../../terminal/ChecksIndicator";
+import { prTooltip } from "../../terminal/prTooltip";
+import { formatTimeAgo, useIdleClassifier } from "../../terminal/staleness";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
+import { PrStateIcon } from "../../ui/Icons";
 import {
   bucketDescriptor,
   buildDockModel,
@@ -36,10 +40,6 @@ import {
   type DockEntry,
   type DockSourceEntry,
 } from "../dockModel";
-import { prValue } from "kolu-github/schemas";
-import ChecksIndicator from "../../terminal/ChecksIndicator";
-import { prTooltip } from "../../terminal/prTooltip";
-import { PrStateIcon } from "../../ui/Icons";
 import { agentLabel, metaLine, tokenLine } from "./dockRowChrome";
 
 /** Slot tag on each card. The scroll-into-view effect queries by this
@@ -98,7 +98,7 @@ const WorkspaceGrid: Component<{
 
   function firstAvailableId(): TerminalId | null {
     for (const col of columnEntries()) {
-      if (col.length > 0) return col[0]!.id;
+      if (col.length > 0) return col[0]?.id ?? null;
     }
     return null;
   }

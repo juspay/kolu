@@ -7,8 +7,8 @@
 
 import { makeEventListener } from "@solid-primitives/event-listener";
 import { makePersisted } from "@solid-primitives/storage";
-import type { TerminalId } from "kolu-common/surface";
 import { DEFAULT_FONT_SIZE } from "kolu-common/config";
+import type { TerminalId } from "kolu-common/surface";
 import { createSignal } from "solid-js";
 import { isPlatformModifier, ZOOM_KEYS } from "./keyboard";
 

@@ -11,9 +11,9 @@ import SegmentedControl, {
 import { surface } from "../ui/Surface";
 import Toggle from "../ui/Toggle";
 import { useAnchoredPopover } from "../ui/useAnchoredPopover";
+import { preferences, updatePreferences } from "../wire";
 import SettingRow, { type Hint } from "./SettingRow";
 import { type ColorScheme, useColorScheme } from "./useColorScheme";
-import { preferences, updatePreferences } from "../wire";
 
 const SCHEME_OPTIONS: readonly SegmentedControlOption<ColorScheme>[] = [
   { value: "light", label: "Light" },

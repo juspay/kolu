@@ -6,9 +6,9 @@
  * in-process store).
  */
 
+import { surfaceClient } from "@kolu/surface/solid";
 import type { ClientRetryPluginContext } from "@orpc/client/plugins";
 import type { ContractRouterClient } from "@orpc/contract";
-import { surfaceClient } from "@kolu/surface/solid";
 import { WebSocket as PartySocket } from "partysocket";
 import { surface } from "../common/surface";
 

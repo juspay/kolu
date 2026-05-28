@@ -10,17 +10,17 @@
  *  doesn't fire inside the iframe — opaque origin + sandbox isolation). */
 
 import {
+  extractOffsets,
+  extractQuote,
+  type SelectionRect,
+} from "@kolu/artifact-sdk/client";
+import {
   type Accessor,
   createEffect,
   createSignal,
   onCleanup,
   onMount,
 } from "solid-js";
-import {
-  extractOffsets,
-  extractQuote,
-  type SelectionRect,
-} from "@kolu/artifact-sdk/client";
 import { useComposer } from "./composerState";
 import { walkShadowRoots } from "./shadowWalk";
 

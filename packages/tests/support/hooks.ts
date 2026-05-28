@@ -17,9 +17,9 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { After, AfterAll, Before, BeforeAll, Status } from "@cucumber/cucumber";
 import getPort from "get-port";
+import { NIX_ENV_WHITELIST } from "kolu-pty";
 import type { Browser, BrowserContext, Page } from "playwright";
 import { chromium } from "playwright";
-import { NIX_ENV_WHITELIST } from "kolu-pty";
 import type { KoluWorld } from "./world.ts";
 
 const workerId = parseInt(process.env.CUCUMBER_WORKER_ID || "0", 10);

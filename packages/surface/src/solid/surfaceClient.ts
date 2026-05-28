@@ -14,20 +14,18 @@
 
 import { type Accessor, createMemo } from "solid-js";
 import type { SetStoreFunction } from "solid-js/store";
-import type { ZodType } from "zod";
 import {
   createCellsClient,
-  streamCall,
   type StreamingProcedure,
+  streamCall,
 } from "../client";
 import type {
   CellSpec,
   CollectionSpec,
   EventSpec,
-  Surface,
-  SurfaceContractFor,
-  SurfaceSpec,
   StreamSpec,
+  Surface,
+  SurfaceSpec,
 } from "../define";
 import type { ReactiveSubscriptionOptions } from "./createReactiveSubscription";
 import {
@@ -35,9 +33,9 @@ import {
   type Subscription,
   type SubscriptionOptions,
 } from "./createSubscription";
-import { useCell, type UseCellResult } from "./useCell";
-import { useCollection, type UseCollectionResult } from "./useCollection";
-import { useEvent, type UseEventOptions } from "./useEvent";
+import { type UseCellResult, useCell } from "./useCell";
+import { type UseCollectionResult, useCollection } from "./useCollection";
+import { type UseEventOptions, useEvent } from "./useEvent";
 import { useStream } from "./useStream";
 
 // ── Bound-primitive option shapes ──────────────────────────────────────
