@@ -22,7 +22,7 @@
  * that drift on additions like Intel Mac or RISC-V.
  */
 
-import { isLocalHost } from "./host";
+import { buildSshProbeCommand } from "./host";
 import { runCapture } from "./process";
 
 /** Known `uname -ms` outputs and their nix-system identifiers.
@@ -49,12 +49,10 @@ export function unameToNixSystem(unameOut: string): string | null {
  *  doesn't know how to map, or if the probe itself fails (ssh down,
  *  uname missing, etc.). */
 export async function resolveSystem(host: string): Promise<string> {
-  const argv = isLocalHost(host)
-    ? (["uname", "-ms"] as const)
-    : (["ssh", "-o", "BatchMode=yes", host, "uname", "-ms"] as const);
-  const res = await runCapture(argv[0], argv.slice(1));
+  const { command, args } = buildSshProbeCommand(host, "uname", "-ms");
+  const res = await runCapture(command, args);
   if (!res.ok) {
-    throw new Error(`${host}: \`${argv.join(" ")}\` exited ${res.code}`);
+    throw new Error(`${host}: \`uname -ms\` probe exited ${res.code}`);
   }
   const sys = unameToNixSystem(res.stdout);
   if (sys === null) {

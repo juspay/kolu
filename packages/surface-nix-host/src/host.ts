@@ -23,6 +23,10 @@ export function forEachLine(
  *  Localhost runs the binary directly (no ssh round-trip); a real
  *  remote wraps in `ssh -o BatchMode=yes -o ServerAliveInterval=10`.
  *
+ *  Distinct from `buildSshProbeCommand` below — agent connections are
+ *  long-lived and need `ServerAliveInterval` to keep the ssh channel
+ *  warm; probes are one-shot and deliberately omit it.
+ *
  *  `binary` is the executable name *inside* the realised closure (e.g.
  *  `process-monitor-agent` for the demo, `kolu-terminal-agent` for the
  *  planned R-2 consumer). The full path is `${agentPath}/bin/${binary}`. */
@@ -46,5 +50,26 @@ export function buildAgentCommand(opts: {
       exe,
       "--stdio",
     ],
+  };
+}
+
+/** Argv to run a one-shot command against `host`. Localhost runs the
+ *  command directly; remote wraps in `ssh -o BatchMode=yes`. No
+ *  `ServerAliveInterval` (that flag belongs only on long-lived agent
+ *  sessions — see `buildAgentCommand`).
+ *
+ *  Used for `uname -ms` probes and `nix-store --realise` invocations
+ *  that need to round-trip and return. */
+export function buildSshProbeCommand(
+  host: string,
+  ...remoteArgv: readonly [string, ...string[]]
+): { command: string; args: string[] } {
+  if (isLocalHost(host)) {
+    const [cmd, ...rest] = remoteArgv;
+    return { command: cmd, args: rest };
+  }
+  return {
+    command: "ssh",
+    args: ["-o", "BatchMode=yes", host, ...remoteArgv],
   };
 }

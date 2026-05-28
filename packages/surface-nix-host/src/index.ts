@@ -13,6 +13,7 @@ export {
 } from "./arch";
 export {
   buildAgentCommand,
+  buildSshProbeCommand,
   forEachLine,
   isLocalHost,
 } from "./host";

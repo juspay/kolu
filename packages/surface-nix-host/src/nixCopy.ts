@@ -29,7 +29,7 @@
  * transport layer.
  */
 
-import { isLocalHost } from "./host";
+import { buildSshProbeCommand, isLocalHost } from "./host";
 import { runCapture, runProgress } from "./process";
 
 export interface ProvisionOptions {
@@ -89,22 +89,13 @@ export async function provisionAgent(
       ? `localhost: realising '${opts.drvPath}'…`
       : `${opts.host}: realising '${opts.drvPath}' on remote…`,
   );
-  const realiseArgv = isLocal
-    ? ["nix-store", "--realise", opts.drvPath]
-    : [
-        "ssh",
-        "-o",
-        "BatchMode=yes",
-        opts.host,
-        "nix-store",
-        "--realise",
-        opts.drvPath,
-      ];
-  const realiseRes = await runCapture(
-    realiseArgv[0] as string,
-    realiseArgv.slice(1),
-    opts.onProgress,
+  const { command, args } = buildSshProbeCommand(
+    opts.host,
+    "nix-store",
+    "--realise",
+    opts.drvPath,
   );
+  const realiseRes = await runCapture(command, args, opts.onProgress);
   if (!realiseRes.ok) {
     return {
       ok: false,
