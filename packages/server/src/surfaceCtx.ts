@@ -43,6 +43,41 @@ export function setSurfaceCtx(ctx: Ctx): void {
   held = ctx;
 }
 
+/** Reset the held ctx to `undefined`. Only for use in unit tests that
+ *  need to supply a fresh mock ctx per test without hitting the
+ *  double-call guard. Production code must never call this. */
+export function __resetSurfaceCtxForTest(): void {
+  held = undefined;
+}
+
+/** A no-op ctx for unit tests that exercise code paths touching
+ *  `surfaceCtx` but don't care about surface publish side-effects
+ *  (e.g. metadata publish-routing tests, session persistence tests).
+ *  Cast via `unknown` because the full spec-typed Ctx would require
+ *  listing every cell/collection/event; the cast is localised here
+ *  so callers stay readable. */
+export function noopSurfaceCtxForTest(): Ctx {
+  const noop = () => {};
+  const noopReadAll = () => new Map();
+  const noopReadOne = () => undefined;
+  return {
+    cells: new Proxy({} as Ctx["cells"], {
+      get: () => ({ get: noopReadOne, set: noop, patch: noop }),
+    }),
+    collections: new Proxy({} as Ctx["collections"], {
+      get: () => ({
+        upsert: noop,
+        remove: noop,
+        readAll: noopReadAll,
+        readOne: noopReadOne,
+      }),
+    }),
+    events: new Proxy({} as Ctx["events"], {
+      get: () => ({ publish: noop }),
+    }),
+  } as unknown as Ctx;
+}
+
 export const surfaceCtx: Ctx = new Proxy({} as Ctx, {
   get(_, prop) {
     if (!held) {
