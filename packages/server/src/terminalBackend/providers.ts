@@ -22,6 +22,18 @@
  *  has to be provided by the host (`terminalChannels.git(id)` on
  *  the local backend, an in-memory channel on hosts that don't have
  *  a publisher).
+ *
+ *  ## Host contract
+ *
+ *  `record.meta.cwd` is read once at provider start (the spawn-time
+ *  cwd) and is not re-read afterwards; subsequent cwd changes flow
+ *  ONLY through `channels.cwd`. Hosts must publish every cwd change to
+ *  that channel — they are NOT required to keep `record.meta.cwd` in
+ *  sync, though the local backend happens to (it writes through
+ *  `updateServerMetadata` so the persisted+published metadata stays
+ *  current for clients). Any host that satisfies the
+ *  `ProviderChannels`/`ProviderHooks` shape and publishes cwd to the
+ *  channel will get correct agent / git resolution.
  */
 
 import path from "node:path";
@@ -342,12 +354,22 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
   let registeredForExternal = false;
   let stopped = false;
   let commandRunTimers: ReturnType<typeof setTimeout>[] = [];
+  // CWD source-of-truth for this provider's lifetime: seeded once from
+  // `record.meta.cwd` (the spawn-time cwd a host writes before calling
+  // `startProviders`) and updated only via the `cwd` channel. Reading
+  // `record.meta.cwd` inside `reconcile()` would make agent detection
+  // depend on the host mutating `record.meta` synchronously before each
+  // channel publish — a hidden contract the parent backend happened to
+  // honor (`local.ts` writes `entry.meta.cwd` then publishes) but a
+  // future host on the same `ProviderChannels`/`ProviderHooks` shape
+  // could not be expected to know about.
+  let currentCwd = record.meta.cwd;
   plog.debug("started");
 
   function reconcile() {
     const state = snapshotTerminalState(
       record.ptyHandle,
-      record.meta.cwd,
+      currentCwd,
       record.currentAgent,
       plog,
     );
@@ -429,7 +451,10 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
     onError: (err) => plog.error({ err }, "publisher subscription failed"),
   });
   const cleanupCwd = channels.cwd.consume({
-    onEvent: () => reconcile(),
+    onEvent: (cwd) => {
+      currentCwd = cwd;
+      reconcile();
+    },
     onError: (err) => plog.error({ err }, "publisher subscription failed"),
   });
   const cleanupCommandRun = channels.commandRun.consume({
