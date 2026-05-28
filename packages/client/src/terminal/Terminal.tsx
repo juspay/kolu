@@ -278,6 +278,15 @@ const Terminal: Component<{
     }
   }
 
+  // Selection-driven focus. Desktop raises the keyboard when a tile becomes
+  // active/visible; on touch that's intrusive — the soft keyboard should only
+  // rise from an explicit tap (the wrapper-click and pointerup handlers in
+  // onMount), never as a side-effect of switching/revealing a tile. So this is
+  // a no-op on touch. Real taps still call terminal.focus() directly.
+  function focusOnSelection() {
+    if (!isTouch()) terminal?.focus();
+  }
+
   // Re-fit and auto-focus when terminal becomes visible (display:none → visible).
   // Only auto-focus if this terminal should have focus (focused prop is true or unset).
   // defer: true skips the initial run (onMount handles first fit + focus).
@@ -289,7 +298,7 @@ const Terminal: Component<{
         scrollLock.reset();
         terminal.scrollToBottom();
         debouncedFit();
-        if (props.focused !== false) terminal.focus();
+        if (props.focused !== false) focusOnSelection();
       },
       { defer: true },
     ),
@@ -301,7 +310,7 @@ const Terminal: Component<{
       () => props.focused,
       (focused) => {
         if (focused && props.visible && terminal) {
-          terminal.focus();
+          focusOnSelection();
         }
       },
       { defer: true },
@@ -328,7 +337,7 @@ const Terminal: Component<{
       () => props.searchOpen,
       (open) => {
         if (!open && props.visible && props.focused !== false && terminal)
-          terminal.focus();
+          focusOnSelection();
       },
       { defer: true },
     ),
@@ -496,12 +505,18 @@ const Terminal: Component<{
           term.loadAddon(serializeAddon);
 
           term.open(containerRef);
-          // Click-to-focus on the host div: xterm's own click handler covers
-          // the inner canvas, but clicks on the wrapper padding need to focus
-          // too. Attach via addEventListener (not JSX onClick) so the host
-          // div stays free of interactive props that would force a11y roles
-          // — the actual interactive surface is the xterm canvas inside.
-          containerRef.addEventListener("click", () => term.focus());
+          // Click-to-focus on the host div's own padding only. xterm's own
+          // click handler already focuses canvas clicks on desktop, and on
+          // touch the .xterm-screen pointerup handler below owns that path
+          // (with the iOS gesture-window care a bare click can't replicate).
+          // Scoping to `e.target === containerRef` fires solely for clicks that
+          // landed on the wrapper padding — the one region nothing else covers
+          // — so a tap on the terminal body doesn't double-focus. Attach via
+          // addEventListener (not JSX onClick) so the host div stays free of
+          // interactive props that would force a11y roles.
+          containerRef.addEventListener("click", (e) => {
+            if (e.target === containerRef) term.focus();
+          });
           // Mobile: route soft-keyboard input through `.xterm-screen` itself,
           // the way hterm does (libapps/hterm/js/hterm_scrollport.js:617-655).
           //
@@ -659,7 +674,7 @@ const Terminal: Component<{
           // at which point the visibility effect below calls debouncedFit().
           if (props.visible) {
             fitAddon.fit();
-            if (props.focused !== false) term.focus();
+            if (props.focused !== false) focusOnSelection();
           }
 
           // Track user-initiated focus for "remember last focused" in sub-panel

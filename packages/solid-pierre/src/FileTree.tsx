@@ -200,11 +200,20 @@ export const FileTree: Component<FileTreeProps> = (props) => {
         safeApply(() => {
           const current = tree?.getSelectedPaths()[0] ?? null;
           if (current === path) return;
-          if (path === null) {
+          // Drop every selected row except `keep` (pass null to clear
+          // all). Pierre's `select()` is additive — it never clears the
+          // prior pick — so a switch must deselect the old row first or
+          // the tree holds both, fires `onSelectionChange` with the stale
+          // path at `paths[0]`, and the host reads that back as a
+          // selection revert (the "first click after a file is already
+          // open does nothing, second click works" bug).
+          const deselectOthers = (keep: string | null) => {
             for (const p of tree?.getSelectedPaths() ?? []) {
-              tree?.getItem(p)?.deselect();
+              if (p !== keep) tree?.getItem(p)?.deselect();
             }
-          } else {
+          };
+          deselectOthers(path);
+          if (path !== null) {
             tree?.getItem(path)?.select();
             // `select()` marks aria-selected but doesn't move the
             // virtualizer; deep paths in large worktrees would stay

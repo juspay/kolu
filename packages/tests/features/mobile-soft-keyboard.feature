@@ -68,6 +68,20 @@ Feature: Mobile soft keyboard
     And there should be no page errors
 
   @mobile
+  Scenario: Switching terminals does not summon the soft keyboard
+    # Selection ≠ keyboard focus on touch. Switching the active tile flips
+    # which Terminal is visible/focused, but the reactive focus effects
+    # (visibility, focused-prop) are gated behind focusOnSelection()'s !isTouch()
+    # check — so they must NOT focus xterm's helper textarea on a touch
+    # device. A focus there pops the soft keyboard with no tap from the user.
+    # Only the explicit tap handlers focus on touch.
+    Given I create a terminal
+    And I arm the soft-keyboard focus probe
+    When I swipe left on the mobile tile view
+    Then xterm's helper textarea should not have been focused by the terminal switch
+    And there should be no page errors
+
+  @mobile
   Scenario: App root tracks visualViewport.height so the keyboard doesn't overlap the terminal
     # iOS Safari overlays the soft keyboard on top of the layout viewport;
     # `100dvh` doesn't shrink. useVisualViewportHeight sets `--app-h` on

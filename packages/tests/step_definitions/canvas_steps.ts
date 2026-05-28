@@ -1332,6 +1332,32 @@ Then("no canvas tile should be maximized", async function (this: KoluWorld) {
   );
 });
 
+// A covered tile (non-maximized, in maximized posture) must hide itself via
+// computed `visibility: hidden` — Playwright reports it as not visible. Before
+// the fix the covered tile shared `tiledStyle()` (computed visibility
+// "visible") and was only occluded by the maximized tile's z-40 cover, so this
+// assertion fails; it passes once covered tiles hide intrinsically.
+Then(
+  "every non-maximized canvas tile should be hidden",
+  async function (this: KoluWorld) {
+    await this.page.waitForFunction(
+      (sel: string) => {
+        const covered = [...document.querySelectorAll(sel)].filter(
+          (t) => t.getAttribute("data-maximized") !== "true",
+        );
+        return (
+          covered.length > 0 &&
+          covered.every(
+            (t) => getComputedStyle(t as HTMLElement).visibility === "hidden",
+          )
+        );
+      },
+      TILE_SELECTOR,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
 // ── Tile xterm-instance stability (regression for #988) ──
 //
 // Detect xterm.js remounts across an active-id switch in maximized mode.

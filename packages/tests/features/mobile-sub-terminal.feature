@@ -10,9 +10,12 @@ Feature: Mobile sub-terminals
 
   @mobile
   Scenario: Create sub-terminal via command palette on mobile
+    # On touch the new sub-terminal does NOT grab keyboard focus — the soft
+    # keyboard rises only on an explicit tap (focus-on-create auto-focus is
+    # desktop-only, covered in sub-terminal.feature). Here we just verify the
+    # palette-create wiring works under the mobile viewport.
     When I create a sub-terminal via command palette
     Then the sub-panel should be visible
-    And the sub-terminal should have keyboard focus
     And there should be no page errors
 
   @mobile
