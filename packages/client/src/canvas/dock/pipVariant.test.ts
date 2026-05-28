@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { type PipVariant, pipVariant } from "./RowPips";
 import type { DockRowBucket } from "./dockRowRanking";
+import { type PipVariant, pipVariant } from "./pipVariant";
 
 const cases: Array<[DockRowBucket, boolean, PipVariant]> = [
   // unread dominates the bucket — even working rows read as "attention"
