@@ -46,6 +46,10 @@ export const MOD_KEY = process.platform === "darwin" ? "Meta" : "Control";
 /** Locator for the app's settled state: either a visible terminal screen or the empty state tip. */
 const SETTLED_SELECTOR =
   '[data-visible] .xterm-screen, [data-testid="empty-state"]';
+/** Touch-device media query — mirrors `isTouch` in packages/client/src/useMobile.ts.
+ *  The test package can't import from client src, so the literal is named here to
+ *  keep the one place it's duplicated legible and self-documenting. */
+const COARSE_POINTER_QUERY = "(pointer: coarse)";
 /** Canonical "list of terminals" affordance — one row per terminal in
  *  the dock. Replaced the chrome-bar workspace-switcher pill
  *  strip with #903; the surface is different, the semantics are the
@@ -164,13 +168,14 @@ export class KoluWorld extends World {
     // must only rise on an explicit tap), so the terminal mounts unfocused by
     // design — gate on the helper textarea existing in the visible tile instead.
     await this.page.waitForFunction(
-      () => {
+      (coarsePointer) => {
         const visible = document.querySelector("[data-visible]");
         if (!visible) return false;
-        return matchMedia("(pointer: coarse)").matches
+        return matchMedia(coarsePointer).matches
           ? !!visible.querySelector(".xterm-helper-textarea")
           : !!document.activeElement?.closest("[data-visible]");
       },
+      COARSE_POINTER_QUERY,
       { timeout },
     );
     return newId;
