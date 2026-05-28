@@ -23,10 +23,19 @@ import type {
   TerminalId,
   TerminalInfo,
 } from "kolu-common/surface";
+// Load-order is cycle-sensitive: importing `terminalBackend/metadata.ts`
+// before `terminalBackend/index.ts` is what makes the surface cycle
+// converge with `localTerminalBackend` already initialized by the time
+// line 33 below calls `getTerminalBackendFor`. Reversing these two
+// (biome's alphabetical preference) puts the cycle entry-point at the
+// deeper `activity.ts → surface.ts` branch and trips a TDZ on
+// `localTerminalBackend`.
+// biome-ignore-start assist/source/organizeImports: cycle-sensitive load order
+import { updateClientMetadata } from "./terminalBackend/metadata.ts";
+import { getTerminalBackendFor } from "./terminalBackend/index.ts";
 import { terminalsDirtyChannel } from "./publisher.ts";
 import { getTerminal, terminalEntries } from "./terminal-registry.ts";
-import { getTerminalBackendFor } from "./terminalBackend/index.ts";
-import { updateClientMetadata } from "./terminalBackend/metadata.ts";
+// biome-ignore-end assist/source/organizeImports: cycle-sensitive load order
 
 // R-1: a single local backend. R-2 will route by `location.kind` per
 // call site via `getTerminalBackendForCreate` — this const goes away then.

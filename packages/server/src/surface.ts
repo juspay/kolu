@@ -55,8 +55,17 @@ import { log } from "./log.ts";
 import { publisher } from "./publisher.ts";
 import { cancelPendingAutosave, getSavedSession } from "./session.ts";
 import { store } from "./state.ts";
-import { getTerminal, listTerminals } from "./terminal-registry.ts";
+// Load-order is cycle-sensitive: `terminalBackend/index.ts` must finish
+// loading (so `localTerminalBackend` is initialized) before line 61 below
+// calls `getTerminalBackendFor`. `terminal-registry.ts` participates in the
+// surface cycle via `local.ts`; if its import runs before
+// `terminalBackend/index.ts`, the cycle reaches line 61 in a state where
+// `localTerminalBackend` is still in TDZ. Biome's alphabetical sort would
+// swap these two lines and break the production build.
+// biome-ignore-start assist/source/organizeImports: cycle-sensitive load order
 import { getTerminalBackendFor } from "./terminalBackend/index.ts";
+import { getTerminal, listTerminals } from "./terminal-registry.ts";
+// biome-ignore-end assist/source/organizeImports: cycle-sensitive load order
 
 const localBackend = getTerminalBackendFor({ kind: "local" });
 
