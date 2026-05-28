@@ -236,15 +236,7 @@ async function main(): Promise<void> {
     },
     procedures: {
       terminal: {
-        spawn: async (args) => {
-          const input = args.input as {
-            id?: string;
-            cwd?: string;
-            cols?: number;
-            rows?: number;
-            scrollback?: number;
-            termProgramVersion: string;
-          };
+        spawn: async ({ input }) => {
           const env = cleanEnv();
           const shell = env.SHELL ?? "/bin/sh";
           const cwd =
@@ -278,8 +270,7 @@ async function main(): Promise<void> {
             process: ptyHost.getProcess(result.id) ?? shell,
           };
         },
-        kill: async (args) => {
-          const input = args.input as { id: string };
+        kill: async ({ input }) => {
           ptyHost.kill(input.id);
           return { ok: true };
         },
@@ -288,36 +279,23 @@ async function main(): Promise<void> {
           for (const e of before) ptyHost.kill(e.id);
           return { killed: before.length };
         },
-        write: async (args) => {
-          const input = args.input as { id: string; data: string };
+        write: async ({ input }) => {
           ptyHost.write(input.id, input.data);
           return { ok: true };
         },
-        resize: async (args) => {
-          const input = args.input as {
-            id: string;
-            cols: number;
-            rows: number;
-          };
+        resize: async ({ input }) => {
           ptyHost.resize(input.id, input.cols, input.rows);
           return { ok: true };
         },
         list: async () => ({ entries: ptyHost.list() }),
-        getForegroundPid: async (args) => {
-          const input = args.input as { id: string };
+        getForegroundPid: async ({ input }) => {
           const pid = ptyHost.getForegroundPid(input.id);
           return { pid };
         },
-        getScreenState: async (args) => {
-          const input = args.input as { id: string };
+        getScreenState: async ({ input }) => {
           return { data: ptyHost.getScreenState(input.id) };
         },
-        getScreenText: async (args) => {
-          const input = args.input as {
-            id: string;
-            startLine?: number;
-            endLine?: number;
-          };
+        getScreenText: async ({ input }) => {
           return {
             text: ptyHost.getScreenText(
               input.id,
