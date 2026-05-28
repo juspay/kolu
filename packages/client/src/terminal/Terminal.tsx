@@ -505,12 +505,18 @@ const Terminal: Component<{
           term.loadAddon(serializeAddon);
 
           term.open(containerRef);
-          // Click-to-focus on the host div: xterm's own click handler covers
-          // the inner canvas, but clicks on the wrapper padding need to focus
-          // too. Attach via addEventListener (not JSX onClick) so the host
-          // div stays free of interactive props that would force a11y roles
-          // — the actual interactive surface is the xterm canvas inside.
-          containerRef.addEventListener("click", () => term.focus());
+          // Click-to-focus on the host div's own padding only. xterm's own
+          // click handler already focuses canvas clicks on desktop, and on
+          // touch the .xterm-screen pointerup handler below owns that path
+          // (with the iOS gesture-window care a bare click can't replicate).
+          // Scoping to `e.target === containerRef` fires solely for clicks that
+          // landed on the wrapper padding — the one region nothing else covers
+          // — so a tap on the terminal body doesn't double-focus. Attach via
+          // addEventListener (not JSX onClick) so the host div stays free of
+          // interactive props that would force a11y roles.
+          containerRef.addEventListener("click", (e) => {
+            if (e.target === containerRef) term.focus();
+          });
           // Mobile: route soft-keyboard input through `.xterm-screen` itself,
           // the way hterm does (libapps/hterm/js/hterm_scrollport.js:617-655).
           //
