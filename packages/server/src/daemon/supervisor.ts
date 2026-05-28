@@ -32,7 +32,10 @@ import { createConnection, type Socket } from "node:net";
 import { createStdioCellsClient } from "@kolu/surface/links/stdio";
 import type { ContractRouterClient } from "@orpc/contract";
 import type { ClientRetryPluginContext } from "@orpc/client/plugins";
-import { AGENT_CONTRACT_VERSION } from "kolu-common/agentSurface";
+import {
+  AGENT_CONTRACT_VERSION,
+  isAgentContractCompatible,
+} from "kolu-common/agentSurface";
 import type { agentSurface } from "kolu-common/agentSurface";
 import { log } from "../log.ts";
 import { daemonPaths } from "../koluState.ts";
@@ -60,25 +63,6 @@ function setDaemonStatus(
       "supervisor: surfaceCtx not ready for daemon-status publish",
     );
   }
-}
-
-/** Compare daemon's reported `major.minor` against this kolu-server's
- *  built-in expectation (also `major.minor`). Compatible when the major
- *  versions match and the daemon's minor is >= ours (additive changes
- *  on a major stay wire-compatible). Stays in this file as a single
- *  pure helper — pulling in `semver` for two lines wasn't worth it. */
-function isContractCompatible(
-  daemonVersion: string,
-  expected: string,
-): boolean {
-  const parse = (v: string): [number, number] | null => {
-    const m = /^(\d+)\.(\d+)$/.exec(v);
-    return m ? [Number(m[1]), Number(m[2])] : null;
-  };
-  const a = parse(daemonVersion);
-  const b = parse(expected);
-  if (!a || !b) return false;
-  return a[0] === b[0] && a[1] >= b[1];
 }
 
 export type AgentClient = ContractRouterClient<
@@ -217,7 +201,10 @@ async function ensureDaemonImpl(): Promise<DaemonHandle> {
   // namespace (matches remote-process-monitor's `client.surface.process.kill`).
   const versionInfo = await client.surface.system.version({});
   if (
-    !isContractCompatible(versionInfo.contractVersion, AGENT_CONTRACT_VERSION)
+    !isAgentContractCompatible(
+      versionInfo.contractVersion,
+      AGENT_CONTRACT_VERSION,
+    )
   ) {
     log.warn(
       {

@@ -28,14 +28,36 @@ import { defineSurface, type SurfaceTypes } from "@kolu/surface/define";
 import { z } from "zod";
 import { TerminalIdSchema } from "./surface.ts";
 
-/** The wire-shape version this build of kolu-server expects from the
- *  agent. Bumped only when `agentSurface` itself changes shape. */
+/** The wire-shape `major.minor` version this build serves and expects.
+ *  Bumped only when `agentSurface` itself changes shape: minor for
+ *  additive changes (new optional field / procedure / stream), major
+ *  for breaking ones. Internal refactors (the kolu binary, the PTY
+ *  engine) do NOT bump it — that's the whole point, so the daemon
+ *  survives most kolu upgrades. Compatibility is decided by
+ *  `isAgentContractCompatible`, not a separate range constant. */
 export const AGENT_CONTRACT_VERSION = "1.0";
 
-/** Semver range kolu-server accepts from the daemon at handshake time.
- *  Caret-range tolerates minor bumps (additive changes); a major
- *  mismatch triggers degraded mode. */
-export const MIN_AGENT_CONTRACT = "^1.0";
+/** Whether a daemon reporting `daemonVersion` is wire-compatible with a
+ *  kolu-server built against `expected` (both `major.minor`). Compatible
+ *  when the majors match and the daemon's minor is >= ours — additive
+ *  minor bumps stay backwards-compatible; a major mismatch is degraded
+ *  mode. Lives next to `AGENT_CONTRACT_VERSION` because "what counts as
+ *  compatible" is part of the contract, not the supervisor's transport
+ *  concern. Tolerates a trailing patch/prerelease suffix on either side
+ *  (only `major.minor` is load-bearing). */
+export function isAgentContractCompatible(
+  daemonVersion: string,
+  expected: string,
+): boolean {
+  const parse = (v: string): [number, number] | null => {
+    const m = /^(\d+)\.(\d+)/.exec(v);
+    return m ? [Number(m[1]), Number(m[2])] : null;
+  };
+  const a = parse(daemonVersion);
+  const b = parse(expected);
+  if (!a || !b) return false;
+  return a[0] === b[0] && a[1] >= b[1];
+}
 
 const TerminalSpawnInputSchema = z.object({
   /** Caller-supplied PTY id. kolu-server mints the terminal id and
