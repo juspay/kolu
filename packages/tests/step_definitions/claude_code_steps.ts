@@ -19,6 +19,13 @@ import { nudgeFiles } from "../support/nudge.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
 const SESSION_ID = "test-claude-session-00000000-0000-0000-0000";
+/** Dynamic-workflow fixtures: a launched background task + its run journal. */
+const WORKFLOW_TASK_ID = "task-bg-0000";
+const WORKFLOW_RUN_ID = "wf-test-run-0000";
+const WORKFLOW_NAME = "deep-research";
+const WORKFLOW_AGENTS = 5;
+
+type MockState = "thinking" | "tool_use" | "waiting" | "running_background";
 // Read these lazily rather than at module load — `hooks.ts` sets per-worker
 // temp dirs on `process.env`, and cucumber's step/support module import
 // order is not guaranteed, so a top-level capture here would race.
@@ -67,7 +74,7 @@ async function getTerminalPid(world: KoluWorld): Promise<number> {
 }
 
 /** Build a JSONL transcript with a specific final state. */
-function buildTranscript(state: "thinking" | "tool_use" | "waiting"): string {
+function buildTranscript(state: MockState): string {
   const userMsg = JSON.stringify({
     type: "user",
     uuid: "u1",
@@ -91,9 +98,46 @@ function buildTranscript(state: "thinking" | "tool_use" | "waiting"): string {
   const lines = [userMsg];
   if (state === "tool_use") lines.push(assistantMsg("tool_use"));
   if (state === "waiting") lines.push(assistantMsg("end_turn"));
+  // "running_background": a launched-but-uncompleted background task followed
+  // by an end-of-turn — deriveState promotes the bare `waiting` to
+  // `running_background`. The matching journal is written by the mock step.
+  if (state === "running_background") {
+    lines.push(
+      JSON.stringify({
+        type: "user",
+        uuid: "u2",
+        timestamp: new Date().toISOString(),
+        message: {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "tu-bg",
+              content: `Workflow launched in background. Task ID: ${WORKFLOW_TASK_ID}\nRun ID: ${WORKFLOW_RUN_ID}`,
+            },
+          ],
+        },
+      }),
+    );
+    lines.push(assistantMsg("end_turn"));
+  }
   // "thinking" = user message only (no assistant response yet)
 
   return `${lines.join("\n")}\n`;
+}
+
+/** Write the run journal a `running_background` mock reads its fan-out from. */
+function writeWorkflowJournal(projectDir: string): void {
+  const wfDir = path.join(projectDir, SESSION_ID, "workflows");
+  fs.mkdirSync(wfDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(wfDir, `${WORKFLOW_RUN_ID}.json`),
+    JSON.stringify({
+      workflowName: WORKFLOW_NAME,
+      status: "running",
+      agentCount: WORKFLOW_AGENTS,
+    }),
+  );
 }
 
 /** Unique CWD per scenario to avoid collisions in parallel workers. */
@@ -154,10 +198,8 @@ When(
     mockProjectDir = path.join(projectsDir, encodedCwd);
     fs.mkdirSync(mockProjectDir, { recursive: true });
     mockTranscriptPath = path.join(mockProjectDir, `${SESSION_ID}.jsonl`);
-    fs.writeFileSync(
-      mockTranscriptPath,
-      buildTranscript(state as "thinking" | "tool_use" | "waiting"),
-    );
+    fs.writeFileSync(mockTranscriptPath, buildTranscript(state as MockState));
+    if (state === "running_background") writeWorkflowJournal(mockProjectDir);
 
     // Now the trigger — session file last.
     fs.mkdirSync(sessionsDir, { recursive: true });
@@ -219,10 +261,7 @@ When(
   "the Claude Code session state changes to {string}",
   async function (this: KoluWorld, state: string) {
     if (!mockTranscriptPath) throw new Error("No mock transcript to update");
-    fs.writeFileSync(
-      mockTranscriptPath,
-      buildTranscript(state as "thinking" | "tool_use" | "waiting"),
-    );
+    fs.writeFileSync(mockTranscriptPath, buildTranscript(state as MockState));
   },
 );
 
@@ -251,6 +290,30 @@ Then(
     }
     throw new Error(
       `Expected agent indicator state "${expectedState}", got "${last}" after ${POLL_TIMEOUT}ms`,
+    );
+  },
+);
+
+Then(
+  "the tile chrome should show workflow badge {string}",
+  async function (this: KoluWorld, expected: string) {
+    // Same polled + nudge shape as the agent-indicator check: re-touch the
+    // transcript each tick so the server re-derives and re-reads the journal.
+    const start = Date.now();
+    let last: string | null = null;
+    while (Date.now() - start < POLL_TIMEOUT) {
+      nudgeMockFiles();
+      last = await this.page.evaluate(() => {
+        const el = document.querySelector(
+          '[data-testid="canvas-tile"] [data-testid="agent-workflow-badge"], [data-testid="mobile-tile-titlebar"] [data-testid="agent-workflow-badge"]',
+        );
+        return el?.textContent ?? null;
+      });
+      if (last?.includes(expected)) return;
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    throw new Error(
+      `Expected workflow badge containing "${expected}", got "${last}" after ${POLL_TIMEOUT}ms`,
     );
   },
 );
