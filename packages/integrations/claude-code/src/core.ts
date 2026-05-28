@@ -274,8 +274,20 @@ export function deriveState(
             state: toolUseOrAwaitingUser(entry.message?.content),
             model,
           }))
-          .with({ type: "assistant" }, () => ({
+          // Only a still-streaming entry (no terminal stop reason yet) is
+          // "thinking". `stop_reason` is null/absent while the model is
+          // generating and gets stamped when the segment ends.
+          .with({ type: "assistant", stopReason: null }, () => ({
             state: "thinking" as const,
+            model,
+          }))
+          // Any other terminal stop reason — `stop_sequence`, `max_tokens`,
+          // or an error-finalized partial (e.g. "API Error: Stream idle
+          // timeout") — means the turn *ended*, so the agent is idle
+          // (`waiting`), not thinking. Without this, an interrupted/errored
+          // turn shows a stuck "running" pill until the next message.
+          .with({ type: "assistant" }, () => ({
+            state: "waiting" as const,
             model,
           }))
           .with({ type: "user" }, () => ({
