@@ -282,6 +282,10 @@ When("I arm the soft-keyboard focus probe", async function (this: KoluWorld) {
   // on whichever textarea receives it.
   await this.page.evaluate(() => {
     const w = window as FocusProbeWindow;
+    // Tear down any prior install so re-arming doesn't leak an orphaned listener.
+    if (w.__textareaFocusListener) {
+      document.removeEventListener("focus", w.__textareaFocusListener, true);
+    }
     w.__textareaFocusCount = 0;
     w.__textareaFocusListener = (e: Event) => {
       const t = e.target as HTMLElement | null;
