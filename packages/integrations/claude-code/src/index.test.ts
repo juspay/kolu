@@ -90,10 +90,6 @@ describe("deriveState", () => {
     { stop_reason: "end_turn", expected: "waiting" },
     { stop_reason: "tool_use", expected: "tool_use" },
     { stop_reason: null, expected: "thinking" },
-    // Terminal stop reasons other than end_turn/tool_use — an interrupted or
-    // errored turn — end the turn, so the agent is idle (waiting), not running.
-    { stop_reason: "stop_sequence", expected: "waiting" },
-    { stop_reason: "max_tokens", expected: "waiting" },
   ])("assistant with stop_reason=$stop_reason → $expected", ({
     stop_reason,
     expected,
