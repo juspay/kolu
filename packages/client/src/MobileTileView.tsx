@@ -183,8 +183,16 @@ const MobileTileView: Component<{
         {props.bottomBar}
       </div>
 
-      {/* Chrome (top pull-down) drawer — global controls. */}
-      <Drawer side="top" open={chromeOpen()} onOpenChange={setChromeOpen}>
+      {/* Chrome (top pull-down) drawer — global controls.
+       *  `snapPoints={[0, 1]}` carries the same Corvu 0.2.4 workaround as
+       *  the dock drawer below — both are opened via mouse-click and would
+       *  trip the same reactive-ordering bug (#977) on that path. */}
+      <Drawer
+        side="top"
+        open={chromeOpen()}
+        onOpenChange={setChromeOpen}
+        snapPoints={[0, 1]}
+      >
         <Drawer.Portal>
           <Drawer.Overlay
             data-testid="mobile-chrome-backdrop"
