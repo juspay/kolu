@@ -49,18 +49,15 @@ When(
 // ── Assertions ──
 
 Then("the right panel should be visible", async function (this: KoluWorld) {
-  // The expanded panel renders its tab bar (Inspector + Code) inside
-  // the shell; the collapsed shell is a 44 px rail with just the
-  // expand chevron. "Visible" means the tab content area exists —
-  // assert one of its tab buttons is reachable.
+  // "Visible" means the tab content area exists — assert one of its
+  // tab buttons is reachable (the expanded Resizable panel shows the tab bar).
   const tab = this.page.locator('[data-testid="right-panel-tab-inspector"]');
   await tab.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
 });
 
 Then("the right panel should not be visible", async function (this: KoluWorld) {
-  // The collapsed shell renders the 44 px rail (`right-panel-rail-
-  // expand` chevron). Assert the tab bar's content is gone — the
-  // shell's `data-collapsed` attribute is the canonical state seam.
+  // The Resizable panel collapses to 0 width (no rail or visible indicator).
+  // `data-collapsed` on the RightPanel root is the canonical state seam.
   await this.page.waitForFunction(
     () => {
       const shell = document.querySelector('[data-testid="right-panel"]');
