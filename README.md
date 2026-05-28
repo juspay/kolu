@@ -214,7 +214,7 @@ pnpm monorepo:
 | `packages/integrations/io/`          | Filesystem & I/O primitives — refcounted shared `fs.watch` keyed by directory (`createDirFilenameWatcher`); zero `kolu-*` deps so any package can adopt without coupling |
 | `packages/transcript-core/`          | Vendor-neutral transcript IR (`Transcript`, `TranscriptEvent`, typed `ToolInput` union) + structural transforms; per-agent loaders normalize into this shape          |
 | `packages/transcript-html/`          | Static-export renderer — `marked` for prose, [`@pierre/diffs`](https://www.npmjs.com/package/@pierre/diffs) SSR for shiki-tokenized code/diffs, [Preact](https://preactjs.com/) JSX for chrome; emits one self-contained `.html` |
-| `packages/terminal-themes/`          | Terminal color scheme catalog + perceptual-distance picker — themes checked-in as JSON                                                                                |
+| `packages/terminal-themes/`          | `@kolu/terminal-themes` — terminal color scheme catalog + perceptual-distance picker. Themes parsed from [iTerm2-Color-Schemes](https://github.com/mbadolato/iTerm2-Color-Schemes) (Ghostty format) and ship checked-in as `themes.json`. `pickTheme` minimizes perceptual background distance against peers so multi-terminal tiles read as visually distinct |
 | `packages/memorable-names/`          | ADJ-NOUN random name generator — word lists checked-in as JSON                                                                                                        |
 
 ### Communication

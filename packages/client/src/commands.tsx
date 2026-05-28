@@ -5,7 +5,7 @@ import { WorktreeNameSchema } from "kolu-git/schemas";
 import { randomName } from "memorable-names";
 import type { Accessor, Component } from "solid-js";
 import { batch, createMemo } from "solid-js";
-import { availableThemes } from "terminal-themes";
+import { availableThemes } from "@kolu/terminal-themes";
 import type { DockSourceEntry } from "./canvas/dockModel";
 import WorkspaceGrid from "./canvas/dock/WorkspaceGrid";
 import type {

@@ -60,7 +60,7 @@
     "kolu-git": "workspace:*",
     "kolu-github": "workspace:*",
     "tailwindcss": "^4.1.0",
-    "terminal-themes": "workspace:*",
+    "@kolu/terminal-themes": "workspace:*",
     "typescript": "^5.8.0",
     "vite": "^6.4.2",
     "vite-plugin-pwa": "^1.2.0",

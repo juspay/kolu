@@ -176,6 +176,9 @@ importers:
         specifier: ^5.9.0
         version: 5.9.0
     devDependencies:
+      '@kolu/terminal-themes':
+        specifier: workspace:*
+        version: link:../terminal-themes
       '@tailwindcss/vite':
         specifier: ^4.1.0
         version: 4.2.2(vite@6.4.2(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.47.1)(tsx@4.21.0)(yaml@2.8.3))
@@ -197,9 +200,6 @@ importers:
       tailwindcss:
         specifier: ^4.1.0
         version: 4.2.2
-      terminal-themes:
-        specifier: workspace:*
-        version: link:../terminal-themes
       typescript:
         specifier: ^5.8.0
         version: 5.9.3

@@ -15,7 +15,7 @@ import {
   type ITheme,
   pickTheme,
   resolveThemeBgs,
-} from "terminal-themes";
+} from "@kolu/terminal-themes";
 import { createSharedRoot } from "./createSharedRoot";
 import { client } from "./wire";
 import { useTerminalStore } from "./terminal/useTerminalStore";

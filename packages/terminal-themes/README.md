@@ -1,4 +1,4 @@
-# terminal-themes
+# @kolu/terminal-themes
 
 Terminal color scheme catalog + perceptual-distance picker. Themes are parsed
 from [iTerm2-Color-Schemes](https://github.com/mbadolato/iTerm2-Color-Schemes)
@@ -12,7 +12,7 @@ import {
   getThemeByName,
   resolveThemeBgs,
   pickTheme,
-} from "terminal-themes";
+} from "@kolu/terminal-themes";
 
 // Look up a theme by name
 const theme = getThemeByName("Tomorrow Night");

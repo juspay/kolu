@@ -13,7 +13,7 @@ import { escapeHtml } from "kolu-common/html";
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import { terminalKey } from "kolu-common/terminalKey";
 import { toast } from "solid-sonner";
-import { FONT_FAMILY } from "terminal-themes";
+import { FONT_FAMILY } from "@kolu/terminal-themes";
 import { getTerminalRefs } from "./terminal/terminalRefs";
 
 export function exportScrollbackAsPdf(

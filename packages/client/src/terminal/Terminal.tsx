@@ -39,7 +39,7 @@ import "@xterm/xterm/css/xterm.css";
 import type { TerminalId } from "kolu-common/surface";
 import { DEFAULT_SCROLLBACK } from "kolu-common/config";
 import { rejectionFor, sizeRejectionFor } from "kolu-common/upload";
-import { FONT_FAMILY } from "terminal-themes";
+import { FONT_FAMILY } from "@kolu/terminal-themes";
 import { ACTIONS, matchesAnyShortcut } from "../input/actions";
 import { matchesKeybind } from "../input/keyboard";
 import { createZoom } from "../input/zoom";

@@ -9,7 +9,11 @@ import type {
   TerminalId,
 } from "kolu-common/surface";
 import { toast } from "solid-sonner";
-import { availableThemes, pickTheme, resolveThemeBgs } from "terminal-themes";
+import {
+  availableThemes,
+  pickTheme,
+  resolveThemeBgs,
+} from "@kolu/terminal-themes";
 import { CONTEXTUAL_TIPS } from "../settings/tips";
 import { client, preferences } from "../wire";
 import { useTips } from "../settings/useTips";
