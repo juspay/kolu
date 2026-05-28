@@ -653,7 +653,10 @@ const App: Component = () => {
                   </Show>
                   <Resizable.Panel
                     as="div"
-                    class="min-w-0 min-h-0 overflow-hidden border-l border-edge"
+                    class="min-w-0 min-h-0 overflow-hidden"
+                    classList={{
+                      "border-l border-edge": !rightPanel.collapsed(),
+                    }}
                     minSize={0.1}
                   >
                     <RightPanel
