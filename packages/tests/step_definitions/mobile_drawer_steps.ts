@@ -167,6 +167,13 @@ When("I tap the mobile dock handle", async function (this: KoluWorld) {
   await this.page.locator(DOCK_HANDLE).tap();
 });
 
+// Mouse-click path: Playwright's `.tap()` synthesises touch events, which
+// take a different code path in Corvu than mouse clicks. Desktop debugging
+// (DevTools touch emulation) lands on this path — see #977.
+When("I click the mobile dock handle", async function (this: KoluWorld) {
+  await this.page.locator(DOCK_HANDLE).click();
+});
+
 When("I tap the mobile dock backdrop", async function (this: KoluWorld) {
   await tapBackdropAtSafePoint(this, DOCK_BACKDROP, "left");
 });
