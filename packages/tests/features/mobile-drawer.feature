@@ -17,6 +17,15 @@ Feature: Mobile chrome drawer
     And there should be no page errors
 
   @mobile
+  Scenario: Clicking the pull handle (mouse path) opens the drawer without errors
+    # Companion regression cover for #977 — the chrome drawer is structurally
+    # exposed to the same Corvu @0.2.4 mouse-click crash as the dock drawer,
+    # and now carries the same `snapPoints={[0, 1]}` workaround.
+    When I click the mobile pull handle
+    Then the mobile chrome sheet should be visible
+    And there should be no page errors
+
+  @mobile
   Scenario: Tapping the backdrop dismisses the drawer
     When I tap the mobile pull handle
     Then the mobile chrome sheet should be visible
