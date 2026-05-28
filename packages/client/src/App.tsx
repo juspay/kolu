@@ -43,6 +43,7 @@ import MobileKeyBar from "./MobileKeyBar";
 import MobileTileView from "./MobileTileView";
 import { useRecorder } from "./recorder/useRecorder";
 import WebcamOverlay from "./recorder/WebcamOverlay";
+import Resizable from "@corvu/resizable";
 import RightPanel from "./right-panel/RightPanel";
 import RightPanelDrawer from "./right-panel/RightPanelDrawer";
 import { useRightPanel } from "./right-panel/useRightPanel";
@@ -562,36 +563,82 @@ const App: Component = () => {
                 </RightPanelDrawer>
               ))
               .with(false, () => (
-                <TerminalCanvas
-                  tileIds={store.terminalIds()}
-                  watermark={appTitle()}
-                  getLayout={(id) => store.getMetadata(id)?.canvasLayout}
-                  placeNew={arrange.placeNew}
-                  onLayoutChange={arrange.applyTileGeometry}
-                  onAutoArrange={arrange.handleCanvasAutoArrange}
-                  onSelect={store.setActiveSilently}
-                  onClose={(id) => closeTerminal(id)}
-                  onOpenWorkspaceSearch={() =>
-                    openPaletteGroup("Search workspaces")
+                // Desktop host: horizontal `@corvu/resizable` split between
+                // the canvas and the right panel. `sizes=[1, 0]` collapses
+                // the panel to zero width while keeping it mounted — this
+                // preserves `CodeTab`'s selectedPath signal and Pierre's
+                // tree expansion across collapse round-trips (#818).
+                //
+                // `startIntersection={false}` on the handle opts out of
+                // Corvu's module-level handle-pairing registry (see
+                // `@corvu/resizable/dist/index.js:201-222`). Without the
+                // opt-out, this outer horizontal handle pairs with
+                // `CodeTab`'s inner vertical handle (their rects touch at
+                // the corner) and clicks near the corner land on the
+                // wrong handle. `CodeTab` defends from the inner side
+                // with the same opt-out — both sides need it.
+                <Resizable
+                  orientation="horizontal"
+                  sizes={
+                    rightPanel.collapsed()
+                      ? [1, 0]
+                      : [1 - rightPanel.panelSize(), rightPanel.panelSize()]
                   }
-                  onCreate={() => openPaletteGroup("New terminal")}
-                  renderTileTitle={(id) => (
-                    <TerminalMeta
-                      info={store.getDisplayInfo(id)}
-                      onOpenIntent={() => intentEditor.openTerminal(id)}
+                  onSizesChange={(sizes) => {
+                    if (sizes[1] !== undefined)
+                      rightPanel.setPanelSize(sizes[1]);
+                  }}
+                  class="flex-1 min-h-0 overflow-hidden"
+                >
+                  <Resizable.Panel
+                    as="div"
+                    class="min-w-0 min-h-0 flex"
+                    minSize={0.3}
+                  >
+                    <TerminalCanvas
+                      tileIds={store.terminalIds()}
+                      watermark={appTitle()}
+                      getLayout={(id) => store.getMetadata(id)?.canvasLayout}
+                      placeNew={arrange.placeNew}
+                      onLayoutChange={arrange.applyTileGeometry}
+                      onAutoArrange={arrange.handleCanvasAutoArrange}
+                      onSelect={store.setActiveSilently}
+                      onClose={(id) => closeTerminal(id)}
+                      onOpenWorkspaceSearch={() =>
+                        openPaletteGroup("Search workspaces")
+                      }
+                      onCreate={() => openPaletteGroup("New terminal")}
+                      renderTileTitle={(id) => (
+                        <TerminalMeta
+                          info={store.getDisplayInfo(id)}
+                          onOpenIntent={() => intentEditor.openTerminal(id)}
+                        />
+                      )}
+                      renderTileTitleActions={(id) => (
+                        <TileTitleActions
+                          id={id}
+                          onOpenPaletteGroup={openPaletteGroup}
+                          onToggleSubPanel={handleToggleSubPanel}
+                          onOpenSearch={() => setSearchOpen(true)}
+                          onScreenshot={handleScreenshotTerminal}
+                        />
+                      )}
+                      renderTileBody={renderCanvasTileBody}
                     />
-                  )}
-                  renderTileTitleActions={(id) => (
-                    <TileTitleActions
-                      id={id}
-                      onOpenPaletteGroup={openPaletteGroup}
-                      onToggleSubPanel={handleToggleSubPanel}
-                      onOpenSearch={() => setSearchOpen(true)}
-                      onScreenshot={handleScreenshotTerminal}
+                  </Resizable.Panel>
+                  <Show when={!rightPanel.collapsed()}>
+                    <Resizable.Handle
+                      data-testid="right-panel-handle"
+                      startIntersection={false}
+                      class="shrink-0 w-0 relative before:absolute before:inset-y-0 before:-left-1 before:w-2 before:cursor-col-resize before:hover:bg-accent/30 before:transition-colors"
+                      aria-label="Resize inspector panel"
                     />
-                  )}
-                  renderTileBody={renderCanvasTileBody}
-                  rightPanel={
+                  </Show>
+                  <Resizable.Panel
+                    as="div"
+                    class="min-w-0 min-h-0 overflow-hidden"
+                    minSize={0}
+                  >
                     <RightPanel
                       terminalId={store.activeId()}
                       meta={store.activeMeta()}
@@ -599,10 +646,9 @@ const App: Component = () => {
                       themeName={activeThemeName()}
                       onThemeClick={() => openPaletteGroup("Set theme")}
                       visible={!rightPanel.collapsed()}
-                      shell={true}
                     />
-                  }
-                />
+                  </Resizable.Panel>
+                </Resizable>
               ))
               .exhaustive()}
           </Show>
