@@ -36,6 +36,7 @@ import type {
   TerminalMetadata,
 } from "kolu-common/surface";
 import { contract } from "kolu-common/contract";
+import { TerminalNotFoundError } from "kolu-common/errors";
 import { surface } from "kolu-common/surface";
 import {
   fsListAllOutputEqual,
@@ -235,23 +236,14 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
 
     events: {
       terminalExit: {
-        // Single-yield-then-close: forward the first exit-channel yield
-        // and return. The `bus` helper is the framework's per-input
+        // Single-yield-then-close: validate the terminal exists at subscribe
+        // time (`TerminalNotFoundError` propagates as `ORPCError`, not
+        // retried by `STREAM_RETRY`), then forward the first exit-channel
+        // yield and return. The `bus` helper is the framework's per-input
         // channel — the same one `surfaceCtx.events.terminalExit.publish`
         // writes to.
-        //
-        // No existence-check on subscribe: the client subscribes per
-        // id in its `terminalList` snapshot, and an id can be removed
-        // (e.g. remote spawn fails fast and the parent tears the
-        // registry entry out) between the client's `terminalList`
-        // yield and this subscribe RPC arriving. Throwing
-        // `TerminalNotFoundError` would log ERROR spam and surface as
-        // an RPC failure with no useful user signal; the client's
-        // `mapArray` over `terminalList` already aborts the
-        // subscription when the id leaves the list. If the id never
-        // existed (no exit will fire), the bus subscribe just waits
-        // until the signal aborts.
-        source: async function* (_input, signal, { bus }) {
+        source: async function* (input, signal, { bus }) {
+          if (!getTerminal(input.id)) throw new TerminalNotFoundError(input.id);
           for await (const exitCode of bus.subscribe(signal)) {
             yield exitCode;
             return;

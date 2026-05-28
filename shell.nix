@@ -20,6 +20,14 @@ pkgs.mkShell {
   shellHook = ''
     if root=$(git rev-parse --show-toplevel 2>/dev/null); then
       ln -sfn "$KOLU_FONTS_DIR" "$root/packages/client/public/fonts"
+      # Remote terminals (R-2): the `kolu --stdio` agent's drv path is
+      # resolved by `nix eval --raw $KOLU_AGENT_FLAKE_REF#packages.<sys>.default.drvPath`.
+      # In dev, we want the local source — `path:$root` resolves
+      # against the worktree's flake (not a pushed github branch).
+      # Set only in the devShell; the production wrapper leaves the
+      # env var unset so operators opt in explicitly per the
+      # "no fallback" contract.
+      export KOLU_AGENT_FLAKE_REF="path:$root"
     fi
   '';
 

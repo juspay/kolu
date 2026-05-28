@@ -204,20 +204,13 @@ export function collectionHandlers<Name extends string, K, T>(
       for await (const v of deps.keysBus.subscribe(signal)) yield v;
     },
     get: async function* ({ input, signal }) {
-      // Race tolerance: a key can be removed between the client's
-      // `keys` snapshot (which discovers the id) and the client's
-      // `get(key)` RPC arriving here — kolu hits this when a remote
-      // terminal's `spawnAsync` fails fast (e.g. missing config) and
-      // removes the entry before the client's per-key subscribe
-      // lands. Throwing here would spam ERROR logs and surface as
-      // RPC failures with no useful user signal. Instead: yield
-      // nothing if missing, then wait on the per-key bus — if the
-      // key reappears we yield; if the client tears down (its
-      // `mapArray` over `keys` cleans up missing ids), the signal
-      // aborts and we exit. End-of-stream is reachable only via
-      // abort, matching the present-key path.
       const initial = readOne(input.key);
-      if (initial !== undefined) yield initial;
+      if (initial === undefined) {
+        throw new Error(
+          `collection ${_coll.name}: key not found at first snapshot`,
+        );
+      }
+      yield initial;
       for await (const v of deps.perKeyBus(input.key).subscribe(signal)) {
         yield v;
       }

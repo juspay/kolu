@@ -191,33 +191,15 @@ export class RemoteTerminalBackend implements TerminalBackend {
     fn: (client: AgentClient<AgentContract>) => Promise<T>,
   ): Promise<T> {
     if (!this.clientPromise) {
-      // Cache the resolved-client promise BUT also attach a rejection
-      // handler so a config error (e.g. missing
-      // `KOLU_AGENT_FLAKE_REF`) doesn't sit on the cache as an
-      // unhandled-rejection waiting to fire on the next microtask
-      // and tear the whole server down via the fatal `unhandledRejection`
-      // handler. On failure: clear the cache so the next call retries.
-      const pending = getKoluHostSessionAsync(this.host).then((s) => s.pin());
-      pending.catch((err) => {
-        log.warn(
-          { err, host: this.host },
-          "host session resolve failed; clearing cache for retry",
-        );
-        if (this.clientPromise === pending) this.clientPromise = null;
-      });
-      this.clientPromise = pending;
+      this.clientPromise = getKoluHostSessionAsync(this.host).then((s) =>
+        s.pin(),
+      );
       // Subscribe to the session's connection-state changes once per
-      // backend (per host). The subscription itself awaits the same
-      // session-resolve; if THAT throws we mustn't let the void'd
-      // promise become an unhandled rejection — catch and log.
-      void this.ensureStateSubscription().catch((err) => {
-        log.warn(
-          { err, host: this.host },
-          "remote state subscription setup failed",
-        );
-        // Allow retry on the next callAgent.
-        this.stateSubscribed = false;
-      });
+      // backend (per host). Every terminal on this host shares the
+      // same underlying ssh subprocess, so they share the connection
+      // state too — push the current state into each terminal's
+      // `meta.connectionState` so the client's overlay can render.
+      void this.ensureStateSubscription();
     }
     const client = await this.clientPromise;
     const result = await fn(client);
@@ -382,17 +364,6 @@ export class RemoteTerminalBackend implements TerminalBackend {
       // stuck "Connecting…" tile that the user has to manually kill.
       abort.abort();
       this.records.delete(id);
-      // Publish a synthetic exit BEFORE removing from the registry
-      // so the client's existing exit-toast handler (`subscribeExit`
-      // in `useTerminals.ts`) shows a "$tile exited with code 1"
-      // warning. Exit code 1 distinguishes spawn failure from a
-      // clean exit (code 0). The publish may race with the client's
-      // per-id `surface.terminalExit` subscribe RPC — when that
-      // subscribe lands after this fires, the event is lost (events
-      // aren't buffered), but the tile still vanishes via the
-      // `terminalList` removal and the user at least sees the
-      // disappearance reflect the failure.
-      surfaceCtx.events.terminalExit.publish({ id }, 1);
       unregisterTerminal(id);
       surfaceCtx.cells.terminalList.set(listTerminals());
       surfaceCtx.collections.terminalMetadata.remove(id);
