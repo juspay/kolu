@@ -146,6 +146,15 @@ Then(
     // of riding on `CanvasTile`'s internal transform composition — a
     // separate volatility axis the assertion has no business coupling
     // to.
+    //
+    // Double-rAF before sampling so SolidJS reactivity + Corvu's
+    // Resizable transitions are flushed — without it, a stale layout
+    // snapshot could either silently pass (tile not yet at boundary)
+    // or flake on slower CI runners. The detailed `dead` list in the
+    // failure message is worth keeping over a generic
+    // `waitForFunction` timeout: it names the exact (x, y) and the
+    // covering element so a regression points at its cause.
+    await this.waitForFrame();
     const result = await this.page.evaluate(() => {
       const handle = document.querySelector(
         '[data-testid="right-panel-handle"]',
