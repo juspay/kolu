@@ -370,15 +370,15 @@ importers:
 
   packages/integrations/git:
     dependencies:
+      '@kolu/dir-watch':
+        specifier: workspace:*
+        version: link:../io
       '@kolu/memorable-names':
         specifier: workspace:*
         version: link:../../memorable-names
       '@parcel/watcher':
         specifier: ^2.5.1
         version: 2.5.6
-      kolu-io:
-        specifier: workspace:*
-        version: link:../io
       kolu-shared:
         specifier: workspace:*
         version: link:../../shared

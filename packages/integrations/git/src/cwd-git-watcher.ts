@@ -14,7 +14,7 @@
  */
 
 import { WATCHER_DEBOUNCE_MS } from "./git-dir.ts";
-import { createDirFilenameWatcher } from "kolu-io";
+import { createDirFilenameWatcher } from "@kolu/dir-watch";
 
 const cwdGitWatcher = createDirFilenameWatcher({
   resolveDir: (cwd) => cwd,

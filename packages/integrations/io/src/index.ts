@@ -1,8 +1,9 @@
-/** kolu-io — filesystem and I/O primitives for Kolu.
+/** @kolu/dir-watch — refcounted shared `fs.watch` watcher keyed by
+ *  directory, with single-file dispatch.
  *
- *  Standalone integration package with no `kolu-*` dependencies — only
- *  third-party packages and the Node stdlib. Consumers across the workspace
- *  can adopt these primitives without taking a feature-package dependency. */
+ *  Zero `kolu-*` dependencies — only Node stdlib + an optional pino-
+ *  shaped Logger. Externalizable as-is; lives in the workspace
+ *  alongside the other `@kolu/*` published-shape packages. */
 
 export {
   createDirFilenameWatcher,
