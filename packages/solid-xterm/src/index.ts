@@ -1,24 +1,24 @@
-/** `@kolu/solid-xterm` — Solid-native pieces of xterm.js lifecycle.
+/** `@kolu/solid-xterm` — Solid-native adapter for xterm.js.
  *
- *  Surface today: WebGL context management (`createXtermWebgl`).
- *  The framework grows as more wrong-altitude infrastructure
- *  migrates out of `client/src/terminal/Terminal.tsx` — addons,
- *  theme/font effects, resize observation, etc. Single-consumer
- *  inside Kolu today; the extraction is justified by the per-axis
- *  volatility encapsulation, not by reuse-count (same bar Surface
- *  and `solid-pierre` cleared).
+ *  One coherent primitive: `createSolidXterm({ theme, fontSize,
+ *  addons, webgl, scrollLock, onTerm }) → SolidXtermHandle`. It
+ *  takes the place of `new XTerm(...)` and owns construction,
+ *  addon attachment, reactive theme + fontSize sync, WebGL
+ *  lifecycle policy, and scroll-lock as integrated submodules.
  *
- *  Solid-native = the helpers register cleanups in the caller's
- *  Solid owner (assumed; document per-export). They are NOT
- *  components — callers wire data into them imperatively. */
+ *  See `./createSolidXterm.ts` for the API and the module
+ *  docstring on reactive ownership. See `./README.md` for usage.
+ *
+ *  The lifecycle submodules (`./internal/webgl`,
+ *  `./internal/styleSync`, `./internal/scrollLock`) are intentionally
+ *  not re-exported — they are the package's implementation, not its
+ *  surface. A package that ships them as parallel public entries
+ *  would be partial wiring, not a socket. */
 
-export { createScrollLock } from "./scrollLock";
 export {
-  type AttachXtermStyleSyncOptions,
-  attachXtermStyleSync,
-} from "./styleSync";
-export {
-  type CreateXtermWebglOptions,
-  createXtermWebgl,
-  type XtermWebglHandle,
-} from "./webgl";
+  createSolidXterm,
+  type SolidXtermAddonOptions,
+  type SolidXtermHandle,
+  type SolidXtermOptions,
+  type SolidXtermWebglOptions,
+} from "./createSolidXterm";
