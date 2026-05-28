@@ -135,6 +135,22 @@ const CanvasTile: Component<{
     };
   };
 
+  // A `"covered"` tile must hide intrinsically, not by relying on the
+  // maximized tile's `z-40` cover painting over it. During the window where
+  // `activeId` already points at a just-created tile that hasn't entered
+  // `terminalIds` yet, no maximized tile exists — a covered tile carrying only
+  // `inert`/`aria-hidden` would paint at its canvas coords, flashing the whole
+  // freeform canvas for a frame (regressed in #989, which dropped the pre-#988
+  // `visibility: hidden`). Keep the subtree mounted (`visibility`, not
+  // `display`) so xterm keeps writing its buffer and the dock previews stay
+  // populated (#904).
+  const tileStyle = (): JSX.CSSProperties =>
+    isMaximized()
+      ? { "background-color": bg() }
+      : isCovered()
+        ? { ...tiledStyle(), visibility: "hidden" }
+        : tiledStyle();
+
   return (
     <div
       ref={draggable.ref}
@@ -167,7 +183,7 @@ const CanvasTile: Component<{
         "shadow-xl": props.active && !isMaximized(),
         "border-transparent": isMaximized(),
       }}
-      style={isMaximized() ? { "background-color": bg() } : tiledStyle()}
+      style={tileStyle()}
       onMouseDown={() => props.onSelect()}
     >
       {/* Title bar — uses tile foreground at low opacity for guaranteed

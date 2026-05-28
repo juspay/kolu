@@ -410,6 +410,22 @@ Feature: Canvas workspace
     And the tagged xterm element should still exist in the DOM
     And there should be no page errors
 
+  Scenario: Covered tiles stay hidden in maximized mode
+    # Regression for the new-terminal canvas flash: a covered tile must hide
+    # itself (visibility:hidden), not rely on the active tile's z-40 cover
+    # painting over it. When activeId points at a tile not yet in the render
+    # list (e.g. a just-created terminal), no maximized z-40 tile exists, and
+    # a covered tile that only carries inert/aria-hidden paints at its canvas
+    # coords — the whole freeform canvas flashing for a frame (#989 dropped
+    # the pre-#988 visibility:hidden). This asserts the intrinsic-hide
+    # invariant that prevents the flash.
+    Given I create a terminal
+    Then there should be 2 canvas tiles
+    When I double-click the title bar of canvas tile 1
+    Then canvas tile 1 should be maximized
+    Then every non-maximized canvas tile should be hidden
+    And there should be no page errors
+
   @mobile
   Scenario: Canvas is not rendered on mobile
     Then the canvas grid background should not be visible
