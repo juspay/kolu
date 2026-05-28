@@ -92,13 +92,21 @@ const TerminalContent: Component<{
         />
       </Resizable.Panel>
 
-      {/* Resize handle — invisible hit zone, visible on hover */}
+      {/* Resize handle — invisible hit zone, visible on hover.
+       *  `z-10` mirrors CodeTab.tsx's inner-handle defense: the ::before
+       *  pseudo overlaps the previous panel (xterm tile) by 4px and any
+       *  positioned descendant inside that panel with auto/zero z-index
+       *  would otherwise paint over the hit zone. The canvas-tile
+       *  container that hosts this tree creates its own stacking context
+       *  (z-10), so external z-stackers can't intrude — but the defense
+       *  belongs on the handle itself so a future xterm overlay with an
+       *  explicit z-index doesn't silently break drag-to-resize. */}
       <Show when={hasSubs()}>
         <Resizable.Handle
           data-testid="resize-handle"
           class="shrink-0 transition-all"
           classList={{
-            "h-0 relative before:absolute before:inset-x-0 before:-top-1 before:h-2 before:cursor-row-resize before:hover:bg-accent/30 before:transition-colors":
+            "h-0 relative z-10 before:absolute before:inset-x-0 before:-top-1 before:h-2 before:cursor-row-resize before:hover:bg-accent/30 before:transition-colors":
               isExpanded(),
             "h-0": !isExpanded(),
           }}
