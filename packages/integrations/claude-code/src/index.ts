@@ -19,12 +19,15 @@
 export { claudeCodeProvider } from "./agent-provider.ts";
 
 export {
+  type BackgroundTask,
   deriveState,
   deriveTaskProgress,
+  deriveWorkflowProgress,
   encodeProjectPath,
   extractTasks,
   fetchSessionSummary,
   findTranscriptPath,
+  outstandingBackgroundTasks,
   PROJECTS_DIR,
   readSessionFile,
   SESSIONS_DIR,
@@ -35,10 +38,13 @@ export {
   tailJsonlLines,
   tryWatchDir,
   watchOrWaitForDir,
+  workflowsDirFor,
 } from "./core.ts";
 export {
   type ClaudeCodeInfo,
   ClaudeCodeInfoSchema,
+  type ClaudeWorkflow,
+  ClaudeWorkflowSchema,
   type TaskProgress,
   TaskProgressSchema,
 } from "./schemas.ts";

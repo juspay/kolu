@@ -7,7 +7,12 @@ import { type Component, For, Show } from "solid-js";
 import { Dynamic } from "solid-js/web";
 import ChecksIndicator from "../terminal/ChecksIndicator";
 import { ProviderUnavailableContent } from "../terminal/PrUnavailablePopover";
-import { agentIcons, agentNames, stateLabels } from "../ui/agentDisplay";
+import {
+  agentIcons,
+  agentNames,
+  agentWorkflow,
+  stateLabels,
+} from "../ui/agentDisplay";
 import { PrStateIcon, TerminalIcon, WorktreeIcon } from "../ui/Icons";
 import Row from "../ui/Row";
 import Section from "../ui/Section";
@@ -182,6 +187,18 @@ const MetadataInspector: Component<{
                             {tp().completed}/{tp().total}
                           </span>{" "}
                           completed
+                        </span>
+                      </Row>
+                    )}
+                  </Show>
+                  <Show when={agentWorkflow(agent())}>
+                    {(wf) => (
+                      <Row label="Workflow">
+                        <span class="text-fg">
+                          {wf().name}{" "}
+                          <span class="font-mono text-fg-2">
+                            ({wf().agents} agents · {wf().status})
+                          </span>
                         </span>
                       </Row>
                     )}

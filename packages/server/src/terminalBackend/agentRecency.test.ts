@@ -10,6 +10,7 @@ function claude(state: AgentInfo["state"]): AgentInfo {
     model: null,
     summary: null,
     taskProgress: null,
+    workflow: null,
     contextTokens: null,
   };
 }

@@ -27,7 +27,11 @@ import { getSessionInfo } from "@anthropic-ai/claude-agent-sdk";
 import { classifyByAwaiting } from "anyagent";
 import { type Logger, readTailLines } from "kolu-shared";
 import { match } from "ts-pattern";
-import type { ClaudeCodeInfo, TaskProgress } from "./schemas.ts";
+import type {
+  ClaudeCodeInfo,
+  ClaudeWorkflow,
+  TaskProgress,
+} from "./schemas.ts";
 
 // --- Configuration ---
 
@@ -213,8 +217,19 @@ function toolUseOrAwaitingUser(
  *  They diverge during Thinking — the newest line is a `user` prompt, so
  *  state is thinking, but the meaningful token total lives one hop back on
  *  the previous assistant reply. Blanking it there (as an earlier version
- *  did) masked a valid running count every time the user typed. */
-export function deriveState(lines: string[]): {
+ *  did) masked a valid running count every time the user typed.
+ *
+ *  A newest `assistant` `end_turn` normally means `waiting` (the agent
+ *  yielded its turn back to the user). But under dynamic workflows the
+ *  agent can yield its turn while a background task it launched is still
+ *  running — there it is busy-waiting, not awaiting the human. When
+ *  `outstandingBackgroundTasks` finds such a task, that `waiting` is
+ *  promoted to `running_background`. Pass the precomputed set via
+ *  `outstanding` to avoid re-scanning; omitted, it is computed from `lines`. */
+export function deriveState(
+  lines: string[],
+  outstanding?: BackgroundTask[],
+): {
   state: ClaudeCodeInfo["state"];
   model: string | null;
   contextTokens: number | null;
@@ -276,7 +291,164 @@ export function deriveState(lines: string[]): {
   }
 
   if (stateAndModel === null) return null;
-  return { ...stateAndModel, contextTokens };
+
+  // Promote a bare `end_turn` (`waiting`) to `running_background` when the
+  // agent is still busy-waiting on a background task it launched. Only the
+  // `waiting` case is promoted — an in-flight `thinking`/`tool_use` already
+  // reads as working, and an `awaiting_user` prompt is a genuine human gate.
+  let state = stateAndModel.state;
+  if (state === "waiting") {
+    const bg = outstanding ?? outstandingBackgroundTasks(lines);
+    if (bg.length > 0) state = "running_background";
+  }
+
+  return { state, model: stateAndModel.model, contextTokens };
+}
+
+// --- Background-task detection (dynamic workflows) ---
+
+/** A background task launched from this session: its task ID (from the
+ *  `tool_result` confirmation) and, for `Workflow` launches, the run ID used
+ *  to locate the on-disk journal. `runId` is null for plain background
+ *  `Task`/`Agent` launches, which have no workflow journal. */
+export interface BackgroundTask {
+  taskId: string;
+  runId: string | null;
+}
+
+/** Launch confirmation, e.g. "… launched in background. Task ID: wbf9k820n". */
+const BG_LAUNCH_RE = /launched in background\. Task ID: (\S+)/;
+/** Workflow run ID in the same confirmation, e.g. "Run ID: wf_aab876e1-1bc". */
+const BG_RUN_ID_RE = /Run ID: (\S+)/;
+/** Completion notification fields inside a `queue-operation` enqueue. */
+const TASK_ID_TAG_RE = /<task-id>([^<]+)<\/task-id>/;
+const TERMINAL_STATUS_RE = /<status>(?:completed|failed|stopped)<\/status>/;
+
+/** Flatten a `tool_result` block's `content` (a string, or an array of
+ *  `{type:"text", text}` blocks) to a single string for marker matching. */
+function toolResultText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  let out = "";
+  for (const block of content) {
+    if (
+      block &&
+      typeof block === "object" &&
+      typeof (block as { text?: unknown }).text === "string"
+    ) {
+      out += (block as { text: string }).text;
+    }
+  }
+  return out;
+}
+
+/** Scan the transcript tail for background tasks launched but not yet
+ *  reporting a terminal status.
+ *
+ *  Launch markers live in `user` `tool_result` blocks ("… launched in
+ *  background. Task ID: X … Run ID: Y"). Completion markers live in
+ *  `queue-operation` entries (`operation: "enqueue"`) whose `content` is a
+ *  `<task-notification>` carrying `<task-id>X</task-id>` and a terminal
+ *  `<status>`. Outstanding = launched − completed.
+ *
+ *  Bounded by the same tail window as `deriveState`: a launch whose
+ *  confirmation has scrolled out of the tail can't be detected. That only
+ *  costs a fallback to the pre-existing `waiting` classification — never a
+ *  crash or a wrong-direction promotion. */
+export function outstandingBackgroundTasks(lines: string[]): BackgroundTask[] {
+  const launched = new Map<string, string | null>(); // taskId → runId
+  const completed = new Set<string>();
+
+  for (const raw of lines) {
+    let entry: {
+      type?: string;
+      operation?: string;
+      content?: unknown;
+      message?: { content?: Array<{ type?: string; content?: unknown }> };
+    };
+    try {
+      entry = JSON.parse(raw);
+    } catch {
+      continue;
+    }
+
+    if (entry.type === "queue-operation") {
+      if (entry.operation !== "enqueue") continue;
+      const content = typeof entry.content === "string" ? entry.content : "";
+      const id = TASK_ID_TAG_RE.exec(content)?.[1];
+      if (id && TERMINAL_STATUS_RE.test(content)) completed.add(id);
+      continue;
+    }
+
+    if (entry.type !== "user") continue;
+    const content = entry.message?.content;
+    if (!Array.isArray(content)) continue;
+    for (const block of content) {
+      if (!block || block.type !== "tool_result") continue;
+      const text = toolResultText(block.content);
+      const taskId = BG_LAUNCH_RE.exec(text)?.[1];
+      if (!taskId) continue;
+      launched.set(taskId, BG_RUN_ID_RE.exec(text)?.[1] ?? null);
+    }
+  }
+
+  const out: BackgroundTask[] = [];
+  for (const [taskId, runId] of launched) {
+    if (!completed.has(taskId)) out.push({ taskId, runId });
+  }
+  return out;
+}
+
+// --- Workflow journal (dynamic-workflow fan-out progress) ---
+
+/** Per-session workflow-journal directory: `<projects>/<cwd>/<session>/workflows`.
+ *  Sibling of the transcript JSONL, which lives at `<projects>/<cwd>/<session>.jsonl`. */
+export function workflowsDirFor(session: SessionFile): string {
+  return path.join(
+    PROJECTS_DIR,
+    encodeProjectPath(session.cwd),
+    session.sessionId,
+    "workflows",
+  );
+}
+
+/** Read fan-out progress for outstanding background workflows from their
+ *  on-disk journals (`workflows/<runId>.json`). Only `Workflow` launches have
+ *  a `runId`/journal; plain background `Task`/`Agent` launches are skipped.
+ *  Returns the first journal still `running` (falling back to the first
+ *  readable one), or null when no outstanding task is a workflow with a
+ *  readable journal. */
+export function deriveWorkflowProgress(
+  session: SessionFile,
+  outstanding: BackgroundTask[],
+): ClaudeWorkflow | null {
+  let fallback: ClaudeWorkflow | null = null;
+  for (const task of outstanding) {
+    if (!task.runId) continue;
+    const journalPath = path.join(
+      workflowsDirFor(session),
+      `${task.runId}.json`,
+    );
+    let parsed: {
+      workflowName?: unknown;
+      status?: unknown;
+      agentCount?: unknown;
+    };
+    try {
+      parsed = JSON.parse(fs.readFileSync(journalPath, "utf8"));
+    } catch {
+      continue;
+    }
+    if (typeof parsed.workflowName !== "string") continue;
+    const info: ClaudeWorkflow = {
+      name: parsed.workflowName,
+      status: typeof parsed.status === "string" ? parsed.status : "running",
+      agents: typeof parsed.agentCount === "number" ? parsed.agentCount : 0,
+    };
+    if (info.status === "running") return info;
+    fallback ??= info;
+  }
+  return fallback;
 }
 
 /** Sum the three input-side token counters that together represent what

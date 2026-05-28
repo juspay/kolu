@@ -105,6 +105,7 @@ describe("metadata publish routing", () => {
         model: null,
         summary: "tick",
         taskProgress: null,
+        workflow: null,
         contextTokens: null,
       };
     });

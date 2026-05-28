@@ -8,8 +8,9 @@
  *    (firing condition only — staleness still suppresses the badge), and
  *    the activity-alert fire criterion. A new state joining this class
  *    must land here so every consumer picks it up.
- *  - **Working** (`thinking` | `tool_use`): compute is in flight. Drives
- *    the dock's `working` row variant.
+ *  - **Working** (`thinking` | `tool_use` | `running_background`): compute is
+ *    in flight (locally, or in a background task this agent is waiting on).
+ *    Drives the dock's `working` row variant.
  *
  *  `agentBucket` (in `canvas/dockModel.ts`) used to repeat both literal
  *  lists in a `match`/`.exhaustive()` block; it now consumes these
@@ -20,7 +21,7 @@
  */
 
 export type AttentionState = "waiting" | "awaiting_user";
-export type WorkingState = "thinking" | "tool_use";
+export type WorkingState = "thinking" | "tool_use" | "running_background";
 
 /** True when the agent state means "user action needed now". Type
  *  predicate so consumers can narrow `AgentInfo["state"]` to
@@ -40,5 +41,9 @@ export function isAttentionState(
 export function isWorkingState(
   state: string | undefined,
 ): state is WorkingState {
-  return state === "thinking" || state === "tool_use";
+  return (
+    state === "thinking" ||
+    state === "tool_use" ||
+    state === "running_background"
+  );
 }
