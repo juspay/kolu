@@ -35,7 +35,12 @@ import type { ClaudeCodeInfo, ClaudeWorkflow } from "./schemas.ts";
  *  Claude-only `workflow` field rides alongside, so its updates (e.g. the
  *  fan-out `agents` count climbing) would be dropped without comparing it
  *  here. Kept in this package rather than forking the shared comparator —
- *  the shared comparator stays integration-agnostic by design. */
+ *  the shared comparator stays integration-agnostic by design.
+ *
+ *  Maintenance contract: every Claude-specific field added to
+ *  `ClaudeCodeInfo` beyond the shared shape MUST be compared here too, or its
+ *  updates are silently dropped by the change gate (stale watcher state, no
+ *  error). `workflow` is the first such field. */
 function claudeInfoEqual(
   a: ClaudeCodeInfo | null,
   b: ClaudeCodeInfo | null,
