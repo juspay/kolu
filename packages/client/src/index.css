@@ -31,7 +31,10 @@ body {
   --color-fg-3: #838390;
 
   --color-accent: #5a9ea0;
-  --color-alert: #fb923c;
+  /* "Your turn" — agent needs you. Cool violet, deliberately outside the
+   * warm/pending family (busy rust, CI yellow) so it never reads as
+   * "machine in flight". See AgentIndicator + StatePip. */
+  --color-alert: #a78bfa;
 
   --color-ok: #4ade80;
   --color-warning: #facc15;
@@ -54,7 +57,7 @@ body {
   --color-fg-3: #8a8a96;
 
   --color-accent: #3d8486;
-  --color-alert: #ea580c;
+  --color-alert: #7c3aed;
 
   --color-ok: #16a34a;
   --color-warning: #ca8a04;
