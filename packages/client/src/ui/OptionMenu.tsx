@@ -18,7 +18,10 @@
 import { For, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import { surface } from "./Surface";
-import { type AnchorSide, useAnchoredPopover } from "./useAnchoredPopover";
+import {
+  type AnchorSide,
+  useAnchoredPopover,
+} from "@kolu/solid-anchored-popover";
 
 export type OptionMenuItem<T extends string> = {
   value: T;

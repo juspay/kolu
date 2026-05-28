@@ -17,6 +17,7 @@
     "@corvu/tooltip": "^0.2.2",
     "@kolu/artifact-sdk": "workspace:*",
     "@kolu/canvas-layout": "workspace:*",
+    "@kolu/solid-anchored-popover": "workspace:*",
     "@kolu/solid-canvas-viewport": "workspace:*",
     "@kolu/solid-pierre": "workspace:*",
     "@kolu/solid-recorder": "workspace:*",

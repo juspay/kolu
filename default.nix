@@ -22,6 +22,7 @@ let
       ./packages/surface
       ./packages/surface-nix-host
       ./packages/canvas-layout
+      ./packages/solid-anchored-popover
       ./packages/solid-canvas-viewport
       ./packages/solid-pierre
       ./packages/solid-recorder

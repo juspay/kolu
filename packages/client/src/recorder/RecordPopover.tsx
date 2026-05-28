@@ -6,7 +6,7 @@ import { type Component, createEffect, For, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import { surface } from "../ui/Surface";
 import Toggle from "../ui/Toggle";
-import { useAnchoredPopover } from "../ui/useAnchoredPopover";
+import { useAnchoredPopover } from "@kolu/solid-anchored-popover";
 import { LevelMeter, useRecorder } from "@kolu/solid-recorder";
 
 const DeviceSelect: Component<{

@@ -14,7 +14,7 @@ import { type Component, createSignal, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import { toast } from "solid-sonner";
 import { match } from "ts-pattern";
-import { useAnchoredPopover } from "../ui/useAnchoredPopover";
+import { useAnchoredPopover } from "@kolu/solid-anchored-popover";
 import { WarningIcon } from "../ui/Icons";
 import { writeTextToClipboard } from "../ui/clipboard";
 import { surface } from "../ui/Surface";

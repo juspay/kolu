@@ -73,6 +73,9 @@ importers:
       '@kolu/canvas-layout':
         specifier: workspace:*
         version: link:../canvas-layout
+      '@kolu/solid-anchored-popover':
+        specifier: workspace:*
+        version: link:../solid-anchored-popover
       '@kolu/solid-canvas-viewport':
         specifier: workspace:*
         version: link:../solid-canvas-viewport
@@ -588,6 +591,19 @@ importers:
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+
+  packages/solid-anchored-popover:
+    dependencies:
+      '@solid-primitives/event-listener':
+        specifier: ^2.4.5
+        version: 2.4.5(solid-js@1.9.11)
+      solid-js:
+        specifier: ^1.9.0
+        version: 1.9.11
+    devDependencies:
       typescript:
         specifier: ^5.8.0
         version: 5.9.3

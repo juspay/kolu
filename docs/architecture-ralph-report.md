@@ -134,6 +134,10 @@ The repo has clearly internalized the extraction discipline:
 
 ---
 
+|    11 | `useAnchoredPopover.ts` (135 LOC, 6 in-tree consumers) | extract `@kolu/solid-anchored-popover` — move the file bit-for-bit (it's already at the right altitude), update 6 client consumers to import from the new package | 5th `@kolu/*` framework this loop; first one extracted with a true *in-tree* high-reuse justification (not just the volatility-axis bar) | new package `+4` files; client/ui `−1` file | (cycle 11) | Out of /lowy on `server/terminalBackend/local.ts`: no actions warranted there (the meta/* consolidation is correct). Pivoted to the highest-in-tree-reuse SolidJS primitive: 6 consumers of `useAnchoredPopover` (option menu, settings popover, record popover, mode-chip picker, activity-window chip, PR-unavailable tooltip). The hook only depends on `solid-js` + `@solid-primitives/event-listener` — zero Kolu coupling. README explicitly addresses "why not Corvu / Floating UI" (this hook stays close to imperative `getBoundingClientRect` so consumers own the DOM + portal target). 161/161 client unit tests pass. |
+
+---
+
 ## Dead ends
 
 (populated as cycles produce "investigated but no improvement" results)

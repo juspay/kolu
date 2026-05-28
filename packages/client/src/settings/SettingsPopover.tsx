@@ -10,7 +10,7 @@ import SegmentedControl, {
 } from "../ui/SegmentedControl";
 import { surface } from "../ui/Surface";
 import Toggle from "../ui/Toggle";
-import { useAnchoredPopover } from "../ui/useAnchoredPopover";
+import { useAnchoredPopover } from "@kolu/solid-anchored-popover";
 import SettingRow, { type Hint } from "./SettingRow";
 import { type ColorScheme, useColorScheme } from "./useColorScheme";
 import { preferences, updatePreferences } from "../wire";

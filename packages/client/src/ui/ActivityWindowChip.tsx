@@ -19,7 +19,7 @@ import {
   WINDOW_OPTIONS,
   windowOption,
 } from "../terminal/activityWindow";
-import type { AnchorSide } from "./useAnchoredPopover";
+import type { AnchorSide } from "@kolu/solid-anchored-popover";
 import { OptionMenu } from "./OptionMenu";
 
 export const ActivityWindowChip: Component<{

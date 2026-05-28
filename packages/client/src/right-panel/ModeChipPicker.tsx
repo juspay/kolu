@@ -16,7 +16,7 @@ import { type Component, createMemo, createSignal, For, Show } from "solid-js";
 import { Dynamic, Portal } from "solid-js/web";
 import { ChevronDownIcon } from "../ui/Icons";
 import { surface } from "../ui/Surface";
-import { useAnchoredPopover } from "../ui/useAnchoredPopover";
+import { useAnchoredPopover } from "@kolu/solid-anchored-popover";
 
 export type ModeOption = {
   view: CodeTabView;
