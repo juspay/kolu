@@ -145,7 +145,7 @@ Detects [OpenCode](https://github.com/anomalyco/opencode) sessions and shows the
 | -------------- | ------------------ | ------------------------------------------------------------------------------------------------------------ |
 | Thinking       | Pulsing accent dot | Latest assistant message has no `time.completed`                                                                                                   |
 | Tool use       | Spinning yellow    | Thinking + at least one `part` with `state.status: "running"` whose `tool` field is neither `question` nor `plan_exit`                             |
-| Awaiting input | Pulsing warning    | Thinking + every running `part`'s `tool` is `question` (structured prompt) or `plan_exit` (plan-mode approval gate) — blocked on a human reply     |
+| Awaiting input | Pulsing alert      | Thinking + every running `part`'s `tool` is `question` (structured prompt) or `plan_exit` (plan-mode approval gate) — blocked on a human reply     |
 | Waiting        | Dim dot            | Latest assistant message has `time.completed` set and `finish: "stop"`                                                                             |
 
 **What we can't detect (yet):**
