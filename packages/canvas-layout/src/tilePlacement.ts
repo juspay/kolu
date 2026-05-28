@@ -7,7 +7,7 @@
  *  `CASCADE_STEP` is a multiple of `GRID_SIZE` so `snapToGrid` can't collapse
  *  successive cascade steps onto the same coordinate. */
 
-import { GRID_SIZE, snapToGrid } from "./viewport/transforms";
+import { GRID_SIZE, snapToGrid } from "./canvasGeometry";
 
 /** Default tile dimensions — 800×540 fits ~88 cols × 27 rows at the default
  *  font, safely above the legacy 80×24 baseline. */

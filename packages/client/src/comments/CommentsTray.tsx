@@ -6,9 +6,9 @@
  *  Hidden when the queue is empty — no toggle, no mode. Visibility =
  *  `comments.length > 0` by construction. */
 
+import { writeTextToClipboard } from "@kolu/browser-clipboard";
 import { type Component, createMemo, For, Show } from "solid-js";
 import { toast } from "solid-sonner";
-import { writeTextToClipboard } from "../ui/clipboard";
 import { formatMarkdown } from "./formatMarkdown";
 import type { Comment } from "./types";
 import { useComments } from "./useComments";

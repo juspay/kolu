@@ -6,7 +6,7 @@ and ship checked-in as `words.json` — no env var, no runtime file I/O.
 ## Usage
 
 ```ts
-import { randomName } from "memorable-names";
+import { randomName } from "@kolu/memorable-names";
 
 const name = randomName(); // e.g. "bright-falcon"
 ```

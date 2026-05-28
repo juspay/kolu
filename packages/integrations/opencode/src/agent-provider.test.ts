@@ -1,4 +1,4 @@
-import type { AgentTerminalState } from "anyagent";
+import type { AgentTerminalState } from "@kolu/anyagent";
 import type { Logger } from "kolu-shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 

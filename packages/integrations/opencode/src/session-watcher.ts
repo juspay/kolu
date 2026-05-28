@@ -11,7 +11,7 @@
  */
 
 import type { DatabaseSync } from "node:sqlite";
-import { agentInfoEqual } from "anyagent";
+import { agentInfoEqual } from "@kolu/anyagent";
 import type { Logger } from "kolu-shared";
 import { createDebounceWatcher } from "kolu-shared/sqlite";
 import {

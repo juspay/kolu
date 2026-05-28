@@ -2,8 +2,10 @@
  *  viewport operations. Separated from rendering so interaction behavior
  *  can evolve (keyboard nav, multi-touch) without touching the component. */
 
-import { capturePointerGesture } from "./viewport/capturePointerGesture";
-import type { CanvasViewport } from "./viewport/useCanvasViewport";
+import {
+  type CanvasViewport,
+  capturePointerGesture,
+} from "@kolu/solid-canvas-viewport";
 
 export interface MinimapBounds {
   minX: number;

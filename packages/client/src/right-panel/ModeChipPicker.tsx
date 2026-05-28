@@ -11,12 +11,12 @@
  *  `useAnchoredPopover` — same scaffold is shared with the
  *  Settings/Record/PrUnavailable popovers. */
 
+import { useAnchoredPopover } from "@kolu/solid-anchored-popover";
 import type { CodeTabView } from "kolu-common/surface";
 import { type Component, createMemo, createSignal, For, Show } from "solid-js";
 import { Dynamic, Portal } from "solid-js/web";
 import { ChevronDownIcon } from "../ui/Icons";
 import { surface } from "../ui/Surface";
-import { useAnchoredPopover } from "../ui/useAnchoredPopover";
 
 export type ModeOption = {
   view: CodeTabView;

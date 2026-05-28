@@ -44,6 +44,25 @@ importers:
         specifier: ^2.0.0
         version: 2.1.9(@types/node@22.19.15)(lightningcss@1.32.0)(terser@5.47.1)
 
+  packages/browser-clipboard:
+    dependencies:
+      '@xterm/addon-clipboard':
+        specifier: ^0.2.0
+        version: 0.2.0
+    devDependencies:
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+
+  packages/canvas-layout:
+    devDependencies:
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.2
+        version: 4.1.2(@types/node@22.19.15)(vite@6.4.2(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.47.1)(tsx@4.21.0)(yaml@2.8.3))
+
   packages/client:
     dependencies:
       '@corvu/dialog':
@@ -61,9 +80,36 @@ importers:
       '@kolu/artifact-sdk':
         specifier: workspace:*
         version: link:../artifact-sdk
+      '@kolu/browser-clipboard':
+        specifier: workspace:*
+        version: link:../browser-clipboard
+      '@kolu/canvas-layout':
+        specifier: workspace:*
+        version: link:../canvas-layout
+      '@kolu/file-line-ref':
+        specifier: workspace:*
+        version: link:../file-line-ref
+      '@kolu/memorable-names':
+        specifier: workspace:*
+        version: link:../memorable-names
+      '@kolu/nonempty':
+        specifier: workspace:*
+        version: link:../nonempty
+      '@kolu/solid-anchored-popover':
+        specifier: workspace:*
+        version: link:../solid-anchored-popover
+      '@kolu/solid-canvas-viewport':
+        specifier: workspace:*
+        version: link:../solid-canvas-viewport
       '@kolu/solid-pierre':
         specifier: workspace:*
         version: link:../solid-pierre
+      '@kolu/solid-recorder':
+        specifier: workspace:*
+        version: link:../solid-recorder
+      '@kolu/solid-xterm':
+        specifier: workspace:*
+        version: link:../solid-xterm
       '@kolu/surface':
         specifier: workspace:*
         version: link:../surface
@@ -130,15 +176,9 @@ importers:
       marked:
         specifier: ^18.0.2
         version: 18.0.2
-      memorable-names:
-        specifier: workspace:*
-        version: link:../memorable-names
       neverthrow:
         specifier: ^8.2.0
         version: 8.2.0
-      nonempty:
-        specifier: workspace:*
-        version: link:../nonempty
       partysocket:
         specifier: ^1.1.16
         version: 1.1.16(react@19.2.5)
@@ -152,15 +192,18 @@ importers:
         specifier: ^5.9.0
         version: 5.9.0
     devDependencies:
+      '@kolu/anyagent':
+        specifier: workspace:*
+        version: link:../integrations/anyagent
+      '@kolu/terminal-themes':
+        specifier: workspace:*
+        version: link:../terminal-themes
       '@tailwindcss/vite':
         specifier: ^4.1.0
         version: 4.2.2(vite@6.4.2(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.47.1)(tsx@4.21.0)(yaml@2.8.3))
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
-      anyagent:
-        specifier: workspace:*
-        version: link:../integrations/anyagent
       kolu-common:
         specifier: workspace:*
         version: link:../common
@@ -173,9 +216,6 @@ importers:
       tailwindcss:
         specifier: ^4.1.0
         version: 4.2.2
-      terminal-themes:
-        specifier: workspace:*
-        version: link:../terminal-themes
       typescript:
         specifier: ^5.8.0
         version: 5.9.3
@@ -194,15 +234,15 @@ importers:
 
   packages/common:
     dependencies:
+      '@kolu/anyagent':
+        specifier: workspace:*
+        version: link:../integrations/anyagent
       '@kolu/surface':
         specifier: workspace:*
         version: link:../surface
       '@orpc/contract':
         specifier: ^1.13.13
         version: 1.13.13
-      anyagent:
-        specifier: workspace:*
-        version: link:../integrations/anyagent
       kolu-claude-code:
         specifier: workspace:*
         version: link:../integrations/claude-code
@@ -235,14 +275,23 @@ importers:
         specifier: ^5.8.0
         version: 5.9.3
 
+  packages/file-line-ref:
+    devDependencies:
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.2
+        version: 4.1.2(@types/node@22.19.15)(vite@6.4.2(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.47.1)(tsx@4.21.0)(yaml@2.8.3))
+
   packages/integrations/anyagent:
     dependencies:
+      '@kolu/nonempty':
+        specifier: workspace:*
+        version: link:../../nonempty
       kolu-shared:
         specifier: workspace:*
         version: link:../../shared
-      nonempty:
-        specifier: workspace:*
-        version: link:../../nonempty
       string-argv:
         specifier: ^0.3.2
         version: 0.3.2
@@ -265,7 +314,7 @@ importers:
       '@anthropic-ai/claude-agent-sdk':
         specifier: ^0.2.96
         version: 0.2.96(zod@4.3.6)
-      anyagent:
+      '@kolu/anyagent':
         specifier: workspace:*
         version: link:../anyagent
       kolu-shared:
@@ -293,7 +342,7 @@ importers:
 
   packages/integrations/codex:
     dependencies:
-      anyagent:
+      '@kolu/anyagent':
         specifier: workspace:*
         version: link:../anyagent
       kolu-shared:
@@ -321,18 +370,18 @@ importers:
 
   packages/integrations/git:
     dependencies:
+      '@kolu/dir-watch':
+        specifier: workspace:*
+        version: link:../io
+      '@kolu/memorable-names':
+        specifier: workspace:*
+        version: link:../../memorable-names
       '@parcel/watcher':
         specifier: ^2.5.1
         version: 2.5.6
-      kolu-io:
-        specifier: workspace:*
-        version: link:../io
       kolu-shared:
         specifier: workspace:*
         version: link:../../shared
-      memorable-names:
-        specifier: workspace:*
-        version: link:../../memorable-names
       simple-git:
         specifier: ^3.36.0
         version: 3.36.0
@@ -386,7 +435,7 @@ importers:
 
   packages/integrations/opencode:
     dependencies:
-      anyagent:
+      '@kolu/anyagent':
         specifier: workspace:*
         version: link:../anyagent
       kolu-shared:
@@ -439,7 +488,7 @@ importers:
 
   packages/memorable-names:
     dependencies:
-      nonempty:
+      '@kolu/nonempty':
         specifier: workspace:*
         version: link:../nonempty
     devDependencies:
@@ -464,6 +513,9 @@ importers:
       '@hono/node-ws':
         specifier: ^1.1.0
         version: 1.3.0(@hono/node-server@1.19.13(hono@4.12.18))(hono@4.12.18)
+      '@kolu/anyagent':
+        specifier: workspace:*
+        version: link:../integrations/anyagent
       '@kolu/artifact-sdk':
         specifier: workspace:*
         version: link:../artifact-sdk
@@ -485,9 +537,6 @@ importers:
       '@orpc/server':
         specifier: ^1.13.13
         version: 1.13.13(ws@8.20.1)
-      anyagent:
-        specifier: workspace:*
-        version: link:../integrations/anyagent
       cleye:
         specifier: ^2.3.0
         version: 2.3.0
@@ -571,6 +620,38 @@ importers:
         specifier: ^5.8.0
         version: 5.9.3
 
+  packages/solid-anchored-popover:
+    dependencies:
+      '@solid-primitives/event-listener':
+        specifier: ^2.4.5
+        version: 2.4.5(solid-js@1.9.11)
+      solid-js:
+        specifier: ^1.9.0
+        version: 1.9.11
+    devDependencies:
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+
+  packages/solid-canvas-viewport:
+    dependencies:
+      '@kolu/canvas-layout':
+        specifier: workspace:*
+        version: link:../canvas-layout
+      '@solid-primitives/event-listener':
+        specifier: ^2.4.5
+        version: 2.4.5(solid-js@1.9.11)
+      solid-js:
+        specifier: ^1.9.0
+        version: 1.9.11
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.15
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+
   packages/solid-pierre:
     dependencies:
       '@pierre/diffs':
@@ -579,6 +660,65 @@ importers:
       '@pierre/trees':
         specifier: ^1.0.0-beta.4
         version: 1.0.0-beta.4(react@19.2.5)
+      solid-js:
+        specifier: ^1.9.0
+        version: 1.9.11
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.15
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+
+  packages/solid-recorder:
+    dependencies:
+      fix-webm-duration:
+        specifier: ^1.0.6
+        version: 1.0.6
+      solid-js:
+        specifier: ^1.9.0
+        version: 1.9.11
+      ts-pattern:
+        specifier: ^5.9.0
+        version: 5.9.0
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.15
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+
+  packages/solid-xterm:
+    dependencies:
+      '@xterm/addon-clipboard':
+        specifier: ^0.2.0
+        version: 0.2.0
+      '@xterm/addon-fit':
+        specifier: ^0.11.0
+        version: 0.11.0
+      '@xterm/addon-image':
+        specifier: ^0.9.0
+        version: 0.9.0
+      '@xterm/addon-search':
+        specifier: ^0.16.0
+        version: 0.16.0
+      '@xterm/addon-serialize':
+        specifier: ^0.14.0
+        version: 0.14.0
+      '@xterm/addon-unicode11':
+        specifier: ^0.9.0
+        version: 0.9.0
+      '@xterm/addon-web-links':
+        specifier: ^0.12.0
+        version: 0.12.0
+      '@xterm/addon-webgl':
+        specifier: 0.20.0-beta.224
+        version: 0.20.0-beta.224(@xterm/xterm@6.1.0-beta.225)
+      '@xterm/xterm':
+        specifier: 6.1.0-beta.225
+        version: 6.1.0-beta.225
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11
@@ -776,15 +916,15 @@ importers:
 
   packages/terminal-themes:
     dependencies:
+      '@kolu/nonempty':
+        specifier: workspace:*
+        version: link:../nonempty
       '@xterm/xterm':
         specifier: 6.1.0-beta.225
         version: 6.1.0-beta.225
       neverthrow:
         specifier: ^8.2.0
         version: 8.2.0
-      nonempty:
-        specifier: workspace:*
-        version: link:../nonempty
     devDependencies:
       typescript:
         specifier: ^5.8.0

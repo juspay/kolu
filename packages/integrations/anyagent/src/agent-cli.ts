@@ -29,7 +29,7 @@
  * drops real positionals.
  */
 
-import { type NonEmpty, nonEmpty } from "nonempty";
+import { type NonEmpty, nonEmpty } from "@kolu/nonempty";
 import { parseArgsStringToArgv } from "string-argv";
 
 /** Flags that cause the CLI to print info and exit immediately.

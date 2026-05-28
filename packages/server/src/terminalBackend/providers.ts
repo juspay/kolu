@@ -42,8 +42,8 @@ import type {
   AgentProvider,
   AgentTerminalState,
   AgentWatcher,
-} from "anyagent";
-import { parseAgentCommand } from "anyagent";
+} from "@kolu/anyagent";
+import { parseAgentCommand } from "@kolu/anyagent";
 import { claudeCodeProvider } from "kolu-claude-code";
 import { codexProvider } from "kolu-codex";
 import { subscribeGitInfo } from "kolu-git";

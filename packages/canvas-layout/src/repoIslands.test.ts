@@ -1,11 +1,12 @@
-import { describe, expect, it } from "vitest";
 import {
   arrangeRepoIslands,
+  DEFAULT_TILE_H,
+  DEFAULT_TILE_W,
+  GRID_SIZE,
   type RepoIslandTile,
   repackBucket,
-} from "./repoIslands";
-import { DEFAULT_TILE_H, DEFAULT_TILE_W } from "./tilePlacement";
-import { GRID_SIZE } from "./viewport/transforms";
+} from "@kolu/canvas-layout";
+import { describe, expect, it } from "vitest";
 
 const TILE_GAP = GRID_SIZE;
 

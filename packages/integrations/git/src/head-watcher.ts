@@ -12,7 +12,7 @@
  * one OS handle and one debounce timer.
  */
 
-import { createDirFilenameWatcher } from "kolu-io";
+import { createDirFilenameWatcher } from "@kolu/dir-watch";
 import { resolveGitDir, WATCHER_DEBOUNCE_MS } from "./git-dir.ts";
 
 const headWatcher = createDirFilenameWatcher({

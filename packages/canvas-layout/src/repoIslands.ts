@@ -19,19 +19,18 @@
  *  every call. No randomness — a continuous re-layout would flicker if
  *  the function jittered. */
 
-import type { TerminalId } from "kolu-common/surface";
-import type { TileLayout } from "./TileLayout";
+import { GRID_SIZE, snapToGrid } from "./canvasGeometry";
 import { DEFAULT_TILE_H, DEFAULT_TILE_W } from "./tilePlacement";
-import { GRID_SIZE, snapToGrid } from "./viewport/transforms";
+import type { Rect } from "./types";
 
 /** Tile input for the layout. `bucket` is the clustering key the caller
  *  projected (today: `terminalKey(meta).group`). `layout` is the tile's
  *  current effective layout — pending overrides merged with saved — so
  *  a tile mid-drag isn't seen as unplaced. */
 export type RepoIslandTile = {
-  id: TerminalId;
+  id: string;
   bucket: string;
-  layout: TileLayout;
+  layout: Rect;
 };
 
 const TILE_GAP = GRID_SIZE;
@@ -43,9 +42,7 @@ const CLUSTER_GAP = GRID_SIZE * 40;
  *  square-ish clusters and packing clusters across the canvas. Each
  *  tile keeps its `w` and `h`. Anchored at the bounding-box top-left
  *  of the input layouts so an arrange doesn't teleport the workspace. */
-export function arrangeRepoIslands(
-  tiles: RepoIslandTile[],
-): Map<TerminalId, TileLayout> {
+export function arrangeRepoIslands(tiles: RepoIslandTile[]): Map<string, Rect> {
   if (tiles.length === 0) return new Map();
 
   const buckets = groupBy(tiles, (t) => t.bucket);
@@ -58,7 +55,7 @@ export function arrangeRepoIslands(
 
   const originX = Math.min(...tiles.map((t) => t.layout.x));
   const originY = Math.min(...tiles.map((t) => t.layout.y));
-  const result = new Map<TerminalId, TileLayout>();
+  const result = new Map<string, Rect>();
 
   clusters.forEach((cluster, i) => {
     const offset = clusterOffsets[i] ?? { x: 0, y: 0 };
@@ -84,8 +81,8 @@ export function arrangeRepoIslands(
 export function repackBucket(
   bucket: string,
   existing: RepoIslandTile[],
-  newTileId: TerminalId,
-): Map<TerminalId, TileLayout> | undefined {
+  newTileId: string,
+): Map<string, Rect> | undefined {
   const bucketTiles = existing.filter((t) => t.bucket === bucket);
   if (bucketTiles.length === 0) return undefined;
 
@@ -103,7 +100,7 @@ export function repackBucket(
   const anchorX = snapToGrid(Math.min(...bucketTiles.map((t) => t.layout.x)));
   const anchorY = snapToGrid(Math.min(...bucketTiles.map((t) => t.layout.y)));
 
-  const result = new Map<TerminalId, TileLayout>();
+  const result = new Map<string, Rect>();
   for (const [id, layout] of layouts) {
     result.set(id, {
       ...layout,
@@ -118,7 +115,7 @@ export function repackBucket(
  *  layouts are zero-based offsets — callers own anchoring and
  *  grid-snapping. */
 function packCluster(tiles: RepoIslandTile[]): {
-  layouts: Map<TerminalId, TileLayout>;
+  layouts: Map<string, Rect>;
   w: number;
   h: number;
 } {
@@ -126,12 +123,12 @@ function packCluster(tiles: RepoIslandTile[]): {
     tiles.map((t) => ({ w: t.layout.w, h: t.layout.h })),
     TILE_GAP,
   );
-  const layouts = new Map<TerminalId, TileLayout>();
+  const layouts = new Map<string, Rect>();
   let maxRight = 0;
   let maxBottom = 0;
   tiles.forEach((tile, i) => {
     const offset = offsets[i] ?? { x: 0, y: 0 };
-    const placed: TileLayout = {
+    const placed: Rect = {
       x: offset.x,
       y: offset.y,
       w: tile.layout.w,

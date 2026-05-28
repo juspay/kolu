@@ -15,6 +15,15 @@
  *  axis (gestures, transforms, coordinates) per Lowy analysis. */
 
 import {
+  DEFAULT_TILE_H,
+  DEFAULT_TILE_W,
+  findFreeTilePosition,
+} from "@kolu/canvas-layout";
+import {
+  capturePointerGesture,
+  useCanvasViewport,
+} from "@kolu/solid-canvas-viewport";
+import {
   DragDropProvider,
   DragDropSensors,
   type DragEvent,
@@ -40,17 +49,10 @@ import CanvasWatermark from "./CanvasWatermark";
 import Dock from "./dock/Dock";
 import { applyResize, type ResizeDirection } from "./resizeGeometry";
 import type { TileLayout } from "./TileLayout";
-import {
-  DEFAULT_TILE_H,
-  DEFAULT_TILE_W,
-  findFreeTilePosition,
-} from "./tilePlacement";
 import { useCanvasFocus } from "./useCanvasFocus";
 import { usePendingLayouts } from "./usePendingLayouts";
 import { useTileTheme } from "./useTileTheme";
 import { useViewPosture } from "./useViewPosture";
-import { capturePointerGesture } from "./viewport/capturePointerGesture";
-import { useCanvasViewport } from "./viewport/useCanvasViewport";
 
 const MIN_W = 300;
 const MIN_H = 200;

@@ -10,7 +10,7 @@
  */
 
 import fs from "node:fs";
-import { agentInfoEqual } from "anyagent";
+import { agentInfoEqual } from "@kolu/anyagent";
 import { match } from "ts-pattern";
 import {
   deriveState,

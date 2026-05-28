@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>PR plan: srid/agency — /lowy single-consumer + package-coherence calibration</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --bg-2: #161a22;
+    --bg-3: #1e2330;
+    --fg: #e7eaf0;
+    --fg-2: #9aa3b2;
+    --edge: #2a3040;
+    --accent: #7dd3fc;
+    --ok: #86efac;
+    --warn: #fbbf24;
+    --bad: #fca5a5;
+    --code-bg: #0a0d12;
+  }
+  html, body { background: var(--bg); color: var(--fg); margin: 0; }
+  body {
+    font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 28px 24px 80px;
+  }
+  h1 { font-size: 22px; line-height: 1.25; margin: 0 0 6px; letter-spacing: -0.01em; }
+  h2 { font-size: 16px; margin: 32px 0 8px; letter-spacing: 0.01em; text-transform: uppercase; color: var(--fg-2); font-weight: 600; }
+  h3 { font-size: 14px; margin: 18px 0 6px; color: var(--accent); font-weight: 600; }
+  p { margin: 8px 0; }
+  .sub { color: var(--fg-2); margin: 0 0 22px; font-size: 14px; }
+  a { color: var(--accent); text-decoration: none; border-bottom: 1px dotted var(--accent); }
+  code, kbd, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+  code { background: var(--code-bg); padding: 1px 5px; border-radius: 3px; color: #fbcfe8; }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--edge);
+    border-radius: 6px;
+    padding: 12px 14px;
+    overflow-x: auto;
+    font-size: 12.5px;
+    line-height: 1.45;
+    margin: 8px 0;
+  }
+  pre code { background: transparent; padding: 0; color: var(--fg); }
+  blockquote {
+    border-left: 3px solid var(--edge);
+    margin: 10px 0;
+    padding: 4px 14px;
+    color: var(--fg-2);
+    font-style: italic;
+  }
+  .card {
+    background: var(--bg-2);
+    border: 1px solid var(--edge);
+    border-radius: 8px;
+    padding: 14px 16px;
+    margin: 10px 0;
+  }
+  .card.diag { border-left: 3px solid var(--bad); }
+  .card.evidence { border-left: 3px solid var(--warn); }
+  .card.fix { border-left: 3px solid var(--ok); }
+  .card.demo { border-left: 3px solid var(--accent); }
+  .badge {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: var(--bg-3);
+    color: var(--fg-2);
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+  .badge.bad { background: #3f1d1d; color: var(--bad); }
+  .badge.warn { background: #3f2f12; color: var(--warn); }
+  .badge.ok { background: #133a22; color: var(--ok); }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; margin: 8px 0; }
+  th, td { border-bottom: 1px solid var(--edge); padding: 6px 8px; text-align: left; vertical-align: top; }
+  th { color: var(--fg-2); font-weight: 600; }
+  .cite { color: var(--fg-2); font-size: 12px; }
+  .add { color: var(--ok); }
+  .del { color: var(--bad); }
+  ul, ol { padding-left: 22px; margin: 6px 0; }
+  li { margin: 4px 0; }
+  .footnote { font-size: 12px; color: var(--fg-2); margin-top: 28px; padding-top: 14px; border-top: 1px solid var(--edge); }
+  .pillrow { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+  .pill { font-size: 12px; padding: 3px 9px; border-radius: 12px; background: var(--bg-3); color: var(--fg-2); border: 1px solid var(--edge); }
+  .pill.ok { background: #133a22; color: var(--ok); border-color: #1f5a32; }
+  .pill.bad { background: #3f1d1d; color: var(--bad); border-color: #5f2a2a; }
+  .pill.warn { background: #3f2f12; color: var(--warn); border-color: #5a431a; }
+  .twoup { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 8px 0; }
+  .twoup > div { background: var(--bg-2); border: 1px solid var(--edge); border-radius: 6px; padding: 10px 12px; }
+  .twoup h4 { margin: 0 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--fg-2); font-weight: 600; }
+  .twoup .left { border-left: 3px solid var(--bad); }
+  .twoup .right { border-left: 3px solid var(--ok); }
+  @media (max-width: 720px) { .twoup { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+
+<h1>PR plan: <code>srid/agency</code> — calibrate <code>/lowy</code> on extraction shape</h1>
+<p class="sub">Two calibrations, both surfaced by 20-cycle <code>/ralph</code> loop on <a href="https://github.com/juspay/kolu/pull/998">juspay/kolu#998</a>: (1) single in-tree consumer is not disqualifying; (2) the extracted package must be a <em>coherent library</em>, not a grab-bag of helpers bundled by topic. Bug 2 demonstrated and fixed in <a href="https://github.com/juspay/kolu/commit/4af1c647"><code>4af1c647</code></a> (<code>@kolu/solid-xterm@0.2.0</code>) — case study below.</p>
+
+<h2>PR title + summary (copy into the srid/agency PR description)</h2>
+
+<div class="card fix">
+<p><strong>Title:</strong> <code>lowy: single-consumer is not disqualifying; add §6.5 package coherence (+ hickey cross-ref)</code></p>
+<p><strong>Summary:</strong></p>
+<blockquote>The <code>/lowy</code> default reasoning treats "1 in-tree consumer" as a fail-on-reuse signal — contradicting both the skill's own §5 hedge (the reuse signal is about interface stability, not import count) and the lived evidence of <code>@kolu/surface</code>, a published framework with a single in-tree consumer. A 20-cycle <code>/ralph</code> loop on <a href="https://github.com/juspay/kolu/pull/998">kolu#998</a> exposed this in cycle 2 ("fails Lowy's reuse test" → don't extract <code>@kolu/solid-xterm</code>) and reversed it in cycle 6 only after the prompt was explicitly primed with the Surface precedent. Bug 1 calibrates §6 + the fact-check list to admit single-consumer extractions when the interface is stable under the encapsulated axis.</blockquote>
+<blockquote>Bug 2: once the extraction is admitted, the skill never asks whether the resulting <em>package</em> is a coherent library. <code>@kolu/solid-xterm@0.1</code> shipped three loose public exports — <code>createXtermWebgl</code>, <code>attachXtermStyleSync</code>, <code>createScrollLock</code> — that the consumer had to integrate by hand alongside <code>new XTerm(...)</code> and eight addon constructors. The package's name promised "SolidJS adapter for xterm"; the surface delivered "three xterm-adjacent helpers." New §6.5 ("Package coherence") names this failure mode, the Surface-shape test, the consumer-wires-it-together smell, and the corrective action. A parallel paragraph in <code>hickey/SKILL.md</code> Layer 3 names the package-surface flavour of Layer 2 fragmentation.</blockquote>
+<blockquote>Worked example: <code>@kolu/solid-xterm@0.2.0</code> (kolu commit <a href="https://github.com/juspay/kolu/commit/4af1c647"><code>4af1c647</code></a>) reshaped the package behind one <code>createSolidXterm</code> primitive, demoting the three former exports to <code>./internal/</code>. The consumer (<code>Terminal.tsx</code>) lost 95 LOC; <code>just smoke</code> still passes. That commit is the demonstration of what a §6.5-calibrated reviewer should produce.</blockquote>
+</div>
+
+<h2>Diagnosis A — single-consumer false-negative</h2>
+
+<div class="card diag">
+<p><span class="badge bad">Bug 1</span> <code>/lowy</code>'s default reasoning treats <em>"1 in-tree consumer"</em> as a fail-on-reuse signal, contradicting both (a) the skill's own §5 hedge that the reuse signal is about <em>interface stability</em> not import count and (b) the in-the-wild precedent set by <code>@kolu/surface</code> — a published framework with one in-tree consumer.</p>
+<p>The contradiction lives in the same file. <code class="cite">lowy/SKILL.md:102</code> warns <em>"If a module can only be used in one context, it may be encapsulating functionality rather than volatility"</em> as a soft-hedged signal. <code class="cite">lowy/SKILL.md:124</code> hardens it in the fact-check phrase-shape list: <em>"single-use is the reuse signal firing. Investigate."</em> A reviewer running the fact-check pass without §5 in hand treats single-use as disqualifying.</p>
+</div>
+
+<h2>Diagnosis B — package-coherence false-positive</h2>
+
+<div class="card diag">
+<p><span class="badge bad">Bug 2</span> Once <code>/lowy</code> admits the extraction, it does not check whether the resulting package is a <em>coherent library</em>. Three exports that share a topic (e.g. all xterm-adjacent) but no shared concept get bundled into one package — partial wiring instead of a socket.</p>
+<p><strong>Concrete failure (since fixed in kolu#998 commit <a href="https://github.com/juspay/kolu/commit/4af1c647"><code>4af1c647</code></a>): <code>@kolu/solid-xterm@0.1</code>.</strong> The package shipped three loose helpers — <code>createXtermWebgl</code>, <code>attachXtermStyleSync</code>, <code>createScrollLock</code> — that the consumer (<code>Terminal.tsx</code>) had to import separately and wire together by hand with <code>new XTerm(...)</code>, addon constructors, <code>term.open</code>, the WebGL load policy, and scroll-lock attach. The package's name suggested "SolidJS adapter for xterm.js"; the surface delivered "three xterm-adjacent SolidJS helpers." Those are different things.</p>
+<p><em>"Electricity is electricity and is not partial wiring."</em> The exports list of a real <code>solid-xterm</code> resembles Surface's exports list — one entry point per coherent concept, not one per internal aspect.</p>
+</div>
+
+<h2>Demonstration — <code>@kolu/solid-xterm@0.2.0</code></h2>
+
+<div class="card demo">
+<p>The Kolu commit <a href="https://github.com/juspay/kolu/commit/4af1c647"><code>4af1c647</code></a> ships the re-shape. One primitive (<code>createSolidXterm</code>) replaces the three loose helpers; the helpers move to <code>./internal/</code> and are no longer re-exported.</p>
+
+<div class="twoup">
+<div class="left">
+<h4>0.1 — partial wiring</h4>
+<pre><code><span class="del">// 3 imports from solid-xterm</span>
+import {
+  attachXtermStyleSync,
+  createScrollLock,
+  createXtermWebgl,
+  type XtermWebglHandle,
+} from "@kolu/solid-xterm";
+
+<span class="del">// 8 addon imports the consumer composes</span>
+import { ClipboardAddon } from "@xterm/addon-clipboard";
+import { FitAddon } from "@xterm/addon-fit";
+import { ImageAddon } from "@xterm/addon-image";
+import { SearchAddon } from "@xterm/addon-search";
+import { SerializeAddon } from "@xterm/addon-serialize";
+import { Unicode11Addon } from "@xterm/addon-unicode11";
+import { WebLinksAddon } from "@xterm/addon-web-links";
+import { Terminal as XTerm } from "@xterm/xterm";
+
+<span class="del">// 3 separate state hooks + manual wiring</span>
+const scrollLock = createScrollLock(() =&gt;
+  preferences().scrollLock);
+const webglLifecycle = createXtermWebgl(() =&gt; terminal,
+  { onCreate, onLoseContextCalled, onDispose });
+attachXtermStyleSync(() =&gt; terminal, {
+  theme: () =&gt; props.theme,
+  fontSize,
+  onThemeChange: clearTextureAtlas,
+  onFontSizeChange: () =&gt; {
+    clearTextureAtlas(); debouncedFit();
+  },
+});
+
+<span class="del">// Inside onMount: 60+ LOC of construction</span>
+const term = new XTerm({ fontFamily, theme,
+  fontSize: fontSize(), scrollback, cursorBlink,
+  cursorInactiveStyle, allowProposedApi });
+fitAddon = new FitAddon();
+term.loadAddon(fitAddon);
+term.loadAddon(new WebLinksAddon());
+const search = new SearchAddon();
+term.loadAddon(search);
+setSearchAddon(search);
+term.loadAddon(new ClipboardAddon(undefined,
+  new SafeClipboardProvider()));
+term.loadAddon(new Unicode11Addon());
+term.unicode.activeVersion = "11";
+term.loadAddon(new ImageAddon());
+const serializeAddon = new SerializeAddon();
+term.loadAddon(serializeAddon);
+term.open(containerRef);
+scrollLock.attachToTerminal(term);
+if (shouldUseWebgl()) loadWebgl();
+<span class="del">// ...then a createEffect that watches
+// shouldUseWebgl() to flip load/unload...</span></code></pre>
+</div>
+<div class="right">
+<h4>0.2 — one primitive, declarative</h4>
+<pre><code><span class="add">// 1 import from solid-xterm</span>
+import { createSolidXterm } from "@kolu/solid-xterm";
+
+<span class="add">// 1 declaration, addons inside, internal axes
+// (WebGL, style sync, scroll lock) all hidden</span>
+const xterm = createSolidXterm({
+  fontFamily: FONT_FAMILY,
+  theme: () =&gt; props.theme,
+  fontSize,
+  scrollback: DEFAULT_SCROLLBACK,
+  cursorBlink: true,
+  cursorInactiveStyle: "block",
+  allowProposedApi: true,
+  addons: {
+    clipboard: { provider: new SafeClipboardProvider() },
+  },
+  webgl: {
+    enabled: shouldUseWebgl,
+    onCreate, onLoseContextCalled, onDispose,
+  },
+  scrollLock: () =&gt; preferences().scrollLock,
+  onTerm: (term) =&gt; {
+    <span class="cite">// Kolu integrations: link provider,
+    // custom key handler, e2e bridge,
+    // diagnostics, PTY stream attach, etc.</span>
+  },
+});
+
+<span class="add">// Inside onMount: 1 line</span>
+xterm.mount(containerRef);
+
+<span class="add">// Handle is namespaced for coherence</span>
+xterm.term()                   <span class="cite">// reactive XTerm | null</span>
+xterm.fit()                    <span class="cite">// RAF-debounced</span>
+xterm.write(data)              <span class="cite">// scroll-lock-aware</span>
+xterm.addons.{fit, search, serialize}
+xterm.scrollLock.{locked, hasNewOutput,
+                  toBottom, reset}
+xterm.webgl.{enabled, atlas,
+             clearTextureAtlas}</code></pre>
+</div>
+</div>
+
+<p>Concrete deltas from the commit:</p>
+<ul>
+<li><code>Terminal.tsx</code>: 770 → 675 LOC (<strong>−95</strong>). The xterm-internal block (construction + addon attach + WebGL load + style sync + scroll-lock wiring + WebGL-policy effect) collapsed into one <code>createSolidXterm({...})</code> call.</li>
+<li><code>packages/solid-xterm/src/</code>: <code>./webgl.ts</code>, <code>./styleSync.ts</code>, <code>./scrollLock.ts</code> → <code>./internal/</code>. New <code>./createSolidXterm.ts</code> (299 LOC) owns the integrated lifecycle. <code>./index.ts</code> exports only <code>createSolidXterm</code> + types. <code>package.json</code> exports drop <code>./webgl</code>, <code>./style-sync</code>, <code>./scroll-lock</code>; version bump 0.1 → 0.2.</li>
+<li>Validation: 143/143 client unit tests pass. <code>just smoke</code> passes (Nix build + kolu-bin + <code>/api/health 200</code> + clean shutdown).</li>
+</ul>
+</div>
+
+<h2>How <code>/lowy</code> §5 already says this — just not loudly enough</h2>
+
+<blockquote><strong>Atomic business verbs, not implementation operations.</strong> Lowy's key interface design principle: interfaces should expose indivisible business-level operations (credit, debit, transfer) rather than CRUD or implementation details. […] An interface that exposes <code>OpenPort()</code>, <code>ClosePort()</code>, <code>AdjustBeam()</code> alongside <code>ReadCode()</code> is mixing communication volatility with reading volatility — two axes jammed behind one interface. <span class="cite">— lowy/SKILL.md:96</span></blockquote>
+
+<p>Three loose exports in one package is the inverse: <em>two axes plus a third, separated</em> behind a name (<code>@kolu/solid-xterm</code>) that suggests one. The reviewer reads each export's interface and finds each one stable under its own axis — and the package-level question of "do these three belong in one library?" never gets asked because §5 is framed per-interface, not per-package.</p>
+
+<h2>Evidence — Kolu PR #998 audit by package</h2>
+
+<table>
+<tr><th>Package</th><th>Public surface</th><th>Coherent?</th><th>Notes</th></tr>
+<tr><td><code>@kolu/solid-xterm</code> (v0.2.0, post-commit <code>4af1c647</code>)</td><td><code>createSolidXterm()</code> — one primitive returns one namespaced handle</td><td><span class="pill ok">yes ✓</span></td><td>The user's case study. Fixed: three loose exports demoted to <code>./internal/</code>, replaced with one declarative factory that takes the place of <code>new XTerm(...)</code>.</td></tr>
+<tr><td><code>@kolu/canvas-layout</code></td><td><code>arrangeRepoIslands</code>, <code>repackBucket</code>, <code>findFreeTilePosition</code></td><td><span class="pill warn">borderline</span></td><td>Two concepts in one package: cluster-packing (the first two) + cascade single-tile placement (the third). Defensible as "2D layout for tiled-workspace" but worth splitting if a clean cut exists.</td></tr>
+<tr><td><code>@kolu/solid-canvas-viewport</code></td><td><code>useCanvasViewport()</code> + helpers</td><td><span class="pill ok">yes</span></td><td>One primitive returns a stable <code>CanvasViewport</code> handle. The three internal axes (gestures / transforms / coordinates) stay inside.</td></tr>
+<tr><td><code>@kolu/solid-recorder</code></td><td><code>useRecorder()</code> + supporting types + 2 visual helpers</td><td><span class="pill ok">yes</span></td><td>One primitive owns the state machine. <code>LevelMeter</code> / <code>WebcamOverlay</code> are auxiliary visual pieces, not parallel primitives.</td></tr>
+<tr><td><code>@kolu/solid-anchored-popover</code></td><td><code>useAnchoredPopover()</code></td><td><span class="pill ok">yes</span></td><td>One hook. One concept. Easy case.</td></tr>
+<tr><td><code>@kolu/browser-clipboard</code></td><td><code>writeTextToClipboard</code> + <code>./xterm</code> adapter</td><td><span class="pill ok">yes</span></td><td>One function, with the xterm adapter behind a separate entry point so non-xterm consumers don't pull <code>@xterm/addon-clipboard</code>.</td></tr>
+<tr><td><code>@kolu/file-line-ref</code></td><td><code>parseLineRefs</code>, <code>formatLineRef</code>, <code>resolveLineRefPath</code></td><td><span class="pill ok">yes</span></td><td>Parse / format / resolve — three operations, one concept (the <code>path:line[-end]</code> wire format).</td></tr>
+</table>
+
+<p>Score (post-fix): 6 coherent, 1 borderline, 0 incoherent. <code>@kolu/canvas-layout</code> remains the open question — a separate kolu PR can either split cluster-packing from single-tile cascade or defend the union as one concept.</p>
+
+<h2>Proposed change to <code>.apm/skills/lowy/SKILL.md</code></h2>
+
+<p class="cite">The three hunks below are the literal text to insert. Line numbers reference <code>srid/agency@HEAD</code> at clone time; verify the exact insertion points when applying.</p>
+
+<div class="card fix">
+<h3>1. Augment §6 "Reuse Signal" (lines 100–104) — the single-consumer calibration</h3>
+<p class="cite">Append after the existing two paragraphs of §6 (before §7 "The Almost-Expendable Test"):</p>
+<pre><code><span class="add">**Single in-tree consumer is not disqualifying when the interface
+is stable under the encapsulated axis.** Lowy's bar (§5) is whether
+the interface would survive the volatility it claims to encapsulate
+— not whether it currently has more than one importer. A receptacle
+with one wire plugged in is still a receptacle.
+
+The published precedent: `@kolu/surface` (and its peers
+`@kolu/solid-pierre`, the seven `@kolu/*` packages graduated from
+the kolu#998 ralph loop) extracted from single-in-tree-consumer
+code. Each encapsulates a stable volatility axis its README names
+explicitly. The reuse-count check would have killed all of them.
+The interface-stability check admits them — correctly.
+
+The shape that disqualifies is *"the interface mirrors the
+implementation"*, not *"only one place imports it today"*.</span></code></pre>
+</div>
+
+<div class="card fix">
+<h3>2. New §6.5 "Package coherence" — the electricity-is-not-partial-wiring calibration</h3>
+<p class="cite">Insert as a new H3 between §6 (Reuse Signal, ends line ~104) and §7 (The Almost-Expendable Test, line ~106). The cycle-3 extraction shipped this bug because no layer of <code>/lowy</code> asked the question; kolu#998 commit <code>4af1c647</code> is the post-feedback fix that demonstrates what the calibrated reviewer should produce.</p>
+<pre><code><span class="add">### 6.5 Package Coherence
+
+When the extraction crosses a *package* boundary (not just a module
+within the same package), the reviewer's job is not done after
+naming one volatility axis. The package as a whole must read as a
+**coherent library** — one concept, one socket. If the package
+ships three exports for three internal aspects of what should be
+one primitive, you have shipped *partial wiring*, not a receptacle.
+
+Run this check whenever the extraction adds a new published-shape
+package (`@org/foo`):
+
+1. **Read the package's exports list as if you were a new consumer.**
+   Does it suggest one coherent thing or a topic-bundle?
+   - `@kolu/surface` exports `defineSurface` → one entry, one
+     concept (typed reactive layer). Coherent.
+   - `@kolu/solid-xterm@0.1` (kolu#998 cycle 3–5) exported
+     `createXtermWebgl`, `attachXtermStyleSync`, `createScrollLock`
+     → three entries, three internal aspects of "xterm lifecycle"
+     leaked through three exports. Not a coherent SolidJS adapter
+     for xterm; a topic-bundle of three xterm-adjacent helpers.
+     The fix shipped in `@kolu/solid-xterm@0.2.0` (commit
+     `4af1c647`) is one `createSolidXterm({ container, theme,
+     fontSize, addons, webgl, scrollLock, ... })` primitive that
+     hides WebGL / style / scroll as internal submodules.
+
+2. **Apply §5's atomic-verb rule at the package level.** §5 already
+   warns that an interface exposing `OpenPort` / `ClosePort` /
+   `AdjustBeam` alongside `ReadCode` mixes axes. A package
+   exporting `createX_webgl` / `attachX_style` / `createX_scroll`
+   does the same thing one altitude up: the package's surface is
+   three operations on three axes, not one atomic abstraction.
+
+3. **The Surface test.** If the package's exports list does not
+   resemble Surface's shape — *one entry point per coherent
+   concept, with internal submodules hidden* — the package is
+   shaped around the implementation, not around a stable contract.
+   Even if each individual export passes §5 in isolation, the
+   *package* fails the test.
+
+4. **The "consumer wires it together" smell.** If the only
+   in-tree consumer imports several of the package's exports and
+   then composes them by hand — the way `Terminal.tsx` had to wire
+   `createXtermWebgl` + `attachXtermStyleSync` + `createScrollLock`
+   + a bare `XTerm` constructor + 8 addon imports in v0.1 — the
+   missing primitive is the composition. The package is shipping
+   submodules and asking the consumer to be the integrator. Wrap
+   them.
+
+**Action when this fires.** Re-extract behind a single primitive
+that owns the integrated lifecycle; demote the current exports to
+internal submodules of that primitive. The Lowy verdict is not
+"don't extract" — it's "extract one socket, not three wires."</span></code></pre>
+</div>
+
+<div class="card fix">
+<h3>3. Two phrase-shapes for the fact-check list (lines 120–130)</h3>
+<p class="cite">Append to the bulleted phrase-shape list under "Flag these phrase shapes" in the §"Fact-Check Your Own Evaluation" block:</p>
+<pre><code><span class="add">- *"Fails Lowy's reuse test"* (when based on import count alone) —
+  reuse-count is a symptom, not a diagnosis. The diagnosis is §5's
+  interface-stability check. An interface can have one importer
+  today and a perfectly stable contract; ten importers and still be
+  shaped around its implementation. Cite the axis, not the count.
+
+- *"Each export passes §5 in isolation"* (without checking the
+  package surface) — §5 fires per interface; §6.5 fires per package.
+  Three coherent helpers in one package can collectively fail the
+  package-coherence check if their union suggests one thing the
+  package doesn't actually deliver. Read the exports list as a
+  consumer would and ask "what library is this?" — if the answer
+  is a topic-bundle ("xterm-adjacent helpers") rather than a
+  primitive ("SolidJS adapter for xterm"), §6.5 applies.</span></code></pre>
+</div>
+
+<h2>Proposed change to <code>.apm/skills/hickey/SKILL.md</code></h2>
+
+<div class="card fix">
+<p class="cite">One hunk. Insert as a new bullet (call it step 4) at the end of Layer 3's numbered list (after step 3 at <code class="cite">hickey/SKILL.md:67</code>, before the "Two abstractions serving one user-level concern" paragraph at line ~71). The Hickey-side of bug 2: three exports in one package, where the consumer reconstitutes the unity at integration time, is the package-surface flavour of Layer 2 Fragmentation.</p>
+<pre><code><span class="add">**Package surface as a fragmentation site.** When evaluating a
+new published-shape package (`@org/foo`), read its exports list
+the way Layer 2 reads a per-entity structure — *does the consumer
+have to reconstitute one concept by wiring multiple exports
+together?* If yes, the package has fragmented one primitive into
+N exports and shipped the integration cost to the consumer. The
+fix is the same as any Layer-2 fix: collapse to one primitive at
+the natural layer (one entry point, internal submodules hidden).
+See `/lowy` §6.5 for the volatility-side argument.</span></code></pre>
+</div>
+
+<h2>Calibration tension</h2>
+
+<p>Bug 1 says <em>"extract under single-consumer is fine"</em>; bug 2 says <em>"but check the shape of the extracted package."</em> Together they're not in tension — they compose into a single rule:</p>
+
+<blockquote><strong>Extract when (a) a stable volatility axis exists behind a stable interface, AND (b) the resulting package reads as one coherent library, not a topic-bundle.</strong> The first calibration unblocks extractions the default heuristic was killing; the second prevents the unblocked extractions from shipping as partial wiring.</blockquote>
+
+<h2>PR shape</h2>
+
+<table>
+<tr><th>Item</th><th>Detail</th></tr>
+<tr><td>Files</td><td><code>.apm/skills/lowy/SKILL.md</code> (three edits: §6 augmentation, new §6.5, two fact-check phrase-shapes); <code>.apm/skills/hickey/SKILL.md</code> (one Layer-3 addition)</td></tr>
+<tr><td>Commits</td><td>One per file, or one combined since the bodies cross-reference §6.5.</td></tr>
+<tr><td>LOC</td><td>~90 added.</td></tr>
+<tr><td>Case-study link</td><td>PR description cites kolu#998 verbatim — cycle-2 wrong verdict (bug 1), cycle-3 wrong shape (bug 2), the seven-package audit table above, and the <a href="https://github.com/juspay/kolu/commit/4af1c647"><code>4af1c647</code></a> fix as the worked example of what a calibrated reviewer should produce.</td></tr>
+<tr><td>Follow-up on Kolu side</td><td><strong>Done:</strong> <code>@kolu/solid-xterm@0.2.0</code> shipped behind one <code>createSolidXterm</code> primitive (kolu commit <code>4af1c647</code>). <strong>Remaining:</strong> audit <code>@kolu/canvas-layout</code> for the borderline cluster/cascade split. Not part of this agency PR — a separate kolu PR.</td></tr>
+</table>
+
+<h2>Why the original ralph loop missed this</h2>
+
+<ol>
+<li><strong>The loop's metric was "graduate framework packages."</strong> Once a package was extracted, the cycle moved on; no cycle audited the package's <em>surface coherence</em> separately from the per-export volatility check. <code>/lowy</code> on each export passed because each export does encapsulate an axis. The package-as-library question wasn't a cycle.</li>
+<li><strong><code>/lowy</code> didn't ask it either.</strong> The skill's per-interface focus (§5 atomic verbs, §6 reuse signal) is correct at the function/module level. The package-as-library altitude was a blind spot. This PR closes it.</li>
+<li><strong>User-as-reviewer caught what the loop's automated reviewers didn't.</strong> The fix (commit <code>4af1c647</code>) is the post-feedback re-shape, which is itself the demonstration of what a §6.5-calibrated <code>/lowy</code> pass should have produced on its own.</li>
+</ol>
+
+<h2>Test plan (for the srid/agency PR reviewer)</h2>
+
+<div class="card fix">
+<p>The calibration is text-only — no executable test suite. Validation is empirical: re-run <code>/lowy</code> against extraction-shaped diffs and check the verdict matches the calibrated rule. Concrete checks before merge:</p>
+
+<ol>
+<li><strong>Re-run <code>/lowy</code> against <code>Terminal.tsx</code> at kolu commit <code>0893f3d2</code></strong> (the post-cycle-2 state, where the original audit said "don't extract <code>@kolu/solid-xterm</code>"). Calibrated verdict should now recommend extracting <em>and</em> warn that the extracted package must be a coherent primitive, not three loose helpers — citing §6 + §6.5.</li>
+
+<li><strong>Re-run <code>/lowy</code> against <code>@kolu/solid-xterm@0.1</code> exports list</strong> (<code>./webgl</code>, <code>./style-sync</code>, <code>./scroll-lock</code>) as a published package. Calibrated verdict should fire §6.5 ("three internal aspects leaked through three exports") and recommend the <code>createSolidXterm</code> reshape that kolu commit <code>4af1c647</code> actually shipped.</li>
+
+<li><strong>Re-run <code>/lowy</code> against <code>@kolu/solid-xterm@0.2.0</code></strong> (one <code>createSolidXterm</code> export, internal submodules under <code>./internal/</code>). Calibrated verdict should pass §6.5 — the package is one coherent socket.</li>
+
+<li><strong>Audit the seven kolu#998 packages</strong> against the table in this plan. Calibrated <code>/lowy</code> should produce the same coherent/borderline/incoherent classification (6 coherent, 1 borderline @ <code>@kolu/canvas-layout</code>, 0 incoherent post-fix).</li>
+
+<li><strong>Phrase-shape regression check.</strong> Construct a 1-paragraph synthetic <code>/lowy</code> output containing the new phrase shapes (<em>"Fails Lowy's reuse test"</em> and <em>"Each export passes §5 in isolation"</em>); fact-check pass should flag both.</li>
+</ol>
+
+<p>None of these require code changes — they are <code>/lowy</code> invocations against existing artifacts. If any of the four code-shaped tests produces a verdict that contradicts the rule the PR is adding, the SKILL.md text needs another iteration before merge.</p>
+</div>
+
+<h2>Out-of-scope for this PR</h2>
+
+<ul>
+<li><strong>Audit + maybe-split <code>@kolu/canvas-layout</code></strong> (the borderline row in the audit table). Lives as a separate kolu PR; either splits cluster-packing from cascade single-tile placement, or defends the union under §6.5.</li>
+<li><strong>A blog post tying this to <a href="https://kolu.dev/blog/hickey-lowy/">"The spacetime of code"</a></strong>. The case study (cycle 2 wrong verdict → cycle 6 reversal → user critique → post-feedback fix → calibration PR) is blog-shaped, but the post can come after the agency PR lands so the SKILL.md updates are public when it links them.</li>
+<li><strong>A <code>/ralph</code> SKILL.md addition naming the same gap.</strong> The loop's "graduate framework packages" metric let cycle 3 ship without a package-coherence audit. That's a real gap in <code>/ralph</code> too, but addressing it expands this PR's scope. Track separately.</li>
+</ul>
+
+<h2>Auto-review</h2>
+
+<p class="cite">Skipped. The artifact modifies skill-prompt text, not code architecture. <code>/lowy</code> and <code>/hickey</code> evaluate volatility decomposition and structural complecting in code; running them on Markdown edits would yield off-topic findings. The user-as-reviewer pass surfaced bug 2 — exactly the failure mode the proposed §6.5 is meant to catch in future loops.</p>
+
+<p class="footnote">Citations are line numbers in <code>srid/agency@HEAD</code> as of the scratch clone (<a href="https://github.com/srid/agency/blob/master/.apm/skills/lowy/SKILL.md">lowy/SKILL.md</a>, <a href="https://github.com/srid/agency/blob/master/.apm/skills/hickey/SKILL.md">hickey/SKILL.md</a>). PR-#998 verdict quotes are from the live <code>/lowy</code> outputs in the ralph loop transcript; the full log lives in <a href="https://github.com/juspay/kolu/blob/ralph/docs/architecture-ralph-report.md"><code>docs/architecture-ralph-report.md</code></a> on the <code>ralph</code> branch. The <code>4af1c647</code> commit links to the actual code re-shape used as the §6.5 worked example.</p>
+
+</body>
+</html>

@@ -7,7 +7,7 @@ import { simpleGit } from "simple-git";
  *  unreliable on darwin — FSEvents coalesces and can take >12s to
  *  deliver a single change under contention. The dispatcher logic
  *  itself (snapshot + try/catch per listener, in
- *  `kolu-io/refcounted-dir-watcher.ts:96-106`) is verified by
+ *  `@kolu/dir-watch/refcounted-dir-watcher.ts:96-106`) is verified by
  *  linux+inotify CI on every commit; the darwin skips here only avoid
  *  the platform layer's non-determinism. Local darwin devs also skip
  *  these — running them on a busy laptop produces false negatives.

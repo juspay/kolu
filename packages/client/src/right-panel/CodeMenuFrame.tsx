@@ -5,13 +5,13 @@
  *  inner viewer via the children render fn so the selection range stays in
  *  sync with what the menu offers. */
 
+import type { LineRef } from "@kolu/file-line-ref";
 import type { SelectedLineRange } from "@kolu/solid-pierre";
 import type { Component, JSX } from "solid-js";
 import {
   CodeContextMenu,
   type CodeContextMenuController,
 } from "../ui/CodeContextMenu";
-import type { LineRef } from "../ui/lineRef";
 import { type LineSelection, useLineSelection } from "../ui/useLineSelection";
 
 export type CodeMenuFrameProps = {

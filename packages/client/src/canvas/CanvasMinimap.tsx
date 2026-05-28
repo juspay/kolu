@@ -1,5 +1,6 @@
 /** Canvas minimap — spatial overview of all tiles + integrated zoom controls. */
 
+import { useCanvasViewport } from "@kolu/solid-canvas-viewport";
 import {
   type Component,
   createMemo,
@@ -21,7 +22,6 @@ import {
 } from "./minimapGestures";
 import type { TileLayout } from "./TileLayout";
 import { useTileTheme } from "./useTileTheme";
-import { useCanvasViewport } from "./viewport/useCanvasViewport";
 
 /** Minimap target dimensions in pixels. */
 const MAP_W = 180;

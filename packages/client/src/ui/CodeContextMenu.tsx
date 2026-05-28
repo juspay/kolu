@@ -6,11 +6,11 @@
  *  Items are computed from a `getItems` accessor that reads the current
  *  line selection — items can return null to omit themselves. */
 
+import { writeTextToClipboard } from "@kolu/browser-clipboard";
 import { type Component, createSignal, For, onCleanup, Show } from "solid-js";
 import { Dynamic, Portal } from "solid-js/web";
 import { toast } from "solid-sonner";
 import { match } from "ts-pattern";
-import { writeTextToClipboard } from "./clipboard";
 import { surface } from "./Surface";
 
 /** Two verbs over the same selection noun: copy a string to the clipboard,

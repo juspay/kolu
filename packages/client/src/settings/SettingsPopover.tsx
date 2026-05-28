@@ -2,6 +2,7 @@
  *  (`preferences()` / `updatePreferences(...)`). Only needs open/close state
  *  and trigger ref from the parent. */
 
+import { useAnchoredPopover } from "@kolu/solid-anchored-popover";
 import type { Preferences } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
 import { Portal } from "solid-js/web";
@@ -10,7 +11,6 @@ import SegmentedControl, {
 } from "../ui/SegmentedControl";
 import { surface } from "../ui/Surface";
 import Toggle from "../ui/Toggle";
-import { useAnchoredPopover } from "../ui/useAnchoredPopover";
 import { preferences, updatePreferences } from "../wire";
 import SettingRow, { type Hint } from "./SettingRow";
 import { type ColorScheme, useColorScheme } from "./useColorScheme";

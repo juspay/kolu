@@ -14,6 +14,7 @@
  * Pierre lifecycle; this component is just data flow + chrome. */
 
 import Resizable from "@corvu/resizable";
+import { resolveLineRefPath } from "@kolu/file-line-ref";
 import {
   CodeView,
   type CodeViewItem,
@@ -41,7 +42,6 @@ import { useComposer } from "../comments/composerState";
 import { useCommentScrollRequest } from "../comments/scrollRequest";
 import { useColorScheme } from "../settings/useColorScheme";
 import { FileBrowseIcon, FileDiffIcon, GitBranchIcon } from "../ui/Icons";
-import { resolveLineRefPath } from "../ui/lineRef";
 import {
   renderTreeContextMenu,
   toGitStatusEntries,

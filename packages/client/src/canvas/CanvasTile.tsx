@@ -12,6 +12,8 @@
  *    disabled. The maximize signal lives in `TerminalCanvas`, exposed here
  *    so chrome reflects state and double-click toggles it. */
 
+import { DEFAULT_TILE_H, DEFAULT_TILE_W } from "@kolu/canvas-layout";
+import { tileTransformCSS } from "@kolu/solid-canvas-viewport";
 import { createDraggable } from "@thisbeyond/solid-dnd";
 import { type Component, For, type JSX, Show } from "solid-js";
 import { CHROME_ICON_BUTTON_CLASS } from "../ui/chromeSpacing";
@@ -25,8 +27,6 @@ import {
   tileTitleBarBg,
   tileTitleBarBorder,
 } from "./tileChrome";
-import { DEFAULT_TILE_H, DEFAULT_TILE_W } from "./tilePlacement";
-import { tileTransformCSS } from "./viewport/coordinates";
 
 export type { TileTheme };
 

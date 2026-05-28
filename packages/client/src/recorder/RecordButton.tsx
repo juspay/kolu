@@ -16,6 +16,11 @@
  *
  *  Hidden when the File System Access API isn't available. */
 
+import {
+  formatElapsed,
+  isRecordingSupported,
+  useRecorder,
+} from "@kolu/solid-recorder";
 import { type Component, createSignal, Match, Show, Switch } from "solid-js";
 import { match } from "ts-pattern";
 import { ACTIONS } from "../input/actions";
@@ -23,11 +28,6 @@ import { formatKeybind } from "../input/keyboard";
 import { PauseIcon, RecordIcon, ResumeIcon, WebcamIcon } from "../ui/Icons";
 import Tip from "../ui/Tip";
 import RecordPopover from "./RecordPopover";
-import {
-  formatElapsed,
-  isRecordingSupported,
-  useRecorder,
-} from "./useRecorder";
 
 const RecordButton: Component = () => {
   if (!isRecordingSupported()) return null;

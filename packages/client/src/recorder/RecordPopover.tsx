@@ -2,13 +2,12 @@
  *  meter, webcam preview, "Start recording" commit button. Appears when
  *  the chrome-bar record button is clicked from idle. */
 
+import { useAnchoredPopover } from "@kolu/solid-anchored-popover";
+import { LevelMeter, useRecorder } from "@kolu/solid-recorder";
 import { type Component, createEffect, For, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import { surface } from "../ui/Surface";
 import Toggle from "../ui/Toggle";
-import { useAnchoredPopover } from "../ui/useAnchoredPopover";
-import LevelMeter from "./LevelMeter";
-import { useRecorder } from "./useRecorder";
 
 const DeviceSelect: Component<{
   testId: string;
@@ -169,7 +168,10 @@ const RecordPopover: Component<{
               data-testid="record-start"
               class="h-7 px-3 text-sm text-white bg-danger hover:bg-danger/90 rounded-lg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
               onClick={() => {
-                void recorder.startRecording();
+                const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+                void recorder.startRecording({
+                  suggestedName: `kolu-${stamp}.webm`,
+                });
               }}
             >
               Start recording

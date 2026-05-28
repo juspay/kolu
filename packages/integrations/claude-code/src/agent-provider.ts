@@ -22,7 +22,7 @@
  */
 
 import fs from "node:fs";
-import { type AgentProvider, matchesAgent } from "anyagent";
+import { type AgentProvider, matchesAgent } from "@kolu/anyagent";
 import {
   readSessionFile,
   SESSIONS_DIR,

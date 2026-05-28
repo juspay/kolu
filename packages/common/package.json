@@ -32,7 +32,7 @@
     "kolu-codex": "workspace:*",
     "kolu-git": "workspace:*",
     "kolu-github": "workspace:*",
-    "anyagent": "workspace:*",
+    "@kolu/anyagent": "workspace:*",
     "kolu-opencode": "workspace:*",
     "kolu-transcript-core": "workspace:*",
     "ts-pattern": "^5.9.0",

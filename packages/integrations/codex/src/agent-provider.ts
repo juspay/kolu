@@ -16,7 +16,7 @@
  */
 
 import fs from "node:fs";
-import { type AgentProvider, matchesAgent } from "anyagent";
+import { type AgentProvider, matchesAgent } from "@kolu/anyagent";
 import { CODEX_DIR } from "./config.ts";
 import { type CodexSession, findSessionByDirectory } from "./core.ts";
 import type { CodexInfo } from "./schemas.ts";

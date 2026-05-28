@@ -28,7 +28,6 @@
 
 import fixWebmDuration from "fix-webm-duration";
 import { batch, createMemo, createSignal } from "solid-js";
-import { toast } from "solid-sonner";
 import { match, P } from "ts-pattern";
 import {
   closeMicPreview,
@@ -72,6 +71,36 @@ declare global {
 
 const MIME = "video/webm;codecs=vp9,opus";
 const TIMESLICE_MS = 2000;
+
+/** Notification surface — the framework calls into these instead of
+ *  reaching for a specific toast library. Defaults route through
+ *  `console.*`; consuming apps wire `solid-sonner`, `react-toastify`,
+ *  or whatever they use via `configureRecorderNotifications`. */
+export interface RecorderNotifications {
+  onError: (message: string) => void;
+  onSuccess: (message: string, opts?: { description?: string }) => void;
+  onWarning: (message: string) => void;
+}
+
+const defaultNotifications: RecorderNotifications = {
+  onError: (m) => console.error(`[recorder] ${m}`),
+  onSuccess: (m, opts) =>
+    console.log(
+      `[recorder] ${m}${opts?.description ? ` — ${opts.description}` : ""}`,
+    ),
+  onWarning: (m) => console.warn(`[recorder] ${m}`),
+};
+
+let notifications: RecorderNotifications = defaultNotifications;
+
+/** Install app-specific notification callbacks (e.g. `solid-sonner`'s
+ *  `toast.error`/`toast.success`/`toast.warning`). Call once at app
+ *  init; subsequent calls replace the previous handler. */
+export function configureRecorderNotifications(
+  next: Partial<RecorderNotifications>,
+): void {
+  notifications = { ...defaultNotifications, ...next };
+}
 
 export type Phase = "idle" | "setup" | "recording" | "paused";
 
@@ -135,7 +164,7 @@ export function useRecorder() {
   };
 }
 
-function timestamp(): string {
+function _timestamp(): string {
   return new Date().toISOString().replace(/[:.]/g, "-");
 }
 
@@ -167,7 +196,7 @@ async function openSetup(): Promise<void> {
     await openMicPreview(mic.selectedId());
     await refreshDevices();
   } catch (err) {
-    if (!isAbort(err)) toast.error(`Microphone: ${errMsg(err)}`);
+    if (!isAbort(err)) notifications.onError(`Microphone: ${errMsg(err)}`);
     setPhase("idle");
   }
 }
@@ -178,7 +207,7 @@ async function changeMic(deviceId: string): Promise<void> {
   try {
     await openMicPreview(deviceId);
   } catch (err) {
-    if (!isAbort(err)) toast.error(`Microphone: ${errMsg(err)}`);
+    if (!isAbort(err)) notifications.onError(`Microphone: ${errMsg(err)}`);
   }
 }
 
@@ -189,7 +218,15 @@ function cancelSetup(): void {
   setPhase("idle");
 }
 
-async function startRecording(): Promise<void> {
+/** Options for `startRecording`. `suggestedName` is the FSA
+ *  `suggestedName` field prefilled in the Save File picker. Required
+ *  — there is no framework-sensible default; the caller's app
+ *  convention is the only authority on the filename pattern. */
+export interface StartRecordingOptions {
+  suggestedName: string;
+}
+
+async function startRecording(opts: StartRecordingOptions): Promise<void> {
   if (phase() !== "setup") return;
   const preview = micPreviewStream();
   if (!preview) return;
@@ -198,7 +235,7 @@ async function startRecording(): Promise<void> {
   let openedWritable: FileSystemWritableFileStream | null = null;
   try {
     const handle = await window.showSaveFilePicker({
-      suggestedName: `kolu-${timestamp()}.webm`,
+      suggestedName: opts.suggestedName,
       types: [
         { description: "WebM video", accept: { "video/webm": [".webm"] } },
       ],
@@ -244,11 +281,12 @@ async function startRecording(): Promise<void> {
     startTicker();
     setPhase("recording");
     recorder.start(TIMESLICE_MS);
-    toast.success("Recording started");
+    notifications.onSuccess("Recording started");
   } catch (err) {
     for (const t of displayTracks) t.stop();
     if (openedWritable) await openedWritable.close().catch(() => {});
-    if (!isAbort(err)) toast.error(`Recording failed: ${errMsg(err)}`);
+    if (!isAbort(err))
+      notifications.onError(`Recording failed: ${errMsg(err)}`);
   }
 }
 
@@ -263,7 +301,7 @@ function togglePause(): void {
       try {
         s.recorder.pause();
       } catch (err) {
-        toast.error(`Pause failed: ${errMsg(err)}`);
+        notifications.onError(`Pause failed: ${errMsg(err)}`);
         return;
       }
       for (const t of s.tracks) t.enabled = false;
@@ -276,7 +314,7 @@ function togglePause(): void {
       try {
         s.recorder.resume();
       } catch (err) {
-        toast.error(`Resume failed: ${errMsg(err)}`);
+        notifications.onError(`Resume failed: ${errMsg(err)}`);
         return;
       }
       // Rewind anchor by the paused duration so the memo picks back up
@@ -354,17 +392,17 @@ async function stopRecording(): Promise<void> {
     try {
       out = await fixWebmDuration(raw, durationMs);
     } catch (err) {
-      toast.warning(`Duration patch failed: ${errMsg(err)}`);
+      notifications.onWarning(`Duration patch failed: ${errMsg(err)}`);
     }
     const patched = await s.handle.createWritable();
     await patched.write(out);
     await patched.close();
 
-    toast.success(`Recording saved · ${formatElapsed(durationMs)}`, {
+    notifications.onSuccess(`Recording saved · ${formatElapsed(durationMs)}`, {
       description: s.handle.name,
     });
   } catch (err) {
-    toast.error(`Save failed: ${errMsg(err)}`);
+    notifications.onError(`Save failed: ${errMsg(err)}`);
   }
 }
 

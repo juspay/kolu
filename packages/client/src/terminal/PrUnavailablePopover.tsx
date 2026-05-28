@@ -5,6 +5,8 @@
  *  recovery UX doesn't need to fit a shared mold. Anchored positioning
  *  comes from `useAnchoredPopover`. */
 
+import { writeTextToClipboard } from "@kolu/browser-clipboard";
+import { useAnchoredPopover } from "@kolu/solid-anchored-popover";
 import type {
   GhUnavailableCode,
   PrUnavailableSource,
@@ -14,10 +16,8 @@ import { type Component, createSignal, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import { toast } from "solid-sonner";
 import { match } from "ts-pattern";
-import { writeTextToClipboard } from "../ui/clipboard";
 import { WarningIcon } from "../ui/Icons";
 import { surface } from "../ui/Surface";
-import { useAnchoredPopover } from "../ui/useAnchoredPopover";
 
 const AUTH_COMMAND = "gh auth login -s repo,read:org";
 

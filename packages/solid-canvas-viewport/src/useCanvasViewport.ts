@@ -4,8 +4,8 @@
  *  Consumers import only this module. The three internal modules
  *  (gestures, transforms, coordinates) are implementation details. */
 
+import type { Rect } from "@kolu/canvas-layout";
 import { type Accessor, createSignal } from "solid-js";
-import type { TileLayout } from "../TileLayout";
 import { animatePan } from "./animatedPan";
 import {
   canvasTransformCSS,
@@ -58,7 +58,7 @@ export interface CanvasViewport {
   /** Pan so a specific tile is centered. Animates over ~150ms. Cancels on
    *  any subsequent gesture or `setPan` call. Respects
    *  `prefers-reduced-motion` (jumps to target). */
-  centerOnTile: (tile: TileLayout) => void;
+  centerOnTile: (tile: Rect) => void;
   /** Pan so canvas-space point (x, y) is centered in the viewport.
    *  Same animation + cancel semantics as `centerOnTile`. */
   panTo: (x: number, y: number) => void;
@@ -114,9 +114,7 @@ function normalizeDelta(dx: number, dy: number) {
   return normalizeDeltaPure(dx, dy, zoom());
 }
 
-function targetForTile(
-  tile: TileLayout,
-): { panX: number; panY: number } | null {
+function targetForTile(tile: Rect): { panX: number; panY: number } | null {
   if (!containerEl) return null;
   return computeCenterPan(
     tile.x,
@@ -157,7 +155,7 @@ function startAnimatedPan(target: { panX: number; panY: number }) {
   );
 }
 
-function centerOnTile(tile: TileLayout) {
+function centerOnTile(tile: Rect) {
   const t = targetForTile(tile);
   if (t) startAnimatedPan(t);
 }

@@ -36,7 +36,7 @@
  */
 
 import { DatabaseSync } from "node:sqlite";
-import { classifyByAwaiting } from "anyagent";
+import { classifyByAwaiting } from "@kolu/anyagent";
 import type { Logger } from "kolu-shared";
 import { withDb as sharedWithDb } from "kolu-shared/sqlite";
 import { CODEX_DB_PATH } from "./config.ts";

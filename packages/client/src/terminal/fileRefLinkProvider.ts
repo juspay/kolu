@@ -3,8 +3,8 @@
  *  in `ui/lineRef.ts` — this module is just the xterm adapter:
  *  buffer-line → `parseLineRefs` → `ILink[]`. */
 
+import { type LineRef, parseLineRefs } from "@kolu/file-line-ref";
 import type { ILink, ILinkProvider, Terminal } from "@xterm/xterm";
-import { type LineRef, parseLineRefs } from "../ui/lineRef";
 
 export interface FileRefLinkOpts {
   onActivate: (ref: LineRef, event: MouseEvent) => void;

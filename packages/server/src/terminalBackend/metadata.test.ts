@@ -10,12 +10,12 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { terminalsDirtyChannel } from "../publisher.ts";
-import type { TerminalProcess } from "../terminal-registry.ts";
 import {
   __resetSurfaceCtxForTest,
   noopSurfaceCtxForTest,
   setSurfaceCtx,
 } from "../surfaceCtx.ts";
+import type { TerminalProcess } from "../terminal-registry.ts";
 import {
   updateClientMetadata,
   updateServerLiveMetadata,

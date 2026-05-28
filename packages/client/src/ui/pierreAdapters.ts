@@ -5,6 +5,7 @@
  *  - `renderTreeContextMenu`: builds the file-tree right-click menu using
  *    kolu's CSS variables and `solid-sonner` toast for clipboard feedback. */
 
+import { writeTextToClipboard } from "@kolu/browser-clipboard";
 import type {
   ContextMenuItem,
   ContextMenuOpenContext,
@@ -12,7 +13,6 @@ import type {
 } from "@kolu/solid-pierre";
 import type { GitChangeStatus } from "kolu-git/schemas";
 import { toast } from "solid-sonner";
-import { writeTextToClipboard } from "./clipboard";
 
 const GIT_STATUS_WORD: Record<GitChangeStatus, GitStatusEntry["status"]> = {
   M: "modified",

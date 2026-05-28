@@ -1,6 +1,6 @@
 /** Session restore — hydration from server state, session restore handler. */
 
-import { resumeAgentCommand } from "anyagent/cli";
+import { resumeAgentCommand } from "@kolu/anyagent/cli";
 import type {
   InitialTerminalMetadata,
   SavedSession,

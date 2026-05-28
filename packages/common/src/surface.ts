@@ -25,8 +25,8 @@
  * without a migration ladder.
  */
 
+import type { TaskProgressSchema } from "@kolu/anyagent/schemas";
 import { defineSurface, type SurfaceTypes } from "@kolu/surface/define";
-import type { TaskProgressSchema } from "anyagent/schemas";
 import { ClaudeCodeInfoSchema } from "kolu-claude-code/schemas";
 import { CodexInfoSchema } from "kolu-codex/schemas";
 import {

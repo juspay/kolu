@@ -12,6 +12,7 @@
  *  colouring is baked in here because the meaning ("filter active" vs
  *  "all") is the same wherever the chip lives. */
 
+import type { AnchorSide } from "@kolu/solid-anchored-popover";
 import { type Component, createSignal } from "solid-js";
 import {
   activityWindow,
@@ -20,7 +21,6 @@ import {
   windowOption,
 } from "../terminal/activityWindow";
 import { OptionMenu } from "./OptionMenu";
-import type { AnchorSide } from "./useAnchoredPopover";
 
 export const ActivityWindowChip: Component<{
   /** Where the popover should open relative to the trigger. Dock footer

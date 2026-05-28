@@ -23,9 +23,9 @@
  *  reference, which is what lets `CodeTab` tell them apart even when
  *  their `ref` content matches and re-paint the highlight. */
 
+import type { LineRef } from "@kolu/file-line-ref";
 import type { CodeTabView } from "kolu-common/surface";
 import { batch, createSignal } from "solid-js";
-import type { LineRef } from "../ui/lineRef";
 import { isMobile } from "../useMobile";
 import { useRightPanel } from "./useRightPanel";
 

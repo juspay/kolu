@@ -1,5 +1,5 @@
 {
-  "name": "memorable-names",
+  "name": "@kolu/memorable-names",
   "version": "0.1.0",
   "private": true,
   "license": "AGPL-3.0-or-later",
@@ -15,7 +15,7 @@
     "test:unit": "vitest run"
   },
   "dependencies": {
-    "nonempty": "workspace:*"
+    "@kolu/nonempty": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.8.0",

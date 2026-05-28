@@ -1,5 +1,5 @@
 {
-  "name": "anyagent",
+  "name": "@kolu/anyagent",
   "version": "0.1.0",
   "private": true,
   "license": "AGPL-3.0-or-later",
@@ -18,7 +18,7 @@
   },
   "dependencies": {
     "kolu-shared": "workspace:*",
-    "nonempty": "workspace:*",
+    "@kolu/nonempty": "workspace:*",
     "string-argv": "^0.3.2",
     "zod": "^4.3.6"
   },

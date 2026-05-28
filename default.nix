@@ -21,7 +21,14 @@ let
       ./tsconfig.base.json
       ./packages/surface
       ./packages/surface-nix-host
+      ./packages/browser-clipboard
+      ./packages/canvas-layout
+      ./packages/file-line-ref
+      ./packages/solid-anchored-popover
+      ./packages/solid-canvas-viewport
       ./packages/solid-pierre
+      ./packages/solid-recorder
+      ./packages/solid-xterm
       ./packages/common
       ./packages/integrations
       ./packages/nonempty

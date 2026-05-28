@@ -1,0 +1,25 @@
+{
+  "name": "@kolu/solid-canvas-viewport",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.8.0"
+  },
+  "dependencies": {
+    "@kolu/canvas-layout": "workspace:*",
+    "@solid-primitives/event-listener": "^2.4.5",
+    "solid-js": "^1.9.0"
+  }
+}

@@ -15,11 +15,11 @@
  *  Chrome, "black image" reports in real Chrome). Painting cells directly
  *  sidesteps that entire surface. */
 
+import { FONT_FAMILY } from "@kolu/terminal-themes";
+import { parseColor, type RGB } from "@kolu/terminal-themes/color";
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import { terminalKey } from "kolu-common/terminalKey";
 import { toast } from "solid-sonner";
-import { FONT_FAMILY } from "terminal-themes";
-import { parseColor, type RGB } from "terminal-themes/color";
 import { getTerminalRefs } from "./terminal/terminalRefs";
 
 /** Standard xterm 256-color palette. First 16 come from the theme; 16-231

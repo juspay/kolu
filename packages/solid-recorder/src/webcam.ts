@@ -5,7 +5,6 @@
  *  imperative discipline across three parallel signals. */
 
 import { createMemo, createSignal } from "solid-js";
-import { toast } from "solid-sonner";
 
 export type WebcamState =
   | { kind: "off" }
@@ -70,6 +69,9 @@ export function closeWebcam(): void {
   setState({ kind: "off" });
 }
 
+/** Toggle webcam on/off. AbortErrors (user cancel) are swallowed
+ *  silently — only real failures throw, leaving presentation to the
+ *  orchestrator. */
 export async function toggleWebcam(): Promise<void> {
   if (enabled()) {
     closeWebcam();
@@ -78,17 +80,20 @@ export async function toggleWebcam(): Promise<void> {
   try {
     await openWebcam(selectedId());
   } catch (err) {
-    if (!isAbort(err)) toast.error(`Webcam: ${errMsg(err)}`);
+    if (!isAbort(err)) throw err;
   }
 }
 
+/** Switch the active webcam device, opening the new stream if a
+ *  webcam is already on. Same AbortError-swallow contract as
+ *  `toggleWebcam`. */
 export async function changeWebcam(deviceId: string): Promise<void> {
   setSelectedId(deviceId);
   if (!enabled()) return;
   try {
     await openWebcam(deviceId);
   } catch (err) {
-    if (!isAbort(err)) toast.error(`Webcam: ${errMsg(err)}`);
+    if (!isAbort(err)) throw err;
   }
 }
 

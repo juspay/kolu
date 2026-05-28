@@ -4,7 +4,7 @@
  *  Functions accept an optional Logger for instrumentation. */
 
 // Name generation
-export { randomName } from "memorable-names";
+export { randomName } from "@kolu/memorable-names";
 // File tree browsing
 export { listAll, readFile, statFileMtimeMs } from "./browse.ts";
 // Equality predicates for streamed snapshot dedup

@@ -15,10 +15,13 @@
  *  complecting than two focused components. The panel-chrome itself
  *  is shared via `surface()`. */
 
+import {
+  type AnchorSide,
+  useAnchoredPopover,
+} from "@kolu/solid-anchored-popover";
 import { For, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import { surface } from "./Surface";
-import { type AnchorSide, useAnchoredPopover } from "./useAnchoredPopover";
 
 export type OptionMenuItem<T extends string> = {
   value: T;

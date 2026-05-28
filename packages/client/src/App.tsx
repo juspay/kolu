@@ -17,12 +17,17 @@ import {
   on,
   Show,
 } from "solid-js";
-import { Toaster } from "solid-sonner";
+import { Toaster, toast } from "solid-sonner";
 import { match } from "ts-pattern";
 import ChromeBar from "./ChromeBar";
 import CloseConfirm, { type CloseConfirmTarget } from "./CloseConfirm";
 import CommandPalette from "./CommandPalette";
 import "kolu-common/test-hooks";
+import {
+  configureRecorderNotifications,
+  useRecorder,
+  WebcamOverlay,
+} from "@kolu/solid-recorder";
 import CanvasWatermark from "./canvas/CanvasWatermark";
 import { toggleRailCards } from "./canvas/dock/Dock";
 import { useDockOrder } from "./canvas/dock/useDockOrder";
@@ -41,8 +46,6 @@ import IntentEditorDialog from "./intent/IntentEditorDialog";
 import { useIntentEditor } from "./intent/useIntentEditor";
 import MobileKeyBar from "./MobileKeyBar";
 import MobileTileView from "./MobileTileView";
-import { useRecorder } from "./recorder/useRecorder";
-import WebcamOverlay from "./recorder/WebcamOverlay";
 import Resizable from "@corvu/resizable";
 import RightPanel from "./right-panel/RightPanel";
 import RightPanelDrawer from "./right-panel/RightPanelDrawer";
@@ -64,6 +67,15 @@ import { isMobile } from "./useMobile";
 import { useThemeManager } from "./useThemeManager";
 import { useVisualViewportHeight } from "./useVisualViewportHeight";
 import { client } from "./wire";
+
+// Wire @kolu/solid-recorder's notification surface to solid-sonner.
+// The framework defaults to `console.*`; this swap installs Kolu's
+// toast presentation once at module load.
+configureRecorderNotifications({
+  onError: (m) => toast.error(m),
+  onSuccess: (m, opts) => toast.success(m, opts),
+  onWarning: (m) => toast.warning(m),
+});
 
 const App: Component = () => {
   const { store, crud, session, worktree, alerts } = useTerminals();

@@ -11,7 +11,7 @@
  * `createOpenCodeWatcher`, not session-identity changes.
  */
 
-import { type AgentProvider, matchesAgent } from "anyagent";
+import { type AgentProvider, matchesAgent } from "@kolu/anyagent";
 import { findSessionByDirectory, type OpenCodeSession } from "./core.ts";
 import type { OpenCodeInfo } from "./schemas.ts";
 import { createOpenCodeWatcher } from "./session-watcher.ts";
