@@ -30,7 +30,7 @@ export type DockRowBucket = "awaiting" | "working" | "idle" | "parked" | "none";
  *  everywhere else; this table only decides the order of rows that
  *  carry no recency signal at all, so the result stays deterministic.
  *  Lower number = shown first. */
-export const DOCK_ROW_BUCKET_PRIORITY: Record<DockRowBucket, number> = {
+const DOCK_ROW_BUCKET_PRIORITY: Record<DockRowBucket, number> = {
   awaiting: 0,
   working: 1,
   idle: 2,
