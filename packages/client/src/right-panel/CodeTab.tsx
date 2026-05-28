@@ -223,21 +223,32 @@ const CodeTab: Component<{
   // Consume-once record for the latest pendingOpen tick. Holds the
   // full request object (reference identity discriminates two
   // structurally-identical clicks — `openInCodeTab` mints a fresh
-  // object per call) alongside the resolved path. Storing the
+  // object per call) alongside the resolution stage. Storing the
   // request here lets `selectedRange` derive its value without
   // re-running `resolveLineRefPath` (single resolution site per
   // request).
   //
-  // `outOfTree` distinguishes selections that came from the disk-probe
-  // fallback (the gitignored / freshly-created case below) from those
-  // that matched the live `fsListAll` set. The membership-clear effect
-  // further down reads this so it doesn't wipe a selection that the
-  // tree filter correctly excludes.
-  const [handled, setHandled] = createSignal<{
+  // Discriminated by `stage`: `probing` is the mid-flight placeholder
+  // set before the disk-probe fallback fires; `in-tree`/`out-of-tree`
+  // both carry a resolved path and differ only in provenance (whether
+  // the path lives in the `fsListAll` set or only on disk); `miss` is
+  // the terminal "no candidate exists" state. The membership-clear
+  // effect reads `out-of-tree` so it doesn't wipe selections that the
+  // tree filter correctly excludes (gitignored / freshly-created
+  // files). `handled() === null` is reserved for "no request handled
+  // yet" — keeping freshness on the signal-level absence avoids
+  // multiplying that axis into the payload.
+  type HandledRecord = {
     request: OpenInCodeTabRequest;
-    resolvedPath: string | null;
-    outOfTree: boolean;
-  } | null>(null);
+  } & (
+    | { stage: "probing" }
+    | { stage: "in-tree"; resolvedPath: string }
+    | { stage: "out-of-tree"; resolvedPath: string }
+    | { stage: "miss" }
+  );
+  const [handled, setHandled] = createSignal<HandledRecord | null>(null);
+  const resolvedPathOf = (h: HandledRecord): string | null =>
+    h.stage === "in-tree" || h.stage === "out-of-tree" ? h.resolvedPath : null;
 
   // Honor every `openInCodeTab` request — terminal file-ref clicks,
   // right-click "Open path:N" entries, and any future producer. The
@@ -276,7 +287,7 @@ const CodeTab: Component<{
         });
         if (rel !== null) {
           setSelectedPath(rel);
-          setHandled({ request: req, resolvedPath: rel, outOfTree: false });
+          setHandled({ request: req, stage: "in-tree", resolvedPath: rel });
           return;
         }
         // Tree miss — fall through to a disk probe before giving up.
@@ -285,7 +296,7 @@ const CodeTab: Component<{
         // resolve in `.then`, re-checking that this request is still
         // the latest before writing so a superseding click can't get
         // stomped by a stale fallback result.
-        setHandled({ request: req, resolvedPath: null, outOfTree: false });
+        setHandled({ request: req, stage: "probing" });
         void resolveByDiskProbe(req, repo);
       },
       { defer: true },
@@ -311,11 +322,12 @@ const CodeTab: Component<{
       if (pendingOpen() !== req) return;
       if (exists) {
         setSelectedPath(cand);
-        setHandled({ request: req, resolvedPath: cand, outOfTree: true });
+        setHandled({ request: req, stage: "out-of-tree", resolvedPath: cand });
         return;
       }
     }
     if (pendingOpen() !== req) return;
+    setHandled({ request: req, stage: "miss" });
     toast.error(`File reference not found: ${req.ref.path}`);
   }
 
@@ -343,8 +355,9 @@ const CodeTab: Component<{
     const req = pendingOpen();
     if (!req) return null;
     const h = handled();
-    if (!h || h.request !== req || h.resolvedPath === null) return null;
-    if (h.resolvedPath !== selectedPath()) return null;
+    if (!h || h.request !== req) return null;
+    const rel = resolvedPathOf(h);
+    if (rel === null || rel !== selectedPath()) return null;
     // No-line refs (`src/Main.hs` with no `:N`) open the file with no
     // highlight — the user asked for the file, not a specific line.
     if (req.ref.startLine === null || req.ref.endLine === null) return null;
@@ -391,7 +404,8 @@ const CodeTab: Component<{
         // `treePaths()` — the tree filter is correct, but their
         // presence in `selectedPath` is also correct. Treat the
         // current handled record as authoritative for that case.
-        const outOfTree = h !== null && h.outOfTree && h.resolvedPath === s;
+        const outOfTree =
+          h !== null && h.stage === "out-of-tree" && h.resolvedPath === s;
         return {
           s,
           sk,
@@ -426,11 +440,12 @@ const CodeTab: Component<{
     // user who treated their tree click as a fresh intent. Same-file
     // tree-clicks don't trip this branch (Pierre fires `onSelect(rel)`
     // after our own programmatic `setSelectedPath(rel)` and the path
-    // equals `handled.resolvedPath` in that case — leaving the highlight
-    // intact for the lifetime of the request).
+    // equals the handled record's resolvedPath in that case — leaving
+    // the highlight intact for the lifetime of the request).
     const h = handled();
-    if (h && h.resolvedPath !== null && h.resolvedPath !== path) {
-      setHandled(null);
+    if (h !== null) {
+      const rel = resolvedPathOf(h);
+      if (rel !== null && rel !== path) setHandled(null);
     }
     setSelectedPath(path);
   };
