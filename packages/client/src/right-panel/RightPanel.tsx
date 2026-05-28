@@ -61,10 +61,13 @@ const RightPanel: Component<{
       class="flex flex-col h-full min-w-0 overflow-hidden bg-surface-0"
       // Panel stays mounted across collapse on desktop so CodeTab's local
       // state survives (#818); the desktop Resizable shrinks it to ~0 width
-      // via `sizes=[1, 0]`. `aria-hidden` reflects actual visibility — driven
-      // by the host, not the desktop pref, so the contract holds on the
-      // mobile drawer host too.
+      // via `sizes=[1, 0]`. `aria-hidden` keeps the subtree out of the
+      // screen-reader tree; `inert` keeps it out of the Tab focus order
+      // (aria-hidden alone leaves the Collapse button and tab buttons
+      // Tab-reachable at zero width — invisible focus trap). Together
+      // they make "not visible" mean "not interactive."
       aria-hidden={!props.visible}
+      inert={!props.visible}
     >
       {/* Tab bar */}
       <div class="flex items-center h-8 shrink-0 bg-surface-1 border-b border-edge">
