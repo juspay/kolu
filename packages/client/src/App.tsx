@@ -653,7 +653,7 @@ const App: Component = () => {
                   </Show>
                   <Resizable.Panel
                     as="div"
-                    class="min-w-0 min-h-0 overflow-hidden"
+                    class="min-w-0 min-h-0 overflow-hidden border-l border-edge"
                     minSize={0}
                   >
                     <RightPanel

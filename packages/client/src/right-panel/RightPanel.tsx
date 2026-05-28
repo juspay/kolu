@@ -58,7 +58,7 @@ const RightPanel: Component<{
     <div
       data-testid="right-panel"
       data-collapsed={props.visible ? undefined : ""}
-      class="flex flex-col h-full min-w-0 overflow-hidden bg-surface-0 border-l border-edge"
+      class="flex flex-col h-full min-w-0 overflow-hidden bg-surface-0"
       // Panel stays mounted across collapse on desktop so CodeTab's local
       // state survives (#818); the desktop Resizable shrinks it to ~0 width
       // via `sizes=[1, 0]`. `aria-hidden` reflects actual visibility — driven
