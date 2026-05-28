@@ -1,12 +1,21 @@
 /** Z-index contract for the **canvas-tile / resize-handle stacking
  *  axis** — the volatility axis that caused the original outer-handle
  *  shadowing bug. Surrounding chrome surfaces (ChromeBar `z-50`, Dock
- *  `z-30`, CanvasMinimap `z-20`, maximized-tile `z-40`,
- *  MobileTileView overlays) keep their literal Tailwind classes at the
- *  call site and don't participate in this catalog's invariant. They
- *  share the same stacking context as the canvas (no stacking-context
- *  isolation exists between them), but are positioned far enough from
- *  the right-panel boundary that they never compete with these values.
+ *  `z-30`, CanvasMinimap `z-20`, MobileTileView overlays) keep their
+ *  literal Tailwind classes at the call site and don't participate in
+ *  this catalog's invariant. They share the same root stacking context
+ *  as the canvas (`canvas-container` is `overflow-hidden relative`
+ *  with no explicit z-index — no stacking context) but don't overlap
+ *  the right-panel boundary in practice.
+ *
+ *  **Exception — maximized tile `z-40`:** A maximized tile uses
+ *  `absolute inset-0 z-40` within `canvas-container`; its right edge
+ *  coincides with the handle's left edge, so its bounding box covers
+ *  the 4px strip where `::before` extends into the canvas area.
+ *  `z-40 > Z_HANDLE_OUTER=20` means the outer handle's hit zone is
+ *  shadowed during maximized mode. Pre-existing gap (handle had no
+ *  z-index before this catalog). Fix: raise `Z_HANDLE_OUTER` above 40
+ *  or add explicit `z-index` to `canvas-container` to contain tiles.
  *
  *  Numbers are consumed as inline `z-index` style values at each site
  *  (Tailwind v4's @theme doesn't register custom `z-*` utility scales).
