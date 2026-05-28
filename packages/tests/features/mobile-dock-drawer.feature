@@ -14,6 +14,15 @@ Feature: Mobile dock drawer
     And there should be no page errors
 
   @mobile
+  Scenario: Clicking the dock handle (mouse path) opens the drawer without errors
+    # Regression cover for #977 — Corvu @0.2.4 crashed on the mouse-click
+    # path because snapPoints defaults weren't applied in time. The tap-based
+    # scenario above exercises a different Corvu code path and so missed it.
+    When I click the mobile dock handle
+    Then the mobile dock sheet should be visible
+    And there should be no page errors
+
+  @mobile
   Scenario: Selecting a row switches active terminal and closes the drawer
     Given I run "echo from-t0"
     And I create a terminal

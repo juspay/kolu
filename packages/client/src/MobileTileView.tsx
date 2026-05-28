@@ -183,8 +183,16 @@ const MobileTileView: Component<{
         {props.bottomBar}
       </div>
 
-      {/* Chrome (top pull-down) drawer — global controls. */}
-      <Drawer side="top" open={chromeOpen()} onOpenChange={setChromeOpen}>
+      {/* Chrome (top pull-down) drawer — global controls.
+       *  `snapPoints={[0, 1]}` carries the same Corvu 0.2.4 workaround as
+       *  the dock drawer below — both are opened via mouse-click and would
+       *  trip the same reactive-ordering bug (#977) on that path. */}
+      <Drawer
+        side="top"
+        open={chromeOpen()}
+        onOpenChange={setChromeOpen}
+        snapPoints={[0, 1]}
+      >
         <Drawer.Portal>
           <Drawer.Overlay
             data-testid="mobile-chrome-backdrop"
@@ -201,8 +209,18 @@ const MobileTileView: Component<{
         </Drawer.Portal>
       </Drawer>
 
-      {/* Dock (left swipe) drawer — terminal navigator. */}
-      <Drawer side="left" open={dockOpen()} onOpenChange={setDockOpen}>
+      {/* Dock (left swipe) drawer — terminal navigator.
+       *  `snapPoints={[0, 1]}` is the Corvu default, but passing it
+       *  explicitly sidesteps a reactive-ordering bug in @corvu/drawer@0.2.4
+       *  where the mouse-click open path reads the signal before the default
+       *  attaches (#977). Touch-driven opens hit a different code path and
+       *  don't trip the bug. */}
+      <Drawer
+        side="left"
+        open={dockOpen()}
+        onOpenChange={setDockOpen}
+        snapPoints={[0, 1]}
+      >
         <Drawer.Portal>
           <Drawer.Overlay
             data-testid="mobile-dock-backdrop"

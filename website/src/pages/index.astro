@@ -279,7 +279,7 @@ const features = [
             <span>KOLU</span><span class="ckv2-count">2</span>
           </h4>
           <div class="ckv2-card ckv2-card-active">
-            <span class="ckv2-card-icon">✳</span>
+            <span class="ckv2-card-pip ckv2-pip-working" aria-hidden="true"></span>
             <span class="ckv2-card-branch ckv2-hue-kolu">hero</span>
             <span class="ckv2-card-agent ckv2-agent-claude">claude</span>
             <span class="ckv2-card-sub">▭1</span>
@@ -287,12 +287,10 @@ const features = [
             <p class="ckv2-card-intent">Homepage: terminal-as-hero rebuild</p>
           </div>
           <div class="ckv2-card">
-            <span class="ckv2-card-icon">✳</span>
+            <span class="ckv2-card-pip ckv2-pip-attention" aria-hidden="true"></span>
             <span class="ckv2-card-branch ckv2-hue-kolu">ssh</span>
             <span class="ckv2-card-agent ckv2-agent-opencode">opencode</span>
-            <span class="ckv2-card-time">
-              now<span class="ckv2-card-badge live-badge"></span>
-            </span>
+            <span class="ckv2-card-time">now</span>
             <p class="ckv2-card-intent">Carve TerminalBackend abstraction</p>
           </div>
         </section>
@@ -301,7 +299,7 @@ const features = [
             <span>EMANOTE</span><span class="ckv2-count">1</span>
           </h4>
           <div class="ckv2-card">
-            <span class="ckv2-card-icon">✳</span>
+            <span class="ckv2-card-pip ckv2-pip-awaiting" aria-hidden="true"></span>
             <span class="ckv2-card-branch ckv2-hue-emanote">docs</span>
             <span class="ckv2-card-agent ckv2-agent-codex">codex</span>
             <span class="ckv2-card-sub">▭1</span>
@@ -314,7 +312,7 @@ const features = [
             <span>DOTFILES</span><span class="ckv2-count">1</span>
           </h4>
           <div class="ckv2-card">
-            <span class="ckv2-card-icon">✳</span>
+            <span class="ckv2-card-pip ckv2-pip-idle" aria-hidden="true"></span>
             <span class="ckv2-card-branch ckv2-hue-dotfiles">main</span>
             <span class="ckv2-card-agent ckv2-agent-zsh">zsh</span>
             <span class="ckv2-card-time">3h</span>
@@ -972,10 +970,44 @@ const features = [
     box-shadow: inset 0 0 0 1px
       color-mix(in srgb, var(--repo-hue) 22%, transparent);
   }
-  .ckv2-card-icon {
-    color: var(--color-live-alert);
-    font-size: 0.78rem;
-    line-height: 1;
+  /* State pip — shape encodes the state itself, not color or animation
+     alone. Filled disk = needs attention (unread fresh transition); hollow
+     ring = working; dim small disk = awaiting (lingering); muted dot =
+     idle. Empty cell for none/parked. Mirrors RowPips.tsx StatePip. */
+  .ckv2-card-pip {
+    width: 0.55rem;
+    height: 0.55rem;
+    border-radius: 50%;
+    align-self: center;
+    justify-self: center;
+  }
+  .ckv2-pip-attention {
+    background: var(--color-live-alert);
+    box-shadow: 0 0 0 3px
+      color-mix(in srgb, var(--color-live-alert) 28%, transparent);
+    animation: pulse-dot 1.3s ease-in-out infinite;
+  }
+  .ckv2-pip-awaiting {
+    width: 0.4rem;
+    height: 0.4rem;
+    background: color-mix(in srgb, var(--color-live-alert) 55%, transparent);
+  }
+  .ckv2-pip-working {
+    width: 0.65rem;
+    height: 0.65rem;
+    border: 1.5px solid var(--color-live-teal);
+    border-top-color: transparent;
+    animation: ckv2-pip-spin 1s linear infinite;
+  }
+  @keyframes ckv2-pip-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  .ckv2-pip-idle {
+    width: 0.4rem;
+    height: 0.4rem;
+    background: color-mix(in srgb, var(--color-ink-faint) 55%, transparent);
   }
   .ckv2-card-branch {
     font-weight: 600;
@@ -994,14 +1026,6 @@ const features = [
     color: var(--color-ink-muted);
     white-space: nowrap;
     position: relative;
-  }
-  .ckv2-card-badge {
-    position: static;
-    margin-left: 0.25em;
-    display: inline-block;
-    vertical-align: 1px;
-    top: auto;
-    right: auto;
   }
   .ckv2-card-intent {
     grid-column: 2 / -1;
