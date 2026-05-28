@@ -31,6 +31,15 @@ type Ctx = SurfaceCtx<(typeof surface)["spec"]>;
 let held: Ctx | undefined;
 
 export function setSurfaceCtx(ctx: Ctx): void {
+  // Process singleton — `surface.ts` calls this exactly once at startup.
+  // Throwing on a *different* ctx (rather than on any second call) keeps
+  // the invariant honest while staying tolerant of an accidental same-ctx
+  // re-registration from a future test or hot-reload scenario.
+  if (held !== undefined && held !== ctx) {
+    throw new Error(
+      "setSurfaceCtx called twice with different contexts — surface.ts must call this exactly once",
+    );
+  }
   held = ctx;
 }
 
