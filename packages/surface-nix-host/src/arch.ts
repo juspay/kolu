@@ -52,10 +52,7 @@ export async function resolveSystem(host: string): Promise<string> {
   const argv = isLocalHost(host)
     ? (["uname", "-ms"] as const)
     : (["ssh", "-o", "BatchMode=yes", host, "uname", "-ms"] as const);
-  const res = await runCapture(argv[0], argv.slice(1), () => {
-    /* uname probe doesn't surface stderr to a progress channel; the
-       error path below carries enough context for the caller. */
-  });
+  const res = await runCapture(argv[0], argv.slice(1));
   if (!res.ok) {
     throw new Error(`${host}: \`${argv.join(" ")}\` exited ${res.code}`);
   }

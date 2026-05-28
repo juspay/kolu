@@ -23,11 +23,13 @@ export interface CaptureResult extends ExitResult {
 
 /** Run a child process with stdout ignored; forward stderr lines to
  *  `onProgress`. Used for `nix copy` where the only output the parent
- *  cares about is progress chatter on stderr. */
+ *  cares about is progress chatter on stderr. Pass no callback for
+ *  silent-stderr behaviour (e.g. probe commands where there's no
+ *  progress channel to forward into). */
 export function runProgress(
   cmd: string,
   args: readonly string[],
-  onProgress: (line: string) => void,
+  onProgress: (line: string) => void = () => {},
 ): Promise<ExitResult> {
   return new Promise((resolve) => {
     const proc = spawn(cmd, [...args], { stdio: ["ignore", "ignore", "pipe"] });
@@ -45,11 +47,12 @@ export function runProgress(
 
 /** Run a child process and buffer its stdout; forward stderr lines to
  *  `onProgress`. Used for `nix-store --realise` (output path on stdout)
- *  and `uname -ms` (system identifier on stdout). */
+ *  and `uname -ms` (system identifier on stdout). Pass no callback for
+ *  silent-stderr behaviour. */
 export function runCapture(
   cmd: string,
   args: readonly string[],
-  onProgress: (line: string) => void,
+  onProgress: (line: string) => void = () => {},
 ): Promise<CaptureResult> {
   return new Promise((resolve) => {
     const proc = spawn(cmd, [...args], { stdio: ["ignore", "pipe", "pipe"] });
