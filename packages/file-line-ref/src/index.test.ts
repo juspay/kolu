@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { formatLineRef, parseLineRefs, resolveLineRefPath } from "./lineRef";
+import {
+  formatLineRef,
+  parseLineRefs,
+  resolveLineRefPath,
+} from "@kolu/file-line-ref";
 
 describe("formatLineRef", () => {
   it("formats a single line and a range", () => {

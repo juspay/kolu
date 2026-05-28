@@ -25,7 +25,7 @@
 
 import type { CodeTabView } from "kolu-common/surface";
 import { batch, createSignal } from "solid-js";
-import type { LineRef } from "../ui/lineRef";
+import type { LineRef } from "@kolu/file-line-ref";
 import { isMobile } from "../useMobile";
 import { useRightPanel } from "./useRightPanel";
 

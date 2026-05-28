@@ -51,7 +51,7 @@ import {
   pierreIconConfig,
   pierreTreesStyle,
 } from "../ui/pierreTheme";
-import { resolveLineRefPath } from "../ui/lineRef";
+import { resolveLineRefPath } from "@kolu/file-line-ref";
 import BrowseFileDispatcher from "./BrowseFileDispatcher";
 import CodeMenuFrame from "./CodeMenuFrame";
 import {

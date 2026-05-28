@@ -4,7 +4,7 @@
  *  buffer-line → `parseLineRefs` → `ILink[]`. */
 
 import type { ILink, ILinkProvider, Terminal } from "@xterm/xterm";
-import { type LineRef, parseLineRefs } from "../ui/lineRef";
+import { type LineRef, parseLineRefs } from "@kolu/file-line-ref";
 
 export interface FileRefLinkOpts {
   onActivate: (ref: LineRef, event: MouseEvent) => void;

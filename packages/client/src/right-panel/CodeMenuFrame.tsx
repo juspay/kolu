@@ -11,7 +11,7 @@ import {
   CodeContextMenu,
   type CodeContextMenuController,
 } from "../ui/CodeContextMenu";
-import type { LineRef } from "../ui/lineRef";
+import type { LineRef } from "@kolu/file-line-ref";
 import { type LineSelection, useLineSelection } from "../ui/useLineSelection";
 
 export type CodeMenuFrameProps = {

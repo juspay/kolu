@@ -18,6 +18,7 @@
     "@kolu/artifact-sdk": "workspace:*",
     "@kolu/browser-clipboard": "workspace:*",
     "@kolu/canvas-layout": "workspace:*",
+    "@kolu/file-line-ref": "workspace:*",
     "@kolu/solid-anchored-popover": "workspace:*",
     "@kolu/solid-canvas-viewport": "workspace:*",
     "@kolu/solid-pierre": "workspace:*",

@@ -86,6 +86,9 @@ importers:
       '@kolu/canvas-layout':
         specifier: workspace:*
         version: link:../canvas-layout
+      '@kolu/file-line-ref':
+        specifier: workspace:*
+        version: link:../file-line-ref
       '@kolu/solid-anchored-popover':
         specifier: workspace:*
         version: link:../solid-anchored-popover
@@ -271,6 +274,15 @@ importers:
       typescript:
         specifier: ^5.8.0
         version: 5.9.3
+
+  packages/file-line-ref:
+    devDependencies:
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.2
+        version: 4.1.2(@types/node@22.19.15)(vite@6.4.2(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.47.1)(tsx@4.21.0)(yaml@2.8.3))
 
   packages/integrations/anyagent:
     dependencies:

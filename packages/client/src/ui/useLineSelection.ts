@@ -15,7 +15,7 @@ import type { SelectedLineRange } from "@pierre/diffs";
 import { type Accessor, createEffect, createSignal, on } from "solid-js";
 import type { CodeContextMenuItem } from "./CodeContextMenu";
 import { CopyIcon, OpenIcon } from "./Icons";
-import { formatLineRef, type LineRef } from "./lineRef";
+import { formatLineRef, type LineRef } from "@kolu/file-line-ref";
 
 export type LineSelection = {
   /** Current selection range — bind to Pierre's `selectedLines` prop
