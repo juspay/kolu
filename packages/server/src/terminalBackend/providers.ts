@@ -196,6 +196,17 @@ function startGitHubPrProvider(
     hooks.updateServerLiveMetadata(record, (m) => {
       m.pr = pr;
     });
+    plog.debug(
+      pr.kind === "ok"
+        ? {
+            pr: pr.value.number,
+            title: pr.value.title,
+            state: pr.value.state,
+            checks: pr.value.checks,
+          }
+        : { pr: pr.kind },
+      "pr info updated",
+    );
   }, plog);
   const cleanup = channels.git.consume({
     onEvent: (git) =>
@@ -205,6 +216,7 @@ function startGitHubPrProvider(
   return () => {
     cleanup();
     watcher.stop();
+    plog.debug("stopped");
   };
 }
 
