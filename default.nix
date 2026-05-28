@@ -21,6 +21,7 @@ let
       ./tsconfig.base.json
       ./packages/surface
       ./packages/surface-nix-host
+      ./packages/pty-host
       ./packages/solid-pierre
       ./packages/common
       ./packages/integrations
