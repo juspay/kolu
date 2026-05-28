@@ -79,7 +79,16 @@ const ChromeBar: Component<{
               // Stop the floating chrome's right edge at the right
               // panel's left edge so the controls cluster (inspector,
               // settings, ⌘K) doesn't sit on top of the panel's tab
-              // bar. `panelSize` is a [0..1] fraction of viewport width.
+              // bar. `panelSize` is `@corvu/resizable`'s [0..1] fraction
+              // of *the Resizable container's* width — treating it as a
+              // fraction of viewport width is only correct because the
+              // host Resizable in `App.tsx` spans the full viewport in
+              // tiled mode (the Dock floats `position: absolute`, the
+              // canvas-container is the Resizable's left panel).
+              // Maintained by convention across the two files — if a
+              // sibling outside the Resizable ever shrinks the
+              // container, switch to a measured pixel offset or a
+              // host-published CSS custom property.
               right: rightPanel.collapsed()
                 ? 0
                 : `${rightPanel.panelSize() * 100}vw`,

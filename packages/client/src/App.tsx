@@ -569,6 +569,16 @@ const App: Component = () => {
                 // preserves `CodeTab`'s selectedPath signal and Pierre's
                 // tree expansion across collapse round-trips (#818).
                 //
+                // **This container is expected to span the full viewport
+                // width** — the Dock floats `position: absolute` over the
+                // canvas in tiled mode rather than reflowing alongside it.
+                // `ChromeBar` leans on this invariant for its
+                // `right: panelSize * 100vw` offset; treating the Corvu
+                // fraction as a viewport-width fraction only works while
+                // the assumption holds. If a sibling ever shrinks this
+                // container, the ChromeBar offset must move to a measured
+                // pixel value or a host-published CSS custom property.
+                //
                 // `startIntersection={false}` on the handle opts out of
                 // Corvu's module-level handle-pairing registry (see
                 // `@corvu/resizable/dist/index.js:201-222`). Without the
