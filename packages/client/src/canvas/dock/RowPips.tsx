@@ -91,6 +91,11 @@ export function pipVariant(bucket: DockRowBucket, unread: boolean): PipVariant {
   if (bucket === "awaiting") return "awaiting";
   if (bucket === "working") return "working";
   if (bucket === "idle") return "idle";
+  if (bucket === "parked" || bucket === "none") return "empty";
+  // Exhaustiveness fence — a future DockRowBucket literal must add an
+  // explicit arm above. Mirrors the `state satisfies never` pattern in
+  // `dockModel.ts` so a new bucket can't silently map to "empty".
+  bucket satisfies never;
   return "empty";
 }
 
