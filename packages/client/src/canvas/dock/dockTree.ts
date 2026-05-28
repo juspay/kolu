@@ -112,6 +112,8 @@ function flattenLabelClusters(
   const ordered = [...byLabel.values()].sort((a, b) => {
     const ra = a[0];
     const rb = b[0];
+    // byLabel values are always initialized with at least one row (see buildDockTree),
+    // so ra and rb are never undefined in practice — this guard appeases TypeScript.
     if (!ra || !rb) return 0;
     return compareRows(ra, rb);
   });
