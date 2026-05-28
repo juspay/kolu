@@ -113,7 +113,7 @@ const TerminalContent: Component<{
               isExpanded(),
             "h-0": !isExpanded(),
           }}
-          style={isExpanded() ? { "z-index": Z_HANDLE_INNER } : undefined}
+          style={{ "z-index": Z_HANDLE_INNER }}
           aria-label="Resize terminal split"
         />
       </Show>
