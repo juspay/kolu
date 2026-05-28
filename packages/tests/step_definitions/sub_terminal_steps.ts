@@ -96,11 +96,11 @@ When(
 When(
   "I run {string} in the sub-terminal",
   async function (this: KoluWorld, command: string) {
-    // Wait for focus to be specifically in a sub-terminal, not the main one
-    await this.page.waitForFunction(
-      () => !!document.activeElement?.closest("[data-sub-terminal]"),
-      { timeout: POLL_TIMEOUT },
-    );
+    // Focus the visible sub-terminal before typing — desktop auto-focuses it on
+    // expand, but on touch the sub no longer auto-focuses (the soft keyboard
+    // rises only on a tap), so this stands in for the tap. Either way, typing
+    // lands in the sub-terminal, not the main one.
+    await this.focusForTyping("[data-visible][data-sub-terminal]");
     await this.page.keyboard.type(command);
     await this.page.keyboard.press("Enter");
     await this.waitForFrame();

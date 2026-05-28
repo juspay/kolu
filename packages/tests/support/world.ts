@@ -236,7 +236,26 @@ export class KoluWorld extends World {
     }
   }
 
+  /** Ensure a terminal matching `scope` holds keyboard focus before typing.
+   *  On touch, terminals no longer auto-focus on selection (the soft keyboard
+   *  must rise only on a tap), so this focuses the target's helper textarea —
+   *  the harness stand-in for that tap. Desktop terminals already hold focus,
+   *  so it no-ops there. */
+  async focusForTyping(scope: string) {
+    const focused = await this.page.evaluate(
+      (sel) => !!document.activeElement?.closest(sel),
+      scope,
+    );
+    if (!focused) {
+      await this.page
+        .locator(`${scope} .xterm-helper-textarea`)
+        .first()
+        .focus();
+    }
+  }
+
   async terminalRun(command: string) {
+    await this.focusForTyping("[data-visible]:not([data-sub-terminal])");
     await this.page.keyboard.type(command);
     await this.page.keyboard.press("Enter");
   }
