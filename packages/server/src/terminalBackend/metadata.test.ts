@@ -12,6 +12,11 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { terminalsDirtyChannel } from "../publisher.ts";
 import type { TerminalProcess } from "../terminal-registry.ts";
 import {
+  __resetSurfaceCtxForTest,
+  noopSurfaceCtxForTest,
+  setSurfaceCtx,
+} from "../surfaceCtx.ts";
+import {
   updateClientMetadata,
   updateServerLiveMetadata,
   updateServerMetadata,
@@ -48,6 +53,9 @@ async function settle(): Promise<void> {
 }
 
 beforeEach(async () => {
+  // surface.ts is not imported by this test module; supply a no-op ctx
+  // so calls to publishSnapshot (via surfaceCtx.collections…upsert) don't throw.
+  setSurfaceCtx(noopSurfaceCtxForTest());
   dirtyCount = 0;
   stopWatch = terminalsDirtyChannel.consume({
     onEvent: () => {
@@ -65,6 +73,7 @@ afterEach(() => {
   // keep firing into the shared `dirtyCount` and bystander tests see
   // inflated counts.
   stopWatch?.();
+  __resetSurfaceCtxForTest();
 });
 
 describe("metadata publish routing", () => {

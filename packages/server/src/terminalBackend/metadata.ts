@@ -37,7 +37,7 @@ import type {
 import { prUnavailableReason, prValue } from "kolu-github/schemas";
 import { log } from "../log.ts";
 import { terminalsDirtyChannel } from "../publisher.ts";
-import { surfaceCtx } from "../surface.ts";
+import { surfaceCtx } from "../surfaceCtx.ts";
 import type { TerminalProcess } from "../terminal-registry.ts";
 
 /** Create initial metadata state for a new terminal. `lastActivityAt: 0`

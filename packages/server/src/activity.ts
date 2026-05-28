@@ -15,7 +15,7 @@ import type {
   RecentRepo,
 } from "kolu-common/surface";
 import { log } from "./log.ts";
-import { surfaceCtx } from "./surface.ts";
+import { surfaceCtx } from "./surfaceCtx.ts";
 
 const MAX_RECENT_REPOS = 20;
 const MAX_RECENT_AGENTS = 10;

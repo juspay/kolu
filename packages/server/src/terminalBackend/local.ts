@@ -51,7 +51,7 @@ import { trackRecentAgent, trackRecentRepo } from "../activity.ts";
 import { koluShellDir } from "../koluRoot.ts";
 import { log } from "../log.ts";
 import { terminalChannels, terminalsDirtyChannel } from "../publisher.ts";
-import { surfaceCtx, unwrapGit } from "../surface.ts";
+import { surfaceCtx } from "../surfaceCtx.ts";
 import {
   drainTerminals,
   getTerminal,
@@ -61,6 +61,7 @@ import {
   unregisterTerminal,
 } from "../terminal-registry.ts";
 import { cleanupTerminalScratch } from "../terminalScratch.ts";
+import { unwrapGit } from "../unwrapGit.ts";
 import {
   createMetadata,
   updateServerLiveMetadata,

@@ -1,6 +1,9 @@
 import * as assert from "node:assert";
-import type { SavedTerminal } from "kolu-common/surface";
-import { afterAll, describe, expect, it } from "vitest";
+import type { SavedSession, SavedTerminal } from "kolu-common/surface";
+import { confStore } from "@kolu/surface/server";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { __resetSurfaceCtxForTest, setSurfaceCtx } from "./surfaceCtx.ts";
+import { store } from "./state.ts";
 import {
   clearSavedSession,
   getSavedSession,
@@ -27,8 +30,34 @@ const terminal: SavedTerminal = {
 };
 
 describe("session persistence", () => {
+  beforeAll(() => {
+    // surface.ts is not imported by this test module (no full backend init),
+    // so we supply a minimal ctx where cells.session is backed by the real
+    // confStore. This makes writeSession → surfaceCtx.cells.session.set(v)
+    // actually persist to the conf store, which getSavedSession() reads back.
+    const sessionStore = confStore<SavedSession | null>(store, "session");
+    setSurfaceCtx({
+      cells: new Proxy({} as never, {
+        get: (_, key) =>
+          key === "session"
+            ? sessionStore
+            : { get: () => undefined, set: () => {}, patch: () => {} },
+      }),
+      collections: new Proxy({} as never, {
+        get: () => ({
+          upsert: () => {},
+          remove: () => {},
+          readAll: () => new Map(),
+          readOne: () => undefined,
+        }),
+      }),
+      events: new Proxy({} as never, { get: () => ({ publish: () => {} }) }),
+    } as never);
+  });
+
   afterAll(() => {
     clearSavedSession();
+    __resetSurfaceCtxForTest();
   });
 
   it("returns null when no session is saved", () => {
