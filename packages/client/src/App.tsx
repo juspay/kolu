@@ -654,7 +654,7 @@ const App: Component = () => {
                   <Resizable.Panel
                     as="div"
                     class="min-w-0 min-h-0 overflow-hidden border-l border-edge"
-                    minSize={0}
+                    minSize={0.1}
                   >
                     <RightPanel
                       terminalId={store.activeId()}
