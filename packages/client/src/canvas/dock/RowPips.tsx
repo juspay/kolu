@@ -3,17 +3,22 @@
  *  Three independent change axes share this file because each
  *  produces a small JSX cell consumed identically by both the
  *  desktop dock and the mobile drawer. The file groups them so the
- *  two callers can `import { AgentSlot, PrPip, SubCountCell }`
+ *  two callers can `import { StatePip, PrPip, SubCountCell }`
  *  rather than reach into three single-export modules:
  *
- *    - `AgentSlot` (agent-kind + bucket-state visualization) —
- *      first grid column. Always renders a cell so subgrid
- *      placement stays stable; empty for rows without an agent.
- *      The icon encodes state via colour + animation (`awaiting`
- *      pulses, `working` spins), so it does double duty as "which
- *      agent" + "what is it doing now". Volatility axis: agent
- *      bucket / state palette (changed when `AGENT_BUCKETS` was
- *      extracted).
+ *    - `StatePip` (row-state-only visualization) — first grid
+ *      column. Always renders a cell so subgrid placement stays
+ *      stable; renders nothing inside for `none`/`parked`. Shape
+ *      itself encodes the state, not color or animation alone:
+ *      filled disk (needs attention — unread fresh transition),
+ *      dim small disk (awaiting, already seen — lingering),
+ *      hollow spinning ring (working), tiny muted dot (idle).
+ *      The agent's *kind* (Claude / Codex / OpenCode) is no
+ *      longer surfaced here; the dock row is the dense list
+ *      view and the kind glyph repeats across rows without
+ *      carrying state-relevant signal. Kind identity lives on
+ *      the terminal title bar (`AgentIndicator`) and the
+ *      workspace switcher cards, where there's room.
  *    - `PrPip` (PR state + checks tooltip) — leading glyph on
  *      row line 2. Inline, not a grid cell: wherever the caller
  *      puts it, the PR icon sits at that X. The desktop and
@@ -33,26 +38,20 @@
  *
  *  Each export could be split into its own file the moment one of
  *  these axes diverges enough to justify the boundary; for now
- *  the location grouping is honest because the file is small
- *  (~120 lines) and the three pieces are consumed together. The
- *  file name is `RowPips` (a noun for the thing) rather than
- *  `RowIcons` (a noun for the file). */
+ *  the location grouping is honest because the file is small and
+ *  the three pieces are consumed together. The file name is
+ *  `RowPips` (a noun for the thing) rather than `RowIcons` (a
+ *  noun for the file). */
 
-import type {
-  AgentInfo,
-  TerminalId,
-  TerminalMetadata,
-} from "kolu-common/surface";
+import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import { type GitHubPrInfo, prValue } from "kolu-github/schemas";
-import { type Component, Show, createMemo } from "solid-js";
-import { Dynamic } from "solid-js/web";
-import { agentBucket, bucketDescriptor } from "../dockModel";
+import { type Component, Match, Show, Switch, createMemo } from "solid-js";
 import ChecksIndicator from "../../terminal/ChecksIndicator";
 import { prTooltip } from "../../terminal/prTooltip";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
-import { agentIcons, stateLabels } from "../../ui/agentDisplay";
 import { PrStateIcon } from "../../ui/Icons";
+import type { DockRowBucket } from "./dockRowRanking";
 import { SubCountChip } from "./SubCountChip";
 
 /** Per-row combined reactive data — `info` + `meta` in a single memo.
@@ -72,33 +71,27 @@ export function createDockRowData(
   });
 }
 
-/** Pip animation by bucket — `working` spins (continuous motion),
- *  `awaiting` pulses (rhythmic attention). The bucket→colour mapping
- *  lives in `AGENT_BUCKETS` (`canvas/dockModel.ts`); we derive it
- *  through `bucketDescriptor` rather than re-declaring colours
- *  here, so the dock pip, the workspace switcher's column header,
- *  and the canvas minimap all read the same "alert orange = needs
- *  you / accent = alive" cue from one source. Animation is the only
- *  channel the dock owns that the other surfaces don't, so it stays
- *  local. */
-const PIP_ANIM_BY_BUCKET: Record<"awaiting" | "working", string> = {
-  awaiting: "animate-pulse",
-  working: "animate-spin",
-};
+/** State-pip render variant — the dispatch the JSX renders. Pure
+ *  function of `(bucket, unread)` so the rule is independently
+ *  testable without spinning up a Solid render harness. Order
+ *  matters: `unread` dominates the bucket — a row that just fired
+ *  an alert in the background still reads as "attention" even if
+ *  the agent has since transitioned to working, because the unread
+ *  obligation outlives the bucket transition until the user
+ *  activates the row. */
+export type PipVariant =
+  | "attention" // unread: loud filled disk + halo + pulse
+  | "awaiting" // bucket awaiting, !unread: quiet dim dot (lingering)
+  | "working" // hollow spinning ring
+  | "idle" // muted small dot
+  | "empty"; // parked / none — render nothing
 
-function pipConfig(agent: AgentInfo): { color: string; animation: string } {
-  const bucket = agentBucket(agent);
-  if (bucket === "awaiting" || bucket === "working") {
-    return {
-      color: bucketDescriptor(bucket).textClass,
-      animation: PIP_ANIM_BY_BUCKET[bucket],
-    };
-  }
-  // `agentBucket` only returns `awaiting`/`working`/`none` for the
-  // four live states; the `none` arm is unreachable when an
-  // `AgentInfo` is in hand but the type isn't aware. Return a
-  // neutral fallback so the pip stays visible.
-  return { color: bucketDescriptor("none").textClass, animation: "" };
+export function pipVariant(bucket: DockRowBucket, unread: boolean): PipVariant {
+  if (unread) return "attention";
+  if (bucket === "awaiting") return "awaiting";
+  if (bucket === "working") return "working";
+  if (bucket === "idle") return "idle";
+  return "empty";
 }
 
 /** Inline PR pip — leading glyph on row line 2. Caller controls
@@ -143,28 +136,52 @@ export const SubCountCell: Component<{ subCount: number }> = (props) => (
   </span>
 );
 
-/** First-column agent slot. Always renders a cell so subgrid placement
- *  stays stable; the cell is empty for rows without an agent. */
-export const AgentSlot: Component<{
-  agent: TerminalMetadata["agent"];
-}> = (props) => (
-  <span class="flex items-center justify-center">
-    <Show when={props.agent}>{(agent) => <AgentPip agent={agent()} />}</Show>
-  </span>
-);
-
-const AgentPip: Component<{ agent: AgentInfo }> = (props) => {
-  const Icon = () => agentIcons[props.agent.kind];
-  const cfg = () => pipConfig(props.agent);
+/** First-column state pip. Always renders a cell so subgrid placement
+ *  stays stable; the cell renders nothing inside for `parked`/`none`
+ *  rows. Shape carries the state distinction (filled disk vs hollow
+ *  ring vs muted dot) so the rule survives reduced color sensitivity
+ *  and peripheral glance — not color and animation alone. */
+export const StatePip: Component<{
+  bucket: DockRowBucket;
+  unread: boolean;
+}> = (props) => {
+  const variant = () => pipVariant(props.bucket, props.unread);
   return (
     <span
-      class={`shrink-0 inline-flex ${cfg().color} ${cfg().animation}`}
-      data-testid="dock-row-agent-pip"
-      data-agent-kind={props.agent.kind}
-      data-agent-state={props.agent.state}
-      title={`${props.agent.kind} · ${stateLabels[props.agent.state]}`}
+      class="flex items-center justify-center"
+      data-testid="dock-row-pip"
+      data-pip={variant()}
+      title={pipTitle(variant())}
     >
-      <Dynamic component={Icon()} class="w-3 h-3" />
+      <Switch>
+        <Match when={variant() === "attention"}>
+          <span class="w-2 h-2 rounded-full bg-alert animate-pulse ring-4 ring-alert/25" />
+        </Match>
+        <Match when={variant() === "awaiting"}>
+          <span class="w-1.5 h-1.5 rounded-full bg-alert/55" />
+        </Match>
+        <Match when={variant() === "working"}>
+          <span class="w-2.5 h-2.5 rounded-full border-2 border-accent border-t-transparent animate-spin" />
+        </Match>
+        <Match when={variant() === "idle"}>
+          <span class="w-1.5 h-1.5 rounded-full bg-fg-3/55" />
+        </Match>
+      </Switch>
     </span>
   );
 };
+
+function pipTitle(variant: PipVariant): string {
+  switch (variant) {
+    case "attention":
+      return "Needs attention";
+    case "awaiting":
+      return "Awaiting input";
+    case "working":
+      return "Working";
+    case "idle":
+      return "Idle";
+    case "empty":
+      return "";
+  }
+}

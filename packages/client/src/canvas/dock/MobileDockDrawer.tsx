@@ -26,7 +26,7 @@ import type { DockRowBucket } from "./dockRowRanking";
 import type { DockGroup } from "./dockTree";
 import { HiddenFooter } from "./HiddenFooter";
 import { useDockOrder } from "./useDockOrder";
-import { AgentSlot, PrPip, SubCountCell, createDockRowData } from "./RowPips";
+import { PrPip, StatePip, SubCountCell, createDockRowData } from "./RowPips";
 import { rowSubline } from "./rowSubline";
 
 const MobileDockDrawer: Component<{
@@ -152,7 +152,7 @@ const MobileRow: Component<{
           }}
           class="relative w-full grid grid-cols-subgrid col-span-full items-center py-3 -ml-6 -mr-3 border-l-[3px] border-l-transparent border-b border-b-edge/15 text-left transition-colors duration-150 cursor-pointer active:bg-surface-2 data-[active]:bg-accent/15 data-[active]:border-l-accent"
         >
-          <AgentSlot agent={c().meta.agent} />
+          <StatePip bucket={props.bucket} unread={unread()} />
           <span
             class="font-medium text-[0.9rem] leading-tight truncate min-w-0"
             style={{
@@ -167,12 +167,6 @@ const MobileRow: Component<{
           <span class="font-mono text-[0.65rem] tabular-nums text-fg-3 text-right">
             {formatTimeAgo(c().meta.lastActivityAt)}
           </span>
-          <Show when={unread()}>
-            <span
-              aria-hidden="true"
-              class="absolute top-1.5 right-2 w-1.5 h-1.5 rounded-full bg-alert animate-pulse"
-            />
-          </Show>
           {/* Second line — flex row spanning col 2 → end. PR pip on
            *  the left (anchored to col 2 left edge so it aligns
            *  across every section), subline text following. */}
