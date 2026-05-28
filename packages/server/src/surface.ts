@@ -53,7 +53,6 @@ import { log } from "./log.ts";
 import { publisher } from "./publisher.ts";
 import { cancelPendingAutosave, getSavedSession } from "./session.ts";
 import { store } from "./state.ts";
-import { localTerminalBackend } from "./terminalBackend/local.ts";
 // `getTerminalBackendFor` is part of an import cycle (terminalBackend/
 // index.ts → remote.ts → metadata.ts → surface.ts). ESM tolerates the
 // cycle because every consumer below accesses the binding lazily
@@ -63,17 +62,20 @@ import type { TerminalBackend } from "kolu-common/terminalBackend";
 import type { TerminalId } from "kolu-common/surface";
 import { getTerminal, listTerminals } from "./terminal-registry.ts";
 
-/** Resolve the backend that owns a given terminal. Streams dispatch
- *  via this so remote Code-tab reads hit the agent's fs/git, not the
- *  parent's. Returns the local backend if the terminal is unknown
- *  (e.g. a stream re-subscribe racing a kill) — the underlying read
- *  will throw naturally, which the stream layer surfaces to the
- *  client. */
-function backendForTerminal(id: TerminalId): TerminalBackend {
+/** Resolve the backend that owns a given terminal, or `null` if the
+ *  terminal isn't registered. Streams dispatch via this so remote
+ *  Code-tab reads hit the agent's fs/git, not the parent's. The null
+ *  branch matters: falling back to the local backend would let a
+ *  remote stream race with terminal cleanup read parent-side paths
+ *  that happen to exist locally, surfacing the wrong files/diffs in
+ *  the UI. */
+function backendForTerminal(id: TerminalId): TerminalBackend | null {
   const t = getTerminal(id);
-  if (!t) return localTerminalBackend;
+  if (!t) return null;
   return getTerminalBackendFor(t.location);
 }
+
+const NOOP_UNSUBSCRIBE = (): void => {};
 
 // `t` is the host router builder; both `surfaceRouter` and the raw oRPC
 // handlers in `router.ts` plug procedures into it. Exported so `router.ts`
@@ -185,58 +187,70 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
 
     streams: {
       // Each stream dispatches through `backendForTerminal(input.terminalId)`
-      // so remote terminals read fs/git on the agent host. Local
-      // terminals fall through to `localTerminalBackend`. The resolver
+      // so remote terminals read fs/git on the agent host. The resolver
       // is identity-stable per terminal, so `install` and `read` see
       // the same backend across the lifetime of a subscription.
+      //
+      // `null` from the resolver means the terminal was never
+      // registered or was already cleaned up: `read` throws
+      // `TerminalNotFoundError` (oRPC wraps as ORPCError, client's
+      // `STREAM_RETRY` won't re-subscribe), and `install` returns a
+      // no-op so we don't crash before that error reaches the client.
       gitStatus: {
-        read: async (input) =>
-          backendForTerminal(input.terminalId).git.getStatus(
-            input.repoPath,
-            input.mode,
-          ),
-        install: (input, cb) =>
-          backendForTerminal(input.terminalId).fs.subscribeRepoChange(
-            input.repoPath,
-            cb,
-          ),
+        read: async (input) => {
+          const backend = backendForTerminal(input.terminalId);
+          if (!backend) throw new TerminalNotFoundError(input.terminalId);
+          return backend.git.getStatus(input.repoPath, input.mode);
+        },
+        install: (input, cb) => {
+          const backend = backendForTerminal(input.terminalId);
+          if (!backend) return NOOP_UNSUBSCRIBE;
+          return backend.fs.subscribeRepoChange(input.repoPath, cb);
+        },
         isEqual: gitStatusOutputEqual,
       },
       gitDiff: {
-        read: async (input) =>
-          backendForTerminal(input.terminalId).git.getDiff(
+        read: async (input) => {
+          const backend = backendForTerminal(input.terminalId);
+          if (!backend) throw new TerminalNotFoundError(input.terminalId);
+          return backend.git.getDiff(
             input.repoPath,
             input.filePath,
             input.mode,
             input.oldPath,
-          ),
-        install: (input, cb) =>
-          backendForTerminal(input.terminalId).fs.subscribeRepoChange(
-            input.repoPath,
-            cb,
-          ),
+          );
+        },
+        install: (input, cb) => {
+          const backend = backendForTerminal(input.terminalId);
+          if (!backend) return NOOP_UNSUBSCRIBE;
+          return backend.fs.subscribeRepoChange(input.repoPath, cb);
+        },
         isEqual: gitDiffOutputEqual,
       },
       fsListAll: {
-        read: async (input) =>
-          backendForTerminal(input.terminalId).fs.listAll(input.repoPath),
-        install: (input, cb) =>
-          backendForTerminal(input.terminalId).fs.subscribeRepoChange(
-            input.repoPath,
-            cb,
-          ),
+        read: async (input) => {
+          const backend = backendForTerminal(input.terminalId);
+          if (!backend) throw new TerminalNotFoundError(input.terminalId);
+          return backend.fs.listAll(input.repoPath);
+        },
+        install: (input, cb) => {
+          const backend = backendForTerminal(input.terminalId);
+          if (!backend) return NOOP_UNSUBSCRIBE;
+          return backend.fs.subscribeRepoChange(input.repoPath, cb);
+        },
         isEqual: fsListAllOutputEqual,
       },
       fsReadFile: {
         read: async (input): Promise<FsReadFileOutput> => {
           const backend = backendForTerminal(input.terminalId);
+          if (!backend) throw new TerminalNotFoundError(input.terminalId);
           // Iframe preview is only available for local terminals —
           // the URL points at the parent's HTTP file route, which
           // reads from the parent's local FS. Remote files fall back
           // to text mode (agent already returns `{content, truncated}`
           // for every read).
           const term = getTerminal(input.terminalId);
-          const isLocal = !term || term.location.kind === "local";
+          const isLocal = term?.location.kind === "local";
           if (isLocal && isIframePreviewable(input.filePath)) {
             const mtimeMs = await backend.fs.statFileMtimeMs(
               input.repoPath,
@@ -257,12 +271,15 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
           );
           return { kind: "text", content, truncated };
         },
-        install: (input, cb) =>
-          backendForTerminal(input.terminalId).fs.subscribeFileChange(
+        install: (input, cb) => {
+          const backend = backendForTerminal(input.terminalId);
+          if (!backend) return NOOP_UNSUBSCRIBE;
+          return backend.fs.subscribeFileChange(
             input.repoPath,
             input.filePath,
             cb,
-          ),
+          );
+        },
         isEqual: fsReadFileOutputEqual,
       },
     },

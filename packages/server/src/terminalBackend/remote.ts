@@ -240,14 +240,17 @@ export class RemoteTerminalBackend implements TerminalBackend {
 
     // App-level liveness probe. The transport sees ssh death; this
     // catches stuck-agent cases (ssh + agent alive, agent deadlocked).
+    // On exhaustion we `forceReconnect` rather than `destroy` — the
+    // backend instance must survive heartbeat failures so a recoverable
+    // stuck-agent doesn't permanently brick future spawns/RPCs.
     startHeartbeat({
       session,
       onUnhealthy: () => {
         log.error(
           { host: this.host },
-          "remote agent heartbeat exhausted — destroying session",
+          "remote agent heartbeat exhausted — forcing reconnect",
         );
-        session.destroy();
+        session.forceReconnect("heartbeat exhausted");
       },
     });
 
@@ -628,11 +631,21 @@ export class RemoteTerminalBackend implements TerminalBackend {
 /** Resolve once the session's connection is anything other than
  *  `connected` (snapshot or future). Used after a mirror cycle ends
  *  to gate the next `waitForConnected` on a fresh respawn rather
- *  than spinning on a dead client. */
+ *  than spinning on a dead client.
+ *
+ *  `onState` fires the snapshot synchronously inside `session.onState(...)`,
+ *  so a naive subscribe-then-check would reference `unsub` while it's
+ *  still in the TDZ on the disconnected-at-attach path. Pre-check the
+ *  snapshot to short-circuit; once we know we're `connected`, the
+ *  callback can only fire after `unsub` is bound. */
 function waitForDisconnected(
   session: HostSession<AgentContract>,
 ): Promise<void> {
   return new Promise((resolve) => {
+    if (session.isDestroyed() || session.current().connection !== "connected") {
+      resolve();
+      return;
+    }
     const unsub = session.onState((s) => {
       if (s.connection !== "connected" || session.isDestroyed()) {
         unsub();

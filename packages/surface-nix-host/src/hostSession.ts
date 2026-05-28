@@ -184,6 +184,27 @@ export class HostSession<C extends AnyContractRouter> {
     return this.destroyed;
   }
 
+  /** Kick the current connection so the reconnect loop fires. Use when
+   *  an app-level liveness probe (heartbeat) decides the agent is
+   *  stuck but the ssh subprocess is still alive — without this,
+   *  write/read on the dead stdio link would hang forever. Unlike
+   *  `destroy()`, the session stays usable: the pooled instance keeps
+   *  its identity, refcount, and listeners; the next state transition
+   *  reaches `copying → connecting → connected` again.
+   *
+   *  SIGKILL (not SIGTERM) because the agent has demonstrably failed
+   *  to service requests; a graceful signal is no safer than a forceful
+   *  one when the target is by definition unresponsive. */
+  forceReconnect(reason: string): void {
+    if (this.destroyed || this.child === null) return;
+    this.addLocalProgress(`force reconnect: ${reason}`);
+    try {
+      this.child.kill("SIGKILL");
+    } catch {
+      /* best-effort; child.on('exit') will fire if it ever exits */
+    }
+  }
+
   /** The currently in-flight client promise (or `null` between a child
    *  exit and `scheduleReconnect`'s timer firing). Each `spawn()` call
    *  reassigns `clientPromise`, so the bridge can detect "the agent
@@ -399,6 +420,15 @@ export function getHostSession<C extends AnyContractRouter>(
 ): HostSession<C> {
   const key = `${opts.host}::${opts.drvPath}::${opts.binary}`;
   let session = pool.get(key);
+  // Drop destroyed entries from the pool — `destroy()` is terminal,
+  // and handing out a destroyed instance permanently bricks the
+  // caller. (Heartbeat exhaustion historically called `destroy()` for
+  // its forced-reconnect path, which is why this guard exists even
+  // though normal use leaves sessions undestroyed.)
+  if (session !== undefined && session.isDestroyed()) {
+    pool.delete(key);
+    session = undefined;
+  }
   if (session === undefined) {
     session = new HostSession<C>(opts) as HostSession<AnyContractRouter>;
     pool.set(key, session);
