@@ -1,32 +1,43 @@
 /**
- * `LocalTerminalBackend` — this kolu process. PTY spawned in-process
- * via `node-pty`, the per-terminal provider DAG (agent-command tracker,
- * git watcher, GitHub PR watcher, foreground-process observer, three
- * agent detectors) runs in the same process via `./providers.ts`, and
- * fs/git ops shell out locally.
+ * `LocalTerminalBackend` — terminals on this machine, but the PTY
+ * itself lives in the long-lived `kolu --stdio` daemon (R-4), not in
+ * this kolu-server process. That's what makes local terminals survive
+ * kolu-server restart: the daemon keeps the node-pty children and their
+ * `@xterm/headless` scrollback mirrors alive across our death.
  *
- * Provider lifecycle: each `spawnPty` constructs a `ProviderRecord`
- * (PtyHandle + aliased `entry.meta` + ephemeral `currentAgent`) and
- * wires `ProviderHooks` that funnel metadata writes through this
- * package's `updateServer*Metadata` helpers plus the activity-feed
- * trackers. The provider DAG itself doesn't know it's running inside
- * the local backend — it only knows about `ProviderHooks` /
- * `ProviderChannels`, so the same implementation drops onto any host
- * that doesn't share kolu-server's surface plumbing.
+ * This backend is the daemon's loopback *client*. For each terminal it:
  *
- * The fs/git surfaces delegate to `kolu-git` directly. Equality
- * predicates (`gitDiffOutputEqual`, …) stay imported at the surface
- * layer (they're pure value comparisons, not backend operations).
+ *   - calls `terminal.spawn` on the daemon's `agentSurface` (unix
+ *     socket) to create the PTY, passing the kolu-server-minted id so
+ *     the daemon's PTY id == our terminal id (reattach-by-id);
+ *   - bridges the daemon's per-terminal streams (`terminalAttach`,
+ *     `terminalCwd`, `terminalTitle`, `terminalCommandRun`,
+ *     `terminalExit`) back into kolu-server's `terminalChannels`, so the
+ *     existing client `attach` flow and the in-process provider DAG keep
+ *     working unchanged;
+ *   - runs the provider DAG (`./providers.ts`) HERE, in kolu-server —
+ *     git/GitHub/agent detection stay local because the daemon is on the
+ *     same machine. The providers read `process`/`foregroundPid` from a
+ *     `DaemonTerminalProxy` whose cache is fed by the daemon's enriched
+ *     title stream (no per-read RPC).
+ *
+ * The fs/git surfaces still shell out locally (same machine as the
+ * daemon). On kolu-server restart, `reattachPty` rebuilds all of the
+ * above for each PTY the daemon still owns — see `terminals.ts`'s
+ * `reattachLocalTerminals`.
  */
 
+import { homedir } from "node:os";
 import { DEFAULT_SCROLLBACK } from "kolu-common/config";
 import type {
+  SavedTerminal,
   TerminalId,
   TerminalInfo,
   TerminalMetadata,
 } from "kolu-common/surface";
 import type {
   PtySpawnOpts,
+  ReattachEntry,
   TerminalBackend,
   TerminalBackendFs,
   TerminalBackendGit,
@@ -45,10 +56,9 @@ import {
   subscribeRepoChange,
 } from "kolu-git";
 import type { GitDiffMode } from "kolu-git/schemas";
-import { type PtyHandle, spawnPty } from "kolu-pty";
 import pkg from "../../package.json" with { type: "json" };
 import { trackRecentAgent, trackRecentRepo } from "../activity.ts";
-import { koluShellDir } from "../koluRoot.ts";
+import { type AgentClient, getDaemonHandle } from "../daemon/supervisor.ts";
 import { log } from "../log.ts";
 import { terminalChannels, terminalsDirtyChannel } from "../publisher.ts";
 import { surfaceCtx } from "../surfaceCtx.ts";
@@ -75,22 +85,15 @@ import {
 
 // ── PTY-state notification helpers ─────────────────────────────────────
 
-/** Notify that terminal state changed (drives debounced session
- *  auto-save). Distinct from the `terminalList` cell's content channel:
- *  this is the *trigger*, not the saved content. */
 function emitTerminalsDirty(): void {
   terminalsDirtyChannel.publish({});
 }
 
-/** Republish the live `terminalList` cell. Backend lifecycle calls this
- *  on create / kill; client metadata setters (`setTerminalParent`, …)
- *  publish via the metadata collection instead, so no list republish
- *  is needed there. */
 function emitTerminalListChanged(): void {
   surfaceCtx.cells.terminalList.set(listTerminals());
 }
 
-// ── Local fs/git surfaces ──────────────────────────────────────────────
+// ── Local fs/git surfaces (same machine as the daemon) ──────────────────
 
 const localFs: TerminalBackendFs = {
   async listAll(repoPath: string): Promise<FsListAllOutput> {
@@ -119,23 +122,85 @@ const localGit: TerminalBackendGit = {
   },
 };
 
+// ── Daemon-backed terminal handle ───────────────────────────────────────
+
+/** One object satisfying BOTH `TerminalHandle` (the registry's control
+ *  surface — write/resize/getScreen* + pid) AND `ProviderPtyView` (the
+ *  slice the provider DAG reads — pid/process/foregroundPid). Control
+ *  verbs proxy to the daemon over RPC; `process`/`foregroundPid` are a
+ *  local cache the stream bridge refreshes on every enriched title
+ *  event, so the providers read them synchronously without a per-read
+ *  round-trip. */
+class DaemonTerminalProxy {
+  pid = 0;
+  process = "";
+  foregroundPid: number | undefined = undefined;
+
+  constructor(
+    private readonly id: TerminalId,
+    private readonly client: AgentClient,
+  ) {}
+
+  write(data: string): void {
+    void this.client.surface.terminal
+      .write({ id: this.id, data })
+      .catch((err: Error) =>
+        log.warn(
+          { terminal: this.id, err: err.message },
+          "daemon write failed",
+        ),
+      );
+  }
+
+  resize(cols: number, rows: number): void {
+    void this.client.surface.terminal
+      .resize({ id: this.id, cols, rows })
+      .catch((err: Error) =>
+        log.warn(
+          { terminal: this.id, err: err.message },
+          "daemon resize failed",
+        ),
+      );
+  }
+
+  async getScreenState(): Promise<string> {
+    const r = await this.client.surface.terminal.getScreenState({
+      id: this.id,
+    });
+    return r.data;
+  }
+
+  async getScreenText(startLine?: number, endLine?: number): Promise<string> {
+    const r = await this.client.surface.terminal.getScreenText({
+      id: this.id,
+      startLine,
+      endLine,
+    });
+    return r.text;
+  }
+}
+
 // ── Backend implementation ─────────────────────────────────────────────
 
-/** All per-local-terminal state lives here. Structurally satisfies the
- *  `ProviderRecord` shape that `./providers.ts` consumes — `meta` is
- *  aliased to the same object as `TerminalProcess.meta` so provider
- *  writes (which go through the hooks → `updateServer*Metadata` →
- *  `entry.meta`) land on the read path that providers see through
- *  `record.meta`. `currentAgent` is the ephemeral stash maintained by
- *  the agent-command tracker (basename of the binary in the foreground
- *  right now, null when the shell is idle / running a non-agent
- *  command). `stopProviders` tears down every per-terminal subscription
- *  on kill. */
 interface LocalTerminalRecord {
-  ptyHandle: PtyHandle;
+  ptyHandle: DaemonTerminalProxy;
   meta: TerminalMetadata;
   currentAgent: string | null;
   stopProviders: () => void;
+  stopBridge: () => void;
+}
+
+const noop = (): void => {};
+
+function requireDaemon(): AgentClient {
+  const handle = getDaemonHandle();
+  if (!handle) {
+    throw new Error(
+      "local PTY-host daemon is not connected — kolu-server boot should " +
+        "have called ensureDaemon() before any terminal spawn",
+    );
+  }
+  return handle.client;
 }
 
 class LocalTerminalBackend implements TerminalBackend {
@@ -145,59 +210,13 @@ class LocalTerminalBackend implements TerminalBackend {
   private readonly records = new Map<TerminalId, LocalTerminalRecord>();
 
   spawnPty(id: TerminalId, opts: PtySpawnOpts): TerminalInfo {
-    const tlog = log.child({ terminal: id });
-
-    const ptyHandle = spawnPty(
-      tlog,
-      id,
-      {
-        rcDir: koluShellDir,
-        termProgramVersion: pkg.version,
-        scrollback: DEFAULT_SCROLLBACK,
-        onData: (data) => {
-          terminalChannels.data(id).publish(data);
-        },
-        onExit: (exitCode) => {
-          tlog.info({ exitCode }, "exited");
-          const record = this.records.get(id);
-          if (record) {
-            record.stopProviders();
-            cleanupTerminalScratch(id);
-            this.records.delete(id);
-          }
-          surfaceCtx.events.terminalExit.publish({ id }, exitCode);
-          // Only save session on natural exit (record was still present).
-          // killAllTerminals clears its own records first, so we skip.
-          const wasNaturalExit = unregisterTerminal(id);
-          if (wasNaturalExit) {
-            emitTerminalsDirty();
-            emitTerminalListChanged();
-          }
-        },
-        onTitleChange: (title) => {
-          terminalChannels.title(id).publish(title);
-        },
-        onCommandRun: (raw) => {
-          terminalChannels.commandRun(id).publish(raw);
-        },
-        onCwd: (newCwd) => {
-          const entry = getTerminal(id);
-          if (entry) {
-            updateServerMetadata(entry, id, (m) => {
-              m.cwd = newCwd;
-            });
-            terminalChannels.cwd(id).publish(newCwd);
-          }
-        },
-      },
-      opts.cwd,
-    );
-
-    const meta = createMetadata(ptyHandle.cwd);
+    const client = requireDaemon();
+    // Sync shadow: register the entry + a proxy handle immediately so
+    // the tile renders, then do the async daemon spawn on a later tick
+    // (sync-shadow invariant in TerminalBackend).
+    const proxy = new DaemonTerminalProxy(id, client);
+    const meta = createMetadata(opts.cwd ?? homedir());
     if (opts.parentId) meta.parentId = opts.parentId;
-    // Seed client-owned initial metadata BEFORE startProviders so the
-    // first `terminalMetadata` collection yield carries these fields
-    // (see #642).
     const initial = opts.initialMetadata;
     if (initial?.themeName) meta.themeName = initial.themeName;
     if (initial?.canvasLayout) meta.canvasLayout = initial.canvasLayout;
@@ -207,46 +226,211 @@ class LocalTerminalBackend implements TerminalBackend {
       meta.lastActivityAt = initial.lastActivityAt;
     if (initial?.intent) meta.intent = initial.intent;
 
-    // `PtyHandle` is sync-shaped; `TerminalHandle` flipped to async in
-    // R-4 prep (remote-backed handles can't return sync screen state
-    // across an RPC). Wrap the four delegates so the kolu-pty path keeps
-    // working until slice 3's daemon-proxy rewrite replaces this entire
-    // branch.
     const entry: TerminalProcess = {
-      info: { id, pid: ptyHandle.pid },
+      info: { id, pid: 0 },
       meta,
-      handle: {
-        pid: ptyHandle.pid,
-        write: (data) => ptyHandle.write(data),
-        resize: (cols, rows) => ptyHandle.resize(cols, rows),
-        getScreenState: () => Promise.resolve(ptyHandle.getScreenState()),
-        getScreenText: (startLine, endLine) =>
-          Promise.resolve(ptyHandle.getScreenText(startLine, endLine)),
-      },
+      handle: proxy,
     };
-
     registerTerminal(id, entry);
-    // Build the record BEFORE starting providers — the agent-command
-    // tracker writes `record.currentAgent` and the agent detectors read
-    // it. `stopProviders` is patched in after the call.
     const record: LocalTerminalRecord = {
-      ptyHandle,
+      ptyHandle: proxy,
       meta,
       currentAgent: null,
-      stopProviders: () => {},
+      stopProviders: noop,
+      stopBridge: noop,
     };
     this.records.set(id, record);
+
+    void this.daemonSpawnAndWire(id, opts, proxy, record, entry, client);
+
+    emitTerminalsDirty();
+    emitTerminalListChanged();
+    return entry.info;
+  }
+
+  /** Async tail of `spawnPty`: ask the daemon to create the PTY, then
+   *  seed the proxy + start the stream bridge + provider DAG. Errors
+   *  unwind the sync shadow so a failed spawn doesn't leave a zombie
+   *  registry entry. */
+  private async daemonSpawnAndWire(
+    id: TerminalId,
+    opts: PtySpawnOpts,
+    proxy: DaemonTerminalProxy,
+    record: LocalTerminalRecord,
+    entry: TerminalProcess,
+    client: AgentClient,
+  ): Promise<void> {
+    const tlog = log.child({ terminal: id });
+    try {
+      const res = await client.surface.terminal.spawn({
+        id,
+        cwd: opts.cwd,
+        termProgramVersion: pkg.version,
+        scrollback: DEFAULT_SCROLLBACK,
+      });
+      // The terminal may have been killed while the spawn was in flight.
+      if (!this.records.has(id)) {
+        client.surface.terminal.kill({ id }).catch(() => {});
+        return;
+      }
+      proxy.pid = res.pid;
+      proxy.process = res.process;
+      proxy.foregroundPid = res.pid; // shell is foreground initially
+      entry.info.pid = res.pid;
+      updateServerMetadata(entry, id, (m) => {
+        m.cwd = res.cwd;
+      });
+      record.stopBridge = this.startBridge(id, proxy, entry, client);
+      record.stopProviders = startProviders(
+        record,
+        id,
+        buildChannels(id),
+        buildHooks(entry, id),
+      );
+      tlog.info(
+        { pid: res.pid, total: listTerminals().length },
+        "created (daemon-backed)",
+      );
+      emitTerminalsDirty();
+      emitTerminalListChanged();
+    } catch (err) {
+      tlog.error({ err: (err as Error).message }, "daemon spawn failed");
+      this.records.delete(id);
+      unregisterTerminal(id);
+      emitTerminalListChanged();
+    }
+  }
+
+  reattachPty(
+    entry: ReattachEntry,
+    saved: SavedTerminal | undefined,
+  ): TerminalInfo {
+    const client = requireDaemon();
+    const id = entry.id;
+    const tlog = log.child({ terminal: id });
+    const proxy = new DaemonTerminalProxy(id, client);
+    proxy.pid = entry.pid;
+    proxy.foregroundPid = entry.pid;
+    // `process` stays "" until the first title event; providers re-derive
+    // foreground on the next OSC 2.
+
+    const meta = metaFromSaved(saved, entry.cwd);
+    const reg: TerminalProcess = {
+      info: { id, pid: entry.pid },
+      meta,
+      handle: proxy,
+    };
+    registerTerminal(id, reg);
+    const record: LocalTerminalRecord = {
+      ptyHandle: proxy,
+      meta,
+      currentAgent: null,
+      stopProviders: noop,
+      stopBridge: noop,
+    };
+    this.records.set(id, record);
+    record.stopBridge = this.startBridge(id, proxy, reg, client);
     record.stopProviders = startProviders(
       record,
       id,
       buildChannels(id),
-      buildHooks(entry, id),
+      buildHooks(reg, id),
+    );
+    tlog.info({ pid: entry.pid }, "reattached (daemon-backed)");
+    emitTerminalListChanged();
+    return reg.info;
+  }
+
+  /** Bridge one daemon terminal's streams into kolu-server's
+   *  `terminalChannels` + metadata. Returns a teardown that aborts all
+   *  subscriptions. */
+  private startBridge(
+    id: TerminalId,
+    proxy: DaemonTerminalProxy,
+    entry: TerminalProcess,
+    client: AgentClient,
+  ): () => void {
+    const ac = new AbortController();
+    const { signal } = ac;
+    const tlog = log.child({ terminal: id });
+
+    // PTY output: skip the snapshot (the client's `attach` pulls a fresh
+    // one via `getScreenState`), republish deltas to the data channel.
+    void pump(
+      client.surface.terminalAttach.get({ id }, { signal }),
+      (msg) => {
+        if (msg.kind === "delta") terminalChannels.data(id).publish(msg.data);
+      },
+      signal,
+      tlog,
+      "terminalAttach",
+    );
+    void pump(
+      client.surface.terminalCwd.get({ id }, { signal }),
+      (cwd) => {
+        updateServerMetadata(entry, id, (m) => {
+          m.cwd = cwd;
+        });
+        terminalChannels.cwd(id).publish(cwd);
+      },
+      signal,
+      tlog,
+      "terminalCwd",
+    );
+    void pump(
+      client.surface.terminalTitle.get({ id }, { signal }),
+      (ev) => {
+        // Refresh the provider-visible cache BEFORE publishing the title
+        // — the process observer + agent detectors read these
+        // synchronously when the title channel fires.
+        proxy.process = ev.process;
+        proxy.foregroundPid = ev.foregroundPid;
+        terminalChannels.title(id).publish(ev.title);
+      },
+      signal,
+      tlog,
+      "terminalTitle",
+    );
+    void pump(
+      client.surface.terminalCommandRun.get({ id }, { signal }),
+      (cmd) => {
+        terminalChannels.commandRun(id).publish(cmd);
+      },
+      signal,
+      tlog,
+      "terminalCommandRun",
+    );
+    void pump(
+      client.surface.terminalExit.get({ id }, { signal }),
+      (ev) => {
+        this.handleExit(id, ev.exitCode);
+      },
+      signal,
+      tlog,
+      "terminalExit",
     );
 
-    tlog.info({ pid: ptyHandle.pid, total: listTerminals().length }, "created");
-    emitTerminalsDirty();
-    emitTerminalListChanged();
-    return entry.info;
+    return () => ac.abort();
+  }
+
+  /** Mirror of the in-process `onExit` path: stop providers + bridge,
+   *  scrub scratch, unregister, publish the exit event, and republish
+   *  the list on natural exit. */
+  private handleExit(id: TerminalId, exitCode: number): void {
+    log.child({ terminal: id }).info({ exitCode }, "exited (daemon-backed)");
+    const record = this.records.get(id);
+    if (record) {
+      record.stopProviders();
+      record.stopBridge();
+      cleanupTerminalScratch(id);
+      this.records.delete(id);
+    }
+    surfaceCtx.events.terminalExit.publish({ id }, exitCode);
+    const wasNaturalExit = unregisterTerminal(id);
+    if (wasNaturalExit) {
+      emitTerminalsDirty();
+      emitTerminalListChanged();
+    }
   }
 
   killTerminal(id: TerminalId): TerminalInfo | undefined {
@@ -257,9 +441,17 @@ class LocalTerminalBackend implements TerminalBackend {
     log.child({ terminal: id }).info({ pid: entry.info.pid }, "killing");
     if (record) {
       record.stopProviders();
-      record.ptyHandle.dispose();
+      record.stopBridge();
       this.records.delete(id);
     }
+    // Tell the daemon to kill the actual PTY. Fire-and-forget — the
+    // daemon's exit handler is authoritative, but we've already torn
+    // down our local mirror above so a late exit event is a no-op.
+    requireDaemon()
+      .surface.terminal.kill({ id })
+      .catch((err: Error) =>
+        log.warn({ terminal: id, err: err.message }, "daemon kill failed"),
+      );
     cleanupTerminalScratch(id);
     unregisterTerminal(id);
     emitTerminalsDirty();
@@ -268,19 +460,26 @@ class LocalTerminalBackend implements TerminalBackend {
   }
 
   killAllTerminals(): void {
-    // Snapshot registry + own records, clear both BEFORE disposing — so
-    // `onExit` callbacks can't find terminals and trigger session saves.
+    // Snapshot registry + own records, clear both BEFORE killing — so
+    // exit events can't find terminals and trigger session saves.
     const entries = drainTerminals();
     const records = [...this.records.values()];
     this.records.clear();
     log.info({ count: entries.length }, "killing all terminals");
     for (const record of records) {
       record.stopProviders();
-      record.ptyHandle.dispose();
+      record.stopBridge();
     }
     for (const entry of entries) {
       cleanupTerminalScratch(entry.info.id);
     }
+    // One round-trip to the daemon kills every PTY it owns for this
+    // state dir (used by the e2e harness between scenarios).
+    requireDaemon()
+      .surface.terminal.killAll({})
+      .catch((err: Error) =>
+        log.warn({ err: err.message }, "daemon killAll failed"),
+      );
     emitTerminalListChanged();
   }
 
@@ -291,13 +490,48 @@ class LocalTerminalBackend implements TerminalBackend {
   ): AsyncIterable<TerminalChannelMap[K]> {
     // The narrowing on `K` makes the `as` necessary — TS can't see that
     // the runtime `kind` indexes a typed channel of the right element
-    // type. Each branch of the channel map already matches by
-    // construction (`terminalChannels.data` returns `Channel<string>`,
-    // etc.), so the cast is a documentation rather than a runtime risk.
+    // type.
     return terminalChannels[kind](id).subscribe(signal) as AsyncIterable<
       TerminalChannelMap[K]
     >;
   }
+}
+
+/** Pump a daemon stream into a per-event callback until the signal
+ *  aborts or the iterable ends. Swallows post-abort errors (a teardown
+ *  closing the socket mid-iteration is expected, not an error). */
+async function pump<T>(
+  iterPromise: Promise<AsyncIterable<T>>,
+  onEach: (value: T) => void,
+  signal: AbortSignal,
+  tlog: typeof log,
+  label: string,
+): Promise<void> {
+  try {
+    const iter = await iterPromise;
+    for await (const value of iter) {
+      if (signal.aborted) break;
+      onEach(value);
+    }
+  } catch (err) {
+    if (!signal.aborted) {
+      tlog.warn({ err: (err as Error).message, stream: label }, "bridge ended");
+    }
+  }
+}
+
+/** Build a full `TerminalMetadata` for a reattached terminal: live
+ *  fields (pr/agent/foreground) default to "unknown" and get re-derived
+ *  by the restarted providers; persisted fields come from the saved
+ *  session entry when one matched by id, else from spawn-time defaults. */
+function metaFromSaved(
+  saved: SavedTerminal | undefined,
+  cwd: string,
+): TerminalMetadata {
+  const base = createMetadata(saved?.cwd ?? cwd);
+  if (!saved) return base;
+  const { id: _id, ...persisted } = saved;
+  return { ...base, ...persisted };
 }
 
 /** Map this backend's publisher-backed terminal channels onto the
@@ -311,12 +545,7 @@ function buildChannels(id: TerminalId): ProviderChannels {
   };
 }
 
-/** Build the `ProviderHooks` for one terminal. Each verb forwards the
- *  fence-narrowed mutator straight through to `updateServer*Metadata`,
- *  which expects the matching `ServerPersistedTerminalFields` /
- *  `LiveTerminalFields` shape — same partition, same types, no cast.
- *  `trackRecent*` pass through: the local backend owns the activity
- *  feed. */
+/** Build the `ProviderHooks` for one terminal. */
 function buildHooks(entry: TerminalProcess, id: TerminalId): ProviderHooks {
   return {
     updateServerMetadata: (_record, mutate) =>

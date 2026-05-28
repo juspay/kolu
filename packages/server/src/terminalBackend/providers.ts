@@ -57,11 +57,23 @@ import type {
   TerminalServerMetadata,
 } from "kolu-common/surface";
 import { opencodeProvider } from "kolu-opencode";
-import type { PtyHandle } from "kolu-pty";
 import type { Logger } from "kolu-shared";
 import type { Channel } from "@kolu/surface/server";
 import { log } from "../log.ts";
 import { shouldBumpRecencyForAgentChange } from "./agentRecency.ts";
+
+/** The slice of a PTY the provider DAG reads — `pid` + foreground
+ *  process name + foreground pid, all synchronous. Deliberately
+ *  narrower than `kolu-pty`'s `PtyHandle`: the providers never touch
+ *  `write`/`resize`/`getScreenState`/`dispose`, so a host that owns its
+ *  PTY out-of-process (the R-4 daemon) can satisfy this view with a
+ *  locally-cached mirror fed by the daemon's enriched title stream — no
+ *  per-read RPC. The in-process `PtyHandle` satisfies it structurally. */
+export interface ProviderPtyView {
+  readonly pid: number;
+  readonly process: string;
+  readonly foregroundPid: number | undefined;
+}
 
 /** Minimal "terminal record" shape the provider DAG needs. Both
  *  backends construct one with their own internals (LocalTerminalRecord,
@@ -73,7 +85,7 @@ import { shouldBumpRecencyForAgentChange } from "./agentRecency.ts";
  *  superset (parent's `TerminalMetadata`, a future agent's
  *  `AgentTerminalMetadata`) satisfy it directly. */
 export interface ProviderRecord {
-  ptyHandle: PtyHandle;
+  ptyHandle: ProviderPtyView;
   meta: TerminalServerMetadata;
   /** Ephemeral basename of the agent binary at the foreground right
    *  now; written by the agent-command tracker, read by the agent
@@ -271,7 +283,7 @@ function startAgentCommandTracker(
 // ── Agent detectors ───────────────────────────────────────────────────
 
 function readForegroundBasenameOnce(
-  ptyHandle: PtyHandle,
+  ptyHandle: ProviderPtyView,
   plog: Logger,
 ): string | null {
   try {
@@ -284,7 +296,7 @@ function readForegroundBasenameOnce(
 }
 
 function snapshotTerminalState(
-  ptyHandle: PtyHandle,
+  ptyHandle: ProviderPtyView,
   cwd: string,
   currentAgent: string | null,
   plog: Logger,

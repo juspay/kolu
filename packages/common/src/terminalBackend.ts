@@ -51,9 +51,20 @@ import type {
 } from "kolu-git/schemas";
 import type {
   InitialTerminalMetadata,
+  SavedTerminal,
   TerminalId,
   TerminalInfo,
 } from "./surface.ts";
+
+/** A PTY that already exists in the host (the R-4 daemon, or a future
+ *  remote agent) and that kolu-server is reattaching to after a
+ *  restart. The id matches the kolu-server terminal id (passed to the
+ *  host at spawn time); `pid`/`cwd` are the host's live values. */
+export interface ReattachEntry {
+  id: TerminalId;
+  pid: number;
+  cwd: string;
+}
 
 /** Where a terminal lives. R-1 has only the local variant; R-2 will
  *  add `{ kind: "remote", host: string }`. The single-variant sum keeps
@@ -146,6 +157,17 @@ export interface TerminalBackend {
    *  underlying I/O is async (sync-shadow invariant). The `id` is
    *  caller-supplied so the tile can render before this returns. */
   spawnPty(id: TerminalId, opts: PtySpawnOpts): TerminalInfo;
+
+  /** Reattach to a PTY that survived a kolu-server restart (it still
+   *  runs in the host — the R-4 local daemon today, a remote agent in
+   *  R-2). Re-registers the terminal, re-bridges its streams, and
+   *  restarts the provider DAG, seeding metadata from the saved-session
+   *  entry when one matches by id. Called at boot, before the HTTP
+   *  listener binds. Returns synchronously like `spawnPty`. */
+  reattachPty(
+    entry: ReattachEntry,
+    saved: SavedTerminal | undefined,
+  ): TerminalInfo;
 
   /** Stop providers, kill the PTY, scrub per-terminal scratch storage,
    *  unregister from the shared registry. Sole termination path. */

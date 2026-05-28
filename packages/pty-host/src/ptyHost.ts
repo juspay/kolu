@@ -113,8 +113,20 @@ export interface PtyHost {
   /** Current foreground-pid (for kolu's agent detection). */
   getForegroundPid(id: PtyId): number | undefined;
 
+  /** Current foreground process name (node-pty's `process`), or
+   *  undefined if the PTY is gone. */
+  getProcess(id: PtyId): string | undefined;
+
   /** Current cwd (for seeding `terminalMetadata`'s `cwd` field). */
   getCwd(id: PtyId): string | undefined;
+
+  /** Serialized screen state (VT escape sequences) for late-joining
+   *  clients. Empty string if the PTY is gone. */
+  getScreenState(id: PtyId): string;
+
+  /** Plain text content of the terminal buffer (scrollback + viewport).
+   *  Empty string if the PTY is gone. */
+  getScreenText(id: PtyId, startLine?: number, endLine?: number): string;
 
   /** Dispose every PTY and close every channel. */
   dispose(): void;
@@ -438,8 +450,27 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     return fg && fg > 0 ? fg : undefined;
   }
 
+  function getProcess(id: PtyId): string | undefined {
+    return entries.get(id)?.proc.process;
+  }
+
   function getCwd(id: PtyId): string | undefined {
     return entries.get(id)?.cwd;
+  }
+
+  function getScreenState(id: PtyId): string {
+    const entry = entries.get(id);
+    return entry ? entry.serialize.serialize() : "";
+  }
+
+  function getScreenTextFor(
+    id: PtyId,
+    startLine?: number,
+    endLine?: number,
+  ): string {
+    const entry = entries.get(id);
+    if (!entry) return "";
+    return getScreenText(entry.headless.buffer.active, startLine, endLine);
   }
 
   function dispose(): void {
@@ -465,7 +496,10 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     kill,
     list,
     getForegroundPid,
+    getProcess,
     getCwd,
+    getScreenState,
+    getScreenText: getScreenTextFor,
     dispose,
   };
 }

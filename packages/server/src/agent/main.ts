@@ -198,8 +198,19 @@ async function main(): Promise<void> {
         },
         terminalTitle: {
           source: async function* (input, signal) {
-            for await (const next of ptyHost.subscribeTitle(input.id, signal)) {
-              yield next;
+            for await (const title of ptyHost.subscribeTitle(
+              input.id,
+              signal,
+            )) {
+              // Sample foreground process + pid at title-change time —
+              // the title event is exactly the moment the foreground
+              // process changes (kolu's preexec hook emits OSC 2), so
+              // these reads are fresh.
+              yield {
+                title,
+                process: ptyHost.getProcess(input.id) ?? "",
+                foregroundPid: ptyHost.getForegroundPid(input.id),
+              };
             }
           },
         },
@@ -224,6 +235,7 @@ async function main(): Promise<void> {
         terminal: {
           spawn: async (args) => {
             const input = args.input as {
+              id?: string;
               cwd?: string;
               cols?: number;
               rows?: number;
@@ -235,7 +247,9 @@ async function main(): Promise<void> {
             const cwd =
               input.cwd && input.cwd.length > 0 ? input.cwd : (env.HOME ?? "/");
             Object.assign(env, koluIdentityEnv(input.termProgramVersion));
-            const terminalId = randomUUID();
+            // Use the kolu-server-minted id so the daemon PTY id ==
+            // kolu-server terminal id (reattach-by-id across restart).
+            const terminalId = input.id ?? randomUUID();
             const shellInit = prepareShellInit({
               shell,
               home: env.HOME,
@@ -254,7 +268,12 @@ async function main(): Promise<void> {
               scrollback: input.scrollback,
               onDispose: shellInit.cleanup,
             });
-            return { id: result.id, pid: result.pid, cwd };
+            return {
+              id: result.id,
+              pid: result.pid,
+              cwd,
+              process: ptyHost.getProcess(result.id) ?? shell,
+            };
           },
           kill: async (args) => {
             const input = args.input as { id: string };
@@ -288,18 +307,21 @@ async function main(): Promise<void> {
           },
           getScreenState: async (args) => {
             const input = args.input as { id: string };
-            const { snapshot } = await ptyHost.attach(input.id);
-            return { data: snapshot };
+            return { data: ptyHost.getScreenState(input.id) };
           },
           getScreenText: async (args) => {
-            const input = args.input as { id: string };
-            // For MVP, return the serialized state. The plain-text
-            // line-range form is a follow-up — `getScreenText` lives
-            // on `@kolu/pty-host` for the buffer-shaped utility, but
-            // the per-PTY headless buffer isn't exposed on the host
-            // surface.
-            const { snapshot } = await ptyHost.attach(input.id);
-            return { text: snapshot };
+            const input = args.input as {
+              id: string;
+              startLine?: number;
+              endLine?: number;
+            };
+            return {
+              text: ptyHost.getScreenText(
+                input.id,
+                input.startLine,
+                input.endLine,
+              ),
+            };
           },
         },
         system: {

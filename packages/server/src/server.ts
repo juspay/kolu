@@ -29,7 +29,7 @@ import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import { appRouter } from "./router.ts";
 import { initSessionAutoSave } from "./session.ts";
 import { getTerminal } from "./terminal-registry.ts";
-import { snapshotSession } from "./terminals.ts";
+import { reattachLocalTerminals, snapshotSession } from "./terminals.ts";
 import { resolveTlsOptions } from "./tls.ts";
 
 const argv = cli({
@@ -95,6 +95,13 @@ log.info(
   },
   "local PTY-host daemon ready",
 );
+// Reattach to any PTYs the daemon kept alive across our restart, before
+// the HTTP listener binds — so they're already in `terminalList` when
+// the first client connects (no restore card, terminals just reappear).
+const reattached = await reattachLocalTerminals();
+if (reattached > 0) {
+  log.info({ count: reattached }, "reattached surviving local terminals");
+}
 
 const app = new Hono();
 

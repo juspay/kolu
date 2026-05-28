@@ -35,6 +35,9 @@ import { updateClientMetadata } from "./terminalBackend/metadata.ts";
 import { getTerminalBackendFor } from "./terminalBackend/index.ts";
 import { terminalsDirtyChannel } from "./publisher.ts";
 import { getTerminal, terminalEntries } from "./terminal-registry.ts";
+import { getDaemonHandle } from "./daemon/supervisor.ts";
+import { getSavedSession } from "./session.ts";
+import { log } from "./log.ts";
 // biome-ignore-end assist/source/organizeImports: cycle-sensitive load order
 
 // R-1: a single local backend. R-2 will route by `location.kind` per
@@ -228,4 +231,45 @@ export function setTerminalIntent(id: TerminalId, intent: string): void {
 /** Kill and remove all terminals. Used by tests to reset server state between scenarios. */
 export function killAllTerminals(): void {
   localBackend.killAllTerminals();
+}
+
+/** Reattach to local PTYs that survived a kolu-server restart. Called
+ *  at boot (after `ensureDaemon`, before the HTTP listener binds): asks
+ *  the daemon which PTYs it still owns, matches them to the saved
+ *  session by id, and rebuilds each terminal's registry entry + stream
+ *  bridge + provider DAG so they're already present in `terminalList`
+ *  when the first client connects. Returns the number reattached.
+ *
+ *  Surviving-but-unsaved PTYs (e.g. the saved session was cleared)
+ *  still reattach with default metadata — the live process is the
+ *  source of truth, not the blob. */
+export async function reattachLocalTerminals(): Promise<number> {
+  const daemon = getDaemonHandle();
+  if (!daemon) return 0;
+  let entries: { id: TerminalId; pid: number; cwd: string }[];
+  try {
+    const res = await daemon.client.surface.terminal.list({});
+    entries = res.entries;
+  } catch (err) {
+    log.error(
+      { err: (err as Error).message },
+      "reattach: daemon terminal.list failed",
+    );
+    return 0;
+  }
+  if (entries.length === 0) return 0;
+  const saved = getSavedSession();
+  const savedById = new Map(
+    (saved?.terminals ?? []).map((t): [string, SavedTerminal] => [t.id, t]),
+  );
+  for (const entry of entries) {
+    localBackend.reattachPty(entry, savedById.get(entry.id));
+  }
+  // Restore the active selection so the client's hydration picks the
+  // same terminal it had before the restart.
+  if (saved?.activeTerminalId) {
+    activeTerminalId = saved.activeTerminalId as TerminalId;
+  }
+  log.info({ count: entries.length }, "reattached local terminals");
+  return entries.length;
 }

@@ -38,6 +38,11 @@ export const AGENT_CONTRACT_VERSION = "1.0";
 export const MIN_AGENT_CONTRACT = "^1.0";
 
 const TerminalSpawnInputSchema = z.object({
+  /** Caller-supplied PTY id. kolu-server mints the terminal id and
+   *  passes it here so the daemon's PTY id == kolu-server's terminal
+   *  id — this is what makes reattach-by-id work across kolu-server
+   *  restart. Optional; the daemon generates one if absent. */
+  id: TerminalIdSchema.optional(),
   cwd: z.string().optional(),
   cols: z.number().int().positive().optional(),
   rows: z.number().int().positive().optional(),
@@ -49,6 +54,9 @@ const TerminalSpawnOutputSchema = z.object({
   id: TerminalIdSchema,
   pid: z.number().int(),
   cwd: z.string(),
+  /** Foreground process name at spawn (the shell). Seeds the
+   *  consumer's process-observer cache before the first title event. */
+  process: z.string(),
 });
 
 const TerminalIdInputSchema = z.object({ id: TerminalIdSchema });
@@ -75,6 +83,17 @@ const TerminalDataMsgSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("snapshot"), data: z.string() }),
   z.object({ kind: z.literal("delta"), data: z.string() }),
 ]);
+
+/** Enriched title event. Carries the foreground process name + pid read
+ *  at title-change time so the consumer's process-observer + agent
+ *  detectors (which run in kolu-server, not the daemon) can read a
+ *  fresh `process`/`foregroundPid` synchronously from a local cache —
+ *  the daemon owns the PTY, but kolu-server owns the provider DAG. */
+const TerminalTitleMsgSchema = z.object({
+  title: z.string(),
+  process: z.string(),
+  foregroundPid: z.number().int().optional(),
+});
 
 const TerminalExitMsgSchema = z.object({ exitCode: z.number().int() });
 
@@ -104,13 +123,14 @@ export const agentSurface = defineSurface({
       inputSchema: TerminalIdInputSchema,
       outputSchema: z.string(),
     },
-    /** Per-terminal title changes (OSC 0/2). No initial snapshot —
-     *  this stream is delta-only because the title's only meaningful
-     *  state is "what was the last change." Consumers that need the
-     *  current title can read it via `terminal.list`. */
+    /** Per-terminal title changes (OSC 0/2), enriched with the
+     *  foreground process name + pid sampled at title-change time.
+     *  Delta-only (no initial snapshot) — the title's only meaningful
+     *  state is the last change; the consumer seeds its initial
+     *  process/foregroundPid from `terminal.spawn`'s output instead. */
     terminalTitle: {
       inputSchema: TerminalIdInputSchema,
-      outputSchema: z.string(),
+      outputSchema: TerminalTitleMsgSchema,
     },
     /** Per-terminal preexec commands (OSC 633;E). Delta-only — by
      *  definition each event is a fresh user-typed command. */
