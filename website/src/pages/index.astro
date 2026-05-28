@@ -985,6 +985,7 @@ const features = [
     background: var(--color-live-alert);
     box-shadow: 0 0 0 3px
       color-mix(in srgb, var(--color-live-alert) 28%, transparent);
+    animation: pulse-dot 1.3s ease-in-out infinite;
   }
   .ckv2-pip-awaiting {
     width: 0.4rem;
@@ -996,6 +997,12 @@ const features = [
     height: 0.65rem;
     border: 1.5px solid var(--color-live-teal);
     border-top-color: transparent;
+    animation: ckv2-pip-spin 1s linear infinite;
+  }
+  @keyframes ckv2-pip-spin {
+    to {
+      transform: rotate(360deg);
+    }
   }
   .ckv2-pip-idle {
     width: 0.4rem;
