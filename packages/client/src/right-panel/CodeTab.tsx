@@ -321,9 +321,15 @@ const CodeTab: Component<{
         // entirely. Continuing to the next candidate would produce another
         // identical error, then a misleading "not found" toast (the server
         // may be reachable but temporarily unavailable; file presence
-        // is unknown, not denied).
+        // is unknown, not denied). Transition handled out of `probing` so
+        // the membership-clear effect stops treating this request as an
+        // in-flight probe; `miss` is the right terminal stage since we
+        // couldn't confirm existence either way.
         const message = err instanceof Error ? err.message : String(err);
         toast.error(`File reference probe failed: ${message}`);
+        if (pendingOpen() === req && handled()?.stage === "probing") {
+          setHandled({ request: req, stage: "miss" });
+        }
         return;
       }
       // Superseded by a newer click or an explicit user tree-navigation:
