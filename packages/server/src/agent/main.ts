@@ -10,10 +10,11 @@
  *  1. `tryAcquirePidFile` — atomic single-instance gate.
  *  2. `prepareSocket` — unlink stale socket if present.
  *  3. `createPtyHost` — the in-process owner of every local PTY.
- *  4. Bind `agent.sock` (mode 0700). Per-accept, build a fresh
- *     `implementSurface` fragment + serve the connection's streams
- *     via `serveOverStdio`. The `PtyHost` is shared across
- *     connections, so a kolu-server restart sees the same PTYs.
+ *  4. Bind `agent.sock` (mode 0700). The `implementSurface` router is
+ *     built ONCE (its sources close over the shared `PtyHost`); each
+ *     accepted connection serves that same router over `serveOverStdio`.
+ *     The `PtyHost` is shared across connections, so a kolu-server
+ *     restart sees the same PTYs.
  *  5. Clean up on SIGTERM/SIGINT — unlink socket + pid file.
  */
 
@@ -174,178 +175,178 @@ async function main(): Promise<void> {
     log: log as any,
   });
 
-  function buildSurfaceImpl() {
-    const fragment = implementSurface(agentSurface, {
-      channel: inMemoryChannelByName(),
-      streams: {
-        terminalAttach: {
-          source: async function* (input, signal) {
-            const { snapshot, deltas } = await ptyHost.attach(input.id, signal);
-            yield { kind: "snapshot" as const, data: snapshot };
-            for await (const chunk of deltas) {
-              yield { kind: "delta" as const, data: chunk };
-            }
-          },
-        },
-        terminalCwd: {
-          source: async function* (input, signal) {
-            const current = ptyHost.getCwd(input.id);
-            if (current !== undefined) yield current;
-            for await (const next of ptyHost.subscribeCwd(input.id, signal)) {
-              yield next;
-            }
-          },
-        },
-        terminalTitle: {
-          source: async function* (input, signal) {
-            for await (const title of ptyHost.subscribeTitle(
-              input.id,
-              signal,
-            )) {
-              // Sample foreground process + pid at title-change time —
-              // the title event is exactly the moment the foreground
-              // process changes (kolu's preexec hook emits OSC 2), so
-              // these reads are fresh.
-              yield {
-                title,
-                process: ptyHost.getProcess(input.id) ?? "",
-                foregroundPid: ptyHost.getForegroundPid(input.id),
-              };
-            }
-          },
-        },
-        terminalCommandRun: {
-          source: async function* (input, signal) {
-            for await (const next of ptyHost.subscribeCommandRun(
-              input.id,
-              signal,
-            )) {
-              yield next;
-            }
-          },
-        },
-        terminalExit: {
-          source: async function* (input, _signal) {
-            const code = await ptyHost.exitPromise(input.id);
-            yield { exitCode: code };
-          },
+  // Built once and shared across connections — `agentSurface` has only
+  // streams + procedures whose sources close over the process-wide
+  // `ptyHost`, and the async-iterator protocol already isolates each
+  // subscription per `source()` call, so there's no per-connection
+  // state to allocate. (A kolu-server restart reconnects to the same
+  // `ptyHost`, which is the whole point.)
+  const fragment = implementSurface(agentSurface, {
+    channel: inMemoryChannelByName(),
+    streams: {
+      terminalAttach: {
+        source: async function* (input, signal) {
+          const { snapshot, deltas } = await ptyHost.attach(input.id, signal);
+          yield { kind: "snapshot" as const, data: snapshot };
+          for await (const chunk of deltas) {
+            yield { kind: "delta" as const, data: chunk };
+          }
         },
       },
-      procedures: {
-        terminal: {
-          spawn: async (args) => {
-            const input = args.input as {
-              id?: string;
-              cwd?: string;
-              cols?: number;
-              rows?: number;
-              scrollback?: number;
-              termProgramVersion: string;
-            };
-            const env = cleanEnv();
-            const shell = env.SHELL ?? "/bin/sh";
-            const cwd =
-              input.cwd && input.cwd.length > 0 ? input.cwd : (env.HOME ?? "/");
-            Object.assign(env, koluIdentityEnv(input.termProgramVersion));
-            // Use the kolu-server-minted id so the daemon PTY id ==
-            // kolu-server terminal id (reattach-by-id across restart).
-            const terminalId = input.id ?? randomUUID();
-            const shellInit = prepareShellInit({
-              shell,
-              home: env.HOME,
-              terminalId,
-              rcDir: koluShellDir,
-            });
-            Object.assign(env, shellInit.env);
-            const result = ptyHost.spawn({
-              id: terminalId,
-              shell,
-              args: shellInit.args,
-              env,
-              cwd,
-              cols: input.cols,
-              rows: input.rows,
-              scrollback: input.scrollback,
-              onDispose: shellInit.cleanup,
-            });
-            return {
-              id: result.id,
-              pid: result.pid,
-              cwd,
-              process: ptyHost.getProcess(result.id) ?? shell,
-            };
-          },
-          kill: async (args) => {
-            const input = args.input as { id: string };
-            ptyHost.kill(input.id);
-            return { ok: true };
-          },
-          killAll: async () => {
-            const before = ptyHost.list();
-            for (const e of before) ptyHost.kill(e.id);
-            return { killed: before.length };
-          },
-          write: async (args) => {
-            const input = args.input as { id: string; data: string };
-            ptyHost.write(input.id, input.data);
-            return { ok: true };
-          },
-          resize: async (args) => {
-            const input = args.input as {
-              id: string;
-              cols: number;
-              rows: number;
-            };
-            ptyHost.resize(input.id, input.cols, input.rows);
-            return { ok: true };
-          },
-          list: async () => ({ entries: ptyHost.list() }),
-          getForegroundPid: async (args) => {
-            const input = args.input as { id: string };
-            const pid = ptyHost.getForegroundPid(input.id);
-            return { pid };
-          },
-          getScreenState: async (args) => {
-            const input = args.input as { id: string };
-            return { data: ptyHost.getScreenState(input.id) };
-          },
-          getScreenText: async (args) => {
-            const input = args.input as {
-              id: string;
-              startLine?: number;
-              endLine?: number;
-            };
-            return {
-              text: ptyHost.getScreenText(
-                input.id,
-                input.startLine,
-                input.endLine,
-              ),
-            };
-          },
-        },
-        system: {
-          version: async () => ({
-            contractVersion: AGENT_CONTRACT_VERSION,
-            pkgVersion: pkg.version,
-            pid: process.pid,
-            startedAt: STARTED_AT,
-          }),
-          heartbeat: async () => ({ ts: Date.now() }),
+      terminalCwd: {
+        source: async function* (input, signal) {
+          const current = ptyHost.getCwd(input.id);
+          if (current !== undefined) yield current;
+          for await (const next of ptyHost.subscribeCwd(input.id, signal)) {
+            yield next;
+          }
         },
       },
-    });
-    return fragment;
-  }
+      terminalTitle: {
+        source: async function* (input, signal) {
+          for await (const title of ptyHost.subscribeTitle(input.id, signal)) {
+            // Sample foreground process + pid at title-change time —
+            // the title event is exactly the moment the foreground
+            // process changes (kolu's preexec hook emits OSC 2), so
+            // these reads are fresh.
+            yield {
+              title,
+              process: ptyHost.getProcess(input.id) ?? "",
+              foregroundPid: ptyHost.getForegroundPid(input.id),
+            };
+          }
+        },
+      },
+      terminalCommandRun: {
+        source: async function* (input, signal) {
+          for await (const next of ptyHost.subscribeCommandRun(
+            input.id,
+            signal,
+          )) {
+            yield next;
+          }
+        },
+      },
+      terminalExit: {
+        source: async function* (input, _signal) {
+          const code = await ptyHost.exitPromise(input.id);
+          yield { exitCode: code };
+        },
+      },
+    },
+    procedures: {
+      terminal: {
+        spawn: async (args) => {
+          const input = args.input as {
+            id?: string;
+            cwd?: string;
+            cols?: number;
+            rows?: number;
+            scrollback?: number;
+            termProgramVersion: string;
+          };
+          const env = cleanEnv();
+          const shell = env.SHELL ?? "/bin/sh";
+          const cwd =
+            input.cwd && input.cwd.length > 0 ? input.cwd : (env.HOME ?? "/");
+          Object.assign(env, koluIdentityEnv(input.termProgramVersion));
+          // Use the kolu-server-minted id so the daemon PTY id ==
+          // kolu-server terminal id (reattach-by-id across restart).
+          const terminalId = input.id ?? randomUUID();
+          const shellInit = prepareShellInit({
+            shell,
+            home: env.HOME,
+            terminalId,
+            rcDir: koluShellDir,
+          });
+          Object.assign(env, shellInit.env);
+          const result = ptyHost.spawn({
+            id: terminalId,
+            shell,
+            args: shellInit.args,
+            env,
+            cwd,
+            cols: input.cols,
+            rows: input.rows,
+            scrollback: input.scrollback,
+            onDispose: shellInit.cleanup,
+          });
+          return {
+            id: result.id,
+            pid: result.pid,
+            cwd,
+            process: ptyHost.getProcess(result.id) ?? shell,
+          };
+        },
+        kill: async (args) => {
+          const input = args.input as { id: string };
+          ptyHost.kill(input.id);
+          return { ok: true };
+        },
+        killAll: async () => {
+          const before = ptyHost.list();
+          for (const e of before) ptyHost.kill(e.id);
+          return { killed: before.length };
+        },
+        write: async (args) => {
+          const input = args.input as { id: string; data: string };
+          ptyHost.write(input.id, input.data);
+          return { ok: true };
+        },
+        resize: async (args) => {
+          const input = args.input as {
+            id: string;
+            cols: number;
+            rows: number;
+          };
+          ptyHost.resize(input.id, input.cols, input.rows);
+          return { ok: true };
+        },
+        list: async () => ({ entries: ptyHost.list() }),
+        getForegroundPid: async (args) => {
+          const input = args.input as { id: string };
+          const pid = ptyHost.getForegroundPid(input.id);
+          return { pid };
+        },
+        getScreenState: async (args) => {
+          const input = args.input as { id: string };
+          return { data: ptyHost.getScreenState(input.id) };
+        },
+        getScreenText: async (args) => {
+          const input = args.input as {
+            id: string;
+            startLine?: number;
+            endLine?: number;
+          };
+          return {
+            text: ptyHost.getScreenText(
+              input.id,
+              input.startLine,
+              input.endLine,
+            ),
+          };
+        },
+      },
+      system: {
+        version: async () => ({
+          contractVersion: AGENT_CONTRACT_VERSION,
+          pkgVersion: pkg.version,
+          pid: process.pid,
+          startedAt: STARTED_AT,
+        }),
+        heartbeat: async () => ({ ts: Date.now() }),
+      },
+    },
+  });
+
+  const rawRouter = implement(agentSurface.contract).router({
+    ...fragment.router,
+  });
+  // biome-ignore lint/suspicious/noExplicitAny: implementSurface's Lazy<Router> spread doesn't match Router<any, T> exactly — runtime shape is valid (same `as any` cast as kolu/server.ts and remote-process-monitor).
+  const router = rawRouter as any;
 
   const server = createServer((socket) => {
     logLine("info", "client connected");
-    const fragment = buildSurfaceImpl();
-    const rawRouter = implement(agentSurface.contract).router({
-      ...fragment.router,
-    });
-    // biome-ignore lint/suspicious/noExplicitAny: implementSurface's Lazy<Router> spread doesn't match Router<any, T> exactly — runtime shape is valid (same `as any` cast as kolu/server.ts and remote-process-monitor).
-    const router = rawRouter as any;
 
     let closed = false;
     const onClose = () => {
