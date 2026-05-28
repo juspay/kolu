@@ -37,13 +37,17 @@ export const COMPACT_ICON_BUTTON_CLASS =
 /** Cards-mode dock right-gutter — Tailwind class string applied to
  *  `RepoSection`'s grid container so the right-aligned columns (time
  *  label, "show all" footer link) sit a consistent distance from the
- *  card's rounded right edge. Mirrors the 24 px left indent (`pl-6`).
+ *  card's rounded right edge. 12 px matches the section-header
+ *  `pr-3` count inset, so every right-aligned element in the dock
+ *  reads on the same vertical line. _The left side stays at 24 px
+ *  (`pl-6`) because row content nests under an outdented section
+ *  header at `pl-3` — the indent is hierarchical, not symmetric._
  *
  *  Paired with `DOCK_CARDS_GUTTER_NEG_CLASS`: any descendant that
  *  bleeds to the dock card's right edge (hover/active row backgrounds,
  *  section-header full-bleed band) cancels this padding with the
  *  negative-margin twin. Move them together. */
-export const DOCK_CARDS_GUTTER_CLASS = "pr-6";
+export const DOCK_CARDS_GUTTER_CLASS = "pr-3";
 
 /** Negative-margin twin of `DOCK_CARDS_GUTTER_CLASS`. Applied to
  *  descendants of `RepoSection` whose background must extend through
@@ -58,7 +62,7 @@ export const DOCK_CARDS_GUTTER_CLASS = "pr-6";
  *  has to stay at the call site because the desktop / mobile rows
  *  legitimately differ (24 px vs. 12 px); the left side does not —
  *  see `DOCK_CARDS_SUBGRID_LEFT_RESTORE`. */
-export const DOCK_CARDS_GUTTER_NEG_CLASS = "-mr-6";
+export const DOCK_CARDS_GUTTER_NEG_CLASS = "-mr-3";
 
 /** Layout-coupling token (not a density token like the rest of this
  *  file): cancel-and-restore the left dock gutter on a

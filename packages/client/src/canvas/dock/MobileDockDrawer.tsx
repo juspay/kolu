@@ -75,13 +75,12 @@ const MobileSection: Component<{
   // alongside the subline, anchored to col 2 left edge so PR icons
   // align across every section.
   //
-  // Mobile keeps a tighter right gutter (`pr-3` / `-mr-3`) than the
-  // desktop dock's `DOCK_CARDS_GUTTER_CLASS` (`pr-6` / `-mr-6`) —
-  // touch rows already pad vertically with `py-3`, and the drawer
-  // hugs the viewport edge rather than floating as a rounded card.
-  // Promote to a `MOBILE_DOCK_GUTTER_CLASS` constant the moment a
-  // second file consumes it; until then the three literal sites here
-  // are colocated within ~70 lines.
+  // Mobile right gutter (`pr-3` / `-mr-3`) happens to match the
+  // desktop `DOCK_CARDS_GUTTER_*` value today, but the two are kept
+  // separate because they encode different volatility — mobile's
+  // tight gutter is a touch-density choice, desktop's is the chrome-
+  // density vocabulary. Promote to a shared `MOBILE_DOCK_GUTTER_*`
+  // constant the moment a second file consumes it.
   <section
     data-testid="mobile-dock-section"
     data-repo={props.group.name}
