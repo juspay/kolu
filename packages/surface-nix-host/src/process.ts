@@ -51,8 +51,8 @@ export function runProgress(
 
 /** Run a child process and buffer its stdout; forward stderr lines to
  *  `onProgress`. Used for `nix-store --realise` (output path on stdout)
- *  and `uname -ms` (system identifier on stdout). Pass no callback for
- *  silent-stderr behaviour. */
+ *  and `nix-instantiate --eval` (system identifier on stdout). Pass no
+ *  callback for silent-stderr behaviour. */
 export function runCapture(
   cmd: string,
   args: readonly string[],

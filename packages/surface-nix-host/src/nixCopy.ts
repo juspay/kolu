@@ -9,8 +9,8 @@
  *   1. Caller passes a `/nix/store/…-agent.drv` path. The package
  *      doesn't care HOW the caller obtained it; `nix eval --raw
  *      .#packages.<system>.<agent>.drvPath` is the typical recipe
- *      (probe the remote arch via `ssh $host uname -ms` first so the
- *      derivation is for the *remote's* architecture).
+ *      (use `resolveSystem(host)` to get the remote's `<system>` first,
+ *      so the derivation is for the *remote's* architecture).
  *   2. `nix copy --derivation --to ssh-ng://$host $drvPath` pushes the
  *      .drv (plus its inputs' .drvs and source paths the remote
  *      doesn't have).

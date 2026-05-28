@@ -47,7 +47,7 @@ The `.drv` ships **build instructions** (platform-neutral) rather than build out
 
 ```
 parent: nix eval --raw .#packages.<remote-system>.<agent>.drvPath
-        └── caller's responsibility — typically depends on `ssh $host uname -ms`
+        └── caller's responsibility — `resolveSystem(host)` gives <remote-system>
 parent: nix copy --derivation --to ssh-ng://$host $drvPath
 remote: nix-store --realise $drvPath  →  /nix/store/...-agent
 parent: ssh $host $agentPath/bin/<binary> --stdio
@@ -68,8 +68,7 @@ Remote-side requirement: the parent's user must be in `trusted-users` in the rem
 | `mirrorRemoteCollection<K,V>(opts)` | Helper: bridge a remote `Collection<K,V>` to a local one — keys stream + per-key value streams, with abort cleanup on key departure. |
 | `waitForNextClient(session, previous)` | Helper for the consumer's reconnect-loop: blocks until the session produces a *fresh* `AgentClient<C>` (post-reconnect). |
 | `buildAgentCommand({ host, agentPath, binary })` | Compute the spawn argv for an agent binary on a given host. Used internally; exported for consumers that need to invoke the agent directly (e.g. one-shot subprocess tests). |
-| `resolveSystem(host)` | Run `uname -ms` against `host` (locally for `isLocalHost`, over `ssh` otherwise) and map the output to a nix-system string. Throws on unsupported uname output. Pairs with a per-system `.drv` map the caller builds at its own build time. |
-| `UNAME_TO_NIX_SYSTEM`, `unameToNixSystem(out)` | The mapping table + pure helper underneath `resolveSystem`. Exported so a consumer can pre-validate its `.drv` map keys against the table at startup. |
+| `resolveSystem(host)` | Ask `host`'s own Nix for `builtins.currentSystem` (`nix-instantiate --eval`, locally for `isLocalHost`, over `ssh` otherwise) and return the nix-system string. No `uname` table to maintain — the host's Nix is the source of truth, and it's already reachable since `provisionAgent` shells `nix-store` on the same PATH. Pairs with a per-system `.drv` map the caller builds at its own build time. |
 | `runCapture(cmd, args, onProgress)`, `runProgress(cmd, args, onProgress)` | Spawn-and-await helpers with consistent close-event-flush semantics. Used internally by `provisionAgent` and `resolveSystem`; exported so consumers can avoid re-rolling the same event-wiring dance. |
 | `isLocalHost(host)`, `forEachLine(chunk, cb)` | Small utilities shared by `nixCopy` and `HostSession`. |
 
@@ -95,7 +94,7 @@ Remote-side requirement: the parent's user must be in `trusted-users` in the rem
 
 ## Computing `drvPath` for the target
 
-The package solves the probe half of this — `resolveSystem(host)` runs `uname -ms` (locally or over `ssh`) and returns a nix-system string. The caller owns the policy of mapping that system to a derivation path; the typical shape is a JSON map baked at build time and looked up at runtime:
+The package solves the probe half of this — `resolveSystem(host)` asks the host's own Nix for `builtins.currentSystem` (locally or over `ssh`) and returns the nix-system string. The caller owns the policy of mapping that system to a derivation path; the typical shape is a JSON map baked at build time and looked up at runtime:
 
 ```ts
 import { resolveSystem, getHostSession } from "@kolu/surface-nix-host";
@@ -124,7 +123,7 @@ const session = getHostSession({
 });
 ```
 
-The bash equivalent (single-host shell scripts, `just dev` recipes) is now a one-liner — `sys=$(ssh "$host" uname -ms)` plus a `case` — but the TypeScript consumer should reach for `resolveSystem` over reimplementing the table. The package still has no opinion on how the `drvBySystem` map gets populated: bake it via `builtins.toJSON` at flake-eval time, load it from a config file, or compute it at runtime — `resolveSystem` works for any of them.
+The bash equivalent for shell-only contexts (`just dev` recipes) is `sys=$(ssh "$host" nix-instantiate --eval --expr builtins.currentSystem)` with the surrounding quotes stripped — but the TypeScript consumer should reach for `resolveSystem`. The package still has no opinion on how the `drvBySystem` map gets populated: bake it via `builtins.toJSON` at flake-eval time, load it from a config file, or compute it at runtime — `resolveSystem` works for any of them.
 
 ## Status
 

@@ -6,11 +6,7 @@
  * public API.
  */
 
-export {
-  resolveSystem,
-  UNAME_TO_NIX_SYSTEM,
-  unameToNixSystem,
-} from "./arch";
+export { resolveSystem } from "./arch";
 export {
   buildAgentCommand,
   buildSshProbeCommand,

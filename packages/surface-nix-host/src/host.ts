@@ -58,8 +58,8 @@ export function buildAgentCommand(opts: {
  *  `ServerAliveInterval` (that flag belongs only on long-lived agent
  *  sessions — see `buildAgentCommand`).
  *
- *  Used for `uname -ms` probes and `nix-store --realise` invocations
- *  that need to round-trip and return. */
+ *  Used for `nix-instantiate --eval` arch probes and `nix-store
+ *  --realise` invocations that need to round-trip and return. */
 export function buildSshProbeCommand(
   host: string,
   ...remoteArgv: readonly [string, ...string[]]

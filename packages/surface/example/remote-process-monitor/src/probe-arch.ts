@@ -3,9 +3,9 @@
  *
  * Thin CLI wrapper around `@kolu/surface-nix-host`'s `resolveSystem`,
  * exposed so the example's `just dev` recipe can do its per-host arch
- * probe without re-implementing the `uname -ms` → nix-system table in
- * bash. Shell stays the right tool for the `just` layer; the table
- * stays the library's responsibility.
+ * probe without shelling `nix-instantiate` + quote-stripping by hand.
+ * Shell stays the right tool for the `just` layer; the probe stays the
+ * library's responsibility.
  */
 
 import { resolveSystem } from "@kolu/surface-nix-host";

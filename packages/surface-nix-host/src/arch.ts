@@ -1,12 +1,26 @@
 /**
- * Detect a remote host's nix-system identifier via `uname -ms`.
+ * Detect a host's nix-system identifier by asking the host's own Nix.
  *
  * The companion piece to `provisionAgent`'s docstring contract: the
  * library deliberately takes one `.drv` per session and ships exactly
  * that, leaving arch selection to the caller. `resolveSystem(host)` is
- * the canonical probe to feed into that selection — one mapping table
- * covers both the local (`uname -ms` directly) and remote
- * (`ssh $host uname -ms`) cases.
+ * the canonical probe to feed that selection — it returns the
+ * nix-system string (`x86_64-linux`, `aarch64-darwin`, …) the caller
+ * keys its per-system `.drv` map on.
+ *
+ * Why ask Nix rather than parse `uname -ms`: the host's own Nix is the
+ * authoritative answer to "what system will this machine build for",
+ * which is exactly the question that decides which agent `.drv` to
+ * realise here. It needs no hand-maintained `uname → nix-system` table
+ * (which silently drifts as platforms are added — Intel Mac, RISC-V, …)
+ * and it stays correct under emulation / cross setups where `uname`
+ * and Nix's `system` disagree.
+ *
+ * Why this is safe to depend on: `provisionAgent` already runs
+ * `nix-store --realise` on the host over the same non-interactive ssh
+ * (see `nixCopy.ts`), so the host's Nix is already a hard requirement
+ * reachable on that PATH — `nix-instantiate` ships in the same
+ * package. The probe adds no dependency the realise step didn't.
  *
  * Typical use, paired with a per-system `.drv` map the caller builds at
  * its own build time:
@@ -15,52 +29,50 @@
  *   const drv = myDrvBySystem[sys];
  *   if (!drv) throw new Error(`${host}: no .drv for ${sys}`);
  *   const session = getHostSession({ host, drvPath: drv, binary });
- *
- * The mapping table lives here (not in the caller) because every kolu
- * consumer that ships agents cross-arch hits the same `uname -ms` →
- * nix-system translation; consolidating it avoids per-consumer copies
- * that drift on additions like Intel Mac or RISC-V.
  */
 
 import { buildSshProbeCommand } from "./host";
 import { runCapture } from "./process";
 
-/** Known `uname -ms` outputs and their nix-system identifiers.
- *  `Darwin x86_64` (Intel Mac) is included for completeness; consumers
- *  that don't bake a `.drv` for it will get a clear "no .drv" error
- *  from their own map lookup rather than a misleading
- *  "unsupported system" from the probe. */
-export const UNAME_TO_NIX_SYSTEM: Readonly<Record<string, string>> = {
-  "Linux x86_64": "x86_64-linux",
-  "Linux aarch64": "aarch64-linux",
-  "Darwin arm64": "aarch64-darwin",
-  "Darwin x86_64": "x86_64-darwin",
-};
+/** Sanity-guard shape for a nix-system identifier: `<cpu>-<os>`, e.g.
+ *  `x86_64-linux`, `aarch64-darwin`. Deliberately NOT a closed
+ *  allow-list — a host reporting a system this library has never seen
+ *  (`riscv64-linux`, …) resolves fine, as long as the caller baked a
+ *  matching `.drv`. The guard only rejects output that clearly isn't a
+ *  system string (empty, a warning line, multi-token noise). */
+const NIX_SYSTEM_RE = /^[a-z0-9_]+-[a-z0-9_]+$/;
 
-/** Pure mapping from `uname -ms` output → nix-system, or `null` for
- *  unsupported. Split from `resolveSystem` so the table can be tested
- *  without spawning `uname`/`ssh`. */
-export function unameToNixSystem(unameOut: string): string | null {
-  return UNAME_TO_NIX_SYSTEM[unameOut.trim()] ?? null;
-}
-
-/** Run `uname -ms` against `host` and return the nix-system identifier.
- *  Throws if the host is reachable but reports a uname this library
- *  doesn't know how to map, or if the probe itself fails (ssh down,
- *  uname missing, etc.). */
+/** Ask `host`'s Nix for its `builtins.currentSystem` and return it.
+ *  Runs locally for `isLocalHost`, over `ssh` otherwise. Throws if the
+ *  probe can't run, or returns something that isn't a nix-system. */
 export async function resolveSystem(host: string): Promise<string> {
-  const { command, args } = buildSshProbeCommand(host, "uname", "-ms");
+  const { command, args } = buildSshProbeCommand(
+    host,
+    "nix-instantiate",
+    "--eval",
+    "--expr",
+    "builtins.currentSystem",
+  );
   const res = await runCapture(command, args);
   if (!res.ok) {
-    throw new Error(`${host}: \`uname -ms\` probe exited ${res.code}`);
-  }
-  const sys = unameToNixSystem(res.stdout);
-  if (sys === null) {
-    const known = Object.keys(UNAME_TO_NIX_SYSTEM)
-      .map((k) => JSON.stringify(k))
-      .join(", ");
     throw new Error(
-      `${host}: unsupported \`uname -ms\` output ${JSON.stringify(res.stdout.trim())} (known: ${known})`,
+      `${host}: \`nix-instantiate --eval builtins.currentSystem\` exited ${res.code}`,
+    );
+  }
+  // nix-instantiate prints the Nix string repr — `"x86_64-linux"\n` —
+  // which is valid JSON for a plain string, so JSON.parse strips the
+  // surrounding quotes.
+  let sys: unknown;
+  try {
+    sys = JSON.parse(res.stdout.trim());
+  } catch {
+    throw new Error(
+      `${host}: could not parse nix-system from probe output ${JSON.stringify(res.stdout.trim())}`,
+    );
+  }
+  if (typeof sys !== "string" || !NIX_SYSTEM_RE.test(sys)) {
+    throw new Error(
+      `${host}: probe returned ${JSON.stringify(sys)}, not a nix-system string`,
     );
   }
   return sys;
