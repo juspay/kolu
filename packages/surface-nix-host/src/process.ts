@@ -1,13 +1,17 @@
-/** Subprocess helpers shared by `provisionAgent` (which runs `nix copy`
- *  / `nix-store --realise`) and `resolveSystem` (which runs `uname -ms`
- *  locally or over ssh). Extracted from `nixCopy.ts` so both consumers
- *  inherit the same close-event-flush semantics — using `"close"`
- *  rather than `"exit"` so the last stdio chunk is guaranteed to drain
- *  before the promise settles.
+/** One-shot fire-and-collect subprocess helpers. The semantics worth
+ *  centralising: use `"close"` (not `"exit"`) so the last stdio chunk
+ *  is guaranteed to drain before the promise settles. Hand-rolling
+ *  that against `node:child_process.spawn` and getting the event
+ *  selection wrong is the failure mode these helpers exist to prevent.
  *
- *  This module is the only place in the package that calls
- *  `child_process.spawn`. Adding a new subprocess use-case should reuse
- *  one of these helpers, not hand-roll a fourth event-wiring dance. */
+ *  Out of scope: the long-lived bidirectional spawn in `hostSession.ts`
+ *  — that subprocess outlives a single round-trip, retains its
+ *  `ChildProcess` handle for SIGTERM teardown, and uses different
+ *  stdio + exit-event semantics. It is a distinct activity, not a
+ *  fourth user of these helpers.
+ *
+ *  New fire-and-collect callers should reach for `runCapture`/
+ *  `runProgress` rather than open-coding a fresh `spawn` dance. */
 
 import { spawn } from "node:child_process";
 import { forEachLine } from "./host";
