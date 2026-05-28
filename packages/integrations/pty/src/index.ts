@@ -7,4 +7,10 @@
  *  string. Only dep on kolu-* is `kolu-shared` (the `Logger` type). */
 
 export { getScreenText, type PtyHandle, spawnPty } from "./pty.ts";
-export { configureNixShellEnv, NIX_ENV_WHITELIST } from "./shell.ts";
+export {
+  cleanEnv,
+  configureNixShellEnv,
+  koluIdentityEnv,
+  NIX_ENV_WHITELIST,
+  prepareShellInit,
+} from "./shell.ts";

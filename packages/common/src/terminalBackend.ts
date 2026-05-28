@@ -98,10 +98,14 @@ export interface TerminalHandle {
   write(data: string): void;
   resize(cols: number, rows: number): void;
   /** Serialized screen state (VT escape sequences) for late-joining
-   *  clients. Empty string when the PTY hasn't produced output yet. */
-  getScreenState(): string;
-  /** Plain text content of the terminal buffer (scrollback + viewport). */
-  getScreenText(startLine?: number, endLine?: number): string;
+   *  clients. Empty string when the PTY hasn't produced output yet.
+   *  Async because remote-backed handles cross a process / network
+   *  boundary to ask the daemon or remote agent; local-backed handles
+   *  return immediately. */
+  getScreenState(): Promise<string>;
+  /** Plain text content of the terminal buffer (scrollback + viewport).
+   *  See `getScreenState` for the async rationale. */
+  getScreenText(startLine?: number, endLine?: number): Promise<string>;
 }
 
 /** Filesystem operations scoped to a backend's host machine. Returns

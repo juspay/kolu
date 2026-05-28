@@ -140,17 +140,17 @@ export const appRouter = t.router({
       const live = getTerminalBackendFor({
         kind: "local",
       }).subscribeTerminalChannel(input.id, "data", signal);
-      const screenState = entry.handle.getScreenState();
+      const screenState = await entry.handle.getScreenState();
       if (screenState) yield screenState;
       for await (const data of live) yield data;
     }),
 
     screenState: t.terminal.screenState.handler(async ({ input }) => {
-      return requireTerminal(input.id).handle.getScreenState();
+      return await requireTerminal(input.id).handle.getScreenState();
     }),
 
     screenText: t.terminal.screenText.handler(async ({ input }) => {
-      return requireTerminal(input.id).handle.getScreenText(
+      return await requireTerminal(input.id).handle.getScreenText(
         input.startLine,
         input.endLine,
       );

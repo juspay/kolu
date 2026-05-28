@@ -207,17 +207,22 @@ class LocalTerminalBackend implements TerminalBackend {
       meta.lastActivityAt = initial.lastActivityAt;
     if (initial?.intent) meta.intent = initial.intent;
 
-    // `PtyHandle` structurally satisfies `TerminalHandle` (write,
-    // resize, getScreenState, getScreenText, pid). The extra methods
-    // `PtyHandle` carries (dispose, process, foregroundPid) are hidden
-    // at the type boundary — `TerminalProcess.handle` is typed as
-    // `TerminalHandle`, so external consumers (router.ts) can't reach
-    // them. Direct assignment instead of a wrap closure avoids
-    // allocating 4 closure-bound delegates per terminal.
+    // `PtyHandle` is sync-shaped; `TerminalHandle` flipped to async in
+    // R-4 prep (remote-backed handles can't return sync screen state
+    // across an RPC). Wrap the four delegates so the kolu-pty path keeps
+    // working until slice 3's daemon-proxy rewrite replaces this entire
+    // branch.
     const entry: TerminalProcess = {
       info: { id, pid: ptyHandle.pid },
       meta,
-      handle: ptyHandle,
+      handle: {
+        pid: ptyHandle.pid,
+        write: (data) => ptyHandle.write(data),
+        resize: (cols, rows) => ptyHandle.resize(cols, rows),
+        getScreenState: () => Promise.resolve(ptyHandle.getScreenState()),
+        getScreenText: (startLine, endLine) =>
+          Promise.resolve(ptyHandle.getScreenText(startLine, endLine)),
+      },
     };
 
     registerTerminal(id, entry);

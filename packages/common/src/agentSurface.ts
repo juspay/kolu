@@ -90,8 +90,6 @@ const SystemHeartbeatOutputSchema = z.object({
 });
 
 export const agentSurface = defineSurface({
-  cells: {},
-  collections: {},
   streams: {
     /** Per-terminal output stream — snapshot then live deltas.
      *  First yield is `{kind:"snapshot", data}` where `data` is the

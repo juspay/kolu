@@ -492,6 +492,9 @@ importers:
       '@kolu/artifact-sdk':
         specifier: workspace:*
         version: link:../artifact-sdk
+      '@kolu/pty-host':
+        specifier: workspace:*
+        version: link:../pty-host
       '@kolu/surface':
         specifier: workspace:*
         version: link:../surface

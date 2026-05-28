@@ -14,6 +14,7 @@
     "@hono/node-server": "^1.19.13",
     "@hono/node-ws": "^1.1.0",
     "@kolu/artifact-sdk": "workspace:*",
+    "@kolu/pty-host": "workspace:*",
     "@kolu/surface": "workspace:*",
     "@orpc/client": "^1.13.13",
     "@orpc/contract": "^1.13.13",
