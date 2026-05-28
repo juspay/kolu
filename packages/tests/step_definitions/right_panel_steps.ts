@@ -178,9 +178,12 @@ Then(
       const dead: { x: number; y: number; covered: string }[] = [];
       for (const yFrac of [0.1, 0.3, 0.5, 0.7, 0.9]) {
         const y = newTileRect.top + newTileRect.height * yFrac;
-        // ::before extends to ±4px (`before:-left-1 before:w-2`); sample
-        // its full extent so the assertion enforces the whole hit zone.
-        for (const dx of [-4, -2, 0, 2, 4]) {
+        // ::before spans [-4, +4) — `before:-left-1` puts its left edge
+        // at -4, `before:w-2` makes it 8px wide, so its painted pixels
+        // run -4..+3 inclusive (right edge at +4 is exclusive per CSS
+        // box geometry). Sample at both inclusive boundaries plus three
+        // interior points so the assertion enforces the full hit zone.
+        for (const dx of [-4, -2, 0, 2, 3]) {
           const x = handleRect.left + dx;
           const el = document.elementFromPoint(x, y);
           const id = el?.getAttribute("data-testid");
