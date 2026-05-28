@@ -32,6 +32,41 @@ function bgLaunch(taskId: string, runId?: string): string {
   });
 }
 
+/** A `user` `tool_result` confirming a backgrounded `Bash` command. The id is
+ *  followed by punctuation, matching the real "… with ID: <id>. Output …". */
+function bashLaunch(id: string): string {
+  return JSON.stringify({
+    type: "user",
+    message: {
+      role: "user",
+      content: [
+        {
+          type: "tool_result",
+          tool_use_id: `tu-${id}`,
+          content: `Command running in background with ID: ${id}. Output is being written to: /tmp/${id}.output.`,
+        },
+      ],
+    },
+  });
+}
+
+/** A `user` `tool_result` confirming a backgrounded `Agent`. */
+function agentLaunch(id: string): string {
+  return JSON.stringify({
+    type: "user",
+    message: {
+      role: "user",
+      content: [
+        {
+          type: "tool_result",
+          tool_use_id: `tu-${id}`,
+          content: `Async agent launched successfully.\nagentId: ${id} (internal ID — do not mention to user.)`,
+        },
+      ],
+    },
+  });
+}
+
 /** A `queue-operation` enqueue carrying a terminal task-notification. */
 function bgComplete(taskId: string, status = "completed"): string {
   return JSON.stringify({
@@ -292,6 +327,14 @@ describe("deriveState", () => {
     });
   });
 
+  it("promotes end_turn to running_background for a backgrounded Bash command", () => {
+    // Regression: a session waiting on a backgrounded Bash (e.g. a long CI
+    // run) must read as working, not as a needs-user `waiting`.
+    expect(deriveState([bashLaunch("b9ezdjva9"), endTurn])).toMatchObject({
+      state: "running_background",
+    });
+  });
+
   it("stays waiting once the outstanding task reports a terminal status", () => {
     expect(
       deriveState([bgLaunch("t1", "wf_1"), bgComplete("t1"), endTurn]),
@@ -356,13 +399,60 @@ describe("outstandingBackgroundTasks", () => {
     ).toEqual([]);
   });
 
-  it.each(["failed", "stopped"])("treats %s as a terminal status", (status) => {
+  it.each([
+    "failed",
+    "stopped",
+    "killed",
+  ])("treats %s as a terminal status", (status) => {
     expect(
       outstandingBackgroundTasks([
         bgLaunch("t1", "wf_1"),
         bgComplete("t1", status),
       ]),
     ).toEqual([]);
+  });
+
+  it("detects a backgrounded Bash launch (runId null), trailing period excluded", () => {
+    // The id is followed by ". Output …"; the period must not be captured or
+    // it wouldn't match the completion's <task-id>.
+    expect(outstandingBackgroundTasks([bashLaunch("b9ezdjva9")])).toEqual([
+      { taskId: "b9ezdjva9", runId: null },
+    ]);
+    expect(
+      outstandingBackgroundTasks([
+        bashLaunch("b9ezdjva9"),
+        bgComplete("b9ezdjva9"),
+      ]),
+    ).toEqual([]);
+  });
+
+  it("detects a backgrounded Agent launch (runId null)", () => {
+    const id = "a6be52c77dea34cba";
+    expect(outstandingBackgroundTasks([agentLaunch(id)])).toEqual([
+      { taskId: id, runId: null },
+    ]);
+    expect(
+      outstandingBackgroundTasks([agentLaunch(id), bgComplete(id, "killed")]),
+    ).toEqual([]);
+  });
+
+  it("does not match a templated/quoted marker in pasted text", () => {
+    // A tool_result echoing source code shouldn't mint a phantom task.
+    const pasted = JSON.stringify({
+      type: "user",
+      message: {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "tu-paste",
+            content:
+              "content: `Workflow launched in background. Task ID: ${taskId}`",
+          },
+        ],
+      },
+    });
+    expect(outstandingBackgroundTasks([pasted])).toEqual([]);
   });
 
   it("keeps a task outstanding when the notification is non-terminal", () => {

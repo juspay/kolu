@@ -310,20 +310,36 @@ export function deriveState(
 
 /** A background task launched from this session: its task ID (from the
  *  `tool_result` confirmation) and, for `Workflow` launches, the run ID used
- *  to locate the on-disk journal. `runId` is null for plain background
- *  `Task`/`Agent` launches, which have no workflow journal. */
+ *  to locate the on-disk journal. `runId` is null for backgrounded `Bash`
+ *  commands and `Task`/`Agent` runs, which have no workflow journal. */
 export interface BackgroundTask {
   taskId: string;
   runId: string | null;
 }
 
-/** Launch confirmation, e.g. "… launched in background. Task ID: wbf9k820n". */
-const BG_LAUNCH_RE = /launched in background\. Task ID: (\S+)/;
-/** Workflow run ID in the same confirmation, e.g. "Run ID: wf_aab876e1-1bc". */
-const BG_RUN_ID_RE = /Run ID: (\S+)/;
-/** Completion notification fields inside a `queue-operation` enqueue. */
+/** Tool-result confirmations that a background task was launched, each paired
+ *  with the regex capturing its task ID. Three tools background work, each
+ *  with its own phrasing, and the captured ID matches the `<task-id>` in the
+ *  eventual completion notification:
+ *   - `Workflow`:            "… launched in background. Task ID: <id>"
+ *   - `Bash` (background):   "Command running in background with ID: <id>"
+ *   - `Agent` (background):  "Async agent launched successfully. agentId: <id>"
+ *  IDs are matched as `[\w-]+` so a templated/quoted marker in pasted code
+ *  (e.g. "Task ID: ${x}") doesn't produce a phantom task, and so the trailing
+ *  punctuation after a Bash ID ("…with ID: abc. Output…") isn't captured. */
+const BG_LAUNCH_RES = [
+  /launched in background\. Task ID: ([\w-]+)/,
+  /Command running in background with ID: ([\w-]+)/,
+  /Async agent launched successfully\.\s*agentId: ([\w-]+)/,
+];
+/** Workflow run ID in the same confirmation ("Run ID: <id>") — only the
+ *  `Workflow` tool emits one; it locates the on-disk journal. */
+const BG_RUN_ID_RE = /Run ID: ([\w-]+)/;
+/** Completion notification fields inside a `queue-operation` enqueue. A task
+ *  can finish `completed`/`failed`/`stopped`, or be `killed` (cancelled). */
 const TASK_ID_TAG_RE = /<task-id>([^<]+)<\/task-id>/;
-const TERMINAL_STATUS_RE = /<status>(?:completed|failed|stopped)<\/status>/;
+const TERMINAL_STATUS_RE =
+  /<status>(?:completed|failed|stopped|killed)<\/status>/;
 
 /** Flatten a `tool_result` block's `content` (a string, or an array of
  *  `{type:"text", text}` blocks) to a single string for marker matching. */
@@ -346,11 +362,13 @@ function toolResultText(content: unknown): string {
 /** Scan the transcript tail for background tasks launched but not yet
  *  reporting a terminal status.
  *
- *  Launch markers live in `user` `tool_result` blocks ("… launched in
- *  background. Task ID: X … Run ID: Y"). Completion markers live in
- *  `queue-operation` entries (`operation: "enqueue"`) whose `content` is a
- *  `<task-notification>` carrying `<task-id>X</task-id>` and a terminal
- *  `<status>`. Outstanding = launched − completed.
+ *  Launch markers live in `user` `tool_result` blocks — one of the three
+ *  `BG_LAUNCH_RES` phrasings (Workflow / backgrounded Bash / backgrounded
+ *  Agent). Completion markers live in `queue-operation` entries
+ *  (`operation: "enqueue"`) whose `content` is a `<task-notification>`
+ *  carrying `<task-id>X</task-id>` and a terminal `<status>`. The launch ID
+ *  and the completion's `<task-id>` are the same token, so
+ *  outstanding = launched − completed.
  *
  *  Bounded by the same tail window as `deriveState`: a launch whose
  *  confirmation has scrolled out of the tail can't be detected. That only
@@ -387,7 +405,11 @@ export function outstandingBackgroundTasks(lines: string[]): BackgroundTask[] {
     for (const block of content) {
       if (!block || block.type !== "tool_result") continue;
       const text = toolResultText(block.content);
-      const taskId = BG_LAUNCH_RE.exec(text)?.[1];
+      let taskId: string | undefined;
+      for (const re of BG_LAUNCH_RES) {
+        taskId = re.exec(text)?.[1];
+        if (taskId) break;
+      }
       if (!taskId) continue;
       launched.set(taskId, BG_RUN_ID_RE.exec(text)?.[1] ?? null);
     }
