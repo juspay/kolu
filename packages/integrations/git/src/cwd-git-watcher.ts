@@ -13,8 +13,8 @@
  * collapse to one OS handle.
  */
 
-import { WATCHER_DEBOUNCE_MS } from "./git-dir.ts";
 import { createDirFilenameWatcher } from "kolu-io";
+import { WATCHER_DEBOUNCE_MS } from "./git-dir.ts";
 
 const cwdGitWatcher = createDirFilenameWatcher({
   resolveDir: (cwd) => cwd,

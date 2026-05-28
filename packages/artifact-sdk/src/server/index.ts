@@ -12,8 +12,8 @@
  *  artifact-sdk wraps it from outside via the middleware seam. */
 
 import type { Hono } from "hono";
-import { decorateHtml } from "./inject";
 import { getSdkBundle } from "./bundle";
+import { decorateHtml } from "./inject";
 
 export interface MountOptions {
   /** Path the SDK bundle is served from. Browser-visible — the URL is

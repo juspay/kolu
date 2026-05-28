@@ -57,7 +57,10 @@
  * `HostSession` for the deferred-heartbeat consumer.
  */
 
-import { type Router, type Context, implement } from "@orpc/server";
+import type { Readable, Writable } from "node:stream";
+import { type Context, implement, type Router } from "@orpc/server";
+import type { StandardRPCHandlerOptions } from "@orpc/server/standard";
+import { StandardRPCHandler } from "@orpc/server/standard";
 // `Router<any, T>` is the exact shape `StandardRPCHandler` expects;
 // matching it avoids needing consumers to re-wrap an `implementSurface`
 // fragment through `implement(contract).router(fragment)`.
@@ -65,10 +68,7 @@ import {
   createServerPeerHandleRequestFn,
   type HandleStandardServerPeerMessageOptions,
 } from "@orpc/server/standard-peer";
-import { StandardRPCHandler } from "@orpc/server/standard";
-import type { StandardRPCHandlerOptions } from "@orpc/server/standard";
 import { ServerPeer } from "@orpc/standard-server-peer";
-import type { Readable, Writable } from "node:stream";
 import { encodeFrame, readFramedLines } from "./links/stdio";
 
 /** Transport override for `serveOverStdio`. Default is `process.stdin`

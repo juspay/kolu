@@ -6,8 +6,8 @@
  *  Used by both the parent-side `useTextSelection` and the in-iframe SDK
  *  (bundled by esbuild at server startup, served from the same source). */
 
-import { extractOffsets } from "./extractOffsets";
 import type { Locator } from "../types";
+import { extractOffsets } from "./extractOffsets";
 
 const CONTEXT_WINDOW = 32;
 

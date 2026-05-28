@@ -8,9 +8,9 @@ export {
   type DebounceWatcher,
   type DebounceWatcherConfig,
 } from "./debounce-watcher.ts";
-export { type Closable, withDb } from "./with-db.ts";
 export {
   createWalSubscription,
   type WalSubscription,
   type WalSubscriptionConfig,
 } from "./wal-subscription.ts";
+export { type Closable, withDb } from "./with-db.ts";

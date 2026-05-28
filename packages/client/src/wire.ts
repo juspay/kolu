@@ -15,10 +15,10 @@
  * consumer reads the same singleton without per-component lookups.
  */
 
+import { surfaceClient } from "@kolu/surface/solid";
 import type { ClientRetryPluginContext } from "@orpc/client/plugins";
 import type { ContractRouterClient } from "@orpc/contract";
-import { surfaceClient } from "@kolu/surface/solid";
-import { contract } from "kolu-common/contract";
+import type { contract } from "kolu-common/contract";
 import {
   DEFAULT_PREFERENCES,
   type Preferences,

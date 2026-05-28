@@ -9,8 +9,8 @@
  *  highlights. */
 
 import type { Locator } from "../types";
-import { findQuote, rangeFromOffsets } from "./findQuote";
 import { rootTextContent } from "./extractQuote";
+import { findQuote, rangeFromOffsets } from "./findQuote";
 
 declare global {
   interface Window {

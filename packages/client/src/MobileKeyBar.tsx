@@ -9,8 +9,8 @@
 
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, For, Show } from "solid-js";
-import { client } from "./wire";
 import { isTouch } from "./useMobile";
+import { client } from "./wire";
 
 interface Key {
   label: string;

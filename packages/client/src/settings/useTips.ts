@@ -8,8 +8,8 @@
 import type { TerminalId } from "kolu-common/surface";
 import { type Accessor, createEffect, createSignal } from "solid-js";
 import { isMobile } from "../useMobile";
-import { AMBIENT_TIPS, type Tip, type TipId } from "./tips";
 import { preferences, updatePreferences } from "../wire";
+import { AMBIENT_TIPS, type Tip, type TipId } from "./tips";
 
 const isPWA = window.matchMedia("(display-mode: standalone)").matches;
 const ambientPool = AMBIENT_TIPS.filter(

@@ -4,8 +4,8 @@
 import { makeEventListener } from "@solid-primitives/event-listener";
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import { type Accessor, createEffect, on } from "solid-js";
-import { isAttentionState } from "./agentState";
 import { preferences } from "../wire";
+import { isAttentionState } from "./agentState";
 import { useStaleCheck } from "./staleness";
 import type { TerminalSubject } from "./terminalSubject";
 import {

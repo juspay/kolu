@@ -14,10 +14,10 @@ import { type Component, createSignal, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import { toast } from "solid-sonner";
 import { match } from "ts-pattern";
-import { useAnchoredPopover } from "../ui/useAnchoredPopover";
-import { WarningIcon } from "../ui/Icons";
 import { writeTextToClipboard } from "../ui/clipboard";
+import { WarningIcon } from "../ui/Icons";
 import { surface } from "../ui/Surface";
+import { useAnchoredPopover } from "../ui/useAnchoredPopover";
 
 const AUTH_COMMAND = "gh auth login -s repo,read:org";
 

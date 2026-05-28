@@ -13,7 +13,6 @@
  *  `TerminalMetaCompact`. */
 
 import { prUnavailableSource, prValue } from "kolu-github/schemas";
-import { prTooltip } from "./prTooltip";
 import { type Component, Show } from "solid-js";
 import { IntentMarkdownInline } from "../intent/IntentMarkdown";
 import { annotationLine } from "../intent/text";
@@ -21,6 +20,7 @@ import { PrStateIcon, WorktreeIcon } from "../ui/Icons";
 import Tip from "../ui/Tip";
 import ChecksIndicator from "./ChecksIndicator";
 import { PrUnavailableButton } from "./PrUnavailablePopover";
+import { prTooltip } from "./prTooltip";
 import type { TerminalDisplayInfo } from "./terminalDisplay";
 
 const TerminalMeta: Component<{

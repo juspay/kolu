@@ -5,9 +5,9 @@
 import Dialog from "@corvu/dialog";
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import { prValue } from "kolu-github/schemas";
-import { prTooltip } from "./terminal/prTooltip";
 import { type Component, Show } from "solid-js";
 import ChecksIndicator from "./terminal/ChecksIndicator";
+import { prTooltip } from "./terminal/prTooltip";
 import { PrStateIcon, WorktreeIcon } from "./ui/Icons";
 import ModalDialog from "./ui/ModalDialog";
 import { surface } from "./ui/Surface";

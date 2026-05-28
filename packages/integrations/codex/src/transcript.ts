@@ -179,7 +179,7 @@ export function codexEnvelopeToUnifiedDiff(text: string): string {
   const lines = text.split("\n");
   const out: string[] = [];
   const isMarker = (l: string | undefined): boolean =>
-    l !== undefined && l.startsWith("*** ");
+    l?.startsWith("*** ") ?? false;
   let i = 0;
   while (i < lines.length) {
     const line = lines[i] ?? "";

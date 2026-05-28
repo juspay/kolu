@@ -19,8 +19,8 @@ import {
   WINDOW_OPTIONS,
   windowOption,
 } from "../terminal/activityWindow";
-import type { AnchorSide } from "./useAnchoredPopover";
 import { OptionMenu } from "./OptionMenu";
+import type { AnchorSide } from "./useAnchoredPopover";
 
 export const ActivityWindowChip: Component<{
   /** Where the popover should open relative to the trigger. Dock footer

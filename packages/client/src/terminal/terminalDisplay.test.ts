@@ -1,5 +1,5 @@
-import type { GitInfo } from "kolu-git/schemas";
 import type { TerminalMetadata } from "kolu-common/surface";
+import type { GitInfo } from "kolu-git/schemas";
 import { describe, expect, it } from "vitest";
 import { assignColors, buildTerminalDisplayInfos } from "./terminalDisplay";
 

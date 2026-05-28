@@ -15,8 +15,8 @@ import { eventIterator, oc } from "@orpc/contract";
 import { implement } from "@orpc/server";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { createLoopbackPair } from "./loopback";
 import { serveOverStdio } from "../peer-server";
+import { createLoopbackPair } from "./loopback";
 import { createStdioCellsClient } from "./stdio";
 
 describe("stdio link over loopback", () => {
