@@ -1,13 +1,13 @@
 import type { AgentInfo, TerminalId } from "kolu-common/surface";
+import { matchesAllTokens, tokenize } from "../search";
 import {
-  type IdleBucket,
   IDLE_BUCKETS,
+  type IdleBucket,
   type IdleBucketKey,
 } from "../terminal/activityWindow";
 import { isAttentionState, isWorkingState } from "../terminal/agentState";
 import type { TerminalDisplayInfo } from "../terminal/terminalDisplay";
 import type { TileLayout } from "./TileLayout";
-import { matchesAllTokens, tokenize } from "../search";
 
 /** Live-terminal source row before a presentation-specific order is applied. */
 export interface DockSourceEntry {

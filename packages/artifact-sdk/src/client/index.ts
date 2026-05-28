@@ -6,27 +6,27 @@
  *    bit-identical across runtimes.
  *  - `bindArtifactSdk` wires the parent ↔ iframe message protocol. */
 
-export { extractQuote, rootTextContent } from "../core/extractQuote";
-export { extractOffsets } from "../core/extractOffsets";
-export {
-  findQuote,
-  rangeFromOffsets,
-  type QuoteMatch,
-} from "../core/findQuote";
 export {
   applyHighlights,
   type HighlightInputComment,
 } from "../core/applyHighlights";
-export { COMMENT_HIGHLIGHT_STYLE_THEMED } from "../core/theme";
+export { extractOffsets } from "../core/extractOffsets";
+export { extractQuote, rootTextContent } from "../core/extractQuote";
 export {
+  findQuote,
+  type QuoteMatch,
+  rangeFromOffsets,
+} from "../core/findQuote";
+export { COMMENT_HIGHLIGHT_STYLE_THEMED } from "../core/theme";
+export type {
+  IframeToParent,
+  Locator,
+  ParentToIframe,
+  SelectionRect,
+  SelectMsg,
+} from "../types";
+export {
+  type BindOptions,
   bindArtifactSdk,
   pushHighlightsTo,
-  type BindOptions,
 } from "./bridge";
-export type {
-  Locator,
-  SelectMsg,
-  SelectionRect,
-  IframeToParent,
-  ParentToIframe,
-} from "../types";

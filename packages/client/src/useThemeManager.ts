@@ -17,8 +17,8 @@ import {
   resolveThemeBgs,
 } from "terminal-themes";
 import { createSharedRoot } from "./createSharedRoot";
-import { client } from "./wire";
 import { useTerminalStore } from "./terminal/useTerminalStore";
+import { client } from "./wire";
 
 function init() {
   const store = useTerminalStore();

@@ -1,8 +1,8 @@
 import { When } from "@cucumber/cucumber";
 import { ACTIVE_TERMINAL, waitForBufferContains } from "../support/buffer.ts";
 import { pollFor } from "../support/poll.ts";
-import { POLL_TIMEOUT } from "../support/world.ts";
 import type { KoluWorld } from "../support/world.ts";
+import { POLL_TIMEOUT } from "../support/world.ts";
 
 type RefClickPoint = { x: number; y: number } | null;
 

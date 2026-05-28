@@ -9,8 +9,8 @@
  *  `packages/artifact-sdk/src/iframe/index.ts`.) */
 
 import type { SelectionRect } from "@kolu/artifact-sdk/client";
-import { Portal } from "solid-js/web";
 import type { Component } from "solid-js";
+import { Portal } from "solid-js/web";
 import { PlusIcon } from "../ui/Icons";
 
 export type SelectionPillProps = {

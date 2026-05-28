@@ -34,10 +34,10 @@ import {
 import { useStaleCheck } from "../terminal/staleness";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { savedSessionSub } from "../wire";
-import Dock from "./dock/Dock";
 import CanvasMinimap from "./CanvasMinimap";
 import CanvasTile, { type CanvasTileMode } from "./CanvasTile";
 import CanvasWatermark from "./CanvasWatermark";
+import Dock from "./dock/Dock";
 import { applyResize, type ResizeDirection } from "./resizeGeometry";
 import type { TileLayout } from "./TileLayout";
 import {

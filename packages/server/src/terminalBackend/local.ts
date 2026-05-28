@@ -40,6 +40,8 @@ import type {
 import { parseAgentCommand } from "anyagent";
 import { claudeCodeProvider } from "kolu-claude-code";
 import { codexProvider } from "kolu-codex";
+import { DEFAULT_SCROLLBACK } from "kolu-common/config";
+import type { AgentInfo, TerminalId, TerminalInfo } from "kolu-common/surface";
 import type {
   PtySpawnOpts,
   TerminalBackend,
@@ -47,9 +49,6 @@ import type {
   TerminalBackendGit,
   TerminalChannelMap,
 } from "kolu-common/terminalBackend";
-import { DEFAULT_SCROLLBACK } from "kolu-common/config";
-import type { AgentInfo, TerminalId, TerminalInfo } from "kolu-common/surface";
-import type { GitDiffMode } from "kolu-git/schemas";
 import {
   type FsListAllOutput,
   type GitDiffOutput,
@@ -63,6 +62,7 @@ import {
   subscribeGitInfo,
   subscribeRepoChange,
 } from "kolu-git";
+import type { GitDiffMode } from "kolu-git/schemas";
 import { subscribeGitHubPr } from "kolu-github";
 import { opencodeProvider } from "kolu-opencode";
 import { type PtyHandle, spawnPty } from "kolu-pty";
@@ -73,7 +73,6 @@ import { koluShellDir } from "../koluRoot.ts";
 import { log } from "../log.ts";
 import { terminalChannels, terminalsDirtyChannel } from "../publisher.ts";
 import { surfaceCtx, unwrapGit } from "../surface.ts";
-import { cleanupTerminalScratch } from "../terminalScratch.ts";
 import {
   drainTerminals,
   getTerminal,
@@ -82,6 +81,7 @@ import {
   type TerminalProcess,
   unregisterTerminal,
 } from "../terminal-registry.ts";
+import { cleanupTerminalScratch } from "../terminalScratch.ts";
 import { shouldBumpRecencyForAgentChange } from "./agentRecency.ts";
 import {
   createMetadata,

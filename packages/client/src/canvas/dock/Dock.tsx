@@ -52,17 +52,14 @@
 
 import { makePersisted } from "@solid-primitives/storage";
 import type { TerminalId } from "kolu-common/surface";
-import { type Component, For, Show, createMemo, createSignal } from "solid-js";
+import { type Component, createMemo, createSignal, For, Show } from "solid-js";
 import { createSharedRoot } from "../../createSharedRoot";
-import { formatTimeAgo } from "../../terminal/staleness";
+import { isPlatformModifier } from "../../input/keyboard";
 import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
 import { annotationLine } from "../../intent/text";
+import { formatTimeAgo } from "../../terminal/staleness";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
-import { HiddenFooter } from "./HiddenFooter";
-import { chipInitials } from "./chipInitials";
-import { PrPip, StatePip, SubCountCell, createDockRowData } from "./RowPips";
-import { rowSubline } from "./rowSubline";
 import {
   DOCK_CARDS_GUTTER_CLASS,
   DOCK_CARDS_GUTTER_NEG_CLASS,
@@ -70,10 +67,13 @@ import {
   RAIL_WIDTH_PX,
 } from "../../ui/chromeSpacing";
 import { ChevronDownIcon, PlusIcon, SearchIcon } from "../../ui/Icons";
-import { isPlatformModifier } from "../../input/keyboard";
 import { useViewPosture } from "../useViewPosture";
+import { chipInitials } from "./chipInitials";
 import type { DockRowBucket } from "./dockRowRanking";
 import type { DockGroup, DockTree } from "./dockTree";
+import { HiddenFooter } from "./HiddenFooter";
+import { createDockRowData, PrPip, StatePip, SubCountCell } from "./RowPips";
+import { rowSubline } from "./rowSubline";
 import { useDockOrder } from "./useDockOrder";
 
 export type DockMode = "rail" | "cards";

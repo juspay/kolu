@@ -14,6 +14,7 @@ import { simpleGit } from "simple-git";
  *  Tracked: juspay/kolu#320 for a proper fix (test seam or polling
  *  fallback in the production watcher path). */
 const SKIP_DARWIN_FSWATCH = process.platform === "darwin";
+
 import {
   afterAll,
   afterEach,
@@ -23,6 +24,15 @@ import {
   expect,
   it,
 } from "vitest";
+import {
+  _resetSharedCwdGitWatchers,
+  _sharedCwdGitWatcherCount,
+} from "./cwd-git-watcher.ts";
+import { WATCHER_DEBOUNCE_MS } from "./git-dir.ts";
+import {
+  _resetSharedHeadWatchers,
+  _sharedHeadWatcherCount,
+} from "./head-watcher.ts";
 import {
   type GitInfo,
   getDiff,
@@ -35,15 +45,6 @@ import {
   watchGitHead,
   worktreeCreate,
 } from "./index.ts";
-import {
-  _resetSharedCwdGitWatchers,
-  _sharedCwdGitWatcherCount,
-} from "./cwd-git-watcher.ts";
-import { WATCHER_DEBOUNCE_MS } from "./git-dir.ts";
-import {
-  _resetSharedHeadWatchers,
-  _sharedHeadWatcherCount,
-} from "./head-watcher.ts";
 
 // --- getDiff: renames ---
 

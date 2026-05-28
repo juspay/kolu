@@ -3,8 +3,8 @@ import { execFileSync } from "node:child_process";
 import { Then, When } from "@cucumber/cucumber";
 import {
   type KoluWorld,
-  WORKSPACE_SWITCHER_ENTRY_SELECTOR,
   POLL_TIMEOUT,
+  WORKSPACE_SWITCHER_ENTRY_SELECTOR,
 } from "../support/world.ts";
 
 When(

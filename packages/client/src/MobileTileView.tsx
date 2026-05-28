@@ -22,8 +22,8 @@
 import Drawer from "@corvu/drawer";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, createSignal, For, type JSX, Show } from "solid-js";
-import MobileChromeSheet from "./MobileChromeSheet";
 import MobileDockDrawer from "./canvas/dock/MobileDockDrawer";
+import MobileChromeSheet from "./MobileChromeSheet";
 import type { WsStatus } from "./rpc/rpc";
 import { TerminalMetaCompact } from "./terminal/TerminalMeta";
 import { useTerminalStore } from "./terminal/useTerminalStore";

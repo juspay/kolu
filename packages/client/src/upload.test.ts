@@ -1,8 +1,8 @@
 import {
   ALLOWED_UPLOAD_EXTENSIONS,
-  MAX_UPLOAD_BYTES,
   extensionOf,
   isAllowedUploadName,
+  MAX_UPLOAD_BYTES,
   rejectionFor,
 } from "kolu-common/upload";
 import { describe, expect, it } from "vitest";

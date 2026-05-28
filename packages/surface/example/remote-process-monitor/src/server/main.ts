@@ -30,10 +30,10 @@
 
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
+import { destroyAllSessions, getHostSession } from "@kolu/surface-nix-host";
 import { RPCHandler } from "@orpc/server/ws";
 import { Hono } from "hono";
 import { WebSocketServer } from "ws";
-import { destroyAllSessions, getHostSession } from "@kolu/surface-nix-host";
 import type { surface } from "../common/surface";
 import { buildRouter } from "./router";
 

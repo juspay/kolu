@@ -93,7 +93,7 @@ Then(
         const ta = document.querySelector(
           '[data-testid="intent-editor-textarea"]',
         ) as HTMLTextAreaElement | null;
-        return ta !== null && ta.value.includes(want);
+        return ta?.value.includes(want);
       },
       expected,
       { timeout: POLL_TIMEOUT },

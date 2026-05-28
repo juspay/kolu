@@ -17,28 +17,28 @@ import {
   on,
   Show,
 } from "solid-js";
-import { toast, Toaster } from "solid-sonner";
+import { Toaster } from "solid-sonner";
 import { match } from "ts-pattern";
 import ChromeBar from "./ChromeBar";
 import CloseConfirm, { type CloseConfirmTarget } from "./CloseConfirm";
 import CommandPalette from "./CommandPalette";
 import "kolu-common/test-hooks";
 import CanvasWatermark from "./canvas/CanvasWatermark";
-import { useCanvasArrange } from "./canvas/useCanvasArrange";
-import { buildWorkspaceEntries } from "./canvas/dockModel";
 import { toggleRailCards } from "./canvas/dock/Dock";
 import { useDockOrder } from "./canvas/dock/useDockOrder";
+import { buildWorkspaceEntries } from "./canvas/dockModel";
 import TerminalCanvas from "./canvas/TerminalCanvas";
 import TileTitleActions from "./canvas/TileTitleActions";
+import { useCanvasArrange } from "./canvas/useCanvasArrange";
 import { createCommands } from "./commands";
 import DiagnosticInfo from "./DiagnosticInfo";
-import IntentEditorDialog from "./intent/IntentEditorDialog";
-import { useIntentEditor } from "./intent/useIntentEditor";
 import EmptyState from "./EmptyState";
 import { exportScrollbackAsPdf } from "./exportScrollbackAsPdf";
 import { exportSessionAsHtml } from "./exportSessionAsHtml";
 import type { ActionContext } from "./input/actions";
 import { useShortcuts } from "./input/useShortcuts";
+import IntentEditorDialog from "./intent/IntentEditorDialog";
+import { useIntentEditor } from "./intent/useIntentEditor";
 import MobileKeyBar from "./MobileKeyBar";
 import MobileTileView from "./MobileTileView";
 import { useRecorder } from "./recorder/useRecorder";
@@ -47,7 +47,6 @@ import Resizable from "@corvu/resizable";
 import RightPanel from "./right-panel/RightPanel";
 import RightPanelDrawer from "./right-panel/RightPanelDrawer";
 import { useRightPanel } from "./right-panel/useRightPanel";
-import { client } from "./wire";
 import { serverProcessId, wsStatus } from "./rpc/rpc";
 import TransportOverlay from "./rpc/TransportOverlay";
 import ShortcutsHelp from "./ShortcutsHelp";
@@ -55,7 +54,6 @@ import { screenshotTerminal } from "./screenshotTerminal";
 import TipBanner from "./settings/TipBanner";
 import { useColorScheme } from "./settings/useColorScheme";
 import { useTips } from "./settings/useTips";
-import { useVisualViewportHeight } from "./useVisualViewportHeight";
 import TerminalContent from "./terminal/TerminalContent";
 import TerminalMeta from "./terminal/TerminalMeta";
 import { useSubPanel } from "./terminal/useSubPanel";
@@ -64,6 +62,8 @@ import ModalDialog, { refocusTerminal } from "./ui/ModalDialog";
 import { surface } from "./ui/Surface";
 import { isMobile } from "./useMobile";
 import { useThemeManager } from "./useThemeManager";
+import { useVisualViewportHeight } from "./useVisualViewportHeight";
+import { client } from "./wire";
 
 const App: Component = () => {
   const { store, crud, session, worktree, alerts } = useTerminals();

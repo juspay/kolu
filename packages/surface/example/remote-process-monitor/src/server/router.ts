@@ -17,7 +17,6 @@
  * keeping its own state for an imperative mutation.
  */
 
-import { implement } from "@orpc/server";
 import {
   type CellStore,
   type Channel,
@@ -32,6 +31,7 @@ import {
   mirrorRemoteCollection,
   waitForNextClient,
 } from "@kolu/surface-nix-host";
+import { implement } from "@orpc/server";
 import {
   type ConnectionInfo,
   type CoreId,

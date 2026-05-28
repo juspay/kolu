@@ -6,8 +6,6 @@ import { randomName } from "memorable-names";
 import type { Accessor, Component } from "solid-js";
 import { batch, createMemo } from "solid-js";
 import { availableThemes } from "terminal-themes";
-import type { DockSourceEntry } from "./canvas/dockModel";
-import WorkspaceGrid from "./canvas/dock/WorkspaceGrid";
 import type {
   PaletteAction,
   PaletteCommand,
@@ -16,6 +14,8 @@ import type {
   PaletteLabel,
   PaletteValueInput,
 } from "./CommandPalette";
+import WorkspaceGrid from "./canvas/dock/WorkspaceGrid";
+import type { DockSourceEntry } from "./canvas/dockModel";
 import {
   ACTIONS,
   type ActionContext,

@@ -16,7 +16,7 @@ import { createSharedRoot } from "../../createSharedRoot";
 import { useStaleCheck } from "../../terminal/staleness";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { rankDockRows } from "./dockRowRanking";
-import { type DockTree, buildDockTree } from "./dockTree";
+import { buildDockTree, type DockTree } from "./dockTree";
 
 export const useDockOrder = createSharedRoot<Accessor<DockTree>>(() => {
   const store = useTerminalStore();
