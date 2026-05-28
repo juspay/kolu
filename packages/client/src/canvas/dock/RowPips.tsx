@@ -153,7 +153,7 @@ export const StatePip: Component<{
       data-pip={variant()}
       title={pipTitle(variant())}
     >
-      <Switch>
+      <Switch fallback={null}>
         <Match when={variant() === "attention"}>
           <span class="w-2 h-2 rounded-full bg-alert animate-pulse ring-4 ring-alert/25" />
         </Match>
