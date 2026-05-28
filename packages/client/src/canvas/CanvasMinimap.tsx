@@ -20,7 +20,7 @@ import {
 } from "./minimapGestures";
 import type { TileLayout } from "./TileLayout";
 import { useTileTheme } from "./useTileTheme";
-import { useCanvasViewport } from "./viewport/useCanvasViewport";
+import { useCanvasViewport } from "@kolu/solid-canvas-viewport";
 import { agentBucket, bucketDescriptor } from "./dockModel";
 
 /** Minimap target dimensions in pixels. */

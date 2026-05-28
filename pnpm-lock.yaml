@@ -73,6 +73,9 @@ importers:
       '@kolu/canvas-layout':
         specifier: workspace:*
         version: link:../canvas-layout
+      '@kolu/solid-canvas-viewport':
+        specifier: workspace:*
+        version: link:../solid-canvas-viewport
       '@kolu/solid-pierre':
         specifier: workspace:*
         version: link:../solid-pierre
@@ -578,6 +581,25 @@ importers:
         version: 4.1.2(@types/node@22.19.15)(vite@6.4.2(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.47.1)(tsx@4.21.0)(yaml@2.8.3))
 
   packages/shared:
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.15
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+
+  packages/solid-canvas-viewport:
+    dependencies:
+      '@kolu/canvas-layout':
+        specifier: workspace:*
+        version: link:../canvas-layout
+      '@solid-primitives/event-listener':
+        specifier: ^2.4.5
+        version: 2.4.5(solid-js@1.9.11)
+      solid-js:
+        specifier: ^1.9.0
+        version: 1.9.11
     devDependencies:
       '@types/node':
         specifier: ^22.0.0

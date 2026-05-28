@@ -49,8 +49,10 @@ import { useCanvasFocus } from "./useCanvasFocus";
 import { usePendingLayouts } from "./usePendingLayouts";
 import { useTileTheme } from "./useTileTheme";
 import { useViewPosture } from "./useViewPosture";
-import { capturePointerGesture } from "./viewport/capturePointerGesture";
-import { useCanvasViewport } from "./viewport/useCanvasViewport";
+import {
+  capturePointerGesture,
+  useCanvasViewport,
+} from "@kolu/solid-canvas-viewport";
 
 const MIN_W = 300;
 const MIN_H = 200;

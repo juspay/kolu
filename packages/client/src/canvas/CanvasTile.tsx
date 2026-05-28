@@ -26,7 +26,7 @@ import {
   tileTitleBarBorder,
 } from "./tileChrome";
 import { DEFAULT_TILE_H, DEFAULT_TILE_W } from "@kolu/canvas-layout";
-import { tileTransformCSS } from "./viewport/coordinates";
+import { tileTransformCSS } from "@kolu/solid-canvas-viewport";
 
 export type { TileTheme };
 
