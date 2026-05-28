@@ -445,13 +445,11 @@ export function deriveWorkflowProgress(
   session: SessionFile,
   outstanding: BackgroundTask[],
 ): ClaudeWorkflow | null {
+  const wfDir = workflowsDirFor(session);
   let fallback: ClaudeWorkflow | null = null;
   for (const task of outstanding) {
     if (!task.runId) continue;
-    const journalPath = path.join(
-      workflowsDirFor(session),
-      `${task.runId}.json`,
-    );
+    const journalPath = path.join(wfDir, `${task.runId}.json`);
     let json: unknown;
     try {
       json = JSON.parse(fs.readFileSync(journalPath, "utf8"));
