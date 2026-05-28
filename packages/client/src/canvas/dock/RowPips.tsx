@@ -86,17 +86,20 @@ export type PipVariant =
   | "idle" // muted small dot
   | "empty"; // parked / none — render nothing
 
+/** Pure A→B bucket-to-pip mapping. TypeScript's required-property check
+ *  on `Record<DockRowBucket, …>` enforces exhaustiveness — adding a new
+ *  bucket variant to `DockRowBucket` causes a compile error here. */
+const BUCKET_TO_PIP: Record<DockRowBucket, PipVariant> = {
+  awaiting: "awaiting",
+  working: "working",
+  idle: "idle",
+  parked: "empty",
+  none: "empty",
+};
+
 export function pipVariant(bucket: DockRowBucket, unread: boolean): PipVariant {
   if (unread) return "attention";
-  if (bucket === "awaiting") return "awaiting";
-  if (bucket === "working") return "working";
-  if (bucket === "idle") return "idle";
-  if (bucket === "parked" || bucket === "none") return "empty";
-  // Exhaustiveness fence — a future DockRowBucket literal must add an
-  // explicit arm above. Mirrors the `state satisfies never` pattern in
-  // `dockModel.ts` so a new bucket can't silently map to "empty".
-  bucket satisfies never;
-  return "empty";
+  return BUCKET_TO_PIP[bucket];
 }
 
 /** Inline PR pip — leading glyph on row line 2. Caller controls
