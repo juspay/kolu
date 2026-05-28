@@ -3,10 +3,10 @@
  * hand-listed raw oRPC handlers (terminal lifecycle, attach, git
  * mutations, server info).
  *
- * The typed reactive layer goes through `surfaceRouter` / `surfaceCtx`
- * (see `./surface.ts`). Domain mutations import `surfaceCtx` directly
- * from there. This file is just the glue between the surface fragment
- * and the raw RPCs.
+ * The typed reactive layer goes through `surfaceRouter` (from `./surface.ts`)
+ * and `surfaceCtx` (from `./surfaceCtx.ts`). Domain mutations import
+ * `surfaceCtx` from `./surfaceCtx.ts` directly. This file is just the glue
+ * between the surface fragment and the raw RPCs.
  */
 
 import { ORPCError } from "@orpc/server";
