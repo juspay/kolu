@@ -368,7 +368,7 @@ body {
   border: 2px solid var(--color-accent);
   pointer-events: none;
 }
-/* Unread badge — same alert colour the cards-mode unread dot uses. */
+/* Unread badge — alert colour (same as the cards-mode attention pip). */
 .dock-rail-chip[data-unread]::after {
   content: "";
   position: absolute;

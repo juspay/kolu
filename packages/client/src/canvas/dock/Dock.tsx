@@ -16,12 +16,14 @@
  *     the two modes share one repo-identity vocabulary.
  *  2. **cards** (default) — rows grouped by repo. Each repo gets a
  *     small section header (uppercase name + repo-colored swatch +
- *     row count); rows below stack as `branch · pips · time` lines.
- *     The agent-kind pip carries state directly via colour + cadence
- *     (busy + pulse/spin for `working`, warning + pulse for
- *     `awaiting`), so a single icon does double duty as "which
- *     agent" + "what is it doing now" — no redundant status dot.
- *     PR pip is a link to the PR with the live checks verdict in its
+ *     row count); rows below stack as `state · branch · pips · time`
+ *     lines. The first-column **state pip** (`StatePip`) encodes
+ *     urgency by shape: filled orange disk + pulse for unread
+ *     attention, dim small disk for already-seen awaiting, hollow
+ *     spinning ring for working, muted dot for idle, nothing for
+ *     parked/none. Agent kind is not surfaced here — it lives on
+ *     the terminal title bar where there's room. PR pip is a link
+ *     to the PR with the live checks verdict in its
  *     tooltip; the sub-terminal chip surfaces when there are nested
  *     terminals. The active row gets a quiet highlight
  *     (`bg-surface-2` + 3 px accent left-edge stripe); row geometry
