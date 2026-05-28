@@ -7,8 +7,79 @@ import {
   deriveTaskProgress,
   encodeProjectPath,
   extractTasks,
+  outstandingBackgroundTasks,
   tailJsonlLines,
 } from "./core.ts";
+
+// --- Shared fixtures for dynamic-workflow background-task entries ---
+
+/** A `user` `tool_result` confirming a background launch. Omit `runId` to
+ *  model a plain background `Task`/`Agent` (no workflow journal). */
+function bgLaunch(taskId: string, runId?: string): string {
+  const runLine = runId ? `\nRun ID: ${runId}` : "";
+  return JSON.stringify({
+    type: "user",
+    message: {
+      role: "user",
+      content: [
+        {
+          type: "tool_result",
+          tool_use_id: `tu-${taskId}`,
+          content: `Workflow launched in background. Task ID: ${taskId}\nTranscript dir: /x/subagents/workflows/${runId ?? "none"}${runLine}`,
+        },
+      ],
+    },
+  });
+}
+
+/** A `user` `tool_result` confirming a backgrounded `Bash` command. The id is
+ *  followed by punctuation, matching the real "… with ID: <id>. Output …". */
+function bashLaunch(id: string): string {
+  return JSON.stringify({
+    type: "user",
+    message: {
+      role: "user",
+      content: [
+        {
+          type: "tool_result",
+          tool_use_id: `tu-${id}`,
+          content: `Command running in background with ID: ${id}. Output is being written to: /tmp/${id}.output.`,
+        },
+      ],
+    },
+  });
+}
+
+/** A `user` `tool_result` confirming a backgrounded `Agent`. */
+function agentLaunch(id: string): string {
+  return JSON.stringify({
+    type: "user",
+    message: {
+      role: "user",
+      content: [
+        {
+          type: "tool_result",
+          tool_use_id: `tu-${id}`,
+          content: `Async agent launched successfully.\nagentId: ${id} (internal ID — do not mention to user.)`,
+        },
+      ],
+    },
+  });
+}
+
+/** A `queue-operation` enqueue carrying a terminal task-notification. */
+function bgComplete(taskId: string, status = "completed"): string {
+  return JSON.stringify({
+    type: "queue-operation",
+    operation: "enqueue",
+    content: `<task-notification>\n<task-id>${taskId}</task-id>\n<status>${status}</status>\n</task-notification>`,
+  });
+}
+
+const endTurn = JSON.stringify({
+  type: "assistant",
+  message: { stop_reason: "end_turn", model: "claude-opus-4-6" },
+});
 
 describe("deriveState", () => {
   it("returns null for empty lines", () => {
@@ -245,6 +316,199 @@ describe("deriveState", () => {
       contextTokens: null,
     });
   });
+
+  // --- Dynamic-workflow: running_background promotion ---
+
+  it("promotes end_turn to running_background when a launched task is outstanding", () => {
+    // The agent yielded its turn (end_turn) but a background workflow it
+    // launched has no completion yet — it is busy-waiting, not awaiting user.
+    expect(deriveState([bgLaunch("t1", "wf_1"), endTurn])).toMatchObject({
+      state: "running_background",
+    });
+  });
+
+  it("promotes end_turn to running_background for a backgrounded Bash command", () => {
+    // Regression: a session waiting on a backgrounded Bash (e.g. a long CI
+    // run) must read as working, not as a needs-user `waiting`.
+    expect(deriveState([bashLaunch("b9ezdjva9"), endTurn])).toMatchObject({
+      state: "running_background",
+    });
+  });
+
+  it("stays waiting once the outstanding task reports a terminal status", () => {
+    expect(
+      deriveState([bgLaunch("t1", "wf_1"), bgComplete("t1"), endTurn]),
+    ).toMatchObject({ state: "waiting" });
+  });
+
+  it("stays waiting on end_turn with no background task", () => {
+    expect(deriveState([endTurn])).toMatchObject({ state: "waiting" });
+  });
+
+  it("does not promote a tool_use turn even with an outstanding task", () => {
+    // tool_use already reads as working; only the bare end_turn was the
+    // misclassified case.
+    const toolUse = JSON.stringify({
+      type: "assistant",
+      message: { stop_reason: "tool_use", model: "claude-opus-4-6" },
+    });
+    expect(deriveState([bgLaunch("t1", "wf_1"), toolUse])).toMatchObject({
+      state: "tool_use",
+    });
+  });
+
+  it("honors a precomputed outstanding set passed by the caller", () => {
+    expect(
+      deriveState([endTurn], [{ taskId: "t1", runId: "wf_1" }]),
+    ).toMatchObject({ state: "running_background" });
+  });
+
+  it("ignores unknown/new entry types and reads state from the assistant turn", () => {
+    // Entry types introduced alongside dynamic workflows must not crash the
+    // parser or shift classification.
+    const noise = [
+      JSON.stringify({ type: "mode", mode: "normal" }),
+      JSON.stringify({ type: "permission-mode", permissionMode: "default" }),
+      JSON.stringify({ type: "last-prompt", lastPrompt: "hi" }),
+      JSON.stringify({ type: "attachment" }),
+      JSON.stringify({ type: "file-history-snapshot" }),
+    ];
+    expect(deriveState([...noise, endTurn, ...noise])).toMatchObject({
+      state: "waiting",
+      model: "claude-opus-4-6",
+    });
+  });
+});
+
+describe("outstandingBackgroundTasks", () => {
+  it("captures task ID and workflow run ID from a launch confirmation", () => {
+    expect(outstandingBackgroundTasks([bgLaunch("t1", "wf_1")])).toEqual([
+      { taskId: "t1", runId: "wf_1" },
+    ]);
+  });
+
+  it("reports runId null for a plain background task (no Run ID line)", () => {
+    expect(outstandingBackgroundTasks([bgLaunch("t1")])).toEqual([
+      { taskId: "t1", runId: null },
+    ]);
+  });
+
+  it("drops a task once a terminal-status notification arrives", () => {
+    expect(
+      outstandingBackgroundTasks([bgLaunch("t1", "wf_1"), bgComplete("t1")]),
+    ).toEqual([]);
+  });
+
+  it.each([
+    "failed",
+    "stopped",
+    "killed",
+  ])("treats %s as a terminal status", (status) => {
+    expect(
+      outstandingBackgroundTasks([
+        bgLaunch("t1", "wf_1"),
+        bgComplete("t1", status),
+      ]),
+    ).toEqual([]);
+  });
+
+  it("detects a backgrounded Bash launch (runId null), trailing period excluded", () => {
+    // The id is followed by ". Output …"; the period must not be captured or
+    // it wouldn't match the completion's <task-id>.
+    expect(outstandingBackgroundTasks([bashLaunch("b9ezdjva9")])).toEqual([
+      { taskId: "b9ezdjva9", runId: null },
+    ]);
+    expect(
+      outstandingBackgroundTasks([
+        bashLaunch("b9ezdjva9"),
+        bgComplete("b9ezdjva9"),
+      ]),
+    ).toEqual([]);
+  });
+
+  it("detects a backgrounded Agent launch (runId null)", () => {
+    const id = "a6be52c77dea34cba";
+    expect(outstandingBackgroundTasks([agentLaunch(id)])).toEqual([
+      { taskId: id, runId: null },
+    ]);
+    expect(
+      outstandingBackgroundTasks([agentLaunch(id), bgComplete(id, "killed")]),
+    ).toEqual([]);
+  });
+
+  it("does not match a templated/quoted marker in pasted text", () => {
+    // A tool_result echoing source code shouldn't mint a phantom task.
+    const pasted = JSON.stringify({
+      type: "user",
+      message: {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "tu-paste",
+            content:
+              "content: `Workflow launched in background. Task ID: ${taskId}`",
+          },
+        ],
+      },
+    });
+    expect(outstandingBackgroundTasks([pasted])).toEqual([]);
+  });
+
+  it("keeps a task outstanding when the notification is non-terminal", () => {
+    expect(
+      outstandingBackgroundTasks([
+        bgLaunch("t1", "wf_1"),
+        bgComplete("t1", "running"),
+      ]),
+    ).toEqual([{ taskId: "t1", runId: "wf_1" }]);
+  });
+
+  it("ignores queue-operation dequeue entries", () => {
+    const dequeue = JSON.stringify({
+      type: "queue-operation",
+      operation: "dequeue",
+    });
+    expect(
+      outstandingBackgroundTasks([bgLaunch("t1", "wf_1"), dequeue]),
+    ).toEqual([{ taskId: "t1", runId: "wf_1" }]);
+  });
+
+  it("tracks multiple tasks independently", () => {
+    expect(
+      outstandingBackgroundTasks([
+        bgLaunch("t1", "wf_1"),
+        bgLaunch("t2", "wf_2"),
+        bgComplete("t1"),
+      ]),
+    ).toEqual([{ taskId: "t2", runId: "wf_2" }]);
+  });
+
+  it("reads launch markers from array-form tool_result content", () => {
+    // tool_result.content can be a string or an array of text blocks; the
+    // marker must be found in both forms.
+    const line = JSON.stringify({
+      type: "user",
+      message: {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "tu",
+            content: [
+              {
+                type: "text",
+                text: "Workflow launched in background. Task ID: t9\nRun ID: wf_9",
+              },
+            ],
+          },
+        ],
+      },
+    });
+    expect(outstandingBackgroundTasks([line])).toEqual([
+      { taskId: "t9", runId: "wf_9" },
+    ]);
+  });
 });
 
 describe("encodeProjectPath", () => {
@@ -480,5 +744,82 @@ describe("deriveTaskProgress", () => {
       ["4", "pending"],
     ]);
     expect(deriveTaskProgress(tasks)).toEqual({ total: 4, completed: 2 });
+  });
+});
+
+describe("deriveWorkflowProgress", () => {
+  let tmpDir: string;
+  let deriveWorkflowProgressFn: typeof import("./index.ts").deriveWorkflowProgress;
+  const cwd = "/home/user/project";
+  const sessionId = "sess-1";
+
+  function writeJournal(runId: string, body: Record<string, unknown>): void {
+    const dir = path.join(
+      tmpDir,
+      encodeProjectPath(cwd),
+      sessionId,
+      "workflows",
+    );
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, `${runId}.json`), JSON.stringify(body));
+  }
+
+  beforeAll(async () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "claude-wf-test-"));
+    process.env.KOLU_CLAUDE_PROJECTS_DIR = tmpDir;
+    vi.resetModules();
+    const mod = await import("./index.ts");
+    deriveWorkflowProgressFn = mod.deriveWorkflowProgress;
+  });
+
+  afterAll(() => {
+    delete process.env.KOLU_CLAUDE_PROJECTS_DIR;
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  const session = () => ({ pid: 1, sessionId, cwd });
+
+  it("reads name, status, and agent count from the run journal", () => {
+    writeJournal("wf_run", {
+      workflowName: "deep-research",
+      status: "running",
+      agentCount: 12,
+    });
+    expect(
+      deriveWorkflowProgressFn(session(), [{ taskId: "t1", runId: "wf_run" }]),
+    ).toEqual({ name: "deep-research", status: "running", agents: 12 });
+  });
+
+  it("returns null for a task with no run ID (plain background task)", () => {
+    expect(
+      deriveWorkflowProgressFn(session(), [{ taskId: "t1", runId: null }]),
+    ).toBeNull();
+  });
+
+  it("returns null when the journal file is missing", () => {
+    expect(
+      deriveWorkflowProgressFn(session(), [
+        { taskId: "t1", runId: "wf_absent" },
+      ]),
+    ).toBeNull();
+  });
+
+  it("prefers a running journal over a completed one", () => {
+    writeJournal("wf_done", {
+      workflowName: "a",
+      status: "completed",
+      agentCount: 3,
+    });
+    writeJournal("wf_live", {
+      workflowName: "b",
+      status: "running",
+      agentCount: 7,
+    });
+    expect(
+      deriveWorkflowProgressFn(session(), [
+        { taskId: "t1", runId: "wf_done" },
+        { taskId: "t2", runId: "wf_live" },
+      ]),
+    ).toMatchObject({ name: "b", status: "running" });
   });
 });

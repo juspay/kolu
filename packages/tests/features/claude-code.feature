@@ -59,6 +59,12 @@ Feature: Claude Code status detection
     Then the tile chrome should show task progress "3/5"
     And there should be no page errors
 
+  Scenario: Tile chrome shows running-in-background state with workflow fan-out
+    When a Claude Code session is mocked with state "running_background"
+    Then the tile chrome should show an agent indicator with state "running_background"
+    And the tile chrome should show workflow badge "deep-research"
+    And there should be no page errors
+
   Scenario: Claude Code indicator disappears when session ends
     When a Claude Code session is mocked with state "thinking"
     Then the tile chrome should show an agent indicator with state "thinking"

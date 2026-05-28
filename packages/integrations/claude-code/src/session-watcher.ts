@@ -15,17 +15,47 @@ import { match } from "ts-pattern";
 import {
   deriveState,
   deriveTaskProgress,
+  deriveWorkflowProgress,
   encodeProjectPath,
   extractTasks,
   fetchSessionSummary,
   findTranscriptPath,
+  outstandingBackgroundTasks,
   PROJECTS_DIR,
   type SessionFile,
   TAIL_BYTES,
   tailJsonlLines,
   watchOrWaitForDir,
+  workflowsDirFor,
 } from "./core.ts";
-import type { ClaudeCodeInfo } from "./schemas.ts";
+import type { ClaudeCodeInfo, ClaudeWorkflow } from "./schemas.ts";
+
+/** Change-gate for `ClaudeCodeInfo`. `agentInfoEqual` only compares the
+ *  shared AgentInfo shape (state, model, summary, tokens, taskProgress); the
+ *  Claude-only `workflow` field rides alongside, so its updates (e.g. the
+ *  fan-out `agents` count climbing) would be dropped without comparing it
+ *  here. Kept in this package rather than forking the shared comparator —
+ *  the shared comparator stays integration-agnostic by design.
+ *
+ *  Maintenance contract: every Claude-specific field added to
+ *  `ClaudeCodeInfo` beyond the shared shape MUST be compared here too, or its
+ *  updates are silently dropped by the change gate (stale watcher state, no
+ *  error). `workflow` is the first such field. */
+function claudeInfoEqual(
+  a: ClaudeCodeInfo | null,
+  b: ClaudeCodeInfo | null,
+): boolean {
+  return agentInfoEqual(a, b) && workflowEqual(a?.workflow, b?.workflow);
+}
+
+function workflowEqual(
+  a: ClaudeWorkflow | null | undefined,
+  b: ClaudeWorkflow | null | undefined,
+): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return a.name === b.name && a.status === b.status && a.agents === b.agents;
+}
 
 // --- Tuning constants ---
 
@@ -109,6 +139,10 @@ export function createSessionWatcher(
   // Trailing-edge debounce timer for transcript fs.watch events.
   // Null when idle. Cleared on destroy.
   let transcriptDebounceTimer: NodeJS.Timeout | null = null;
+  // Watcher over the per-session `workflows/` dir (dynamic-workflow journals).
+  // Journals update while the agent is busy-waiting and the transcript is
+  // otherwise quiet, so this keeps the fan-out count live. Null until set up.
+  let workflowsDirWatcher: (() => void) | null = null;
 
   let destroyed = false;
 
@@ -192,7 +226,8 @@ export function createSessionWatcher(
     if (transcriptWatching.kind !== "watching") return;
 
     const lines = tailJsonlLines(transcriptWatching.path, TAIL_BYTES);
-    const derived = deriveState(lines);
+    const outstanding = outstandingBackgroundTasks(lines);
+    const derived = deriveState(lines, outstanding);
     if (!derived) {
       plog.debug(
         { path: transcriptWatching.path },
@@ -203,6 +238,15 @@ export function createSessionWatcher(
 
     scanTasksIncremental(transcriptWatching.path);
 
+    // Only read journals when the agent is actually busy-waiting on a
+    // background task — keeps the common path off the (potentially large)
+    // journal files. Recomputed here (not change-gated) so a climbing
+    // fan-out count refreshes via the workflows-dir watcher below.
+    const workflow =
+      derived.state === "running_background"
+        ? deriveWorkflowProgress(session, outstanding)
+        : null;
+
     const info: ClaudeCodeInfo = {
       kind: "claude-code",
       state: derived.state,
@@ -211,9 +255,10 @@ export function createSessionWatcher(
       summary: lastSummary,
       taskProgress: deriveTaskProgress(taskMap),
       contextTokens: derived.contextTokens,
+      workflow,
     };
 
-    if (!agentInfoEqual(info, lastInfo)) {
+    if (!claudeInfoEqual(info, lastInfo)) {
       plog.debug(
         { state: info.state, model: info.model, session: info.sessionId },
         "claude code state updated",
@@ -311,8 +356,22 @@ export function createSessionWatcher(
     }
   }
 
+  /** Watch the per-session `workflows/` dir so journal updates (fan-out
+   *  count climbing, status flipping to completed) re-derive state even when
+   *  the transcript itself is quiet. Routed through the same debounced check
+   *  as transcript events. `watchOrWaitForDir` handles the dir not existing
+   *  yet (created lazily on the first `Workflow` launch). */
+  function setupWorkflowsWatching() {
+    workflowsDirWatcher = watchOrWaitForDir(
+      workflowsDirFor(session),
+      () => scheduleTranscriptCheck(),
+      plog,
+    );
+  }
+
   // --- Start watching ---
   setupTranscriptWatching();
+  setupWorkflowsWatching();
 
   return {
     session,
@@ -324,6 +383,8 @@ export function createSessionWatcher(
         transcriptDebounceTimer = null;
       }
       teardownTranscriptWatching();
+      workflowsDirWatcher?.();
+      workflowsDirWatcher = null;
     },
   };
 }

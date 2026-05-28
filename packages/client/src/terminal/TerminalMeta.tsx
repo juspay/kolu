@@ -16,6 +16,7 @@ import { prUnavailableSource, prValue } from "kolu-github/schemas";
 import { type Component, Show } from "solid-js";
 import { IntentMarkdownInline } from "../intent/IntentMarkdown";
 import { annotationLine } from "../intent/text";
+import { agentWorkflow } from "../ui/agentDisplay";
 import { PrStateIcon, WorktreeIcon } from "../ui/Icons";
 import Tip from "../ui/Tip";
 import ChecksIndicator from "./ChecksIndicator";
@@ -72,6 +73,11 @@ const TerminalMeta: Component<{
                 >
                   {fg().title ?? fg().name}
                 </span>
+              )}
+            </Show>
+            <Show when={agentWorkflow(info().meta.agent)}>
+              {(wf) => (
+                <AgentWorkflowBadge name={wf().name} agents={wf().agents} />
               )}
             </Show>
             <Show when={info().meta.agent?.taskProgress}>
@@ -246,6 +252,22 @@ const WorktreeBadge: Component = () => (
   >
     <WorktreeIcon />
   </span>
+);
+
+/** Dynamic-workflow fan-out indicator: the background workflow's name and
+ *  the count of sub-agents it has spawned so far. Shown while the agent is
+ *  busy-waiting on the workflow (state `running_background`). */
+const AgentWorkflowBadge: Component<{ name: string; agents: number }> = (
+  props,
+) => (
+  <div
+    data-testid="agent-workflow-badge"
+    class="ml-auto flex items-center gap-1 shrink-0 text-[0.65rem] text-fg-2"
+    title={`Background workflow "${props.name}" · ${props.agents} sub-agents`}
+  >
+    <span class="truncate max-w-24">{props.name}</span>
+    <span class="tabular-nums text-fg-3">{props.agents}▸</span>
+  </div>
 );
 
 const AgentTaskProgress: Component<{ completed: number; total: number }> = (

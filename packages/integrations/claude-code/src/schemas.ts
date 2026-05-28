@@ -14,6 +14,22 @@ import { z } from "zod";
 export type { TaskProgress } from "anyagent";
 export { TaskProgressSchema };
 
+/** Dynamic-workflow fan-out progress, read from the run journal on disk
+ *  (`<session>/workflows/<runId>.json`). Populated only while the agent is
+ *  busy-waiting on a background `Workflow` task (state `running_background`);
+ *  null otherwise. Claude-Code-specific — Codex/OpenCode have no analogue,
+ *  so this field lives on `ClaudeCodeInfo` alone rather than the shared shape. */
+export const ClaudeWorkflowSchema = z.object({
+  /** Workflow name from the journal (e.g. "deep-research"). */
+  name: z.string(),
+  /** Journal lifecycle status (e.g. "running", "completed", "failed"). */
+  status: z.string(),
+  /** Total sub-agents spawned so far (journal `agentCount`) — the fan-out count. */
+  agents: z.number(),
+});
+
+export type ClaudeWorkflow = z.infer<typeof ClaudeWorkflowSchema>;
+
 export const ClaudeCodeInfoSchema = z.object({
   kind: z.literal("claude-code"),
   /** Current state derived from session JSONL.
@@ -24,8 +40,20 @@ export const ClaudeCodeInfoSchema = z.object({
    *    Agent SDK buffers `requiresUserInteraction` tools' assistant messages
    *    until the user resolves them — the `tool_use` block isn't on disk
    *    while the prompt is pending, so this case never fires under the
-   *    current SDK. Fix tracked in #905 (PreToolUse hook side-channel). */
-  state: z.enum(["thinking", "tool_use", "waiting", "awaiting_user"]),
+   *    current SDK. Fix tracked in #905 (PreToolUse hook side-channel).
+   *  - `running_background`: the agent ended its turn (`end_turn`) while a
+   *    background task it launched (a dynamic `Workflow`, a backgrounded
+   *    `Bash` command, or a background `Task`/`Agent`) is still running.
+   *    Without this the end-of-turn would read as `waiting` (needs-user); the
+   *    agent is actually busy-waiting on the background task.
+   *    Claude-Code-specific — see `deriveState`. */
+  state: z.enum([
+    "thinking",
+    "tool_use",
+    "waiting",
+    "awaiting_user",
+    "running_background",
+  ]),
   /** Session UUID from ~/.claude/sessions/. */
   sessionId: z.string(),
   /** Model name if available (e.g. "claude-opus-4-6"). */
@@ -36,6 +64,12 @@ export const ClaudeCodeInfoSchema = z.object({
   /** Task checklist progress derived from TaskCreate/TaskUpdate tool calls in the transcript.
    *  null when no tasks have been created in the session. */
   taskProgress: TaskProgressSchema.nullable(),
+  /** Fan-out progress of the background `Workflow` the agent is waiting on,
+   *  read from its run journal. Distinct from `taskProgress` (the in-session
+   *  TaskCreate/TaskUpdate checklist) — these are two different concepts and
+   *  are kept as separate fields. null unless `state` is `running_background`
+   *  and the outstanding task is a `Workflow` with an on-disk journal. */
+  workflow: ClaudeWorkflowSchema.nullable(),
   /** Running context-window token count: sum of input + cache_creation +
    *  cache_read on the latest assistant entry's `message.usage`. Null when
    *  the transcript has no assistant entries yet, or the entry lacks usage

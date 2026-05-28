@@ -26,7 +26,24 @@ export const stateLabels: Record<AgentInfo["state"], string> = {
   tool_use: "Running tools",
   waiting: "Waiting for input",
   awaiting_user: "Awaiting input",
+  running_background: "Running in background",
 };
+
+/** Claude-Code's dynamic-workflow fan-out info, or null. Narrows the
+ *  `AgentInfo` union: only the `claude-code` member carries `workflow`.
+ *  Centralized here so the inspector and the canvas meta row read it the
+ *  same way without re-deriving the kind check.
+ *
+ *  Also gates on `running_background`, the only state the field is meaningful
+ *  in. This is the single read choke-point for the "`workflow` is non-null
+ *  only while `running_background`" invariant — enforcing it here keeps a
+ *  stale or mis-set field from ever rendering a badge in the wrong state,
+ *  without nesting a second discriminant into the shared `AgentInfo` union. */
+export function agentWorkflow(agent: AgentInfo | null | undefined) {
+  return agent?.kind === "claude-code" && agent.state === "running_background"
+    ? agent.workflow
+    : null;
+}
 
 /** Resolve the icon for a raw agent command string (e.g. `"claude --model
  *  sonnet"`). Returns `undefined` for detection-only agents that have no

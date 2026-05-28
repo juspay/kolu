@@ -24,6 +24,9 @@ const stateConfig: Record<
   tool_use: { color: BUSY_COLOR, animation: "animate-spin" },
   waiting: { color: "text-alert", animation: "animate-pulse" },
   awaiting_user: { color: "text-alert", animation: "animate-pulse" },
+  // Busy, not awaiting: the agent is working in a background task, so use
+  // the busy treatment rather than the alert color reserved for needs-user.
+  running_background: { color: BUSY_COLOR, animation: "animate-spin" },
 };
 
 /** "47392" → "47K", "1183456" → "1.2M". Single call site; no helper module
