@@ -39,6 +39,8 @@ import type { GitInfo } from "kolu-git/schemas";
 import { subscribeGitHubPr } from "kolu-github";
 import type {
   AgentInfo,
+  LiveTerminalFields,
+  ServerPersistedTerminalFields,
   TerminalId,
   TerminalServerMetadata,
 } from "kolu-common/surface";
@@ -77,18 +79,23 @@ export interface ProviderChannels {
 }
 
 /** Host hooks — the providers call these to update metadata + emit
- *  side effects. The parent backend wires through
- *  `updateServerMetadata`/`updateServerLiveMetadata` (which publish
- *  via surfaceCtx). A future agent host wires through its own publish
- *  surface. */
+ *  side effects. The mutator parameter types are narrowed to the two
+ *  halves of the persisted-vs-live partition (the same fence
+ *  `metadata.ts` enforces): writing `m.agent` through
+ *  `updateServerMetadata` is a compile error, so the
+ *  `terminals:dirty` autosave firehose can't be reintroduced by a new
+ *  provider. The parent backend wires through
+ *  `updateServerMetadata`/`updateServerLiveMetadata` directly; a
+ *  future agent host wires through its own publish surface with the
+ *  same fence applied. */
 export interface ProviderHooks {
   updateServerMetadata: (
     record: ProviderRecord,
-    mutate: (meta: TerminalServerMetadata) => void,
+    mutate: (meta: ServerPersistedTerminalFields) => void,
   ) => void;
   updateServerLiveMetadata: (
     record: ProviderRecord,
-    mutate: (meta: TerminalServerMetadata) => void,
+    mutate: (meta: LiveTerminalFields) => void,
   ) => void;
   /** Optional — parent-side activity-feed tracking. Hosts without a
    *  user-facing activity feed (a future agent host) leave these
