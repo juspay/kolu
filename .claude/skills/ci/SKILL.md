@@ -43,6 +43,14 @@ nix run github:juspay/justci -- run e2e
 # Multiple positional selectors compose — `e2e` AND `lint` both run.
 nix run github:juspay/justci -- run e2e lint
 
+# Restrict the WHOLE fanout to one platform — full DAG, linux lane only.
+# Repeatable for a subset; composes with everything else (selectors,
+# --root, CI=true). Use for "test strict mode without spinning up the
+# remote lanes" and similar pre-flight checks.
+nix run github:juspay/justci -- run --platform x86_64-linux
+nix run github:juspay/justci -- run --platform x86_64-linux --platform aarch64-darwin
+CI=true nix run github:juspay/justci -- run --platform x86_64-linux
+
 # Skip the dependency closure; run ONLY the named nodes. Setup nodes
 # auto-ride for remote-platform recipes regardless.
 nix run github:juspay/justci -- run --no-deps e2e@aarch64-darwin
@@ -109,9 +117,10 @@ If you find yourself typing `nix run nixpkgs#process-compose --` or hunting thro
 1. **Full canonical run?** → `nix run github:juspay/justci -- run` (or `CI=true …` for strict mode).
 2. **Flaky check on a PR, only one lane is red?** → `nix run github:juspay/justci -- run <recipe>@<platform>` — same status context, overwrites the failure.
 3. **Iterating on one recipe locally?** → `nix run github:juspay/justci -- run <recipe>` (no platform pin = fans out to every pipeline platform; `<recipe>@<localPlat>` if you only want the local lane).
-4. **Investigating "what would this run?"** → `nix run github:juspay/justci -- dump-yaml` or `… -- graph`.
-5. **Setting up a new repo?** → run `… -- protect --dry-run` after at least one full run, verify the contexts look right, then `… -- protect` to lock them in.
-6. **Checking on a backgrounded run?** → `nix run github:juspay/justci -- status` for a snapshot, `… -- logs -f <recipe>@<platform>` to follow one node, `… -- monitor` for the live event stream.
+4. **Want the full DAG but only on one (or a subset of) platforms?** → `nix run github:juspay/justci -- run --platform <platform>` (repeatable). Slices the fanout pre-DAG, so it composes with `<recipe>` selectors that don't name a platform. Pair with `CI=true` to dry-run strict mode against one lane.
+5. **Investigating "what would this run?"** → `nix run github:juspay/justci -- dump-yaml` or `… -- graph`.
+6. **Setting up a new repo?** → run `… -- protect --dry-run` after at least one full run, verify the contexts look right, then `… -- protect` to lock them in.
+7. **Checking on a backgrounded run?** → `nix run github:juspay/justci -- status` for a snapshot, `… -- logs -f <recipe>@<platform>` to follow one node, `… -- monitor` for the live event stream.
 
 ## Hosts config
 

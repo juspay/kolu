@@ -1,6 +1,6 @@
 lockfile_version: '1'
-generated_at: '2026-05-26T11:30:09.062863+00:00'
-apm_version: 0.14.1
+generated_at: '2026-05-28T14:43:18.658839+00:00'
+apm_version: 0.16.0
 dependencies:
 - repo_url: anthropics/skills
   host: github.com
@@ -14,7 +14,7 @@ dependencies:
   content_hash: sha256:063a0e6448123cd359ad0044cc46b0e490cc7964d45ef4bb9fd842bd2ffbca67
 - repo_url: juspay/justci
   host: github.com
-  resolved_commit: 172c86e92560e3889cb1e880bc0f8fa3b5973b6b
+  resolved_commit: 598b63f3bbbb5ae5315727ae662f83f7b0a44606
   package_type: apm_package
   deployed_files:
   - .agents/skills/ci
@@ -22,7 +22,7 @@ dependencies:
   - .claude/skills/ci
   deployed_file_hashes:
     .claude/rules/workflow.md: sha256:babf61cdd29cfc8f03b3d20f17b4bf13ef5f173dc05640bc83c505dca4b42010
-  content_hash: sha256:844ff355651a612ba41b065a98afc1ffb8d04981ecd67e005ed21040e27e5c8a
+  content_hash: sha256:dea7f0a0315be995232b9d7153f1a1354ad726b2cbf9121f2e7576bbea256718
 - repo_url: juspay/nix-chrome-devtools-mcp
   host: github.com
   resolved_commit: 9c28516075f1a22e2cfd8986976ccb4b59bc60ed
@@ -53,7 +53,7 @@ dependencies:
   content_hash: sha256:67ff7ce606ad0378af382ad6cb84d9853bf70ec52d6fe40ed6b6f82ecd2c48c3
 - repo_url: srid/agency
   host: github.com
-  resolved_commit: d2e2ffd0bb12f99b81d084ceca6bf99bda4b3587
+  resolved_commit: 2037e59c4e58a9ba7f864eab53c18badff59c896
   resolved_ref: master
   package_type: apm_package
   deployed_files:
@@ -94,7 +94,7 @@ dependencies:
     .codex/hooks/agency/scripts/do-stop-guard.sh: sha256:cb033f86c15ffd3d09d8e4b74a61f55a70def4cc4131cc013b7368a2d23f3f33
     .opencode/agents/hickey.md: sha256:10d9a4350a85752dc6658af8e0efb3d8be41803a2b6c73464e3d5b7a840435ad
     .opencode/agents/lowy.md: sha256:05aff7f6a91149a42c1fb9a3ca382a6f77bc39ac8a8d45436d443dd3349fb11e
-  content_hash: sha256:b6cf9bc23f3cb4529a8c3390e38700cf46251eb787543b994941feceb83dc7c7
+  content_hash: sha256:2ec46fe9157e6fc60d38dd9e85feb67b638c80acef5f70c5ee5bff5ac44cd044
 mcp_servers:
 - chrome-devtools
 mcp_configs:

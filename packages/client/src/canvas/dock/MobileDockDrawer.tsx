@@ -22,12 +22,13 @@ import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
 import { annotationLine } from "../../intent/text";
 import { formatTimeAgo } from "../../terminal/staleness";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
+import { DOCK_CARDS_SUBGRID_LEFT_RESTORE } from "../../ui/chromeSpacing";
 import type { DockRowBucket } from "./dockRowRanking";
 import type { DockGroup } from "./dockTree";
 import { HiddenFooter } from "./HiddenFooter";
-import { useDockOrder } from "./useDockOrder";
-import { PrPip, StatePip, SubCountCell, createDockRowData } from "./RowPips";
+import { createDockRowData, PrPip, StatePip, SubCountCell } from "./RowPips";
 import { rowSubline } from "./rowSubline";
+import { useDockOrder } from "./useDockOrder";
 
 const MobileDockDrawer: Component<{
   onSelect: (id: TerminalId) => void;
@@ -74,13 +75,12 @@ const MobileSection: Component<{
   // alongside the subline, anchored to col 2 left edge so PR icons
   // align across every section.
   //
-  // Mobile keeps a tighter right gutter (`pr-3` / `-mr-3`) than the
-  // desktop dock's `DOCK_CARDS_GUTTER_CLASS` (`pr-6` / `-mr-6`) —
-  // touch rows already pad vertically with `py-3`, and the drawer
-  // hugs the viewport edge rather than floating as a rounded card.
-  // Promote to a `MOBILE_DOCK_GUTTER_CLASS` constant the moment a
-  // second file consumes it; until then the three literal sites here
-  // are colocated within ~70 lines.
+  // Mobile right gutter (`pr-3` / `-mr-3`) happens to match the
+  // desktop `DOCK_CARDS_GUTTER_*` value today, but the two are kept
+  // separate because they encode different volatility — mobile's
+  // tight gutter is a touch-density choice, desktop's is the chrome-
+  // density vocabulary. Promote to a shared `MOBILE_DOCK_GUTTER_*`
+  // constant the moment a second file consumes it.
   <section
     data-testid="mobile-dock-section"
     data-repo={props.group.name}
@@ -150,7 +150,12 @@ const MobileRow: Component<{
               props.onSelect(props.id);
             }
           }}
-          class="w-full grid grid-cols-subgrid col-span-full items-center py-3 -ml-6 -mr-3 border-l-[3px] border-l-transparent border-b border-b-edge/15 text-left transition-colors duration-150 cursor-pointer active:bg-surface-2 data-[active]:bg-accent/15 data-[active]:border-l-accent"
+          // Right side stays at the call site because mobile uses
+          // `-mr-3 pr-3` (12 px) — the tighter touch-gutter — while
+          // desktop rides on `DOCK_CARDS_GUTTER_*` (24 px). The left
+          // side is symmetric between the two surfaces, so it ships
+          // as one symbol.
+          class={`w-full grid grid-cols-subgrid col-span-full items-center py-3 ${DOCK_CARDS_SUBGRID_LEFT_RESTORE} -mr-3 pr-3 border-l-[3px] border-l-transparent border-b border-b-edge/15 text-left transition-colors duration-150 cursor-pointer active:bg-surface-2 data-[active]:bg-accent/15 data-[active]:border-l-accent`}
         >
           <StatePip bucket={props.bucket} unread={unread()} />
           <span
