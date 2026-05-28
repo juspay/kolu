@@ -393,6 +393,32 @@ describe("outstandingBackgroundTasks", () => {
       ]),
     ).toEqual([{ taskId: "t2", runId: "wf_2" }]);
   });
+
+  it("reads launch markers from array-form tool_result content", () => {
+    // tool_result.content can be a string or an array of text blocks; the
+    // marker must be found in both forms.
+    const line = JSON.stringify({
+      type: "user",
+      message: {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "tu",
+            content: [
+              {
+                type: "text",
+                text: "Workflow launched in background. Task ID: t9\nRun ID: wf_9",
+              },
+            ],
+          },
+        ],
+      },
+    });
+    expect(outstandingBackgroundTasks([line])).toEqual([
+      { taskId: "t9", runId: "wf_9" },
+    ]);
+  });
 });
 
 describe("encodeProjectPath", () => {
