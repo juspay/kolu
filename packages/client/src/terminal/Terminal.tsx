@@ -47,6 +47,7 @@ import { openInCodeTab } from "../right-panel/openInCodeTab";
 import { preferences } from "../wire";
 import { isTouch } from "../useMobile";
 import { createFileRefLinkProvider } from "./fileRefLinkProvider";
+import { setupMobileTapToFocus, setupMobileTouchScroll } from "./mobileTouch";
 import ScrollToBottom from "./ScrollToBottom";
 import SearchBar from "./SearchBar";
 import { registerTerminalRefs, unregisterTerminalRefs } from "./terminalRefs";
@@ -518,65 +519,7 @@ const Terminal: Component<{
           // Desktop is left alone — xterm's unmodified mousedown → textarea.focus
           // path works fine with a hardware keyboard and we don't want to risk
           // fighting its selection handling.
-          if (isTouch()) {
-            const screen = term.element?.querySelector(
-              ".xterm-screen",
-            ) as HTMLElement | null;
-            if (screen) {
-              screen.setAttribute("contenteditable", "true");
-              screen.setAttribute("spellcheck", "false");
-              screen.setAttribute("autocorrect", "off");
-              screen.setAttribute("autocapitalize", "none");
-              screen.setAttribute("autocomplete", "off");
-              screen.setAttribute("aria-readonly", "true");
-              screen.style.caretColor = "transparent";
-              screen.style.outline = "none";
-              // iOS Safari rejects the soft keyboard when focus shuffles
-              // mid-gesture from the contenteditable above to xterm's
-              // opacity-0 helper textarea — which is exactly what happens
-              // when the wrapper-click handler (line 500) fires
-              // term.focus() right after the browser auto-focuses
-              // .xterm-screen on pointerdown. preventDefault on pointerdown
-              // blocks the contenteditable auto-focus.
-              //
-              // Defer the focus call to pointerup, gated on a tap-sized
-              // movement threshold: taps summon the keyboard, touch-scrolls
-              // don't. pointerup still fires inside the user-gesture window
-              // iOS requires for programmatic focus, and the call sees the
-              // same "single focus event, no shuffle" iOS heuristic the
-              // pointerdown variant did. Threshold is generous enough to
-              // tolerate finger jitter on a real tap but tighter than the
-              // ~1-cell-height step the scroll handler at line 716 reads as
-              // "scroll started".
-              const TAP_THRESHOLD_PX = 10;
-              const isTap = (dx: number, dy: number) =>
-                Math.hypot(dx, dy) <= TAP_THRESHOLD_PX;
-              let activeTap: {
-                pointerId: number;
-                startX: number;
-                startY: number;
-              } | null = null;
-              makeEventListener(screen, "pointerdown", (e: PointerEvent) => {
-                e.preventDefault();
-                activeTap = {
-                  pointerId: e.pointerId,
-                  startX: e.clientX,
-                  startY: e.clientY,
-                };
-              });
-              makeEventListener(screen, "pointerup", (e: PointerEvent) => {
-                if (activeTap === null || e.pointerId !== activeTap.pointerId)
-                  return;
-                const { startX, startY } = activeTap;
-                activeTap = null;
-                if (!isTap(e.clientX - startX, e.clientY - startY)) return;
-                term.focus();
-              });
-              makeEventListener(screen, "pointercancel", (e: PointerEvent) => {
-                if (activeTap?.pointerId === e.pointerId) activeTap = null;
-              });
-            }
-          }
+          if (isTouch()) setupMobileTapToFocus(term);
           // Kolu-owned bridge consumed by e2e step definitions —
           // `support/buffer.ts`, `step_definitions/file_ref_link_steps.ts`,
           // and friends read `container.__xterm` to drive xterm's
@@ -730,59 +673,7 @@ const Terminal: Component<{
             e.preventDefault(),
           );
 
-          // Touch-scroll the scrollback. xterm.js 6.0.0 declares
-          // IViewport.handleTouchStart/Move types but Viewport.ts has zero
-          // touch wiring, and the WebGL canvas eats touch events on the way
-          // to the parent .xterm-viewport — so swipes inside the terminal
-          // do nothing on mobile until we bridge them ourselves.
-          //
-          // Single-variable state machine: touchAnchorY is the Y baseline
-          // that line conversion is measured from. null when idle, a number
-          // while a swipe is in progress. On every emitted line the anchor
-          // advances by exactly the consumed pixels, so the sub-line residue
-          // lives implicitly in (currentY - touchAnchorY) on the next move
-          // — no separate accumulator to keep in sync.
-          //
-          // scrollLock picks up the resulting term.onScroll for free, so
-          // freezing live output while the user reads scrollback works
-          // without any extra wiring.
-          let touchAnchorY: number | null = null;
-          makeEventListener(containerRef, "touchstart", (e: TouchEvent) => {
-            // Multi-touch (pinch-zoom) passes through to the browser
-            const first = e.touches[0];
-            if (e.touches.length !== 1 || first === undefined) return;
-            touchAnchorY = first.clientY;
-          });
-          makeEventListener(containerRef, "touchmove", (e: TouchEvent) => {
-            // Multi-touch interrupts a swipe — drop the anchor so the next
-            // single-finger move starts a fresh gesture instead of resuming
-            // from a stale (possibly far-away) reference point.
-            if (e.touches.length !== 1) {
-              touchAnchorY = null;
-              return;
-            }
-            if (touchAnchorY === null || !terminal) return;
-            const screen = terminal.element?.querySelector(
-              ".xterm-screen",
-            ) as HTMLElement | null;
-            if (!screen) return;
-            const cellHeight = screen.clientHeight / terminal.rows;
-            // Number.isFinite catches NaN (0/0 if rows is transiently 0) which
-            // a bare `<= 0` check would miss — NaN poisons the anchor.
-            if (!Number.isFinite(cellHeight) || cellHeight <= 0) return;
-            const first = e.touches[0];
-            if (first === undefined) return;
-            const lines = Math.trunc(
-              (first.clientY - touchAnchorY) / cellHeight,
-            );
-            if (lines === 0) return;
-            // Down-swipe (positive delta) shows earlier scrollback → scrollLines(-N)
-            terminal.scrollLines(-lines);
-            touchAnchorY += lines * cellHeight;
-          });
-          makeEventListener(containerRef, "touchend", () => {
-            touchAnchorY = null;
-          });
+          setupMobileTouchScroll(containerRef, () => terminal);
 
           // Bridge browser clipboard images → PTY. Capture phase fires before
           // xterm's own paste handler on the textarea, letting us intercept
