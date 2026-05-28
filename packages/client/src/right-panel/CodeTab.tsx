@@ -460,13 +460,11 @@ const CodeTab: Component<{
           <FileSearchInput value={searchQuery()} onChange={setSearchQuery} />
         </div>
 
-        {/* Vertical split between tree and content via `@corvu/resizable`.
-         *  Split fraction persists via `rightPanel.codeTabTreeSize` so
-         *  reload restores the user's layout. The outer horizontal split
-         *  used to be a Corvu Resizable too (in the now-renamed
-         *  `RightPanelLayout`) but has since been replaced by a custom
-         *  pointer-drag handle in `RightPanel.tsx` — see the
-         *  `startIntersection` opt-out further down for the relic. */}
+        {/* Vertical split between tree and content. Mirrors the horizontal
+         *  split that the desktop host wires up in `App.tsx` — same
+         *  `@corvu/resizable` shell, vertical orientation. Split fraction
+         *  persists via `rightPanel.codeTabTreeSize` so reload restores
+         *  the user's layout. */}
         <Resizable
           orientation="vertical"
           sizes={[
@@ -540,12 +538,13 @@ const CodeTab: Component<{
             // Disable startIntersection (the handle's left edge): Corvu's
             // registerHandle keeps a *module-level* handles[] and pairs
             // handles whose orientations differ and rects touch at the
-            // corner (see @corvu/resizable/dist/index.js:201–222). The
-            // outer horizontal handle is no longer a Corvu Resizable
-            // (it's a custom pointer-drag in `RightPanel.tsx` post-#986),
-            // so the pairing bug is moot, but the opt-out is kept as
-            // defense in case Pierre's tree ever introduces another
-            // sibling Resizable that could pair with this handle.
+            // corner (see @corvu/resizable/dist/index.js:201–222). Without
+            // this opt-out, our left edge equals the outer horizontal
+            // handle's (in `App.tsx`) right edge → the two are coupled,
+            // and clicks on the outer handle near the file-tree row land
+            // on the inner handle instead. The outer handle carries the
+            // symmetric `startIntersection={false}` so both sides are
+            // defended.
             startIntersection={false}
             // `z-10` raises the ::before pseudo-element above Pierre's tree
             // (which is the previous flex sibling). Without it, the tree's

@@ -61,24 +61,6 @@ export const ClaudeCodeIcon: Component<{ class?: string }> = (props) => (
   </svg>
 );
 
-/** Code brackets `<>` — for the right panel's Code tab. Used in the
- *  collapsed rail's tab-pip stack alongside `InfoIcon` (Inspector). */
-export const CodeBracketIcon: Component<{ class?: string }> = (props) => (
-  <svg
-    class={props.class ?? "w-3.5 h-3.5"}
-    viewBox="0 0 16 16"
-    fill="none"
-    stroke="currentColor"
-    stroke-width="1.5"
-    stroke-linecap="round"
-    stroke-linejoin="round"
-    aria-hidden="true"
-  >
-    <polyline points="5 4 2 8 5 12" />
-    <polyline points="11 4 14 8 11 12" />
-  </svg>
-);
-
 /** Codex logo — OpenAI's six-spoke blossom (simplified from the official
  *  ChatGPT/OpenAI mark, sized to match the ClaudeCode/OpenCode glyphs).
  *  A single filled path rendered with `currentColor` so it inherits the
@@ -259,29 +241,6 @@ export const MoonIcon: Component<{ class?: string }> = (props) => (
       stroke-width="2"
       d="M20 14.5A8 8 0 019.5 4 8 8 0 1020 14.5z"
     />
-  </svg>
-);
-
-/** Information circle — for the right panel's Inspector tab. Used in
- *  the collapsed rail's tab-pip stack alongside `CodeBracketIcon`. The
- *  chrome bar's `InspectorToggleIcon` (square with right divider) is a
- *  different concept — it toggles the whole panel open/closed. This
- *  icon represents the *content* the Inspector tab shows (metadata,
- *  read-out info) rather than the panel itself. */
-export const InfoIcon: Component<{ class?: string }> = (props) => (
-  <svg
-    class={props.class ?? "w-3.5 h-3.5"}
-    viewBox="0 0 16 16"
-    fill="none"
-    stroke="currentColor"
-    stroke-width="1.5"
-    stroke-linecap="round"
-    stroke-linejoin="round"
-    aria-hidden="true"
-  >
-    <circle cx="8" cy="8" r="6" />
-    <line x1="8" y1="7.5" x2="8" y2="11" />
-    <circle cx="8" cy="5" r="0.5" fill="currentColor" />
   </svg>
 );
 

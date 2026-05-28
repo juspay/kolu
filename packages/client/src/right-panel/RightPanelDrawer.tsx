@@ -5,13 +5,12 @@
  *  — dismissing the drawer on a phone is not the same volatility as
  *  toggling the desktop chrome preference (see `useRightPanel.ts`).
  *
- *  On desktop the right panel is rendered inline by `TerminalCanvas` as
- *  a sibling of the Dock in the outer flex container; it owns its own
- *  posture-aware chrome via `useViewPosture` and mirrors the Dock's
- *  tiled-float / maximized-flush pattern. Both visibility seams —
- *  desktop uncollapse and mobile drawer-open — are dispatched
- *  imperatively from `openInCodeTab` itself; there is no `on(
- *  pendingOpen, ...)` subscriber here for the same reason.
+ *  On desktop the right panel is hosted by a `@corvu/resizable`
+ *  `Resizable` wired up in `App.tsx` — the outer horizontal split between
+ *  the canvas and the panel. Both visibility seams — desktop uncollapse
+ *  and mobile drawer-open — are dispatched imperatively from
+ *  `openInCodeTab` itself; there is no `on(pendingOpen, ...)` subscriber
+ *  here for the same reason.
  *
  *  Selection, mode, and tab kind share `useRightPanel` across hosts —
  *  a phone session that ends on `foo.html` reopens on desktop with
@@ -66,10 +65,6 @@ const RightPanelDrawer: Component<HostProps> = (props) => {
                 themeName={props.themeName}
                 onThemeClick={props.onThemeClick}
                 visible={rightPanel.drawerOpen()}
-                // The drawer already provides the floating surface;
-                // skip the posture-aware shell so we don't double up
-                // the card chrome.
-                shell={false}
               />
             </div>
           </Drawer.Content>
