@@ -47,6 +47,7 @@ import Resizable from "@corvu/resizable";
 import RightPanel from "./right-panel/RightPanel";
 import RightPanelDrawer from "./right-panel/RightPanelDrawer";
 import { useRightPanel } from "./right-panel/useRightPanel";
+import { Z_HANDLE_OUTER } from "./ui/stackLayers";
 import { serverProcessId, wsStatus } from "./rpc/rpc";
 import TransportOverlay from "./rpc/TransportOverlay";
 import ShortcutsHelp from "./ShortcutsHelp";
@@ -647,21 +648,18 @@ const App: Component = () => {
                     <Resizable.Handle
                       data-testid="right-panel-handle"
                       startIntersection={false}
-                      // `z-20` lifts the ::before pseudo-element above the
-                      // canvas tile (`position: absolute; z-index: 10`).
-                      // The handle's ::before extends 4px left into the
+                      // `Z_HANDLE_OUTER` lifts the ::before pseudo above
+                      // the canvas tile (`Z_CANVAS_TILE_ACTIVE`). The
+                      // handle's ::before extends 4px left into the
                       // canvas area (`before:-left-1 before:w-2`); without
-                      // an explicit z-index the tile paints over that half
-                      // of the hit zone wherever its right edge meets or
-                      // passes the right-panel boundary, killing both the
-                      // visual hover indicator and the pointer target.
-                      // Mirrors CodeTab's inner handle defense
-                      // (`z-10` against Pierre's positioned tree rows) —
-                      // higher here because canvas tiles already claim
-                      // z-10. Pierre's rows on the right side of the
-                      // handle are also positioned descendants, so z-20
-                      // doubles as defense against the in-panel side.
-                      class="shrink-0 w-0 relative z-20 before:absolute before:inset-y-0 before:-left-1 before:w-2 before:cursor-col-resize before:hover:bg-accent/30 before:transition-colors"
+                      // the explicit z-index the tile paints over that
+                      // half of the hit zone wherever its right edge
+                      // meets or passes the right-panel boundary, killing
+                      // both the visual hover indicator and the pointer
+                      // target. See `ui/stackLayers.ts` for the full
+                      // layering contract.
+                      class="shrink-0 w-0 relative before:absolute before:inset-y-0 before:-left-1 before:w-2 before:cursor-col-resize before:hover:bg-accent/30 before:transition-colors"
+                      style={{ "z-index": Z_HANDLE_OUTER }}
                       aria-label="Resize inspector panel"
                     />
                   </Show>

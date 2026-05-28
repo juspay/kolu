@@ -51,6 +51,7 @@ import {
   pierreIconConfig,
   pierreTreesStyle,
 } from "../ui/pierreTheme";
+import { Z_HANDLE_INNER } from "../ui/stackLayers";
 import { app } from "../wire";
 import BrowseFileDispatcher from "./BrowseFileDispatcher";
 import CodeMenuFrame from "./CodeMenuFrame";
@@ -546,15 +547,17 @@ const CodeTab: Component<{
             // symmetric `startIntersection={false}` so both sides are
             // defended.
             startIntersection={false}
-            // `z-10` raises the ::before pseudo-element above Pierre's tree
-            // (which is the previous flex sibling). Without it, the tree's
-            // bottom 4px shadow the upper half of the handle's hit area —
-            // Pierre's row hit-targets paint above the handle's absolute
-            // ::before because both use auto z-index and the tree comes
-            // first in document order with positioned descendants. Setting
-            // `z-10` on the handle creates a stacking context that lifts
-            // the ::before in front of the tree's interior.
-            class="shrink-0 h-0 relative z-10 before:absolute before:inset-x-0 before:-top-1 before:h-2 before:cursor-row-resize before:hover:bg-accent/30 before:transition-colors"
+            // `Z_HANDLE_INNER` raises the ::before pseudo-element above
+            // Pierre's tree (the previous flex sibling). Without it, the
+            // tree's bottom 4px shadow the upper half of the handle's hit
+            // area — Pierre's row hit-targets paint above the handle's
+            // absolute ::before because both use auto z-index and the tree
+            // comes first in document order with positioned descendants.
+            // Setting the explicit z-index creates a stacking context that
+            // lifts the ::before in front of the tree's interior.
+            // See `ui/stackLayers.ts` for the full layering contract.
+            class="shrink-0 h-0 relative before:absolute before:inset-x-0 before:-top-1 before:h-2 before:cursor-row-resize before:hover:bg-accent/30 before:transition-colors"
+            style={{ "z-index": Z_HANDLE_INNER }}
           />
 
           <Resizable.Panel

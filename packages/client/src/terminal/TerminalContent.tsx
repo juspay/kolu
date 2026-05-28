@@ -8,6 +8,7 @@ import Resizable from "@corvu/resizable";
 import type { ITheme } from "@xterm/xterm";
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import { type Component, For, Show } from "solid-js";
+import { Z_HANDLE_INNER } from "../ui/stackLayers";
 import SubPanelTabBar from "./SubPanelTabBar";
 import Terminal from "./Terminal";
 import { useSubPanel } from "./useSubPanel";
@@ -93,23 +94,26 @@ const TerminalContent: Component<{
       </Resizable.Panel>
 
       {/* Resize handle — invisible hit zone, visible on hover.
-       *  `z-10` mirrors CodeTab.tsx's inner-handle defense: the ::before
-       *  pseudo overlaps the previous panel (xterm tile) by 4px and any
-       *  positioned descendant inside that panel with auto/zero z-index
-       *  would otherwise paint over the hit zone. The canvas-tile
-       *  container that hosts this tree creates its own stacking context
-       *  (z-10), so external z-stackers can't intrude — but the defense
-       *  belongs on the handle itself so a future xterm overlay with an
-       *  explicit z-index doesn't silently break drag-to-resize. */}
+       *  `Z_HANDLE_INNER` mirrors CodeTab.tsx's inner-handle defense:
+       *  the ::before pseudo overlaps the previous panel (xterm tile)
+       *  by 4px and any positioned descendant inside that panel with
+       *  auto/zero z-index would otherwise paint over the hit zone.
+       *  The canvas-tile container that hosts this tree creates its
+       *  own stacking context (`Z_CANVAS_TILE_ACTIVE`), so external
+       *  z-stackers can't intrude — but the defense belongs on the
+       *  handle itself so a future xterm overlay with an explicit
+       *  z-index doesn't silently break drag-to-resize.
+       *  See `ui/stackLayers.ts` for the full layering contract. */}
       <Show when={hasSubs()}>
         <Resizable.Handle
           data-testid="resize-handle"
           class="shrink-0 transition-all"
           classList={{
-            "h-0 relative z-10 before:absolute before:inset-x-0 before:-top-1 before:h-2 before:cursor-row-resize before:hover:bg-accent/30 before:transition-colors":
+            "h-0 relative before:absolute before:inset-x-0 before:-top-1 before:h-2 before:cursor-row-resize before:hover:bg-accent/30 before:transition-colors":
               isExpanded(),
             "h-0": !isExpanded(),
           }}
+          style={isExpanded() ? { "z-index": Z_HANDLE_INNER } : undefined}
           aria-label="Resize terminal split"
         />
       </Show>

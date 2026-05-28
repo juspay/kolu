@@ -15,6 +15,10 @@
 import { createDraggable } from "@thisbeyond/solid-dnd";
 import { type Component, For, type JSX, Show } from "solid-js";
 import { CHROME_ICON_BUTTON_CLASS } from "../ui/chromeSpacing";
+import {
+  Z_CANVAS_TILE_ACTIVE,
+  Z_CANVAS_TILE_INACTIVE,
+} from "../ui/stackLayers";
 import { MaximizeIcon, RestoreIcon } from "../ui/Icons";
 import { RESIZE_HANDLES, type ResizeDirection } from "./resizeGeometry";
 import type { TileLayout } from "./TileLayout";
@@ -113,7 +117,7 @@ const CanvasTile: Component<{
         props.active && !isMaximized()
           ? "var(--color-accent)"
           : props.repoColor,
-      "z-index": props.active ? 10 : 1,
+      "z-index": props.active ? Z_CANVAS_TILE_ACTIVE : Z_CANVAS_TILE_INACTIVE,
       opacity: props.active ? 1 : inactiveOpacity(),
       "box-shadow": props.active
         ? `0 8px 32px rgba(0,0,0,0.4), 0 0 0 1px var(--color-accent)`
