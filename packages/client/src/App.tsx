@@ -41,8 +41,11 @@ import type { ActionContext } from "./input/actions";
 import { useShortcuts } from "./input/useShortcuts";
 import MobileKeyBar from "./MobileKeyBar";
 import MobileTileView from "./MobileTileView";
-import { useRecorder } from "./recorder/useRecorder";
-import WebcamOverlay from "./recorder/WebcamOverlay";
+import {
+  configureRecorderNotifications,
+  useRecorder,
+  WebcamOverlay,
+} from "@kolu/solid-recorder";
 import RightPanel from "./right-panel/RightPanel";
 import RightPanelDrawer from "./right-panel/RightPanelDrawer";
 import { useRightPanel } from "./right-panel/useRightPanel";
@@ -63,6 +66,15 @@ import ModalDialog, { refocusTerminal } from "./ui/ModalDialog";
 import { surface } from "./ui/Surface";
 import { isMobile } from "./useMobile";
 import { useThemeManager } from "./useThemeManager";
+
+// Wire @kolu/solid-recorder's notification surface to solid-sonner.
+// The framework defaults to `console.*`; this swap installs Kolu's
+// toast presentation once at module load.
+configureRecorderNotifications({
+  onError: (m) => toast.error(m),
+  onSuccess: (m, opts) => toast.success(m, opts),
+  onWarning: (m) => toast.warning(m),
+});
 
 const App: Component = () => {
   const { store, crud, session, worktree, alerts } = useTerminals();

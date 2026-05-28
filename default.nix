@@ -24,6 +24,7 @@ let
       ./packages/canvas-layout
       ./packages/solid-canvas-viewport
       ./packages/solid-pierre
+      ./packages/solid-recorder
       ./packages/solid-xterm
       ./packages/common
       ./packages/integrations

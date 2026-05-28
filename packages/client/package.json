@@ -19,6 +19,7 @@
     "@kolu/canvas-layout": "workspace:*",
     "@kolu/solid-canvas-viewport": "workspace:*",
     "@kolu/solid-pierre": "workspace:*",
+    "@kolu/solid-recorder": "workspace:*",
     "@kolu/solid-xterm": "workspace:*",
     "@kolu/surface": "workspace:*",
     "@orpc/client": "^1.13.13",

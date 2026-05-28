@@ -79,6 +79,9 @@ importers:
       '@kolu/solid-pierre':
         specifier: workspace:*
         version: link:../solid-pierre
+      '@kolu/solid-recorder':
+        specifier: workspace:*
+        version: link:../solid-recorder
       '@kolu/solid-xterm':
         specifier: workspace:*
         version: link:../solid-xterm
@@ -619,6 +622,25 @@ importers:
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.15
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+
+  packages/solid-recorder:
+    dependencies:
+      fix-webm-duration:
+        specifier: ^1.0.6
+        version: 1.0.6
+      solid-js:
+        specifier: ^1.9.0
+        version: 1.9.11
+      ts-pattern:
+        specifier: ^5.9.0
+        version: 5.9.0
     devDependencies:
       '@types/node':
         specifier: ^22.0.0

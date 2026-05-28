@@ -7,8 +7,7 @@ import { Portal } from "solid-js/web";
 import { surface } from "../ui/Surface";
 import Toggle from "../ui/Toggle";
 import { useAnchoredPopover } from "../ui/useAnchoredPopover";
-import LevelMeter from "./LevelMeter";
-import { useRecorder } from "./useRecorder";
+import { LevelMeter, useRecorder } from "@kolu/solid-recorder";
 
 const DeviceSelect: Component<{
   testId: string;
