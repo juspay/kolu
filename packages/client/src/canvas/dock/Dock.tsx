@@ -16,12 +16,14 @@
  *     the two modes share one repo-identity vocabulary.
  *  2. **cards** (default) — rows grouped by repo. Each repo gets a
  *     small section header (uppercase name + repo-colored swatch +
- *     row count); rows below stack as `branch · pips · time` lines.
- *     The agent-kind pip carries state directly via colour + cadence
- *     (busy + pulse/spin for `working`, warning + pulse for
- *     `awaiting`), so a single icon does double duty as "which
- *     agent" + "what is it doing now" — no redundant status dot.
- *     PR pip is a link to the PR with the live checks verdict in its
+ *     row count); rows below stack as `state · branch · pips · time`
+ *     lines. The first-column **state pip** (`StatePip`) encodes
+ *     urgency by shape: filled orange disk + pulse for unread
+ *     attention, dim small disk for already-seen awaiting, hollow
+ *     spinning ring for working, muted dot for idle, nothing for
+ *     parked/none. Agent kind is not surfaced here — it lives on
+ *     the terminal title bar where there's room. PR pip is a link
+ *     to the PR with the live checks verdict in its
  *     tooltip; the sub-terminal chip surfaces when there are nested
  *     terminals. The active row gets a quiet highlight
  *     (`bg-surface-2` + 3 px accent left-edge stripe); row geometry
@@ -50,27 +52,27 @@
 
 import { makePersisted } from "@solid-primitives/storage";
 import type { TerminalId } from "kolu-common/surface";
-import { type Component, createMemo, createSignal, For, Show } from "solid-js";
+import { type Component, For, Show, createMemo, createSignal } from "solid-js";
 import { createSharedRoot } from "../../createSharedRoot";
-import { isPlatformModifier } from "../../input/keyboard";
+import { formatTimeAgo } from "../../terminal/staleness";
 import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
 import { annotationLine } from "../../intent/text";
-import { formatTimeAgo } from "../../terminal/staleness";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
+import { HiddenFooter } from "./HiddenFooter";
+import { chipInitials } from "./chipInitials";
+import { PrPip, StatePip, SubCountCell, createDockRowData } from "./RowPips";
+import { rowSubline } from "./rowSubline";
 import {
   DOCK_CARDS_GUTTER_CLASS,
   DOCK_CARDS_GUTTER_NEG_CLASS,
   RAIL_WIDTH_PX,
 } from "../../ui/chromeSpacing";
 import { ChevronDownIcon, PlusIcon, SearchIcon } from "../../ui/Icons";
+import { isPlatformModifier } from "../../input/keyboard";
 import { useViewPosture } from "../useViewPosture";
-import { chipInitials } from "./chipInitials";
 import type { DockRowBucket } from "./dockRowRanking";
 import type { DockGroup, DockTree } from "./dockTree";
-import { HiddenFooter } from "./HiddenFooter";
-import { AgentSlot, createDockRowData, PrPip, SubCountCell } from "./RowPips";
-import { rowSubline } from "./rowSubline";
 import { useDockOrder } from "./useDockOrder";
 
 export type DockMode = "rail" | "cards";
@@ -434,7 +436,7 @@ const DockRow: Component<{
           class={`relative w-full grid grid-cols-subgrid col-span-full items-center py-1.5 -ml-6 ${DOCK_CARDS_GUTTER_NEG_CLASS} border-l-[3px] border-l-transparent text-left cursor-pointer transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 hover:bg-surface-2/40 data-[active]:bg-accent/15 data-[active]:border-l-accent`}
           title="Jump to this terminal"
         >
-          <AgentSlot agent={c().meta.agent} />
+          <StatePip bucket={props.bucket} unread={unread()} />
           <span
             class="font-medium text-[0.85rem] leading-tight truncate min-w-0"
             style={{
@@ -449,12 +451,6 @@ const DockRow: Component<{
           <span class="font-mono text-[0.6rem] tabular-nums text-fg-3 text-right">
             {formatTimeAgo(c().meta.lastActivityAt)}
           </span>
-          <Show when={unread()}>
-            <span
-              aria-hidden="true"
-              class="absolute top-1.5 right-2 w-1.5 h-1.5 rounded-full bg-alert animate-pulse"
-            />
-          </Show>
           <Show when={showShortcutHint()}>
             <span
               data-testid="dock-row-shortcut-hint"

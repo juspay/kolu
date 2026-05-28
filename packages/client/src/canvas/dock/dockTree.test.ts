@@ -33,7 +33,7 @@ function makeGetInfo(
 }
 
 describe("buildDockTree", () => {
-  it("groups by repo; sections sort by pure recency; within-group bucket-first", () => {
+  it("groups by repo and sorts both sections and rows by pure recency", () => {
     const ranked = [
       row("a", "working", 1000),
       row("b", "awaiting", 500),
@@ -45,12 +45,11 @@ describe("buildDockTree", () => {
       c: { group: "kolu", color: "#aaa" },
     });
     const tree = buildDockTree(ranked, getInfo);
-    // Pure recency: kolu's newest row (c@2000) beats pierre's newest
-    // (b@500), so kolu sorts first — bucket priority doesn't promote
-    // pierre's awaiting row above kolu at the section level.
+    // Section recency: kolu's newest (c@2000) > pierre's newest (b@500).
     expect(tree.groups.map((g) => g.name)).toEqual(["kolu", "pierre"]);
-    // Within kolu, working (a) outranks idle (c) on bucket priority.
-    expect(tree.groups[0]?.rows.map((r) => r.id)).toEqual(["a", "c"]);
+    // Within kolu, c@2000 outranks a@1000 on pure recency — bucket no
+    // longer promotes working over idle in the within-group order.
+    expect(tree.groups[0]?.rows.map((r) => r.id)).toEqual(["c", "a"]);
     expect(tree.groups[1]?.rows.map((r) => r.id)).toEqual(["b"]);
   });
 
@@ -86,13 +85,31 @@ describe("buildDockTree", () => {
       d: { group: "justci", color: "#ccc" },
     });
     const tree = buildDockTree(ranked, getInfo);
-    // Section order by pure recency: pierre(max=300) > kolu(max=200) >
-    // justci(max=0). Within kolu, awaiting (b) sorts before idle (a)
-    // on bucket priority.
+    // Section order: pierre(300) > kolu(200) > justci(0). Within kolu,
+    // b@200 > a@100 on recency.
     expect(tree.flatRows.map((r) => r.id)).toEqual(["c", "b", "a", "d"]);
   });
 
-  it("recency drives section order; bucket priority drives within-group", () => {
+  it("an awaiting row in a quieter repo does not promote its section above a more recent repo", () => {
+    const ranked = [
+      // Kolu has a fresh working row at 1000.
+      row("a", "working", 1000),
+      // Pierre has an awaiting row, but older — 400.
+      row("b", "awaiting", 400),
+    ];
+    const getInfo = makeGetInfo({
+      a: { group: "kolu", color: "#aaa" },
+      b: { group: "pierre", color: "#bbb" },
+    });
+    const tree = buildDockTree(ranked, getInfo);
+    // Under bucket-priority, pierre's awaiting could outrank kolu at
+    // the row layer; under pure recency, kolu wins because a@1000
+    // beats b@400. The pip's pulse on b carries the attention signal
+    // without dragging pierre above kolu in the list.
+    expect(tree.groups.map((g) => g.name)).toEqual(["kolu", "pierre"]);
+  });
+
+  it("recency drives both section and row order — same-bucket rows tiebreak on ts", () => {
     const ranked = [
       row("a", "working", 100),
       row("b", "working", 500),
@@ -104,9 +121,8 @@ describe("buildDockTree", () => {
       c: { group: "kolu", color: "#aaa" },
     });
     const tree = buildDockTree(ranked, getInfo);
-    // Pierre's newest row (b@500) beats kolu's newest (c@300), so
-    // pierre sorts first. Within kolu, c@300 beats a@100 on recency
-    // (same bucket → recency tiebreak).
+    // Pierre's newest (b@500) beats kolu's (c@300); within kolu, c@300
+    // beats a@100.
     expect(tree.groups.map((g) => g.name)).toEqual(["pierre", "kolu"]);
     expect(tree.groups[1]?.rows.map((r) => r.id)).toEqual(["c", "a"]);
   });
@@ -134,10 +150,11 @@ describe("buildDockTree", () => {
       c: { group: "kolu", color: "#aaa", label: "feat-x" },
     });
     const tree = buildDockTree(ranked, getInfo);
-    // Cluster feat-x (headline a@working) outranks cluster feat-y
-    // (headline b@idle) on bucket. Within feat-x, a@1000 beats c@200
-    // on recency. Pure-recency order would have interleaved as
-    // [a, b, c]; clustering keeps a and c adjacent.
+    // Cluster feat-x (headline a@1000) outranks cluster feat-y
+    // (headline b@500) on recency. Within feat-x, a@1000 > c@200.
+    // Pure-recency interleaving would have been [a, b, c]; clustering
+    // keeps a and c adjacent. The cluster headline is the same key
+    // (-ts) as the section sort.
     expect(tree.groups[0]?.rows.map((r) => r.id)).toEqual(["a", "c", "b"]);
   });
 

@@ -25,10 +25,12 @@ import { agentBucket } from "../dockModel";
  *  row) and routes through staleness, not the idle-bucket classifier. */
 export type DockRowBucket = "awaiting" | "working" | "idle" | "parked" | "none";
 
-/** Sort priority for dock rows. Lower number = higher priority (shown
- *  first). Exported so `dockTree.ts` reuses the same table for within-
- *  group sorting rather than declaring a parallel copy that can drift. */
-export const DOCK_ROW_BUCKET_PRIORITY: Record<DockRowBucket, number> = {
+/** Tiebreak ordering for rows with equal `ts` (typically never-touched
+ *  shells whose `lastActivityAt === 0`). Pure-recency sort dominates
+ *  everywhere else; this table only decides the order of rows that
+ *  carry no recency signal at all, so the result stays deterministic.
+ *  Lower number = shown first. */
+const DOCK_ROW_BUCKET_PRIORITY: Record<DockRowBucket, number> = {
   awaiting: 0,
   working: 1,
   idle: 2,
