@@ -27,6 +27,7 @@ import { getSessionInfo } from "@anthropic-ai/claude-agent-sdk";
 import { classifyByAwaiting } from "anyagent";
 import { type Logger, readTailLines } from "kolu-shared";
 import { match } from "ts-pattern";
+import { z } from "zod";
 import type {
   ClaudeCodeInfo,
   ClaudeWorkflow,
@@ -412,6 +413,28 @@ export function workflowsDirFor(session: SessionFile): string {
   );
 }
 
+/** On-disk shape of a workflow run journal (`workflows/<runId>.json`) — just
+ *  the fields we surface. The wire field names differ from the public
+ *  `ClaudeWorkflow` (`workflowName`→`name`, `agentCount`→`agents`), so the
+ *  `.transform` maps the wire shape to the domain type; `ClaudeWorkflow` stays
+ *  the single workflow concept that crosses a module boundary. Unexported —
+ *  the wire format is a private detail of this reader. Encapsulating it as one
+ *  schema means a journal-format change fails the parse here (the journal is
+ *  skipped) rather than silently defaulting in scattered guards. */
+const WorkflowJournalSchema = z
+  .object({
+    workflowName: z.string(),
+    status: z.string().default("running"),
+    agentCount: z.number().default(0),
+  })
+  .transform(
+    (j): ClaudeWorkflow => ({
+      name: j.workflowName,
+      status: j.status,
+      agents: j.agentCount,
+    }),
+  );
+
 /** Read fan-out progress for outstanding background workflows from their
  *  on-disk journals (`workflows/<runId>.json`). Only `Workflow` launches have
  *  a `runId`/journal; plain background `Task`/`Agent` launches are skipped.
@@ -429,22 +452,15 @@ export function deriveWorkflowProgress(
       workflowsDirFor(session),
       `${task.runId}.json`,
     );
-    let parsed: {
-      workflowName?: unknown;
-      status?: unknown;
-      agentCount?: unknown;
-    };
+    let json: unknown;
     try {
-      parsed = JSON.parse(fs.readFileSync(journalPath, "utf8"));
+      json = JSON.parse(fs.readFileSync(journalPath, "utf8"));
     } catch {
       continue;
     }
-    if (typeof parsed.workflowName !== "string") continue;
-    const info: ClaudeWorkflow = {
-      name: parsed.workflowName,
-      status: typeof parsed.status === "string" ? parsed.status : "running",
-      agents: typeof parsed.agentCount === "number" ? parsed.agentCount : 0,
-    };
+    const parsed = WorkflowJournalSchema.safeParse(json);
+    if (!parsed.success) continue;
+    const info = parsed.data;
     if (info.status === "running") return info;
     fallback ??= info;
   }
