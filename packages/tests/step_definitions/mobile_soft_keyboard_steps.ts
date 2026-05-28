@@ -274,6 +274,45 @@ Then(
   },
 );
 
+When("I arm the soft-keyboard focus probe", async function (this: KoluWorld) {
+  // Count focus events landing on ANY xterm helper textarea, via a
+  // capture-phase listener on document — the switch we're about to perform
+  // moves `data-visible` to a different terminal, so a listener bound to one
+  // element would miss focus on the newly-revealed tile. Capture sees focus
+  // on whichever textarea receives it.
+  await this.page.evaluate(() => {
+    const w = window as FocusProbeWindow;
+    w.__textareaFocusCount = 0;
+    w.__textareaFocusListener = (e: Event) => {
+      const t = e.target as HTMLElement | null;
+      if (t?.classList.contains("xterm-helper-textarea")) {
+        w.__textareaFocusCount = (w.__textareaFocusCount ?? 0) + 1;
+      }
+    };
+    document.addEventListener("focus", w.__textareaFocusListener, true);
+  });
+});
+
+Then(
+  "xterm's helper textarea should not have been focused by the terminal switch",
+  async function (this: KoluWorld) {
+    const count = await this.page.evaluate(() => {
+      const w = window as FocusProbeWindow;
+      const value = w.__textareaFocusCount ?? 0;
+      if (w.__textareaFocusListener) {
+        document.removeEventListener("focus", w.__textareaFocusListener, true);
+      }
+      w.__textareaFocusListener = undefined;
+      return value;
+    });
+    assert.strictEqual(
+      count,
+      0,
+      `Expected no helper-textarea focus when switching tiles on touch (selection must not summon the keyboard), got ${count}`,
+    );
+  },
+);
+
 Then(
   "the --app-h CSS variable should match visualViewport.height",
   async function (this: KoluWorld) {

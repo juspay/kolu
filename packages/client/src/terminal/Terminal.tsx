@@ -278,6 +278,15 @@ const Terminal: Component<{
     }
   }
 
+  // Selection-driven focus. Desktop raises the keyboard when a tile becomes
+  // active/visible; on touch that's intrusive — the soft keyboard should only
+  // rise from an explicit tap (the wrapper-click and pointerup handlers in
+  // onMount), never as a side-effect of switching/revealing a tile. So this is
+  // a no-op on touch. Real taps still call terminal.focus() directly.
+  function autoFocus() {
+    if (!isTouch()) terminal?.focus();
+  }
+
   // Re-fit and auto-focus when terminal becomes visible (display:none → visible).
   // Only auto-focus if this terminal should have focus (focused prop is true or unset).
   // defer: true skips the initial run (onMount handles first fit + focus).
@@ -289,7 +298,7 @@ const Terminal: Component<{
         scrollLock.reset();
         terminal.scrollToBottom();
         debouncedFit();
-        if (props.focused !== false) terminal.focus();
+        if (props.focused !== false) autoFocus();
       },
       { defer: true },
     ),
@@ -301,7 +310,7 @@ const Terminal: Component<{
       () => props.focused,
       (focused) => {
         if (focused && props.visible && terminal) {
-          terminal.focus();
+          autoFocus();
         }
       },
       { defer: true },
@@ -328,7 +337,7 @@ const Terminal: Component<{
       () => props.searchOpen,
       (open) => {
         if (!open && props.visible && props.focused !== false && terminal)
-          terminal.focus();
+          autoFocus();
       },
       { defer: true },
     ),
@@ -659,7 +668,7 @@ const Terminal: Component<{
           // at which point the visibility effect below calls debouncedFit().
           if (props.visible) {
             fitAddon.fit();
-            if (props.focused !== false) term.focus();
+            if (props.focused !== false) autoFocus();
           }
 
           // Track user-initiated focus for "remember last focused" in sub-panel
