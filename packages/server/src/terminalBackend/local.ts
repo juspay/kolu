@@ -1,45 +1,30 @@
 /**
  * `LocalTerminalBackend` — this kolu process. PTY spawned in-process
- * via `node-pty`, providers watch local files via `@parcel/watcher`,
+ * via `node-pty`, the per-terminal provider DAG (agent-command tracker,
+ * git watcher, GitHub PR watcher, foreground-process observer, three
+ * agent detectors) runs in the same process via `./providers.ts`, and
  * fs/git ops shell out locally.
  *
- * Absorbs every per-terminal orchestrator the kolu-server used to
- * split across `meta/*.ts` (agent-command tracker, agent detectors for
- * claude-code / codex / opencode, git resolver, github PR watcher,
- * foreground process observer). They live here as private functions
- * because their lifecycle is owned by `spawnPty` — there's no useful
- * other call site, and splitting them across files only forced two
- * `cwd:<id>` / `commandRun:<id>` / `title:<id>` subscribers to
- * coordinate via the publisher when they could just call each other.
- *
- * Provider DAG (subscribed inside `spawnPty`):
- *
- *   cwd:<id>           ╶─►  git watcher  ╶─►  github PR watcher
- *                                              (lives on `m.pr`, live-only)
- *   title:<id>         ╶─►  process observer    (lives on `m.foreground`)
- *   title/cwd/commandRun  ╶─►  agent detector ×3 (lives on `m.agent`)
- *   commandRun:<id>    ╶─►  agent-command tracker (lives on `m.lastAgentCommand`)
- *
- * Three providers (`agent`, `pr`, `foreground`) are LIVE fields —
- * mutating them through `updateServerLiveMetadata` does NOT fire
- * `terminals:dirty`, preventing the 150ms agent-stream firehose from
- * over-saving the session.
+ * Provider lifecycle: each `spawnPty` constructs a `ProviderRecord`
+ * (PtyHandle + aliased `entry.meta` + ephemeral `currentAgent`) and
+ * wires `ProviderHooks` that funnel metadata writes through this
+ * package's `updateServer*Metadata` helpers plus the activity-feed
+ * trackers. The provider DAG itself doesn't know it's running inside
+ * the local backend — it only knows about `ProviderHooks` /
+ * `ProviderChannels`, so the same implementation drops onto any host
+ * that doesn't share kolu-server's surface plumbing.
  *
  * The fs/git surfaces delegate to `kolu-git` directly. Equality
  * predicates (`gitDiffOutputEqual`, …) stay imported at the surface
  * layer (they're pure value comparisons, not backend operations).
  */
 
-import path from "node:path";
+import { DEFAULT_SCROLLBACK } from "kolu-common/config";
 import type {
-  AgentInfoShape,
-  AgentProvider,
-  AgentTerminalState,
-  AgentWatcher,
-} from "anyagent";
-import { parseAgentCommand } from "anyagent";
-import { claudeCodeProvider } from "kolu-claude-code";
-import { codexProvider } from "kolu-codex";
+  TerminalId,
+  TerminalInfo,
+  TerminalMetadata,
+} from "kolu-common/surface";
 import type {
   PtySpawnOpts,
   TerminalBackend,
@@ -47,9 +32,6 @@ import type {
   TerminalBackendGit,
   TerminalChannelMap,
 } from "kolu-common/terminalBackend";
-import { DEFAULT_SCROLLBACK } from "kolu-common/config";
-import type { AgentInfo, TerminalId, TerminalInfo } from "kolu-common/surface";
-import type { GitDiffMode } from "kolu-git/schemas";
 import {
   type FsListAllOutput,
   type GitDiffOutput,
@@ -60,20 +42,16 @@ import {
   readFile,
   statFileMtimeMs,
   subscribeFileChange,
-  subscribeGitInfo,
   subscribeRepoChange,
 } from "kolu-git";
-import { subscribeGitHubPr } from "kolu-github";
-import { opencodeProvider } from "kolu-opencode";
+import type { GitDiffMode } from "kolu-git/schemas";
 import { type PtyHandle, spawnPty } from "kolu-pty";
-import type { Logger } from "kolu-shared";
 import pkg from "../../package.json" with { type: "json" };
 import { trackRecentAgent, trackRecentRepo } from "../activity.ts";
 import { koluShellDir } from "../koluRoot.ts";
 import { log } from "../log.ts";
 import { terminalChannels, terminalsDirtyChannel } from "../publisher.ts";
 import { surfaceCtx, unwrapGit } from "../surface.ts";
-import { cleanupTerminalScratch } from "../terminalScratch.ts";
 import {
   drainTerminals,
   getTerminal,
@@ -82,12 +60,18 @@ import {
   type TerminalProcess,
   unregisterTerminal,
 } from "../terminal-registry.ts";
-import { shouldBumpRecencyForAgentChange } from "./agentRecency.ts";
+import { cleanupTerminalScratch } from "../terminalScratch.ts";
 import {
   createMetadata,
   updateServerLiveMetadata,
   updateServerMetadata,
 } from "./metadata.ts";
+import {
+  type ProviderChannels,
+  type ProviderHooks,
+  type ProviderMeta,
+  startProviders,
+} from "./providers.ts";
 
 // ── PTY-state notification helpers ─────────────────────────────────────
 
@@ -104,463 +88,6 @@ function emitTerminalsDirty(): void {
  *  is needed there. */
 function emitTerminalListChanged(): void {
   surfaceCtx.cells.terminalList.set(listTerminals());
-}
-
-// ── Agent-command tracker (was `meta/agent-command.ts`) ────────────────
-
-/** Subscribe to the terminal's `commandRun` channel, parse each
- *  payload as an agent command, and update the two state slots:
- *
- *   - `record.currentAgent` — basename of the binary in the
- *     foreground right now; cleared when the user types a non-agent
- *     command. Ephemeral, lives on the per-local-terminal record so
- *     it shares one container with the rest of `LocalTerminalBackend`'s
- *     internal state (PtyHandle, cleanup) — disposing the record drops
- *     the value automatically. Read by the agent detectors below.
- *   - `m.lastAgentCommand` — full normalized invocation of the most
- *     recent *agent* command in this terminal, preserved across
- *     intervening non-agent input. Lives on `TerminalMetadata` so the
- *     session snapshotter picks it up automatically. */
-function startAgentCommandTracker(
-  record: LocalTerminalRecord,
-  terminalId: TerminalId,
-): () => void {
-  return terminalChannels.commandRun(terminalId).consume({
-    onEvent: (raw) => {
-      const normalized = parseAgentCommand(raw);
-      record.currentAgent = normalized?.split(" ")[0] ?? null;
-      if (normalized) {
-        const entry = getTerminal(terminalId);
-        if (entry && entry.meta.lastAgentCommand !== normalized) {
-          updateServerMetadata(entry, terminalId, (m) => {
-            m.lastAgentCommand = normalized;
-          });
-        }
-        trackRecentAgent(normalized);
-      }
-    },
-    onError: (err) =>
-      log.error(
-        { err, terminal: terminalId, channel: "commandRun" },
-        "publisher subscription failed",
-      ),
-  });
-}
-
-// ── Git provider (was `meta/git.ts`) ───────────────────────────────────
-
-function startGitProvider(
-  entry: TerminalProcess,
-  terminalId: string,
-): () => void {
-  const plog = log.child({ provider: "git", terminal: terminalId });
-  plog.debug({ cwd: entry.meta.cwd }, "started");
-
-  const watcher = subscribeGitInfo(
-    entry.meta.cwd,
-    (git) => {
-      if (git) trackRecentRepo(git.mainRepoRoot, git.repoName);
-      updateServerMetadata(entry, terminalId, (m) => {
-        m.git = git;
-      });
-      terminalChannels.git(terminalId).publish(git);
-      plog.debug(
-        { repo: git?.repoName, branch: git?.branch },
-        "git info updated",
-      );
-    },
-    plog,
-  );
-
-  const cleanup = terminalChannels.cwd(terminalId).consume({
-    onEvent: (cwd) => watcher.setCwd(cwd),
-    onError: (err) => plog.error({ err }, "publisher subscription failed"),
-  });
-
-  return () => {
-    cleanup();
-    watcher.stop();
-    plog.debug("stopped");
-  };
-}
-
-// ── GitHub PR provider (was `meta/github.ts`) ──────────────────────────
-
-function startGitHubPrProvider(
-  entry: TerminalProcess,
-  terminalId: string,
-): () => void {
-  const plog = log.child({ provider: "github-pr", terminal: terminalId });
-  plog.debug("started");
-
-  const watcher = subscribeGitHubPr((pr) => {
-    updateServerLiveMetadata(entry, terminalId, (m) => {
-      m.pr = pr;
-    });
-    plog.debug(
-      pr.kind === "ok"
-        ? {
-            pr: pr.value.number,
-            title: pr.value.title,
-            state: pr.value.state,
-            checks: pr.value.checks,
-          }
-        : { pr: pr.kind },
-      "pr info updated",
-    );
-  }, plog);
-
-  const cleanup = terminalChannels.git(terminalId).consume({
-    onEvent: (git) =>
-      watcher.setGit(git?.repoRoot ?? null, git?.branch ?? null),
-    onError: (err) => plog.error({ err }, "publisher subscription failed"),
-  });
-
-  return () => {
-    cleanup();
-    watcher.stop();
-  };
-}
-
-// ── Foreground process observer (was `meta/process.ts`) ────────────────
-
-/** node-pty may return a full path (e.g. `/nix/store/.../bin/opencode` on
- *  NixOS). Always normalize to basename. */
-function processBasename(proc: string): string {
-  return path.basename(proc);
-}
-
-function startProcessProvider(
-  entry: TerminalProcess,
-  ptyHandle: PtyHandle,
-  terminalId: string,
-): () => void {
-  const plog = log.child({ provider: "process", terminal: terminalId });
-  let lastName: string | null = null;
-  let lastTitle: string | null = null;
-
-  plog.debug("started");
-
-  function update(title?: string) {
-    const name = processBasename(ptyHandle.process);
-    const newTitle = title ?? lastTitle;
-    if (name === lastName && newTitle === lastTitle) return;
-
-    plog.debug(
-      { from: lastName, to: name, title: newTitle },
-      "foreground process changed",
-    );
-    lastName = name;
-    lastTitle = newTitle;
-    updateServerLiveMetadata(entry, terminalId, (m) => {
-      m.foreground = { name, title: newTitle };
-    });
-  }
-
-  update();
-
-  const cleanup = terminalChannels.title(terminalId).consume({
-    onEvent: (title) => update(title),
-    onError: (err) => plog.error({ err }, "publisher subscription failed"),
-  });
-
-  return () => {
-    cleanup();
-    plog.debug("stopped");
-  };
-}
-
-// ── Agent detector (was `meta/agent.ts`) ───────────────────────────────
-
-/** Reading `ptyHandle.process` involves a kernel syscall on darwin
- *  (sysctl) and can throw if node-pty has already terminated the
- *  process; log and return null so the provider treats the terminal as
- *  having no foreground binary. */
-function readForegroundBasenameOnce(
-  ptyHandle: PtyHandle,
-  plog: Logger,
-): string | null {
-  try {
-    const proc = ptyHandle.process;
-    return proc ? path.basename(proc) : null;
-  } catch (err) {
-    plog.debug({ err }, "failed to read entry.handle.process");
-    return null;
-  }
-}
-
-/** Snapshot of every input an `AgentProvider`'s `resolveSession` needs.
- *
- *  `readForegroundBasename` is a lazy, memoized accessor so providers
- *  that match by PID alone (e.g. claude-code) skip the darwin sysctl
- *  entirely on every reconcile. The cache is scoped to this one
- *  snapshot — a fresh snapshot on the next reconcile re-reads.
- *
- *  `lastAgentCommandName` is sourced from the per-terminal
- *  agent-command stash, gated on `foregroundPid !== handle.pid` — when
- *  the shell is idle at the prompt, tcgetpgrp returns the shell's own
- *  pid and the previous stash no longer describes a live process. */
-function snapshotTerminalState(
-  ptyHandle: PtyHandle,
-  cwd: string,
-  currentAgent: string | null,
-  plog: Logger,
-): AgentTerminalState {
-  let basename: string | null | undefined;
-  const foregroundPid = ptyHandle.foregroundPid;
-  const shellIdle =
-    foregroundPid === undefined || foregroundPid === ptyHandle.pid;
-  return {
-    foregroundPid,
-    cwd,
-    readForegroundBasename: () => {
-      if (basename === undefined)
-        basename = readForegroundBasenameOnce(ptyHandle, plog);
-      return basename;
-    },
-    lastAgentCommandName: shellIdle ? null : currentAgent,
-  };
-}
-
-/** Per-provider activation state for the lazy external-change
- *  subscription. Shared across every terminal that uses a given
- *  provider kind. Installed at most once per process, the first time
- *  any terminal's state reports `externalChanges.isPresent` — so a
- *  user who has never run the agent pays zero watcher cost (issue #698).
- *
- *  `reconcilers` is the fan-out set: every terminal whose own state
- *  has ever reported "agent present" is in here, and a single external
- *  signal dispatches to all of them. Entries are removed on terminal
- *  teardown; the installed watcher itself stays up for the remainder
- *  of the process (the underlying singleton matches that lifetime
- *  anyway — there is no useful uninstall). */
-interface ExternalChangesActivation {
-  reconcilers: Set<() => void>;
-  installed: boolean;
-}
-const activations = new Map<string, ExternalChangesActivation>();
-
-function getActivation(kind: string): ExternalChangesActivation {
-  let entry = activations.get(kind);
-  if (!entry) {
-    entry = { reconcilers: new Set(), installed: false };
-    activations.set(kind, entry);
-  }
-  return entry;
-}
-
-/** Preexec (`commandRun`) arrives while the shell still owns the
- *  foreground process group, so a synchronous reconcile reads
- *  `state.foregroundPid = shell.pid` and `snapshotTerminalState` forces
- *  `lastAgentCommandName = null` (the `shellIdle` gate). The matched
- *  agent binary takes over a few ticks later. Retry the reconcile at
- *  increasing delays so the per-terminal preexec stash is sampled both
- *  immediately and after POSIX foreground ownership has settled. */
-const COMMAND_RUN_RECONCILE_DELAYS_MS = [0, 75, 300, 1000] as const;
-
-/** Single write-site for `m.agent`. The provider's watcher emits at
- *  ~150ms cadence while an agent is streaming; only a small fraction
- *  of those emits cross the recency-bump threshold (transitions on
- *  `kind`/`sessionId`/`state`). Every tick writes `m.agent` via the
- *  live variant (no dirty signal). On a bump, a second call writes
- *  `m.lastActivityAt` via the persisting variant. The two-call shape
- *  is forced by the type fence; the second publish is cheap and only
- *  happens on transitions. */
-function setAgentMetadata(
-  entry: TerminalProcess,
-  terminalId: string,
-  nextAgent: AgentInfo | null,
-): void {
-  const bump = shouldBumpRecencyForAgentChange(
-    entry.meta.agent,
-    nextAgent,
-    entry.meta.lastActivityAt,
-  );
-  updateServerLiveMetadata(entry, terminalId, (m) => {
-    m.agent = nextAgent;
-  });
-  if (bump) {
-    updateServerMetadata(entry, terminalId, (m) => {
-      m.lastActivityAt = Date.now();
-    });
-  }
-}
-
-function startAgentProvider<Session, Info extends AgentInfoShape>(
-  provider: AgentProvider<Session, Info>,
-  entry: TerminalProcess,
-  record: LocalTerminalRecord,
-  terminalId: string,
-): () => void {
-  const plog = log.child({ provider: provider.kind, terminal: terminalId });
-
-  let current: { watcher: AgentWatcher; key: string } | null = null;
-  let registeredForExternal = false;
-  let stopped = false;
-  let commandRunTimers: ReturnType<typeof setTimeout>[] = [];
-
-  plog.debug("started");
-
-  function reconcile() {
-    const state = snapshotTerminalState(
-      record.ptyHandle,
-      entry.meta.cwd,
-      record.currentAgent,
-      plog,
-    );
-
-    if (!registeredForExternal && provider.externalChanges?.isPresent(state)) {
-      const activation = getActivation(provider.kind);
-      activation.reconcilers.add(reconcile);
-      registeredForExternal = true;
-      if (!activation.installed) {
-        activation.installed = true;
-        const slog = log.child({ provider: provider.kind });
-        provider.externalChanges.install(
-          () => {
-            for (const fn of [...activation.reconcilers]) {
-              try {
-                fn();
-              } catch (err) {
-                slog.error({ err }, "reconcile threw on external change");
-              }
-            }
-          },
-          (err) => slog.error({ err }, "external-change listener threw"),
-          slog,
-        );
-      }
-    }
-
-    const next = provider.resolveSession(state, plog);
-    const nextKey = next ? provider.sessionKey(next) : null;
-    if ((current?.key ?? null) === nextKey) return;
-
-    const hadCurrent = current !== null;
-    current?.watcher.destroy();
-    current = null;
-
-    if (!next || !nextKey) {
-      if (hadCurrent) plog.debug("agent session ended");
-      if (entry.meta.agent?.kind === provider.kind) {
-        setAgentMetadata(entry, terminalId, null);
-      }
-      return;
-    }
-
-    plog.debug({ session: nextKey }, "agent session matched");
-    current = {
-      key: nextKey,
-      watcher: provider.createWatcher(
-        next,
-        (info) => {
-          setAgentMetadata(entry, terminalId, info as unknown as AgentInfo);
-        },
-        plog,
-      ),
-    };
-  }
-
-  function clearCommandRunTimers() {
-    for (const timer of commandRunTimers) clearTimeout(timer);
-    commandRunTimers = [];
-  }
-
-  function reconcileFromCommandRun(idx: number) {
-    if (stopped) return;
-    try {
-      reconcile();
-    } catch (err) {
-      plog.error({ err }, "command-run reconcile failed");
-    }
-    if (current !== null) return;
-    const nextIdx = idx + 1;
-    const next = COMMAND_RUN_RECONCILE_DELAYS_MS[nextIdx];
-    if (next === undefined) return;
-    const cur = COMMAND_RUN_RECONCILE_DELAYS_MS[idx]!;
-    commandRunTimers.push(
-      setTimeout(() => reconcileFromCommandRun(nextIdx), next - cur),
-    );
-  }
-
-  function scheduleCommandRunReconciles() {
-    clearCommandRunTimers();
-    reconcileFromCommandRun(0);
-  }
-
-  const cleanupTitle = terminalChannels.title(terminalId).consume({
-    onEvent: () => reconcile(),
-    onError: (err) => plog.error({ err }, "publisher subscription failed"),
-  });
-
-  const cleanupCwd = terminalChannels.cwd(terminalId).consume({
-    onEvent: () => reconcile(),
-    onError: (err) => plog.error({ err }, "publisher subscription failed"),
-  });
-
-  const cleanupCommandRun = terminalChannels.commandRun(terminalId).consume({
-    onEvent: () => scheduleCommandRunReconciles(),
-    onError: (err) => plog.error({ err }, "publisher subscription failed"),
-  });
-
-  reconcile();
-
-  return () => {
-    stopped = true;
-    clearCommandRunTimers();
-    cleanupTitle();
-    cleanupCwd();
-    cleanupCommandRun();
-    if (registeredForExternal) {
-      activations.get(provider.kind)?.reconcilers.delete(reconcile);
-    }
-    current?.watcher.destroy();
-    plog.debug("stopped");
-  };
-}
-
-// ── Provider composition ───────────────────────────────────────────────
-
-/** Start every per-terminal provider for one terminal. Provider order
- *  matters only for `startAgentCommandTracker` — it has to be first so
- *  the stash it maintains is populated before the agent detectors
- *  reconcile. */
-function startProviders(
-  entry: TerminalProcess,
-  record: LocalTerminalRecord,
-  terminalId: string,
-): () => void {
-  const stopAgentCommand = startAgentCommandTracker(record, terminalId);
-  const stopGit = startGitProvider(entry, terminalId);
-  const stopGitHubPr = startGitHubPrProvider(entry, terminalId);
-  const stopClaude = startAgentProvider(
-    claudeCodeProvider,
-    entry,
-    record,
-    terminalId,
-  );
-  const stopCodex = startAgentProvider(
-    codexProvider,
-    entry,
-    record,
-    terminalId,
-  );
-  const stopOpenCode = startAgentProvider(
-    opencodeProvider,
-    entry,
-    record,
-    terminalId,
-  );
-  const stopProcess = startProcessProvider(entry, record.ptyHandle, terminalId);
-  return () => {
-    stopAgentCommand();
-    stopGit();
-    stopGitHubPr();
-    stopClaude();
-    stopCodex();
-    stopOpenCode();
-    stopProcess();
-  };
 }
 
 // ── Local fs/git surfaces ──────────────────────────────────────────────
@@ -594,17 +121,19 @@ const localGit: TerminalBackendGit = {
 
 // ── Backend implementation ─────────────────────────────────────────────
 
-/** All per-local-terminal state lives here. The PtyHandle is the
- *  concrete node-pty handle (its dispose/process/foregroundPid methods
- *  are why it can't be the abstract `TerminalHandle`); `currentAgent`
- *  is the ephemeral stash maintained by the agent-command tracker
- *  (basename of the binary in the foreground right now, or null when
- *  the shell is idle / running a non-agent command); `stopProviders`
- *  tears down every per-terminal subscription on kill. The record is
- *  disposed atomically — dropping the entry from `records` drops all
- *  three together. */
+/** All per-local-terminal state lives here. Structurally satisfies the
+ *  `ProviderRecord` shape that `./providers.ts` consumes — `meta` is
+ *  aliased to the same object as `TerminalProcess.meta` so provider
+ *  writes (which go through the hooks → `updateServer*Metadata` →
+ *  `entry.meta`) land on the read path that providers see through
+ *  `record.meta`. `currentAgent` is the ephemeral stash maintained by
+ *  the agent-command tracker (basename of the binary in the foreground
+ *  right now, null when the shell is idle / running a non-agent
+ *  command). `stopProviders` tears down every per-terminal subscription
+ *  on kill. */
 interface LocalTerminalRecord {
   ptyHandle: PtyHandle;
+  meta: TerminalMetadata;
   currentAgent: string | null;
   stopProviders: () => void;
 }
@@ -697,11 +226,17 @@ class LocalTerminalBackend implements TerminalBackend {
     // it. `stopProviders` is patched in after the call.
     const record: LocalTerminalRecord = {
       ptyHandle,
+      meta,
       currentAgent: null,
       stopProviders: () => {},
     };
     this.records.set(id, record);
-    record.stopProviders = startProviders(entry, record, id);
+    record.stopProviders = startProviders(
+      record,
+      id,
+      buildChannels(id),
+      buildHooks(entry, id),
+    );
 
     tlog.info({ pid: ptyHandle.pid, total: listTerminals().length }, "created");
     emitTerminalsDirty();
@@ -758,6 +293,40 @@ class LocalTerminalBackend implements TerminalBackend {
       TerminalChannelMap[K]
     >;
   }
+}
+
+/** Map this backend's publisher-backed terminal channels onto the
+ *  shape `startProviders` expects. */
+function buildChannels(id: TerminalId): ProviderChannels {
+  return {
+    cwd: terminalChannels.cwd(id),
+    title: terminalChannels.title(id),
+    commandRun: terminalChannels.commandRun(id),
+    git: terminalChannels.git(id),
+  };
+}
+
+/** Build the `ProviderHooks` for one terminal. The two update verbs
+ *  bridge `ProviderMeta` (the providers' narrow view) onto the
+ *  registry's `TerminalProcess.meta` via `updateServer*Metadata` —
+ *  same object identity, so the providers' own read path on
+ *  `record.meta` sees the write immediately. The cast is sound
+ *  because `TerminalMetadata` is structurally a superset of
+ *  `ProviderMeta`. `trackRecent*` are passed straight through:
+ *  the local backend owns the activity feed. */
+function buildHooks(entry: TerminalProcess, id: TerminalId): ProviderHooks {
+  return {
+    updateServerMetadata: (_record, mutate) =>
+      updateServerMetadata(entry, id, (m) =>
+        mutate(m as unknown as ProviderMeta),
+      ),
+    updateServerLiveMetadata: (_record, mutate) =>
+      updateServerLiveMetadata(entry, id, (m) =>
+        mutate(m as unknown as ProviderMeta),
+      ),
+    trackRecentRepo,
+    trackRecentAgent,
+  };
 }
 
 export const localTerminalBackend: TerminalBackend = new LocalTerminalBackend();
