@@ -197,9 +197,7 @@ async function main(): Promise<void> {
         source: async function* (input, signal) {
           const current = ptyHost.getCwd(input.id);
           if (current !== undefined) yield current;
-          for await (const next of ptyHost.subscribeCwd(input.id, signal)) {
-            yield next;
-          }
+          yield* ptyHost.subscribeCwd(input.id, signal);
         },
       },
       terminalTitle: {
@@ -219,12 +217,7 @@ async function main(): Promise<void> {
       },
       terminalCommandRun: {
         source: async function* (input, signal) {
-          for await (const next of ptyHost.subscribeCommandRun(
-            input.id,
-            signal,
-          )) {
-            yield next;
-          }
+          yield* ptyHost.subscribeCommandRun(input.id, signal);
         },
       },
       terminalExit: {
