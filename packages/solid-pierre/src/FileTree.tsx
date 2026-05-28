@@ -205,6 +205,17 @@ export const FileTree: Component<FileTreeProps> = (props) => {
               tree?.getItem(p)?.deselect();
             }
           } else {
+            // Pierre's `select()` is additive — it does not clear the
+            // prior pick. Deselect every other selected row first so the
+            // tree lands in the single-select state kolu models. Without
+            // this, switching files leaves both rows selected, Pierre
+            // fires `onSelectionChange` with the stale path at `paths[0]`,
+            // and the host reads that back as a selection revert (the
+            // "first click after a file is already open does nothing,
+            // second click works" bug).
+            for (const p of tree?.getSelectedPaths() ?? []) {
+              if (p !== path) tree?.getItem(p)?.deselect();
+            }
             tree?.getItem(path)?.select();
             // `select()` marks aria-selected but doesn't move the
             // virtualizer; deep paths in large worktrees would stay

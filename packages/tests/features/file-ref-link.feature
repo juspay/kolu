@@ -83,6 +83,40 @@ Feature: File-ref autolinking in terminal
     And the selected file should show content "alpha"
     And no line should be selected in the file content
 
+  Scenario: Clicking a line-range file-ref selects the whole range
+    When I run "git init /tmp/kolu-file-ref-range-sel && cd /tmp/kolu-file-ref-range-sel"
+    And I run "git commit --allow-empty -m init"
+    And I run "printf 'one\ntwo\nthree\nfour\nfive\nsix\n' > range.txt"
+    And I run "echo 'block at range.txt:2-4 needs attention'"
+    And I trigger the terminal file-ref link "range.txt:2-4"
+    Then the selected file should show content "three"
+    And line 2 should be selected in the file content
+    And line 3 should be selected in the file content
+    And line 4 should be selected in the file content
+
+  Scenario: Clicking a line-range deep in a long file scrolls the selection into view
+    When I run "git init /tmp/kolu-file-ref-deep && cd /tmp/kolu-file-ref-deep"
+    And I run "git commit --allow-empty -m init"
+    And I run "seq 1 200 > big.txt"
+    And I run "echo 'hot spot at big.txt:161-165 here'"
+    And I trigger the terminal file-ref link "big.txt:161-165"
+    Then line 161 should be selected in the file content
+    And line 165 should be selected in the file content
+
+  Scenario: A file-ref opens on the first click when an iframe preview is already showing
+    When I run "git init /tmp/kolu-file-ref-preview && cd /tmp/kolu-file-ref-preview"
+    And I run "git commit --allow-empty -m init"
+    And I run "printf '<h1>hi</h1>\n' > page.html"
+    And I run "printf 'alpha\nbeta\ngamma\ndelta\n' > world.ts"
+    And I run "echo 'open page.html first'"
+    And I trigger the terminal file-ref link "page.html"
+    Then the file preview iframe should be visible
+    When I run "echo 'now jump to world.ts:3'"
+    And I trigger the terminal file-ref link "world.ts:3"
+    Then the file preview iframe should not be visible
+    And the selected file should show content "gamma"
+    And line 3 should be selected in the file content
+
   # `@skip`: known regression noted in c89a85f3 — the second xterm `path:line`
   # click after a manual collapse fails to re-open the panel under the bundled
   # build (passes in dev). Suspected production-Solid reactive elision or
