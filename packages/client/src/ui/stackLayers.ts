@@ -2,9 +2,11 @@
  *  axis** — the volatility axis that caused the original outer-handle
  *  shadowing bug. Surrounding chrome surfaces (ChromeBar `z-50`, Dock
  *  `z-30`, CanvasMinimap `z-20`, maximized-tile `z-40`,
- *  MobileTileView overlays) sit on their own axes and keep their
- *  literal Tailwind classes at the call site — they don't participate
- *  in this catalog's invariant.
+ *  MobileTileView overlays) keep their literal Tailwind classes at the
+ *  call site and don't participate in this catalog's invariant. They
+ *  share the same stacking context as the canvas (no stacking-context
+ *  isolation exists between them), but are positioned far enough from
+ *  the right-panel boundary that they never compete with these values.
  *
  *  Numbers are consumed as inline `z-index` style values at each site
  *  (Tailwind v4's @theme doesn't register custom `z-*` utility scales).
@@ -15,11 +17,11 @@
  *  hit zone (the half that sits inside the canvas area) — killing
  *  both the hover indicator and the pointer target along that strip.
  *  The `right-panel.feature` "hittable at its full width" scenario
- *  enforces this with a 25-point elementFromPoint sweep.
+ *  enforces this invariant with a 25-point elementFromPoint sweep.
  *
- *  Bump any of these and re-run that scenario — the test is the
- *  contract's only structural enforcement; this file is its
- *  catalog. */
+ *  `Z_HANDLE_INNER` has no dedicated e2e coverage — it is a
+ *  precautionary value that must stay above auto/zero (see its doc
+ *  below); any future refactor to inner handles should add a test. */
 
 export const Z_CANVAS_TILE_ACTIVE = 10;
 export const Z_CANVAS_TILE_INACTIVE = 1;
