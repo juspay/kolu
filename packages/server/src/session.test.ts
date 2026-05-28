@@ -7,6 +7,13 @@ import {
   saveSession,
   setSavedSession,
 } from "./session.ts";
+// Side-effect import: bootstraps `surfaceCtx` via `setSurfaceCtx` so
+// `saveSession` (which writes through `surfaceCtx.cells.session.set`)
+// reaches the conf store. The old `surface.ts ↔ session.ts` import
+// cycle did this transitively; that cycle is gone, and this test
+// genuinely needs the surface wired up to verify round-trips through
+// the cell adapter.
+import "./surface.ts";
 
 // KOLU_STATE_DIR is set by the `test:unit` script in package.json to route
 // conf state into $TMPDIR, keeping ~/.config clean. state.ts reads it at

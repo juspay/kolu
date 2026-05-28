@@ -8,14 +8,20 @@
  * cadence — either over-saving or losing data on restart.
  */
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { terminalsDirtyChannel } from "../publisher.ts";
+import { installNoopSurfaceCtxForTesting } from "../surfaceCtx.ts";
 import type { TerminalProcess } from "../terminal-registry.ts";
 import {
   updateClientMetadata,
   updateServerLiveMetadata,
   updateServerMetadata,
 } from "./metadata.ts";
+
+// Domain unit-tests don't load surface.ts, so the late-bound
+// `surfaceCtx` would otherwise throw on first access. Install a no-op
+// ctx for the publish side-effect the test doesn't care about.
+beforeAll(() => installNoopSurfaceCtxForTesting());
 
 function fakeTerminal(): TerminalProcess {
   return {

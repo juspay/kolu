@@ -99,7 +99,8 @@ The repo has clearly internalized the extraction discipline:
 
 | Cycle | Target | Mutation | Δ violations | Δ LOC | Commit | Notes |
 | ----: | ------ | -------- | ------------ | ----- | ------ | ----- |
-|     0 | (baseline) | report scaffold | n/a | n/a | (this commit) | establishes scorecard |
+|     0 | (baseline) | report scaffold | n/a | n/a | `afc9a35b` | establishes scorecard |
+|     1 | server import cycles | extract `surfaceCtx.ts` holder + pure `unwrapGit.ts` | −7 `noImportCycles` (7→0) | net +1 file, ~−30 LOC in `surface.ts` | (cycle 1) | All 7 server import cycles eliminated. Domain modules (`session.ts`, `activity.ts`, `terminalBackend/*`) now depend on `surfaceCtx.ts` only — a one-way arrow. `surface.ts` populates the holder via `setSurfaceCtx(...)` at module init. Two test files needed bootstrap (`metadata.test.ts` installs a no-op via the new `installNoopSurfaceCtxForTesting` helper; `session.test.ts` does a side-effect import of `surface.ts` since it verifies the real persistence path). 46/46 server unit tests pass; full repo unit suite green. Biome warnings 60→51. |
 
 ---
 

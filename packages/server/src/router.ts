@@ -24,7 +24,8 @@ import { saveTerminalFile } from "./terminalScratch.ts";
 import { serverHostname, serverProcessId } from "./hostname.ts";
 import { log } from "./log.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
-import { surfaceRouter, t, unwrapGit } from "./surface.ts";
+import { surfaceRouter, t } from "./surface.ts";
+import { unwrapGit } from "./unwrapGit.ts";
 import { getTerminalBackendFor } from "./terminalBackend/index.ts";
 import { getTerminal, type TerminalProcess } from "./terminal-registry.ts";
 import {

@@ -13,7 +13,7 @@ import type { SavedSession, SavedTerminal } from "kolu-common/surface";
 import { log } from "./log.ts";
 import { terminalsDirtyChannel } from "./publisher.ts";
 import { store } from "./state.ts";
-import { surfaceCtx } from "./surface.ts";
+import { surfaceCtx } from "./surfaceCtx.ts";
 
 /** Pending autosave timer — declared at module top so `setSavedSession`
  *  and the surface cell's `store.set` adapter can cancel it (see comment
