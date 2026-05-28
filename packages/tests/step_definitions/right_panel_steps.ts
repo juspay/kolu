@@ -121,3 +121,55 @@ Then(
     await handle.waitFor({ state: "attached", timeout: POLL_TIMEOUT });
   },
 );
+
+Then(
+  "the right panel resize handle should be hittable at its full width",
+  async function (this: KoluWorld) {
+    // The outer handle's ::before extends `before:-left-1 before:w-2`
+    // (-4px..+4px from the handle's left edge in Tailwind units). Sample
+    // points across that 8px-wide strip and assert each one resolves to
+    // the handle button via elementFromPoint.
+    //
+    // Force the canvas tile's right edge to coincide with the handle's
+    // left edge before sampling. Canvas tiles use
+    // `position: absolute; z-index: 10`; without this step the default
+    // tile placement might not reach the boundary, and a passing
+    // assertion would only mean "no tile happened to overlap" — not
+    // "the handle stacks above tiles when they do."
+    const result = await this.page.evaluate(() => {
+      const handle = document.querySelector(
+        '[data-testid="right-panel-handle"]',
+      );
+      if (!handle) return { ok: false, dead: [{ reason: "handle missing" }] };
+      const tile = document.querySelector(
+        '[data-testid="canvas-tile"]',
+      ) as HTMLElement | null;
+      if (!tile) return { ok: false, dead: [{ reason: "tile missing" }] };
+      const handleRect = handle.getBoundingClientRect();
+      const tileRect = tile.getBoundingClientRect();
+      // Shift the tile so its right edge lands exactly on handle.left.
+      // CanvasTile sets its transform inline; appending a translateX
+      // shift preserves whatever the canvas arranger computed.
+      const shift = handleRect.left - tileRect.right;
+      tile.style.transform = `${tile.style.transform} translateX(${shift}px)`;
+      const newTileRect = tile.getBoundingClientRect();
+      const dead: { x: number; y: number; covered: string }[] = [];
+      for (const yFrac of [0.1, 0.3, 0.5, 0.7, 0.9]) {
+        const y = newTileRect.top + newTileRect.height * yFrac;
+        for (const dx of [-3, -1.5, 0, 1.5, 3]) {
+          const x = handleRect.left + dx;
+          const el = document.elementFromPoint(x, y);
+          const id = el?.getAttribute("data-testid");
+          if (id !== "right-panel-handle") {
+            dead.push({ x, y, covered: id ?? el?.tagName ?? "<null>" });
+          }
+        }
+      }
+      return { ok: dead.length === 0, dead };
+    });
+    assert.ok(
+      result.ok,
+      `Resize handle is shadowed at: ${JSON.stringify(result.dead)}`,
+    );
+  },
+);

@@ -67,6 +67,17 @@ Feature: Right panel (inspector)
     And the right panel resize handle should be visible
     And there should be no page errors
 
+  Scenario: Resize handle stays hittable over a canvas tile in Code tab
+    # A tile placed against the canvas's right edge would shadow the
+    # outer handle's ::before hit zone (which extends 4px into the
+    # canvas area) unless the handle stacks above the tile's z-index:10.
+    When I press the toggle inspector shortcut
+    Then the right panel should be visible
+    When I click the Code tab
+    Then the Code tab should be active
+    Then the right panel resize handle should be hittable at its full width
+    And there should be no page errors
+
   Scenario: Right panel state persists across refresh
     When I press the toggle inspector shortcut
     Then the right panel should be visible
