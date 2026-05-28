@@ -341,6 +341,15 @@ export class RemoteTerminalBackend implements TerminalBackend {
       kind: "remote",
       host: this.host,
     });
+    // Seed `connectionState` synchronously so the `<DisconnectedOverlay>`
+    // renders the moment the tile appears. Without this, the overlay
+    // stays hidden until `session.onState` fires its first transition
+    // (which doesn't happen until `getKoluHostSessionAsync` resolves
+    // the drvPath — measurable seconds even on a warm path). The
+    // session subscription will overwrite `connectionState` with the
+    // real `copying → connecting → connected` lifecycle as soon as
+    // the HostSession resolves.
+    meta.connectionState = "copying";
     if (opts.parentId) meta.parentId = opts.parentId;
     const initial = opts.initialMetadata;
     if (initial?.themeName) meta.themeName = initial.themeName;
