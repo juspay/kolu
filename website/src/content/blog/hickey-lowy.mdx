@@ -417,16 +417,6 @@ other. Splitting the difference gives you the worst of both —
 neither a clean concept nor a clean volatility boundary, just a
 compromise that fails both tests six months later.
 
-The same goes for the reviewers' own defaults. The `lowy` skill's
-"1 in-tree consumer ⇒ skip" heuristic was wrong in exactly this
-way — a compromise dressed as a Lowy verdict. [Kolu PR #998](https://github.com/juspay/kolu/pull/998)
-exposed it across a 20-cycle ralph loop that graduated seven new
-`@kolu/*` framework packages, each justified by a stable
-volatility axis rather than reuse-count. The calibration is
-landing back in srid/agency (linked under _Further reading_ below).
-Push back on the reviewers when their reasoning doesn't hold up,
-the same way you'd push back on each other.
-
 ## In a line
 
 _A single-lens review is a half-review. Code has a spacetime;
@@ -475,19 +465,6 @@ one of your lenses is broken. Probably both.
   — the structural-simplicity reviewer's system prompt.
 - [**lowy/SKILL.md**](https://github.com/srid/agency/blob/master/.apm/skills/lowy/SKILL.md)
   — the volatility-decomposition reviewer's system prompt.
-- [**Calibration: single-consumer extraction**](https://github.com/srid/agency/pulls)
-  (PR to srid/agency, in flight) — a 20-cycle `/ralph` loop on
-  [Kolu PR #998](https://github.com/juspay/kolu/pull/998) graduated
-  seven `@kolu/*` framework packages from single-in-tree-consumer
-  code (the [Surface precedent](/blog/surface-framework/), applied
-  repeatedly). The default `/lowy` reasoning had been treating
-  "1 consumer" as a fail-on-reuse signal — contradicting both
-  Parnas and the lived evidence in the codebase. The PR adds an
-  explicit clause to `lowy/SKILL.md`: **encapsulating a stable
-  volatility axis is sufficient justification, even at one
-  consumer.** A parallel sentence in `hickey/SKILL.md` notes that
-  a package boundary that lines up with a real concept boundary
-  is _simple_ in Hickey's sense, not just _easy_.
 
 **The PR reviewed in this post.**
 
