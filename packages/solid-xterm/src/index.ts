@@ -12,6 +12,7 @@
  *  Solid owner (assumed; document per-export). They are NOT
  *  components — callers wire data into them imperatively. */
 
+export { createScrollLock } from "./scrollLock";
 export {
   type AttachXtermStyleSyncOptions,
   attachXtermStyleSync,

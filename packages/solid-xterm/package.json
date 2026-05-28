@@ -9,6 +9,7 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
+    "./scroll-lock": "./src/scrollLock.ts",
     "./style-sync": "./src/styleSync.ts",
     "./webgl": "./src/webgl.ts"
   },

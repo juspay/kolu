@@ -17,6 +17,7 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import { type ITheme, Terminal as XTerm } from "@xterm/xterm";
 import {
   attachXtermStyleSync,
+  createScrollLock,
   createXtermWebgl,
   type XtermWebglHandle,
 } from "@kolu/solid-xterm";
@@ -46,7 +47,6 @@ import { refitOnTabVisible } from "../refitOnTabVisible";
 import { streamCall } from "@kolu/surface/solid";
 import { client } from "../wire";
 import { isExpectedCleanupError } from "../rpc/streamCleanup";
-import { createScrollLock } from "../scrollLock";
 import { openInCodeTab } from "../right-panel/openInCodeTab";
 import { preferences } from "../wire";
 import { isTouch } from "../useMobile";
