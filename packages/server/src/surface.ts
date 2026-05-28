@@ -5,12 +5,16 @@
  *   - `surfaceRouter` — `oc.router({ surface: {...} })` fragment for the
  *     host router; spread alongside hand-listed raw oRPC procedures in
  *     `router.ts`.
- *   - `surfaceCtx` — typed `cells / collections / events` mutation map.
- *     Domain modules (`activity.ts`, `session.ts`, `terminals.ts`,
- *     `terminalBackend/metadata.ts`) import this and call `surfaceCtx.cells.X.set(...)`,
- *     `surfaceCtx.collections.X.upsert(k, v)`, `surfaceCtx.events.X.publish(i, p)`.
- *     The framework owns the apply+publish chain (and per-input event
- *     channel); domain code never sees a channel name string.
+ *   - The typed `cells / collections / events` mutation map (`surfaceCtx`)
+ *     is built here and registered into `./surfaceCtx.ts` via
+ *     `setSurfaceCtx(...)`. Domain modules (`activity.ts`, `session.ts`,
+ *     `terminalBackend/local.ts`, `terminalBackend/metadata.ts`) import
+ *     `surfaceCtx` from `./surfaceCtx.ts` — not from here — and call
+ *     `surfaceCtx.cells.X.set(...)`, `.collections.X.upsert(k, v)`,
+ *     `.events.X.publish(i, p)`. The framework owns the apply+publish
+ *     chain; domain code never sees a channel name string. Routing the
+ *     ctx through `./surfaceCtx.ts` is what breaks the bidirectional
+ *     import cycle that would otherwise form (#1005).
  *
  * Publisher channel names are framework-derived: `<surface-key>:changed`
  * for cells, `<surface-key>:keys` + `<surface-key>:<key>` for collections,
@@ -28,7 +32,7 @@ import {
   implementSurface,
   publisherChannel,
 } from "@kolu/surface/server";
-import { implement, ORPCError } from "@orpc/server";
+import { implement } from "@orpc/server";
 import { contract } from "kolu-common/contract";
 import { TerminalNotFoundError } from "kolu-common/errors";
 import type {
@@ -42,11 +46,9 @@ import {
   type FsReadFileOutput,
   fsListAllOutputEqual,
   fsReadFileOutputEqual,
-  type GitResult,
   gitDiffOutputEqual,
   gitStatusOutputEqual,
 } from "kolu-git";
-import { match } from "ts-pattern";
 import {
   buildIframePreviewUrl,
   isIframePreviewable,
@@ -55,17 +57,9 @@ import { log } from "./log.ts";
 import { publisher } from "./publisher.ts";
 import { cancelPendingAutosave, getSavedSession } from "./session.ts";
 import { store } from "./state.ts";
-// Load-order is cycle-sensitive: `terminalBackend/index.ts` must finish
-// loading (so `localTerminalBackend` is initialized) before line 61 below
-// calls `getTerminalBackendFor`. `terminal-registry.ts` participates in the
-// surface cycle via `local.ts`; if its import runs before
-// `terminalBackend/index.ts`, the cycle reaches line 61 in a state where
-// `localTerminalBackend` is still in TDZ. Biome's alphabetical sort would
-// swap these two lines and break the production build.
-// biome-ignore-start assist/source/organizeImports: cycle-sensitive load order
-import { getTerminalBackendFor } from "./terminalBackend/index.ts";
+import { setSurfaceCtx } from "./surfaceCtx.ts";
 import { getTerminal, listTerminals } from "./terminal-registry.ts";
-// biome-ignore-end assist/source/organizeImports: cycle-sensitive load order
+import { getTerminalBackendFor } from "./terminalBackend/index.ts";
 
 const localBackend = getTerminalBackendFor({ kind: "local" });
 
@@ -88,35 +82,6 @@ const savedSessionStore: CellStore<SavedSession | null> =
   confStore<SavedSession | null>(store, "session");
 
 // ── Surface implementation ─────────────────────────────────────────────
-
-/** Unwrap a `GitResult` or throw an `ORPCError` for the client. Shared
- *  with the raw git handlers in `router.ts`. */
-export function unwrapGit<T>(result: GitResult<T>): T {
-  if (result.ok) return result.value;
-  const { status, message } = match(result.error)
-    .with({ code: "BASE_BRANCH_NOT_FOUND" }, (e) => ({
-      status: "PRECONDITION_FAILED" as const,
-      message: e.message,
-    }))
-    .with({ code: "WORKTREE_NAME_COLLISION" }, (e) => ({
-      status: "CONFLICT" as const,
-      message: e.message,
-    }))
-    .with({ code: "PATH_ESCAPES_ROOT" }, (e) => ({
-      status: "INTERNAL_SERVER_ERROR" as const,
-      message: `path escapes root: ${e.child}`,
-    }))
-    .with({ code: "GIT_FAILED" }, (e) => ({
-      status: "INTERNAL_SERVER_ERROR" as const,
-      message: e.message,
-    }))
-    .with({ code: "NOT_A_REPO" }, () => ({
-      status: "INTERNAL_SERVER_ERROR" as const,
-      message: "Not a git repository",
-    }))
-    .exhaustive();
-  throw new ORPCError(status, { message });
-}
 
 const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
   implementSurface(surface, {
@@ -288,4 +253,4 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
   });
 
 export const surfaceRouter = surfaceRouterFragment;
-export const surfaceCtx = surfaceCtxBuilt;
+setSurfaceCtx(surfaceCtxBuilt);

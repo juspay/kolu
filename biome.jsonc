@@ -100,7 +100,12 @@
       "suspicious": {
         // Terminal code legitimately parses ANSI escape sequences —
         // the rule is a permanent false positive against xterm diagnostics.
-        "noControlCharactersInRegex": "off"
+        "noControlCharactersInRegex": "off",
+        // Promoted from the default `warn` after #1005 broke the 9 server
+        // cycles via the `surfaceCtx.ts` holder pattern. As `error`, any
+        // PR that re-introduces a cycle fails `just check` immediately —
+        // the TDZ-on-import-reorder class becomes structurally impossible.
+        "noImportCycles": "error"
       },
       "complexity": {
         // Tailwind `!important` overrides are intentional in kolu's
