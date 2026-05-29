@@ -391,6 +391,18 @@ Feature: Canvas workspace
     Then no canvas tile should be maximized
     And there should be no page errors
 
+  Scenario: Chrome-bar maximize toggle switches between canvas and maximized mode
+    # The header toggle is the always-visible affordance for the posture
+    # switch (mirrors the dock/inspector toggles); drives the same
+    # `useViewPosture.toggle` as the tile double-click.
+    Given I create a terminal
+    Then there should be 2 canvas tiles
+    When I click the chrome-bar maximize toggle
+    Then canvas tile 1 should be maximized
+    When I click the chrome-bar maximize toggle
+    Then no canvas tile should be maximized
+    And there should be no page errors
+
   Scenario: Switching the active terminal while maximized does not remount the xterm
     # Regression for #988: switching active in maximized mode used to move
     # the active tile between the tiled `<For>` and a separate `<Show keyed>`

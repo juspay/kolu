@@ -20,7 +20,7 @@
  *  Mobile uses a different chrome surface — a pull-down sheet — see
  *  `MobileChromeSheet` and `MobileTileView`. */
 
-import { type Component, createSignal } from "solid-js";
+import { type Component, createSignal, Show } from "solid-js";
 import { dockExpanded, toggleRailCards } from "./canvas/dock/Dock";
 import { useViewPosture } from "./canvas/useViewPosture";
 import { ACTIONS } from "./input/actions";
@@ -29,7 +29,13 @@ import RecordButton from "./recorder/RecordButton";
 import { useRightPanel } from "./right-panel/useRightPanel";
 import type { WsStatus } from "./rpc/rpc";
 import SettingsPopover from "./settings/SettingsPopover";
-import { DockToggleIcon, InspectorToggleIcon, SettingsIcon } from "./ui/Icons";
+import {
+  DockToggleIcon,
+  InspectorToggleIcon,
+  MaximizeIcon,
+  RestoreIcon,
+  SettingsIcon,
+} from "./ui/Icons";
 import Kbd from "./ui/Kbd";
 import Tip from "./ui/Tip";
 
@@ -52,6 +58,7 @@ const ChromeBar: Component<{
   // doesn't collide with the chrome. Panel-open stays on the floating
   // overlay — the `right:` offset below keeps controls off the panel.
   const docked = () => posture.mode() === "maximized";
+  const isMaximized = () => posture.mode() === "maximized";
 
   return (
     <header
@@ -127,6 +134,27 @@ const ChromeBar: Component<{
        *  clicks through; each button re-enables pointer-events-auto. */}
       <div class="flex items-center gap-2 shrink-0">
         <RecordButton />
+        <Tip label="Toggle maximized mode">
+          <button
+            type="button"
+            data-testid="maximize-toggle"
+            class="pointer-events-auto hidden sm:flex items-center justify-center w-7 h-7 rounded-lg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+            classList={{
+              "bg-surface-2 text-fg": isMaximized(),
+              "text-fg-3 hover:bg-surface-2 hover:text-fg": !isMaximized(),
+            }}
+            data-active={isMaximized() ? "" : undefined}
+            onClick={() => posture.toggle()}
+            aria-label={isMaximized() ? "Restore canvas" : "Maximize terminal"}
+          >
+            <Show
+              when={isMaximized()}
+              fallback={<MaximizeIcon class="w-3.5 h-3.5" />}
+            >
+              <RestoreIcon class="w-3.5 h-3.5" />
+            </Show>
+          </button>
+        </Tip>
         <Tip
           label={`Toggle dock (${formatKeybind(ACTIONS.toggleDock.keybind)})`}
         >

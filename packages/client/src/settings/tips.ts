@@ -78,6 +78,10 @@ export const AMBIENT_TIPS: readonly Tip[] = [
     text: "Double-click a tile's title bar to maximize it to the viewport. Double-click again to restore.",
   },
   {
+    id: "amb-chrome-maximize",
+    text: "Use the maximize toggle in the header to switch between the tiled canvas and maximized mode.",
+  },
+  {
     id: "amb-pwa-install",
     text: "Install kolu as a native app from your browser menu — unlocks ⌘T, ⌃Tab and friends",
   },

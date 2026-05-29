@@ -1332,6 +1332,16 @@ Then("no canvas tile should be maximized", async function (this: KoluWorld) {
   );
 });
 
+When(
+  "I click the chrome-bar maximize toggle",
+  async function (this: KoluWorld) {
+    const button = this.page.locator('[data-testid="maximize-toggle"]');
+    await button.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await button.click();
+    await this.waitForFrame();
+  },
+);
+
 // A covered tile (non-maximized, in maximized posture) must hide itself via
 // computed `visibility: hidden` — Playwright reports it as not visible. Before
 // the fix the covered tile shared `tiledStyle()` (computed visibility
