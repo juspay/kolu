@@ -11,8 +11,19 @@
  *     client cleanup) — the regression guard for the pre-R4b behavior.
  */
 
-import { afterEach, describe, expect, it } from "vitest";
-import { type Agent, type AgentMetadataEvent, createAgent } from "./agent.ts";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
+import type { Agent, AgentMetadataEvent } from "./agent.ts";
 
 const silentLog = {
   debug: () => {},
@@ -42,9 +53,50 @@ function settle(): Promise<void> {
 }
 
 describe("createAgent", () => {
+  // The agent's provider DAG (claude-code, codex, opencode) resolves its
+  // watch dirs from KOLU_* env vars at *module import time* (top-level
+  // consts in each integration's config). Point them at throwaway temp dirs
+  // and import `agent.ts` only after they're set, so the test never installs
+  // watchers on the developer's real ~/.claude / ~/.codex / opencode state.
+  // Mirrors the e2e harness's per-worker isolation in
+  // `packages/tests/support/hooks.ts`. (#1029)
+  let createAgent: typeof import("./agent.ts").createAgent;
+  let tmpRoot: string;
+  // A real, existing cwd for the OSC 7 test — a non-existent target (the old
+  // hardcoded /tmp/agent-osc7) makes the git cwd-watcher log a noisy
+  // "failed to watch dir" / "resolveGitInfo failed".
+  let osc7Cwd: string;
+
   let agent: Agent;
   let events: AgentMetadataEvent[];
   let stop: (() => void) | undefined;
+
+  beforeAll(async () => {
+    tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-agent-test-"));
+    const sub = (name: string) => {
+      const dir = path.join(tmpRoot, name);
+      fs.mkdirSync(dir);
+      return dir;
+    };
+    process.env.KOLU_CLAUDE_SESSIONS_DIR = sub("claude-sessions");
+    process.env.KOLU_CLAUDE_PROJECTS_DIR = sub("claude-projects");
+    process.env.KOLU_CODEX_DIR = sub("codex");
+    process.env.KOLU_OPENCODE_DB = path.join(sub("opencode"), "opencode.db");
+    osc7Cwd = sub("osc7-cwd");
+
+    // Env must be set before the provider modules are first imported; a
+    // static import of `agent.ts` would hoist above these assignments.
+    vi.resetModules();
+    ({ createAgent } = await import("./agent.ts"));
+  });
+
+  afterAll(() => {
+    delete process.env.KOLU_CLAUDE_SESSIONS_DIR;
+    delete process.env.KOLU_CLAUDE_PROJECTS_DIR;
+    delete process.env.KOLU_CODEX_DIR;
+    delete process.env.KOLU_OPENCODE_DB;
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  });
 
   async function start(): Promise<void> {
     agent = createAgent({ log: silentLog });
@@ -67,21 +119,19 @@ describe("createAgent", () => {
       shell: "/bin/sh",
       args: [
         "-c",
-        "printf '\\033]7;file://localhost/tmp/agent-osc7\\033\\\\'; sleep 0.5",
+        `printf '\\033]7;file://localhost${osc7Cwd}\\033\\\\'; sleep 0.5`,
       ],
       env: shellEnv,
       cwd: "/tmp",
     });
     await waitFor(() =>
       events.some(
-        (e) =>
-          e.kind === "metadataPersisted" && e.fields.cwd === "/tmp/agent-osc7",
+        (e) => e.kind === "metadataPersisted" && e.fields.cwd === osc7Cwd,
       ),
     );
     expect(
       events.find(
-        (e) =>
-          e.kind === "metadataPersisted" && e.fields.cwd === "/tmp/agent-osc7",
+        (e) => e.kind === "metadataPersisted" && e.fields.cwd === osc7Cwd,
       ),
     ).toMatchObject({ kind: "metadataPersisted", id });
   });
