@@ -47,8 +47,7 @@ export function findPierreScroller(container: HTMLElement): HTMLElement | null {
   // `walkShadowRoots` visits every shadow root reachable from `container`.
   // We visit the first one (Pierre's `file-tree-container` custom element)
   // and search its internals for the first overflowing descendant — the
-  // scroll viewport. Both probes are by capability, not by tag/class name,
-  // so a Pierre internal rename can't silently return null.
+  // scroll viewport.
   // +1: guards against fractional-pixel rounding where scrollHeight and
   // clientHeight can both be integers that differ by less than 1px on
   // high-DPI displays.
