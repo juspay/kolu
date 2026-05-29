@@ -297,14 +297,42 @@ function spawnKoluServer(): ChildProcess {
 }
 
 /** Restart kolu-server while preserving the detached PTY-host daemon — the
- *  reattach test's core action. Kills only the server, respawns it on the
- *  same port + state dir, and waits for health; on reboot the server's
- *  `reattachLocalTerminals` re-registers the surviving PTYs. */
+ *  reattach test's core action. Kills only the server, **waits for it to
+ *  exit so the port is released**, then respawns on the same port + state
+ *  dir and waits for health; on reboot the server's `reattachLocalTerminals`
+ *  re-registers the surviving PTYs.
+ *
+ *  The wait-for-exit is load-bearing: SIGTERM is async, and rebinding the
+ *  port before the old listener closes races into `EADDRINUSE` — the new
+ *  server then crashes and every later scenario on this worker fails with
+ *  connection-refused (cheap to miss locally where exit is sub-ms, fatal
+ *  under CI load). */
 export async function restartKoluServer(): Promise<void> {
   if (serverPort === undefined) {
     throw new Error("restartKoluServer: server not spawned by this harness");
   }
-  killServerOnly();
+  const old = serverProcess;
+  serverProcess = undefined;
+  if (old && old.exitCode === null && old.signalCode === null) {
+    await new Promise<void>((resolve) => {
+      const done = (): void => {
+        clearTimeout(timer);
+        resolve();
+      };
+      const timer = setTimeout(() => {
+        // Old server ignored SIGTERM within the grace window — force it so
+        // the port frees, then proceed.
+        try {
+          old.kill("SIGKILL");
+        } catch {
+          // already gone
+        }
+        done();
+      }, 5_000);
+      old.once("exit", done);
+      old.kill("SIGTERM");
+    });
+  }
   serverProcess = spawnKoluServer();
   await waitForHealth(`${baseUrl}/api/health`, 15_000);
 }
