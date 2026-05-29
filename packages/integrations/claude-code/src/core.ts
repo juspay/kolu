@@ -172,6 +172,45 @@ export function tailJsonlLines(filePath: string, bytes: number): string[] {
   return readTailLines({ path: filePath, size, maxBytes: bytes }) ?? [];
 }
 
+// --- Wire-shape helpers (shared) ---
+//
+// Primitives that read the raw JSONL `message.content` block shapes. Shared by
+// both state derivation (interrupt detection) and background-task scanning, so
+// they live above both rather than next to whichever caller happened to land
+// first.
+
+/** Flatten a `tool_result` block's `content` (a string, or an array of
+ *  `{type:"text", text}` blocks) to a single string for marker matching. */
+function toolResultText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  let out = "";
+  for (const block of content) {
+    if (
+      block &&
+      typeof block === "object" &&
+      typeof (block as { text?: unknown }).text === "string"
+    ) {
+      out += (block as { text: string }).text;
+    }
+  }
+  return out;
+}
+
+/** If `block` is a `tool_result`, return its flattened text and error flag;
+ *  otherwise null. Both interrupt detection (errored markers) and
+ *  background-task scanning (launch confirmations) classify user-entry
+ *  `tool_result` blocks by their text, so the "is it a tool_result, what's its
+ *  text" mechanic lives here once. Each caller keeps its own policy on top. */
+function toolResultBlock(
+  block: unknown,
+): { text: string; isError: boolean } | null {
+  if (!block || typeof block !== "object") return null;
+  const b = block as { type?: string; is_error?: boolean; content?: unknown };
+  if (b.type !== "tool_result") return null;
+  return { text: toolResultText(b.content), isError: b.is_error === true };
+}
+
 // --- State derivation ---
 
 /** Anthropic usage subset from `message.usage` on assistant entries — the
@@ -217,7 +256,7 @@ function isInterruptMarker(content: unknown): boolean {
   if (!Array.isArray(content)) return false;
   for (const block of content) {
     if (!block || typeof block !== "object") continue;
-    const b = block as { type?: string; text?: unknown; is_error?: boolean };
+    const b = block as { type?: string; text?: unknown };
     if (
       b.type === "text" &&
       typeof b.text === "string" &&
@@ -225,13 +264,8 @@ function isInterruptMarker(content: unknown): boolean {
     ) {
       return true;
     }
-    if (
-      b.type === "tool_result" &&
-      b.is_error === true &&
-      toolResultText((block as { content?: unknown }).content).startsWith(
-        INTERRUPT_TOOL_RESULT_PREFIX,
-      )
-    ) {
+    const tr = toolResultBlock(block);
+    if (tr?.isError && tr.text.startsWith(INTERRUPT_TOOL_RESULT_PREFIX)) {
       return true;
     }
   }
@@ -388,24 +422,6 @@ const TASK_ID_TAG_RE = /<task-id>([^<]+)<\/task-id>/;
 const TERMINAL_STATUS_RE =
   /<status>(?:completed|failed|stopped|killed)<\/status>/;
 
-/** Flatten a `tool_result` block's `content` (a string, or an array of
- *  `{type:"text", text}` blocks) to a single string for marker matching. */
-function toolResultText(content: unknown): string {
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-  let out = "";
-  for (const block of content) {
-    if (
-      block &&
-      typeof block === "object" &&
-      typeof (block as { text?: unknown }).text === "string"
-    ) {
-      out += (block as { text: string }).text;
-    }
-  }
-  return out;
-}
-
 /** Scan the transcript tail for background tasks launched but not yet
  *  reporting a terminal status.
  *
@@ -450,15 +466,15 @@ export function outstandingBackgroundTasks(lines: string[]): BackgroundTask[] {
     const content = entry.message?.content;
     if (!Array.isArray(content)) continue;
     for (const block of content) {
-      if (!block || block.type !== "tool_result") continue;
-      const text = toolResultText(block.content);
+      const tr = toolResultBlock(block);
+      if (!tr) continue;
       let taskId: string | undefined;
       for (const re of BG_LAUNCH_RES) {
-        taskId = re.exec(text)?.[1];
+        taskId = re.exec(tr.text)?.[1];
         if (taskId) break;
       }
       if (!taskId) continue;
-      launched.set(taskId, BG_RUN_ID_RE.exec(text)?.[1] ?? null);
+      launched.set(taskId, BG_RUN_ID_RE.exec(tr.text)?.[1] ?? null);
     }
   }
 
