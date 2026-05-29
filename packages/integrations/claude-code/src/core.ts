@@ -272,16 +272,16 @@ function isInterruptMarker(content: unknown): boolean {
   return false;
 }
 
-function toolUseOrAwaitingUser(
-  content: ContentBlock[] | undefined,
-): "tool_use" | "awaiting_user" {
+function toolUseOrAwaitingUser(content: unknown): "tool_use" | "awaiting_user" {
   if (!Array.isArray(content)) return "tool_use";
   let total = 0;
   let awaiting = 0;
   for (const block of content) {
-    if (block.type !== "tool_use") continue;
+    if (!block || typeof block !== "object") continue;
+    const b = block as ContentBlock;
+    if (b.type !== "tool_use") continue;
     total++;
-    if (block.name && AWAITING_USER_TOOLS.has(block.name)) awaiting++;
+    if (b.name && AWAITING_USER_TOOLS.has(b.name)) awaiting++;
   }
   return classifyByAwaiting(awaiting, total);
 }
@@ -330,7 +330,10 @@ export function deriveState(
           stop_reason?: string | null;
           model?: string | null;
           usage?: UsageShape;
-          content?: ContentBlock[];
+          // Raw wire data: a string (interrupt text) or a block array. Each
+          // consumer (`toolUseOrAwaitingUser`, `isInterruptMarker`) narrows
+          // to the projection it reads rather than trusting one shared shape.
+          content?: unknown;
         };
       } = JSON.parse(raw);
 
