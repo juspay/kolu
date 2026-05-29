@@ -204,8 +204,8 @@ const AWAITING_USER_TOOLS = new Set(["AskUserQuestion", "ExitPlanMode"]);
  *  prefix covers both without enumerating the suffix. A real prompt the user
  *  types after the marker is a distinct newer `user` entry that matches
  *  neither marker, so it still reads as `thinking`. */
-const INTERRUPT_TEXT_PREFIX = "[Request interrupted by user";
-const INTERRUPT_TOOL_RESULT_PREFIX =
+export const INTERRUPT_TEXT_PREFIX = "[Request interrupted by user";
+export const INTERRUPT_TOOL_RESULT_PREFIX =
   "The user doesn't want to proceed with this tool use";
 
 /** True when a `user` entry's `message.content` is an Esc-interrupt marker.

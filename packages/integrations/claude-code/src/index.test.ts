@@ -7,6 +7,8 @@ import {
   deriveTaskProgress,
   encodeProjectPath,
   extractTasks,
+  INTERRUPT_TEXT_PREFIX,
+  INTERRUPT_TOOL_RESULT_PREFIX,
   outstandingBackgroundTasks,
   tailJsonlLines,
 } from "./core.ts";
@@ -184,14 +186,19 @@ describe("deriveState", () => {
     });
   });
 
+  // Interrupt-marker fixtures composed from the same constants the
+  // implementation matches against — so a change to the marker policy in
+  // core.ts moves these in lockstep instead of silently decoupling.
+  const MID_TURN_MARKER = `${INTERRUPT_TEXT_PREFIX}]`;
+  const TOOL_CALL_MARKER = `${INTERRUPT_TEXT_PREFIX} for tool use]`;
+  const TOOL_RESULT_MARKER = `${INTERRUPT_TOOL_RESULT_PREFIX}. The tool use was rejected.`;
+
   it("returns waiting when the newest user entry is a mid-turn interrupt marker", () => {
     // Esc mid-turn appends `user [text: "[Request interrupted by user]"]`.
     // The agent is idle awaiting the next prompt, not thinking.
     const line = JSON.stringify({
       type: "user",
-      message: {
-        content: [{ type: "text", text: "[Request interrupted by user]" }],
-      },
+      message: { content: [{ type: "text", text: MID_TURN_MARKER }] },
     });
     expect(deriveState([line])).toEqual({
       state: "waiting",
@@ -203,7 +210,7 @@ describe("deriveState", () => {
   it("returns waiting for an interrupt marker carried as a plain string", () => {
     const line = JSON.stringify({
       type: "user",
-      message: { content: "[Request interrupted by user for tool use]" },
+      message: { content: TOOL_CALL_MARKER },
     });
     expect(deriveState([line])).toMatchObject({ state: "waiting" });
   });
@@ -215,22 +222,13 @@ describe("deriveState", () => {
       type: "user",
       message: {
         content: [
-          {
-            type: "tool_result",
-            is_error: true,
-            content:
-              "The user doesn't want to proceed with this tool use. The tool use was rejected.",
-          },
+          { type: "tool_result", is_error: true, content: TOOL_RESULT_MARKER },
         ],
       },
     });
     const textMarker = JSON.stringify({
       type: "user",
-      message: {
-        content: [
-          { type: "text", text: "[Request interrupted by user for tool use]" },
-        ],
-      },
+      message: { content: [{ type: "text", text: TOOL_CALL_MARKER }] },
     });
     expect(deriveState([toolResult, textMarker])).toMatchObject({
       state: "waiting",
@@ -244,9 +242,7 @@ describe("deriveState", () => {
     // user entry is a genuine prompt → thinking, as before.
     const marker = JSON.stringify({
       type: "user",
-      message: {
-        content: [{ type: "text", text: "[Request interrupted by user]" }],
-      },
+      message: { content: [{ type: "text", text: MID_TURN_MARKER }] },
     });
     const prompt = JSON.stringify({
       type: "user",
