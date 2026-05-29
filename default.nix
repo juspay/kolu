@@ -28,6 +28,7 @@ let
       ./packages/shared
       ./packages/terminal-themes
       ./packages/memorable-names
+      ./packages/pty-host
       ./packages/server
       ./packages/client
       ./packages/transcript-core
@@ -47,7 +48,7 @@ let
     # hash-fresh` enforces this stays in sync with pnpm-lock.yaml by forcing
     # fetchPnpmDeps to re-execute (--rebuild), so stale artifacts in the
     # binary cache can't silently satisfy a hash that no longer matches.
-    hash = "sha256-5V2RhOm5F2+ttxCuO8velcFbpsWAuZEI14zcfg7rR7w=";
+    hash = "sha256-3PHwtkW+K7ciV5GY++U/o0aAnPkTH07jff4XiaznzhY=";
     fetcherVersion = 3;
   };
 
