@@ -24,6 +24,7 @@
  *  Code tab was unified into `CodeTab.tsx` + `RightPanelDrawer.tsx`.) */
 
 import { makeEventListener } from "@solid-primitives/event-listener";
+import { walkShadowRoots } from "../comments/shadowWalk";
 
 /** Below this many pixels of finger travel, a touch is still a tap — let
  *  Pierre's row-click fire on `touchend` rather than eating it as a scroll. */
@@ -43,27 +44,22 @@ export type TouchScrollState = {
  *  break us. Returns null when the tree hasn't rendered yet or nothing
  *  overflows (short tree: nothing to scroll anyway). */
 export function findPierreScroller(container: HTMLElement): HTMLElement | null {
-  // Pierre mounts its tree into a custom element with an open shadow root.
-  // Locate that host as the (only) light-DOM descendant carrying a shadowRoot
-  // rather than by Pierre's `file-tree-container` tag name: a tag literal is a
-  // detached copy of a `@pierre/trees` internal — a rename would silently
-  // return null with no build error — and importing the tag constant would
-  // reach past the `@kolu/solid-pierre` firewall. The capability probe has
-  // neither failure mode.
-  let root: ShadowRoot | null = null;
-  for (const el of container.querySelectorAll("*")) {
-    if (el.shadowRoot) {
-      root = el.shadowRoot;
-      break;
-    }
-  }
-  if (!root) return null;
-  // The viewport inside the shadow root is likewise probed by capability —
-  // the first overflowing descendant — since it has no stable exported name.
-  for (const el of root.querySelectorAll<HTMLElement>("*")) {
-    if (el.scrollHeight > el.clientHeight + 1) return el;
-  }
-  return null;
+  // `walkShadowRoots` visits every shadow root reachable from `container`.
+  // We visit the first one (Pierre's `file-tree-container` custom element)
+  // and search its internals for the first overflowing descendant — the
+  // scroll viewport. Both probes are by capability, not by tag/class name,
+  // so a Pierre internal rename can't silently return null.
+  // +1: guards against fractional-pixel rounding where scrollHeight and
+  // clientHeight can both be integers that differ by less than 1px on
+  // high-DPI displays.
+  return (
+    walkShadowRoots(container, (root) => {
+      for (const el of root.querySelectorAll<HTMLElement>("*")) {
+        if (el.scrollHeight > el.clientHeight + 1) return el;
+      }
+      return undefined;
+    }) ?? null
+  );
 }
 
 /** Pure delta math: the `scrollTop` to apply for a finger at `clientY`, or
