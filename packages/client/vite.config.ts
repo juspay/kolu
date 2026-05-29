@@ -15,6 +15,11 @@ if (!fontsDir) {
   );
 }
 
+// Dev proxy target. Defaults to the canonical server port; allow an override
+// so multiple `just dev` instances (e.g. parallel worktrees) can each point
+// their proxy at a server on a non-default port.
+const devServerPort = Number(process.env.KOLU_DEV_SERVER_PORT) || DEFAULT_PORT;
+
 export default defineConfig({
   plugins: [
     solid(),
@@ -40,21 +45,14 @@ export default defineConfig({
     port: Number(process.env.KOLU_DEV_CLIENT_PORT) || 5173,
     // Prevent browser from caching dev assets — stale modules cause subtle bugs on refresh.
     headers: { "Cache-Control": "no-store" },
-    proxy: (() => {
-      // Default to the canonical server port; allow an override so multiple
-      // `just dev` instances (e.g. parallel worktrees) can each point their
-      // proxy at a server on a non-default port.
-      const serverPort =
-        Number(process.env.KOLU_DEV_SERVER_PORT) || DEFAULT_PORT;
-      return {
-        "/api": `http://localhost:${serverPort}`,
-        "/manifest.webmanifest": `http://localhost:${serverPort}`,
-        "/rpc": {
-          target: `http://localhost:${serverPort}`,
-          ws: true,
-        },
-      };
-    })(),
+    proxy: {
+      "/api": `http://localhost:${devServerPort}`,
+      "/manifest.webmanifest": `http://localhost:${devServerPort}`,
+      "/rpc": {
+        target: `http://localhost:${devServerPort}`,
+        ws: true,
+      },
+    },
   },
   define: {
     __KOLU_COMMIT__: JSON.stringify(commitHash),
