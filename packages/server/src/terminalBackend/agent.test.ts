@@ -5,7 +5,7 @@
  * children:
  *
  *   - a server-persisted field change (cwd via OSC 7) emits a
- *     `{ kind: "metadata", persisted: true }` event with the new value;
+ *     `{ kind: "metadataPersisted" }` event carrying the new value;
  *   - a natural PTY exit emits `{ kind: "exit" }` with the real code;
  *   - an intentional `kill` emits NO `exit` (the kill RPC drives its own
  *     client cleanup) — the regression guard for the pre-R4b behavior.
@@ -74,13 +74,30 @@ describe("createAgent", () => {
     });
     await waitFor(() =>
       events.some(
-        (e) => e.kind === "metadata" && e.meta.cwd === "/tmp/agent-osc7",
+        (e) =>
+          e.kind === "metadataPersisted" && e.fields.cwd === "/tmp/agent-osc7",
       ),
     );
     const ev = events.find(
-      (e) => e.kind === "metadata" && e.meta.cwd === "/tmp/agent-osc7",
+      (e) =>
+        e.kind === "metadataPersisted" && e.fields.cwd === "/tmp/agent-osc7",
     );
-    expect(ev).toMatchObject({ kind: "metadata", id, persisted: true });
+    expect(ev).toMatchObject({ kind: "metadataPersisted", id });
+  });
+
+  it("seeds the recency clock from restoredActivityAt", async () => {
+    await start();
+    // On session restore the saved lastActivityAt must survive into the
+    // agent's own record, not reset to 0 — otherwise re-detecting a resumed
+    // agent bumps recency to "now" and the restored ordering is lost.
+    const { meta } = agent.spawn({
+      shell: "/bin/sh",
+      args: ["-c", "sleep 0.3"],
+      env: shellEnv,
+      cwd: "/tmp",
+      restoredActivityAt: 4242,
+    });
+    expect(meta.lastActivityAt).toBe(4242);
   });
 
   it("emits an exit event with the real code on a natural exit", async () => {

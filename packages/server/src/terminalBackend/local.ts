@@ -11,7 +11,7 @@
  * cross-terminal / UI concerns the agent can't own once it's remote:
  *
  *   - the `terminalMetadata` collection + the `terminals:dirty` autosave
- *     trigger (driven by the stream's `persisted` flag);
+ *     trigger (fired only for the stream's `metadataPersisted` half);
  *   - the activity feed (recent-repos / recent-agents MRUs), fed by the
  *     stream's `recentRepo` / `recentAgent` events;
  *   - `TerminalBackend.fs/git`, which stay abstracted per-location and (for
@@ -133,32 +133,29 @@ class LocalTerminalBackend implements TerminalBackend {
     });
   }
 
-  /** Mirror one agent-stream event onto kolu-server state. */
+  /** Mirror one agent-stream event onto kolu-server state. The event type
+   *  carries the autosave fence: `metadataPersisted` routes through the
+   *  persisting helper (fires `terminals:dirty`), `metadataLive` through
+   *  the live one (does not). Each carries only its half of the partition,
+   *  so applying it is one fenced `Object.assign` — no field enumeration. */
   private applyAgentEvent(ev: AgentMetadataEvent): void {
     switch (ev.kind) {
-      case "metadata": {
+      case "metadataPersisted": {
         const entry = getTerminal(ev.id);
         // No entry ⟹ the terminal is being torn down (kill/exit raced this
         // event). Dropping is correct — the entry is gone for good.
         if (!entry) return;
-        // The `persisted` bit reconstructs the autosave fence across the
-        // boundary: route through the persisting helper (fires
-        // `terminals:dirty`) or the live helper (does not). The mutator
-        // types keep each branch writing only its half of the partition.
-        if (ev.persisted) {
-          updateServerMetadata(entry, ev.id, (m) => {
-            m.cwd = ev.meta.cwd;
-            m.git = ev.meta.git;
-            m.lastAgentCommand = ev.meta.lastAgentCommand;
-            m.lastActivityAt = ev.meta.lastActivityAt;
-          });
-        } else {
-          updateServerLiveMetadata(entry, ev.id, (m) => {
-            m.pr = ev.meta.pr;
-            m.agent = ev.meta.agent;
-            m.foreground = ev.meta.foreground;
-          });
-        }
+        updateServerMetadata(entry, ev.id, (m) => {
+          Object.assign(m, ev.fields);
+        });
+        return;
+      }
+      case "metadataLive": {
+        const entry = getTerminal(ev.id);
+        if (!entry) return;
+        updateServerLiveMetadata(entry, ev.id, (m) => {
+          Object.assign(m, ev.fields);
+        });
         return;
       }
       case "recentRepo":
@@ -192,13 +189,21 @@ class LocalTerminalBackend implements TerminalBackend {
     });
     Object.assign(env, shellInit.env);
 
-    const { pid, meta: serverMeta } = agent.spawn({
+    const {
+      pid,
+      meta: serverMeta,
+      handle,
+    } = agent.spawn({
       id,
       shell,
       args: shellInit.args,
       env,
       cwd,
       onDispose: shellInit.cleanup,
+      // Server-persisted recency, restored across session reload: seed it
+      // INSIDE the agent (its `record.meta` is separate from `entry.meta`)
+      // so re-detecting a resumed agent doesn't reset it to "now".
+      restoredActivityAt: opts.initialMetadata?.lastActivityAt,
     });
 
     // Build the registry entry from the agent's initial server+live
@@ -208,24 +213,23 @@ class LocalTerminalBackend implements TerminalBackend {
     // first `terminalMetadata` collection yield carry them (see #642).
     const meta: TerminalMetadata = { ...serverMeta };
     if (opts.parentId) meta.parentId = opts.parentId;
+    // Only the client-owned fields are seeded here; server-persisted ones
+    // (incl. the restored `lastActivityAt`) ride in on `serverMeta`.
     const initial = opts.initialMetadata;
     if (initial?.themeName) meta.themeName = initial.themeName;
     if (initial?.canvasLayout) meta.canvasLayout = initial.canvasLayout;
     if (initial?.subPanel) meta.subPanel = initial.subPanel;
     if (initial?.rightPanel) meta.rightPanel = initial.rightPanel;
-    if (initial?.lastActivityAt !== undefined)
-      meta.lastActivityAt = initial.lastActivityAt;
     if (initial?.intent) meta.intent = initial.intent;
 
-    // `agent.handle(id)` is the host-vended `PtyHandle`; it structurally
-    // satisfies `TerminalHandle` (write/resize/getScreenState/
-    // getScreenText/pid), and the host-only members it also carries (cwd,
-    // process, foregroundPid) are hidden at the `TerminalProcess.handle`
-    // type boundary so router.ts can't reach them.
+    // `handle` is the host-vended byte-stream handle from `spawn`, already
+    // narrowed to `TerminalHandle` (write/resize/getScreenState/
+    // getScreenText/pid) so router.ts can't reach the host-only members
+    // (cwd, process, foregroundPid) the providers read inside the agent.
     const entry: TerminalProcess = {
       info: { id, pid },
       meta,
-      handle: agent.handle(id),
+      handle,
     };
     registerTerminal(id, entry);
 

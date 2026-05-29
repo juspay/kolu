@@ -62,15 +62,13 @@ import type { Channel } from "@kolu/surface/server";
 import { log } from "../log.ts";
 import { shouldBumpRecencyForAgentChange } from "./agentRecency.ts";
 
-/** Minimal "terminal record" shape the provider DAG needs. Both
- *  backends construct one with their own internals (LocalTerminalRecord,
- *  AgentTerminal); the providers only touch `ptyHandle` + `meta` +
- *  `currentAgent` from here. `meta` is `TerminalServerMetadata` — the
- *  canonical `ServerPersistedTerminalFields ∪ LiveTerminalFields` union
- *  from `kolu-common/surface` (the same write-fence partition
- *  `metadata.ts` enforces). Hosts whose own metadata is structurally a
- *  superset (parent's `TerminalMetadata`, a future agent's
- *  `AgentTerminalMetadata`) satisfy it directly. */
+/** Minimal "terminal record" shape the provider DAG needs. The in-process
+ *  agent (`./agent.ts`) constructs one per terminal (a remote agent will
+ *  too); the providers only touch `ptyHandle` + `meta` + `currentAgent`
+ *  from here. `meta` is `TerminalServerMetadata` — the canonical
+ *  `ServerPersistedTerminalFields ∪ LiveTerminalFields` union from
+ *  `kolu-common/surface` (the same write-fence partition `metadata.ts`
+ *  enforces). A `createMetadata` result satisfies it directly. */
 export interface ProviderRecord {
   ptyHandle: PtyHandle;
   meta: TerminalServerMetadata;
@@ -80,8 +78,9 @@ export interface ProviderRecord {
   currentAgent: string | null;
 }
 
-/** Per-terminal channels the providers subscribe to. Both backends
- *  expose the same shape; the channel objects differ. */
+/** Per-terminal channels the providers subscribe to. The agent creates a
+ *  fresh in-memory channel of each kind per terminal and feeds them from
+ *  pty-host's VT taps; a remote agent does the same. */
 export interface ProviderChannels {
   cwd: Channel<string>;
   title: Channel<string>;
@@ -95,17 +94,15 @@ export interface ProviderChannels {
  *  `metadata.ts` enforces): writing `m.agent` through
  *  `updateServerMetadata` is a compile error, so the
  *  `terminals:dirty` autosave firehose can't be reintroduced by a new
- *  provider. The parent backend wires through
- *  `updateServerMetadata`/`updateServerLiveMetadata` directly; a
- *  future agent host wires through its own publish surface with the
- *  same fence applied.
+ *  provider. The agent (`makeHooks` in `./agent.ts`) wires these to emit
+ *  `metadataPersisted`/`metadataLive` stream events; the same fence applies
+ *  on its side, just published instead of mutated in place.
  *
- *  `record` is passed to every hook so a future host whose update
- *  function isn't already keyed by terminal id (e.g. an agent host
- *  with a global publish surface) can look the record up in its own
- *  registry to dispatch the write. The local backend already has
- *  `entry` + `id` captured in `buildHooks`'s per-terminal closure,
- *  so it ignores the argument — hence the `_record` prefix. */
+ *  `record` is passed to every hook so a host whose update function isn't
+ *  already keyed by terminal id (e.g. one with a global publish surface)
+ *  can look the record up in its own registry to dispatch the write. The
+ *  agent already has the record + id captured in `makeHooks`'s per-terminal
+ *  closure, so it ignores the argument — hence the `_record` prefix. */
 export interface ProviderHooks {
   updateServerMetadata: (
     record: ProviderRecord,
@@ -115,9 +112,9 @@ export interface ProviderHooks {
     record: ProviderRecord,
     mutate: (meta: LiveTerminalFields) => void,
   ) => void;
-  /** Optional — parent-side activity-feed tracking. Hosts without a
-   *  user-facing activity feed (a future agent host) leave these
-   *  undefined. */
+  /** Optional — activity-feed signals. The agent forwards these as
+   *  `recentRepo`/`recentAgent` stream events to kolu-server (which owns
+   *  the cross-terminal MRUs); a host with no activity feed omits them. */
   trackRecentRepo?: (root: string, name: string) => void;
   trackRecentAgent?: (cmd: string) => void;
 }
@@ -308,9 +305,24 @@ interface ExternalChangesActivation {
   reconcilers: Set<() => void>;
   installed: boolean;
 }
-const activations = new Map<string, ExternalChangesActivation>();
 
-function getActivation(kind: string): ExternalChangesActivation {
+/** Per-agent external-change activation registry. Coordinates the
+ *  "install the watcher once, then fan out to every terminal's reconciler"
+ *  behavior across one agent's terminals (keyed by provider kind). Owned by
+ *  the agent (`createProviderActivations`) and passed into `startProviders`
+ *  so two agent instances never share install state — the "one agent owns
+ *  its world" boundary R4b draws. (Was module-scope, which silently assumed
+ *  a single agent per process.) */
+export type ProviderActivations = Map<string, ExternalChangesActivation>;
+
+export function createProviderActivations(): ProviderActivations {
+  return new Map();
+}
+
+function getActivation(
+  activations: ProviderActivations,
+  kind: string,
+): ExternalChangesActivation {
   let entry = activations.get(kind);
   if (!entry) {
     entry = { reconcilers: new Set(), installed: false };
@@ -347,6 +359,7 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
   terminalId: TerminalId,
   channels: ProviderChannels,
   hooks: ProviderHooks,
+  activations: ProviderActivations,
 ): () => void {
   const plog = log.child({ provider: provider.kind, terminal: terminalId });
   let current: { watcher: AgentWatcher; key: string } | null = null;
@@ -358,9 +371,9 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
   // `startProviders`) and updated only via the `cwd` channel. Reading
   // `record.meta.cwd` inside `reconcile()` would make agent detection
   // depend on the host mutating `record.meta` synchronously before each
-  // channel publish — a hidden contract the parent backend happened to
-  // honor (`local.ts` writes `entry.meta.cwd` then publishes) but a
-  // future host on the same `ProviderChannels`/`ProviderHooks` shape
+  // channel publish — a hidden contract the agent happens to honor (its
+  // cwd bridge writes `record.meta.cwd` then publishes `channels.cwd`) but
+  // a future host on the same `ProviderChannels`/`ProviderHooks` shape
   // could not be expected to know about.
   let currentCwd = record.meta.cwd;
   plog.debug("started");
@@ -373,7 +386,7 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
       plog,
     );
     if (!registeredForExternal && provider.externalChanges?.isPresent(state)) {
-      const activation = getActivation(provider.kind);
+      const activation = getActivation(activations, provider.kind);
       activation.reconcilers.add(reconcile);
       registeredForExternal = true;
       if (!activation.installed) {
@@ -477,15 +490,17 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
 }
 
 /** Start every per-terminal provider for one terminal. The in-process
- *  agent (`./agent.ts`) calls this with its channels + hooks (a remote
- *  agent will too). Provider order matters only for the agent-command
- *  tracker — it must come first so its stash is populated before agent
- *  detectors reconcile against it. */
+ *  agent (`./agent.ts`) calls this with its channels + hooks + its own
+ *  `activations` registry (shared across that agent's terminals so an
+ *  external-change watcher installs once; a remote agent passes its own).
+ *  Provider order matters only for the agent-command tracker — it must come
+ *  first so its stash is populated before agent detectors reconcile. */
 export function startProviders(
   record: ProviderRecord,
   terminalId: TerminalId,
   channels: ProviderChannels,
   hooks: ProviderHooks,
+  activations: ProviderActivations,
 ): () => void {
   const stopAgentCommand = startAgentCommandTracker(
     record,
@@ -506,6 +521,7 @@ export function startProviders(
     terminalId,
     channels,
     hooks,
+    activations,
   );
   const stopCodex = startAgentProvider(
     codexProvider,
@@ -513,6 +529,7 @@ export function startProviders(
     terminalId,
     channels,
     hooks,
+    activations,
   );
   const stopOpenCode = startAgentProvider(
     opencodeProvider,
@@ -520,6 +537,7 @@ export function startProviders(
     terminalId,
     channels,
     hooks,
+    activations,
   );
   const stopProcess = startProcessProvider(record, terminalId, channels, hooks);
   return () => {
