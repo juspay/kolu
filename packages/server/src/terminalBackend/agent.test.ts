@@ -95,7 +95,7 @@ describe("createAgent", () => {
     delete process.env.KOLU_CLAUDE_PROJECTS_DIR;
     delete process.env.KOLU_CODEX_DIR;
     delete process.env.KOLU_OPENCODE_DB;
-    fs.rmSync(tmpRoot, { recursive: true, force: true });
+    if (tmpRoot) fs.rmSync(tmpRoot, { recursive: true, force: true });
   });
 
   async function start(): Promise<void> {
