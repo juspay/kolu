@@ -78,11 +78,12 @@ describe("createAgent", () => {
           e.kind === "metadataPersisted" && e.fields.cwd === "/tmp/agent-osc7",
       ),
     );
-    const ev = events.find(
-      (e) =>
-        e.kind === "metadataPersisted" && e.fields.cwd === "/tmp/agent-osc7",
-    );
-    expect(ev).toMatchObject({ kind: "metadataPersisted", id });
+    expect(
+      events.find(
+        (e) =>
+          e.kind === "metadataPersisted" && e.fields.cwd === "/tmp/agent-osc7",
+      ),
+    ).toMatchObject({ kind: "metadataPersisted", id });
   });
 
   it("seeds the recency clock from restoredActivityAt", async () => {
