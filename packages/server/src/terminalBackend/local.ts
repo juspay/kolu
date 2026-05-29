@@ -65,7 +65,11 @@ import {
 } from "kolu-git";
 import type { GitDiffMode } from "kolu-git/schemas";
 import { trackRecentAgent, trackRecentRepo } from "../activity.ts";
-import { type AgentClient, getDaemonHandle } from "../daemon/supervisor.ts";
+import {
+  type AgentClient,
+  ensureDaemon,
+  getDaemonHandle,
+} from "../daemon/supervisor.ts";
 import { log } from "../log.ts";
 import { terminalsDirtyChannel } from "../publisher.ts";
 import { getSavedSession } from "../session.ts";
@@ -204,7 +208,11 @@ class LocalTerminalBackend implements TerminalBackend {
   private async pumpAgentMetadata(signal: AbortSignal): Promise<void> {
     while (!signal.aborted) {
       try {
-        const client = getDaemonHandle().client;
+        // `ensureDaemon` (not the cached handle) so a re-subscribe after a
+        // drop reconnects to a live daemon — a stdio socket can't self-heal,
+        // so re-subscribing on the dead client would loop forever. The fresh
+        // subscription's snapshot replays warm metadata.
+        const { client } = await ensureDaemon();
         const stream = await client.surface.agentMetadata.get({}, { signal });
         for await (const ev of stream) this.applyAgentEvent(ev);
       } catch (err) {

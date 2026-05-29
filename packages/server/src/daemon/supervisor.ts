@@ -19,15 +19,14 @@
  *  5. Expose the typed `AgentClient` for `LocalTerminalBackend` and any
  *     consumer that wants to call into the daemon.
  *
- * Reconnect on disconnect (e.g. the daemon crashed and was respawned by
- * an OS-level supervisor, or this kolu-server lost its socket connection)
- * is provided by `@orpc/client/plugins` `ClientRetryPlugin`, which
- * `createStdioCellsClient` installs by default. The retry plugin handles
- * streaming re-subscribe transparently — see `.claude/rules/streaming.md`.
- *
- * The single-instance pid-file gate (`tryAcquirePidFile`) lives here so
- * both this supervisor and the daemon entrypoint (`../agent/main.ts`,
- * which imports it) share one atomic implementation.
+ * Reconnect: `ClientRetryPlugin` (installed by `createStdioCellsClient`)
+ * re-subscribes streams on a *transport* error, but a local stdio socket
+ * can't self-heal once the daemon process dies — so `ensureDaemon` is
+ * reconnect-aware: it drops a `closed` cached handle and re-runs
+ * connect-or-spawn, and `LocalTerminalBackend`'s metadata loop re-`await`s
+ * it on stream end. The single-instance gate + exec-arg filter live in
+ * `./daemonUtils.ts` (a different volatility axis), shared with the daemon
+ * entrypoint.
  */
 
 import { spawn as spawnChild } from "node:child_process";
@@ -38,6 +37,7 @@ import type { ClientRetryPluginContext } from "@orpc/client/plugins";
 import type { ContractRouterClient } from "@orpc/contract";
 import {
   AGENT_CONTRACT_VERSION,
+  type AgentSystemVersion,
   type agentSurface,
   isAgentContractCompatible,
 } from "kolu-common/agentSurface";
@@ -45,6 +45,34 @@ import pkg from "../../package.json" with { type: "json" };
 import { daemonPaths } from "../koluState.ts";
 import { log } from "../log.ts";
 import { daemonExecArgv } from "./daemonUtils.ts";
+
+/** Version-skew POLICY — a different change axis (2c) from the spawn/connect
+ *  path (2b) it's called within. Throws fail-closed on an incompatible
+ *  contract major.minor (a stale daemon that survived a breaking upgrade
+ *  cannot be talked to safely; the operator kills it so a matching one
+ *  starts). Returns `outdated` when the daemon is wire-compatible but a
+ *  different build — surviving a deploy with stale code, which R4d surfaces
+ *  as the "update pending" nudge. Caller owns the socket, so it disposes on
+ *  throw; this function only decides. */
+function checkDaemonVersion(
+  versionInfo: AgentSystemVersion,
+  socketPath: string,
+): { outdated: boolean } {
+  if (
+    !isAgentContractCompatible(
+      versionInfo.contractVersion,
+      AGENT_CONTRACT_VERSION,
+    )
+  ) {
+    throw new Error(
+      `Local PTY daemon contract ${versionInfo.contractVersion} is incompatible ` +
+        `with this kolu-server (expects ${AGENT_CONTRACT_VERSION}). A stale daemon ` +
+        `(pid ${versionInfo.pid}) is holding ${socketPath}; kill it so a matching ` +
+        `daemon can start.`,
+    );
+  }
+  return { outdated: versionInfo.pkgVersion !== pkg.version };
+}
 
 /** The typed client for the daemon's `agentSurface` contract, with the
  *  `ClientRetryPlugin` context threaded through (the same shape
@@ -63,6 +91,10 @@ export interface DaemonHandle {
   daemonPid: number;
   /** Daemon-reported contract version (e.g. "1.0"). */
   contractVersion: string;
+  /** Wire-compatible but a different build than this kolu-server — the
+   *  daemon survived a deploy and is serving stale code. R4d surfaces this
+   *  as the "update pending" nudge; R4c only records it. */
+  outdated: boolean;
   /** Connection state. `live` until the underlying socket closes. */
   state(): "live" | "closed";
   /** Close the supervisor's socket (does NOT kill the daemon). */
@@ -137,10 +169,15 @@ function spawnDaemon(logFile: string): void {
 }
 
 let cached: DaemonHandle | undefined;
+/** In-flight connect, so concurrent `ensureDaemon` callers (boot +
+ *  `LocalTerminalBackend`'s metadata loop after a drop) share one spawn
+ *  rather than racing two daemons into the pid-file gate. */
+let connecting: Promise<DaemonHandle> | undefined;
 
-/** Snapshot accessor for downstream consumers (status indicator,
- *  `LocalTerminalBackend`). Throws if `ensureDaemon` has not resolved yet
- *  — callers must `await ensureDaemon()` before reaching for the handle. */
+/** Snapshot accessor for downstream consumers (`LocalTerminalBackend`'s
+ *  write/resize/attach proxies). Throws if `ensureDaemon` has not resolved
+ *  yet — callers must `await ensureDaemon()` once at boot before reaching
+ *  for the handle. Returns the current (possibly reconnected) handle. */
 export function getDaemonHandle(): DaemonHandle {
   if (!cached) {
     throw new Error("getDaemonHandle: ensureDaemon() not called");
@@ -149,13 +186,32 @@ export function getDaemonHandle(): DaemonHandle {
 }
 
 /** Connect to (or spawn-and-connect-to) the local PTY-host daemon.
- *  Idempotent — caches the handle for the lifetime of this kolu-server
- *  process. Returns once the daemon has responded to `system.version`. */
+ *  Reconnect-aware: a live cached handle is reused, but a `closed` one
+ *  (the daemon died / the socket dropped) is dropped and re-established —
+ *  a stdio socket can't self-heal, so the only recovery is a fresh
+ *  connect-or-spawn (`tryConnect` reuses a surviving daemon; if it's truly
+ *  gone, a fresh empty one is spawned). `LocalTerminalBackend`'s metadata
+ *  loop re-`await`s this on stream end, so a daemon hiccup re-warms rather
+ *  than silently freezing metadata for every terminal. */
 export async function ensureDaemon(): Promise<DaemonHandle> {
-  if (cached) return cached;
-  const handle = await ensureDaemonImpl();
-  cached = handle;
-  return handle;
+  if (cached && cached.state() === "live") return cached;
+  if (connecting !== undefined) return connecting;
+  if (cached) {
+    cached.dispose();
+    cached = undefined;
+  }
+  connecting = ensureDaemonImpl().then(
+    (handle) => {
+      cached = handle;
+      connecting = undefined;
+      return handle;
+    },
+    (err) => {
+      connecting = undefined;
+      throw err;
+    },
+  );
+  return connecting;
 }
 
 /** Poll until the daemon's socket file disappears (the daemon unlinks it
@@ -230,33 +286,17 @@ async function ensureDaemonImpl(): Promise<DaemonHandle> {
   });
 
   // Version handshake. Procedures are nested under `surface.` because
-  // `defineSurface` puts every contract entry inside the surface
-  // namespace (matches remote-process-monitor's `client.surface.*`).
+  // `defineSurface` puts every contract entry inside the surface namespace
+  // (matches remote-process-monitor's `client.surface.*`). The skew POLICY
+  // lives in `checkDaemonVersion` (axis 2c); we only own the socket here.
   const versionInfo = await client.surface.system.version({});
-  if (
-    !isAgentContractCompatible(
-      versionInfo.contractVersion,
-      AGENT_CONTRACT_VERSION,
-    )
-  ) {
-    // Fail closed: an incompatible daemon (a stale one that survived an
-    // upgrade with a breaking contract change) cannot be talked to
-    // safely. The daemon is single-instance per state dir, so the operator
-    // must kill the stale one (`kill <pid>` / remove the socket) to let
-    // this kolu-server spawn a matching daemon on next boot.
-    socket.destroy();
-    throw new Error(
-      `Local PTY daemon contract ${versionInfo.contractVersion} is incompatible ` +
-        `with this kolu-server (expects ${AGENT_CONTRACT_VERSION}). A stale daemon ` +
-        `(pid ${versionInfo.pid}) is holding ${socketPath}; kill it so a matching ` +
-        `daemon can start.`,
-    );
+  let outdated: boolean;
+  try {
+    ({ outdated } = checkDaemonVersion(versionInfo, socketPath));
+  } catch (err) {
+    socket.destroy(); // fail closed
+    throw err;
   }
-  // Wire-compatible but a different build: the daemon survived a deploy
-  // and is serving stale code. Keep using it (the daemon is a thin,
-  // rarely-changing primitive — all volatile logic lives in kolu-server
-  // and updated freely this deploy), but flag it for the status indicator.
-  const outdated = versionInfo.pkgVersion !== pkg.version;
   log.info(
     {
       daemonPid: versionInfo.pid,
@@ -270,9 +310,6 @@ async function ensureDaemonImpl(): Promise<DaemonHandle> {
       ? "supervisor: daemon connected but running stale code — restart to apply update"
       : "supervisor: daemon connected",
   );
-  // R4d will surface this (the `localPtyDaemon` status cell + ChromeBar dot
-  // + the "update pending" nudge that drives the user-triggered restart);
-  // R4c keeps it to a log line + the fail-closed handshake above.
 
   let state: "live" | "closed" = "live";
   socket.on("close", () => {
@@ -288,6 +325,7 @@ async function ensureDaemonImpl(): Promise<DaemonHandle> {
     socketPath,
     daemonPid: versionInfo.pid,
     contractVersion: versionInfo.contractVersion,
+    outdated,
     state: () => state,
     dispose: () => {
       socket?.destroy();
