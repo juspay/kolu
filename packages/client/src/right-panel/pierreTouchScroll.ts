@@ -86,10 +86,23 @@ export function nextScrollTop(
 export function attachPierreTouchScroll(container: HTMLElement): void {
   let state: TouchScrollState | null = null;
 
+  // Cache the located scroller — re-probing Pierre's whole shadow root on
+  // every touchstart is wasteful, and the scroller is stable for the lifetime
+  // of a `<FileTree>` mount. Re-probe when the cache is empty or its node was
+  // detached (Pierre remount on mode switch), so the cache never outlives the
+  // element it points at — this keeps the driver from owning a stale-node
+  // invalidation invariant.
+  let cached: HTMLElement | null = null;
+  const resolveScroller = (): HTMLElement | null => {
+    if (cached?.isConnected) return cached;
+    cached = findPierreScroller(container);
+    return cached;
+  };
+
   const onStart = (e: TouchEvent) => {
     const touch = e.touches[0];
     if (!touch) return;
-    const scroller = findPierreScroller(container);
+    const scroller = resolveScroller();
     // Short tree (nothing overflows): leave the gesture to the drawer so a
     // drag can still dismiss the sheet. Only claim the touch below, once we
     // know we'll actually drive a scroll.
