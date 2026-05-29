@@ -92,6 +92,19 @@ in
       }
     ];
 
+    # NOTE (R4c, #951): kolu spawns a long-lived `kolu --stdio` PTY-host
+    # daemon in its OWN transient systemd unit (`systemd-run --user
+    # --unit=kolu-pty-host`) so it survives `systemctl --user restart kolu` (a
+    # deploy) and terminals reattach. For that daemon to keep running while
+    # kolu-server is down BETWEEN deploys, the user's systemd manager must stay
+    # alive without an active login session — i.e. **linger must be enabled**:
+    #
+    #     loginctl enable-linger $USER        # one-time, needs root/polkit
+    #
+    # or, on NixOS, `users.users.<name>.linger = true;`. home-manager can't set
+    # this itself (it's a system-level, root-owned setting), so it's documented
+    # here and in the README. Without linger the daemon still works while you're
+    # logged in; it just won't outlive your session.
     systemd.user.services = lib.mkIf pkgs.stdenv.hostPlatform.isLinux {
       kolu = {
         Unit = {

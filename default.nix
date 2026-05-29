@@ -155,7 +155,13 @@ let
       --add-flags "${koluStamped}/packages/server/src/index.ts" \
       --set KOLU_CLIENT_DIST "${koluStamped}/packages/client/dist" \
       --set KOLU_GH_BIN "${koluEnv.KOLU_GH_BIN}" \
-      --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.git pkgs.gh ]} \
+      --prefix PATH : ${pkgs.lib.makeBinPath ([ pkgs.nodejs pkgs.git pkgs.gh ]
+        # R4c (#951): the daemon supervisor shells out to `systemd-run` /
+        # `systemctl --user` to spawn the PTY-host daemon in its own cgroup
+        # (so it survives a deploy). systemd units run with a minimal PATH, so
+        # put them on it explicitly rather than rely on inheriting
+        # /run/current-system/sw/bin. Linux only — macOS uses a detached spawn.
+        ++ pkgs.lib.optional pkgs.stdenv.hostPlatform.isLinux pkgs.systemd)} \
       --run 'if [ -n "''${KOLU_DIAG_DIR:-}" ]; then
                KOLU_DIAG_DIR="$KOLU_DIAG_DIR/$(date +%Y%m%dT%H%M%S)-$$"
                if ! mkdir -p "$KOLU_DIAG_DIR" || ! cd "$KOLU_DIAG_DIR"; then

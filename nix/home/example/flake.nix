@@ -52,6 +52,10 @@
           isNormalUser = true;
           # Auto-login so the user session (and its systemd units) starts in the VM
           initialPassword = "pass";
+          # R4c (#951): linger keeps alice's systemd --user manager alive
+          # without an active login, so the transient `kolu-pty-host` daemon
+          # unit (and its PTYs) survives between kolu-server restarts/deploys.
+          linger = true;
         };
 
         home-manager.users.alice = koluHmModule;
@@ -104,6 +108,48 @@
           machine.wait_until_succeeds(
               "curl --fail --silent http://127.0.0.1:7681/ > /dev/null",
               timeout=120,
+          )
+
+          # R4c (#951): the PTY-host daemon must survive a kolu-server restart
+          # (a deploy). Create a terminal so the daemon spawns, capture its
+          # MainPID, restart kolu-server, and assert the daemon's MainPID is
+          # UNCHANGED — the direct regression guard for the cgroup-escape bug
+          # (`systemd-run --user --unit` lands it in a sibling cgroup, so
+          # `systemctl --user restart kolu` no longer takes it down).
+          def alice_user(cmd):
+              return machine.succeed(
+                  "machinectl -q shell alice@.host "
+                  "/run/current-system/sw/bin/systemctl --user " + cmd
+              )
+
+          # Spawn a PTY (→ the supervisor spawns the daemon via systemd-run).
+          machine.succeed(
+              "curl --fail --silent -X POST "
+              "-H 'content-type: application/json' -d '{}' "
+              "http://127.0.0.1:7681/rpc/terminal/create > /dev/null"
+          )
+          machine.wait_until_succeeds(
+              "machinectl -q shell alice@.host "
+              "/run/current-system/sw/bin/systemctl --user is-active kolu-pty-host.service",
+              timeout=30,
+          )
+          pid_before = alice_user(
+              "show kolu-pty-host.service --value -p MainPID"
+          ).strip()
+          assert pid_before not in ("", "0"), f"no daemon MainPID: {pid_before!r}"
+
+          # Restart kolu-server — the deploy. The daemon must NOT restart.
+          alice_user("restart kolu.service")
+          machine.wait_until_succeeds(
+              "curl --fail --silent http://127.0.0.1:7681/ > /dev/null",
+              timeout=120,
+          )
+          pid_after = alice_user(
+              "show kolu-pty-host.service --value -p MainPID"
+          ).strip()
+          assert pid_before == pid_after, (
+              f"PTY-host daemon did NOT survive kolu-server restart: "
+              f"MainPID {pid_before} -> {pid_after}"
           )
         '';
       };

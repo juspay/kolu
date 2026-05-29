@@ -9,6 +9,7 @@
 
 export {
   createPtyHost,
+  type ForegroundSample,
   type PtyAttachment,
   type PtyHandle,
   type PtyHost,

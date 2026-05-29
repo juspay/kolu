@@ -82,6 +82,10 @@ host.kill(id); // exitPromise(id) still resolves
 ## Scope
 
 This package is a pure primitive extracted from kolu's in-process PTY code
-(`#951` R-4, slice R4a). It is consumed **in-process** by `kolu-server` today.
-The standalone-agent / daemon split (a `--stdio` supervisor, the agent surface
-contract, reattach) is later work (R4b–R4c) and is deliberately **not** here.
+(`#951` R-4, slice R4a). Since R4c it runs **in a `kolu --stdio` daemon** that
+owns only this primitive and serves it over a unix socket (the `ptyHostSurface`
+wire contract in `kolu-common`), so local terminals survive a kolu-server
+restart. The daemon, socket supervisor, build-identity version handshake, and
+reattach all live in `kolu-server` (`src/daemon/`, `src/agent/main.ts`) — this
+package stays a transport-agnostic primitive and knows nothing about the
+socket, providers, or reattach.

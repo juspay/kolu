@@ -7,11 +7,11 @@
  *      `terminalList` cell's content channel: this is the *trigger*,
  *      not the saved content.
  *
- *  The per-terminal VT-tap channels (cwd / title / command-run / git) that
- *  used to live here moved *into the in-process agent* in #951 R4b — their
- *  only consumers were the providers, which now run inside the agent
- *  (`terminalBackend/agent.ts`) against agent-internal in-memory channels.
- *  kolu-server no longer brokers them.
+ *  The per-terminal VT-tap channels (cwd / title / command-run / foreground)
+ *  are no longer brokered here. Since #951 R4c the `kolu --stdio` PTY-host
+ *  daemon owns the raw taps; `terminalBackend/local.ts` subscribes to them
+ *  over the socket and feeds fresh per-terminal in-memory channels to the
+ *  provider DAG (`terminalBackend/providers.ts`), which runs in kolu-server.
  *
  *  Cell-level system channels (`preferences:changed`, `activityFeed:changed`,
  *  `session:changed`, `terminalList:changed`) are owned by `implementSurface`

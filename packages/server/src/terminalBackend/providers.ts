@@ -56,8 +56,7 @@ import type {
   TerminalServerMetadata,
 } from "kolu-common/surface";
 import { opencodeProvider } from "kolu-opencode";
-import type { PtyHandle } from "@kolu/pty-host";
-import type { Logger } from "kolu-shared";
+import type { ForegroundSample } from "@kolu/pty-host";
 import type { Channel } from "@kolu/surface/server";
 import { log } from "../log.ts";
 import { shouldBumpRecencyForAgentChange } from "./agentRecency.ts";
@@ -70,7 +69,14 @@ import { shouldBumpRecencyForAgentChange } from "./agentRecency.ts";
  *  `kolu-common/surface` (the same write-fence partition `metadata.ts`
  *  enforces). A `createMetadata` result satisfies it directly. */
 export interface ProviderRecord {
-  ptyHandle: PtyHandle;
+  /** OS pid of the PTY's shell — constant for the terminal's life, known at
+   *  spawn. The agent detectors compare it to the foreground pid to decide
+   *  "shell idle" (foreground IS the shell). No longer a `PtyHandle`: the
+   *  live reads (process name + foreground pid) that used to come off the
+   *  handle synchronously now arrive over `channels.foreground`, so the DAG
+   *  has zero sync dependency on the PTY host — which is what lets it run on
+   *  the far side of a socket from pty-host (R4c) or ssh (R-2). */
+  pid: number;
   meta: TerminalServerMetadata;
   /** Ephemeral basename of the agent binary at the foreground right
    *  now; written by the agent-command tracker, read by the agent
@@ -85,6 +91,11 @@ export interface ProviderChannels {
   cwd: Channel<string>;
   title: Channel<string>;
   commandRun: Channel<string>;
+  /** Foreground samples (`{process, foregroundPid}`) from pty-host's
+   *  foreground tap — the channel form of the old synchronous
+   *  `ptyHandle.process` / `.foregroundPid` reads, so the DAG works across a
+   *  socket. The host pushes a current snapshot first, then changes. */
+  foreground: Channel<ForegroundSample>;
   git: Channel<GitInfo | null>;
 }
 
@@ -132,31 +143,49 @@ function startProcessProvider(
   hooks: ProviderHooks,
 ): () => void {
   const plog = log.child({ provider: "process", terminal: terminalId });
+  // The foreground process basename + title we last published. The basename
+  // is tracked from `channels.foreground` (the pty-host tap) rather than read
+  // synchronously off a handle — so this works when pty-host lives across a
+  // socket; the title is tracked from `channels.title`.
+  let currentName: string | null = null;
+  let currentTitle: string | null = null;
   let lastName: string | null = null;
   let lastTitle: string | null = null;
   plog.debug("started");
 
-  function update(title?: string) {
-    const name = processBasename(record.ptyHandle.process);
-    const newTitle = title ?? lastTitle;
-    if (name === lastName && newTitle === lastTitle) return;
+  function recompute() {
+    if (currentName === lastName && currentTitle === lastTitle) return;
     plog.debug(
-      { from: lastName, to: name, title: newTitle },
-      "foreground process changed",
+      { from: lastName, to: currentName, title: currentTitle },
+      "foreground changed",
     );
-    lastName = name;
-    lastTitle = newTitle;
+    lastName = currentName;
+    lastTitle = currentTitle;
     hooks.updateServerLiveMetadata(record, (m) => {
-      m.foreground = { name, title: newTitle };
+      m.foreground =
+        currentName === null
+          ? null
+          : { name: currentName, title: currentTitle };
     });
   }
-  update();
-  const cleanup = channels.title.consume({
-    onEvent: (title) => update(title),
-    onError: (err) => plog.error({ err }, "publisher subscription failed"),
+
+  const cleanupForeground = channels.foreground.consume({
+    onEvent: (fg) => {
+      currentName = processBasename(fg.process);
+      recompute();
+    },
+    onError: (err) => plog.error({ err }, "foreground subscription failed"),
+  });
+  const cleanupTitle = channels.title.consume({
+    onEvent: (title) => {
+      currentTitle = title;
+      recompute();
+    },
+    onError: (err) => plog.error({ err }, "title subscription failed"),
   });
   return () => {
-    cleanup();
+    cleanupForeground();
+    cleanupTitle();
     plog.debug("stopped");
   };
 }
@@ -266,37 +295,21 @@ function startAgentCommandTracker(
 
 // ── Agent detectors ───────────────────────────────────────────────────
 
-function readForegroundBasenameOnce(
-  ptyHandle: PtyHandle,
-  plog: Logger,
-): string | null {
-  try {
-    const proc = ptyHandle.process;
-    return proc ? path.basename(proc) : null;
-  } catch (err) {
-    plog.debug({ err }, "failed to read ptyHandle.process");
-    return null;
-  }
-}
-
 function snapshotTerminalState(
-  ptyHandle: PtyHandle,
+  foreground: ForegroundSample,
+  pid: number,
   cwd: string,
   currentAgent: string | null,
-  plog: Logger,
 ): AgentTerminalState {
-  let basename: string | null | undefined;
-  const foregroundPid = ptyHandle.foregroundPid;
-  const shellIdle =
-    foregroundPid === undefined || foregroundPid === ptyHandle.pid;
+  const foregroundPid = foreground.foregroundPid;
+  // Shell is idle when the foreground process group IS the shell itself (or
+  // unknown). `pid` is the shell's pid (constant, from spawn).
+  const shellIdle = foregroundPid === undefined || foregroundPid === pid;
+  const proc = foreground.process;
   return {
     foregroundPid,
     cwd,
-    readForegroundBasename: () => {
-      if (basename === undefined)
-        basename = readForegroundBasenameOnce(ptyHandle, plog);
-      return basename;
-    },
+    readForegroundBasename: () => (proc ? path.basename(proc) : null),
     lastAgentCommandName: shellIdle ? null : currentAgent,
   };
 }
@@ -374,14 +387,22 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
   // a future host on the same `ProviderChannels`/`ProviderHooks` shape
   // could not be expected to know about.
   let currentCwd = record.meta.cwd;
+  // Foreground source-of-truth for this provider, tracked from
+  // `channels.foreground` (seeded empty → "shell idle" until the first
+  // sample arrives). Same rationale as `currentCwd`: read it from the
+  // channel, not a synchronous handle, so the DAG is transport-agnostic.
+  let currentForeground: ForegroundSample = {
+    process: "",
+    foregroundPid: undefined,
+  };
   plog.debug("started");
 
   function reconcile() {
     const state = snapshotTerminalState(
-      record.ptyHandle,
+      currentForeground,
+      record.pid,
       currentCwd,
       record.currentAgent,
-      plog,
     );
     if (!registeredForExternal && provider.externalChanges?.isPresent(state)) {
       const activation = getActivation(provider.kind);
@@ -460,6 +481,13 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
     onEvent: () => reconcile(),
     onError: (err) => plog.error({ err }, "publisher subscription failed"),
   });
+  const cleanupForeground = channels.foreground.consume({
+    onEvent: (fg) => {
+      currentForeground = fg;
+      reconcile();
+    },
+    onError: (err) => plog.error({ err }, "foreground subscription failed"),
+  });
   const cleanupCwd = channels.cwd.consume({
     onEvent: (cwd) => {
       currentCwd = cwd;
@@ -477,6 +505,7 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
     stopped = true;
     clearCommandRunTimers();
     cleanupTitle();
+    cleanupForeground();
     cleanupCwd();
     cleanupCommandRun();
     if (registeredForExternal) {

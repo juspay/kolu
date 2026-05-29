@@ -8,6 +8,7 @@
   "exports": {
     "./surface": "./src/surface.ts",
     "./terminalBackend": "./src/terminalBackend.ts",
+    "./ptyHostSurface": "./src/ptyHostSurface.ts",
     "./contract": "./src/contract.ts",
     "./errors": "./src/errors.ts",
     "./config": "./src/config.ts",

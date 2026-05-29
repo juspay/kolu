@@ -114,6 +114,10 @@ const koluStateDir = mkSubDir("state");
 let baseUrl: string;
 let browser: Browser;
 let serverProcess: ChildProcess | undefined;
+/** Port + binary the server was spawned on, captured so a scenario can
+ *  restart kolu-server on the SAME port + state dir (reattach test). */
+let serverPort: number | undefined;
+let serverBinary: string | undefined;
 
 // Reuse TCP connections across scenarios to avoid TIME_WAIT socket
 // accumulation on macOS (see #334).
@@ -215,14 +219,123 @@ function httpGet(url: string): Promise<{ ok: boolean }> {
   });
 }
 
-/** Kill the server child on any exit path (crash, SIGINT, SIGTERM). */
-function killServer() {
+/** SIGTERM only the kolu-server child — leaves the detached `kolu --stdio`
+ *  PTY-host daemon running (the reattach precondition). */
+function killServerOnly() {
   if (serverProcess) {
     serverProcess.kill("SIGTERM");
     serverProcess = undefined;
   }
 }
+
+/** Reap the detached PTY-host daemon via its pid file. The daemon does NOT
+ *  die with the server (R4c: it must survive a kolu-server restart), so the
+ *  harness must kill it explicitly or it orphans (holding PTYs) for the rest
+ *  of the run. Best-effort: a missing / stale pid file is a no-op. */
+function killDaemon() {
+  try {
+    const pid = Number.parseInt(
+      fs.readFileSync(path.join(koluStateDir, "pty-host.pid"), "utf8").trim(),
+      10,
+    );
+    if (Number.isFinite(pid) && pid > 0) process.kill(pid, "SIGTERM");
+  } catch {
+    // no daemon running, or already reaped
+  }
+}
+
+/** Kill the server child AND the daemon on any exit path (crash, SIGINT,
+ *  SIGTERM, AfterAll). */
+function killServer() {
+  killServerOnly();
+  killDaemon();
+}
 process.on("exit", killServer);
+
+/** Spawn kolu-server on `serverPort` against the per-worker state dir. The
+ *  first spawn picks the port; restarts reuse it so the same daemon socket
+ *  ($KOLU_STATE_DIR/pty-host.sock) and saved session are found. */
+function spawnKoluServer(): ChildProcess {
+  if (!serverBinary || serverPort === undefined) {
+    throw new Error("spawnKoluServer: server binary/port not initialized");
+  }
+  const envWhitelist = [
+    NIX_ENV_WHITELIST,
+    "GIT_AUTHOR_NAME,GIT_AUTHOR_EMAIL,GIT_COMMITTER_NAME,GIT_COMMITTER_EMAIL",
+  ].join(",");
+  const child = spawn(
+    serverBinary,
+    [
+      "--allow-nix-shell-with-env-whitelist",
+      envWhitelist,
+      "--port",
+      String(serverPort),
+    ],
+    {
+      stdio: "pipe",
+      env: {
+        ...process.env,
+        KOLU_STATE_DIR: koluStateDir,
+        KOLU_CLAUDE_SESSIONS_DIR: claudeSessionsDir,
+        KOLU_CLAUDE_PROJECTS_DIR: claudeProjectsDir,
+        KOLU_CODEX_DIR: codexDir,
+        KOLU_OPENCODE_DB: opencodeDbPath,
+      },
+    },
+  );
+  child.stderr?.on("data", (data: Buffer) => {
+    process.stderr.write(`[server:${workerId}] ${data}`);
+  });
+  // Drain stdout so the pipe buffer can't fill and block the server's pino
+  // writes; forward when KOLU_TEST_VERBOSE is set for local debugging.
+  child.stdout?.on("data", (data: Buffer) => {
+    if (process.env.KOLU_TEST_VERBOSE) {
+      process.stderr.write(`[server:${workerId}:out] ${data}`);
+    }
+  });
+  return child;
+}
+
+/** Restart kolu-server while preserving the detached PTY-host daemon — the
+ *  reattach test's core action. Kills only the server, **waits for it to
+ *  exit so the port is released**, then respawns on the same port + state
+ *  dir and waits for health; on reboot the server's `reattachLocalTerminals`
+ *  re-registers the surviving PTYs.
+ *
+ *  The wait-for-exit is load-bearing: SIGTERM is async, and rebinding the
+ *  port before the old listener closes races into `EADDRINUSE` — the new
+ *  server then crashes and every later scenario on this worker fails with
+ *  connection-refused (cheap to miss locally where exit is sub-ms, fatal
+ *  under CI load). */
+export async function restartKoluServer(): Promise<void> {
+  if (serverPort === undefined) {
+    throw new Error("restartKoluServer: server not spawned by this harness");
+  }
+  const old = serverProcess;
+  serverProcess = undefined;
+  if (old && old.exitCode === null && old.signalCode === null) {
+    await new Promise<void>((resolve) => {
+      const done = (): void => {
+        clearTimeout(timer);
+        resolve();
+      };
+      const timer = setTimeout(() => {
+        // Old server ignored SIGTERM within the grace window — force it so
+        // the port frees, then proceed.
+        try {
+          old.kill("SIGKILL");
+        } catch {
+          // already gone
+        }
+        done();
+      }, 5_000);
+      old.once("exit", done);
+      old.kill("SIGTERM");
+    });
+  }
+  serverProcess = spawnKoluServer();
+  await waitForHealth(`${baseUrl}/api/health`, 15_000);
+}
 
 const ciArgs = [
   "--no-sandbox",
@@ -288,54 +401,17 @@ BeforeAll(async () => {
     // Reuse an already-running server
     baseUrl = koluServer;
   } else {
-    // Spawn the binary on a random port
-    const port = await getPort();
-    baseUrl = `http://localhost:${port}`;
-    console.log(`[worker:${workerId}] Starting server on port ${port}...`);
-    // Extend NIX_ENV_WHITELIST with GIT_AUTHOR_*/GIT_COMMITTER_* so PTY
-    // shells in fixtures like `code-tab.feature` (which run `git init &&
-    // git commit` inside the terminal under test) inherit the same
-    // identity set on process.env above. Without this, the whitelist
-    // filter strips them and those scenarios fail on pristine hosts.
-    const envWhitelist = [
-      NIX_ENV_WHITELIST,
-      "GIT_AUTHOR_NAME,GIT_AUTHOR_EMAIL,GIT_COMMITTER_NAME,GIT_COMMITTER_EMAIL",
-    ].join(",");
-    serverProcess = spawn(
-      koluServer,
-      [
-        "--allow-nix-shell-with-env-whitelist",
-        envWhitelist,
-        "--port",
-        String(port),
-      ],
-      {
-        stdio: "pipe",
-        env: {
-          ...process.env,
-          // Route server state to an ephemeral $TMPDIR path so test runs
-          // never touch ~/.config and the dir can be wiped in AfterAll.
-          // `mkdtempSync`'s random suffix guarantees no collisions across
-          // parallel workers or worktrees.
-          KOLU_STATE_DIR: koluStateDir,
-          KOLU_CLAUDE_SESSIONS_DIR: claudeSessionsDir,
-          KOLU_CLAUDE_PROJECTS_DIR: claudeProjectsDir,
-          KOLU_CODEX_DIR: codexDir,
-          KOLU_OPENCODE_DB: opencodeDbPath,
-        },
-      },
+    // Spawn the binary on a random port. `spawnKoluServer` carries the
+    // env (incl. GIT_AUTHOR_*/GIT_COMMITTER_* folded into the nix-shell
+    // whitelist so in-terminal `git commit` fixtures inherit an identity on
+    // pristine hosts — see #887) and is reused by `restartKoluServer`.
+    serverPort = await getPort();
+    serverBinary = koluServer;
+    baseUrl = `http://localhost:${serverPort}`;
+    console.log(
+      `[worker:${workerId}] Starting server on port ${serverPort}...`,
     );
-    serverProcess.stderr?.on("data", (data: Buffer) => {
-      process.stderr.write(`[server:${workerId}] ${data}`);
-    });
-    // Drain stdout so the pipe buffer can't fill and block the server's
-    // pino writes (pino targets stdout). Forward to stderr when
-    // KOLU_TEST_VERBOSE is set for local debugging.
-    serverProcess.stdout?.on("data", (data: Buffer) => {
-      if (process.env.KOLU_TEST_VERBOSE) {
-        process.stderr.write(`[server:${workerId}:out] ${data}`);
-      }
-    });
+    serverProcess = spawnKoluServer();
     await waitForHealth(`${baseUrl}/api/health`, 10_000);
     console.log(`[worker:${workerId}] Server is healthy.`);
   }
