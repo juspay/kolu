@@ -31,7 +31,7 @@ install:
 # Bare `just dev` keeps the canonical 7681/5173 (see README). Override either
 # port to run a second instance alongside a primary one; empty falls back to
 # the default. `just dev-auto` picks two free ports for you.
-#   just dev SERVER_PORT=7700 CLIENT_PORT=5180
+#   just dev 7700 5180   (positional: SERVER_PORT then CLIENT_PORT)
 # The env vars must be exported before the parallel fork — Vite reads them once
 # at startup to compute its proxy target — so resolution happens here, in the
 # sequential recipe body, before `_dev` forks server + client.
@@ -52,7 +52,9 @@ dev-auto:
     # python3 via nix (not a global install) so this works outside the devshell.
     # Both sockets stay open until printed, guaranteeing two *unique* free ports.
     read -r SERVER_PORT CLIENT_PORT < <(nix shell nixpkgs#python3 --command python3 -c 'import socket; a=socket.socket(); a.bind(("",0)); b=socket.socket(); b.bind(("",0)); print(a.getsockname()[1], b.getsockname()[1]); a.close(); b.close()')
-    exec just dev SERVER_PORT="$SERVER_PORT" CLIENT_PORT="$CLIENT_PORT"
+    # Positional args — `just dev NAME=VALUE` would bind the literal "NAME=VALUE"
+    # to the param, not the value.
+    exec just dev "$SERVER_PORT" "$CLIENT_PORT"
 
 [private]
 _dev: install _dev-parallel

@@ -48,19 +48,20 @@ When the change has visible UI impact, post a `## Evidence` PR comment with scre
 
 ### Dev server
 
-Spawn a dedicated dev server on **two random, unique free ports** — one for the server, one for the client. **Never** reuse the defaults `7681`/`5173`: the user is very likely running their own (production) kolu there, and a port clash or a careless cleanup will take it down. Run `just dev` with both ports explicit (or `just dev-auto`, which picks two free ports for you — it sources `python3` from nix, so it works outside the devshell):
+Run a **production-like** instance: `nix run . -- --port <P>` builds kolu and serves the bundled client + server on a **single** port — the same way kolu actually runs, so the evidence reflects production, not the Vite dev server. Pick **one random free port**; **never** the default `7681` (the user is very likely running their own production kolu there, and a clash or careless cleanup takes it down).
 
 ```sh
-# Two free, unique ports (python3 via nix — no global install needed).
-read -r SP CP < <(nix shell nixpkgs#python3 --command python3 -c 'import socket; a=socket.socket(); a.bind(("",0)); b=socket.socket(); b.bind(("",0)); print(a.getsockname()[1], b.getsockname()[1]); a.close(); b.close()')
-just dev SERVER_PORT="$SP" CLIENT_PORT="$CP" &   # prints "→ client http://localhost:<port>"; pass that URL to the subagent
+# One free port (python3 via nix — no global install needed).
+PORT=$(nix shell nixpkgs#python3 --command python3 -c 'import socket; s=socket.socket(); s.bind(("",0)); print(s.getsockname()[1]); s.close()')
+nix run . -- --port "$PORT" &
 DEV_PID=$!
+# Kill ONLY this PID at the end. NEVER `pkill -f vite` / `pkill -f src/index.ts`
+# / any pattern match — those also match the user's production kolu and kill it.
 trap 'kill "$DEV_PID" 2>/dev/null' EXIT
+# app is at http://localhost:$PORT  — pass that URL to the subagent
 ```
 
-**Kill only the PID you spawned.** At the end, `kill "$DEV_PID"` and nothing else. **Never** `pkill -f vite`, `pkill -f src/index.ts`, or any pattern match — those also match the user's production kolu and will kill it.
-
-For bug fixes that need a "before" shot, run a second instance on its own two ports from a `git worktree` on `master` (no collision with the PR-branch instance). Never stash the PR branch.
+For a "before" shot, run a second instance on another free port from a `git worktree` on `master`. Never stash the PR branch. (For fast iteration outside evidence, `just dev-auto` runs the HMR dev server on two free ports instead.)
 
 ### Capture, host, post
 
