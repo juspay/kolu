@@ -23,7 +23,7 @@
  *  (Originally lived in `MobileCodeSheet.tsx`; restored here after the mobile
  *  Code tab was unified into `CodeTab.tsx` + `RightPanelDrawer.tsx`.) */
 
-import { onCleanup } from "solid-js";
+import { makeEventListener } from "@solid-primitives/event-listener";
 
 /** Below this many pixels of finger travel, a touch is still a tap — let
  *  Pierre's row-click fire on `touchend` rather than eating it as a scroll. */
@@ -134,14 +134,12 @@ export function attachPierreTouchScroll(container: HTMLElement): void {
     state = null;
   };
 
-  container.addEventListener("touchstart", onStart, { passive: false });
-  container.addEventListener("touchmove", onMove, { passive: false });
-  container.addEventListener("touchend", onEnd);
-  container.addEventListener("touchcancel", onEnd);
-  onCleanup(() => {
-    container.removeEventListener("touchstart", onStart);
-    container.removeEventListener("touchmove", onMove);
-    container.removeEventListener("touchend", onEnd);
-    container.removeEventListener("touchcancel", onEnd);
-  });
+  // `makeEventListener` registers its own `onCleanup` against the current
+  // reactive owner (hence the call-site requirement below). `{ passive: false }`
+  // on touchmove is load-bearing — it's what lets `preventDefault` suppress
+  // iOS's native scroll.
+  makeEventListener(container, "touchstart", onStart, { passive: false });
+  makeEventListener(container, "touchmove", onMove, { passive: false });
+  makeEventListener(container, "touchend", onEnd);
+  makeEventListener(container, "touchcancel", onEnd);
 }
