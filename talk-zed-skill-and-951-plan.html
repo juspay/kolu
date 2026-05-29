@@ -96,6 +96,11 @@
   }
   .pill.ok   { background: #e3f4e9; color: var(--ok);  border-color: #b9e1c6; }
   .pill.warn { background: #f8efd9; color: var(--warn);border-color: #e7d2a0; }
+  .pill.bad  { background: #f7e0e0; color: var(--bad); border-color: #e6b9b9; }
+  /* Standalone callout classes (not pills) — colour the text of a
+     <p>/<li> to flag a warning or a falsified-assumption note. */
+  p.warn, li.warn { color: var(--warn); }
+  p.bad,  li.bad  { color: var(--bad); }
   .panel {
     background: var(--panel);
     border: 1px solid var(--edge);
@@ -212,12 +217,12 @@
     <li><a href="#r1">R-1 — <code>TerminalBackend</code> abstraction + <code>LocalTerminalBackend</code></a></li>
     <li><a href="#r1-5">R-1.5 — <code>@kolu/surface</code> framework gaps</a></li>
     <li><a href="#r1-6">R-1.6 — Provider DAG extraction (the shared engine)</a></li>
-    <li><a href="#r4">R-4 — Local PTY daemonization + <code>@kolu/pty-host</code> (next)</a></li>
+    <li><a href="#r4">R-4 — Local PTY daemonization + <code>@kolu/pty-host</code> (prototype shipped)</a></li>
     <li><a href="#r2">R-2 — ssh transport variant + remote-only UI</a></li>
     <li><a href="#r3">R-3 — Version handshake + session-ID persistence</a></li>
     <li><a href="#impl-ref">Implementation reference (prototype PRs + key files)</a></li>
     <li><a href="#zed-refs">Zed reference (file:line citations)</a></li>
-    <li><a href="#r4-followups">R-4 — post-review follow-ups (open in this PR)</a></li>
+    <li><a href="#r4-followups">R-4 — prototype status &amp; retrospective (#1010)</a></li>
   </ol>
 </div>
 
@@ -247,8 +252,8 @@
   <tr>
     <td><strong>R-4</strong></td>
     <td>Local PTYs move into a long-lived <code>kolu --stdio</code> daemon on the same host (loopback stdio transport). <code>LocalTerminalBackend</code> becomes the loopback-transport client of one transport-parameterized <code>TerminalBackend</code> implementation that R-2 will reuse for ssh. New published package <code>@kolu/pty-host</code> — the multi-client PTY-owner primitive — lands as part of this.</td>
-    <td>Local terminals <strong>survive kolu-server restart</strong> — replaces tmux/zmx, closes <a href="https://github.com/juspay/kolu/issues/671">#671</a>.</td>
-    <td><span class="pill warn">next</span></td>
+    <td>Local terminals <strong>survive kolu-server restart</strong> — replaces tmux/zmx, closes <a href="https://github.com/juspay/kolu/issues/671">#671</a>. <em>(Prototype caveat: holds on macOS/<code>nix&nbsp;run</code>; <strong>not yet on systemd</strong> — the daemon shares the service cgroup. See <a href="#r4-followups">retrospective</a>.)</em></td>
+    <td><span class="pill warn">prototype</span> <a href="https://github.com/juspay/kolu/pull/1010">#1010</a></td>
   </tr>
   <tr>
     <td><strong>R-2</strong></td>
@@ -845,7 +850,8 @@ mirrorRemoteCollection&lt;TerminalId, AgentTerminalMetadata&gt;({
 <p><strong>Why keep terminal bytes and metadata on separate streams (vs. one fat stream)?</strong> Terminal bytes are high-throughput, latency-sensitive raw streams; metadata is structured, lower-frequency snapshots. Multiplexing them onto one channel tangles backpressure semantics. The agent surface already gives them separate slots (<code>terminalData</code> stream vs. <code>terminalMetadata</code> collection); R-3 doesn't change that. The same is true of <code>PtyHost.attach()</code>'s <code>{ snapshot, deltas }</code> shape — bytes stay bytes, metadata stays in the collection.</p>
 
 <!-- ====================== R-4 (next) ====================== -->
-<h2 id="r4">R-4 — Local PTY daemonization + <code>@kolu/pty-host</code> <span class="pill warn">next</span></h2>
+<h2 id="r4">R-4 — Local PTY daemonization + <code>@kolu/pty-host</code> <span class="pill warn">prototype shipped</span></h2>
+<p>This is the <em>original design</em>. A working prototype landed in <a href="https://github.com/juspay/kolu/pull/1010">#1010</a> — for what actually shipped, where it diverged, the assumption prod falsified, and how it's best re-done, see <a href="#r4-followups">R-4 — prototype status &amp; retrospective</a>.</p>
 <p><em>User outcome:</em> <strong>local terminals survive kolu-server restart.</strong> Move local PTYs from in-process <code>node-pty</code> into a long-lived <code>kolu --stdio</code> daemon on the same host (loopback stdio transport). Replaces tmux/zmx for local sessions — closes <a href="https://github.com/juspay/kolu/issues/671">#671</a> by being the multiplexer rather than coexisting with one.</p>
 
 <p><em>Architectural outcome (load-bearing for R-2 + R-3):</em> R-4 names the third volatility axis the plan now carves out — <strong>where the PTY runs + how scrollback persists across client reconnect</strong> — and encapsulates it in one published primitive, <code>@kolu/pty-host</code>. The agent (running as a local daemon today, the remote agent tomorrow) consumes <code>createPtyHost(opts)</code>. <code>LocalTerminalBackend</code> + future <code>RemoteTerminalBackend</code> collapse into one transport-parameterized <code>TerminalBackend</code> implementation that R-2 plugs the ssh variant into without rebuilding the per-PTY machinery.</p>
@@ -1272,8 +1278,25 @@ if (!semver.satisfies(daemonVersion, MIN_AGENT_CONTRACT)) {
 </details>
 
 <!-- ====================== R-4 POST-REVIEW FOLLOW-UPS ====================== -->
-<h2 id="r4-followups">R-4 — post-review follow-ups (open in this PR) <span class="pill warn">in progress</span></h2>
-<p class="lead">Captured while testing R-4 in production (PR <a href="https://github.com/juspay/kolu/pull/1010">#1010</a>): the daemon-survives-deploy work — <strong>decided, not yet built</strong>.</p>
+<h2 id="r4-followups">R-4 — prototype shipped: status, divergences &amp; retrospective <span class="pill warn">prototype</span></h2>
+<p class="lead">PR <a href="https://github.com/juspay/kolu/pull/1010">#1010</a> is a working <strong>prototype</strong> of the whole R-4 surface (~+3.7k/−760 LoC, 4 slices) — kept or re-done is an open call. This section reconciles <em>what shipped</em> against the <a href="#r4-deliverables">original R-4 design</a>, records the one assumption production falsified, and lays out how R-4 is best re-done if we start over.</p>
+
+<h3 id="r4-shipped">What the prototype actually shipped</h3>
+<table>
+  <tr><th>Slice (commit)</th><th>Delivered</th><th>vs original plan</th></tr>
+  <tr><td><strong>1</strong> <code>badeae5a</code></td><td><code>@kolu/pty-host</code> primitive (multi-client PTY owner: node-pty + <code>@xterm/headless</code> mirror + bounded <code>Channel&lt;T&gt;</code>) · <code>agentSurface</code> contract + version-compat · <code>$KOLU_STATE_DIR</code> resolver</td><td><span class="pill ok">as planned</span> — the package graduated exactly as the <code>/lowy</code> pass called for</td></tr>
+  <tr><td><strong>2</strong> <code>746e76c7</code></td><td><code>kolu --stdio</code> daemon process + boot dispatcher; server <code>index.ts</code> split into <code>server.ts</code> + <code>agent/main.ts</code></td><td><span class="pill ok">as planned</span></td></tr>
+  <tr><td><strong>3a</strong> <code>5c6677fb</code></td><td>Daemon supervisor (spawn-detached, socket poll, <code>system.version</code> handshake, fail-closed) + eager boot + chrome-bar status dot</td><td><span class="pill warn">simplified</span> — see divergences</td></tr>
+  <tr><td><strong>3b</strong> <code>65dfd7f8</code></td><td><code>LocalTerminalBackend</code> routes every PTY through the daemon socket; reattach-by-id across kolu-server restart</td><td><span class="pill ok">as planned</span> — works in dev/e2e/macOS</td></tr>
+  <tr><td>+</td><td>6 hickey/lowy/police refactors · env-whitelist propagation · 5 Codex correctness fixes · pty-host tests (37) + daemon tests (11) · README architecture · e2e daemon reaping · batch B (nudge + restart command)</td><td>—</td></tr>
+</table>
+
+<h3 id="r4-divergences">Divergences from the original R-4 design</h3>
+<ul>
+  <li><strong>Status indicator simplified.</strong> <a href="#r4-status-indicator">Story 6</a> specced a <em>five-state</em> dot with a Diagnostic "Local PTY host" panel (PID/uptime/PTY-count/log-tail) and a yellow <a href="#r4-upgrade">upgrade banner</a> carrying [Restart now]/[Defer]. Shipped: a <strong>four-tone</strong> dot (starting / ready / outdated / down) + a tooltip + a <em>⌘K → Debug → Restart local PTY daemon</em> command. The diagnostic panel, log-tail button, and top-bar banner are <span class="pill warn">deferred</span>.</li>
+  <li><strong>Upgrade flow is passive.</strong> Planned an active banner on version skew; shipped a passive amber dot + command. Lower friction to build, lower discoverability — acceptable for a maintenance action.</li>
+  <li class="bad"><strong>The premise production falsified.</strong> The original R-4 design assumed a <code>detached</code> child <em>survives kolu-server restart</em> — true on macOS/<code>nix&nbsp;run</code>, <strong>false under systemd</strong> (the daemon shares <code>kolu.service</code>'s cgroup and dies with it). So reattach demos green in dev/e2e/macOS but the headline promise — "survive a deploy" — does <em>not</em> hold on the actual Linux production target. This was never modeled in the design; it surfaced only in prod testing, after all 3.7k lines were written.</li>
+</ul>
 
 <h3>Daemon must survive a deploy (root cause: systemd cgroup kill)</h3>
 <p>Symptom in prod: after each redeploy, agents are <em>resumed</em> (fresh <code>claude -c</code> / <code>codex resume --last</code>) rather than reattached. Evidence: <code>agent.log</code> shows multiple <code>agent starting</code> lines and the live daemon is only minutes old. Root cause:</p>
@@ -1320,7 +1343,42 @@ KillMode=control-group  →  systemctl restart kolu kills the WHOLE cgroup</code
 
 <hr/>
 
-<p class="lead">Implementation order: R-1 (pure refactor) → R-1.5 (framework primitives + demo) → R-2 (agent + RemoteTerminalBackend in six slices) → R-3 (reattach + version handshake). Each phase has a clean "done" criterion; the user-visible payoff is concentrated in R-2.</p>
+<h3 id="r4-redo">Retrospective — would R-4 be done differently?</h3>
+<p class="lead">Short answer: <strong>same destination, inverted order, and split across PRs.</strong> The prototype proved the machinery works; it also proved we sequenced the risk backwards.</p>
+
+<h4>1. Test the load-bearing assumption <em>first</em>, not last</h4>
+<p>The entire reason R-4 exists is "PTYs survive a deploy." On the production target (systemd) that reduces to a single infrastructure question: <em>can a child process escape its parent's cgroup?</em> That was the one genuine unknown — everything else (pty-host, the contract, snapshot/delta reattach) is careful-but-known engineering. We verified it <strong>last</strong>, in prod, after 3.7k lines. The answer was no, and it invalidates the headline promise on Linux.</p>
+<p class="warn">Re-do: <strong>Phase 0 is a throwaway 50-line spike on the real box</strong> — <code>systemd-run --user</code> a trivial sleeper, <code>systemctl restart</code> the parent service, confirm the sleeper's <code>MainPID</code> and cgroup survive. Decide the survive mechanism (transient unit vs declared unit vs socket activation) <em>before</em> writing the daemon. De-risk the assumption that, if false, deletes the feature.</p>
+
+<h4>2. One 3.7k-line branch conflated four risk profiles</h4>
+<p>The prototype was <em>sliced</em> (good instinct) but all slices landed on one branch, mixing a pure refactor, a risky behavior swap, an unproven infra assumption, and polish — each with a different blast radius and a different reviewer. That's why Codex kept finding lifecycle holes: the diff never isolated a boundary. (The R-2 retro reached the <a href="#r2-retro">same conclusion</a> independently — "the prototype's slices conflated the shared engine with the consumer code.")</p>
+<table>
+  <tr><th>Re-do phase (own PR)</th><th>Risk profile</th><th>Revert blast radius</th></tr>
+  <tr><td><strong>0 — survive spike</strong> (throwaway)</td><td>the real unknown</td><td>n/a — answers a question, ships nothing</td></tr>
+  <tr><td><strong>A — extract <code>@kolu/pty-host</code></strong> (pure refactor, in-process still)</td><td>zero behavior change</td><td>trivially revertible; mergeable alone</td></tr>
+  <tr><td><strong>B — <code>kolu --stdio</code> daemon + <code>agentSurface</code> + supervisor</strong>, behind the existing local path (not yet default)</td><td>new process, no user-visible swap</td><td>contained to new files</td></tr>
+  <tr><td><strong>C — flip <code>LocalTerminalBackend</code> through the daemon + reattach</strong></td><td>the behavior change</td><td>one backend; the swap is the diff</td></tr>
+  <tr><td><strong>D — survive mechanism (from Phase 0) + version-skew nudge + restart</strong></td><td>infra + polish</td><td>Nix + supervisor only</td></tr>
+</table>
+<p>Phases A–C are exactly the prototype's slices 1–3b — so the work is real and reusable. The change is <em>where the cut lines fall</em> (PR boundaries, not commits) and that Phase 0 moves to the front.</p>
+
+<h4>3. The "fighting systemd" smell — is a kolu-server-spawned daemon even the right altitude?</h4>
+<p>Escaping the cgroup with <code>systemd-run</code> is kolu <em>fighting</em> its process manager. macOS "just works" only because launchd happens to leave the unmanaged child alone — that's accidental success, not design. The cleaner framing may be to <strong>cooperate</strong>: declare the daemon as its <em>own</em> OS unit (<code>systemd.user.services.kolu-pty-daemon</code> / <code>launchd.agents</code>), socket-activated, with kolu-server as a pure client that connects. Separate unit ⇒ separate cgroup <em>by construction</em> — no escape trick. The cost is sd-switch restarting the unit when its <code>ExecStart</code> store path changes on <code>home-manager switch</code>; but because <code>@kolu/pty-host</code> is a thin, rarely-changing primitive, that unit's closure changes far less often than kolu-server's — and the version-skew nudge (already built) is precisely the tool for the residual case. This is also the most <em>Nix-native</em> answer, which is the stated north star.</p>
+
+<h4>4. Consider not hand-rolling the daemon at all</h4>
+<p>Our own conventions say <em>"prefer external libraries over hand-rolled code."</em> Applied at the process level, that points at <code>tmux</code>/<code>abduco</code>/<code>dtach</code> — battle-tested session multiplexers whose <em>entire job</em> is "keep a PTY alive while clients attach/detach." Running shells inside one would sidestep the whole "who owns the PTY across restart" problem we hand-built a daemon to solve. The trade-off is real (we'd lose the typed <code>agentSurface</code> streaming + the <code>@xterm/headless</code> snapshot integration, and inherit tmux's model), so this likely loses — but it deserved an explicit <em>"considered and rejected because…"</em> in the original design, and it didn't get one.</p>
+
+<h4>What to keep verbatim</h4>
+<ul>
+  <li><strong><code>@kolu/pty-host</code> as a primitive</strong> — clean single-volatility boundary; the eager-subscribe + snapshot/delta race fix is hard-won and correct.</li>
+  <li><strong>Daemon stays a thin PTY service; the provider DAG stays in kolu-server.</strong> Right altitude — the daemon doesn't know about git/PR/agent detection.</li>
+  <li><strong>Reusing the SSH-shaped <code>@kolu/surface</code> stdio link for the local socket</strong> — forward-compatible with R-2's <code>RemoteTerminalBackend</code> at no extra cost.</li>
+  <li><strong>Fail-closed on contract incompatibility</strong> + the version handshake — these are the correct primitives; the nudge is built on them.</li>
+</ul>
+
+<hr/>
+
+<p class="lead">Roadmap order: R-1 (pure refactor) → R-1.5 (framework primitives + demo) → <strong>R-4 (local daemon — reattach + version handshake, prototyped in #1010)</strong> → R-2 (agent + RemoteTerminalBackend) → R-3 (network-blip resilience). Note reattach + the version handshake landed in R-4, not R-3 as the early sketch had it — the sequencing flip (<a href="#r1-6">R-1.6</a> rationale) pulled them forward.</p>
 
 </main>
 <script>
