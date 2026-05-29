@@ -7,7 +7,6 @@
  *  wire protocol. Env/shell-init prep is the caller's job (see `kolu-pty`).
  */
 
-export { Channel, type ChannelOptions } from "./channel.ts";
 export {
   createPtyHost,
   getScreenText,
