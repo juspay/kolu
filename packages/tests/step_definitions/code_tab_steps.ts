@@ -524,7 +524,7 @@ Then(
 // single `scrollTop` assignment can land before the virtualizer has settled
 // its row window; loop a few frames pinning scrollTop past the max so the
 // last window materializes. Regression guard for the line-height-metric
-// clip (#1021): the bottom rows are only reachable once Pierre's virtualizer
+// clip (#1026): the bottom rows are only reachable once Pierre's virtualizer
 // knows the real row height, so this step + a last-line content assertion
 // fails when the metric is wrong and passes once it matches.
 When(
