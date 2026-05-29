@@ -42,7 +42,7 @@ Keep these docs in sync:
 
 ## PR evidence
 
-When the change has visible UI impact, post a `## Evidence` PR comment with screenshots. Use judgment — server-only diffs sometimes ripple into rendering.
+When the change has visible UI impact, post a `## Evidence` PR comment with screenshots — or **video** when the change is about motion (an animation, a transition, a multi-step interaction a still can't convey; see _Video evidence_ below). Use judgment — server-only diffs sometimes ripple into rendering.
 
 **Delegate to a subagent** (`Agent(subagent_type="general-purpose", model="sonnet")`) so the main context stays clear of MCP and screenshot noise. Brief it with: the dev-server URL, what scenarios to capture, a `/tmp/kolu-evidence-<slug>.png` filename, and the PR number. Have it return only the markdown body it posted.
 
@@ -72,6 +72,30 @@ gh release upload evidence-assets /tmp/kolu-evidence-<slug>.png --clobber
 ```
 
 URL pattern: `https://github.com/juspay/kolu/releases/download/evidence-assets/<filename>`. Use the single-quoted heredoc pattern (`<<'EOF'`) when posting so backticks and `$` survive unescaped.
+
+### Video evidence
+
+For motion the subagent records the page instead of (or alongside) a still. The `chrome-devtools` MCP exposes `screencast_start` / `screencast_stop` — `screencast_start` with `filePath: /tmp/kolu-evidence-<slug>.mp4`, drive the interaction, then `screencast_stop`. (Capability ships in the [`nix-chrome-devtools-mcp`](https://github.com/juspay/nix-chrome-devtools-mcp) launcher, which runs the server with `--experimentalScreencast` and ffmpeg on PATH.)
+
+Two reasons not to just attach the `.mp4`: GitHub renders an inline video *player* only for files dragged into the web composer (a `user-attachments` URL `gh` can't mint), and a `<video>` tag in a comment is stripped. So:
+
+- **Inline (the at-a-glance proof):** transcode to an animated GIF — GitHub renders a GIF inline from any release URL, exactly like the PNG flow above.
+
+  ```sh
+  nix shell nixpkgs#ffmpeg --command ffmpeg -i /tmp/kolu-evidence-<slug>.mp4 \
+    -vf "fps=12,scale=900:-1:flags=lanczos" -loop 0 /tmp/kolu-evidence-<slug>.gif
+  gh release upload evidence-assets /tmp/kolu-evidence-<slug>.gif --clobber
+  ```
+
+  Embed with `![](https://github.com/juspay/kolu/releases/download/evidence-assets/<slug>.gif)`.
+
+- **HD + audio (optional):** upload the `.mp4` to the same release and link to the shared player — [`juspay/video-evidence`](https://github.com/juspay/video-evidence) hosts a GitHub Pages `<video>` page that streams the clip from kolu's own release:
+
+  ```
+  ▶ HD: https://juspay.github.io/video-evidence/evidence.html?repo=juspay/kolu&v=<slug>.mp4
+  ```
+
+  Clips stay on kolu's `evidence-assets` release; the player is project-agnostic (the `repo` param is org-allowlisted), so it is reused across juspay projects with no per-project hosting.
 
 ### Agent-state scenarios
 

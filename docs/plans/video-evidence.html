@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Video evidence for PRs — screencast capture + shared Pages player</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2128; --line:#30363d;
+    --fg:#e6edf3; --dim:#9198a1; --dim2:#6e7681;
+    --accent:#58a6ff; --green:#3fb950; --amber:#d29922; --red:#f85149;
+    --purple:#bc8cff; --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+    font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;}
+  .wrap{max-width:1000px;margin:0 auto;padding:32px 28px 80px}
+  h1{font-size:22px;margin:0 0 4px}
+  h2{font-size:17px;margin:34px 0 10px;padding-bottom:6px;border-bottom:1px solid var(--line)}
+  h3{font-size:14px;margin:20px 0 8px;color:var(--accent)}
+  p{margin:10px 0}
+  code,.mono{font-family:var(--mono);font-size:12.5px}
+  code{background:var(--panel2);padding:1px 5px;border-radius:4px;color:#d2a8ff}
+  pre{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:12px 14px;overflow-x:auto;font-family:var(--mono);font-size:12px;line-height:1.5}
+  .lede{color:var(--dim);font-size:13px;margin-top:0}
+  .cite{color:var(--dim2);font-family:var(--mono);font-size:11.5px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:16px 18px;margin:14px 0}
+  .bad{border-left:3px solid var(--red)}
+  .good{border-left:3px solid var(--green)}
+  .note{border-left:3px solid var(--amber)}
+  ul{margin:8px 0;padding-left:22px} li{margin:4px 0}
+  table{border-collapse:collapse;width:100%;margin:12px 0;font-size:13px}
+  th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--dim)}
+  a{color:var(--accent)}
+  .tag{display:inline-block;font-family:var(--mono);font-size:11px;padding:1px 7px;border-radius:10px;border:1px solid var(--line);color:var(--dim)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Video evidence for PRs</h1>
+<p class="lede">Let <code>/do</code> attach <em>video</em> to a PR — not just screenshots — for changes about motion (animations, transitions, multi-step interactions). Shipped as three small pieces across three repos.</p>
+
+<h2>Problem</h2>
+<p>The <code>## PR evidence</code> flow in <code>.agency/do.md</code> captures stills via the <code>chrome-devtools</code> MCP's <code>take_screenshot</code>, uploads them to a long-lived <code>evidence-assets</code> GitHub release, and embeds them inline. A still can't convey a transition or a multi-step interaction. We want the same agent-driven flow to produce video.</p>
+<p>Two independent gaps: <strong>capture</strong> (the MCP wasn't recording video) and <strong>embedding</strong> (getting a clip to render in a PR comment).</p>
+
+<h2>Capture — the MCP already has it, gated</h2>
+<p><code>chrome-devtools-mcp</code> ships <code>screencast_start</code> / <code>screencast_stop</code> (<code>.mp4</code>/<code>.webm</code>) via Puppeteer's <code>page.screencast()</code>, which shells out to <strong>ffmpeg</strong>. They are hidden behind <code>--experimentalScreencast=true</code>, and the kolu launcher didn't pass it or provide ffmpeg.</p>
+<p class="cite">chrome-devtools-mcp build/src/tools/screencast.js:18-70 (tools); :53-66 (ffmpeg shell-out + ENOENT error); cli-options screencast flag.</p>
+<div class="card good">
+<strong>Fix (upstream):</strong> the launcher at <code>.apm/skills/nix-chrome-devtools-mcp/bin/serve</code> now runs <code>nix shell …#nodejs …#ffmpeg</code> and passes <code>--experimentalScreencast=true</code> — ffmpeg and the tools resolve through Nix, no host install.
+<div class="cite" style="margin-top:6px">→ juspay/nix-chrome-devtools-mcp#2 (branch <code>screencast</code>). kolu pins it via <code>apm.yml</code> (<code>juspay/nix-chrome-devtools-mcp#screencast</code>) until merged; <code>just ai::apm-update</code> regenerates the vendored <code>serve</code>. Drop the <code>#screencast</code> ref after merge.</div>
+</div>
+
+<h2>Embedding — the real constraint</h2>
+<p>GitHub auto-mounts a <code>&lt;video&gt;</code> player <strong>only</strong> for files uploaded through the web composer (a <code>user-attachments</code> URL needing a session cookie + CSRF — <code>gh</code>/PAT can't mint it). A git-committed or release-hosted <code>raw.</code> mp4 renders as a download link, and a hand-authored <code>&lt;video&gt;</code> tag is stripped by the comment sanitizer.</p>
+<div class="card note">
+<strong>Proof it's the embed, not hosting:</strong> <code>srid/ema</code>'s README plays an inline clip via a bare <code>user-images.githubusercontent.com</code> URL (a one-time human drag-drop). The repo <em>also</em> commits the same file at <code>docs/static/ema-demo.mp4</code>, yet the README does <em>not</em> use that committed file's <code>raw.</code> URL — because it wouldn't render a player. A dedicated mp4 repo lands on that same non-embedding <code>raw.</code> path.
+<div class="cite" style="margin-top:6px">→ srid/ema README.md:10 (bare user-images URL); git tree has docs/static/ema-demo.mp4.</div>
+</div>
+
+<h3>Two outputs, each for what it's good at</h3>
+<table>
+  <tr><th>Output</th><th>Renders</th><th>Use</th></tr>
+  <tr><td><strong>Animated GIF</strong></td><td>Inline in the comment via <code>![](release-url)</code> — a GIF is an image to GitHub, embeds from any URL like the PNG flow.</td><td>The at-a-glance proof. No audio, larger file, 256-color.</td></tr>
+  <tr><td><strong>MP4 + Pages player</strong></td><td>A real <code>&lt;video&gt;</code> on a GitHub Pages page we control; the comment links to it.</td><td>HD + audio + seeking, on click-through.</td></tr>
+</table>
+
+<h2>Architecture — three repos</h2>
+<table>
+  <tr><th>Repo</th><th>Role</th><th>Change</th></tr>
+  <tr><td><code>juspay/nix-chrome-devtools-mcp</code></td><td>Capture capability</td><td>Launcher enables screencast + ffmpeg (PR&nbsp;#2).</td></tr>
+  <tr><td><code>juspay/video-evidence</code></td><td>Shared player host</td><td>GitHub Pages <code>evidence.html?repo=&lt;owner/repo&gt;&amp;v=&lt;file&gt;</code>, project-agnostic, org-allowlisted.</td></tr>
+  <tr><td><code>juspay/kolu</code> (this PR)</td><td>Consumer</td><td><code>apm.yml</code> pin + regen; <code>.agency/do.md</code> video procedure; this plan.</td></tr>
+</table>
+<div class="card good">
+<strong>Key decision (per review):</strong> clips live on <strong>each project's own <code>evidence-assets</code> release</strong> — kolu's on <code>juspay/kolu</code>, exactly where screenshots already go. The <code>video-evidence</code> repo holds <em>only</em> the player, so it is reused across juspay projects with no per-project hosting and no git-blob bloat. One parametrized player (org-allowlisted <code>repo</code>) rather than per-project HTML pages — avoids multiplying artifacts.
+</div>
+
+<h2>Validated end-to-end</h2>
+<p>Before wiring the launcher, the embed path was proven in a real browser (chrome-devtools): the Pages player loaded a clip from the cross-origin release URL, reached <code>readyState 4</code>, played to completion, and <strong>seeked mid-clip</strong> — confirming HTTP range requests work on release assets. Test clip generated offline with <code>nix shell nixpkgs#ffmpeg</code> (the same ffmpeg-via-nix the launcher now uses).</p>
+
+<h2>The <code>/do</code> flow (documented in <code>.agency/do.md</code>)</h2>
+<pre>screencast_start { filePath: /tmp/kolu-evidence-&lt;slug&gt;.mp4 }
+  → drive the interaction → screencast_stop
+ffmpeg -i …mp4 -vf "fps=12,scale=900:-1:flags=lanczos" -loop 0 …gif   # inline
+gh release upload evidence-assets …gif …mp4 --clobber                # kolu's release
+comment: ![](…/evidence-assets/&lt;slug&gt;.gif)
+         ▶ HD: …/video-evidence/evidence.html?repo=juspay/kolu&amp;v=&lt;slug&gt;.mp4</pre>
+
+<h2>Follow-up</h2>
+<ul>
+  <li>When <a href="https://github.com/juspay/nix-chrome-devtools-mcp/pull/2">nix-chrome-devtools-mcp#2</a> merges, drop the <code>#screencast</code> ref in <code>apm.yml</code> and re-run <code>just ai::apm-update</code>.</li>
+  <li>Picking up the new launcher requires a Claude restart (the MCP server is spawned at session start).</li>
+</ul>
+
+</div>
+</body>
+</html>

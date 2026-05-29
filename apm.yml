@@ -25,5 +25,7 @@ dependencies:
     - juspay/skills/skills/nix-justfile
     - juspay/skills/skills/nix-typescript
     - anthropics/skills/skills/frontend-design
-    - juspay/nix-chrome-devtools-mcp
+    # Pinned to the screencast branch for video PR evidence until
+    # juspay/nix-chrome-devtools-mcp#2 merges, then drop the ref.
+    - juspay/nix-chrome-devtools-mcp#screencast
     - juspay/justci

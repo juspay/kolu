@@ -31,8 +31,13 @@ if [[ -z "$chrome" ]]; then
     exit 1
 fi
 
-exec nix shell "${nixpkgs}#nodejs" --command \
+# ffmpeg is on PATH so chrome-devtools-mcp's experimental screencast tools
+# (screencast_start / screencast_stop) can record page video — Puppeteer's
+# page.screencast() shells out to ffmpeg. Without --experimentalScreencast
+# the tools stay hidden; without ffmpeg they error at record time.
+exec nix shell "${nixpkgs}#nodejs" "${nixpkgs}#ffmpeg" --command \
     npx -y "chrome-devtools-mcp@${mcp_version}" \
     --headless=true \
     --isolated=true \
+    --experimentalScreencast=true \
     --executable-path="$chrome"
