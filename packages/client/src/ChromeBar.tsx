@@ -66,6 +66,13 @@ const ChromeBar: Component<{
   // overlay — the `right:` offset below keeps controls off the panel.
   const docked = createMemo(() => posture.mode() === "maximized");
 
+  // The maximize toggle's affordance describes the action a click performs,
+  // so both the tooltip and the aria-label read from one source and can't
+  // drift out of sync with the posture.
+  const maximizeLabel = createMemo(() =>
+    docked() ? "Restore canvas" : "Maximize terminal",
+  );
+
   return (
     <header
       data-testid="chrome-bar"
@@ -140,7 +147,7 @@ const ChromeBar: Component<{
        *  clicks through; each button re-enables pointer-events-auto. */}
       <div class="flex items-center gap-2 shrink-0">
         <RecordButton />
-        <Tip label="Toggle maximized mode">
+        <Tip label={maximizeLabel()}>
           <button
             type="button"
             data-testid="maximize-toggle"
@@ -151,7 +158,7 @@ const ChromeBar: Component<{
             }}
             data-active={docked() ? "" : undefined}
             onClick={() => posture.toggle()}
-            aria-label={docked() ? "Restore canvas" : "Maximize terminal"}
+            aria-label={maximizeLabel()}
           >
             <Show
               when={docked()}
