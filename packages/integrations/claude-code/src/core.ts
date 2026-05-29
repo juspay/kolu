@@ -184,17 +184,15 @@ export function tailJsonlLines(filePath: string, bytes: number): string[] {
 function toolResultText(content: unknown): string {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
-  let out = "";
-  for (const block of content) {
-    if (
-      block &&
-      typeof block === "object" &&
-      typeof (block as { text?: unknown }).text === "string"
-    ) {
-      out += (block as { text: string }).text;
-    }
-  }
-  return out;
+  return content
+    .filter(
+      (b): b is { text: string } =>
+        !!b &&
+        typeof b === "object" &&
+        typeof (b as { text?: unknown }).text === "string",
+    )
+    .map((b) => b.text)
+    .join("");
 }
 
 /** If `block` is a `tool_result`, return its flattened text and error flag;
