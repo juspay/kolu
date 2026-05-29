@@ -4,9 +4,35 @@ import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   contentTypeForPath,
+  isIframePreviewable,
   resolvePreviewPath,
   serveResolvedFile,
 } from "./iframePreviewRoute";
+
+describe("isIframePreviewable", () => {
+  it("classifies HTML artifacts and their vector/document siblings", () => {
+    expect(isIframePreviewable("out.html")).toBe(true);
+    expect(isIframePreviewable("out.HTM")).toBe(true);
+    expect(isIframePreviewable("logo.svg")).toBe(true);
+    expect(isIframePreviewable("doc.pdf")).toBe(true);
+  });
+
+  it("classifies raster images (regression: were read as UTF-8 garbage)", () => {
+    // Before the fix these fell through to the text-read path in
+    // `surface.ts` and rendered as binary noise in the Code browser.
+    expect(isIframePreviewable("icon-512.png")).toBe(true);
+    expect(isIframePreviewable("photo.JPG")).toBe(true);
+    expect(isIframePreviewable("photo.jpeg")).toBe(true);
+    expect(isIframePreviewable("anim.gif")).toBe(true);
+    expect(isIframePreviewable("hero.webp")).toBe(true);
+    expect(isIframePreviewable("favicon.ico")).toBe(true);
+  });
+
+  it("leaves source files on the text path", () => {
+    expect(isIframePreviewable("main.ts")).toBe(false);
+    expect(isIframePreviewable("README.md")).toBe(false);
+  });
+});
 
 describe("contentTypeForPath", () => {
   it("maps the iframe-previewable extensions", () => {

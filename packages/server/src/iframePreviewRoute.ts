@@ -42,17 +42,26 @@ export function buildIframePreviewUrl(
   return `${TERMINAL_FILE_ROUTE_BASE}/${terminalId}/${TERMINAL_FILE_ROUTE_FILE_SEGMENT}/${encodedPath}?v=${Math.floor(mtimeMs)}`;
 }
 
-/** Extensions whose contents the browser renders natively in an iframe.
- *  Lives here (next to `CONTENT_TYPES`) because both lists are facets of
- *  the same iframe-rendering decision — adding a new previewable extension
- *  means adding its Content-Type below, and they can no longer drift
- *  across packages. `.html`/`.htm` are the primary use case (agent-
- *  generated artifacts); `.svg`/`.pdf` come along for free. */
+/** Extensions the browser renders natively from the file route (vs. the
+ *  text-read path that would mangle their bytes). Lives here (next to
+ *  `CONTENT_TYPES`) because both lists are facets of the same rendering
+ *  decision — adding a previewable extension means adding its Content-Type
+ *  below, and they can no longer drift across packages. `.html`/`.htm` are
+ *  the primary use case (agent-generated artifacts); `.svg`/`.pdf` come
+ *  along for free; the raster images are served by the same route but the
+ *  client presents them with a plain `<img>` rather than an iframe (see
+ *  `isRasterImage` in `packages/client/src/right-panel/imageFile.ts`). */
 export const IFRAME_PREVIEWABLE_EXTENSIONS = [
   ".html",
   ".htm",
   ".svg",
   ".pdf",
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".gif",
+  ".webp",
+  ".ico",
 ] as const;
 
 export function isIframePreviewable(filePath: string): boolean {
