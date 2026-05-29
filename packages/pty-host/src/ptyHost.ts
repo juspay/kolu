@@ -117,6 +117,8 @@ export interface PtySpawnOpts {
   onDispose?: () => void;
 }
 
+/** What {@link PtyHost.spawn} returns: the (possibly generated) id and the
+ *  OS process id of the spawned child. */
 export interface PtySpawnResult {
   id: PtyId;
   pid: number;
@@ -133,6 +135,8 @@ export interface PtyAttachment {
   deltas: AsyncIterable<string>;
 }
 
+/** One row of {@link PtyHost.list}: a live PTY's id, pid, cwd, and last
+ *  activity timestamp. */
 export interface PtyListEntry {
   id: PtyId;
   pid: number;
@@ -141,6 +145,7 @@ export interface PtyListEntry {
   lastActivity: number;
 }
 
+/** Construction options for {@link createPtyHost}. */
 export interface PtyHostOptions {
   log: Logger;
   /** Default headless scrollback for spawns that don't set their own. */
