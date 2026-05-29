@@ -13,7 +13,7 @@ const xtermVersion = xtermPackage.version;
 // dev-auto`) overrides both so a second instance can coexist with a primary
 // one. The proxy target MUST follow KOLU_DEV_SERVER_PORT — otherwise a
 // non-default client silently proxies /api and /rpc to the primary server.
-const serverPort = process.env.KOLU_DEV_SERVER_PORT ?? String(DEFAULT_PORT);
+const serverPort = process.env.KOLU_DEV_SERVER_PORT || String(DEFAULT_PORT);
 const clientPort = Number(process.env.KOLU_DEV_CLIENT_PORT) || 5173;
 
 const fontsDir = process.env.KOLU_FONTS_DIR;
