@@ -35,7 +35,7 @@
 import { randomUUID } from "node:crypto";
 import { chmodSync, rmSync, unlinkSync } from "node:fs";
 import { createServer } from "node:net";
-import { createPtyHost, type PtyId } from "@kolu/pty-host";
+import { createPtyHost, type PtyHost, type PtyId } from "@kolu/pty-host";
 import { serveOverStdio } from "@kolu/surface/peer-server";
 import {
   flattenSurfaceRouter,
@@ -60,6 +60,39 @@ import { tryAcquirePidFile } from "../daemon/daemonUtils.ts";
 import { ensureKoluRoot, koluShellDir } from "../koluRoot.ts";
 import { daemonPaths } from "../koluState.ts";
 import { log } from "../log.ts";
+
+/** Wait up to `ms` for a PTY to exit, abort-cleanly on timeout (the
+ *  abort-aware `exitPromise` removes its waiter, so no leak). Returns whether
+ *  it exited. */
+function exitedWithin(host: PtyHost, id: PtyId, ms: number): Promise<boolean> {
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), ms);
+  return host.exitPromise(id, ac.signal).then(
+    () => {
+      clearTimeout(timer);
+      return true;
+    },
+    () => {
+      clearTimeout(timer);
+      return false;
+    },
+  );
+}
+
+/** Kill a PTY and WAIT for it to actually exit before returning. The host
+ *  removes the entry from its map (and thus from `list()`) only on the
+ *  child's `onExit`, so a kill that merely sent a signal would leave a
+ *  killed-but-not-yet-dead terminal visible to a reattaching kolu-server,
+ *  resurrecting it. We send SIGHUP (node-pty's default), wait, and escalate
+ *  to SIGKILL if the process ignores it — returning only once the PTY is
+ *  truly gone. */
+async function killAndWait(host: PtyHost, id: PtyId): Promise<void> {
+  if (!host.getCwd(id)) return; // already gone
+  host.kill(id);
+  if (await exitedWithin(host, id, 2000)) return;
+  host.kill(id, "SIGKILL");
+  await exitedWithin(host, id, 1000);
+}
 
 /** Daemon entrypoint — dispatched from `index.ts` on `--stdio`. */
 export async function runAgent(): Promise<void> {
@@ -144,11 +177,18 @@ export async function runAgent(): Promise<void> {
         },
       },
       // Natural exit — yields the exit code once, then the stream ends.
+      // Pass the abort signal so a kolu-server restart / socket close removes
+      // the host-side waiter instead of retaining it for the PTY's lifetime.
       exit: {
         source: async function* (input, signal) {
-          const exitCode = await host.exitPromise(input.id);
-          if (signal?.aborted) return;
-          yield { exitCode };
+          try {
+            const exitCode = await host.exitPromise(input.id, signal);
+            yield { exitCode };
+          } catch {
+            // Aborted (socket closed) — end quietly; the waiter is already
+            // removed. A non-abort rejection can't occur here.
+            return;
+          }
         },
       },
     },
@@ -189,13 +229,17 @@ export async function runAgent(): Promise<void> {
           return { id: res.id, pid: res.pid, cwd };
         },
         kill: async ({ input }) => {
-          host.kill(input.id);
+          // Wait for the PTY to actually exit before returning, so a
+          // reattaching kolu-server can't resurrect a killed-but-not-yet-dead
+          // terminal (see `killAndWait`). The kill RPC's response is what
+          // drives kolu-server's UI cleanup.
+          await killAndWait(host, input.id);
           return { ok: true };
         },
         killAll: async () => {
-          const killed = host.list().length;
-          host.dispose();
-          return { killed };
+          const ids = host.list().map((e) => e.id);
+          await Promise.all(ids.map((id) => killAndWait(host, id)));
+          return { killed: ids.length };
         },
         write: async ({ input }) => {
           host.write(input.id, input.data);
