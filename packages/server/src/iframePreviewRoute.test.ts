@@ -18,9 +18,9 @@ describe("CONTENT_TYPES covers every binary-previewable extension", () => {
   // real Content-Type the route serves `application/octet-stream` and the
   // browser downloads instead of rendering. Keeps the two in step now that
   // the extension list lives in a different package from CONTENT_TYPES.
-  it.each([
-    ...BINARY_PREVIEWABLE_EXTENSIONS,
-  ])("%s has a non-octet Content-Type", (ext) => {
+  it.each(
+    BINARY_PREVIEWABLE_EXTENSIONS,
+  )("%s has a non-octet Content-Type", (ext) => {
     expect(contentTypeForPath(`file${ext}`)).not.toBe(
       "application/octet-stream",
     );
