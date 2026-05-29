@@ -27,7 +27,11 @@ import { ensureKoluRoot, shutdownCleanup } from "./koluRoot.ts";
 import { log } from "./log.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import { appRouter } from "./router.ts";
-import { getSavedSession, initSessionAutoSave } from "./session.ts";
+import {
+  getSavedSession,
+  initSessionAutoSave,
+  saveSession,
+} from "./session.ts";
 import { getTerminal } from "./terminal-registry.ts";
 import { reattachLocalTerminals } from "./terminalBackend/local.ts";
 import { snapshotSession } from "./terminals.ts";
@@ -151,6 +155,18 @@ process.on("exit", shutdownCleanup);
 for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"] as const) {
   process.on(sig, () => {
     log.info({ signal: sig }, "shutting down");
+    // Flush the debounced session save synchronously before exiting (#951
+    // R4c). The PTY-host daemon survives this shutdown, so the next
+    // kolu-server reattaches its PTYs from the saved session — but a terminal
+    // (or its client-owned grouping, e.g. a sub-terminal's `parentId`) created
+    // within the autosave debounce window would otherwise be lost on a deploy.
+    // `snapshotSession()` reads the live registry; `saveSession` writes the
+    // conf store synchronously, so it completes before `process.exit`.
+    try {
+      saveSession(snapshotSession());
+    } catch (err) {
+      log.error({ err }, "session flush on shutdown failed");
+    }
     process.exit(0);
   });
 }
