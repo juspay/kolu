@@ -71,22 +71,24 @@ export const pierreTreesStyle: JSX.CSSProperties = {
   "--trees-density-override": "0.85",
 };
 
-/** Rendered code-row height (px) for Pierre `CodeView` hosts. Single source
- *  of truth: it drives both the CSS row height (`--diffs-line-height` below)
- *  and the numeric metric Pierre's virtualizer needs (`<CodeView lineHeight>`).
- *  These two MUST agree — if the metric defaults to Pierre's 20px while rows
- *  render at this value, the virtualizer's window comes up short and the last
- *  rows are unreachable at the bottom of the scroll (#1026). Pass this to
- *  every `<CodeView>` via `lineHeight={PIERRE_DIFFS_LINE_HEIGHT}` alongside
- *  `style={pierreDiffsStyle}`. */
-export const PIERRE_DIFFS_LINE_HEIGHT = 16;
+/** Rendered code-row height (px) for Pierre `CodeView` hosts. It drives both
+ *  the CSS row height (`--diffs-line-height` below) and the numeric metric
+ *  Pierre's virtualizer needs (`itemMetrics.lineHeight`, via the wrapper's
+ *  `lineHeight` prop). These two MUST agree — if the metric defaults to
+ *  Pierre's 20px while rows render at this value, the virtualizer's window
+ *  comes up short and the last rows are unreachable at the bottom of the
+ *  scroll (#1026). Module-private: both halves ship together through
+ *  `koluCodeViewProps()` so a call site can't supply one without the other. */
+const PIERRE_DIFFS_LINE_HEIGHT = 16;
 
-/** Apply to any `@pierre/diffs` `CodeView` host.
+/** CSS custom properties for a `@pierre/diffs` `CodeView` host. Module-private
+ *  — callers reach it (paired with the matching line-height metric) through
+ *  `koluCodeViewProps()`, never on its own.
  *
  *  Pierre's diffs CSS reads bare variables (`--diffs-font-size`) for fonts and
  *  `-override` suffix for colors — see `@pierre/diffs/src/style.css`. Don't
  *  rename the font vars: they won't cascade if you add `-override`. */
-export const pierreDiffsStyle: JSX.CSSProperties = {
+const pierreDiffsStyle: JSX.CSSProperties = {
   "--diffs-bg-override": "var(--color-surface-0)",
   "--diffs-fg-override": "var(--color-fg)",
   "--diffs-border-color-override": "var(--color-edge)",
@@ -99,3 +101,14 @@ export const pierreDiffsStyle: JSX.CSSProperties = {
   "--diffs-font-size": "11px",
   "--diffs-line-height": `${PIERRE_DIFFS_LINE_HEIGHT}px`,
 };
+
+/** Presentation props every Kolu `<CodeView>` host must carry: the diffs CSS
+ *  vars AND the matching `lineHeight` virtualizer metric, as one inseparable
+ *  unit. Spread at the call site — `<CodeView {...koluCodeViewProps()} … />` —
+ *  so the two halves of the row-height invariant can't drift or be supplied
+ *  apart (the #1026 failure mode: style without a matching metric clips the
+ *  last rows). */
+export const koluCodeViewProps = () => ({
+  style: pierreDiffsStyle,
+  lineHeight: PIERRE_DIFFS_LINE_HEIGHT,
+});

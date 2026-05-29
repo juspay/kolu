@@ -17,7 +17,7 @@ import {
 import { type Component, createMemo, Show } from "solid-js";
 import { toast } from "solid-sonner";
 import { CommentTextSurface } from "../comments/CommentTextSurface";
-import { PIERRE_DIFFS_LINE_HEIGHT, pierreDiffsStyle } from "../ui/pierreTheme";
+import { koluCodeViewProps } from "../ui/pierreTheme";
 import CodeMenuFrame from "./CodeMenuFrame";
 
 export type BrowseFileViewProps = {
@@ -69,7 +69,6 @@ const BrowseFileView: Component<BrowseFileViewProps> = (props) => {
                 items={items()}
                 theme={props.theme}
                 overflow="wrap"
-                lineHeight={PIERRE_DIFFS_LINE_HEIGHT}
                 enableLineSelection
                 selectedLines={codeViewSelection()}
                 onSelectedLinesChange={(s) =>
@@ -79,7 +78,7 @@ const BrowseFileView: Component<BrowseFileViewProps> = (props) => {
                   toast.error(`File render failed: ${err.message}`)
                 }
                 class="h-full w-full overflow-auto"
-                style={pierreDiffsStyle}
+                {...koluCodeViewProps()}
                 data-testid="pierre-file-view"
               />
             );

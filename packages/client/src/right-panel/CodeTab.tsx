@@ -48,8 +48,7 @@ import {
   toGitStatusEntries,
 } from "../ui/pierreAdapters";
 import {
-  PIERRE_DIFFS_LINE_HEIGHT,
-  pierreDiffsStyle,
+  koluCodeViewProps,
   pierreIconConfig,
   pierreTreesStyle,
 } from "../ui/pierreTheme";
@@ -699,7 +698,6 @@ const CodeTab: Component<{
                                       items={items()}
                                       theme={diffTheme()}
                                       diffStyle="unified"
-                                      lineHeight={PIERRE_DIFFS_LINE_HEIGHT}
                                       enableLineSelection
                                       selectedLines={codeViewSelection()}
                                       onSelectedLinesChange={(s) =>
@@ -711,7 +709,7 @@ const CodeTab: Component<{
                                         )
                                       }
                                       class="h-full w-full overflow-auto"
-                                      style={pierreDiffsStyle}
+                                      {...koluCodeViewProps()}
                                       data-testid="pierre-diff-view"
                                     />
                                   );
