@@ -20,7 +20,7 @@
  *  Mobile uses a different chrome surface — a pull-down sheet — see
  *  `MobileChromeSheet` and `MobileTileView`. */
 
-import { type Component, createSignal, Show } from "solid-js";
+import { type Component, createMemo, createSignal, Show } from "solid-js";
 import { dockExpanded, toggleRailCards } from "./canvas/dock/Dock";
 import { useViewPosture } from "./canvas/useViewPosture";
 import { ACTIONS } from "./input/actions";
@@ -57,7 +57,7 @@ const ChromeBar: Component<{
   // Dock only when the terminal is maximized, so its own title bar
   // doesn't collide with the chrome. Panel-open stays on the floating
   // overlay — the `right:` offset below keeps controls off the panel.
-  const docked = () => posture.mode() === "maximized";
+  const docked = createMemo(() => posture.mode() === "maximized");
 
   return (
     <header
