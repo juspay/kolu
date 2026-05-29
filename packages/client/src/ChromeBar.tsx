@@ -58,12 +58,11 @@ const ChromeBar: Component<{
   // doesn't collide with the chrome. Panel-open stays on the floating
   // overlay — the `right:` offset below keeps controls off the panel.
   const docked = () => posture.mode() === "maximized";
-  const isMaximized = () => posture.mode() === "maximized";
 
   return (
     <header
       data-testid="chrome-bar"
-      data-maximized={posture.mode() === "maximized" ? "" : undefined}
+      data-maximized={docked() ? "" : undefined}
       // pointer-events-none on the root so the transparent gaps don't
       // eat clicks meant for the canvas under the overlay. Interactive
       // children (identity row, workspace switcher, control cluster) re-enable
@@ -140,15 +139,15 @@ const ChromeBar: Component<{
             data-testid="maximize-toggle"
             class="pointer-events-auto hidden sm:flex items-center justify-center w-7 h-7 rounded-lg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
             classList={{
-              "bg-surface-2 text-fg": isMaximized(),
-              "text-fg-3 hover:bg-surface-2 hover:text-fg": !isMaximized(),
+              "bg-surface-2 text-fg": docked(),
+              "text-fg-3 hover:bg-surface-2 hover:text-fg": !docked(),
             }}
-            data-active={isMaximized() ? "" : undefined}
+            data-active={docked() ? "" : undefined}
             onClick={() => posture.toggle()}
-            aria-label={isMaximized() ? "Restore canvas" : "Maximize terminal"}
+            aria-label={docked() ? "Restore canvas" : "Maximize terminal"}
           >
             <Show
-              when={isMaximized()}
+              when={docked()}
               fallback={<MaximizeIcon class="w-3.5 h-3.5" />}
             >
               <RestoreIcon class="w-3.5 h-3.5" />
