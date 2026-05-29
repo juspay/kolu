@@ -110,10 +110,9 @@ describe("Channel", () => {
     for (let i = 0; i < 10; i++) ch.publish(i);
     expect(overflowed).toBe(true);
     expect(ch.subscriberCount).toBe(0);
-    // The dropped subscriber drains what it buffered, then ends.
-    expect(await next(it)).toEqual({ done: false, value: 0 });
-    expect(await next(it)).toEqual({ done: false, value: 1 });
-    expect(await next(it)).toEqual({ done: false, value: 2 });
+    // On overflow the dropped subscriber's iterator ends immediately — the
+    // partially-buffered items are discarded (a transparent re-subscribe
+    // delivers a fresh snapshot, so replaying stale bytes is pointless).
     expect(await next(it)).toEqual({ done: true, value: undefined });
   });
 
