@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   isPtyHostContractCompatible,
   PTY_HOST_CONTRACT_VERSION,
-} from "kolu-common/ptyHostSurface";
+} from "./ptyHostSurface.ts";
 
 describe("isPtyHostContractCompatible", () => {
   it("exact match is compatible", () => {

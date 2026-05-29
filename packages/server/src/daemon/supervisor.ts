@@ -50,7 +50,7 @@ import {
   PTY_HOST_CONTRACT_VERSION,
   type PtyHostSystemVersion,
   type ptyHostSurface,
-} from "kolu-common/ptyHostSurface";
+} from "./ptyHostSurface.ts";
 import { currentBuildId } from "./buildId.ts";
 import { daemonExecArgv } from "./daemonUtils.ts";
 import { daemonPaths } from "../koluState.ts";

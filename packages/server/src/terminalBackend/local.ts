@@ -30,7 +30,7 @@
 
 import type { ForegroundSample } from "@kolu/pty-host";
 import { inMemoryChannel } from "@kolu/surface/server";
-import type { PtyHostListEntry } from "kolu-common/ptyHostSurface";
+import type { PtyHostListEntry } from "../daemon/ptyHostSurface.ts";
 import type {
   SavedTerminal,
   TerminalId,

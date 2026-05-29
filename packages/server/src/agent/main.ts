@@ -47,7 +47,7 @@ import { DEFAULT_SCROLLBACK } from "kolu-common/config";
 import {
   PTY_HOST_CONTRACT_VERSION,
   ptyHostSurface,
-} from "kolu-common/ptyHostSurface";
+} from "../daemon/ptyHostSurface.ts";
 import {
   cleanEnv,
   configureNixShellEnv,

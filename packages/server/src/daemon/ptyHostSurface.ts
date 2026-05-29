@@ -26,7 +26,7 @@
 
 import { defineSurface, type SurfaceTypes } from "@kolu/surface/define";
 import { z } from "zod";
-import { TerminalIdSchema } from "./surface.ts";
+import { TerminalIdSchema } from "kolu-common/surface";
 
 /** The wire-shape `major.minor` version this build serves and expects.
  *  Bumped only when `ptyHostSurface` itself changes shape: minor for
