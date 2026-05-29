@@ -22,6 +22,16 @@ Feature: Claude Code status detection
     Then the tile chrome should show an agent indicator with state "waiting"
     And there should be no page errors
 
+  Scenario: Interrupted (Esc) turn reads as waiting, not running
+    When a Claude Code session is mocked with state "interrupted"
+    Then the tile chrome should show an agent indicator with state "waiting"
+    And there should be no page errors
+
+  Scenario: Interrupting a tool call reads as waiting, not running
+    When a Claude Code session is mocked with state "interrupted_tool_use"
+    Then the tile chrome should show an agent indicator with state "waiting"
+    And there should be no page errors
+
   Scenario: Claude Code state cycles waiting → thinking → waiting
     When a Claude Code session is mocked with state "waiting"
     Then the tile chrome should show an agent indicator with state "waiting"

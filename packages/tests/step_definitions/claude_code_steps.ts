@@ -25,7 +25,13 @@ const WORKFLOW_RUN_ID = "wf-test-run-0000";
 const WORKFLOW_NAME = "deep-research";
 const WORKFLOW_AGENTS = 5;
 
-type MockState = "thinking" | "tool_use" | "waiting" | "running_background";
+type MockState =
+  | "thinking"
+  | "tool_use"
+  | "waiting"
+  | "running_background"
+  | "interrupted"
+  | "interrupted_tool_use";
 // Read these lazily rather than at module load — `hooks.ts` sets per-worker
 // temp dirs on `process.env`, and cucumber's step/support module import
 // order is not guaranteed, so a top-level capture here would race.
@@ -95,6 +101,14 @@ function buildTranscript(state: MockState): string {
       },
     });
 
+  const interruptTextMsg = (uuid: string, text: string) =>
+    JSON.stringify({
+      type: "user",
+      uuid,
+      timestamp: new Date().toISOString(),
+      message: { role: "user", content: [{ type: "text", text }] },
+    });
+
   const lines = [userMsg];
   if (state === "tool_use") lines.push(assistantMsg("tool_use"));
   if (state === "waiting") lines.push(assistantMsg("end_turn"));
@@ -120,6 +134,34 @@ function buildTranscript(state: MockState): string {
       }),
     );
     lines.push(assistantMsg("end_turn"));
+  }
+  // Esc-interrupt: the trailing `user` entry carries an interrupt marker, which
+  // `deriveState` classifies as `waiting` (idle), not `thinking` (#1018).
+  if (state === "interrupted") {
+    lines.push(interruptTextMsg("u2", "[Request interrupted by user]"));
+  }
+  // Mid-tool-call Esc: an errored `tool_result` then the text marker.
+  if (state === "interrupted_tool_use") {
+    lines.push(
+      JSON.stringify({
+        type: "user",
+        uuid: "u2",
+        timestamp: new Date().toISOString(),
+        message: {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "tu-int",
+              is_error: true,
+              content:
+                "The user doesn't want to proceed with this tool use. The tool use was rejected.",
+            },
+          ],
+        },
+      }),
+      interruptTextMsg("u3", "[Request interrupted by user for tool use]"),
+    );
   }
   // "thinking" = user message only (no assistant response yet)
 
