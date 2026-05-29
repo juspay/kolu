@@ -6,7 +6,7 @@
  * that lets node run the TS entry at all.
  */
 import { describe, expect, it } from "vitest";
-import { daemonExecArgv } from "./supervisor.ts";
+import { daemonExecArgv } from "./daemonUtils.ts";
 
 describe("daemonExecArgv", () => {
   it("drops --watch but keeps the --import tsx loader pair", () => {

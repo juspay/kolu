@@ -47,7 +47,7 @@ import {
   prepareShellInit,
 } from "kolu-pty";
 import pkg from "../../package.json" with { type: "json" };
-import { tryAcquirePidFile } from "../daemon/supervisor.ts";
+import { tryAcquirePidFile } from "../daemon/daemonUtils.ts";
 import { ensureKoluRoot, koluShellDir } from "../koluRoot.ts";
 import { daemonPaths } from "../koluState.ts";
 import { log } from "../log.ts";
