@@ -169,6 +169,21 @@ describe("createPtyHost", () => {
     expect(await host.exitPromise(id)).toBe(7);
   });
 
+  it("still resolves the real exit code after the PTY is torn down", async () => {
+    host = createPtyHost({ log: silentLog });
+    const { id } = host.spawn({
+      shell: "/bin/sh",
+      args: ["-c", "exit 5"],
+      env: shellEnv,
+      cwd: "/tmp",
+    });
+    expect(await host.exitPromise(id)).toBe(5);
+    // Entry is gone from list() now, but a late query gets the real code
+    // (the tombstone), not a fabricated 0.
+    expect(host.list()).toHaveLength(0);
+    expect(await host.exitPromise(id)).toBe(5);
+  });
+
   it("publishes cwd on OSC 7", async () => {
     host = createPtyHost({ log: silentLog });
     const { id } = host.spawn({

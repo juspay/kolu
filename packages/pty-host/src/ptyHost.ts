@@ -35,6 +35,10 @@ const DEFAULT_COLS = 80;
 const DEFAULT_ROWS = 24;
 /** Default headless scrollback when a spawn doesn't override it. */
 const DEFAULT_SCROLLBACK = 10_000;
+/** How many exited-PTY exit codes to retain after teardown, so a late
+ *  `exitPromise(id)` resolves with the real code rather than a fabricated
+ *  one. Bounded so the map can't grow without limit. */
+const MAX_EXIT_TOMBSTONES = 1024;
 
 // @xterm packages ship CJS only — use createRequire for clean ESM interop.
 const require = createRequire(import.meta.url);
@@ -231,6 +235,10 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
   const defaultScrollback = opts.defaultScrollback ?? DEFAULT_SCROLLBACK;
   const generateId = opts.generateId ?? (() => randomUUID());
   const entries = new Map<PtyId, Entry>();
+  // Bounded tombstone of exit codes for PTYs that have exited and been torn
+  // down — lets exitPromise() honour its "already-exited" contract with the
+  // real code instead of a fabricated 0.
+  const exitCodes = new Map<PtyId, number>();
 
   function requireEntry(id: PtyId): Entry {
     const entry = entries.get(id);
@@ -252,6 +260,11 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       } catch (err) {
         log.error({ id: entry.id, err }, "pty-host: onDispose threw");
       }
+    }
+    exitCodes.set(entry.id, entry.exitCode ?? 0);
+    if (exitCodes.size > MAX_EXIT_TOMBSTONES) {
+      const oldest = exitCodes.keys().next().value;
+      if (oldest !== undefined) exitCodes.delete(oldest);
     }
     entries.delete(entry.id);
   }
@@ -413,9 +426,16 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
 
   function exitPromise(id: PtyId): Promise<number> {
     const entry = entries.get(id);
-    if (!entry) return Promise.resolve(0);
-    if (entry.exitCode !== undefined) return Promise.resolve(entry.exitCode);
-    return new Promise<number>((resolve) => entry.exitWaiters.push(resolve));
+    if (entry) {
+      if (entry.exitCode !== undefined) return Promise.resolve(entry.exitCode);
+      return new Promise<number>((resolve) => entry.exitWaiters.push(resolve));
+    }
+    const cached = exitCodes.get(id);
+    if (cached !== undefined) return Promise.resolve(cached);
+    // Unknown id — never spawned, or exited long enough ago to be evicted
+    // from the tombstone. Defensive: the in-process caller registers its
+    // waiter while the PTY is live, so this path isn't hit in practice.
+    return Promise.resolve(0);
   }
 
   function getForegroundPid(id: PtyId): number | undefined {
