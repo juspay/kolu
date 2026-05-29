@@ -245,7 +245,7 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       try {
         entry.onDispose();
       } catch (err) {
-        log.warn({ id: entry.id, err }, "pty-host: onDispose threw");
+        log.error({ id: entry.id, err }, "pty-host: onDispose threw");
       }
     }
     entries.delete(entry.id);
