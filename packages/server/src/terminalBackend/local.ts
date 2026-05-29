@@ -60,6 +60,7 @@ import {
 import type { GitDiffMode, GitInfo } from "kolu-git/schemas";
 import { trackRecentAgent, trackRecentRepo } from "../activity.ts";
 import {
+  daemonIsRunning,
   ensureDaemon,
   getDaemonHandle,
   type PtyHostClient,
@@ -318,7 +319,11 @@ class LocalTerminalBackend implements TerminalBackend {
     opts: PtySpawnOpts,
     proxy: DaemonTerminalProxy,
   ): Promise<{ pid: number; cwd: string } | null> {
-    const client = getDaemonHandle().client;
+    // `ensureDaemon` (not `getDaemonHandle`) so the FIRST create on a fresh
+    // boot spawns the daemon lazily — boot reattach skips the cold-start when
+    // there's nothing to reattach, so the daemon may not be up yet here.
+    // Idempotent + deduped, so it's a cheap cache read once the daemon is up.
+    const client = (await ensureDaemon()).client;
     const res = await client.surface.terminal.spawn({ id, cwd: opts.cwd });
     if (!getTerminal(id)) {
       proxy.markFailed(new Error("terminal killed during spawn"));
@@ -591,17 +596,25 @@ export const localTerminalBackend: TerminalBackend = backend;
 export async function reattachLocalTerminals(
   savedById: ReadonlyMap<string, SavedTerminal>,
 ): Promise<number> {
-  // Ensure the daemon is up (boot calls this before reattach — the daemon
-  // isn't running at module-eval time, unlike the in-process R4b agent).
-  await ensureDaemon();
-  const client = getDaemonHandle().client;
+  // Fresh-boot fast path: if there's nothing saved to restore AND no daemon is
+  // already running, don't spawn one at boot — the daemon's (tsx) cold-start
+  // would otherwise gate the HTTP port. It spawns lazily on the first terminal
+  // create instead. A surviving daemon (deploy) or a saved session (restore)
+  // both mean there IS something to reattach, so fall through and connect.
+  if (savedById.size === 0 && !(await daemonIsRunning())) return 0;
+  const { client } = await ensureDaemon();
   let listed: PtyHostListEntry[];
   try {
-    const res = await client.surface.terminal.list({});
-    listed = res.entries;
+    listed = (await client.surface.terminal.list({})).entries;
   } catch (err) {
-    log.error({ err }, "daemon terminal.list failed; skipping reattach");
-    return 0;
+    // Fail loud: a connected daemon that can't list is malfunctioning, and
+    // silently returning 0 would HIDE its surviving PTYs from the UI. Throw so
+    // the boot caller (`server.ts`) turns it into a fatal exit and systemd
+    // retries, rather than coming up in a terminals-lost state that looks
+    // identical to a clean boot.
+    throw new Error("PTY-host daemon reattach failed: terminal.list errored", {
+      cause: err,
+    });
   }
   if (listed.length === 0) return 0;
   for (const entry of listed) {

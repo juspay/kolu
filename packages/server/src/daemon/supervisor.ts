@@ -22,8 +22,9 @@
  *     stale daemon, respawn fresh, re-verify once. This is the rare accepted
  *     PTY-loss moment — and the one-time migration cutover off #1031.
  *  5. Expose the typed client + an `outdated` flag (wire-compatible but a
- *     different *build* — surviving a deploy with stale code) for the
- *     "update pending" nudge.
+ *     different *build* — surviving a deploy with stale code). Surfaced via
+ *     the boot log today; the user-facing "update pending" nudge + restart
+ *     command are a follow-up (R4d-UI).
  *
  * Reconnect — scope (#951 R4c): `ensureDaemon` is reconnect-aware on the
  * **boot path** — when called (boot reattach), it drops a `closed` cached
@@ -292,9 +293,22 @@ async function waitForSocketGone(
   }
 }
 
+/** Cheap probe: is a daemon already listening on the socket? No spawn, no
+ *  handshake, no caching. Lets boot reattach skip the daemon's (tsx)
+ *  cold-start when there's nothing to reattach (a fresh boot) — the daemon
+ *  then spawns lazily on the first terminal create instead of gating the HTTP
+ *  port. */
+export async function daemonIsRunning(): Promise<boolean> {
+  const { socketPath } = daemonPaths();
+  const sock = await tryConnect(socketPath, 200);
+  if (!sock) return false;
+  sock.destroy();
+  return true;
+}
+
 /** SIGTERM whatever daemon currently owns the socket (best-effort) and wait
- *  for the socket to clear. Used by the forced-restart path and by
- *  `restartDaemon`. */
+ *  for the socket to clear. Used by the forced-restart path in
+ *  `ensureDaemonImpl`. */
 async function killRunningDaemon(
   daemonPid: number,
   socketPath: string,
@@ -309,21 +323,6 @@ async function killRunningDaemon(
     );
   }
   await waitForSocketGone(socketPath, 5_000);
-}
-
-/** Restart the local PTY daemon on explicit user request — the action behind
- *  the "update pending" nudge. SIGTERMs the running daemon (its cleanup
- *  disposes every PTY and unlinks the socket + pid file), waits for the
- *  socket to clear, then spawns a fresh one. This is a moment R-4 accepts PTY
- *  loss: the user chose it. If no daemon was running, this just starts one. */
-export async function restartDaemon(): Promise<void> {
-  const current = cached;
-  if (current) {
-    current.dispose();
-    cached = undefined;
-    await killRunningDaemon(current.daemonPid, current.socketPath);
-  }
-  await ensureDaemon();
 }
 
 /** Connect, run the version handshake, and build the handle. Throws
