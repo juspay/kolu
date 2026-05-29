@@ -8,17 +8,20 @@ import solid from "vite-plugin-solid";
 const commitHash = process.env.KOLU_COMMIT_HASH || "dev";
 const xtermVersion = xtermPackage.version;
 
+// Ports for the dev instance. Default to the canonical 7681/5173 so a bare
+// `just dev` is stable; `just dev SERVER_PORT=… CLIENT_PORT=…` (or `just
+// dev-auto`) overrides both so a second instance can coexist with a primary
+// one. The proxy target MUST follow KOLU_DEV_SERVER_PORT — otherwise a
+// non-default client silently proxies /api and /rpc to the primary server.
+const serverPort = process.env.KOLU_DEV_SERVER_PORT ?? String(DEFAULT_PORT);
+const clientPort = Number(process.env.KOLU_DEV_CLIENT_PORT) || 5173;
+
 const fontsDir = process.env.KOLU_FONTS_DIR;
 if (!fontsDir) {
   throw new Error(
     "KOLU_FONTS_DIR env var is not set. Run inside the Nix devShell (just dev).",
   );
 }
-
-// Dev proxy target. Defaults to the canonical server port; allow an override
-// so multiple `just dev` instances (e.g. parallel worktrees) can each point
-// their proxy at a server on a non-default port.
-const devServerPort = Number(process.env.KOLU_DEV_SERVER_PORT) || DEFAULT_PORT;
 
 export default defineConfig({
   plugins: [
@@ -42,14 +45,14 @@ export default defineConfig({
     },
   },
   server: {
-    port: Number(process.env.KOLU_DEV_CLIENT_PORT) || 5173,
+    port: clientPort,
     // Prevent browser from caching dev assets — stale modules cause subtle bugs on refresh.
     headers: { "Cache-Control": "no-store" },
     proxy: {
-      "/api": `http://localhost:${devServerPort}`,
-      "/manifest.webmanifest": `http://localhost:${devServerPort}`,
+      "/api": `http://localhost:${serverPort}`,
+      "/manifest.webmanifest": `http://localhost:${serverPort}`,
       "/rpc": {
-        target: `http://localhost:${devServerPort}`,
+        target: `http://localhost:${serverPort}`,
         ws: true,
       },
     },

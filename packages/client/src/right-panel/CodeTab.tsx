@@ -59,6 +59,7 @@ import BrowseFileDispatcher from "./BrowseFileDispatcher";
 import CodeMenuFrame from "./CodeMenuFrame";
 import FileSearchInput from "./FileSearchInput";
 import { projectFileTreeSearch } from "./fileSearch";
+import { attachPierreTouchScroll } from "./pierreTouchScroll";
 import ModeChipPicker, { type ModeOption } from "./ModeChipPicker";
 import {
   type OpenInCodeTabRequest,
@@ -488,15 +489,16 @@ const CodeTab: Component<{
             as="div"
             data-testid="diff-file-list"
             // Pierre renders its scroller inside a shadow root. The mobile
-            // right-panel host is a Corvu bottom-sheet drawer, and Corvu
-            // decides whether a touch drag dismisses the sheet by walking up
-            // from the (shadow-retargeted) event target looking for a
-            // scrollable ancestor — which it never finds across the shadow
-            // boundary, so it claims every vertical drag and the tree won't
-            // scroll. `data-corvu-no-drag` opts this subtree out of the
-            // sheet-drag so Pierre's native scroll works. Inert on desktop
-            // (no Corvu drawer there). The sibling diff panel scrolls fine —
-            // its `overflow-auto` is a light-DOM scroller Corvu can see.
+            // right-panel host is a Corvu bottom-sheet drawer that walks up
+            // from the event target looking for a `data-corvu-no-drag` opt-out
+            // before claiming a vertical drag as a sheet-dismiss; without it,
+            // Corvu eats every drag and the tree can't scroll. So this is
+            // necessary — but NOT sufficient on real hardware: with Corvu out
+            // of the way, iOS Safari's own native scroll still can't reach the
+            // shadow-rooted scroller below the portaled drawer. The manual
+            // touch-scroll driver below closes that gap. Inert on desktop (no
+            // Corvu drawer there). The sibling diff panel scrolls fine — its
+            // `overflow-auto` is a light-DOM scroller Corvu can see.
             data-corvu-no-drag=""
             class="min-h-0 border-b border-edge"
             minSize={0.1}
@@ -526,30 +528,41 @@ const CodeTab: Component<{
                     </div>
                   }
                 >
-                  <FileTree
-                    paths={treeSearch().projectedPaths}
-                    gitStatus={treeGitStatus()}
-                    selectedPath={selectedPath()}
-                    onSelect={handleSelect}
-                    initialExpansion={isDiffView() ? "open" : "closed"}
-                    search={false}
-                    expandPaths={treeSearch().expandedAncestors}
-                    icons={pierreIconConfig}
-                    contextMenu={{
-                      enabled: true,
-                      triggerMode: "both",
-                      render: renderTreeContextMenu,
+                  <div
+                    class="h-full w-full min-h-0"
+                    ref={(el) => {
+                      // Mobile only: drive Pierre's shadow-DOM scroll from
+                      // touch deltas, since iOS native scroll can't reach it
+                      // inside the portaled drawer (see pierreTouchScroll.ts).
+                      // Inert on desktop — no touch events, no Corvu drawer.
+                      if (isMobile()) attachPierreTouchScroll(el);
                     }}
-                    onError={(err) =>
-                      toast.error(`File tree render failed: ${err.message}`)
-                    }
-                    // Roomier rows on touch (36px vs 30px) for a comfortable
-                    // tap target; clears the WCAG 2.2 24px floor with margin.
-                    // Snapshotted above — Pierre reads density at construction.
-                    density={treeDensity}
-                    class="h-full w-full"
-                    style={pierreTreesStyle}
-                  />
+                  >
+                    <FileTree
+                      paths={treeSearch().projectedPaths}
+                      gitStatus={treeGitStatus()}
+                      selectedPath={selectedPath()}
+                      onSelect={handleSelect}
+                      initialExpansion={isDiffView() ? "open" : "closed"}
+                      search={false}
+                      expandPaths={treeSearch().expandedAncestors}
+                      icons={pierreIconConfig}
+                      contextMenu={{
+                        enabled: true,
+                        triggerMode: "both",
+                        render: renderTreeContextMenu,
+                      }}
+                      onError={(err) =>
+                        toast.error(`File tree render failed: ${err.message}`)
+                      }
+                      // Roomier rows on touch (36px vs 30px) for a comfortable
+                      // tap target; clears the WCAG 2.2 24px floor with margin.
+                      // Snapshotted above — Pierre reads density at construction.
+                      density={treeDensity}
+                      class="h-full w-full"
+                      style={pierreTreesStyle}
+                    />
+                  </div>
                 </Show>
               </Match>
             </Switch>
