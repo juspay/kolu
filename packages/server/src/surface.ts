@@ -48,11 +48,9 @@ import {
   fsReadFileOutputEqual,
   gitDiffOutputEqual,
   gitStatusOutputEqual,
+  isBinaryPreviewable,
 } from "kolu-git";
-import {
-  buildIframePreviewUrl,
-  isIframePreviewable,
-} from "./iframePreviewRoute.ts";
+import { buildIframePreviewUrl } from "./iframePreviewRoute.ts";
 import { log } from "./log.ts";
 import { publisher } from "./publisher.ts";
 import { cancelPendingAutosave, getSavedSession } from "./session.ts";
@@ -203,7 +201,7 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
       },
       fsReadFile: {
         read: async (input): Promise<FsReadFileOutput> => {
-          if (isIframePreviewable(input.filePath)) {
+          if (isBinaryPreviewable(input.filePath)) {
             const mtimeMs = await localBackend.fs.statFileMtimeMs(
               input.repoPath,
               input.filePath,

@@ -21,9 +21,9 @@
  *  validates by `event.source === iframe.contentWindow` since
  *  `event.origin` is the literal `"null"` under opaque sandbox. */
 
+import { isRasterImage } from "kolu-git/previewable";
 import { type Component, createSignal, Show } from "solid-js";
 import { CommentIframeSurface } from "../comments/CommentIframeSurface";
-import { isRasterImage } from "./imageFile";
 
 export type BrowsePreviewViewProps = {
   terminalId: string;

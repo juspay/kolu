@@ -1,12 +1,12 @@
 /** Owns the `fsReadFile` subscription for the Code tab's browse mode and
  *  routes by the wire-level `kind` discriminator:
  *    - `text`   → `BrowseFileView`   (Pierre's syntax-highlighted CodeView)
- *    - `binary` → `BrowsePreviewView` (iframe at server-built URL)
+ *    - `binary` → `BrowsePreviewView` (iframe or <img> at a server-built URL)
  *
  *  Loading and error surfaces stay here so the two presenters underneath
  *  remain pure — each handles its own variant of a successful read and
  *  nothing else. The server picks the variant by file extension via
- *  `isIframePreviewable` (see `packages/server/src/iframePreviewRoute.ts`). */
+ *  `isBinaryPreviewable` (see `kolu-git/previewable`). */
 
 import type { SelectedLineRange } from "@kolu/solid-pierre";
 import type { TerminalId } from "kolu-common/surface";

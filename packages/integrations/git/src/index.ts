@@ -36,6 +36,15 @@ export {
 export { getDiff, getStatus, parseNameStatus } from "./review.ts";
 // Path security
 export { resolveUnder } from "./safe-path.ts";
+// File-preview classification (drives `FsReadFileOutput.kind`); node-free,
+// also exported via the `kolu-git/previewable` subpath for browser clients.
+export {
+  BINARY_PREVIEWABLE_EXTENSIONS,
+  isBinaryPreviewable,
+  isRasterImage,
+  RASTER_IMAGE_EXTENSIONS,
+  SANDBOX_PREVIEWABLE_EXTENSIONS,
+} from "./previewable.ts";
 // Schemas
 export {
   FsListAllInputSchema,

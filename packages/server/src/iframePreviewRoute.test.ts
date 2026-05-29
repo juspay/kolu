@@ -1,36 +1,29 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { BINARY_PREVIEWABLE_EXTENSIONS } from "kolu-git";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   contentTypeForPath,
-  isIframePreviewable,
   resolvePreviewPath,
   serveResolvedFile,
 } from "./iframePreviewRoute";
 
-describe("isIframePreviewable", () => {
-  it("classifies HTML artifacts and their vector/document siblings", () => {
-    expect(isIframePreviewable("out.html")).toBe(true);
-    expect(isIframePreviewable("out.HTM")).toBe(true);
-    expect(isIframePreviewable("logo.svg")).toBe(true);
-    expect(isIframePreviewable("doc.pdf")).toBe(true);
-  });
+// The classifier (`isBinaryPreviewable` / `isRasterImage`) and its own tests
+// live in `kolu-git/previewable`. This suite covers the route's serving
+// layer and the one invariant that couples it to that classifier:
 
-  it("classifies raster images (regression: were read as UTF-8 garbage)", () => {
-    // Before the fix these fell through to the text-read path in
-    // `surface.ts` and rendered as binary noise in the Code browser.
-    expect(isIframePreviewable("icon-512.png")).toBe(true);
-    expect(isIframePreviewable("photo.JPG")).toBe(true);
-    expect(isIframePreviewable("photo.jpeg")).toBe(true);
-    expect(isIframePreviewable("anim.gif")).toBe(true);
-    expect(isIframePreviewable("hero.webp")).toBe(true);
-    expect(isIframePreviewable("favicon.ico")).toBe(true);
-  });
-
-  it("leaves source files on the text path", () => {
-    expect(isIframePreviewable("main.ts")).toBe(false);
-    expect(isIframePreviewable("README.md")).toBe(false);
+describe("CONTENT_TYPES covers every binary-previewable extension", () => {
+  // `isBinaryPreviewable` routes these to `kind:"binary"`; if any lacks a
+  // real Content-Type the route serves `application/octet-stream` and the
+  // browser downloads instead of rendering. Keeps the two in step now that
+  // the extension list lives in a different package from CONTENT_TYPES.
+  it.each([
+    ...BINARY_PREVIEWABLE_EXTENSIONS,
+  ])("%s has a non-octet Content-Type", (ext) => {
+    expect(contentTypeForPath(`file${ext}`)).not.toBe(
+      "application/octet-stream",
+    );
   });
 });
 
