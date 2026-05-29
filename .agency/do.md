@@ -82,19 +82,26 @@ URL pattern: `https://github.com/juspay/kolu/releases/download/evidence-assets/<
 
 For motion the subagent records the page instead of (or alongside) a still. The `chrome-devtools` MCP exposes `screencast_start` / `screencast_stop` — `screencast_start` with `filePath: /tmp/kolu-evidence-<slug>.mp4`, drive the interaction, then `screencast_stop`. (Capability ships in the [`nix-chrome-devtools-mcp`](https://github.com/juspay/nix-chrome-devtools-mcp) launcher, which runs the server with `--experimentalScreencast` and ffmpeg on PATH.)
 
+**Make the recording legible — this is the #1 quality issue:**
+
+- **Landscape viewport.** Set a 16:9 viewport before recording (chrome-devtools `emulate` viewport `1366x768x1,landscape`). The default headless window can be portrait and 2×-DPI, which leaves the content tiny in a tall, mostly-empty frame.
+- **Maximize the terminal.** Click the chrome-bar **Maximize terminal** (canvas → maximized) so the terminal fills the frame. Recording *canvas* mode captures a small tile floating in empty space — the most common "why am I squinting" mistake.
+- **High-contrast theme** (e.g. Melange Dark) so the text reads.
+- **Move briskly, then speed up.** Do setup (create terminal, maximize, open the Code panel) *before* `screencast_start` so only the meaningful steps are recorded; run those steps back-to-back; then speed the output up (`setpts=PTS/3`) so agent-latency dead time doesn't make the clip drag.
+
 Two reasons not to just attach the `.mp4`: GitHub renders an inline video *player* only for files dragged into the web composer (a `user-attachments` URL `gh` can't mint), and a `<video>` tag in a comment is stripped. So:
 
 - **Inline (the at-a-glance proof):** transcode to an animated GIF — GitHub renders a GIF inline from any release URL, exactly like the PNG flow above.
 
   ```sh
   nix shell nixpkgs#ffmpeg --command ffmpeg -i /tmp/kolu-evidence-<slug>.mp4 \
-    -vf "fps=12,scale=900:-1:flags=lanczos" -loop 0 /tmp/kolu-evidence-<slug>.gif
+    -vf "setpts=PTS/3,fps=12,scale=1100:-1:flags=lanczos" -loop 0 /tmp/kolu-evidence-<slug>.gif
   gh release upload evidence-assets /tmp/kolu-evidence-<slug>.gif --clobber
   ```
 
-  Embed with `![](https://github.com/juspay/kolu/releases/download/evidence-assets/<slug>.gif)`.
+  Keep it under GitHub's ~10 MB inline limit (the `setpts` speed-up + a palette pass usually land a minute-long capture well under that). Embed with `![](https://github.com/juspay/kolu/releases/download/evidence-assets/<slug>.gif)`.
 
-- **HD + audio (optional):** upload the `.mp4` to the same release and link to the shared player — [`juspay/video-evidence`](https://github.com/juspay/video-evidence) hosts a GitHub Pages `<video>` page that streams the clip from kolu's own release:
+- **HD (optional):** speed the `.mp4` up too (`ffmpeg -i …mp4 -filter:v "setpts=PTS/3" -an …`), upload it to the same release, and link to the shared player — [`juspay/video-evidence`](https://github.com/juspay/video-evidence) hosts a GitHub Pages `<video>` page that streams the clip from kolu's own release:
 
   ```
   ▶ HD: https://juspay.github.io/video-evidence/evidence.html?repo=juspay/kolu&v=<slug>.mp4

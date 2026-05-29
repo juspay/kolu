@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-05-29T21:45:05.352841+00:00'
+generated_at: '2026-05-29T22:25:40.578568+00:00'
 apm_version: 0.16.0
 dependencies:
 - repo_url: anthropics/skills
@@ -25,8 +25,7 @@ dependencies:
   content_hash: sha256:dea7f0a0315be995232b9d7153f1a1354ad726b2cbf9121f2e7576bbea256718
 - repo_url: juspay/nix-chrome-devtools-mcp
   host: github.com
-  resolved_commit: 61204063f8ac21527d05969ee4aabe8297d1607e
-  resolved_ref: screencast
+  resolved_commit: a202612693800c9d9ac9035ca0df80f2e92ded3b
   package_type: apm_package
   deployed_files:
   - .agents/skills/nix-chrome-devtools-mcp
@@ -54,7 +53,7 @@ dependencies:
   content_hash: sha256:67ff7ce606ad0378af382ad6cb84d9853bf70ec52d6fe40ed6b6f82ecd2c48c3
 - repo_url: srid/agency
   host: github.com
-  resolved_commit: 2037e59c4e58a9ba7f864eab53c18badff59c896
+  resolved_commit: d274039c47ee8d0cc13e9d42d1bbf61e5f5b706f
   resolved_ref: master
   package_type: apm_package
   deployed_files:
@@ -95,7 +94,7 @@ dependencies:
     .codex/hooks/agency/scripts/do-stop-guard.sh: sha256:cb033f86c15ffd3d09d8e4b74a61f55a70def4cc4131cc013b7368a2d23f3f33
     .opencode/agents/hickey.md: sha256:10d9a4350a85752dc6658af8e0efb3d8be41803a2b6c73464e3d5b7a840435ad
     .opencode/agents/lowy.md: sha256:05aff7f6a91149a42c1fb9a3ca382a6f77bc39ac8a8d45436d443dd3349fb11e
-  content_hash: sha256:2ec46fe9157e6fc60d38dd9e85feb67b638c80acef5f70c5ee5bff5ac44cd044
+  content_hash: sha256:5a4a4d50e6298dc5015412eb1000e8c233cf6d872cc27b902b07979c466127b2
 mcp_servers:
 - chrome-devtools
 mcp_configs:
