@@ -137,36 +137,50 @@ class LocalTerminalBackend implements TerminalBackend {
    *  carries the autosave fence: `metadataPersisted` routes through the
    *  persisting helper (fires `terminals:dirty`), `metadataLive` through
    *  the live one (does not). Each carries only its half of the partition,
-   *  so applying it is one fenced `Object.assign` — no field enumeration. */
+   *  so applying it is one fenced `Object.assign` — no field enumeration.
+   *
+   *  Per-event try/catch is load-bearing: this runs inside ONE shared
+   *  `consume` loop for every terminal, and `consume` ends its loop if its
+   *  `onEvent` throws (`@kolu/surface/server`). A single bad event (a failed
+   *  publish, a scratch-cleanup `fs` error, …) must therefore not escape, or
+   *  it would silence metadata + exit mirroring for ALL terminals. Log and
+   *  keep the subscription alive. */
   private applyAgentEvent(ev: AgentMetadataEvent): void {
-    switch (ev.kind) {
-      case "metadataPersisted": {
-        const entry = getTerminal(ev.id);
-        // No entry ⟹ the terminal is being torn down (kill/exit raced this
-        // event). Dropping is correct — the entry is gone for good.
-        if (!entry) return;
-        updateServerMetadata(entry, ev.id, (m) => {
-          Object.assign(m, ev.fields);
-        });
-        return;
+    try {
+      switch (ev.kind) {
+        case "metadataPersisted": {
+          const entry = getTerminal(ev.id);
+          // No entry ⟹ the terminal is being torn down (kill/exit raced
+          // this event). Dropping is correct — the entry is gone for good.
+          if (!entry) return;
+          updateServerMetadata(entry, ev.id, (m) => {
+            Object.assign(m, ev.fields);
+          });
+          return;
+        }
+        case "metadataLive": {
+          const entry = getTerminal(ev.id);
+          if (!entry) return;
+          updateServerLiveMetadata(entry, ev.id, (m) => {
+            Object.assign(m, ev.fields);
+          });
+          return;
+        }
+        case "recentRepo":
+          trackRecentRepo(ev.root, ev.name);
+          return;
+        case "recentAgent":
+          trackRecentAgent(ev.command);
+          return;
+        case "exit":
+          this.handleExit(ev.id, ev.exitCode);
+          return;
       }
-      case "metadataLive": {
-        const entry = getTerminal(ev.id);
-        if (!entry) return;
-        updateServerLiveMetadata(entry, ev.id, (m) => {
-          Object.assign(m, ev.fields);
-        });
-        return;
-      }
-      case "recentRepo":
-        trackRecentRepo(ev.root, ev.name);
-        return;
-      case "recentAgent":
-        trackRecentAgent(ev.command);
-        return;
-      case "exit":
-        this.handleExit(ev.id, ev.exitCode);
-        return;
+    } catch (err) {
+      log.error(
+        { err, kind: ev.kind },
+        "failed to apply agent metadata event (subscription kept alive)",
+      );
     }
   }
 
