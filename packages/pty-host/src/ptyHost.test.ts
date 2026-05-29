@@ -209,19 +209,23 @@ describe("createPtyHost", () => {
 
   it("routes write() to the child and lists live PTYs", async () => {
     host = createPtyHost({ log: silentLog });
-    // `cat` echoes stdin straight back to stdout.
+    // A long-lived shell reading commands from its stdin (the PTY): a
+    // written `echo` command runs and prints the marker — robust to whether
+    // the tty echoes input.
     const { id, pid } = host.spawn({
-      shell: "/bin/cat",
+      shell: "/bin/sh",
       env: shellEnv,
       cwd: "/tmp",
     });
     expect(host.list()).toEqual([
       expect.objectContaining({ id, pid, cwd: "/tmp" }),
     ]);
-    host.write(id, "echoed line\n");
-    await waitFor(() => host.getScreenText(id).includes("echoed line"));
-    expect(host.getScreenText(id)).toContain("echoed line");
+    host.write(id, "echo kolu_write_ok\n");
+    await waitFor(() => host.getScreenText(id).includes("kolu_write_ok"));
+    expect(host.getScreenText(id)).toContain("kolu_write_ok");
     expect(host.getProcess(id)).toBeTypeOf("string");
+    host.kill(id);
+    await host.exitPromise(id);
   });
 
   it("removes the PTY from list() after kill", async () => {
