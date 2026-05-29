@@ -53,7 +53,7 @@ export type CodeViewProps = {
    *  overrides the *rendered* row height (Kolu sets `--diffs-line-height`
    *  in its diffs style) the metric must match, or the window comes up
    *  short and the last rows are unreachable at the bottom of the scroll
-   *  (#1021). Pass the same pixel value used for `--diffs-line-height`.
+   *  (#1026). Pass the same pixel value used for `--diffs-line-height`.
    *  Omit to keep Pierre's 20px default. */
   lineHeight?: number;
   /** When true, Pierre wires gutter selection. Drive the visible

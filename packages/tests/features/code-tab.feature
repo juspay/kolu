@@ -756,7 +756,7 @@ Feature: Code tab (review + browse)
     And I click the Code tab
     Then the comments tray should contain "should survive reload"
 
-  # Regression for #1021: Pierre's virtualizer defaults its row-height metric
+  # Regression for #1026: Pierre's virtualizer defaults its row-height metric
   # to 20px, but Kolu renders rows at 16px (--diffs-line-height). The mismatch
   # made the virtualizer's render window come up short, so the last few lines
   # of any scrollable file/diff were unreachable — clipped at the bottom of

@@ -76,7 +76,7 @@ export const pierreTreesStyle: JSX.CSSProperties = {
  *  and the numeric metric Pierre's virtualizer needs (`<CodeView lineHeight>`).
  *  These two MUST agree — if the metric defaults to Pierre's 20px while rows
  *  render at this value, the virtualizer's window comes up short and the last
- *  rows are unreachable at the bottom of the scroll (#1021). Pass this to
+ *  rows are unreachable at the bottom of the scroll (#1026). Pass this to
  *  every `<CodeView>` via `lineHeight={PIERRE_DIFFS_LINE_HEIGHT}` alongside
  *  `style={pierreDiffsStyle}`. */
 export const PIERRE_DIFFS_LINE_HEIGHT = 16;
