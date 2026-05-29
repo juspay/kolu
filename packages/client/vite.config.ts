@@ -37,17 +37,24 @@ export default defineConfig({
     },
   },
   server: {
-    port: 5173,
+    port: Number(process.env.KOLU_DEV_CLIENT_PORT) || 5173,
     // Prevent browser from caching dev assets — stale modules cause subtle bugs on refresh.
     headers: { "Cache-Control": "no-store" },
-    proxy: {
-      "/api": `http://localhost:${DEFAULT_PORT}`,
-      "/manifest.webmanifest": `http://localhost:${DEFAULT_PORT}`,
-      "/rpc": {
-        target: `http://localhost:${DEFAULT_PORT}`,
-        ws: true,
-      },
-    },
+    proxy: (() => {
+      // Default to the canonical server port; allow an override so multiple
+      // `just dev` instances (e.g. parallel worktrees) can each point their
+      // proxy at a server on a non-default port.
+      const serverPort =
+        Number(process.env.KOLU_DEV_SERVER_PORT) || DEFAULT_PORT;
+      return {
+        "/api": `http://localhost:${serverPort}`,
+        "/manifest.webmanifest": `http://localhost:${serverPort}`,
+        "/rpc": {
+          target: `http://localhost:${serverPort}`,
+          ws: true,
+        },
+      };
+    })(),
   },
   define: {
     __KOLU_COMMIT__: JSON.stringify(commitHash),

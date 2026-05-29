@@ -755,3 +755,27 @@ Feature: Code tab (review + browse)
     When I reload the page
     And I click the Code tab
     Then the comments tray should contain "should survive reload"
+
+  # Regression for #1021: Pierre's virtualizer defaults its row-height metric
+  # to 20px, but Kolu renders rows at 16px (--diffs-line-height). The mismatch
+  # made the virtualizer's render window come up short, so the last few lines
+  # of any scrollable file/diff were unreachable — clipped at the bottom of
+  # the preview. Verified across the file viewer (browse) and the diff viewer
+  # (local), since both go through the same `<CodeView>` wrapper.
+  Scenario: Browse preview can scroll all the way to the last line
+    When I run "rm -rf /tmp/kolu-tail-browse && git init /tmp/kolu-tail-browse && cd /tmp/kolu-tail-browse"
+    And I run "for i in $(seq 1 199); do echo \"const line_$i = $i;\"; done > long.ts && echo 'const LAST_LINE_MARKER = 200;' >> long.ts && git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    And I click the file "long.ts" in the file browser
+    And I scroll the file preview to the bottom
+    Then the file content should contain "LAST_LINE_MARKER"
+
+  Scenario: Diff preview can scroll all the way to the last line
+    When I run "rm -rf /tmp/kolu-tail-local && git init /tmp/kolu-tail-local && cd /tmp/kolu-tail-local"
+    And I run "git commit --allow-empty -m init"
+    And I run "for i in $(seq 1 199); do echo \"const line_$i = $i;\"; done > long.ts && echo 'const LAST_LINE_MARKER = 200;' >> long.ts"
+    And I click the Code tab
+    And I click the changed file "long.ts" in the Code tab
+    And I scroll the file preview to the bottom
+    Then the diff view should contain "LAST_LINE_MARKER"

@@ -519,6 +519,31 @@ Then(
   },
 );
 
+// Drive Pierre's virtualized scroll viewport to its bottom. Pierre owns the
+// scroll container (the `pierre-file-view` / `pierre-diff-view` host), so a
+// single `scrollTop` assignment can land before the virtualizer has settled
+// its row window; loop a few frames pinning scrollTop past the max so the
+// last window materializes. Regression guard for the line-height-metric
+// clip (#1021): the bottom rows are only reachable once Pierre's virtualizer
+// knows the real row height, so this step + a last-line content assertion
+// fails when the metric is wrong and passes once it matches.
+When(
+  "I scroll the file preview to the bottom",
+  async function (this: KoluWorld) {
+    await this.page.evaluate(`(async () => {
+      const sels = ['[data-testid="pierre-file-view"]', '[data-testid="pierre-diff-view"]'];
+      for (let i = 0; i < 12; i++) {
+        for (const sel of sels) {
+          const el = document.querySelector(sel);
+          if (el) el.scrollTop = el.scrollHeight + 2000;
+        }
+        await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 25)));
+      }
+    })()`);
+    await this.waitForFrame();
+  },
+);
+
 // ── Iframe preview (.html / .svg / .pdf in browse mode) ──
 
 Then(
