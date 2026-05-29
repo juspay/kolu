@@ -96,6 +96,11 @@ const CodeTab: Component<{
   const { themeTypeLiteral: diffTheme } = useColorScheme();
   const rightPanel = useRightPanel();
 
+  // Pierre captures `density` once at construction (like `initialExpansion`),
+  // so snapshot the mobile choice here rather than passing a reactive accessor
+  // in the JSX, where it would read as reactive. Roomier rows on touch.
+  const treeDensity = isMobile() ? "relaxed" : undefined;
+
   // Read `codeMode` directly rather than projecting it from `activeTab`.
   // CodeTab now stays mounted across the Inspector tab toggle (#818); a
   // projection-with-fallback (`activeTab.kind === "code" ? mode : "local"`)
@@ -539,7 +544,8 @@ const CodeTab: Component<{
                     }
                     // Roomier rows on touch (36px vs 30px) for a comfortable
                     // tap target; clears the WCAG 2.2 24px floor with margin.
-                    density={isMobile() ? "relaxed" : undefined}
+                    // Snapshotted above — Pierre reads density at construction.
+                    density={treeDensity}
                     class="h-full w-full"
                     style={pierreTreesStyle}
                   />
