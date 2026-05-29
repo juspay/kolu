@@ -23,7 +23,7 @@ Use the `/ci` skill for the runner mechanics (subcommands, flags, modes, retry s
 ```sh
 pr=$(gh pr view --json number --jq .number)
 host="kolu-pr-$pr"
-pu create --name "$host"                                                # writes ~/.pu-state/$host/ssh_config (included by ~/.ssh/config)
+pu create "$host"                                                       # name is positional; writes ~/.pu-state/$host/ssh_config (included by ~/.ssh/config)
 CI=true nix run github:juspay/ci -- run --host x86_64-linux="$host"     # --host wins over hosts.json on collision; darwin keeps using sincereintent
 pu destroy "$host"
 ```
