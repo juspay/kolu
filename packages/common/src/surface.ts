@@ -296,11 +296,23 @@ export const LocalPtyDaemonStatusSchema = z.object({
   socketPath: z.string().optional(),
   /** Epoch ms at which kolu-server last observed the daemon as live. */
   lastSeenAt: z.number().optional(),
+  /** Running daemon's own package version (post-handshake). */
+  pkgVersion: z.string().optional(),
+  /** kolu-server's package version at handshake time. Paired with
+   *  `pkgVersion` so the client can render "running X, server Y". */
+  serverPkgVersion: z.string().optional(),
+  /** True when the running daemon's `pkgVersion` differs from the
+   *  server's while the wire contract is still compatible: the daemon
+   *  survived a deploy and is serving stale code. Drives the amber
+   *  "update pending" nudge on the chrome-bar dot — restart to apply. */
+  outdated: z.boolean().optional(),
 });
 
-export const DEFAULT_LOCAL_PTY_DAEMON_STATUS: z.infer<
-  typeof LocalPtyDaemonStatusSchema
-> = { state: "starting" };
+export type LocalPtyDaemonStatus = z.infer<typeof LocalPtyDaemonStatusSchema>;
+
+export const DEFAULT_LOCAL_PTY_DAEMON_STATUS: LocalPtyDaemonStatus = {
+  state: "starting",
+};
 
 // ── Activity feed sub-schemas ─────────────────────────────────────────
 

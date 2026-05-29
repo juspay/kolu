@@ -133,6 +133,10 @@ export const contract = oc.router({
   ...surface.contract,
   server: {
     info: oc.output(ServerInfoSchema),
+    /** Restart the local PTY-host daemon — the action behind the chrome-bar
+     *  "update pending" nudge. Kills the running daemon and spawns a fresh
+     *  one, dropping every live PTY, so it's user-triggered only. */
+    restartPtyDaemon: oc.output(z.void()),
   },
   terminal: {
     create: oc.input(TerminalCreateInputSchema).output(TerminalInfoSchema),

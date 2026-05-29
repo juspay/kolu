@@ -116,6 +116,9 @@ export interface CommandDeps extends ActionContext {
   // Dialogs
   setAboutOpen: (open: boolean) => void;
   setDiagnosticInfoOpen: (open: boolean) => void;
+  // Restarts the local PTY-host daemon (applies a pending update — drops
+  // live terminals).
+  handleRestartPtyDaemon: () => void;
   // Canvas — desktop only (always active there); hidden on mobile where
   // the canvas isn't mounted at all.
   isMobile: () => boolean;
@@ -374,6 +377,13 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
           kind: "action",
           name: "Clear localStorage",
           onSelect: () => deps.handleClearLocalStorage(),
+        },
+        {
+          kind: "action",
+          name: "Restart local PTY daemon",
+          description:
+            "Drops live terminals and respawns the daemon — applies a pending update",
+          onSelect: () => deps.handleRestartPtyDaemon(),
         },
       ],
     },

@@ -28,6 +28,11 @@ import { formatKeybind } from "./input/keyboard";
 import RecordButton from "./recorder/RecordButton";
 import { useRightPanel } from "./right-panel/useRightPanel";
 import type { WsStatus } from "./rpc/rpc";
+import {
+  type DaemonTone,
+  type DaemonView,
+  ptyDaemonView,
+} from "./ptyDaemonView";
 import { localPtyDaemonStatus } from "./wire";
 import SettingsPopover from "./settings/SettingsPopover";
 import { DockToggleIcon, InspectorToggleIcon, SettingsIcon } from "./ui/Icons";
@@ -40,17 +45,14 @@ const statusStyles: Record<WsStatus, string> = {
   closed: "bg-danger",
 };
 
-const daemonStyles = {
+const daemonStyles: Record<DaemonTone, string> = {
   starting: "bg-warning animate-pulse",
   ready: "bg-ok",
+  // Steady amber (no pulse) — an informational "running stale code" nudge,
+  // not an in-flight transition like `starting`.
+  outdated: "bg-warning",
   down: "bg-danger animate-pulse",
-} as const;
-
-const daemonLabels = {
-  starting: "Local PTY daemon: starting…",
-  ready: "Local PTY daemon: connected",
-  down: "Local PTY daemon: disconnected",
-} as const;
+};
 
 const ChromeBar: Component<{
   status: WsStatus;
@@ -58,11 +60,10 @@ const ChromeBar: Component<{
 }> = (props) => {
   const rightPanel = useRightPanel();
   const posture = useViewPosture();
-  // Derive the daemon state once — label, data-attr, and dot color all
-  // read it, and each bare `localPtyDaemonStatus()?.state` would be an
+  // Derive the daemon view once — label, data-attr, and dot color all
+  // read it, and each bare `localPtyDaemonStatus()` would be an
   // independent reactive read of the same cell.
-  const daemonState = (): keyof typeof daemonStyles =>
-    localPtyDaemonStatus()?.state ?? "starting";
+  const daemon = (): DaemonView => ptyDaemonView(localPtyDaemonStatus());
   let settingsTriggerRef!: HTMLButtonElement;
   const [settingsOpen, setSettingsOpen] = createSignal(false);
 
@@ -131,10 +132,10 @@ const ChromeBar: Component<{
             class={`inline-block w-2 h-2 rounded-full transition-colors ${statusStyles[props.status]}`}
           />
         </Tip>
-        <Tip label={daemonLabels[daemonState()]}>
+        <Tip label={daemon().label}>
           <span
-            data-daemon-status={daemonState()}
-            class={`inline-block w-2 h-2 rounded-full transition-colors ${daemonStyles[daemonState()]}`}
+            data-daemon-status={daemon().tone}
+            class={`inline-block w-2 h-2 rounded-full transition-colors ${daemonStyles[daemon().tone]}`}
           />
         </Tip>
       </div>

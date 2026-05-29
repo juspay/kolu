@@ -1296,11 +1296,12 @@ KillMode=control-group  →  systemctl restart kolu kills the WHOLE cgroup</code
 <h4>Decided policy <span class="pill ok">survive + "update pending" nudge</span></h4>
 <p>Favor <strong>survive-first</strong>; accept that the daemon then runs stale code between restarts (acceptable — the daemon is a thin, rarely-changing primitive: node-pty fds + xterm mirror + socket; all volatile logic lives in kolu-server and updates freely every deploy). Reuse the existing <code>system.version</code> handshake + <code>localPtyDaemon</code> status cell:</p>
 <ol>
-  <li>Daemon <strong>survives all routine deploys</strong> (compatible contract → reuse the running daemon).</li>
-  <li>On reconnect, compare the running daemon's <code>pkgVersion</code> to the new server's. If they differ → keep serving, but publish status <em>"PTY daemon outdated (running X, server Y) — restart to apply"</em>; ChromeBar dot goes amber.</li>
-  <li>User restarts the daemon <strong>when convenient</strong> (command/button or <code>systemctl --user restart kolu-pty-daemon</code>) — PTY loss only at that chosen moment.</li>
-  <li>Contract-<strong>incompatible</strong> (rare breaking wire change) → fail closed / forced restart (already throws today).</li>
+  <li><span class="pill bad">deferred</span> Daemon <strong>survives all routine deploys</strong> (compatible contract → reuse the running daemon). <em>The mechanism (separate cgroup) is piece 1 below — not built yet; on Linux the daemon still dies with <code>kolu.service</code>'s cgroup, so the nudge is dormant there and live on macOS.</em></li>
+  <li><span class="pill ok">done</span> On reconnect, compare the running daemon's <code>pkgVersion</code> to the new server's. If they differ → keep serving, but publish status <em>"update pending (running X, server Y) — restart to apply"</em>; ChromeBar dot goes steady amber. <em>(<code>localPtyDaemon</code> cell gained <code>pkgVersion</code>/<code>serverPkgVersion</code>/<code>outdated</code>; <code>ptyDaemonView</code> derives the dot tone.)</em></li>
+  <li><span class="pill ok">done</span> User restarts the daemon <strong>when convenient</strong> — the <em>Restart local PTY daemon</em> command (⌘K → Debug) calls <code>server.restartPtyDaemon</code> → supervisor SIGTERMs + respawns. PTY loss only at that chosen moment. <em>(<code>systemctl --user restart kolu-pty-daemon</code> arrives with piece 1.)</em></li>
+  <li><span class="pill ok">done</span> Contract-<strong>incompatible</strong> (rare breaking wire change) → fail closed / forced restart (already throws today).</li>
 </ol>
+<p><strong>Built in this PR:</strong> pieces 2–4 (the nudge + the user-triggered restart + fail-closed). <strong>Deferred:</strong> piece 1, the survive <em>mechanism</em> — that's the prod-risky cgroup-escape work (transient <code>systemd-run</code>), gated on a real on-box verification. Until it lands the nudge only fires on macOS.</p>
 <p class="warn"><strong>One-time migration note:</strong> after this PR deploys, the <em>currently running</em> old-code daemon keeps serving until restarted once — so the five pty-host fixes above (and the cgroup move) only take effect after that first deliberate daemon restart, which is the one restart that loses current terminals. Persists across deploys thereafter.</p>
 
 <h4>Mechanism — still to pick</h4>

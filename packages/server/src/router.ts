@@ -20,6 +20,7 @@ import { prValue } from "kolu-github/schemas";
 import { loadOpenCodeTranscript } from "kolu-opencode";
 import { transcriptToHtml } from "kolu-transcript-html";
 import { match } from "ts-pattern";
+import { restartDaemon } from "./daemon/supervisor.ts";
 import { serverHostname, serverProcessId } from "./hostname.ts";
 import { log } from "./log.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
@@ -69,6 +70,10 @@ export const appRouter = t.router({
       identity: pwaIdentityForHostname(serverHostname),
       processId: serverProcessId,
     })),
+    restartPtyDaemon: t.server.restartPtyDaemon.handler(async () => {
+      log.info({}, "restart local PTY daemon (user-requested)");
+      await restartDaemon();
+    }),
   },
   terminal: {
     create: t.terminal.create.handler(async ({ input }) =>

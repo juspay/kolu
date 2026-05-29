@@ -29,7 +29,7 @@
  */
 
 import { spawn as spawnChild } from "node:child_process";
-import { openSync } from "node:fs";
+import { existsSync, openSync } from "node:fs";
 import { createConnection, type Socket } from "node:net";
 import { createStdioCellsClient } from "@kolu/surface/links/stdio";
 import type { ContractRouterClient } from "@orpc/contract";
@@ -39,6 +39,7 @@ import {
   isAgentContractCompatible,
 } from "kolu-common/agentSurface";
 import type { agentSurface } from "kolu-common/agentSurface";
+import pkg from "../../package.json" with { type: "json" };
 import { log } from "../log.ts";
 import { daemonPaths } from "../koluState.ts";
 import { surfaceCtx } from "../surfaceCtx.ts";
@@ -49,6 +50,9 @@ function setDaemonStatus(
     pid?: number;
     contractVersion?: string;
     socketPath?: string;
+    pkgVersion?: string;
+    serverPkgVersion?: string;
+    outdated?: boolean;
   } = {},
 ): void {
   try {
@@ -200,6 +204,49 @@ export async function ensureDaemon(): Promise<DaemonHandle> {
   return handle;
 }
 
+/** Poll until the daemon's socket file disappears (the daemon unlinks it
+ *  in its SIGTERM cleanup, alongside the pid file). A fresh daemon can
+ *  only acquire the pid file once the old one releases it, so this is the
+ *  barrier before respawning. Resolves early once gone; resolves anyway at
+ *  the deadline — the spawn path tolerates a stale socket, but a still-held
+ *  pid file would make the respawn no-op until the old process is reaped. */
+async function waitForSocketGone(
+  socketPath: string,
+  timeoutMs: number,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!existsSync(socketPath)) return;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+}
+
+/** Restart the local PTY daemon on explicit user request — the action
+ *  behind the "update pending" nudge. SIGTERMs the running daemon (its
+ *  cleanup disposes every PTY and unlinks the socket + pid file), waits
+ *  for the socket to clear, then spawns a fresh one via `ensureDaemon`.
+ *  This is the single moment R-4 accepts PTY loss: the user chose it. If
+ *  no daemon was running, this just starts one. */
+export async function restartDaemon(): Promise<DaemonHandle> {
+  const current = cached;
+  if (current) {
+    try {
+      process.kill(current.daemonPid, "SIGTERM");
+    } catch (err) {
+      // ESRCH (already gone) is fine — we respawn regardless.
+      log.warn(
+        { err: (err as Error).message, pid: current.daemonPid },
+        "supervisor: SIGTERM to daemon failed (already gone?)",
+      );
+    }
+    current.dispose();
+    cached = undefined;
+    setDaemonStatus("starting");
+    await waitForSocketGone(current.socketPath, 5_000);
+  }
+  return ensureDaemon();
+}
+
 async function ensureDaemonImpl(): Promise<DaemonHandle> {
   const { socketPath, logFile } = daemonPaths();
   setDaemonStatus("starting");
@@ -261,14 +308,24 @@ async function ensureDaemonImpl(): Promise<DaemonHandle> {
         `daemon can start.`,
     );
   }
+  // Wire-compatible but a different build: the daemon survived a deploy
+  // and is serving stale code. Keep using it (the daemon is a thin,
+  // rarely-changing primitive — all volatile logic lives in kolu-server
+  // and updated freely this deploy), but flag it so the chrome-bar dot
+  // can nudge the user to restart at a convenient moment.
+  const outdated = versionInfo.pkgVersion !== pkg.version;
   log.info(
     {
       daemonPid: versionInfo.pid,
       contractVersion: versionInfo.contractVersion,
       pkgVersion: versionInfo.pkgVersion,
+      serverPkgVersion: pkg.version,
+      outdated,
       socketPath,
     },
-    "supervisor: daemon connected",
+    outdated
+      ? "supervisor: daemon connected but running stale code — restart to apply update"
+      : "supervisor: daemon connected",
   );
 
   let state: "live" | "closed" = "live";
@@ -276,6 +333,9 @@ async function ensureDaemonImpl(): Promise<DaemonHandle> {
     pid: versionInfo.pid,
     contractVersion: versionInfo.contractVersion,
     socketPath,
+    pkgVersion: versionInfo.pkgVersion,
+    serverPkgVersion: pkg.version,
+    outdated,
   });
   socket.on("close", () => {
     state = "closed";

@@ -35,6 +35,7 @@ import DiagnosticInfo from "./DiagnosticInfo";
 import EmptyState from "./EmptyState";
 import { exportScrollbackAsPdf } from "./exportScrollbackAsPdf";
 import { exportSessionAsHtml } from "./exportSessionAsHtml";
+import { restartPtyDaemon } from "./restartPtyDaemon";
 import type { ActionContext } from "./input/actions";
 import { useShortcuts } from "./input/useShortcuts";
 import IntentEditorDialog from "./intent/IntentEditorDialog";
@@ -294,6 +295,7 @@ const App: Component = () => {
     handleEditActiveIntent: intentEditor.openActive,
     setAboutOpen,
     setDiagnosticInfoOpen,
+    handleRestartPtyDaemon: () => void restartPtyDaemon(),
     handleCreateWorktree: (repoPath, name, initialCommand) =>
       void worktree.handleCreateWorktree(repoPath, name, initialCommand),
     handleClose: () => {
