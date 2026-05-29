@@ -40,19 +40,10 @@ const BrowsePreviewView: Component<BrowsePreviewViewProps> = (props) => {
       fallback={
         <div
           data-testid="browse-preview-image"
-          class="flex h-full w-full items-center justify-center overflow-auto p-4"
-          // Checkerboard so transparent PNGs read against the dark panel
-          // (the canonical four-gradient pattern); `object-contain` below
-          // fits the image without cropping or upscaling. Inline style
-          // because a four-gradient `bg-[image:...]` Tailwind arbitrary
-          // class would be a single unwieldy string with no line-break
-          // opportunity — the style object keeps each property named.
-          style={{
-            "background-image":
-              "linear-gradient(45deg, rgba(255,255,255,0.08) 25%, transparent 25%), linear-gradient(-45deg, rgba(255,255,255,0.08) 25%, transparent 25%), linear-gradient(45deg, transparent 75%, rgba(255,255,255,0.08) 75%), linear-gradient(-45deg, transparent 75%, rgba(255,255,255,0.08) 75%)",
-            "background-size": "20px 20px",
-            "background-position": "0 0, 0 10px, 10px -10px, -10px 0",
-          }}
+          // `image-preview-checkerboard` is a CSS class in `index.css` —
+          // Tailwind's bg-[image:...] arbitrary form cannot line-break
+          // a four-gradient value, so it lives in the stylesheet instead.
+          class="image-preview-checkerboard flex h-full w-full items-center justify-center overflow-auto p-4"
         >
           <img
             src={props.url}

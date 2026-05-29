@@ -436,6 +436,23 @@ body {
   }
 }
 
+/* ── Image preview checkerboard background ──────────────────── */
+/* Canonical four-gradient checkerboard; transparent PNGs read against the dark
+   panel. Opacity 8% matches the canvas grid's visual weight. */
+.image-preview-checkerboard {
+  background-image:
+    linear-gradient(45deg, rgba(255, 255, 255, 0.08) 25%, transparent 25%),
+    linear-gradient(-45deg, rgba(255, 255, 255, 0.08) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, rgba(255, 255, 255, 0.08) 75%),
+    linear-gradient(-45deg, transparent 75%, rgba(255, 255, 255, 0.08) 75%);
+  background-size: 20px 20px;
+  background-position:
+    0 0,
+    0 10px,
+    10px -10px,
+    -10px 0;
+}
+
 /* ── Canvas grid background ─────────────────────────────────── */
 /* Fine line grid gives spatial grounding to the freeform canvas.
    Lines use the edge color at low opacity so they adapt to light/dark themes. */
