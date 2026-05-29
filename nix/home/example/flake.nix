@@ -123,9 +123,13 @@
               )
 
           # Spawn a PTY (→ the supervisor spawns the daemon via systemd-run).
+          # kolu-server spawns the daemon lazily on the first terminal, so this
+          # create is what brings `kolu-pty-host.service` up. oRPC's RPC
+          # protocol wraps the input as `{"json": ...}` — a bare `{}` would
+          # deserialize to `undefined` and fail create's schema validation.
           machine.succeed(
               "curl --fail --silent -X POST "
-              "-H 'content-type: application/json' -d '{}' "
+              "-H 'content-type: application/json' -d '{\"json\":{}}' "
               "http://127.0.0.1:7681/rpc/terminal/create > /dev/null"
           )
           machine.wait_until_succeeds(
