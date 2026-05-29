@@ -37,15 +37,29 @@ export type TouchScrollState = {
   moved: boolean;
 };
 
-/** Find Pierre's scroll viewport inside the `<file-tree-container>` shadow
- *  root. Pierre owns the element's internal structure, so probe by
- *  capability — the first descendant whose content overflows — rather than a
- *  brittle tag/class path. Returns null when the tree hasn't rendered yet or
- *  nothing overflows (short tree: nothing to scroll anyway). */
+/** Find Pierre's scroll viewport — the overflowing element inside the tree's
+ *  shadow root. Both the shadow host and the viewport are located by
+ *  capability, not by tag/class, so a Pierre internal rename can't silently
+ *  break us. Returns null when the tree hasn't rendered yet or nothing
+ *  overflows (short tree: nothing to scroll anyway). */
 export function findPierreScroller(container: HTMLElement): HTMLElement | null {
-  const host = container.querySelector("file-tree-container");
-  const root = (host as Element | null)?.shadowRoot;
+  // Pierre mounts its tree into a custom element with an open shadow root.
+  // Locate that host as the (only) light-DOM descendant carrying a shadowRoot
+  // rather than by Pierre's `file-tree-container` tag name: a tag literal is a
+  // detached copy of a `@pierre/trees` internal — a rename would silently
+  // return null with no build error — and importing the tag constant would
+  // reach past the `@kolu/solid-pierre` firewall. The capability probe has
+  // neither failure mode.
+  let root: ShadowRoot | null = null;
+  for (const el of container.querySelectorAll("*")) {
+    if (el.shadowRoot) {
+      root = el.shadowRoot;
+      break;
+    }
+  }
   if (!root) return null;
+  // The viewport inside the shadow root is likewise probed by capability —
+  // the first overflowing descendant — since it has no stable exported name.
   for (const el of root.querySelectorAll<HTMLElement>("*")) {
     if (el.scrollHeight > el.clientHeight + 1) return el;
   }

@@ -34,33 +34,32 @@ describe("nextScrollTop", () => {
 });
 
 describe("findPierreScroller", () => {
-  // findPierreScroller only touches `.querySelector`, `?.shadowRoot`,
-  // `.querySelectorAll`, `.scrollHeight`, `.clientHeight` — so a structural
-  // mock exercises it without a real DOM (vitest runs in Node here).
+  // findPierreScroller only touches `.querySelectorAll`, `.shadowRoot`,
+  // `.scrollHeight`, `.clientHeight` — so a structural mock exercises it
+  // without a real DOM (vitest runs in Node here).
   const el = (scrollHeight: number, clientHeight: number) =>
     ({ scrollHeight, clientHeight }) as HTMLElement;
 
-  const container = (host: unknown): HTMLElement =>
-    ({ querySelector: () => host }) as unknown as HTMLElement;
+  // `container.querySelectorAll("*")` yields the light-DOM descendants; the
+  // one carrying a `shadowRoot` is Pierre's host. Mock just those surfaces.
+  const container = (lightChildren: unknown[]): HTMLElement =>
+    ({ querySelectorAll: () => lightChildren }) as unknown as HTMLElement;
+  const host = (shadowChildren: unknown[]) => ({
+    shadowRoot: { querySelectorAll: () => shadowChildren },
+  });
 
   it("returns the first overflowing descendant of the tree's shadow root", () => {
     const scroller = el(500, 200);
-    const host = {
-      shadowRoot: {
-        querySelectorAll: () => [el(100, 100), scroller, el(300, 50)],
-      },
-    };
-    expect(findPierreScroller(container(host))).toBe(scroller);
+    const h = host([el(100, 100), scroller, el(300, 50)]);
+    expect(findPierreScroller(container([h]))).toBe(scroller);
   });
 
-  it("returns null when the tree host is absent", () => {
-    expect(findPierreScroller(container(null))).toBeNull();
+  it("returns null when no shadow host is present", () => {
+    expect(findPierreScroller(container([{}, {}]))).toBeNull();
   });
 
   it("returns null when no descendant overflows", () => {
-    const host = {
-      shadowRoot: { querySelectorAll: () => [el(100, 100), el(50, 200)] },
-    };
-    expect(findPierreScroller(container(host))).toBeNull();
+    const h = host([el(100, 100), el(50, 200)]);
+    expect(findPierreScroller(container([h]))).toBeNull();
   });
 });
