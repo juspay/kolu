@@ -15,6 +15,7 @@ function makeAgent(state: AgentInfo["state"]): AgentInfo {
     summary: null,
     taskProgress: null,
     workflow: null,
+    awaitingPrompt: null,
     contextTokens: null,
   };
 }

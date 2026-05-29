@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
+  applyAwaitingOverride,
   deriveState,
   deriveTaskProgress,
   encodeProjectPath,
@@ -693,6 +694,104 @@ describe("findTranscriptPath", () => {
       cwd: "/nonexistent/path",
     });
     expect(result).toBeNull();
+  });
+});
+
+// --- #905: awaiting-user sidecar ---
+
+describe("applyAwaitingOverride", () => {
+  const prompt = { question: "Pick one", options: ["a", "b"] };
+
+  it.each([
+    "thinking",
+    "tool_use",
+    "waiting",
+    "running_background",
+  ] as const)("a present sidecar forces awaiting_user over derived=%s", (derived) => {
+    const r = applyAwaitingOverride(derived, prompt);
+    expect(r.state).toBe("awaiting_user");
+    expect(r.awaitingPrompt).toEqual(prompt);
+  });
+
+  it("falls through to the derived state when no sidecar is present", () => {
+    const r = applyAwaitingOverride("running_background", null);
+    expect(r.state).toBe("running_background");
+    expect(r.awaitingPrompt).toBeNull();
+  });
+});
+
+describe("readAwaitingSidecar", () => {
+  let tmpDir: string;
+  let readAwaitingSidecarFn: typeof import("./index.ts").readAwaitingSidecar;
+  let pathForFn: typeof import("./index.ts").awaitingSidecarPathFor;
+
+  beforeAll(async () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "claude-awaiting-test-"));
+    process.env.KOLU_CLAUDE_AWAITING_DIR = tmpDir;
+    vi.resetModules();
+    const mod = await import("./index.ts");
+    readAwaitingSidecarFn = mod.readAwaitingSidecar;
+    pathForFn = mod.awaitingSidecarPathFor;
+  });
+
+  afterAll(() => {
+    delete process.env.KOLU_CLAUDE_AWAITING_DIR;
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("returns null when no sidecar exists", () => {
+    expect(readAwaitingSidecarFn("absent-session")).toBeNull();
+  });
+
+  it("returns the parsed prompt when a fresh sidecar is present", () => {
+    const sessionId = "s-present";
+    fs.writeFileSync(
+      pathForFn(sessionId),
+      JSON.stringify({
+        sessionId,
+        tool_name: "AskUserQuestion",
+        question: "Ship it?",
+        options: ["Yes", "No"],
+        ts: Date.now(),
+      }),
+    );
+    expect(readAwaitingSidecarFn(sessionId)).toEqual({
+      question: "Ship it?",
+      options: ["Yes", "No"],
+    });
+  });
+
+  it("treats a present-but-unparseable sidecar as the signal (presence wins)", () => {
+    const sessionId = "s-garbage";
+    fs.writeFileSync(pathForFn(sessionId), "{ not json");
+    expect(readAwaitingSidecarFn(sessionId)).toEqual({
+      question: null,
+      options: [],
+    });
+  });
+
+  it("coerces a question-less payload to an empty prompt (ExitPlanMode shape)", () => {
+    const sessionId = "s-plan";
+    fs.writeFileSync(
+      pathForFn(sessionId),
+      JSON.stringify({ sessionId, tool_name: "ExitPlanMode", ts: Date.now() }),
+    );
+    expect(readAwaitingSidecarFn(sessionId)).toEqual({
+      question: null,
+      options: [],
+    });
+  });
+
+  it("ignores a stale sidecar past the TTL", () => {
+    const sessionId = "s-stale";
+    const p = pathForFn(sessionId);
+    fs.writeFileSync(
+      p,
+      JSON.stringify({ sessionId, question: "old", options: [], ts: 0 }),
+    );
+    const old = new Date(Date.now() - 25 * 60 * 60 * 1000);
+    fs.utimesSync(p, old, old);
+    expect(readAwaitingSidecarFn(sessionId)).toBeNull();
   });
 });
 

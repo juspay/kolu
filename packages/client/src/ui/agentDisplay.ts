@@ -45,6 +45,18 @@ export function agentWorkflow(agent: AgentInfo | null | undefined) {
     : null;
 }
 
+/** The pending question while a Claude Code agent is `awaiting_user`, or null
+ *  (#905). Narrows the `AgentInfo` union — only `claude-code` carries
+ *  `awaitingPrompt` — and gates on the state, the same single read
+ *  choke-point pattern as `agentWorkflow`, so the tooltip and inspector never
+ *  render a stale prompt outside the awaiting state. Note the prompt itself
+ *  may have a null `question` (e.g. `ExitPlanMode`); callers Show on that. */
+export function agentAwaitingPrompt(agent: AgentInfo | null | undefined) {
+  return agent?.kind === "claude-code" && agent.state === "awaiting_user"
+    ? agent.awaitingPrompt
+    : null;
+}
+
 /** Resolve the icon for a raw agent command string (e.g. `"claude --model
  *  sonnet"`). Returns `undefined` for detection-only agents that have no
  *  AgentInfo discriminator (aider/goose/gemini/cursor-agent) and for

@@ -23,12 +23,14 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { getSessionInfo } from "@anthropic-ai/claude-agent-sdk";
 import { classifyByAwaiting } from "anyagent";
 import { type Logger, readTailLines } from "kolu-shared";
 import { match } from "ts-pattern";
 import { z } from "zod";
 import type {
+  AwaitingPrompt,
   ClaudeCodeInfo,
   ClaudeWorkflow,
   TaskProgress,
@@ -43,6 +45,42 @@ export const SESSIONS_DIR =
 export const PROJECTS_DIR =
   process.env.KOLU_CLAUDE_PROJECTS_DIR ??
   path.join(os.homedir(), ".claude", "projects");
+
+/** Directory holding the per-session "awaiting user" sidecar files written by
+ *  the Claude Code `PreToolUse` hook (see `awaiting-writer.mjs` and the
+ *  server's `claudeHooks.ts`). Issue #905: the Claude Agent SDK buffers the
+ *  `tool_use` message for `AskUserQuestion`/`ExitPlanMode` and only flushes it
+ *  to the JSONL transcript *after* the user answers, so no JSONL-polling
+ *  strategy can see the wait window. The hook drops a `<sessionId>.json` here
+ *  the instant the agent calls the tool; the server reads it alongside the
+ *  transcript and overrides state to `awaiting_user` while it is present.
+ *
+ *  Lives under `~/.claude` (a sibling of SESSIONS_DIR/PROJECTS_DIR) because the
+ *  hook runs as a *separate* short-lived process spawned in the user's shell —
+ *  it does NOT inherit the server's `KOLU_STATE_DIR`/`koluRoot`, so `~/.claude`
+ *  is the only path the kolu-less hook and the long-lived server can derive
+ *  identically from `os.homedir()`. `KOLU_CLAUDE_AWAITING_DIR` is a test-only
+ *  override (mirrors `KOLU_CLAUDE_*_DIR`); pointing it elsewhere in production
+ *  would desync the hook writer (which reads its own env) from the server. */
+export const AWAITING_DIR =
+  process.env.KOLU_CLAUDE_AWAITING_DIR ??
+  path.join(os.homedir(), ".claude", "kolu-awaiting");
+
+/** Absolute path to the bundled hook-writer source asset, resolved relative to
+ *  this module so it survives the per-build Nix store path. The server's
+ *  `claudeHooks.ts` copies it into `~/.claude/kolu-hooks/` on startup. */
+export const AWAITING_WRITER_ASSET = fileURLToPath(
+  new URL("./awaiting-writer.mjs", import.meta.url),
+);
+
+/** Backstop for a sidecar whose `PostToolUse` clear never fired (e.g. the
+ *  Claude process was SIGKILLed mid-prompt). A sidecar older than this is
+ *  treated as absent by `readAwaitingSidecar`, and `claudeHooks.ts` sweeps it
+ *  on startup. Generous because a legitimately-pending `AskUserQuestion` can
+ *  sit unanswered for a long time (the user stepped away); the primary
+ *  staleness bound is the per-session watcher tearing down when the session
+ *  ends, with this TTL as the last-resort floor. */
+export const AWAITING_SIDECAR_TTL_MS = 24 * 60 * 60 * 1000;
 
 /** True when the e2e harness has redirected the projects/sessions dirs at
  *  test fixtures. The Claude Agent SDK has no equivalent override and would
@@ -386,6 +424,71 @@ export function deriveState(
   }
 
   return { state, model: stateAndModel.model, contextTokens };
+}
+
+// --- Awaiting-user sidecar (#905) ---
+//
+// The signal the JSONL can't provide. The PreToolUse hook writes
+// `<AWAITING_DIR>/<sessionId>.json` when the agent calls AskUserQuestion /
+// ExitPlanMode; the PostToolUse hook removes it once the user answers. Its
+// mere presence means "awaiting the human" — the optional question/options
+// inside only enrich the tooltip and never gate detection.
+
+/** Absolute path to a session's awaiting-user sidecar. The basename is the
+ *  Claude `session_id` (== `SessionFile.sessionId`), so the hook writer and
+ *  the watcher agree on the key with no extra coordination. */
+export function awaitingSidecarPathFor(sessionId: string): string {
+  return path.join(AWAITING_DIR, `${sessionId}.json`);
+}
+
+/** Read a session's awaiting-user sidecar. Returns the prompt payload when the
+ *  sidecar is present and fresh, or `null` when it is absent, unreadable, or
+ *  older than `AWAITING_SIDECAR_TTL_MS` (a never-cleared leftover).
+ *
+ *  Presence is the signal: a present-but-unparseable sidecar still resolves to
+ *  `{ question: null, options: [] }` (non-null) so a torn/garbage payload can
+ *  never *suppress* the awaiting state — only an absent/stale file does. The
+ *  writer commits atomically (tmp + rename), so a parse failure here is not
+ *  expected in practice. */
+export function readAwaitingSidecar(sessionId: string): AwaitingPrompt | null {
+  const p = awaitingSidecarPathFor(sessionId);
+  let stat: fs.Stats;
+  try {
+    stat = fs.statSync(p);
+  } catch {
+    return null; // ENOENT — no pending prompt (the common case)
+  }
+  if (Date.now() - stat.mtimeMs > AWAITING_SIDECAR_TTL_MS) return null;
+  let raw: string;
+  try {
+    raw = fs.readFileSync(p, "utf8");
+  } catch {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(raw) as { question?: unknown; options?: unknown };
+    const question =
+      typeof parsed.question === "string" ? parsed.question : null;
+    const options = Array.isArray(parsed.options)
+      ? parsed.options.filter((o): o is string => typeof o === "string")
+      : [];
+    return { question, options };
+  } catch {
+    return { question: null, options: [] };
+  }
+}
+
+/** Fold the awaiting-user sidecar into the JSONL-derived state. Pure so the
+ *  precedence rule is unit-testable without an fs harness. A present sidecar
+ *  WINS over every JSONL-derived state — including the `running_background`
+ *  promotion — because it is a genuine human gate the agent is blocked on. */
+export function applyAwaitingOverride(
+  derivedState: ClaudeCodeInfo["state"],
+  sidecar: AwaitingPrompt | null,
+): { state: ClaudeCodeInfo["state"]; awaitingPrompt: AwaitingPrompt | null } {
+  return sidecar
+    ? { state: "awaiting_user", awaitingPrompt: sidecar }
+    : { state: derivedState, awaitingPrompt: null };
 }
 
 // --- Background-task detection (dynamic workflows) ---
@@ -745,80 +848,95 @@ export function watchOrWaitForDir(
   };
 }
 
-// --- Shared SESSIONS_DIR watcher ---
+// --- Shared directory watchers ---
 //
-// Every consumer of this package that wants to react to session
-// file appearance/disappearance needs a watch on SESSIONS_DIR. Rather
+// Every consumer of this package that wants to react to changes in a *global*
+// claude dir (SESSIONS_DIR for session-file appearance/disappearance,
+// AWAITING_DIR for #905 sidecar create/delete) needs one watch on it. Rather
 // than have each caller install its own fs.watch (so N consumers = N
-// duplicate watchers + N duplicate dispatches per event), this module
-// refcounts a single watcher: first subscriber lazily installs it,
-// last unsubscribe tears it down.
+// duplicate watchers + N duplicate dispatches per event), a single watcher is
+// refcounted per dir: first subscriber lazily installs it, last unsubscribe
+// tears it down.
 //
-// `sharedSessionsDir` is a single nullable structure (not a
-// {watcher, listeners} pair) so the "active iff non-empty" invariant
-// is mechanical — there's no way for the two halves to disagree.
+// The refcount state is a single nullable structure (not a {watcher,
+// listeners} pair) so the "active iff non-empty" invariant is mechanical —
+// there's no way for the two halves to disagree.
 //
-// Per-listener `onError` is required (not optional) so fault isolation
-// is a type-system obligation, not a convention. If one listener's
-// callback throws, its own onError runs, and iteration continues to
-// the next listener unaffected.
+// Per-listener `onError` is required (not optional) so fault isolation is a
+// type-system obligation, not a convention. If one listener's callback throws,
+// its own onError runs, and iteration continues to the next listener
+// unaffected.
 
-interface SessionsDirListener {
+interface DirListener {
   cb: () => void;
   onError: (err: unknown) => void;
 }
 
-let sharedSessionsDir: {
-  cleanup: () => void;
-  listeners: Set<SessionsDirListener>;
-} | null = null;
-
-/**
- * Subscribe to changes in `SESSIONS_DIR`. Returns an unsubscribe
- * function. The underlying `fs.watch` is shared across all
- * subscribers — refcounted, installed on first subscribe, torn down
- * on last unsubscribe.
- *
- * `onError` receives any exception thrown by `onChange` and runs
- * in place of breaking the iteration over peer listeners. Callers
- * must provide one (silent swallowing would hide bugs) — pass a
- * logger call like `(err) => log.warn({ err }, "...")`.
- */
-export function subscribeSessionsDir(
+/** Build a refcounted shared-watcher subscription for one directory. The
+ *  returned function subscribes a listener (installing the watch on the first
+ *  subscriber) and returns an unsubscribe (tearing it down on the last). */
+function createSharedDirSubscription(
+  dir: string,
+): (
   onChange: () => void,
   onError: (err: unknown) => void,
   log?: Logger,
-): () => void {
-  if (!sharedSessionsDir) {
-    const listeners = new Set<SessionsDirListener>();
-    const cleanup = watchOrWaitForDir(
-      SESSIONS_DIR,
-      () => {
-        // Snapshot before iteration so a listener that subscribes or
-        // unsubscribes synchronously can't skip a peer for this event.
-        for (const l of [...listeners]) {
-          try {
-            l.cb();
-          } catch (err) {
-            l.onError(err);
+) => () => void {
+  let shared: { cleanup: () => void; listeners: Set<DirListener> } | null =
+    null;
+  return (onChange, onError, log) => {
+    if (!shared) {
+      const listeners = new Set<DirListener>();
+      const cleanup = watchOrWaitForDir(
+        dir,
+        () => {
+          // Snapshot before iteration so a listener that subscribes or
+          // unsubscribes synchronously can't skip a peer for this event.
+          for (const l of [...listeners]) {
+            try {
+              l.cb();
+            } catch (err) {
+              l.onError(err);
+            }
           }
-        }
-      },
-      log,
-    );
-    sharedSessionsDir = { cleanup, listeners };
-  }
-  const listener: SessionsDirListener = { cb: onChange, onError };
-  sharedSessionsDir.listeners.add(listener);
-  return () => {
-    if (!sharedSessionsDir) return;
-    sharedSessionsDir.listeners.delete(listener);
-    if (sharedSessionsDir.listeners.size === 0) {
-      sharedSessionsDir.cleanup();
-      sharedSessionsDir = null;
+        },
+        log,
+      );
+      shared = { cleanup, listeners };
     }
+    const listener: DirListener = { cb: onChange, onError };
+    shared.listeners.add(listener);
+    return () => {
+      if (!shared) return;
+      shared.listeners.delete(listener);
+      if (shared.listeners.size === 0) {
+        shared.cleanup();
+        shared = null;
+      }
+    };
   };
 }
+
+/**
+ * Subscribe to changes in `SESSIONS_DIR`. Returns an unsubscribe function. The
+ * underlying `fs.watch` is shared across all subscribers — refcounted,
+ * installed on first subscribe, torn down on last unsubscribe.
+ *
+ * `onError` receives any exception thrown by `onChange` and runs in place of
+ * breaking the iteration over peer listeners. Callers must provide one (silent
+ * swallowing would hide bugs) — pass a logger call like
+ * `(err) => log.warn({ err }, "...")`.
+ */
+export const subscribeSessionsDir = createSharedDirSubscription(SESSIONS_DIR);
+
+/**
+ * Subscribe to changes in `AWAITING_DIR` (the #905 sidecar dir). Same
+ * refcounted shared-watcher contract as `subscribeSessionsDir`. The transcript
+ * is silent while the agent waits on `AskUserQuestion`/`ExitPlanMode`, so this
+ * watcher is the only thing that re-fires the watcher's state check when a
+ * sidecar is created or removed.
+ */
+export const subscribeAwaitingDir = createSharedDirSubscription(AWAITING_DIR);
 
 // --- Summary fetching ---
 

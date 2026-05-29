@@ -5,7 +5,12 @@
 import type { AgentInfo } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
 import { Dynamic } from "solid-js/web";
-import { agentIcons, agentNames, stateLabels } from "../ui/agentDisplay";
+import {
+  agentAwaitingPrompt,
+  agentIcons,
+  agentNames,
+  stateLabels,
+} from "../ui/agentDisplay";
 
 /** Busy = actively working (thinking or running tools). Alert = needs user input
  *  — the same "your turn" token the dock pip and awaiting column use, so a
@@ -51,13 +56,25 @@ const AgentIndicator: Component<{ agent: AgentInfo }> = (props) => {
   const Icon = () => agentIcons[props.agent.kind];
   const name = () => agentNames[props.agent.kind];
   const label = () => stateLabels[props.agent.state];
+  // When awaiting the user (#905), append the pending question (and any answer
+  // choices) so hover reveals what the agent is blocked on without panning to
+  // the terminal. Falls back to the bare "kind: state" otherwise.
+  const title = () => {
+    const base = `${name()}: ${label()}`;
+    const prompt = agentAwaitingPrompt(props.agent);
+    if (!prompt?.question) return base;
+    const opts = prompt.options.length
+      ? ` (${prompt.options.join(" / ")})`
+      : "";
+    return `${base} — ${prompt.question}${opts}`;
+  };
   return (
     <span
       class={`inline-flex items-center gap-1 text-xs ${cfg().color}`}
       data-testid="agent-indicator"
       data-agent-kind={props.agent.kind}
       data-agent-state={props.agent.state}
-      title={`${name()}: ${label()}`}
+      title={title()}
     >
       <span class={`shrink-0 ${cfg().animation}`}>
         <Dynamic component={Icon()} class="w-3 h-3" />

@@ -75,6 +75,15 @@ Feature: Claude Code status detection
     And the tile chrome should show workflow badge "deep-research"
     And there should be no page errors
 
+  Scenario: Pending AskUserQuestion surfaces as awaiting input via the hook sidecar
+    When a Claude Code session is mocked with state "waiting"
+    Then the tile chrome should show an agent indicator with state "waiting"
+    When the Claude Code agent asks the user a question
+    Then the tile chrome should reach agent state "awaiting_user" via the sidecar
+    When the user answers the pending question
+    Then the tile chrome should reach agent state "waiting" via the sidecar
+    And there should be no page errors
+
   Scenario: Claude Code indicator disappears when session ends
     When a Claude Code session is mocked with state "thinking"
     Then the tile chrome should show an agent indicator with state "thinking"

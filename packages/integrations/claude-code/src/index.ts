@@ -19,6 +19,11 @@
 export { claudeCodeProvider } from "./agent-provider.ts";
 
 export {
+  applyAwaitingOverride,
+  AWAITING_DIR,
+  AWAITING_SIDECAR_TTL_MS,
+  AWAITING_WRITER_ASSET,
+  awaitingSidecarPathFor,
   type BackgroundTask,
   deriveState,
   deriveTaskProgress,
@@ -29,10 +34,12 @@ export {
   findTranscriptPath,
   outstandingBackgroundTasks,
   PROJECTS_DIR,
+  readAwaitingSidecar,
   readSessionFile,
   SESSIONS_DIR,
   type SessionFile,
   SUMMARY_FETCH_ENABLED,
+  subscribeAwaitingDir,
   subscribeSessionsDir,
   TAIL_BYTES,
   tailJsonlLines,
@@ -41,6 +48,8 @@ export {
   workflowsDirFor,
 } from "./core.ts";
 export {
+  type AwaitingPrompt,
+  AwaitingPromptSchema,
   type ClaudeCodeInfo,
   ClaudeCodeInfoSchema,
   type ClaudeWorkflow,

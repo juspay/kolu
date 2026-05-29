@@ -8,6 +8,7 @@ import { Dynamic } from "solid-js/web";
 import ChecksIndicator from "../terminal/ChecksIndicator";
 import { ProviderUnavailableContent } from "../terminal/PrUnavailablePopover";
 import {
+  agentAwaitingPrompt,
   agentIcons,
   agentNames,
   agentWorkflow,
@@ -199,6 +200,33 @@ const MetadataInspector: Component<{
                           <span class="font-mono text-fg-2">
                             ({wf().agents} agents · {wf().status})
                           </span>
+                        </span>
+                      </Row>
+                    )}
+                  </Show>
+                  {/* The pending AskUserQuestion (#905). Gated on a non-null
+                   *  question — ExitPlanMode carries no discrete question, and
+                   *  the State row above already reads "Awaiting input". */}
+                  <Show when={agentAwaitingPrompt(agent())?.question}>
+                    {(question) => (
+                      <Row label="Question">
+                        <span class="text-fg">
+                          {question()}
+                          <Show
+                            when={
+                              (agentAwaitingPrompt(agent())?.options.length ??
+                                0) > 0
+                            }
+                          >
+                            <span class="font-mono text-fg-2">
+                              {" "}
+                              (
+                              {agentAwaitingPrompt(agent())?.options.join(
+                                " / ",
+                              )}
+                              )
+                            </span>
+                          </Show>
                         </span>
                       </Row>
                     )}

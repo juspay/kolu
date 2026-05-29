@@ -37,6 +37,7 @@ type MockState =
 // order is not guaranteed, so a top-level capture here would race.
 const getSessionsDir = () => process.env.KOLU_CLAUDE_SESSIONS_DIR;
 const getProjectsDir = () => process.env.KOLU_CLAUDE_PROJECTS_DIR;
+const getAwaitingDir = () => process.env.KOLU_CLAUDE_AWAITING_DIR;
 
 /** Get the terminal shell PID by reading the xterm buffer after `echo $$`. */
 async function getTerminalPid(world: KoluWorld): Promise<number> {
@@ -189,6 +190,10 @@ let mockCwd: string | null = null;
 let mockSessionFile: string | null = null;
 let mockProjectDir: string | null = null;
 let mockTranscriptPath: string | null = null;
+/** #905 awaiting-user sidecar for this scenario. SESSION_ID is constant across
+ *  scenarios, so a leftover sidecar would leak `awaiting_user` into the next
+ *  one — cleanup MUST remove it. */
+let mockAwaitingSidecarPath: string | null = null;
 
 function cleanup() {
   if (mockSessionFile && fs.existsSync(mockSessionFile)) {
@@ -202,6 +207,10 @@ function cleanup() {
     fs.rmSync(mockProjectDir, { recursive: true });
     mockProjectDir = null;
   }
+  if (mockAwaitingSidecarPath && fs.existsSync(mockAwaitingSidecarPath)) {
+    fs.unlinkSync(mockAwaitingSidecarPath);
+  }
+  mockAwaitingSidecarPath = null;
   mockTranscriptPath = null;
 }
 
@@ -264,6 +273,22 @@ function nudgeMockFiles() {
   nudgeFiles([mockSessionFile, mockTranscriptPath]);
 }
 
+/** Re-fire ONLY the server's AWAITING_DIR watcher (#905) — never the
+ *  transcript — by touching a sentinel file in the sidecar dir. This is what
+ *  proves the sidecar-dir watcher surfaces `awaiting_user` on its own: in
+ *  production the transcript is silent during the wait, so nudging the
+ *  transcript here would give a false pass even with a broken sidecar watcher.
+ *  The server ignores the sentinel (it reads only `<sessionId>.json`). */
+function nudgeAwaitingDir() {
+  const dir = getAwaitingDir();
+  if (!dir) return;
+  try {
+    fs.writeFileSync(path.join(dir, ".kolu-nudge"), String(Date.now()));
+  } catch {
+    // dir may be mid-teardown between ticks — the poll loop retries
+  }
+}
+
 When(
   "a newer stale previous-session JSONL exists in the same project dir",
   async function (this: KoluWorld) {
@@ -311,6 +336,38 @@ When("the Claude Code session ends", async function (this: KoluWorld) {
   cleanup();
 });
 
+When(
+  "the Claude Code agent asks the user a question",
+  async function (this: KoluWorld) {
+    // Models the PreToolUse hook firing: drop the #905 sidecar. No transcript
+    // write — the whole point is that the transcript is silent during the wait.
+    const dir = getAwaitingDir();
+    if (!dir) throw new Error("KOLU_CLAUDE_AWAITING_DIR must be set");
+    fs.mkdirSync(dir, { recursive: true });
+    mockAwaitingSidecarPath = path.join(dir, `${SESSION_ID}.json`);
+    fs.writeFileSync(
+      mockAwaitingSidecarPath,
+      JSON.stringify({
+        sessionId: SESSION_ID,
+        tool_name: "AskUserQuestion",
+        question: "Which approach?",
+        options: ["One", "Two"],
+        ts: Date.now(),
+      }),
+    );
+  },
+);
+
+When("the user answers the pending question", async function (this: KoluWorld) {
+  // Models the PostToolUse hook firing: clear the sidecar. Again no transcript
+  // touch — fallback to the JSONL-derived state must come via the sidecar-dir
+  // watcher noticing the deletion.
+  if (mockAwaitingSidecarPath && fs.existsSync(mockAwaitingSidecarPath)) {
+    fs.unlinkSync(mockAwaitingSidecarPath);
+  }
+  mockAwaitingSidecarPath = null;
+});
+
 Then(
   "the tile chrome should show an agent indicator with state {string}",
   async function (this: KoluWorld, expectedState: string) {
@@ -332,6 +389,32 @@ Then(
     }
     throw new Error(
       `Expected agent indicator state "${expectedState}", got "${last}" after ${POLL_TIMEOUT}ms`,
+    );
+  },
+);
+
+Then(
+  "the tile chrome should reach agent state {string} via the sidecar",
+  async function (this: KoluWorld, expectedState: string) {
+    // Same polled shape as the transcript assertion, but nudges ONLY the
+    // AWAITING_DIR (never the transcript) — so a pass genuinely exercises the
+    // #905 sidecar-dir watcher path, both for surfacing awaiting_user and for
+    // falling back once the sidecar is removed.
+    const start = Date.now();
+    let last: string | null = null;
+    while (Date.now() - start < POLL_TIMEOUT) {
+      nudgeAwaitingDir();
+      last = await this.page.evaluate(() => {
+        const el = document.querySelector(
+          '[data-testid="canvas-tile"] [data-testid="agent-indicator"], [data-testid="mobile-tile-titlebar"] [data-testid="agent-indicator"]',
+        );
+        return el?.getAttribute("data-agent-state") ?? null;
+      });
+      if (last === expectedState) return;
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    throw new Error(
+      `Expected agent indicator state "${expectedState}" via sidecar, got "${last}" after ${POLL_TIMEOUT}ms`,
     );
   },
 );

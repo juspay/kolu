@@ -13,6 +13,7 @@ import fs from "node:fs";
 import { agentInfoEqual } from "anyagent";
 import { match } from "ts-pattern";
 import {
+  applyAwaitingOverride,
   deriveState,
   deriveTaskProgress,
   deriveWorkflowProgress,
@@ -22,13 +23,19 @@ import {
   findTranscriptPath,
   outstandingBackgroundTasks,
   PROJECTS_DIR,
+  readAwaitingSidecar,
   type SessionFile,
+  subscribeAwaitingDir,
   TAIL_BYTES,
   tailJsonlLines,
   watchOrWaitForDir,
   workflowsDirFor,
 } from "./core.ts";
-import type { ClaudeCodeInfo, ClaudeWorkflow } from "./schemas.ts";
+import type {
+  AwaitingPrompt,
+  ClaudeCodeInfo,
+  ClaudeWorkflow,
+} from "./schemas.ts";
 
 /** Change-gate for `ClaudeCodeInfo`. `agentInfoEqual` only compares the
  *  shared AgentInfo shape (state, model, summary, tokens, taskProgress); the
@@ -40,12 +47,16 @@ import type { ClaudeCodeInfo, ClaudeWorkflow } from "./schemas.ts";
  *  Maintenance contract: every Claude-specific field added to
  *  `ClaudeCodeInfo` beyond the shared shape MUST be compared here too, or its
  *  updates are silently dropped by the change gate (stale watcher state, no
- *  error). `workflow` is the first such field. */
+ *  error). `workflow` and `awaitingPrompt` are the two such fields. */
 function claudeInfoEqual(
   a: ClaudeCodeInfo | null,
   b: ClaudeCodeInfo | null,
 ): boolean {
-  return agentInfoEqual(a, b) && workflowEqual(a?.workflow, b?.workflow);
+  return (
+    agentInfoEqual(a, b) &&
+    workflowEqual(a?.workflow, b?.workflow) &&
+    awaitingPromptEqual(a?.awaitingPrompt, b?.awaitingPrompt)
+  );
 }
 
 function workflowEqual(
@@ -55,6 +66,23 @@ function workflowEqual(
   if (a === b) return true;
   if (!a || !b) return false;
   return a.name === b.name && a.status === b.status && a.agents === b.agents;
+}
+
+/** Change-gate for the #905 `awaitingPrompt` field — without this, an updated
+ *  question (e.g. a second `AskUserQuestion` replacing the first) would be
+ *  dropped by `agentInfoEqual`, which only sees the unchanged `awaiting_user`
+ *  state. Compares the question text and the options array element-wise. */
+function awaitingPromptEqual(
+  a: AwaitingPrompt | null | undefined,
+  b: AwaitingPrompt | null | undefined,
+): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return (
+    a.question === b.question &&
+    a.options.length === b.options.length &&
+    a.options.every((opt, i) => opt === b.options[i])
+  );
 }
 
 // --- Tuning constants ---
@@ -143,6 +171,11 @@ export function createSessionWatcher(
   // Journals update while the agent is busy-waiting and the transcript is
   // otherwise quiet, so this keeps the fan-out count live. Null until set up.
   let workflowsDirWatcher: (() => void) | null = null;
+  // Unsubscribe from the shared AWAITING_DIR watcher (#905). The sidecar
+  // create/delete is the only filesystem event during an AskUserQuestion /
+  // ExitPlanMode wait — the transcript stays silent — so this is what re-fires
+  // the debounced state check across that window. Null until set up.
+  let unsubscribeAwaitingDir: (() => void) | null = null;
 
   let destroyed = false;
 
@@ -238,24 +271,36 @@ export function createSessionWatcher(
 
     scanTasksIncremental(transcriptWatching.path);
 
+    // #905: the hook-written sidecar is the only signal that the agent is
+    // blocked on AskUserQuestion / ExitPlanMode (the SDK buffers the tool_use
+    // off-disk). When present it overrides the JSONL-derived state to
+    // `awaiting_user` — winning even over the `running_background` promotion,
+    // since a pending prompt is a genuine human gate.
+    const { state, awaitingPrompt } = applyAwaitingOverride(
+      derived.state,
+      readAwaitingSidecar(session.sessionId),
+    );
+
     // Only read journals when the agent is actually busy-waiting on a
     // background task — keeps the common path off the (potentially large)
-    // journal files. Recomputed here (not change-gated) so a climbing
-    // fan-out count refreshes via the workflows-dir watcher below.
+    // journal files. Gated on the *final* state so an awaiting-user override
+    // clears any stale workflow badge. Recomputed here (not change-gated) so a
+    // climbing fan-out count refreshes via the workflows-dir watcher below.
     const workflow =
-      derived.state === "running_background"
+      state === "running_background"
         ? deriveWorkflowProgress(session, outstanding)
         : null;
 
     const info: ClaudeCodeInfo = {
       kind: "claude-code",
-      state: derived.state,
+      state,
       sessionId: session.sessionId,
       model: derived.model,
       summary: lastSummary,
       taskProgress: deriveTaskProgress(taskMap),
       contextTokens: derived.contextTokens,
       workflow,
+      awaitingPrompt,
     };
 
     if (!claudeInfoEqual(info, lastInfo)) {
@@ -369,9 +414,28 @@ export function createSessionWatcher(
     );
   }
 
+  /** Subscribe to the shared AWAITING_DIR watcher (#905) so a sidecar
+   *  create/delete re-fires the debounced state check. Refcounted across all
+   *  sessions (one fs.watch on the global dir), so a sidecar change for *any*
+   *  session re-derives this one too — cheap (a `statSync` of our own
+   *  `<sessionId>.json`) and coalesced by the same debounce. `onError` logs
+   *  rather than throwing so one session's failure can't break peers. */
+  function setupAwaitingWatching() {
+    unsubscribeAwaitingDir = subscribeAwaitingDir(
+      () => scheduleTranscriptCheck(),
+      (err) =>
+        plog.error(
+          { err, session: session.sessionId },
+          "claude-code: awaiting-dir listener threw",
+        ),
+      plog,
+    );
+  }
+
   // --- Start watching ---
   setupTranscriptWatching();
   setupWorkflowsWatching();
+  setupAwaitingWatching();
 
   return {
     session,
@@ -385,6 +449,8 @@ export function createSessionWatcher(
       teardownTranscriptWatching();
       workflowsDirWatcher?.();
       workflowsDirWatcher = null;
+      unsubscribeAwaitingDir?.();
+      unsubscribeAwaitingDir = null;
     },
   };
 }

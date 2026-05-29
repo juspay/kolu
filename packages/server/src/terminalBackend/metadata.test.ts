@@ -106,6 +106,7 @@ describe("metadata publish routing", () => {
         summary: "tick",
         taskProgress: null,
         workflow: null,
+        awaitingPrompt: null,
         contextTokens: null,
       };
     });

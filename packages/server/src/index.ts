@@ -22,6 +22,7 @@ import {
   TERMINAL_FILE_ROUTE_BASE,
   TERMINAL_FILE_ROUTE_FILE_SEGMENT,
 } from "./iframePreviewRoute.ts";
+import { ensureClaudeHooks } from "./claudeHooks.ts";
 import { ensureKoluRoot, shutdownCleanup } from "./koluRoot.ts";
 import { log } from "./log.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
@@ -76,6 +77,10 @@ const PWA_BACKGROUND_COLOR = "#0c0c0e";
 
 configureNixShellEnv(argv.flags.allowNixShellWithEnvWhitelist);
 ensureKoluRoot();
+// Install the Claude Code AskUserQuestion/ExitPlanMode detection hooks (#905).
+// Idempotent and fail-open — never throws, so a locked ~/.claude can't block
+// startup. Skipped under test-dir overrides and opt-out.
+ensureClaudeHooks(log);
 initSessionAutoSave(snapshotSession);
 if (argv.flags.verbose) log.level = "debug";
 

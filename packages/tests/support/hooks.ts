@@ -59,8 +59,13 @@ const mkSubDir = (name: string) => {
  *  session. Each worker getting its own dir eliminates the contention. */
 const claudeSessionsDir = mkSubDir("claude-sessions");
 const claudeProjectsDir = mkSubDir("claude-projects");
+// #905 sidecar dir — the PreToolUse-hook side-channel for AskUserQuestion /
+// ExitPlanMode. Redirecting it here also makes the server skip auto-installing
+// real Claude hooks into ~/.claude (see claudeHooks.ts's test-dir gate).
+const claudeAwaitingDir = mkSubDir("claude-awaiting");
 process.env.KOLU_CLAUDE_SESSIONS_DIR = claudeSessionsDir;
 process.env.KOLU_CLAUDE_PROJECTS_DIR = claudeProjectsDir;
+process.env.KOLU_CLAUDE_AWAITING_DIR = claudeAwaitingDir;
 
 /** Per-worker temp roots for the Codex and OpenCode mock harnesses —
  *  see `codex_steps.ts` and `opencode_steps.ts`. Both providers key off
@@ -320,6 +325,7 @@ BeforeAll(async () => {
           KOLU_STATE_DIR: koluStateDir,
           KOLU_CLAUDE_SESSIONS_DIR: claudeSessionsDir,
           KOLU_CLAUDE_PROJECTS_DIR: claudeProjectsDir,
+          KOLU_CLAUDE_AWAITING_DIR: claudeAwaitingDir,
           KOLU_CODEX_DIR: codexDir,
           KOLU_OPENCODE_DB: opencodeDbPath,
         },
