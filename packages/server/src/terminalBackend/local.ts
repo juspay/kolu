@@ -290,20 +290,23 @@ class LocalTerminalBackend implements TerminalBackend {
   private handleExit(id: TerminalId, exitCode: number, tlog: typeof log): void {
     tlog.info({ exitCode }, "exited");
     const record = this.records.get(id);
-    if (record) {
-      record.bridge.abort();
-      record.stopProviders();
-      cleanupTerminalScratch(id);
-      this.records.delete(id);
-    }
+    // The record is still present ONLY on a natural exit. `killTerminal` /
+    // `killAllTerminals` clear their record before `host.kill()`, so for an
+    // intentional kill this is a no-op — matching master, where
+    // `PtyHandle.dispose()` removed the `onExit` handler *before*
+    // `proc.kill()`, so intentional kills never published `terminalExit`
+    // (the kill RPC's own response drives client cleanup).
+    if (!record) return;
+    record.bridge.abort();
+    record.stopProviders();
+    cleanupTerminalScratch(id);
+    this.records.delete(id);
     surfaceCtx.events.terminalExit.publish({ id }, exitCode);
-    // Only save session on natural exit (record was still present).
-    // The kill paths clear their own records first, so we skip.
-    const wasNaturalExit = unregisterTerminal(id);
-    if (wasNaturalExit) {
-      emitTerminalsDirty();
-      emitTerminalListChanged();
-    }
+    // Record present ⟹ still registered ⟹ this is the natural exit that
+    // triggers a session save.
+    unregisterTerminal(id);
+    emitTerminalsDirty();
+    emitTerminalListChanged();
   }
 
   killTerminal(id: TerminalId): TerminalInfo | undefined {
