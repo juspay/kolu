@@ -137,33 +137,67 @@ const localGit: TerminalBackendGit = {
 // ── The daemon-backed terminal handle ──────────────────────────────────
 
 /** A `TerminalHandle` whose control verbs forward to the daemon over the
- *  socket. `write`/`resize` are fire-and-forget (matching the synchronous
- *  in-process handle they replace — a localhost socket round-trip is cheap
- *  and the PTY is the authority); `getScreenState`/`getScreenText` round-trip
- *  (so the `TerminalHandle` contract widened those two to allow a Promise).
- *  Holds only the terminal id + pid — the host-only members (cwd / process /
- *  foregroundPid) the providers read stay inside the daemon. */
+ *  socket. Every verb waits on `ready` first — R4c turned `spawn` into an
+ *  async RPC, so a tile that renders on the sync shadow can issue
+ *  attach/write/resize *before* the daemon has created the PTY. Without the
+ *  gate, attach hit "no PTY with id …" and early keystrokes were silently
+ *  dropped (the daemon's `write` returned `{ok:false}`). `write`/`resize`
+ *  queue behind `ready` (fire-and-forget once released — a localhost socket
+ *  round-trip is cheap and the PTY is the authority); `getScreenState`/
+ *  `getScreenText`/`attach` await it (so the contract widened those to allow
+ *  a Promise). Holds only the terminal id + pid — the host-only members
+ *  (cwd / process / foregroundPid) the providers read stay in the daemon. */
 class DaemonTerminalProxy implements TerminalHandle {
   pid = 0;
-  constructor(private readonly id: TerminalId) {}
+  /** Resolves once the daemon `terminal.spawn` RPC has created the PTY (or
+   *  immediately, for a reattached terminal whose PTY already exists).
+   *  Rejects if spawn failed, so a queued write / awaited attach surfaces the
+   *  failure instead of hanging or hitting a missing PTY. */
+  readonly ready: Promise<void>;
+  private resolveReady!: () => void;
+  private rejectReady!: (err: unknown) => void;
+
+  constructor(private readonly id: TerminalId) {
+    this.ready = new Promise<void>((resolve, reject) => {
+      this.resolveReady = resolve;
+      this.rejectReady = reject;
+    });
+    // A spawn failure with nothing yet awaiting `ready` must not reach the
+    // process-wide unhandledRejection handler (which would exit the server).
+    this.ready.catch(() => {});
+  }
+
+  /** PTY exists — release queued/awaiting verbs. */
+  markReady(pid: number): void {
+    this.pid = pid;
+    this.resolveReady();
+  }
+
+  /** Spawn failed (or raced a kill) — fail queued/awaiting verbs. */
+  markFailed(err: unknown): void {
+    this.rejectReady(err);
+  }
 
   private client(): AgentClient {
     return getDaemonHandle().client;
   }
 
   write(data: string): void {
-    void this.client()
-      .surface.terminal.write({ id: this.id, data })
+    void this.ready
+      .then(() => this.client().surface.terminal.write({ id: this.id, data }))
       .catch((err) => log.error({ terminal: this.id, err }, "daemon write"));
   }
 
   resize(cols: number, rows: number): void {
-    void this.client()
-      .surface.terminal.resize({ id: this.id, cols, rows })
+    void this.ready
+      .then(() =>
+        this.client().surface.terminal.resize({ id: this.id, cols, rows }),
+      )
       .catch((err) => log.error({ terminal: this.id, err }, "daemon resize"));
   }
 
   async getScreenState(): Promise<string> {
+    await this.ready;
     const { data } = await this.client().surface.terminal.getScreenState({
       id: this.id,
     });
@@ -171,6 +205,7 @@ class DaemonTerminalProxy implements TerminalHandle {
   }
 
   async getScreenText(startLine?: number, endLine?: number): Promise<string> {
+    await this.ready;
     const { text } = await this.client().surface.terminal.getScreenText({
       id: this.id,
       startLine,
@@ -323,10 +358,15 @@ class LocalTerminalBackend implements TerminalBackend {
       });
       // The terminal may have been killed while the spawn RPC was in flight.
       if (!getTerminal(id)) {
-        void client.surface.terminal.kill({ id }).catch(() => {});
+        proxy.markFailed(new Error("terminal killed during spawn"));
+        try {
+          await client.surface.terminal.kill({ id });
+        } catch (err) {
+          tlog.error({ err }, "daemon kill of spawn-raced terminal failed");
+        }
         return;
       }
-      proxy.pid = res.pid;
+      proxy.markReady(res.pid);
       entry.info.pid = res.pid;
       // Apply the agent's authoritative initial metadata. Idempotent with the
       // `agentMetadata` stream deltas that follow.
@@ -345,6 +385,9 @@ class LocalTerminalBackend implements TerminalBackend {
       emitTerminalListChanged();
     } catch (err) {
       tlog.error({ err }, "daemon terminal.spawn failed");
+      // Fail the readiness gate so a queued write / awaited attach surfaces
+      // the spawn failure instead of hanging.
+      proxy.markFailed(err);
       if (getTerminal(id)) {
         unregisterTerminal(id);
         emitTerminalsDirty();
@@ -363,7 +406,9 @@ class LocalTerminalBackend implements TerminalBackend {
   ): TerminalInfo {
     const id = listed.id;
     const proxy = new DaemonTerminalProxy(id);
-    proxy.pid = listed.pid;
+    // The daemon already owns this PTY (it survived our restart), so the
+    // readiness gate opens immediately — no spawn RPC to wait on.
+    proxy.markReady(listed.pid);
     const meta: TerminalMetadata = { ...createMetadata(listed.cwd) };
     meta.lastActivityAt = saved?.lastActivityAt ?? listed.lastActivity ?? 0;
     if (saved) {
@@ -403,39 +448,55 @@ class LocalTerminalBackend implements TerminalBackend {
     emitTerminalListChanged();
   }
 
-  killTerminal(id: TerminalId): TerminalInfo | undefined {
+  async killTerminal(id: TerminalId): Promise<TerminalInfo | undefined> {
     const entry = getTerminal(id);
     if (!entry) return undefined;
-    log.child({ terminal: id }).info({ pid: entry.info.pid }, "killing");
-    // Drop the entry BEFORE the kill RPC so the daemon's (absent) exit signal
-    // finds nothing — an intentional kill never publishes `terminalExit` (the
-    // kill RPC response drives client cleanup), matching pre-R4c behavior.
+    const tlog = log.child({ terminal: id });
+    tlog.info({ pid: entry.info.pid }, "killing");
+    // Confirm the daemon killed it BEFORE unregistering — otherwise a failed
+    // kill RPC would drop the UI entry while the daemon kept the PTY alive,
+    // resurrecting it as an orphan on the next reattach. The daemon's
+    // `agent.kill` is silent (no `exit` event), so awaiting it can't race
+    // `handleExit`. On failure we still unregister (don't strand the UI) but
+    // log it — the orphan, if any, is cleaned by the next killAll/restart.
+    try {
+      await getDaemonHandle().client.surface.terminal.kill({ id });
+    } catch (err) {
+      tlog.error({ err }, "daemon kill failed; unregistering anyway");
+    }
     cleanupTerminalScratch(id);
     unregisterTerminal(id);
     emitTerminalsDirty();
     emitTerminalListChanged();
-    void getDaemonHandle()
-      .client.surface.terminal.kill({ id })
-      .catch((err) => log.error({ terminal: id, err }, "daemon kill"));
     return entry.info;
   }
 
-  killAllTerminals(): void {
-    // Drain the registry BEFORE the kill RPC so delayed exit signals can't
-    // find entries and trigger session saves.
+  async killAllTerminals(): Promise<void> {
+    const ids = listTerminals().map((info) => info.id);
+    log.info({ count: ids.length }, "killing all terminals");
+    // Confirm the daemon dropped every PTY before draining the registry, so a
+    // failed RPC can't leave orphans the next reattach resurrects (see
+    // `killTerminal`). On failure, drain anyway + log.
+    try {
+      await getDaemonHandle().client.surface.terminal.killAll({});
+    } catch (err) {
+      log.error({ err }, "daemon killAll failed; draining anyway");
+    }
     const entries = drainTerminals();
-    log.info({ count: entries.length }, "killing all terminals");
     for (const entry of entries) cleanupTerminalScratch(entry.info.id);
     emitTerminalListChanged();
-    void getDaemonHandle()
-      .client.surface.terminal.killAll({})
-      .catch((err) => log.error({ err }, "daemon killAll"));
   }
 
   async attach(
     id: TerminalId,
     signal: AbortSignal | undefined,
   ): Promise<TerminalAttachment> {
+    // Wait for the daemon to have actually created the PTY before opening the
+    // attach stream — otherwise a tile attaching off the sync shadow races
+    // the in-flight `terminal.spawn` and the daemon throws "no PTY with id".
+    // Rejects (surfaces) if spawn failed.
+    const entry = getTerminal(id);
+    if (entry?.handle instanceof DaemonTerminalProxy) await entry.handle.ready;
     const client = getDaemonHandle().client;
     const stream = await client.surface.terminalAttach.get({ id }, { signal });
     const iter = stream[Symbol.asyncIterator]();

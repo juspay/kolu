@@ -148,12 +148,15 @@ export interface TerminalBackend {
   spawnPty(id: TerminalId, opts: PtySpawnOpts): TerminalInfo;
 
   /** Stop providers, kill the PTY, scrub per-terminal scratch storage,
-   *  unregister from the shared registry. Sole termination path. */
-  killTerminal(id: TerminalId): TerminalInfo | undefined;
+   *  unregister from the shared registry. Sole termination path. Async since
+   *  R4c — it confirms the daemon killed the PTY (over the socket) before
+   *  unregistering, so a failed kill can't leave an orphan PTY the next
+   *  reattach resurrects. */
+  killTerminal(id: TerminalId): Promise<TerminalInfo | undefined>;
 
   /** Drain and dispose every terminal owned by this backend. Used by
-   *  the e2e harness between scenarios. */
-  killAllTerminals(): void;
+   *  the e2e harness between scenarios. Async since R4c (see `killTerminal`). */
+  killAllTerminals(): Promise<void>;
 
   /** Attach to a terminal's output: a screen-state snapshot plus the live
    *  delta stream from exactly that point forward. The snapshot is taken

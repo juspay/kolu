@@ -183,7 +183,7 @@ export const appRouter = t.router({
     }),
 
     kill: t.terminal.kill.handler(async ({ input }) => {
-      const info = killTerminal(input.id);
+      const info = await killTerminal(input.id);
       if (!info) throw new TerminalNotFoundError(input.id);
       return info;
     }),
@@ -198,7 +198,7 @@ export const appRouter = t.router({
     }),
 
     killAll: t.terminal.killAll.handler(async () => {
-      killAllTerminals();
+      await killAllTerminals();
     }),
 
     exportTranscriptHtml: t.terminal.exportTranscriptHtml.handler(
