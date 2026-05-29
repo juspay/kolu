@@ -114,7 +114,11 @@ export class Channel<T> {
         }
         if (value !== CLOSE && queue.length >= this.maxQueue) {
           // Slow subscriber: drop it instead of buffering without bound.
+          // Remove from the live set and deregister the abort listener, but
+          // do NOT set `finished` — the subscriber still needs to drain its
+          // buffered items (including the CLOSE we push below) before it ends.
           this.subs.delete(sub);
+          signal?.removeEventListener("abort", onAbort);
           this.onOverflow?.();
           queue.length = 0;
           queue.push(CLOSE);
