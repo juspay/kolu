@@ -80,9 +80,13 @@ export function nextScrollTop(
 }
 
 /** Wire the manual touch-scroll driver onto `container` (the element wrapping
- *  the Pierre tree). Registers non-passive `touchmove` so `preventDefault`
- *  actually suppresses iOS native scroll, and tears the listeners down via
- *  `onCleanup`. Call from a ref callback inside a reactive owner. */
+ *  the Pierre tree). Registers a non-passive `touchmove` so `preventDefault`
+ *  can suppress iOS native scroll.
+ *
+ *  MUST be called synchronously inside a SolidJS reactive owner — a `ref`
+ *  callback or `onMount`, never after an `await`. Listener teardown rides on
+ *  `makeEventListener`'s `onCleanup`, which silently no-ops outside an owner
+ *  and would leak the four listeners. */
 export function attachPierreTouchScroll(container: HTMLElement): void {
   let state: TouchScrollState | null = null;
 
