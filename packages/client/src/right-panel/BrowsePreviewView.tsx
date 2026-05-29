@@ -43,12 +43,13 @@ const BrowsePreviewView: Component<BrowsePreviewViewProps> = (props) => {
           class="flex h-full w-full items-center justify-center overflow-auto p-4"
           // Checkerboard so transparent PNGs read against the dark panel
           // (the canonical four-gradient pattern); `object-contain` below
-          // fits the image without cropping or upscaling. Inline rather
-          // than a Tailwind class because the v4 `theme()`-in-arbitrary
-          // idiom is unreliable and there's no in-repo precedent for it.
+          // fits the image without cropping or upscaling. Inline style
+          // because a four-gradient `bg-[image:...]` Tailwind arbitrary
+          // class would be a single unwieldy string with no line-break
+          // opportunity — the style object keeps each property named.
           style={{
             "background-image":
-              "linear-gradient(45deg, rgba(255,255,255,0.05) 25%, transparent 25%), linear-gradient(-45deg, rgba(255,255,255,0.05) 25%, transparent 25%), linear-gradient(45deg, transparent 75%, rgba(255,255,255,0.05) 75%), linear-gradient(-45deg, transparent 75%, rgba(255,255,255,0.05) 75%)",
+              "linear-gradient(45deg, rgba(255,255,255,0.08) 25%, transparent 25%), linear-gradient(-45deg, rgba(255,255,255,0.08) 25%, transparent 25%), linear-gradient(45deg, transparent 75%, rgba(255,255,255,0.08) 75%), linear-gradient(-45deg, transparent 75%, rgba(255,255,255,0.08) 75%)",
             "background-size": "20px 20px",
             "background-position": "0 0, 0 10px, 10px -10px, -10px 0",
           }}
