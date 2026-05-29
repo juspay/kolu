@@ -306,23 +306,22 @@ interface ExternalChangesActivation {
   installed: boolean;
 }
 
-/** Per-agent external-change activation registry. Coordinates the
- *  "install the watcher once, then fan out to every terminal's reconciler"
- *  behavior across one agent's terminals (keyed by provider kind). Owned by
- *  the agent (`createProviderActivations`) and passed into `startProviders`
- *  so two agent instances never share install state — the "one agent owns
- *  its world" boundary R4b draws. (Was module-scope, which silently assumed
- *  a single agent per process.) */
-export type ProviderActivations = Map<string, ExternalChangesActivation>;
+/** External-change activation registry, keyed by provider kind. Coordinates
+ *  the "install the watcher once, then fan out to every terminal's
+ *  reconciler" behavior.
+ *
+ *  Process-scoped by contract: `AgentProvider.externalChanges.install` is
+ *  documented as fired "at most once per process… no uninstall" (anyagent),
+ *  matching the underlying singletons (Codex's WAL watcher, Claude's
+ *  SESSIONS_DIR watcher). So this registry — the install gate AND the
+ *  reconciler set behind one process-lifetime watcher — is a module-scope
+ *  singleton too. (An earlier R4b cut made it per-agent; that contradicted
+ *  the no-uninstall contract — a second agent in one process would install
+ *  a second permanent watcher with no way to remove it. When the agent is
+ *  extracted to its own process in R4c, module scope already IS per-agent.) */
+const activations = new Map<string, ExternalChangesActivation>();
 
-export function createProviderActivations(): ProviderActivations {
-  return new Map();
-}
-
-function getActivation(
-  activations: ProviderActivations,
-  kind: string,
-): ExternalChangesActivation {
+function getActivation(kind: string): ExternalChangesActivation {
   let entry = activations.get(kind);
   if (!entry) {
     entry = { reconcilers: new Set(), installed: false };
@@ -359,7 +358,6 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
   terminalId: TerminalId,
   channels: ProviderChannels,
   hooks: ProviderHooks,
-  activations: ProviderActivations,
 ): () => void {
   const plog = log.child({ provider: provider.kind, terminal: terminalId });
   let current: { watcher: AgentWatcher; key: string } | null = null;
@@ -386,7 +384,7 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
       plog,
     );
     if (!registeredForExternal && provider.externalChanges?.isPresent(state)) {
-      const activation = getActivation(activations, provider.kind);
+      const activation = getActivation(provider.kind);
       activation.reconcilers.add(reconcile);
       registeredForExternal = true;
       if (!activation.installed) {
@@ -490,17 +488,15 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
 }
 
 /** Start every per-terminal provider for one terminal. The in-process
- *  agent (`./agent.ts`) calls this with its channels + hooks + its own
- *  `activations` registry (shared across that agent's terminals so an
- *  external-change watcher installs once; a remote agent passes its own).
- *  Provider order matters only for the agent-command tracker — it must come
- *  first so its stash is populated before agent detectors reconcile. */
+ *  agent (`./agent.ts`) calls this with its channels + hooks (a remote
+ *  agent will too). Provider order matters only for the agent-command
+ *  tracker — it must come first so its stash is populated before agent
+ *  detectors reconcile. */
 export function startProviders(
   record: ProviderRecord,
   terminalId: TerminalId,
   channels: ProviderChannels,
   hooks: ProviderHooks,
-  activations: ProviderActivations,
 ): () => void {
   const stopAgentCommand = startAgentCommandTracker(
     record,
@@ -521,7 +517,6 @@ export function startProviders(
     terminalId,
     channels,
     hooks,
-    activations,
   );
   const stopCodex = startAgentProvider(
     codexProvider,
@@ -529,7 +524,6 @@ export function startProviders(
     terminalId,
     channels,
     hooks,
-    activations,
   );
   const stopOpenCode = startAgentProvider(
     opencodeProvider,
@@ -537,7 +531,6 @@ export function startProviders(
     terminalId,
     channels,
     hooks,
-    activations,
   );
   const stopProcess = startProcessProvider(record, terminalId, channels, hooks);
   return () => {

@@ -132,4 +132,25 @@ describe("createAgent", () => {
     await new Promise((resolve) => setTimeout(resolve, 400));
     expect(events.some((e) => e.kind === "exit")).toBe(false);
   });
+
+  it("dispose() tears down quietly — no exit events for live terminals", async () => {
+    await start();
+    agent.spawn({
+      shell: "/bin/sh",
+      args: ["-c", "sleep 5"],
+      env: shellEnv,
+      cwd: "/tmp",
+    });
+    agent.spawn({
+      shell: "/bin/sh",
+      args: ["-c", "sleep 5"],
+      env: shellEnv,
+      cwd: "/tmp",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    agent.dispose();
+    // dispose is shutdown, not "every terminal exited" — no exit events.
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    expect(events.some((e) => e.kind === "exit")).toBe(false);
+  });
 });

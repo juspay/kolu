@@ -56,7 +56,6 @@ import type { GitInfo } from "kolu-git/schemas";
 import type { Logger } from "kolu-shared";
 import { createMetadata } from "./metadata.ts";
 import {
-  createProviderActivations,
   type ProviderChannels,
   type ProviderHooks,
   type ProviderRecord,
@@ -149,9 +148,6 @@ export function createAgent(deps: { log: Logger }): Agent {
   const { log } = deps;
   const host: PtyHost = createPtyHost({ log });
   const metadata = inMemoryChannel<AgentMetadataEvent>();
-  // Shared across this agent's terminals (install-once per provider kind);
-  // a second agent instance gets its own, never sharing install state.
-  const activations = createProviderActivations();
   // id → teardown closure (aborts the tap bridges + stops the provider DAG).
   // Its keys ARE the live terminals; the `ProviderRecord` itself stays a
   // pure value captured by the providers' closures, never stored here.
@@ -272,13 +268,7 @@ export function createAgent(deps: { log: Logger }): Agent {
         bridge.signal,
         (raw) => channels.commandRun.publish(raw),
       );
-      const stopProviders = startProviders(
-        record,
-        id,
-        channels,
-        hooks,
-        activations,
-      );
+      const stopProviders = startProviders(record, id, channels, hooks);
 
       // Register teardown only once the terminal is fully built — there is
       // no placeholder window where a racing exit could run a no-op.
@@ -310,6 +300,11 @@ export function createAgent(deps: { log: Logger }): Agent {
     },
 
     dispose() {
+      // Quiet shutdown: tear every terminal down through the same path a
+      // `kill` takes (drops it from `teardowns`) BEFORE disposing the host,
+      // so the host's exit signals find no entry and publish no `exit` —
+      // disposal is not "every terminal exited naturally".
+      for (const id of [...teardowns.keys()]) teardown(id);
       host.dispose();
     },
   };
