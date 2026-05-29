@@ -20,7 +20,7 @@
  *  Mobile uses a different chrome surface — a pull-down sheet — see
  *  `MobileChromeSheet` and `MobileTileView`. */
 
-import { type Component, createSignal } from "solid-js";
+import { type Component, createMemo, createSignal, Show } from "solid-js";
 import { dockExpanded, toggleRailCards } from "./canvas/dock/Dock";
 import { useViewPosture } from "./canvas/useViewPosture";
 import { ACTIONS } from "./input/actions";
@@ -29,7 +29,13 @@ import RecordButton from "./recorder/RecordButton";
 import { useRightPanel } from "./right-panel/useRightPanel";
 import type { WsStatus } from "./rpc/rpc";
 import SettingsPopover from "./settings/SettingsPopover";
-import { DockToggleIcon, InspectorToggleIcon, SettingsIcon } from "./ui/Icons";
+import {
+  DockToggleIcon,
+  InspectorToggleIcon,
+  MaximizeIcon,
+  RestoreIcon,
+  SettingsIcon,
+} from "./ui/Icons";
 import Kbd from "./ui/Kbd";
 import Tip from "./ui/Tip";
 
@@ -38,6 +44,13 @@ const statusStyles: Record<WsStatus, string> = {
   open: "bg-ok",
   closed: "bg-danger",
 };
+
+// Shared base for the square icon toggles in the control cluster
+// (maximize, dock, inspector). Active/idle coloring is layered on via
+// each button's own `classList`. Keep ring/size tweaks here so all
+// three toggles stay in lockstep.
+const toggleBtnClass =
+  "pointer-events-auto hidden sm:flex items-center justify-center w-7 h-7 rounded-lg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50";
 
 const ChromeBar: Component<{
   status: WsStatus;
@@ -51,12 +64,19 @@ const ChromeBar: Component<{
   // Dock only when the terminal is maximized, so its own title bar
   // doesn't collide with the chrome. Panel-open stays on the floating
   // overlay — the `right:` offset below keeps controls off the panel.
-  const docked = () => posture.mode() === "maximized";
+  const docked = createMemo(() => posture.mode() === "maximized");
+
+  // The maximize toggle's affordance describes the action a click performs,
+  // so both the tooltip and the aria-label read from one source and can't
+  // drift out of sync with the posture.
+  const maximizeLabel = createMemo(() =>
+    docked() ? "Restore canvas" : "Maximize terminal",
+  );
 
   return (
     <header
       data-testid="chrome-bar"
-      data-maximized={posture.mode() === "maximized" ? "" : undefined}
+      data-maximized={docked() ? "" : undefined}
       // pointer-events-none on the root so the transparent gaps don't
       // eat clicks meant for the canvas under the overlay. Interactive
       // children (identity row, workspace switcher, control cluster) re-enable
@@ -127,13 +147,34 @@ const ChromeBar: Component<{
        *  clicks through; each button re-enables pointer-events-auto. */}
       <div class="flex items-center gap-2 shrink-0">
         <RecordButton />
+        <Tip label={maximizeLabel()}>
+          <button
+            type="button"
+            data-testid="maximize-toggle"
+            class={toggleBtnClass}
+            classList={{
+              "bg-surface-2 text-fg": docked(),
+              "text-fg-3 hover:bg-surface-2 hover:text-fg": !docked(),
+            }}
+            data-active={docked() ? "" : undefined}
+            onClick={() => posture.toggle()}
+            aria-label={maximizeLabel()}
+          >
+            <Show
+              when={docked()}
+              fallback={<MaximizeIcon class="w-3.5 h-3.5" />}
+            >
+              <RestoreIcon class="w-3.5 h-3.5" />
+            </Show>
+          </button>
+        </Tip>
         <Tip
           label={`Toggle dock (${formatKeybind(ACTIONS.toggleDock.keybind)})`}
         >
           <button
             type="button"
             data-testid="dock-toggle"
-            class="pointer-events-auto hidden sm:flex items-center justify-center w-7 h-7 rounded-lg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+            class={toggleBtnClass}
             classList={{
               "bg-surface-2 text-fg": dockExpanded(),
               "text-fg-3 hover:bg-surface-2 hover:text-fg": !dockExpanded(),
@@ -151,7 +192,7 @@ const ChromeBar: Component<{
           <button
             type="button"
             data-testid="inspector-toggle"
-            class="pointer-events-auto hidden sm:flex items-center justify-center w-7 h-7 rounded-lg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+            class={toggleBtnClass}
             classList={{
               "bg-surface-2 text-fg": !rightPanel.collapsed(),
               "text-fg-3 hover:bg-surface-2 hover:text-fg":
