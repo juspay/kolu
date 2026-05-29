@@ -79,6 +79,7 @@ import { cleanupTerminalScratch } from "../terminalScratch.ts";
 import { unwrapGit } from "../unwrapGit.ts";
 import {
   createMetadata,
+  publishMetadataSnapshot,
   updateServerLiveMetadata,
   updateServerMetadata,
 } from "./metadata.ts";
@@ -480,8 +481,13 @@ class LocalTerminalBackend implements TerminalBackend {
     registerTerminal(id, entry);
     this.startProviderLayer(id, entry, listed.pid);
     log.child({ terminal: id }).info({ pid: listed.pid }, "reattached");
-    // No `terminals:dirty` — reattach restores existing state, it does not
-    // mutate it. The list cell republishes so the client renders the tile.
+    // Publish the seeded metadata to the `terminalMetadata` collection — the
+    // `terminalList` cell carries only {id, pid}, so client-owned fields like
+    // `parentId` (sub-terminal grouping) would otherwise stay invisible until
+    // a provider update happened to republish, rendering a reattached
+    // sub-terminal flat. No `terminals:dirty` — reattach restores state, it
+    // does not mutate it.
+    publishMetadataSnapshot(entry, id);
     emitTerminalListChanged();
     return entry.info;
   }

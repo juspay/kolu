@@ -91,6 +91,23 @@ function publishSnapshotAndDirty(
   terminalsDirtyChannel.publish({});
 }
 
+/** Publish a terminal's current metadata snapshot to the collection WITHOUT
+ *  firing `terminals:dirty`. Used on reattach (#951 R4c): a reattached
+ *  terminal's seeded metadata — including client-owned fields the
+ *  `terminalList` cell doesn't carry, like `parentId` (sub-terminal grouping),
+ *  `themeName`, and layout — must reach the `terminalMetadata` collection so
+ *  the client renders the tile correctly (grouped under its parent, themed).
+ *  Without this the seeded fields stay invisible until some provider update
+ *  happens to republish, so an idle reattached sub-terminal renders flat — the
+ *  "split terminals detected as main" regression. Reattach restores existing
+ *  state rather than mutating it, so it must NOT schedule an autosave. */
+export function publishMetadataSnapshot(
+  entry: TerminalProcess,
+  terminalId: string,
+): void {
+  publishSnapshot(entry, terminalId);
+}
+
 /** Atomically mutate server-persisted metadata (`cwd`, `git`,
  *  `lastAgentCommand`, `lastActivityAt`) and publish. The mutator is
  *  narrowed to `ServerPersistedTerminalFields` — bidirectional fence: a
