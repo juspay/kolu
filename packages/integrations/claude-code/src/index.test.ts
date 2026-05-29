@@ -184,6 +184,77 @@ describe("deriveState", () => {
     });
   });
 
+  it("returns waiting when the newest user entry is a mid-turn interrupt marker", () => {
+    // Esc mid-turn appends `user [text: "[Request interrupted by user]"]`.
+    // The agent is idle awaiting the next prompt, not thinking.
+    const line = JSON.stringify({
+      type: "user",
+      message: {
+        content: [{ type: "text", text: "[Request interrupted by user]" }],
+      },
+    });
+    expect(deriveState([line])).toEqual({
+      state: "waiting",
+      model: null,
+      contextTokens: null,
+    });
+  });
+
+  it("returns waiting for an interrupt marker carried as a plain string", () => {
+    const line = JSON.stringify({
+      type: "user",
+      message: { content: "[Request interrupted by user for tool use]" },
+    });
+    expect(deriveState([line])).toMatchObject({ state: "waiting" });
+  });
+
+  it("returns waiting when interrupted during a tool call", () => {
+    // Esc mid-tool-call appends an errored tool_result then the text marker.
+    // The text marker is newest; either alone settles the dock to idle.
+    const toolResult = JSON.stringify({
+      type: "user",
+      message: {
+        content: [
+          {
+            type: "tool_result",
+            is_error: true,
+            content:
+              "The user doesn't want to proceed with this tool use. The tool use was rejected.",
+          },
+        ],
+      },
+    });
+    const textMarker = JSON.stringify({
+      type: "user",
+      message: {
+        content: [
+          { type: "text", text: "[Request interrupted by user for tool use]" },
+        ],
+      },
+    });
+    expect(deriveState([toolResult, textMarker])).toMatchObject({
+      state: "waiting",
+    });
+    // The errored tool_result on its own is also an interrupt signal.
+    expect(deriveState([toolResult])).toMatchObject({ state: "waiting" });
+  });
+
+  it("returns thinking when a real prompt follows an interrupt marker", () => {
+    // The `ralph` shape: after the marker the user types again; that newest
+    // user entry is a genuine prompt → thinking, as before.
+    const marker = JSON.stringify({
+      type: "user",
+      message: {
+        content: [{ type: "text", text: "[Request interrupted by user]" }],
+      },
+    });
+    const prompt = JSON.stringify({
+      type: "user",
+      message: { content: "n/m. run ci" },
+    });
+    expect(deriveState([marker, prompt])).toMatchObject({ state: "thinking" });
+  });
+
   it("uses last relevant message (walks backwards)", () => {
     const user = JSON.stringify({ type: "user" });
     const assistant = JSON.stringify({

@@ -193,6 +193,51 @@ type ContentBlock = { type?: string; name?: string };
  *  awaiting the human. Policy lives in `classifyByAwaiting`. */
 const AWAITING_USER_TOOLS = new Set(["AskUserQuestion", "ExitPlanMode"]);
 
+/** Markers Claude Code writes as the trailing `user` entry when a turn is
+ *  interrupted with Esc. The agent is idle awaiting the next prompt, so this
+ *  entry must read as `waiting`, not `thinking` (which the generic `user`
+ *  branch would otherwise pick — see #1018). Two confirmed shapes:
+ *   - mid-turn:      a text block `"[Request interrupted by user]"`
+ *   - mid-tool-call: an errored `tool_result` ("The user doesn't want to
+ *     proceed…") followed by `"[Request interrupted by user for tool use]"`
+ *  Both interrupt-text variants share the `INTERRUPT_TEXT_PREFIX`; matching the
+ *  prefix covers both without enumerating the suffix. A real prompt the user
+ *  types after the marker is a distinct newer `user` entry that matches
+ *  neither marker, so it still reads as `thinking`. */
+const INTERRUPT_TEXT_PREFIX = "[Request interrupted by user";
+const INTERRUPT_TOOL_RESULT_PREFIX =
+  "The user doesn't want to proceed with this tool use";
+
+/** True when a `user` entry's `message.content` is an Esc-interrupt marker.
+ *  `content` is either a plain string (mid-turn text) or an array of blocks
+ *  (text and/or errored `tool_result`); both forms are checked. */
+function isInterruptMarker(content: unknown): boolean {
+  if (typeof content === "string")
+    return content.startsWith(INTERRUPT_TEXT_PREFIX);
+  if (!Array.isArray(content)) return false;
+  for (const block of content) {
+    if (!block || typeof block !== "object") continue;
+    const b = block as { type?: string; text?: unknown; is_error?: boolean };
+    if (
+      b.type === "text" &&
+      typeof b.text === "string" &&
+      b.text.startsWith(INTERRUPT_TEXT_PREFIX)
+    ) {
+      return true;
+    }
+    if (
+      b.type === "tool_result" &&
+      b.is_error === true &&
+      toolResultText((block as { content?: unknown }).content).startsWith(
+        INTERRUPT_TOOL_RESULT_PREFIX,
+      )
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function toolUseOrAwaitingUser(
   content: ContentBlock[] | undefined,
 ): "tool_use" | "awaiting_user" {
@@ -279,7 +324,9 @@ export function deriveState(
             model,
           }))
           .with({ type: "user" }, () => ({
-            state: "thinking" as const,
+            state: isInterruptMarker(entry.message?.content)
+              ? ("waiting" as const)
+              : ("thinking" as const),
             model: null,
           }))
           .otherwise(() => null);
