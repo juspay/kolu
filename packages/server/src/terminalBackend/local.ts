@@ -157,7 +157,14 @@ class DaemonTerminalProxy implements TerminalHandle {
   private resolveReady!: () => void;
   private rejectReady!: (err: unknown) => void;
 
-  constructor(private readonly id: TerminalId) {
+  /** `getClient` is injected (not reached out of the supervisor singleton
+   *  per-verb): it makes the precondition explicit — a proxy is only ever
+   *  constructed once a daemon handle exists — and keeps the proxy decoupled
+   *  from how the handle is resolved. */
+  constructor(
+    private readonly id: TerminalId,
+    private readonly getClient: () => PtyHostClient,
+  ) {
     this.ready = new Promise<void>((resolve, reject) => {
       this.resolveReady = resolve;
       this.rejectReady = reject;
@@ -178,27 +185,25 @@ class DaemonTerminalProxy implements TerminalHandle {
     this.rejectReady(err);
   }
 
-  private client(): PtyHostClient {
-    return getDaemonHandle().client;
-  }
-
   write(data: string): void {
     void this.ready
-      .then(() => this.client().surface.terminal.write({ id: this.id, data }))
+      .then(() =>
+        this.getClient().surface.terminal.write({ id: this.id, data }),
+      )
       .catch((err) => log.error({ terminal: this.id, err }, "daemon write"));
   }
 
   resize(cols: number, rows: number): void {
     void this.ready
       .then(() =>
-        this.client().surface.terminal.resize({ id: this.id, cols, rows }),
+        this.getClient().surface.terminal.resize({ id: this.id, cols, rows }),
       )
       .catch((err) => log.error({ terminal: this.id, err }, "daemon resize"));
   }
 
   async getScreenState(): Promise<string> {
     await this.ready;
-    const { data } = await this.client().surface.terminal.getScreenState({
+    const { data } = await this.getClient().surface.terminal.getScreenState({
       id: this.id,
     });
     return data;
@@ -206,7 +211,7 @@ class DaemonTerminalProxy implements TerminalHandle {
 
   async getScreenText(startLine?: number, endLine?: number): Promise<string> {
     await this.ready;
-    const { text } = await this.client().surface.terminal.getScreenText({
+    const { text } = await this.getClient().surface.terminal.getScreenText({
       id: this.id,
       startLine,
       endLine,
@@ -278,7 +283,7 @@ class LocalTerminalBackend implements TerminalBackend {
     // spawnPty` sync-shadow contract. The daemon resolves the authoritative
     // cwd / pid on the async tail below; the provider DAG starts there too.
     const cwd = opts.cwd || process.env.HOME || "/";
-    const proxy = new DaemonTerminalProxy(id);
+    const proxy = new DaemonTerminalProxy(id, () => getDaemonHandle().client);
     const meta: TerminalMetadata = { ...createMetadata(cwd) };
     if (opts.parentId) meta.parentId = opts.parentId;
     const initial = opts.initialMetadata;
@@ -433,7 +438,7 @@ class LocalTerminalBackend implements TerminalBackend {
     saved: SavedTerminal | undefined,
   ): TerminalInfo {
     const id = listed.id;
-    const proxy = new DaemonTerminalProxy(id);
+    const proxy = new DaemonTerminalProxy(id, () => getDaemonHandle().client);
     // The daemon already owns this PTY (it survived our restart), so the
     // readiness gate opens immediately — no spawn RPC to wait on.
     proxy.markReady(listed.pid);
