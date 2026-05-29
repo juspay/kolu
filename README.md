@@ -198,8 +198,9 @@ pnpm monorepo:
 | `packages/surface/`                  | Reactive state framework — typed `Cell<T>`, `Collection<K,T>`, `Stream<I,T>`, `Event<I,T>` over oRPC streams; SolidJS hooks (`useCell`, `useCollection`, `useStream`, `useEvent`)               |
 | `packages/solid-pierre/`             | Solid-native wrappers around [`@pierre/trees`](https://www.npmjs.com/package/@pierre/trees) and [`@pierre/diffs`](https://www.npmjs.com/package/@pierre/diffs); encapsulates Pierre's imperative mount/render lifecycle behind `<FileTree>` and `<CodeView>` with required `onError` props. `<CodeView>` (Pierre's 1.2.x advanced-mode viewport) hosts files and/or diffs in one virtualized scroll — windowed-rendering is unconditional, so single-file callers ride the same path as future multi-file ones |
 | `packages/artifact-sdk/`             | Self-contained comments-on-files toolkit. Three exports: `./core` (pure W3C TextQuoteSelector functions used by both runtimes), `./client` (parent-side iframe ↔ parent bridge + core re-exports), `./server` (one-line `mountArtifactSdk(app, ...)` that wires the SDK bundle route and an HTML-decoration middleware — esbuild bundles the in-iframe script at server startup, hash-keyed for cache busting). The host server never imports HTML rewriting logic |
-| `packages/server/`                   | [Hono](https://hono.dev/) + `kolu-pty` for terminal lifecycle                                                                                                          |
-| `packages/integrations/pty/`         | Generic PTY primitives — [node-pty](https://github.com/microsoft/node-pty) + [@xterm/headless](https://www.npmjs.com/package/@xterm/headless) wrapped behind a `PtyHandle` with OSC-driven cwd/title/preexec callbacks; only kolu-* dep is `kolu-shared` (Logger type) |
+| `packages/server/`                   | [Hono](https://hono.dev/) + `@kolu/pty-host` for terminal lifecycle                                                                                                    |
+| `packages/pty-host/`                 | The multi-client PTY-owner primitive — [node-pty](https://github.com/microsoft/node-pty) + [@xterm/headless](https://www.npmjs.com/package/@xterm/headless) screen mirror + VT-derived taps (OSC 7 cwd, OSC 0/2 title, OSC 633 command-run, exit, foregroundPid), each fanned out to many consumers via a bounded `Channel`. Owns *only* the PTY; race-free `attach` (snapshot+deltas). Consumed in-process by `kolu-server` today |
+| `packages/integrations/pty/`         | Shell-environment prep for PTY spawning — Nix-devshell env filtering, kolu identity vars, and the per-PTY wrapper rc-file that replays user dotfiles and injects kolu's OSC hooks. Callers compose these and hand the result to `@kolu/pty-host`'s `spawn`; Node-stdlib only |
 | `packages/client/`                   | [SolidJS](https://www.solidjs.com/) + [xterm.js](https://xtermjs.org/) + [Tailwind CSS v4](https://tailwindcss.com/)                                                  |
 | `packages/integrations/claude-code/` | Claude Code detection — JSONL transcript tailing + Claude Agent SDK; exports a `claudeCodeProvider` `AgentProvider`                                                   |
 | `packages/integrations/anyagent/`    | Agent-agnostic shared contract (`AgentProvider` interface, `agentInfoEqual`), types (Logger, TaskProgress), and agent CLI parsing                                     |
@@ -238,21 +239,18 @@ flowchart TB
   end
 
   subgraph Server["Server (Hono)"]
-    PTY["node-pty\nshell process"]:::server
-    Headless["@xterm/headless\nscreen state"]:::server
-    Pub["Publisher\nper-terminal channels"]:::server
+    Host["@kolu/pty-host\nnode-pty + @xterm/headless mirror"]:::server
+    Pub["Publisher\nper-terminal metadata channels"]:::server
     Providers["Metadata providers"]:::server
   end
 
   %% Terminal I/O loop
   User -->|"keystroke"| Xterm
-  Xterm -->|"sendInput\n(request/response)"| PTY
-  PTY -->|"shell output"| Headless
-  PTY -->|"shell output"| Pub
-  Pub -->|"attach stream"| Xterm
+  Xterm -->|"sendInput\n(request/response)"| Host
+  Host -->|"attach stream\n(snapshot + deltas)"| Xterm
 
   %% Metadata loop
-  PTY -.->|"OSC 7\n(CWD change)"| Providers
+  Host -.->|"OSC taps\n(7 cwd · 2 title · 633 cmd)"| Providers
   Providers -.->|"metadata stream\n(subscription)"| Subs
   Pub -.->|"activity stream\n(subscription)"| Subs
   Subs -.-> UI
@@ -261,7 +259,7 @@ flowchart TB
   Pub -.->|"terminal list stream\n(subscription)"| Subs
 
   %% User actions
-  UI -->|"create · kill · reorder\n(request/response)"| PTY
+  UI -->|"create · kill · reorder\n(request/response)"| Host
 
   classDef user fill:#f4a261,stroke:#e76f51,color:#000
   classDef client fill:#2a9d8f,stroke:#264653,color:#fff
@@ -272,9 +270,9 @@ flowchart TB
   style Server fill:none,stroke:#264653,stroke-width:2px,color:#264653
 ```
 
-**Terminal I/O** (solid lines) — keystrokes go through `sendInput` RPC to node-pty; shell output flows back through the [publisher](packages/server/src/publisher.ts) as an `attach` stream to xterm.js. An @xterm/headless instance parses VT sequences server-side for screen-state snapshots[^lazy-attach].
+**Terminal I/O** (solid lines) — keystrokes go through `sendInput` RPC to the PTY owned by [`@kolu/pty-host`](packages/pty-host/); shell output flows back as an `attach` stream — a screen-state snapshot followed by the live delta stream, partitioned race-free at a single point so nothing is lost or double-painted — to xterm.js. The host's @xterm/headless mirror parses VT sequences server-side for those snapshots[^lazy-attach], and fans the output out to every attached client through a bounded `Channel`.
 
-**Metadata** (dashed lines) — every per-terminal observer lives in the provider DAG at [`packages/server/src/terminalBackend/providers.ts`](packages/server/src/terminalBackend/providers.ts), parameterized over `ProviderHooks` + `ProviderChannels` so the host backend is the only thing that varies. [`LocalTerminalBackend`](packages/server/src/terminalBackend/local.ts) — the concrete `TerminalBackend` for "this kolu process" — owns the lifecycle: each `spawnPty` constructs a `ProviderRecord`, wires `ProviderHooks` that funnel writes through `updateServer*Metadata`, and calls `startProviders`. The DAG itself: CWD changes (OSC 7) → git provider (`.git/HEAD` watcher) → GitHub provider (`gh pr view` polling). Agent detection uses a single generic orchestrator (`startAgentProvider` in `providers.ts`) driven by per-agent `AgentProvider` instances from each integration package. Today three instances are registered: `claudeCodeProvider` (from `kolu-claude-code`) wakes on title events (OSC 2) and its own `fs.watch` on `~/.claude/sessions/`; `codexProvider` (from `kolu-codex`) queries the highest-numbered `~/.codex/state_<N>.sqlite` for thread metadata and tails the matched rollout JSONL for state transitions; `opencodeProvider` (from `kolu-opencode`) queries OpenCode's SQLite database directly and watches its WAL file for live state updates. Adding a new agent CLI is one new `AgentProvider` and one line in `startProviders` — no server-side adapter file. All providers feed a single metadata channel streamed to the client as a subscription[^providers]. Separately, kolu's preexec hook emits an `OSC 633;E` command mark before each user command; the pty handler republishes the raw payload on a `commandRun` channel, and the agent-command tracker (in `providers.ts`) subscribes to match the first token against a known-agents allowlist and fan out to both (a) a bounded recent-agents MRU for the agent-aware command palette and (b) a per-terminal stash keyed by terminal id, so codex/opencode session detection still matches when the agent is an interpreter shim (e.g. npm-installed `codex`, whose kernel-level process name is `node`). No `/proc` lookups or argv scraping. The `TerminalBackend` interface itself lives in [`kolu-common/terminalBackend`](packages/common/src/terminalBackend.ts) — `LocalTerminalBackend` is one concrete shape; a future `RemoteTerminalBackend` (for terminals running on SSH hosts) is the other, and every call site downstream goes through `getTerminalBackendFor(location)` so neither asks "which kind?".
+**Metadata** (dashed lines) — every per-terminal observer lives in the provider DAG at [`packages/server/src/terminalBackend/providers.ts`](packages/server/src/terminalBackend/providers.ts), parameterized over `ProviderHooks` + `ProviderChannels` so the host backend is the only thing that varies. [`LocalTerminalBackend`](packages/server/src/terminalBackend/local.ts) — the concrete `TerminalBackend` for "this kolu process" — owns the lifecycle: each `spawnPty` constructs a `ProviderRecord`, wires `ProviderHooks` that funnel writes through `updateServer*Metadata`, and calls `startProviders`. The DAG itself: CWD changes (OSC 7) → git provider (`.git/HEAD` watcher) → GitHub provider (`gh pr view` polling). Agent detection uses a single generic orchestrator (`startAgentProvider` in `providers.ts`) driven by per-agent `AgentProvider` instances from each integration package. Today three instances are registered: `claudeCodeProvider` (from `kolu-claude-code`) wakes on title events (OSC 2) and its own `fs.watch` on `~/.claude/sessions/`; `codexProvider` (from `kolu-codex`) queries the highest-numbered `~/.codex/state_<N>.sqlite` for thread metadata and tails the matched rollout JSONL for state transitions; `opencodeProvider` (from `kolu-opencode`) queries OpenCode's SQLite database directly and watches its WAL file for live state updates. Adding a new agent CLI is one new `AgentProvider` and one line in `startProviders` — no server-side adapter file. All providers feed a single metadata channel streamed to the client as a subscription[^providers]. Separately, kolu's preexec hook emits an `OSC 633;E` command mark before each user command; `@kolu/pty-host` surfaces it on its command-run tap, the local backend bridges that onto the `commandRun` channel, and the agent-command tracker (in `providers.ts`) subscribes to match the first token against a known-agents allowlist and fan out to both (a) a bounded recent-agents MRU for the agent-aware command palette and (b) a per-terminal stash keyed by terminal id, so codex/opencode session detection still matches when the agent is an interpreter shim (e.g. npm-installed `codex`, whose kernel-level process name is `node`). No `/proc` lookups or argv scraping. The `TerminalBackend` interface itself lives in [`kolu-common/terminalBackend`](packages/common/src/terminalBackend.ts) — `LocalTerminalBackend` is one concrete shape; a future `RemoteTerminalBackend` (for terminals running on SSH hosts) is the other, and every call site downstream goes through `getTerminalBackendFor(location)` so neither asks "which kind?".
 
 **User actions** — the unified command palette (Cmd+K for commands; Cmd+Shift+K or the dock's search-icon button to drill into "Search workspaces") and tile chrome dispatch plain oRPC client calls ([`useTerminalCrud`](packages/client/src/terminal/useTerminalCrud.ts), [`useWorktreeOps`](packages/client/src/terminal/useWorktreeOps.ts)). The server's live subscriptions push updated state to the client automatically. [`useTerminalMetadata`](packages/client/src/terminal/useTerminalMetadata.ts) uses SolidJS's `mapArray` to create per-terminal subscriptions that automatically tear down when terminals are removed[^client-state].
 

@@ -29,8 +29,8 @@ import { join } from "node:path";
  *
  * Kolu's own identity vars (TERM_PROGRAM, TERM_PROGRAM_VERSION,
  * VTE_VERSION) live in `koluIdentityEnv()` and are layered on top of
- * cleanEnv's output by spawnPty — they don't belong in the parent-forward
- * whitelist.
+ * cleanEnv's output by the PTY spawn caller — they don't belong in the
+ * parent-forward whitelist.
  */
 export const NIX_ENV_WHITELIST =
   "HOME,USER,PATH,TERM,LANG,LC_ALL,LOGNAME,DISPLAY,COLORTERM";
@@ -93,7 +93,8 @@ export function cleanEnv(): Record<string, string> {
 }
 
 /**
- * Kolu's identity env vars, layered over `cleanEnv()` by spawnPty.
+ * Kolu's identity env vars, layered over `cleanEnv()` by the PTY spawn
+ * caller.
  *
  * Separate function because the volatility axis is different: cleanEnv
  * decides what parent vars are safe to forward (driven by Nix devshell
@@ -129,12 +130,12 @@ export const OSC7_FN = `__kolu_osc7() { printf '\\033]7;file://%s%s\\033\\\\' "$
  *
  *  1. **OSC 2** — window title. Mirrors Ghostty/Kitty convention of
  *     showing the running command in the title bar. Consumed by
- *     `headless.onTitleChange` in pty.ts to drive event-driven
+ *     `headless.onTitleChange` in `@kolu/pty-host` to drive event-driven
  *     foreground process detection.
  *
  *  2. **OSC 633 ; E ; <cmd>** — VS Code's semantic "exact command line"
- *     mark. The OSC 633 handler in pty.ts republishes the raw payload on
- *     the `commandRun` channel; downstream consumers derive the global
+ *     mark. The OSC 633 handler in `@kolu/pty-host` republishes the raw
+ *     payload on the `commandRun` channel; downstream consumers derive the global
  *     "recent agents" MRU and a per-terminal agent-command stash (used to
  *     detect interpreter-shimmed agents like npm-installed codex, where
  *     the kernel-level process name is `node`). The shell hands us the

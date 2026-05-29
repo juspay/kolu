@@ -46,8 +46,6 @@ export const publisherSize = (): number => publisher.size;
  *  `subscribeForTerminal_` (read-side), which had drifted into
  *  separate type maps maintained in two places. */
 export const terminalChannels = {
-  /** Raw PTY output bytes — high frequency, drives xterm.js. */
-  data: (id: string) => publisherChannel<string>(publisher, `data:${id}`),
   /** CWD changed (OSC 7 from PTY) — feeds the git provider. */
   cwd: (id: string) => publisherChannel<string>(publisher, `cwd:${id}`),
   /** Terminal title changed (OSC 0/2 from PTY) — feeds the process provider. */

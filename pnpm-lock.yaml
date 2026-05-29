@@ -413,19 +413,6 @@ importers:
         version: 4.1.2(@types/node@22.19.15)(vite@6.4.2(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.47.1)(tsx@4.21.0)(yaml@2.8.3))
 
   packages/integrations/pty:
-    dependencies:
-      '@xterm/addon-serialize':
-        specifier: ^0.14.0
-        version: 0.14.0
-      '@xterm/headless':
-        specifier: ^6.0.0
-        version: 6.0.0
-      kolu-shared:
-        specifier: workspace:*
-        version: link:../../shared
-      node-pty:
-        specifier: github:juspay/node-pty#fix/darwin-pty-fd-leak
-        version: https://codeload.github.com/juspay/node-pty/tar.gz/cc137d90e39bb9e5c72ca8b9d81210e5005c5fa3
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -456,6 +443,31 @@ importers:
         specifier: ^5.8.0
         version: 5.9.3
 
+  packages/pty-host:
+    dependencies:
+      '@xterm/addon-serialize':
+        specifier: ^0.14.0
+        version: 0.14.0
+      '@xterm/headless':
+        specifier: ^6.0.0
+        version: 6.0.0
+      kolu-shared:
+        specifier: workspace:*
+        version: link:../shared
+      node-pty:
+        specifier: github:juspay/node-pty#fix/darwin-pty-fd-leak
+        version: https://codeload.github.com/juspay/node-pty/tar.gz/cc137d90e39bb9e5c72ca8b9d81210e5005c5fa3
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.15
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.2
+        version: 4.1.2(@types/node@22.19.15)(vite@6.4.2(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.47.1)(tsx@4.21.0)(yaml@2.8.3))
+
   packages/server:
     dependencies:
       '@hono/node-server':
@@ -467,6 +479,9 @@ importers:
       '@kolu/artifact-sdk':
         specifier: workspace:*
         version: link:../artifact-sdk
+      '@kolu/pty-host':
+        specifier: workspace:*
+        version: link:../pty-host
       '@kolu/surface':
         specifier: workspace:*
         version: link:../surface

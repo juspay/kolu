@@ -61,18 +61,17 @@ import type {
  *  inheritance) shaped the way they will be in R-2. */
 export type TerminalLocation = { kind: "local" };
 
-/** Per-terminal channel payload types — the streams a backend exposes
- *  for one terminal id. Subscribing returns the payload type
- *  corresponding to the channel kind. */
-export interface TerminalChannelMap {
-  /** Raw PTY output bytes — high frequency, drives xterm.js. */
-  data: string;
-  /** CWD changed (OSC 7 from PTY). */
-  cwd: string;
-  /** Terminal title changed (OSC 0/2 from PTY). */
-  title: string;
-  /** Raw OSC 633;E preexec command line — caller normalises. */
-  commandRun: string;
+/** A late-joining client's view of a terminal: the screen state at attach
+ *  time plus the live output stream from exactly that point forward. The
+ *  backend produces both atomically (subscribe-before-serialize) so no
+ *  byte is lost or double-painted across the snapshot/delta boundary. */
+export interface TerminalAttachment {
+  /** Serialized screen state (VT escape sequences) at the instant of
+   *  attach. Empty string when the PTY hasn't produced output yet. */
+  snapshot: string;
+  /** Live output deltas after the snapshot. Ends on iterator return,
+   *  signal abort, or PTY exit. */
+  deltas: AsyncIterable<string>;
 }
 
 /** Options the lifecycle layer hands to `spawnPty`. `cwd` resolves to
@@ -151,15 +150,11 @@ export interface TerminalBackend {
    *  the e2e harness between scenarios. */
   killAllTerminals(): void;
 
-  /** Subscribe to a per-terminal channel. Returns an `AsyncIterable`
-   *  that is already wired to the underlying publisher — subscription
-   *  happens at call time, not at first iteration, so callers can
-   *  subscribe-before-serialize without losing events. */
-  subscribeTerminalChannel<K extends keyof TerminalChannelMap>(
-    id: TerminalId,
-    kind: K,
-    signal: AbortSignal | undefined,
-  ): AsyncIterable<TerminalChannelMap[K]>;
+  /** Attach to a terminal's output: a screen-state snapshot plus the live
+   *  delta stream from exactly that point forward. The snapshot is taken
+   *  and the delta stream subscribed atomically, so the boundary between
+   *  them loses and duplicates nothing. */
+  attach(id: TerminalId, signal: AbortSignal | undefined): TerminalAttachment;
 
   readonly fs: TerminalBackendFs;
   readonly git: TerminalBackendGit;

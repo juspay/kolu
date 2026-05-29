@@ -136,13 +136,12 @@ export const appRouter = t.router({
      * guarantees no output is lost between snapshot and live stream.
      */
     attach: t.terminal.attach.handler(async function* ({ input, signal }) {
-      const entry = requireTerminal(input.id);
-      const live = getTerminalBackendFor({
+      requireTerminal(input.id);
+      const { snapshot, deltas } = getTerminalBackendFor({
         kind: "local",
-      }).subscribeTerminalChannel(input.id, "data", signal);
-      const screenState = entry.handle.getScreenState();
-      if (screenState) yield screenState;
-      for await (const data of live) yield data;
+      }).attach(input.id, signal);
+      if (snapshot) yield snapshot;
+      for await (const data of deltas) yield data;
     }),
 
     screenState: t.terminal.screenState.handler(async ({ input }) => {

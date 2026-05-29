@@ -57,7 +57,7 @@ import type {
   TerminalServerMetadata,
 } from "kolu-common/surface";
 import { opencodeProvider } from "kolu-opencode";
-import type { PtyHandle } from "kolu-pty";
+import type { PtyHandle } from "@kolu/pty-host";
 import type { Logger } from "kolu-shared";
 import type { Channel } from "@kolu/surface/server";
 import { log } from "../log.ts";

@@ -1,24 +1,34 @@
 /**
- * `LocalTerminalBackend` — this kolu process. PTY spawned in-process
- * via `node-pty`, the per-terminal provider DAG (agent-command tracker,
- * git watcher, GitHub PR watcher, foreground-process observer, three
- * agent detectors) runs in the same process via `./providers.ts`, and
- * fs/git ops shell out locally.
+ * `LocalTerminalBackend` — this kolu process. The PTY is owned by an
+ * in-process `@kolu/pty-host` `PtyHost`; this backend is the adapter that
+ * bridges the host's PTY-derived events into kolu-server's surface
+ * plumbing and runs the per-terminal provider DAG (agent-command tracker,
+ * git watcher, GitHub PR watcher, foreground-process observer, three agent
+ * detectors) in the same process via `./providers.ts`. fs/git ops shell
+ * out locally.
  *
- * Provider lifecycle: each `spawnPty` constructs a `ProviderRecord`
- * (PtyHandle + aliased `entry.meta` + ephemeral `currentAgent`) and
- * wires `ProviderHooks` that funnel metadata writes through this
- * package's `updateServer*Metadata` helpers plus the activity-feed
- * trackers. The provider DAG itself doesn't know it's running inside
- * the local backend — it only knows about `ProviderHooks` /
- * `ProviderChannels`, so the same implementation drops onto any host
- * that doesn't share kolu-server's surface plumbing.
+ * The PTY boundary: `@kolu/pty-host` owns node-pty + the headless screen
+ * mirror + the VT-derived taps (cwd/title/command-run/exit/foregroundPid)
+ * and fans each out to many consumers. This backend prepares the spawn env
+ * (via `kolu-pty`), then *bridges* the host's per-PTY event streams onto
+ * the `terminalChannels` bus the provider DAG already consumes — so the
+ * providers stay untouched. `attach` delegates straight to the host's
+ * race-free snapshot+delta primitive.
+ *
+ * Provider lifecycle: each spawn constructs a `ProviderRecord` (a
+ * host-backed `PtyHandle` + aliased `entry.meta` + ephemeral
+ * `currentAgent`) and wires `ProviderHooks` that funnel metadata writes
+ * through this package's `updateServer*Metadata` helpers plus the
+ * activity-feed trackers. The provider DAG doesn't know it's running
+ * inside the local backend — it only knows about `ProviderHooks` /
+ * `ProviderChannels`.
  *
  * The fs/git surfaces delegate to `kolu-git` directly. Equality
  * predicates (`gitDiffOutputEqual`, …) stay imported at the surface
  * layer (they're pure value comparisons, not backend operations).
  */
 
+import { createPtyHost, type PtyHandle, type PtyHost } from "@kolu/pty-host";
 import { DEFAULT_SCROLLBACK } from "kolu-common/config";
 import type {
   TerminalId,
@@ -27,10 +37,10 @@ import type {
 } from "kolu-common/surface";
 import type {
   PtySpawnOpts,
+  TerminalAttachment,
   TerminalBackend,
   TerminalBackendFs,
   TerminalBackendGit,
-  TerminalChannelMap,
 } from "kolu-common/terminalBackend";
 import {
   type FsListAllOutput,
@@ -45,7 +55,7 @@ import {
   subscribeRepoChange,
 } from "kolu-git";
 import type { GitDiffMode } from "kolu-git/schemas";
-import { type PtyHandle, spawnPty } from "kolu-pty";
+import { cleanEnv, koluIdentityEnv, prepareShellInit } from "kolu-pty";
 import pkg from "../../package.json" with { type: "json" };
 import { trackRecentAgent, trackRecentRepo } from "../activity.ts";
 import { koluShellDir } from "../koluRoot.ts";
@@ -119,6 +129,27 @@ const localGit: TerminalBackendGit = {
   },
 };
 
+// ── PTY host (in-process) ──────────────────────────────────────────────
+
+/** The single in-process PTY owner for this kolu process. */
+const host: PtyHost = createPtyHost({ log });
+
+/** Pump a host event stream into a sink until the stream ends (PTY exit
+ *  or the per-terminal bridge signal aborts). Unexpected failures are
+ *  logged; clean end-of-stream is silent. */
+function bridgeStream<T>(
+  iter: AsyncIterable<T>,
+  onEvent: (value: T) => void,
+): void {
+  void (async () => {
+    try {
+      for await (const value of iter) onEvent(value);
+    } catch (err) {
+      log.error({ err }, "pty-host bridge subscription failed");
+    }
+  })();
+}
+
 // ── Backend implementation ─────────────────────────────────────────────
 
 /** All per-local-terminal state lives here. Structurally satisfies the
@@ -130,12 +161,13 @@ const localGit: TerminalBackendGit = {
  *  the agent-command tracker (basename of the binary in the foreground
  *  right now, null when the shell is idle / running a non-agent
  *  command). `stopProviders` tears down every per-terminal subscription
- *  on kill. */
+ *  on kill; `bridge` aborts the host→`terminalChannels` pumps. */
 interface LocalTerminalRecord {
   ptyHandle: PtyHandle;
   meta: TerminalMetadata;
   currentAgent: string | null;
   stopProviders: () => void;
+  bridge: AbortController;
 }
 
 class LocalTerminalBackend implements TerminalBackend {
@@ -147,51 +179,58 @@ class LocalTerminalBackend implements TerminalBackend {
   spawnPty(id: TerminalId, opts: PtySpawnOpts): TerminalInfo {
     const tlog = log.child({ terminal: id });
 
-    const ptyHandle = spawnPty(
-      tlog,
+    // Env layering, ordered least → most authoritative:
+    //   1. cleanEnv()        — parent env passthrough (Nix devshell filter).
+    //   2. koluIdentityEnv() — Kolu's identity vars (stomps parent).
+    //   3. shellInit.env     — per-PTY overrides (e.g. ZDOTDIR for zsh).
+    const env = cleanEnv();
+    const shell = env.SHELL ?? "/bin/sh";
+    const cwd = opts.cwd || env.HOME || "/";
+    Object.assign(env, koluIdentityEnv(pkg.version));
+    const shellInit = prepareShellInit({
+      shell,
+      home: env.HOME,
+      terminalId: id,
+      rcDir: koluShellDir,
+    });
+    Object.assign(env, shellInit.env);
+
+    const { pid } = host.spawn({
       id,
-      {
-        rcDir: koluShellDir,
-        termProgramVersion: pkg.version,
-        scrollback: DEFAULT_SCROLLBACK,
-        onData: (data) => {
-          terminalChannels.data(id).publish(data);
-        },
-        onExit: (exitCode) => {
-          tlog.info({ exitCode }, "exited");
-          const record = this.records.get(id);
-          if (record) {
-            record.stopProviders();
-            cleanupTerminalScratch(id);
-            this.records.delete(id);
-          }
-          surfaceCtx.events.terminalExit.publish({ id }, exitCode);
-          // Only save session on natural exit (record was still present).
-          // killAllTerminals clears its own records first, so we skip.
-          const wasNaturalExit = unregisterTerminal(id);
-          if (wasNaturalExit) {
-            emitTerminalsDirty();
-            emitTerminalListChanged();
-          }
-        },
-        onTitleChange: (title) => {
-          terminalChannels.title(id).publish(title);
-        },
-        onCommandRun: (raw) => {
-          terminalChannels.commandRun(id).publish(raw);
-        },
-        onCwd: (newCwd) => {
-          const entry = getTerminal(id);
-          if (entry) {
-            updateServerMetadata(entry, id, (m) => {
-              m.cwd = newCwd;
-            });
-            terminalChannels.cwd(id).publish(newCwd);
-          }
-        },
-      },
-      opts.cwd,
-    );
+      shell,
+      args: shellInit.args,
+      env,
+      cwd,
+      scrollback: DEFAULT_SCROLLBACK,
+      onDispose: shellInit.cleanup,
+    });
+    const ptyHandle = host.handle(id);
+
+    // Bridge the host's PTY-derived event streams onto the provider bus
+    // and the persisted metadata. The bridge is torn down via `bridge`
+    // on kill, and ends naturally on PTY exit when the host closes its
+    // channels. Subscribing here (eagerly) before `startProviders` keeps
+    // the provider-facing `terminalChannels` the single source the DAG
+    // reads — the providers don't know the host exists.
+    const bridge = new AbortController();
+    bridgeStream(host.subscribeCwd(id, bridge.signal), (newCwd) => {
+      const entry = getTerminal(id);
+      if (entry) {
+        updateServerMetadata(entry, id, (m) => {
+          m.cwd = newCwd;
+        });
+        terminalChannels.cwd(id).publish(newCwd);
+      }
+    });
+    bridgeStream(host.subscribeTitle(id, bridge.signal), (title) => {
+      terminalChannels.title(id).publish(title);
+    });
+    bridgeStream(host.subscribeCommandRun(id, bridge.signal), (raw) => {
+      terminalChannels.commandRun(id).publish(raw);
+    });
+    void host.exitPromise(id).then((exitCode) => {
+      this.handleExit(id, exitCode, tlog);
+    });
 
     const meta = createMetadata(ptyHandle.cwd);
     if (opts.parentId) meta.parentId = opts.parentId;
@@ -207,15 +246,14 @@ class LocalTerminalBackend implements TerminalBackend {
       meta.lastActivityAt = initial.lastActivityAt;
     if (initial?.intent) meta.intent = initial.intent;
 
-    // `PtyHandle` structurally satisfies `TerminalHandle` (write,
-    // resize, getScreenState, getScreenText, pid). The extra methods
-    // `PtyHandle` carries (dispose, process, foregroundPid) are hidden
-    // at the type boundary — `TerminalProcess.handle` is typed as
+    // The host-vended `PtyHandle` structurally satisfies `TerminalHandle`
+    // (write, resize, getScreenState, getScreenText, pid). The extra
+    // members it carries (cwd, process, foregroundPid) are hidden at the
+    // type boundary — `TerminalProcess.handle` is typed as
     // `TerminalHandle`, so external consumers (router.ts) can't reach
-    // them. Direct assignment instead of a wrap closure avoids
-    // allocating 4 closure-bound delegates per terminal.
+    // them; the provider DAG reads them through `record.ptyHandle`.
     const entry: TerminalProcess = {
-      info: { id, pid: ptyHandle.pid },
+      info: { id, pid },
       meta,
       handle: ptyHandle,
     };
@@ -229,6 +267,7 @@ class LocalTerminalBackend implements TerminalBackend {
       meta,
       currentAgent: null,
       stopProviders: () => {},
+      bridge,
     };
     this.records.set(id, record);
     record.stopProviders = startProviders(
@@ -238,10 +277,33 @@ class LocalTerminalBackend implements TerminalBackend {
       buildHooks(entry, id),
     );
 
-    tlog.info({ pid: ptyHandle.pid, total: listTerminals().length }, "created");
+    tlog.info({ pid, total: listTerminals().length }, "created");
     emitTerminalsDirty();
     emitTerminalListChanged();
     return entry.info;
+  }
+
+  /** PTY exited (naturally or as the delayed result of a `kill`). Mirrors
+   *  the old `spawnPty` `onExit`: tear the record down if it's still
+   *  present (natural exit), always publish the exit event, and save the
+   *  session only on a natural exit (kill paths clear the record first). */
+  private handleExit(id: TerminalId, exitCode: number, tlog: typeof log): void {
+    tlog.info({ exitCode }, "exited");
+    const record = this.records.get(id);
+    if (record) {
+      record.bridge.abort();
+      record.stopProviders();
+      cleanupTerminalScratch(id);
+      this.records.delete(id);
+    }
+    surfaceCtx.events.terminalExit.publish({ id }, exitCode);
+    // Only save session on natural exit (record was still present).
+    // The kill paths clear their own records first, so we skip.
+    const wasNaturalExit = unregisterTerminal(id);
+    if (wasNaturalExit) {
+      emitTerminalsDirty();
+      emitTerminalListChanged();
+    }
   }
 
   killTerminal(id: TerminalId): TerminalInfo | undefined {
@@ -251,8 +313,9 @@ class LocalTerminalBackend implements TerminalBackend {
 
     log.child({ terminal: id }).info({ pid: entry.info.pid }, "killing");
     if (record) {
+      record.bridge.abort();
       record.stopProviders();
-      record.ptyHandle.dispose();
+      host.kill(id);
       this.records.delete(id);
     }
     cleanupTerminalScratch(id);
@@ -263,35 +326,26 @@ class LocalTerminalBackend implements TerminalBackend {
   }
 
   killAllTerminals(): void {
-    // Snapshot registry + own records, clear both BEFORE disposing — so
-    // `onExit` callbacks can't find terminals and trigger session saves.
+    // Snapshot registry + own records, clear both BEFORE killing — so the
+    // delayed `handleExit` callbacks can't find terminals and trigger
+    // session saves.
     const entries = drainTerminals();
     const records = [...this.records.values()];
     this.records.clear();
     log.info({ count: entries.length }, "killing all terminals");
     for (const record of records) {
+      record.bridge.abort();
       record.stopProviders();
-      record.ptyHandle.dispose();
     }
     for (const entry of entries) {
+      host.kill(entry.info.id);
       cleanupTerminalScratch(entry.info.id);
     }
     emitTerminalListChanged();
   }
 
-  subscribeTerminalChannel<K extends keyof TerminalChannelMap>(
-    id: TerminalId,
-    kind: K,
-    signal: AbortSignal | undefined,
-  ): AsyncIterable<TerminalChannelMap[K]> {
-    // The narrowing on `K` makes the `as` necessary — TS can't see that
-    // the runtime `kind` indexes a typed channel of the right element
-    // type. Each branch of the channel map already matches by
-    // construction (`terminalChannels.data` returns `Channel<string>`,
-    // etc.), so the cast is a documentation rather than a runtime risk.
-    return terminalChannels[kind](id).subscribe(signal) as AsyncIterable<
-      TerminalChannelMap[K]
-    >;
+  attach(id: TerminalId, signal: AbortSignal | undefined): TerminalAttachment {
+    return host.attach(id, signal);
   }
 }
 

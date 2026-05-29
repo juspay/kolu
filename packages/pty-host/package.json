@@ -1,5 +1,5 @@
 {
-  "name": "kolu-pty",
+  "name": "@kolu/pty-host",
   "version": "0.1.0",
   "private": true,
   "license": "AGPL-3.0-or-later",
@@ -14,7 +14,12 @@
     "typecheck": "tsc --noEmit",
     "test:unit": "vitest run"
   },
-  "dependencies": {},
+  "dependencies": {
+    "@xterm/addon-serialize": "^0.14.0",
+    "@xterm/headless": "^6.0.0",
+    "kolu-shared": "workspace:*",
+    "node-pty": "github:juspay/node-pty#fix/darwin-pty-fd-leak"
+  },
   "devDependencies": {
     "@types/node": "^22.0.0",
     "typescript": "^5.8.0",
