@@ -40,6 +40,7 @@ import { CommentTextSurface } from "../comments/CommentTextSurface";
 import { useComposer } from "../comments/composerState";
 import { useCommentScrollRequest } from "../comments/scrollRequest";
 import { useColorScheme } from "../settings/useColorScheme";
+import { isMobile } from "../useMobile";
 import { FileBrowseIcon, FileDiffIcon, GitBranchIcon } from "../ui/Icons";
 import { resolveLineRefPath } from "../ui/lineRef";
 import {
@@ -480,6 +481,17 @@ const CodeTab: Component<{
           <Resizable.Panel
             as="div"
             data-testid="diff-file-list"
+            // Pierre renders its scroller inside a shadow root. The mobile
+            // right-panel host is a Corvu bottom-sheet drawer, and Corvu
+            // decides whether a touch drag dismisses the sheet by walking up
+            // from the (shadow-retargeted) event target looking for a
+            // scrollable ancestor — which it never finds across the shadow
+            // boundary, so it claims every vertical drag and the tree won't
+            // scroll. `data-corvu-no-drag` opts this subtree out of the
+            // sheet-drag so Pierre's native scroll works. Inert on desktop
+            // (no Corvu drawer there). The sibling diff panel scrolls fine —
+            // its `overflow-auto` is a light-DOM scroller Corvu can see.
+            data-corvu-no-drag=""
             class="min-h-0 border-b border-edge"
             minSize={0.1}
           >
@@ -525,6 +537,9 @@ const CodeTab: Component<{
                     onError={(err) =>
                       toast.error(`File tree render failed: ${err.message}`)
                     }
+                    // Roomier rows on touch (36px vs 30px) for a comfortable
+                    // tap target; clears the WCAG 2.2 24px floor with margin.
+                    density={isMobile() ? "relaxed" : undefined}
                     class="h-full w-full"
                     style={pierreTreesStyle}
                   />

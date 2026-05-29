@@ -151,17 +151,25 @@ const MobileTileView: Component<{
           </div>
         </button>
 
-        {/* Left-edge dock handle — opens the dock drawer on tap. */}
+        {/* Left-edge dock handle — opens the dock drawer on tap. The button
+         *  is a 32px-wide transparent hit target (clears the WCAG 2.2 24px
+         *  touch-target floor) wrapping an 8px visible bar, so the grab zone
+         *  is comfortable on a phone without a chunky edge intrusion. */}
         <button
           type="button"
           data-testid="mobile-dock-handle"
-          class="absolute top-1/2 left-0 -translate-y-1/2 z-10 w-2 h-16 rounded-r bg-fg-3/30 active:bg-fg-3/60 transition-colors cursor-pointer"
+          class="group absolute top-1/2 left-0 -translate-y-1/2 z-10 flex h-16 w-8 items-center justify-start cursor-pointer"
           aria-label="Open dock"
           onClick={() => setDockOpen(true)}
           // Don't let the wrapper's horizontal-swipe handler claim
           // an edge-grab as a tile cycle gesture.
           onTouchStart={(e: TouchEvent) => e.stopPropagation()}
-        />
+        >
+          <span
+            aria-hidden="true"
+            class="h-16 w-2 rounded-r bg-fg-3/30 transition-colors group-active:bg-fg-3/60"
+          />
+        </button>
 
         {/* Body container — relative so per-terminal absolutely-positioned
          *  search overlays anchor here, not the dvh root. */}

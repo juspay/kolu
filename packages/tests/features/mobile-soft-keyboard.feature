@@ -29,6 +29,31 @@ Feature: Mobile soft keyboard
     And there should be no page errors
 
   @mobile
+  Scenario: Sticky Ctrl folds into the next character typed on the soft keyboard
+    # Soft keyboards can't send Ctrl chords. The key bar arms a sticky Ctrl;
+    # the next character typed (xterm onData) is folded into the chord — here
+    # "c" becomes 0x03 and interrupts the running command. Exercises the
+    # onData fold, which the key bar's own sendInput path can't reach.
+    Given I run "sleep 30"
+    When I tap the mobile key "ctrl"
+    Then the mobile key "ctrl" should be armed
+    When I type "c" on the soft keyboard
+    Then the active terminal should show "^C"
+    And the mobile key "ctrl" should not be armed
+    And there should be no page errors
+
+  @mobile
+  Scenario: An armed sticky modifier is consumed one-shot by the next key-bar key
+    # Arming Ctrl then tapping a key-bar key routes through the same fold.
+    # "/" has no control byte so it passes through unchanged, but the modifier
+    # still disarms — a stray arm never lingers onto a later keystroke.
+    When I tap the mobile key "ctrl"
+    And I tap the mobile key "slash"
+    Then the active terminal should show "/"
+    And the mobile key "ctrl" should not be armed
+    And there should be no page errors
+
+  @mobile
   Scenario: Tapping ↑ then ⏎ recalls and resubmits the previous command
     Given I run "echo soft-recall-marker"
     When I tap the mobile key "up"

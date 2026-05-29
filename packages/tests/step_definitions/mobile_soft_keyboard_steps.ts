@@ -40,6 +40,43 @@ Then(
   },
 );
 
+When(
+  "I type {string} on the soft keyboard",
+  async function (this: KoluWorld, text: string) {
+    // Focus xterm's hidden textarea — what the OS soft keyboard actually
+    // targets — and type. This drives the `onData` path (where sticky
+    // modifiers are folded in), distinct from the key-bar buttons that
+    // `sendInput` directly.
+    await this.page.locator(XTERM_TEXTAREA).focus();
+    await this.page.keyboard.type(text);
+    await this.waitForFrame();
+  },
+);
+
+Then(
+  "the mobile key {string} should be armed",
+  async function (this: KoluWorld, testId: string) {
+    await this.page.waitForFunction(
+      (sel) =>
+        document.querySelector(sel)?.getAttribute("aria-pressed") === "true",
+      KEY(testId),
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+Then(
+  "the mobile key {string} should not be armed",
+  async function (this: KoluWorld, testId: string) {
+    await this.page.waitForFunction(
+      (sel) =>
+        document.querySelector(sel)?.getAttribute("aria-pressed") === "false",
+      KEY(testId),
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
 When("I tap the terminal canvas", async function (this: KoluWorld) {
   // Install a focus-event observer on .xterm-screen BEFORE the tap so we can
   // detect the iOS-style contenteditable auto-focus. The bug surfaces when the

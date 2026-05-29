@@ -47,6 +47,7 @@ import { isTouch } from "../useMobile";
 import { client, preferences } from "../wire";
 import { createFileRefLinkProvider } from "./fileRefLinkProvider";
 import ScrollToBottom from "./ScrollToBottom";
+import { applyStickyModifiers } from "./stickyModifiers";
 import SearchBar from "./SearchBar";
 import { registerTerminalRefs, unregisterTerminalRefs } from "./terminalRefs";
 import { registerDiagnostics } from "./useTerminalDiagnostics";
@@ -720,7 +721,12 @@ const Terminal: Component<{
           const csiResponse = /\x1b\[[?>=]?[\d;]*[cnRy]/; // DA1/DA2/DSR/CPR/DECRPM
           term.onData((data: string) => {
             if (csiResponse.test(data) || data.startsWith("\x1b]")) return;
-            void client.terminal.sendInput({ id: props.terminalId, data });
+            // Fold any sticky Ctrl/Alt armed on the mobile key bar into this
+            // keystroke (no-op on desktop, where nothing is ever armed).
+            void client.terminal.sendInput({
+              id: props.terminalId,
+              data: applyStickyModifiers(data),
+            });
           });
 
           createResizeObserver(

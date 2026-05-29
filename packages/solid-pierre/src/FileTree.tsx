@@ -69,6 +69,14 @@ export type FileTreeProps = {
   /** Collapse single-child directory chains (e.g. `packages/client/src` →
    *  one row). Default `true`. */
   flattenEmptyDirectories?: boolean;
+  /** Row density — a Pierre preset (`compact` 24px / `default` 30px /
+   *  `relaxed` 36px rows) or a numeric scale factor. Drives both the CSS row
+   *  height and the virtualizer's row math, so it's the correct lever for
+   *  touch-friendly rows (a CSS-only `--trees-item-height` override would
+   *  desync the virtualizer). Snapshot at construction — **not reactive**;
+   *  re-mount to change it (matches `initialExpansion`). Defaults to
+   *  Pierre's `default`. */
+  density?: FileTreeOptions["density"];
   /** Pin parent directory headers to the top of the scroll viewport.
    *  Default `true`. */
   stickyFolders?: boolean;
@@ -115,6 +123,7 @@ export const FileTree: Component<FileTreeProps> = (props) => {
           ...selectedAncestors,
         ],
         flattenEmptyDirectories: props.flattenEmptyDirectories ?? true,
+        density: props.density,
         stickyFolders: props.stickyFolders ?? true,
         icons: props.icons,
         search: props.search ?? true,
