@@ -45,6 +45,13 @@ const statusStyles: Record<WsStatus, string> = {
   closed: "bg-danger",
 };
 
+// Shared base for the square icon toggles in the control cluster
+// (maximize, dock, inspector). Active/idle coloring is layered on via
+// each button's own `classList`. Keep ring/size tweaks here so all
+// three toggles stay in lockstep.
+const toggleBtnClass =
+  "pointer-events-auto hidden sm:flex items-center justify-center w-7 h-7 rounded-lg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50";
+
 const ChromeBar: Component<{
   status: WsStatus;
   onOpenPalette: () => void;
@@ -137,7 +144,7 @@ const ChromeBar: Component<{
           <button
             type="button"
             data-testid="maximize-toggle"
-            class="pointer-events-auto hidden sm:flex items-center justify-center w-7 h-7 rounded-lg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+            class={toggleBtnClass}
             classList={{
               "bg-surface-2 text-fg": docked(),
               "text-fg-3 hover:bg-surface-2 hover:text-fg": !docked(),
@@ -160,7 +167,7 @@ const ChromeBar: Component<{
           <button
             type="button"
             data-testid="dock-toggle"
-            class="pointer-events-auto hidden sm:flex items-center justify-center w-7 h-7 rounded-lg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+            class={toggleBtnClass}
             classList={{
               "bg-surface-2 text-fg": dockExpanded(),
               "text-fg-3 hover:bg-surface-2 hover:text-fg": !dockExpanded(),
@@ -178,7 +185,7 @@ const ChromeBar: Component<{
           <button
             type="button"
             data-testid="inspector-toggle"
-            class="pointer-events-auto hidden sm:flex items-center justify-center w-7 h-7 rounded-lg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+            class={toggleBtnClass}
             classList={{
               "bg-surface-2 text-fg": !rightPanel.collapsed(),
               "text-fg-3 hover:bg-surface-2 hover:text-fg":
