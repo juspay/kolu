@@ -87,11 +87,14 @@ export function attachPierreTouchScroll(container: HTMLElement): void {
   let state: TouchScrollState | null = null;
 
   const onStart = (e: TouchEvent) => {
-    e.stopPropagation();
     const touch = e.touches[0];
     if (!touch) return;
     const scroller = findPierreScroller(container);
+    // Short tree (nothing overflows): leave the gesture to the drawer so a
+    // drag can still dismiss the sheet. Only claim the touch below, once we
+    // know we'll actually drive a scroll.
     if (!scroller) return;
+    e.stopPropagation();
     state = {
       startY: touch.clientY,
       startTop: scroller.scrollTop,
