@@ -447,10 +447,9 @@ class LocalTerminalBackend implements TerminalBackend {
       if (first.value.kind === "snapshot") snapshot = first.value.data;
       else pendingDelta = first.value.data;
     }
-    const exhausted = first.done === true;
     const deltas = (async function* () {
       if (pendingDelta !== undefined) yield pendingDelta;
-      if (exhausted) return;
+      if (first.done) return;
       for await (const msg of { [Symbol.asyncIterator]: () => iter }) {
         // A second `snapshot` would only arrive on a mid-stream agent-client
         // re-subscribe; yield its data so no output is dropped (the rare
@@ -491,11 +490,9 @@ export async function reattachLocalTerminals(
     return 0;
   }
   if (listed.length === 0) return 0;
-  let count = 0;
   for (const entry of listed) {
     backend.reattachPty(entry, savedById.get(entry.id));
-    count += 1;
   }
-  log.info({ count }, "reattached terminals from daemon");
-  return count;
+  log.info({ count: listed.length }, "reattached terminals from daemon");
+  return listed.length;
 }
