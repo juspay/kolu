@@ -124,16 +124,14 @@ describe("createAgent", () => {
       env: shellEnv,
       cwd: "/tmp",
     });
-    await waitFor(() =>
-      events.some(
+    let event: AgentMetadataEvent | undefined;
+    await waitFor(() => {
+      event = events.find(
         (e) => e.kind === "metadataPersisted" && e.fields.cwd === osc7Cwd,
-      ),
-    );
-    expect(
-      events.find(
-        (e) => e.kind === "metadataPersisted" && e.fields.cwd === osc7Cwd,
-      ),
-    ).toMatchObject({ kind: "metadataPersisted", id });
+      );
+      return event !== undefined;
+    });
+    expect(event).toMatchObject({ kind: "metadataPersisted", id });
   });
 
   it("seeds the recency clock from restoredActivityAt", async () => {
