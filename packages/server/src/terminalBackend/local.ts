@@ -308,8 +308,35 @@ class LocalTerminalBackend implements TerminalBackend {
     return entry.info;
   }
 
-  /** Async tail of `spawnPty`: the daemon RPC that starts the PTY, then the
-   *  local provider DAG against its taps. On failure unwinds the shadow. */
+  /** The daemon spawn RPC + the killed-during-spawn race check. Returns the
+   *  resolved `{pid, cwd}`, or null if the terminal was killed while the RPC
+   *  was in flight (the daemon-side PTY is then cleaned up here). Throws on an
+   *  RPC failure — the caller (`daemonSpawnAndWire`) unwinds the shadow. */
+  private async spawnOnDaemon(
+    id: TerminalId,
+    opts: PtySpawnOpts,
+    proxy: DaemonTerminalProxy,
+  ): Promise<{ pid: number; cwd: string } | null> {
+    const client = getDaemonHandle().client;
+    const res = await client.surface.terminal.spawn({ id, cwd: opts.cwd });
+    if (!getTerminal(id)) {
+      proxy.markFailed(new Error("terminal killed during spawn"));
+      try {
+        await client.surface.terminal.kill({ id });
+      } catch (err) {
+        log
+          .child({ terminal: id })
+          .error({ err }, "daemon kill of spawn-raced terminal failed");
+      }
+      return null;
+    }
+    return { pid: res.pid, cwd: res.cwd };
+  }
+
+  /** Async tail of `spawnPty`: confirm the daemon spawned the PTY, then start
+   *  the local provider DAG against its taps — the same two steps `reattachPty`
+   *  runs, just preceded by a spawn instead of a list-match. On failure unwinds
+   *  the shadow. */
   private async daemonSpawnAndWire(
     id: TerminalId,
     opts: PtySpawnOpts,
@@ -318,18 +345,8 @@ class LocalTerminalBackend implements TerminalBackend {
     tlog: typeof log,
   ): Promise<void> {
     try {
-      const client = getDaemonHandle().client;
-      const res = await client.surface.terminal.spawn({ id, cwd: opts.cwd });
-      // The terminal may have been killed while the spawn RPC was in flight.
-      if (!getTerminal(id)) {
-        proxy.markFailed(new Error("terminal killed during spawn"));
-        try {
-          await client.surface.terminal.kill({ id });
-        } catch (err) {
-          tlog.error({ err }, "daemon kill of spawn-raced terminal failed");
-        }
-        return;
-      }
+      const res = await this.spawnOnDaemon(id, opts, proxy);
+      if (!res) return; // killed during spawn — already cleaned up
       proxy.markReady(res.pid);
       entry.info.pid = res.pid;
       // Seed the daemon's authoritative resolved cwd before starting the DAG
