@@ -64,7 +64,11 @@ export function findPierreScroller(container: HTMLElement): HTMLElement | null {
 
 /** Pure delta math: the `scrollTop` to apply for a finger at `clientY`, or
  *  null while the drag is still below the commit threshold (a tap). Exported
- *  so the threshold + direction logic is unit-tested without a DOM. */
+ *  so the threshold + direction logic is unit-tested without a DOM.
+ *
+ *  The returned value is unclamped — it may be negative or past
+ *  `scrollHeight - clientHeight`; assigning it to `el.scrollTop` lets the
+ *  browser clamp into range (over-scroll is a no-op, by contract). */
 export function nextScrollTop(
   state: TouchScrollState,
   clientY: number,
