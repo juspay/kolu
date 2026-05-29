@@ -28,10 +28,29 @@ install:
     {{ nix_shell }} pnpm install
 
 # Run server + client in parallel.
-# Enters nix develop once, then re-invokes just inside it — subsequent
-# recipes see IN_NIX_SHELL so nix_shell becomes a no-op.
-dev:
+# Bare `just dev` keeps the canonical 7681/5173 (see README). Override either
+# port to run a second instance alongside a primary one; empty falls back to
+# the default. `just dev-auto` picks two free ports for you.
+#   just dev SERVER_PORT=7700 CLIENT_PORT=5180
+# The env vars must be exported before the parallel fork — Vite reads them once
+# at startup to compute its proxy target — so resolution happens here, in the
+# sequential recipe body, before `_dev` forks server + client.
+dev SERVER_PORT="" CLIENT_PORT="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export KOLU_DEV_SERVER_PORT="{{ SERVER_PORT }}"
+    export KOLU_DEV_CLIENT_PORT="{{ CLIENT_PORT }}"
+    echo "→ server http://localhost:${KOLU_DEV_SERVER_PORT:-7681}"
+    echo "→ client http://localhost:${KOLU_DEV_CLIENT_PORT:-5173}"
     {{ nix_shell }} just _dev
+
+# Run server + client on two free random ports, printing the resolved URLs.
+# For agents / a second worktree that must not collide with a primary instance.
+dev-auto:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    free_port() { python3 -c 'import socket;s=socket.socket();s.bind(("",0));print(s.getsockname()[1]);s.close()'; }
+    exec just dev SERVER_PORT="$(free_port)" CLIENT_PORT="$(free_port)"
 
 [private]
 _dev: install _dev-parallel
@@ -48,9 +67,10 @@ check: install
 lint: install
     {{ nix_shell }} biome lint .
 
-# Run server with auto-reload
+# Run server with auto-reload. Honors KOLU_DEV_SERVER_PORT if set (e.g. by
+# `just dev`), otherwise the server CLI falls back to its default port.
 server:
-    cd packages/server && {{ nix_shell }} pnpm dev
+    cd packages/server && {{ nix_shell }} pnpm dev ${KOLU_DEV_SERVER_PORT:+--port $KOLU_DEV_SERVER_PORT}
 
 # Run client with Vite dev server (HMR)
 client:

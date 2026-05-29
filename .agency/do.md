@@ -38,7 +38,7 @@ Keep these docs in sync:
 
 - **`README.md`** (top-level) — user-facing changes, architecture prose, transport-resilience description.
 - **`packages/surface/README.md`** — the `@kolu/surface` framework reference. The "How Kolu uses this framework" section is a concrete inventory of every cell, collection, and stream descriptor plus the raw-oRPC procedures that stay outside the framework. Update it whenever a new descriptor lands or whenever a contract entry's classification changes (added mutation, retired stream, …).
-- **`website/src/pages/index.astro`** — the kolu.dev marketing page. Its hero terminal + canvas-strip mockups (dock cards, split tile with `claude` + `just test`, codex apply_patch tile, opencode planning tile, Code-tab tree + preview) approximate the running Kolu app. When a user-facing surface changes shape — a new dock-row affordance, a renamed agent integration, a different split layout, a new chip state, a new Code-tab tab, a new theme name worth name-dropping — refresh the mockup so the marketing visual doesn't drift from the product. Drive the running app via `chrome-devtools` MCP if you want a reference screenshot to model from (`just run` boots Kolu on a random port).
+- **`website/src/pages/index.astro`** — the kolu.dev marketing page. Its hero terminal + canvas-strip mockups (dock cards, split tile with `claude` + `just test`, codex apply_patch tile, opencode planning tile, Code-tab tree + preview) approximate the running Kolu app. When a user-facing surface changes shape — a new dock-row affordance, a renamed agent integration, a different split layout, a new chip state, a new Code-tab tab, a new theme name worth name-dropping — refresh the mockup so the marketing visual doesn't drift from the product. Drive the running app via `chrome-devtools` MCP if you want a reference screenshot to model from (`just dev-auto` boots Kolu on two free ports with HMR and prints the client URL).
 
 ## PR evidence
 
@@ -48,18 +48,15 @@ When the change has visible UI impact, post a `## Evidence` PR comment with scre
 
 ### Dev server
 
-Spawn a dedicated dev server on a **free random port** (the user may have one on 5173 already). Hold the port number in a shell variable for the subagent and kill the process at the end:
+Spawn a dedicated dev server on **free random ports** (the user may already hold `7681`/`5173`). `just dev-auto` allocates both ports, wires the Vite proxy to the picked server port, and prints the client URL — grab it from stdout instead of parsing logs. Kill the process at the end:
 
 ```sh
-PORT=$(python3 -c 'import socket; s=socket.socket(); s.bind(("",0)); p=s.getsockname()[1]; s.close(); print(p)')
-# Override the client port — read packages/client/vite.config.ts and the
-# `client`/`dev` recipes to find the right flag/env (e.g. `pnpm dev -- --port $PORT`).
-just dev &  # adjusted for the port override
+just dev-auto &   # prints "→ client http://localhost:<port>"; pass that URL to the subagent
 DEV_PID=$!
 trap 'kill $DEV_PID 2>/dev/null' EXIT
 ```
 
-For bug fixes that need a "before" shot, run a second server from a `git worktree` on `master` (different free port). Never stash the PR branch.
+For bug fixes that need a "before" shot, run a second `just dev-auto` from a `git worktree` on `master` (it picks its own free ports, so no collision with the PR-branch instance). Never stash the PR branch.
 
 ### Capture, host, post
 
