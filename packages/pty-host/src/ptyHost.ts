@@ -191,9 +191,12 @@ export interface PtyHost {
     id: PtyId,
     signal?: AbortSignal,
   ): AsyncIterable<ForegroundSample>;
-  /** Resolves with the exit code when the child exits; resolves
-   *  immediately for an already-exited PTY. */
-  exitPromise(id: PtyId): Promise<number>;
+  /** Resolves with the exit code when the child exits; resolves immediately
+   *  for an already-exited PTY. If `signal` aborts first, the registered
+   *  waiter is removed and the promise rejects — so a long-lived host doesn't
+   *  retain a waiter per abandoned subscription (e.g. one per kolu-server
+   *  restart). */
+  exitPromise(id: PtyId, signal?: AbortSignal): Promise<number>;
   /** Write input (keystrokes, pasted text). No-op if the PTY is gone. */
   write(id: PtyId, data: string): void;
   /** Resize the PTY grid + the headless mirror. No-op if gone. */
@@ -290,7 +293,7 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
   function sampleForeground(entry: Entry): void {
     const foregroundPid = readForegroundPid(entry.proc);
     const process = entry.proc.process;
-    const key = `${process} ${foregroundPid ?? ""}`;
+    const key = `${process}\u0000${foregroundPid ?? ""}`;
     if (key === entry.lastForegroundKey) return;
     entry.lastForegroundKey = key;
     entry.foregroundChannel.publish({ process, foregroundPid });
@@ -501,11 +504,30 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     return { snapshot, deltas };
   }
 
-  function exitPromise(id: PtyId): Promise<number> {
+  function exitPromise(id: PtyId, signal?: AbortSignal): Promise<number> {
     const entry = entries.get(id);
     if (entry) {
       if (entry.exitCode !== undefined) return Promise.resolve(entry.exitCode);
-      return new Promise<number>((resolve) => entry.exitWaiters.push(resolve));
+      return new Promise<number>((resolve, reject) => {
+        const waiter = (code: number): void => {
+          cleanup();
+          resolve(code);
+        };
+        const onAbort = (): void => {
+          const i = entry.exitWaiters.indexOf(waiter);
+          if (i >= 0) entry.exitWaiters.splice(i, 1);
+          cleanup();
+          reject(new Error("exitPromise aborted"));
+        };
+        const cleanup = (): void =>
+          signal?.removeEventListener("abort", onAbort);
+        if (signal?.aborted) {
+          reject(new Error("exitPromise aborted"));
+          return;
+        }
+        entry.exitWaiters.push(waiter);
+        signal?.addEventListener("abort", onAbort, { once: true });
+      });
     }
     const cached = exitCodes.get(id);
     if (cached !== undefined) return Promise.resolve(cached);
