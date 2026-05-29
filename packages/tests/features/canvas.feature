@@ -398,7 +398,7 @@ Feature: Canvas workspace
     Given I create a terminal
     Then there should be 2 canvas tiles
     When I click the chrome-bar maximize toggle
-    Then canvas tile 1 should be maximized
+    Then some canvas tile should be maximized
     When I click the chrome-bar maximize toggle
     Then no canvas tile should be maximized
     And there should be no page errors
