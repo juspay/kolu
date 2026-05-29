@@ -32,6 +32,7 @@ import { cli } from "cleye";
 import { Hono } from "hono";
 import { pinoLogger } from "hono-pino";
 import { DEFAULT_PORT } from "kolu-common/config";
+import type { SavedTerminal } from "kolu-common/surface";
 import { configureNixShellEnv } from "kolu-pty";
 import { WebSocketServer } from "ws";
 import pkg from "../package.json" with { type: "json" };
@@ -49,7 +50,7 @@ import { ensureKoluRoot, shutdownCleanup } from "./koluRoot.ts";
 import { log } from "./log.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import { appRouter } from "./router.ts";
-import { initSessionAutoSave } from "./session.ts";
+import { getSavedSession, initSessionAutoSave } from "./session.ts";
 import { getTerminal } from "./terminal-registry.ts";
 import {
   reattachLocalTerminals,
@@ -281,7 +282,14 @@ const tlsOptions = await resolveTlsOptions(argv.flags);
 // the first client connects.
 try {
   await ensureDaemon();
-  const reattached = await reattachLocalTerminals();
+  // Join the saved session by id here (boot orchestration), then hand the
+  // map to the transport-level reattach — keeps the session-restore concern
+  // out of `LocalTerminalBackend`.
+  const saved = getSavedSession();
+  const savedById = new Map<string, SavedTerminal>(
+    (saved?.terminals ?? []).map((t) => [t.id, t]),
+  );
+  const reattached = await reattachLocalTerminals(savedById);
   startLocalTerminalBridge();
   if (reattached > 0) {
     log.info({ reattached }, "reattached terminals from surviving daemon");

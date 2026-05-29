@@ -72,7 +72,6 @@ import {
 } from "../daemon/supervisor.ts";
 import { log } from "../log.ts";
 import { terminalsDirtyChannel } from "../publisher.ts";
-import { getSavedSession } from "../session.ts";
 import { surfaceCtx } from "../surfaceCtx.ts";
 import {
   drainTerminals,
@@ -474,10 +473,14 @@ export function startLocalTerminalBridge(): void {
 }
 
 /** Reattach to PTYs the daemon still owns after a kolu-server restart.
- *  Returns the count reattached. Matches the daemon's live list to the saved
- *  session by id; daemon-owned PTYs with no saved entry are reattached with
- *  defaults (the daemon's metadata replays over the stream snapshot). */
-export async function reattachLocalTerminals(): Promise<number> {
+ *  Returns the count reattached. `savedById` is the boot caller's join of
+ *  the saved session keyed by terminal id (the session-restore concern stays
+ *  in `server.ts`'s boot orchestration, not in this transport module);
+ *  daemon-owned PTYs with no saved entry are reattached with defaults (the
+ *  daemon's metadata replays over the stream snapshot). */
+export async function reattachLocalTerminals(
+  savedById: ReadonlyMap<string, SavedTerminal>,
+): Promise<number> {
   const client = getDaemonHandle().client;
   let listed: AgentTerminalListEntry[];
   try {
@@ -488,10 +491,6 @@ export async function reattachLocalTerminals(): Promise<number> {
     return 0;
   }
   if (listed.length === 0) return 0;
-  const saved = getSavedSession();
-  const savedById = new Map<string, SavedTerminal>(
-    (saved?.terminals ?? []).map((t) => [t.id, t]),
-  );
   let count = 0;
   for (const entry of listed) {
     backend.reattachPty(entry, savedById.get(entry.id));
