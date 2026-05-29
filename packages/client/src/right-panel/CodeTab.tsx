@@ -48,6 +48,7 @@ import {
   toGitStatusEntries,
 } from "../ui/pierreAdapters";
 import {
+  PIERRE_DIFFS_LINE_HEIGHT,
   pierreDiffsStyle,
   pierreIconConfig,
   pierreTreesStyle,
@@ -685,6 +686,7 @@ const CodeTab: Component<{
                                       items={items()}
                                       theme={diffTheme()}
                                       diffStyle="unified"
+                                      lineHeight={PIERRE_DIFFS_LINE_HEIGHT}
                                       enableLineSelection
                                       selectedLines={codeViewSelection()}
                                       onSelectedLinesChange={(s) =>

@@ -47,6 +47,15 @@ export type CodeViewProps = {
    *  `"wrap"` wraps long lines. Distinct from CSS overflow, which lives
    *  on the wrapper's `class`/`style`. Default `"wrap"`. */
   overflow?: "scroll" | "wrap";
+  /** Rendered code-row height in pixels. Pierre's virtualizer uses this as
+   *  `itemMetrics.lineHeight` to size its scroll scaffold and pick which
+   *  rows fall in the render window; it defaults to 20px. If a caller
+   *  overrides the *rendered* row height (Kolu sets `--diffs-line-height`
+   *  in its diffs style) the metric must match, or the window comes up
+   *  short and the last rows are unreachable at the bottom of the scroll
+   *  (#1021). Pass the same pixel value used for `--diffs-line-height`.
+   *  Omit to keep Pierre's 20px default. */
+  lineHeight?: number;
   /** When true, Pierre wires gutter selection. Drive the visible
    *  highlight via `selectedLines` and observe changes via
    *  `onSelectedLinesChange`. Default `false`. */
@@ -145,41 +154,23 @@ export const CodeView: Component<CodeViewProps> = (props) => {
     });
   };
 
-  // Pierre's virtualizer needs the row height as a numeric metric (`itemMetrics
-  // .lineHeight`) to estimate the scroll scaffold and pick which rows fall in
-  // the render window; it defaults to 20px. Kolu sets the *rendered* row height
-  // via the `--diffs-line-height` CSS custom property on `style` (Pierre's CSS
-  // reads `line-height: var(--diffs-line-height, 20px)`). If the JS metric and
-  // that CSS value disagree, the window comes up short and the last few rows
-  // never render — they're unreachable at the bottom of the scroll (#1021).
-  // Derive the metric from the same custom property so the two can't drift:
-  // there's one source of truth for "how tall is a row", and the host that
-  // owns the Pierre seam is the right place to bridge it into Pierre's options.
-  const lineHeightMetric = (): number | undefined => {
-    const raw = (props.style as Record<string, unknown> | undefined)?.[
-      "--diffs-line-height"
-    ];
-    if (raw == null) return undefined;
-    const n = Number.parseFloat(String(raw));
-    return Number.isFinite(n) ? n : undefined;
-  };
-
   // Read every reactive prop at call time so a later prop change lands on
   // the existing CodeView instance via `setOptions` (theme toggle, etc.)
-  // instead of forcing a reconstruct.
-  const buildOptions = (): CodeViewOptions<undefined> => {
-    const lineHeight = lineHeightMetric();
-    return {
-      theme: DEFAULT_THEMES,
-      themeType: props.theme,
-      diffStyle: props.diffStyle ?? "unified",
-      overflow: props.overflow ?? "wrap",
-      lineHoverHighlight: "both",
-      enableLineSelection: props.enableLineSelection ?? false,
-      onSelectedLinesChange: (s) => props.onSelectedLinesChange?.(s),
-      ...(lineHeight != null ? { itemMetrics: { lineHeight } } : {}),
-    };
-  };
+  // instead of forcing a reconstruct. `lineHeight` (when supplied) feeds
+  // Pierre's `itemMetrics.lineHeight` so its virtualizer windows the right
+  // number of rows; see the prop doc.
+  const buildOptions = (): CodeViewOptions<undefined> => ({
+    theme: DEFAULT_THEMES,
+    themeType: props.theme,
+    diffStyle: props.diffStyle ?? "unified",
+    overflow: props.overflow ?? "wrap",
+    lineHoverHighlight: "both",
+    enableLineSelection: props.enableLineSelection ?? false,
+    onSelectedLinesChange: (s) => props.onSelectedLinesChange?.(s),
+    ...(props.lineHeight != null
+      ? { itemMetrics: { lineHeight: props.lineHeight } }
+      : {}),
+  });
 
   onMount(() => {
     safeApply(() => {

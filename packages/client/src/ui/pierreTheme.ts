@@ -71,6 +71,16 @@ export const pierreTreesStyle: JSX.CSSProperties = {
   "--trees-density-override": "0.85",
 };
 
+/** Rendered code-row height (px) for Pierre `CodeView` hosts. Single source
+ *  of truth: it drives both the CSS row height (`--diffs-line-height` below)
+ *  and the numeric metric Pierre's virtualizer needs (`<CodeView lineHeight>`).
+ *  These two MUST agree — if the metric defaults to Pierre's 20px while rows
+ *  render at this value, the virtualizer's window comes up short and the last
+ *  rows are unreachable at the bottom of the scroll (#1021). Pass this to
+ *  every `<CodeView>` via `lineHeight={PIERRE_DIFFS_LINE_HEIGHT}` alongside
+ *  `style={pierreDiffsStyle}`. */
+export const PIERRE_DIFFS_LINE_HEIGHT = 16;
+
 /** Apply to any `@pierre/diffs` `CodeView` host.
  *
  *  Pierre's diffs CSS reads bare variables (`--diffs-font-size`) for fonts and
@@ -87,5 +97,5 @@ export const pierreDiffsStyle: JSX.CSSProperties = {
   "--diffs-header-font-family":
     "var(--font-sans), ui-sans-serif, system-ui, sans-serif",
   "--diffs-font-size": "11px",
-  "--diffs-line-height": "16px",
+  "--diffs-line-height": `${PIERRE_DIFFS_LINE_HEIGHT}px`,
 };
