@@ -64,12 +64,12 @@ const MODS: readonly Mod[] = [
 
 const KEY_CLASS =
   "shrink-0 min-w-[2.5rem] px-2 py-1.5 text-xs rounded-md transition-colors cursor-pointer font-mono";
+const KEY_UNARMED_CLASS =
+  "bg-surface-2 text-fg-2 hover:bg-surface-3 active:bg-surface-3";
 
 const MobileKeyBar: Component<{
   activeId: () => TerminalId | null;
 }> = (props) => {
-  const isCoarse = isTouch;
-
   // 10ms haptic tick — Android only; iOS Safari doesn't implement
   // navigator.vibrate, so the guard makes it a silent no-op there.
   function tick() {
@@ -84,7 +84,7 @@ const MobileKeyBar: Component<{
   }
 
   return (
-    <Show when={isCoarse()}>
+    <Show when={isTouch()}>
       <div
         class="flex gap-1 px-2 py-1.5 bg-surface-1 border-t border-edge overflow-x-auto"
         data-testid="mobile-key-bar"
@@ -104,8 +104,7 @@ const MobileKeyBar: Component<{
               class={KEY_CLASS}
               classList={{
                 "bg-accent/20 text-fg ring-1 ring-accent": mod.armed(),
-                "bg-surface-2 text-fg-2 hover:bg-surface-3 active:bg-surface-3":
-                  !mod.armed(),
+                [KEY_UNARMED_CLASS]: !mod.armed(),
               }}
               data-testid={`mobile-key-${mod.testId}`}
             >
@@ -121,7 +120,7 @@ const MobileKeyBar: Component<{
                 e.preventDefault();
                 send(key.data);
               }}
-              class={`${KEY_CLASS} bg-surface-2 text-fg-2 hover:bg-surface-3 active:bg-surface-3`}
+              class={`${KEY_CLASS} ${KEY_UNARMED_CLASS}`}
               data-testid={`mobile-key-${key.testId}`}
             >
               {key.label}
