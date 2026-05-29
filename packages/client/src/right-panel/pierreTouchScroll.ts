@@ -124,8 +124,11 @@ export function attachPierreTouchScroll(container: HTMLElement): void {
     if (top === null) return;
     state.moved = true;
     state.scroller.scrollTop = top;
-    // Eat the committed move so iOS doesn't run its own scroll attempt and
-    // Pierre's row-click doesn't fire on the following touchend.
+    // preventDefault is the load-bearing call: it suppresses iOS's native
+    // scroll so our scrollTop write wins, and stops Pierre's row-click from
+    // firing on the touchend after a drag. stopPropagation is belt-and-braces
+    // — it keeps the move off document-level handlers — NOT what neutralizes
+    // Corvu's drag-to-dismiss; that's `data-corvu-no-drag` on the pointer path.
     e.preventDefault();
     e.stopPropagation();
   };
