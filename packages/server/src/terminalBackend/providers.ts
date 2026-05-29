@@ -1,8 +1,8 @@
 /** Per-terminal provider DAG, parameterized over `ProviderHooks` +
- *  `ProviderChannels` + `ProviderRecord` so the host backend is the
- *  only thing that varies. `LocalTerminalBackend` is the current
- *  consumer; a remote agent backend that runs the same DAG against
- *  in-process channels will be added in a follow-up phase (#951 R-2).
+ *  `ProviderChannels` + `ProviderRecord` so the host is the only thing
+ *  that varies. The in-process agent (`./agent.ts`) instantiates it today
+ *  (#951 R4b); a remote ssh agent that runs the same DAG against its own
+ *  in-process channels arrives in #951 R-2 — same code, different transport.
  *
  *  Provider DAG:
  *
@@ -19,9 +19,8 @@
  *
  *  Note on `git` channel: the GitHub PR provider chains off the
  *  `git` channel that the git provider publishes — so the channel
- *  has to be provided by the host (`terminalChannels.git(id)` on
- *  the local backend, an in-memory channel on hosts that don't have
- *  a publisher).
+ *  has to be provided by the host (the agent creates a per-terminal
+ *  in-memory channel for it).
  *
  *  ## Host contract
  *
@@ -29,9 +28,9 @@
  *  cwd) and is not re-read afterwards; subsequent cwd changes flow
  *  ONLY through `channels.cwd`. Hosts must publish every cwd change to
  *  that channel — they are NOT required to keep `record.meta.cwd` in
- *  sync, though the local backend happens to (it writes through
- *  `updateServerMetadata` so the persisted+published metadata stays
- *  current for clients). Any host that satisfies the
+ *  sync, though the agent happens to (its cwd bridge writes through
+ *  `hooks.updateServerMetadata` so the persisted+published metadata
+ *  stays current for clients). Any host that satisfies the
  *  `ProviderChannels`/`ProviderHooks` shape and publishes cwd to the
  *  channel will get correct agent / git resolution.
  */
@@ -477,11 +476,11 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
   };
 }
 
-/** Start every per-terminal provider for one terminal. Both
- *  `LocalTerminalBackend` and `runAgent` call this with their
- *  respective channels + hooks. Provider order matters only for
- *  the agent-command tracker — it must come first so its stash is
- *  populated before agent detectors reconcile against it. */
+/** Start every per-terminal provider for one terminal. The in-process
+ *  agent (`./agent.ts`) calls this with its channels + hooks (a remote
+ *  agent will too). Provider order matters only for the agent-command
+ *  tracker — it must come first so its stash is populated before agent
+ *  detectors reconcile against it. */
 export function startProviders(
   record: ProviderRecord,
   terminalId: TerminalId,
