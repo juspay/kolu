@@ -105,7 +105,12 @@ export class Channel<T> {
           const resolve = resolveNext;
           resolveNext = null;
           if (value === CLOSE) {
-            finished = true;
+            // Full teardown, not just `finished = true`: a next() that
+            // resolves `{done:true}` ends the consumer's `for await`
+            // WITHOUT calling return(), so cleanup() would otherwise never
+            // run — leaking the subscriber in `subs` and the abort
+            // listener on the signal (idle attach streams sit pending here).
+            cleanup();
             resolve({ done: true, value: undefined });
           } else {
             resolve({ done: false, value });

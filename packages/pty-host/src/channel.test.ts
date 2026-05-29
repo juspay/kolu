@@ -81,6 +81,29 @@ describe("Channel", () => {
     expect(await pending).toEqual({ done: true, value: undefined });
   });
 
+  it("does not leak the subscriber when aborted while a next() is pending", async () => {
+    const ch = new Channel<number>();
+    const ac = new AbortController();
+    const it = ch.subscribe(ac.signal)[Symbol.asyncIterator]();
+    const pending = next(it);
+    expect(ch.subscriberCount).toBe(1);
+    ac.abort();
+    await pending;
+    // Resolving {done:true} ends the for-await WITHOUT calling return(), so
+    // the push path itself must tear the subscriber down.
+    expect(ch.subscriberCount).toBe(0);
+  });
+
+  it("does not leak the subscriber when closed while a next() is pending", async () => {
+    const ch = new Channel<number>();
+    const it = ch.subscribe()[Symbol.asyncIterator]();
+    const pending = next(it);
+    expect(ch.subscriberCount).toBe(1);
+    ch.close();
+    await pending;
+    expect(ch.subscriberCount).toBe(0);
+  });
+
   it("returns empty when the signal is already aborted", async () => {
     const ch = new Channel<number>();
     const ac = new AbortController();
