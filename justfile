@@ -49,8 +49,10 @@ dev SERVER_PORT="" CLIENT_PORT="":
 dev-auto:
     #!/usr/bin/env bash
     set -euo pipefail
-    free_port() { python3 -c 'import socket;s=socket.socket();s.bind(("",0));print(s.getsockname()[1]);s.close()'; }
-    exec just dev SERVER_PORT="$(free_port)" CLIENT_PORT="$(free_port)"
+    # python3 via nix (not a global install) so this works outside the devshell.
+    # Both sockets stay open until printed, guaranteeing two *unique* free ports.
+    read -r SERVER_PORT CLIENT_PORT < <(nix shell nixpkgs#python3 --command python3 -c 'import socket; a=socket.socket(); a.bind(("",0)); b=socket.socket(); b.bind(("",0)); print(a.getsockname()[1], b.getsockname()[1]); a.close(); b.close()')
+    exec just dev SERVER_PORT="$SERVER_PORT" CLIENT_PORT="$CLIENT_PORT"
 
 [private]
 _dev: install _dev-parallel
