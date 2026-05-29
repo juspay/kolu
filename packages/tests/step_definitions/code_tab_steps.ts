@@ -555,6 +555,14 @@ Then(
 );
 
 Then(
+  "the file preview image should be visible",
+  async function (this: KoluWorld) {
+    const image = this.page.locator('[data-testid="browse-preview-image"]');
+    await image.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+Then(
   "the Code tab tree pane split handle should be visible",
   async function (this: KoluWorld) {
     // The handle's own bounding box is intentionally zero-height (`h-0`);
