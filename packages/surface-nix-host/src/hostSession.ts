@@ -241,7 +241,11 @@ export class HostSession<C extends AnyContractRouter> {
       // provision failure that skips straight to disconnected) — disarms
       // the connect watchdog. This single choke-point is why the exit/
       // error handlers and `markConnected` don't each clear it by hand.
-      if (patch.connection !== "connecting") this.clearTimer();
+      // The guard names the actual transition (`connecting` → not-`connecting`)
+      // rather than just the target, so the clear can't fire on unrelated
+      // moves like `connected → disconnected`.
+      if (prev.connection === "connecting" && patch.connection !== "connecting")
+        this.clearTimer();
     }
     if (patch.lastError !== undefined && patch.lastError !== null) {
       process.stderr.write(
