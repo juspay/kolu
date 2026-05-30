@@ -344,10 +344,7 @@ export class HostSession<C extends AnyContractRouter> {
     // Folding the probe into the spawn cycle is what lets a boot-time
     // unreachable host degrade to `failed` instead of crashing the caller
     // before any session exists.
-    let drvPath: string;
-    try {
-      drvPath = await this.opts.resolveDrvPath();
-    } catch (err) {
+    const drvPath = await this.opts.resolveDrvPath().catch((err: unknown) => {
       // Mirror the `provisionAgent` failure path's message fidelity: that
       // branch surfaces `provision.reason` (always a real string), so a
       // non-Error rejection here mustn't degrade `lastError` to the string
@@ -356,7 +353,7 @@ export class HostSession<C extends AnyContractRouter> {
       this.updateState({ connection: "disconnected", lastError: reason });
       this.scheduleReconnect();
       throw err;
-    }
+    });
     const provision = await provisionAgent({
       host: this.opts.host,
       drvPath,
