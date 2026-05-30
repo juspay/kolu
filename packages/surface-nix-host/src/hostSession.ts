@@ -1,5 +1,5 @@
 /**
- * `HostSession<C>` — ref-counted ssh subprocess per `(host, drvPath)`,
+ * `HostSession<C>` — ref-counted ssh subprocess per `(host, binary)`,
  * generic over a `@kolu/surface` contract type `C`.
  *
  * Multiple subscriptions against the same host share ONE ssh
