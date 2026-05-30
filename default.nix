@@ -199,9 +199,15 @@ let
     inherit pkgs src pnpmDeps;
   };
 
-  # The workspace type gate (rationale in nix/typecheck.nix). flake.nix
+  # The workspace type gate (juspay/kolu#1049): `tsc --noEmit` over every
+  # package. Reuses this build's `src` + `pnpmDeps` — every package with a
+  # typecheck script is in the `src` fileset above (see its INVARIANT
+  # comment), so this checks exactly what `pnpm typecheck` does. flake.nix
   # strips this from `packages` and routes it to `checks`.
-  typecheck = import ./nix/typecheck.nix { inherit pkgs src pnpmDeps; };
+  typecheck = import ./nix/pnpm-typecheck.nix {
+    inherit pkgs src pnpmDeps;
+    pname = "kolu-typecheck";
+  };
 in
 {
   inherit default koluBin koluEnv pnpmDeps typecheck;
