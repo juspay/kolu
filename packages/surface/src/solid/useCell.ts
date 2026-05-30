@@ -208,20 +208,28 @@ function useCellLocal<Name extends string, T extends object, P>(
       options.onError?.(err instanceof Error ? err : new Error(String(err)));
     });
   }
+  // Coalescing merges queued patches through `applyPatch`; without it, two
+  // patches in one window would collapse to last-write-wins and silently drop
+  // the earlier keys. Enforce the documented precondition at construction so a
+  // misconfigured cell fails loudly here, not as missing data at runtime.
+  if (options.coalesceMs !== undefined && options.applyPatch === undefined) {
+    throw new Error(
+      "useCell: coalesceMs requires applyPatch — coalescing merges queued " +
+        "patches through it, so without it interleaved writes would be lost.",
+    );
+  }
   const scheduleFlush =
     options.coalesceMs !== undefined
       ? debounce(flushPending, options.coalesceMs)
       : undefined;
   function enqueue(p: P): void {
+    const merge = options.applyPatch;
+    // `merge === undefined` can't happen once `scheduleFlush` is set (the guard
+    // above threw); the check is here only to narrow the optional for TS.
     pendingPatch =
-      pendingPatch === undefined
+      pendingPatch === undefined || merge === undefined
         ? p
-        : options.applyPatch
-          ? (options.applyPatch(
-              pendingPatch as unknown as T,
-              p,
-            ) as unknown as P)
-          : p; // no applyPatch → last-write-wins
+        : (merge(pendingPatch as unknown as T, p) as unknown as P);
     scheduleFlush?.();
   }
 

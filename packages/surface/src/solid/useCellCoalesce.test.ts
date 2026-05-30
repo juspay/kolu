@@ -86,6 +86,25 @@ describe("useCell local authority — coalesceMs", () => {
     });
   });
 
+  it("throws when coalesceMs is set without applyPatch (fail-fast misconfiguration)", () => {
+    createRoot((dispose) => {
+      expect(() =>
+        useCell({} as Cell<"prefs", Prefs>, {
+          authority: "local",
+          initial: { size: 0.25, collapsed: false },
+          source: (() => emptyStream()) as unknown as StreamingProcedure<
+            undefined,
+            Prefs
+          >,
+          mutate: async () => {},
+          coalesceMs: 30,
+          // applyPatch intentionally omitted
+        }),
+      ).toThrow(/coalesceMs requires applyPatch/);
+      dispose();
+    });
+  });
+
   it("routes a coalesced-flush failure to onError, not the patch promise", async () => {
     const boom = new Error("flush failed");
     const mutate = vi.fn(async () => {
