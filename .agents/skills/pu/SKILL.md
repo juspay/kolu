@@ -20,7 +20,7 @@ pu connect "$host" -- CMD  # run CMD on the box and return
 pu destroy "$host"         # tear down — always do this when finished
 ```
 
-Name is positional. Pick a descriptive, collision-free name (e.g. `kolu-pr-1037-evidence`).
+Name is positional. Pick a descriptive, collision-free name (e.g. `app-pr-42-evidence`).
 
 ## Run commands on the box
 
@@ -29,10 +29,10 @@ Name is positional. Pick a descriptive, collision-free name (e.g. `kolu-pr-1037-
 pu connect "$host" -- 'uname -a'
 
 # Background a long-running server (nohup so it survives the SSH session)
-pu connect "$host" -- "nohup nix run github:owner/app -- --port 7681 >/tmp/app.log 2>&1 &"
+pu connect "$host" -- "nohup nix run github:owner/app -- --port 8080 >/tmp/app.log 2>&1 &"
 
 # Poll until it's healthy
-pu connect "$host" -- 'until curl -sf http://127.0.0.1:7681/health; do sleep 2; done'
+pu connect "$host" -- 'until curl -sf http://127.0.0.1:8080/health; do sleep 2; done'
 ```
 
 The box has its **own loopback** — bind servers to `127.0.0.1` on whatever port you

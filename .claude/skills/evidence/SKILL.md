@@ -19,8 +19,8 @@ markdown body it posted.
 ## Inputs the calling project supplies
 
 - **Serve command** — a `nix run`-style line that boots the app on the box's loopback
-  (e.g. `nix run --refresh 'github:owner/app?ref=$branch' -- --host 127.0.0.1 --port 7681`).
-- **Health URL** and **app URL** (e.g. `http://127.0.0.1:7681/health`, `…/`).
+  (e.g. `nix run --refresh 'github:owner/app?ref=$branch' -- --host 127.0.0.1 --port 8080`).
+- **Health URL** and **app URL** (e.g. `http://127.0.0.1:8080/health`, `…/`).
 - **Release name** for hosting binaries (e.g. `evidence-assets`).
 - Any **app-specific scenario** steps (selectors to click, states to reproduce).
 
@@ -108,10 +108,10 @@ pu connect "$host" -- 'bash -lc "
 long-lived GitHub release:
 
 ```sh
-scp -F ~/.pu-state/"$host"/ssh_config "$host":/tmp/cap/<slug>.png /tmp/kolu-evidence-<slug>.png
+scp -F ~/.pu-state/"$host"/ssh_config "$host":/tmp/cap/<slug>.png /tmp/evidence-<slug>.png
 gh release view <RELEASE> >/dev/null 2>&1 || \
   gh release create <RELEASE> --prerelease --title "Evidence assets" --notes "Do not delete."
-gh release upload <RELEASE> /tmp/kolu-evidence-<slug>.png --clobber
+gh release upload <RELEASE> /tmp/evidence-<slug>.png --clobber
 ```
 
 Embed inline (GitHub renders PNG **and** animated GIF from any release URL):
