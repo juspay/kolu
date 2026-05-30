@@ -225,8 +225,8 @@
   <li><strong>Fix the preferences storm.</strong> During the churn the client emitted 200+ <code>rightPanel</code> <code>size</code>/<code>codeTabTreeSize</code> patches (bursts ~100–230/min) — a ResizeObserver-style feedback loop that saturated the server and contended with the autosave the restart relies on. Debounce / guard it (pre-existing, not introduced by #1034). <em>(Filed as <a href="https://github.com/juspay/kolu/issues/1041">#1041</a>.)</em></li>
 </ol>
 
-<h3 id="r4-redo-rules">Hard rules for a redo — mistakes this PR made (don't repeat them)</h3>
-<p>The constraints above are about the <em>product</em> behaviour. This section is the <strong>meta</strong> layer: every mistake the salvage of <a href="https://github.com/juspay/kolu/pull/1034">#1034</a> actually made and had to correct mid-flight. If you are re-cutting this PR, treat each as a pre-committed rule — they cost real production scares, broken builds, and duplicate artifacts to learn. Grouped by kind.</p>
+<h3 id="r4-redo-rules">Execution postmortem — mistakes made building this PR (don't repeat them)</h3>
+<p>The <a href="#r4ui-constraints">Hard constraints</a> above are about the <em>product</em> behaviour to build. This section is a different thing: a <strong>postmortem of the build process itself</strong> — every mistake the salvage of <a href="https://github.com/juspay/kolu/pull/1034">#1034</a> made and had to correct mid-flight (production scares, broken builds, duplicate artifacts, git mishaps). If you are re-cutting this PR, treat each as a pre-committed rule. Grouped by kind.</p>
 
 <h4>Architecture / scoping</h4>
 <ol>
