@@ -32,6 +32,7 @@ import TerminalCanvas from "./canvas/TerminalCanvas";
 import TileTitleActions from "./canvas/TileTitleActions";
 import { useCanvasArrange } from "./canvas/useCanvasArrange";
 import { createCommands } from "./commands";
+import DegradedCanvas from "./DegradedCanvas";
 import DiagnosticInfo from "./DiagnosticInfo";
 import EmptyState from "./EmptyState";
 import { exportScrollbackAsPdf } from "./exportScrollbackAsPdf";
@@ -381,6 +382,17 @@ const App: Component = () => {
   const showEmpty = () =>
     !session.isLoading() && store.terminalIds().length === 0;
 
+  // When the canvas is empty, distinguish *why*: a dead daemon means the
+  // terminals/session are preserved server-side (degraded, recoverable — never
+  // the empty-canvas lie of #1034); "connecting" is honest post-boot pending;
+  // otherwise the user genuinely has no terminals. "outdated" is NOT degraded —
+  // terminals work on the old build; the chip + nudge handle it.
+  const canvasEmptyKind = (): "degraded" | "connecting" | "empty" =>
+    match(daemonState())
+      .with("dead", () => "degraded" as const)
+      .with("connecting", () => "connecting" as const)
+      .otherwise(() => "empty" as const);
+
   const aboutChrome = surface({ portalled: true });
 
   return (
@@ -550,11 +562,27 @@ const App: Component = () => {
                 class="relative flex-1 min-h-0 canvas-grid-bg"
               >
                 <CanvasWatermark text={appTitle()} />
-                <EmptyState
-                  savedSession={session.savedSession() ?? undefined}
-                  isRestoring={session.isRestoring()}
-                  onRestore={(opts) => void session.handleRestoreSession(opts)}
-                />
+                {match(canvasEmptyKind())
+                  .with("empty", () => (
+                    <EmptyState
+                      savedSession={session.savedSession() ?? undefined}
+                      isRestoring={session.isRestoring()}
+                      onRestore={(opts) =>
+                        void session.handleRestoreSession(opts)
+                      }
+                    />
+                  ))
+                  .otherwise((kind) => (
+                    <DegradedCanvas
+                      kind={kind}
+                      savedSession={session.savedSession() ?? undefined}
+                      isRestoring={session.isRestoring()}
+                      onRestore={(opts) =>
+                        void session.handleRestoreSession(opts)
+                      }
+                      onRequestDaemonRestart={() => setDaemonRestartOpen(true)}
+                    />
+                  ))}
               </div>
             }
           >
