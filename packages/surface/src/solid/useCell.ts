@@ -115,6 +115,10 @@ export function useCell<Name extends string, T, P = T>(
   return useCellServer(cell, options as UseCellServerOptions<T, P>);
 }
 
+function toError(err: unknown): Error {
+  return err instanceof Error ? err : new Error(String(err));
+}
+
 /** Wrap a streaming procedure ref into the thunk shape `createSubscription`
  *  expects, threading `STREAM_RETRY` context so transport drops re-subscribe
  *  transparently. */
@@ -204,9 +208,13 @@ function useCellLocal<Name extends string, T extends object, P>(
     const p = pendingPatch;
     if (p === undefined) return;
     pendingPatch = undefined;
-    void Promise.resolve(options.mutate(p)).catch((err: unknown) => {
-      options.onError?.(err instanceof Error ? err : new Error(String(err)));
-    });
+    void (async () => {
+      try {
+        await options.mutate(p);
+      } catch (err: unknown) {
+        options.onError?.(toError(err));
+      }
+    })();
   }
   // Coalescing merges queued patches through `applyPatch`; without it, two
   // patches in one window would collapse to last-write-wins and silently drop
