@@ -56,13 +56,19 @@
           website = website.default;
           website-pnpm-deps = website.pnpmDeps;
         });
-      # Type gates, pinned to one system (tsc/astro check are platform-
-      # independent). Realized by CI's `nix`/devour-flake node. Rationale for
-      # the workspace gate in nix/typecheck.nix; the website gate in website/default.nix.
-      checks.x86_64-linux = {
-        typecheck = koluBySystem.x86_64-linux.typecheck;
-        website-typecheck = websiteBySystem.x86_64-linux.typecheck;
-      };
+      # Type gates on every system. The build environment (nodejs/pnpm and the
+      # platform-resolved deps `pnpmConfigHook` installs) differs per platform,
+      # so each platform's `tsc`/`astro check` is its own proof — a darwin-only
+      # type error wouldn't surface from a linux-only check. CI's
+      # `nix`/devour-flake node realizes each platform's checks on that
+      # platform. Rationale: workspace gate in nix/pnpm-typecheck.nix, website
+      # gate in website/default.nix.
+      checks = eachSystem (pkgs:
+        let system = pkgs.stdenv.hostPlatform.system;
+        in {
+          typecheck = koluBySystem.${system}.typecheck;
+          website-typecheck = websiteBySystem.${system}.typecheck;
+        });
       devShells = eachSystem (pkgs:
         let default = import ./shell.nix { inherit pkgs; };
         in {
