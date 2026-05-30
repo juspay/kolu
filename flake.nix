@@ -51,10 +51,8 @@
           website = website.default;
           website-pnpm-deps = website.pnpmDeps;
         });
-      # The workspace type gate (juspay/kolu#1049). Pinned to one linux
-      # system: tsc is platform-independent, so running it on every platform
-      # only duplicates work. devour-flake realizes it via CI's `nix` node,
-      # so a type error fails the pipeline — `nix build` becomes a type-proof.
+      # Workspace type gate, pinned to one system (tsc is platform-independent).
+      # Realized by CI's `nix`/devour-flake node. Rationale in nix/typecheck.nix.
       checks.x86_64-linux.typecheck = koluBySystem.x86_64-linux.typecheck;
       devShells = eachSystem (pkgs:
         let default = import ./shell.nix { inherit pkgs; };
