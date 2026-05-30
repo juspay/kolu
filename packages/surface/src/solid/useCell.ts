@@ -26,6 +26,7 @@
  * fail fast (no retry) per the plugin default.
  */
 
+import { debounce } from "@solid-primitives/scheduled";
 import { type Accessor, createEffect, createRoot, on } from "solid-js";
 import { createStore, reconcile, type SetStoreFunction } from "solid-js/store";
 import { STREAM_RETRY, type StreamingProcedure } from "../client";
@@ -150,22 +151,6 @@ function useCellServer<Name extends string, T, P>(
   };
 }
 
-/** Trailing-edge debounce: coalesce rapid calls into one invocation after
- *  `ms` of quiescence. Hand-rolled rather than pulling
- *  `@solid-primitives/scheduled` so `@kolu/surface` keeps its deliberately
- *  minimal dependency surface (orpc, solid-js, zod). Mirrors the setTimeout
- *  debounce the client already hand-rolls in `useTextSelection.ts`. */
-function trailingDebounce(fn: () => void, ms: number): () => void {
-  let handle: ReturnType<typeof setTimeout> | undefined;
-  return () => {
-    if (handle !== undefined) clearTimeout(handle);
-    handle = setTimeout(() => {
-      handle = undefined;
-      fn();
-    }, ms);
-  };
-}
-
 function useCellLocal<Name extends string, T extends object, P>(
   _cell: Cell<Name, T>,
   options: UseCellLocalOptions<T, P>,
@@ -225,7 +210,7 @@ function useCellLocal<Name extends string, T extends object, P>(
   }
   const scheduleFlush =
     options.coalesceMs !== undefined
-      ? trailingDebounce(flushPending, options.coalesceMs)
+      ? debounce(flushPending, options.coalesceMs)
       : undefined;
   function enqueue(p: P): void {
     pendingPatch =

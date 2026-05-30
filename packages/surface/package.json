@@ -28,6 +28,7 @@
   },
   "dependencies": {
     "@orpc/client": "^1.13.13",
+    "@solid-primitives/scheduled": "^1.5.3",
     "@orpc/contract": "^1.13.13",
     "@orpc/server": "^1.13.13",
     "@orpc/standard-server": "^1.13.13",
