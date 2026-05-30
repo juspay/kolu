@@ -13,6 +13,7 @@
  *     copying      ──provisionAgent ok──▶ connecting
  *     connecting   ──first RPC ────────▶ connected
  *     connected    ──read end  ────────▶ disconnected ──reconnect──▶ copying
+ *     disconnected ──gave up (N fails)──▶ failed   (terminal; `reconnect()` re-arms)
  *
  * New listeners attached via `onState` see the *current* state
  * synchronously before any deltas arrive — matching the snapshot-then-
@@ -38,14 +39,19 @@ export type ConnectionState =
   | "copying"
   | "connecting"
   | "connected"
-  | "disconnected";
+  | "disconnected"
+  // Terminal: the reconnect loop exhausted `MAX_CONSECUTIVE_FAILURES`
+  // and stopped retrying. Distinct from `disconnected` (which is the
+  // brief gap between attempts) so consumers can tell "still trying"
+  // from "gave up — needs intervention". `reconnect()` re-arms it.
+  | "failed";
 
 export interface HostSessionState {
   connection: ConnectionState;
   /** Free-form progress lines (last 20) — `nix copy` output, ssh
    *  start, agent fatal-error tails. */
   progressLines: readonly string[];
-  /** Last error if `connection === "disconnected"`. */
+  /** Last error if `connection === "disconnected"` or `"failed"`. */
   lastError: string | null;
 }
 
@@ -95,9 +101,10 @@ export class HostSession<C extends AnyContractRouter> {
   /** Count of consecutive failures since the last successful "connected"
    *  transition. Drives the exponential backoff on `scheduleReconnect`
    *  AND the give-up gate (after `MAX_CONSECUTIVE_FAILURES` we stop
-   *  retrying and surface a permanent disconnect — useful when the
-   *  remote nix-daemon won't accept the closure at all and the loop
-   *  would otherwise spam forever). */
+   *  retrying and transition to the terminal `failed` state — useful
+   *  when the remote nix-daemon won't accept the closure at all and the
+   *  loop would otherwise spam forever). Reset to 0 on a successful
+   *  `markConnected` or a manual `reconnect()`. */
   private consecutiveFailures = 0;
 
   constructor(private readonly opts: HostSessionOptions) {}
@@ -316,6 +323,24 @@ export class HostSession<C extends AnyContractRouter> {
     }
   }
 
+  /** Re-arm a session that gave up (`connection === "failed"`). Resets
+   *  the consecutive-failure gate and respawns immediately — the bridge
+   *  picks up the fresh client via `currentClient()` identity drift,
+   *  the same path the automatic reconnect timer uses, minus the backoff
+   *  wait. No-op if the session is destroyed, unreferenced, or a spawn
+   *  is already in flight (so a double-tapped "Reconnect" can't stack
+   *  spawns). The give-up gate left `reconnectTimer` and `clientPromise`
+   *  null, so a genuinely-failed session always passes the guard. */
+  reconnect(): void {
+    if (this.destroyed || this.refCount === 0) return;
+    if (this.clientPromise !== null || this.reconnectTimer !== null) return;
+    this.consecutiveFailures = 0;
+    this.clientPromise = this.spawn();
+    this.clientPromise.catch(() => {
+      /* spawn surfaces failure via state; we just clear the promise */
+    });
+  }
+
   private scheduleReconnect(): void {
     if (this.destroyed || this.reconnectTimer !== null) return;
     // Exponential backoff is keyed on attempts-so-far, not "this is
@@ -329,8 +354,12 @@ export class HostSession<C extends AnyContractRouter> {
     this.consecutiveFailures += 1;
     if (this.consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
       this.addLocalProgress(
-        `gave up after ${MAX_CONSECUTIVE_FAILURES} consecutive failures — fix the underlying issue (often: remote nix-daemon needs your user in 'trusted-users' to accept unsigned closures) and restart the parent`,
+        `gave up after ${MAX_CONSECUTIVE_FAILURES} consecutive failures — fix the underlying issue (often: remote nix-daemon needs your user in 'trusted-users' to accept unsigned closures), then reconnect`,
       );
+      // Move off `disconnected` so consumers can distinguish "still
+      // retrying" from "gave up". `lastError` is already set by the
+      // spawn-failure path that led here; preserve it.
+      this.updateState({ connection: "failed" });
       return;
     }
     const baseDelay = this.opts.reconnectDelayMs ?? 2000;
