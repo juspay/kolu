@@ -25,12 +25,15 @@
         })
         systems);
       commitHash = self.shortRev or self.dirtyShortRev or "dev";
+      # Import default.nix once per system; both `packages` and `checks`
+      # consume this so the derivation set is evaluated a single time.
+      koluBySystem = eachSystem (pkgs: import ./default.nix { inherit pkgs commitHash; });
     in
     {
       homeManagerModules.default = import ./nix/home/module.nix;
       packages = eachSystem (pkgs:
         let
-          kolu = import ./default.nix { inherit pkgs commitHash; };
+          kolu = koluBySystem.${pkgs.system};
           # Synthesized website source tree: website/ with the canonical
           # favicon copied in where the working tree has a symlink to
           # ../../packages/client/favicon.svg. One SVG on disk; the Nix
@@ -52,11 +55,7 @@
       # system: tsc is platform-independent, so running it on every platform
       # only duplicates work. devour-flake realizes it via CI's `nix` node,
       # so a type error fails the pipeline — `nix build` becomes a type-proof.
-      checks.x86_64-linux.typecheck =
-        (import ./default.nix {
-          pkgs = import ./nix/nixpkgs.nix { system = "x86_64-linux"; };
-          inherit commitHash;
-        }).typecheck;
+      checks.x86_64-linux.typecheck = koluBySystem.x86_64-linux.typecheck;
       devShells = eachSystem (pkgs:
         let default = import ./shell.nix { inherit pkgs; };
         in {
