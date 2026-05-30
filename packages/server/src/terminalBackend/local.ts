@@ -242,8 +242,8 @@ function makeHooks(entry: TerminalProcess, id: TerminalId): ProviderHooks {
       updateServerMetadata(entry, id, mutate),
     updateServerLiveMetadata: (_record, mutate) =>
       updateServerLiveMetadata(entry, id, mutate),
-    trackRecentRepo: (root, name) => trackRecentRepo(root, name),
-    trackRecentAgent: (command) => trackRecentAgent(command),
+    trackRecentRepo,
+    trackRecentAgent,
   };
 }
 
@@ -366,7 +366,6 @@ class LocalTerminalBackend implements TerminalBackend {
     entry: TerminalProcess,
     pid: number,
   ): void {
-    const client = ptyHostClient;
     const abort = new AbortController();
     const { signal } = abort;
     const channels: ProviderChannels = {
@@ -386,22 +385,28 @@ class LocalTerminalBackend implements TerminalBackend {
     // Bridge the raw VT taps onto the provider channels. cwd also lands on
     // persisted metadata (the bridge owns `m.cwd`; the git provider reads
     // `channels.cwd` to re-resolve git).
-    bridgeStream(client.surface.cwd.get({ id }, { signal }), signal, (msg) => {
-      updateServerMetadata(entry, id, (m) => {
-        m.cwd = msg.cwd;
-      });
-      channels.cwd.publish(msg.cwd);
-    });
-    bridgeStream(client.surface.title.get({ id }, { signal }), signal, (msg) =>
-      channels.title.publish(msg.title),
+    bridgeStream(
+      ptyHostClient.surface.cwd.get({ id }, { signal }),
+      signal,
+      (msg) => {
+        updateServerMetadata(entry, id, (m) => {
+          m.cwd = msg.cwd;
+        });
+        channels.cwd.publish(msg.cwd);
+      },
     );
     bridgeStream(
-      client.surface.commandRun.get({ id }, { signal }),
+      ptyHostClient.surface.title.get({ id }, { signal }),
+      signal,
+      (msg) => channels.title.publish(msg.title),
+    );
+    bridgeStream(
+      ptyHostClient.surface.commandRun.get({ id }, { signal }),
       signal,
       (msg) => channels.commandRun.publish(msg.command),
     );
     bridgeStream(
-      client.surface.foreground.get({ id }, { signal }),
+      ptyHostClient.surface.foreground.get({ id }, { signal }),
       signal,
       (msg) =>
         channels.foreground.publish({
@@ -414,8 +419,10 @@ class LocalTerminalBackend implements TerminalBackend {
     // Natural exit: the `exit` tap yields the code once. An intentional kill
     // aborts this signal first (see `teardownProviders`), so `handleExit` only
     // ever fires for a genuine exit.
-    bridgeStream(client.surface.exit.get({ id }, { signal }), signal, (msg) =>
-      this.handleExit(id, msg.exitCode),
+    bridgeStream(
+      ptyHostClient.surface.exit.get({ id }, { signal }),
+      signal,
+      (msg) => this.handleExit(id, msg.exitCode),
     );
 
     this.lifecycles.set(id, { abort, stopProviders });
@@ -514,6 +521,8 @@ class LocalTerminalBackend implements TerminalBackend {
     }
     const deltas = (async function* () {
       if (first.done) return;
+      // `iter` is an AsyncIterator, not AsyncIterable — wrap it so `for await`
+      // can consume the already-advanced iterator (after the snapshot was read).
       for await (const msg of { [Symbol.asyncIterator]: () => iter }) {
         yield msg.data;
       }
