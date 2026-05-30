@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Preferences storm — debounce the rightPanel resize feedback loop (#1041)</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --border: #30363d; --ink: #e6edf3;
+    --muted: #9da7b3; --accent: #58a6ff; --warn: #d29922; --bad: #f85149;
+    --good: #3fb950; --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    padding: 2rem 1.25rem 5rem;
+  }
+  main { max-width: 860px; margin: 0 auto; }
+  h1 { font-size: 1.5rem; line-height: 1.25; margin: 0 0 .25rem; }
+  h2 { font-size: 1.12rem; margin: 2.2rem 0 .6rem; padding-bottom: .3rem; border-bottom: 1px solid var(--border); }
+  h3 { font-size: .98rem; margin: 1.3rem 0 .4rem; color: var(--accent); }
+  p { margin: .5rem 0; }
+  code { font-family: var(--mono); font-size: .85em; background: #1f2630; padding: .1em .35em; border-radius: 4px; }
+  pre { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: .8rem 1rem; overflow-x: auto; }
+  pre code { background: none; padding: 0; font-size: .8rem; line-height: 1.5; }
+  .sub { color: var(--muted); font-size: .9rem; margin-top: 0; }
+  .cite { font-family: var(--mono); font-size: .78rem; color: var(--muted); }
+  .pill { display: inline-block; font-size: .7rem; font-family: var(--mono); padding: .1em .5em; border-radius: 999px; border: 1px solid var(--border); vertical-align: middle; }
+  .pill.fix { color: var(--good); border-color: #1d572b; background: #0e2a16; }
+  .pill.dx { color: var(--warn); border-color: #5a4513; background: #2a2008; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: .9rem 1.1rem; margin: .8rem 0; }
+  .loop { display: flex; flex-direction: column; gap: .35rem; font-family: var(--mono); font-size: .78rem; }
+  .loop .step { background: #1f2630; border: 1px solid var(--border); border-radius: 6px; padding: .4rem .6rem; }
+  .loop .arrow { color: var(--muted); padding-left: .6rem; }
+  .loop .kill { border-color: #1d572b; }
+  table { width: 100%; border-collapse: collapse; margin: .6rem 0; font-size: .86rem; }
+  th, td { text-align: left; padding: .45rem .6rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: .78rem; text-transform: uppercase; letter-spacing: .03em; }
+  .rev { border-left: 3px solid var(--accent); padding-left: .9rem; margin: .7rem 0; }
+  .rev.rej { border-color: var(--muted); }
+  .tag { font-family: var(--mono); font-size: .72rem; color: var(--accent); }
+  ul { margin: .4rem 0; padding-left: 1.3rem; }
+  li { margin: .25rem 0; }
+  .add { color: var(--good); }
+  .del { color: var(--bad); }
+  .muted { color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+
+<h1>Preferences storm: debounce the rightPanel resize feedback loop</h1>
+<p class="sub">Issue #1041 · part of #951 · pre-existing, surfaced by the #1034 daemon-restart postmortem</p>
+
+<h2>What's actually happening</h2>
+
+<p>The right-panel splitter and the Code-tab tree splitter are both <code>@corvu/resizable</code>
+<strong>fully controlled</strong> by a <code>sizes</code> prop fed from the local-authority
+<code>preferences</code> store. Two facts about Corvu turn that into a write storm:</p>
+
+<div class="card">
+<p style="margin-top:0"><strong>1. Corvu re-emits on every reactive change to <code>sizes</code>.</strong>
+Its root component runs <code>createEffect(() =&gt; onSizesChange(sizes()))</code>, and
+<code>sizes()</code> is a controllable signal whose value <em>is</em> the prop. So any reactive
+invalidation of the <code>sizes</code> prop re-fires <code>onSizesChange</code> with the same array.</p>
+<p class="cite">@corvu/resizable/dist/index.js (createEffect on sizes) · @corvu/utils controllableSignal.js:8-23 (controlled ⇒ no internal state)</p>
+<p><strong>2. Corvu emits a minSize-<em>corrected</em> array on panel re-registration.</strong>
+<code>registerPanel</code> calls <code>setSizes(redistribute)</code> enforcing each panel's
+<code>minSize</code> — a value that differs from what the app passed. Every mount/unmount of the
+panel subtree re-registers and re-emits.</p>
+<p class="cite">@corvu/resizable/dist/index.js registerPanel/unregisterPanel · createSize uses a ResizeObserver (size.js:4-30)</p>
+</div>
+
+<p>The handler persists it on every emission, with <strong>no</strong> equality gate and
+<strong>no</strong> coalescing:</p>
+
+<pre><code>// App.tsx:604-614  (and CodeTab.tsx:482-483, vertical split)
+onSizesChange={(sizes) =&gt; {
+  if (sizes[1] !== undefined) rightPanel.setPanelSize(sizes[1]);
+}}
+
+// useRightPanel.ts:118-128
+setPanelSize: (size) =&gt; { if (size &gt; MIN_PANEL_SIZE) updatePreferences({ rightPanel: { size } }); },
+setCodeTabTreeSize: (size) =&gt; { if (size &gt;= MIN_TREE_SIZE &amp;&amp; size &lt;= MAX_TREE_SIZE) updatePreferences({ rightPanel: { codeTabTreeSize: size } }); },
+
+// wire.ts:72-78 → useCell.ts:189-192 (local authority)
+patch: async (p) =&gt; { applyLocal(p); await options.mutate(p); }   // sync store write + server RPC, every call</code></pre>
+
+<div class="loop card">
+  <div class="step">panel re-registers / collapsed toggles during restart churn</div>
+  <div class="arrow">↓ reactive invalidation of the <code>sizes</code> prop</div>
+  <div class="step">Corvu <code>createEffect</code> fires <code>onSizesChange([…])</code></div>
+  <div class="arrow">↓</div>
+  <div class="step"><code>setPanelSize</code> → <code>updatePreferences({rightPanel:{size}})</code></div>
+  <div class="arrow">↓</div>
+  <div class="step"><code>useCell.patch</code>: <code>applyLocal</code> (sync store) <span class="muted">+</span> <code>mutate</code> → <strong>server RPC</strong></div>
+  <div class="arrow">↓ server writes <code>state.json</code> on every patch (no <code>equals</code> on the prefs cell)</div>
+  <div class="step kill">~200 patches/min · contends with the session autosave on the shared Conf store</div>
+</div>
+
+<p>The shared sink is real: <code>preferences</code> and the session autosave are two keys in
+<em>one</em> <code>Conf</code> store writing <em>one</em> <code>state.json</code>; the autosave is a
+500&nbsp;ms throttle, preferences is one-disk-write-per-patch.</p>
+<p class="cite">state.ts:88-127 (single Conf, prefs+session keys) · session.ts:114-133 (500ms autosave) · server.ts:134-143 (<code>applyAndPublish</code> equals gate) · surface.ts:99-114 prefs cell has <em>no</em> equals; :128 session cell does</p>
+
+<h2>The pivotal constraint (this is what picks the design)</h2>
+
+<p>Could we just stop controlling Corvu (pass <code>initialSizes</code>, let Corvu own live size,
+debounce the whole write)? <strong>No.</strong> <code>ChromeBar</code> reads the panel size
+<em>reactively, mid-drag</em>, to keep the floating chrome's right edge pinned to the panel's
+left edge:</p>
+
+<pre><code>// ChromeBar.tsx:112-114
+right: rightPanel.collapsed() ? 0 : `${rightPanel.panelSize() * 100}vw`,</code></pre>
+
+<p>If the store lagged the drag, the chrome controls would visibly trail the splitter. So the
+<strong>local store write must stay synchronous every frame</strong>; only the
+<strong>server RPC</strong> may be deferred. That rules out the uncontrolled-Corvu refactor and
+forces a split: apply-local-now, flush-to-server-later.</p>
+
+<h2>The fix</h2>
+
+<h3><span class="pill fix">1</span> Drop Corvu's idempotent re-emits <span class="cite">useRightPanel.ts</span></h3>
+<p>The size mutators are the adapter for Corvu's re-emit quirk — so they filter it. Skip the write
+when the value matches the stored value within Corvu's precision (it rounds to 6 decimals). This
+alone kills the <em>steady-state</em> storm: every unchanged re-emit becomes a true no-op (today it
+still fires an RPC before <code>reconcile</code> dedups the store).</p>
+<pre><code>const EPSILON = 1e-6; // Corvu fixToPrecision rounds to PRECISION=6
+setPanelSize: (size) =&gt; {
+  <span class="add">if (size &gt; MIN_PANEL_SIZE &amp;&amp; Math.abs(size - rp().size) &gt; EPSILON)</span>
+    updatePreferences({ rightPanel: { size } });
+},
+// same Math.abs(size - rp().codeTabTreeSize) &gt; EPSILON guard on setCodeTabTreeSize</code></pre>
+<p class="muted">Framed as "filter Corvu's idempotent re-emits," not "reduce server load" — that's why it
+lives at the adapter and not in the transport layer (per Lowy).</p>
+
+<h3><span class="pill fix">2</span> Coalesce the server flush at the local/server seam <span class="cite">useCell.ts (useCellLocal)</span></h3>
+<p>A real drag emits dozens of <em>distinct</em> values/sec, each passing guard&nbsp;1. Those are the
+legitimate burst to collapse. The split lives where the local/server boundary already lives — inside
+<code>useCellLocal</code>, the one place that owns "apply locally, then tell the server." Add an
+opt-in <code>coalesceMs</code>; the cell <em>owner</em> declares its flush cadence in <code>wire.ts</code>:</p>
+<pre><code>// useCellLocal: apply locally every call (sync — ChromeBar tracks live),
+// trailing-debounce only the server mutate.
+patch: async (p) =&gt; {
+  applyLocal(p);                         // sync store write, unchanged
+  if (coalesce) coalesce.push(p);        // trailing debounce → mutate(merged)
+  else await options.mutate(p);
+},
+
+// wire.ts — opt in for preferences only:
+app.cells.preferences.use({ authority: "local", initial: DEFAULT_PREFERENCES,
+  <span class="add">coalesceMs: 150,</span> onError });</code></pre>
+<p><strong>Merge in patch-space, don't snapshot.</strong> The coalescer accumulates pending patches by
+folding them through the cell's existing patch-merge into one <code>PreferencesPatch</code>, then
+flushes that. This keeps the wire payload in <code>P</code> (patch) space — so an interleaved
+<code>{collapsed}</code> write inside the 150&nbsp;ms window is <em>merged in</em>, not clobbered, and
+we never push a full <code>Preferences</code> (<code>T</code>) through a <code>patch</code>-typed
+<code>mutate</code>. <span class="muted">(This is the post-review shape — see below.)</span></p>
+
+<h3><span class="pill fix">3</span> <span class="muted">Defense-in-depth:</span> <code>equals</code> on the server prefs cell <span class="cite">server surface.ts</span></h3>
+<p>Mirror the <code>session</code> cell's <code>equals</code> so any no-op patch that still reaches the
+server skips the disk write + republish. Honest billing: once the client drops no-ops (1) and
+coalesces (2), this is belt-and-suspenders — it only catches the rare unchanged-final-value case. One
+line, established precedent, fine to land; not load-bearing.</p>
+
+<h3><span class="pill fix">test</span> Regression guard</h3>
+<p>Unit test asserting bounded patch rate during a resize interaction: a tight loop of
+<em>unchanged</em> values emits zero RPCs (guard 1); a rapid sequence of <em>changing</em> values
+emits ≤1 trailing RPC per window (coalesce 2). Sits next to the <code>useRightPanel</code> tests.</p>
+
+<h2>Reviewer pass — what changed</h2>
+
+<div class="rev">
+<p class="tag">Hickey + Lowy converged · ADOPTED</p>
+<p><strong>The original sketch flushed "the latest full store snapshot."</strong> Both reviewers
+flagged this complects two decisions under one flag: <em>timing</em> (debounce) and
+<em>payload shape</em> (patch → full replacement). It also pushes a full <code>Preferences</code>
+(<code>T</code>) through a <code>mutate</code> bound to <code>ns.patch</code> (<code>P</code>) — works by
+accident for prefs only, breaks for any future cell where <code>P≠T</code> or <code>patch</code> is
+non-idempotent. <strong>Revised:</strong> coalesce by <em>merging patches in P-space</em> (fold through
+the cell's own patch-merge). <code>coalesceMs</code> now governs timing only.</p>
+</div>
+
+<div class="rev">
+<p class="tag">Lowy · ADOPTED (deciding fact)</p>
+<p>Pinned the controlled-vs-uncontrolled fork to a single fact — "does anything read the size
+mid-drag?" — and it does (<code>ChromeBar.tsx:114</code>). Uncontrolled Corvu is the cleaner boundary
+<em>only if</em> nothing reads the store live; since ChromeBar does, controlled + coalesce is forced.
+Recorded as the pivotal constraint above.</p>
+</div>
+
+<div class="rev">
+<p class="tag">Lowy · ADOPTED (reframe)</p>
+<p>No-op drop (1) is <em>not</em> patch-rate control duplicating the coalesce — it's
+Corvu-re-emit/idempotency filtering at the adapter. Keeping it in <code>useRightPanel</code> is right
+<em>under that framing</em>; the comment names it accordingly. The 1-in-useRightPanel / 2-in-useCell
+split is a correct layer split (domain quirk vs. generic transport), confirmed by both — not
+fragmentation.</p>
+</div>
+
+<div class="rev">
+<p class="tag">Hickey · ADOPTED (DX) <span class="pill dx">contract</span></p>
+<p>Debouncing changes what <code>useCellLocal.patch</code>'s returned promise <em>means</em>: "parked
+in the queue," not "server has it." Document on the <code>coalesceMs</code> option. The only consumer
+today (<code>updatePreferences</code>) is fire-and-forget, so no caller breaks — but any future
+awaiting caller (e2e step gating on server state) must gate on the server echo, not the
+<code>patch</code> return.</p>
+</div>
+
+<div class="rev rej">
+<p class="tag">Lowy · REJECTED</p>
+<p>Lowy's resolution for the snapshot problem was "make preferences <em>always</em> flush full
+snapshots." Rejected: the prefs contract has no <code>set</code>/full-replacement verb — its
+<code>mutate</code> is patch-typed — so "always snapshot" reintroduces exactly the <code>T</code>-through-<code>P</code>
+type confusion. Hickey's patch-space merge achieves the same "no key lost" guarantee without a new
+verb.</p>
+</div>
+
+<div class="rev rej">
+<p class="tag">Both · CONFIRMED no duplication</p>
+<p>The client trailing coalesce does <em>not</em> reinvent the server 500ms autosave (different side
+of the wire; leading vs. trailing is semantically required), <code>debouncedFit</code> (local-only,
+no server), or the <code>equals</code> gate (which part 3 <em>extends</em>). Reaching for
+<code>@solid-primitives/scheduled</code> matches the repo's "prefer community primitives" convention.</p>
+</div>
+
+<h2>Surface &amp; sequencing</h2>
+<table>
+<tr><th>File</th><th>Change</th><th>Part</th></tr>
+<tr><td><code>useRightPanel.ts</code></td><td>EPSILON no-op guard in the two size mutators</td><td>1</td></tr>
+<tr><td><code>useCell.ts</code></td><td><code>coalesceMs</code> opt-in: sync local apply + trailing patch-merge flush; doc the await-contract change</td><td>2</td></tr>
+<tr><td><code>wire.ts</code></td><td><code>coalesceMs: 150</code> on the preferences cell; add <code>@solid-primitives/scheduled</code> dep</td><td>2</td></tr>
+<tr><td><code>server/src/surface.ts</code></td><td><code>equals</code> on the prefs cell (mirror session)</td><td>3 · optional</td></tr>
+<tr><td><code>*.test.ts</code></td><td>bounded-patch-rate regression near useRightPanel tests</td><td>test</td></tr>
+</table>
+<p class="muted">Bug fix, not user-visible feature work — single PR, no phase split. When ready,
+<code>/do</code> this issue.</p>
+
+</main>
+</body>
+</html>
