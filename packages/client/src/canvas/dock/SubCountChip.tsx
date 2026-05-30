@@ -14,7 +14,7 @@
  *  `testId="dock-sub-count"`. */
 
 import type { Component } from "solid-js";
-import { SplitToggleIcon } from "../../ui/Icons";
+import { SplitToggleIcon } from "@kolu/solid-icons";
 
 export const SubCountChip: Component<{
   count: number;

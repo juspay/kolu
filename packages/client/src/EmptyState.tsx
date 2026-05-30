@@ -4,10 +4,10 @@ import type { SavedSession, SavedTerminal } from "kolu-common/surface";
 import { terminalKey } from "kolu-common/terminalKey";
 import { type Component, createMemo, createSignal, For, Show } from "solid-js";
 import { ACTIONS } from "./input/actions";
-import { formatKeybind } from "./input/keyboard";
-import Kbd from "./ui/Kbd";
-import { surface } from "./ui/Surface";
-import Toggle from "./ui/Toggle";
+import { formatKeybind } from "@kolu/platform/keyboard";
+import Kbd from "@kolu/solid-ui/Kbd";
+import { surface } from "@kolu/solid-ui/Surface";
+import Toggle from "@kolu/solid-ui/Toggle";
 
 const chrome = surface();
 

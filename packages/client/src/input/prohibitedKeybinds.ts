@@ -10,7 +10,7 @@
  * the spec. Use physical `ctrl: true` because PTYs see byte-level
  * Ctrl regardless of platform — `mod` would over-narrow to one OS.
  */
-import type { Keybind } from "./keyboard";
+import type { Keybind } from "@kolu/platform/keyboard";
 
 export interface ProhibitedKeybind {
   keybind: Keybind;

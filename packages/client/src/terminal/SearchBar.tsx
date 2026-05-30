@@ -15,9 +15,9 @@ import {
   onCleanup,
   Show,
 } from "solid-js";
-import { ChevronDownIcon, ChevronUpIcon, CloseIcon } from "../ui/Icons";
-import { surface } from "../ui/Surface";
-import Tip from "../ui/Tip";
+import { ChevronDownIcon, ChevronUpIcon, CloseIcon } from "@kolu/solid-icons";
+import { surface } from "@kolu/solid-ui/Surface";
+import Tip from "@kolu/solid-ui/Tip";
 
 const SEARCH_OPTIONS: ISearchOptions = {
   incremental: true,

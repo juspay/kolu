@@ -1,0 +1,32 @@
+{
+  "name": "@kolu/solid-ui",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./Toggle": "./src/Toggle.tsx",
+    "./Kbd": "./src/Kbd.tsx",
+    "./SegmentedControl": "./src/SegmentedControl.tsx",
+    "./Row": "./src/Row.tsx",
+    "./Section": "./src/Section.tsx",
+    "./Tip": "./src/Tip.tsx",
+    "./Surface": "./src/Surface.ts",
+    "./stackLayers": "./src/stackLayers.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.8.0"
+  },
+  "dependencies": {
+    "@corvu/tooltip": "^0.2.2",
+    "solid-js": "^1.9.0"
+  }
+}

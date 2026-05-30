@@ -54,7 +54,7 @@ import { makePersisted } from "@solid-primitives/storage";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, createMemo, createSignal, For, Show } from "solid-js";
 import { createSharedRoot } from "../../createSharedRoot";
-import { isPlatformModifier } from "../../input/keyboard";
+import { isPlatformModifier } from "@kolu/platform/keyboard";
 import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
 import { annotationLine } from "../../intent/text";
 import { formatTimeAgo } from "../../terminal/staleness";
@@ -66,7 +66,7 @@ import {
   DOCK_CARDS_SUBGRID_LEFT_RESTORE,
   RAIL_WIDTH_PX,
 } from "../../ui/chromeSpacing";
-import { ChevronDownIcon, PlusIcon, SearchIcon } from "../../ui/Icons";
+import { ChevronDownIcon, PlusIcon, SearchIcon } from "@kolu/solid-icons";
 import { useViewPosture } from "../useViewPosture";
 import { chipInitials } from "./chipInitials";
 import type { DockRowBucket } from "./dockRowRanking";

@@ -13,9 +13,9 @@ import {
   agentWorkflow,
   stateLabels,
 } from "../ui/agentDisplay";
-import { PrStateIcon, TerminalIcon, WorktreeIcon } from "../ui/Icons";
-import Row from "../ui/Row";
-import Section from "../ui/Section";
+import { PrStateIcon, TerminalIcon, WorktreeIcon } from "@kolu/solid-icons";
+import Row from "@kolu/solid-ui/Row";
+import Section from "@kolu/solid-ui/Section";
 
 const MetadataInspector: Component<{
   meta: TerminalMetadata | null;

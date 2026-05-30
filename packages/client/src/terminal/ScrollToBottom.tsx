@@ -1,8 +1,8 @@
 /** Floating "scroll to bottom" button — shown when terminal is scroll-locked. */
 
 import { type Component, Show } from "solid-js";
-import { ScrollDownIcon } from "../ui/Icons";
-import Tip from "../ui/Tip";
+import { ScrollDownIcon } from "@kolu/solid-icons";
+import Tip from "@kolu/solid-ui/Tip";
 
 const ScrollToBottom: Component<{
   visible: boolean;

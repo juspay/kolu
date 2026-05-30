@@ -5,7 +5,7 @@
  *  (e.g. on view change). */
 
 import { type Component, Show } from "solid-js";
-import { CloseIcon, SearchIcon } from "../ui/Icons";
+import { CloseIcon, SearchIcon } from "@kolu/solid-icons";
 
 const FileSearchInput: Component<{
   value: string;

@@ -19,7 +19,7 @@ import type {
 import { type Component, For } from "solid-js";
 import { match } from "ts-pattern";
 import { CHROME_ICON_BUTTON_CLASS } from "../ui/chromeSpacing";
-import { ChevronRightIcon } from "../ui/Icons";
+import { ChevronRightIcon } from "@kolu/solid-icons";
 import { ACTIVE_TERMINAL_ACCENT } from "./activeTerminalAccent";
 import CodeTab from "./CodeTab";
 import MetadataInspector from "./MetadataInspector";

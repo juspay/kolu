@@ -12,7 +12,7 @@ import { formatTimeAgo, useStaleCheck } from "../terminal/staleness";
 import type { TerminalDisplayInfo } from "../terminal/terminalDisplay";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { ActivityWindowChip } from "../ui/ActivityWindowChip";
-import { GridIcon } from "../ui/Icons";
+import { GridIcon } from "@kolu/solid-icons";
 import { agentBucket, bucketDescriptor } from "./dockModel";
 import {
   handleMinimapClick,

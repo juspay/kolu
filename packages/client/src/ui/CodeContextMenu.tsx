@@ -10,8 +10,8 @@ import { type Component, createSignal, For, onCleanup, Show } from "solid-js";
 import { Dynamic, Portal } from "solid-js/web";
 import { toast } from "solid-sonner";
 import { match } from "ts-pattern";
-import { writeTextToClipboard } from "./clipboard";
-import { surface } from "./Surface";
+import { writeTextToClipboard } from "@kolu/platform/clipboard";
+import { surface } from "@kolu/solid-ui/Surface";
 
 /** Two verbs over the same selection noun: copy a string to the clipboard,
  *  or invoke an action callback. The discriminator keeps the dispatch

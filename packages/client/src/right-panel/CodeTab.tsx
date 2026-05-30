@@ -41,7 +41,7 @@ import { useComposer } from "../comments/composerState";
 import { useCommentScrollRequest } from "../comments/scrollRequest";
 import { useColorScheme } from "../settings/useColorScheme";
 import { isMobile } from "../useMobile";
-import { FileBrowseIcon, FileDiffIcon, GitBranchIcon } from "../ui/Icons";
+import { FileBrowseIcon, FileDiffIcon, GitBranchIcon } from "@kolu/solid-icons";
 import { resolveLineRefPath } from "../ui/lineRef";
 import {
   renderTreeContextMenu,
@@ -52,7 +52,7 @@ import {
   pierreIconConfig,
   pierreTreesStyle,
 } from "../ui/pierreTheme";
-import { Z_HANDLE_INNER } from "../ui/stackLayers";
+import { Z_HANDLE_INNER } from "@kolu/solid-ui/stackLayers";
 import { app } from "../wire";
 import BrowseFileDispatcher from "./BrowseFileDispatcher";
 import CodeMenuFrame from "./CodeMenuFrame";

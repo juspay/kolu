@@ -24,7 +24,7 @@ import { type Component, createMemo, createSignal, Show } from "solid-js";
 import { dockExpanded, toggleRailCards } from "./canvas/dock/Dock";
 import { useViewPosture } from "./canvas/useViewPosture";
 import { ACTIONS } from "./input/actions";
-import { formatKeybind } from "./input/keyboard";
+import { formatKeybind } from "@kolu/platform/keyboard";
 import RecordButton from "./recorder/RecordButton";
 import { useRightPanel } from "./right-panel/useRightPanel";
 import type { WsStatus } from "./rpc/rpc";
@@ -35,9 +35,9 @@ import {
   MaximizeIcon,
   RestoreIcon,
   SettingsIcon,
-} from "./ui/Icons";
-import Kbd from "./ui/Kbd";
-import Tip from "./ui/Tip";
+} from "@kolu/solid-icons";
+import Kbd from "@kolu/solid-ui/Kbd";
+import Tip from "@kolu/solid-ui/Tip";
 
 const statusStyles: Record<WsStatus, string> = {
   connecting: "bg-warning animate-pulse",

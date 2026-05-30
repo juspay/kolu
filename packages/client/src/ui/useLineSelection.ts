@@ -14,7 +14,7 @@
 import type { SelectedLineRange } from "@pierre/diffs";
 import { type Accessor, createEffect, createSignal, on } from "solid-js";
 import type { CodeContextMenuItem } from "./CodeContextMenu";
-import { CopyIcon, OpenIcon } from "./Icons";
+import { CopyIcon, OpenIcon } from "@kolu/solid-icons";
 import { formatLineRef, type LineRef } from "./lineRef";
 
 export type LineSelection = {

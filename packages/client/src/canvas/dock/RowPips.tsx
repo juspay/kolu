@@ -50,7 +50,7 @@ import ChecksIndicator from "../../terminal/ChecksIndicator";
 import { prTooltip } from "../../terminal/prTooltip";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
-import { PrStateIcon } from "../../ui/Icons";
+import { PrStateIcon } from "@kolu/solid-icons";
 import type { DockRowBucket } from "./dockRowRanking";
 import { type PipVariant, pipVariant } from "./pipVariant";
 import { SubCountChip } from "./SubCountChip";

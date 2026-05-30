@@ -17,8 +17,8 @@ import { useTips } from "../settings/useTips";
 import AgentIndicator from "../terminal/AgentIndicator";
 import { useSubPanel } from "../terminal/useSubPanel";
 import { useTerminalStore } from "../terminal/useTerminalStore";
-import { ScreenshotIcon, SearchIcon, SplitToggleIcon } from "../ui/Icons";
-import Tip from "../ui/Tip";
+import { ScreenshotIcon, SearchIcon, SplitToggleIcon } from "@kolu/solid-icons";
+import Tip from "@kolu/solid-ui/Tip";
 import { useThemeManager } from "../useThemeManager";
 
 /** Tile chrome buttons share this affordance. Theme pill is wider — it shows

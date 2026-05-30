@@ -1,0 +1,27 @@
+{
+  "name": "@kolu/solid-overlay",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test:unit": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.8.0",
+    "vitest": "^4.1.2"
+  },
+  "dependencies": {
+    "@kolu/solid-ui": "workspace:*",
+    "@solid-primitives/event-listener": "^2.4.5",
+    "solid-js": "^1.9.0"
+  }
+}

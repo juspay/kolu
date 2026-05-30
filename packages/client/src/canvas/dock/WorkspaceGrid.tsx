@@ -32,7 +32,7 @@ import ChecksIndicator from "../../terminal/ChecksIndicator";
 import { prTooltip } from "../../terminal/prTooltip";
 import { formatTimeAgo, useIdleClassifier } from "../../terminal/staleness";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
-import { PrStateIcon } from "../../ui/Icons";
+import { PrStateIcon } from "@kolu/solid-icons";
 import {
   bucketDescriptor,
   buildDockModel,

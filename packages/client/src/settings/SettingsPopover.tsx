@@ -7,10 +7,10 @@ import { type Component, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import SegmentedControl, {
   type SegmentedControlOption,
-} from "../ui/SegmentedControl";
-import { surface } from "../ui/Surface";
-import Toggle from "../ui/Toggle";
-import { useAnchoredPopover } from "../ui/useAnchoredPopover";
+} from "@kolu/solid-ui/SegmentedControl";
+import { surface } from "@kolu/solid-ui/Surface";
+import Toggle from "@kolu/solid-ui/Toggle";
+import { useAnchoredPopover } from "@kolu/solid-overlay";
 import { preferences, updatePreferences } from "../wire";
 import SettingRow, { type Hint } from "./SettingRow";
 import { type ColorScheme, useColorScheme } from "./useColorScheme";

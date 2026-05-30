@@ -4,7 +4,7 @@
  */
 
 import { ACTIONS } from "../input/actions";
-import { formatKeybind } from "../input/keyboard";
+import { formatKeybind } from "@kolu/platform/keyboard";
 
 export type TipId = string;
 

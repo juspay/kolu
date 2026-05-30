@@ -12,7 +12,7 @@ import {
   Show,
 } from "solid-js";
 import { Portal } from "solid-js/web";
-import { CloseIcon } from "../ui/Icons";
+import { CloseIcon } from "@kolu/solid-icons";
 import { activeTip, dismissTip } from "./useTips";
 
 const TipBanner: Component = () => {

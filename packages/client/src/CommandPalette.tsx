@@ -24,9 +24,9 @@ import {
 } from "solid-js";
 import { Dynamic } from "solid-js/web";
 import { match } from "ts-pattern";
-import { formatKeybind, type Keybind } from "./input/keyboard";
+import { formatKeybind, type Keybind } from "@kolu/platform/keyboard";
 import { useTips } from "./settings/useTips";
-import Kbd from "./ui/Kbd";
+import Kbd from "@kolu/solid-ui/Kbd";
 import ModalDialog from "./ui/ModalDialog";
 
 /** Top-level sections, in render order. Items tagged with a section are

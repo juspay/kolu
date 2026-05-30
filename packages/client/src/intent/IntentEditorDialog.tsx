@@ -16,10 +16,10 @@ import {
   Show,
 } from "solid-js";
 import { toast } from "solid-sonner";
-import { writeTextToClipboard } from "../ui/clipboard";
-import { CloseIcon, CopyIcon } from "../ui/Icons";
+import { writeTextToClipboard } from "@kolu/platform/clipboard";
+import { CloseIcon, CopyIcon } from "@kolu/solid-icons";
 import ModalDialog from "../ui/ModalDialog";
-import { surface } from "../ui/Surface";
+import { surface } from "@kolu/solid-ui/Surface";
 import { IntentMarkdownBlock } from "./IntentMarkdown";
 
 /** Curated emoji quick-row. Pairs glyph with a short label that

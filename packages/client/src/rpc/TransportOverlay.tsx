@@ -13,7 +13,7 @@
 import { type Component, Show } from "solid-js";
 import { match } from "ts-pattern";
 import { forceUpdateAndReload } from "../pwa";
-import { surface } from "../ui/Surface";
+import { surface } from "@kolu/solid-ui/Surface";
 import { lifecycle } from "./rpc";
 
 const chrome = surface();

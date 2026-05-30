@@ -10,7 +10,7 @@ import {
   type AppAction,
   isDispatchable,
 } from "./actions";
-import { matchesKeybind } from "./keyboard";
+import { matchesKeybind } from "@kolu/platform/keyboard";
 
 /** MRU cycling state — a frozen snapshot is taken on the first Tab press while
  *  the modifier (Alt or Ctrl) is held, and the cursor advances through that

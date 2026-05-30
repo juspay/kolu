@@ -61,9 +61,24 @@ importers:
       '@kolu/artifact-sdk':
         specifier: workspace:*
         version: link:../artifact-sdk
+      '@kolu/platform':
+        specifier: workspace:*
+        version: link:../platform
+      '@kolu/solid-icons':
+        specifier: workspace:*
+        version: link:../solid-icons
+      '@kolu/solid-overlay':
+        specifier: workspace:*
+        version: link:../solid-overlay
       '@kolu/solid-pierre':
         specifier: workspace:*
         version: link:../solid-pierre
+      '@kolu/solid-ui':
+        specifier: workspace:*
+        version: link:../solid-ui
+      '@kolu/solid-xterm':
+        specifier: workspace:*
+        version: link:../solid-xterm
       '@kolu/surface':
         specifier: workspace:*
         version: link:../surface
@@ -443,6 +458,19 @@ importers:
         specifier: ^5.8.0
         version: 5.9.3
 
+  packages/platform:
+    dependencies:
+      '@xterm/addon-clipboard':
+        specifier: ^0.2.0
+        version: 0.2.0
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.15
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+
   packages/pty-host:
     dependencies:
       '@xterm/addon-serialize':
@@ -586,6 +614,41 @@ importers:
         specifier: ^5.8.0
         version: 5.9.3
 
+  packages/solid-icons:
+    dependencies:
+      solid-js:
+        specifier: ^1.9.0
+        version: 1.9.11
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.15
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+
+  packages/solid-overlay:
+    dependencies:
+      '@kolu/solid-ui':
+        specifier: workspace:*
+        version: link:../solid-ui
+      '@solid-primitives/event-listener':
+        specifier: ^2.4.5
+        version: 2.4.5(solid-js@1.9.11)
+      solid-js:
+        specifier: ^1.9.0
+        version: 1.9.11
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.15
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.2
+        version: 4.1.2(@types/node@22.19.15)(vite@6.4.2(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.47.1)(tsx@4.21.0)(yaml@2.8.3))
+
   packages/solid-pierre:
     dependencies:
       '@pierre/diffs':
@@ -594,6 +657,41 @@ importers:
       '@pierre/trees':
         specifier: ^1.0.0-beta.4
         version: 1.0.0-beta.4(react@19.2.5)
+      solid-js:
+        specifier: ^1.9.0
+        version: 1.9.11
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.15
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+
+  packages/solid-ui:
+    dependencies:
+      '@corvu/tooltip':
+        specifier: ^0.2.2
+        version: 0.2.2(solid-js@1.9.11)
+      solid-js:
+        specifier: ^1.9.0
+        version: 1.9.11
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.15
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+
+  packages/solid-xterm:
+    dependencies:
+      '@xterm/addon-webgl':
+        specifier: 0.20.0-beta.224
+        version: 0.20.0-beta.224(@xterm/xterm@6.1.0-beta.225)
+      '@xterm/xterm':
+        specifier: 6.1.0-beta.225
+        version: 6.1.0-beta.225
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11

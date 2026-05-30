@@ -4,7 +4,7 @@
 import { agentKindFromCommand } from "anyagent/cli";
 import type { AgentInfo } from "kolu-common/surface";
 import type { Component } from "solid-js";
-import { ClaudeCodeIcon, CodexIcon, OpenCodeIcon } from "../ui/Icons";
+import { ClaudeCodeIcon, CodexIcon, OpenCodeIcon } from "@kolu/solid-icons";
 
 export const agentIcons: Record<
   AgentInfo["kind"],

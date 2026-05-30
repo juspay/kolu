@@ -8,7 +8,7 @@ import Resizable from "@corvu/resizable";
 import type { ITheme } from "@xterm/xterm";
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import { type Component, For, Show } from "solid-js";
-import { Z_HANDLE_INNER } from "../ui/stackLayers";
+import { Z_HANDLE_INNER } from "@kolu/solid-ui/stackLayers";
 import SubPanelTabBar from "./SubPanelTabBar";
 import Terminal from "./Terminal";
 import { useSubPanel } from "./useSubPanel";

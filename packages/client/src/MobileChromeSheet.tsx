@@ -18,12 +18,12 @@
 
 import { type Component, createSignal } from "solid-js";
 import { ACTIONS } from "./input/actions";
-import { formatKeybind } from "./input/keyboard";
+import { formatKeybind } from "@kolu/platform/keyboard";
 import { useRightPanel } from "./right-panel/useRightPanel";
 import type { WsStatus } from "./rpc/rpc";
 import SettingsPopover from "./settings/SettingsPopover";
-import { InspectorToggleIcon, SettingsIcon } from "./ui/Icons";
-import Kbd from "./ui/Kbd";
+import { InspectorToggleIcon, SettingsIcon } from "@kolu/solid-icons";
+import Kbd from "@kolu/solid-ui/Kbd";
 
 const statusStyles: Record<WsStatus, string> = {
   connecting: "bg-warning animate-pulse",

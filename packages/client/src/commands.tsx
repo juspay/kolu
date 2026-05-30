@@ -22,7 +22,7 @@ import {
   actionPaletteCommand,
 } from "./input/actions";
 import { iconForCommand } from "./ui/agentDisplay";
-import { TerminalIcon } from "./ui/Icons";
+import { TerminalIcon } from "@kolu/solid-icons";
 import { recentAgents, recentRepos } from "./wire";
 
 /** Body component factory for the "Search workspaces" group. Captures

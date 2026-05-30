@@ -9,7 +9,7 @@ import {
   type Keybind,
   keybindAsEvent,
   matchesKeybind,
-} from "./keyboard";
+} from "@kolu/platform/keyboard";
 import { PROHIBITED_KEYBINDS } from "./prohibitedKeybinds";
 
 function makeEvent(overrides: Partial<KeyboardEvent> = {}): KeyboardEvent {

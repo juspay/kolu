@@ -18,8 +18,8 @@ import { CHROME_ICON_BUTTON_CLASS } from "../ui/chromeSpacing";
 import {
   Z_CANVAS_TILE_ACTIVE,
   Z_CANVAS_TILE_INACTIVE,
-} from "../ui/stackLayers";
-import { MaximizeIcon, RestoreIcon } from "../ui/Icons";
+} from "@kolu/solid-ui/stackLayers";
+import { MaximizeIcon, RestoreIcon } from "@kolu/solid-icons";
 import { RESIZE_HANDLES, type ResizeDirection } from "./resizeGeometry";
 import type { TileLayout } from "./TileLayout";
 import {

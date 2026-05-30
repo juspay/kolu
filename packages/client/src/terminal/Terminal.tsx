@@ -14,7 +14,6 @@ import { SearchAddon } from "@xterm/addon-search";
 import { SerializeAddon } from "@xterm/addon-serialize";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { WebLinksAddon } from "@xterm/addon-web-links";
-import { WebglAddon } from "@xterm/addon-webgl";
 import { type ITheme, Terminal as XTerm } from "@xterm/xterm";
 import {
   type Component,
@@ -29,15 +28,19 @@ import {
 } from "solid-js";
 import { toast } from "solid-sonner";
 import { match } from "ts-pattern";
-import { SafeClipboardProvider, writeTextToClipboard } from "../ui/clipboard";
+import {
+  SafeClipboardProvider,
+  writeTextToClipboard,
+} from "@kolu/platform/clipboard";
 import "@xterm/xterm/css/xterm.css";
 import { streamCall } from "@kolu/surface/solid";
+import { createXtermWebgl } from "@kolu/solid-xterm";
 import { DEFAULT_SCROLLBACK } from "kolu-common/config";
 import type { TerminalId } from "kolu-common/surface";
 import { rejectionFor, sizeRejectionFor } from "kolu-common/upload";
 import { FONT_FAMILY } from "terminal-themes";
 import { ACTIONS, matchesAnyShortcut } from "../input/actions";
-import { matchesKeybind } from "../input/keyboard";
+import { matchesKeybind } from "@kolu/platform/keyboard";
 import { createZoom } from "../input/zoom";
 import { refitOnTabVisible } from "../refitOnTabVisible";
 import { openInCodeTab } from "../right-panel/openInCodeTab";
@@ -179,8 +182,6 @@ const Terminal: Component<{
   const fontSize = createZoom(props.terminalId, () => props.visible);
 
   let streamAbort: AbortController | null = null;
-  let webgl: WebglAddon | null = null;
-  let webglCanvas: HTMLCanvasElement | null = null;
   let webglTrackerId: number | null = null;
   let disposeDiagnostics: (() => void) | null = null;
   /** True once this component's reactive owner has been disposed. Set by the
@@ -191,12 +192,26 @@ const Terminal: Component<{
    *  owner is a silent no-op, so onCleanup inside the async body would not
    *  run when an `<Show>` toggle disposes the owner during a mode switch). */
   let disposed = false;
-  const [hasWebgl, setHasWebgl] = createSignal(false);
 
-  /** Clear WebGL texture atlas to fix font rendering corruption (issue #239). */
-  function clearTextureAtlas() {
-    webgl?.clearTextureAtlas();
-  }
+  // The WebGL-context lifecycle (load/unload, GPU-context release, atlas
+  // clearing) lives in @kolu/solid-xterm; the renderer *policy* (shouldUseWebgl
+  // below) and the #591 zombie-context tracker stay here. The tracker is wired
+  // through lifecycle hooks so the library carries no Kolu debug dependency.
+  const webglMgr = createXtermWebgl({
+    onCanvas: (canvas) => {
+      // Register for lifecycle observation (#591 debug). No-op if no canvas.
+      webglTrackerId = trackCreate(props.terminalId, canvas);
+    },
+    onLoseContext: () => {
+      if (webglTrackerId !== null) trackLoseContextCalled(webglTrackerId);
+    },
+    onDispose: () => {
+      if (webglTrackerId !== null) {
+        trackDispose(webglTrackerId);
+        webglTrackerId = null;
+      }
+    },
+  });
 
   /** Capability: only the focused+visible tile is allowed to hold a WebGL
    *  context — Chrome's per-tab limit (~16) is quickly exhausted in canvas
@@ -213,71 +228,6 @@ const Terminal: Component<{
       .with("webgl", () => true)
       .with("dom", () => false)
       .exhaustive();
-
-  function loadWebgl() {
-    if (!terminal || webgl) return;
-    try {
-      // Single owner of WebglAddon lifetime — any future construction-time
-      // flag (e.g. preserveDrawingBuffer for screenshots, #574) must be
-      // routed through this effect, not a parallel dispose/reconstruct path.
-      const w = new WebglAddon();
-      w.onContextLoss(() => unloadWebgl());
-      terminal.loadAddon(w);
-      webgl = w;
-      // Capture the canvas the addon just appended so we can explicitly
-      // release its GPU context on unload — see unloadWebgl.
-      //
-      // xterm's WebglRenderer constructor appends the LinkRenderLayer's 2D
-      // canvas (`class="xterm-link-layer"`) to `.xterm-screen` before it
-      // appends its own WebGL canvas (which has no class). A bare
-      // `querySelector(".xterm-screen canvas")` returns the first match in
-      // document order — the link layer — whose `getContext("webgl2")`
-      // returns null, silently short-circuiting the `loseContext()` chain in
-      // `unloadWebgl()`. Diagnosed via #595's `webglTracker`:
-      // `contextsLost` stayed at 0 despite `loseContext-called` events
-      // firing for every disposed canvas (#591). Exclude the link layer
-      // explicitly so we grab the real WebGL canvas.
-      webglCanvas =
-        terminal.element?.querySelector<HTMLCanvasElement>(
-          ".xterm-screen canvas:not(.xterm-link-layer)",
-        ) ?? null;
-      // Register for lifecycle observation (#591 debug). No-op if no canvas.
-      if (webglCanvas)
-        webglTrackerId = trackCreate(props.terminalId, webglCanvas);
-      setHasWebgl(true);
-    } catch {
-      // WebGL unavailable — xterm's DOM renderer is the fallback
-    }
-  }
-
-  function unloadWebgl() {
-    const w = webgl;
-    if (!w) return;
-    // Null out first: `loseContext()` below fires `webglcontextlost`
-    // synchronously, which re-enters this function via the addon's
-    // `onContextLoss` listener. The guard above short-circuits the reentry.
-    webgl = null;
-    setHasWebgl(false);
-    // Explicitly release the GPU context. xterm's dispose() removes the
-    // canvas from the DOM but does NOT call WEBGL_lose_context.loseContext(),
-    // so Chrome keeps the context alive on the detached canvas until GC.
-    // Rapid focus changes create contexts faster than GC runs and overflow
-    // Chrome's ~16-context-per-tab budget, at which point Chrome starts
-    // evicting live contexts — including the focused tile's — producing a
-    // flicker across every tile. loseContext() releases GPU memory in the
-    // current microtask, keeping the live set at 1.
-    if (webglTrackerId !== null) trackLoseContextCalled(webglTrackerId);
-    webglCanvas
-      ?.getContext("webgl2")
-      ?.getExtension("WEBGL_lose_context")
-      ?.loseContext();
-    webglCanvas = null;
-    w.dispose();
-    if (webglTrackerId !== null) {
-      trackDispose(webglTrackerId);
-      webglTrackerId = null;
-    }
-  }
 
   // Selection-driven focus. Desktop raises the keyboard when a tile becomes
   // active/visible; on touch that's intrusive — the soft keyboard should only
@@ -325,8 +275,8 @@ const Terminal: Component<{
       shouldUseWebgl,
       (should) => {
         if (!terminal) return;
-        if (should) loadWebgl();
-        else unloadWebgl();
+        if (should) webglMgr.load(terminal);
+        else webglMgr.unload();
       },
       { defer: true },
     ),
@@ -351,7 +301,7 @@ const Terminal: Component<{
       (theme) => {
         if (!terminal) return;
         terminal.options.theme = theme;
-        clearTextureAtlas();
+        webglMgr.clearTextureAtlas();
       },
       { defer: true },
     ),
@@ -377,7 +327,7 @@ const Terminal: Component<{
         if (!terminal) return;
         terminal.options.fontSize = size;
         debouncedFit();
-        clearTextureAtlas();
+        webglMgr.clearTextureAtlas();
       },
       { defer: true },
     ),
@@ -400,7 +350,7 @@ const Terminal: Component<{
     unregisterTerminalRefs(props.terminalId);
     disposeDiagnostics?.();
     disposeDiagnostics = null;
-    unloadWebgl();
+    webglMgr.unload();
     linkProviderDisposable?.dispose();
     linkProviderDisposable = null;
     terminal?.dispose();
@@ -605,10 +555,7 @@ const Terminal: Component<{
             xterm: term,
             serialize: serializeAddon,
             probes: {
-              webglAtlas: () => {
-                const a = webgl?.textureAtlas;
-                return a ? { w: a.width, h: a.height } : null;
-              },
+              webglAtlas: () => webglMgr.textureAtlas(),
               bufferBytes: () => readBufferBytes(term),
             },
           });
@@ -616,12 +563,12 @@ const Terminal: Component<{
           // the single source of truth, no imperative updater to forget.
           disposeDiagnostics = registerDiagnostics(props.terminalId, {
             xterm: term,
-            renderer: () => (hasWebgl() ? "webgl" : "dom"),
+            renderer: () => (webglMgr.hasWebgl() ? "webgl" : "dom"),
           });
 
           scrollLock.attachToTerminal(term);
 
-          if (shouldUseWebgl()) loadWebgl();
+          if (shouldUseWebgl()) webglMgr.load(term);
 
           // xterm.js has attachCustomKeyEventHandler for intercepting keys.
           // Return false to prevent xterm from handling the key.
@@ -741,7 +688,7 @@ const Terminal: Component<{
           refitOnTabVisible(
             () => {
               debouncedFit();
-              clearTextureAtlas();
+              webglMgr.clearTextureAtlas();
             },
             () => props.visible,
           );
@@ -901,9 +848,9 @@ const Terminal: Component<{
           });
 
           // Cleanup is registered synchronously near the top of the component body
-          // (see comment there). It references `terminal`, `webgl`, and the local
-          // refs via closure, and handles null state if this onMount body never ran
-          // to completion.
+          // (see comment there). It references `terminal`, `webglMgr`, and the
+          // local refs via closure, and handles null state if this onMount body
+          // never ran to completion.
         });
       } catch (err) {
         console.error("Terminal onMount failed:", err);
@@ -941,7 +888,7 @@ const Terminal: Component<{
         data-focused={props.focused !== false ? "" : undefined}
         data-sub-terminal={props.isSub ? "" : undefined}
         data-font-size={fontSize()}
-        data-renderer={hasWebgl() ? "webgl" : "dom"}
+        data-renderer={webglMgr.hasWebgl() ? "webgl" : "dom"}
       />
     </div>
   );

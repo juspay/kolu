@@ -3,10 +3,10 @@
 import Dialog from "@corvu/dialog";
 import { type Component, For } from "solid-js";
 import { ACTIONS, type ActionId } from "./input/actions";
-import { formatKeybind } from "./input/keyboard";
-import Kbd from "./ui/Kbd";
+import { formatKeybind } from "@kolu/platform/keyboard";
+import Kbd from "@kolu/solid-ui/Kbd";
 import ModalDialog from "./ui/ModalDialog";
-import { surface } from "./ui/Surface";
+import { surface } from "@kolu/solid-ui/Surface";
 
 /** Curated display order for the shortcuts help overlay. Referencing actions
  *  by id (instead of restating label/keybind) keeps the overlay in sync with
