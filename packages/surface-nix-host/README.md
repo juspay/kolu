@@ -36,7 +36,7 @@ const sys = client.system.get({});           // typed oRPC — same shape your b
 ## What it's NOT
 
 - **Not a transport.** That's [`@kolu/surface/links/stdio`](../surface/src/links/stdio.ts). This package sits *on top of* the stdio link and adds: process supervision (spawn/respawn ssh), `.drv` provisioning (the Nix bit), and a reactive state cell for the connection's own lifecycle.
-- **Not a Nix utility.** `provisionAgent` is purposely minimal — `nix copy --derivation`, then `ssh $host nix-store --realise`, then return the resulting path. If you want richer flake handling (e.g. resolve a flake ref to a `.drv` at startup), compute the `.drv` outside and pass `{ drvPath }`.
+- **Not a Nix utility.** `provisionAgent` is purposely minimal — `nix copy --derivation`, then `ssh $host nix-store --realise`, then return the resulting path. If you want richer flake handling (e.g. resolve a flake ref to a `.drv`), do it inside the `resolveDrvPath` callback you pass.
 - **Not opinionated about UI.** The package returns a typed RPC client. Mirroring its streams into your parent server's local surface (so the browser can consume them) is the consumer's job. See the [`remote-process-monitor` example](../surface/example/remote-process-monitor/src/server/router.ts) for the canonical bridge pattern.
 
 ## Why Nix (locked-in)
