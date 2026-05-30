@@ -92,6 +92,9 @@ function pickJsonFile(): Promise<string | null> {
     const input = document.createElement("input");
     input.type = "file";
     input.accept = "application/json,.json";
+    // Dismissing the picker fires `cancel`, not `change`, in modern browsers —
+    // without this listener `change` never fires and the Promise hangs forever.
+    input.addEventListener("cancel", () => resolve(null));
     input.addEventListener("change", () => {
       const file = input.files?.[0];
       if (!file) {
