@@ -33,7 +33,7 @@
       homeManagerModules.default = import ./nix/home/module.nix;
       packages = eachSystem (pkgs:
         let
-          kolu = koluBySystem.${pkgs.system};
+          kolu = koluBySystem.${pkgs.stdenv.hostPlatform.system};
           # Synthesized website source tree: website/ with the canonical
           # favicon copied in where the working tree has a symlink to
           # ../../packages/client/favicon.svg. One SVG on disk; the Nix
