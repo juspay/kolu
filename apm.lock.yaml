@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-05-29T22:25:40.578568+00:00'
+generated_at: '2026-05-30T01:10:18.052343+00:00'
 apm_version: 0.16.0
 dependencies:
 - repo_url: anthropics/skills
@@ -104,10 +104,12 @@ mcp_configs:
     registry: false
     command: .agents/skills/nix-chrome-devtools-mcp/bin/serve
 local_deployed_files:
+- .agents/skills/evidence
 - .agents/skills/hk
 - .agents/skills/parcel
 - .agents/skills/perf-diagnose
 - .agents/skills/pierre
+- .agents/skills/pu
 - .agents/skills/test
 - .claude/commands/whatchanged.md
 - .claude/rules/apm-sources.md
@@ -120,10 +122,12 @@ local_deployed_files:
 - .claude/rules/state.md
 - .claude/rules/streaming.md
 - .claude/rules/toast-conventions.md
+- .claude/skills/evidence
 - .claude/skills/hk
 - .claude/skills/parcel
 - .claude/skills/perf-diagnose
 - .claude/skills/pierre
+- .claude/skills/pu
 - .claude/skills/test
 - .opencode/commands/whatchanged.md
 local_deployed_file_hashes:
