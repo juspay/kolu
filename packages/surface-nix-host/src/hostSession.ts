@@ -348,7 +348,11 @@ export class HostSession<C extends AnyContractRouter> {
     try {
       drvPath = await this.opts.resolveDrvPath();
     } catch (err) {
-      const reason = (err as Error).message;
+      // Mirror the `provisionAgent` failure path's message fidelity: that
+      // branch surfaces `provision.reason` (always a real string), so a
+      // non-Error rejection here mustn't degrade `lastError` to the string
+      // "undefined" on the connection cell the UI reads.
+      const reason = err instanceof Error ? err.message : String(err);
       this.updateState({ connection: "disconnected", lastError: reason });
       this.scheduleReconnect();
       throw err;
