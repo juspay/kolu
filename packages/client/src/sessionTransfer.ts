@@ -15,6 +15,7 @@
 
 import { type SavedSession, SavedSessionSchema } from "kolu-common/surface";
 import { toast } from "solid-sonner";
+import { triggerDownload } from "./download";
 
 const EXPORT_FILENAME = "kolu-session.json";
 
@@ -29,14 +30,7 @@ export function exportSession(session: SavedSession | null): void {
     type: "application/json",
   });
   const url = URL.createObjectURL(blob);
-  // Anchor-click download, mirroring `exportSessionAsHtml`'s fallback path.
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = EXPORT_FILENAME;
-  a.rel = "noopener";
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
+  triggerDownload(url, EXPORT_FILENAME);
   // Revoke after the download has had time to start (same delay as
   // `exportSessionAsHtml`); revoking synchronously can abort the download.
   setTimeout(() => URL.revokeObjectURL(url), 60_000);
