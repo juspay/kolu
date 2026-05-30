@@ -59,7 +59,11 @@ async function main(): Promise<void> {
 
   const session = getHostSession<typeof surface.contract>({
     host: HOST,
-    drvPath: DRV_PATH,
+    // This example takes the .drv straight from the environment (no arch
+    // probe), so the resolver is a constant. Consumers that pick the .drv
+    // per host's nix-system pass an async probe here instead — see
+    // `resolveSystem` in @kolu/surface-nix-host.
+    resolveDrvPath: () => Promise.resolve(DRV_PATH),
     binary: "process-monitor-agent",
   });
   const { router } = buildRouter({ session });
