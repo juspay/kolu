@@ -94,15 +94,21 @@ export interface TerminalHandle {
   /** OS process ID of the spawned shell (local) or a stable opaque id
    *  surfaced by the remote agent. */
   readonly pid: number;
+  /** Resolves once the PTY actually exists (a handle vended on the sync
+   *  shadow, invariant #3, can be issued verbs before its async spawn has
+   *  resolved). Rejects if spawn failed. Consumers that must observe the live
+   *  PTY (e.g. `attach`) await this first; fire-and-forget verbs queue behind
+   *  it. Optional so a handle whose PTY exists at construction can omit it. */
+  readonly ready?: Promise<void>;
   write(data: string): void;
   resize(cols: number, rows: number): void;
   /** Serialized screen state (VT escape sequences) for late-joining
-   *  clients. Empty string when the PTY hasn't produced output yet. A
-   *  socket-backed handle (R4c daemon, R-2 ssh) reads it over the wire, so
-   *  the return widens to a Promise — callers `await` it. */
-  getScreenState(): string | Promise<string>;
+   *  clients. Empty string when the PTY hasn't produced output yet. Always a
+   *  Promise: even the local handle reads it through the pty-host contract,
+   *  and a socket/ssh handle reads it over the wire — callers `await` it. */
+  getScreenState(): Promise<string>;
   /** Plain text content of the terminal buffer (scrollback + viewport). */
-  getScreenText(startLine?: number, endLine?: number): string | Promise<string>;
+  getScreenText(startLine?: number, endLine?: number): Promise<string>;
 }
 
 /** Filesystem operations scoped to a backend's host machine. Returns
@@ -145,27 +151,25 @@ export interface TerminalBackend {
   spawnPty(id: TerminalId, opts: PtySpawnOpts): TerminalInfo;
 
   /** Stop providers, kill the PTY, scrub per-terminal scratch storage,
-   *  unregister from the shared registry. Sole termination path. A
-   *  socket-backed backend awaits the daemon's kill confirmation before
-   *  unregistering (so a failed kill can't orphan the PTY), hence the
-   *  Promise. */
-  killTerminal(
-    id: TerminalId,
-  ): TerminalInfo | undefined | Promise<TerminalInfo | undefined>;
+   *  unregister from the shared registry. Sole termination path. Awaits the
+   *  pty-host's kill confirmation before unregistering (so a failed kill can't
+   *  orphan the PTY), hence the Promise. */
+  killTerminal(id: TerminalId): Promise<TerminalInfo | undefined>;
 
   /** Drain and dispose every terminal owned by this backend. Used by
    *  the e2e harness between scenarios. */
-  killAllTerminals(): void | Promise<void>;
+  killAllTerminals(): Promise<void>;
 
   /** Attach to a terminal's output: a screen-state snapshot plus the live
    *  delta stream from exactly that point forward. The snapshot is taken
    *  and the delta stream subscribed atomically, so the boundary between
-   *  them loses and duplicates nothing. A socket-backed backend opens the
-   *  attach stream over the wire, so the return widens to a Promise. */
+   *  them loses and duplicates nothing. Always a Promise — the attach stream
+   *  is opened through the pty-host contract (over the wire for a socket/ssh
+   *  backend). */
   attach(
     id: TerminalId,
     signal: AbortSignal | undefined,
-  ): TerminalAttachment | Promise<TerminalAttachment>;
+  ): Promise<TerminalAttachment>;
 
   readonly fs: TerminalBackendFs;
   readonly git: TerminalBackendGit;
