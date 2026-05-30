@@ -540,6 +540,13 @@ const pool = new Map<string, HostSession<AnyContractRouter>>();
  *  is picked up on the next reconnect), and a single host should map to a
  *  single session regardless of which derivation a given resolve yields.
  *
+ *  First call wins: once a `(host, binary)` session exists, later calls
+ *  return it and ignore their `opts` entirely — including a different
+ *  `resolveDrvPath`. A second caller wanting a different resolver for the
+ *  same host/binary is a key collision, not a new session; resolve the
+ *  conflict at the call site (one resolver per host/binary) rather than
+ *  expecting the pool to honour the second one.
+ *
  *  Generic over `C extends AnyContractRouter` — the contract type the
  *  agent on the other side serves. Pass it explicitly so the returned
  *  session's `acquire()`/`pin()`/`currentClient()` return a typed
