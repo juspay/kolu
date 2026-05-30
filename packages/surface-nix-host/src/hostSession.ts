@@ -11,6 +11,7 @@
  * Connection state lifecycle (snapshot-then-delta on `onState`):
  *
  *     copying      ──provisionAgent ok──▶ connecting
+ *     copying      ──resolve/provision fail─▶ disconnected (backoff, then retry)
  *     connecting   ──first RPC ────────▶ connected
  *     connecting   ──watchdog timeout ─▶ disconnected (kill child, then retry)
  *     connected    ──read end  ────────▶ disconnected ──reconnect──▶ copying
