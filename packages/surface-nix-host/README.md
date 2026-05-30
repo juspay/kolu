@@ -18,8 +18,8 @@ import { contract } from "./your-surface";  // your typed @kolu/surface contract
 
 const session: HostSession<typeof contract> = getHostSession<typeof contract>({
   host: "alice@bob.example",                 // any ssh target; "localhost" short-circuits
-  drvPath: process.env.MY_AGENT_DRV!,        // operator-supplied; the derivation of
-                                              // the agent binary for the *target* arch
+  resolveDrvPath: () =>                       // resolve the agent's .drv for the *target*
+    Promise.resolve(process.env.MY_AGENT_DRV!),//   arch; called inside each spawn (see below)
   binary: "my-agent",                        // exe name inside the realised closure
 });
 
