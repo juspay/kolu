@@ -148,13 +148,14 @@ class PtyHostTerminalProxy implements TerminalHandle {
   private resolveReady!: () => void;
   private rejectReady!: (err: unknown) => void;
 
-  /** `getClient` is injected (not reached out of a module singleton per-verb):
-   *  it makes the precondition explicit — a proxy is only ever constructed
-   *  once a pty-host client exists — and keeps the proxy decoupled from how the
-   *  client is resolved (in-process today, socket-served later). */
+  /** The pty-host client is injected so the proxy is decoupled from how it's
+   *  built (in-process today, socket-served later) — but it's a stable
+   *  reference, not a thunk: a transport swap re-points the module-level client
+   *  (or its internal connection re-dials), so a daemon reconnect is invisible
+   *  here and the proxy never needs to re-resolve per verb. */
   constructor(
     private readonly id: TerminalId,
-    private readonly getClient: () => PtyHostClient,
+    private readonly client: PtyHostClient,
   ) {
     this.ready = new Promise<void>((resolve, reject) => {
       this.resolveReady = resolve;
@@ -178,23 +179,21 @@ class PtyHostTerminalProxy implements TerminalHandle {
 
   write(data: string): void {
     void this.ready
-      .then(() =>
-        this.getClient().surface.terminal.write({ id: this.id, data }),
-      )
+      .then(() => this.client.surface.terminal.write({ id: this.id, data }))
       .catch((err) => log.error({ terminal: this.id, err }, "pty-host write"));
   }
 
   resize(cols: number, rows: number): void {
     void this.ready
       .then(() =>
-        this.getClient().surface.terminal.resize({ id: this.id, cols, rows }),
+        this.client.surface.terminal.resize({ id: this.id, cols, rows }),
       )
       .catch((err) => log.error({ terminal: this.id, err }, "pty-host resize"));
   }
 
   async getScreenState(): Promise<string> {
     await this.ready;
-    const { data } = await this.getClient().surface.terminal.getScreenState({
+    const { data } = await this.client.surface.terminal.getScreenState({
       id: this.id,
     });
     return data;
@@ -202,7 +201,7 @@ class PtyHostTerminalProxy implements TerminalHandle {
 
   async getScreenText(startLine?: number, endLine?: number): Promise<string> {
     await this.ready;
-    const { text } = await this.getClient().surface.terminal.getScreenText({
+    const { text } = await this.client.surface.terminal.getScreenText({
       id: this.id,
       startLine,
       endLine,
@@ -273,7 +272,7 @@ class LocalTerminalBackend implements TerminalBackend {
     // spawnPty` sync-shadow contract. The pty-host resolves the authoritative
     // cwd / pid on the async tail below; the provider DAG starts there too.
     const cwd = opts.cwd || process.env.HOME || "/";
-    const proxy = new PtyHostTerminalProxy(id, () => ptyHostClient);
+    const proxy = new PtyHostTerminalProxy(id, ptyHostClient);
     const meta: TerminalMetadata = { ...createMetadata(cwd) };
     if (opts.parentId) meta.parentId = opts.parentId;
     const initial = opts.initialMetadata;
@@ -490,25 +489,30 @@ class LocalTerminalBackend implements TerminalBackend {
   ): Promise<TerminalAttachment> {
     // Wait for the PTY to actually exist before opening the attach stream —
     // otherwise a tile attaching off the sync shadow races the in-flight
-    // `terminal.spawn` and the pty-host throws "no PTY with id". Rejects
-    // (surfaces) if spawn failed.
-    const entry = getTerminal(id);
-    if (entry?.handle instanceof PtyHostTerminalProxy) await entry.handle.ready;
+    // `terminal.spawn` and the pty-host throws "no PTY with id". `ready` is the
+    // `TerminalHandle` invariant (undefined ⟹ already live); awaiting it
+    // surfaces a spawn failure rather than hitting a missing PTY.
+    await getTerminal(id)?.handle.ready;
     const stream = await ptyHostClient.surface.terminalAttach.get(
       { id },
       { signal },
     );
     const iter = stream[Symbol.asyncIterator]();
-    // The pty-host yields the screen-state snapshot first, then deltas.
+    // The pty-host contract guarantees the first frame is the screen-state
+    // snapshot, then deltas. A first frame that isn't a snapshot is a contract
+    // violation — throw rather than silently paint a blank terminal (the same
+    // fail-loud stance as `getScreenState`'s NOT_FOUND).
     const first = await iter.next();
     let snapshot = "";
-    let pendingDelta: string | undefined;
     if (!first.done) {
-      if (first.value.kind === "snapshot") snapshot = first.value.data;
-      else pendingDelta = first.value.data;
+      if (first.value.kind !== "snapshot") {
+        throw new Error(
+          `attach(${id}): expected a snapshot first frame, got "${first.value.kind}"`,
+        );
+      }
+      snapshot = first.value.data;
     }
     const deltas = (async function* () {
-      if (pendingDelta !== undefined) yield pendingDelta;
       if (first.done) return;
       for await (const msg of { [Symbol.asyncIterator]: () => iter }) {
         yield msg.data;
