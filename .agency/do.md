@@ -44,64 +44,111 @@ Keep these docs in sync:
 
 When the change has visible UI impact, post a `## Evidence` PR comment with screenshots — or **video** when the change is about motion (an animation, a transition, a multi-step interaction a still can't convey; see _Video evidence_ below). Use judgment — server-only diffs sometimes ripple into rendering.
 
-**Delegate to a subagent** (`Agent(subagent_type="general-purpose", model="sonnet")`) so the main context stays clear of MCP and screenshot noise. Brief it with: the dev-server URL, what scenarios to capture, a `/tmp/kolu-evidence-<slug>.png` filename, and the PR number. Have it return only the markdown body it posted.
+**Capture runs on a `pu` box, not locally — exactly like CI.** `nix run`, Chrome, and Playwright all execute on an ephemeral Incus container; nothing touches the user's machine. This kills the whole class of local footguns: the box has its own loopback, so kolu binds the default `7681` there with **zero** risk to the user's production kolu — no random-port dance, no `pkill` that might match the user's process, no `git worktree` juggling for "before" shots. Reuse the same provisioning the CI step already documents (`pu create`).
 
-### Dev server
+**Delegate to a subagent** (`Agent(subagent_type="general-purpose", model="sonnet")`) so the main context stays clear of capture noise. Brief it with: the box name, what scenarios to capture, a `<slug>`, and the PR number. Have it return only the markdown body it posted.
 
-Run a **production-like** instance: `nix run . -- --port <P>` builds kolu and serves the bundled client + server on a **single** port — the same way kolu actually runs, so the evidence reflects production, not the Vite dev server. Pick **one random free port**; **never** the default `7681` (the user is very likely running their own production kolu there, and a clash or careless cleanup takes it down).
+### Provision the box & serve kolu
+
+Build and serve the **PR's own commit** from the pushed branch, on the box's loopback. (By the evidence step `/do` has already pushed, so the branch flake-ref resolves; `--refresh` busts the flake cache so the box pulls the latest commit.)
 
 ```sh
-# One free port (python3 via nix — no global install needed).
-PORT=$(nix shell nixpkgs#python3 --command python3 -c 'import socket; s=socket.socket(); s.bind(("",0)); print(s.getsockname()[1]); s.close()')
-nix run . -- --port "$PORT" &
-DEV_PID=$!
-# Kill ONLY this PID at the end. NEVER `pkill -f vite` / `pkill -f src/index.ts`
-# / any pattern match — those also match the user's production kolu and kill it.
-trap 'kill "$DEV_PID" 2>/dev/null' EXIT
-# app is at http://localhost:$PORT  — pass that URL to the subagent
+pr=$(gh pr view --json number --jq .number)
+branch=$(git rev-parse --abbrev-ref HEAD)
+host="kolu-pr-$pr-evidence"
+pu create "$host"                                                      # writes ~/.pu-state/$host/ssh_config
+
+# Serve the PR build on the box's own 7681 (the box has no other kolu — 7681 is safe here).
+pu connect "$host" -- "nohup nix run --refresh 'github:juspay/kolu?ref=$branch' \
+  -- --host 127.0.0.1 --port 7681 >/tmp/kolu.log 2>&1 &"
+pu connect "$host" -- 'until curl -sf http://127.0.0.1:7681/api/health; do sleep 2; done'
 ```
 
-For a "before" shot, run a second instance on another free port from a `git worktree` on `master`. Never stash the PR branch. (For fast iteration outside evidence, `just dev-auto` runs the HMR dev server on two free ports instead.)
+For a **"before"** shot, point a second box at `github:juspay/kolu` (master) — no flake ref, no worktree, no stash.
 
-### Capture, host, post
+### Capture (Playwright on the box)
 
-The subagent drives `chrome-devtools` MCP — `new_page` at `http://localhost:$PORT/`, reproduces the relevant state, `take_screenshot` to `/tmp/kolu-evidence-<slug>.png`.
-
-`gh pr comment` can't attach binaries, so upload to a long-lived `evidence-assets` GitHub release and embed the download URL inline:
+Chrome and Playwright run on the box too. A self-contained `capture.mjs` drives headless Chromium with the **version-matched** pair Nix already provides — `nixpkgs#playwright-driver` (the `playwright-core` lib) + `nixpkgs#playwright-driver.browsers` (the Chrome-for-Testing build the launcher resolves). One run yields a PNG **and** a `.webm`; no MCP server, no npm install.
 
 ```sh
+# Write the capture script onto the box.
+pu connect "$host" -- "cat > /tmp/cap/capture.mjs" <<'MJS'
+// argv: <url> <pngPath> [webmDir] [recordMs]   — runs entirely on the box.
+import { chromium } from 'playwright-core';
+const [url, pngPath, webmDir, recordMsArg] = process.argv.slice(2);
+const recordMs = Number(recordMsArg ?? 0);
+const viewport = { width: 1366, height: 768 };               // landscape, DPR 1
+const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
+const context = await browser.newContext({
+  viewport, deviceScaleFactor: 1,
+  ...(webmDir ? { recordVideo: { dir: webmDir, size: viewport } } : {}),
+});
+const page = await context.newPage();
+await page.goto(url, { waitUntil: 'networkidle', timeout: 60000 });
+// …reproduce the relevant state here: page.click(), page.keyboard.type(), etc.
+await page.waitForTimeout(2500);                              // let the canvas settle
+await page.screenshot({ path: pngPath });
+if (recordMs > 0) await page.waitForTimeout(recordMs);
+await context.close();                                        // flushes the .webm
+await browser.close();
+MJS
+
+# Resolve the Nix pair and run it (browsers via PLAYWRIGHT_BROWSERS_PATH, lib via NODE_PATH).
+pu connect "$host" -- 'bash -lc "
+  mkdir -p /tmp/cap/node_modules /tmp/cap/vid
+  DRV=\$(nix build --no-link --print-out-paths nixpkgs#playwright-driver)
+  BR=\$(nix build --no-link --print-out-paths nixpkgs#playwright-driver.browsers)
+  ln -sfn \$DRV /tmp/cap/node_modules/playwright-core
+  PLAYWRIGHT_BROWSERS_PATH=\$BR NODE_PATH=/tmp/cap/node_modules \
+    nix shell nixpkgs#nodejs -c node /tmp/cap/capture.mjs \
+      http://127.0.0.1:7681/ /tmp/cap/<slug>.png /tmp/cap/vid 6000
+"'
+```
+
+### Host & post
+
+Copy artifacts back over the box's `ssh_config`, then upload to a long-lived `evidence-assets` GitHub release (`gh pr comment` can't attach binaries):
+
+```sh
+scp -F ~/.pu-state/"$host"/ssh_config "$host":/tmp/cap/<slug>.png /tmp/kolu-evidence-<slug>.png
+
 gh release view evidence-assets >/dev/null 2>&1 || \
   gh release create evidence-assets --prerelease \
     --title "Evidence assets (auto-uploaded by /do)" --notes "Do not delete."
 gh release upload evidence-assets /tmp/kolu-evidence-<slug>.png --clobber
 ```
 
-URL pattern: `https://github.com/juspay/kolu/releases/download/evidence-assets/<filename>`. Use the single-quoted heredoc pattern (`<<'EOF'`) when posting so backticks and `$` survive unescaped.
+URL pattern: `https://github.com/juspay/kolu/releases/download/evidence-assets/<filename>`. Use the single-quoted heredoc pattern (`<<'EOF'`) when posting so backticks and `$` survive unescaped. **Tear the box down** when finished: `pu destroy "$host"`.
 
 ### Video evidence
 
-For motion the subagent records the page instead of (or alongside) a still. The `chrome-devtools` MCP exposes `screencast_start` / `screencast_stop` — `screencast_start` with `filePath: /tmp/kolu-evidence-<slug>.mp4`, drive the interaction, then `screencast_stop`. (Capability ships in the [`nix-chrome-devtools-mcp`](https://github.com/juspay/nix-chrome-devtools-mcp) launcher, which runs the server with `--experimentalScreencast` and ffmpeg on PATH.)
+For motion, pass a `webmDir` + `recordMs` to `capture.mjs` above — Playwright's `recordVideo` writes a `.webm` on the box. Transcode and copy back with `nix shell nixpkgs#ffmpeg` **on the box**:
 
 **Make the recording legible — this is the #1 quality issue:**
 
-- **Landscape viewport.** Set a 16:9 viewport before recording (chrome-devtools `emulate` viewport `1366x768x1,landscape`). The default headless window can be portrait and 2×-DPI, which leaves the content tiny in a tall, mostly-empty frame.
-- **Maximize the terminal.** Click the chrome-bar **Maximize terminal** (canvas → maximized) so the terminal fills the frame. Recording *canvas* mode captures a small tile floating in empty space — the most common "why am I squinting" mistake.
+- **Landscape viewport.** The script sets `1366×768` at DPR 1. The default headless window can be portrait and 2×-DPI, which leaves the content tiny in a tall, mostly-empty frame.
+- **Maximize the terminal.** Click the chrome-bar **Maximize terminal** in the script (`page.click(...)`, canvas → maximized) so the terminal fills the frame. Recording *canvas* mode captures a small tile floating in empty space — the most common "why am I squinting" mistake.
 - **High-contrast theme** (e.g. Melange Dark) so the text reads.
-- **Move briskly, then speed up.** Do setup (create terminal, maximize, open the Code panel) *before* `screencast_start` so only the meaningful steps are recorded; run those steps back-to-back; then speed the output up (`setpts=PTS/3`) so agent-latency dead time doesn't make the clip drag.
+- **Move briskly, then speed up.** Do setup (create terminal, maximize, open the Code panel) *before* the recorded stretch so only the meaningful steps land in the clip; then speed the output up (`setpts=PTS/2`–`/3`) so agent-latency dead time doesn't make it drag.
 
 Two reasons not to just attach the `.mp4`: GitHub renders an inline video *player* only for files dragged into the web composer (a `user-attachments` URL `gh` can't mint), and a `<video>` tag in a comment is stripped. So:
 
 - **Inline (the at-a-glance proof):** transcode to an animated GIF — GitHub renders a GIF inline from any release URL, exactly like the PNG flow above.
 
   ```sh
-  nix shell nixpkgs#ffmpeg --command ffmpeg -i /tmp/kolu-evidence-<slug>.mp4 \
-    -vf "setpts=PTS/3,fps=12,scale=1100:-1:flags=lanczos" -loop 0 /tmp/kolu-evidence-<slug>.gif
+  pu connect "$host" -- 'bash -lc "
+    WEBM=\$(ls /tmp/cap/vid/*.webm | head -1)
+    nix shell nixpkgs#ffmpeg -c ffmpeg -y -i \$WEBM \
+      -vf \"setpts=PTS/2,fps=12,scale=1100:-1:flags=lanczos\" -loop 0 /tmp/cap/<slug>.gif
+    nix shell nixpkgs#ffmpeg -c ffmpeg -y -i \$WEBM -filter:v setpts=PTS/2 -an /tmp/cap/<slug>.mp4
+  "'
+  scp -F ~/.pu-state/"$host"/ssh_config "$host":/tmp/cap/<slug>.gif /tmp/kolu-evidence-<slug>.gif
   gh release upload evidence-assets /tmp/kolu-evidence-<slug>.gif --clobber
   ```
 
   Keep it under GitHub's ~10 MB inline limit (the `setpts` speed-up + a palette pass usually land a minute-long capture well under that). Embed with `![](https://github.com/juspay/kolu/releases/download/evidence-assets/<slug>.gif)`.
 
-- **HD (optional):** speed the `.mp4` up too (`ffmpeg -i …mp4 -filter:v "setpts=PTS/3" -an …`), upload it to the same release, and link to the shared player — [`juspay/video-evidence`](https://github.com/juspay/video-evidence) hosts a GitHub Pages `<video>` page that streams the clip from kolu's own release:
+- **HD (optional):** copy the sped-up `.mp4` back too, upload it to the same release, and link to the shared player — [`juspay/video-evidence`](https://github.com/juspay/video-evidence) hosts a GitHub Pages `<video>` page that streams the clip from kolu's own release:
 
   ```
   ▶ HD: https://juspay.github.io/video-evidence/evidence.html?repo=juspay/kolu&v=<slug>.mp4
@@ -111,10 +158,10 @@ Two reasons not to just attach the `.mp4`: GitHub renders an inline video *playe
 
 ### Agent-state scenarios
 
-When the change touches the Dock, terminal, or any UI surface that reflects agent activity, the capture has to show real states — a blank Dock proves nothing. Kolu's opencode integration is first-class: run opencode inside a Kolu terminal and the preexec hook surfaces state in the Dock within ~300ms (states: `thinking`, `tool_use`, `awaiting_user`, `waiting`; bucketed in the Dock as `working ▸`, `awaiting ⏵`, `idle ☾`).
+When the change touches the Dock, terminal, or any UI surface that reflects agent activity, the capture has to show real states — a blank Dock proves nothing. Kolu's opencode integration is first-class: from inside `capture.mjs`, open a terminal and run opencode in it; the preexec hook surfaces state in the Dock within ~300ms (states: `thinking`, `tool_use`, `awaiting_user`, `waiting`; bucketed in the Dock as `working ▸`, `awaiting ⏵`, `idle ☾`).
 
 ```sh
-# Inside a Kolu terminal — no global install needed
+# Inside a Kolu terminal on the box — no global install needed
 nix run github:juspay/AI#opencode
 ```
 
