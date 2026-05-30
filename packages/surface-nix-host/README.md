@@ -116,9 +116,14 @@ async function resolveDrv(host: string): Promise<string> {
   return drv;
 }
 
+// Pass the probe as `resolveDrvPath` — do NOT `await resolveDrv(host)` at
+// the call site. Eager resolution runs the ssh probe *before* the session
+// exists, so an unreachable host throws here instead of degrading to
+// `failed`. Deferred, the same failure flows through the session's own
+// `disconnected → backoff → failed → reconnect()` machinery.
 const session = getHostSession({
   host,
-  drvPath: await resolveDrv(host),
+  resolveDrvPath: () => resolveDrv(host),
   binary: "my-agent",
 });
 ```
