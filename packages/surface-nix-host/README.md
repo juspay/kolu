@@ -61,8 +61,8 @@ Remote-side requirement: the parent's user must be in `trusted-users` in the rem
 
 | Export | Role |
 |---|---|
-| `HostSession<C>` | One ssh subprocess per `(host, drvPath, binary)`. Ref-counted. State machine. Survives drops via `scheduleReconnect`. Snapshot-then-delta `onState`. Generic over the contract type `C`. |
-| `getHostSession<C>(opts)` | Pool lookup — repeated calls with the same `(host, drvPath, binary)` return the same session. |
+| `HostSession<C>` | One ssh subprocess per `(host, binary)`. Ref-counted. State machine. Survives drops via `scheduleReconnect`. Snapshot-then-delta `onState`. Generic over the contract type `C`. |
+| `getHostSession<C>(opts)` | Pool lookup — repeated calls with the same `(host, binary)` return the same session (first call's `opts` win). |
 | `destroyAllSessions()` | Tear down every pooled session. Call on parent shutdown. |
 | `provisionAgent({ host, drvPath, onProgress })` | Ship the `.drv` to the host (skipped for localhost), `nix-store --realise` it there, return the realised output path. Progress lines forwarded to `onProgress`. |
 | `mirrorRemoteCollection<K,V>(opts)` | Helper: bridge a remote `Collection<K,V>` to a local one — keys stream + per-key value streams, with abort cleanup on key departure. |
