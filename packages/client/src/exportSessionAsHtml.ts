@@ -14,6 +14,7 @@
 
 import type { TerminalId } from "kolu-common/surface";
 import { toast } from "solid-sonner";
+import { triggerDownload } from "./download";
 import { client } from "./wire";
 
 export async function exportSessionAsHtml(id: TerminalId): Promise<void> {
@@ -29,16 +30,9 @@ export async function exportSessionAsHtml(id: TerminalId): Promise<void> {
     // has time to fetch and parse it.
     const win = window.open(url, "_blank", "noopener");
     if (!win) {
-      // Popup blocked — fall back to a download via an anchor click. Same
-      // origin (blob:) and no user-supplied content in the path so this
-      // is safe.
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = filename;
-      a.rel = "noopener";
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
+      // Popup blocked — fall back to a download. Same origin (blob:) and no
+      // user-supplied content in the path so this is safe.
+      triggerDownload(url, filename);
     }
     setTimeout(() => URL.revokeObjectURL(url), 60_000);
     toast.success("Session exported", { id: loadingId });

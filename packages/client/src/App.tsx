@@ -35,6 +35,7 @@ import DiagnosticInfo from "./DiagnosticInfo";
 import EmptyState from "./EmptyState";
 import { exportScrollbackAsPdf } from "./exportScrollbackAsPdf";
 import { exportSessionAsHtml } from "./exportSessionAsHtml";
+import { exportSession, importSession } from "./sessionTransfer";
 import type { ActionContext } from "./input/actions";
 import { useShortcuts } from "./input/useShortcuts";
 import IntentEditorDialog from "./intent/IntentEditorDialog";
@@ -64,7 +65,7 @@ import { surface } from "./ui/Surface";
 import { isMobile } from "./useMobile";
 import { useThemeManager } from "./useThemeManager";
 import { useVisualViewportHeight } from "./useVisualViewportHeight";
-import { client } from "./wire";
+import { client, savedSession as serverSavedSession } from "./wire";
 
 const App: Component = () => {
   const { store, crud, session, worktree, alerts } = useTerminals();
@@ -304,6 +305,11 @@ const App: Component = () => {
       localStorage.clear();
       location.reload();
     },
+    handleExportSession: () => exportSession(serverSavedSession()),
+    handleImportSession: () =>
+      void importSession().then(
+        (s) => s && session.handleRestoreSession({ session: s }),
+      ),
     simulateAlert: alerts.simulateAlert,
     isMobile,
     canvasCenterActive: handleCanvasCenterActive,
