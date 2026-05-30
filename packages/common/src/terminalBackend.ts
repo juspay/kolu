@@ -152,8 +152,11 @@ export interface TerminalBackend {
 
   /** Stop providers, kill the PTY, scrub per-terminal scratch storage,
    *  unregister from the shared registry. Sole termination path. Awaits the
-   *  pty-host's kill confirmation before unregistering (so a failed kill can't
-   *  orphan the PTY), hence the Promise. */
+   *  pty-host's kill (hence the Promise) — synchronous and infallible
+   *  in-process. A socket/ssh backend's kill *can* fail; it still unregisters
+   *  (so a failed kill never strands a dead entry in the UI) and relies on
+   *  reattach-time reconciliation against `terminal.list` to reap any surviving
+   *  orphan — so unregistering is not a promise that the child is gone. */
   killTerminal(id: TerminalId): Promise<TerminalInfo | undefined>;
 
   /** Drain and dispose every terminal owned by this backend. Used by
