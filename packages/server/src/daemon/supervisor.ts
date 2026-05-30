@@ -55,6 +55,7 @@ import { currentBuildId } from "./buildId.ts";
 import { daemonExecArgv } from "./daemonUtils.ts";
 import { daemonPaths } from "../koluState.ts";
 import { log } from "../log.ts";
+import type { DaemonStatus } from "kolu-common/surface";
 
 /** The typed client for the daemon's `ptyHostSurface` contract, with the
  *  `ClientRetryPlugin` context threaded through (the same shape
@@ -251,6 +252,33 @@ export function getDaemonHandle(): DaemonHandle {
     );
   }
   return cached;
+}
+
+/** Snapshot the daemon's build status for the `daemonStatus` cell. Safe to
+ *  call any time — returns `{ outdated: false }` when no daemon is connected
+ *  or the socket has closed, so the cell never throws the way
+ *  `getDaemonHandle()` deliberately does (a dead daemon isn't "an update
+ *  pending"). */
+export function daemonStatusSnapshot(): DaemonStatus {
+  return {
+    outdated: cached?.state() === "live" ? cached.outdated : false,
+  };
+}
+
+/** Restart the PTY-host daemon: SIGTERM the running daemon (its PTYs die),
+ *  wait for the socket to clear, then spawn + connect a fresh one. The
+ *  user-chosen, terminal-losing restart that clears a stale (build-mismatched)
+ *  daemon — the caller (`restartLocalPtyHostDaemon`) tears the terminals down
+ *  first. A no-op-ish fast path when no daemon is cached (just (re)connect). */
+export async function restartDaemon(): Promise<DaemonHandle> {
+  if (cached) {
+    const { socketPath } = daemonPaths();
+    const pid = cached.daemonPid;
+    cached.dispose();
+    cached = undefined;
+    await killRunningDaemon(pid, socketPath);
+  }
+  return ensureDaemon();
 }
 
 /** Connect to (or spawn-and-connect-to) the local PTY-host daemon.

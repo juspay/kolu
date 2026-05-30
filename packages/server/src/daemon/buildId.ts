@@ -44,8 +44,17 @@ export function deriveBuildId(entry: string | undefined): string {
 let cached: string | undefined;
 
 /** The build identity of the currently-running kolu. Memoized — `argv[1]`
- *  does not change for a process's lifetime. */
+ *  does not change for a process's lifetime.
+ *
+ *  `KOLU_BUILD_ID_OVERRIDE` is a **test seam**: in dev/CI the server and the
+ *  daemon share one entry path, so they always agree and `outdated` can never
+ *  fire. Setting this env on a *restarted* server (with the surviving daemon
+ *  spawned by the prior, un-overridden server) reproduces the real post-deploy
+ *  mismatch — see `daemon-update.feature`. Production never sets it; the nix
+ *  store hash is the real key. */
 export function currentBuildId(): string {
-  if (cached === undefined) cached = deriveBuildId(process.argv[1]);
+  if (cached === undefined)
+    cached =
+      process.env.KOLU_BUILD_ID_OVERRIDE ?? deriveBuildId(process.argv[1]);
   return cached;
 }

@@ -21,6 +21,7 @@ import {
 import { z } from "zod";
 import {
   CanvasLayoutSchema,
+  DaemonStatusSchema,
   InitialTerminalMetadataSchema,
   RightPanelPerTerminalStateSchema,
   surface,
@@ -133,6 +134,13 @@ export const contract = oc.router({
   ...surface.contract,
   server: {
     info: oc.output(ServerInfoSchema),
+  },
+  system: {
+    /** Restart the local PTY-host daemon — SIGTERM the running daemon (its
+     *  PTYs die) and spawn a fresh one. The user-chosen, terminal-losing
+     *  restart that clears a stale (build-mismatched) daemon. Returns the
+     *  fresh daemon status so the caller can confirm `outdated` cleared. */
+    restartPtyHostDaemon: oc.output(DaemonStatusSchema),
   },
   terminal: {
     create: oc.input(TerminalCreateInputSchema).output(TerminalInfoSchema),

@@ -49,6 +49,7 @@ import {
   gitDiffOutputEqual,
   gitStatusOutputEqual,
 } from "kolu-git";
+import { daemonStatusSnapshot } from "./daemon/supervisor.ts";
 import {
   buildIframePreviewUrl,
   isIframePreviewable,
@@ -144,6 +145,14 @@ const { router: surfaceRouterFragment, ctx: surfaceCtxBuilt } =
       terminalList: {
         // Live registry; the in-memory store has no persistent slot.
         store: { get: () => listTerminals(), set: () => {} },
+      },
+      daemonStatus: {
+        // Computed from the supervisor's current handle; no persistent slot.
+        // The in-memory `set` is a publish trigger only (mirrors
+        // `terminalList`) — `restartLocalPtyHostDaemon` calls
+        // `surfaceCtx.cells.daemonStatus.set(...)` to push the fresh status
+        // after a restart; the value itself is always re-read via `get`.
+        store: { get: () => daemonStatusSnapshot(), set: () => {} },
       },
     },
 

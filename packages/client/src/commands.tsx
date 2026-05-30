@@ -135,6 +135,7 @@ export interface CommandDeps extends ActionContext {
   // Debug
   simulateAlert: () => void;
   handleClearLocalStorage: () => void;
+  handleRestartDaemon: () => void;
 }
 
 export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
@@ -374,6 +375,12 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
           kind: "action",
           name: "Clear localStorage",
           onSelect: () => deps.handleClearLocalStorage(),
+        },
+        {
+          kind: "action",
+          name: "Restart local PTY daemon",
+          description: "Apply a newer kolu build — closes running terminals",
+          onSelect: () => deps.handleRestartDaemon(),
         },
       ],
     },

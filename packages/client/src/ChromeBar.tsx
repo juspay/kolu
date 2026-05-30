@@ -35,6 +35,7 @@ import {
   MaximizeIcon,
   RestoreIcon,
   SettingsIcon,
+  TerminalIcon,
 } from "./ui/Icons";
 import Kbd from "./ui/Kbd";
 import Tip from "./ui/Tip";
@@ -54,6 +55,12 @@ const toggleBtnClass =
 
 const ChromeBar: Component<{
   status: WsStatus;
+  /** The local PTY-host daemon is running a stale kolu build — show the
+   *  "update pending" nudge. Distinct from `status` (the WebSocket dot): this
+   *  is a terminal-glyph affordance, not a connection dot. */
+  updatePending: boolean;
+  /** Open the restart-daemon confirm (the nudge + the ⌘K command share it). */
+  onRequestDaemonRestart: () => void;
   onOpenPalette: () => void;
 }> = (props) => {
   const rightPanel = useRightPanel();
@@ -133,6 +140,23 @@ const ChromeBar: Component<{
             class={`inline-block w-2 h-2 rounded-full transition-colors ${statusStyles[props.status]}`}
           />
         </Tip>
+        {/* Update-pending nudge — only while the daemon is on a stale build.
+         *  A terminal-glyph button (not a dot) so it never reads as a second
+         *  connection state; amber to signal "action available, not broken". */}
+        <Show when={props.updatePending}>
+          <Tip label="A newer kolu build is available — restart the local PTY daemon">
+            <button
+              type="button"
+              data-testid="pty-update-pending"
+              class="pointer-events-auto flex items-center gap-1 h-5 pl-1 pr-1.5 rounded-md bg-warning/15 text-warning hover:bg-warning/25 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warning/50"
+              aria-label="Update pending — restart local PTY daemon"
+              onClick={() => props.onRequestDaemonRestart()}
+            >
+              <TerminalIcon class="w-3.5 h-3.5" />
+              <span class="w-1.5 h-1.5 rounded-full bg-warning animate-pulse" />
+            </button>
+          </Tip>
+        </Show>
       </div>
 
       {/* Middle spacer — pointer-events pass through to whatever the

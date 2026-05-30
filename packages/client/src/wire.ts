@@ -101,3 +101,13 @@ const _terminalList = app.cells.terminalList.use({
 });
 /** Subscription handle for the live terminal list. */
 export const terminalListSub = _terminalList.sub;
+
+// Local PTY-host daemon build status — server-driven. Drives the ChromeBar
+// "update pending" nudge + the restart command.
+const _daemonStatus = app.cells.daemonStatus.use({
+  onError: (err) => toast.error(`Daemon status error: ${err.message}`),
+});
+/** True when the surviving daemon is a different kolu build than this server
+ *  — i.e. an update is pending until the user restarts the daemon. */
+export const daemonOutdated = (): boolean =>
+  _daemonStatus.value()?.outdated ?? false;

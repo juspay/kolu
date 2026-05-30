@@ -26,6 +26,7 @@ import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import { surfaceRouter, t } from "./surface.ts";
 import { getTerminal, type TerminalProcess } from "./terminal-registry.ts";
 import { getTerminalBackendFor } from "./terminalBackend/index.ts";
+import { restartLocalPtyHostDaemon } from "./terminalBackend/local.ts";
 import { saveTerminalFile } from "./terminalScratch.ts";
 import { unwrapGit } from "./unwrapGit.ts";
 import {
@@ -69,6 +70,11 @@ export const appRouter = t.router({
       identity: pwaIdentityForHostname(serverHostname),
       processId: serverProcessId,
     })),
+  },
+  system: {
+    restartPtyHostDaemon: t.system.restartPtyHostDaemon.handler(async () =>
+      restartLocalPtyHostDaemon(),
+    ),
   },
   terminal: {
     create: t.terminal.create.handler(async ({ input }) =>

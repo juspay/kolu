@@ -493,6 +493,32 @@ export function applyPreferencesPatch(
   };
 }
 
+// ── Local PTY-host daemon status (server-derived) ─────────────────────
+
+/**
+ * Build/version status of the local `kolu --stdio` PTY-host daemon, as seen
+ * by this kolu-server. Server is sole writer; the client is read-only and
+ * uses it to drive the "update pending" nudge + the restart command.
+ *
+ * Deliberately just `outdated` — the boolean is the whole stable client
+ * contract. The build ids + pid that *derive* it are server internals (a
+ * `/nix/store` hash, an OS pid) and stay server-side: they're already in the
+ * supervisor's boot log, and pushing them to every browser would couple the
+ * client to how staleness is keyed. A future diagnostics view should pull
+ * them via a dedicated RPC, not widen this push cell.
+ */
+export const DaemonStatusSchema = z.object({
+  /** The surviving daemon is wire-compatible but a *different build* than
+   *  this kolu-server — it's running stale code until restarted. The whole
+   *  binary's identity, not pty-host's specifically (a server-only change
+   *  bumps it too), so the nudge copy says "a newer kolu build is available". */
+  outdated: z.boolean(),
+});
+
+export const DEFAULT_DAEMON_STATUS: z.infer<typeof DaemonStatusSchema> = {
+  outdated: false,
+};
+
 // ── The surface ───────────────────────────────────────────────────────
 
 export const surface = defineSurface({
@@ -536,6 +562,16 @@ export const surface = defineSurface({
     terminalList: {
       schema: z.array(TerminalInfoSchema),
       default: [] as z.infer<typeof TerminalInfoSchema>[],
+      verbs: ["get"],
+    },
+
+    /** Local PTY-host daemon build status — server-driven. Read-only on the
+     *  client; computed from the supervisor's current handle and republished
+     *  after a user-triggered daemon restart. Drives the "update pending"
+     *  nudge + the restart command. */
+    daemonStatus: {
+      schema: DaemonStatusSchema,
+      default: DEFAULT_DAEMON_STATUS,
       verbs: ["get"],
     },
   },
@@ -595,6 +631,7 @@ export type Surface = SurfaceTypes<typeof surface.spec>;
 export type Preferences = Surface["cells"]["preferences"]["Value"];
 export type PreferencesPatch = Surface["cells"]["preferences"]["Patch"];
 export type ActivityFeed = Surface["cells"]["activityFeed"]["Value"];
+export type DaemonStatus = Surface["cells"]["daemonStatus"]["Value"];
 export type TerminalMetadata =
   Surface["collections"]["terminalMetadata"]["Value"];
 export type TerminalInfo = z.infer<typeof TerminalInfoSchema>;

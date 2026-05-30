@@ -118,6 +118,18 @@ let serverProcess: ChildProcess | undefined;
  *  restart kolu-server on the SAME port + state dir (reattach test). */
 let serverPort: number | undefined;
 let serverBinary: string | undefined;
+/** Extra env folded into every (re)spawn of kolu-server — and inherited by
+ *  the daemon it spawns. Used by the daemon-update test to set
+ *  `KOLU_BUILD_ID_OVERRIDE` on a restart, reproducing a post-deploy build
+ *  mismatch against the surviving (un-overridden) daemon.
+ *
+ *  Persisted (not reset per scenario) on purpose: once set, both the server
+ *  *and* the next daemon respawn carry the same override, so server and daemon
+ *  re-converge on one build id. A later scenario that restarts the server
+ *  therefore sees a matched pair (no spurious nudge). Resetting it instead
+ *  would leave the override-spawned daemon mismatched against a fresh
+ *  un-overridden server — the opposite of consistent. */
+let serverExtraEnv: NodeJS.ProcessEnv = {};
 
 // Reuse TCP connections across scenarios to avoid TIME_WAIT socket
 // accumulation on macOS (see #334).
@@ -275,6 +287,7 @@ function spawnKoluServer(): ChildProcess {
       stdio: "pipe",
       env: {
         ...process.env,
+        ...serverExtraEnv,
         KOLU_STATE_DIR: koluStateDir,
         KOLU_CLAUDE_SESSIONS_DIR: claudeSessionsDir,
         KOLU_CLAUDE_PROJECTS_DIR: claudeProjectsDir,
@@ -307,10 +320,15 @@ function spawnKoluServer(): ChildProcess {
  *  server then crashes and every later scenario on this worker fails with
  *  connection-refused (cheap to miss locally where exit is sub-ms, fatal
  *  under CI load). */
-export async function restartKoluServer(): Promise<void> {
+export async function restartKoluServer(
+  extraEnv?: NodeJS.ProcessEnv,
+): Promise<void> {
   if (serverPort === undefined) {
     throw new Error("restartKoluServer: server not spawned by this harness");
   }
+  // Fold any new env (e.g. KOLU_BUILD_ID_OVERRIDE) into the persistent set so
+  // this and every subsequent (re)spawn — including the daemon — carry it.
+  if (extraEnv) serverExtraEnv = { ...serverExtraEnv, ...extraEnv };
   const old = serverProcess;
   serverProcess = undefined;
   if (old && old.exitCode === null && old.signalCode === null) {

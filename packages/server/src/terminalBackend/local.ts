@@ -32,6 +32,7 @@ import type { ForegroundSample } from "@kolu/pty-host";
 import { inMemoryChannel } from "@kolu/surface/server";
 import type { PtyHostListEntry } from "../daemon/ptyHostSurface.ts";
 import type {
+  DaemonStatus,
   SavedTerminal,
   TerminalId,
   TerminalInfo,
@@ -60,9 +61,11 @@ import {
 import type { GitDiffMode, GitInfo } from "kolu-git/schemas";
 import { trackRecentAgent, trackRecentRepo } from "../activity.ts";
 import {
+  daemonStatusSnapshot,
   ensureDaemon,
   getDaemonHandle,
   type PtyHostClient,
+  restartDaemon,
 } from "../daemon/supervisor.ts";
 import { log } from "../log.ts";
 import { terminalsDirtyChannel } from "../publisher.ts";
@@ -631,4 +634,24 @@ export async function reattachLocalTerminals(
   }
   log.info({ count: listed.length }, "reattached terminals from daemon");
   return listed.length;
+}
+
+/** User-triggered restart of the local PTY-host daemon (the ⌘K command / the
+ *  "update pending" nudge). Drops every PTY gracefully first — so the server
+ *  registry + the client's tiles clear to match the imminent loss — then
+ *  restarts the daemon *process* (new pid, fresh build), and republishes the
+ *  now-current daemon status so the nudge clears. Returns that status.
+ *
+ *  This is the deliberate, terminal-losing restart that evicts a stale
+ *  (build-mismatched) daemon; the PTY loss is the accepted cost the user
+ *  confirmed. `killAllTerminals` runs while the *old* daemon is still live, so
+ *  its PTYs are reaped cleanly before the process is replaced. */
+export async function restartLocalPtyHostDaemon(): Promise<DaemonStatus> {
+  log.info("restarting local PTY-host daemon (user-triggered)");
+  await backend.killAllTerminals();
+  await restartDaemon();
+  const status = daemonStatusSnapshot();
+  // Push the fresh status so subscribed clients re-read and drop the nudge.
+  surfaceCtx.cells.daemonStatus.set(status);
+  return status;
 }

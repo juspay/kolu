@@ -101,4 +101,8 @@ export const AMBIENT_TIPS: readonly Tip[] = [
     id: "amb-comments-on-files",
     text: "Select any text in the Code tab (file browse, branch diff, or HTML artifact) to drop a `+ Comment` — your queue copies to the clipboard as Markdown for the agent",
   },
+  {
+    id: "amb-pty-update-pending",
+    text: "After a kolu upgrade, an amber terminal badge in the header means your local terminals are still on the old build — click it to restart the PTY daemon onto the new one",
+  },
 ];

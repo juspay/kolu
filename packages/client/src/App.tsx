@@ -20,6 +20,7 @@ import {
 import { Toaster } from "solid-sonner";
 import { match } from "ts-pattern";
 import ChromeBar from "./ChromeBar";
+import DaemonRestartConfirm from "./DaemonRestartConfirm";
 import CloseConfirm, { type CloseConfirmTarget } from "./CloseConfirm";
 import CommandPalette from "./CommandPalette";
 import "kolu-common/test-hooks";
@@ -64,7 +65,7 @@ import { surface } from "./ui/Surface";
 import { isMobile } from "./useMobile";
 import { useThemeManager } from "./useThemeManager";
 import { useVisualViewportHeight } from "./useVisualViewportHeight";
-import { client } from "./wire";
+import { client, daemonOutdated } from "./wire";
 
 const App: Component = () => {
   const { store, crud, session, worktree, alerts } = useTerminals();
@@ -141,6 +142,9 @@ const App: Component = () => {
 
   // Diagnostic info dialog state (command palette → Debug → Diagnostic info)
   const [diagnosticInfoOpen, setDiagnosticInfoOpen] = createSignal(false);
+
+  // Restart-local-PTY-daemon confirm (ChromeBar nudge + Debug command share it)
+  const [daemonRestartOpen, setDaemonRestartOpen] = createSignal(false);
 
   // Close confirmation — snapshot ID + meta + split count at open time to prevent
   // stale-target bugs if the user switches terminals while the dialog is open.
@@ -305,6 +309,7 @@ const App: Component = () => {
       location.reload();
     },
     simulateAlert: alerts.simulateAlert,
+    handleRestartDaemon: () => setDaemonRestartOpen(true),
     isMobile,
     canvasCenterActive: handleCanvasCenterActive,
     canvasAutoArrange: arrange.handleCanvasAutoArrange,
@@ -433,6 +438,10 @@ const App: Component = () => {
         onOpenChange={setDiagnosticInfoOpen}
         activeId={store.activeId()}
       />
+      <DaemonRestartConfirm
+        open={daemonRestartOpen()}
+        onOpenChange={withRefocus(setDaemonRestartOpen)}
+      />
       <ModalDialog
         open={aboutOpen()}
         onOpenChange={withRefocus(setAboutOpen)}
@@ -506,7 +515,12 @@ const App: Component = () => {
        *  pull-down sheet (see MobileTileView) and does not render this
        *  band. */}
       <Show when={!isMobile()}>
-        <ChromeBar status={wsStatus()} onOpenPalette={() => openPalette()} />
+        <ChromeBar
+          status={wsStatus()}
+          updatePending={daemonOutdated()}
+          onRequestDaemonRestart={() => setDaemonRestartOpen(true)}
+          onOpenPalette={() => openPalette()}
+        />
       </Show>
       {/* relative: anchor for overlay panels.
        *  --active-terminal-{bg,fg} published here so child components
