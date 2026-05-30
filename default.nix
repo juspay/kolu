@@ -84,6 +84,11 @@ let
       KOLU_COMMIT_HASH = koluCommitPlaceholder;
     } // koluEnv;
 
+    # NOTE: this does NOT typecheck. The client is bundled by Vite (per-file
+    # transpile) and the server runs under tsx at runtime, so a green
+    # `nix build .#default` is not a type-proof (juspay/kolu#1049). The type
+    # gate is the separate `typecheck` derivation below, exposed as a flake
+    # check and built by CI's `nix` node.
     buildPhase = ''
       runHook preBuild
       pushd node_modules/.pnpm/node-pty@*/node_modules/node-pty
@@ -187,7 +192,13 @@ let
   remoteProcessMonitor = import ./packages/surface/example/remote-process-monitor/default.nix {
     inherit pkgs src pnpmDeps;
   };
+
+  # `tsc --noEmit` over every workspace package. The build above ships
+  # without typechecking, so this is the gate that makes a green Nix build a
+  # type-proof (juspay/kolu#1049). flake.nix routes it to `checks` (linux
+  # only — tsc is platform-independent), not `packages`.
+  typecheck = import ./nix/typecheck.nix { inherit pkgs src pnpmDeps; };
 in
 {
-  inherit default koluBin koluEnv pnpmDeps;
+  inherit default koluBin koluEnv pnpmDeps typecheck;
 } // remoteProcessMonitor

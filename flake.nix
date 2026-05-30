@@ -43,10 +43,20 @@
           '';
           website = import ./website { inherit pkgs; src = websiteSrc; };
         in
-        removeAttrs kolu [ "koluEnv" ] // {
+        # `typecheck` is routed to `checks` below, not exposed as a package.
+        removeAttrs kolu [ "koluEnv" "typecheck" ] // {
           website = website.default;
           website-pnpm-deps = website.pnpmDeps;
         });
+      # The workspace type gate (juspay/kolu#1049). Pinned to one linux
+      # system: tsc is platform-independent, so running it on every platform
+      # only duplicates work. devour-flake realizes it via CI's `nix` node,
+      # so a type error fails the pipeline — `nix build` becomes a type-proof.
+      checks.x86_64-linux.typecheck =
+        (import ./default.nix {
+          pkgs = import ./nix/nixpkgs.nix { system = "x86_64-linux"; };
+          inherit commitHash;
+        }).typecheck;
       devShells = eachSystem (pkgs:
         let default = import ./shell.nix { inherit pkgs; };
         in {
