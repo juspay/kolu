@@ -47,7 +47,16 @@ export function parseSavedSession(text: string): SavedSession {
   } catch {
     throw new Error("file is not valid JSON");
   }
-  const result = SavedSessionSchema.safeParse(parsed);
+  // `safeParse` can *throw* (not just return `success: false`) on some
+  // malformed shapes — a nested refinement in `GitInfoSchema` dereferences
+  // `git.isWorktree`, which blows up when `git` is absent. We're parsing an
+  // untrusted file here, so treat any throw as a validation failure.
+  let result: ReturnType<typeof SavedSessionSchema.safeParse>;
+  try {
+    result = SavedSessionSchema.safeParse(parsed);
+  } catch {
+    throw new Error("not a valid kolu session export");
+  }
   if (!result.success) {
     throw new Error("not a valid kolu session export");
   }
@@ -60,15 +69,9 @@ export function parseSavedSession(text: string): SavedSession {
  *  here means restore rejections are handled at the call site rather than
  *  swallowed. */
 export async function importSession(): Promise<SavedSession | null> {
-  let text: string | null;
   try {
-    text = await pickJsonFile();
-  } catch (err) {
-    toast.error(`Import failed: ${(err as Error).message}`);
-    return null;
-  }
-  if (text === null) return null; // picker dismissed
-  try {
+    const text = await pickJsonFile();
+    if (text === null) return null; // picker dismissed
     return parseSavedSession(text);
   } catch (err) {
     toast.error(`Import failed: ${(err as Error).message}`);
