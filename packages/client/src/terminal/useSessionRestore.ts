@@ -152,10 +152,14 @@ export function useSessionRestore(deps: {
   });
 
   async function handleRestoreSession(
-    options: { resumeIds?: ReadonlySet<string> } = {},
+    // `session` selects the input source: the server-persisted snapshot
+    // (default) or an arbitrary blob from a caller like the diagnostic
+    // "Import session" command. If a third source ever appears, replace this
+    // optional bag with a discriminated `source` union rather than widening it.
+    options: { resumeIds?: ReadonlySet<string>; session?: SavedSession } = {},
   ) {
     if (isRestoring()) return;
-    const session = savedSession();
+    const session = options.session ?? savedSession();
     if (!session) return;
     // Keep the restore card mounted until terminal creation actually
     // succeeds. Synchronously clearing `savedSession` before the async

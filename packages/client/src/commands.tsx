@@ -136,6 +136,10 @@ export interface CommandDeps extends ActionContext {
   simulateAlert: () => void;
   handleClearLocalStorage: () => void;
   handleRestartDaemon: () => void;
+  /** Download the saved session as JSON (diagnostic backup). */
+  handleExportSession: () => void;
+  /** Pick a session JSON file and restore it on top of the current canvas. */
+  handleImportSession: () => void;
 }
 
 export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
@@ -378,10 +382,22 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
         },
         {
           kind: "action",
+<<<<<<< HEAD
           name: "Restart local PTY daemon",
           description:
             "Apply the newer terminal host — closes running terminals",
           onSelect: () => deps.handleRestartDaemon(),
+=======
+          name: "Export session",
+          description: "Download terminal session state as JSON",
+          onSelect: () => deps.handleExportSession(),
+        },
+        {
+          kind: "action",
+          name: "Import session",
+          description: "Restore terminals from a session JSON file",
+          onSelect: () => deps.handleImportSession(),
+>>>>>>> origin/master
         },
       ],
     },
