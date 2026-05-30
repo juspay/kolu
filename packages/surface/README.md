@@ -196,6 +196,19 @@ mergeIntoStore: (setStore, patch) => {
 }
 ```
 
+For high-frequency local-authority writes (a resize splitter firing a patch per frame during a drag), pass `coalesceMs` to debounce the **server** round-trip while keeping the **local** apply synchronous:
+
+```ts
+useCell(preferences, {
+  authority: "local",
+  initial: DEFAULT_PREFERENCES,
+  applyPatch: deepMergePrefs,
+  coalesceMs: 150,   // local apply every call; one trailing server flush per quiescence
+});
+```
+
+Pending patches accumulate through `applyPatch`, so heterogeneous keys written inside one window land in a single flush (the payload stays a patch, not a full-value snapshot) — this requires `applyPatch` to be a pure spread-merge. With `coalesceMs` set, the promise `patch` / `set` returns resolves after the local apply, not the server ack; flush failures surface via `onError`.
+
 ## Collection
 
 A keyed dictionary of typed values. Each key is independently observable; the live key set is its own subscription.

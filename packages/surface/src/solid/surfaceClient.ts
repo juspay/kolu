@@ -51,6 +51,7 @@ export type BoundCellOptions<T, P = T> = T extends object
           initial: T;
           applyPatch?: (current: T, patch: P) => T;
           mergeIntoStore?: (setStore: SetStoreFunction<T>, patch: P) => void;
+          coalesceMs?: number;
           onError?: (err: Error) => void;
         }
   : { authority?: "server"; onError?: (err: Error) => void };

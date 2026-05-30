@@ -37,6 +37,14 @@ const MIN_PANEL_SIZE = 0.05;
  *  role for the horizontal split. */
 const MIN_TREE_SIZE = 0.1;
 const MAX_TREE_SIZE = 0.9;
+/** Drop a size write when it matches the stored value. Corvu's `Resizable`
+ *  runs `createEffect(() => onSizesChange(sizes()))`, so it re-emits the
+ *  *current* `sizes` prop on every reactive invalidation — and re-registers
+ *  panels (re-emitting again) on every mount during restart churn. Those
+ *  re-emits carry the value we already hold; persisting them is pure noise
+ *  (#1041). Corvu rounds sizes to 6 decimals, so a tolerance below that
+ *  catches the echo without dropping a real one-pixel drag step. */
+const SIZE_EPSILON = 1e-6;
 
 const [perTerminal, setPerTerminal] = createStore<
   Record<TerminalId, RightPanelPerTerminalState>
@@ -116,13 +124,18 @@ export function useRightPanel() {
     collapsePanel: () => updatePreferences({ rightPanel: { collapsed: true } }),
     expandPanel: () => updatePreferences({ rightPanel: { collapsed: false } }),
     setPanelSize: (size: number) => {
-      if (size > MIN_PANEL_SIZE) updatePreferences({ rightPanel: { size } });
+      if (size > MIN_PANEL_SIZE && Math.abs(size - rp().size) > SIZE_EPSILON)
+        updatePreferences({ rightPanel: { size } });
     },
     /** Vertical split fraction inside the Code tab — tree pane occupies
      *  this share, content pane gets the rest. Persisted across reload. */
     codeTabTreeSize: () => rp().codeTabTreeSize,
     setCodeTabTreeSize: (size: number) => {
-      if (size >= MIN_TREE_SIZE && size <= MAX_TREE_SIZE) {
+      if (
+        size >= MIN_TREE_SIZE &&
+        size <= MAX_TREE_SIZE &&
+        Math.abs(size - rp().codeTabTreeSize) > SIZE_EPSILON
+      ) {
         updatePreferences({ rightPanel: { codeTabTreeSize: size } });
       }
     },

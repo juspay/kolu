@@ -55,8 +55,16 @@ export const client = app.rpc;
 const _preferences = app.cells.preferences.use({
   authority: "local",
   initial: DEFAULT_PREFERENCES,
-  onError: (err) =>
-    toast.error(`Preferences subscription error: ${err.message}`),
+  // Coalesce server writes: the rightPanel splitter's `onSizesChange` fires
+  // a preference patch per frame during a drag (and re-fires on Corvu panel
+  // re-registration), which storms the server. Local apply stays synchronous
+  // (ChromeBar tracks `rightPanel.size` to position itself mid-drag); only
+  // the server round-trip is debounced to the settled value. See #1041.
+  coalesceMs: 150,
+  // Covers both subscription drops and coalesced-flush failures — with
+  // `coalesceMs` set, a failed `mutate` surfaces here, not on `patch`'s
+  // returned promise.
+  onError: (err) => toast.error(`Preferences error: ${err.message}`),
 });
 
 /** Local-store accessor for user preferences — authoritative after the

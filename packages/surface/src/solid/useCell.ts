@@ -64,6 +64,27 @@ export interface UseCellLocalOptions<T extends object, P = T> {
    *  at the call site (1) why `applyPatch` is insufficient and (2) the
    *  specific nested mutation required. */
   mergeIntoStore?: (setStore: SetStoreFunction<T>, patch: P) => void;
+  /** When set, `patch` / `set` apply to the local store synchronously (the
+   *  instant-UI guarantee local authority exists for) but defer the server
+   *  `mutate` to a trailing-debounced flush — rapid writes within `coalesceMs`
+   *  of each other collapse into one server round-trip. The motivating case is
+   *  a resize splitter whose `onSizesChange` fires dozens of times/sec during a
+   *  drag: the local store must update every frame (a sibling reads it to track
+   *  the handle), but only the settled value needs to reach the server.
+   *
+   *  Pending patches accumulate via `applyPatch` (the same merge the cell runs
+   *  locally), so heterogeneous keys written inside one window — e.g. a panel
+   *  `size` followed by a `collapsed` toggle — both land in the single flush;
+   *  the payload stays a real patch `P`, never a full-value snapshot. This
+   *  requires `applyPatch` to be a pure spread-merge (missing keys absent, not
+   *  defaulted); cells with a non-spread merge must not set `coalesceMs`.
+   *
+   *  CONTRACT CHANGE: with `coalesceMs` set, the promise `patch` / `set` returns
+   *  resolves after the *local* apply, not after the server ack. A caller that
+   *  must observe server acknowledgement has to gate on the server echo, not on
+   *  this promise. Flush failures surface via `onError`, not the returned
+   *  promise. */
+  coalesceMs?: number;
   onError?: (err: Error) => void;
 }
 
@@ -129,6 +150,22 @@ function useCellServer<Name extends string, T, P>(
   };
 }
 
+/** Trailing-edge debounce: coalesce rapid calls into one invocation after
+ *  `ms` of quiescence. Hand-rolled rather than pulling
+ *  `@solid-primitives/scheduled` so `@kolu/surface` keeps its deliberately
+ *  minimal dependency surface (orpc, solid-js, zod). Mirrors the setTimeout
+ *  debounce the client already hand-rolls in `useTextSelection.ts`. */
+function trailingDebounce(fn: () => void, ms: number): () => void {
+  let handle: ReturnType<typeof setTimeout> | undefined;
+  return () => {
+    if (handle !== undefined) clearTimeout(handle);
+    handle = setTimeout(() => {
+      handle = undefined;
+      fn();
+    }, ms);
+  };
+}
+
 function useCellLocal<Name extends string, T extends object, P>(
   _cell: Cell<Name, T>,
   options: UseCellLocalOptions<T, P>,
@@ -173,6 +210,36 @@ function useCellLocal<Name extends string, T extends object, P>(
     setStore(reconcile(p as unknown as T));
   }
 
+  // Coalesced server flush (opt-in via `coalesceMs`). `applyLocal` has already
+  // run by the time we enqueue, so the store is current; we defer only the
+  // server round-trip. Patches merge through `applyPatch` so a flush carries
+  // every key touched in the window, not just the last write.
+  let pendingPatch: P | undefined;
+  function flushPending(): void {
+    const p = pendingPatch;
+    if (p === undefined) return;
+    pendingPatch = undefined;
+    void Promise.resolve(options.mutate(p)).catch((err: unknown) => {
+      options.onError?.(err instanceof Error ? err : new Error(String(err)));
+    });
+  }
+  const scheduleFlush =
+    options.coalesceMs !== undefined
+      ? trailingDebounce(flushPending, options.coalesceMs)
+      : undefined;
+  function enqueue(p: P): void {
+    pendingPatch =
+      pendingPatch === undefined
+        ? p
+        : options.applyPatch
+          ? (options.applyPatch(
+              pendingPatch as unknown as T,
+              p,
+            ) as unknown as P)
+          : p; // no applyPatch → last-write-wins
+    scheduleFlush?.();
+  }
+
   return {
     // Always read the seeded store — `options.initial` is visible to
     // consumers before the first server yield (matching the existing
@@ -184,11 +251,13 @@ function useCellLocal<Name extends string, T extends object, P>(
     error: sub.error,
     set: async (next) => {
       applyLocal(next as unknown as P);
-      await options.mutate(next as unknown as P);
+      if (scheduleFlush) enqueue(next as unknown as P);
+      else await options.mutate(next as unknown as P);
     },
     patch: async (p) => {
       applyLocal(p);
-      await options.mutate(p);
+      if (scheduleFlush) enqueue(p);
+      else await options.mutate(p);
     },
     sub,
   };
