@@ -225,7 +225,22 @@ function bridgeStream<T>(
   void (async () => {
     try {
       const iter = await source;
-      for await (const value of iter) onEvent(value);
+      for await (const value of iter) {
+        try {
+          onEvent(value);
+        } catch (err) {
+          // Per-event fence: a single bad event (a failed metadata publish, a
+          // scratch-cleanup fs error on exit, …) must NOT escape and end the
+          // `for await` loop — that would silence this tap (cwd / title /
+          // foreground / exit) for the terminal for good. Log and keep
+          // consuming. (This is the fence the dissolved agent metadata loop
+          // carried in `applyAgentEvent`; it moved here with the taps.)
+          log.error(
+            { err },
+            "pty-host tap onEvent threw (subscription kept alive)",
+          );
+        }
+      }
     } catch (err) {
       if (signal.aborted) return;
       log.error({ err }, "pty-host tap subscription failed");
@@ -333,28 +348,57 @@ class LocalTerminalBackend implements TerminalBackend {
     entry: TerminalProcess,
     tlog: typeof log,
   ): Promise<void> {
+    // Phase 1 — the spawn RPC. A failure here means no PTY was created
+    // (`host.spawn` either returns a live child or throws), so there's nothing
+    // to kill: just unwind the sync shadow.
+    let res: { pid: number; cwd: string } | null;
     try {
-      const res = await this.spawnViaClient(id, opts, proxy);
-      if (!res) return; // killed during spawn — already cleaned up
-      proxy.markReady(res.pid);
-      entry.info.pid = res.pid;
-      // Seed the authoritative resolved cwd before starting the DAG (the git
-      // watcher reads `record.meta.cwd` at start).
-      updateServerMetadata(entry, id, (m) => {
-        m.cwd = res.cwd;
-      });
-      this.startProviderLayer(id, entry, res.pid);
-      tlog.info({ pid: res.pid, total: listTerminals().length }, "created");
-      emitTerminalListChanged();
+      res = await this.spawnViaClient(id, opts, proxy);
     } catch (err) {
       tlog.error({ err }, "pty-host terminal.spawn failed");
       proxy.markFailed(err);
-      if (getTerminal(id)) {
-        unregisterTerminal(id);
-        emitTerminalsDirty();
-        emitTerminalListChanged();
-      }
+      this.unwindSpawnShadow(id);
+      return;
     }
+    if (!res) return; // killed during spawn — spawnViaClient already cleaned up
+
+    proxy.markReady(res.pid);
+    entry.info.pid = res.pid;
+    // Seed the authoritative resolved cwd before starting the DAG (the git
+    // watcher reads `record.meta.cwd` at start).
+    updateServerMetadata(entry, id, (m) => {
+      m.cwd = res.cwd;
+    });
+
+    // Phase 2 — post-spawn wiring. The PTY now exists and the host owns it, so
+    // a failure here must KILL the child (not just unregister the entry), or
+    // we leak an orphaned PTY with no server-side record.
+    try {
+      this.startProviderLayer(id, entry, res.pid);
+    } catch (err) {
+      tlog.error(
+        { err },
+        "pty-host provider wiring failed after spawn; killing the orphaned PTY",
+      );
+      this.teardownProviders(id);
+      void ptyHostClient.surface.terminal
+        .kill({ id })
+        .catch((killErr) =>
+          tlog.error({ err: killErr }, "kill of partially-wired PTY failed"),
+        );
+      this.unwindSpawnShadow(id);
+      return;
+    }
+    tlog.info({ pid: res.pid, total: listTerminals().length }, "created");
+    emitTerminalListChanged();
+  }
+
+  /** Drop a sync-shadow entry whose async spawn/wiring failed (idempotent). */
+  private unwindSpawnShadow(id: TerminalId): void {
+    if (!getTerminal(id)) return;
+    unregisterTerminal(id);
+    emitTerminalsDirty();
+    emitTerminalListChanged();
   }
 
   /** Start the per-terminal provider DAG against the pty-host's tap streams.
