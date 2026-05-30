@@ -180,7 +180,7 @@ export function createInProcessPtyHost(deps: { log: Logger }): PtyHostClient {
           // Throw on a missing PTY rather than return "" — an empty string is
           // a legitimate screen state (a PTY that hasn't drawn yet), so
           // masking a divergence as a blank terminal would hide a real bug.
-          if (!host.getCwd(input.id)) {
+          if (!host.has(input.id)) {
             throw new ORPCError("NOT_FOUND", {
               message: `no PTY with id ${input.id}`,
             });
@@ -188,7 +188,7 @@ export function createInProcessPtyHost(deps: { log: Logger }): PtyHostClient {
           return { data: host.getScreenState(input.id) };
         },
         getScreenText: async ({ input }) => {
-          if (!host.getCwd(input.id)) {
+          if (!host.has(input.id)) {
             throw new ORPCError("NOT_FOUND", {
               message: `no PTY with id ${input.id}`,
             });

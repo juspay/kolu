@@ -206,6 +206,10 @@ export interface PtyHost {
   kill(id: PtyId, signal?: NodeJS.Signals): void;
   /** Snapshot of every live PTY. */
   list(): PtyListEntry[];
+  /** Whether this host still owns a PTY with `id` (an existence check, not a
+   *  data read — distinct from `getCwd(id) !== undefined`, which happens to
+   *  coincide today only because cwd is always set at spawn). */
+  has(id: PtyId): boolean;
   /** Foreground process group leader pid, or `undefined`. */
   getForegroundPid(id: PtyId): number | undefined;
   /** Current foreground process name, or `undefined` if gone. */
@@ -611,6 +615,7 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
         cwd: entry.cwd,
         lastActivity: entry.lastActivity,
       })),
+    has: (id) => entries.has(id),
     getForegroundPid,
     getProcess: (id) => entries.get(id)?.proc.process,
     getCwd: (id) => entries.get(id)?.cwd,
