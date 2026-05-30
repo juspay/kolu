@@ -4,7 +4,7 @@
  * lives in `./actions.ts`.
  */
 
-import { isMac } from "./platform";
+import { isMac } from "./os";
 
 /** Check if the platform modifier key (Cmd on macOS, Ctrl elsewhere) is pressed. */
 export function isPlatformModifier(e: KeyboardEvent): boolean {

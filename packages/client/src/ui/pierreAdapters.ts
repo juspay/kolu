@@ -12,7 +12,7 @@ import type {
 } from "@kolu/solid-pierre";
 import type { GitChangeStatus } from "kolu-git/schemas";
 import { toast } from "solid-sonner";
-import { writeTextToClipboard } from "./clipboard";
+import { writeTextToClipboard } from "@kolu/platform/clipboard";
 
 const GIT_STATUS_WORD: Record<GitChangeStatus, GitStatusEntry["status"]> = {
   M: "modified",

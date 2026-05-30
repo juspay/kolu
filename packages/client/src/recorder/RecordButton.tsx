@@ -19,7 +19,7 @@
 import { type Component, createSignal, Match, Show, Switch } from "solid-js";
 import { match } from "ts-pattern";
 import { ACTIONS } from "../input/actions";
-import { formatKeybind } from "../input/keyboard";
+import { formatKeybind } from "@kolu/platform/keyboard";
 import {
   PauseIcon,
   RecordIcon,

@@ -11,7 +11,7 @@ import { serverProcessId, wsStatus } from "./rpc/rpc";
 import { getTerminalRefs } from "./terminal/terminalRefs";
 import { getDiagnostics } from "./terminal/useTerminalDiagnostics";
 import { webglLifecycleSnapshot } from "./terminal/webglTracker";
-import { writeTextToClipboard } from "./ui/clipboard";
+import { writeTextToClipboard } from "@kolu/platform/clipboard";
 import ModalDialog, { refocusTerminal } from "./ui/ModalDialog";
 import Row from "@kolu/solid-ui/Row";
 import Section from "@kolu/solid-ui/Section";

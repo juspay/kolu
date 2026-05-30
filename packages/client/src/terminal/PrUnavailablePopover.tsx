@@ -14,7 +14,7 @@ import { type Component, createSignal, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import { toast } from "solid-sonner";
 import { match } from "ts-pattern";
-import { writeTextToClipboard } from "../ui/clipboard";
+import { writeTextToClipboard } from "@kolu/platform/clipboard";
 import { WarningIcon } from "@kolu/solid-icons";
 import { surface } from "@kolu/solid-ui/Surface";
 import { useAnchoredPopover } from "@kolu/solid-overlay";

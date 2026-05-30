@@ -54,7 +54,7 @@ import { makePersisted } from "@solid-primitives/storage";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, createMemo, createSignal, For, Show } from "solid-js";
 import { createSharedRoot } from "../../createSharedRoot";
-import { isPlatformModifier } from "../../input/keyboard";
+import { isPlatformModifier } from "@kolu/platform/keyboard";
 import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
 import { annotationLine } from "../../intent/text";
 import { formatTimeAgo } from "../../terminal/staleness";

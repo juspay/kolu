@@ -3,7 +3,7 @@
 import Dialog from "@corvu/dialog";
 import { type Component, For } from "solid-js";
 import { ACTIONS, type ActionId } from "./input/actions";
-import { formatKeybind } from "./input/keyboard";
+import { formatKeybind } from "@kolu/platform/keyboard";
 import Kbd from "@kolu/solid-ui/Kbd";
 import ModalDialog from "./ui/ModalDialog";
 import { surface } from "@kolu/solid-ui/Surface";

@@ -28,7 +28,10 @@ import {
 } from "solid-js";
 import { toast } from "solid-sonner";
 import { match } from "ts-pattern";
-import { SafeClipboardProvider, writeTextToClipboard } from "../ui/clipboard";
+import {
+  SafeClipboardProvider,
+  writeTextToClipboard,
+} from "@kolu/platform/clipboard";
 import "@xterm/xterm/css/xterm.css";
 import { streamCall } from "@kolu/surface/solid";
 import { createXtermWebgl } from "@kolu/solid-xterm";
@@ -37,7 +40,7 @@ import type { TerminalId } from "kolu-common/surface";
 import { rejectionFor, sizeRejectionFor } from "kolu-common/upload";
 import { FONT_FAMILY } from "terminal-themes";
 import { ACTIONS, matchesAnyShortcut } from "../input/actions";
-import { matchesKeybind } from "../input/keyboard";
+import { matchesKeybind } from "@kolu/platform/keyboard";
 import { createZoom } from "../input/zoom";
 import { refitOnTabVisible } from "../refitOnTabVisible";
 import { openInCodeTab } from "../right-panel/openInCodeTab";
