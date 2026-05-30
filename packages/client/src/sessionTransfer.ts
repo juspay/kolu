@@ -54,29 +54,26 @@ export function parseSavedSession(text: string): SavedSession {
   return result.data;
 }
 
-/** Prompt for a JSON file, validate it, and hand the session to `restore`
- *  (which appends its terminals to the current canvas and reports its own
- *  progress). Pre-restore failures — dismissed picker excepted — surface as
- *  an error toast. */
-export async function importSession(
-  restore: (session: SavedSession) => Promise<void>,
-): Promise<void> {
+/** Prompt for a JSON file and return the validated session, or null if the
+ *  user dismisses the picker or the file is malformed (errors surface as a
+ *  toast). The caller owns restoring it — keeping the restore call out of
+ *  here means restore rejections are handled at the call site rather than
+ *  swallowed. */
+export async function importSession(): Promise<SavedSession | null> {
   let text: string | null;
   try {
     text = await pickJsonFile();
   } catch (err) {
     toast.error(`Import failed: ${(err as Error).message}`);
-    return;
+    return null;
   }
-  if (text === null) return; // picker dismissed
-  let session: SavedSession;
+  if (text === null) return null; // picker dismissed
   try {
-    session = parseSavedSession(text);
+    return parseSavedSession(text);
   } catch (err) {
     toast.error(`Import failed: ${(err as Error).message}`);
-    return;
+    return null;
   }
-  await restore(session);
 }
 
 /** Resolve with the picked file's text, or null if the user dismisses the

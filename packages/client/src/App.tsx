@@ -65,7 +65,7 @@ import { surface } from "./ui/Surface";
 import { isMobile } from "./useMobile";
 import { useThemeManager } from "./useThemeManager";
 import { useVisualViewportHeight } from "./useVisualViewportHeight";
-import { client, savedSession } from "./wire";
+import { client, savedSession as serverSavedSession } from "./wire";
 
 const App: Component = () => {
   const { store, crud, session, worktree, alerts } = useTerminals();
@@ -305,9 +305,11 @@ const App: Component = () => {
       localStorage.clear();
       location.reload();
     },
-    handleExportSession: () => exportSession(savedSession()),
+    handleExportSession: () => exportSession(serverSavedSession()),
     handleImportSession: () =>
-      void importSession((s) => session.handleRestoreSession({ session: s })),
+      void importSession().then(
+        (s) => s && session.handleRestoreSession({ session: s }),
+      ),
     simulateAlert: alerts.simulateAlert,
     isMobile,
     canvasCenterActive: handleCanvasCenterActive,
