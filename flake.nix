@@ -25,35 +25,44 @@
         })
         systems);
       commitHash = self.shortRev or self.dirtyShortRev or "dev";
-      # Import default.nix once per system; both `packages` and `checks`
-      # consume this so the derivation set is evaluated a single time.
+      # Import default.nix / the website once per system; `packages` and
+      # `checks` both consume these so each derivation set is evaluated once.
       koluBySystem = eachSystem (pkgs: import ./default.nix { inherit pkgs commitHash; });
-    in
-    {
-      homeManagerModules.default = import ./nix/home/module.nix;
-      packages = eachSystem (pkgs:
+      websiteBySystem = eachSystem (pkgs:
+        # Synthesized website source tree: website/ with the canonical favicon
+        # copied in where the working tree has a symlink to
+        # ../../packages/client/favicon.svg. One SVG on disk; the Nix sandbox
+        # still sees a self-contained website/ with real bytes.
         let
-          kolu = koluBySystem.${pkgs.stdenv.hostPlatform.system};
-          # Synthesized website source tree: website/ with the canonical
-          # favicon copied in where the working tree has a symlink to
-          # ../../packages/client/favicon.svg. One SVG on disk; the Nix
-          # sandbox still sees a self-contained website/ with real bytes.
           websiteSrc = pkgs.runCommand "kolu-website-src" { } ''
             cp -r ${./website} $out
             chmod -R u+w $out
             rm -f $out/public/favicon.svg
             cp ${./packages/client/favicon.svg} $out/public/favicon.svg
           '';
-          website = import ./website { inherit pkgs; src = websiteSrc; };
+        in
+        import ./website { inherit pkgs; src = websiteSrc; });
+    in
+    {
+      homeManagerModules.default = import ./nix/home/module.nix;
+      packages = eachSystem (pkgs:
+        let
+          system = pkgs.stdenv.hostPlatform.system;
+          kolu = koluBySystem.${system};
+          website = websiteBySystem.${system};
         in
         # `typecheck` is routed to `checks` below, not exposed as a package.
         removeAttrs kolu [ "koluEnv" "typecheck" ] // {
           website = website.default;
           website-pnpm-deps = website.pnpmDeps;
         });
-      # Workspace type gate, pinned to one system (tsc is platform-independent).
-      # Realized by CI's `nix`/devour-flake node. Rationale in nix/typecheck.nix.
-      checks.x86_64-linux.typecheck = koluBySystem.x86_64-linux.typecheck;
+      # Type gates, pinned to one system (tsc/astro check are platform-
+      # independent). Realized by CI's `nix`/devour-flake node. Rationale for
+      # the workspace gate in nix/typecheck.nix; the website gate in website/default.nix.
+      checks.x86_64-linux = {
+        typecheck = koluBySystem.x86_64-linux.typecheck;
+        website-typecheck = websiteBySystem.x86_64-linux.typecheck;
+      };
       devShells = eachSystem (pkgs:
         let default = import ./shell.nix { inherit pkgs; };
         in {

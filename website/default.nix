@@ -60,7 +60,37 @@ let
       runHook postInstall
     '';
   };
+
+  # `astro check` — the type gate for website/ (juspay/kolu#1049). `pnpm build`
+  # (astro build) transpiles without typechecking, exactly like the main app,
+  # so a type error in the site would otherwise deploy green. The root flake
+  # exposes this as checks.${system}.website-typecheck.
+  typecheck = pkgs.stdenv.mkDerivation {
+    pname = "kolu-website-typecheck";
+    version = "0.1.0";
+    inherit src pnpmDeps;
+
+    nativeBuildInputs = [
+      pkgs.nodejs
+      pkgs.pnpm
+      pkgs.pnpmConfigHook
+    ];
+
+    dontFixup = true;
+
+    buildPhase = ''
+      runHook preBuild
+      pnpm typecheck
+      runHook postBuild
+    '';
+
+    installPhase = ''
+      runHook preInstall
+      touch $out
+      runHook postInstall
+    '';
+  };
 in
 {
-  inherit default pnpmDeps;
+  inherit default pnpmDeps typecheck;
 }
