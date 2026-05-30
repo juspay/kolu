@@ -35,11 +35,12 @@ describe("useRightPanel — size writes drop Corvu's idempotent re-emits (#1041)
     expect(h.updatePreferences).not.toHaveBeenCalled();
   });
 
-  it("setPanelSize persists a changed size", () => {
+  it("setPanelSize persists a changed size, opting into coalescing", () => {
     useRightPanel().setPanelSize(0.5);
-    expect(h.updatePreferences).toHaveBeenCalledExactlyOnceWith({
-      rightPanel: { size: 0.5 },
-    });
+    expect(h.updatePreferences).toHaveBeenCalledExactlyOnceWith(
+      { rightPanel: { size: 0.5 } },
+      { coalesce: true },
+    );
   });
 
   it("setPanelSize ignores sizes at or below the minimum", () => {
@@ -52,11 +53,12 @@ describe("useRightPanel — size writes drop Corvu's idempotent re-emits (#1041)
     expect(h.updatePreferences).not.toHaveBeenCalled();
   });
 
-  it("setCodeTabTreeSize persists a changed value within bounds", () => {
+  it("setCodeTabTreeSize persists a changed value within bounds, opting into coalescing", () => {
     useRightPanel().setCodeTabTreeSize(0.6);
-    expect(h.updatePreferences).toHaveBeenCalledExactlyOnceWith({
-      rightPanel: { codeTabTreeSize: 0.6 },
-    });
+    expect(h.updatePreferences).toHaveBeenCalledExactlyOnceWith(
+      { rightPanel: { codeTabTreeSize: 0.6 } },
+      { coalesce: true },
+    );
   });
 
   it("setCodeTabTreeSize ignores out-of-bounds values", () => {

@@ -125,7 +125,7 @@ export function useRightPanel() {
     expandPanel: () => updatePreferences({ rightPanel: { collapsed: false } }),
     setPanelSize: (size: number) => {
       if (size > MIN_PANEL_SIZE && Math.abs(size - rp().size) > SIZE_EPSILON)
-        updatePreferences({ rightPanel: { size } });
+        updatePreferences({ rightPanel: { size } }, { coalesce: true });
     },
     /** Vertical split fraction inside the Code tab — tree pane occupies
      *  this share, content pane gets the rest. Persisted across reload. */
@@ -136,7 +136,10 @@ export function useRightPanel() {
         size <= MAX_TREE_SIZE &&
         Math.abs(size - rp().codeTabTreeSize) > SIZE_EPSILON
       ) {
-        updatePreferences({ rightPanel: { codeTabTreeSize: size } });
+        updatePreferences(
+          { rightPanel: { codeTabTreeSize: size } },
+          { coalesce: true },
+        );
       }
     },
 

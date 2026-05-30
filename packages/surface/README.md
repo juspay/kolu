@@ -196,18 +196,21 @@ mergeIntoStore: (setStore, patch) => {
 }
 ```
 
-For high-frequency local-authority writes (a resize splitter firing a patch per frame during a drag), pass `coalesceMs` to debounce the **server** round-trip while keeping the **local** apply synchronous:
+For high-frequency local-authority writes (a resize splitter firing a patch per frame during a drag), configure `coalesceMs` and opt the individual write in with `{ coalesce: true }` — the **server** round-trip is debounced while the **local** apply stays synchronous:
 
 ```ts
-useCell(preferences, {
+const prefs = useCell(preferences, {
   authority: "local",
   initial: DEFAULT_PREFERENCES,
   applyPatch: deepMergePrefs,
-  coalesceMs: 150,   // local apply every call; one trailing server flush per quiescence
+  coalesceMs: 150,           // debounce window for opted-in writes
 });
+
+prefs.patch({ rightPanel: { size } }, { coalesce: true }); // drag — debounced
+prefs.patch({ colorScheme: "dark" });                      // toggle — immediate
 ```
 
-Pending patches accumulate through `applyPatch`, so heterogeneous keys written inside one window land in a single flush (the payload stays a patch, not a full-value snapshot) — this requires `applyPatch` to be a pure spread-merge. With `coalesceMs` set, the promise `patch` / `set` returns resolves after the local apply, not the server ack; flush failures surface via `onError`.
+Coalescing is **per-write, not per-cell**: a plain `patch(p)` still flushes immediately, so a cell mixing volatilities (continuous panel sizes + discrete toggles) doesn't debounce the toggles — a quick reload after a toggle can't lose it. Opted-in patches accumulate through `applyPatch`, so heterogeneous keys written inside one window land in a single flush (the payload stays a patch, not a full-value snapshot) — this requires `applyPatch` to be a pure spread-merge, enforced at construction. A coalesced `patch` resolves after the local apply, not the server ack; flush failures surface via `onError`.
 
 ## Collection
 

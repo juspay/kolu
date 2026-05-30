@@ -65,26 +65,29 @@ export interface UseCellLocalOptions<T extends object, P = T> {
    *  at the call site (1) why `applyPatch` is insufficient and (2) the
    *  specific nested mutation required. */
   mergeIntoStore?: (setStore: SetStoreFunction<T>, patch: P) => void;
-  /** When set, `patch` / `set` apply to the local store synchronously (the
-   *  instant-UI guarantee local authority exists for) but defer the server
-   *  `mutate` to a trailing-debounced flush — rapid writes within `coalesceMs`
-   *  of each other collapse into one server round-trip. The motivating case is
-   *  a resize splitter whose `onSizesChange` fires dozens of times/sec during a
-   *  drag: the local store must update every frame (a sibling reads it to track
-   *  the handle), but only the settled value needs to reach the server.
+  /** Trailing-debounce window (ms) for writes that opt in via
+   *  `patch(p, { coalesce: true })`. Such a write applies to the local store
+   *  synchronously (the instant-UI guarantee local authority exists for) but
+   *  defers the server `mutate` — opted-in writes within `coalesceMs` of each
+   *  other collapse into one server round-trip. The motivating case is a resize
+   *  splitter whose `onSizesChange` fires dozens of times/sec during a drag: the
+   *  local store must update every frame (a sibling reads it to track the
+   *  handle), but only the settled value needs to reach the server.
+   *
+   *  Coalescing is per-write, not per-cell: a plain `patch(p)` still flushes
+   *  immediately. This matters when one cell mixes volatilities — preferences
+   *  holds both continuous panel sizes (coalesce) and discrete toggles like
+   *  `colorScheme` (must persist immediately, or a quick reload loses them).
    *
    *  Pending patches accumulate via `applyPatch` (the same merge the cell runs
-   *  locally), so heterogeneous keys written inside one window — e.g. a panel
-   *  `size` followed by a `collapsed` toggle — both land in the single flush;
-   *  the payload stays a real patch `P`, never a full-value snapshot. This
-   *  requires `applyPatch` to be a pure spread-merge (missing keys absent, not
-   *  defaulted); cells with a non-spread merge must not set `coalesceMs`.
+   *  locally), so heterogeneous keys written inside one window both land in the
+   *  single flush; the payload stays a real patch `P`, never a full-value
+   *  snapshot. This requires `applyPatch` to be a pure spread-merge (missing
+   *  keys absent, not defaulted) — enforced at construction.
    *
-   *  CONTRACT CHANGE: with `coalesceMs` set, the promise `patch` / `set` returns
-   *  resolves after the *local* apply, not after the server ack. A caller that
-   *  must observe server acknowledgement has to gate on the server echo, not on
-   *  this promise. Flush failures surface via `onError`, not the returned
-   *  promise. */
+   *  CONTRACT: a coalesced `patch` resolves after the *local* apply, not the
+   *  server ack; callers needing acknowledgement must gate on the server echo.
+   *  Flush failures surface via `onError`, not the returned promise. */
   coalesceMs?: number;
   onError?: (err: Error) => void;
 }
@@ -93,12 +96,19 @@ export type UseCellOptions<T, P = T> =
   | UseCellServerOptions<T, P>
   | (T extends object ? UseCellLocalOptions<T, P> : never);
 
+/** Per-write options for `patch`. `coalesce` opts an individual write into the
+ *  cell's trailing-debounced server flush (requires `coalesceMs` configured);
+ *  it is the per-write half of the cadence decision — see `coalesceMs`. */
+export interface PatchOptions {
+  coalesce?: boolean;
+}
+
 export interface UseCellResult<T, P> {
   value: Accessor<T | undefined>;
   pending: Accessor<boolean>;
   error: Accessor<Error | undefined>;
   set: (next: T) => Promise<void>;
-  patch: (p: P) => Promise<void>;
+  patch: (p: P, opts?: PatchOptions) => Promise<void>;
   sub: Subscription<T>;
 }
 
@@ -150,7 +160,9 @@ function useCellServer<Name extends string, T, P>(
     pending: sub.pending,
     error: sub.error,
     set: (next) => callMutate(next as unknown as P),
-    patch: callMutate,
+    // Server authority has no local store to coalesce against — every write is
+    // a round-trip; the `opts` arg is accepted for signature parity and ignored.
+    patch: (p) => callMutate(p),
     sub,
   };
 }
@@ -252,12 +264,11 @@ function useCellLocal<Name extends string, T extends object, P>(
     error: sub.error,
     set: async (next) => {
       applyLocal(next as unknown as P);
-      if (scheduleFlush) enqueue(next as unknown as P);
-      else await options.mutate(next as unknown as P);
+      await options.mutate(next as unknown as P);
     },
-    patch: async (p) => {
+    patch: async (p, opts) => {
       applyLocal(p);
-      if (scheduleFlush) enqueue(p);
+      if (opts?.coalesce && scheduleFlush) enqueue(p);
       else await options.mutate(p);
     },
     sub,

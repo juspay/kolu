@@ -43,10 +43,11 @@ describe("useCell local authority — coalesceMs", () => {
     await createRoot(async (dispose) => {
       const cell = makeCell(mutate, 30);
       // Fire without awaiting — local apply is synchronous; the server flush
-      // is what we're testing is deferred.
-      void cell.patch({ size: 0.3 });
-      void cell.patch({ size: 0.4 });
-      void cell.patch({ collapsed: true });
+      // is what we're testing is deferred. `{ coalesce: true }` opts each write
+      // into the debounce.
+      void cell.patch({ size: 0.3 }, { coalesce: true });
+      void cell.patch({ size: 0.4 }, { coalesce: true });
+      void cell.patch({ collapsed: true }, { coalesce: true });
       // Local apply is synchronous — a mid-drag reader sees every step.
       expect(cell.value()).toEqual({ size: 0.4, collapsed: true });
       // The server round-trip is deferred, not fired per patch.
@@ -64,7 +65,8 @@ describe("useCell local authority — coalesceMs", () => {
     const mutate = vi.fn<(p: PrefsPatch) => Promise<void>>(async () => {});
     await createRoot(async (dispose) => {
       const cell = makeCell(mutate, 30);
-      for (let i = 1; i <= 50; i++) void cell.patch({ size: 0.2 + i * 0.001 });
+      for (let i = 1; i <= 50; i++)
+        void cell.patch({ size: 0.2 + i * 0.001 }, { coalesce: true });
       expect(mutate).not.toHaveBeenCalled();
       await tick(60);
       expect(mutate).toHaveBeenCalledTimes(1);
@@ -79,9 +81,22 @@ describe("useCell local authority — coalesceMs", () => {
     const mutate = vi.fn(async () => {});
     await createRoot(async (dispose) => {
       const cell = makeCell(mutate, undefined);
-      await cell.patch({ size: 0.3 });
-      await cell.patch({ size: 0.4 });
+      await cell.patch({ size: 0.3 }, { coalesce: true });
+      await cell.patch({ size: 0.4 }, { coalesce: true });
       expect(mutate).toHaveBeenCalledTimes(2);
+      dispose();
+    });
+  });
+
+  it("a plain patch flushes immediately even when coalesceMs is configured (per-write opt-in)", async () => {
+    const mutate = vi.fn(async () => {});
+    await createRoot(async (dispose) => {
+      const cell = makeCell(mutate, 30);
+      // No `{ coalesce: true }` — a discrete write (e.g. a settings toggle)
+      // must reach the server now, not after the debounce window.
+      await cell.patch({ collapsed: true });
+      expect(mutate).toHaveBeenCalledTimes(1);
+      expect(mutate).toHaveBeenCalledWith({ collapsed: true });
       dispose();
     });
   });
@@ -115,7 +130,9 @@ describe("useCell local authority — coalesceMs", () => {
       const cell = makeCell(mutate, 30, onError);
       // The returned promise resolves on local apply — it does not reject
       // with the deferred server error.
-      await expect(cell.patch({ size: 0.3 })).resolves.toBeUndefined();
+      await expect(
+        cell.patch({ size: 0.3 }, { coalesce: true }),
+      ).resolves.toBeUndefined();
       await tick(60);
       expect(onError).toHaveBeenCalledWith(boom);
       dispose();
