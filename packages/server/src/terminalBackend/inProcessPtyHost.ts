@@ -111,9 +111,19 @@ export function createInProcessPtyHost(deps: { log: Logger }): PtyHostClient {
           try {
             const exitCode = await host.exitPromise(input.id, signal);
             yield { exitCode };
-          } catch {
-            // Aborted (teardown) — end quietly; the waiter is already removed.
-            return;
+          } catch (err) {
+            // Abort (teardown / socket close) is the EXPECTED rejection — end
+            // quietly; the waiter is already removed. Anything else is not:
+            // in-process `exitPromise` only rejects on abort, but a
+            // socket-served one could reject on transport error, and silently
+            // ending the stream there would leave the consumer's terminal
+            // never cleaned up. Surface it instead of swallowing.
+            if (signal?.aborted) return;
+            log.error(
+              { err, id: input.id },
+              "pty-host exitPromise rejected unexpectedly (non-abort)",
+            );
+            throw err;
           }
         },
       },
