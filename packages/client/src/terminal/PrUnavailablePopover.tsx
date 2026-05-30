@@ -17,7 +17,7 @@ import { match } from "ts-pattern";
 import { writeTextToClipboard } from "../ui/clipboard";
 import { WarningIcon } from "@kolu/solid-icons";
 import { surface } from "@kolu/solid-ui/Surface";
-import { useAnchoredPopover } from "../ui/useAnchoredPopover";
+import { useAnchoredPopover } from "@kolu/solid-overlay";
 
 const AUTH_COMMAND = "gh auth login -s repo,read:org";
 

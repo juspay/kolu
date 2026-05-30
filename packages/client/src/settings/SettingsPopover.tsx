@@ -10,7 +10,7 @@ import SegmentedControl, {
 } from "@kolu/solid-ui/SegmentedControl";
 import { surface } from "@kolu/solid-ui/Surface";
 import Toggle from "@kolu/solid-ui/Toggle";
-import { useAnchoredPopover } from "../ui/useAnchoredPopover";
+import { useAnchoredPopover } from "@kolu/solid-overlay";
 import { preferences, updatePreferences } from "../wire";
 import SettingRow, { type Hint } from "./SettingRow";
 import { type ColorScheme, useColorScheme } from "./useColorScheme";

@@ -47,7 +47,8 @@ Order = biggest-contributor-first (Ralph rule).
 | 0 | baseline | 25,613 | — | — |
 | 1 | extract `@kolu/solid-icons` (Icons.tsx, 38 components, 26 import sites) | 24,998 | **−615** | 6bf9f39 |
 | 2 | extract `@kolu/solid-xterm` (`createXtermWebgl` — WebGL-context lifecycle out of Terminal.tsx) | 24,942 | **−56** | f39fc9d |
-| 3 | extract `@kolu/solid-ui` (Toggle, Kbd, SegmentedControl, Row, Section, Surface, stackLayers, Tip; 36 sites) | 24,662 | **−280** | _pending_ |
+| 3 | extract `@kolu/solid-ui` (Toggle, Kbd, SegmentedControl, Row, Section, Surface, stackLayers, Tip; 36 sites) | 24,662 | **−280** | f4fc1e1 |
+| 4 | extract `@kolu/solid-overlay` (useAnchoredPopover +test, OptionMenu; test now runs in-package) | 24,405 | **−257** | _pending_ |
 
 ## Dead ends
 
