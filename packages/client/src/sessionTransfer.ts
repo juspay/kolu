@@ -47,16 +47,7 @@ export function parseSavedSession(text: string): SavedSession {
   } catch {
     throw new Error("file is not valid JSON");
   }
-  // `safeParse` can *throw* (not just return `success: false`) on some
-  // malformed shapes — a nested refinement in `GitInfoSchema` dereferences
-  // `git.isWorktree`, which blows up when `git` is absent. We're parsing an
-  // untrusted file here, so treat any throw as a validation failure.
-  let result: ReturnType<typeof SavedSessionSchema.safeParse>;
-  try {
-    result = SavedSessionSchema.safeParse(parsed);
-  } catch {
-    throw new Error("not a valid kolu session export");
-  }
+  const result = SavedSessionSchema.safeParse(parsed);
   if (!result.success) {
     throw new Error("not a valid kolu session export");
   }

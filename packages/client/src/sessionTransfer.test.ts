@@ -1,5 +1,12 @@
 import type { SavedSession } from "kolu-common/surface";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+// `sessionTransfer` imports `solid-sonner` (for toast) at module scope, which
+// transitively pulls `solid-js/web`'s SSR build and fails to load under the
+// Node test runner. `parseSavedSession` is pure (no toast, no DOM) by design,
+// so stub the module out — the test never exercises the toast path.
+vi.mock("solid-sonner", () => ({ toast: {} }));
+
 import { parseSavedSession } from "./sessionTransfer";
 
 const valid: SavedSession = {
