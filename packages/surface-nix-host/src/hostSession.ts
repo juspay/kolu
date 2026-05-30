@@ -227,6 +227,22 @@ export class HostSession<C extends AnyContractRouter> {
     return this.clientPromise;
   }
 
+  /** Clear the in-flight client handle. Centralizes the "no spawn in
+   *  flight ⇒ `clientPromise` is null" invariant that three terminal
+   *  paths must uphold: the child died (`handleChildDone`), the session
+   *  was torn down (`teardown`), or the retry gate gave up
+   *  (`scheduleReconnect`). `reconnect()`'s "already spawning?" guard and
+   *  the bridge's `currentClient()` identity check both read this slot, so
+   *  a path that forgets to null it strands `reconnect()` behind a stale
+   *  *rejected* promise — exactly the bug where a `nix copy`-driven
+   *  give-up (which throws before any child spawns, so `handleChildDone`
+   *  never runs) left the slot non-null and made the "Reconnect" button a
+   *  silent no-op. Naming it keeps the invariant searchable instead of
+   *  conventional. */
+  private clearClientPromise(): void {
+    this.clientPromise = null;
+  }
+
   private updateState(patch: Partial<HostSessionState>): void {
     const prev = this.stateCell.current();
     const next: HostSessionState = { ...prev, ...patch };
@@ -351,7 +367,7 @@ export class HostSession<C extends AnyContractRouter> {
       this.addLocalProgress(reason);
       this.updateState({ connection: "disconnected", lastError: reason });
       this.child = null;
-      this.clientPromise = null;
+      this.clearClientPromise();
       if (!this.destroyed && this.refCount > 0) this.scheduleReconnect();
     };
 
@@ -410,8 +426,11 @@ export class HostSession<C extends AnyContractRouter> {
    *  the same path the automatic reconnect timer uses, minus the backoff
    *  wait. No-op if the session is destroyed, unreferenced, or a spawn
    *  is already in flight (so a double-tapped "Reconnect" can't stack
-   *  spawns). The give-up gate left `pendingTimer` and `clientPromise`
-   *  null, so a genuinely-failed session always passes the guard. */
+   *  spawns). On entering the terminal `failed` state the give-up gate
+   *  clears `clientPromise` (via `clearClientPromise`) and leaves
+   *  `pendingTimer` null, so a genuinely-failed session always passes the
+   *  guard — including the `nix copy`-driven failure that never spawned a
+   *  child. */
   reconnect(): void {
     if (this.destroyed || this.refCount === 0) return;
     if (this.clientPromise !== null || this.pendingTimer !== null) return;
@@ -437,6 +456,15 @@ export class HostSession<C extends AnyContractRouter> {
       this.addLocalProgress(
         `gave up after ${MAX_CONSECUTIVE_FAILURES} consecutive failures — fix the underlying issue (often: remote nix-daemon needs your user in 'trusted-users' to accept unsigned closures), then reconnect`,
       );
+      // Clear the in-flight handle BEFORE entering the terminal state.
+      // The provision-failure path (`nix copy` exited non-zero) throws
+      // out of `spawn()` without ever creating a child, so
+      // `handleChildDone` — the only other site that nulls the slot —
+      // never ran; the slot still holds the last *rejected* spawn
+      // promise. Without this, `reconnect()`'s `clientPromise !== null`
+      // guard sees a non-null slot and silently no-ops, stranding a
+      // genuinely-failed session. (See `clearClientPromise`.)
+      this.clearClientPromise();
       // Move off `disconnected` so consumers can distinguish "still
       // retrying" from "gave up". `lastError` is already set by the
       // spawn-failure path that led here; preserve it.
@@ -468,7 +496,7 @@ export class HostSession<C extends AnyContractRouter> {
       }
       this.child = null;
     }
-    this.clientPromise = null;
+    this.clearClientPromise();
   }
 }
 
