@@ -389,7 +389,13 @@ CI commands are typically local (e.g. `nix flake check`, `just ci`, `make ci`) a
 
 ### evidence
 
-**Opt-in step.** Most projects skip this. The step exists so projects with empirical "did the feature actually work" needs — UI screenshots, performance benchmarks, demo recordings, output transcripts — can attach that evidence to the PR without baking the mechanism into agency.
+**Opt-in step.** Most projects skip this. The step exists so projects with empirical "did this actually work" needs can attach proof to the PR without baking the mechanism into agency. That proof is **visual** _or_ **behavioral** — and the second kind is easy to under-fire on, because it often has zero visual diff:
+
+- **Visual** — UI screenshots, before/after stills, demo recordings; **video** when the change is about motion (an animation, a transition).
+- **Behavioral** — proof that _state survives an interaction or a restart_. When the diff touches a persistence, restore, session, autosave, debounce/coalesce, or reconnect path, the evidence that matters is "does the round-trip still hold?", not a pixel change. These changes routinely have **no visual diff** yet are exactly where a survives-restart capture proves the fix didn't break recoverability (e.g. resize → stop the app → restart → restore session → panel returns at the resized width).
+- **Other empirical** — performance benchmarks, output transcripts.
+
+**Bug fixes default to "demonstrate the fixed behavior."** The bug was usually invisible — a lost write, a storm, a hang, a broken round-trip — so a before→after or survives-restart clip is the evidence even when nothing _looks_ different. Don't gate evidence on a pixel changing; gate it on "is there a behavior worth proving."
 
 **If `--minimal`**: Skip with status `skipped` and reason `"--minimal"`. Move to **done**.
 
@@ -402,6 +408,8 @@ CI commands are typically local (e.g. `nix flake check`, `just ci`, `make ci`) a
 **If the section is present**:
 
 The section is project-specific and free-form: it can be inline prose describing the capture procedure, a pointer to another file (`See ./scripts/capture-evidence.md`), a script reference (`Run ./scripts/capture-pr-evidence.sh and use its stdout`), or any combination. Don't second-guess the form — read it, then **spawn a sub-agent** (`Agent(subagent_type: "general-purpose", ...)`) so the capture work (MCP calls, screenshot uploads, gh API requests) doesn't pollute `/do`'s main context.
+
+**Read the trigger broadly.** A project's section supplies the _capture mechanism_; the criterion for _when to fire_ is the visual-or-behavioral framing above. If the section's wording leans visual ("when the change has visible UI impact") but the diff is a behavioral fix on a persistence/restore/round-trip/debounce/reconnect path, capture the **behavior** anyway — the absence of a visual diff is not a reason to skip. Only skip when there is genuinely no behavior worth proving (a pure refactor, a docs change, an internal cleanup with no observable before→after).
 
 The sub-agent prompt should include:
 
