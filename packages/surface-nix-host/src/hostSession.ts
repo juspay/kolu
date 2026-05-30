@@ -347,24 +347,24 @@ export class HostSession<C extends AnyContractRouter> {
       forEachLine(chunk, (line) => this.addRemoteProgress(line)),
     );
 
-    child.on("exit", (code, signal) => {
-      const reason = connectTimedOut
-        ? `connect handshake timed out after ${connectTimeoutMs}ms (transport up, no first RPC)`
-        : `agent exited (code=${code}, signal=${signal})`;
+    const handleChildDone = (reason: string): void => {
       this.addLocalProgress(reason);
       this.updateState({ connection: "disconnected", lastError: reason });
       this.child = null;
       this.clientPromise = null;
       if (!this.destroyed && this.refCount > 0) this.scheduleReconnect();
+    };
+
+    child.on("exit", (code, signal) => {
+      handleChildDone(
+        connectTimedOut
+          ? `connect handshake timed out after ${connectTimeoutMs}ms (transport up, no first RPC)`
+          : `agent exited (code=${code}, signal=${signal})`,
+      );
     });
 
     child.on("error", (err) => {
-      const reason = `ssh failed to spawn: ${err.message}`;
-      this.addLocalProgress(reason);
-      this.updateState({ connection: "disconnected", lastError: reason });
-      this.child = null;
-      this.clientPromise = null;
-      if (!this.destroyed && this.refCount > 0) this.scheduleReconnect();
+      handleChildDone(`ssh failed to spawn: ${err.message}`);
     });
 
     if (child.stdin === null || child.stdout === null) {
