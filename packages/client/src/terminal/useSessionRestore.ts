@@ -152,10 +152,13 @@ export function useSessionRestore(deps: {
   });
 
   async function handleRestoreSession(
-    options: { resumeIds?: ReadonlySet<string> } = {},
+    options: { resumeIds?: ReadonlySet<string>; session?: SavedSession } = {},
   ) {
     if (isRestoring()) return;
-    const session = savedSession();
+    // `options.session` lets a caller (e.g. the diagnostic "Import session"
+    // command) restore an arbitrary blob on top of the current canvas; the
+    // default is the server-persisted snapshot the empty-state offers.
+    const session = options.session ?? savedSession();
     if (!session) return;
     // Keep the restore card mounted until terminal creation actually
     // succeeds. Synchronously clearing `savedSession` before the async

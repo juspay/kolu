@@ -135,6 +135,10 @@ export interface CommandDeps extends ActionContext {
   // Debug
   simulateAlert: () => void;
   handleClearLocalStorage: () => void;
+  /** Download the saved session as JSON (diagnostic backup). */
+  handleExportSession: () => void;
+  /** Pick a session JSON file and restore it on top of the current canvas. */
+  handleImportSession: () => void;
 }
 
 export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
@@ -374,6 +378,18 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
           kind: "action",
           name: "Clear localStorage",
           onSelect: () => deps.handleClearLocalStorage(),
+        },
+        {
+          kind: "action",
+          name: "Export session",
+          description: "Download terminal session state as JSON",
+          onSelect: () => deps.handleExportSession(),
+        },
+        {
+          kind: "action",
+          name: "Import session",
+          description: "Restore terminals from a session JSON file",
+          onSelect: () => deps.handleImportSession(),
         },
       ],
     },
