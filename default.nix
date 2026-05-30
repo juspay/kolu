@@ -22,6 +22,11 @@ let
       ./packages/surface
       ./packages/surface-nix-host
       ./packages/solid-pierre
+      ./packages/solid-icons
+      ./packages/solid-ui
+      ./packages/solid-overlay
+      ./packages/solid-xterm
+      ./packages/platform
       ./packages/common
       ./packages/integrations
       ./packages/nonempty
