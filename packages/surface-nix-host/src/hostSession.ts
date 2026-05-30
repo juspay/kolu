@@ -12,6 +12,7 @@
  *
  *     copying      ──provisionAgent ok──▶ connecting
  *     connecting   ──first RPC ────────▶ connected
+ *     connecting   ──watchdog timeout ─▶ disconnected (kill child, then retry)
  *     connected    ──read end  ────────▶ disconnected ──reconnect──▶ copying
  *     disconnected ──gave up (N fails)──▶ failed   (terminal; `reconnect()` re-arms)
  *
@@ -25,6 +26,15 @@
  * give-up gate (so a permanently-misconfigured remote — e.g.
  * `trusted-users` not granting the parent's user — fails loudly
  * instead of spinning).
+ *
+ * The `connecting` phase has its own escape hatch: a watchdog timer
+ * (`connectTimeoutMs`, default 30 s) armed the moment the ssh child is
+ * spawned. If the first RPC never roundtrips — the transport is up and
+ * the child is alive, but the handshake wedges and the process never
+ * exits — neither `markConnected` nor the child-exit handler ever fires,
+ * so without the watchdog the session would hang in `connecting`
+ * forever. The watchdog kills the child on timeout, which routes through
+ * the ordinary exit handler into the same reconnect/give-up machinery.
  */
 
 import { type ChildProcess, spawn } from "node:child_process";
@@ -67,6 +77,16 @@ export interface HostSessionOptions {
   binary: string;
   /** How long between disconnect and reconnect attempts. Default 2s. */
   reconnectDelayMs?: number;
+  /** How long to wait for the first RPC after the ssh child is spawned
+   *  before treating the `connecting` phase as wedged and killing the
+   *  child (which then routes through the normal reconnect path).
+   *  Default 30s. Guards against a transport that comes up but whose
+   *  RPC handshake never completes — the child stays alive, so no
+   *  `exit` fires and the session would otherwise hang in `connecting`
+   *  indefinitely. Sized well under the consumer's own connect deadline
+   *  (drishti's browser socket gives up at 60s) and above a healthy
+   *  post-`nix copy` handshake, which is sub-second. */
+  connectTimeoutMs?: number;
 }
 
 /** The typed RPC client produced by a successful `acquire`/`pin`/
@@ -96,7 +116,14 @@ export class HostSession<C extends AnyContractRouter> {
     progressLines: [],
     lastError: null,
   });
-  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  /** The session's single pending phase-transition timer — either the
+   *  reconnect-backoff delay (armed in `disconnected`) or the connect
+   *  watchdog (armed in `connecting`). The two are never live at once:
+   *  the watchdog is cleared the instant we leave `connecting`, and the
+   *  backoff only arms after we've already left it. Folding them into
+   *  one slot makes "at most one timer pending" a structural invariant
+   *  rather than a discipline spread across handlers. */
+  private pendingTimer: ReturnType<typeof setTimeout> | null = null;
   private destroyed = false;
   /** Count of consecutive failures since the last successful "connected"
    *  transition. Drives the exponential backoff on `scheduleReconnect`
@@ -208,8 +235,14 @@ export class HostSession<C extends AnyContractRouter> {
     if (patch.progressLines !== undefined) {
       next.progressLines = patch.progressLines.slice(-MAX_PROGRESS_LINES);
     }
-    if (patch.connection !== undefined)
+    if (patch.connection !== undefined) {
       this.logTransition(prev.connection, patch.connection);
+      // Leaving `connecting` — by any path (connected, child exit, or a
+      // provision failure that skips straight to disconnected) — disarms
+      // the connect watchdog. This single choke-point is why the exit/
+      // error handlers and `markConnected` don't each clear it by hand.
+      if (patch.connection !== "connecting") this.clearTimer();
+    }
     if (patch.lastError !== undefined && patch.lastError !== null) {
       process.stderr.write(
         `[host:${this.opts.host}] lastError: ${patch.lastError}\n`,
@@ -251,6 +284,26 @@ export class HostSession<C extends AnyContractRouter> {
     );
   }
 
+  /** Arm the session's single pending timer. Auto-nulls `pendingTimer`
+   *  before invoking `fn`, so a fired timer leaves the slot clean for
+   *  the next arm (the firing callback typically transitions state,
+   *  which would re-arm). Any prior timer must already be clear —
+   *  callers arm only from states where `pendingTimer` is null. */
+  private armTimer(delayMs: number, fn: () => void): void {
+    this.pendingTimer = setTimeout(() => {
+      this.pendingTimer = null;
+      fn();
+    }, delayMs);
+  }
+
+  /** Disarm the pending timer if one is set. Idempotent. */
+  private clearTimer(): void {
+    if (this.pendingTimer !== null) {
+      clearTimeout(this.pendingTimer);
+      this.pendingTimer = null;
+    }
+  }
+
   private async spawn(): Promise<AgentClient<C>> {
     this.updateState({ connection: "copying", lastError: null });
     const provision = await provisionAgent({
@@ -269,6 +322,7 @@ export class HostSession<C extends AnyContractRouter> {
     const realisedAgentPath = provision.agentPath;
 
     this.updateState({ connection: "connecting" });
+    const connectTimeoutMs = this.opts.connectTimeoutMs ?? 30_000;
     const { command, args } = buildAgentCommand({
       host: this.opts.host,
       agentPath: realisedAgentPath,
@@ -277,13 +331,22 @@ export class HostSession<C extends AnyContractRouter> {
     const child = spawn(command, args, { stdio: ["pipe", "pipe", "pipe"] });
     this.child = child;
 
+    // Set by the watchdog when it kills a wedged connect, so the shared
+    // exit handler below reports the timeout — not the misleading
+    // "agent exited (signal=SIGTERM)" the kill would otherwise produce.
+    // Scoped to this spawn (one child, one handler), so it needs no
+    // class field and can't bleed across reconnects.
+    let connectTimedOut = false;
+
     child.stderr?.setEncoding("utf-8");
     child.stderr?.on("data", (chunk: string) =>
       forEachLine(chunk, (line) => this.addRemoteProgress(line)),
     );
 
     child.on("exit", (code, signal) => {
-      const reason = `agent exited (code=${code}, signal=${signal})`;
+      const reason = connectTimedOut
+        ? `connect handshake timed out after ${connectTimeoutMs}ms (transport up, no first RPC)`
+        : `agent exited (code=${code}, signal=${signal})`;
       this.addLocalProgress(reason);
       this.updateState({ connection: "disconnected", lastError: reason });
       this.child = null;
@@ -308,6 +371,20 @@ export class HostSession<C extends AnyContractRouter> {
       write: child.stdin,
     });
 
+    // Connect watchdog: the transport is up and the child is alive, but
+    // the first RPC may never roundtrip (handshake wedges, process never
+    // exits). `markConnected` and the exit handler are the only other
+    // exits from `connecting`; neither fires here, so without this timer
+    // the session hangs in `connecting` forever. Killing the child routes
+    // through the exit handler into the normal reconnect/give-up path.
+    // The state guard handles the benign race where `markConnected` just
+    // fired (the choke-point already cleared us, but belt and suspenders).
+    this.armTimer(connectTimeoutMs, () => {
+      if (this.stateCell.current().connection !== "connecting") return;
+      connectTimedOut = true;
+      this.child?.kill("SIGTERM");
+    });
+
     // Defer "connected" until the first RPC actually roundtrips —
     // consumers signal that via `markConnected()`. The stdio link has
     // no synchronous "open" event we could hook here.
@@ -329,11 +406,11 @@ export class HostSession<C extends AnyContractRouter> {
    *  the same path the automatic reconnect timer uses, minus the backoff
    *  wait. No-op if the session is destroyed, unreferenced, or a spawn
    *  is already in flight (so a double-tapped "Reconnect" can't stack
-   *  spawns). The give-up gate left `reconnectTimer` and `clientPromise`
+   *  spawns). The give-up gate left `pendingTimer` and `clientPromise`
    *  null, so a genuinely-failed session always passes the guard. */
   reconnect(): void {
     if (this.destroyed || this.refCount === 0) return;
-    if (this.clientPromise !== null || this.reconnectTimer !== null) return;
+    if (this.clientPromise !== null || this.pendingTimer !== null) return;
     this.consecutiveFailures = 0;
     this.clientPromise = this.spawn();
     this.clientPromise.catch(() => {
@@ -342,7 +419,7 @@ export class HostSession<C extends AnyContractRouter> {
   }
 
   private scheduleReconnect(): void {
-    if (this.destroyed || this.reconnectTimer !== null) return;
+    if (this.destroyed || this.pendingTimer !== null) return;
     // Exponential backoff is keyed on attempts-so-far, not "this is
     // attempt N after the failure". The previous code post-incremented
     // and then subtracted one to compensate (`2 ** (count - 1)`), which
@@ -367,21 +444,17 @@ export class HostSession<C extends AnyContractRouter> {
     this.addLocalProgress(
       `reconnecting in ${delay}ms… (attempt ${this.consecutiveFailures}/${MAX_CONSECUTIVE_FAILURES})`,
     );
-    this.reconnectTimer = setTimeout(() => {
-      this.reconnectTimer = null;
+    this.armTimer(delay, () => {
       if (this.destroyed || this.refCount === 0) return;
       this.clientPromise = this.spawn();
       this.clientPromise.catch(() => {
         /* spawn surfaces failure via state; we just clear the promise */
       });
-    }, delay);
+    });
   }
 
   private teardown(reason: string): void {
-    if (this.reconnectTimer !== null) {
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
-    }
+    this.clearTimer();
     if (this.child !== null) {
       this.addLocalProgress(`tearing down (${reason})`);
       try {
