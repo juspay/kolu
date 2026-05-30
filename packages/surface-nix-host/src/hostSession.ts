@@ -459,7 +459,9 @@ export class HostSession<C extends AnyContractRouter> {
    *  clears `clientPromise` (via `clearClientPromise`) and leaves
    *  `pendingTimer` null, so a genuinely-failed session always passes the
    *  guard — including the `nix copy`-driven failure that never spawned a
-   *  child. */
+   *  child. Like every spawn, this re-runs `resolveDrvPath` from scratch
+   *  (it is not cached) — a manual re-arm re-pays whatever the resolver
+   *  costs, e.g. an ssh arch probe. */
   reconnect(): void {
     if (this.destroyed || this.refCount === 0) return;
     if (this.clientPromise !== null || this.pendingTimer !== null) return;
