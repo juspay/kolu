@@ -12,6 +12,12 @@
 let
   koluEnv = import ./nix/env.nix { inherit pkgs; };
 
+  # INVARIANT: this fileset must include every workspace package that has a
+  # `typecheck` script — the typecheck derivation (nix/typecheck.nix) reuses
+  # this `src`, so a package omitted here is silently skipped by the type
+  # gate even though `just check` (full working tree) would catch it.
+  # packages/tests is the only workspace member intentionally absent: it has
+  # no typecheck script, so it's outside the gate's scope either way.
   src = pkgs.lib.fileset.toSource {
     root = ./.;
     fileset = pkgs.lib.fileset.unions [
@@ -193,10 +199,8 @@ let
     inherit pkgs src pnpmDeps;
   };
 
-  # `tsc --noEmit` over every workspace package. The build above ships
-  # without typechecking, so this is the gate that makes a green Nix build a
-  # type-proof (juspay/kolu#1049). flake.nix routes it to `checks` (linux
-  # only — tsc is platform-independent), not `packages`.
+  # The workspace type gate (rationale in nix/typecheck.nix). flake.nix
+  # strips this from `packages` and routes it to `checks`.
   typecheck = import ./nix/typecheck.nix { inherit pkgs src pnpmDeps; };
 in
 {
