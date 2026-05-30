@@ -1,26 +1,26 @@
 /**
- * `LocalTerminalBackend` — this kolu process. Since #951 R4b it is a pure
- * *consumer* of the in-process **agent** (`./agent.ts`): the agent owns
- * `@kolu/pty-host` AND the per-terminal provider DAG and emits an enriched
- * per-terminal metadata stream; this backend subscribes to that stream and
- * mirrors it onto kolu-server's surface plumbing. It no longer runs
- * `startProviders` itself — the providers run *inside* the agent, where a
- * future ssh agent will run them too (same code, different transport).
+ * `LocalTerminalBackend` — this kolu process. It owns `@kolu/pty-host`
+ * in-process, but consumes it through the typed `ptyHostSurface` contract (via
+ * `createInProcessPtyHost`, the identity link): it forwards
+ * spawn/kill/write/resize/attach through that client AND **runs the
+ * per-terminal provider DAG** (`./providers.ts`) against the pty-host's raw tap
+ * streams (cwd · title · command-run · foreground).
  *
- * Three things stay on this side of the boundary, because they're
- * cross-terminal / UI concerns the agent can't own once it's remote:
+ * Why route through the contract rather than call `PtyHost` directly: the
+ * consumer here is then written against `PtyHostClient` — the exact shape a
+ * surviving daemon (over a unix socket) or a remote ssh pty-host will serve.
+ * A later step swaps only `createInProcessPtyHost` for a socket-served client;
+ * everything in this file is unchanged. And the provider DAG already has zero
+ * synchronous dependency on the host (it reads taps, not a `PtyHandle`), so it
+ * runs identically whether pty-host is in-process or across a wire. See
+ * `docs/plans/remote-terminals.pty-daemon.html` (#fresh-approach).
  *
- *   - the `terminalMetadata` collection + the `terminals:dirty` autosave
- *     trigger (fired only for the stream's `metadataPersisted` half);
- *   - the activity feed (recent-repos / recent-agents MRUs), fed by the
- *     stream's `recentRepo` / `recentAgent` events;
- *   - `TerminalBackend.fs/git`, which stay abstracted per-location and (for
- *     local) shell out to `kolu-git` directly.
- *
- * `attach` and the byte-stream handle delegate straight to the agent (which
- * delegates to pty-host's race-free snapshot+delta primitive).
+ * `TerminalBackend.fs/git` stay on this side, abstracted per-location and (for
+ * local) shelling out to `kolu-git` directly.
  */
 
+import type { ForegroundSample } from "@kolu/pty-host";
+import { inMemoryChannel } from "@kolu/surface/server";
 import type {
   TerminalId,
   TerminalInfo,
@@ -32,6 +32,7 @@ import type {
   TerminalBackend,
   TerminalBackendFs,
   TerminalBackendGit,
+  TerminalHandle,
 } from "kolu-common/terminalBackend";
 import {
   type FsListAllOutput,
@@ -45,11 +46,8 @@ import {
   subscribeFileChange,
   subscribeRepoChange,
 } from "kolu-git";
-import type { GitDiffMode } from "kolu-git/schemas";
-import { cleanEnv, koluIdentityEnv, prepareShellInit } from "kolu-pty";
-import pkg from "../../package.json" with { type: "json" };
+import type { GitDiffMode, GitInfo } from "kolu-git/schemas";
 import { trackRecentAgent, trackRecentRepo } from "../activity.ts";
-import { koluShellDir } from "../koluRoot.ts";
 import { log } from "../log.ts";
 import { terminalsDirtyChannel } from "../publisher.ts";
 import { surfaceCtx } from "../surfaceCtx.ts";
@@ -63,27 +61,39 @@ import {
 } from "../terminal-registry.ts";
 import { cleanupTerminalScratch } from "../terminalScratch.ts";
 import { unwrapGit } from "../unwrapGit.ts";
-import { type AgentMetadataEvent, createAgent } from "./agent.ts";
-import { updateServerLiveMetadata, updateServerMetadata } from "./metadata.ts";
+import {
+  createInProcessPtyHost,
+  type PtyHostClient,
+} from "./inProcessPtyHost.ts";
+import {
+  createMetadata,
+  updateServerLiveMetadata,
+  updateServerMetadata,
+} from "./metadata.ts";
+import {
+  type ProviderChannels,
+  type ProviderHooks,
+  type ProviderRecord,
+  startProviders,
+} from "./providers.ts";
 
 // ── PTY-state notification helpers ─────────────────────────────────────
 
-/** Notify that terminal state changed (drives debounced session
- *  auto-save). Distinct from the `terminalList` cell's content channel:
- *  this is the *trigger*, not the saved content. */
+/** Notify that terminal state changed (drives debounced session auto-save).
+ *  Distinct from the `terminalList` cell's content channel: this is the
+ *  *trigger*, not the saved content. */
 function emitTerminalsDirty(): void {
   terminalsDirtyChannel.publish({});
 }
 
-/** Republish the live `terminalList` cell. Backend lifecycle calls this
- *  on create / kill; client metadata setters (`setTerminalParent`, …)
- *  publish via the metadata collection instead, so no list republish
- *  is needed there. */
+/** Republish the live `terminalList` cell. Backend lifecycle calls this on
+ *  create / kill; client metadata setters publish via the metadata
+ *  collection instead. */
 function emitTerminalListChanged(): void {
   surfaceCtx.cells.terminalList.set(listTerminals());
 }
 
-// ── Local fs/git surfaces ──────────────────────────────────────────────
+// ── Local fs/git surfaces (local fs is on this machine) ─────────────────
 
 const localFs: TerminalBackendFs = {
   async listAll(repoPath: string): Promise<FsListAllOutput> {
@@ -112,10 +122,138 @@ const localGit: TerminalBackendGit = {
   },
 };
 
-// ── The in-process agent (owns pty-host + the provider DAG) ─────────────
+/** The single in-process pty-host for this kolu process, consumed through its
+ *  wire contract. kolu-server is its client. */
+const ptyHostClient: PtyHostClient = createInProcessPtyHost({ log });
 
-/** The single agent for this kolu process. kolu-server is its consumer. */
-const agent = createAgent({ log });
+// ── The contract-backed terminal handle ─────────────────────────────────
+
+/** A `TerminalHandle` whose control verbs forward through the pty-host client.
+ *  Every verb waits on `ready` first — `spawn` is an async RPC (even
+ *  in-process the contract call resolves on a later microtask), so a tile that
+ *  renders on the sync shadow can issue attach/write/resize *before* the PTY
+ *  exists. Without the gate, attach hits "no PTY with id …" and early
+ *  keystrokes are silently dropped. `write`/`resize` queue behind `ready`
+ *  (fire-and-forget once released — the call is cheap and the PTY is the
+ *  authority); `getScreenState`/`getScreenText`/`attach` await it (so the
+ *  contract widened those to allow a Promise). Holds only the terminal id +
+ *  pid — the live reads (cwd / process / foregroundPid) the providers need
+ *  arrive over the tap streams, not this handle. */
+class PtyHostTerminalProxy implements TerminalHandle {
+  pid = 0;
+  /** Resolves once `terminal.spawn` has created the PTY. Rejects if spawn
+   *  failed, so a queued write / awaited attach surfaces the failure instead
+   *  of hanging or hitting a missing PTY. */
+  readonly ready: Promise<void>;
+  private resolveReady!: () => void;
+  private rejectReady!: (err: unknown) => void;
+
+  /** `getClient` is injected (not reached out of a module singleton per-verb):
+   *  it makes the precondition explicit — a proxy is only ever constructed
+   *  once a pty-host client exists — and keeps the proxy decoupled from how the
+   *  client is resolved (in-process today, socket-served later). */
+  constructor(
+    private readonly id: TerminalId,
+    private readonly getClient: () => PtyHostClient,
+  ) {
+    this.ready = new Promise<void>((resolve, reject) => {
+      this.resolveReady = resolve;
+      this.rejectReady = reject;
+    });
+    // A spawn failure with nothing yet awaiting `ready` must not reach the
+    // process-wide unhandledRejection handler (which would exit the server).
+    this.ready.catch(() => {});
+  }
+
+  /** PTY exists — release queued/awaiting verbs. */
+  markReady(pid: number): void {
+    this.pid = pid;
+    this.resolveReady();
+  }
+
+  /** Spawn failed (or raced a kill) — fail queued/awaiting verbs. */
+  markFailed(err: unknown): void {
+    this.rejectReady(err);
+  }
+
+  write(data: string): void {
+    void this.ready
+      .then(() =>
+        this.getClient().surface.terminal.write({ id: this.id, data }),
+      )
+      .catch((err) => log.error({ terminal: this.id, err }, "pty-host write"));
+  }
+
+  resize(cols: number, rows: number): void {
+    void this.ready
+      .then(() =>
+        this.getClient().surface.terminal.resize({ id: this.id, cols, rows }),
+      )
+      .catch((err) => log.error({ terminal: this.id, err }, "pty-host resize"));
+  }
+
+  async getScreenState(): Promise<string> {
+    await this.ready;
+    const { data } = await this.getClient().surface.terminal.getScreenState({
+      id: this.id,
+    });
+    return data;
+  }
+
+  async getScreenText(startLine?: number, endLine?: number): Promise<string> {
+    await this.ready;
+    const { text } = await this.getClient().surface.terminal.getScreenText({
+      id: this.id,
+      startLine,
+      endLine,
+    });
+    return text;
+  }
+}
+
+// ── Per-terminal provider bridge ───────────────────────────────────────
+
+/** Pump a pty-host tap stream into a callback until it ends or `signal` aborts
+ *  (kill / exit). The contract stream call resolves to the async iterable (a
+ *  `ClientPromiseResult`), so the source is awaited first. An aborted stream
+ *  surfaces as a thrown error, so an aborted signal is treated as expected
+ *  teardown, not a failure. */
+function bridgeStream<T>(
+  source: AsyncIterable<T> | PromiseLike<AsyncIterable<T>>,
+  signal: AbortSignal,
+  onEvent: (value: T) => void,
+): void {
+  void (async () => {
+    try {
+      const iter = await source;
+      for await (const value of iter) onEvent(value);
+    } catch (err) {
+      if (signal.aborted) return;
+      log.error({ err }, "pty-host tap subscription failed");
+    }
+  })();
+}
+
+/** Wire the provider hooks to kolu-server's metadata + activity surfaces.
+ *  `record.meta` IS `entry.meta` (same object), so a provider mutating its
+ *  record is publishing kolu-server state directly. */
+function makeHooks(entry: TerminalProcess, id: TerminalId): ProviderHooks {
+  return {
+    updateServerMetadata: (_record, mutate) =>
+      updateServerMetadata(entry, id, mutate),
+    updateServerLiveMetadata: (_record, mutate) =>
+      updateServerLiveMetadata(entry, id, mutate),
+    trackRecentRepo: (root, name) => trackRecentRepo(root, name),
+    trackRecentAgent: (command) => trackRecentAgent(command),
+  };
+}
+
+/** Everything needed to stop one terminal's provider DAG + tap bridges: abort
+ *  the tap-stream subscriptions and stop the watchers. */
+interface TerminalLifecycle {
+  abort: AbortController;
+  stopProviders: () => void;
+}
 
 // ── Backend implementation ─────────────────────────────────────────────
 
@@ -123,144 +261,185 @@ class LocalTerminalBackend implements TerminalBackend {
   readonly fs = localFs;
   readonly git = localGit;
 
-  constructor() {
-    // Subscribe ONCE, at construction (before any spawn), so no metadata
-    // event is missed. Events are tagged by terminal id; we demux here.
-    // The subscription lives for the whole process — no teardown needed.
-    agent.metadata.consume({
-      onEvent: (ev) => this.applyAgentEvent(ev),
-      onError: (err) => log.error({ err }, "agent metadata stream failed"),
-    });
-  }
-
-  /** Mirror one agent-stream event onto kolu-server state. The event type
-   *  carries the autosave fence: `metadataPersisted` routes through the
-   *  persisting helper (fires `terminals:dirty`), `metadataLive` through
-   *  the live one (does not). Each carries only its half of the partition,
-   *  so applying it is one fenced `Object.assign` — no field enumeration.
-   *
-   *  Per-event try/catch is load-bearing: this runs inside ONE shared
-   *  `consume` loop for every terminal, and `consume` ends its loop if its
-   *  `onEvent` throws (`@kolu/surface/server`). A single bad event (a failed
-   *  publish, a scratch-cleanup `fs` error, …) must therefore not escape, or
-   *  it would silence metadata + exit mirroring for ALL terminals. Log and
-   *  keep the subscription alive. */
-  private applyAgentEvent(ev: AgentMetadataEvent): void {
-    try {
-      switch (ev.kind) {
-        case "metadataPersisted": {
-          const entry = getTerminal(ev.id);
-          // No entry ⟹ the terminal is being torn down (kill/exit raced
-          // this event). Dropping is correct — the entry is gone for good.
-          if (!entry) return;
-          updateServerMetadata(entry, ev.id, (m) => {
-            Object.assign(m, ev.fields);
-          });
-          return;
-        }
-        case "metadataLive": {
-          const entry = getTerminal(ev.id);
-          if (!entry) return;
-          updateServerLiveMetadata(entry, ev.id, (m) => {
-            Object.assign(m, ev.fields);
-          });
-          return;
-        }
-        case "recentRepo":
-          trackRecentRepo(ev.root, ev.name);
-          return;
-        case "recentAgent":
-          trackRecentAgent(ev.command);
-          return;
-        case "exit":
-          this.handleExit(ev.id, ev.exitCode);
-          return;
-      }
-    } catch (err) {
-      log.error(
-        { err, kind: ev.kind },
-        "failed to apply agent metadata event (subscription kept alive)",
-      );
-    }
-  }
+  /** id → its provider-DAG + tap-bridge teardown. Its keys ARE the terminals
+   *  with a live provider layer in this process. */
+  private readonly lifecycles = new Map<TerminalId, TerminalLifecycle>();
 
   spawnPty(id: TerminalId, opts: PtySpawnOpts): TerminalInfo {
     const tlog = log.child({ terminal: id });
 
-    // Env layering, ordered least → most authoritative:
-    //   1. cleanEnv()        — parent env passthrough (Nix devshell filter).
-    //   2. koluIdentityEnv() — Kolu's identity vars (stomps parent).
-    //   3. shellInit.env     — per-PTY overrides (e.g. ZDOTDIR for zsh).
-    const env = cleanEnv();
-    const shell = env.SHELL ?? "/bin/sh";
-    const cwd = opts.cwd || env.HOME || "/";
-    Object.assign(env, koluIdentityEnv(pkg.version));
-    const shellInit = prepareShellInit({
-      shell,
-      home: env.HOME,
-      terminalId: id,
-      rcDir: koluShellDir,
-    });
-    Object.assign(env, shellInit.env);
-
-    const {
-      pid,
-      meta: serverMeta,
-      handle,
-    } = agent.spawn({
-      id,
-      shell,
-      args: shellInit.args,
-      env,
-      cwd,
-      onDispose: shellInit.cleanup,
-      // Server-persisted recency, restored across session reload: seed it
-      // INSIDE the agent (its `record.meta` is separate from `entry.meta`)
-      // so re-detecting a resumed agent doesn't reset it to "now".
-      restoredActivityAt: opts.initialMetadata?.lastActivityAt,
-    });
-
-    // Build the registry entry from the agent's initial server+live
-    // metadata, then layer on the client-owned fields. The agent never
-    // sees client fields (theme, layout, parentId, …) — they're kolu-server
-    // UI state — so seeding them here BEFORE registration is what makes the
-    // first `terminalMetadata` collection yield carry them (see #642).
-    const meta: TerminalMetadata = { ...serverMeta };
+    // Sync shadow: register a connecting entry (proxy handle + default
+    // metadata) so the tile renders immediately — the `TerminalBackend.
+    // spawnPty` sync-shadow contract. The pty-host resolves the authoritative
+    // cwd / pid on the async tail below; the provider DAG starts there too.
+    const cwd = opts.cwd || process.env.HOME || "/";
+    const proxy = new PtyHostTerminalProxy(id, () => ptyHostClient);
+    const meta: TerminalMetadata = { ...createMetadata(cwd) };
     if (opts.parentId) meta.parentId = opts.parentId;
-    // Only the client-owned fields are seeded here; server-persisted ones
-    // (incl. the restored `lastActivityAt`) ride in on `serverMeta`.
     const initial = opts.initialMetadata;
     if (initial?.themeName) meta.themeName = initial.themeName;
     if (initial?.canvasLayout) meta.canvasLayout = initial.canvasLayout;
     if (initial?.subPanel) meta.subPanel = initial.subPanel;
     if (initial?.rightPanel) meta.rightPanel = initial.rightPanel;
     if (initial?.intent) meta.intent = initial.intent;
+    if (initial?.lastActivityAt !== undefined)
+      meta.lastActivityAt = initial.lastActivityAt;
 
-    // `handle` is the host-vended byte-stream handle from `spawn`, already
-    // narrowed to `TerminalHandle` (write/resize/getScreenState/
-    // getScreenText/pid) so router.ts can't reach the host-only members
-    // (cwd, process, foregroundPid) the providers read inside the agent.
     const entry: TerminalProcess = {
-      info: { id, pid },
+      info: { id, pid: 0 },
       meta,
-      handle,
+      handle: proxy,
     };
     registerTerminal(id, entry);
-
-    tlog.info({ pid, total: listTerminals().length }, "created");
     emitTerminalsDirty();
     emitTerminalListChanged();
+
+    void this.spawnAndWire(id, opts, proxy, entry, tlog);
     return entry.info;
   }
 
-  /** A terminal's PTY exited naturally (the agent emits `exit` only for
-   *  natural exits — an intentional kill drives its own cleanup below).
-   *  Publish the exit event, drop the entry, and save the session. */
+  /** The pty-host spawn RPC + the killed-during-spawn race check. Returns the
+   *  resolved `{pid, cwd}`, or null if the terminal was killed while the RPC
+   *  was in flight (the pty-host-side PTY is then cleaned up here). Throws on
+   *  an RPC failure — the caller (`spawnAndWire`) unwinds the shadow. */
+  private async spawnViaClient(
+    id: TerminalId,
+    opts: PtySpawnOpts,
+    proxy: PtyHostTerminalProxy,
+  ): Promise<{ pid: number; cwd: string } | null> {
+    const res = await ptyHostClient.surface.terminal.spawn({
+      id,
+      cwd: opts.cwd,
+    });
+    if (!getTerminal(id)) {
+      proxy.markFailed(new Error("terminal killed during spawn"));
+      try {
+        await ptyHostClient.surface.terminal.kill({ id });
+      } catch (err) {
+        log
+          .child({ terminal: id })
+          .error({ err }, "pty-host kill of spawn-raced terminal failed");
+      }
+      return null;
+    }
+    return { pid: res.pid, cwd: res.cwd };
+  }
+
+  /** Async tail of `spawnPty`: confirm the PTY spawned, then start the
+   *  provider DAG against its taps. On failure unwinds the shadow. */
+  private async spawnAndWire(
+    id: TerminalId,
+    opts: PtySpawnOpts,
+    proxy: PtyHostTerminalProxy,
+    entry: TerminalProcess,
+    tlog: typeof log,
+  ): Promise<void> {
+    try {
+      const res = await this.spawnViaClient(id, opts, proxy);
+      if (!res) return; // killed during spawn — already cleaned up
+      proxy.markReady(res.pid);
+      entry.info.pid = res.pid;
+      // Seed the authoritative resolved cwd before starting the DAG (the git
+      // watcher reads `record.meta.cwd` at start).
+      updateServerMetadata(entry, id, (m) => {
+        m.cwd = res.cwd;
+      });
+      this.startProviderLayer(id, entry, res.pid);
+      tlog.info({ pid: res.pid, total: listTerminals().length }, "created");
+      emitTerminalListChanged();
+    } catch (err) {
+      tlog.error({ err }, "pty-host terminal.spawn failed");
+      proxy.markFailed(err);
+      if (getTerminal(id)) {
+        unregisterTerminal(id);
+        emitTerminalsDirty();
+        emitTerminalListChanged();
+      }
+    }
+  }
+
+  /** Start the per-terminal provider DAG against the pty-host's tap streams.
+   *  The DAG runs HERE, in kolu-server, so it's always the current build's
+   *  code (the freshness guarantee — the most-edited code never rides the
+   *  long-lived pty-host). */
+  private startProviderLayer(
+    id: TerminalId,
+    entry: TerminalProcess,
+    pid: number,
+  ): void {
+    const client = ptyHostClient;
+    const abort = new AbortController();
+    const { signal } = abort;
+    const channels: ProviderChannels = {
+      cwd: inMemoryChannel<string>(),
+      title: inMemoryChannel<string>(),
+      commandRun: inMemoryChannel<string>(),
+      foreground: inMemoryChannel<ForegroundSample>(),
+      git: inMemoryChannel<GitInfo | null>(),
+    };
+    const record: ProviderRecord = {
+      pid,
+      meta: entry.meta,
+      currentAgent: null,
+    };
+    const hooks = makeHooks(entry, id);
+
+    // Bridge the raw VT taps onto the provider channels. cwd also lands on
+    // persisted metadata (the bridge owns `m.cwd`; the git provider reads
+    // `channels.cwd` to re-resolve git).
+    bridgeStream(client.surface.cwd.get({ id }, { signal }), signal, (msg) => {
+      updateServerMetadata(entry, id, (m) => {
+        m.cwd = msg.cwd;
+      });
+      channels.cwd.publish(msg.cwd);
+    });
+    bridgeStream(client.surface.title.get({ id }, { signal }), signal, (msg) =>
+      channels.title.publish(msg.title),
+    );
+    bridgeStream(
+      client.surface.commandRun.get({ id }, { signal }),
+      signal,
+      (msg) => channels.commandRun.publish(msg.command),
+    );
+    bridgeStream(
+      client.surface.foreground.get({ id }, { signal }),
+      signal,
+      (msg) =>
+        channels.foreground.publish({
+          process: msg.process,
+          foregroundPid: msg.foregroundPid,
+        }),
+    );
+    const stopProviders = startProviders(record, id, channels, hooks);
+
+    // Natural exit: the `exit` tap yields the code once. An intentional kill
+    // aborts this signal first (see `teardownProviders`), so `handleExit` only
+    // ever fires for a genuine exit.
+    bridgeStream(client.surface.exit.get({ id }, { signal }), signal, (msg) =>
+      this.handleExit(id, msg.exitCode),
+    );
+
+    this.lifecycles.set(id, { abort, stopProviders });
+  }
+
+  /** Stop a terminal's provider DAG + tap bridges (idempotent). Aborting the
+   *  signal ends every tap subscription — including the `exit` tap, so a kill
+   *  that calls this BEFORE the pty-host kill can't trip `handleExit`. */
+  private teardownProviders(id: TerminalId): void {
+    const lc = this.lifecycles.get(id);
+    if (!lc) return;
+    this.lifecycles.delete(id);
+    lc.abort.abort();
+    lc.stopProviders();
+  }
+
+  /** A terminal's PTY exited naturally. Stop its provider layer, publish the
+   *  exit, drop the entry, save the session. */
   private handleExit(id: TerminalId, exitCode: number): void {
     const entry = getTerminal(id);
-    // Absent ⟹ already torn down by a kill path; nothing to do.
     if (!entry) return;
     log.child({ terminal: id }).info({ exitCode }, "exited");
+    this.teardownProviders(id);
     cleanupTerminalScratch(id);
     surfaceCtx.events.terminalExit.publish({ id }, exitCode);
     unregisterTerminal(id);
@@ -268,15 +447,22 @@ class LocalTerminalBackend implements TerminalBackend {
     emitTerminalListChanged();
   }
 
-  killTerminal(id: TerminalId): TerminalInfo | undefined {
+  async killTerminal(id: TerminalId): Promise<TerminalInfo | undefined> {
     const entry = getTerminal(id);
     if (!entry) return undefined;
-    log.child({ terminal: id }).info({ pid: entry.info.pid }, "killing");
-    // The agent stops the providers + kills the PTY; unregistering here
-    // BEFORE the delayed natural-exit signal means `handleExit` finds no
-    // entry and stays quiet — so an intentional kill never publishes
-    // `terminalExit` (the kill RPC response drives client cleanup).
-    agent.kill(id);
+    const tlog = log.child({ terminal: id });
+    tlog.info({ pid: entry.info.pid }, "killing");
+    // Stop the provider layer FIRST — this aborts the `exit` tap, so the
+    // pty-host's exit (which fires on an intentional kill too, since pty-host
+    // makes no kill/exit distinction) can't reach `handleExit` and
+    // double-publish `terminalExit`. The kill RPC's response drives client
+    // cleanup instead.
+    this.teardownProviders(id);
+    try {
+      await ptyHostClient.surface.terminal.kill({ id });
+    } catch (err) {
+      tlog.error({ err }, "pty-host kill failed; unregistering anyway");
+    }
     cleanupTerminalScratch(id);
     unregisterTerminal(id);
     emitTerminalsDirty();
@@ -284,18 +470,51 @@ class LocalTerminalBackend implements TerminalBackend {
     return entry.info;
   }
 
-  killAllTerminals(): void {
-    // Drain the registry BEFORE killing so the delayed exit signals can't
-    // find entries and trigger session saves.
+  async killAllTerminals(): Promise<void> {
+    const ids = listTerminals().map((info) => info.id);
+    log.info({ count: ids.length }, "killing all terminals");
+    for (const id of ids) this.teardownProviders(id);
+    try {
+      await ptyHostClient.surface.terminal.killAll({});
+    } catch (err) {
+      log.error({ err }, "pty-host killAll failed; draining anyway");
+    }
     const entries = drainTerminals();
-    log.info({ count: entries.length }, "killing all terminals");
-    agent.killAll();
     for (const entry of entries) cleanupTerminalScratch(entry.info.id);
     emitTerminalListChanged();
   }
 
-  attach(id: TerminalId, signal: AbortSignal | undefined): TerminalAttachment {
-    return agent.attach(id, signal);
+  async attach(
+    id: TerminalId,
+    signal: AbortSignal | undefined,
+  ): Promise<TerminalAttachment> {
+    // Wait for the PTY to actually exist before opening the attach stream —
+    // otherwise a tile attaching off the sync shadow races the in-flight
+    // `terminal.spawn` and the pty-host throws "no PTY with id". Rejects
+    // (surfaces) if spawn failed.
+    const entry = getTerminal(id);
+    if (entry?.handle instanceof PtyHostTerminalProxy) await entry.handle.ready;
+    const stream = await ptyHostClient.surface.terminalAttach.get(
+      { id },
+      { signal },
+    );
+    const iter = stream[Symbol.asyncIterator]();
+    // The pty-host yields the screen-state snapshot first, then deltas.
+    const first = await iter.next();
+    let snapshot = "";
+    let pendingDelta: string | undefined;
+    if (!first.done) {
+      if (first.value.kind === "snapshot") snapshot = first.value.data;
+      else pendingDelta = first.value.data;
+    }
+    const deltas = (async function* () {
+      if (pendingDelta !== undefined) yield pendingDelta;
+      if (first.done) return;
+      for await (const msg of { [Symbol.asyncIterator]: () => iter }) {
+        yield msg.data;
+      }
+    })();
+    return { snapshot, deltas };
   }
 }
 

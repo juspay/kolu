@@ -1,8 +1,9 @@
 /** Per-terminal provider DAG, parameterized over `ProviderHooks` +
  *  `ProviderChannels` + `ProviderRecord` so the host is the only thing
- *  that varies. The in-process agent (`./agent.ts`) instantiates it today
- *  (#951 R4b); a remote ssh agent that runs the same DAG against its own
- *  in-process channels arrives in #951 R-2 — same code, different transport.
+ *  that varies. kolu-server's local backend (`./local.ts`) instantiates it,
+ *  feeding it the pty-host's raw taps over the `ptyHostSurface` contract; a
+ *  remote ssh pty-host serves the same taps in #951 R-2 — same DAG, different
+ *  transport.
  *
  *  Provider DAG:
  *
@@ -56,21 +57,27 @@ import type {
   TerminalServerMetadata,
 } from "kolu-common/surface";
 import { opencodeProvider } from "kolu-opencode";
-import type { PtyHandle } from "@kolu/pty-host";
-import type { Logger } from "kolu-shared";
+import type { ForegroundSample } from "@kolu/pty-host";
 import type { Channel } from "@kolu/surface/server";
 import { log } from "../log.ts";
 import { shouldBumpRecencyForAgentChange } from "./agentRecency.ts";
 
-/** Minimal "terminal record" shape the provider DAG needs. The in-process
- *  agent (`./agent.ts`) constructs one per terminal (a remote agent will
- *  too); the providers only touch `ptyHandle` + `meta` + `currentAgent`
- *  from here. `meta` is `TerminalServerMetadata` — the canonical
+/** Minimal "terminal record" shape the provider DAG needs. The local backend
+ *  (`./local.ts`) constructs one per terminal; the providers only touch
+ *  `pid` + `meta` + `currentAgent` from here. `meta` is
+ *  `TerminalServerMetadata` — the canonical
  *  `ServerPersistedTerminalFields ∪ LiveTerminalFields` union from
  *  `kolu-common/surface` (the same write-fence partition `metadata.ts`
  *  enforces). A `createMetadata` result satisfies it directly. */
 export interface ProviderRecord {
-  ptyHandle: PtyHandle;
+  /** OS pid of the PTY's shell — constant for the terminal's life, known at
+   *  spawn. The agent detectors compare it to the foreground pid to decide
+   *  "shell idle" (foreground IS the shell). No longer a `PtyHandle`: the
+   *  live reads (process name + foreground pid) that used to come off the
+   *  handle synchronously now arrive over `channels.foreground`, so the DAG
+   *  has zero sync dependency on the PTY host — which is what lets it run on
+   *  the far side of a socket from pty-host (R4c) or ssh (R-2). */
+  pid: number;
   meta: TerminalServerMetadata;
   /** Ephemeral basename of the agent binary at the foreground right
    *  now; written by the agent-command tracker, read by the agent
@@ -78,13 +85,19 @@ export interface ProviderRecord {
   currentAgent: string | null;
 }
 
-/** Per-terminal channels the providers subscribe to. The agent creates a
- *  fresh in-memory channel of each kind per terminal and feeds them from
- *  pty-host's VT taps; a remote agent does the same. */
+/** Per-terminal channels the providers subscribe to. The local backend
+ *  (`./local.ts`) creates a fresh in-memory channel of each kind per terminal
+ *  and feeds them from the pty-host's tap streams; a remote pty-host serves
+ *  the same taps. */
 export interface ProviderChannels {
   cwd: Channel<string>;
   title: Channel<string>;
   commandRun: Channel<string>;
+  /** Foreground samples (`{process, foregroundPid}`) from pty-host's
+   *  foreground tap — the channel form of the old synchronous
+   *  `ptyHandle.process` / `.foregroundPid` reads, so the DAG works across a
+   *  socket. The host pushes a current snapshot first, then changes. */
+  foreground: Channel<ForegroundSample>;
   git: Channel<GitInfo | null>;
 }
 
@@ -94,14 +107,14 @@ export interface ProviderChannels {
  *  `metadata.ts` enforces): writing `m.agent` through
  *  `updateServerMetadata` is a compile error, so the
  *  `terminals:dirty` autosave firehose can't be reintroduced by a new
- *  provider. The agent (`makeHooks` in `./agent.ts`) wires these to emit
- *  `metadataPersisted`/`metadataLive` stream events; the same fence applies
- *  on its side, just published instead of mutated in place.
+ *  provider. The local backend (`makeHooks` in `./local.ts`) wires these
+ *  straight to kolu-server's metadata + activity surfaces; the same fence
+ *  applies there.
  *
  *  `record` is passed to every hook so a host whose update function isn't
  *  already keyed by terminal id (e.g. one with a global publish surface)
  *  can look the record up in its own registry to dispatch the write. The
- *  agent already has the record + id captured in `makeHooks`'s per-terminal
+ *  backend already has the entry + id captured in `makeHooks`'s per-terminal
  *  closure, so it ignores the argument — hence the `_record` prefix. */
 export interface ProviderHooks {
   updateServerMetadata: (
@@ -112,9 +125,8 @@ export interface ProviderHooks {
     record: ProviderRecord,
     mutate: (meta: LiveTerminalFields) => void,
   ) => void;
-  /** Optional — activity-feed signals. The agent forwards these as
-   *  `recentRepo`/`recentAgent` stream events to kolu-server (which owns
-   *  the cross-terminal MRUs); a host with no activity feed omits them. */
+  /** Optional — activity-feed signals into kolu-server's cross-terminal MRUs
+   *  (recent-repos / recent-agents); a host with no activity feed omits them. */
   trackRecentRepo?: (root: string, name: string) => void;
   trackRecentAgent?: (cmd: string) => void;
 }
@@ -132,31 +144,51 @@ function startProcessProvider(
   hooks: ProviderHooks,
 ): () => void {
   const plog = log.child({ provider: "process", terminal: terminalId });
-  let lastName: string | null = null;
-  let lastTitle: string | null = null;
+  // Foreground `{name, title}` — one concept, two coherent fields, so it's one
+  // value not four scattered bindings. The name is tracked from
+  // `channels.foreground` (the pty-host tap) rather than read synchronously
+  // off a handle — so this works when pty-host lives across a socket; the
+  // title is tracked from `channels.title`. `current` is what we've observed;
+  // `published` is what we last wrote, so `recompute` republishes only on a
+  // real change.
+  type FgState = { name: string | null; title: string | null };
+  const current: FgState = { name: null, title: null };
+  let published: FgState = { name: null, title: null };
   plog.debug("started");
 
-  function update(title?: string) {
-    const name = processBasename(record.ptyHandle.process);
-    const newTitle = title ?? lastTitle;
-    if (name === lastName && newTitle === lastTitle) return;
+  function recompute() {
+    if (current.name === published.name && current.title === published.title)
+      return;
     plog.debug(
-      { from: lastName, to: name, title: newTitle },
-      "foreground process changed",
+      { from: published.name, to: current.name, title: current.title },
+      "foreground changed",
     );
-    lastName = name;
-    lastTitle = newTitle;
+    published = { ...current };
     hooks.updateServerLiveMetadata(record, (m) => {
-      m.foreground = { name, title: newTitle };
+      m.foreground =
+        current.name === null
+          ? null
+          : { name: current.name, title: current.title };
     });
   }
-  update();
-  const cleanup = channels.title.consume({
-    onEvent: (title) => update(title),
-    onError: (err) => plog.error({ err }, "publisher subscription failed"),
+
+  const cleanupForeground = channels.foreground.consume({
+    onEvent: (fg) => {
+      current.name = processBasename(fg.process);
+      recompute();
+    },
+    onError: (err) => plog.error({ err }, "foreground subscription failed"),
+  });
+  const cleanupTitle = channels.title.consume({
+    onEvent: (title) => {
+      current.title = title;
+      recompute();
+    },
+    onError: (err) => plog.error({ err }, "title subscription failed"),
   });
   return () => {
-    cleanup();
+    cleanupForeground();
+    cleanupTitle();
     plog.debug("stopped");
   };
 }
@@ -266,37 +298,21 @@ function startAgentCommandTracker(
 
 // ── Agent detectors ───────────────────────────────────────────────────
 
-function readForegroundBasenameOnce(
-  ptyHandle: PtyHandle,
-  plog: Logger,
-): string | null {
-  try {
-    const proc = ptyHandle.process;
-    return proc ? path.basename(proc) : null;
-  } catch (err) {
-    plog.debug({ err }, "failed to read ptyHandle.process");
-    return null;
-  }
-}
-
 function snapshotTerminalState(
-  ptyHandle: PtyHandle,
+  foreground: ForegroundSample,
+  pid: number,
   cwd: string,
   currentAgent: string | null,
-  plog: Logger,
 ): AgentTerminalState {
-  let basename: string | null | undefined;
-  const foregroundPid = ptyHandle.foregroundPid;
-  const shellIdle =
-    foregroundPid === undefined || foregroundPid === ptyHandle.pid;
+  const foregroundPid = foreground.foregroundPid;
+  // Shell is idle when the foreground process group IS the shell itself (or
+  // unknown). `pid` is the shell's pid (constant, from spawn).
+  const shellIdle = foregroundPid === undefined || foregroundPid === pid;
+  const proc = foreground.process;
   return {
     foregroundPid,
     cwd,
-    readForegroundBasename: () => {
-      if (basename === undefined)
-        basename = readForegroundBasenameOnce(ptyHandle, plog);
-      return basename;
-    },
+    readForegroundBasename: () => (proc ? path.basename(proc) : null),
     lastAgentCommandName: shellIdle ? null : currentAgent,
   };
 }
@@ -330,6 +346,12 @@ function getActivation(kind: string): ExternalChangesActivation {
   return entry;
 }
 
+/** After a command-run mark, re-run agent-session resolution across the
+ *  settle window (the agent writes its session file a beat after the mark).
+ *  This is the *consumer* schedule and is independent of pty-host's
+ *  foreground-sample burst: the DAG also reconciles whenever the foreground
+ *  tap pushes a fresh sample, so foreground freshness rides the primitive's
+ *  own settle window — these delays only re-check the agent-state files. */
 const COMMAND_RUN_RECONCILE_DELAYS_MS = [0, 75, 300, 1000] as const;
 
 function setAgentMetadataVia(
@@ -374,14 +396,22 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
   // a future host on the same `ProviderChannels`/`ProviderHooks` shape
   // could not be expected to know about.
   let currentCwd = record.meta.cwd;
+  // Foreground source-of-truth for this provider, tracked from
+  // `channels.foreground` (seeded empty → "shell idle" until the first
+  // sample arrives). Same rationale as `currentCwd`: read it from the
+  // channel, not a synchronous handle, so the DAG is transport-agnostic.
+  let currentForeground: ForegroundSample = {
+    process: "",
+    foregroundPid: undefined,
+  };
   plog.debug("started");
 
   function reconcile() {
     const state = snapshotTerminalState(
-      record.ptyHandle,
+      currentForeground,
+      record.pid,
       currentCwd,
       record.currentAgent,
-      plog,
     );
     if (!registeredForExternal && provider.externalChanges?.isPresent(state)) {
       const activation = getActivation(provider.kind);
@@ -460,6 +490,13 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
     onEvent: () => reconcile(),
     onError: (err) => plog.error({ err }, "publisher subscription failed"),
   });
+  const cleanupForeground = channels.foreground.consume({
+    onEvent: (fg) => {
+      currentForeground = fg;
+      reconcile();
+    },
+    onError: (err) => plog.error({ err }, "foreground subscription failed"),
+  });
   const cleanupCwd = channels.cwd.consume({
     onEvent: (cwd) => {
       currentCwd = cwd;
@@ -477,6 +514,7 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
     stopped = true;
     clearCommandRunTimers();
     cleanupTitle();
+    cleanupForeground();
     cleanupCwd();
     cleanupCommandRun();
     if (registeredForExternal) {
@@ -487,11 +525,10 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
   };
 }
 
-/** Start every per-terminal provider for one terminal. The in-process
- *  agent (`./agent.ts`) calls this with its channels + hooks (a remote
- *  agent will too). Provider order matters only for the agent-command
- *  tracker — it must come first so its stash is populated before agent
- *  detectors reconcile. */
+/** Start every per-terminal provider for one terminal. The local backend
+ *  (`./local.ts`) calls this with its channels + hooks. Provider order matters
+ *  only for the agent-command tracker — it must come first so its stash is
+ *  populated before agent detectors reconcile. */
 export function startProviders(
   record: ProviderRecord,
   terminalId: TerminalId,

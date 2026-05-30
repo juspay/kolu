@@ -97,10 +97,12 @@ export interface TerminalHandle {
   write(data: string): void;
   resize(cols: number, rows: number): void;
   /** Serialized screen state (VT escape sequences) for late-joining
-   *  clients. Empty string when the PTY hasn't produced output yet. */
-  getScreenState(): string;
+   *  clients. Empty string when the PTY hasn't produced output yet. A
+   *  socket-backed handle (R4c daemon, R-2 ssh) reads it over the wire, so
+   *  the return widens to a Promise — callers `await` it. */
+  getScreenState(): string | Promise<string>;
   /** Plain text content of the terminal buffer (scrollback + viewport). */
-  getScreenText(startLine?: number, endLine?: number): string;
+  getScreenText(startLine?: number, endLine?: number): string | Promise<string>;
 }
 
 /** Filesystem operations scoped to a backend's host machine. Returns
@@ -143,18 +145,27 @@ export interface TerminalBackend {
   spawnPty(id: TerminalId, opts: PtySpawnOpts): TerminalInfo;
 
   /** Stop providers, kill the PTY, scrub per-terminal scratch storage,
-   *  unregister from the shared registry. Sole termination path. */
-  killTerminal(id: TerminalId): TerminalInfo | undefined;
+   *  unregister from the shared registry. Sole termination path. A
+   *  socket-backed backend awaits the daemon's kill confirmation before
+   *  unregistering (so a failed kill can't orphan the PTY), hence the
+   *  Promise. */
+  killTerminal(
+    id: TerminalId,
+  ): TerminalInfo | undefined | Promise<TerminalInfo | undefined>;
 
   /** Drain and dispose every terminal owned by this backend. Used by
    *  the e2e harness between scenarios. */
-  killAllTerminals(): void;
+  killAllTerminals(): void | Promise<void>;
 
   /** Attach to a terminal's output: a screen-state snapshot plus the live
    *  delta stream from exactly that point forward. The snapshot is taken
    *  and the delta stream subscribed atomically, so the boundary between
-   *  them loses and duplicates nothing. */
-  attach(id: TerminalId, signal: AbortSignal | undefined): TerminalAttachment;
+   *  them loses and duplicates nothing. A socket-backed backend opens the
+   *  attach stream over the wire, so the return widens to a Promise. */
+  attach(
+    id: TerminalId,
+    signal: AbortSignal | undefined,
+  ): TerminalAttachment | Promise<TerminalAttachment>;
 
   readonly fs: TerminalBackendFs;
   readonly git: TerminalBackendGit;

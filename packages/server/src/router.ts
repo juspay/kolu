@@ -137,7 +137,7 @@ export const appRouter = t.router({
      */
     attach: t.terminal.attach.handler(async function* ({ input, signal }) {
       requireTerminal(input.id);
-      const { snapshot, deltas } = getTerminalBackendFor({
+      const { snapshot, deltas } = await getTerminalBackendFor({
         kind: "local",
       }).attach(input.id, signal);
       if (snapshot) yield snapshot;
@@ -145,11 +145,11 @@ export const appRouter = t.router({
     }),
 
     screenState: t.terminal.screenState.handler(async ({ input }) => {
-      return requireTerminal(input.id).handle.getScreenState();
+      return await requireTerminal(input.id).handle.getScreenState();
     }),
 
     screenText: t.terminal.screenText.handler(async ({ input }) => {
-      return requireTerminal(input.id).handle.getScreenText(
+      return await requireTerminal(input.id).handle.getScreenText(
         input.startLine,
         input.endLine,
       );
@@ -183,7 +183,7 @@ export const appRouter = t.router({
     }),
 
     kill: t.terminal.kill.handler(async ({ input }) => {
-      const info = killTerminal(input.id);
+      const info = await killTerminal(input.id);
       if (!info) throw new TerminalNotFoundError(input.id);
       return info;
     }),
@@ -198,7 +198,7 @@ export const appRouter = t.router({
     }),
 
     killAll: t.terminal.killAll.handler(async () => {
-      killAllTerminals();
+      await killAllTerminals();
     }),
 
     exportTranscriptHtml: t.terminal.exportTranscriptHtml.handler(

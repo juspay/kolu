@@ -8,10 +8,11 @@
  *      not the saved content.
  *
  *  The per-terminal VT-tap channels (cwd / title / command-run / git) that
- *  used to live here moved *into the in-process agent* in #951 R4b — their
- *  only consumers were the providers, which now run inside the agent
- *  (`terminalBackend/agent.ts`) against agent-internal in-memory channels.
- *  kolu-server no longer brokers them.
+ *  used to live here are now per-terminal in-memory channels created by the
+ *  local backend (`terminalBackend/local.ts`), fed from the pty-host's tap
+ *  streams over the `ptyHostSurface` contract; their only consumers are the
+ *  providers, which run in kolu-server against those channels. kolu-server no
+ *  longer brokers them through this module's publisher.
  *
  *  Cell-level system channels (`preferences:changed`, `activityFeed:changed`,
  *  `session:changed`, `terminalList:changed`) are owned by `implementSurface`

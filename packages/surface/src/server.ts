@@ -20,7 +20,8 @@
  * that doesn't fit `implementSurface`'s declarative path.
  */
 
-import { implement } from "@orpc/server";
+import type { ContractRouterClient } from "@orpc/contract";
+import { createRouterClient, implement } from "@orpc/server";
 import type { ZodType } from "zod";
 import {
   type CellSpec,
@@ -32,6 +33,7 @@ import {
   type ProcedureSpec,
   type StreamSpec,
   type Surface,
+  type SurfaceContractFor,
   type SurfaceSpec,
 } from "./define";
 import type { Cell, Collection, Event, Stream } from "./index";
@@ -1374,4 +1376,60 @@ function eventChannelKey(input: unknown): string {
   return typeof input === "object" && input !== null
     ? JSON.stringify(input)
     : String(input);
+}
+
+// ── inProcessSurfaceClient — the identity transport ─────────────────────
+
+/** Serve a surface and consume it **in the same process**, with no wire.
+ *
+ *  A surface contract is the object; a consumer is written against one
+ *  morphism type — `ContractRouterClient<contract>`. There are several
+ *  morphisms into that hom-set: a WebSocket link, a stdio link, a unix
+ *  socket. This is the *identity* one — `createRouterClient` ∘
+ *  `implementSurface` composes the server handlers and a client with no
+ *  transport in between, so `client.surface.foo(input)` is a direct
+ *  (microtask-deferred) handler call, not a serialized round-trip.
+ *
+ *  Why it exists as a framework primitive: it lets a project run the exact
+ *  same consumer code against an in-process implementation that it will
+ *  later run against a socket/ssh-served one — the only thing that changes
+ *  is which morphism builds the client. So a single-process deployment, a
+ *  unit test, or the in-process phase of a not-yet-decoupled service can all
+ *  hold a `ContractRouterClient<contract>` and stay byte-identical to the
+ *  remote topology they grow into. (Streams declared on the surface come
+ *  back as async iterables, exactly as the socket client would yield them.)
+ *
+ *  Returns the typed `client` plus the same mutation `ctx` `implementSurface`
+ *  yields, so a server that also drives cells/collections from domain code
+ *  keeps that handle.
+ *
+ *  ```ts
+ *  const { client } = inProcessSurfaceClient(mySurface, { channel, procedures, streams });
+ *  const out = await client.surface.thing.do({ ... });   // direct, no wire
+ *  for await (const ev of await client.surface.someStream({ ... })) { ... }
+ *  ```
+ */
+export function inProcessSurfaceClient<
+  const S extends SurfaceSpec,
+  // The client type is a defaulted parameter, not an inline annotation, so
+  // `ContractRouterClient<SurfaceContractFor<S>>` is only materialized at
+  // concrete call sites (where S is a real spec) — the same instantiation a
+  // socket consumer writes by hand. Annotating it inline forces TS to
+  // represent it over the *abstract* S here, which overflows (TS2590) because
+  // `SurfaceContractFor` is a five-way merged mapped type.
+  TClient = ContractRouterClient<SurfaceContractFor<S>>,
+>(
+  surface: Surface<S>,
+  deps: ImplementSurfaceDeps<S>,
+): {
+  client: TClient;
+  ctx: SurfaceCtx<S>;
+} {
+  const { router, ctx } = implementSurface(surface, deps);
+  // `router` is the `{ surface: <oRPC router> }` fragment implementSurface
+  // returns (typed `any` because the walk is dynamic). createRouterClient
+  // builds a direct caller over it; we restore the precise contract type the
+  // surface's spec already pins down (via the defaulted TClient).
+  const client = createRouterClient(router) as TClient;
+  return { client, ctx };
 }

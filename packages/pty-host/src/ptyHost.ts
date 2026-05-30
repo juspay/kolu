@@ -139,6 +139,18 @@ export interface PtyAttachment {
   deltas: AsyncIterable<string>;
 }
 
+/** One foreground sample: the node-pty `process` name and the pty's
+ *  foreground process-group pid (`tcgetpgrp(3)`). Both are read *at the tty*,
+ *  so only the PTY's owner can produce them — in-process a consumer reads
+ *  them synchronously off {@link PtyHandle}, but across a socket they can't
+ *  be a sync getter, so {@link PtyHost.subscribeForeground} pushes them as a
+ *  tap (the provider DAG that interprets them for agent detection runs on
+ *  the other side of that socket). */
+export interface ForegroundSample {
+  process: string;
+  foregroundPid: number | undefined;
+}
+
 /** One row of {@link PtyHost.list}: a live PTY's id, pid, cwd, and last
  *  activity timestamp. */
 export interface PtyListEntry {
@@ -171,9 +183,20 @@ export interface PtyHost {
   subscribeTitle(id: PtyId, signal?: AbortSignal): AsyncIterable<string>;
   /** Per-PTY preexec command stream (OSC 633 ; E payloads). */
   subscribeCommandRun(id: PtyId, signal?: AbortSignal): AsyncIterable<string>;
-  /** Resolves with the exit code when the child exits; resolves
-   *  immediately for an already-exited PTY. */
-  exitPromise(id: PtyId): Promise<number>;
+  /** Per-PTY foreground-sample stream — `{process, foregroundPid}` pushed
+   *  whenever it changes (sampled on title / command-run + a post-command
+   *  burst, deduped). The socket equivalent of reading `PtyHandle.process` /
+   *  `.foregroundPid` synchronously. */
+  subscribeForeground(
+    id: PtyId,
+    signal?: AbortSignal,
+  ): AsyncIterable<ForegroundSample>;
+  /** Resolves with the exit code when the child exits; resolves immediately
+   *  for an already-exited PTY. If `signal` aborts first, the registered
+   *  waiter is removed and the promise rejects — so a long-lived host doesn't
+   *  retain a waiter per abandoned subscription (e.g. one per kolu-server
+   *  restart). */
+  exitPromise(id: PtyId, signal?: AbortSignal): Promise<number>;
   /** Write input (keystrokes, pasted text). No-op if the PTY is gone. */
   write(id: PtyId, data: string): void;
   /** Resize the PTY grid + the headless mirror. No-op if gone. */
@@ -217,8 +240,26 @@ interface Entry {
   cwdChannel: Channel<string>;
   titleChannel: Channel<string>;
   commandRunChannel: Channel<string>;
+  foregroundChannel: Channel<ForegroundSample>;
+  /** Dedup key (`process\0foregroundPid`) of the last sample published, so
+   *  a steady foreground doesn't spam the channel across burst samples. */
+  lastForegroundKey: string | undefined;
+  /** Pending burst timers (post-command settle samples); cleared on
+   *  teardown so a killed PTY schedules nothing. */
+  foregroundTimers: ReturnType<typeof setTimeout>[];
   onDispose: (() => void) | undefined;
 }
+
+/** Post-command-run foreground re-sample schedule (ms). A command-run mark
+ *  (OSC 633;E) fires *before* the spawned process has forked + claimed the
+ *  tty, so a single sample at mark time misses it; these delays re-sample
+ *  across the ~1s window in which a launched program typically becomes the
+ *  foreground. This is pty-host's own settle heuristic — it owns "when does
+ *  the tty's foreground change after a command". Each fresh sample is pushed
+ *  on the foreground tap (dedup makes redundant ones free), so any consumer
+ *  reacting to that tap sees the settled foreground without coupling to this
+ *  schedule. */
+const FOREGROUND_SAMPLE_DELAYS_MS = [0, 75, 300, 700, 1200] as const;
 
 /** Read node-pty's foreground-pid accessor, collapsing the transient 0
  *  (before the child finishes `setsid`) to `undefined`. */
@@ -246,13 +287,44 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     return entry;
   }
 
+  /** Sample `{process, foregroundPid}` and publish to the entry's foreground
+   *  channel iff it changed since the last publish (dedup by a compound key).
+   *  Cheap: a property read + a `tcgetpgrp` syscall. */
+  function sampleForeground(entry: Entry): void {
+    const foregroundPid = readForegroundPid(entry.proc);
+    const process = entry.proc.process;
+    const key = `${process}\u0000${foregroundPid ?? ""}`;
+    if (key === entry.lastForegroundKey) return;
+    entry.lastForegroundKey = key;
+    entry.foregroundChannel.publish({ process, foregroundPid });
+  }
+
+  /** Re-sample foreground across the post-command settle window — the agent
+   *  process forks *after* the OSC 633;E mark, so one sample at mark time
+   *  misses it. Timers are tracked on the entry so teardown can clear pending
+   *  ones; each timer removes itself after firing so the array stays bounded. */
+  function scheduleForegroundBurst(entry: Entry): void {
+    for (const delay of FOREGROUND_SAMPLE_DELAYS_MS) {
+      let id: ReturnType<typeof setTimeout>;
+      id = setTimeout(() => {
+        const idx = entry.foregroundTimers.indexOf(id);
+        if (idx !== -1) entry.foregroundTimers.splice(idx, 1);
+        sampleForeground(entry);
+      }, delay);
+      entry.foregroundTimers.push(id);
+    }
+  }
+
   function teardown(entry: Entry): void {
     for (const d of entry.disposables) d.dispose();
     entry.disposables = [];
+    for (const t of entry.foregroundTimers) clearTimeout(t);
+    entry.foregroundTimers = [];
     entry.data.close();
     entry.cwdChannel.close();
     entry.titleChannel.close();
     entry.commandRunChannel.close();
+    entry.foregroundChannel.close();
     entry.headless.dispose();
     if (entry.onDispose) {
       try {
@@ -326,6 +398,9 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       cwdChannel: new Channel<string>(),
       titleChannel: new Channel<string>(),
       commandRunChannel: new Channel<string>(),
+      foregroundChannel: new Channel<ForegroundSample>(),
+      lastForegroundKey: undefined,
+      foregroundTimers: [],
       onDispose: spawnOpts.onDispose,
     };
     entries.set(id, entry);
@@ -355,6 +430,8 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
         entry.title = title;
         log.debug({ id, title }, "title changed (OSC 0/2)");
         entry.titleChannel.publish(title);
+        // OSC 2 signals the foreground process may have changed — sample now.
+        sampleForeground(entry);
       }),
     );
 
@@ -370,6 +447,9 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
         // higher levels.
         log.debug({ id, command }, "command run (OSC 633;E)");
         entry.commandRunChannel.publish(command);
+        // The agent process forks AFTER this mark — re-sample foreground
+        // across the settle window so detection sees the real foreground.
+        scheduleForegroundBurst(entry);
         return true;
       }),
     );
@@ -424,11 +504,30 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     return { snapshot, deltas };
   }
 
-  function exitPromise(id: PtyId): Promise<number> {
+  function exitPromise(id: PtyId, signal?: AbortSignal): Promise<number> {
     const entry = entries.get(id);
     if (entry) {
       if (entry.exitCode !== undefined) return Promise.resolve(entry.exitCode);
-      return new Promise<number>((resolve) => entry.exitWaiters.push(resolve));
+      return new Promise<number>((resolve, reject) => {
+        const waiter = (code: number): void => {
+          cleanup();
+          resolve(code);
+        };
+        const onAbort = (): void => {
+          const i = entry.exitWaiters.indexOf(waiter);
+          if (i >= 0) entry.exitWaiters.splice(i, 1);
+          cleanup();
+          reject(new Error("exitPromise aborted"));
+        };
+        const cleanup = (): void =>
+          signal?.removeEventListener("abort", onAbort);
+        if (signal?.aborted) {
+          reject(new Error("exitPromise aborted"));
+          return;
+        }
+        entry.exitWaiters.push(waiter);
+        signal?.addEventListener("abort", onAbort, { once: true });
+      });
     }
     const cached = exitCodes.get(id);
     if (cached !== undefined) return Promise.resolve(cached);
@@ -499,6 +598,8 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       requireEntry(id).titleChannel.subscribe(signal),
     subscribeCommandRun: (id, signal) =>
       requireEntry(id).commandRunChannel.subscribe(signal),
+    subscribeForeground: (id, signal) =>
+      requireEntry(id).foregroundChannel.subscribe(signal),
     exitPromise,
     write,
     resize,

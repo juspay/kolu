@@ -94,8 +94,13 @@ export function createTerminal(
   return localBackend.spawnPty(id, { cwd, parentId, initialMetadata: initial });
 }
 
-/** Kill a terminal. Returns final info, or undefined if not found. */
-export function killTerminal(id: TerminalId): TerminalInfo | undefined {
+/** Kill a terminal. Returns final info, or undefined if not found. Async
+ *  since #951 R4c: the local backend awaits the daemon's kill confirmation
+ *  over the socket before unregistering (so a failed kill can't orphan the
+ *  PTY). */
+export async function killTerminal(
+  id: TerminalId,
+): Promise<TerminalInfo | undefined> {
   return localBackend.killTerminal(id);
 }
 
@@ -225,7 +230,9 @@ export function setTerminalIntent(id: TerminalId, intent: string): void {
   });
 }
 
-/** Kill and remove all terminals. Used by tests to reset server state between scenarios. */
-export function killAllTerminals(): void {
-  localBackend.killAllTerminals();
+/** Kill and remove all terminals. Used by tests to reset server state between
+ *  scenarios. Async since #951 R4c (awaits the daemon's killAll over the
+ *  socket before draining the registry). */
+export async function killAllTerminals(): Promise<void> {
+  await localBackend.killAllTerminals();
 }
