@@ -221,6 +221,12 @@ function bridgeStream<T>(
   source: AsyncIterable<T> | PromiseLike<AsyncIterable<T>>,
   signal: AbortSignal,
   onEvent: (value: T) => void,
+  // Called when the stream itself fails for a NON-abort reason (an abort is
+  // expected teardown and is always swallowed). Enrichment taps (cwd / title /
+  // command-run / foreground) omit it — a dropped enrichment stream just stops
+  // updating that field, logged generically. The exit tap supplies one because
+  // a dropped *exit* stream is a lifecycle problem, not a missing field.
+  onError?: (err: unknown) => void,
 ): void {
   void (async () => {
     try {
@@ -243,6 +249,10 @@ function bridgeStream<T>(
       }
     } catch (err) {
       if (signal.aborted) return;
+      if (onError) {
+        onError(err);
+        return;
+      }
       log.error({ err }, "pty-host tap subscription failed");
     }
   })();
@@ -467,6 +477,22 @@ class LocalTerminalBackend implements TerminalBackend {
       ptyHostClient.surface.exit.get({ id }, { signal }),
       signal,
       (msg) => this.handleExit(id, msg.exitCode),
+      (err) => {
+        // The exit tap is the terminal's lifecycle signal — losing it is not
+        // a missing field, it's "we no longer know when this PTY dies." In
+        // process the stream only ends via the exit code or an abort
+        // (teardown), so a non-abort failure is unreachable today; this fires
+        // only once pty-host is socket-served. The correct recovery there is
+        // to RE-SUBSCRIBE (the surviving daemon may still own a live PTY) —
+        // tearing the terminal down here would be the #1034 premature-loss
+        // bug, and leaving it silent is the stale-terminal mode. That
+        // reconnect is mid-session resilience (R-3); until it lands, surface
+        // the lost signal loudly rather than swallow it as a generic tap drop.
+        log.error(
+          { err, terminal: id },
+          "pty-host exit tap failed (non-abort) — exit signal lost; terminal may be stale until R-3 wires re-subscribe",
+        );
+      },
     );
 
     this.lifecycles.set(id, { abort, stopProviders });

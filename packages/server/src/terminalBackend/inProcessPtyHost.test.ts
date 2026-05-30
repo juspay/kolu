@@ -101,4 +101,29 @@ describe("createInProcessPtyHost — real PTY lifecycle through the contract", (
     expect(exit.done).toBe(false);
     if (!exit.done) expect(typeof exit.value.exitCode).toBe("number");
   });
+
+  it("an aborted exit subscription stops without delivering the exit (the kill-silence mechanism)", async () => {
+    // This is the mechanism `local.ts` relies on to keep an intentional kill
+    // silent: `teardownProviders` aborts the exit-tap signal BEFORE the kill,
+    // so the tap ends via abort rather than yielding an exit code that
+    // `handleExit` would turn into a `terminalExit`. Verify the contract honors
+    // that abort (the backend ordering itself is covered by `kill.feature`).
+    const dir = mkdtempSync(join(tmpdir(), "kolu-inproc-"));
+    const { id } = await client.surface.terminal.spawn({ cwd: dir });
+    const ac = new AbortController();
+    const it = (await client.surface.exit.get({ id }, { signal: ac.signal }))[
+      Symbol.asyncIterator
+    ]();
+    const next = it.next();
+    ac.abort();
+    let deliveredExit = false;
+    try {
+      const r = await next;
+      if (!r.done) deliveredExit = true; // yielded despite the abort
+    } catch {
+      // abort surfaced as a throw — also "stopped without delivering"
+    }
+    expect(deliveredExit).toBe(false);
+    await client.surface.terminal.kill({ id });
+  });
 });
