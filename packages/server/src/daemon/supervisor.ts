@@ -55,7 +55,10 @@ import {
   isPtyHostContractCompatible,
   PTY_HOST_CONTRACT_VERSION,
   type PtyHostSystemVersion,
-  type ptyHostSurface,
+  // Value import (not `type`): used in `typeof ptyHostSurface.contract` to type
+  // the client — a type-only import makes that `unknown` and degrades the
+  // typed client (the daemon `attach` stream loses its element type).
+  ptyHostSurface,
 } from "@kolu/pty-host";
 import { daemonPaths } from "../koluState.ts";
 import { log } from "../log.ts";
