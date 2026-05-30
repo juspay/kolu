@@ -20,7 +20,17 @@ import { toast } from "solid-sonner";
 import { TerminalIcon } from "./ui/Icons";
 import ModalDialog from "./ui/ModalDialog";
 import { surface } from "./ui/Surface";
-import { client } from "./wire";
+import { client, daemonBuildIds } from "./wire";
+
+/** Short-form a build id for the daemon → server readout (nix store-hash head,
+ *  dev dir basename, or em-dash for no live daemon). */
+function shortId(id: string | null): string {
+  if (!id) return "—";
+  const storeHash = /^([a-z0-9]{7})/.exec(id);
+  if (storeHash) return storeHash[1] as string;
+  const tail = id.split("/").pop() ?? id;
+  return tail.length > 12 ? `${tail.slice(0, 12)}…` : tail;
+}
 
 const DaemonRestartConfirm: Component<{
   open: boolean;
@@ -75,6 +85,15 @@ const DaemonRestartConfirm: Component<{
               This will close your running terminals.
             </strong>{" "}
             They run inside the daemon, so they can't carry across the restart.
+          </p>
+          {/* The build-id delta this restart applies: current daemon → the
+           *  server's pty-host build. After restart they match. */}
+          <p
+            data-testid="daemon-restart-build-ids"
+            class="font-mono text-[11px] text-fg-3"
+          >
+            {shortId(daemonBuildIds().daemon)} →{" "}
+            {shortId(daemonBuildIds().server)}
           </p>
         </div>
 

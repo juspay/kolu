@@ -28,7 +28,7 @@ import { formatKeybind } from "./input/keyboard";
 import RecordButton from "./recorder/RecordButton";
 import { useRightPanel } from "./right-panel/useRightPanel";
 import type { WsStatus } from "./rpc/rpc";
-import type { DaemonChipState } from "./wire";
+import { type DaemonChipState, daemonBuildIds } from "./wire";
 import SettingsPopover from "./settings/SettingsPopover";
 import {
   DockToggleIcon,
@@ -81,6 +81,17 @@ const ptyChipStyles: Record<
   },
 };
 
+/** Short-form a build id for the always-on readout: the nix store hash's
+ *  leading 7 chars (`b72d6da`), a dev entry-dir's basename, or `—` when there's
+ *  no live daemon. Full id is in the tooltip. */
+function shortId(id: string | null): string {
+  if (!id) return "—";
+  const storeHash = /^([a-z0-9]{7})/.exec(id);
+  if (storeHash) return storeHash[1] as string;
+  const tail = id.split("/").pop() ?? id;
+  return tail.length > 12 ? `${tail.slice(0, 12)}…` : tail;
+}
+
 // Shared base for the square icon toggles in the control cluster
 // (maximize, dock, inspector). Active/idle coloring is layered on via
 // each button's own `classList`. Keep ring/size tweaks here so all
@@ -117,6 +128,13 @@ const ChromeBar: Component<{
 
   // Look + copy for the PTY status chip, resolved from the daemon's state.
   const ptyChip = createMemo(() => ptyChipStyles[props.daemonState]);
+
+  // Full build ids for the always-on readout's tooltip (short form is shown
+  // inline; the tooltip carries the untruncated ids for copy/diagnosis).
+  const ptyBuildIdLabel = () => {
+    const { server, daemon } = daemonBuildIds();
+    return `kolu-server pty-host build: ${server || "?"} · daemon: ${daemon ?? "(none — no live daemon)"}`;
+  };
 
   return (
     <header
@@ -214,6 +232,22 @@ const ChromeBar: Component<{
               <span class={`w-1.5 h-1.5 rounded-full ${ptyChip().dotClass}`} />
             </Show>
           </button>
+        </Tip>
+        {/* Build-id readout — always visible while R4c is being proven out, so
+         *  the daemon's currency is glanceable at all times (not just when
+         *  outdated). `srv <id>` is this kolu-server's pty-host build; `pty
+         *  <id>` is the live daemon's. They match in steady state; on a deploy
+         *  that moved pty-host code the daemon lags until restarted (amber). */}
+        <Tip label={ptyBuildIdLabel()}>
+          <span
+            data-testid="pty-build-ids"
+            class="hidden sm:flex items-center gap-1 font-mono text-[10px] leading-none text-fg-3 pointer-events-auto select-none"
+            classList={{ "text-warning": props.daemonState === "outdated" }}
+          >
+            <span>srv {shortId(daemonBuildIds().server)}</span>
+            <span class="text-fg-3/50">·</span>
+            <span>pty {shortId(daemonBuildIds().daemon)}</span>
+          </span>
         </Tip>
       </div>
 

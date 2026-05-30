@@ -89,6 +89,10 @@ export interface DaemonHandle {
   daemonPid: number;
   /** Daemon-reported contract version (e.g. "2.0"). */
   contractVersion: string;
+  /** Daemon-reported pty-host build id — compared against `currentBuildId()`
+   *  to derive `outdated`, and surfaced to the client for the ChromeBar
+   *  build-id readout. */
+  daemonBuildId: string;
   /** Wire-compatible but running a different *pty-host source* than this
    *  kolu-server — the daemon survived a deploy whose terminal-host code moved
    *  on. (A server- or client-only deploy leaves this false.) Surfaced as the
@@ -276,8 +280,15 @@ export function getDaemonHandle(): DaemonHandle {
  *  deliberately does. A live daemon is `"outdated"` when it's serving a stale
  *  build, else `"connected"`. */
 export function daemonStatusSnapshot(): DaemonStatus {
-  if (cached?.state() !== "live") return { state: "dead" };
-  return { state: cached.outdated ? "outdated" : "connected" };
+  const serverBuildId = currentBuildId();
+  if (cached?.state() !== "live") {
+    return { state: "dead", serverBuildId, daemonBuildId: null };
+  }
+  return {
+    state: cached.outdated ? "outdated" : "connected",
+    serverBuildId,
+    daemonBuildId: cached.daemonBuildId,
+  };
 }
 
 /** Restart the PTY-host daemon: SIGTERM the running daemon (its PTYs die),
@@ -479,6 +490,7 @@ async function connectAndVerify(): Promise<DaemonHandle> {
     socketPath,
     daemonPid: versionInfo.pid,
     contractVersion: versionInfo.contractVersion,
+    daemonBuildId: versionInfo.buildId,
     outdated,
     state: () => state,
     dispose: () => socket?.destroy(),

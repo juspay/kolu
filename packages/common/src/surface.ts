@@ -520,12 +520,23 @@ export function applyPreferencesPatch(
  */
 export const DaemonStatusSchema = z.object({
   state: z.enum(["connected", "outdated", "dead"]),
+  /** This kolu-server's pty-host build id (the `KOLU_PTY_HOST_BUILD_ID` hash,
+   *  or the dev entry-dir fallback). Shown verbatim in the ChromeBar while R4c
+   *  is being proven out, so the daemon's currency is glanceable at all times —
+   *  not just when `outdated`. */
+  serverBuildId: z.string(),
+  /** The live daemon's reported pty-host build id, or null when no daemon is
+   *  connected. Differs from `serverBuildId` exactly when `state === "outdated"`
+   *  (the daemon survived a deploy whose terminal-host code moved on). */
+  daemonBuildId: z.string().nullable(),
 });
 
 /** Honest pre-connect default: until the supervisor reports a live daemon,
  *  the client shows "disconnected", not a false-positive "connected". */
 export const DEFAULT_DAEMON_STATUS: z.infer<typeof DaemonStatusSchema> = {
   state: "dead",
+  serverBuildId: "",
+  daemonBuildId: null,
 };
 
 // ── The surface ───────────────────────────────────────────────────────

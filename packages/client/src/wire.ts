@@ -116,3 +116,16 @@ const _daemonStatus = app.cells.daemonStatus.use({
 export type DaemonChipState = "connected" | "outdated" | "dead" | "connecting";
 export const daemonState = (): DaemonChipState =>
   _daemonStatus.value()?.state ?? "connecting";
+
+/** The server's pty-host build id and the live daemon's reported build id, for
+ *  the always-visible ChromeBar readout + the restart-confirm dialog. Both
+ *  null/undefined until the first server yield. While R4c is being proven out
+ *  these are shown verbatim (short-form) so the daemon's currency is glanceable
+ *  at all times. */
+export const daemonBuildIds = (): {
+  server: string;
+  daemon: string | null;
+} => {
+  const v = _daemonStatus.value();
+  return { server: v?.serverBuildId ?? "", daemon: v?.daemonBuildId ?? null };
+};
