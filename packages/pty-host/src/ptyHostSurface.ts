@@ -26,6 +26,18 @@
  * identity* — a finer per-build key for an "update pending" nudge on a
  * wire-compatible but stale survivor — is a separate concern layered onto
  * `system.version` later; this module defines only the wire shape.
+ *
+ * Layering note. Co-locating the contract here gives `@kolu/pty-host` a
+ * **contract-definition-only** dependency on `@kolu/surface` (just
+ * `defineSurface`, which itself pulls only `@orpc/contract` + `zod`) and on
+ * `kolu-common` (the `TerminalIdSchema` domain type). It is the correct home
+ * — the contract and the host version are one change-axis (they have moved
+ * together every time the host interface changed), so they must not be allowed
+ * to drift apart. The accepted cost: a breaking `defineSurface` API change
+ * forces a `@kolu/pty-host` re-release even though node-pty / the screen mirror
+ * are untouched. If that ever bites, the escape hatch is a standalone
+ * dependency-free `@kolu/pty-host-contract` package — over-engineering today
+ * for a stably co-versioned pair.
  */
 
 import { defineSurface, type SurfaceTypes } from "@kolu/surface/define";
