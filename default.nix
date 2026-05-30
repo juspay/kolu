@@ -13,7 +13,7 @@ let
   koluEnv = import ./nix/env.nix { inherit pkgs; };
 
   # INVARIANT: this fileset must include every workspace package that has a
-  # `typecheck` script — the typecheck derivation (nix/typecheck.nix) reuses
+  # `typecheck` script — the typecheck derivation (nix/pnpm-typecheck.nix) reuses
   # this `src`, so a package omitted here is silently skipped by the type
   # gate even though `just check` (full working tree) would catch it.
   # packages/tests is the only workspace member intentionally absent: it has
