@@ -2,15 +2,17 @@
  *
  *  Opened from the ChromeBar "update pending" nudge or the ⌘K → Debug
  *  "Restart local PTY daemon" command. The daemon survives a kolu-server
- *  restart (so terminals persist across deploys), which means a *newer kolu
- *  build* can't take effect in the daemon until it's restarted — and that
- *  restart necessarily closes the running terminals. So it's always behind an
- *  explicit confirm; the wire-compatible build mismatch is never force-applied
- *  on its own (only a breaking contract change auto-restarts, server-side).
+ *  restart (so terminals persist across deploys), which means a *newer
+ *  terminal host* can't take effect in the daemon until it's restarted — and
+ *  that restart necessarily closes the running terminals. So it's always
+ *  behind an explicit confirm; the wire-compatible mismatch is never force-
+ *  applied on its own (only a breaking contract change auto-restarts,
+ *  server-side).
  *
- *  Copy speaks to "a newer kolu build" — the staleness key is the whole kolu
- *  binary's identity (a server-only change bumps it too), not pty-host's code
- *  specifically. */
+ *  Copy speaks to "a newer terminal host" — the staleness key is the pty-host
+ *  *source* identity (the `KOLU_PTY_HOST_BUILD_ID` hash), so the nudge fires
+ *  only when restarting actually picks up new terminal-host code. A server- or
+ *  client-only deploy leaves the daemon current and does NOT nudge. */
 
 import Dialog from "@corvu/dialog";
 import { type Component, createSignal, Show } from "solid-js";
@@ -33,9 +35,10 @@ const DaemonRestartConfirm: Component<{
     const id = toast.loading("Restarting local PTY daemon…");
     try {
       await client.system.restartPtyHostDaemon();
-      toast.success("Local PTY daemon restarted — now on the current build", {
-        id,
-      });
+      toast.success(
+        "Local PTY daemon restarted — now on the current terminal host",
+        { id },
+      );
       props.onOpenChange(false);
     } catch (err) {
       toast.error(`Failed to restart PTY daemon: ${(err as Error).message}`, {
@@ -64,8 +67,8 @@ const DaemonRestartConfirm: Component<{
 
         <div class="space-y-2 text-fg-2">
           <p>
-            A newer kolu build is available. The local terminal daemon is still
-            running the previous build — restarting it applies the update.
+            A newer terminal host is available. The local PTY daemon is still
+            running the previous version — restarting it applies the update.
           </p>
           <p class="text-fg-3">
             <strong class="text-fg-2">

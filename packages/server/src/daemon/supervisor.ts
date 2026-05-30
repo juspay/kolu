@@ -21,10 +21,13 @@
  *     #1031 daemon's `"1.0"` agent surface) is a **forced restart**: kill the
  *     stale daemon, respawn fresh, re-verify once. This is the rare accepted
  *     PTY-loss moment — and the one-time migration cutover off #1031.
- *  5. Expose the typed client + an `outdated` flag (wire-compatible but a
- *     different *build* — surviving a deploy with stale code). Surfaced via
- *     the boot log today; the user-facing "update pending" nudge + restart
- *     command are a follow-up (R4d-UI).
+ *  5. Expose the typed client + an `outdated` flag (wire-compatible but
+ *     running a different *pty-host source* — surviving a deploy whose
+ *     terminal-host code moved on). Keyed on the pty-host source hash, so a
+ *     server- or client-only deploy does NOT set it; it flips only when a
+ *     restart would actually pick up new terminal-host code. Surfaced via the
+ *     boot log today; the user-facing "update pending" nudge + restart command
+ *     are a follow-up (R4d-UI).
  *
  * Reconnect — scope (#951 R4c): `ensureDaemon` is reconnect-aware on the
  * **boot path** — when called (boot reattach), it drops a `closed` cached
@@ -74,8 +77,9 @@ export interface DaemonHandle {
   daemonPid: number;
   /** Daemon-reported contract version (e.g. "2.0"). */
   contractVersion: string;
-  /** Wire-compatible but a different *build* than this kolu-server — the
-   *  daemon survived a deploy and is serving stale code. Surfaced as the
+  /** Wire-compatible but running a different *pty-host source* than this
+   *  kolu-server — the daemon survived a deploy whose terminal-host code moved
+   *  on. (A server- or client-only deploy leaves this false.) Surfaced as the
    *  "update pending" nudge; the PTYs are untouched until the user restarts. */
   outdated: boolean;
   /** Connection state. `live` until the underlying socket closes. */

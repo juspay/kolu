@@ -64,7 +64,7 @@ const ptyChipStyles: Record<
   outdated: {
     glyph: "text-warning",
     dotClass: "bg-warning animate-pulse",
-    label: "A newer kolu build is available — restart the local PTY daemon",
+    label: "A newer terminal host is available — restart the local PTY daemon",
     clickable: true,
   },
   dead: {

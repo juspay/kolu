@@ -2,11 +2,14 @@
  * Steps for the PTY-host daemon update-pending nudge + restart (#951 R4c).
  *
  * The nudge fires when the surviving daemon's build id differs from the
- * server's. We reproduce that by restarting kolu-server with a
- * `KOLU_BUILD_ID_OVERRIDE` — the daemon (spawned by the prior server) keeps
- * its old id, so the fresh server flags it stale. Restarting the daemon via
- * the nudge spawns a fresh one under the override server, so the ids match
- * again and the nudge clears.
+ * server's. In production that id is the pty-host *source* hash
+ * (KOLU_PTY_HOST_BUILD_ID), so only deploys that change terminal-host code
+ * nudge. We reproduce a mismatch by restarting kolu-server with a
+ * `KOLU_BUILD_ID_OVERRIDE` — the highest-precedence seam, above the production
+ * key — so the daemon (spawned by the prior server) keeps its old id and the
+ * fresh server flags it stale. Restarting the daemon via the nudge spawns a
+ * fresh one under the override server, so the ids match again and the nudge
+ * clears.
  */
 
 import { Then, When } from "@cucumber/cucumber";

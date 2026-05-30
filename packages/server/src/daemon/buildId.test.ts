@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deriveBuildId } from "./buildId.ts";
+import { deriveBuildId, resolveBuildId } from "./buildId.ts";
 
 describe("deriveBuildId", () => {
   it("extracts the /nix/store hash-name from a stamped entry path", () => {
@@ -34,5 +34,23 @@ describe("deriveBuildId", () => {
   it("returns 'unknown' for an empty entry", () => {
     expect(deriveBuildId(undefined)).toBe("unknown");
     expect(deriveBuildId("")).toBe("unknown");
+  });
+});
+
+describe("resolveBuildId", () => {
+  const entry = "/nix/store/zzz-kolu-stamped/packages/server/src/index.ts";
+
+  it("prefers override over the pty-host id and the entry-derived value", () => {
+    expect(resolveBuildId({ override: "ovr", ptyHostId: "pty", entry })).toBe(
+      "ovr",
+    );
+  });
+
+  it("prefers the pty-host id over the entry-derived value", () => {
+    expect(resolveBuildId({ ptyHostId: "pty", entry })).toBe("pty");
+  });
+
+  it("falls back to deriveBuildId(entry) when only entry is set", () => {
+    expect(resolveBuildId({ entry })).toBe(deriveBuildId(entry));
   });
 });

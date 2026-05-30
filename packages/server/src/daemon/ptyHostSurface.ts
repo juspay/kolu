@@ -117,9 +117,12 @@ const ForegroundMsgSchema = z.object({
 
 const SystemVersionOutputSchema = z.object({
   contractVersion: z.string(),
-  /** Per-build identity (the `/nix/store` hash, or the dev source dir) — the
-   *  staleness key the "update pending" nudge fires on, NOT the inert
-   *  `pkgVersion`. See `server/src/daemon/buildId.ts`. */
+  /** Identity of the running **pty-host source** (the `KOLU_PTY_HOST_BUILD_ID`
+   *  hash nix bakes from `packages/pty-host/`, or the dev source dir) — the
+   *  staleness key the "update pending" nudge fires on, NOT the whole-binary
+   *  nix store hash and NOT the inert `pkgVersion`. Keying on just the pty-host
+   *  source means `outdated` flips only when a restart picks up new terminal-
+   *  host code. See `server/src/daemon/buildId.ts`. */
   buildId: z.string(),
   pid: z.number().int(),
   startedAt: z.number(),

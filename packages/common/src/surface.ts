@@ -503,16 +503,18 @@ export function applyPreferencesPatch(
  *
  * Deliberately just a UI-facing `state` enum — the three values are the whole
  * stable client contract. The build ids + pid that *derive* `"outdated"` are
- * server internals (a `/nix/store` hash, an OS pid) and stay server-side:
+ * server internals (the pty-host source hash, an OS pid) and stay server-side:
  * they're already in the supervisor's boot log, and pushing them to every
  * browser would couple the client to how staleness is keyed. A future
  * diagnostics view should pull them via a dedicated RPC, not widen this cell.
  *
- *  - `connected` — a live daemon on this server's build; terminals are healthy.
- *  - `outdated`  — a live daemon that is wire-compatible but a *different build*
- *    than this kolu-server (it survived a deploy and serves stale code). The
- *    whole binary's identity, not pty-host's specifically (a server-only change
- *    bumps it too), so the nudge copy says "a newer kolu build is available".
+ *  - `connected` — a live daemon on this server's terminal-host source;
+ *    terminals are healthy.
+ *  - `outdated`  — a live daemon that is wire-compatible but running a
+ *    *different pty-host source* than this kolu-server (it survived a deploy
+ *    whose terminal-host code moved on). Keyed on the pty-host source hash, NOT
+ *    the whole binary — a server- or client-only deploy leaves it `connected`.
+ *    So the nudge copy says "a newer terminal host is available".
  *  - `dead`      — no live daemon connected (before the first connect, or after
  *    the socket closed mid-session). Terminals may be unavailable.
  */

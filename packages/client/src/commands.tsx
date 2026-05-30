@@ -379,7 +379,8 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
         {
           kind: "action",
           name: "Restart local PTY daemon",
-          description: "Apply a newer kolu build — closes running terminals",
+          description:
+            "Apply the newer terminal host — closes running terminals",
           onSelect: () => deps.handleRestartDaemon(),
         },
       ],

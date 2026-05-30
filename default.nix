@@ -56,6 +56,35 @@ let
   # cache; koluStamped sed-replaces it with the real hash afterwards.
   koluCommitPlaceholder = "__KOLU_COMMIT_PLACEHOLDER__";
 
+  # Constraint #6: the daemon "outdated" staleness key. Hash ONLY the
+  # @kolu/pty-host source (runtime *.ts, excluding tests) + its package.json,
+  # so the key changes iff terminal-host code/deps change. Keying on the whole
+  # kolu store hash (the old `argv[1]` approach) over-fired: every deploy,
+  # even pty-host-untouched ones, flipped `outdated` and nudged the user into a
+  # terminal-losing restart for zero benefit. Computed independently of
+  # commitHash so docs/server-only commits don't bust it.
+  #
+  # Cross-platform reproducible (Darwin+Linux must agree, like pnpmDeps):
+  # `find | sort` for a stable file order, then a single sha256 over the
+  # concatenated curated bytes. node-pty / @xterm versions ride along via
+  # package.json (their `dependencies` entries), keeping the input source-
+  # scoped — we never hash node_modules.
+  ptyHostSrc = pkgs.lib.fileset.toSource {
+    root = ./packages/pty-host;
+    fileset = pkgs.lib.fileset.unions [
+      (pkgs.lib.fileset.fileFilter
+        (f: f.hasExt "ts" && !pkgs.lib.hasSuffix ".test.ts" f.name)
+        ./packages/pty-host/src)
+      ./packages/pty-host/package.json
+    ];
+  };
+  ptyHostBuildId = builtins.readFile (pkgs.runCommand "kolu-pty-host-build-id"
+    { src = ptyHostSrc; } ''
+    cd "$src"
+    find . -type f | LC_ALL=C sort | xargs cat | sha256sum | cut -c1-64 \
+      | tr -d '\n' > $out
+  '');
+
   kolu = pkgs.stdenv.mkDerivation {
     pname = "kolu";
     version = "0.1.0";
@@ -155,6 +184,7 @@ let
       --add-flags "${koluStamped}/packages/server/src/index.ts" \
       --set KOLU_CLIENT_DIST "${koluStamped}/packages/client/dist" \
       --set KOLU_GH_BIN "${koluEnv.KOLU_GH_BIN}" \
+      --set KOLU_PTY_HOST_BUILD_ID "${ptyHostBuildId}" \
       --prefix PATH : ${pkgs.lib.makeBinPath ([ pkgs.nodejs pkgs.git pkgs.gh ]
         # R4c (#951): the daemon supervisor shells out to `systemd-run` /
         # `systemctl --user` to spawn the PTY-host daemon in its own cgroup
