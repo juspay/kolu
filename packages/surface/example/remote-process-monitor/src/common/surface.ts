@@ -66,7 +66,16 @@ const SystemSchema = z.object({
  *  attaches its overlay before `connect()` returns and still sees the
  *  initial `connecting` state. */
 const ConnectionSchema = z.object({
-  state: z.enum(["copying", "connecting", "connected", "disconnected"]),
+  state: z.enum([
+    "copying",
+    "connecting",
+    "connected",
+    "disconnected",
+    // Terminal: the parent's reconnect loop gave up. Mirrors the
+    // `HostSession` `failed` state so the overlay can distinguish
+    // "still retrying" from "needs intervention".
+    "failed",
+  ]),
 });
 
 export const DEFAULT_SYSTEM: z.infer<typeof SystemSchema> = {

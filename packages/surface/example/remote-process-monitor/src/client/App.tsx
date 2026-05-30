@@ -28,9 +28,10 @@ import { app } from "./wire";
 
 const STATE_COLOR: Record<string, string> = {
   connected: "text-emerald-500",
-  disconnected: "text-red-500",
+  disconnected: "text-amber-500",
   copying: "text-amber-500",
   connecting: "text-amber-500",
+  failed: "text-red-500",
 };
 
 type SortKey = "cpu" | "mem" | "pid" | "user";
@@ -292,7 +293,8 @@ function ConnectingOverlay(props: { state: string }) {
     ({
       copying: "Copying agent to remote…",
       connecting: "Connecting…",
-      disconnected: "Disconnected. Retrying…",
+      disconnected: "Reconnecting…",
+      failed: "Connection failed — gave up retrying.",
     })[props.state] ?? "Initializing…";
   return (
     <div class="px-4 py-12 text-center text-gray-600 dark:text-gray-400">
