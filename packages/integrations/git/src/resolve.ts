@@ -170,7 +170,10 @@ export function gitInfoEqual(a: GitInfo | null, b: GitInfo | null): boolean {
  * tears down whichever watcher is active; `setCwd(next)` swaps the watched
  * directory.
  */
-type WatcherMode = "head" | "cwd";
+// `in-repo` installs the full in-repo HEAD-movement signal set (`.git/HEAD`
+// + reflog), not just the HEAD file — the label names the volatility axis,
+// not the first watcher. `cwd` watches the parent for `.git` appearing.
+type WatcherMode = "in-repo" | "cwd";
 type WatcherSlot = { mode: WatcherMode; stop: () => void };
 
 export function subscribeGitInfo(
@@ -180,8 +183,8 @@ export function subscribeGitInfo(
 ): { setCwd(next: string): void; stop(): void } {
   let currentCwd = initialCwd;
   let currentInfo: GitInfo | null = null;
-  // Head mode watches `.git/HEAD` (in-repo); cwd mode watches the parent
-  // for `.git` appearing (out-of-repo). The two are mutually exclusive.
+  // `in-repo` mode watches HEAD + reflog (in-repo); cwd mode watches the
+  // parent for `.git` appearing (out-of-repo). The two are mutually exclusive.
   let watcher: WatcherSlot | null = null;
   // Set by `stop()` so an in-flight `resolve()` that resumes after teardown
   // can't re-install a watcher via `ensureMode` — the resulting orphan
@@ -239,7 +242,7 @@ export function subscribeGitInfo(
         "git resolution failed",
       );
     }
-    ensureMode(next !== null ? "head" : "cwd");
+    ensureMode(next !== null ? "in-repo" : "cwd");
     if (gitInfoEqual(next, currentInfo)) return;
     currentInfo = next;
     onChange(next);
@@ -247,7 +250,7 @@ export function subscribeGitInfo(
 
   // Install synchronously so fs events during the first `resolve()` await
   // aren't dropped on the floor.
-  ensureMode(hasGitDir(currentCwd) ? "head" : "cwd");
+  ensureMode(hasGitDir(currentCwd) ? "in-repo" : "cwd");
   void resolve();
 
   return {
@@ -263,7 +266,7 @@ export function subscribeGitInfo(
       }
       currentCwd = next;
       tearDownWatchers();
-      ensureMode(hasGitDir(next) ? "head" : "cwd");
+      ensureMode(hasGitDir(next) ? "in-repo" : "cwd");
       void resolve();
     },
     stop(): void {
