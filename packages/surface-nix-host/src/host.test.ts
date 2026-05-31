@@ -7,7 +7,7 @@
  * "stuck copying to remote for eternity" failure this guards against).
  */
 import { describe, expect, it } from "vitest";
-import { buildAgentCommand, buildSshProbeCommand } from "./host";
+import { buildAgentCommand, buildSshProbeCommand, NIX_SSHOPTS } from "./host";
 
 /** Pull the `-o Key=Value` pairs out of an ssh argv into a lookup. */
 function sshOpts(args: readonly string[]): Record<string, string> {
@@ -99,5 +99,16 @@ describe("buildAgentCommand", () => {
       "--stdio",
     ]);
     assertKeepAlive(args);
+  });
+});
+
+describe("NIX_SSHOPTS", () => {
+  it("renders the same keepalive policy as the spawned-ssh argv", () => {
+    // `nix copy --to ssh-ng://` forks its own ssh out of reach of our
+    // argv; this env string is the only handle on its dead-peer
+    // behaviour, so it must carry the identical policy. Parse it back
+    // through the argv reader (NIX_SSHOPTS is word-split by nix) and
+    // assert the same four flags the spawned ssh gets.
+    assertKeepAlive(NIX_SSHOPTS.split(" "));
   });
 });

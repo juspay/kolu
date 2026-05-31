@@ -29,14 +29,23 @@ export interface CaptureResult extends ExitResult {
  *  `onProgress`. Used for `nix copy` where the only output the parent
  *  cares about is progress chatter on stderr. Pass no callback for
  *  silent-stderr behaviour (e.g. probe commands where there's no
- *  progress channel to forward into). */
+ *  progress channel to forward into).
+ *
+ *  `env`, when given, is *merged onto* the parent environment (not a
+ *  replacement) — the `nix copy` caller uses it to inject `NIX_SSHOPTS`
+ *  so the ssh that copy forks internally inherits the same dead-peer
+ *  keepalive as the ssh we spawn directly. */
 export function runProgress(
   cmd: string,
   args: readonly string[],
   onProgress: (line: string) => void = () => {},
+  env?: Readonly<Record<string, string>>,
 ): Promise<ExitResult> {
   return new Promise((resolve) => {
-    const proc = spawn(cmd, [...args], { stdio: ["ignore", "ignore", "pipe"] });
+    const proc = spawn(cmd, [...args], {
+      stdio: ["ignore", "ignore", "pipe"],
+      ...(env && { env: { ...process.env, ...env } }),
+    });
     proc.stderr?.setEncoding("utf-8");
     proc.stderr?.on("data", (chunk: string) => forEachLine(chunk, onProgress));
     // Use "close" (not "exit") so the last stderr chunk is guaranteed

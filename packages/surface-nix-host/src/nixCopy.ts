@@ -34,7 +34,7 @@
  * transport layer.
  */
 
-import { buildSshProbeCommand, isLocalHost } from "./host";
+import { buildSshProbeCommand, isLocalHost, NIX_SSHOPTS } from "./host";
 import { runCapture, runProgress } from "./process";
 
 export interface ProvisionOptions {
@@ -106,6 +106,10 @@ export async function provisionAgent(
         opts.drvPath,
       ],
       opts.onProgress,
+      // The copy is a remote transfer that can sit idle for minutes; the
+      // ssh it forks internally only honours dead-peer keepalive through
+      // NIX_SSHOPTS. Without it a degraded host wedges this step forever.
+      { NIX_SSHOPTS },
     );
     if (!copyRes.ok) {
       return {
