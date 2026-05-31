@@ -28,6 +28,7 @@ let
       ./packages/surface
       ./packages/surface-nix-host
       ./packages/solid-pierre
+      ./packages/solid-xterm
       ./packages/common
       ./packages/integrations
       ./packages/nonempty

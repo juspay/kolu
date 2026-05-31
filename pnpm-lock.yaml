@@ -64,6 +64,9 @@ importers:
       '@kolu/solid-pierre':
         specifier: workspace:*
         version: link:../solid-pierre
+      '@kolu/solid-xterm':
+        specifier: workspace:*
+        version: link:../solid-xterm
       '@kolu/surface':
         specifier: workspace:*
         version: link:../surface
@@ -97,33 +100,6 @@ importers:
       '@thisbeyond/solid-dnd':
         specifier: ^0.7.5
         version: 0.7.5(solid-js@1.9.11)
-      '@xterm/addon-clipboard':
-        specifier: ^0.2.0
-        version: 0.2.0
-      '@xterm/addon-fit':
-        specifier: ^0.11.0
-        version: 0.11.0
-      '@xterm/addon-image':
-        specifier: ^0.9.0
-        version: 0.9.0
-      '@xterm/addon-search':
-        specifier: ^0.16.0
-        version: 0.16.0
-      '@xterm/addon-serialize':
-        specifier: ^0.14.0
-        version: 0.14.0
-      '@xterm/addon-unicode11':
-        specifier: ^0.9.0
-        version: 0.9.0
-      '@xterm/addon-web-links':
-        specifier: ^0.12.0
-        version: 0.12.0
-      '@xterm/addon-webgl':
-        specifier: 0.20.0-beta.224
-        version: 0.20.0-beta.224(@xterm/xterm@6.1.0-beta.225)
-      '@xterm/xterm':
-        specifier: 6.1.0-beta.225
-        version: 6.1.0-beta.225
       fix-webm-duration:
         specifier: ^1.0.6
         version: 1.0.6
@@ -445,6 +421,9 @@ importers:
 
   packages/pty-host:
     dependencies:
+      '@kolu/solid-xterm':
+        specifier: workspace:*
+        version: link:../solid-xterm
       '@kolu/surface':
         specifier: workspace:*
         version: link:../surface
@@ -454,12 +433,6 @@ importers:
       '@orpc/server':
         specifier: ^1.13.13
         version: 1.13.13(ws@8.20.1)
-      '@xterm/addon-serialize':
-        specifier: ^0.14.0
-        version: 0.14.0
-      '@xterm/headless':
-        specifier: ^6.0.0
-        version: 6.0.0
       kolu-common:
         specifier: workspace:*
         version: link:../common
@@ -622,6 +595,61 @@ importers:
       typescript:
         specifier: ^5.8.0
         version: 5.9.3
+
+  packages/solid-xterm:
+    dependencies:
+      '@solid-primitives/event-listener':
+        specifier: ^2.4.5
+        version: 2.4.5(solid-js@1.9.11)
+      '@solid-primitives/resize-observer':
+        specifier: ^2.1.5
+        version: 2.1.5(solid-js@1.9.11)
+      '@xterm/addon-clipboard':
+        specifier: ^0.2.0
+        version: 0.2.0
+      '@xterm/addon-fit':
+        specifier: ^0.11.0
+        version: 0.11.0
+      '@xterm/addon-image':
+        specifier: ^0.9.0
+        version: 0.9.0
+      '@xterm/addon-search':
+        specifier: ^0.16.0
+        version: 0.16.0
+      '@xterm/addon-serialize':
+        specifier: ^0.14.0
+        version: 0.14.0
+      '@xterm/addon-unicode11':
+        specifier: ^0.9.0
+        version: 0.9.0
+      '@xterm/addon-web-links':
+        specifier: ^0.12.0
+        version: 0.12.0
+      '@xterm/addon-webgl':
+        specifier: 0.20.0-beta.224
+        version: 0.20.0-beta.224(@xterm/xterm@6.1.0-beta.225)
+      '@xterm/headless':
+        specifier: ^6.0.0
+        version: 6.0.0
+      '@xterm/xterm':
+        specifier: 6.1.0-beta.225
+        version: 6.1.0-beta.225
+      kolu-common:
+        specifier: workspace:*
+        version: link:../common
+      solid-js:
+        specifier: ^1.9.0
+        version: 1.9.11
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.15
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.2
+        version: 4.1.2(@types/node@22.19.15)(vite@6.4.2(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.47.1)(tsx@4.21.0)(yaml@2.8.3))
 
   packages/surface:
     dependencies:

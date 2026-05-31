@@ -5,13 +5,13 @@
  *
  *  Rule for adding new fields: this module is for **per-terminal,
  *  live-subscribed facts only**. Session-wide facts (WS status, terminal
- *  count) belong in `useViewState` or similar. One-shot facts read at
+ *  count) belong in the consumer's own state. One-shot facts read at
  *  dialog-open time (user agent, memory snapshot) belong in the consumer.
  *
  *  Separation from `terminalRefs`: `terminalRefs` is an imperative Map
  *  for handlers that grab xterm/addons on demand; this is a reactive
  *  store for UI subscription. Same lifecycle, different volatility axes
- *  — both registrations happen in Terminal.tsx onMount/onCleanup. */
+ *  — both registrations happen in the Terminal owner's onMount/onCleanup. */
 
 import type { Terminal as XTerm } from "@xterm/xterm";
 import type { TerminalId } from "kolu-common/surface";
@@ -33,7 +33,7 @@ const [store, setStore] = createStore<Record<TerminalId, TerminalDiagnostics>>(
 
 /** Register per-terminal diagnostic tracking. `renderer` is an accessor
  *  so the caller's signal stays the single source of truth — any code
- *  path that flips the renderer in Terminal.tsx is reflected here
+ *  path that flips the renderer in the Terminal owner is reflected here
  *  automatically, no imperative updater to forget.
  *
  *  Returns a cleanup function to call from `onCleanup`. */
@@ -53,7 +53,7 @@ export function registerDiagnostics(
   });
 
   // Own the effect root explicitly so the subscription is torn down with
-  // the terminal, not at the component's Solid owner (Terminal.tsx passes
+  // the terminal, not at the component's Solid owner (the caller passes
   // the accessor as a closure; if the component disposes first there'd
   // be a stale read).
   const disposeRoot = createRoot((dispose) => {

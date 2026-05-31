@@ -1,12 +1,10 @@
 import tailwindcss from "@tailwindcss/vite";
-import xtermPackage from "@xterm/xterm/package.json" with { type: "json" };
 import { DEFAULT_PORT } from "kolu-common/config";
 import { defineConfig } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
 import solid from "vite-plugin-solid";
 
 const commitHash = process.env.KOLU_COMMIT_HASH || "dev";
-const xtermVersion = xtermPackage.version;
 
 // Ports for the dev instance. Default to the canonical 7681/5173 so a bare
 // `just dev` is stable; `just dev SERVER_PORT=… CLIENT_PORT=…` (or `just
@@ -59,7 +57,6 @@ export default defineConfig({
   },
   define: {
     __KOLU_COMMIT__: JSON.stringify(commitHash),
-    __XTERM_VERSION__: JSON.stringify(xtermVersion),
   },
   build: {
     target: "esnext",

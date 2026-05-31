@@ -37,9 +37,10 @@
  *   not just when the property is undefined. That covers the long tail of
  *   user-agent quirks that surface as a rejection rather than a missing API.
  * - Reads (`navigator.clipboard.readText`, OSC 52 paste queries) have no
- *   safe fallback — the textarea trick is write-only. `SafeClipboardProvider`
- *   below short-circuits read attempts in non-secure contexts; users on
- *   plain HTTP simply can't paste via OSC 52.
+ *   safe fallback — the textarea trick is write-only. `@kolu/solid-xterm`'s
+ *   `createSafeClipboardProvider` wraps this writer for xterm's OSC 52 path
+ *   and short-circuits reads in non-secure contexts; users on plain HTTP
+ *   simply can't paste via OSC 52.
  *
  * **Long-term cure.** Serve Kolu over HTTPS (or via `localhost` /
  * port-forward) and `navigator.clipboard` comes back, at which point the
@@ -47,11 +48,6 @@
  * isn't urgent, but the right home for this code is "delete it when we
  * ship TLS by default" — tracked alongside the HTTPS rollout discussion.
  */
-
-import type {
-  ClipboardSelectionType,
-  IClipboardProvider,
-} from "@xterm/addon-clipboard";
 
 /** Write `text` to the system clipboard, falling back to execCommand when
  *  navigator.clipboard is unavailable or rejects. Throws if both paths fail.
@@ -87,25 +83,5 @@ export async function writeTextToClipboard(text: string): Promise<void> {
     if (!ok) throw new Error("clipboard access blocked");
   } finally {
     document.body.removeChild(textarea);
-  }
-}
-
-/** xterm `IClipboardProvider` that uses `writeTextToClipboard` for writes
- *  (survives non-secure contexts) and returns empty on reads when
- *  navigator.clipboard is unavailable. OSC 52 read queries (`?`) are rare
- *  and have no safe fallback. */
-export class SafeClipboardProvider implements IClipboardProvider {
-  public async readText(selection: ClipboardSelectionType): Promise<string> {
-    if (selection !== "c") return "";
-    if (!navigator.clipboard?.readText) return "";
-    return navigator.clipboard.readText();
-  }
-
-  public async writeText(
-    selection: ClipboardSelectionType,
-    text: string,
-  ): Promise<void> {
-    if (selection !== "c") return;
-    await writeTextToClipboard(text);
   }
 }

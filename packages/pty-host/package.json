@@ -15,11 +15,10 @@
     "test:unit": "vitest run"
   },
   "dependencies": {
+    "@kolu/solid-xterm": "workspace:*",
     "@kolu/surface": "workspace:*",
     "@orpc/contract": "^1.13.13",
     "@orpc/server": "^1.13.13",
-    "@xterm/addon-serialize": "^0.14.0",
-    "@xterm/headless": "^6.0.0",
     "kolu-common": "workspace:*",
     "kolu-pty": "workspace:*",
     "kolu-shared": "workspace:*",

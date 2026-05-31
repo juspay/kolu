@@ -1,35 +1,15 @@
-/** Search bar overlay for find-in-terminal. Wraps @xterm/addon-search. */
+/** Search bar overlay for find-in-terminal — Kolu UI chrome around the
+ *  `createTerminalSearch` controller from `@kolu/solid-xterm`. All xterm
+ *  mechanics (the addon calls, result subscription, decoration styling) live
+ *  in the controller; this component owns only the input box, buttons, focus,
+ *  and keyboard handling. */
 
 import { makeEventListener } from "@solid-primitives/event-listener";
-import type {
-  ISearchOptions,
-  ISearchResultChangeEvent,
-  SearchAddon,
-} from "@xterm/addon-search";
-import {
-  type Component,
-  createEffect,
-  createSignal,
-  type JSX,
-  on,
-  onCleanup,
-  Show,
-} from "solid-js";
+import { createTerminalSearch, type SearchAddon } from "@kolu/solid-xterm";
+import { type Component, createEffect, type JSX, on, Show } from "solid-js";
 import { ChevronDownIcon, ChevronUpIcon, CloseIcon } from "../ui/Icons";
 import { surface } from "../ui/Surface";
 import Tip from "../ui/Tip";
-
-const SEARCH_OPTIONS: ISearchOptions = {
-  incremental: true,
-  decorations: {
-    matchBackground: "#FFD33D44",
-    matchBorder: "#FFD33D88",
-    matchOverviewRuler: "#FFD33D",
-    activeMatchBackground: "#FFD33DAA",
-    activeMatchBorder: "#FFD33D",
-    activeMatchColorOverviewRuler: "#FFD33DFF",
-  },
-};
 
 /** Small icon button used for prev/next/close actions. */
 function IconButton(props: {
@@ -57,17 +37,7 @@ const SearchBar: Component<{
   onClose: () => void;
 }> = (props) => {
   let inputRef!: HTMLInputElement;
-  const [query, setQuery] = createSignal("");
-  const [resultIndex, setResultIndex] = createSignal(-1);
-  const [resultCount, setResultCount] = createSignal(0);
-
-  const disposable = props.searchAddon.onDidChangeResults(
-    (e: ISearchResultChangeEvent) => {
-      setResultIndex(e.resultIndex);
-      setResultCount(e.resultCount);
-    },
-  );
-  onCleanup(() => disposable.dispose());
+  const search = createTerminalSearch(props.searchAddon);
 
   // Focus input when opened; clear decorations when closed
   createEffect(
@@ -81,40 +51,17 @@ const SearchBar: Component<{
             inputRef?.select();
           });
         } else {
-          props.searchAddon.clearDecorations();
-          setResultIndex(-1);
-          setResultCount(0);
+          search.clear();
         }
       },
     ),
   );
 
-  function findNext() {
-    const q = query();
-    if (q) props.searchAddon.findNext(q, SEARCH_OPTIONS);
-  }
-
-  function findPrevious() {
-    const q = query();
-    if (q) props.searchAddon.findPrevious(q, SEARCH_OPTIONS);
-  }
-
-  function handleInput(value: string) {
-    setQuery(value);
-    if (value) {
-      props.searchAddon.findNext(value, SEARCH_OPTIONS);
-    } else {
-      props.searchAddon.clearDecorations();
-      setResultIndex(-1);
-      setResultCount(0);
-    }
-  }
-
   function resultLabel(): string {
-    if (!query()) return "";
-    if (resultCount() === 0) return "No results";
-    const idx = resultIndex() >= 0 ? resultIndex() + 1 : "?";
-    return `${idx} / ${resultCount()}`;
+    if (!search.query()) return "";
+    if (search.resultCount() === 0) return "No results";
+    const idx = search.resultIndex() >= 0 ? search.resultIndex() + 1 : "?";
+    return `${idx} / ${search.resultCount()}`;
   }
 
   const chrome = surface({ radius: "xl", shadow: "soft" });
@@ -135,8 +82,8 @@ const SearchBar: Component<{
       // Enter = next, Shift+Enter = previous
       if (e.key === "Enter" && document.activeElement === inputRef) {
         e.preventDefault();
-        if (e.shiftKey) findPrevious();
-        else findNext();
+        if (e.shiftKey) search.findPrevious();
+        else search.findNext();
       }
     },
     { capture: true },
@@ -152,16 +99,22 @@ const SearchBar: Component<{
           type="text"
           placeholder="Find…"
           class="bg-surface-2 text-fg text-sm rounded-lg px-2 py-1 w-48 outline-none border border-edge focus:border-accent"
-          value={query()}
-          onInput={(e) => handleInput(e.currentTarget.value)}
+          value={search.query()}
+          onInput={(e) => search.search(e.currentTarget.value)}
         />
         <span class="text-xs text-fg-3 min-w-[3.5rem] text-center tabular-nums">
           {resultLabel()}
         </span>
-        <IconButton onClick={findPrevious} label="Previous match (Shift+Enter)">
+        <IconButton
+          onClick={() => search.findPrevious()}
+          label="Previous match (Shift+Enter)"
+        >
           <ChevronUpIcon />
         </IconButton>
-        <IconButton onClick={findNext} label="Next match (Enter)">
+        <IconButton
+          onClick={() => search.findNext()}
+          label="Next match (Enter)"
+        >
           <ChevronDownIcon />
         </IconButton>
         <IconButton onClick={() => props.onClose()} label="Close (Escape)">

@@ -43,7 +43,7 @@ interface Entry {
 }
 
 /** Cap to prevent long-running sessions from accumulating state forever.
- *  One entry per WebglAddon construction — Terminal.tsx focus switches are
+ *  One entry per WebglAddon construction — terminal focus switches are
  *  the dominant source, so 100 entries buys a long session history. */
 const MAX_ENTRIES = 100;
 /** Per-canvas event count is naturally bounded (~5 events per canvas in

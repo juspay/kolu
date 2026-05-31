@@ -8,9 +8,12 @@ import type { TerminalId } from "kolu-common/surface";
 import { type Component, createMemo, For, Show } from "solid-js";
 import { toast } from "solid-sonner";
 import { serverProcessId, wsStatus } from "./rpc/rpc";
-import { getTerminalRefs } from "./terminal/terminalRefs";
-import { getDiagnostics } from "./terminal/useTerminalDiagnostics";
-import { webglLifecycleSnapshot } from "./terminal/webglTracker";
+import {
+  getDiagnostics,
+  getTerminalRefs,
+  webglLifecycleSnapshot,
+  XTERM_VERSION,
+} from "@kolu/solid-xterm";
 import { writeTextToClipboard } from "./ui/clipboard";
 import ModalDialog, { refocusTerminal } from "./ui/ModalDialog";
 import Row from "./ui/Row";
@@ -36,7 +39,7 @@ function browserFacts() {
     webgl2Supported: WEBGL2_SUPPORTED,
     crossOriginIsolated: self.crossOriginIsolated,
     devicePixelRatio: window.devicePixelRatio,
-    xtermVersion: __XTERM_VERSION__,
+    xtermVersion: XTERM_VERSION,
   };
 }
 

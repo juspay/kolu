@@ -17,8 +17,8 @@
 
 import type { TerminalId } from "kolu-common/surface";
 import { lifecycleCounters } from "../terminal/Terminal";
-import { getTerminalRefs } from "../terminal/terminalRefs";
-import { webglLifecycleSnapshot } from "../terminal/webglTracker";
+import { getTerminalRefs } from "@kolu/solid-xterm";
+import { webglLifecycleSnapshot } from "@kolu/solid-xterm";
 
 interface KoluDebugApi {
   webgl: () => ReturnType<typeof webglLifecycleSnapshot>;

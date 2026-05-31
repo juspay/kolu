@@ -25,7 +25,12 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { createRequire } from "node:module";
+import {
+  createHeadlessMirror,
+  getScreenText,
+  type HeadlessSerializeAddon,
+  type HeadlessTerminal,
+} from "@kolu/solid-xterm/headless";
 import type { Logger } from "kolu-shared";
 import * as pty from "node-pty";
 import { Channel } from "./channel.ts";
@@ -40,35 +45,14 @@ const DEFAULT_SCROLLBACK = 10_000;
  *  one. Bounded so the map can't grow without limit. */
 const MAX_EXIT_TOMBSTONES = 1024;
 
-// @xterm packages ship CJS only — use createRequire for clean ESM interop.
-const require = createRequire(import.meta.url);
-const { Terminal } =
-  require("@xterm/headless") as typeof import("@xterm/headless");
-const { SerializeAddon } =
-  require("@xterm/addon-serialize") as typeof import("@xterm/addon-serialize");
+// The headless xterm mirror + buffer-to-text helper live in
+// `@kolu/solid-xterm/headless` — the single package that owns `@xterm/*`. This
+// host (and a future SSH-backed remote one) plugs into it rather than importing
+// xterm directly.
+export { getScreenText };
 
 /** Opaque PTY identifier. */
 export type PtyId = string;
-
-/** Extract plain text from an xterm buffer within a line range. */
-export function getScreenText(
-  buffer: {
-    length: number;
-    getLine(
-      i: number,
-    ): { translateToString(trimRight: boolean): string } | undefined;
-  },
-  startLine?: number,
-  endLine?: number,
-): string {
-  const start = Math.max(0, startLine ?? 0);
-  const end = Math.min(buffer.length, endLine ?? buffer.length);
-  const lines: string[] = [];
-  for (let i = start; i < end; i++) {
-    lines.push(buffer.getLine(i)?.translateToString(true) ?? "");
-  }
-  return lines.join("\n");
-}
 
 /**
  * Per-PTY control + introspection surface vended by {@link PtyHost.handle}.
@@ -232,8 +216,8 @@ export interface PtyHost {
 interface Entry {
   id: PtyId;
   proc: pty.IPty;
-  headless: InstanceType<typeof Terminal>;
-  serialize: InstanceType<typeof SerializeAddon>;
+  headless: HeadlessTerminal;
+  serialize: HeadlessSerializeAddon;
   cwd: string;
   title: string;
   lastActivity: number;
@@ -375,17 +359,14 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       );
     }
 
-    // Headless terminal parses PTY output into screen state for
-    // serialization. allowProposedApi is required for SerializeAddon to
-    // access the buffer.
-    const headless = new Terminal({
+    // Headless terminal parses PTY output into screen state for serialization.
+    // The mirror (headless Terminal + SerializeAddon, allowProposedApi set) is
+    // built by @kolu/solid-xterm/headless so this host never imports @xterm.
+    const { terminal: headless, serialize } = createHeadlessMirror({
       cols,
       rows,
       scrollback,
-      allowProposedApi: true,
     });
-    const serialize = new SerializeAddon();
-    headless.loadAddon(serialize);
 
     const entry: Entry = {
       id,
