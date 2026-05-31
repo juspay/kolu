@@ -19,7 +19,14 @@
  *  values-only change at one seam, not an API break. */
 
 import { Lexer, marked, type Token, type Tokens } from "marked";
-import { type Component, createMemo, For, type JSX, Show } from "solid-js";
+import {
+  type Accessor,
+  type Component,
+  createMemo,
+  For,
+  type JSX,
+  Show,
+} from "solid-js";
 
 const MARKED_OPTIONS = { breaks: true, gfm: true } as const;
 
@@ -71,8 +78,10 @@ const STYLES: Record<"compact" | "document", Styles> = {
   },
 };
 
-/** Threaded through the (non-component) render functions so they stay pure
- *  and don't reach for a context they can't read outside a component body. */
+/** Passed as an *accessor* through the render functions so the link branch
+ *  can react to `links` toggling in place (see renderInline's "link" case).
+ *  Styles are read once at build — a variant change re-lexes and rebuilds the
+ *  whole tree anyway — so only `links` needs the live read. */
 type Ctx = { links: boolean; styles: Styles };
 
 const subtleBoxStyle = {
@@ -96,16 +105,16 @@ function safeHref(href: string): string | undefined {
 }
 
 /** Render a sequence of parsed inline markdown tokens as Solid nodes. */
-const InlineTokens: Component<{ tokens: Token[]; ctx: Ctx }> = (props) => (
-  <For each={props.tokens}>{(token) => renderInline(token, props.ctx)}</For>
-);
+const InlineTokens: Component<{ tokens: Token[]; ctx: Accessor<Ctx> }> = (
+  props,
+) => <For each={props.tokens}>{(token) => renderInline(token, props.ctx)}</For>;
 
 /** Render a sequence of parsed block markdown tokens as Solid nodes. */
-const BlockTokens: Component<{ tokens: Token[]; ctx: Ctx }> = (props) => (
-  <For each={props.tokens}>{(token) => renderBlock(token, props.ctx)}</For>
-);
+const BlockTokens: Component<{ tokens: Token[]; ctx: Accessor<Ctx> }> = (
+  props,
+) => <For each={props.tokens}>{(token) => renderBlock(token, props.ctx)}</For>;
 
-function renderBlock(token: Token, ctx: Ctx): JSX.Element {
+function renderBlock(token: Token, ctx: Accessor<Ctx>): JSX.Element {
   switch (token.type) {
     case "space":
     case "def":
@@ -118,7 +127,7 @@ function renderBlock(token: Token, ctx: Ctx): JSX.Element {
       );
     case "heading":
       return (
-        <p class={ctx.styles.headingFor(token.depth)}>
+        <p class={ctx().styles.headingFor(token.depth)}>
           <InlineTokens tokens={token.tokens ?? []} ctx={ctx} />
         </p>
       );
@@ -130,35 +139,35 @@ function renderBlock(token: Token, ctx: Ctx): JSX.Element {
       );
     case "blockquote":
       return (
-        <blockquote class={ctx.styles.blockquote}>
+        <blockquote class={ctx().styles.blockquote}>
           <BlockTokens tokens={token.tokens ?? []} ctx={ctx} />
         </blockquote>
       );
     case "code":
       return (
-        <pre class={ctx.styles.code} style={subtleBoxStyle}>
+        <pre class={ctx().styles.code} style={subtleBoxStyle}>
           <code>{token.text}</code>
         </pre>
       );
     case "hr":
-      return <div class={ctx.styles.hr} />;
+      return <div class={ctx().styles.hr} />;
     case "list":
       return token.ordered ? (
         <ol
-          class={`list-decimal ${ctx.styles.list}`}
+          class={`list-decimal ${ctx().styles.list}`}
           start={typeof token.start === "number" ? token.start : undefined}
         >
           <For each={token.items}>{(item) => renderListItem(item, ctx)}</For>
         </ol>
       ) : (
-        <ul class={`list-disc ${ctx.styles.list}`}>
+        <ul class={`list-disc ${ctx().styles.list}`}>
           <For each={token.items}>{(item) => renderListItem(item, ctx)}</For>
         </ul>
       );
     case "table":
       return (
-        <div class={ctx.styles.tableWrap}>
-          <table class={ctx.styles.table}>
+        <div class={ctx().styles.tableWrap}>
+          <table class={ctx().styles.table}>
             <thead>
               <tr>
                 <For each={token.header}>
@@ -205,7 +214,10 @@ function renderBlock(token: Token, ctx: Ctx): JSX.Element {
   }
 }
 
-function renderListItem(item: Tokens.ListItem, ctx: Ctx): JSX.Element {
+function renderListItem(
+  item: Tokens.ListItem,
+  ctx: Accessor<Ctx>,
+): JSX.Element {
   return (
     <li>
       <Show when={item.task}>
@@ -218,7 +230,7 @@ function renderListItem(item: Tokens.ListItem, ctx: Ctx): JSX.Element {
   );
 }
 
-function renderInline(token: Token, ctx: Ctx): JSX.Element {
+function renderInline(token: Token, ctx: Accessor<Ctx>): JSX.Element {
   switch (token.type) {
     case "escape":
       return token.text;
@@ -248,7 +260,7 @@ function renderInline(token: Token, ctx: Ctx): JSX.Element {
       );
     case "codespan":
       return (
-        <code class={ctx.styles.codespan} style={subtleBoxStyle}>
+        <code class={ctx().styles.codespan} style={subtleBoxStyle}>
           {token.text}
         </code>
       );
@@ -256,20 +268,29 @@ function renderInline(token: Token, ctx: Ctx): JSX.Element {
       return <br />;
     case "link": {
       const href = safeHref(token.href);
-      const content = <InlineTokens tokens={token.tokens ?? []} ctx={ctx} />;
-      return href && ctx.links ? (
-        <a
-          href={href}
-          target="_blank"
-          rel="noopener noreferrer"
-          class="pointer-events-auto underline decoration-current/40 underline-offset-2 hover:decoration-current"
-          onClick={(e) => e.stopPropagation()}
-          onPointerDown={(e) => e.stopPropagation()}
+      // `links` is read reactively (via the ctx accessor inside Show) so
+      // toggling the prop after mount swaps anchor↔span in place — without
+      // re-lexing, since the token memo is keyed on markdown + variant only.
+      return (
+        <Show
+          when={href && ctx().links}
+          fallback={
+            <span>
+              <InlineTokens tokens={token.tokens ?? []} ctx={ctx} />
+            </span>
+          }
         >
-          {content}
-        </a>
-      ) : (
-        <span>{content}</span>
+          <a
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            class="pointer-events-auto underline decoration-current/40 underline-offset-2 hover:decoration-current"
+            onClick={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <InlineTokens tokens={token.tokens ?? []} ctx={ctx} />
+          </a>
+        </Show>
       );
     }
     case "image":
@@ -297,14 +318,11 @@ export const Markdown: Component<{
   links?: boolean;
 }> = (props) => {
   const variant = (): MarkdownVariant => props.variant ?? "document";
-  // ctx is memoised so one Ctx object is shared across the JSX tree for a
-  // given render — the block wrapper and its BlockTokens child see the same
-  // reference. `links` defaults on for block variants, off for inline, and
-  // is resolved here during render: the token walk is memoised on markdown +
-  // variant only, so a links-only change re-lexes nothing — and, since the
-  // `For` children are built once per token, it won't re-render on its own
-  // either. Nothing drives `links` reactively today; a consumer that needs
-  // to should react at the render layer rather than re-parse on each toggle.
+  // ctx is a memo passed down as an accessor. `links` defaults on for block
+  // variants, off for inline. A `links`-only change recomputes this memo but
+  // does NOT re-lex (the token walk below is keyed on markdown + variant); the
+  // link branch in renderInline reads ctx() inside a <Show>, so anchors/spans
+  // swap in place reactively without rebuilding the token tree.
   const ctx = createMemo<Ctx>(() => {
     const v = variant();
     return {
@@ -322,10 +340,10 @@ export const Markdown: Component<{
   return (
     <Show
       when={variant() !== "inline"}
-      fallback={<InlineTokens tokens={tokens()} ctx={ctx()} />}
+      fallback={<InlineTokens tokens={tokens()} ctx={ctx} />}
     >
       <div class={ctx().styles.block}>
-        <BlockTokens tokens={tokens()} ctx={ctx()} />
+        <BlockTokens tokens={tokens()} ctx={ctx} />
       </div>
     </Show>
   );
