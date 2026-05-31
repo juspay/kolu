@@ -296,6 +296,18 @@ export class HostSession<C extends AnyContractRouter> {
     this.clientPromise = null;
   }
 
+  /** Assign and fire a new spawn, suppressing the rejection — spawn
+   *  surfaces failure via state updates; the promise rejection is
+   *  intentionally not propagated to callers. The three "fire and
+   *  forget" spawn sites (reconnect, recheck, scheduleReconnect timer)
+   *  all use this pattern. */
+  private launchSpawn(): void {
+    this.clientPromise = this.spawn();
+    this.clientPromise.catch(() => {
+      /* spawn surfaces failure via state; we just clear the promise */
+    });
+  }
+
   private updateState(patch: Partial<HostSessionState>): void {
     const prev = this.stateCell.current();
     const next: HostSessionState = { ...prev, ...patch };
@@ -532,10 +544,7 @@ export class HostSession<C extends AnyContractRouter> {
     if (this.destroyed || this.refCount === 0) return;
     if (this.clientPromise !== null || this.pendingTimer !== null) return;
     this.consecutiveFailures = 0;
-    this.clientPromise = this.spawn();
-    this.clientPromise.catch(() => {
-      /* spawn surfaces failure via state; we just clear the promise */
-    });
+    this.launchSpawn();
   }
 
   /** Re-probe the link after a host sleep or network change — the
@@ -572,10 +581,7 @@ export class HostSession<C extends AnyContractRouter> {
       return;
     }
     if (this.clientPromise !== null) return;
-    this.clientPromise = this.spawn();
-    this.clientPromise.catch(() => {
-      /* spawn surfaces failure via state; we just clear the promise */
-    });
+    this.launchSpawn();
   }
 
   private scheduleReconnect(cause: FailureCause): void {
@@ -627,10 +633,7 @@ export class HostSession<C extends AnyContractRouter> {
     );
     this.armTimer(delay, () => {
       if (this.destroyed || this.refCount === 0) return;
-      this.clientPromise = this.spawn();
-      this.clientPromise.catch(() => {
-        /* spawn surfaces failure via state; we just clear the promise */
-      });
+      this.launchSpawn();
     });
   }
 
