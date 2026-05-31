@@ -111,13 +111,17 @@ export function buildRemoteRunnerCommand(opts: RemoteOptions): Spawnable {
     opts.pipeline !== undefined
       ? ` --pipeline ${shellQuote(opts.pipeline)}`
       : "";
-  // Quote the flakeref so the remote shell keeps the `#attr` literal (a bare
-  // `#` would start a comment), and shell-quote `dir` so a user-supplied
-  // `--remote-dir` with spaces or metacharacters doesn't break the command.
-  // Nix's own build logs go to stderr, leaving stdout as the oRPC protocol
-  // channel.
-  const flakeref = shellQuote(`path:${dir}#${RUNNER_FLAKE_ATTR}`);
-  const remoteCmd = `nix run ${flakeref} --accept-flake-config -- --stdio${pipelineFlag}`;
+  // `cd` into the shipped dir, then resolve its *physical* path with `pwd -P`
+  // for the flakeref. On macOS /tmp is a symlink to /private/tmp, and nix's
+  // `path:` flakeref refuses a symlinked path component ("path '/tmp' is a
+  // symlink"); `pwd -P` canonicalizes it on whichever host we land on. The
+  // double-quotes let the remote shell expand `$(pwd -P)` while keeping the
+  // `#attr` literal (a bare `#` would start a comment); `dir` is shell-quoted
+  // so a user-supplied `--remote-dir` with metacharacters is safe. Nix's build
+  // logs go to stderr, leaving stdout as the oRPC protocol channel.
+  const remoteCmd =
+    `cd ${shellQuote(dir)} && ` +
+    `nix run "path:$(pwd -P)#${RUNNER_FLAKE_ATTR}" --accept-flake-config -- --stdio${pipelineFlag}`;
   return { command: "ssh", args: [...SSH_COMMON_OPTS, opts.host, remoteCmd] };
 }
 

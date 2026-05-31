@@ -291,9 +291,11 @@ describe("transport — only the link differs (argv shape)", () => {
     expect(remote.args).toContain("ServerAliveInterval=10");
     const remoteCmd = remote.args.at(-1) ?? "";
     // Builds + runs from the shipped flake source — no toolchain assumed.
-    // path: and the flake attr are single-quoted so the remote shell keeps the
-    // `#attr` literal and spaces/metacharacters in the path don't break it.
-    expect(remoteCmd).toContain("nix run 'path:/tmp/x#mini-ci-runner'");
+    // `pwd -P` resolves the physical path (macOS /tmp → /private/tmp) so nix's
+    // `path:` flakeref doesn't reject a symlinked component; the `#attr` stays
+    // literal inside the double quotes.
+    expect(remoteCmd).toContain("cd '/tmp/x'");
+    expect(remoteCmd).toContain('nix run "path:$(pwd -P)#mini-ci-runner"');
     expect(remoteCmd).toContain("--stdio");
   });
 });
