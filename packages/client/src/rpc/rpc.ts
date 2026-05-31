@@ -11,6 +11,7 @@
  * `ws` for transport events and `client.server.info` for identity.
  */
 
+import type { ServerInfo } from "kolu-common/contract";
 import { createMemo, createSignal } from "solid-js";
 import { match } from "ts-pattern";
 import { client, ws } from "../wire";
@@ -36,6 +37,12 @@ const [lifecycle, setLifecycle] = createSignal<ServerLifecycleEvent>({
 });
 
 export { lifecycle };
+
+/** The full `server.info` reply from the latest probe — carries the server's
+ *  commit + the in-process pty-host identity for the ChromeBar's `srv · pty`
+ *  rail. `null` until the first probe resolves. */
+const [serverInfo, setServerInfo] = createSignal<ServerInfo | null>(null);
+export { serverInfo };
 
 /** Transport status for the header dot. */
 const wsStatus = createMemo<WsStatus>(() =>
@@ -70,7 +77,9 @@ export { serverProcessId, wsStatus };
     // fails fast; partysocket will fire another `open` after reconnect.
     client.server
       .info()
-      .then(({ processId }) => {
+      .then((info) => {
+        setServerInfo(info);
+        const { processId } = info;
         if (isFirstConnect) {
           knownProcessId = processId;
           setLifecycle({ kind: "connected", processId });

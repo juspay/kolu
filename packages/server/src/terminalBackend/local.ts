@@ -132,6 +132,15 @@ const ptyHostClient: PtyHostClient = createInProcessPtyHostClient({
   version: pkg.version,
 });
 
+/** The in-process pty-host's self-declared identity (its own commit + closure
+ *  staleKey), fetched once at boot through the contract. Surfaced on
+ *  `server.info` for the ChromeBar's `srv · pty` rail. The `directLink` call
+ *  has no wire, so this settles immediately; `router.ts` awaits it in the
+ *  `server.info` handler. */
+export const ptyHostIdentity = ptyHostClient.surface.system
+  .version({})
+  .then((v) => v.identity);
+
 // ── The contract-backed terminal handle ─────────────────────────────────
 
 /** A `TerminalHandle` whose control verbs forward through the pty-host client.

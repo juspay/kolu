@@ -40,11 +40,16 @@ describe("createInProcessPtyHostClient — contract serving (no child)", () => {
     client = makeClient();
   });
 
-  it("serves a self-compatible version handshake", async () => {
+  it("serves a self-compatible version handshake with a build identity", async () => {
     const v = await client.surface.system.version({});
     expect(v.contractVersion).toBe(PTY_HOST_CONTRACT_VERSION);
     expect(v.pid).toBe(process.pid);
     expect(typeof v.startedAt).toBe("number");
+    // A2: the optional identity is always populated in-process — two strings
+    // (empty off-nix, where KOLU_PTY_HOST_BUILD_ID / KOLU_COMMIT_HASH aren't
+    // baked). Phase B compares staleKey against the server's expected build.
+    expect(typeof v.identity?.staleKey).toBe("string");
+    expect(typeof v.identity?.navigableCommit).toBe("string");
   });
 
   it("heartbeat returns a timestamp", async () => {

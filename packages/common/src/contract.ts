@@ -125,7 +125,19 @@ export const ServerInfoSchema = z.object({
   identity: ServerIdentitySchema,
   /** Unique ID for this server process — changes on restart. */
   processId: z.string().uuid(),
+  /** Git commit this kolu-server was built from (`KOLU_COMMIT_HASH`), the
+   *  GitHub-navigable ref for the ChromeBar's `srv` column. `""` off-nix. */
+  commit: z.string(),
+  /** The in-process pty-host's identity (its own commit + closure staleKey),
+   *  fetched once at boot via `system.version`. The shape mirrors
+   *  `@kolu/pty-host`'s `PtyHostIdentity`, duplicated inline to avoid a
+   *  `pty-host → kolu-common` import cycle. Optional: a future surviving
+   *  daemon may predate it (phase B). */
+  ptyHost: z
+    .object({ staleKey: z.string(), navigableCommit: z.string() })
+    .optional(),
 });
+export type ServerInfo = z.infer<typeof ServerInfoSchema>;
 
 // ── The contract ──────────────────────────────────────────────────────
 

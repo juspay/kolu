@@ -20,12 +20,13 @@ import { prValue } from "kolu-github/schemas";
 import { loadOpenCodeTranscript } from "kolu-opencode";
 import { transcriptToHtml } from "kolu-transcript-html";
 import { match } from "ts-pattern";
-import { serverHostname, serverProcessId } from "./hostname.ts";
+import { serverCommit, serverHostname, serverProcessId } from "./hostname.ts";
 import { log } from "./log.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import { surfaceRouter, t } from "./surface.ts";
 import { getTerminal, type TerminalProcess } from "./terminal-registry.ts";
 import { getTerminalBackendFor } from "./terminalBackend/index.ts";
+import { ptyHostIdentity } from "./terminalBackend/local.ts";
 import { saveTerminalFile } from "./terminalScratch.ts";
 import { unwrapGit } from "./unwrapGit.ts";
 import {
@@ -68,6 +69,8 @@ export const appRouter = t.router({
     info: t.server.info.handler(async () => ({
       identity: pwaIdentityForHostname(serverHostname),
       processId: serverProcessId,
+      commit: serverCommit,
+      ptyHost: await ptyHostIdentity,
     })),
   },
   terminal: {

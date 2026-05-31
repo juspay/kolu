@@ -38,9 +38,11 @@ export {
 export {
   isPtyHostContractCompatible,
   PTY_HOST_CONTRACT_VERSION,
+  PtyHostIdentitySchema,
   ptyHostSurface,
   type PtyHostDataMsg,
   type PtyHostForegroundMsg,
+  type PtyHostIdentity,
   type PtyHostListEntry,
   type PtyHostSurface,
   type PtyHostSystemVersion,
@@ -57,3 +59,9 @@ export {
   type PtyHostClient,
   servePtyHost,
 } from "./inProcessPtyHost.ts";
+
+// The running build identity — `currentBuildId()` (the staleKey, a hash of
+// this package's source closure) and `currentCommitHash()` (the navigable git
+// ref), both read from nix-baked env. VALUE exports: a type-only re-export
+// would collapse them to nothing at runtime.
+export { currentBuildId, currentCommitHash } from "./buildId.ts";

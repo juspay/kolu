@@ -36,14 +36,9 @@ import {
   RestoreIcon,
   SettingsIcon,
 } from "./ui/Icons";
+import IdentityRail from "./ui/IdentityRail";
 import Kbd from "./ui/Kbd";
 import Tip from "./ui/Tip";
-
-const statusStyles: Record<WsStatus, string> = {
-  connecting: "bg-warning animate-pulse",
-  open: "bg-ok",
-  closed: "bg-danger",
-};
 
 // Shared base for the square icon toggles in the control cluster
 // (maximize, dock, inspector). Active/idle coloring is layered on via
@@ -127,12 +122,7 @@ const ChromeBar: Component<{
         >
           <img src="/favicon.svg" alt="kolu" class="w-5 h-5" />
         </a>
-        <Tip label="Connection status">
-          <span
-            data-ws-status={props.status}
-            class={`inline-block w-2 h-2 rounded-full transition-colors ${statusStyles[props.status]}`}
-          />
-        </Tip>
+        <IdentityRail status={props.status} />
       </div>
 
       {/* Middle spacer — pointer-events pass through to whatever the

@@ -127,10 +127,27 @@ const ForegroundMsgSchema = z.object({
   foregroundPid: z.number().int().optional(),
 });
 
+/** The running pty-host's self-declared build identity, surfaced on
+ *  `system.version` for the ChromeBar's `srv · pty` readout. `staleKey` is the
+ *  hash of the `@kolu/pty-host` source closure (nix bakes
+ *  `KOLU_PTY_HOST_BUILD_ID`) — it flips iff a restart would load different
+ *  pty-host wire/behaviour code, the input to phase B's "update pending"
+ *  derivation. `navigableCommit` is the git ref this kolu was built from
+ *  (`KOLU_COMMIT_HASH`), the GitHub-clickable identity. */
+export const PtyHostIdentitySchema = z.object({
+  staleKey: z.string(),
+  navigableCommit: z.string(),
+});
+export type PtyHostIdentity = z.infer<typeof PtyHostIdentitySchema>;
+
 const SystemVersionOutputSchema = z.object({
   contractVersion: z.string(),
   pid: z.number().int(),
   startedAt: z.number(),
+  /** Optional so a future surviving daemon that predates this field stays
+   *  wire-compatible without a forced restart (additive — no
+   *  `PTY_HOST_CONTRACT_VERSION` bump). */
+  identity: PtyHostIdentitySchema.optional(),
 });
 
 const SystemHeartbeatOutputSchema = z.object({ ts: z.number() });

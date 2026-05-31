@@ -62,6 +62,32 @@ let
   # cache; koluStamped sed-replaces it with the real hash afterwards.
   koluCommitPlaceholder = "__KOLU_COMMIT_PLACEHOLDER__";
 
+  # The staleKey (R-4 A2): a content hash of the @kolu/pty-host source closure
+  # — the survivor's wire + behaviour. Baked into KOLU_PTY_HOST_BUILD_ID below
+  # so the server (and, in phase B, a surviving daemon) can tell whether a
+  # restart would load different pty-host code. Scoped to packages/pty-host/src
+  # (+ package.json for dep pins) so server-/client-only deploys leave it
+  # unchanged — no over-prompting. LC_ALL=C sort makes the hash byte-identical
+  # across Darwin/Linux. The .ts set hashed here is asserted to equal the
+  # contract's reachable closure by packages/pty-host/src/buildId.closure.test.ts
+  # — keep the fileFilter and that test in lockstep.
+  ptyHostSrc = pkgs.lib.fileset.toSource {
+    root = ./packages/pty-host;
+    fileset = pkgs.lib.fileset.unions [
+      (pkgs.lib.fileset.fileFilter
+        (f: f.hasExt "ts" && !pkgs.lib.hasSuffix ".test.ts" f.name)
+        ./packages/pty-host/src)
+      ./packages/pty-host/package.json
+    ];
+  };
+
+  ptyHostBuildId = builtins.readFile (pkgs.runCommand "kolu-pty-host-build-id"
+    { src = ptyHostSrc; } ''
+    cd "$src"
+    find . -type f | LC_ALL=C sort | xargs cat | sha256sum | cut -c1-64 \
+      | tr -d '\n' > $out
+  '');
+
   kolu = pkgs.stdenv.mkDerivation {
     pname = "kolu";
     version = "0.1.0";
@@ -166,6 +192,8 @@ let
       --add-flags "${koluStamped}/packages/server/src/index.ts" \
       --set KOLU_CLIENT_DIST "${koluStamped}/packages/client/dist" \
       --set KOLU_GH_BIN "${koluEnv.KOLU_GH_BIN}" \
+      --set KOLU_COMMIT_HASH "${commitHash}" \
+      --set KOLU_PTY_HOST_BUILD_ID "${ptyHostBuildId}" \
       --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.nodejs pkgs.git pkgs.gh ]} \
       --run 'if [ -n "''${KOLU_DIAG_DIR:-}" ]; then
                KOLU_DIAG_DIR="$KOLU_DIAG_DIR/$(date +%Y%m%dT%H%M%S)-$$"

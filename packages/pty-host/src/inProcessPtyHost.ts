@@ -33,6 +33,7 @@ import { ORPCError } from "@orpc/server";
 import { DEFAULT_SCROLLBACK } from "kolu-common/config";
 import { cleanEnv, koluIdentityEnv, prepareShellInit } from "kolu-pty";
 import type { Logger } from "kolu-shared";
+import { currentBuildId, currentCommitHash } from "./buildId.ts";
 import { createPtyHost, type PtyId } from "./ptyHost.ts";
 import { PTY_HOST_CONTRACT_VERSION, ptyHostSurface } from "./ptyHostSurface.ts";
 
@@ -224,6 +225,10 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
           contractVersion: PTY_HOST_CONTRACT_VERSION,
           pid: process.pid,
           startedAt,
+          identity: {
+            staleKey: currentBuildId(),
+            navigableCommit: currentCommitHash(),
+          },
         }),
         heartbeat: async () => ({ ts: Date.now() }),
       },
