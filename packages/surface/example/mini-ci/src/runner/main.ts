@@ -10,6 +10,7 @@
  * stderr too, but this module avoids it for clarity.
  */
 
+import { parseArgs } from "node:util";
 import { serveOverStdio } from "@kolu/surface/peer-server";
 import { loadPipeline } from "../common/pipeline";
 import { createRunner } from "./runner";
@@ -33,12 +34,16 @@ function usage(): never {
 }
 
 async function main(): Promise<void> {
-  const args = process.argv.slice(2);
-  if (!args.includes("--stdio")) usage();
+  const { values } = parseArgs({
+    args: process.argv.slice(2),
+    options: {
+      stdio: { type: "boolean" },
+      pipeline: { type: "string" },
+    },
+  });
+  if (!values.stdio) usage();
 
-  const pipelineIdx = args.indexOf("--pipeline");
-  const pipelinePath = pipelineIdx >= 0 ? args[pipelineIdx + 1] : undefined;
-  const spec = loadPipeline(pipelinePath);
+  const spec = loadPipeline(values.pipeline);
 
   const runner = createRunner(spec);
   runner.start();
