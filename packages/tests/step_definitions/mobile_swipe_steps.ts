@@ -73,6 +73,41 @@ When("I swipe left on the mobile key bar", async function (this: KoluWorld) {
   await dispatchSwipe(this, -200, '[data-testid="mobile-key-bar"]');
 });
 
+// The active mobile tile is the one whose body is shown (`data-visible`).
+// Capturing its terminal id before/after a gesture is renderer-independent —
+// unlike reading xterm's canvas-backed `.xterm-screen` text — so it cleanly
+// proves whether a swipe cycled the tile.
+const ACTIVE_TILE = "[data-visible][data-terminal-id]";
+
+When("I remember the active mobile terminal", async function (this: KoluWorld) {
+  const id = await this.page
+    .locator(ACTIVE_TILE)
+    .first()
+    .getAttribute("data-terminal-id");
+  assert.ok(id, "No active mobile terminal to remember");
+  this.savedActiveTerminalId = id;
+});
+
+Then(
+  "the active mobile terminal should be unchanged",
+  async function (this: KoluWorld) {
+    const before = this.savedActiveTerminalId;
+    assert.ok(
+      before,
+      "No remembered active terminal — call 'I remember the active mobile terminal' first",
+    );
+    const after = await this.page
+      .locator(ACTIVE_TILE)
+      .first()
+      .getAttribute("data-terminal-id");
+    assert.strictEqual(
+      after,
+      before,
+      `Expected the active mobile terminal to stay ${before}, but it switched to ${after}`,
+    );
+  },
+);
+
 Then(
   "the active terminal should not show {string}",
   async function (this: KoluWorld, text: string) {

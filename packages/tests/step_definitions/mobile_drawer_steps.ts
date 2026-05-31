@@ -184,6 +184,17 @@ When("I tap the mobile dock backdrop", async function (this: KoluWorld) {
   await tapBackdropAtSafePoint(this, DOCK_BACKDROP, "left");
 });
 
+When("I open the dock without moving focus", async function (this: KoluWorld) {
+  // Fire the handle's onClick via a synthetic click instead of a real tap.
+  // A real .tap() focuses the <button>, so Corvu would capture the button as
+  // its restore-focus target on open — masking the bug. On real mobile,
+  // tapping a button doesn't move focus, so the terminal textarea stays
+  // active and Corvu captures *it*; the synthetic click reproduces that, so
+  // close-time restoreFocus has the textarea to (wrongly) summon.
+  await this.page.locator(DOCK_HANDLE).dispatchEvent("click");
+  await this.waitForFrame();
+});
+
 When("I tap the inactive mobile dock row", async function (this: KoluWorld) {
   // The drawer always shows every terminal; one carries `data-active`. The
   // other(s) are tap targets to switch. With the two-terminal background

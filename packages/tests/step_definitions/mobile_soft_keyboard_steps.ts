@@ -376,13 +376,24 @@ Then(
   async function (this: KoluWorld) {
     // Reuses the document-capture probe armed above. Corvu's Drawer defaults
     // to restoreFocus=true, which on close re-focuses the element active
-    // before it opened — the terminal textarea (auto-focused on mount) —
-    // popping the soft keyboard. The drawers pass restoreFocus={false}; this
-    // asserts the backdrop dismissal leaves the keyboard down.
+    // before it opened — here the terminal textarea — popping the soft
+    // keyboard. The drawers pass restoreFocus={false}; this asserts the
+    // backdrop dismissal leaves the keyboard down.
+    //
+    // The restore fires asynchronously, AFTER the close transition — later
+    // than the "sheet not visible" wait — so reading the counter immediately
+    // would race ahead of the bug and pass vacuously. Actively wait for a pop
+    // (bounded); if none arrives the keyboard stayed down.
+    const popped = await this.page
+      .waitForFunction(
+        () => ((window as FocusProbeWindow).__textareaFocusCount ?? 0) > 0,
+        { timeout: 1500 },
+      )
+      .then(() => true)
+      .catch(() => false);
     const count = await teardownDocumentCaptureProbe(this);
-    assert.strictEqual(
-      count,
-      0,
+    assert.ok(
+      !popped && count === 0,
       `Expected no helper-textarea focus when dismissing the dock on touch (closing must not summon the keyboard), got ${count}`,
     );
   },
