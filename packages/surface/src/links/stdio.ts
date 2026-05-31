@@ -47,6 +47,7 @@ import type {
   StandardRequest,
 } from "@orpc/standard-server";
 import { ClientPeer } from "@orpc/standard-server-peer";
+import { shouldNotRetryORPCError } from "../client";
 
 /** A `Readable`/`Writable` pair the link reads and writes from. */
 export interface StdioLinkOptions {
@@ -156,18 +157,33 @@ export class StdioRPCLink<T extends ClientContext> extends StandardRPCLink<T> {
   }
 }
 
-/** Build a typed oRPC client wired to a stdio transport with the same
- *  `ClientRetryPlugin` install as `createCellsClient` does for WebSocket.
- *  Headline shape for consumers — the parent-side bridge of R-1.5's
- *  remote-process-monitor demo and R-2's `RemoteTerminalBackend` both
- *  call this. */
+/** Build a typed oRPC client wired to a stdio transport, with
+ *  `ClientRetryPlugin` installed (like `createCellsClient` for WebSocket)
+ *  plus a `shouldNotRetryORPCError` default — see the call below for why
+ *  the stdio factory pins that fence and the WebSocket one leaves it to
+ *  per-call `STREAM_RETRY`. Headline shape for consumers — the parent-side
+ *  bridge of R-1.5's remote-process-monitor demo and R-2's
+ *  `RemoteTerminalBackend` both call this. */
 export function createStdioCellsClient<C extends AnyContractRouter>(
   opts: StdioLinkOptions,
 ): ContractRouterClient<C, ClientRetryPluginContext> {
   const link = new StdioRPCLink<ClientRetryPluginContext>({
     read: opts.read,
     write: opts.write,
-    plugins: [new ClientRetryPlugin()],
+    // Factory-level fallback: never retry an `ORPCError`. A closed-
+    // transport rejection (`SURFACE_STDIO_TRANSPORT_CLOSED`) is an
+    // ORPCError, so a caller that opts into `retry: N` won't burn N
+    // round-trips against a dead link before failing. Default `retry` is 0,
+    // so this only bites callers that ask for retries — but the factory is
+    // public API. `STREAM_RETRY` (the per-call streaming context WebSocket
+    // consumers thread) applies the same `shouldNotRetryORPCError` policy;
+    // stdio callers may not thread a context, so the link sets it as the
+    // plugin default instead. Shared predicate keeps the two in lockstep.
+    plugins: [
+      new ClientRetryPlugin({
+        default: { shouldRetry: shouldNotRetryORPCError },
+      }),
+    ],
   });
   return createORPCClient<ContractRouterClient<C, ClientRetryPluginContext>>(
     link,
