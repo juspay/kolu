@@ -35,18 +35,17 @@ function shortId(id: string | null | undefined): string {
   return tail.length > 12 ? `${tail.slice(0, 12)}…` : tail;
 }
 
-const IdentityRail: Component<{ status: WsStatus }> = (props) => {
-  // pty liveness in A2 mirrors the WebSocket link: the pty-host is in-process,
-  // so it's alive iff the server is reachable. With the link down we can't know
-  // the pty state, so the dot reads "unknown" (grey) rather than a false green.
-  // Phase B derives connected | outdated | dead from the build comparison.
-  const ptyDot = () =>
-    props.status === "open"
-      ? "bg-ok"
-      : props.status === "connecting"
-        ? "bg-warning animate-pulse"
-        : "bg-fg-3/50";
+/** pty-host liveness dot in A2: mirrors the WebSocket status but with a
+ *  different "closed" value — grey ("unknown") rather than red, because with
+ *  the link down we can't claim pty state. Phase B replaces "closed" with a
+ *  real daemon-state derivation (connected | outdated | dead). */
+const ptyDot: Record<WsStatus, string> = {
+  open: "bg-ok",
+  connecting: "bg-warning animate-pulse",
+  closed: "bg-fg-3/50", // link down → pty state unknown, not dead
+};
 
+const IdentityRail: Component<{ status: WsStatus }> = (props) => {
   // srv and pty coincide when connected and the relayed pty commit equals the
   // server's own — the A2 acceptance signal that the plumbing agrees. A plain
   // function (single consumer, per solidjs.md); still reactive inside <Show>.
@@ -76,7 +75,7 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
         <span class="text-[9px] uppercase tracking-wide text-fg-3">pty</span>
         <Tip label="Terminal host (in-process)">
           <span
-            class={`inline-block h-[7px] w-[7px] rounded-full ${ptyDot()}`}
+            class={`inline-block h-[7px] w-[7px] rounded-full ${ptyDot[props.status]}`}
           />
         </Tip>
         <Commit sha={serverInfo()?.ptyHost?.navigableCommit} />
