@@ -104,6 +104,10 @@ export class LinkStdioClient<T extends ClientContext>
           }\n`,
         );
       });
+      // Both settle paths tear the link down — `readFramedLines` resolves
+      // on stream 'end' and rejects on 'error'. Handle both with `.then`
+      // (NOT `.finally`, which would re-throw the rejection into this
+      // discarded promise as an unhandled rejection).
     }).then(
       () => this.handleTransportClosed(),
       () => this.handleTransportClosed(),
