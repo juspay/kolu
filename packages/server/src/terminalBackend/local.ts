@@ -134,12 +134,18 @@ const ptyHostClient: PtyHostClient = createInProcessPtyHostClient({
 
 /** The in-process pty-host's self-declared identity (its own commit + closure
  *  staleKey), fetched once at boot through the contract. Surfaced on
- *  `server.info` for the ChromeBar's `srv · pty` rail. The `directLink` call
- *  has no wire, so this settles immediately; `router.ts` awaits it in the
- *  `server.info` handler. */
+ *  `server.info` for the ChromeBar's `srv · pty` rail.
+ *
+ *  Fires at module load (`router.ts` imports this module eagerly). The
+ *  `directLink` call has no wire, so it settles on the next microtask and
+ *  `server.info` never actually waits; the `.catch` keeps a failed `version()`
+ *  from rejecting the info handler (`ptyHost` is optional on the wire). Phase
+ *  B's socket variant should revisit this with a timeout — remote latency is
+ *  real then. */
 export const ptyHostIdentity = ptyHostClient.surface.system
   .version({})
-  .then((v) => v.identity);
+  .then((v) => v.identity)
+  .catch(() => undefined);
 
 // ── The contract-backed terminal handle ─────────────────────────────────
 
