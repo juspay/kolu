@@ -5,15 +5,7 @@
  * pair via base64+newline framing. Direction-neutral options (`read` /
  * `write`) so client and server use the same shape.
  *
- * Why base64+newline? The underlying peer codec emits `string |
- * ArrayBufferLike | Uint8Array` per message. ssh stdin/stdout is a byte
- * stream with no framing of its own, so two things must hold:
- *   1. Binary safety — message bytes can include `\n`, NUL, etc.; raw
- *      bytes would corrupt frame delineation.
- *   2. Frame boundaries — each message gets exactly one delimiter.
- * Base64 produces ASCII bytes that never contain `\n`, then we append a
- * newline. Decoder reads line-by-line and base64-decodes each line back
- * to the original `Uint8Array` the peer expects.
+ * Framing rationale (why base64+newline): see `./stdio-codec.ts`.
  *
  * Stdout-is-protocol gotcha (lesson #4): on the *server* side (the
  * subprocess), stdout IS the protocol channel. Any extraneous write to
@@ -136,8 +128,7 @@ export function stdioLink<C extends AnyContractRouter>(
   opts: StdioLinkOptions,
 ): ContractRouterClient<C, ClientRetryPluginContext> {
   const link = new StdioRPCLink<ClientRetryPluginContext>({
-    read: opts.read,
-    write: opts.write,
+    ...opts,
     plugins: wireRetryPlugins(),
   });
   return wireClient<C>(link);
