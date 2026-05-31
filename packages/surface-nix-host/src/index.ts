@@ -34,4 +34,4 @@ export {
   runCapture,
   runProgress,
 } from "./process";
-export { waitForNextClient } from "./waitForNextClient";
+export { type ClientCursor, makeClientCursor } from "./waitForNextClient";

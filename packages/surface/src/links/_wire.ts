@@ -16,14 +16,26 @@ import {
   type ClientRetryPluginContext,
 } from "@orpc/client/plugins";
 import type { AnyContractRouter, ContractRouterClient } from "@orpc/contract";
+import { shouldNotRetryORPCError } from "../client";
 
 /** The plugins every wire link installs at link construction. `ClientRetryPlugin`
  *  retries transport errors forever so a dropped connection transparently
  *  re-subscribes (the next iterator yields a fresh snapshot — see the
  *  Cell/Collection/Stream invariants). One home for the policy; one-shot
- *  mutations/queries don't retry (the plugin's default `retry: 0`). */
+ *  mutations/queries don't retry (the plugin's default `retry: 0`).
+ *
+ *  The default `shouldRetry` fence excludes `ORPCError` — an application
+ *  error the server chose to raise (retrying just repeats it), and the shape
+ *  a dead stdio link now rejects with (`SURFACE_STDIO_TRANSPORT_CLOSED`). So a
+ *  caller that opts into `retry: N` won't burn N round-trips against a closed
+ *  transport. Same predicate `STREAM_RETRY` threads per-call, named once in
+ *  `client.ts` so the two can't drift. */
 export function wireRetryPlugins(): ClientRetryPlugin<ClientRetryPluginContext>[] {
-  return [new ClientRetryPlugin<ClientRetryPluginContext>()];
+  return [
+    new ClientRetryPlugin<ClientRetryPluginContext>({
+      default: { shouldRetry: shouldNotRetryORPCError },
+    }),
+  ];
 }
 
 /** Wrap a constructed oRPC link in the typed contract client every wire link

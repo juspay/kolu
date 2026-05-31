@@ -211,4 +211,40 @@ describe("stdio link over loopback", () => {
     pair.server.write.end();
     await serveDone;
   });
+
+  it("rejects an RPC issued after the transport has closed, instead of hanging", async () => {
+    // Reconnect-wedge regression: a client whose stdio stream has ended
+    // (the agent subprocess exited) must FAIL a fresh RPC, not hang. In
+    // the parent's reconnect bridge, a pump that re-issued `system.get`
+    // against such a dead client used to await a response that never
+    // arrived and never errored — so `Promise.allSettled` never resolved,
+    // the reconnect loop never advanced, and every respawned agent sat
+    // idle until the connect watchdog reaped it.
+    const contract = {
+      ping: oc.input(z.object({})).output(z.string()),
+    };
+    const t = implement(contract);
+    const router = t.router({ ping: t.ping.handler(() => "pong") });
+
+    const pair = createLoopbackPair();
+    const serveDone = serveOverStdio({ router, transport: pair.server });
+    const client = stdioLink<typeof contract>({
+      read: pair.client.read,
+      write: pair.client.write,
+    });
+
+    // Link is live — one good round-trip first.
+    expect(await client.ping({})).toBe("pong");
+
+    // Agent exits: its stdout (our inbound stream) ends, tearing the link
+    // down. Let `readFramedLines` observe 'end' before the next call so
+    // this exercises the "issued after close" path, not an in-flight race.
+    pair.server.write.end();
+    await new Promise((r) => setImmediate(r));
+
+    await expect(client.ping({})).rejects.toThrow();
+
+    pair.client.write.end();
+    await serveDone;
+  });
 });

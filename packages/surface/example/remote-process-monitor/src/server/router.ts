@@ -28,8 +28,8 @@ import {
 import {
   type AgentClient,
   type HostSession,
+  makeClientCursor,
   mirrorRemoteCollection,
-  waitForNextClient,
 } from "@kolu/surface-nix-host";
 import { implement } from "@orpc/server";
 import {
@@ -153,7 +153,11 @@ export function buildRouter(opts: BuildRouterOptions) {
   // recover mid-stream (the underlying streams die with the process), so
   // the only reliable recovery is to re-issue the subscriptions on the
   // *new* client. The outer loop is what implements "reconnect → state
-  // reconciles" (row 12 of the falsifiability checklist).
+  // reconciles" (row 12 of the falsifiability checklist). This loop relies
+  // on each pump *settling* when the link drops: a pump's RPC against a
+  // dead `StdioRPCLink` rejects synchronously (the link fails fast once
+  // its inbound stream ends — it does not hang), so `Promise.allSettled`
+  // returns and the loop advances to the respawned client.
   void bridgeAgentToParent(session, fragment, browserSnapshotBus);
 
   // `implementSurface` returns a router *fragment* — `{ surface: ... }`
@@ -202,7 +206,7 @@ function log(line: string): void {
  *  happens when the link errors — stdio process death), then wait for
  *  the session to provide a fresh client (post-reconnect) and repeat.
  *
- *  The reconnect-loop primitive itself (`waitForNextClient`) lives in
+ *  The reconnect-loop primitive itself (`makeClientCursor`) lives in
  *  `@kolu/surface-nix-host`; this function is the demo-specific
  *  composition (which pumps to run on each cycle). */
 async function bridgeAgentToParent(
@@ -218,16 +222,20 @@ async function bridgeAgentToParent(
     /* logged via state cell; loop handles recovery */
   });
 
-  let lastClient: ProcessMonitorAgent | null = null;
+  // A cursor over the session's spawn lifecycle — `next()` blocks until a
+  // genuinely new spawn appears. It owns the spawn-identity token internally,
+  // so this loop can't re-introduce the busy-spin by mis-threading it (the
+  // client proxy is thenable, so comparing *it* spins once the link fails
+  // fast; the cursor compares the stable clientPromise for us).
+  const cursor = makeClientCursor(session);
   while (!session.isDestroyed()) {
     let client: ProcessMonitorAgent;
     try {
-      client = await waitForNextClient(session, lastClient);
+      client = await cursor.next();
     } catch (err) {
       log(`bridge: waiting for next client failed: ${(err as Error).message}`);
       break;
     }
-    lastClient = client;
     log("agent client ready; starting pumps");
     await Promise.allSettled([
       pumpSystemCell(client, session, fragment),

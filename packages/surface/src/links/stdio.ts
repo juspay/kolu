@@ -23,6 +23,7 @@
 
 import type { Readable, Writable } from "node:stream";
 import type { ClientContext, ClientOptions } from "@orpc/client";
+import { ORPCError } from "@orpc/client";
 import type { ClientRetryPluginContext } from "@orpc/client/plugins";
 import type {
   StandardLinkClient,
@@ -56,6 +57,19 @@ export class LinkStdioClient<T extends ClientContext>
   implements StandardLinkClient<T>
 {
   private readonly peer: ClientPeer;
+  /** Set once the inbound stream ends or errors — the transport is gone
+   *  (the subprocess exited, the ssh pipe dropped). The peer can never
+   *  produce a response after that, so `call()` rejects immediately
+   *  rather than awaiting one forever. Without this guard a request
+   *  issued on an already-dead link hangs: the link is bound to one
+   *  stream pair (see the header note — it does not reconnect), so a
+   *  consumer that hands a stale client to a fresh request gets a promise
+   *  that never settles. The parent's reconnect bridge did exactly that —
+   *  its `system.get` pump, re-issued against the just-exited child's
+   *  client, never resolved and never errored, so the reconnect loop
+   *  wedged and every respawned agent sat idle until the connect watchdog
+   *  reaped it. */
+  private closed = false;
 
   constructor(opts: StdioLinkOptions) {
     this.peer = new ClientPeer(async (message) => {
@@ -80,10 +94,22 @@ export class LinkStdioClient<T extends ClientContext>
           }\n`,
         );
       });
+      // Both settle paths tear the link down — `readFramedLines` resolves
+      // on stream 'end' and rejects on 'error'. Handle both with `.then`
+      // (NOT `.finally`, which would re-throw the rejection into this
+      // discarded promise as an unhandled rejection).
     }).then(
-      () => this.peer.close(),
-      () => this.peer.close(),
+      () => this.handleTransportClosed(),
+      () => this.handleTransportClosed(),
     );
+  }
+
+  /** Inbound stream ended (or errored): the transport is dead. Mark the
+   *  link closed so subsequent `call()`s reject, and close the peer —
+   *  which rejects any request already in flight on its response queue. */
+  private handleTransportClosed(): void {
+    this.closed = true;
+    this.peer.close();
   }
 
   async call(
@@ -92,6 +118,12 @@ export class LinkStdioClient<T extends ClientContext>
     _path: readonly string[],
     _input: unknown,
   ): Promise<StandardLazyResponse> {
+    if (this.closed) {
+      throw new ORPCError("SURFACE_STDIO_TRANSPORT_CLOSED", {
+        message:
+          "stdio transport is closed (the peer process exited or its stream ended); request not sent.",
+      });
+    }
     const response = await this.peer.request(request);
     return { ...response, body: () => Promise.resolve(response.body) };
   }

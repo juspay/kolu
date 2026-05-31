@@ -10,6 +10,14 @@
 import { ORPCError } from "@orpc/client";
 import type { ClientRetryPluginContext } from "@orpc/client/plugins";
 
+/** The retry policy shared across transports: retry transport errors,
+ *  never an `ORPCError` (an application-level error the server chose to
+ *  raise — retrying it just repeats the same failure). Named once here so
+ *  `STREAM_RETRY` (per-call streaming context) and the stdio link's
+ *  factory-level `ClientRetryPlugin` default can't drift apart. */
+export const shouldNotRetryORPCError: ClientRetryPluginContext["shouldRetry"] =
+  ({ error }) => !(error instanceof ORPCError);
+
 /** Retry context applied to every framework-driven streaming call.
  *  Transport errors retry forever (next iterator yields a fresh
  *  snapshot — see Cell/Collection/Stream invariants); application
@@ -19,7 +27,7 @@ import type { ClientRetryPluginContext } from "@orpc/client/plugins";
 export const STREAM_RETRY: ClientRetryPluginContext = {
   retry: Number.POSITIVE_INFINITY,
   retryDelay: (o) => o.lastEventRetry ?? 1000,
-  shouldRetry: ({ error }) => !(error instanceof ORPCError),
+  shouldRetry: shouldNotRetryORPCError,
 };
 
 /** Shape of an oRPC streaming procedure: takes an input and an options
