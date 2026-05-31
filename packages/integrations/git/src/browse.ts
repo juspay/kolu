@@ -1,8 +1,10 @@
 /** File tree browsing — git-filtered file listing and file reading.
  *
  *  Uses `git ls-files --cached --others --exclude-standard` to enumerate
- *  tracked + untracked-but-not-ignored paths in one shot. This avoids
- *  listing `node_modules/`, `.git/`, build artifacts, etc. */
+ *  tracked + untracked-but-not-ignored paths in one shot, then subtracts
+ *  `--deleted` so files removed from disk but still resident in the index
+ *  don't appear as ghost rows in the tree. This avoids listing
+ *  `node_modules/`, `.git/`, build artifacts, etc. */
 
 import { execFile } from "node:child_process";
 import { readFile as fsReadFile, stat as fsStat } from "node:fs/promises";
@@ -13,9 +15,18 @@ import { resolveUnder } from "./safe-path.ts";
 
 const execFileAsync = promisify(execFile);
 
-/** Flat list of every repo-relative path (tracked + untracked-but-not-ignored).
- *  One-shot snapshot for Pierre's `@pierre/trees`, which builds the tree
- *  hierarchy itself from a flat path list.
+/** Flat list of every repo-relative path visible in the working tree
+ *  (tracked + untracked-but-not-ignored, minus anything removed from
+ *  disk). One-shot snapshot for Pierre's `@pierre/trees`, which builds
+ *  the tree hierarchy itself from a flat path list.
+ *
+ *  `--cached` keeps an index entry alive after `rm <path>` until the
+ *  deletion is staged, so subtracting `--deleted` (files present in the
+ *  index but missing from the worktree) is what makes a plain `rm` show
+ *  up as the file disappearing from the Code-tab tree on the next
+ *  watcher tick. Without the subtraction, the pre- and post-rm path
+ *  arrays are byte-identical and the upstream snapshot equality check
+ *  suppresses the tick entirely — the row never disappears.
  *
  *  @param repoPath  Absolute path to the repo root.
  *  @param log       Optional logger. */
@@ -24,12 +35,19 @@ export async function listAll(
   log?: Logger,
 ): Promise<GitResult<string[]>> {
   try {
-    const { stdout } = await execFileAsync(
-      "git",
-      ["ls-files", "--cached", "--others", "--exclude-standard"],
-      { cwd: repoPath, maxBuffer: 64 * 1024 * 1024 },
-    );
-    const paths = stdout.split("\n").filter((l) => l.length > 0);
+    const opts = { cwd: repoPath, maxBuffer: 64 * 1024 * 1024 };
+    const [{ stdout: allOut }, { stdout: deletedOut }] = await Promise.all([
+      execFileAsync(
+        "git",
+        ["ls-files", "--cached", "--others", "--exclude-standard"],
+        opts,
+      ),
+      execFileAsync("git", ["ls-files", "--deleted"], opts),
+    ]);
+    const deleted = new Set(deletedOut.split("\n").filter((l) => l.length > 0));
+    const paths = allOut
+      .split("\n")
+      .filter((l) => l.length > 0 && !deleted.has(l));
     return ok(paths);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);

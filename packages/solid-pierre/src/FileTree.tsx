@@ -111,7 +111,12 @@ export const FileTree: Component<FileTreeProps> = (props) => {
       // The deferred resetPaths effect below reads it reactively for
       // subsequent changes — Pierre doesn't expose a hook to re-feed
       // `initialExpandedPaths` after the constructor, so initial and
-      // reactive paths are unavoidably two sites.
+      // reactive paths are unavoidably two sites. The constructor site
+      // also can't snapshot prior expansion from Pierre (the tree
+      // object doesn't exist yet); the createEffect site runs
+      // post-mount and CAN interrogate `tree.getItem(dir)?.isExpanded()`.
+      // Don't try to merge these two sites — they are different
+      // moments in the lifecycle with different available state.
       const selectedAncestors = props.selectedPath
         ? ancestorDirectoryPaths(props.selectedPath)
         : [];
@@ -160,6 +165,15 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   // the parents must be expanded for the row to be visible. Pierre's
   // public surface doesn't expose `expandDirectory` directly, so the
   // expand-on-select is routed through this same `resetPaths` call.
+  //
+  // Pierre's `resetPaths` builds a brand-new `PathStore` whose only open
+  // directories are those passed via `initialExpandedPaths`. Without
+  // explicitly carrying the user's current expansion state forward, every
+  // working-tree watcher tick (rm/touch/mv) would collapse every folder
+  // the user had manually opened. Snapshot the directories Pierre
+  // currently considers expanded — derived from the previous paths set —
+  // and merge them into `initialExpandedPaths` so user-toggled state
+  // survives the rebuild.
   createEffect(
     on(
       [
@@ -167,12 +181,39 @@ export const FileTree: Component<FileTreeProps> = (props) => {
         () => props.expandPaths,
         () => props.selectedPath ?? null,
       ],
-      ([paths, expandPaths, selectedPath]) => {
+      ([paths, expandPaths, selectedPath], prev) => {
         safeApply(() => {
+          // Snapshot Pierre's currently-expanded directories so they
+          // survive `resetPaths`'s fresh-PathStore rebuild. Iterate both
+          // the previous and new paths' ancestor sets to cover dirs that
+          // exist on either side of the swap. On the first deferred fire
+          // (after mount) `prev` is undefined per SolidJS `on(defer:true)`
+          // semantics; in that case the new paths alone still hold every
+          // directory Pierre currently indexes (the constructor seeded
+          // from the same `props.paths` source).
+          const previouslyExpanded: string[] = [];
+          if (tree) {
+            const seenDirs = new Set<string>();
+            const candidatePaths = [...(prev?.[0] ?? []), ...paths];
+            for (const p of candidatePaths) {
+              for (const dir of ancestorDirectoryPaths(p)) {
+                if (seenDirs.has(dir)) continue;
+                seenDirs.add(dir);
+                const item = tree.getItem(dir);
+                if (item && "isExpanded" in item && item.isExpanded()) {
+                  previouslyExpanded.push(dir);
+                }
+              }
+            }
+          }
           const ancestors = selectedPath
             ? ancestorDirectoryPaths(selectedPath)
             : [];
-          const expanded = [...(expandPaths ?? []), ...ancestors];
+          const expanded = [
+            ...previouslyExpanded,
+            ...(expandPaths ?? []),
+            ...ancestors,
+          ];
           tree?.resetPaths(paths, { initialExpandedPaths: expanded });
         }, props.onError);
       },

@@ -627,6 +627,73 @@ Feature: Code tab (review + browse)
     Then the file browser should not show a file "obsolete.txt"
     And the Code tab content should show the select hint "Select a file to view its content"
 
+  # Regression: Pierre's `resetPaths` builds a brand-new PathStore whose only
+  # open directories are those passed via `initialExpandedPaths`. The
+  # wrapper used to forward only search-derived ancestors there, so every
+  # working-tree watcher tick — `rm`, `touch`, `mv` — collapsed every
+  # folder the user had manually expanded. Snapshotting Pierre's current
+  # expansion state before each reset and re-feeding it via
+  # `initialExpandedPaths` keeps user navigation context across live
+  # filesystem updates.
+  Scenario: Deleting a file in an expanded folder leaves the folder expanded
+    When I run "rm -rf /tmp/kolu-expand-delete && git init /tmp/kolu-expand-delete && cd /tmp/kolu-expand-delete"
+    And I run "mkdir -p lib && printf 'a\n' > lib/keep.ts && printf 'b\n' > lib/drop.ts"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    And I click the directory "lib" in the file browser
+    Then the file browser should show a file "lib/drop.ts"
+    And the directory "lib" should be expanded in the file browser
+    When I click the terminal canvas
+    And I run "rm lib/drop.ts"
+    Then the file browser should not show a file "lib/drop.ts"
+    And the file browser should show a file "lib/keep.ts"
+    And the directory "lib" should be expanded in the file browser
+
+  Scenario: Creating a file in an expanded folder leaves the folder expanded
+    When I run "rm -rf /tmp/kolu-expand-create && git init /tmp/kolu-expand-create && cd /tmp/kolu-expand-create"
+    And I run "mkdir -p src && printf 'a\n' > src/existing.ts"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    And I click the directory "src" in the file browser
+    Then the file browser should show a file "src/existing.ts"
+    And the directory "src" should be expanded in the file browser
+    When I click the terminal canvas
+    And I run "printf 'b\n' > src/added.ts"
+    Then the file browser should show a file "src/added.ts"
+    And the directory "src" should be expanded in the file browser
+
+  Scenario: Renaming a file in an expanded folder leaves the folder expanded
+    When I run "rm -rf /tmp/kolu-expand-rename && git init /tmp/kolu-expand-rename && cd /tmp/kolu-expand-rename"
+    And I run "mkdir -p pkg && printf 'x\n' > pkg/before.ts"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    And I click the directory "pkg" in the file browser
+    Then the file browser should show a file "pkg/before.ts"
+    And the directory "pkg" should be expanded in the file browser
+    When I click the terminal canvas
+    And I run "mv pkg/before.ts pkg/after.ts"
+    Then the file browser should not show a file "pkg/before.ts"
+    And the file browser should show a file "pkg/after.ts"
+    And the directory "pkg" should be expanded in the file browser
+
+  # Same `--others --exclude-standard` path as the "Creating a file in
+  # an expanded folder" scenario above, but exercises the root-level
+  # untracked-file case (no `git add`, no parent dir to keep open). The
+  # All-files mode must surface a brand-new untracked file on the next
+  # debounced watcher tick — listAll's `--cached --others
+  # --exclude-standard` minus `--deleted` is what makes this work.
+  Scenario: New untracked file at the repo root appears live in All files
+    When I run "rm -rf /tmp/kolu-untracked-root && git init /tmp/kolu-untracked-root && cd /tmp/kolu-untracked-root"
+    And I run "git commit --allow-empty -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    When I click the terminal canvas
+    And I run "printf 'hello\n' > untracked.txt"
+    Then the file browser should show a file "untracked.txt"
+
   # ── Comments on files (#881) ──
   #
   # End-to-end coverage of the select → pill → composer → tray → copy

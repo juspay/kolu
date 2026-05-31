@@ -311,7 +311,17 @@ const CodeTab: Component<{
   });
 
   const treePaths = createMemo(() => {
-    if (view() === "browse") return allPaths()?.paths ?? [];
+    if (view() === "browse") {
+      const p = allPaths()?.paths;
+      // `[...p]` reads `length` and each index — required to register
+      // per-element subscriptions on the surface store array. The
+      // upstream `createReactiveSubscription` reconciles the array in
+      // place, so reading only the array reference would miss
+      // mutations the watcher ticks produce (rm/touch/mv). Without
+      // these fine-grained reads, the memo never re-evaluates and
+      // FileTree's `resetPaths` effect never fires.
+      return p ? [...p] : [];
+    }
     return status()?.files.map((f) => f.path) ?? [];
   });
 
