@@ -60,6 +60,25 @@ async function findRefClickPoint(
 When(
   "I trigger the terminal file-ref link {string}",
   async function (this: KoluWorld, refText: string) {
+    // The file-ref → Code-tab open path needs the terminal's git context
+    // (repoRoot) resolved: Terminal.tsx's onActivate bails when meta.git
+    // is still null. On the slower aarch64-darwin runner the `cd` into the
+    // repo and the ensuing git resolution lag behind the echoed
+    // `path:line` text the click targets, so the click would silently
+    // no-op (the link activates, but onActivate has no repoRoot to open
+    // with). Wait for the active tile's branch annotation to show a real
+    // branch before triggering.
+    await this.page.waitForFunction(
+      () => {
+        const el = document.querySelector(
+          '[data-testid="canvas-tile"][data-active="true"] [data-testid="terminal-meta-branch"]',
+        );
+        const t = (el?.textContent ?? "").trim();
+        return t !== "" && t !== "—";
+      },
+      undefined,
+      { timeout: POLL_TIMEOUT },
+    );
     // Buffer poll first so the regex match window has a chance to
     // include the just-echoed text.
     await waitForBufferContains(this.page, refText);

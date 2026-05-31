@@ -12,7 +12,19 @@ const cliHasFeatureArgs = process.argv
 // Default tag filter: exclude @skip'd scenarios (regression harnesses for
 // known-broken behavior). `CUCUMBER_TAGS` fully replaces the default — e.g.
 // `CUCUMBER_TAGS='@skip'` runs only skipped scenarios for local development.
-const tags = process.env.CUCUMBER_TAGS || "not @skip";
+const baseTags = process.env.CUCUMBER_TAGS || "not @skip";
+
+// Platform-conditional skip. `@skip-darwin` scenarios run on Linux but are
+// excluded on aarch64-darwin, where macOS `fs.watch`/FSEvents makes some
+// filesystem-watch behaviours unreliable — notably detecting an *externally*
+// created `.git` in the cwd (git-context.feature:59): the server can't observe
+// the new `.git` until an FSEvent invalidates its dir cache, and `fs.watch`
+// delivers that event only intermittently there. The realistic in-shell `git
+// init` path (which re-emits OSC 7) is covered separately and runs everywhere.
+const tags =
+  process.platform === "darwin"
+    ? `(${baseTags}) and not @skip-darwin`
+    : baseTags;
 
 // Scenario-level retry budget. Defaults to 0 (off) so local `just
 // test-quick` surfaces real failures on the first attempt — only CI sets
