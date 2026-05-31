@@ -31,11 +31,7 @@
 
 import type { Readable, Writable } from "node:stream";
 import type { ClientContext, ClientOptions } from "@orpc/client";
-import { createORPCClient, ORPCError } from "@orpc/client";
-import {
-  ClientRetryPlugin,
-  type ClientRetryPluginContext,
-} from "@orpc/client/plugins";
+import type { ClientRetryPluginContext } from "@orpc/client/plugins";
 import type {
   StandardLinkClient,
   StandardRPCLinkOptions,
@@ -47,6 +43,8 @@ import type {
   StandardRequest,
 } from "@orpc/standard-server";
 import { ClientPeer } from "@orpc/standard-server-peer";
+import { wireClient, wireRetryPlugins } from "./_wire";
+import { encodeFrame, readFramedLines } from "./stdio-codec";
 
 /** A `Readable`/`Writable` pair the link reads and writes from. */
 export interface StdioLinkOptions {
@@ -140,79 +138,11 @@ export function stdioLink<C extends AnyContractRouter>(
   const link = new StdioRPCLink<ClientRetryPluginContext>({
     read: opts.read,
     write: opts.write,
-    plugins: [new ClientRetryPlugin()],
+    plugins: wireRetryPlugins(),
   });
-  return createORPCClient<ContractRouterClient<C, ClientRetryPluginContext>>(
-    link,
-  );
+  return wireClient<C>(link);
 }
 
-/** Encode a single peer message into a single base64 line (no trailing
- *  newline — the caller appends it). Exported only for `serveOverStdio`,
- *  not part of the public API. */
-export function encodeFrame(
-  message: string | ArrayBufferLike | Uint8Array,
-): string {
-  if (typeof message === "string") {
-    return Buffer.from(message, "utf-8").toString("base64");
-  }
-  if (message instanceof Uint8Array) {
-    return Buffer.from(
-      message.buffer,
-      message.byteOffset,
-      message.byteLength,
-    ).toString("base64");
-  }
-  return Buffer.from(message).toString("base64");
-}
-
-/** Decode one base64 line back into a `Uint8Array` for the peer codec. */
-export function decodeFrame(line: string): Uint8Array {
-  return new Uint8Array(Buffer.from(line, "base64"));
-}
-
-/** Read line-delimited frames off `read` until the stream ends. Each
- *  non-empty line is base64-decoded and dispatched to `onFrame`. Returns
- *  a Promise that resolves on `'end'` and rejects on `'error'`.
- *
- *  Why hand-roll instead of `readline`: `readline` adds another async
- *  layer and obscures the framing assumption. The whole protocol is
- *  "one base64 line = one frame", and the loop expressing it directly is
- *  20 lines.
- *
- *  Exported so `serveOverStdio` (the server-side counterpart) can share
- *  the exact same framing — base64+newline is the wire shape, not a
- *  client-specific concern, and a divergence between client and server
- *  framing loops would be the worst kind of silent bug. */
-export async function readFramedLines(
-  read: Readable,
-  onFrame: (frame: Uint8Array) => void,
-): Promise<void> {
-  read.setEncoding("utf-8");
-  let buffer = "";
-  return new Promise<void>((resolve, reject) => {
-    read.on("data", (chunk: string) => {
-      buffer += chunk;
-      let nl = buffer.indexOf("\n");
-      while (nl !== -1) {
-        const line = buffer.slice(0, nl).trim();
-        buffer = buffer.slice(nl + 1);
-        nl = buffer.indexOf("\n");
-        if (line.length === 0) continue;
-        try {
-          onFrame(decodeFrame(line));
-        } catch (err) {
-          reject(
-            new ORPCError("SURFACE_STDIO_FRAME_DECODE_FAILED", {
-              message: `Failed to base64-decode an inbound stdio frame. The peer on the other end likely wrote non-protocol bytes to its protocol channel (e.g. logged to stdout instead of stderr — see lesson #4). Underlying error: ${(err as Error).message}`,
-              cause: err,
-            }),
-          );
-        }
-      }
-    });
-    read.on("end", resolve);
-    read.on("close", resolve);
-    read.on("error", reject);
-  });
-}
+// The base64+newline wire-framing codec (`encodeFrame` / `decodeFrame` /
+// `readFramedLines`) lives in `./stdio-codec.ts`, shared with the server peer
+// (`../peer-server.ts`) and kept off the public link export surface.

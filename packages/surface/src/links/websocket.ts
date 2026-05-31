@@ -14,13 +14,10 @@
  * and queries don't retry (the plugin's default `retry: 0` fails them fast).
  */
 
-import { createORPCClient } from "@orpc/client";
-import {
-  ClientRetryPlugin,
-  type ClientRetryPluginContext,
-} from "@orpc/client/plugins";
+import type { ClientRetryPluginContext } from "@orpc/client/plugins";
 import { RPCLink } from "@orpc/client/websocket";
 import type { AnyContractRouter, ContractRouterClient } from "@orpc/contract";
+import { wireClient, wireRetryPlugins } from "./_wire";
 
 /** Connect a typed oRPC client over a WebSocket transport, with
  *  `ClientRetryPlugin` installed. The contract type parameter pins the
@@ -41,9 +38,7 @@ export function websocketLink<C extends AnyContractRouter>(
 ): ContractRouterClient<C, ClientRetryPluginContext> {
   const link = new RPCLink<ClientRetryPluginContext>({
     websocket,
-    plugins: [new ClientRetryPlugin()],
+    plugins: wireRetryPlugins(),
   });
-  return createORPCClient<ContractRouterClient<C, ClientRetryPluginContext>>(
-    link,
-  );
+  return wireClient<C>(link);
 }
