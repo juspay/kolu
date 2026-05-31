@@ -68,12 +68,15 @@ export interface RemoteOptions {
  *  workspace's `tsx`. */
 export function buildLocalRunnerCommand(opts: LocalOptions = {}): Spawnable {
   const runnerBin = process.env.MINI_CI_RUNNER;
-  const base: Spawnable =
-    runnerBin !== undefined && runnerBin !== ""
-      ? { command: runnerBin, args: ["--stdio"] }
-      : { command: "pnpm", args: ["exec", "tsx", RUNNER_MAIN, "--stdio"] };
-  if (opts.pipeline !== undefined) base.args.push("--pipeline", opts.pipeline);
-  return base;
+  const pipelineArgs =
+    opts.pipeline !== undefined ? ["--pipeline", opts.pipeline] : [];
+  if (runnerBin !== undefined && runnerBin !== "") {
+    return { command: runnerBin, args: ["--stdio", ...pipelineArgs] };
+  }
+  return {
+    command: "pnpm",
+    args: ["exec", "tsx", RUNNER_MAIN, "--stdio", ...pipelineArgs],
+  };
 }
 
 /** The `git archive HEAD | ssh host 'tar -x'` ship — returned as two halves
@@ -109,11 +112,12 @@ export function buildRemoteRunnerCommand(opts: RemoteOptions): Spawnable {
       ? ` --pipeline ${shellQuote(opts.pipeline)}`
       : "";
   // Quote the flakeref so the remote shell keeps the `#attr` literal (a bare
-  // `#` would start a comment). Nix's own build logs go to stderr, leaving
-  // stdout as the oRPC protocol channel.
-  const remoteCmd =
-    `nix run "path:${dir}#${RUNNER_FLAKE_ATTR}" ` +
-    `--accept-flake-config -- --stdio${pipelineFlag}`;
+  // `#` would start a comment), and shell-quote `dir` so a user-supplied
+  // `--remote-dir` with spaces or metacharacters doesn't break the command.
+  // Nix's own build logs go to stderr, leaving stdout as the oRPC protocol
+  // channel.
+  const flakeref = shellQuote(`path:${dir}#${RUNNER_FLAKE_ATTR}`);
+  const remoteCmd = `nix run ${flakeref} --accept-flake-config -- --stdio${pipelineFlag}`;
   return { command: "ssh", args: [...SSH_COMMON_OPTS, opts.host, remoteCmd] };
 }
 
