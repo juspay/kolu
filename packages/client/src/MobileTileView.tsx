@@ -38,6 +38,14 @@ const VERTICAL_TOLERANCE_RATIO = 0.7;
  *  below a casual finger jitter so a real tap still opens via the
  *  click handler. */
 const PULL_OPEN_THRESHOLD = 24;
+/** Corvu @0.2.4 defaults `snapPoints` to `[0, 1]`, but on the mouse-click
+ *  open path it reads the signal before the default attaches and trips a
+ *  reactive-ordering bug (#977). Passing the value explicitly sidesteps it;
+ *  touch-driven opens hit a different code path and never trip the bug.
+ *  Shared by both drawers below — delete on the Corvu upgrade that fixes
+ *  #977. (Orthogonal to `restoreFocus`, which is a soft-keyboard policy, not
+ *  a library workaround, and so stays inline per-drawer.) */
+const CORVU_SNAP_WORKAROUND: [number, number] = [0, 1];
 
 const MobileTileView: Component<{
   /** Workspace-switcher-ordered ids — same source as the desktop dock, so
@@ -195,14 +203,13 @@ const MobileTileView: Component<{
       </div>
 
       {/* Chrome (top pull-down) drawer — global controls.
-       *  `snapPoints={[0, 1]}` carries the same Corvu 0.2.4 workaround as
-       *  the dock drawer below — both are opened via mouse-click and would
-       *  trip the same reactive-ordering bug (#977) on that path. */}
+       *  Carries `CORVU_SNAP_WORKAROUND` — same #977 sidestep as the dock
+       *  drawer below, since both open via mouse-click. */}
       <Drawer
         side="top"
         open={chromeOpen()}
         onOpenChange={setChromeOpen}
-        snapPoints={[0, 1]}
+        snapPoints={CORVU_SNAP_WORKAROUND}
         // Don't restore focus to the previously-active element on close. On a
         // touch device that element is the terminal's contenteditable /
         // helper textarea (auto-focused on mount); re-focusing it after a
@@ -226,16 +233,13 @@ const MobileTileView: Component<{
       </Drawer>
 
       {/* Dock (left swipe) drawer — terminal navigator.
-       *  `snapPoints={[0, 1]}` is the Corvu default, but passing it
-       *  explicitly sidesteps a reactive-ordering bug in @corvu/drawer@0.2.4
-       *  where the mouse-click open path reads the signal before the default
-       *  attaches (#977). Touch-driven opens hit a different code path and
-       *  don't trip the bug. */}
+       *  Carries `CORVU_SNAP_WORKAROUND` for the same #977 reason as the
+       *  chrome drawer above. */}
       <Drawer
         side="left"
         open={dockOpen()}
         onOpenChange={setDockOpen}
-        snapPoints={[0, 1]}
+        snapPoints={CORVU_SNAP_WORKAROUND}
         // See the chrome drawer above: restoring focus on close re-focuses the
         // terminal textarea and summons the soft keyboard when the user taps
         // the backdrop to dismiss the dock.
