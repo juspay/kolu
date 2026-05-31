@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Ghostex vs. Kolu remote-terminals — what their PTY-persistence decision teaches us</title>
+<style>
+  :root {
+    --fg: #1a1c20; --muted: #5b6470; --bg: #fafaf7; --panel: #ffffff;
+    --edge: #e6e2d6; --accent: #6b4eff; --accent-soft: #efebff;
+    --code-bg: #f4f1e8; --code-fg: #2a2d33;
+    --ok: #1b7a3a; --warn: #a96400; --bad: #a02a2a;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, sans-serif;
+  }
+  body { margin: 0; font: 15px/1.55 var(--sans); color: var(--fg); background: var(--bg); }
+  main { max-width: 920px; margin: 0 auto; padding: 40px 32px 80px; }
+  h1 { font-size: 27px; margin: 0 0 4px; letter-spacing: -0.01em; }
+  h2 { font-size: 19px; margin: 36px 0 10px; padding-bottom: 6px; border-bottom: 1px solid var(--edge); }
+  h3 { font-size: 15.5px; margin: 20px 0 6px; color: var(--accent); }
+  p, ul, ol { margin: 8px 0; }
+  ul, ol { padding-left: 22px; }
+  li { margin: 4px 0; }
+  code, kbd { font-family: var(--mono); font-size: 0.88em; background: var(--code-bg); color: var(--code-fg); padding: 1px 5px; border-radius: 3px; }
+  .lead { color: var(--muted); font-size: 14.5px; margin: 4px 0 18px; }
+  .pill { display: inline-block; font-size: 11px; font-family: var(--mono); padding: 1px 7px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); border: 1px solid #d4cbff; vertical-align: middle; margin-left: 4px; }
+  .pill.ok { background: #e3f4e9; color: var(--ok); border-color: #b9e1c6; }
+  .pill.warn { background: #f8efd9; color: var(--warn); border-color: #e7d2a0; }
+  .pill.bad { background: #f7e0e0; color: var(--bad); border-color: #e6b9b9; }
+  .panel { background: var(--panel); border: 1px solid var(--edge); border-radius: 8px; padding: 14px 18px; margin: 14px 0; }
+  .panel.keep { border-left: 3px solid var(--ok); }
+  .panel.drop { border-left: 3px solid var(--bad); }
+  .panel.reframe { border-left: 3px solid var(--warn); }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 13.5px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--edge); vertical-align: top; }
+  th { background: var(--code-bg); font-weight: 600; }
+  td code { font-size: 12px; }
+  .cite { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+  .k { color: var(--accent); font-weight: 600; }
+  .g { color: var(--warn); font-weight: 600; }
+  hr { border: 0; border-top: 1px dashed var(--edge); margin: 30px 0; }
+  blockquote { margin: 10px 0; padding: 2px 0 2px 14px; border-left: 3px solid var(--edge); color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+
+<h1>Ghostex vs. Kolu remote-terminals</h1>
+<p class="lead">What Ghostex's PTY-persistence choice does and doesn't teach the in-progress Kolu plan (<a href="remote-terminals.html">remote-terminals.html</a> + <a href="remote-terminals.pty-daemon.html">remote-terminals.pty-daemon.html</a>). Sources read this turn: <code>/tmp/Ghostex</code> @ HEAD and both Kolu plan docs. <span class="pill">/lowy + /hickey folded in</span> — my first three recommendations were largely <em>wrong</em>; this is the post-review version, and the headline below says what I retracted.</p>
+
+<div class="panel reframe">
+<p><strong>Headline.</strong> Ghostex makes the opposite bet to Kolu: it <strong>never owns PTY lifetime in the app</strong> — an external multiplexer (forked&nbsp;zmx, default) owns it, the native pane is a pure attach/detach projection, and remote access is the <em>same</em> mux session reached over SSH. That genuinely dissolves Kolu's whole <code>#1034</code> restart-hazard class. <strong>But it does not argue Kolu should stop building <code>@kolu/pty-host</code></strong> — Ghostex had to <em>fork</em> zmx to get the metadata IPC it needed, so it now owns a whole mux codebase <em>plus</em> a user-session model Kolu doesn't want. For Kolu's typed-metadata + zero-provider-survivor requirements, greenfield is <em>less</em> total scope, not more. The real, durable gift from Ghostex is narrower and concrete: its <strong>honest-state vocabulary</strong> (pane-state ⟂ session-state), which is exactly the model Kolu's B-phase needs to never repeat the empty-canvas lie — and which Ghostex reached independently, corroborating Kolu's reattach-by-id as a natural decomposition.</p>
+</div>
+
+<!-- ============================================================ -->
+<h2>What Ghostex is (the relevant parts)</h2>
+<p>A native macOS app: web sidebar in a <code>WKWebView</code>, every terminal a real embedded <strong>Ghostty <code>SurfaceView</code></strong> (Metal), not xterm.js. The native host owns PTY creation for live panes; node-pty is explicitly slated for removal once Ghostty owns all PTYs. <span class="cite">docs/native-ghostty-handover.md (“Code To Remove”), shared/terminal-host-protocol.ts:1-6</span></p>
+
+<p>Persistence is a <strong>pluggable provider</strong>, decoupled from the app process entirely:</p>
+<ul>
+  <li><code>SessionPersistenceProvider = "off" | "tmux" | "zmx" | "zellij"</code>, default <code>zmx</code>. <span class="cite">shared/ghostex-settings.ts:53, :456</span></li>
+  <li>The mux owns the PTY. A native pane can be <em>unmounted while the provider session still exists</em> — that orthogonality is a first-class part of the state model (see below). <span class="cite">shared/session-grid-contract-sidebar.ts:188-203</span></li>
+  <li>They <strong>forked zmx</strong> as a pinned submodule because “native zmx pane refresh depends on a first-party zmx IPC protocol that older PATH installs do not implement” — i.e. stock mux couldn't give them repaint / metadata / full-replay. <span class="cite">.gitmodules (zmx)</span></li>
+</ul>
+
+<p><strong>Remote = persistence, same mechanism.</strong> Android/iOS/TUI connect to the Mac over SSH and <em>attach to the very same named mux session</em> that provides local survival; the phone asks the Mac-side <code>ghostex</code> CLI for session inventory + attach commands. First Android release is “ZMX only,” with a warm pool of recently-tapped sessions and an app-owned SSHJ transport. <span class="cite">docs/android-handover.md (“Current State”); AllFeatures.md:77, :186</span></p>
+
+<!-- ============================================================ -->
+<h2>The architectural contrast</h2>
+<table>
+  <tr><th style="width:24%">Concern</th><th style="width:38%"><span class="g">Ghostex</span></th><th style="width:38%"><span class="k">Kolu (planned)</span></th></tr>
+  <tr>
+    <td>Who owns PTY lifetime</td>
+    <td>External mux (forked zmx / tmux / zellij). App is a pure attach/detach client.</td>
+    <td>First-party <code>@kolu/pty-host</code> daemon the app spawns and supervises (own cgroup, survives <code>systemctl restart</code>).</td>
+  </tr>
+  <tr>
+    <td>Survive app/server restart</td>
+    <td>Free — the app never owned the PTY, so a restart is never a daemon restart. No hazard.</td>
+    <td>Engineered — pid-gate, cgroup-escape, reattach-by-id, recovery sequence. The <a href="remote-terminals.pty-daemon.html#r4ui-postmortem">#1034</a> hazard class lives <em>here</em>.</td>
+  </tr>
+  <tr>
+    <td>Metadata / repaint / replay IPC</td>
+    <td>Custom — required <strong>forking zmx</strong> to add it. Now owns mux source + IPC + a user-session model.</td>
+    <td>Custom — typed oRPC surface + build-time staleness hash + a provider DAG that runs fresh in kolu-server off the daemon's stream. Owns only a headless PTY.</td>
+  </tr>
+  <tr>
+    <td>Local-survival vs remote-reach</td>
+    <td>One primitive: a <strong>named durable session</strong>. Remote = <code>ssh mac → attach &lt;name&gt;</code>. (Still two transports underneath: zmx + SSH.)</td>
+    <td>One <code>TerminalBackend</code> interface, two implementations (loopback now, ssh in R-2) behind one stable unix socket. Same shape, different name.</td>
+  </tr>
+  <tr>
+    <td>Terminal renderer</td>
+    <td>Native Ghostty/Metal. No web terminal.</td>
+    <td><code>@xterm/headless</code> mirror in the daemon + xterm in the client.</td>
+  </tr>
+  <tr>
+    <td>Honest liveness state</td>
+    <td><code>nativePaneState</code> (mounted/unmounted) ⟂ <code>providerSessionState</code> (exists/missing/persistence-disabled/unknown), derived <code>isLive</code>. <span class="cite">docs/terminology.md</span></td>
+    <td>Being built into B (status chip, degraded canvas) — the lesson <a href="remote-terminals.pty-daemon.html#r4ui-constraints">#1034</a> paid for.</td>
+  </tr>
+</table>
+
+<!-- ============================================================ -->
+<h2>What survives review — the actual influence</h2>
+
+<div class="panel keep">
+<p><strong>1. Borrow Ghostex's honest-state vocabulary verbatim.</strong> <span class="pill ok">keep</span></p>
+<p>Ghostex's split — <code>nativePaneState</code> orthogonal to <code>providerSessionState</code>, with an explicit <code>persistence-disabled</code> value <em>distinct</em> from <code>unknown</code> (off ≠ probe-not-done) — is precisely the model that makes “no pane mounted” un-confusable with “no session.” That is the exact confusion that rendered Kolu's empty canvas during #1034. Kolu's B-phase <code>DaemonStatus</code> + <code>DegradedCanvas</code> should adopt this two-axis shape and the off-vs-unknown distinction directly. <span class="cite">Ghostex session-grid-contract-sidebar.ts:202-204; Kolu remote-terminals.pty-daemon.html constraint&nbsp;#4</span></p>
+<p><em>And it corroborates Kolu's deepest bet.</em> Ghostex independently reached “the pane is a projection of a separately-owned durable session” — the same two-identity decomposition Kolu calls its proven-right core (reattach-by-id collapsing pane-id and session-id). Independent convergence shows the cut is <em>reachable from first principles</em> — not that it's provably correct (two teams can converge on the same mistake), but it's real evidence the seam is natural.</p>
+</div>
+
+<div class="panel keep">
+<p><strong>2. The remote/local convergence is agreement, not a course-correction.</strong> <span class="pill ok">keep</span></p>
+<p>Both systems end at the same layer: <em>attach to a durable named session over some transport.</em> Ghostex's unifying primitive is the named mux session; Kolu's is the <code>TerminalBackend</code> interface with a stable unix socket beneath it (loopback today, ssh tomorrow). These are the same idea under two names. Kolu's plan claim that local-survival and remote-reach are “different volatility axes” is <em>correct</em> — they change for different reasons (survival = pid/cgroup strategy; remote = transport/auth/reconnect) — but they share <strong>one stable interface</strong> (the socket / the backend), which is exactly Ghostex's named-session primitive. No change needed; Ghostex is a second data point that the interface boundary sits at the right layer.</p>
+</div>
+
+<div class="panel reframe">
+<p><strong>3. #1034 is a self-inflicted hazard — but it's a lifecycle bug in a sound seam, not a misplaced seam.</strong> <span class="pill warn">reframe</span></p>
+<p>My first draft said: the whole #1034 family (restart-loss, single-instance race, empty-canvas, cgroup-escape) exists <em>only</em> because Kolu coupled PTY-ownership to the deployable, and Ghostex's clean cut proves the seam is misplaced. <strong>Lowy corrected this.</strong> You can't infer “wrong seam” from “buggy implementation of the right seam.” #1034 was a <em>lifecycle-handshake</em> bug — the respawn raced the old daemon's pid-file release — inside a seam (cgroup + <code>O_EXCL</code> pid-gate) that is itself sound and is engineered precisely to decouple PTY lifetime from the restart boundary. Ghostex doesn't avoid the bug by drawing the seam better; it avoids the <em>entire hazard class</em> by not owning PTY lifetime at all — which is a different product with an external dependency and a user-facing session model. The honest read: the hazard is real and is the price of ownership; Kolu's B-phase recovery mechanism (snapshot-before-kill, <code>waitForPidGone</code>, honest degraded state) is what buys it down, and that is the right response — not redrawing the seam.</p>
+</div>
+
+<div class="panel drop">
+<p><strong>4. RETRACTED: “wrap/fork a proven mux instead of building from scratch.”</strong> <span class="pill bad">drop</span></p>
+<p>My instinct was: Ghostex kept the battle-tested detach/single-instance/reattach core (forked zmx) and only added IPC, so Kolu rebuilding that core is wasteful concept-multiplication. <strong>Both reviewers killed this, and the kill is convincing:</strong></p>
+<ul>
+  <li><strong>It's not the same concept.</strong> A mux (zmx/tmux) is a user-facing tool: session names, attach/detach CLI, window/pane semantics, its own lifecycle. <code>@kolu/pty-host</code> owns <em>only</em> the PTY — headless, no session model, no user commands. They share exactly one property (PTY outlives the app). “Rebuilding a mux” only sounds wasteful if you smuggle in zmx's whole session model under the word “mux.” <span class="cite">(Hickey)</span></li>
+  <li><strong>The fork is evidence <em>against</em> reuse, not for it.</strong> Ghostex couldn't consume stock zmx — it forked. So the “free detach core” isn't free; reuse means owning the mux codebase <em>plus</em> a user-session model Kolu doesn't need <em>plus</em> the IPC on top. For Kolu's actual requirements that is <em>more</em> scope, not less. <span class="cite">(both)</span></li>
+  <li><strong>It would complect the seam it claims to clean.</strong> Kolu's value is a typed oRPC metadata contract with a build-enforced staleness key. Importing a mux's wire/IPC format would braid that typed surface into zmx/zellij's format — trading a lifecycle bug for a worse, permanent coupling. <span class="cite">(Lowy)</span></li>
+</ul>
+<p>So: <strong>keep building <code>@kolu/pty-host</code>.</strong> Ghostex is not a reason to reconsider that.</p>
+</div>
+
+<div class="panel drop">
+<p><strong>5. RETRACTED: “persistence-as-pluggable-provider is an architecture seam Kolu is missing.”</strong> <span class="pill bad">drop</span></p>
+<p>Ghostex's <code>off|tmux|zmx|zellij</code> dropdown is a genuine product axis <em>for Ghostex</em> (it lets a user keep their existing tmux). But for Kolu it's a <strong>sizing/scope question, not a missing seam</strong> — and the mechanism it would make pluggable (tmux/zmx) is precisely what Kolu's daemon exists to <em>replace</em> (<a href="https://github.com/juspay/kolu/issues/671">#671</a>). Dressing a product-scope option as an architectural gap is exactly the move to avoid. Worth one product sentence — “do we ever want a ‘use my existing tmux’ escape hatch?” — and almost certainly the answer is no.</p>
+</div>
+
+<!-- ============================================================ -->
+<h2>Two reasoning errors I made (so the next pass doesn't)</h2>
+<ul>
+  <li><strong>State-model ⟂ transport-architecture.</strong> I used Ghostex's two-field liveness model (a state-decomposition fact) as evidence about how many transports Kolu should have (a transport-architecture claim). Non-sequitur — a system can have the exact two-field model with one transport or two. The honest-state borrow (#1) and the transport-convergence note (#2) are <em>independent</em> claims with independent evidence. <span class="cite">(Hickey)</span></li>
+  <li><strong>“Convergence validates it” is an easiness claim, not a simplicity one.</strong> Two teams reaching the same decomposition shows it's <em>reachable/natural</em>, not that it's <em>correct</em>. I've reworded #1 accordingly. <span class="cite">(Hickey)</span></li>
+</ul>
+
+<hr/>
+<p class="lead">Net: the influence is one concrete borrow (Ghostex's honest pane⟂session state vocabulary into Kolu's B-phase), one corroboration (reattach-by-id is a natural cut), and one reframe (#1034 is a lifecycle bug to pay down, not a seam to redraw). The tempting big swing — “lean on a mux instead of building the daemon” — does not survive a volatility/simplicity pass: Ghostex's own zmx fork is the counter-evidence. When you're ready to act on the borrow, that's a small B-phase change — use <code>do</code>.</p>
+
+</main>
+</body>
+</html>
