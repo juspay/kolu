@@ -130,9 +130,6 @@ importers:
       fix-webm-duration:
         specifier: ^1.0.6
         version: 1.0.6
-      marked:
-        specifier: ^18.0.2
-        version: 18.0.2
       memorable-names:
         specifier: workspace:*
         version: link:../memorable-names
