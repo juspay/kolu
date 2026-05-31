@@ -22,7 +22,6 @@ function git(overrides: Partial<GitInfo>): GitInfo {
     branch: "main",
     isWorktree: false,
     mainRepoRoot: "/r",
-    unpushedCommitCount: 0,
     ...overrides,
   };
 }
