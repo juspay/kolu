@@ -12,22 +12,6 @@ export const GitInfoSchema = z.object({
   branch: z.string(),
   isWorktree: z.boolean(),
   mainRepoRoot: z.string(),
-  /** Commits on the current branch that are ahead of its upstream
-   *  (`@{u}..HEAD`). 0 when there is no upstream, a detached HEAD, or the
-   *  count can't be computed — never throws. Refreshed on HEAD movement
-   *  (commit / checkout / reset, via the HEAD and reflog watchers) but NOT
-   *  on `git push` — push only moves the remote-tracking ref, which this
-   *  watcher set does not observe, so the value can lag a push until the
-   *  next HEAD event. Snapshot-at-dialog-open consumers tolerate this, and
-   *  the stale direction is safe (it errs toward keeping the worktree).
-   *
-   *  `.default(0)` is load-bearing for migration safety: `GitInfoSchema` is
-   *  embedded in the persisted + streamed `SavedSessionSchema`, so a session
-   *  saved before this field existed must still validate on reload — otherwise
-   *  `session.get`'s output validation throws `EVENT_ITERATOR_VALIDATION_FAILED`
-   *  on every reconnect and the whole saved-session subscription dies. The
-   *  watchers overwrite the 0 with the real count on the next HEAD event. */
-  unpushedCommitCount: z.number().default(0),
 });
 
 // --- Git worktree operations ---
