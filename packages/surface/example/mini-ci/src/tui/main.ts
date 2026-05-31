@@ -20,6 +20,7 @@
  * is recorded for kolu-tui (see the plan), not needed here.
  */
 
+import { parseArgs as nodeParseArgs } from "node:util";
 import {
   connectLocal,
   connectRemote,
@@ -44,39 +45,30 @@ interface Args {
 }
 
 function parseArgs(argv: string[]): Args {
-  const args: Args = { headless: false, json: false };
-  for (let i = 0; i < argv.length; i++) {
-    const flag = argv[i];
-    const value = (): string | undefined => argv[++i];
-    switch (flag) {
-      case "run":
-      case "--":
-        // `run` is the default verb; `--` is the `pnpm start -- …` separator.
-        break;
-      case "--pipeline":
-        args.pipeline = value();
-        break;
-      case "--remote":
-        args.remote = value();
-        break;
-      case "--remote-dir":
-        args.remoteDir = value();
-        break;
-      case "--attach":
-        args.attach = value();
-        break;
-      case "--headless":
-        args.headless = true;
-        break;
-      case "--json":
-        args.json = true;
-        break;
-      default:
-        process.stderr.write(`mini-ci: unknown argument "${flag}"\n`);
-        process.exit(1);
-    }
-  }
-  return args;
+  // `pnpm start -- …` forwards a literal `--`; node:util treats `--` as
+  // end-of-options (everything after becomes positional), so strip a leading
+  // one. `allowPositionals` then tolerates the optional `run` verb.
+  const cleaned = argv[0] === "--" ? argv.slice(1) : argv;
+  const { values } = nodeParseArgs({
+    args: cleaned,
+    allowPositionals: true,
+    options: {
+      pipeline: { type: "string" },
+      remote: { type: "string" },
+      "remote-dir": { type: "string" },
+      attach: { type: "string" },
+      headless: { type: "boolean" },
+      json: { type: "boolean" },
+    },
+  });
+  return {
+    pipeline: values.pipeline,
+    remote: values.remote,
+    remoteDir: values["remote-dir"],
+    attach: values.attach,
+    headless: values.headless ?? false,
+    json: values.json ?? false,
+  };
 }
 
 async function connect(args: Args): Promise<Connection> {
