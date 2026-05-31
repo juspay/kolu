@@ -36,13 +36,9 @@ export type WorktreeRemovalEligibility =
   | { eligible: true }
   | { eligible: false; reason: WorktreeRemovalBlocker; prNumber?: number };
 
-/** Presentation context for a blocker message, built from the frozen
- *  eligibility value above (never from live metadata). */
-type BlockerContext = { prNumber?: number };
-
 const BLOCKER_MESSAGES: Record<
   WorktreeRemovalBlocker,
-  (ctx: BlockerContext) => string
+  (ctx: { prNumber?: number }) => string
 > = {
   hasUnpushedCommits: () =>
     "This branch has commits that aren't pushed — it will remain on disk so you don't lose work.",
