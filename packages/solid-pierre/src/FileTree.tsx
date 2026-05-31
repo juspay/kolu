@@ -230,10 +230,13 @@ export const FileTree: Component<FileTreeProps> = (props) => {
             // nested file). Expanding each directory handle in place
             // preserves every other open folder; routing this through
             // `resetPaths` would rebuild the tree and collapse the user's
-            // hand-expanded siblings. A `getItem` returning a directory
-            // handle exposes `expand()`; re-expanding an open folder is a
-            // no-op, and files/missing paths simply fall through the
-            // `"expand" in item` guard.
+            // hand-expanded siblings. `getItem` returns a directory-or-file
+            // handle union: `"expand" in item` is the narrowing — Pierre's
+            // `isDirectory()` returns a `true`/`false` literal but isn't a
+            // `this is` predicate, so it can't narrow, whereas the `in`
+            // check both compiles and probes for the exact capability we're
+            // about to call. Re-expanding an open folder is a no-op; a file
+            // or a missing path narrows away and is skipped.
             for (const ancestor of ancestorDirectoryPaths(path)) {
               const item = tree?.getItem(ancestor);
               if (item && "expand" in item) item.expand();
