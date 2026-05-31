@@ -1,25 +1,9 @@
 {
-  "name": "ci-diamond",
+  "name": "ci",
   "tasks": [
-    {
-      "id": "build",
-      "command": "echo 'compiling…'; sleep 0.3; echo 'build ok'",
-      "needs": []
-    },
-    {
-      "id": "test",
-      "command": "echo 'running tests…'; sleep 0.5; echo '12 passed'",
-      "needs": ["build"]
-    },
-    {
-      "id": "lint",
-      "command": "echo 'linting…'; sleep 0.4; echo 'no issues'",
-      "needs": ["build"]
-    },
-    {
-      "id": "report",
-      "command": "echo 'all green — publishing report'",
-      "needs": ["test", "lint"]
-    }
+    { "id": "build", "command": "echo 'resolving deps…'; sleep 0.8; echo '✓ build ok (12 modules)'", "needs": [] },
+    { "id": "test", "command": "echo 'starting test runner…'; for s in unit integration e2e api; do sleep 0.9; echo \"  ✓ $s suite passed\"; done; echo '✓ 4 suites green'", "needs": ["build"] },
+    { "id": "lint", "command": "echo 'linting 42 files…'; sleep 1.1; echo '  style: clean'; sleep 0.8; echo '✓ no issues'", "needs": ["build"] },
+    { "id": "report", "command": "sleep 0.4; echo '✓ all green — report published'", "needs": ["test", "lint"] }
   ]
 }
