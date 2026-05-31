@@ -47,6 +47,10 @@ const RightPanelDrawer: Component<HostProps> = (props) => {
         side="bottom"
         open={rightPanel.drawerOpen()}
         onOpenChange={rightPanel.setDrawerOpen}
+        // Same soft-keyboard policy the dock/chrome drawers carry: don't
+        // restore focus to the terminal textarea on close, or backdrop-
+        // dismissing this bottom sheet pops the keyboard with no intent.
+        restoreFocus={false}
       >
         <Drawer.Portal>
           <Drawer.Overlay
