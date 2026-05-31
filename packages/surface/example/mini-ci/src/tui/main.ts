@@ -116,7 +116,10 @@ async function runHeadless(conn: Connection): Promise<never> {
 async function runInteractive(conn: Connection, args: Args): Promise<void> {
   const client = conn.client;
   let state: NodesSnapshot | undefined;
-  let attachedId = args.attach;
+  // `attachedId` is the *active* (subscribed) node; `args.attach` is only the
+  // initial *request*, validated + seeded on the first frame so attach()
+  // actually subscribes (it short-circuits when id === attachedId).
+  let attachedId: string | undefined;
   let log = "";
   // The current log subscription's teardown — `attachedId` is navigation
   // state (render, keyboard nav, rerun), so only the subscription *lifecycle*
@@ -151,9 +154,16 @@ async function runInteractive(conn: Connection, args: Args): Promise<void> {
       if (first) {
         first = false;
         conn.session.markConnected();
+        // Seed the attachment once: honour --attach if it names a real node,
+        // else the default. attachedId is undefined here, so attach()
+        // subscribes rather than short-circuiting on `id === attachedId`.
+        const initial =
+          args.attach !== undefined && next.nodes[args.attach] !== undefined
+            ? args.attach
+            : defaultAttachId(next);
+        attach(initial);
       }
       state = next;
-      if (attachedId === undefined) attach(defaultAttachId(next));
       repaint();
     }
   })();
@@ -220,8 +230,14 @@ async function pumpLog(
     )) {
       onFrame(frame);
     }
-  } catch {
-    // Aborted on attach-switch or quit — expected.
+  } catch (err) {
+    // An abort (attach-switch or quit) is the expected path; surface anything
+    // else in the log pane instead of silently freezing it.
+    if (signal.aborted) return;
+    onFrame({
+      kind: "append",
+      text: `\n[mini-ci] log stream error: ${(err as Error).message}\n`,
+    });
   }
 }
 
