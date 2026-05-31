@@ -983,18 +983,25 @@ describe.skipIf(SKIP_DARWIN_FSWATCH)("subscribeGitInfo watcher churn", () => {
     expect(_sharedReflogWatcherCount()).toBe(0);
   });
 
-  /** Tracks watcher install/retire log lines as a vitest-friendly counter. */
+  /** Tracks watcher install/retire log lines as a vitest-friendly counter.
+   *  `in-repo` mode installs both the head watcher and the reflog watcher, so
+   *  each `in-repo` transition increments both `installs` and `reflogInstalls`
+   *  by 1. */
   function makeLog() {
     let installs = 0;
     let retires = 0;
     let cwdInstalls = 0;
     let cwdRetires = 0;
+    let reflogInstalls = 0;
+    let reflogRetires = 0;
     const log = {
       info(_obj: unknown, msg: string) {
         if (msg === "git: head watcher installed") installs++;
         if (msg === "git: head watcher retired") retires++;
         if (msg === "git: cwd watcher installed") cwdInstalls++;
         if (msg === "git: cwd watcher retired") cwdRetires++;
+        if (msg === "git: reflog watcher installed") reflogInstalls++;
+        if (msg === "git: reflog watcher retired") reflogRetires++;
       },
       debug() {},
       warn() {},
@@ -1013,6 +1020,12 @@ describe.skipIf(SKIP_DARWIN_FSWATCH)("subscribeGitInfo watcher churn", () => {
       },
       get cwdRetires() {
         return cwdRetires;
+      },
+      get reflogInstalls() {
+        return reflogInstalls;
+      },
+      get reflogRetires() {
+        return reflogRetires;
       },
     };
   }
@@ -1048,8 +1061,12 @@ describe.skipIf(SKIP_DARWIN_FSWATCH)("subscribeGitInfo watcher churn", () => {
     // The bug: 2 installs + 1 retire on a single cd into a repo, plus
     // 1 retire on stop. The fix: 1 install on cd into the repo,
     // 1 retire on stop. (No watcher on the initial non-git dir.)
+    // Each `in-repo` transition installs both head and reflog watchers,
+    // so both counts are 1.
     expect(counter.installs).toBe(1);
     expect(counter.retires).toBe(1);
+    expect(counter.reflogInstalls).toBe(1);
+    expect(counter.reflogRetires).toBe(1);
   });
 
   // `git init` in the cwd a terminal is already sitting in must reach the
@@ -1092,6 +1109,8 @@ describe.skipIf(SKIP_DARWIN_FSWATCH)("subscribeGitInfo watcher churn", () => {
 
     expect(counter.installs).toBe(1);
     expect(counter.retires).toBe(1);
+    expect(counter.reflogInstalls).toBe(1);
+    expect(counter.reflogRetires).toBe(1);
     expect(counter.cwdRetires).toBe(1);
   });
 
@@ -1128,10 +1147,12 @@ describe.skipIf(SKIP_DARWIN_FSWATCH)("subscribeGitInfo watcher churn", () => {
 
     sub.stop();
 
-    // Even with both paths potentially firing, the HEAD watcher is
-    // installed exactly once.
+    // Even with both paths potentially firing, head and reflog watchers are
+    // each installed exactly once.
     expect(counter.installs).toBe(1);
     expect(counter.retires).toBe(1);
+    expect(counter.reflogInstalls).toBe(1);
+    expect(counter.reflogRetires).toBe(1);
   });
 
   it("setCwd between two distinct git repos: 1 install + 1 retire per transition", async () => {
@@ -1148,8 +1169,9 @@ describe.skipIf(SKIP_DARWIN_FSWATCH)("subscribeGitInfo watcher churn", () => {
       counter.log,
     );
 
-    // Initial subscribe installed on a's gitDir synchronously.
+    // Initial subscribe installed on a's gitDir synchronously (head + reflog).
     expect(counter.installs).toBe(1);
+    expect(counter.reflogInstalls).toBe(1);
 
     // Wait for the initial GitInfo to publish before swapping.
     await waitFor(() => updates.length >= 1);
@@ -1160,8 +1182,11 @@ describe.skipIf(SKIP_DARWIN_FSWATCH)("subscribeGitInfo watcher churn", () => {
     sub.stop();
 
     // Initial install on a + retire on transition + install on b + retire on stop.
+    // Both head and reflog watchers follow the same lifecycle, so both are 2.
     expect(counter.installs).toBe(2);
     expect(counter.retires).toBe(2);
+    expect(counter.reflogInstalls).toBe(2);
+    expect(counter.reflogRetires).toBe(2);
   });
 
   // Regression: an fs watcher event fires after the test's last awaited
@@ -1201,5 +1226,6 @@ describe.skipIf(SKIP_DARWIN_FSWATCH)("subscribeGitInfo watcher churn", () => {
 
     expect(_sharedHeadWatcherCount()).toBe(0);
     expect(counter.installs).toBe(counter.retires);
+    expect(counter.reflogInstalls).toBe(counter.reflogRetires);
   });
 });
