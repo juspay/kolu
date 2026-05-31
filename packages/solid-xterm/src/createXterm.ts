@@ -85,6 +85,15 @@ export interface XtermOptions<TLink> {
    *  reacts without re-reading Kolu state. */
   rendererPolicy: Accessor<RendererPolicy>;
   webglEligible: Accessor<boolean>;
+  /** Whether this terminal is currently displayed. Hidden terminals live
+   *  inside a `display:none` ancestor where `FitAddon.fit()` measures a 0×0
+   *  box and would resize the grid to xterm's 80×24 minimum — which then
+   *  publishes through `onResize` and resizes the server PTY, producing
+   *  spurious shell output / false activity (the pre-extraction hidden-tile
+   *  bug). The primitive consults this before every fit and before the
+   *  initial mount-time fit/publish; the consumer re-fits on the
+   *  hidden→visible transition. */
+  visible: Accessor<boolean>;
   /** Whether scroll-lock is enabled (preference). */
   scrollLockEnabled: Accessor<boolean | undefined>;
   /** True on touch devices — gates the iOS soft-keyboard + touch-scroll path. */
@@ -240,7 +249,13 @@ export function createXterm<TLink>(opts: XtermOptions<TLink>): XtermHandle {
 
   function debouncedFit(): void {
     cancelAnimationFrame(fitRaf);
-    fitRaf = requestAnimationFrame(() => fitAddon?.fit());
+    fitRaf = requestAnimationFrame(() => {
+      // Never fit a hidden terminal: its `display:none` ancestor measures 0×0,
+      // so FitAddon would resize to xterm's 80×24 minimum and publish a bogus
+      // PTY resize (false activity). The consumer re-fits on hidden→visible.
+      if (!opts.visible()) return;
+      fitAddon?.fit();
+    });
   }
   function clearTextureAtlas(): void {
     webgl?.clearTextureAtlas();
@@ -453,6 +468,19 @@ export function createXterm<TLink>(opts: XtermOptions<TLink>): XtermHandle {
 
       if (opts.onFocus && term.textarea) {
         makeEventListener(term.textarea, "focus", opts.onFocus);
+      }
+
+      // Initial fit + publish BEFORE attaching the stream, so the first
+      // snapshot renders at the measured grid rather than xterm's 80×24
+      // default. Synchronous (not the RAF debounce) so cols/rows are correct
+      // by the time attach() yields. `fit()` fires `onResize` → publish when
+      // the grid changes; the explicit publish covers the case where the
+      // measured grid already equals 80×24 (onResize wouldn't fire). Hidden
+      // terminals can't be measured (0×0 under display:none) — they stay at
+      // 80×24 until the consumer's visible→ effect refits.
+      if (opts.visible()) {
+        fitAddon.fit();
+        publishDimensions();
       }
 
       streamAbort = new AbortController();

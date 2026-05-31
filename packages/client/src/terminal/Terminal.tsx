@@ -167,6 +167,7 @@ const Terminal: Component<{
     theme: () => props.theme,
     scrollback: DEFAULT_SCROLLBACK,
     rendererPolicy: () => preferences().terminalRenderer,
+    visible: () => props.visible,
     // Only the focused+visible tile may hold a WebGL context under `auto` —
     // Chrome's ~16-context/tab limit is quickly exhausted in canvas mode where
     // every tile renders simultaneously (#575).
