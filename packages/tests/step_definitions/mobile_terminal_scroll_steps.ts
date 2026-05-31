@@ -28,6 +28,34 @@ When(
     // somewhere to scroll TO. Polling on a high line number guarantees the
     // buffer is deeper than the visible window.
     await waitForBufferContains(this.page, "200");
+    // …then wait for the VIEWPORT to actually settle at the bottom of that
+    // scrollback before snapshotting the baseline. `waitForBufferContains`
+    // only proves line "200" is in the buffer (raising baseY); xterm pins
+    // the viewport to the new bottom one render tick later. On a slow runner
+    // (aarch64-darwin CI) viewportY can still read 0 (top) at that instant,
+    // so a baseline captured here would sit on the scroll floor and the
+    // down-swipe's scrollLines(-N) could never decrease it. Poll until
+    // baseY <= viewportY (pinned to bottom) with baseY > 0 (real scrollback
+    // above) — same settle check as scroll_lock_steps.ts's
+    // "scrolled to the bottom" step.
+    await this.page.waitForFunction(
+      () => {
+        const term = (
+          document.querySelector("[data-visible][data-terminal-id]") as
+            | (HTMLElement & {
+                __xterm?: {
+                  buffer: { active: { baseY: number; viewportY: number } };
+                };
+              })
+            | null
+        )?.__xterm;
+        if (!term) return false;
+        const buf = term.buffer.active;
+        return buf.baseY > 0 && buf.baseY <= buf.viewportY;
+      },
+      undefined,
+      { timeout: POLL_TIMEOUT },
+    );
     this.savedScrollTop = await readViewportY(this);
   },
 );
