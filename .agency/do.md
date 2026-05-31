@@ -18,14 +18,17 @@ Invoke the `/test` skill. It selects relevant `.feature` files from the git diff
 
 Use the `/ci` skill for the runner mechanics (subcommands, flags, modes, retry shape). Two Kolu-specific operational notes layered on top of it:
 
-**Ephemeral linux build host per run.** Static darwin (`sincereintent`) lives in `~/.config/ci/hosts.json`; the linux lane uses a throwaway Incus container per CI invocation so prior runs' nix-store cruft can't poison the verdict. (Box lifecycle — create/connect/destroy, the no-egress retry — is the [`pu`](../.apm/skills/pu/SKILL.md) skill.)
+**Ephemeral linux build host per run.** Static darwin (`sincereintent`) lives in `~/.config/ci/hosts.json`; the linux lane uses a throwaway Incus container per CI invocation so prior runs' nix-store cruft can't poison the verdict. (Box lifecycle — create/connect/destroy, the no-egress retry — is the [`pu`](../.apm/skills/pu/SKILL.md) skill.) If `pu create` fails (e.g. no-egress), drop the `--host` flag and let justci fall back to `hosts.json` resolution for the linux lane rather than blocking the run.
 
 ```sh
 pr=$(gh pr view --json number --jq .number)
 host="kolu-pr-$pr"
-pu create "$host"                                                       # name is positional; writes ~/.pu-state/$host/ssh_config (included by ~/.ssh/config)
-CI=true nix run github:juspay/ci -- run --host x86_64-linux="$host"     # --host wins over hosts.json on collision; darwin keeps using sincereintent
-pu destroy "$host"
+if pu create "$host"; then                                             # name is positional; writes ~/.pu-state/$host/ssh_config (included by ~/.ssh/config)
+  CI=true nix run github:juspay/ci -- run --host x86_64-linux="$host"   # --host wins over hosts.json on collision; darwin keeps using sincereintent
+  pu destroy "$host"
+else                                                                    # pu provisioning failed (e.g. no-egress) — drop --host and let hosts.json resolve the linux lane
+  CI=true nix run github:juspay/ci -- run
+fi
 ```
 
 **Flake → comment on [#320](https://github.com/juspay/kolu/issues/320)** with scenario/platform/error excerpt/PR.
