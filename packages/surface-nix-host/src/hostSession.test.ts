@@ -11,12 +11,14 @@
  *      null` guard makes the "Reconnect" button a silent no-op. See
  *      `clearClientPromise` / `scheduleReconnect`.
  *
- *   2. "Unreachable at boot" — the `.drv` resolver (typically an ssh arch
- *      probe, deferred into `resolveDrvPath`) rejects because the host is
- *      unreachable. The session must degrade to `failed` through its own
- *      reconnect machinery, not throw out of construction — that's what
- *      keeps one unreachable initial host from crashing the parent server
- *      before any session exists.
+ *   2. "Unreachable host keeps retrying" — the `.drv` resolver (typically
+ *      an ssh arch probe, deferred into `resolveDrvPath`) rejects because
+ *      the host is unreachable. This is a `"network"` fault: the session
+ *      must (a) flow through its own reconnect machinery rather than throw
+ *      out of construction — keeping one unreachable initial host from
+ *      crashing the parent server before any session exists — and (b)
+ *      *never* give up, so a roaming laptop reconnects on its own once the
+ *      host is reachable again, instead of stranding in terminal `failed`.
  *
  * Both keep off real ssh / `nix copy`: case 1 mocks `provisionAgent` to
  * fail; case 2's resolver rejects before `provisionAgent` is ever reached.
@@ -112,7 +114,7 @@ describe("HostSession reconnect after give-up", () => {
   });
 });
 
-describe("HostSession with a failing drv resolver", () => {
+describe("HostSession with a failing drv resolver (network-unreachable)", () => {
   beforeEach(() => {
     vi.useFakeTimers();
   });
@@ -122,30 +124,46 @@ describe("HostSession with a failing drv resolver", () => {
     vi.clearAllMocks();
   });
 
-  it("degrades to failed instead of throwing out of construction", async () => {
+  it("flows through the reconnect machinery instead of throwing out of construction", async () => {
     const session = unresolvableSession();
 
     // The session exists and is observable even though the very first
     // round-trip (the arch probe, deferred into `resolveDrvPath`) can't
-    // reach the host. This is the regression fix: the probe failure flows
-    // through the session's own reconnect machinery rather than rejecting
-    // before any session is created (which previously crashed the parent
-    // server at boot when one initial host was unreachable).
+    // reach the host: the probe failure flows through the session's own
+    // reconnect machinery rather than rejecting before any session is
+    // created (which previously crashed the parent server at boot when one
+    // initial host was unreachable). A rejecting resolver is a `"network"`
+    // fault — copying → disconnected → backoff → copying → …
     session.pin().catch(() => {});
 
-    // A rejecting resolver is handled exactly like a `provisionAgent`
-    // failure: copying → disconnected → backoff (1s+2s+4s+8s) → failed.
-    await vi.advanceTimersByTimeAsync(20_000);
-    expect(session.current().connection).toBe("failed");
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(session.current().failureCause).toBe("network");
     expect(session.current().lastError).toMatch(/exited 255/);
-    expect(session.currentClient()).toBeNull();
+    expect(session.current().connection).not.toBe("failed");
 
-    // And the terminal state is re-armable — `reconnect()` re-runs the
-    // resolver on the next spawn, the same path a transiently-unreachable
-    // host recovers through once ssh comes back.
-    session.reconnect();
-    expect(session.current().connection).toBe("copying");
-    expect(session.currentClient()).not.toBeNull();
+    session.destroy();
+  });
+
+  it("never gives up on an unreachable host — a network fault is not terminal", async () => {
+    const session = unresolvableSession();
+    session.pin().catch(() => {});
+
+    // Drive far past where a *remote* fault would have given up
+    // (1+2+4+8s = 15s to the 5th attempt). An unreachable host has no
+    // give-up ceiling: it keeps probing at the capped backoff so a roaming
+    // laptop reconnects on its own once the host answers again — never
+    // stranding in terminal `failed` with a manual Reconnect as the only
+    // way out.
+    await vi.advanceTimersByTimeAsync(70_000);
+    expect(session.current().connection).not.toBe("failed");
+    expect(session.current().failureCause).toBe("network");
+
+    // Proof it sailed past the old MAX_CONSECUTIVE_FAILURES (=5) ceiling:
+    // more than five "host unreachable" retry lines were emitted.
+    const retries = session
+      .current()
+      .progressLines.filter((l) => l.includes("host unreachable"));
+    expect(retries.length).toBeGreaterThan(5);
 
     session.destroy();
   });

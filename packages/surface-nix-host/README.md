@@ -26,7 +26,10 @@ const session: HostSession<typeof contract> = getHostSession<typeof contract>({
 // Subscribe to lifecycle state (snapshot-then-delta).
 session.onState((s) => console.log(s.connection));
 //   "copying"   → "connecting" → "connected"
-//   on drop:    → "disconnected" → "copying" → … (exp backoff, capped attempts)
+//   on drop:    → "disconnected" → "copying" → … (exp backoff, capped at 60s)
+//   network drop (unreachable host): retries forever; remote rejection
+//     (e.g. trusted-users): gives up into terminal "failed" after N. See
+//     `s.failureCause`. `recheck()` force-re-probes after a laptop wake.
 
 // Pin the session for the parent's lifetime; obtain the typed client.
 const client = await session.pin();
@@ -86,7 +89,8 @@ Remote-side requirement: the parent's user must be in `trusted-users` in the rem
 - **`pin()` vs `acquire()`**:
   - `pin()` is the parent-lifetime intent — bumps `refCount` unconditionally so the session keeps trying to reconnect even if the first spawn fails.
   - `acquire()` is scoped — bumps `refCount` only on successful spawn. A failed provisioning leaves `refCount` untouched (no `try/finally` leak in the caller).
-- **Reconnect terminates**: bounded by `MAX_CONSECUTIVE_FAILURES` (currently 5). After that many failed spawns in a row, the session surfaces a permanent `"disconnected"` state with the last error — so a misconfigured target fails loudly instead of spamming forever.
+- **Reconnect terminates only for *remote* faults**: each failure carries a `failureCause` (`"network"` | `"remote"`). A `"remote"` fault — the host answered but rejected the closure (e.g. the parent's user isn't in `trusted-users`) — is bounded by `MAX_CONSECUTIVE_FAILURES` (currently 5); after that the session surfaces the terminal `"failed"` state with the last error, so a misconfigured target fails loudly instead of spamming forever. A `"network"` fault — the host was unreachable (asleep, roaming between Wi-Fi networks, VPN down) — is **never** terminal: the session keeps retrying at the capped backoff indefinitely, so a laptop that closes its lid at home and reopens at a café reconnects on its own with no manual intervention.
+- **`recheck()` vs `reconnect()`**: `reconnect()` is the manual "Reconnect" button — it re-arms a `"failed"`/idle session and deliberately won't disturb a live link. `recheck()` is the wake / network-change companion: it force-cycles *whatever* is there, including a `"connected"` link, because after a sleep that link is often stale (the far end dropped the socket but the local ssh child won't notice until its keepalive fails ~30s later). A long-running parent calls `recheck()` on every session when it observes the machine wake or regain connectivity.
 - **Pump-loop pattern**: the stdio link doesn't auto-reconnect mid-stream (the streams die with the agent process). The consumer is expected to loop on `waitForNextClient`, running pumps against each fresh `AgentClient` the session produces:
 
   ```ts

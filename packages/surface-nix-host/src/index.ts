@@ -17,6 +17,7 @@ export {
   type AgentClient,
   type ConnectionState,
   destroyAllSessions,
+  type FailureCause,
   getHostSession,
   HostSession,
   type HostSessionOptions,
