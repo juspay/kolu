@@ -1,50 +1,66 @@
 import type { AnyContractRouter } from "@orpc/contract";
 import type { AgentClient, HostSession } from "./hostSession";
 
-/** Block until the session exposes a NEW `clientPromise` instance
- *  (one whose resolved client differs from `previous`). Resolves with
- *  the awaited client. Rejects if the session is destroyed before a
- *  fresh client appears.
+/** The result of `waitForNextClient`: the freshly-live `client` to pump,
+ *  plus the `clientPromise` it came from. Callers thread `clientPromise`
+ *  back in as `previous` so the next wait blocks until a genuinely new
+ *  spawn appears. */
+export interface NextClient<C extends AnyContractRouter> {
+  client: AgentClient<C>;
+  clientPromise: Promise<AgentClient<C>>;
+}
+
+/** Block until the session exposes a NEW spawn — a `clientPromise`
+ *  *instance* distinct from `previous` — then resolve with that spawn's
+ *  client. Rejects if the session is destroyed before a fresh spawn
+ *  appears.
  *
- *  Identity-comparison is the trick that avoids spinning: when a pump
- *  loop's `for await` ends because the link errored, the child's
- *  `exit` handler clears `clientPromise` to null and `scheduleReconnect`
- *  later sets it to a new Promise. Until that new Promise resolves,
- *  `currentClient()` returns either null or the same dead handle the
- *  pumps just abandoned — we wait through both.
+ *  **Compare the promise, never the awaited client.** The client is an
+ *  oRPC proxy that intercepts every property — including `.then` — as a
+ *  procedure path, which makes it *thenable*: `await clientPromise`
+ *  re-invokes the proxy and yields a fresh object on every call, so a
+ *  resolved-client identity check (`client !== previous`) is *always*
+ *  true. A consumer reconnect-loop that re-pumps on each
+ *  `waitForNextClient` would then resolve instantly every iteration and
+ *  busy-spin — pegging the event loop so the child-`exit` handler and the
+ *  reconnect-backoff timer never run, which is self-sustaining. The
+ *  `clientPromise` reference, by contrast, is reassigned exactly once per
+ *  spawn (`pin`/`reconnect`/`scheduleReconnect`) and is null between a
+ *  child's death and the next spawn — so comparing *it* correctly blocks
+ *  until a real reconnect.
  *
  *  Typical usage from a consumer's reconnect-loop:
  *
  *  ```ts
- *  let last: AgentClient<C> | null = null;
+ *  let last: Promise<AgentClient<C>> | null = null;
  *  while (!session.isDestroyed()) {
- *    const client = await waitForNextClient(session, last);
- *    last = client;
+ *    const { client, clientPromise } = await waitForNextClient(session, last);
+ *    last = clientPromise;
  *    await Promise.allSettled([pumpA(client), pumpB(client)]);
  *  }
  *  ``` */
 export function waitForNextClient<C extends AnyContractRouter>(
   session: HostSession<C>,
-  previous: AgentClient<C> | null,
-): Promise<AgentClient<C>> {
+  previous: Promise<AgentClient<C>> | null,
+): Promise<NextClient<C>> {
   return new Promise((resolve, reject) => {
     const tryResolve = async (): Promise<boolean> => {
       if (session.isDestroyed()) {
         reject(new Error("session destroyed"));
         return true;
       }
-      const cp = session.currentClient();
-      if (cp === null) return false;
+      const clientPromise = session.currentClient();
+      // null (no spawn in flight) or the same promise the caller already
+      // pumped (link still down / unchanged) → keep waiting. This identity
+      // check on the *promise* is what stops the busy-spin.
+      if (clientPromise === null || clientPromise === previous) return false;
       try {
-        const c = await cp;
-        if (c !== previous) {
-          resolve(c);
-          return true;
-        }
+        const client = await clientPromise;
+        resolve({ client, clientPromise });
+        return true;
       } catch {
         // Spawn rejected — stay in the loop; the next state change
-        // (scheduleReconnect's timer firing) will surface a fresh
-        // clientPromise.
+        // (scheduleReconnect's timer firing) surfaces a fresh promise.
       }
       return false;
     };

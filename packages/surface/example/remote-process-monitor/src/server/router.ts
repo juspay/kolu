@@ -222,16 +222,20 @@ async function bridgeAgentToParent(
     /* logged via state cell; loop handles recovery */
   });
 
-  let lastClient: ProcessMonitorAgent | null = null;
+  // Thread the *clientPromise* (not the awaited client) back in — see
+  // `waitForNextClient`: the client proxy is thenable, so comparing it by
+  // identity busy-spins once the link fails fast.
+  let lastClientPromise: Promise<ProcessMonitorAgent> | null = null;
   while (!session.isDestroyed()) {
     let client: ProcessMonitorAgent;
     try {
-      client = await waitForNextClient(session, lastClient);
+      const next = await waitForNextClient(session, lastClientPromise);
+      client = next.client;
+      lastClientPromise = next.clientPromise;
     } catch (err) {
       log(`bridge: waiting for next client failed: ${(err as Error).message}`);
       break;
     }
-    lastClient = client;
     log("agent client ready; starting pumps");
     await Promise.allSettled([
       pumpSystemCell(client, session, fragment),
