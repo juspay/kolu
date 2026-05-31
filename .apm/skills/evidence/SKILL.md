@@ -134,3 +134,51 @@ clip, upload the `.mp4` to the same release and link the shared player
 Use a single-quoted heredoc (`<<'EOF'`) when posting so backticks and `$` survive.
 Keep the GIF under GitHub's ~10 MB inline limit (the speed-up + palette pass usually
 do). **Tear the box down** when finished: `pu destroy "$host"`.
+
+## Terminal / TUI evidence (vhs)
+
+For a **terminal app** (CLI / TUI) the Playwright path above doesn't apply — record the
+terminal itself with [`vhs`](https://github.com/charmbracelet/vhs) (`nix run nixpkgs#vhs`;
+bundles chromium on Linux). vhs runs a `.tape` script that types into a real pty and emits
+**GIF + MP4** from one file (one `Output` line per format).
+
+A `.tape` that recorded a TUI dashboard and drove its keys:
+
+```
+Output demo.gif
+Output demo.mp4
+Set Shell "bash"
+Set FontSize 13
+Set Width 1180
+Set Height 480
+Hide
+Type "cd <project dir> && clear"
+Enter
+Sleep 800ms
+Show
+Type "<command, e.g. just run>"
+Enter
+Sleep 4s
+Type "2"          # drive the TUI's keys (here: attach to node 2)
+Sleep 3s
+Type "q"
+Sleep 1200ms
+```
+
+Run vhs **inside the project's nix devshell** so the shell it spawns inherits the toolchain
+(`just`/`pnpm`/`tsx`/…):
+
+```sh
+pu connect "$host" -- 'cd ~/app && nix develop -c bash -lc "cd /tmp/cap && nix run nixpkgs#vhs -- demo.tape"'
+```
+
+Gotchas (learned capturing the mini-ci TUI):
+
+- **`Output` paths must be relative.** vhs mis-lexes absolute paths (`Output /tmp/x.gif` → "Invalid command") — run vhs from the output dir and use bare filenames.
+- **scp the `.tape`** to the box rather than heredoc it through nested ssh quoting.
+- **No reliable `Screenshot`** command (vhs 0.10) — pull a still with `ffmpeg -ss N -i demo.mp4 -vframes 1 still.png`.
+- **Crop dead space / trim the wait** with ffmpeg before the GIF: `-vf crop=W:H:0:0` drops empty rows, `-ss <start>` trims pre-dashboard setup; regenerate the GIF from the cropped MP4 with a `palettegen`/`paletteuse` pass for a tight, legible loop.
+- **Remote / ssh captures run from a host that can reach the target.** Ephemeral pu boxes can't ssh each other, so a capture that itself ssh's somewhere (the app's own remote mode) runs from your machine, not a second box.
+- **macOS:** vhs needs chromium (Linux-only in nixpkgs), so you can't record *on* a Mac. Capture darwin behaviour by driving it from a Linux box over the app's remote/ssh mode (runner executes on the Mac, TUI renders on Linux), or use `asciinema` + `agg` (no browser) for a native-darwin recording.
+
+Host + embed exactly as §4 (GIF inline, MP4 via the player).
