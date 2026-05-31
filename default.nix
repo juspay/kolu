@@ -28,6 +28,7 @@ let
       ./packages/surface
       ./packages/surface-nix-host
       ./packages/solid-pierre
+      ./packages/solid-xterm
       ./packages/common
       ./packages/integrations
       ./packages/nonempty
@@ -54,7 +55,7 @@ let
     # hash-fresh` enforces this stays in sync with pnpm-lock.yaml by forcing
     # fetchPnpmDeps to re-execute (--rebuild), so stale artifacts in the
     # binary cache can't silently satisfy a hash that no longer matches.
-    hash = "sha256-Nq/kodkB+zEsIasMCWsc0C+BwEzzlTL8wsBZU2vHbG8=";
+    hash = "sha256-3PHwtkW+K7ciV5GY++U/o0aAnPkTH07jff4XiaznzhY=";
     fetcherVersion = 3;
   };
 
