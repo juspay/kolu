@@ -12,13 +12,15 @@ import { PrStateIcon, WorktreeIcon } from "./ui/Icons";
 import ModalDialog from "./ui/ModalDialog";
 import { surface } from "./ui/Surface";
 
-/** Reasons why the "Remove worktree" action is suppressed, in priority
- *  order — the first that applies is the one shown (the ordering lives in
- *  `closeTerminal` in `App.tsx`):
+/** Reasons the "Remove worktree" action is suppressed. Each names a kind of
+ *  unfinished work the worktree still holds:
  *
- *  1. `hasUnpushedCommits` — local commits not on any remote (data-loss risk).
- *  2. `hasOpenPullRequest` — an open PR the user is iterating on.
- *  3. `sharedWithOtherTerminals` — another terminal lives on the worktree. */
+ *  - `hasUnpushedCommits` — local commits not on any remote (data-loss risk).
+ *  - `hasOpenPullRequest` — an open PR the user is iterating on.
+ *  - `sharedWithOtherTerminals` — another terminal lives on the worktree.
+ *
+ *  When more than one applies, the priority among them is decided at the
+ *  single enforcement site — `closeTerminal` in `App.tsx`. */
 export type WorktreeRemovalBlocker =
   | "hasUnpushedCommits"
   | "hasOpenPullRequest"
