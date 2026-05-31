@@ -76,6 +76,17 @@ export const NodeLogMessageSchema = z.discriminatedUnion("kind", [
 ]);
 export type NodeLogMessage = z.infer<typeof NodeLogMessageSchema>;
 
+/** Cap a per-node log to its last `MAX_LOG_CHARS` — bounds memory for a noisy
+ *  command, on both the runner's buffer and the TUI's accumulated copy. The
+ *  dashboard only paints the tail anyway, so this is a `tail`-style drop of
+ *  the oldest output, applied at both ends so they stay consistent. */
+export const MAX_LOG_CHARS = 64 * 1024;
+export function clampLog(buffer: string): string {
+  return buffer.length > MAX_LOG_CHARS
+    ? buffer.slice(buffer.length - MAX_LOG_CHARS)
+    : buffer;
+}
+
 export const surface = defineSurface({
   cells: {
     nodes: {

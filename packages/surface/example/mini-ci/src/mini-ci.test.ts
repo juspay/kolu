@@ -19,7 +19,12 @@ import { stdioLink } from "@kolu/surface/links/stdio";
 import { serveOverStdio } from "@kolu/surface/peer-server";
 import { describe, expect, it } from "vitest";
 import type { PipelineSpec } from "./common/pipeline";
-import type { NodeLogFrame, NodesSnapshot, surface } from "./common/surface";
+import {
+  MAX_LOG_CHARS,
+  type NodeLogFrame,
+  type NodesSnapshot,
+  type surface,
+} from "./common/surface";
 import { createRunner } from "./runner/runner";
 import { applyLogFrame, renderTable, summarize } from "./tui/render";
 
@@ -283,6 +288,13 @@ describe("render helpers", () => {
     expect(buffer).toBe("fresh\n");
     buffer = applyLogFrame(buffer, { kind: "append", text: "more\n" });
     expect(buffer).toBe("fresh\nmore\n");
+  });
+
+  it("clamps the log to its last MAX_LOG_CHARS (bounded memory)", () => {
+    const big = "x".repeat(MAX_LOG_CHARS + 5000);
+    const out = applyLogFrame("", { kind: "append", text: big });
+    expect(out.length).toBe(MAX_LOG_CHARS);
+    expect(out).toBe(big.slice(-MAX_LOG_CHARS));
   });
 
   it("typechecks the NodeLogFrame discriminated union", () => {

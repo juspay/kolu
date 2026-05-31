@@ -31,6 +31,7 @@ import {
 import { implement } from "@orpc/server";
 import { type PipelineSpec, validatePipeline } from "../common/pipeline";
 import {
+  clampLog,
   type NodeLogMessage,
   type NodeState,
   type NodeStatus,
@@ -144,7 +145,7 @@ export function createRunner(
   // ── log helpers ──
   const appendLog = (id: string, text: string): void => {
     const log = logFor(id);
-    log.buffer += text;
+    log.buffer = clampLog(log.buffer + text);
     log.bus.publish({ kind: "append", text });
   };
   const resetLog = (id: string): void => {
@@ -196,8 +197,15 @@ export function createRunner(
     children.set(node.id, child);
     child.stdout?.setEncoding("utf-8");
     child.stderr?.setEncoding("utf-8");
-    child.stdout?.on("data", (chunk: string) => appendLog(node.id, chunk));
-    child.stderr?.on("data", (chunk: string) => appendLog(node.id, chunk));
+    // Ignore output from a child superseded by a rerun/dispose — its buffered
+    // stdout/stderr can still arrive after we kill it, and would otherwise
+    // contaminate the fresh run's log (same identity guard as `finish`).
+    const onOutput = (chunk: string): void => {
+      if (children.get(node.id) !== child) return;
+      appendLog(node.id, chunk);
+    };
+    child.stdout?.on("data", onOutput);
+    child.stderr?.on("data", onOutput);
     const finish = (status: NodeStatus, exitCode: number | null): void => {
       // Ignore exits from a child that's been superseded by a rerun or a
       // dispose (we delete it from `children` before killing it, so a stale
@@ -212,7 +220,9 @@ export function createRunner(
       tick();
     };
     child.on("error", (err) => {
-      appendLog(node.id, `\n[mini-ci] spawn failed: ${err.message}\n`);
+      if (children.get(node.id) === child) {
+        appendLog(node.id, `\n[mini-ci] spawn failed: ${err.message}\n`);
+      }
       finish("failed", null);
     });
     child.on("exit", (code) => finish(code === 0 ? "ok" : "failed", code));

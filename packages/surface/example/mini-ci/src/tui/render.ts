@@ -6,7 +6,11 @@
  * `main.ts` is the thin glue that wires these to stdin/stdout.
  */
 
-import type { NodeState, PipelineState } from "../common/surface";
+import {
+  clampLog,
+  type NodeState,
+  type PipelineState,
+} from "../common/surface";
 
 const STATUS_GLYPH: Record<NodeState["status"], string> = {
   pending: "◦",
@@ -88,7 +92,7 @@ export function applyLogFrame(
   buffer: string,
   frame: { kind: "snapshot" | "append"; text: string },
 ): string {
-  return frame.kind === "snapshot" ? frame.text : buffer + frame.text;
+  return clampLog(frame.kind === "snapshot" ? frame.text : buffer + frame.text);
 }
 
 /** Status line — the bottom of the dashboard. */
