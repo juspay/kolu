@@ -31,6 +31,35 @@ else                                                                    # pu pro
 fi
 ```
 
+**`pu` misbehaves → comment on the PR with full diagnostics.** Whenever `pu` fails to do its job — `create` errors out, a box lands with no egress (`nix run` hangs on "Resolving timed out"), retries keep landing on dead hosts, or `connect`/`destroy` misbehaves — don't just silently fall back. Post a PR comment so the `pu`/Incus admin can fix the underlying host permanently instead of every run papering over it. Gather everything the admin needs to pin the bad physical host, then drop `--host` and continue per the fallback above (a diagnostic comment must never block the run).
+
+```sh
+# $host is the box name; $stage is the pu subcommand that misbehaved (create|connect|destroy|egress)
+{
+  echo "## ⚠️ \`pu\` misbehaved — Incus admin attention needed"
+  echo
+  echo "- **PR:** #$pr &nbsp; **branch:** \`$(git rev-parse --abbrev-ref HEAD)\` &nbsp; **commit:** \`$(git rev-parse --short HEAD)\`"
+  echo "- **Stage:** \`pu $stage\` &nbsp; **box:** \`$host\` &nbsp; **when:** $(date -u +%FT%TZ)"
+  echo
+  echo "**Box placement (\`pu list\` — NAME + physical LOCATION that needs fixing):**"
+  echo '```'; pu list 2>&1 | grep -E "NAME|$host"; echo '```'
+  echo "**\`pu $stage\` stderr:**"
+  echo '```'; cat /tmp/pu-$host.err 2>/dev/null; echo '```'
+  # Box-side network state — only if the box came up enough to SSH into
+  echo "**Box network state (resolv.conf / routes / egress / gateway TCP):**"
+  echo '```'
+  pu connect "$host" -- '
+    echo "== /etc/resolv.conf =="; cat /etc/resolv.conf
+    echo "== ip route ==";        ip route
+    echo "== egress probe ==";    timeout 15 curl -sS -o /dev/null -w "https HTTP %{http_code}\n" https://api.github.com || echo "egress FAILED"
+    echo "== gateway TCP ==";     gw=$(ip route | awk "/default/{print \$3; exit}"); timeout 5 bash -c "echo > /dev/tcp/$gw/443" && echo "gw $gw:443 ok" || echo "gw $gw:443 FAILED"
+  ' 2>&1
+  echo '```'
+} | gh pr comment "$pr" --body-file -
+```
+
+To capture each stage's stderr for the excerpt above, tee it when you invoke `pu` — e.g. `pu create "$host" 2> >(tee /tmp/pu-$host.err >&2)`.
+
 **Flake → comment on [#320](https://github.com/juspay/kolu/issues/320)** with scenario/platform/error excerpt/PR.
 
 **Evidence required → all GitHub status checks green per `justci protect`.** `/do` is done only when every required status check is green on the PR's current `HEAD`. Source the required list from `justci protect --dry-run` — it prints the `<recipe>@<platform>` contexts the canonical DAG produces, which are exactly the contexts branch protection gates on. Verify with `gh pr checks`; a green from a positional retry counts (final state matters).
