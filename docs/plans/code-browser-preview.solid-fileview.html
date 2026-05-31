@@ -338,8 +338,8 @@
 <table>
   <tr><th>Phase</th><th>Ships</th><th>Net Kolu LOC</th><th>Risk</th></tr>
   <tr>
-    <td><strong>1 · Extract <code>@kolu/solid-markdown</code></strong> <span class="pill">first PR</span></td>
-    <td>Lift the token-walk core out of <code>intent/IntentMarkdown.tsx</code> into a standalone package with <code>inline</code>/<code>document</code> variants; migrate the intent surface to consume it. Behavior-preserving.</td>
+    <td><strong>1 · Extract <code>@kolu/solid-markdown</code></strong> <span class="pill ok">shipped · <a href="https://github.com/juspay/kolu/pull/1079">#1079</a></span></td>
+    <td>Lift the token-walk core out of <code>intent/IntentMarkdown.tsx</code> (257→30 LOC) into a standalone package with <code>inline</code>/<code>compact</code>/<code>document</code> variants; migrate the intent surface to consume it via thin wrappers. Behavior-preserving (verified: intent e2e green, package-only Tailwind classes present in built CSS).</td>
     <td><strong>↓</strong> (intent surface shrinks to a consumer)</td>
     <td>Low — mechanical extraction, one call-site.</td>
   </tr>
