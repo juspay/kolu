@@ -5,21 +5,15 @@
  *  this package instead of wiring `@xterm/*` directly. Nothing else in the
  *  repo imports `@xterm/*`.
  *
- *  This file re-exports the public surface; implementation lives in sibling
- *  modules. It grows as the ralph loop pulls mechanics out of the client. */
+ *  This barrel is the package's **public surface** — only what an external
+ *  consumer actually imports. The leaf mechanics (`createScrollLock`,
+ *  `createSafeClipboardProvider`, `createLineLinkProvider`) and the
+ *  register/track *write* sides of the refs/diagnostics/webgl registries are
+ *  composed internally by `createXterm` via relative imports; they are NOT
+ *  re-exported, because exposing them would advertise composability that can't
+ *  be exercised without importing `@xterm/*` (which this package exists to
+ *  prevent) or without `createXterm`'s reactive-owner lifecycle dance. */
 
-export { createScrollLock } from "./scrollLock.ts";
-export { createSafeClipboardProvider } from "./clipboard.ts";
-export {
-  createLineLinkProvider,
-  type LineLinkMatch,
-  type LineLinkOpts,
-} from "./links.ts";
-export {
-  createTerminalSearch,
-  type SearchAddon,
-  type TerminalSearch,
-} from "./search.ts";
 export {
   createXterm,
   type RendererPolicy,
@@ -28,24 +22,29 @@ export {
   type XtermOptions,
 } from "./createXterm.ts";
 export type { ITheme } from "@xterm/xterm";
+// Search controller — consumed by the client's SearchBar chrome.
+export {
+  createTerminalSearch,
+  type SearchAddon,
+  type TerminalSearch,
+} from "./search.ts";
+// Link-match shape — the client's file-ref matcher returns it.
+export type { LineLinkMatch } from "./links.ts";
+// Read-side registry/diagnostics observers — consumed by the diagnostics
+// dialog, debug console hooks, export-PDF, and screenshot. The write side
+// (register*/track*) is internal to createXterm.
 export {
   getTerminalRefs,
-  registerTerminalRefs,
   type TerminalProbes,
   type TerminalRefs,
-  unregisterTerminalRefs,
 } from "./terminalRefs.ts";
 export {
   getDiagnostics,
-  registerDiagnostics,
   type Renderer,
   type TerminalDiagnostics,
 } from "./diagnostics.ts";
 export {
   type CanvasSizeEntry,
-  trackCreate,
-  trackDispose,
-  trackLoseContextCalled,
   type WebglEvent,
   type WebglLifecycleSnapshot,
   webglLifecycleSnapshot,
