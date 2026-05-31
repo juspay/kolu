@@ -21,6 +21,18 @@ function sshOpts(args: readonly string[]): Record<string, string> {
   return opts;
 }
 
+/** Assert an ssh argv carries the full shared dead-peer keepalive policy.
+ *  One invariant ("every non-interactive ssh this package spawns carries
+ *  `SSH_COMMON_OPTS`") asserted in one place, so re-tuning a keepalive
+ *  value can't leave a second hand-synced block green on stale numbers. */
+function assertKeepAlive(args: readonly string[]): void {
+  const opts = sshOpts(args);
+  expect(opts.BatchMode).toBe("yes");
+  expect(opts.ServerAliveInterval).toBe("10");
+  expect(opts.ServerAliveCountMax).toBe("3");
+  expect(opts.ConnectTimeout).toBe("10");
+}
+
 describe("buildSshProbeCommand", () => {
   it("runs the command directly for localhost — no ssh wrapper", () => {
     const { command, args } = buildSshProbeCommand(
@@ -56,13 +68,9 @@ describe("buildSshProbeCommand", () => {
       "--realise",
       "x",
     );
-    const opts = sshOpts(args);
-    expect(opts.BatchMode).toBe("yes");
     // The fix: a degraded host mid-realise must trip ssh's dead-peer
     // detection (~Interval×CountMax) rather than hang forever.
-    expect(opts.ServerAliveInterval).toBe("10");
-    expect(opts.ServerAliveCountMax).toBe("3");
-    expect(opts.ConnectTimeout).toBe("10");
+    assertKeepAlive(args);
   });
 });
 
@@ -90,10 +98,6 @@ describe("buildAgentCommand", () => {
       "/nix/store/x-agent/bin/my-agent",
       "--stdio",
     ]);
-    const opts = sshOpts(args);
-    expect(opts.BatchMode).toBe("yes");
-    expect(opts.ServerAliveInterval).toBe("10");
-    expect(opts.ServerAliveCountMax).toBe("3");
-    expect(opts.ConnectTimeout).toBe("10");
+    assertKeepAlive(args);
   });
 });
