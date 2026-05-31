@@ -29,10 +29,17 @@ const XTERM_TEXTAREA =
 function teardownDocumentCaptureProbe(world: KoluWorld): Promise<number> {
   return world.page.evaluate(() => {
     const w = window as FocusProbeWindow;
-    const value = w.__textareaFocusCount ?? 0;
-    if (w.__textareaFocusListener) {
-      document.removeEventListener("focus", w.__textareaFocusListener, true);
+    // Guard against a vacuous pass: if the probe was never armed, the counter
+    // is undefined and `?? 0` would let the assertion succeed on nothing.
+    // The installed listener is the proof the arm step ran — its absence is a
+    // hard error, not a silent zero.
+    if (!w.__textareaFocusListener) {
+      throw new Error(
+        "Focus probe not armed — call 'I arm the soft-keyboard focus probe' before this assertion",
+      );
     }
+    const value = w.__textareaFocusCount ?? 0;
+    document.removeEventListener("focus", w.__textareaFocusListener, true);
     w.__textareaFocusListener = undefined;
     return value;
   });
