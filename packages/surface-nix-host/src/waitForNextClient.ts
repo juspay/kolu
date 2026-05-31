@@ -38,7 +38,7 @@ export function makeClientCursor<C extends AnyContractRouter>(
 ): ClientCursor<C> {
   let previous: Promise<AgentClient<C>> | null = null;
   return {
-    async next(): Promise<AgentClient<C>> {
+    async next() {
       const { client, clientPromise } = await waitForNextClient(
         session,
         previous,
