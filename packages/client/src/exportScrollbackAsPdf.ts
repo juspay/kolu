@@ -14,7 +14,7 @@ import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import { terminalKey } from "kolu-common/terminalKey";
 import { toast } from "solid-sonner";
 import { FONT_FAMILY } from "terminal-themes";
-import { getTerminalRefs } from "./terminal/terminalRefs";
+import { getTerminalRefs } from "@kolu/solid-xterm";
 
 export function exportScrollbackAsPdf(
   id: TerminalId,

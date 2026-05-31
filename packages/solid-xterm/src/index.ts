@@ -15,3 +15,25 @@ export {
   type LineLinkMatch,
   type LineLinkOpts,
 } from "./links.ts";
+export {
+  getTerminalRefs,
+  registerTerminalRefs,
+  type TerminalProbes,
+  type TerminalRefs,
+  unregisterTerminalRefs,
+} from "./terminalRefs.ts";
+export {
+  getDiagnostics,
+  registerDiagnostics,
+  type Renderer,
+  type TerminalDiagnostics,
+} from "./diagnostics.ts";
+export {
+  type CanvasSizeEntry,
+  trackCreate,
+  trackDispose,
+  trackLoseContextCalled,
+  type WebglEvent,
+  type WebglLifecycleSnapshot,
+  webglLifecycleSnapshot,
+} from "./webglTracker.ts";

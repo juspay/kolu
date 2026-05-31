@@ -20,7 +20,7 @@ import { terminalKey } from "kolu-common/terminalKey";
 import { toast } from "solid-sonner";
 import { FONT_FAMILY } from "terminal-themes";
 import { parseColor, type RGB } from "terminal-themes/color";
-import { getTerminalRefs } from "./terminal/terminalRefs";
+import { getTerminalRefs } from "@kolu/solid-xterm";
 
 /** Standard xterm 256-color palette. First 16 come from the theme; 16-231
  *  form a 6×6×6 RGB cube; 232-255 are grayscale. */

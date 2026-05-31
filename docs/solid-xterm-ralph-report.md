@@ -80,6 +80,7 @@ Typecheck gate: `nix develop path:. --quiet --command pnpm -r typecheck`.
 | --- | --- | --- | --- | --- | --- |
 | baseline | none | 4481 | 19 | 8 | green |
 | 1 | move scrollLock + clipboard provider + line-link provider into solid-xterm | 4449 | 15 | 5 | green |
+| 2 | move terminalRefs + diagnostics store + webglTracker into solid-xterm | 3939 | 9 | 3 | green |
 
 ### Cycle 1 detail
 

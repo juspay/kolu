@@ -35,6 +35,12 @@ import {
   createLineLinkProvider,
   createSafeClipboardProvider,
   createScrollLock,
+  registerDiagnostics,
+  registerTerminalRefs,
+  trackCreate,
+  trackDispose,
+  trackLoseContextCalled,
+  unregisterTerminalRefs,
 } from "@kolu/solid-xterm";
 import { streamCall } from "@kolu/surface/solid";
 import { DEFAULT_SCROLLBACK } from "kolu-common/config";
@@ -53,14 +59,7 @@ import { matchFileRefs } from "./fileRefLink";
 import ScrollToBottom from "./ScrollToBottom";
 import { applyStickyModifiers } from "./stickyModifiers";
 import SearchBar from "./SearchBar";
-import { registerTerminalRefs, unregisterTerminalRefs } from "./terminalRefs";
-import { registerDiagnostics } from "./useTerminalDiagnostics";
 import { useTerminalStore } from "./useTerminalStore";
-import {
-  trackCreate,
-  trackDispose,
-  trackLoseContextCalled,
-} from "./webglTracker";
 
 /** Sum `byteLength` of every BufferLine's `Uint32Array` in xterm's primary
  *  and alternate buffers. Reaches through private `_core._bufferService`,
