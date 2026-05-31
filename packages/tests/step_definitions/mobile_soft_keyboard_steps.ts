@@ -355,6 +355,31 @@ Then(
 );
 
 Then(
+  "xterm's helper textarea should not have been focused by closing the dock",
+  async function (this: KoluWorld) {
+    // Reuses the document-capture probe armed above. Corvu's Drawer defaults
+    // to restoreFocus=true, which on close re-focuses the element active
+    // before it opened — the terminal textarea (auto-focused on mount) —
+    // popping the soft keyboard. The drawers pass restoreFocus={false}; this
+    // asserts the backdrop dismissal leaves the keyboard down.
+    const count = await this.page.evaluate(() => {
+      const w = window as FocusProbeWindow;
+      const value = w.__textareaFocusCount ?? 0;
+      if (w.__textareaFocusListener) {
+        document.removeEventListener("focus", w.__textareaFocusListener, true);
+      }
+      w.__textareaFocusListener = undefined;
+      return value;
+    });
+    assert.strictEqual(
+      count,
+      0,
+      `Expected no helper-textarea focus when dismissing the dock on touch (closing must not summon the keyboard), got ${count}`,
+    );
+  },
+);
+
+Then(
   "the --app-h CSS variable should match visualViewport.height",
   async function (this: KoluWorld) {
     // Wire-check: useVisualViewportHeight is mounted and the inline-style

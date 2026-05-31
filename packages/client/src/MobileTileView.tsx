@@ -136,7 +136,10 @@ const MobileTileView: Component<{
             pullStartY = null;
           }}
         >
-          <span class="w-10 h-1 rounded-full bg-fg-3/40" aria-hidden="true" />
+          {/* Grip pill — sized to mirror the left dock handle's grab bar
+           *  (`h-16 w-2`, a 64×8 px footprint) so both edges advertise an
+           *  equally large drag affordance, just rotated 90°. */}
+          <span class="w-16 h-2 rounded-full bg-fg-3/40" aria-hidden="true" />
           <div class="flex items-center gap-2 w-full">
             <Show
               when={activeInfo()}
@@ -200,6 +203,11 @@ const MobileTileView: Component<{
         open={chromeOpen()}
         onOpenChange={setChromeOpen}
         snapPoints={[0, 1]}
+        // Don't restore focus to the previously-active element on close. On a
+        // touch device that element is the terminal's contenteditable /
+        // helper textarea (auto-focused on mount); re-focusing it after a
+        // backdrop-tap dismissal pops the soft keyboard with no user intent.
+        restoreFocus={false}
       >
         <Drawer.Portal>
           <Drawer.Overlay
@@ -228,6 +236,10 @@ const MobileTileView: Component<{
         open={dockOpen()}
         onOpenChange={setDockOpen}
         snapPoints={[0, 1]}
+        // See the chrome drawer above: restoring focus on close re-focuses the
+        // terminal textarea and summons the soft keyboard when the user taps
+        // the backdrop to dismiss the dock.
+        restoreFocus={false}
       >
         <Drawer.Portal>
           <Drawer.Overlay

@@ -88,6 +88,13 @@ const MobileKeyBar: Component<{
       <div
         class="flex gap-1 px-2 py-1.5 bg-surface-1 border-t border-edge overflow-x-auto"
         data-testid="mobile-key-bar"
+        // The key bar lives inside MobileTileView's swipe wrapper, whose
+        // touchstart/touchend cycle terminals on a horizontal swipe. A
+        // finger drag across these keys (or a scroll of the overflow-x row)
+        // would otherwise bubble up and switch the active terminal mid-type.
+        // stopPropagation on touchstart keeps the wrapper from ever recording
+        // a swipe origin here — same guard the pull/dock handles use.
+        onTouchStart={(e: TouchEvent) => e.stopPropagation()}
       >
         <For each={MODS}>
           {(mod) => (

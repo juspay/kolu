@@ -28,3 +28,16 @@ Feature: Mobile tile swipe
     When I swipe right on the mobile tile view
     Then the active terminal should show "from-t0"
     And there should be no page errors
+
+  @mobile
+  Scenario: Swiping on the soft key bar does not cycle terminals
+    # The key bar lives inside the swipe wrapper. A finger drag across the
+    # keys (or a scroll of its overflow-x row) must NOT bubble up and switch
+    # terminals mid-type — the bar stops touchstart propagation. Contrast with
+    # the tile-view scenario above: the same leftward swipe there lands on t0
+    # (showing "from-t0"); here it must stay on the empty t1.
+    Given I run "echo from-t0"
+    And I create a terminal
+    When I swipe left on the mobile key bar
+    Then the active terminal should not show "from-t0"
+    And there should be no page errors
