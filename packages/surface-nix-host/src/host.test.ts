@@ -13,9 +13,10 @@ import { buildAgentCommand, buildSshProbeCommand, NIX_SSHOPTS } from "./host";
 function sshOpts(args: readonly string[]): Record<string, string> {
   const opts: Record<string, string> = {};
   for (let i = 0; i < args.length; i++) {
-    if (args[i] === "-o" && args[i + 1]) {
-      const [k, v] = args[i + 1]!.split("=");
-      opts[k!] = v ?? "";
+    const val = args[i + 1];
+    if (args[i] === "-o" && val) {
+      const [k, v] = val.split("=");
+      opts[k ?? val] = v ?? "";
     }
   }
   return opts;
