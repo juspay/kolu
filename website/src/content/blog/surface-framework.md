@@ -110,7 +110,7 @@ export const surface = defineSurface({
 // `surface.contract` is a typed oRPC router built statically from the
 // spec — no parallel literal to maintain. Use it on both sides:
 //   server: const t = implement(surface.contract);
-//   client: createCellsClient<typeof surface.contract>({ websocket });
+//   client: websocketLink<typeof surface.contract>(ws);
 ```
 
 A single mapped helper `SurfaceTypes<typeof surface.spec>` lifts the runtime types out of the spec, so consumers reach for `SF["cells"]["prefs"]["Value"]` instead of maintaining a parallel set of `z.infer` aliases. The spec is the single source of truth for schemas, defaults, and types.

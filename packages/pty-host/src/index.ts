@@ -9,11 +9,13 @@
  *    fully-prepared spawn (env/shell-init is the caller's job — `kolu-pty`).
  *  - `ptyHostSurface` — the typed **contract** (the `PtyHost` interface
  *    projected onto a wire) + its version + compatibility check.
- *  - `createInProcessPtyHostClient` — the contract's in-process **serving** (the
- *    identity link): it prepares the shell env and serves `ptyHostSurface`
- *    over `createPtyHost` with no transport, handing back a contract-typed
- *    client. The same body is served over a socket by the surviving daemon
- *    later; the consumer (kolu-server) is invariant under that swap.
+ *  - `servePtyHost` — the contract's **serving**, transport-agnostic: prepares
+ *    the shell env and serves `ptyHostSurface` over `createPtyHost`, returning
+ *    the router (+ ctx). Reused over a socket by the surviving daemon and over
+ *    ssh by R-2 — only the link differs.
+ *  - `createInProcessPtyHostClient` — the **identity link**: `directLink` over
+ *    `servePtyHost`'s router with no transport, handing back a contract-typed
+ *    client. The consumer (kolu-server) is invariant under a later link swap.
  */
 
 export {
@@ -44,11 +46,14 @@ export {
   type PtyHostSystemVersion,
 } from "./ptyHostSurface.ts";
 
-// The contract's in-process serving (the identity link) + the contract-typed
-// client the consumer holds. The serving body is reused over a socket by the
-// surviving daemon later — only the link is swapped.
+// The contract's serving: `servePtyHost` is the transport-agnostic half
+// (reused over a socket by the surviving daemon and over ssh by R-2);
+// `createInProcessPtyHostClient` closes the loop with the no-wire `directLink`,
+// handing the consumer its contract-typed client. A later phase swaps only the
+// link.
 export {
   createInProcessPtyHostClient,
   type InProcessPtyHostDeps,
   type PtyHostClient,
+  servePtyHost,
 } from "./inProcessPtyHost.ts";

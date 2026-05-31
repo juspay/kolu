@@ -69,7 +69,7 @@ import {
   type HandleStandardServerPeerMessageOptions,
 } from "@orpc/server/standard-peer";
 import { ServerPeer } from "@orpc/standard-server-peer";
-import { encodeFrame, readFramedLines } from "./links/stdio";
+import { encodeFrame, readFramedLines } from "./links/stdio-codec";
 
 /** Transport override for `serveOverStdio`. Default is `process.stdin`
  *  for `read` and `process.stdout` for `write`. */

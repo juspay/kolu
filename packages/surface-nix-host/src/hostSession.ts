@@ -39,7 +39,7 @@
  */
 
 import { type ChildProcess, spawn } from "node:child_process";
-import { createStdioCellsClient } from "@kolu/surface/links/stdio";
+import { stdioLink } from "@kolu/surface/links/stdio";
 import { inMemoryCell } from "@kolu/surface/server";
 import type { ClientRetryPluginContext } from "@orpc/client/plugins";
 import type { AnyContractRouter, ContractRouterClient } from "@orpc/contract";
@@ -415,7 +415,7 @@ export class HostSession<C extends AnyContractRouter> {
     if (child.stdin === null || child.stdout === null) {
       throw new Error("ssh subprocess has no stdin/stdout — unreachable");
     }
-    const client = createStdioCellsClient<C>({
+    const client = stdioLink<C>({
       read: child.stdout,
       write: child.stdin,
     });

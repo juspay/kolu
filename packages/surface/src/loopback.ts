@@ -1,8 +1,11 @@
 /**
- * Loopback link adapter — two cross-piped `PassThrough` streams that
+ * Loopback transport primitive — two cross-piped `PassThrough` streams that
  * exercise the same framing as a real subprocess pair, but in-process.
  *
- * Enables two patterns:
+ * Note this is **not** a link: it produces no client. It's the transport you
+ * feed *into* a link — `pair.client` to `stdioLink`, `pair.server` to
+ * `serveOverStdio` — so the family stays honest (a link returns a client; a
+ * loopback pair returns two stream ends). Enables two patterns:
  *
  *   1. **Symmetric "local backend wrapped in the same client shape as a
  *      remote backend"** — the in-memory dual of `StdioRPCLink`. R-2's
@@ -11,7 +14,7 @@
  *      the local or a remote host?"
  *
  *   2. **Unit tests** — round-trip a router through `serveOverStdio` to
- *      `createStdioCellsClient` without forking a subprocess. The framing
+ *      `stdioLink` without forking a subprocess. The framing
  *      and peer codec are the same as the real ssh path, so a green
  *      loopback test is genuine evidence the stdio link works end-to-end
  *      — just without the operational concerns (process spawn, signal
@@ -19,7 +22,7 @@
  *
  * Cross-piping convention: `client.read <- server.write` and
  * `client.write -> server.read`. The link sees the client's perspective:
- * pass `pair.client.read` and `pair.client.write` to `StdioRPCLink`, pass
+ * pass `pair.client.read` and `pair.client.write` to `stdioLink`, pass
  * `pair.server.read` and `pair.server.write` to `serveOverStdio`. The
  * naming mirrors the subprocess case where the child's stdin is the
  * parent's `child.stdin` (write) and the child's stdout is the parent's
