@@ -55,10 +55,11 @@ A surface is reached through one of several **links**. A link maps "a way to rea
 
 The surface is opt-in. Reach for it when you're standing up a new app surface or writing a self-contained module; stay manual when an existing wire shape doesn't match the surface's verb-naming defaults (currently `get`/`patch`/`set`/`test__set` for cells, `keys`/`get`/`update`/`delete`/`test__set` for collections — see the example for the full set). The two approaches compose: spread `surface.contract` alongside a sibling `oc.router({...})` of raw procedures, and similarly for `implementSurface`'s output.
 
-See `## Surface` below and `packages/surface/example/` for two end-to-end demos:
+See `## Surface` below and `packages/surface/example/` for three end-to-end demos:
 
 - **`example/` — notes app** (single-process WebSocket): exercises every primitive against an in-memory store. The canonical "first surface" tour.
 - **`example/remote-process-monitor/` — three-tier bridge**: a SolidJS browser ↔ Node parent ↔ remote agent over `ssh` stdio. The agent reads `/proc` (linux) or `sysctl` (darwin), exposes a typed surface, and the parent re-serves it to the browser using the framework's WebSocket transport. Exercises the R-1.5 additions — stdio link, peer-server, in-process loopback (for tests), in-memory channel — in the same shape Kolu R-2's `RemoteTerminalBackend` will use.
+- **`example/mini-ci/` — a CI-runner TUI over stdio** (no browser): a long-lived runner owns a task DAG (`build → test → lint`) and streams it to a terminal client over `stdioLink` — a node-state Cell, a per-node log Stream (snapshot-then-delta), and a `rerun` mutation. Runs locally or on a remote host with the source shipped by `git archive` over ssh. The falsifiability test for "interactive TUI over oRPC stdio" and the structural twin of [`kolu-tui`](../../docs/plans/remote-terminals.pty-daemon.tui.html)'s `list`/`attach`/input.
 
 ## Architecture
 

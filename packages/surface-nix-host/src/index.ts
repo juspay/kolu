@@ -12,6 +12,7 @@ export {
   buildSshProbeCommand,
   forEachLine,
   isLocalHost,
+  SSH_COMMON_OPTS,
 } from "./host";
 export {
   type AgentClient,

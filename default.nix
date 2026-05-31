@@ -220,10 +220,13 @@ let
       --run 'export KOLU_STATE_DIR="''${XDG_CONFIG_HOME:-$HOME/.config}/kolu"'
   '';
 
-  # @kolu/surface remote-process-monitor demo — derivations live next
-  # to the demo source, not here. Pass through the workspace-wide
-  # `src` + `pnpmDeps` so the fixed-output fetch is cached once.
+  # @kolu/surface example demos — derivations live next to each demo's
+  # source, not here. Pass through the workspace-wide `src` + `pnpmDeps`
+  # so the fixed-output fetch is cached once.
   remoteProcessMonitor = import ./packages/surface/example/remote-process-monitor/default.nix {
+    inherit pkgs src pnpmDeps;
+  };
+  miniCi = import ./packages/surface/example/mini-ci/default.nix {
     inherit pkgs src pnpmDeps;
   };
 
@@ -239,4 +242,4 @@ let
 in
 {
   inherit default koluBin koluEnv pnpmDeps typecheck;
-} // remoteProcessMonitor
+} // remoteProcessMonitor // miniCi

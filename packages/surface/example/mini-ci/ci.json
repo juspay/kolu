@@ -1,0 +1,25 @@
+{
+  "name": "ci-diamond",
+  "tasks": [
+    {
+      "id": "build",
+      "command": "echo 'compiling…'; sleep 0.3; echo 'build ok'",
+      "needs": []
+    },
+    {
+      "id": "test",
+      "command": "echo 'running tests…'; sleep 0.5; echo '12 passed'",
+      "needs": ["build"]
+    },
+    {
+      "id": "lint",
+      "command": "echo 'linting…'; sleep 0.4; echo 'no issues'",
+      "needs": ["build"]
+    },
+    {
+      "id": "report",
+      "command": "echo 'all green — publishing report'",
+      "needs": ["test", "lint"]
+    }
+  ]
+}

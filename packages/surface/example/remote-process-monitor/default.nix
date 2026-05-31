@@ -23,20 +23,9 @@
 #                            var for cross-arch remotes).
 { pkgs, src, pnpmDeps }:
 let
-  surfaceExampleBase = pkgs.stdenv.mkDerivation {
-    pname = "surface-example-base";
-    version = "0.1.0";
-    inherit src;
-    nativeBuildInputs = [ pkgs.nodejs pkgs.pnpm pkgs.pnpmConfigHook ];
-    inherit pnpmDeps;
-    dontBuild = true;
-    dontFixup = true;
-    installPhase = ''
-      runHook preInstall
-      cp -r . $out
-      runHook postInstall
-    '';
-  };
+  # Shared "workspace tree + pnpm install, tsx-runnable" base — also used by
+  # the mini-ci example. See ../base.nix.
+  surfaceExampleBase = import ../base.nix { inherit pkgs src pnpmDeps; };
 
   processMonitorAgent = pkgs.runCommand "process-monitor-agent"
     {

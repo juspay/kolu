@@ -62,8 +62,13 @@ const SSH_OPT_PAIRS = [
 ] as const;
 
 /** The policy as an ssh `-o Key=Value` argv, for the ssh commands this
- *  package spawns directly (agent session, probe/realise/pin). */
-const SSH_COMMON_OPTS: readonly string[] = SSH_OPT_PAIRS.flatMap(
+ *  package spawns directly (agent session, probe/realise/pin). Exported so
+ *  consumers that build their *own* ssh command — e.g. the `mini-ci`
+ *  surface example, which ships source over ssh with `git archive` instead
+ *  of a nix closure — reuse the same dead-peer policy rather than copying
+ *  it. (`buildAgentCommand`/`buildSshProbeCommand` already bake it in for
+ *  the argv shapes this package spawns itself.) */
+export const SSH_COMMON_OPTS: readonly string[] = SSH_OPT_PAIRS.flatMap(
   ([key, value]) => ["-o", `${key}=${value}`],
 );
 
