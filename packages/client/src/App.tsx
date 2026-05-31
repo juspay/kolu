@@ -9,6 +9,7 @@ import Dialog from "@corvu/dialog";
 import { Meta, Title } from "@solidjs/meta";
 import type { ServerIdentity } from "kolu-common/contract";
 import type { TerminalId } from "kolu-common/surface";
+import Commit from "./ui/Commit";
 import {
   type Component,
   createEffect,
@@ -465,18 +466,10 @@ const App: Component = () => {
             </p>
             <p>
               Commit:{" "}
-              {__KOLU_COMMIT__ !== "dev" ? (
-                <a
-                  href={`https://github.com/juspay/kolu/commit/${__KOLU_COMMIT__}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="text-accent hover:underline"
-                >
-                  {__KOLU_COMMIT__}
-                </a>
-              ) : (
-                <span class="text-fg-2">dev</span>
-              )}
+              <Commit
+                sha={__KOLU_COMMIT__}
+                class="text-accent hover:underline"
+              />
             </p>
             <p>
               Server:{" "}

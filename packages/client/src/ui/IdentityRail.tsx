@@ -15,9 +15,8 @@
 
 import { type Component, createMemo, Show } from "solid-js";
 import { serverInfo, type WsStatus } from "../rpc/rpc";
+import Commit from "./Commit";
 import Tip from "./Tip";
-
-const REPO_URL = "https://github.com/juspay/kolu";
 
 /** WebSocket transport status → the `srv` liveness dot. */
 const srvDot: Record<WsStatus, string> = {
@@ -35,30 +34,6 @@ function shortId(id: string | null | undefined): string {
   const tail = id.split("/").pop() ?? id;
   return tail.length > 12 ? `${tail.slice(0, 12)}…` : tail;
 }
-
-/** A commit cell: a GitHub link when the ref is a clean, navigable short SHA;
- *  plain text for a dirty / dev / absent ref (no broken `/commit/` link). */
-const Commit: Component<{ sha: string | undefined }> = (props) => {
-  const linkable = () => {
-    const c = props.sha;
-    return !!c && c !== "dev" && !c.includes("-dirty");
-  };
-  return (
-    <Show
-      when={linkable()}
-      fallback={<span class="text-fg-2">{props.sha || "—"}</span>}
-    >
-      <a
-        href={`${REPO_URL}/commit/${props.sha}`}
-        target="_blank"
-        rel="noopener noreferrer"
-        class="text-fg-2 underline decoration-dotted underline-offset-2 hover:text-fg"
-      >
-        {props.sha}
-      </a>
-    </Show>
-  );
-};
 
 const IdentityRail: Component<{ status: WsStatus }> = (props) => {
   // pty liveness in A2 mirrors the WebSocket link: the pty-host is in-process,
