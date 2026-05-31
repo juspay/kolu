@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<title>kolu#951 R-4 — kolu-tui: the daemon's first client (B de-risking rung)</title>
+<title>kolu#951 R-4 — kolu-tui: a CLI terminal client for kolu-server (in-process)</title>
 <style>
   :root {
     --fg: #1a1c20;
@@ -145,6 +145,21 @@
   .crumb a { color: var(--accent); text-decoration: none; }
   .crumb a:hover { text-decoration: underline; }
 
+  /* The architecture diagram — a light schematic, monospace so the
+     box-drawing aligns. */
+  .arch {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.45;
+    background: var(--panel);
+    border: 1px solid var(--edge);
+    border-radius: 8px;
+    padding: 16px 18px;
+    overflow-x: auto;
+    white-space: pre;
+    color: var(--code-fg);
+  }
+
   /* A faux terminal — the TUI mock. Dark, monospace, with a title rail and a
      status line, echoing how kolu-tui actually paints. */
   .term {
@@ -197,81 +212,103 @@
 <div class="crumb">
   <a href="remote-terminals.html">remote-terminals</a> ›
   <a href="remote-terminals.pty-daemon.html">pty-daemon (R-4)</a> ›
-  <strong>kolu-tui (B de-risking rung)</strong>
+  <strong>kolu-tui</strong>
   &nbsp;·&nbsp; sibling: <a href="remote-terminals.pty-daemon.chrome-bar.html">chrome-bar rail</a>
 </div>
 
-<h1><code>kolu-tui</code> — the daemon's first client</h1>
-<p class="lead">A de-risking design for <a href="remote-terminals.pty-daemon.html#fresh-phases-list">Phase B</a> — the one-way door. B moves local PTYs across a socket into a surviving daemon; the irreducible risk is "type into a terminal, across a socket, to a separate process." <strong><code>kolu-tui</code> is a tiny raw-tty client that speaks <code>ptyHostSurface</code> directly — isolating that I/O core from the entire web stack so it can be proven before it's promoted to the GUI.</strong> Today it earns its keep by <em>de-risking</em> B — but it is also the seed of a first-class user surface: the CLI face of kolu, a persistent terminal multiplexer that retires <code>tmux</code>/<code>zmx</code> (the original promise of <a href="https://github.com/juspay/kolu/issues/671">#671</a>). <strong>Same code, two lifetimes</strong> — so it is built clean, not throwaway.</p>
+<h1><code>kolu-tui</code> — a CLI terminal client for kolu-server</h1>
+<p class="lead"><strong>A terminal-side client of kolu-server's pty-host.</strong> kolu-server owns its PTYs <em>in-process</em> today; <code>kolu-tui</code> connects to that same in-process pty-host over a local unix socket (speaking <code>ptyHostSurface</code>) and gives you <code>list</code> / <code>attach</code> / <code>spawn</code> from the terminal — no browser, <strong>no daemon</strong>. It is the CLI face of kolu and the seed of a <code>tmux</code>/<code>zmx</code> replacement (<a href="https://github.com/juspay/kolu/issues/671">#671</a>), shipped in phases as a beta. <em>This doc is scoped to kolu-tui-on-the-in-process-server; the parent plan's <a href="remote-terminals.pty-daemon.html#fresh-phases-list">Phase B</a> (moving the pty-host into a surviving daemon) is a separate plan it later dovetails with — see <a href="#later">Later</a>.</em></p>
 
-<h2 id="thesis">The thesis — prove the door before you walk the GUI through it</h2>
-<p>B's danger is concentrated in one place: the core terminal I/O path now crosses a unix socket to a process that must <em>outlive</em> kolu-server. The web path stacks that core under five more layers — browser ↔ WebSocket ↔ kolu-server ↔ socket ↔ daemon, plus <code>ClientRetryPlugin</code> reconnect, the provider DAG, and xterm.js. A bug in "type into a terminal and it survives a restart" could hide in <em>any</em> of them. <code>kolu-tui</code> collapses the stack to <strong><code>tty ↔ stdioLink ↔ daemon</code></strong> — the exact novel surface, nothing else. If attach / write / resize / reattach / survival work in the TUI, any remaining web bug is confined to layers that <em>already work for the in-process server today</em> and are not the one-way-door risk.</p>
-
+<h2 id="arch">Architecture — everything stays in-process in kolu-server</h2>
+<p>No new process. kolu-server keeps owning the PTYs exactly as it does now; it just exposes the <em>same</em> in-process router over an additional local socket so a second client — the CLI — can reach it. The web path is byte-identical.</p>
+<div class="arch">         ┌─────────────┐                          ┌──────────────────┐
+         │   browser   │                          │     kolu-tui     │
+         │  (the GUI)  │                          │ packages/pty-tui │
+         └──────┬──────┘                          └─────────┬────────┘
+                │  ws://  kolu-common/contract              │  ptyHostSurface
+                │  rich: PTY + providers + sessions         │  raw: PTY + taps
+                ▼                                           ▼
+ ┌──────────────────────────────────────────────────────────────────────┐
+ │  kolu-server   —   ONE process · all in-process · NO daemon            │
+ │                                                                        │
+ │                    servePtyHost(deps).router                          │
+ │        (owns node-pty fds + @xterm/headless mirror + the VT taps)      │
+ │                   ╱                              ╲                      │
+ │            directLink                      serveOverStdio              │
+ │       (web path — unchanged)            (NEW — additive, the SAME      │
+ │              ╱                            router on a unix socket)     │
+ │             ▼                                       ▼                   │
+ │   LocalTerminalBackend                  ◆ $XDG_RUNTIME_DIR/kolu/       │
+ │   (providers, sessions…)                  pty-host.sock ◆ ◀── kolu-tui │
+ └──────────────────────────────────────────────────────────────────────┘</div>
+<p><strong>The split by richness.</strong> The browser is the <em>rich</em> client — it speaks kolu-server's public contract and gets the whole world (PTY plus the provider DAG: git context, agent state, PR status, session grouping). <code>kolu-tui</code> is the <em>raw</em> client — it speaks <code>ptyHostSurface</code> directly and gets the bare multiplexer (PTY plus the VT taps), exactly the <code>tmux</code> altitude. Both attach to the one in-process pty-host.</p>
 <div class="panel">
-  <p><strong>It is also the falsification test for A1's central claim.</strong> A1 (<a href="https://github.com/juspay/kolu/pull/1055">#1055</a>) asserts that <code>ptyHostSurface</code> is <em>consumer-agnostic</em> — kolu-server talks to it through the exact contract a socket will later carry. The only proof of that is a <strong>second, independent consumer</strong>. <code>kolu-tui</code> is that consumer. If writing a terminal client against the surface feels awkward, the seam is at the wrong altitude — exactly the "framework needs an end-to-end demo, not just unit tests" lesson (<a href="remote-terminals.html#lessons">parent plan, lesson #3</a>). A clean TUI is positive evidence the boundary is right.</p>
+  <p><strong>The only server change is one additive socket.</strong> <code>servePtyHost(deps).router</code> already exists and is already consumed in-process via <code>directLink</code>. Phase&nbsp;1 adds <code>serveOverStdio(router)</code> on a unix socket beside it — the same router, a second transport. The in-process web path doesn't change; spawning, killing, and metadata all still flow through <code>LocalTerminalBackend</code> as today. <em>No PTY moves, no process is added, nothing survives a restart that didn't before.</em></p>
 </div>
 
-<h2 id="ladder">The de-risking ladder — two novel axes, two rungs, then the GUI</h2>
-<p>B introduces exactly two genuinely-new, can't-unit-test mechanics — the two that burned <a href="remote-terminals.pty-daemon.html#r4ui-postmortem">#1031 and #1034</a>. Each gets its own cheap rung <em>below</em> the GUI:</p>
-<table>
-  <tr><th>Rung</th><th>Axis it proves</th><th>Fidelity</th><th>Status</th></tr>
-  <tr>
-    <td><strong>Spike</strong> (throwaway)</td>
-    <td><strong>cgroup survival</strong> — a <code>systemd-run --user --unit=</code> child (and its own children) outlives <code>systemctl --user restart &lt;parent&gt;</code>; a child left in the parent cgroup is killed.</td>
-    <td>raw <code>net</code> socket, fake in-memory state, node-sleeper "PTY".</td>
-    <td><span class="pill ok">done — passed</span></td>
-  </tr>
-  <tr>
-    <td><strong><code>kolu-tui</code></strong> (this doc)</td>
-    <td><strong>reattach-by-id + scrollback snapshot</strong> over the <em>real</em> <code>ptyHostSurface</code> — the daemon outlives its client; a fresh client re-attaches by id and gets the snapshot-then-delta stream. The daemon : TUI relationship <em>is</em> the daemon : kolu-server relationship.</td>
-    <td>real contract, real <code>stdioLink</code>, real node-pty + scrollback.</td>
-    <td><span class="pill">proposed — gates B's core</span></td>
-  </tr>
-  <tr>
-    <td><strong>Web GUI</strong> (the ship)</td>
-    <td>the full product — providers fresh in kolu-server via <code>bridgeStream</code>, the <code>srv · pty</code> rail divergence, <code>DegradedCanvas</code>, the restart dialog.</td>
-    <td>full browser stack.</td>
-    <td><span class="pill">B proper</span></td>
-  </tr>
-</table>
-<p>The two rungs together cover <em>both</em> novel axes — survival (spike) and reattach (TUI) — over the real or faithfully-modelled mechanism, before a single browser is involved. The GUI then only adds layers that already work in-process today.</p>
+<h2 id="why">Why a second client at all</h2>
+<p>Two reasons, both standing on their own without any reference to daemons.</p>
+<ul>
+  <li><strong>It's a feature.</strong> A persistent-while-the-server-runs terminal you drive from the shell — the CLI face of kolu, the start of the <code>tmux</code> replacement #671 has always pointed at.</li>
+  <li><strong>It proves the contract is consumer-agnostic.</strong> A1 (<a href="https://github.com/juspay/kolu/pull/1055">#1055</a>) asserts <code>ptyHostSurface</code> is a clean seam — kolu-server talks to the pty-host through a contract, not through <code>node-pty</code> internals. The only real proof of that is a <em>second, independent consumer</em>. If writing a terminal client against the surface is clean, the seam is at the right altitude (the "framework needs an end-to-end demo, not just unit tests" lesson — <a href="remote-terminals.html#lessons">parent plan, lesson #3</a>). If it's awkward, that's a finding worth having early.</li>
+</ul>
+<p class="warn"><strong>Honest scope.</strong> Because the pty-host is in-process, restarting kolu-server (a deploy) <em>kills</em> its PTYs — <code>kolu-tui</code> does not make terminals survive a server restart. What it does give is <strong>client-side</strong> detach/reattach: the CLI can come and go (close the terminal, reopen, re-attach) while kolu-server keeps running and holds the PTY. Surviving a <em>server</em> restart is the separate daemon plan (<a href="remote-terminals.pty-daemon.html#fresh-phases-list">B</a>), not this.</p>
 
-<div class="panel">
-  <h4 style="margin-top:0">Spike evidence (the rung below — already gathered)</h4>
-  <p>Run on an ephemeral <code>pu</code> box (NixOS, kernel 6.12, cgroup-v2, non-root user with a live <code>systemctl --user</code> manager — faithful to kolu's <code>systemd-run --user</code> model). A survivor spawned via <code>systemd-run --user --unit=spike-survivor</code> owns a child "PTY" + in-memory state behind a unix socket; a control child is left in the parent's cgroup. Then <code>systemctl --user restart</code> the parent (a deploy):</p>
-  <table>
-    <tr><th>Process</th><th>cgroup</th><th>After restart</th><th>Expected</th></tr>
-    <tr><td>survivor (daemon)</td><td><code>spike-survivor.service</code> (own)</td><td><strong class="">ALIVE</strong>, never got SIGTERM</td><td>✓ survives</td></tr>
-    <tr><td>PTY grandchild</td><td><code>spike-survivor.service</code> (rode survivor)</td><td><strong>ALIVE</strong></td><td>✓ survives</td></tr>
-    <tr><td>detached control</td><td><code>spike-parent.service</code></td><td><strong>DEAD</strong></td><td>✓ killed</td></tr>
-  </table>
-  <p>Reattach (fresh client → surviving socket): <code>counter=3</code> and <code>survivorPid</code> unchanged, <code>ptyAlive=true</code> — in-memory state and the owned PTY preserved across the restart. The negative control (detached child dying) proves the restart <em>genuinely</em> kills the parent cgroup, so the survival isn't a no-op. <code>kolu-tui</code> climbs from this fake-state spike to the real contract.</p>
-</div>
-
-<h2 id="what">What it is — ~150 LOC over the surface kolu-server already uses</h2>
-<p>A node CLI that dials the daemon's unix socket through <code>stdioLink</code> (the very link kolu-server uses for the same socket) and gets a typed <code>ptyHostSurface</code> client. No new wire, no new framing — <code>serveOverStdio</code> is already unit-tested via the loopback fixture; the TUI just adds a <em>human</em> at the other end of it.</p>
+<h2 id="surface">The surface — ~150 LOC in <code>packages/pty-tui</code></h2>
+<p>A small node CLI in its own package, <code>packages/pty-tui</code>, that dials the unix socket through <code>stdioLink</code> (the same link the daemon would later use) and gets a typed <code>ptyHostSurface</code> client. No new wire, no new framing — <code>serveOverStdio</code> is already unit-tested via the loopback fixture.</p>
 <table>
   <tr><th>Subcommand</th><th>Surface call</th><th>Behaviour</th></tr>
-  <tr><td><code>kolu-tui list</code></td><td><code>terminal.list()</code></td><td>One-shot — print each live PTY's id, pid, cwd, title. The daemon's inventory, with no kolu-server in the loop.</td></tr>
-  <tr><td><code>kolu-tui attach &lt;id&gt;</code></td><td><code>terminalAttach.get({id})</code> (stream) + <code>terminal.write</code> / <code>terminal.resize</code></td><td>Put the local tty in raw mode. First yield is the <strong>scrollback snapshot</strong> → paint to stdout; subsequent deltas stream in. Forward stdin bytes via <code>write</code>; <code>SIGWINCH</code> → <code>resize({id, cols, rows})</code>. <kbd>^B</kbd> <kbd>d</kbd> detaches (client exits, daemon untouched).</td></tr>
-  <tr><td><code>kolu-tui spawn [-- cmd]</code></td><td><code>terminal.spawn({id: uuid, …})</code> then attach</td><td>Mint a UUID client-side (the same id-minting B's reattach relies on), spawn, immediately attach.</td></tr>
-  <tr><td><code>kolu-tui snapshot &lt;id&gt;</code></td><td><code>terminalAttach.get({id})</code> — first yield only</td><td>One-shot, non-interactive: dump the current scrollback snapshot + a trailer line (<code>pid · cwd · title</code>) and exit. The scriptable primitive the <a href="#flow-ci">headless CI gate</a> asserts on.</td></tr>
-  <tr><td><code>kolu-tui kill &lt;id&gt;</code></td><td><code>terminal.kill({id})</code></td><td>Out-of-band termination — exercises the order-safe kill path (abort the exit tap <em>then</em> kill) from a non-server client.</td></tr>
+  <tr><td><code>kolu-tui list</code></td><td><code>terminal.list()</code></td><td>One-shot — print each live PTY's id, pid, cwd, title. The pty-host's inventory.</td></tr>
+  <tr><td><code>kolu-tui attach &lt;id&gt;</code></td><td><code>terminalAttach.get({id})</code> (stream) + <code>terminal.write</code> / <code>terminal.resize</code></td><td>Put the local tty in raw mode. First yield is the <strong>scrollback snapshot</strong> → paint to stdout; deltas stream after. Forward stdin via <code>write</code>; <code>SIGWINCH</code> → <code>resize({id, cols, rows})</code>. A line-start <code>~.</code> escape (see <a href="#escape">below</a>) detaches — the CLI exits, kolu-server keeps the PTY.</td></tr>
+  <tr><td><code>kolu-tui spawn [-- cmd]</code></td><td><code>terminal.spawn({id: uuid, …})</code> then attach</td><td>Mint a UUID client-side, spawn, immediately attach. <code>--print-id</code> prints the id and does <em>not</em> attach (for scripting).</td></tr>
+  <tr><td><code>kolu-tui snapshot &lt;id&gt;</code></td><td><code>terminalAttach.get({id})</code> — first yield only</td><td>One-shot, non-interactive: dump the current scrollback + a trailer line (<code>pid · cwd · title</code>) and exit. The scriptable primitive the <a href="#flow-ci">headless test</a> asserts on.</td></tr>
+  <tr><td><code>kolu-tui kill &lt;id&gt;</code></td><td><code>terminal.kill({id})</code></td><td>Out-of-band termination — exercises the order-safe kill path (abort the exit tap <em>then</em> kill) from a non-browser client.</td></tr>
 </table>
-<p>The taps (<code>subscribeCwd</code> / <code>subscribeTitle</code> / <code>subscribeForeground</code> / <code>exitPromise</code>) feed the status line — a second, non-kolu-server consumer of the raw VT taps, proving they're transport-clean too.</p>
-<p class="lead"><strong>Scripting flags:</strong> <code>--print-id</code> (spawn prints the minted UUID and does <em>not</em> attach), <code>--json</code> (machine-readable <code>list</code>), <code>--socket &lt;path&gt;</code> (point at a non-default daemon). These collapse the headless gate to a few lines of bash.</p>
+<p>The taps (<code>subscribeCwd</code> / <code>subscribeTitle</code> / <code>subscribeForeground</code> / <code>exitPromise</code>) feed the status line — a second, non-browser consumer of the raw VT taps, proving those are transport-clean too. <code>--json</code> makes <code>list</code> machine-readable; <code>--socket &lt;path&gt;</code> points at a non-default server.</p>
+
+<h3>Decisions recorded here (to be echoed in code comments)</h3>
+<table>
+  <tr><th>Decision</th><th>Choice</th><th>Why</th></tr>
+  <tr><td><strong>Home</strong></td><td>a tiny separate <code>packages/pty-tui</code></td><td>An independent CLI package, not a <code>bin</code> folded into <code>@kolu/pty-host</code> — keeps the pty-host package focused on the contract + primitive, and keeps the CLI's own deps (raw-tty handling, arg parsing) out of the closure the A2 staleKey hashes.</td></tr>
+  <tr><td><strong>Render fidelity</strong></td><td>raw VT passthrough</td><td>Write the pty-host's bytes straight to stdout; do <em>not</em> re-render through a second <code>@xterm/headless</code> mirror. Simplest and truest — and it avoids a second rendering path drifting from the server's. <em>This trade-off must be recorded as a design-decision comment at the passthrough site in code.</em></td></tr>
+  <tr><td id="escape"><strong>Detach / escape</strong></td><td>ssh-style line-start <code>~</code> escape — <strong>never <kbd>Ctrl+B</kbd></strong></td><td>A passthrough multiplexer must not steal any control char the inner tools need — <kbd>Ctrl+B</kbd> and <kbd>Ctrl+J</kbd> are reserved by Claude Code (<code>input/prohibitedKeybinds.ts</code>), and editors/shells claim the rest. So the escape is the unambiguous ssh model: a <code>~</code> recognised <em>only</em> immediately after a newline you typed. <code>~.</code> detach · <code>~k</code> kill · <code>~~</code> literal tilde · <code>~?</code> help. The char is configurable (<code>--escape</code>); a literal <code>~</code> mid-line passes through untouched, so <em>every</em> inner-app chord, <kbd>Ctrl+B</kbd> included, reaches the program unmodified.</td></tr>
+</table>
+
+<h2 id="phases">Phasing — three beta increments, all in-process</h2>
+<p>Each leaves Kolu working and ships on its own; the web path is unchanged throughout; no daemon at any step.</p>
+<table>
+  <tr><th>Phase</th><th>Ships</th><th>Server change</th><th>User-visible</th></tr>
+  <tr>
+    <td><strong>1 · <code>list</code></strong><br>(the socket + the round-trip)</td>
+    <td>kolu-server serves its in-process pty-host router over a unix socket (<code>serveOverStdio</code>); <code>packages/pty-tui</code> with <code>list</code> + read-only <code>snapshot</code>.</td>
+    <td>+1 local socket listener on the existing router. Web path byte-identical.</td>
+    <td>A beta CLI that <em>lists</em> your live terminals. + a "Terminal UI (beta)" line in the README/site.</td>
+  </tr>
+  <tr>
+    <td><strong>2 · <code>attach</code></strong><br>(the interactive client)</td>
+    <td>Raw-tty passthrough, snapshot-then-delta, stdin→<code>write</code>, <code>SIGWINCH</code>→<code>resize</code>, the <code>~</code>-escape detach.</td>
+    <td>None beyond Phase 1.</td>
+    <td>Drive a terminal from the CLI; detach and re-attach while the server runs.</td>
+  </tr>
+  <tr>
+    <td><strong>3 · <code>spawn</code> / <code>kill</code></strong><br>(the raw multiplexer)</td>
+    <td><code>spawn</code> (+ <code>--print-id</code>), <code>kill</code>, <code>list --json</code>.</td>
+    <td>None.</td>
+    <td>Create and kill PTYs from the CLI — a usable raw multiplexer (beta). The richer <code>tmux</code>-replacement UX (windows, panes, config) grows from here, as its own work.</td>
+  </tr>
+</table>
+<p>Phase 1 alone is the smallest honest first ship — and it's exactly the <code>kolu-tui list</code> starting point: a one-shot RPC, no raw-tty mode, the "hello world" that proves <code>serveOverStdio</code>-over-a-real-socket + <code>stdioLink</code> + the contract round-trip, at near-zero risk.</p>
 
 <h2 id="flow">The whole user flow — CLI workflows + screens</h2>
-<p>Three workflows, each a real command sequence; the dark screens are what <code>kolu-tui</code> paints. <strong>A</strong> is the interactive de-risk loop a developer walks; <strong>B</strong> is that loop scripted into a headless CI gate; <strong>C</strong> is the ops diagnostic the tool becomes after B ships. The whole arc — birth → work → detach → reattach → survive a deploy → exit — runs with <em>no browser</em>.</p>
+<p>The interactive loop a user walks, then the same loop scripted as a headless test. The dark screens are what <code>kolu-tui</code> paints. The running example: a PTY <code>3f9a…c21</code> in <code>~/code/kolu</code> that becomes a Claude Code session.</p>
 
-<h3 id="flow-interactive">A · Interactive de-risk session</h3>
+<h3 id="flow-interactive">A · Interactive session</h3>
 
-<h4>0 · Is the daemon there? — honest failure, never a hang</h4>
+<h4>0 · Is the server's pty-host reachable? — honest failure, never a hang</h4>
 <pre><code>$ kolu-tui list
-kolu-tui: no daemon at /run/user/1000/kolu/pty-host.sock (ECONNREFUSED)
-          the daemon is spawned by kolu-server — start kolu, or run a
-          bare `kolu --stdio` daemon yourself.</code></pre>
-<p>The first thing the tool proves: a <em>dead</em> daemon is a clear, immediate error — not the silent empty hang that was the <a href="remote-terminals.pty-daemon.html#r4ui-postmortem">#1034 empty-canvas lie</a>. The same honesty the GUI's <code>DegradedCanvas</code> owes the user, checked here from the client side.</p>
+kolu-tui: no pty-host socket at /run/user/1000/kolu/pty-host.sock (ECONNREFUSED)
+          is kolu-server running? the socket appears once it boots.</code></pre>
+<p>An unreachable pty-host is a clear, immediate error — not a silent empty hang.</p>
 
 <h4>1 · Birth — spawn a shell and attach to it</h4>
 <pre><code>$ kolu-tui spawn
@@ -281,91 +318,60 @@ spawned 3f9a…c21 (pid 12843, cwd ~/code/kolu) · attaching…</code></pre>
   <div class="body"><span class="t-dim">(fresh PTY — empty scrollback)</span>
 <span class="t-blue">~/code/kolu</span> <span class="t-prompt">❯</span> █
 </div>
-  <div class="status"><span class="t-dim"><kbd>^B</kbd> <kbd>d</kbd> detach</span><span class="t-dim"><kbd>^B</kbd> <kbd>r</kbd> reattach</span><span class="t-dim"><kbd>^B</kbd> <kbd>k</kbd> kill</span><span class="grow"></span><span class="t-green">● live · 102×31</span></div>
+  <div class="status"><span class="t-dim"><code>~.</code> detach</span><span class="t-dim"><code>~k</code> kill</span><span class="t-dim"><code>~?</code> help</span><span class="grow"></span><span class="t-green">● live · 102×31</span></div>
 </div>
 
 <h4>2 · Work — the raw VT taps drive the status line live</h4>
-<p>Run something. As the foreground process and the title change, the <code>subscribeForeground</code> / <code>subscribeTitle</code> taps push updates and the status rail tracks them — a second consumer of the taps, with no kolu-server in the loop.</p>
+<p>As the foreground process and the title change, the <code>subscribeForeground</code> / <code>subscribeTitle</code> taps push updates and the status rail tracks them — no browser, no server-side providers involved.</p>
 <div class="term">
-  <div class="bar"><span class="dots"><i style="background:#e07a7a"></i><i style="background:#e0a96d"></i><i style="background:#57c98a"></i></span><span class="grow">kolu-tui · attached 3f9a…c21 · claude: implement B</span><span class="t-green">● live</span></div>
+  <div class="bar"><span class="dots"><i style="background:#e07a7a"></i><i style="background:#e0a96d"></i><i style="background:#57c98a"></i></span><span class="grow">kolu-tui · attached 3f9a…c21 · claude: implement pty-tui</span><span class="t-green">● live</span></div>
   <div class="body"><span class="t-blue">~/code/kolu</span> <span class="t-prompt">❯</span> claude
 <span class="t-blue">⏺</span> Bash(git status)
   <span class="t-dim">⎿</span> On branch master — working tree clean
 <span class="t-prompt">&gt;</span> █
 </div>
-  <div class="status"><span class="t-green">● live</span><span class="t-amber">fg node</span><span class="t-dim">title ↻ "claude: implement B"</span><span class="grow"></span><span class="t-dim">102×31</span></div>
+  <div class="status"><span class="t-green">● live</span><span class="t-amber">fg node</span><span class="t-dim">title ↻ "claude: implement pty-tui"</span><span class="grow"></span><span class="t-dim">102×31</span></div>
 </div>
 
-<h4>3 · The inventory — list (the daemon's own truth)</h4>
-<p>From a second shell, ask the daemon directly what it holds — no server, no browser.</p>
+<h4>3 · The inventory — list (from another shell)</h4>
 <div class="term">
   <div class="bar"><span class="dots"><i style="background:#e07a7a"></i><i style="background:#e0a96d"></i><i style="background:#57c98a"></i></span><span class="grow">kolu-tui</span><span class="t-dim">stdioLink → /run/user/1000/kolu/pty-host.sock</span></div>
   <div class="body"><span class="t-prompt">$</span> kolu-tui list
 
 <span class="t-dim">ID         ST   PID    CWD                          TITLE</span>
-3f9a…c21   <span class="t-green">●</span>   12843  ~/code/kolu                  claude: implement B
+3f9a…c21   <span class="t-green">●</span>   12843  ~/code/kolu                  claude: implement pty-tui
 7b2e…0d4   <span class="t-green">●</span>   12901  ~/code/kolu/.worktrees/…     zsh
 a18c…9ff   <span class="t-green">●</span>   13044  ~/scratch                    vim notes.md
 </div>
-  <div class="status"><span class="t-green">● 3 live PTYs</span><span class="grow"></span><span class="t-dim">daemon pty&nbsp;c402a50 · build&nbsp;d801286</span></div>
+  <div class="status"><span class="t-green">● 3 live PTYs (in kolu-server, in-process)</span><span class="grow"></span><span class="t-dim">pty-host pid 9981</span></div>
 </div>
 
-<h4>4 · Detach — the daemon keeps the PTY</h4>
-<pre><code>[^B d]
-detached 3f9a…c21 · PTY still live in the daemon (pid 12843)
+<h4>4 · Detach — the server keeps the PTY</h4>
+<pre><code>&lt;Enter&gt;~.
+detached 3f9a…c21 · the pty-host (in kolu-server) keeps it running
 $ </code></pre>
-<p>The client exits; the daemon is untouched. Nothing in the agent session is lost — it runs on in the surviving process, exactly where B needs it.</p>
+<p>The CLI exits; kolu-server is untouched and the PTY runs on. <em>(This is client-side detach — distinct from server survival. If kolu-server itself restarts, the in-process PTY dies; that persistence is the separate <a href="remote-terminals.pty-daemon.html#fresh-phases-list">daemon plan</a>.)</em></p>
 
 <h4>5 · Re-attach — the scrollback snapshot repaints instantly</h4>
-<p>The first yield of the attach stream is the full scrollback snapshot; the deltas follow (the snapshot-then-delta invariant, exercised over the real socket).</p>
+<p>The first yield of the attach stream is the full scrollback snapshot; deltas follow. The CLI comes and goes; the running server holds the state.</p>
 <div class="term">
-  <div class="bar"><span class="dots"><i style="background:#e07a7a"></i><i style="background:#e0a96d"></i><i style="background:#57c98a"></i></span><span class="grow">kolu-tui · attached 3f9a…c21 · claude: implement B</span><span class="t-green">● live</span></div>
-  <div class="body"><span class="t-dim">… 1,284 lines of scrollback restored from the snapshot yield …</span>
-<span class="t-blue">⏺</span> Bash(git status)
-  <span class="t-dim">⎿</span> On branch master — working tree clean
-<span class="t-blue">⏺</span> Edit(packages/pty-host/src/daemonMain.ts)
-  <span class="t-dim">⎿</span> Updated 1 addition
-<span class="t-prompt">&gt;</span> █
-</div>
-  <div class="status"><span class="t-dim"><kbd>^B</kbd> <kbd>d</kbd> detach</span><span class="t-dim"><kbd>^B</kbd> <kbd>r</kbd> reattach</span><span class="t-dim"><kbd>^B</kbd> <kbd>k</kbd> kill</span><span class="grow"></span><span class="t-green">● live · 102×31</span></div>
-</div>
-
-<h4>6 · The proof moment — kill the client, daemon holds, re-attach by id</h4>
-<p>Reattach-by-id in miniature. The TUI <em>is</em> the daemon's client, exactly as kolu-server will be. Kill it; the daemon outlives it (its PTYs and scrollback held in the surviving process). A <em>fresh</em> <code>kolu-tui attach &lt;id&gt;</code> re-joins the same PTY and the snapshot repaints — no spawn, same pid.</p>
-<div class="term">
-  <div class="bar"><span class="dots"><i style="background:#e07a7a"></i><i style="background:#e0a96d"></i><i style="background:#57c98a"></i></span><span class="grow">kolu-tui · re-attached 3f9a…c21</span><span class="t-amber">↻ reattached</span></div>
-  <div class="body"><span class="t-dim">(previous kolu-tui process killed; daemon untouched)</span>
-<span class="t-prompt">$</span> kolu-tui attach 3f9a…c21
-<span class="t-amber">↻</span> snapshot restored — 1,284 lines · PTY pid <span class="t-green">12843 unchanged</span> · no respawn
+  <div class="bar"><span class="dots"><i style="background:#e07a7a"></i><i style="background:#e0a96d"></i><i style="background:#57c98a"></i></span><span class="grow">kolu-tui · re-attached 3f9a…c21 · claude: implement pty-tui</span><span class="t-amber">↻ reattached</span></div>
+  <div class="body"><span class="t-amber">↻</span> snapshot restored — 1,284 lines · PTY pid <span class="t-green">12843 unchanged</span>
 <span class="t-blue">⏺</span> Bash(git status)
   <span class="t-dim">⎿</span> On branch master — working tree clean
 <span class="t-prompt">&gt;</span> █
 </div>
-  <div class="status"><span class="t-green">● live (reattached by id)</span><span class="grow"></span><span class="t-dim">daemon pid unchanged across client death</span></div>
+  <div class="status"><span class="t-green">● live (reattached by id)</span><span class="grow"></span><span class="t-dim">server up throughout · PTY pid unchanged</span></div>
 </div>
 
-<h4>7 · The survival test — restart the daemon's parent (a deploy)</h4>
-<pre><code>$ systemctl --user restart kolu        # the deploy: kolu-server dies + respawns
-$ kolu-tui attach 3f9a…c21</code></pre>
-<div class="term">
-  <div class="bar"><span class="dots"><i style="background:#e07a7a"></i><i style="background:#e0a96d"></i><i style="background:#57c98a"></i></span><span class="grow">kolu-tui · re-attached 3f9a…c21 · claude: implement B</span><span class="t-amber">↻ survived deploy</span></div>
-  <div class="body"><span class="t-amber">↻</span> snapshot restored — 1,284 lines · PTY pid <span class="t-green">12843 unchanged</span> · daemon survived <span class="t-dim">systemctl --user restart</span>
-<span class="t-blue">⏺</span> Bash(git status)
-  <span class="t-dim">⎿</span> On branch master — working tree clean
-<span class="t-prompt">&gt;</span> █
-</div>
-  <div class="status"><span class="t-green">● live (reattached after deploy)</span><span class="grow"></span><span class="t-dim">daemon pid unchanged</span></div>
-</div>
-<p>This combines both rungs: the daemon is cgroup-escaped (the <a href="#ladder">spike axis</a>) <em>and</em> reattach-by-id rejoins it (the TUI axis) — the full "terminals survive a deploy" promise, proven without a browser.</p>
-
-<h4>8 · Exit — the exit tap fires, the client returns to the shell</h4>
+<h4>6 · Exit — the exit tap fires, the client returns to the shell</h4>
 <pre><code>&gt; /exit                       # the agent (or ^D) ends the PTY
 3f9a…c21 exited (code 0) · exit tap fired · detaching
 $ </code></pre>
-<p>Out of band, <code>kolu-tui kill &lt;id&gt;</code> drives the same order-safe teardown (abort the exit tap <em>then</em> kill) from a non-server client — useful for exercising the kill path B shares between the forced and user restart routes.</p>
+<p>Out of band, <code>kolu-tui kill &lt;id&gt;</code> drives the same order-safe teardown (abort the exit tap <em>then</em> kill) from the CLI.</p>
 
-<h3 id="flow-ci">B · Headless CI gate — survival + reattach, no browser</h3>
-<p>The interactive loop above, scripted. This becomes the <em>fast</em> reattach gate — it asserts the two novel axes in seconds on a <code>pu</code>/CI box, while the web <code>daemon-reattach.feature</code> layers the full-stack path on top.</p>
+<h3 id="flow-ci">B · Headless test — client-death detach/reattach, no browser</h3>
+<p>The detach/reattach loop scripted. It asserts that the CLI client can die and a fresh one re-joins the same PTY (the server runs throughout) — fast, no browser.</p>
 <pre><code>#!/usr/bin/env bash
 set -euo pipefail
 
@@ -373,71 +379,21 @@ set -euo pipefail
 id=$(kolu-tui spawn --print-id -- bash -c 'echo "MARK-$$"; exec sleep 1d')
 pid_before=$(kolu-tui list --json | jq -r ".[] | select(.id==\"$id\").pid")
 
-# 2 · the deploy: kolu-server dies and respawns; the daemon must outlive it
-systemctl --user restart kolu
+# 2 · (no kolu-tui process is attached — simulating client death)
 
-# 3 · reattach by id and assert
+# 3 · a fresh client re-attaches by id and asserts the state is intact
 kolu-tui snapshot "$id" | grep -q "MARK-"            # scrollback preserved
 pid_after=$(kolu-tui list --json | jq -r ".[] | select(.id==\"$id\").pid")
-[ "$pid_before" = "$pid_after" ]                     # reattached, not respawned
+[ "$pid_before" = "$pid_after" ]                     # same PTY, not a respawn
 
-echo "✓ survived restart + reattached by id (PTY pid $pid_after unchanged)"</code></pre>
-<p>Three assertions, the whole door: the daemon survived a real <code>systemctl --user restart</code>, the scrollback came back, and the PTY pid is unchanged (a join, not a fresh spawn). Green here is the daemon core de-risked before a line of the GUI runs — and it slots straight onto the <a href="#ladder">spike</a> the same way.</p>
+echo "✓ client came and went; server held the PTY (pid $pid_after unchanged)"</code></pre>
+<p>This is the kolu-tui-scoped reattach test — the client can come and go while the server holds the PTY. (Surviving a <em>server</em> restart is a different assertion that belongs to the daemon plan, not here.)</p>
 
-<h3 id="flow-ops">C · Ops diagnostic — "is my work lost?"</h3>
-<p>Long after B ships, the tool keeps earning its keep. When kolu-server is wedged or mid-restart and the browser shows "connecting…", the daemon is the source of truth — ask it directly:</p>
-<pre><code>$ kolu-tui list
-● 3 live PTYs — daemon healthy, your sessions are intact
-  3f9a…c21  pid 12843  claude: implement B
-  7b2e…0d4  pid 12901  zsh
-  a18c…9ff  pid 13044  vim notes.md</code></pre>
-<p>The empty-canvas lie, falsified from the daemon end: the work is plainly there, whatever the server is doing. The same honest state the GUI surfaces through the <a href="remote-terminals.pty-daemon.chrome-bar.html"><code>srv · pty</code> rail</a> + <code>DegradedCanvas</code> — and a glimpse of the tool's second life: this diagnostic is just the first non-dev use of what becomes the full <code>tmux</code>-replacing CLI surface (see <a href="#scope">Scope</a>).</p>
-
-<h2 id="covers">What it de-risks — and what it deliberately doesn't</h2>
-<table>
-  <tr><th>De-risks (the novel, scary core)</th><th>Does NOT cover (already-working web layers — left to e2e)</th></tr>
-  <tr>
-    <td>
-      <ul>
-        <li>Socket transport over the <em>real</em> <code>ptyHostSurface</code> (a second consumer).</li>
-        <li>Attach → <strong>scrollback snapshot</strong> → live deltas (the snapshot-then-delta invariant).</li>
-        <li><strong>Reattach-by-id</strong>: daemon outlives its client; fresh client re-joins, no respawn, same pid.</li>
-        <li>Raw input / <code>resize</code> / <code>SIGWINCH</code> round-trips end-to-end.</li>
-        <li>Combined with the spike: the daemon is cgroup-escaped, so the TUI proves reattach <em>across an actual</em> <code>systemctl --user restart</code> of the parent.</li>
-      </ul>
-    </td>
-    <td>
-      <ul>
-        <li>The provider DAG running fresh in kolu-server (git / agent / PR detection) and <code>bridgeStream</code> into it.</li>
-        <li>The <code>srv · pty</code> rail <strong>divergence</strong> (outdated / dead) — see the <a href="remote-terminals.pty-daemon.chrome-bar.html">chrome-bar doc</a>.</li>
-        <li><code>DegradedCanvas</code>, the restart dialog, the update-pending nudge.</li>
-        <li>WebSocket <code>ClientRetryPlugin</code> reconnect and xterm.js rendering.</li>
-      </ul>
-    </td>
-  </tr>
-</table>
-<p>The right-hand column is <em>display and freshness</em> — lower-risk than the I/O core and exercised by <code>daemon-reattach.feature</code> / <code>daemon-update.feature</code>. The TUI hits the highest-risk part precisely; it is a complement to the e2e suite, not a replacement.</p>
-
-<h2 id="slot">Where it slots in B's build order</h2>
-<p>After <em>topology</em> + <em>cgroup/supervisor</em> (so there's a real socket and a surviving daemon to attach to), <strong>before</strong> reattach-into-providers and the honest-state UI — so it gates the daemon core before the heavy server-side and UI work stack on top:</p>
-<pre><code>kolu-shared → topology → cgroup/supervisor → [ kolu-tui : gate the core ] →
-reattach-by-id (into kolu-server's provider DAG) → recovery → honest-state UI</code></pre>
-<p>It also unlocks a <strong>headless survival test</strong>: on a <code>pu</code> / CI box, <code>kolu-tui attach &lt;id&gt;</code> → <code>systemctl --user restart</code> the daemon's parent → fresh <code>kolu-tui attach &lt;id&gt;</code> → assert the snapshot + pid — proving survival + reattach with no browser, directly easing the "<em>the acceptance signal is the second deploy</em>" friction the <a href="remote-terminals.pty-daemon.html">B panel</a> calls out.</p>
-
-<h2 id="scope">Scope — de-risk now, product later (the tmux replacement)</h2>
-<p><strong>This is not a throwaway harness.</strong> The persistent daemon B builds <em>is</em> a terminal-multiplexer server; <code>kolu-tui</code> is its native CLI client — a peer of the web GUI on the same <code>ptyHostSurface</code>, and the long-promised <code>tmux</code>/<code>zmx</code> replacement (<a href="https://github.com/juspay/kolu/issues/671">#671</a>). The two clients split cleanly by richness: the <strong>web GUI is the rich client</strong> (PTY + the provider DAG — git context, agent state, PR status, fresh in kolu-server), the <strong>TUI is the raw client</strong> (PTY + the VT taps — the <code>tmux</code>-equivalent), both attaching to the one surviving daemon. So it is built as <em>real software</em>, clean enough to graduate.</p>
-<p>What that means for <strong>B</strong>: the de-risk subset B actually needs is small — <code>list</code> / <code>attach</code> / <code>spawn</code> / <code>snapshot</code> over the socket, ~150 LOC reusing <code>stdioLink</code> + <code>ptyHostSurface</code>. That subset gates the daemon core (and the <a href="#flow-ci">headless test</a>); B's <em>merge</em> doesn't wait on full multiplexer polish (window/pane management, config, keybindings). The product surface — the tmux-replacing UX — grows on this foundation <em>after</em> B, as its own work, against a contract a real second consumer has already proven. The de-risk use and the product are the same binary at two stages of its life, not two throwaway efforts.</p>
-
-<h2 id="open">Open questions</h2>
-<ul>
-  <li><strong>Home.</strong> A <code>bin</code> in <code>@kolu/pty-host</code> (it already owns the contract + the daemon), or a tiny separate <code>packages/pty-tui</code>? Leaning <code>@kolu/pty-host</code> — keeps the second consumer in the package whose closure the staleKey hashes, so the conformance test travels with the contract. <em>(Watch the A2 closure-hash guard: a TUI <code>bin</code> that imports only the contract is fine; if it pulls in unlisted edges the build-time import guard will — correctly — complain.)</em></li>
-  <li><strong>Render fidelity.</strong> Raw VT passthrough (write the daemon's bytes straight to stdout — simplest, truest) vs. re-rendering through an <code>@xterm/headless</code> mirror. Passthrough is enough for a de-risk tool and avoids a second rendering path to keep honest.</li>
-  <li><strong>Canonical headless test?</strong> Should the scripted <code>attach → restart → reattach</code> become the canonical headless reattach gate (fast, no browser), with the web <code>daemon-reattach.feature</code> layered on top for the full-stack path? Likely yes.</li>
-  <li><strong>Detach protocol.</strong> <kbd>^B</kbd>-prefixed chords collide with tmux/Claude-Code muscle memory — check <code>input/prohibitedKeybinds.ts</code> conventions even for a dev tool, or pick an unambiguous escape.</li>
-</ul>
+<h2 id="later">Later — how this dovetails with the daemon plan (out of scope)</h2>
+<p>Stated only so we don't trip over it: when the parent plan's <a href="remote-terminals.pty-daemon.html#fresh-phases-list">Phase B</a> eventually moves the pty-host out of kolu-server into a surviving <code>kolu --stdio</code> daemon, <code>kolu-tui</code>'s socket target shifts from kolu-server to the daemon — <strong>with no contract change</strong>, because both serve the same <code>ptyHostSurface</code>. At that point the CLI's terminals gain server-restart survival for free, and the raw-vs-rich client split is unchanged. <em>But that is a separate plan; nothing in kolu-tui's phases above depends on it, and kolu-tui ships and is useful entirely on the in-process server.</em></p>
 
 <hr/>
-<p class="cite">Child of <a href="remote-terminals.pty-daemon.html">remote-terminals.pty-daemon.html</a> · sibling of <a href="remote-terminals.pty-daemon.chrome-bar.html">remote-terminals.pty-daemon.chrome-bar.html</a> · spike evidence gathered 2026-05-31 on a <code>pu</code> box (kernel 6.12, cgroup-v2).</p>
+<p class="cite">Child of <a href="remote-terminals.pty-daemon.html">remote-terminals.pty-daemon.html</a> · sibling of <a href="remote-terminals.pty-daemon.chrome-bar.html">remote-terminals.pty-daemon.chrome-bar.html</a>.</p>
 
 </main>
 </body>
