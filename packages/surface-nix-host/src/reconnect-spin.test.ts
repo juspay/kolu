@@ -68,6 +68,8 @@ function flakyChild(liveMs: number) {
 }
 
 describe("reconnect bridge loop", () => {
+  let session: HostSession<typeof contract>;
+
   beforeEach(() => {
     vi.mocked(provisionAgent).mockResolvedValue({
       ok: true,
@@ -75,10 +77,13 @@ describe("reconnect bridge loop", () => {
     } as never);
     vi.mocked(spawn).mockImplementation(() => flakyChild(40) as never);
   });
-  afterEach(() => vi.clearAllMocks());
+  afterEach(() => {
+    session.destroy();
+    vi.clearAllMocks();
+  });
 
   it("does not busy-spin after a connected link drops", async () => {
-    const session = new HostSession<typeof contract>({
+    session = new HostSession<typeof contract>({
       host: "testhost",
       resolveDrvPath: () => Promise.resolve("/nix/store/deadbeef-agent.drv"),
       binary: "agent",
