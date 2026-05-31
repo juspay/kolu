@@ -43,8 +43,15 @@ This is a workspace-private package. Wire it into both server and client package
 
 - `surface.contract` — replaces the hand-written `oc.router({...})` literal.
 - `implementSurface(surface, deps)` — replaces the per-verb `t.X.<verb>.handler(handlers.<verb>)` plumbing (server-side).
-- `surfaceClient(surface, transport)` — replaces hand-passed `source`/`mutate`/`valueSource`/`keyToInput` at every hook call site (client-side).
-- `inProcessSurfaceClient(surface, deps)` — serve a surface and consume it **in one process, with no wire**: it composes `implementSurface` with a direct `createRouterClient` and hands back the exact `ContractRouterClient<contract>` a socket/ssh consumer would hold, except each call invokes the handlers directly (microtask-deferred). The *identity* transport — useful for tests, single-process deployments, or the in-process phase of a service that will later be decoupled behind a socket: the consumer holds one client type and stays byte-identical across the swap. (Streams come back as async iterables, exactly as the socket client yields them.)
+- `surfaceClient(surface, link)` — replaces hand-passed `source`/`mutate`/`valueSource`/`keyToInput` at every hook call site (client-side). The `link` is any member of the link family below — `surfaceClient` is transport-agnostic.
+
+A surface is reached through one of several **links**. A link maps "a way to reach the served contract" to a `ContractRouterClient<contract>` (the client is the only abstraction that spans all of them — the direct link has no transport at all):
+
+- `websocketLink(ws)` (`@kolu/surface/links/websocket`) — over a WebSocket; the browser path.
+- `stdioLink({ read, write })` (`@kolu/surface/links/stdio`) — over a subprocess / ssh stdio pair.
+- `directLink(router)` (`@kolu/surface/links/direct`) — the **identity element**: in-process, no wire. Feed it `implementSurface(surface, deps).router` and every call invokes the handlers directly (microtask-deferred), so the consumer holds the exact `ContractRouterClient<contract>` a socket/ssh consumer would — byte-identical across a later transport swap. Useful for tests, single-process deployments, or the in-process phase of a service that will later be decoupled behind a socket. (Streams come back as async iterables, exactly as the wire-link clients yield them.)
+
+`createLoopbackPair()` (`@kolu/surface/links/loopback`) is **not** a link — it's the in-process transport *primitive* you feed into `stdioLink` + `serveOverStdio` to exercise the wire codec without forking. The serve side is `implementSurface(surface, deps)` (→ a router) plus, for wire links, `serveOverStdio({ router, transport })`.
 
 The surface is opt-in. Reach for it when you're standing up a new app surface or writing a self-contained module; stay manual when an existing wire shape doesn't match the surface's verb-naming defaults (currently `get`/`patch`/`set`/`test__set` for cells, `keys`/`get`/`update`/`delete`/`test__set` for collections — see the example for the full set). The two approaches compose: spread `surface.contract` alongside a sibling `oc.router({...})` of raw procedures, and similarly for `implementSurface`'s output.
 
@@ -139,14 +146,14 @@ The framework owns the typed-client construction so consumers never reach into f
 
 ```ts
 // packages/client/src/wire.ts (kolu)
-import { createCellsClient } from "@kolu/surface/client";
+import { websocketLink } from "@kolu/surface/links/websocket";
 import type { contract } from "kolu-common/contract";
 
 const ws = new WebSocket(`wss://${host}/rpc/ws`);
-export const client = createCellsClient<typeof contract>({ websocket: ws });
+export const client = websocketLink<typeof contract>(ws);
 ```
 
-`createCellsClient` installs `ClientRetryPlugin` and returns the typed oRPC client. Hooks accept procedure refs (e.g. `client.preferences.get`) and thread `STREAM_RETRY` retry context internally — there's no `stream` namespace to maintain. For raw streaming RPCs that don't fit a Cell/Collection/Stream descriptor (terminal `attach`, lifecycle `onExit`), use `streamCall(procedure, input, opts)` — same retry context, escape hatch for non-descriptor shapes.
+`websocketLink` installs `ClientRetryPlugin` and returns the typed oRPC client. Hooks accept procedure refs (e.g. `client.preferences.get`) and thread `STREAM_RETRY` retry context internally — there's no `stream` namespace to maintain. For raw streaming RPCs that don't fit a Cell/Collection/Stream descriptor (terminal `attach`, lifecycle `onExit`), use `streamCall(procedure, input, opts)` — same retry context, escape hatch for non-descriptor shapes.
 
 ### Client-side hook
 
@@ -489,7 +496,7 @@ export const surface = defineSurface({
 });
 
 // Use `surface.contract` at server (`implement(surface.contract)`) and
-// client (`createCellsClient<typeof surface.contract>(...)`) — no
+// client (a link — `websocketLink<typeof surface.contract>(...)`) — no
 // separate `contract.ts` re-export needed.
 ```
 
@@ -622,7 +629,7 @@ Same typed reactive surface, but over an arbitrary `Readable`/`Writable` pair in
 
 ```ts
 // Client (parent process)
-createStdioCellsClient<C>({ read, write }): ContractRouterClient<C, ClientRetryPluginContext>
+stdioLink<C>({ read, write }): ContractRouterClient<C, ClientRetryPluginContext>
 new StdioRPCLink<T>({ read, write, ...standardRPCLinkOptions })   // for custom client construction
 
 // Server (agent process)

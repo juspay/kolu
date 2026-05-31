@@ -17,7 +17,7 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { serveOverStdio } from "../peer-server";
 import { createLoopbackPair } from "./loopback";
-import { createStdioCellsClient } from "./stdio";
+import { stdioLink } from "./stdio";
 
 describe("stdio link over loopback", () => {
   it("round-trips a simple query procedure", async () => {
@@ -37,7 +37,7 @@ describe("stdio link over loopback", () => {
       transport: pair.server,
     });
 
-    const client = createStdioCellsClient<typeof contract>({
+    const client = stdioLink<typeof contract>({
       read: pair.client.read,
       write: pair.client.write,
     });
@@ -69,7 +69,7 @@ describe("stdio link over loopback", () => {
       transport: pair.server,
     });
 
-    const client = createStdioCellsClient<typeof contract>({
+    const client = stdioLink<typeof contract>({
       read: pair.client.read,
       write: pair.client.write,
     });
@@ -104,7 +104,7 @@ describe("stdio link over loopback", () => {
     });
 
     expect(firstSeen).toBe(false);
-    const client = createStdioCellsClient<typeof contract>({
+    const client = stdioLink<typeof contract>({
       read: pair.client.read,
       write: pair.client.write,
     });
@@ -136,7 +136,7 @@ describe("stdio link over loopback", () => {
     // bytes won't be valid framing.
     pair.server.write.write("«this looks like a pino log line»\n");
 
-    const client = createStdioCellsClient<typeof contract>({
+    const client = stdioLink<typeof contract>({
       read: pair.client.read,
       write: pair.client.write,
     });
@@ -186,7 +186,7 @@ describe("stdio link over loopback", () => {
       transport: pair.server,
     });
 
-    const client = createStdioCellsClient<typeof contract>({
+    const client = stdioLink<typeof contract>({
       read: pair.client.read,
       write: pair.client.write,
     });

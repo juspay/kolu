@@ -129,12 +129,12 @@ export class StdioRPCLink<T extends ClientContext> extends StandardRPCLink<T> {
   }
 }
 
-/** Build a typed oRPC client wired to a stdio transport with the same
- *  `ClientRetryPlugin` install as `createCellsClient` does for WebSocket.
- *  Headline shape for consumers — the parent-side bridge of R-1.5's
- *  remote-process-monitor demo and R-2's `RemoteTerminalBackend` both
- *  call this. */
-export function createStdioCellsClient<C extends AnyContractRouter>(
+/** Connect a typed oRPC client over a stdio transport, with the same
+ *  `ClientRetryPlugin` install as `websocketLink` does for WebSocket — the
+ *  subprocess / ssh member of the link family. The parent-side bridge of
+ *  R-1.5's remote-process-monitor demo and R-2's `RemoteTerminalBackend`
+ *  both call this. */
+export function stdioLink<C extends AnyContractRouter>(
   opts: StdioLinkOptions,
 ): ContractRouterClient<C, ClientRetryPluginContext> {
   const link = new StdioRPCLink<ClientRetryPluginContext>({

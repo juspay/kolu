@@ -1,17 +1,14 @@
 /**
- * Client-side transport primitives. `createCellsClient` builds a typed
- * oRPC client with `ClientRetryPlugin` installed; `streamCall` is the
- * one-shot escape hatch for raw streaming RPCs that don't fit a
- * Cell/Collection/Stream descriptor. Solid-specific hooks live in `./solid`.
+ * Client-side streaming helpers. `streamCall` is the one-shot escape hatch
+ * for raw streaming RPCs that don't fit a Cell/Collection/Stream descriptor,
+ * and `STREAM_RETRY` is the retry context the framework threads through every
+ * such call. The transport constructors that *build* a client live in the
+ * link family (`./links/websocket`, `./links/stdio`, `./links/direct`);
+ * Solid-specific hooks live in `./solid`.
  */
 
-import { createORPCClient, ORPCError } from "@orpc/client";
-import {
-  ClientRetryPlugin,
-  type ClientRetryPluginContext,
-} from "@orpc/client/plugins";
-import { RPCLink } from "@orpc/client/websocket";
-import type { AnyContractRouter, ContractRouterClient } from "@orpc/contract";
+import { ORPCError } from "@orpc/client";
+import type { ClientRetryPluginContext } from "@orpc/client/plugins";
 
 /** Retry context applied to every framework-driven streaming call.
  *  Transport errors retry forever (next iterator yields a fresh
@@ -55,33 +52,4 @@ export function streamCall<I, O>(
       ? { ...STREAM_RETRY, onRetry: opts.onRetry }
       : STREAM_RETRY,
   });
-}
-
-/** Build a typed oRPC client wired to a WebSocket transport with
- *  `ClientRetryPlugin` installed. Consumers feed the returned client
- *  to `useCell` / `useCollection` / `useStream` for streaming, and use
- *  it directly for one-shot mutations and queries (those don't go
- *  through retry — the plugin's default `retry: 0` fails them fast).
- *
- *  Generic parameter is the contract type so the returned client is
- *  fully typed end-to-end:
- *
- *  ```ts
- *  const client = createCellsClient<typeof contract>({ websocket: ws });
- *  ```
- *
- *  The websocket is passed through unchanged — partysocket and other
- *  reconnecting variants are accepted via the standard `WebSocket`
- *  shape (the cast is the consumer's responsibility, since reconnect
- *  policy is orthogonal to retry). */
-export function createCellsClient<C extends AnyContractRouter>(opts: {
-  websocket: WebSocket;
-}): ContractRouterClient<C, ClientRetryPluginContext> {
-  const link = new RPCLink<ClientRetryPluginContext>({
-    websocket: opts.websocket,
-    plugins: [new ClientRetryPlugin()],
-  });
-  return createORPCClient<ContractRouterClient<C, ClientRetryPluginContext>>(
-    link,
-  );
 }

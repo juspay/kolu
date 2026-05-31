@@ -3,9 +3,11 @@
  *
  * This is the contract's *implementation*, co-located with the contract
  * (`./ptyHostSurface.ts`) and the primitive (`./ptyHost.ts`) it serves.
- * `inProcessSurfaceClient` composes the surface handlers with a direct
- * `createRouterClient`, so `client.surface.terminal.spawn(...)` is a direct
- * (microtask-deferred) call into `createPtyHost` — no wire, no serialization.
+ * `servePtyHost` builds the surface router over `createPtyHost` (transport-
+ * agnostic — reused over a socket by the daemon and over ssh by R-2), and the
+ * in-process client closes the loop with `directLink`, the no-wire member of
+ * the surface link family — so `client.surface.terminal.spawn(...)` is a
+ * direct (microtask-deferred) call into the host, no serialization.
  *
  * The consumer (kolu-server's `terminalBackend/local.ts`) holds the returned
  * `PtyHostClient` and is written against that type alone. A later phase swaps
@@ -24,10 +26,8 @@
  */
 
 import { randomUUID } from "node:crypto";
-import {
-  inMemoryChannelByName,
-  inProcessSurfaceClient,
-} from "@kolu/surface/server";
+import { directLink } from "@kolu/surface/links/direct";
+import { implementSurface, inMemoryChannelByName } from "@kolu/surface/server";
 import type { ContractRouterClient } from "@orpc/contract";
 import { ORPCError } from "@orpc/server";
 import { DEFAULT_SCROLLBACK } from "kolu-common/config";
@@ -53,18 +53,19 @@ export interface InProcessPtyHostDeps {
   version: string;
 }
 
-/** Build the in-process pty-host and return a contract-typed client over it.
- *  The `createPtyHost` instance is captured by the surface handlers (held for
- *  the process's life via the returned client), so it owns every local PTY for
- *  as long as the caller runs — one host per process. */
-export function createInProcessPtyHostClient(
-  deps: InProcessPtyHostDeps,
-): PtyHostClient {
+/** Serve `ptyHostSurface` over a fresh `createPtyHost` — the **transport-
+ *  agnostic** half of the serving. Returns `implementSurface`'s `{ router,
+ *  ctx }`: feed the router to `directLink` for an in-process client (below),
+ *  or to `serveOverStdio` for the socket daemon / ssh host later. The
+ *  `createPtyHost` instance is captured by the surface handlers, so it owns
+ *  every local PTY for as long as the router (and any client over it) lives —
+ *  one host per call. */
+export function servePtyHost(deps: InProcessPtyHostDeps) {
   const { log, shellDir, version } = deps;
   const host = createPtyHost({ log });
   const startedAt = Date.now();
 
-  const { client } = inProcessSurfaceClient(ptyHostSurface, {
+  return implementSurface(ptyHostSurface, {
     channel: inMemoryChannelByName(),
     streams: {
       // Per-terminal output — snapshot then live deltas (streaming.md §2).
@@ -228,6 +229,15 @@ export function createInProcessPtyHostClient(
       },
     },
   });
+}
 
-  return client;
+/** Build the in-process pty-host and return a contract-typed client over it —
+ *  the **identity link**: `directLink` consumes `servePtyHost`'s router with
+ *  no wire, so the consumer (kolu-server) holds the exact `PtyHostClient` type
+ *  a socket-served daemon would later hand it. Swapping `directLink` for a
+ *  socket link is the only change that decoupling needs. */
+export function createInProcessPtyHostClient(
+  deps: InProcessPtyHostDeps,
+): PtyHostClient {
+  return directLink<typeof ptyHostSurface.contract>(servePtyHost(deps).router);
 }

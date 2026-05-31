@@ -14,11 +14,7 @@
 
 import { type Accessor, createMemo } from "solid-js";
 import type { SetStoreFunction } from "solid-js/store";
-import {
-  createCellsClient,
-  type StreamingProcedure,
-  streamCall,
-} from "../client";
+import { type StreamingProcedure, streamCall } from "../client";
 import type {
   CellSpec,
   CollectionSpec,
@@ -137,15 +133,16 @@ type BoundEventsFor<S extends SurfaceSpec> = {
 };
 
 export interface SurfaceClient<S extends SurfaceSpec, Rpc = unknown> {
-  /** The typed oRPC client. Use this for imperative procedures
-   *  (`client.rpc.surface.notes.create(...)`) and for any verb the bound
-   *  `.use()` shape can't model.
+  /** The typed oRPC client — the link this bundle was built over. Use it for
+   *  imperative procedures (`client.rpc.surface.notes.create(...)`) and for
+   *  any verb the bound `.use()` shape can't model.
    *
-   *  Typing note: `Rpc` is supplied at the call site rather than computed
-   *  from `S` because TS's union-resolution budget can't expand both
-   *  `SurfaceContractFor<S>` and oRPC's `ContractRouterClient<...>` mapped
-   *  types in the same evaluation pass — the call site narrows it cheaply
-   *  via `typeof surface.contract`. See `surfaceClient`'s defaulted generic. */
+   *  Typing note: `Rpc` is inferred from the link passed in rather than
+   *  computed from `S`, because TS's union-resolution budget can't expand
+   *  both `SurfaceContractFor<S>` and oRPC's `ContractRouterClient<...>`
+   *  mapped types in the same evaluation pass. The link constructor
+   *  (`websocketLink<typeof contract>(ws)`) pins the contract concretely at
+   *  the call site, so the bundle just carries that type through. */
   readonly rpc: Rpc;
   readonly cells: BoundCellsFor<S>;
   readonly collections: BoundCollectionsFor<S>;
@@ -155,22 +152,24 @@ export interface SurfaceClient<S extends SurfaceSpec, Rpc = unknown> {
 
 // ── Builder ────────────────────────────────────────────────────────────
 
-/** Build the client-side bundle for a surface. Walks the spec once and
- *  pre-binds each primitive to its oRPC procedure refs, producing
- *  `.use(policy)` hooks that drop the wire-identity args from the per-call
- *  signature. */
+/** Build the Solid client-side bundle for a surface over a **link** — any
+ *  member of the link family (`websocketLink`, `stdioLink`, `directLink`),
+ *  i.e. a `ContractRouterClient`. Walks the spec once and pre-binds each
+ *  primitive to its oRPC procedure refs, producing `.use(policy)` hooks that
+ *  drop the wire-identity args from the per-call signature.
+ *
+ *  ```ts
+ *  const app = surfaceClient(surface, websocketLink<typeof contract>(ws));
+ *  ```
+ *
+ *  This is the unification: the bundle no longer bakes in the WebSocket
+ *  transport — it consumes whatever link it's handed, so the same hooks work
+ *  over a socket, a subprocess, or an in-process direct link. */
 export function surfaceClient<const S extends SurfaceSpec, Rpc = unknown>(
   surface: Surface<S>,
-  opts: { websocket: WebSocket },
+  link: Rpc,
 ): SurfaceClient<S, Rpc> {
-  // Narrow `Rpc` at the call site: e.g.
-  //   surfaceClient<typeof surface.spec, ContractRouterClient<typeof surface.contract, …>>(…)
-  // Defaulting to `unknown` keeps the bundle's generic from triggering the
-  // mapped-type union explosion that breaks `ReturnType<typeof createCellsClient<…>>`
-  // when used as a default. Consumers typically reach for `bundle.rpc` only
-  // for imperative procedures and get away with a one-line cast.
-  // biome-ignore lint/suspicious/noExplicitAny: see comment on `Rpc` generic
-  const rpc = createCellsClient<any>(opts) as Rpc;
+  const rpc = link;
   const spec = surface.spec;
 
   const cells: Record<string, BoundCell<unknown, unknown>> = {};

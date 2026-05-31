@@ -559,8 +559,8 @@ export interface Surface<S extends SurfaceSpec = SurfaceSpec> {
  *        git: rawGitRouter,
  *      });
  *
- *  Consumers feed the result to `implement(contract)` (server) and
- *  `createCellsClient<typeof contract>(...)` (client). */
+ *  Consumers feed the result to `implement(contract)` (server) and a link —
+ *  `websocketLink<typeof contract>(...)` / `stdioLink` / `directLink` (client). */
 export function defineSurface<const S extends SurfaceSpec>(
   spec: S,
 ): Surface<S> {

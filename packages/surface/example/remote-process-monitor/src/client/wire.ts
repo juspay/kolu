@@ -6,9 +6,8 @@
  * in-process store).
  */
 
+import { websocketLink } from "@kolu/surface/links/websocket";
 import { surfaceClient } from "@kolu/surface/solid";
-import type { ClientRetryPluginContext } from "@orpc/client/plugins";
-import type { ContractRouterClient } from "@orpc/contract";
 import { WebSocket as PartySocket } from "partysocket";
 import { surface } from "../common/surface";
 
@@ -36,7 +35,7 @@ if (import.meta.hot) {
   });
 }
 
-export const app = surfaceClient<
-  typeof surface.spec,
-  ContractRouterClient<typeof surface.contract, ClientRetryPluginContext>
->(surface, { websocket: ws as unknown as WebSocket });
+export const app = surfaceClient(
+  surface,
+  websocketLink<typeof surface.contract>(ws as unknown as WebSocket),
+);
