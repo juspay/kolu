@@ -13,7 +13,7 @@
  *  and land with B's read-site `staleKey !== currentBuildId()` derivation, with
  *  no re-layout. */
 
-import { type Component, createMemo, Show } from "solid-js";
+import { type Component, Show } from "solid-js";
 import { serverInfo, type WsStatus } from "../rpc/rpc";
 import Commit from "./Commit";
 import Tip from "./Tip";
@@ -48,15 +48,16 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
         : "bg-fg-3/50";
 
   // srv and pty coincide when connected and the relayed pty commit equals the
-  // server's own — the A2 acceptance signal that the plumbing agrees.
-  const coincident = createMemo(() => {
+  // server's own — the A2 acceptance signal that the plumbing agrees. A plain
+  // function (single consumer, per solidjs.md); still reactive inside <Show>.
+  const coincident = () => {
     const i = serverInfo();
     return (
       props.status === "open" &&
       !!i?.ptyHost &&
       i.commit === i.ptyHost.navigableCommit
     );
-  });
+  };
 
   return (
     <div class="inline-flex items-stretch rounded-lg border border-edge bg-surface-2/60 p-0.5 font-mono text-xs">
