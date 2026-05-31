@@ -16,6 +16,7 @@
     "@corvu/resizable": "^0.2.5",
     "@corvu/tooltip": "^0.2.2",
     "@kolu/artifact-sdk": "workspace:*",
+    "@kolu/solid-fileview": "workspace:*",
     "@kolu/solid-markdown": "workspace:*",
     "@kolu/solid-pierre": "workspace:*",
     "@kolu/surface": "workspace:*",

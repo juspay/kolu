@@ -61,6 +61,9 @@ importers:
       '@kolu/artifact-sdk':
         specifier: workspace:*
         version: link:../artifact-sdk
+      '@kolu/solid-fileview':
+        specifier: workspace:*
+        version: link:../solid-fileview
       '@kolu/solid-markdown':
         specifier: workspace:*
         version: link:../solid-markdown
@@ -600,6 +603,16 @@ importers:
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+
+  packages/solid-fileview:
+    dependencies:
+      solid-js:
+        specifier: ^1.9.0
+        version: 1.9.11
+    devDependencies:
       typescript:
         specifier: ^5.8.0
         version: 5.9.3
