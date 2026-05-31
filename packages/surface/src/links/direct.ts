@@ -14,8 +14,10 @@
  * in-process implementation that it will later run against a socket/ssh-served
  * one: only the link changes. A single-process deployment, a unit test, or
  * the in-process phase of a not-yet-decoupled service can all hold a
- * `ContractRouterClient<C>` byte-identical to the remote topology they grow
- * into. (Streams declared on the surface come back as async iterables,
+ * `ContractRouterClient<C>` of the *same contract shape* as the remote
+ * topology they grow into. (One honest difference: the direct client carries
+ * no `ClientRetryPluginContext` — the wire links install it, but there's no
+ * transport here to retry over. Streams still come back as async iterables,
  * exactly as the wire-link clients yield them.)
  *
  * Need the server-side mutation `ctx` too (to drive cells/collections from
@@ -38,7 +40,12 @@ import { createRouterClient } from "@orpc/server";
  *  The contract type parameter is supplied at the call site — concrete there
  *  (e.g. `typeof surface.contract`), so it never overflows TS's union budget
  *  the way materializing it over an abstract spec would (the router itself is
- *  typed loosely because `implementSurface`'s surface walk is dynamic). */
+ *  typed loosely because `implementSurface`'s surface walk is dynamic).
+ *
+ *  `C` is **load-bearing and must be passed explicitly**: the router arg is
+ *  typed loosely, so it can't be inferred — omit `C` and you silently get
+ *  `ContractRouterClient<AnyContractRouter>` (every call typed `any`), not a
+ *  compile error. Always write `directLink<typeof surface.contract>(router)`. */
 export function directLink<C extends AnyContractRouter>(
   router: Parameters<typeof createRouterClient>[0],
 ): ContractRouterClient<C> {
