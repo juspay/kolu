@@ -147,7 +147,7 @@ Feature: Git worktree management
     And I select "Close terminal" in the palette
     Then the close confirmation should be visible
     And the close confirmation should not offer worktree removal because "hasUnpushedCommits"
-    When I click close only in the close confirmation
+    When I confirm close all in the close confirmation
     Then the workspace switcher should have 1 fewer terminal entry
     And there should be no page errors
 
@@ -168,7 +168,7 @@ Feature: Git worktree management
     And I select "Close terminal" in the palette
     Then the close confirmation should be visible
     And the close confirmation should not offer worktree removal because "hasOpenPullRequest"
-    When I click close only in the close confirmation
+    When I confirm close all in the close confirmation
     Then the workspace switcher should have 1 fewer terminal entry
     And there should be no page errors
 
