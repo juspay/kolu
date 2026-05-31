@@ -36,7 +36,7 @@ const sys = client.system.get({});           // typed oRPC — same shape your b
 ## What it's NOT
 
 - **Not a transport.** That's [`@kolu/surface/links/stdio`](../surface/src/links/stdio.ts). This package sits *on top of* the stdio link and adds: process supervision (spawn/respawn ssh), `.drv` provisioning (the Nix bit), and a reactive state cell for the connection's own lifecycle.
-- **Not a Nix utility.** `provisionAgent` is purposely minimal — `nix copy --derivation`, then `ssh $host nix-store --realise`, then return the resulting path. If you want richer flake handling (e.g. resolve a flake ref to a `.drv`), do it inside the `resolveDrvPath` callback you pass.
+- **Not a Nix utility.** `provisionAgent` is purposely minimal — `nix copy --derivation`, then `ssh $host nix-store --realise`, then pin the output behind a per-agent GC root, then return the resulting path. If you want richer flake handling (e.g. resolve a flake ref to a `.drv`), do it inside the `resolveDrvPath` callback you pass.
 - **Not opinionated about UI.** The package returns a typed RPC client. Mirroring its streams into your parent server's local surface (so the browser can consume them) is the consumer's job. See the [`remote-process-monitor` example](../surface/example/remote-process-monitor/src/server/router.ts) for the canonical bridge pattern.
 
 ## Why Nix (locked-in)
@@ -50,8 +50,16 @@ parent: nix eval --raw .#packages.<remote-system>.<agent>.drvPath
         └── caller's responsibility — `resolveSystem(host)` gives <remote-system>
 parent: nix copy --derivation --to ssh-ng://$host $drvPath
 remote: nix-store --realise $drvPath  →  /nix/store/...-agent
+remote: nix-store --realise $out --add-root <link> --indirect  (GC-pin)
 parent: ssh $host $agentPath/bin/<binary> --stdio
 ```
+
+The pin step is what keeps a `nix-collect-garbage` on the target from
+deleting the agent out from under a live session (or forcing a rebuild on
+the next reconnect). The root is one fixed symlink per agent — keyed on the
+`.drv` name — so each realise moves it to the newest output and the previous
+hash becomes GC-eligible, exactly like `nix build`'s `result` link. It's
+best-effort: if the root can't be written, the agent still runs unpinned.
 
 **Nix is the contract, not the implementation.** No tarball, Docker, or prebuilt-binary fallback exists or will. The whole point of this package is "use Nix for cross-arch deployment of typed stdio agents"; consumers that don't want Nix should pick a different transport layer.
 
@@ -64,7 +72,7 @@ Remote-side requirement: the parent's user must be in `trusted-users` in the rem
 | `HostSession<C>` | One ssh subprocess per `(host, binary)`. Ref-counted. State machine. Survives drops via `scheduleReconnect`. Snapshot-then-delta `onState`. Generic over the contract type `C`. |
 | `getHostSession<C>(opts)` | Pool lookup — repeated calls with the same `(host, binary)` return the same session (first call's `opts` win). |
 | `destroyAllSessions()` | Tear down every pooled session. Call on parent shutdown. |
-| `provisionAgent({ host, drvPath, onProgress })` | Ship the `.drv` to the host (skipped for localhost), `nix-store --realise` it there, return the realised output path. Progress lines forwarded to `onProgress`. |
+| `provisionAgent({ host, drvPath, onProgress })` | Ship the `.drv` to the host (skipped for localhost), `nix-store --realise` it there, pin the output behind a per-agent GC root (`agentGcRootPath`), and return the realised output path. Progress lines forwarded to `onProgress`. |
 | `mirrorRemoteCollection<K,V>(opts)` | Helper: bridge a remote `Collection<K,V>` to a local one — keys stream + per-key value streams, with abort cleanup on key departure. |
 | `waitForNextClient(session, previous)` | Helper for the consumer's reconnect-loop: blocks until the session produces a *fresh* `AgentClient<C>` (post-reconnect). |
 | `buildAgentCommand({ host, agentPath, binary })` | Compute the spawn argv for an agent binary on a given host. Used internally; exported for consumers that need to invoke the agent directly (e.g. one-shot subprocess tests). |

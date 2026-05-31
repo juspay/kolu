@@ -40,4 +40,11 @@ const reflogWatcher = createDirFilenameWatcher({
  *  creates the dir, and a subscribe after that point installs cleanly). */
 export const watchGitReflog = reflogWatcher.watch;
 
+/** Test-only inspector — number of distinct dirs with active shared
+ *  watchers. Mirrors `_sharedHeadWatcherCount`. */
 export const _sharedReflogWatcherCount = reflogWatcher._watcherCount;
+
+/** Test-only teardown — symmetric with `_resetSharedHeadWatchers`. See
+ *  there for the cascade-breaking rationale (#955). Production code must
+ *  never call this. */
+export const _resetSharedReflogWatchers = reflogWatcher._reset;

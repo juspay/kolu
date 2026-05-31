@@ -16,7 +16,12 @@
  *      doesn't have).
  *   3. `ssh $host nix-store --realise $drvPath` builds it on the
  *      remote, returning the output path on the remote's store.
- *   4. The output path becomes `agentPath`; the caller then spawns
+ *   4. `ssh $host nix-store --realise $out --add-root $link --indirect`
+ *      pins that output behind a per-agent GC root on the target, so a
+ *      `nix-collect-garbage` there can't delete the agent out from
+ *      under a live session (or force a rebuild on the next reconnect).
+ *      See `agentGcRootPath` for the "latest"-link semantics.
+ *   5. The output path becomes `agentPath`; the caller then spawns
  *      `ssh $host $agentPath/bin/<binary> --stdio` via `HostSession`.
  *
  * Localhost shortcut: the .drv is already in the local store, so
@@ -45,6 +50,35 @@ export type ProvisionResult =
   | { ok: true; agentPath: string }
   | { ok: false; reason: string };
 
+/** Per-agent GC-root path for the realised output, or `null` when one
+ *  can't be formed (see the localhost case below). Keyed on the .drv's
+ *  name with its store hash stripped, so every version of the *same*
+ *  agent maps to one fixed symlink: each realise overwrites it, the
+ *  previous output drops out of the root set and becomes GC-eligible.
+ *  "Pin the latest, release older hashes" — the moving-`result`
+ *  behaviour `nix build` gives you, but on the target's store.
+ *
+ *  Remote: the path is relative, so it resolves against the ssh login
+ *  user's home dir (sshd runs the command from `$HOME`). Local: there's
+ *  no ssh chdir, so anchor to this process's `$HOME` explicitly — and if
+ *  `$HOME` is unset we return `null` rather than a cwd-relative path
+ *  that would silently root the agent in the wrong place; the caller
+ *  then skips the (best-effort) pin. Parent dirs don't need
+ *  pre-creating — `nix-store --add-root` makes them. */
+export function agentGcRootPath(
+  isLocal: boolean,
+  drvPath: string,
+): string | null {
+  const name = drvPath
+    .replace(/^.*\//, "") // drop the /nix/store/ prefix
+    .replace(/\.drv$/, "") // drop the .drv suffix
+    .replace(/^[0-9a-z]{32}-/, ""); // drop the store hash
+  const rel = `.local/state/kolu/surface-nix-host/gcroots/${name}`;
+  if (!isLocal) return rel;
+  const home = process.env.HOME;
+  return home ? `${home}/${rel}` : null;
+}
+
 /** Ship the `.drv` to `$host` and realise it there. Returns the
  *  output path on the *target* host, ready for
  *  `ssh $host $agentPath/bin/...`. */
@@ -53,7 +87,7 @@ export async function provisionAgent(
 ): Promise<ProvisionResult> {
   const isLocal = isLocalHost(opts.host);
 
-  // 1. Copy the .drv (and its build-inputs) to the remote. Skipped
+  // 2. Copy the .drv (and its build-inputs) to the remote. Skipped
   //    for localhost — the .drv is already in /nix/store.
   if (!isLocal) {
     opts.onProgress(`${opts.host}: copying derivation '${opts.drvPath}'…`);
@@ -82,7 +116,7 @@ export async function provisionAgent(
     opts.onProgress(`${opts.host}: derivation copy complete`);
   }
 
-  // 2. Realise (build) the .drv on the target. Output is the agent's
+  // 3. Realise (build) the .drv on the target. Output is the agent's
   //    nix-store path on that host.
   opts.onProgress(
     isLocal
@@ -110,5 +144,38 @@ export async function provisionAgent(
     };
   }
   opts.onProgress(`${opts.host}: agent realised at ${agentPath}`);
+
+  // 4. Pin the realised output behind a stable, per-agent GC root.
+  //    Re-realising an already-built store path is instant; the
+  //    `--add-root … --indirect` registers an *indirect* root — the
+  //    symlink itself — so the link can live under $HOME without write
+  //    access to /nix/var/nix/gcroots. Best-effort throughout: if the
+  //    root path can't be formed (local $HOME unset) or the command
+  //    fails, we warn and continue — the agent at `agentPath` still
+  //    runs, it's just collectable.
+  const rootPath = agentGcRootPath(isLocal, opts.drvPath);
+  if (rootPath === null) {
+    opts.onProgress(
+      `${opts.host}: HOME unset, can't place a GC root; agent runs but is unpinned`,
+    );
+  } else {
+    opts.onProgress(`${opts.host}: pinning GC root at '${rootPath}'…`);
+    const pin = buildSshProbeCommand(
+      opts.host,
+      "nix-store",
+      "--realise",
+      agentPath,
+      "--add-root",
+      rootPath,
+      "--indirect",
+    );
+    const pinRes = await runCapture(pin.command, pin.args, opts.onProgress);
+    if (!pinRes.ok) {
+      opts.onProgress(
+        `${opts.host}: GC-root pin failed (code ${pinRes.code}); agent runs but is unpinned`,
+      );
+    }
+  }
+
   return { ok: true, agentPath };
 }
