@@ -153,7 +153,11 @@ export function buildRouter(opts: BuildRouterOptions) {
   // recover mid-stream (the underlying streams die with the process), so
   // the only reliable recovery is to re-issue the subscriptions on the
   // *new* client. The outer loop is what implements "reconnect → state
-  // reconciles" (row 12 of the falsifiability checklist).
+  // reconciles" (row 12 of the falsifiability checklist). This loop relies
+  // on each pump *settling* when the link drops: a pump's RPC against a
+  // dead `StdioRPCLink` rejects synchronously (the link fails fast once
+  // its inbound stream ends — it does not hang), so `Promise.allSettled`
+  // returns and the loop advances to the respawned client.
   void bridgeAgentToParent(session, fragment, browserSnapshotBus);
 
   // `implementSurface` returns a router *fragment* — `{ surface: ... }`
