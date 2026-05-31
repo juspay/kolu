@@ -25,6 +25,7 @@ const terminal: SavedTerminal = {
     branch: "main",
     isWorktree: false,
     mainRepoRoot: "/home/user/project",
+    unpushedCommitCount: 0,
   },
   lastActivityAt: 0,
 };

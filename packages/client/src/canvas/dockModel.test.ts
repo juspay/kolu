@@ -19,6 +19,7 @@ function makeGit(overrides: Partial<GitInfo> = {}): GitInfo {
     branch: "main",
     isWorktree: false,
     mainRepoRoot: "/home/user/kolu",
+    unpushedCommitCount: 0,
     ...overrides,
   };
 }

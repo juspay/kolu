@@ -9,6 +9,7 @@ import Dialog from "@corvu/dialog";
 import { Meta, Title } from "@solidjs/meta";
 import type { ServerIdentity } from "kolu-common/contract";
 import type { TerminalId } from "kolu-common/surface";
+import { prValue } from "kolu-github/schemas";
 import {
   type Component,
   createEffect,
@@ -20,7 +21,10 @@ import {
 import { Toaster } from "solid-sonner";
 import { match } from "ts-pattern";
 import ChromeBar from "./ChromeBar";
-import CloseConfirm, { type CloseConfirmTarget } from "./CloseConfirm";
+import CloseConfirm, {
+  type CloseConfirmTarget,
+  type WorktreeRemovalBlocker,
+} from "./CloseConfirm";
 import CommandPalette from "./CommandPalette";
 import "kolu-common/test-hooks";
 import CanvasWatermark from "./canvas/CanvasWatermark";
@@ -275,9 +279,24 @@ const App: Component = () => {
     const worktreePath = meta.git?.isWorktree
       ? meta.git.worktreePath
       : undefined;
+    // Priority: unpushed local work > open PR > shared worktree — the first
+    // match wins, so the highest-stakes reason to keep the worktree is what
+    // the user sees. Every read is synchronous off the metadata snapshot (no
+    // re-fetch), keeping the dialog a frozen confirmation. Only an `open` PR
+    // blocks — closed/merged PRs mean the work has landed. `prValue` is null
+    // for pending/absent PRs, so an unconfirmed PR never blocks.
+    const blocker: WorktreeRemovalBlocker | undefined = !worktreePath
+      ? undefined
+      : (meta.git?.unpushedCommitCount ?? 0) > 0
+        ? "hasUnpushedCommits"
+        : prValue(meta.pr)?.state === "open"
+          ? "hasOpenPullRequest"
+          : store.isWorktreeShared(worktreePath, id)
+            ? "sharedWithOtherTerminals"
+            : undefined;
     const worktreeRemoval = worktreePath
-      ? store.isWorktreeShared(worktreePath, id)
-        ? ({ eligible: false, reason: "sharedWithOtherTerminals" } as const)
+      ? blocker
+        ? ({ eligible: false, reason: blocker } as const)
         : ({ eligible: true } as const)
       : undefined;
     setCloseConfirmTarget({ id, meta, splitCount, worktreeRemoval });

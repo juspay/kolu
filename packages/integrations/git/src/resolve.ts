@@ -12,6 +12,7 @@ import { simpleGit } from "simple-git";
 import { watchCwdForGitDir } from "./cwd-git-watcher.ts";
 import { err, type GitResult, ok } from "./errors.ts";
 import { watchGitHead } from "./head-watcher.ts";
+import { watchGitReflog } from "./reflog-watcher.ts";
 import type { GitInfo } from "./schemas.ts";
 
 /** Fast check: does a .git entry exist in this directory? (stat, not a git subprocess) */
@@ -21,6 +22,26 @@ export function hasGitDir(cwd: string): boolean {
     return true;
   } catch {
     return false;
+  }
+}
+
+/** Commits on HEAD ahead of its upstream (`@{u}..HEAD`). Returns 0 — never
+ *  throws — when there is no upstream branch or HEAD is detached: `rev-list
+ *  @{u}` fails loudly in both cases, and "no upstream" means "nothing tracked
+ *  to be ahead of", which we surface as 0 unpushed. Kept in its own try/catch
+ *  so it can never trip `resolveGitInfo`'s outer catch (which would misreport
+ *  the whole directory as NOT_A_REPO). */
+async function countUnpushedCommits(
+  git: ReturnType<typeof simpleGit>,
+): Promise<number> {
+  try {
+    // One subprocess; `@{u}` is git's upstream shorthand. Throws with no
+    // upstream configured or a detached HEAD — both mean 0 unpushed.
+    const out = (await git.raw(["rev-list", "--count", "@{u}..HEAD"])).trim();
+    const n = Number.parseInt(out, 10);
+    return Number.isFinite(n) ? n : 0;
+  } catch {
+    return 0;
   }
 }
 
@@ -72,6 +93,8 @@ export async function resolveGitInfo(
         branch,
         isWorktree: false,
         mainRepoRoot: repoRoot,
+        // Bare repos have no working HEAD to be ahead of an upstream.
+        unpushedCommitCount: 0,
       });
     }
     const repoRoot = (await git.revparse(["--show-toplevel"])).trim();
@@ -98,6 +121,7 @@ export async function resolveGitInfo(
       branch,
       isWorktree,
       mainRepoRoot,
+      unpushedCommitCount: await countUnpushedCommits(git),
     });
   } catch (e) {
     // Log so unexpected failures (permission errors, missing git binary)
@@ -120,7 +144,11 @@ export function gitInfoEqual(a: GitInfo | null, b: GitInfo | null): boolean {
   return (
     a.repoRoot === b.repoRoot &&
     a.branch === b.branch &&
-    a.worktreePath === b.worktreePath
+    a.worktreePath === b.worktreePath &&
+    // Without this, a commit (which moves only the count, not the identity
+    // fields) would be deduped away and the close-confirm blocker would
+    // never see fresh unpushed work.
+    a.unpushedCommitCount === b.unpushedCommitCount
   );
 }
 
@@ -165,9 +193,20 @@ export function subscribeGitInfo(
   }
 
   function install(mode: WatcherMode): () => void {
-    return mode === "head"
-      ? watchGitHead(currentCwd, handleWatcherEvent, log)
-      : watchCwdForGitDir(currentCwd, handleWatcherEvent, log);
+    if (mode === "cwd") {
+      return watchCwdForGitDir(currentCwd, handleWatcherEvent, log);
+    }
+    // In-repo: HEAD catches branch identity changes (checkout / switch);
+    // the reflog (`.git/logs/HEAD`) catches HEAD movement that leaves
+    // `.git/HEAD` untouched (commit / reset / merge on the current branch) —
+    // needed so `unpushedCommitCount` refreshes after a local commit. Both
+    // share refcounted singletons, so this is two handles, not a new tree.
+    const stopHead = watchGitHead(currentCwd, handleWatcherEvent, log);
+    const stopReflog = watchGitReflog(currentCwd, handleWatcherEvent, log);
+    return () => {
+      stopHead();
+      stopReflog();
+    };
   }
 
   function ensureMode(mode: WatcherMode): void {

@@ -344,6 +344,7 @@ describe("gitInfoEqual", () => {
     branch: "main",
     isWorktree: false,
     mainRepoRoot: "/home/user/repo",
+    unpushedCommitCount: 0,
   };
 
   it("returns true for identical references", () => {
@@ -368,6 +369,10 @@ describe("gitInfoEqual", () => {
     { field: "repoRoot", value: "/other" },
     { field: "branch", value: "develop" },
     { field: "worktreePath", value: "/other" },
+    // unpushedCommitCount must be compared, or a fresh commit (which moves
+    // only the count) is deduped away and the close-confirm blocker never
+    // sees the new unpushed work.
+    { field: "unpushedCommitCount", value: 1 },
   ] as const)("detects different $field", ({ field, value }) => {
     expect(gitInfoEqual(info, { ...info, [field]: value })).toBe(false);
   });
@@ -513,6 +518,39 @@ describe("resolveGitInfo", () => {
     expect(result.value.repoName).toBe("proj");
     expect(result.value.repoName).not.toBe(".worktrees");
     expect(result.value.mainRepoRoot).toBe(fs.realpathSync(proj));
+  });
+
+  it("reports 0 unpushed commits when the branch has no upstream", async () => {
+    // initRepo's branch tracks nothing — `@{u}` can't resolve, which must
+    // surface as 0 (not throw, not NaN).
+    const { dir } = await initRepo("no-upstream");
+
+    const result = await resolveGitInfo(dir);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.unpushedCommitCount).toBe(0);
+  });
+
+  it("counts commits ahead of the upstream", async () => {
+    const { dir, git } = await initRepo("ahead-of-upstream");
+    // Configure a self-pointing `origin` (url + default fetch refspec) so
+    // `@{u}` resolves, stand its tracking ref at the current tip, point the
+    // branch's upstream at it, then commit twice on top — HEAD is now 2 ahead
+    // of @{u}. No network: the remote-tracking ref is set directly.
+    await git.addConfig("remote.origin.url", dir);
+    await git.addConfig(
+      "remote.origin.fetch",
+      "+refs/heads/*:refs/remotes/origin/*",
+    );
+    await git.raw(["update-ref", "refs/remotes/origin/main", "HEAD"]);
+    await git.raw(["branch", "--set-upstream-to=origin/main", "main"]);
+    await git.raw(["commit", "--allow-empty", "-m", "ahead 1"]);
+    await git.raw(["commit", "--allow-empty", "-m", "ahead 2"]);
+
+    const result = await resolveGitInfo(dir);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.unpushedCommitCount).toBe(2);
   });
 });
 

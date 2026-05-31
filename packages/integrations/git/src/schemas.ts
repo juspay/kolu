@@ -12,6 +12,15 @@ export const GitInfoSchema = z.object({
   branch: z.string(),
   isWorktree: z.boolean(),
   mainRepoRoot: z.string(),
+  /** Commits on the current branch that are ahead of its upstream
+   *  (`@{u}..HEAD`). 0 when there is no upstream, a detached HEAD, or the
+   *  count can't be computed — never throws. Refreshed on HEAD movement
+   *  (commit / checkout / reset, via the HEAD and reflog watchers) but NOT
+   *  on `git push` — push only moves the remote-tracking ref, which this
+   *  watcher set does not observe, so the value can lag a push until the
+   *  next HEAD event. Snapshot-at-dialog-open consumers tolerate this, and
+   *  the stale direction is safe (it errs toward keeping the worktree). */
+  unpushedCommitCount: z.number(),
 });
 
 // --- Git worktree operations ---

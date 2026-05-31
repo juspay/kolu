@@ -12,20 +12,40 @@ import { PrStateIcon, WorktreeIcon } from "./ui/Icons";
 import ModalDialog from "./ui/ModalDialog";
 import { surface } from "./ui/Surface";
 
-/** Reasons why the "Remove worktree" action is suppressed.
+/** Reasons why the "Remove worktree" action is suppressed, in priority
+ *  order — the first that applies is the one shown (the ordering lives in
+ *  `closeTerminal` in `App.tsx`):
  *
- *  One blocker today (`"sharedWithOtherTerminals"`); the union shape
- *  is ready for future reasons (unpushed commits, per-user preference,
- *  running agent) without a breaking change to `CloseConfirmTarget`. */
-export type WorktreeRemovalBlocker = "sharedWithOtherTerminals";
+ *  1. `hasUnpushedCommits` — local commits not on any remote (data-loss risk).
+ *  2. `hasOpenPullRequest` — an open PR the user is iterating on.
+ *  3. `sharedWithOtherTerminals` — another terminal lives on the worktree. */
+export type WorktreeRemovalBlocker =
+  | "hasUnpushedCommits"
+  | "hasOpenPullRequest"
+  | "sharedWithOtherTerminals";
 
 /** Whether the close dialog may offer worktree removal. */
 export type WorktreeRemovalEligibility =
   | { eligible: true }
   | { eligible: false; reason: WorktreeRemovalBlocker };
 
-const BLOCKER_MESSAGES: Record<WorktreeRemovalBlocker, string> = {
-  sharedWithOtherTerminals:
+/** Synchronously-available context for a blocker message, built at
+ *  dialog-open time from the same frozen metadata snapshot the dialog
+ *  renders — so the message can embed details (e.g. the PR number) without
+ *  a reactive read that would shift under the user's eyes. */
+type BlockerContext = { prNumber?: number };
+
+const BLOCKER_MESSAGES: Record<
+  WorktreeRemovalBlocker,
+  (ctx: BlockerContext) => string
+> = {
+  hasUnpushedCommits: () =>
+    "This branch has commits that aren't pushed — it will remain on disk so you don't lose work.",
+  hasOpenPullRequest: ({ prNumber }) =>
+    prNumber != null
+      ? `This branch has an open pull request (#${prNumber}) — it will remain on disk.`
+      : "This branch has an open pull request — it will remain on disk.",
+  sharedWithOtherTerminals: () =>
     "Another terminal is using this worktree — it will remain on disk.",
 };
 
@@ -99,7 +119,11 @@ const CloseConfirm: Component<{
                 data-testid="close-confirm-removal-blocker"
                 data-blocker={reason()}
               >
-                {BLOCKER_MESSAGES[reason()]}
+                {BLOCKER_MESSAGES[reason()]({
+                  prNumber: props.target
+                    ? (prValue(props.target.meta.pr)?.number ?? undefined)
+                    : undefined,
+                })}
               </p>
             )}
           </Show>
