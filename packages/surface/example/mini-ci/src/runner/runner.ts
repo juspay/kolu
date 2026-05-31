@@ -73,18 +73,22 @@ export function createRunner(rawSpec: PipelineSpec): Runner {
     nodes: initialNodes,
   });
 
-  // Per-node log: a string buffer (the snapshot a late subscriber catches
-  // up on) + a channel (the deltas a live subscriber follows). Lazily
-  // created so publish-site and subscribe-site share one channel per id.
-  const logBuffers = new Map<string, string>();
-  const logBuses = new Map<string, Channel<NodeLogMessage>>();
-  const logBusFor = (id: string): Channel<NodeLogMessage> => {
-    let bus = logBuses.get(id);
-    if (bus === undefined) {
-      bus = inMemoryChannel<NodeLogMessage>();
-      logBuses.set(id, bus);
+  // Per-node log: a buffer (the snapshot a late subscriber catches up on)
+  // and a channel (the deltas a live subscriber follows) — two aspects of
+  // one thing, so they live in one record per id, lazily created so the
+  // publish-site and subscribe-site share it.
+  interface NodeLog {
+    buffer: string;
+    bus: Channel<NodeLogMessage>;
+  }
+  const logs = new Map<string, NodeLog>();
+  const logFor = (id: string): NodeLog => {
+    let log = logs.get(id);
+    if (log === undefined) {
+      log = { buffer: "", bus: inMemoryChannel<NodeLogMessage>() };
+      logs.set(id, log);
     }
-    return bus;
+    return log;
   };
 
   const fragment = implementSurface(surface, {
@@ -95,11 +99,9 @@ export function createRunner(rawSpec: PipelineSpec): Runner {
     streams: {
       nodeLog: {
         source: async function* ({ id }, signal) {
-          yield {
-            kind: "snapshot",
-            text: logBuffers.get(id) ?? "",
-          } satisfies NodeLogMessage;
-          for await (const msg of logBusFor(id).subscribe(signal)) yield msg;
+          const log = logFor(id);
+          yield { kind: "snapshot", text: log.buffer } satisfies NodeLogMessage;
+          for await (const msg of log.bus.subscribe(signal)) yield msg;
         },
       },
     },
@@ -130,12 +132,14 @@ export function createRunner(rawSpec: PipelineSpec): Runner {
 
   // ── log helpers ──
   const appendLog = (id: string, text: string): void => {
-    logBuffers.set(id, (logBuffers.get(id) ?? "") + text);
-    logBusFor(id).publish({ kind: "append", text });
+    const log = logFor(id);
+    log.buffer += text;
+    log.bus.publish({ kind: "append", text });
   };
   const resetLog = (id: string): void => {
-    logBuffers.set(id, "");
-    logBusFor(id).publish({ kind: "snapshot", text: "" });
+    const log = logFor(id);
+    log.buffer = "";
+    log.bus.publish({ kind: "snapshot", text: "" });
   };
 
   // ── scheduling ──
