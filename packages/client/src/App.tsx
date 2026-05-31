@@ -285,18 +285,22 @@ const App: Component = () => {
     // re-fetch), keeping the dialog a frozen confirmation. Only an `open` PR
     // blocks — closed/merged PRs mean the work has landed. `prValue` is null
     // for pending/absent PRs, so an unconfirmed PR never blocks.
+    const pr = prValue(meta.pr);
     const blocker: WorktreeRemovalBlocker | undefined = !worktreePath
       ? undefined
       : (meta.git?.unpushedCommitCount ?? 0) > 0
         ? "hasUnpushedCommits"
-        : prValue(meta.pr)?.state === "open"
+        : pr?.state === "open"
           ? "hasOpenPullRequest"
           : store.isWorktreeShared(worktreePath, id)
             ? "sharedWithOtherTerminals"
             : undefined;
     const worktreeRemoval = worktreePath
       ? blocker
-        ? ({ eligible: false, reason: blocker } as const)
+        ? // Freeze the PR number here, at decision time, so the dialog's
+          // message reads it off this snapshot rather than the reactive
+          // `meta.pr`. Only `hasOpenPullRequest` carries one.
+          ({ eligible: false, reason: blocker, prNumber: pr?.number } as const)
         : ({ eligible: true } as const)
       : undefined;
     setCloseConfirmTarget({ id, meta, splitCount, worktreeRemoval });

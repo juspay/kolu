@@ -24,15 +24,18 @@ export type WorktreeRemovalBlocker =
   | "hasOpenPullRequest"
   | "sharedWithOtherTerminals";
 
-/** Whether the close dialog may offer worktree removal. */
+/** Whether the close dialog may offer worktree removal.
+ *
+ *  The ineligible arm carries `prNumber` so the `hasOpenPullRequest` message
+ *  can name the PR. It's resolved once, at decision time, in `closeTerminal`
+ *  — the dialog reads it off this frozen value rather than re-reading the
+ *  reactive `meta.pr`, which would shift under the user's eyes. */
 export type WorktreeRemovalEligibility =
   | { eligible: true }
-  | { eligible: false; reason: WorktreeRemovalBlocker };
+  | { eligible: false; reason: WorktreeRemovalBlocker; prNumber?: number };
 
-/** Synchronously-available context for a blocker message, built at
- *  dialog-open time from the same frozen metadata snapshot the dialog
- *  renders — so the message can embed details (e.g. the PR number) without
- *  a reactive read that would shift under the user's eyes. */
+/** Presentation context for a blocker message, built from the frozen
+ *  eligibility value above (never from live metadata). */
 type BlockerContext = { prNumber?: number };
 
 const BLOCKER_MESSAGES: Record<
@@ -73,9 +76,9 @@ const CloseConfirm: Component<{
   const removalEligibility = () => props.target?.worktreeRemoval;
   const canRemoveWorktree = () =>
     isWorktree() && removalEligibility()?.eligible === true;
-  const removalBlocker = (): WorktreeRemovalBlocker | undefined => {
+  const removalBlocker = () => {
     const e = removalEligibility();
-    return e && !e.eligible ? e.reason : undefined;
+    return e && !e.eligible ? e : undefined;
   };
   const splitCount = () => props.target?.splitCount ?? 0;
   const closeLabel = () => (splitCount() > 0 ? "Close all" : "Close terminal");
@@ -114,15 +117,13 @@ const CloseConfirm: Component<{
           </Show>
 
           <Show when={removalBlocker()}>
-            {(reason) => (
+            {(blocker) => (
               <p
                 data-testid="close-confirm-removal-blocker"
-                data-blocker={reason()}
+                data-blocker={blocker().reason}
               >
-                {BLOCKER_MESSAGES[reason()]({
-                  prNumber: props.target
-                    ? (prValue(props.target.meta.pr)?.number ?? undefined)
-                    : undefined,
+                {BLOCKER_MESSAGES[blocker().reason]({
+                  prNumber: blocker().prNumber,
                 })}
               </p>
             )}
