@@ -22,14 +22,14 @@
  */
 
 import { parseArgs as nodeParseArgs } from "node:util";
-import { connect, type Connection, type RunnerClient } from "./connect";
+import type { NodeLogFrame, NodesSnapshot } from "../common/surface";
+import { type Connection, connect, type RunnerClient } from "./connect";
 import {
   applyLogFrame,
   defaultAttachId,
   renderDashboard,
   summarize,
 } from "./render";
-import type { NodeLogFrame, NodesSnapshot } from "../common/surface";
 
 interface Args {
   host: string;

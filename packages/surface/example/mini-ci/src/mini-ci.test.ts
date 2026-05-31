@@ -14,8 +14,8 @@
  *   6. the pure render helpers paint the expected dashboard.
  */
 
-import { createLoopbackPair } from "@kolu/surface/loopback";
 import { stdioLink } from "@kolu/surface/links/stdio";
+import { createLoopbackPair } from "@kolu/surface/loopback";
 import { serveOverStdio } from "@kolu/surface/peer-server";
 import { describe, expect, it } from "vitest";
 import type { PipelineSpec } from "./common/pipeline";
