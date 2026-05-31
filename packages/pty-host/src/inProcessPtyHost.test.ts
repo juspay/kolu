@@ -1,24 +1,22 @@
 /**
- * Contract-level lifecycle coverage for the in-process pty-host serving — the
- * replacement for the real-PTY behaviour the dissolved `agent.test.ts` exercised,
- * now verified through the `ptyHostSurface` contract that `local.ts` consumes.
- *
- * Two layers: the serving glue that needs no child (version handshake, the
- * NOT_FOUND existence guard) and a real shell driven end-to-end through the
- * contract (spawn → list → snapshot-first attach → exit-on-kill).
+ * Contract-level lifecycle coverage for the in-process serving — exercises
+ * `ptyHostSurface` end-to-end through `createInProcessPtyHostClient` (the identity
+ * link) over a real PTY. Two layers: serving glue that needs no child (version
+ * handshake, the NOT_FOUND existence guard) and a real shell driven through
+ * the contract (spawn → list → snapshot-first attach → exit-on-kill), plus the
+ * abort/kill-silence mechanism the consumer relies on.
  */
 
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { PTY_HOST_CONTRACT_VERSION } from "@kolu/pty-host";
 import type { Logger } from "kolu-shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { ensureKoluRoot } from "../koluRoot.ts";
 import {
-  createInProcessPtyHost,
+  createInProcessPtyHostClient,
   type PtyHostClient,
 } from "./inProcessPtyHost.ts";
+import { PTY_HOST_CONTRACT_VERSION } from "./ptyHostSurface.ts";
 
 const silentLog = {
   debug: () => {},
@@ -28,11 +26,18 @@ const silentLog = {
   child: () => silentLog,
 } as unknown as Logger;
 
-describe("createInProcessPtyHost — contract serving (no child)", () => {
+function makeClient(): PtyHostClient {
+  return createInProcessPtyHostClient({
+    log: silentLog,
+    shellDir: mkdtempSync(join(tmpdir(), "kolu-pty-shell-")),
+    version: "test",
+  });
+}
+
+describe("createInProcessPtyHostClient — contract serving (no child)", () => {
   let client: PtyHostClient;
   beforeAll(() => {
-    ensureKoluRoot();
-    client = createInProcessPtyHost({ log: silentLog });
+    client = makeClient();
   });
 
   it("serves a self-compatible version handshake", async () => {
@@ -64,11 +69,10 @@ describe("createInProcessPtyHost — contract serving (no child)", () => {
   });
 });
 
-describe("createInProcessPtyHost — real PTY lifecycle through the contract", () => {
+describe("createInProcessPtyHostClient — real PTY lifecycle through the contract", () => {
   let client: PtyHostClient;
   beforeAll(() => {
-    ensureKoluRoot();
-    client = createInProcessPtyHost({ log: silentLog });
+    client = makeClient();
   });
   afterAll(async () => {
     await client.surface.terminal.killAll({});
@@ -85,14 +89,13 @@ describe("createInProcessPtyHost — real PTY lifecycle through the contract", (
     expect(entries.some((e) => e.id === id && e.pid === pid)).toBe(true);
 
     // attach is race-free snapshot-then-deltas: the first frame is the snapshot.
-    const stream = await client.surface.terminalAttach.get({ id });
-    const first = await stream[Symbol.asyncIterator]().next();
+    const first = await (await client.surface.terminalAttach.get({ id }))
+      [Symbol.asyncIterator]()
+      .next();
     expect(first.done).toBe(false);
     if (!first.done) expect(first.value.kind).toBe("snapshot");
 
     // Subscribe to the exit tap, then kill: the tap yields the exit code once.
-    // (exitPromise resolves from the cached code even if the child dies before
-    // the waiter registers, so there's no subscribe/kill race to lose.)
     const exitNext = (await client.surface.exit.get({ id }))
       [Symbol.asyncIterator]()
       .next();
@@ -103,11 +106,10 @@ describe("createInProcessPtyHost — real PTY lifecycle through the contract", (
   });
 
   it("an aborted exit subscription stops without delivering the exit (the kill-silence mechanism)", async () => {
-    // This is the mechanism `local.ts` relies on to keep an intentional kill
-    // silent: `teardownProviders` aborts the exit-tap signal BEFORE the kill,
-    // so the tap ends via abort rather than yielding an exit code that
-    // `handleExit` would turn into a `terminalExit`. Verify the contract honors
-    // that abort (the backend ordering itself is covered by `kill.feature`).
+    // The mechanism `local.ts` relies on to keep an intentional kill silent:
+    // `teardownProviders` aborts the exit-tap signal BEFORE the kill, so the
+    // tap ends via abort rather than yielding an exit code that would become a
+    // `terminalExit`. Verify the contract honors that abort.
     const dir = mkdtempSync(join(tmpdir(), "kolu-inproc-"));
     const { id } = await client.surface.terminal.spawn({ cwd: dir });
     const ac = new AbortController();

@@ -1,7 +1,7 @@
 /**
  * `LocalTerminalBackend` — this kolu process. It owns `@kolu/pty-host`
  * in-process, but consumes it through the typed `ptyHostSurface` contract (via
- * `createInProcessPtyHost`, the identity link): it forwards
+ * `createInProcessPtyHostClient`, the identity link): it forwards
  * spawn/kill/write/resize/attach through that client AND **runs the
  * per-terminal provider DAG** (`./providers.ts`) against the pty-host's raw tap
  * streams (cwd · title · command-run · foreground).
@@ -9,7 +9,7 @@
  * Why route through the contract rather than call `PtyHost` directly: the
  * consumer here is then written against `PtyHostClient` — the exact shape a
  * surviving daemon (over a unix socket) or a remote ssh pty-host will serve.
- * A later step swaps only `createInProcessPtyHost` for a socket-served client;
+ * A later step swaps only `createInProcessPtyHostClient` for a socket-served client;
  * everything in this file is unchanged. And the provider DAG already has zero
  * synchronous dependency on the host (it reads taps, not a `PtyHandle`), so it
  * runs identically whether pty-host is in-process or across a wire. See
@@ -19,7 +19,11 @@
  * local) shelling out to `kolu-git` directly.
  */
 
-import type { ForegroundSample } from "@kolu/pty-host";
+import {
+  createInProcessPtyHostClient,
+  type ForegroundSample,
+  type PtyHostClient,
+} from "@kolu/pty-host";
 import { inMemoryChannel } from "@kolu/surface/server";
 import type {
   TerminalId,
@@ -61,10 +65,8 @@ import {
 } from "../terminal-registry.ts";
 import { cleanupTerminalScratch } from "../terminalScratch.ts";
 import { unwrapGit } from "../unwrapGit.ts";
-import {
-  createInProcessPtyHost,
-  type PtyHostClient,
-} from "./inProcessPtyHost.ts";
+import pkg from "../../package.json" with { type: "json" };
+import { koluShellDir } from "../koluRoot.ts";
 import {
   createMetadata,
   updateServerLiveMetadata,
@@ -124,7 +126,11 @@ const localGit: TerminalBackendGit = {
 
 /** The single in-process pty-host for this kolu process, consumed through its
  *  wire contract. kolu-server is its client. */
-const ptyHostClient: PtyHostClient = createInProcessPtyHost({ log });
+const ptyHostClient: PtyHostClient = createInProcessPtyHostClient({
+  log,
+  shellDir: koluShellDir,
+  version: pkg.version,
+});
 
 // ── The contract-backed terminal handle ─────────────────────────────────
 

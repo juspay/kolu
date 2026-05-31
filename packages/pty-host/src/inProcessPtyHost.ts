@@ -1,41 +1,40 @@
 /**
- * The in-process `@kolu/pty-host`, consumed through its own wire contract.
+ * In-process serving of `ptyHostSurface` — the **identity link**.
  *
- * kolu-server owns the PTYs in-process today, but it talks to them through
- * `ptyHostSurface` — the same typed contract a surviving daemon (over a unix
- * socket) or a remote ssh pty-host will later serve. The link here is the
- * *identity* one: `inProcessSurfaceClient` composes the surface handlers with
- * a direct `createRouterClient`, so `client.surface.terminal.spawn(...)` is a
- * direct (microtask-deferred) call into `createPtyHost`, with no wire. The
- * point of routing through the contract now — rather than calling `PtyHost`
- * methods directly — is that the *consumer* (`./local.ts`) is written against
- * `PtyHostClient`, so a later step swaps only this module (in-process →
- * socket-served) and the consumer is unchanged. See
- * `docs/plans/remote-terminals.pty-daemon.html` (#fresh-approach).
+ * This is the contract's *implementation*, co-located with the contract
+ * (`./ptyHostSurface.ts`) and the primitive (`./ptyHost.ts`) it serves.
+ * `inProcessSurfaceClient` composes the surface handlers with a direct
+ * `createRouterClient`, so `client.surface.terminal.spawn(...)` is a direct
+ * (microtask-deferred) call into `createPtyHost` — no wire, no serialization.
  *
- * Env layering for spawned shells lives in the `spawn` handler here — the
- * pty-host owns the shells it forks, so it (not kolu-server) prepares their
- * environment. Across a socket the contract carries no env; the host fills it.
+ * The consumer (kolu-server's `terminalBackend/local.ts`) holds the returned
+ * `PtyHostClient` and is written against that type alone. A later phase swaps
+ * only the link — this same `implementSurface` body is served over a unix
+ * socket by the surviving `kolu --stdio` daemon (`serveOverStdio`), and the
+ * consumer connects a socket-backed client of the identical type — so nothing
+ * downstream changes. See `docs/plans/remote-terminals.pty-daemon.html`.
+ *
+ * Host-specific config (`shellDir`, `version`) is **injected**, not imported:
+ * the package owns the PTY + the contract + the serving, but not kolu-server's
+ * runtime paths. In-process the caller passes its own shell-dir; the future
+ * daemon computes its own (from `kolu-shared`, the one relocation deferred to
+ * that phase). Env/shell-init prep lives in the `spawn` handler because the
+ * pty-host owns the shells it forks — across a socket the contract carries no
+ * env, so the host fills it.
  */
 
-import {
-  createPtyHost,
-  type PtyId,
-  PTY_HOST_CONTRACT_VERSION,
-  ptyHostSurface,
-} from "@kolu/pty-host";
+import { randomUUID } from "node:crypto";
 import {
   inMemoryChannelByName,
   inProcessSurfaceClient,
 } from "@kolu/surface/server";
-import { randomUUID } from "node:crypto";
 import type { ContractRouterClient } from "@orpc/contract";
 import { ORPCError } from "@orpc/server";
 import { DEFAULT_SCROLLBACK } from "kolu-common/config";
 import { cleanEnv, koluIdentityEnv, prepareShellInit } from "kolu-pty";
 import type { Logger } from "kolu-shared";
-import pkg from "../../package.json" with { type: "json" };
-import { koluShellDir } from "../koluRoot.ts";
+import { createPtyHost, type PtyId } from "./ptyHost.ts";
+import { PTY_HOST_CONTRACT_VERSION, ptyHostSurface } from "./ptyHostSurface.ts";
 
 /** The typed client for talking to a pty-host. In-process today (this module);
  *  the identical type backs a socket-served daemon later — so the consumer is
@@ -44,12 +43,24 @@ export type PtyHostClient = ContractRouterClient<
   typeof ptyHostSurface.contract
 >;
 
+export interface InProcessPtyHostDeps {
+  log: Logger;
+  /** Directory for the per-PTY wrapper rc files (`prepareShellInit`'s rcDir).
+   *  Injected by the host so this module needs no `kolu-server` runtime-path
+   *  import (which would be an import cycle). */
+  shellDir: string;
+  /** kolu version string, baked into each spawned shell's identity env. */
+  version: string;
+}
+
 /** Build the in-process pty-host and return a contract-typed client over it.
  *  The `createPtyHost` instance is captured by the surface handlers (held for
  *  the process's life via the returned client), so it owns every local PTY for
- *  as long as kolu-server runs — one host per process. */
-export function createInProcessPtyHost(deps: { log: Logger }): PtyHostClient {
-  const { log } = deps;
+ *  as long as the caller runs — one host per process. */
+export function createInProcessPtyHostClient(
+  deps: InProcessPtyHostDeps,
+): PtyHostClient {
+  const { log, shellDir, version } = deps;
   const host = createPtyHost({ log });
   const startedAt = Date.now();
 
@@ -139,16 +150,16 @@ export function createInProcessPtyHost(deps: { log: Logger }): PtyHostClient {
           const env = cleanEnv();
           const shell = env.SHELL ?? "/bin/sh";
           const cwd = input.cwd || env.HOME || "/";
-          Object.assign(env, koluIdentityEnv(pkg.version));
-          // kolu-server mints the terminal id and passes it here so the
-          // pty-host's PTY id == kolu-server's terminal id (reattach-by-id
-          // across a kolu-server restart, later). Generate one only if absent.
+          Object.assign(env, koluIdentityEnv(version));
+          // The caller mints the terminal id and passes it here so the
+          // pty-host's PTY id == the caller's terminal id (reattach-by-id
+          // across a restart, later). Generate one only if absent.
           const id = (input.id ?? randomUUID()) as PtyId;
           const shellInit = prepareShellInit({
             shell,
             home: env.HOME,
             terminalId: id,
-            rcDir: koluShellDir,
+            rcDir: shellDir,
           });
           Object.assign(env, shellInit.env);
           const res = host.spawn({
@@ -165,9 +176,8 @@ export function createInProcessPtyHost(deps: { log: Logger }): PtyHostClient {
           return { id: res.id, pid: res.pid, cwd };
         },
         // No kill-then-wait here (that's a reattach concern): the consumer
-        // (`./local.ts`) aborts the exit tap before calling kill, so an
-        // intentional kill stays silent. The kill RPC's response drives the
-        // UI cleanup.
+        // aborts the exit tap before calling kill, so an intentional kill stays
+        // silent. The kill RPC's response drives the UI cleanup.
         kill: async ({ input }) => {
           host.kill(input.id);
           return { ok: true };

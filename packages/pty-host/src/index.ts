@@ -1,14 +1,19 @@
-/** `@kolu/pty-host` — the multi-client PTY-owner primitive + its wire contract.
+/** `@kolu/pty-host` — the PTY-owner primitive, its wire contract, and the
+ *  in-process serving of that contract.
  *
- *  A `node-pty` child + an `@xterm/headless` screen mirror + the VT-derived
- *  event taps (cwd via OSC 7, title via OSC 0/2, command-run via OSC 633,
- *  foreground via `tcgetpgrp`, exit), each fanned out through a bounded
- *  per-PTY channel. Owns ONLY the PTY — no git, PRs, agents, file tree, or
- *  transport. Env/shell-init prep is the caller's job (see `kolu-pty`).
- *
- *  `ptyHostSurface` is the typed contract for consuming a pty-host (the
- *  `PtyHost` interface projected onto a wire). In-process kolu-server consumes
- *  it through the identity link; the same contract rides a socket / ssh later.
+ *  - `createPtyHost` — the **primitive**: a `node-pty` child + an
+ *    `@xterm/headless` screen mirror + the VT-derived event taps (cwd via
+ *    OSC 7, title via OSC 0/2, command-run via OSC 633, foreground via
+ *    `tcgetpgrp`, exit), fanned out through a bounded per-PTY channel. Owns
+ *    ONLY the PTY — no git, PRs, agents, file tree, or transport. It takes a
+ *    fully-prepared spawn (env/shell-init is the caller's job — `kolu-pty`).
+ *  - `ptyHostSurface` — the typed **contract** (the `PtyHost` interface
+ *    projected onto a wire) + its version + compatibility check.
+ *  - `createInProcessPtyHostClient` — the contract's in-process **serving** (the
+ *    identity link): it prepares the shell env and serves `ptyHostSurface`
+ *    over `createPtyHost` with no transport, handing back a contract-typed
+ *    client. The same body is served over a socket by the surviving daemon
+ *    later; the consumer (kolu-server) is invariant under that swap.
  */
 
 export {
@@ -38,3 +43,12 @@ export {
   type PtyHostSurface,
   type PtyHostSystemVersion,
 } from "./ptyHostSurface.ts";
+
+// The contract's in-process serving (the identity link) + the contract-typed
+// client the consumer holds. The serving body is reused over a socket by the
+// surviving daemon later — only the link is swapped.
+export {
+  createInProcessPtyHostClient,
+  type InProcessPtyHostDeps,
+  type PtyHostClient,
+} from "./inProcessPtyHost.ts";

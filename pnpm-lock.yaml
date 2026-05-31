@@ -448,6 +448,12 @@ importers:
       '@kolu/surface':
         specifier: workspace:*
         version: link:../surface
+      '@orpc/contract':
+        specifier: ^1.13.13
+        version: 1.13.13
+      '@orpc/server':
+        specifier: ^1.13.13
+        version: 1.13.13(ws@8.20.1)
       '@xterm/addon-serialize':
         specifier: ^0.14.0
         version: 0.14.0
@@ -457,6 +463,9 @@ importers:
       kolu-common:
         specifier: workspace:*
         version: link:../common
+      kolu-pty:
+        specifier: workspace:*
+        version: link:../integrations/pty
       kolu-shared:
         specifier: workspace:*
         version: link:../shared
