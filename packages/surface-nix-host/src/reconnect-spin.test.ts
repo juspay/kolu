@@ -17,6 +17,7 @@ import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { eventIterator, oc } from "@orpc/contract";
 import { implement } from "@orpc/server";
+import { createLoopbackPair } from "@kolu/surface/loopback";
 import { serveOverStdio } from "@kolu/surface/peer-server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
@@ -33,17 +34,6 @@ const contract = {
     .input(z.object({}))
     .output(eventIterator(z.object({ n: z.number() }))),
 };
-
-// Cross-piped PassThroughs — an in-process stdio pair (inlined to avoid a
-// cross-package subpath-export snag in the runner).
-function createLoopbackPair() {
-  const c2s = new PassThrough();
-  const s2c = new PassThrough();
-  return {
-    client: { read: s2c, write: c2s },
-    server: { read: c2s, write: s2c },
-  };
-}
 
 // A child that serves a real agent (so the pump gets a first yield and the
 // consumer calls `markConnected`), then drops its link by ending the
