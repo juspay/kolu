@@ -297,20 +297,22 @@ export const Markdown: Component<{
   links?: boolean;
 }> = (props) => {
   const variant = (): MarkdownVariant => props.variant ?? "document";
-  // `links` is resolved here, during the token walk — a links-only change
-  // does not re-render on its own (the walk is memoised on markdown +
-  // variant). No consumer drives `links` reactively today; one that needs
+  // ctx is memoised so one Ctx object is shared across the JSX tree for a
+  // given render — the block wrapper and its BlockTokens child see the same
+  // reference. `links` defaults on for block variants, off for inline, and
+  // is resolved here during render: the token walk is memoised on markdown +
+  // variant only, so a links-only change re-lexes nothing — and, since the
+  // `For` children are built once per token, it won't re-render on its own
+  // either. Nothing drives `links` reactively today; a consumer that needs
   // to should react at the render layer rather than re-parse on each toggle.
-  // "inline" shares the compact token-scale classes (codespan etc.): it
-  // emits no block wrapper, so only token-level styling applies and a
-  // dedicated inline scale would be dead weight.
-  const ctx = (): Ctx => {
+  const ctx = createMemo<Ctx>(() => {
     const v = variant();
     return {
       links: props.links ?? v !== "inline",
-      styles: STYLES[v === "document" ? "document" : "compact"],
+      // "inline" renders no block wrapper so it borrows compact token styles.
+      styles: STYLES[v === "inline" ? "compact" : v],
     };
-  };
+  });
   const tokens = createMemo<Token[]>(() =>
     variant() === "inline"
       ? Lexer.lexInline(props.markdown, MARKED_OPTIONS)
