@@ -44,7 +44,7 @@ export function runProgress(
   return new Promise((resolve) => {
     const proc = spawn(cmd, [...args], {
       stdio: ["ignore", "ignore", "pipe"],
-      ...(env && { env: { ...process.env, ...env } }),
+      env: env ? { ...process.env, ...env } : undefined,
     });
     proc.stderr?.setEncoding("utf-8");
     proc.stderr?.on("data", (chunk: string) => forEachLine(chunk, onProgress));
