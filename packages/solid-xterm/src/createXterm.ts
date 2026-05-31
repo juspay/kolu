@@ -47,6 +47,7 @@ import {
 import { createSafeClipboardProvider } from "./clipboard.ts";
 import { registerDiagnostics } from "./diagnostics.ts";
 import { createLineLinkProvider, type LineLinkMatch } from "./links.ts";
+import { createScrollLock } from "./scrollLock.ts";
 import {
   registerTerminalRefs,
   unregisterTerminalRefs,
@@ -229,33 +230,13 @@ export function createXterm<TLink>(opts: XtermOptions<TLink>): XtermHandle {
   let disposed = false;
   let fitRaf = 0;
 
-  // Scroll-lock state machine — owned here so the attach stream and the
-  // scroll-to-bottom control share one source of truth. When locked, incoming
-  // data is buffered (not written) which avoids viewport-jump entirely.
-  const [isLocked, setIsLocked] = createSignal(false);
-  const [hasNewOutput, setHasNewOutput] = createSignal(false);
-  const pendingData: string[] = [];
-
-  function flushPending(): void {
-    if (pendingData.length === 0 || !terminal) return;
-    const data = pendingData.join("");
-    pendingData.length = 0;
-    terminal.write(data);
-  }
-  function resetScrollState(): void {
-    flushPending();
-    setIsLocked(false);
-    setHasNewOutput(false);
-  }
-  function writeData(data: string): void {
-    if (!terminal) return;
-    if (!isLocked()) {
-      terminal.write(data);
-      return;
-    }
-    setHasNewOutput(true);
-    pendingData.push(data);
-  }
+  // Scroll-lock state machine — composed from the package's own
+  // `createScrollLock` so there is exactly ONE definition of the
+  // freeze/buffer/flush logic (the attach stream writes through it; the
+  // scroll-to-bottom control + `data-renderer`-adjacent UI read its signals).
+  // Created synchronously in the body so its internal `createEffect` (clear
+  // lock when the preference toggles off) lands on the consumer's owner.
+  const scroll = createScrollLock(opts.scrollLockEnabled);
 
   function debouncedFit(): void {
     cancelAnimationFrame(fitRaf);
@@ -422,15 +403,9 @@ export function createXterm<TLink>(opts: XtermOptions<TLink>): XtermHandle {
 
       term.open(container);
 
-      // Scroll-lock onScroll wiring: flush when the user returns to the bottom.
-      term.onScroll(() => {
-        if (opts.scrollLockEnabled() === false) return;
-        const buf = term.buffer.active;
-        const atBottom = buf.baseY <= buf.viewportY;
-        if (atBottom && isLocked()) flushPending();
-        setIsLocked(!atBottom);
-        if (atBottom) setHasNewOutput(false);
-      });
+      // Scroll-lock onScroll wiring + self-registered cleanup (composed
+      // primitive). Must run inside the restored owner — see runWithOwner above.
+      scroll.attachToTerminal(term);
 
       // Click-to-focus on the host div's own padding only (xterm handles canvas
       // clicks; touch handled below). addEventListener (not JSX onClick) keeps
@@ -484,10 +459,10 @@ export function createXterm<TLink>(opts: XtermOptions<TLink>): XtermHandle {
             signal,
             onReset: () => {
               term.reset();
-              resetScrollState();
+              scroll.reset();
             },
           }),
-        writeData,
+        (data) => scroll.writeData(term, data),
         opts.isExpectedStreamError,
       );
 
@@ -665,7 +640,6 @@ export function createXterm<TLink>(opts: XtermOptions<TLink>): XtermHandle {
     fitAddon = null;
     serializeAddon = null;
     setSearchAddon(null);
-    pendingData.length = 0;
   }
 
   return {
@@ -679,17 +653,14 @@ export function createXterm<TLink>(opts: XtermOptions<TLink>): XtermHandle {
     focus: () => terminal?.focus(),
     publishDimensions,
     scrollToBottom: () => {
-      flushPending();
-      terminal?.scrollToBottom();
-      setIsLocked(false);
-      setHasNewOutput(false);
+      if (terminal) scroll.scrollToBottom(terminal);
     },
     resetScroll: () => {
-      resetScrollState();
+      scroll.reset();
       terminal?.scrollToBottom();
     },
-    isLocked,
-    hasNewOutput,
+    isLocked: scroll.isLocked,
+    hasNewOutput: scroll.hasNewOutput,
     hasWebgl,
     searchAddon,
     raw: () => terminal,
