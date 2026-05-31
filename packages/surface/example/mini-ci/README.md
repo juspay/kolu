@@ -84,5 +84,3 @@ Plus the live e2e: `just run localhost --json` type-checks remote-process-monito
 - **Server-restart survival.** This is client-side detach/reattach while the runner lives; surviving a _runner_ restart is kolu-server's job in the [daemon plan](../../../../docs/plans/remote-terminals.pty-daemon.html), not here.
 - **A real CI runner.** The DAG runs shell commands with no caching, no artifact passing, no platform fan-out — that's [justci](https://github.com/juspay/justci)'s job. mini-ci could graduate to its own repo the way remote-process-monitor became [drishti](https://github.com/srid/drishti).
 - **Known bug:** in some terminals the TUI can leave the terminal in raw mode on quit — filed as [juspay/kolu#1076](https://github.com/juspay/kolu/issues/1076).
-</content>
-</invoke>
