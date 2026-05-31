@@ -1,32 +1,28 @@
 /**
  * mini-ci — a CI-runner TUI over oRPC stdio.
  *
- * Spawns the runner (local child or remote ssh), attaches over `stdioLink`,
- * and paints a live dashboard: a node-status table (from the `nodes` cell)
- * plus the attached node's log tail (from the `nodeLog` stream). Keys:
+ * Connects to the runner via `@kolu/surface-nix-host`'s `HostSession` (the
+ * drishti way: `nix copy` the runner closure + realise + run over ssh;
+ * localhost runs it directly) and paints a live dashboard: a node-status
+ * table (from the `nodes` cell) plus the attached node's log tail (from the
+ * `nodeLog` stream). The default pipeline runs real CI for the
+ * remote-process-monitor example. Keys:
  *
  *   digits 1-9  attach node N        r  rerun the attached node
  *   n / p       next / prev node     q  quit (Ctrl-C / Ctrl-D too)
  *
- * Non-interactive modes for scripting / CI: `--headless` streams
- * transitions, `--json` prints the final state and exits non-zero on
- * failure.
+ * Usage: `just run [host]` (default localhost). Non-interactive modes for
+ * scripting / CI: `--headless` streams transitions, `--json` prints the final
+ * state and exits non-zero on failure.
  *
- * Note on detach: kolu-tui's Phase-2 ssh-style `~`-escape exists because
- * that client is a *raw VT passthrough* where every byte must reach the
- * inner program, so it needs an unambiguous escape that never collides with
- * the inner tool. mini-ci's dashboard renders *structured state* and owns
- * the keyboard directly, so it binds plain keys — the `~`-escape decision
- * is recorded for kolu-tui (see the plan), not needed here.
+ * Note on detach: kolu-tui's Phase-2 ssh-style `~`-escape exists because that
+ * client is a *raw VT passthrough* where every byte must reach the inner
+ * program. mini-ci's dashboard renders *structured state* and owns the
+ * keyboard directly, so it binds plain keys.
  */
 
 import { parseArgs as nodeParseArgs } from "node:util";
-import {
-  connectLocal,
-  connectRemote,
-  type Connection,
-  type RunnerClient,
-} from "./connect";
+import { connect, type Connection, type RunnerClient } from "./connect";
 import {
   applyLogFrame,
   defaultAttachId,
@@ -36,9 +32,7 @@ import {
 import type { NodeLogFrame, NodesSnapshot } from "../common/surface";
 
 interface Args {
-  pipeline?: string;
-  remote?: string;
-  remoteDir?: string;
+  host: string;
   attach?: string;
   headless: boolean;
   json: boolean;
@@ -46,63 +40,52 @@ interface Args {
 
 function parseArgs(argv: string[]): Args {
   // `pnpm start -- …` forwards a literal `--`; node:util treats `--` as
-  // end-of-options (everything after becomes positional), so strip a leading
-  // one. `allowPositionals` then tolerates the optional `run` verb.
+  // end-of-options, so strip a leading one. The first positional is the host.
   const cleaned = argv[0] === "--" ? argv.slice(1) : argv;
-  const { values } = nodeParseArgs({
+  const { values, positionals } = nodeParseArgs({
     args: cleaned,
     allowPositionals: true,
     options: {
-      pipeline: { type: "string" },
-      remote: { type: "string" },
-      "remote-dir": { type: "string" },
       attach: { type: "string" },
       headless: { type: "boolean" },
       json: { type: "boolean" },
     },
   });
   return {
-    pipeline: values.pipeline,
-    remote: values.remote,
-    remoteDir: values["remote-dir"],
+    host: positionals[0] ?? "localhost",
     attach: values.attach,
     headless: values.headless ?? false,
     json: values.json ?? false,
   };
 }
 
-async function connect(args: Args): Promise<Connection> {
-  if (args.remote !== undefined) {
-    return connectRemote({
-      host: args.remote,
-      remoteDir: args.remoteDir,
-      pipeline: args.pipeline,
-    });
-  }
-  return connectLocal({ pipeline: args.pipeline });
-}
-
-/** Iterate the `nodes` cell until the pipeline settles, calling `onState`
- *  for every yield (including the initial snapshot). Returns the final
- *  state. */
+/** Iterate the `nodes` cell until the pipeline settles, calling `onState` for
+ *  every yield. Flips the session to `connected` on the first frame (the
+ *  HostSession watchdog reaps the link otherwise). */
 async function pumpUntilDone(
-  client: RunnerClient,
+  conn: Connection,
   onState: (state: NodesSnapshot) => void,
 ): Promise<NodesSnapshot> {
   let last: NodesSnapshot | undefined;
-  for await (const state of await client.surface.nodes.get({})) {
+  let first = true;
+  for await (const state of await conn.client.surface.nodes.get({})) {
+    if (first) {
+      first = false;
+      conn.session.markConnected();
+    }
     last = state;
     onState(state);
     if (summarize(state).done) break;
   }
-  if (last === undefined)
+  if (last === undefined) {
     throw new Error("mini-ci: runner closed before any state");
+  }
   return last;
 }
 
 /** `--json`: run to completion, print the final state, exit. */
 async function runJson(conn: Connection): Promise<never> {
-  const final = await pumpUntilDone(conn.client, () => {});
+  const final = await pumpUntilDone(conn, () => {});
   process.stdout.write(`${JSON.stringify(final, null, 2)}\n`);
   conn.dispose();
   process.exit(summarize(final).failedOverall ? 1 : 0);
@@ -111,7 +94,7 @@ async function runJson(conn: Connection): Promise<never> {
 /** `--headless` / non-tty: stream status transitions as plain lines. */
 async function runHeadless(conn: Connection): Promise<never> {
   const seen = new Map<string, string>();
-  const final = await pumpUntilDone(conn.client, (state) => {
+  const final = await pumpUntilDone(conn, (state) => {
     for (const id of state.order) {
       const node = state.nodes[id];
       if (node === undefined) continue;
@@ -136,8 +119,8 @@ async function runInteractive(conn: Connection, args: Args): Promise<void> {
   let attachedId = args.attach;
   let log = "";
   // The current log subscription's teardown — `attachedId` is navigation
-  // state (it has other consumers: render, keyboard nav, rerun), so only the
-  // subscription *lifecycle* lives in one handle here.
+  // state (render, keyboard nav, rerun), so only the subscription *lifecycle*
+  // lives in one handle here.
   let detachLog: (() => void) | undefined;
 
   const repaint = (): void => {
@@ -162,8 +145,13 @@ async function runInteractive(conn: Connection, args: Args): Promise<void> {
   };
 
   // State pump — keeps the table live and seeds the initial attachment.
+  let first = true;
   const stateDone = (async (): Promise<void> => {
     for await (const next of await client.surface.nodes.get({})) {
+      if (first) {
+        first = false;
+        conn.session.markConnected();
+      }
       state = next;
       if (attachedId === undefined) attach(defaultAttachId(next));
       repaint();
@@ -239,10 +227,20 @@ async function pumpLog(
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
-  const conn = await connect(args);
+  const interactive =
+    !args.json &&
+    !args.headless &&
+    process.stdin.isTTY === true &&
+    process.stdout.isTTY === true;
+
+  // HostSession's own copying/connecting progress goes to stderr; a one-liner
+  // up front frames it while the closure is copied + realised.
+  process.stderr.write(`mini-ci: connecting to ${args.host}…\n`);
+  const conn = await connect({ host: args.host });
+
   if (args.json) {
     await runJson(conn);
-  } else if (args.headless || !process.stdin.isTTY || !process.stdout.isTTY) {
+  } else if (!interactive) {
     await runHeadless(conn);
   } else {
     await runInteractive(conn, args);

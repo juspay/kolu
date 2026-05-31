@@ -21,11 +21,6 @@ import { describe, expect, it } from "vitest";
 import type { PipelineSpec } from "./common/pipeline";
 import type { NodeLogFrame, NodesSnapshot, surface } from "./common/surface";
 import { createRunner } from "./runner/runner";
-import {
-  buildLocalRunnerCommand,
-  buildRemoteRunnerCommand,
-  buildShipCommand,
-} from "./tui/transport";
 import { applyLogFrame, renderTable, summarize } from "./tui/render";
 
 type Client = ReturnType<typeof stdioLink<typeof surface.contract>>;
@@ -233,70 +228,6 @@ describe("mini-ci runner over stdio (loopback)", () => {
     if (final) expect(summarize(final).failedOverall).toBe(true);
 
     await h.close();
-  });
-});
-
-describe("transport — only the link differs (argv shape)", () => {
-  const withRunnerEnv = (value: string | undefined, fn: () => void): void => {
-    const prev = process.env.MINI_CI_RUNNER;
-    if (value === undefined) delete process.env.MINI_CI_RUNNER;
-    else process.env.MINI_CI_RUNNER = value;
-    try {
-      fn();
-    } finally {
-      if (prev === undefined) delete process.env.MINI_CI_RUNNER;
-      else process.env.MINI_CI_RUNNER = prev;
-    }
-  };
-
-  it("builds a local runner command under the workspace tsx (dev)", () => {
-    withRunnerEnv(undefined, () => {
-      const local = buildLocalRunnerCommand({ pipeline: "ci.json" });
-      expect(local.command).toBe("pnpm");
-      expect(local.args.slice(0, 2)).toEqual(["exec", "tsx"]);
-      expect(local.args).toContain("--stdio");
-      expect(local.args.slice(-2)).toEqual(["--pipeline", "ci.json"]);
-    });
-  });
-
-  it("uses the injected MINI_CI_RUNNER binary when present (nix run)", () => {
-    withRunnerEnv("/nix/store/x/bin/mini-ci-runner", () => {
-      const local = buildLocalRunnerCommand({ pipeline: "ci.json" });
-      expect(local.command).toBe("/nix/store/x/bin/mini-ci-runner");
-      expect(local.args).toEqual(["--stdio", "--pipeline", "ci.json"]);
-    });
-  });
-
-  it("ships source with git archive piped into ssh tar -x", () => {
-    const { archive, extract } = buildShipCommand({
-      host: "user@host",
-      remoteDir: "/tmp/x",
-    });
-    expect(archive).toEqual({ command: "git", args: ["archive", "HEAD"] });
-    expect(extract.command).toBe("ssh");
-    expect(extract.args).toContain("user@host");
-    expect(extract.args.at(-1)).toBe(
-      "rm -rf '/tmp/x' && mkdir -p '/tmp/x' && tar -x -C '/tmp/x'",
-    );
-  });
-
-  it("runs the runner on the remote via nix run over ssh stdio", () => {
-    const remote = buildRemoteRunnerCommand({
-      host: "user@host",
-      remoteDir: "/tmp/x",
-    });
-    expect(remote.command).toBe("ssh");
-    expect(remote.args).toContain("user@host");
-    // dead-peer keepalive reused from @kolu/surface-nix-host.
-    expect(remote.args).toContain("ServerAliveInterval=10");
-    const remoteCmd = remote.args.at(-1) ?? "";
-    // Builds + runs from the shipped flake source — no toolchain assumed.
-    // `pwd -P` resolves the physical path (macOS /tmp → /private/tmp) so nix's
-    // `path:` flakeref doesn't reject a symlinked component; the `#attr` stays
-    // literal inside the double quotes.
-    expect(remoteCmd).toContain("cd '/tmp/x'");
-    expect(remoteCmd).toContain('nix run "path:$(pwd -P)#mini-ci-runner"');
-    expect(remoteCmd).toContain("--stdio");
   });
 });
 

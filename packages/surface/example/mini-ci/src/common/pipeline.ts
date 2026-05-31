@@ -36,27 +36,38 @@ export const PipelineSpecSchema = z.object({
 export type TaskSpec = z.infer<typeof TaskSpecSchema>;
 export type PipelineSpec = z.infer<typeof PipelineSpecSchema>;
 
-/** The zero-config pipeline — the `build → test → lint` spine from the
- *  plan's mock. Commands are hermetic (only `echo`/`sleep`, no network, no
- *  repo state) so the example runs anywhere; the short `sleep`s just make
- *  the `running` state visible in the live dashboard. */
+/** The zero-config pipeline — **real CI for the remote-process-monitor
+ *  example**: type-check its dependency closure (the `@kolu/surface` framework
+ *  and `@kolu/surface-nix-host` in parallel, then the example itself). These
+ *  are the same `tsc --noEmit` gates the repo's CI runs.
+ *
+ *  Tasks run against the workspace the `mini-ci-runner` closure bundles
+ *  (workspace + `node_modules`, via `surfaceExampleBase`), so a `nix copy` of
+ *  that closure to a remote host ships everything the checks need.
+ *
+ *  Only **read-only** checks (typecheck) are in the default pipeline: the
+ *  closure lives in the read-only nix store, so write-heavy tasks (a `vite`
+ *  build wants `node_modules/.vite-temp`, `nix build` wants `flake.nix` which
+ *  isn't in the fileset) would need a writable copy of the workspace first.
+ *  That's the trade-off of shipping a *closure* rather than source. */
 export const DEFAULT_PIPELINE: PipelineSpec = {
-  name: "ci",
+  name: "remote-process-monitor",
   tasks: [
     {
-      id: "build",
-      command: "echo 'compiling 3 modules…'; sleep 0.4; echo 'build ok'",
+      id: "surface",
+      command: "pnpm --filter @kolu/surface typecheck",
       needs: [],
     },
     {
-      id: "test",
-      command: "echo 'running 12 tests…'; sleep 0.5; echo '12 passed'",
-      needs: ["build"],
+      id: "nix-host",
+      command: "pnpm --filter @kolu/surface-nix-host typecheck",
+      needs: [],
     },
     {
-      id: "lint",
-      command: "echo 'linting…'; sleep 0.3; echo 'no issues'",
-      needs: ["test"],
+      id: "monitor",
+      command:
+        "pnpm --filter @kolu/surface-example-remote-process-monitor typecheck",
+      needs: ["surface", "nix-host"],
     },
   ],
 };

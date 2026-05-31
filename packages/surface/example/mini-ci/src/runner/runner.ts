@@ -49,7 +49,18 @@ export interface Runner {
   dispose(): void;
 }
 
-export function createRunner(rawSpec: PipelineSpec): Runner {
+export interface RunnerOptions {
+  /** Working directory for every task command. The default pipeline runs
+   *  `pnpm --filter …` against the workspace root, so the runner is launched
+   *  with `cwd` = the workspace the closure bundles. Omit for a cwd-agnostic
+   *  pipeline (e.g. the loopback tests' `echo` tasks). */
+  cwd?: string;
+}
+
+export function createRunner(
+  rawSpec: PipelineSpec,
+  options: RunnerOptions = {},
+): Runner {
   const spec = validatePipeline(rawSpec);
   const order = spec.tasks.map((t) => t.id);
 
@@ -179,6 +190,7 @@ export function createRunner(rawSpec: PipelineSpec): Runner {
     setNode(node.id, { status: "running", startedAt });
     const child = spawn(node.command, {
       shell: true,
+      cwd: options.cwd,
       stdio: ["ignore", "pipe", "pipe"],
     });
     children.set(node.id, child);

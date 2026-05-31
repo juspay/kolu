@@ -1,9 +1,25 @@
 {
   "name": "ci",
   "tasks": [
-    { "id": "build", "command": "echo 'resolving deps…'; sleep 0.8; echo '✓ build ok (12 modules)'", "needs": [] },
-    { "id": "test", "command": "echo 'starting test runner…'; for s in unit integration e2e api; do sleep 0.9; echo \"  ✓ $s suite passed\"; done; echo '✓ 4 suites green'", "needs": ["build"] },
-    { "id": "lint", "command": "echo 'linting 42 files…'; sleep 1.1; echo '  style: clean'; sleep 0.8; echo '✓ no issues'", "needs": ["build"] },
-    { "id": "report", "command": "sleep 0.4; echo '✓ all green — report published'", "needs": ["test", "lint"] }
+    {
+      "id": "build",
+      "command": "echo 'resolving deps…'; sleep 0.8; echo '✓ build ok (12 modules)'",
+      "needs": []
+    },
+    {
+      "id": "test",
+      "command": "echo 'starting test runner…'; for s in unit integration e2e api; do sleep 0.9; echo \"  ✓ $s suite passed\"; done; echo '✓ 4 suites green'",
+      "needs": ["build"]
+    },
+    {
+      "id": "lint",
+      "command": "echo 'linting 42 files…'; sleep 1.1; echo '  style: clean'; sleep 0.8; echo '✓ no issues'",
+      "needs": ["build"]
+    },
+    {
+      "id": "report",
+      "command": "sleep 0.4; echo '✓ all green — report published'",
+      "needs": ["test", "lint"]
+    }
   ]
 }

@@ -1,100 +1,68 @@
 /**
- * Connect the TUI to a runner over stdio — local child or remote ssh.
+ * Connect the TUI to the runner via `@kolu/surface-nix-host`'s `HostSession`
+ * — **the drishti way**. `nix copy`s the prebuilt `mini-ci-runner` closure to
+ * the host (skipped for localhost), realises it there, and runs
+ * `mini-ci-runner --stdio` over ssh; `HostSession` owns the ref-count,
+ * reconnect, watchdog, and connection-state cell. The closure bundles the
+ * workspace (`surfaceExampleBase`), so the runner's `pnpm --filter …` CI
+ * tasks run against it on whatever host it lands on.
  *
- * Both paths end in the same `stdioLink<typeof surface.contract>` call;
- * only the subprocess differs. The returned client is the raw
- * `ContractRouterClient` (no Solid hooks — this is a Node CLI), consumed by
- * iterating `client.surface.nodes.get({})` etc.
+ * The runner's `.drv` is named per the host's nix-system. `just run [host]`
+ * resolves it (arch probe + `nix eval`) and passes `MINI_CI_RUNNER_DRV`,
+ * exactly like drishti's `KOLU_AGENT_DRV`; `nix run .#mini-ci` bakes the
+ * current system's drv.
  */
 
-import { type ChildProcess, execFileSync, spawn } from "node:child_process";
-import { stdioLink } from "@kolu/surface/links/stdio";
-import { isLocalHost } from "@kolu/surface-nix-host";
-import type { surface } from "../common/surface";
 import {
-  buildLocalRunnerCommand,
-  buildRemoteRunnerCommand,
-  buildShipCommand,
-  type LocalOptions,
-  type RemoteOptions,
-} from "./transport";
+  type AgentClient,
+  getHostSession,
+  type HostSession,
+  type HostSessionState,
+} from "@kolu/surface-nix-host";
+import type { surface } from "../common/surface";
 
-export type RunnerClient = ReturnType<
-  typeof stdioLink<typeof surface.contract>
->;
+export type RunnerClient = AgentClient<typeof surface.contract>;
+export type RunnerSession = HostSession<typeof surface.contract>;
 
 export interface Connection {
+  /** The typed runner client, once the link is live. */
   client: RunnerClient;
-  /** Terminate the runner subprocess. */
+  /** The session — the TUI calls `markConnected()` on the first frame and
+   *  reads `onState` for the copying/connecting overlay. */
+  session: RunnerSession;
   dispose(): void;
 }
 
-/** Local mode: spawn the runner as a child and link to its stdio. */
-export function connectLocal(opts: LocalOptions = {}): Connection {
-  const { command, args } = buildLocalRunnerCommand(opts);
-  // stderr inherited so the runner's diagnostics surface in the terminal.
-  const child = spawn(command, args, { stdio: ["pipe", "pipe", "inherit"] });
-  return linkChild(child);
+export interface ConnectOptions {
+  /** ssh target; `localhost` runs the realised binary directly. */
+  host: string;
+  /** Connection-state updates (copying / connecting / connected / …). */
+  onState?: (state: HostSessionState) => void;
 }
 
-/** Remote mode: ship the flake source with `git archive | ssh tar -x`, then
- *  `nix run` the runner on the host over ssh and link to it. A `localhost`
- *  target short-circuits to the local path — no point shipping source to
- *  ourselves (mirrors `buildAgentCommand`'s own `isLocalHost` branch). */
-export async function connectRemote(opts: RemoteOptions): Promise<Connection> {
-  if (isLocalHost(opts.host)) {
-    return connectLocal({ pipeline: opts.pipeline });
+/** Open a session and resolve once the link is up (the agent spawned). The
+ *  `nix copy` + realise happen inside this await — `onState` reports
+ *  `copying`/`connecting` while it's pending. */
+export async function connect(opts: ConnectOptions): Promise<Connection> {
+  const drv = process.env.MINI_CI_RUNNER_DRV;
+  if (drv === undefined || drv.length === 0) {
+    throw new Error(
+      "mini-ci: MINI_CI_RUNNER_DRV is required — the mini-ci-runner .drv for the host's nix-system.\n" +
+        "  Use `just run [host]` (resolves it via an arch probe), or `nix run .#mini-ci` (bakes the current system's drv).",
+    );
   }
-  await shipSource(opts);
-  const { command, args } = buildRemoteRunnerCommand(opts);
-  const child = spawn(command, args, { stdio: ["pipe", "pipe", "inherit"] });
-  return linkChild(child);
-}
-
-function linkChild(child: ChildProcess): Connection {
-  if (child.stdin === null || child.stdout === null) {
-    throw new Error("mini-ci: runner subprocess has no stdin/stdout");
-  }
-  const client = stdioLink<typeof surface.contract>({
-    read: child.stdout,
-    write: child.stdin,
+  const session = getHostSession<typeof surface.contract>({
+    host: opts.host,
+    // Constant resolver: the justfile already picked the host-arch drv. A
+    // consumer that defers the probe would call `resolveSystem(host)` here.
+    resolveDrvPath: () => Promise.resolve(drv),
+    binary: "mini-ci-runner",
   });
+  if (opts.onState !== undefined) session.onState(opts.onState);
+  const client = await session.pin();
   return {
     client,
-    dispose: () => {
-      child.kill("SIGTERM");
-    },
+    session,
+    dispose: () => session.destroy(),
   };
-}
-
-/** Pipe `git archive HEAD` into `ssh host 'tar -x -C dir'`. The archive runs
- *  from the git toplevel — not the TUI's cwd — so it always ships the whole
- *  repo (flake root); `git archive HEAD` from a subdirectory re-roots to that
- *  subdirectory, which would ship a flake-less tree. */
-function shipSource(opts: RemoteOptions): Promise<void> {
-  const { archive, extract } = buildShipCommand(opts);
-  const cwd = execFileSync("git", ["rev-parse", "--show-toplevel"], {
-    encoding: "utf-8",
-  }).trim();
-  return new Promise<void>((resolve, reject) => {
-    const git = spawn(archive.command, archive.args, {
-      cwd,
-      stdio: ["ignore", "pipe", "inherit"],
-    });
-    const ssh = spawn(extract.command, extract.args, {
-      stdio: ["pipe", "inherit", "inherit"],
-    });
-    if (git.stdout === null || ssh.stdin === null) {
-      reject(new Error("mini-ci: ship pipe has no stdio"));
-      return;
-    }
-    git.stdout.pipe(ssh.stdin);
-    git.on("error", reject);
-    ssh.on("error", reject);
-    ssh.on("exit", (code) => {
-      if (code === 0) resolve();
-      else
-        reject(new Error(`mini-ci: source ship failed (ssh tar exit ${code})`));
-    });
-  });
 }
