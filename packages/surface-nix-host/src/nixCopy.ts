@@ -50,7 +50,8 @@ export type ProvisionResult =
   | { ok: true; agentPath: string }
   | { ok: false; reason: string };
 
-/** Per-agent GC-root path for the realised output. Keyed on the .drv's
+/** Per-agent GC-root path for the realised output, or `null` when one
+ *  can't be formed (see the localhost case below). Keyed on the .drv's
  *  name with its store hash stripped, so every version of the *same*
  *  agent maps to one fixed symlink: each realise overwrites it, the
  *  previous output drops out of the root set and becomes GC-eligible.
@@ -59,16 +60,23 @@ export type ProvisionResult =
  *
  *  Remote: the path is relative, so it resolves against the ssh login
  *  user's home dir (sshd runs the command from `$HOME`). Local: there's
- *  no ssh chdir, so anchor to this process's `$HOME` explicitly. Parent
- *  dirs don't need pre-creating — `nix-store --add-root` makes them. */
-export function agentGcRootPath(isLocal: boolean, drvPath: string): string {
+ *  no ssh chdir, so anchor to this process's `$HOME` explicitly — and if
+ *  `$HOME` is unset we return `null` rather than a cwd-relative path
+ *  that would silently root the agent in the wrong place; the caller
+ *  then skips the (best-effort) pin. Parent dirs don't need
+ *  pre-creating — `nix-store --add-root` makes them. */
+export function agentGcRootPath(
+  isLocal: boolean,
+  drvPath: string,
+): string | null {
   const name = drvPath
     .replace(/^.*\//, "") // drop the /nix/store/ prefix
     .replace(/\.drv$/, "") // drop the .drv suffix
     .replace(/^[0-9a-z]{32}-/, ""); // drop the store hash
   const rel = `.local/state/kolu/surface-nix-host/gcroots/${name}`;
+  if (!isLocal) return rel;
   const home = process.env.HOME;
-  return isLocal && home ? `${home}/${rel}` : rel;
+  return home ? `${home}/${rel}` : null;
 }
 
 /** Ship the `.drv` to `$host` and realise it there. Returns the
@@ -141,25 +149,32 @@ export async function provisionAgent(
   //    Re-realising an already-built store path is instant; the
   //    `--add-root … --indirect` registers an *indirect* root — the
   //    symlink itself — so the link can live under $HOME without write
-  //    access to /nix/var/nix/gcroots. Best-effort: a failure here
-  //    costs GC protection, not the session, so we warn and continue —
-  //    the agent at `agentPath` still runs, it's just collectable.
+  //    access to /nix/var/nix/gcroots. Best-effort throughout: if the
+  //    root path can't be formed (local $HOME unset) or the command
+  //    fails, we warn and continue — the agent at `agentPath` still
+  //    runs, it's just collectable.
   const rootPath = agentGcRootPath(isLocal, opts.drvPath);
-  opts.onProgress(`${opts.host}: pinning GC root at '${rootPath}'…`);
-  const pin = buildSshProbeCommand(
-    opts.host,
-    "nix-store",
-    "--realise",
-    agentPath,
-    "--add-root",
-    rootPath,
-    "--indirect",
-  );
-  const pinRes = await runCapture(pin.command, pin.args, opts.onProgress);
-  if (!pinRes.ok) {
+  if (rootPath === null) {
     opts.onProgress(
-      `${opts.host}: GC-root pin failed (code ${pinRes.code}); agent runs but is unpinned`,
+      `${opts.host}: HOME unset, can't place a GC root; agent runs but is unpinned`,
     );
+  } else {
+    opts.onProgress(`${opts.host}: pinning GC root at '${rootPath}'…`);
+    const pin = buildSshProbeCommand(
+      opts.host,
+      "nix-store",
+      "--realise",
+      agentPath,
+      "--add-root",
+      rootPath,
+      "--indirect",
+    );
+    const pinRes = await runCapture(pin.command, pin.args, opts.onProgress);
+    if (!pinRes.ok) {
+      opts.onProgress(
+        `${opts.host}: GC-root pin failed (code ${pinRes.code}); agent runs but is unpinned`,
+      );
+    }
   }
 
   return { ok: true, agentPath };

@@ -118,15 +118,40 @@ describe("agentGcRootPath", () => {
   });
 
   it("anchors to $HOME for localhost (no ssh chdir to rely on)", () => {
-    const prev = process.env.HOME;
-    process.env.HOME = "/home/tester";
-    try {
+    withHome("/home/tester", () => {
       expect(agentGcRootPath(true, DRV)).toBe(
         "/home/tester/.local/state/kolu/surface-nix-host/gcroots/agent",
       );
-    } finally {
-      if (prev === undefined) delete process.env.HOME;
-      else process.env.HOME = prev;
-    }
+    });
+  });
+
+  it("returns null for localhost when $HOME is unset (no cwd-relative root)", () => {
+    // Better unpinned than rooted in the wrong place — the caller skips
+    // the best-effort pin on null rather than rooting under the cwd.
+    withHome(undefined, () => {
+      expect(agentGcRootPath(true, DRV)).toBeNull();
+    });
+  });
+
+  it("never returns null for a remote host (resolves against ssh $HOME)", () => {
+    withHome(undefined, () => {
+      expect(agentGcRootPath(false, DRV)).toBe(
+        ".local/state/kolu/surface-nix-host/gcroots/agent",
+      );
+    });
   });
 });
+
+/** Run `fn` with `process.env.HOME` set to `value` (or unset for
+ *  `undefined`), restoring the prior value afterwards. */
+function withHome(value: string | undefined, fn: () => void) {
+  const prev = process.env.HOME;
+  if (value === undefined) delete process.env.HOME;
+  else process.env.HOME = value;
+  try {
+    fn();
+  } finally {
+    if (prev === undefined) delete process.env.HOME;
+    else process.env.HOME = prev;
+  }
+}
