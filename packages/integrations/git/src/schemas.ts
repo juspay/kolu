@@ -19,8 +19,15 @@ export const GitInfoSchema = z.object({
    *  on `git push` — push only moves the remote-tracking ref, which this
    *  watcher set does not observe, so the value can lag a push until the
    *  next HEAD event. Snapshot-at-dialog-open consumers tolerate this, and
-   *  the stale direction is safe (it errs toward keeping the worktree). */
-  unpushedCommitCount: z.number(),
+   *  the stale direction is safe (it errs toward keeping the worktree).
+   *
+   *  `.default(0)` is load-bearing for migration safety: `GitInfoSchema` is
+   *  embedded in the persisted + streamed `SavedSessionSchema`, so a session
+   *  saved before this field existed must still validate on reload — otherwise
+   *  `session.get`'s output validation throws `EVENT_ITERATOR_VALIDATION_FAILED`
+   *  on every reconnect and the whole saved-session subscription dies. The
+   *  watchers overwrite the 0 with the real count on the next HEAD event. */
+  unpushedCommitCount: z.number().default(0),
 });
 
 // --- Git worktree operations ---
