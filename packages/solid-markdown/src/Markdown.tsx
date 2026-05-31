@@ -29,6 +29,9 @@ type Styles = {
   heading: string;
   code: string;
   codespan: string;
+  blockquote: string;
+  list: string;
+  hr: string;
   tableWrap: string;
   table: string;
 };
@@ -42,6 +45,9 @@ const STYLES: Record<"compact" | "document", Styles> = {
     heading: "m-0 text-[0.78rem] font-semibold leading-snug",
     code: "my-1 max-w-full overflow-x-auto rounded px-2 py-1 font-mono text-[0.67rem] leading-snug",
     codespan: "rounded px-1 py-0.5 font-mono text-[0.68rem]",
+    blockquote: "my-1 border-l-2 border-current/30 pl-2 opacity-90",
+    list: "my-1 space-y-0.5 pl-4",
+    hr: "my-1 h-px bg-current/25",
     tableWrap: "my-1 max-w-full overflow-x-auto",
     table: "w-full border-collapse text-[0.68rem]",
   },
@@ -50,6 +56,9 @@ const STYLES: Record<"compact" | "document", Styles> = {
     heading: "m-0 mt-4 mb-1 text-base font-semibold leading-snug first:mt-0",
     code: "my-2 max-w-full overflow-x-auto rounded px-3 py-2 font-mono text-[0.8rem] leading-normal",
     codespan: "rounded px-1 py-0.5 font-mono text-[0.85em]",
+    blockquote: "my-2 border-l-2 border-current/30 pl-3 opacity-90",
+    list: "my-2 space-y-1 pl-5",
+    hr: "my-3 h-px bg-current/25",
     tableWrap: "my-2 max-w-full overflow-x-auto",
     table: "w-full border-collapse text-[0.85rem]",
   },
@@ -114,7 +123,7 @@ function renderBlock(token: Token, ctx: Ctx): JSX.Element {
       );
     case "blockquote":
       return (
-        <blockquote class="my-1 border-l-2 border-current/30 pl-2 opacity-90">
+        <blockquote class={ctx.styles.blockquote}>
           <BlockTokens tokens={token.tokens ?? []} ctx={ctx} />
         </blockquote>
       );
@@ -125,17 +134,17 @@ function renderBlock(token: Token, ctx: Ctx): JSX.Element {
         </pre>
       );
     case "hr":
-      return <div class="my-1 h-px bg-current/25" />;
+      return <div class={ctx.styles.hr} />;
     case "list":
       return token.ordered ? (
         <ol
-          class="my-1 list-decimal space-y-0.5 pl-4"
+          class={`list-decimal ${ctx.styles.list}`}
           start={typeof token.start === "number" ? token.start : undefined}
         >
           <For each={token.items}>{(item) => renderListItem(item, ctx)}</For>
         </ol>
       ) : (
-        <ul class="my-1 list-disc space-y-0.5 pl-4">
+        <ul class={`list-disc ${ctx.styles.list}`}>
           <For each={token.items}>{(item) => renderListItem(item, ctx)}</For>
         </ul>
       );
