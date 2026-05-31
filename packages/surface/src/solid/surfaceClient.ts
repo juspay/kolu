@@ -174,14 +174,13 @@ export function surfaceClient<const S extends SurfaceSpec, Rpc = unknown>(
   surface: Surface<S>,
   link: Rpc,
 ): SurfaceClient<S, Rpc> {
-  const rpc = link;
   const spec = surface.spec;
 
   const cells: Record<string, BoundCell<unknown, unknown>> = {};
   for (const [key, rawSpec] of Object.entries(spec.cells ?? {})) {
     const cellSpec = rawSpec as CellSpec<unknown, unknown>;
     // biome-ignore lint/suspicious/noExplicitAny: walk-by-string of the typed client
-    const ns = (rpc as any).surface[key];
+    const ns = (link as any).surface[key];
     const source: StreamingProcedure<undefined, unknown> = ns.get;
     const mutate = cellSpec.patchSchema ? ns.patch : ns.set;
     // Spec-declared `patch` doubles as the default `applyPatch` for
@@ -212,7 +211,7 @@ export function surfaceClient<const S extends SurfaceSpec, Rpc = unknown>(
   const collections: Record<string, BoundCollection<unknown, unknown>> = {};
   for (const [key] of Object.entries(spec.collections ?? {})) {
     // biome-ignore lint/suspicious/noExplicitAny: walk-by-string
-    const ns = (rpc as any).surface[key];
+    const ns = (link as any).surface[key];
     const upsert = (k: unknown, v: unknown) => ns.upsert({ key: k, value: v });
     const del = (k: unknown) => ns.delete({ key: k });
     collections[key] = {
@@ -250,7 +249,7 @@ export function surfaceClient<const S extends SurfaceSpec, Rpc = unknown>(
   const streams: Record<string, BoundStream<unknown, unknown>> = {};
   for (const [key] of Object.entries(spec.streams ?? {})) {
     // biome-ignore lint/suspicious/noExplicitAny: walk-by-string
-    const ns = (rpc as any).surface[key];
+    const ns = (link as any).surface[key];
     streams[key] = {
       use: (inputFn, streamOpts) =>
         useStream(
@@ -266,7 +265,7 @@ export function surfaceClient<const S extends SurfaceSpec, Rpc = unknown>(
   const events: Record<string, BoundEvent<unknown, unknown>> = {};
   for (const [key] of Object.entries(spec.events ?? {})) {
     // biome-ignore lint/suspicious/noExplicitAny: walk-by-string
-    const ns = (rpc as any).surface[key];
+    const ns = (link as any).surface[key];
     events[key] = {
       use: (inputFn, handler, eventOpts) =>
         useEvent(
@@ -281,7 +280,7 @@ export function surfaceClient<const S extends SurfaceSpec, Rpc = unknown>(
   }
 
   return {
-    rpc,
+    rpc: link,
     cells: cells as BoundCellsFor<S>,
     collections: collections as BoundCollectionsFor<S>,
     streams: streams as BoundStreamsFor<S>,
