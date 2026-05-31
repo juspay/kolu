@@ -164,7 +164,12 @@ export interface SurfaceClient<S extends SurfaceSpec, Rpc = unknown> {
  *
  *  This is the unification: the bundle no longer bakes in the WebSocket
  *  transport — it consumes whatever link it's handed, so the same hooks work
- *  over a socket, a subprocess, or an in-process direct link. */
+ *  over a socket, a subprocess, or an in-process direct link.
+ *
+ *  `Rpc` is inferred from the `link` argument and defaults to `unknown`, so
+ *  pass a real link — the link constructor (`websocketLink<typeof contract>(ws)`)
+ *  is what pins the contract type that flows through to `.rpc`. There's no
+ *  separate transport option to forget; the link *is* the argument. */
 export function surfaceClient<const S extends SurfaceSpec, Rpc = unknown>(
   surface: Surface<S>,
   link: Rpc,
