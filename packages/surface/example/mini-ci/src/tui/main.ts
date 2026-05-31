@@ -143,7 +143,10 @@ async function runInteractive(conn: Connection, args: Args): Promise<void> {
   let state: NodesSnapshot | undefined;
   let attachedId = args.attach;
   let log = "";
-  let logController: AbortController | undefined;
+  // The current log subscription's teardown — `attachedId` is navigation
+  // state (it has other consumers: render, keyboard nav, rerun), so only the
+  // subscription *lifecycle* lives in one handle here.
+  let detachLog: (() => void) | undefined;
 
   const repaint = (): void => {
     if (state === undefined) return;
@@ -158,10 +161,8 @@ async function runInteractive(conn: Connection, args: Args): Promise<void> {
     if (id === undefined || id === attachedId) return;
     attachedId = id;
     log = "";
-    logController?.abort();
-    const controller = new AbortController();
-    logController = controller;
-    void pumpLog(client, id, controller.signal, (frame) => {
+    detachLog?.();
+    detachLog = attachLog(client, id, (frame) => {
       log = applyLogFrame(log, frame);
       repaint();
     });
@@ -178,7 +179,7 @@ async function runInteractive(conn: Connection, args: Args): Promise<void> {
   })();
 
   const quit = (code: number): void => {
-    logController?.abort();
+    detachLog?.();
     if (process.stdin.isTTY) process.stdin.setRawMode(false);
     process.stdin.pause();
     conn.dispose();
@@ -211,6 +212,19 @@ async function runInteractive(conn: Connection, args: Args): Promise<void> {
 
   await stateDone;
   quit(state !== undefined && summarize(state).failedOverall ? 1 : 0);
+}
+
+/** Subscribe to a node's log; returns a `detach()` that aborts the
+ *  subscription. Owns the AbortController so the caller holds one teardown
+ *  handle, not a controller it has to remember to abort. */
+function attachLog(
+  client: RunnerClient,
+  id: string,
+  onFrame: (frame: NodeLogFrame) => void,
+): () => void {
+  const controller = new AbortController();
+  void pumpLog(client, id, controller.signal, onFrame);
+  return () => controller.abort();
 }
 
 async function pumpLog(
