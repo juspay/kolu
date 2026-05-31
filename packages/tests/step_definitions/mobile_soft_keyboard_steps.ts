@@ -20,6 +20,24 @@ const XTERM_SCREEN = "[data-visible][data-terminal-id] .xterm-screen";
 const XTERM_TEXTAREA =
   "[data-visible][data-terminal-id] .xterm-helper-textarea";
 
+/** Read the document-capture focus counter armed by "I arm the soft-keyboard
+ *  focus probe", detach its listener, and return the count. Shared by every
+ *  Then-step that asserts a touch interaction did NOT focus the helper
+ *  textarea. The element-scoped probes (scroll, canceled-gesture) bind their
+ *  listener to a single textarea and tear down differently, so they don't use
+ *  this. */
+function teardownDocumentCaptureProbe(world: KoluWorld): Promise<number> {
+  return world.page.evaluate(() => {
+    const w = window as FocusProbeWindow;
+    const value = w.__textareaFocusCount ?? 0;
+    if (w.__textareaFocusListener) {
+      document.removeEventListener("focus", w.__textareaFocusListener, true);
+    }
+    w.__textareaFocusListener = undefined;
+    return value;
+  });
+}
+
 When(
   "I tap the mobile key {string}",
   async function (this: KoluWorld, testId: string) {
@@ -337,15 +355,7 @@ When("I arm the soft-keyboard focus probe", async function (this: KoluWorld) {
 Then(
   "xterm's helper textarea should not have been focused by the terminal switch",
   async function (this: KoluWorld) {
-    const count = await this.page.evaluate(() => {
-      const w = window as FocusProbeWindow;
-      const value = w.__textareaFocusCount ?? 0;
-      if (w.__textareaFocusListener) {
-        document.removeEventListener("focus", w.__textareaFocusListener, true);
-      }
-      w.__textareaFocusListener = undefined;
-      return value;
-    });
+    const count = await teardownDocumentCaptureProbe(this);
     assert.strictEqual(
       count,
       0,
@@ -362,15 +372,7 @@ Then(
     // before it opened — the terminal textarea (auto-focused on mount) —
     // popping the soft keyboard. The drawers pass restoreFocus={false}; this
     // asserts the backdrop dismissal leaves the keyboard down.
-    const count = await this.page.evaluate(() => {
-      const w = window as FocusProbeWindow;
-      const value = w.__textareaFocusCount ?? 0;
-      if (w.__textareaFocusListener) {
-        document.removeEventListener("focus", w.__textareaFocusListener, true);
-      }
-      w.__textareaFocusListener = undefined;
-      return value;
-    });
+    const count = await teardownDocumentCaptureProbe(this);
     assert.strictEqual(
       count,
       0,
