@@ -51,7 +51,7 @@ A surface is reached through one of several **links**. A link maps "a way to rea
 - `stdioLink({ read, write })` (`@kolu/surface/links/stdio`) — over a subprocess / ssh stdio pair.
 - `directLink(router)` (`@kolu/surface/links/direct`) — the **identity element**: in-process, no wire. Feed it `implementSurface(surface, deps).router` and every call invokes the handlers directly (microtask-deferred), so the consumer holds the exact `ContractRouterClient<contract>` a socket/ssh consumer would — byte-identical across a later transport swap. Useful for tests, single-process deployments, or the in-process phase of a service that will later be decoupled behind a socket. (Streams come back as async iterables, exactly as the wire-link clients yield them.)
 
-`createLoopbackPair()` (`@kolu/surface/links/loopback`) is **not** a link — it's the in-process transport *primitive* you feed into `stdioLink` + `serveOverStdio` to exercise the wire codec without forking. The serve side is `implementSurface(surface, deps)` (→ a router) plus, for wire links, `serveOverStdio({ router, transport })`.
+`createLoopbackPair()` (`@kolu/surface/loopback`) is **not** a link — it's the in-process transport *primitive* you feed into `stdioLink` + `serveOverStdio` to exercise the wire codec without forking (so it lives outside `links/`). The serve side is `implementSurface(surface, deps)` (→ a router) plus, for wire links, `serveOverStdio({ router, transport })`.
 
 The surface is opt-in. Reach for it when you're standing up a new app surface or writing a self-contained module; stay manual when an existing wire shape doesn't match the surface's verb-naming defaults (currently `get`/`patch`/`set`/`test__set` for cells, `keys`/`get`/`update`/`delete`/`test__set` for collections — see the example for the full set). The two approaches compose: spread `surface.contract` alongside a sibling `oc.router({...})` of raw procedures, and similarly for `implementSurface`'s output.
 
@@ -623,7 +623,7 @@ interface Channel<T> {
 }
 ```
 
-### Stdio transport (`@kolu/surface/links/stdio`, `@kolu/surface/links/loopback`, `@kolu/surface/peer-server`)
+### Stdio transport (`@kolu/surface/links/stdio`, `@kolu/surface/loopback`, `@kolu/surface/peer-server`)
 
 Same typed reactive surface, but over an arbitrary `Readable`/`Writable` pair instead of WebSocket. Headline path: a Node parent spawns an `ssh $host $agent --stdio` subprocess and talks to it as if it were local. Used by `packages/surface/example/remote-process-monitor/` to bridge a browser to a `/proc` reader running on another machine; the same shape is what Kolu R-2's `RemoteTerminalBackend` will use for remote terminals.
 

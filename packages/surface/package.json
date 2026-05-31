@@ -11,11 +11,11 @@
     ".": "./src/index.ts",
     "./client": "./src/client.ts",
     "./define": "./src/define.ts",
+    "./loopback": "./src/loopback.ts",
     "./server": "./src/server.ts",
     "./solid": "./src/solid/index.ts",
     "./links/websocket": "./src/links/websocket.ts",
     "./links/stdio": "./src/links/stdio.ts",
-    "./links/loopback": "./src/links/loopback.ts",
     "./links/direct": "./src/links/direct.ts",
     "./peer-server": "./src/peer-server.ts"
   },
