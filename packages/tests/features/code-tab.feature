@@ -439,6 +439,27 @@ Feature: Code tab (review + browse)
     When I click the directory "lib" in the file browser
     Then the file browser should show a file "lib/util.ts"
 
+  # Regression: expanding several directories and then clicking a file to
+  # preview it used to collapse every directory that wasn't an ancestor of
+  # the clicked file. Selection drove a full `resetPaths` in the Pierre
+  # wrapper, rebuilding the tree with only the search-projected and
+  # selected-ancestor directories open — so manually-expanded siblings lost
+  # their state. Selection now expands the picked file's ancestors
+  # imperatively and leaves every other open directory untouched.
+  Scenario: File browser preserves sibling expansion when previewing a file
+    When I run "git init /tmp/kolu-browse-keep && cd /tmp/kolu-browse-keep"
+    And I run "mkdir -p alpha beta && printf 'a1\n' > alpha/a1.txt && printf 'a2\n' > alpha/a2.txt && printf 'b1\n' > beta/b1.txt && printf 'b2\n' > beta/b2.txt"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    And I click the directory "alpha" in the file browser
+    Then the file browser should show a file "alpha/a1.txt"
+    When I click the directory "beta" in the file browser
+    Then the file browser should show a file "beta/b1.txt"
+    When I click the file "beta/b1.txt" in the file browser
+    Then the file "beta/b1.txt" should be selected in the file browser
+    And the file browser should show a file "alpha/a1.txt"
+
   # ── Pierre file/diff viewer right-click menu (Copy path:line) ──
 
   Scenario: Right-click on a file content line copies "path:line"

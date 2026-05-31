@@ -154,21 +154,22 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   // open in one call (Pierre's `FileTreeResetOptions.initialExpandedPaths`).
   // Tracking the inputs in the same effect means a paths-and-ancestors
   // swap lands atomically — no second effect, no ordering invariant
-  // between "rebuild tree" and "open ancestors". The selected path's
-  // ancestors are merged in too: when an external caller drives selection
-  // (e.g. a terminal `path:line` click resolving into a nested file),
-  // the parents must be expanded for the row to be visible. Pierre's
-  // public surface doesn't expose `expandDirectory` directly, so the
-  // expand-on-select is routed through this same `resetPaths` call.
+  // between "rebuild tree" and "open ancestors". `resetPaths` rebuilds the
+  // tree from scratch, so it can only ever open the directories named here;
+  // it has no memory of folders the user expanded by hand. That's why
+  // `selectedPath` is *not* a dependency: routing selection changes through
+  // here would rebuild the tree on every file click and collapse every
+  // manually-expanded sibling that isn't an ancestor of the new pick. The
+  // selection effect below expands the picked file's ancestors imperatively
+  // instead, leaving the rest of the tree's expansion state untouched. We
+  // still read `selectedPath` untracked so a paths/expandPaths-driven
+  // rebuild keeps the current selection's ancestors open.
   createEffect(
     on(
-      [
-        () => props.paths,
-        () => props.expandPaths,
-        () => props.selectedPath ?? null,
-      ],
-      ([paths, expandPaths, selectedPath]) => {
+      [() => props.paths, () => props.expandPaths],
+      ([paths, expandPaths]) => {
         safeApply(() => {
+          const selectedPath = props.selectedPath ?? null;
           const ancestors = selectedPath
             ? ancestorDirectoryPaths(selectedPath)
             : [];
@@ -223,6 +224,20 @@ export const FileTree: Component<FileTreeProps> = (props) => {
           };
           deselectOthers(path);
           if (path !== null) {
+            // Open the picked file's ancestors so the row is visible —
+            // an external caller can drive selection into a collapsed
+            // subtree (e.g. a terminal `path:line` click resolving into a
+            // nested file). Expanding each directory handle in place
+            // preserves every other open folder; routing this through
+            // `resetPaths` would rebuild the tree and collapse the user's
+            // hand-expanded siblings. A `getItem` returning a directory
+            // handle exposes `expand()`; re-expanding an open folder is a
+            // no-op, and files/missing paths simply fall through the
+            // `"expand" in item` guard.
+            for (const ancestor of ancestorDirectoryPaths(path)) {
+              const item = tree?.getItem(ancestor);
+              if (item && "expand" in item) item.expand();
+            }
             tree?.getItem(path)?.select();
             // `select()` marks aria-selected but doesn't move the
             // virtualizer; deep paths in large worktrees would stay
