@@ -45,30 +45,31 @@ export function ancestorDirectoryPaths(path: string): string[] {
   return out;
 }
 
-/** The directories the tree currently holds open. Pierre exposes no bulk
- *  "expanded paths" getter (only per-handle `isExpanded()`), so we
- *  reconstruct the candidate directory set from the path list the tree was
- *  last built with — every ancestor of every file — and ask each handle
- *  whether it's open. Feeding the result back into `resetPaths` carries the
- *  user's full expansion state across a rebuild, so live-watcher churn (a
- *  file added or removed) and filter changes don't collapse hand-opened
- *  folders. Directories that vanish from the new path list simply aren't
- *  recreated. */
-function currentlyExpandedDirectories(
-  tree: FileTreeClass | undefined,
-  paths: readonly string[] | undefined,
-): string[] {
-  if (!tree || !paths) return [];
-  const dirs = new Set<string>();
-  for (const path of paths) {
-    for (const dir of ancestorDirectoryPaths(path)) dirs.add(dir);
+type FileTreeBatchOperation = Parameters<FileTreeClass["batch"]>[0][number];
+
+/** The add/remove operations that turn the `prev` file inventory into
+ *  `next`, as Pierre `batch` ops. Driving path changes through `batch`
+ *  rather than `resetPaths` mutates the tree in place: Pierre keeps the
+ *  expansion, selection, and scroll state of every node it doesn't touch,
+ *  so live-watcher churn (a file added or removed) and filter changes no
+ *  longer collapse hand-opened folders. A file dropped from `next` takes
+ *  its now-empty ancestor directories with it — Pierre infers directories
+ *  from path prefixes — which is the one expansion loss that's intrinsic,
+ *  not a rebuild artifact (there is no row left to keep open). */
+function pathDiffOperations(
+  prev: readonly string[],
+  next: readonly string[],
+): FileTreeBatchOperation[] {
+  const prevSet = new Set(prev);
+  const nextSet = new Set(next);
+  const ops: FileTreeBatchOperation[] = [];
+  for (const path of prev) {
+    if (!nextSet.has(path)) ops.push({ type: "remove", path });
   }
-  const open: string[] = [];
-  for (const dir of dirs) {
-    const item = tree.getItem(dir);
-    if (item && "isExpanded" in item && item.isExpanded()) open.push(dir);
+  for (const path of next) {
+    if (!prevSet.has(path)) ops.push({ type: "add", path });
   }
-  return open;
+  return ops;
 }
 
 export type FileTreeProps = {
@@ -124,6 +125,12 @@ export type FileTreeProps = {
 export const FileTree: Component<FileTreeProps> = (props) => {
   let container!: HTMLDivElement;
   let tree: FileTreeClass | undefined;
+  // The path inventory Pierre's tree currently holds. Seeded at mount and
+  // updated after every `batch`, so the next path change can be applied as
+  // an in-place delta. Tracked here rather than via `on`'s `prevInput`
+  // because that arg is `undefined` on the first post-`defer` run — which
+  // would drop the very first delta's removals.
+  let appliedPaths: readonly string[] = [];
 
   // Pierre fires `onSelectionChange` for directory clicks too, which would
   // produce an EISDIR if the consumer reads the path as a file. Directories
@@ -173,45 +180,46 @@ export const FileTree: Component<FileTreeProps> = (props) => {
       // path. Idempotent — Pierre's view processes the explicit scroll
       // request in the same render tick as its own first-mount scroll.
       if (props.selectedPath) tree.scrollToPath(props.selectedPath);
+      appliedPaths = props.paths;
     }, props.onError);
   });
 
-  // `resetPaths` takes the new path inventory and the directories to
-  // open in one call (Pierre's `FileTreeResetOptions.initialExpandedPaths`).
-  // Tracking the inputs in the same effect means a paths-and-ancestors
-  // swap lands atomically — no second effect, no ordering invariant
-  // between "rebuild tree" and "open ancestors". `resetPaths` rebuilds the
-  // tree from scratch and reopens *only* the directories named here, with
-  // no memory of folders the user expanded by hand — so the rebuild must
-  // carry the full expansion state forward itself. We snapshot every
-  // currently-open directory (from the path list the tree was last built
-  // with, via `prevPaths`) and merge it with the search-projected ancestors
-  // and the selected file's ancestors. Without the snapshot, every live
-  // watcher tick or filter change would collapse the whole tree.
+  // Push path-inventory changes into Pierre as in-place mutations, not a
+  // `resetPaths` rebuild. `resetPaths` throws the tree's store away and
+  // reopens only the directories it's handed, so it can't preserve the
+  // folders the user expanded by hand; `batch(add/remove)` touches only the
+  // changed nodes and leaves every other node's expansion/selection/scroll
+  // intact. We diff the new inventory against `appliedPaths` (what the tree
+  // currently holds), apply the delta, then record the new inventory. After
+  // the delta we additively open the directories the projection wants
+  // visible: the search-projected ancestors (`expandPaths`) and the selected
+  // file's ancestors, so a freshly-added nested file or a filter match is
+  // revealed. Expanding an already-open folder is a no-op, so this never
+  // collapses anything.
   //
   // `selectedPath` is deliberately *not* a dependency — routing selection
-  // through here would rebuild the tree on every file click. The selection
-  // effect below reveals the picked row imperatively instead; we read
-  // `selectedPath` untracked only so a genuine paths/expandPaths rebuild
-  // keeps the current selection's ancestors open.
+  // through here would re-run on every file click. The selection effect
+  // below reveals the picked row imperatively instead; we read `selectedPath`
+  // untracked only so a genuine paths/expandPaths change reveals the current
+  // selection.
   createEffect(
     on(
       [() => props.paths, () => props.expandPaths],
-      ([paths, expandPaths], prev) => {
+      ([paths, expandPaths]) => {
         safeApply(() => {
-          const previouslyOpen = currentlyExpandedDirectories(tree, prev?.[0]);
+          if (!tree) return;
+          const ops = pathDiffOperations(appliedPaths, paths);
+          if (ops.length > 0) tree.batch(ops);
+          appliedPaths = paths;
           const selectedPath = props.selectedPath ?? null;
-          const ancestors = selectedPath
-            ? ancestorDirectoryPaths(selectedPath)
-            : [];
-          const expanded = [
-            ...new Set([
-              ...previouslyOpen,
-              ...(expandPaths ?? []),
-              ...ancestors,
-            ]),
+          const toOpen = [
+            ...(expandPaths ?? []),
+            ...(selectedPath ? ancestorDirectoryPaths(selectedPath) : []),
           ];
-          tree?.resetPaths(paths, { initialExpandedPaths: expanded });
+          for (const dir of toOpen) {
+            const item = tree.getItem(dir);
+            if (item && "expand" in item) item.expand();
+          }
         }, props.onError);
       },
       { defer: true },
