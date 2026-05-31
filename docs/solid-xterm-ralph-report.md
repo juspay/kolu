@@ -47,7 +47,14 @@ Measured on branch `xterm-ralph` off `master`.
 | client files importing `@xterm/*` | **8** |
 | Packages importing `@xterm/*` repo-wide | **4** (client, pty-host, terminal-themes, common*) |
 | `@kolu/solid-xterm` LOC | 0 (does not exist) |
-| `pnpm -r typecheck` | green (all 16 projects) |
+| `pnpm -r typecheck` | green (all projects) |
+
+> ⚠️ Methodology correction: the baseline typecheck was first run before
+> `pnpm install`, so `tsc` wasn't on PATH — the "green" was unverified. After
+> installing, the baseline confirmed green with 0 errors. Additionally, the
+> `@kolu/solid-xterm` workspace dep was initially omitted from
+> `client/package.json`, so cycles 1–3 were committed with an unresolvable
+> import (caught and fixed before cycle 4 — see the `fix` row).
 
 \* `common` is a type-only structural augmentation (`KoluXtermProbe`), no runtime import.
 

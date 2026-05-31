@@ -21,6 +21,14 @@ export {
   type TerminalSearch,
 } from "./search.ts";
 export {
+  createXterm,
+  type RendererPolicy,
+  type XtermHandle,
+  type XtermKeyContext,
+  type XtermOptions,
+} from "./createXterm.ts";
+export type { ITheme } from "@xterm/xterm";
+export {
   getTerminalRefs,
   registerTerminalRefs,
   type TerminalProbes,
