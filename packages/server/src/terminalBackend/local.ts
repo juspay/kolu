@@ -145,7 +145,13 @@ const ptyHostClient: PtyHostClient = createInProcessPtyHostClient({
 export const ptyHostIdentity = ptyHostClient.surface.system
   .version({})
   .then((v) => v.identity)
-  .catch(() => undefined);
+  .catch((err) => {
+    log.warn(
+      { err },
+      "pty-host version() failed at boot; identity unavailable",
+    );
+    return undefined;
+  });
 
 // ── The contract-backed terminal handle ─────────────────────────────────
 
