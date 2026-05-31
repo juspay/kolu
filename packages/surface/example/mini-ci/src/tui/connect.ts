@@ -7,7 +7,7 @@
  * iterating `client.surface.nodes.get({})` etc.
  */
 
-import { type ChildProcess, spawn } from "node:child_process";
+import { type ChildProcess, execFileSync, spawn } from "node:child_process";
 import { stdioLink } from "@kolu/surface/links/stdio";
 import { isLocalHost } from "@kolu/surface-nix-host";
 import type { surface } from "../common/surface";
@@ -67,11 +67,18 @@ function linkChild(child: ChildProcess): Connection {
   };
 }
 
-/** Pipe `git archive HEAD` into `ssh host 'tar -x -C dir'`. */
+/** Pipe `git archive HEAD` into `ssh host 'tar -x -C dir'`. The archive runs
+ *  from the git toplevel — not the TUI's cwd — so it always ships the whole
+ *  repo (flake root); `git archive HEAD` from a subdirectory re-roots to that
+ *  subdirectory, which would ship a flake-less tree. */
 function shipSource(opts: RemoteOptions): Promise<void> {
   const { archive, extract } = buildShipCommand(opts);
+  const cwd = execFileSync("git", ["rev-parse", "--show-toplevel"], {
+    encoding: "utf-8",
+  }).trim();
   return new Promise<void>((resolve, reject) => {
     const git = spawn(archive.command, archive.args, {
+      cwd,
       stdio: ["ignore", "pipe", "inherit"],
     });
     const ssh = spawn(extract.command, extract.args, {

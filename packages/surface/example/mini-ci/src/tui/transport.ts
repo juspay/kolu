@@ -92,7 +92,9 @@ export function buildShipCommand(opts: RemoteOptions): {
       args: [
         ...SSH_COMMON_OPTS,
         opts.host,
-        `mkdir -p ${shellQuote(dir)} && tar -x -C ${shellQuote(dir)}`,
+        // Wipe-then-extract so each ship is a clean snapshot — a stale tree
+        // from a prior run would leave cruft beside the fresh flake.
+        `rm -rf ${shellQuote(dir)} && mkdir -p ${shellQuote(dir)} && tar -x -C ${shellQuote(dir)}`,
       ],
     },
   };

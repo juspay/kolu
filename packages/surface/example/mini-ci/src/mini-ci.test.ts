@@ -275,7 +275,9 @@ describe("transport — only the link differs (argv shape)", () => {
     expect(archive).toEqual({ command: "git", args: ["archive", "HEAD"] });
     expect(extract.command).toBe("ssh");
     expect(extract.args).toContain("user@host");
-    expect(extract.args.at(-1)).toBe("mkdir -p '/tmp/x' && tar -x -C '/tmp/x'");
+    expect(extract.args.at(-1)).toBe(
+      "rm -rf '/tmp/x' && mkdir -p '/tmp/x' && tar -x -C '/tmp/x'",
+    );
   });
 
   it("runs the runner on the remote via nix run over ssh stdio", () => {
