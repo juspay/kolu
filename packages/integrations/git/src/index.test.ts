@@ -34,6 +34,10 @@ import {
   _sharedHeadWatcherCount,
 } from "./head-watcher.ts";
 import {
+  _resetSharedReflogWatchers,
+  _sharedReflogWatcherCount,
+} from "./reflog-watcher.ts";
+import {
   type GitInfo,
   getDiff,
   getStatus,
@@ -966,14 +970,17 @@ describe.skipIf(SKIP_DARWIN_FSWATCH)("subscribeGitInfo watcher churn", () => {
 
   beforeEach(() => {
     // See companion comment in the `watchGitHead` describe — module-scope
-    // registry reset breaks the leak-cascade (#955).
+    // registry reset breaks the leak-cascade (#955). Reflog is reset here
+    // too: `in-repo` mode now installs both head and reflog watchers.
     _resetSharedHeadWatchers();
     _resetSharedCwdGitWatchers();
+    _resetSharedReflogWatchers();
   });
 
   afterEach(() => {
     expect(_sharedHeadWatcherCount()).toBe(0);
     expect(_sharedCwdGitWatcherCount()).toBe(0);
+    expect(_sharedReflogWatcherCount()).toBe(0);
   });
 
   /** Tracks watcher install/retire log lines as a vitest-friendly counter. */
