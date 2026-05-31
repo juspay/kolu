@@ -45,6 +45,32 @@ export function ancestorDirectoryPaths(path: string): string[] {
   return out;
 }
 
+/** The directories the tree currently holds open. Pierre exposes no bulk
+ *  "expanded paths" getter (only per-handle `isExpanded()`), so we
+ *  reconstruct the candidate directory set from the path list the tree was
+ *  last built with — every ancestor of every file — and ask each handle
+ *  whether it's open. Feeding the result back into `resetPaths` carries the
+ *  user's full expansion state across a rebuild, so live-watcher churn (a
+ *  file added or removed) and filter changes don't collapse hand-opened
+ *  folders. Directories that vanish from the new path list simply aren't
+ *  recreated. */
+function currentlyExpandedDirectories(
+  tree: FileTreeClass | undefined,
+  paths: readonly string[] | undefined,
+): string[] {
+  if (!tree || !paths) return [];
+  const dirs = new Set<string>();
+  for (const path of paths) {
+    for (const dir of ancestorDirectoryPaths(path)) dirs.add(dir);
+  }
+  const open: string[] = [];
+  for (const dir of dirs) {
+    const item = tree.getItem(dir);
+    if (item && "isExpanded" in item && item.isExpanded()) open.push(dir);
+  }
+  return open;
+}
+
 export type FileTreeProps = {
   paths: string[];
   gitStatus?: GitStatusEntry[];
@@ -155,25 +181,36 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   // Tracking the inputs in the same effect means a paths-and-ancestors
   // swap lands atomically — no second effect, no ordering invariant
   // between "rebuild tree" and "open ancestors". `resetPaths` rebuilds the
-  // tree from scratch, so it can only ever open the directories named here;
-  // it has no memory of folders the user expanded by hand. That's why
-  // `selectedPath` is *not* a dependency: routing selection changes through
-  // here would rebuild the tree on every file click and collapse every
-  // manually-expanded sibling that isn't an ancestor of the new pick. The
-  // selection effect below expands the picked file's ancestors imperatively
-  // instead, leaving the rest of the tree's expansion state untouched. We
-  // still read `selectedPath` untracked so a paths/expandPaths-driven
-  // rebuild keeps the current selection's ancestors open.
+  // tree from scratch and reopens *only* the directories named here, with
+  // no memory of folders the user expanded by hand — so the rebuild must
+  // carry the full expansion state forward itself. We snapshot every
+  // currently-open directory (from the path list the tree was last built
+  // with, via `prevPaths`) and merge it with the search-projected ancestors
+  // and the selected file's ancestors. Without the snapshot, every live
+  // watcher tick or filter change would collapse the whole tree.
+  //
+  // `selectedPath` is deliberately *not* a dependency — routing selection
+  // through here would rebuild the tree on every file click. The selection
+  // effect below reveals the picked row imperatively instead; we read
+  // `selectedPath` untracked only so a genuine paths/expandPaths rebuild
+  // keeps the current selection's ancestors open.
   createEffect(
     on(
       [() => props.paths, () => props.expandPaths],
-      ([paths, expandPaths]) => {
+      ([paths, expandPaths], prev) => {
         safeApply(() => {
+          const previouslyOpen = currentlyExpandedDirectories(tree, prev?.[0]);
           const selectedPath = props.selectedPath ?? null;
           const ancestors = selectedPath
             ? ancestorDirectoryPaths(selectedPath)
             : [];
-          const expanded = [...(expandPaths ?? []), ...ancestors];
+          const expanded = [
+            ...new Set([
+              ...previouslyOpen,
+              ...(expandPaths ?? []),
+              ...ancestors,
+            ]),
+          ];
           tree?.resetPaths(paths, { initialExpandedPaths: expanded });
         }, props.onError);
       },

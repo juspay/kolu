@@ -460,6 +460,31 @@ Feature: Code tab (review + browse)
     Then the file "beta/b1.txt" should be selected in the file browser
     And the file browser should show a file "alpha/a1.txt"
 
+  # Regression: applying then clearing the filter rebuilds the tree via
+  # `resetPaths`, which reopens only the directories it's handed. Clearing the
+  # filter hands it no ancestors (the query is empty), so without carrying the
+  # prior expansion forward the rebuild collapses every folder the user opened
+  # by hand. The wrapper now snapshots the open directories before each rebuild
+  # and re-applies them, so a folder that stays in view across the filter dance
+  # keeps its expansion. (A folder filtered entirely out of view — `beta` here —
+  # legitimately folds away; Pierre drops it from the projection.)
+  Scenario: File browser keeps a folder expanded across a filter and clear
+    When I run "git init /tmp/kolu-browse-filter && cd /tmp/kolu-browse-filter"
+    And I run "mkdir -p alpha beta && printf 'a1\n' > alpha/a1.txt && printf 'a2\n' > alpha/a2.txt && printf 'b1\n' > beta/b1.txt && printf 'b2\n' > beta/b2.txt"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    And I click the directory "alpha" in the file browser
+    Then the file browser should show a file "alpha/a1.txt"
+    When I click the directory "beta" in the file browser
+    Then the file browser should show a file "beta/b1.txt"
+    When I type "a1" into the Code tab filter
+    Then the file browser should show a file "alpha/a1.txt"
+    And the file browser should not show a file "beta/b1.txt"
+    When I type "" into the Code tab filter
+    Then the file browser should show a file "alpha/a1.txt"
+    And the file browser should show a file "alpha/a2.txt"
+
   # ── Pierre file/diff viewer right-click menu (Copy path:line) ──
 
   Scenario: Right-click on a file content line copies "path:line"
