@@ -7,6 +7,41 @@ export function isLocalHost(host: string): boolean {
   return host === "localhost" || host === "127.0.0.1" || host === "::1";
 }
 
+/** Why a connection attempt failed — the discriminant the reconnect
+ *  give-up gate keys on. Shared between `provisionAgent` (which decides it
+ *  per provisioning step) and `HostSession` (which decides it per spawn
+ *  phase and acts on it), so it lives here rather than in either consumer.
+ *  Classified by *what kind* of thing failed, never by parsing error
+ *  strings for control flow:
+ *
+ *   - `"network"` — couldn't reach the host (ssh transport failed to
+ *     connect, the link dropped, an arch probe / `nix copy` over ssh hit a
+ *     connection error). Transient: the host is asleep, roaming, or its
+ *     VPN is down, so the loop retries at the capped backoff *forever* —
+ *     the link self-heals once the host answers again.
+ *   - `"remote"` — reached the host, but it rejected us, or the agent
+ *     itself is broken: `nix copy`/`realise` exited non-zero for a
+ *     non-transport reason (e.g. `trusted-users`), or the agent command
+ *     ran and exited before the first RPC (bad binary, startup crash).
+ *     Retrying can't fix a misconfiguration or a broken build, so after
+ *     `MAX_CONSECUTIVE_FAILURES` it gives up into the terminal `failed`
+ *     state. */
+export type FailureCause = "network" | "remote";
+
+/** Heuristic: does an ssh / `nix copy` stderr line look like a *transport*
+ *  failure (host unreachable) rather than a remote rejection? Used to
+ *  upgrade a provisioning failure's cause to `"network"` — `nix copy`
+ *  forks its own ssh and reports connection errors on stderr while exiting
+ *  with nix's own code (not ssh's 255), so the exit code alone can't tell
+ *  "host asleep" from "daemon refused the closure". Matched against the
+ *  text ssh/nix actually emit; a miss only means we fall back to the safe
+ *  default (`"remote"`, which is bounded), never a wrong terminal verdict. */
+export function looksLikeNetworkError(line: string): boolean {
+  return /connection (refused|timed out|closed|reset)|operation timed out|no route to host|network is unreachable|could not resolve hostname|kex_exchange_identification|ssh: connect to host|not responding|broken pipe|port 22:/i.test(
+    line,
+  );
+}
+
 /** Forward every non-blank `\n`-terminated line in `chunk` to `onLine`.
  *  Used identically by `nix copy`'s subprocess stderr forwarder and
  *  `HostSession`'s ssh-child stderr forwarder. */

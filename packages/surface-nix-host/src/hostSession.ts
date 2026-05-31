@@ -58,8 +58,13 @@ import { stdioLink } from "@kolu/surface/links/stdio";
 import { inMemoryCell } from "@kolu/surface/server";
 import type { ClientRetryPluginContext } from "@orpc/client/plugins";
 import type { AnyContractRouter, ContractRouterClient } from "@orpc/contract";
-import { buildAgentCommand, forEachLine } from "./host";
+import { buildAgentCommand, type FailureCause, forEachLine } from "./host";
 import { provisionAgent } from "./nixCopy";
+
+// `FailureCause` lives in `./host` (shared with `provisionAgent`, which now
+// decides it per provisioning step); re-export so existing importers of it
+// from this module keep working.
+export type { FailureCause };
 
 export type ConnectionState =
   | "copying"
@@ -72,25 +77,6 @@ export type ConnectionState =
   // "still trying" from "gave up — needs intervention". `reconnect()`
   // re-arms it. A `"network"` fault never reaches this state.
   | "failed";
-
-/** Why the last spawn attempt failed — the discriminant the give-up gate
- *  keys on. Classified by *which phase* failed, not by parsing error
- *  strings (which would be brittle), so the policy can't drift as error
- *  wording changes:
- *
- *   - `"network"` — couldn't reach the host. The `.drv` resolver (an ssh
- *     arch probe) rejected, ssh failed to spawn, the connect handshake
- *     timed out, or the live transport dropped (agent process exit). The
- *     host is unreachable: asleep, roaming, VPN down. Transient by nature,
- *     so it is *never* terminal — the loop keeps retrying at the capped
- *     backoff until the host answers again.
- *   - `"remote"` — reached the host, but it rejected the closure: the
- *     `nix copy` / `nix-store --realise` provisioning step exited non-zero
- *     (typically the remote nix-daemon won't accept an unsigned closure
- *     because the parent's user isn't in `trusted-users`). Retrying can't
- *     fix a misconfiguration, so after `MAX_CONSECUTIVE_FAILURES` it gives
- *     up into the terminal `failed` state. */
-export type FailureCause = "network" | "remote";
 
 export interface HostSessionState {
   connection: ConnectionState;
@@ -426,16 +412,19 @@ export class HostSession<C extends AnyContractRouter> {
       onProgress: (line) => this.addLocalProgress(line),
     });
     if (!provision.ok) {
-      // Reached the host, but it rejected the closure (nix copy/realise
-      // exited non-zero — usually `trusted-users`). A `"remote"` fault:
-      // retrying won't fix the misconfiguration, so the give-up gate
-      // terminates it after MAX_CONSECUTIVE_FAILURES.
+      // Provisioning failed. `provisionAgent` tells us *why*: a `"remote"`
+      // rejection (e.g. `trusted-users` won't accept the closure) is
+      // terminal after the give-up gate — retrying can't fix it — but a
+      // `"network"` failure (the host went unreachable mid-copy/realise,
+      // after the arch probe had succeeded) keeps retrying like any other
+      // transport fault. Without this, a sleep that lands between probe and
+      // copy would still strand the host in `failed`.
       this.updateState({
         connection: "disconnected",
         lastError: provision.reason,
-        failureCause: "remote",
+        failureCause: provision.cause,
       });
-      this.scheduleReconnect("remote");
+      this.scheduleReconnect(provision.cause);
       throw new Error(provision.reason);
     }
     const realisedAgentPath = provision.agentPath;
@@ -462,32 +451,49 @@ export class HostSession<C extends AnyContractRouter> {
       forEachLine(chunk, (line) => this.addRemoteProgress(line)),
     );
 
-    const handleChildDone = (reason: string): void => {
-      // A child that came up and later exited (ssh dropped, agent crashed,
-      // connect watchdog killed it) means the link was lost — a
-      // `"network"` fault, so the loop keeps retrying rather than giving up.
+    const handleChildDone = (reason: string, cause: FailureCause): void => {
       this.addLocalProgress(reason);
       this.updateState({
         connection: "disconnected",
         lastError: reason,
-        failureCause: "network",
+        failureCause: cause,
       });
       this.child = null;
       this.clearClientPromise();
-      if (!this.destroyed && this.refCount > 0)
-        this.scheduleReconnect("network");
+      if (!this.destroyed && this.refCount > 0) this.scheduleReconnect(cause);
     };
 
     child.on("exit", (code, signal) => {
-      handleChildDone(
-        connectTimedOut
-          ? `connect handshake timed out after ${connectTimeoutMs}ms (transport up, no first RPC)`
-          : `agent exited (code=${code}, signal=${signal})`,
-      );
+      // Classify the exit by *phase*, not blanket `"network"`. A child that
+      // exits before the first RPC because the agent binary is missing or
+      // crashes on startup must NOT retry forever — only genuine transport
+      // faults should. `wasConnected` is read before `handleChildDone`
+      // transitions us off `connected`.
+      const wasConnected = this.stateCell.current().connection === "connected";
+      if (connectTimedOut) {
+        // Transport came up but the agent never answered the first RPC —
+        // it's wedged, not unreachable. Bounded (`"remote"`) so a broken
+        // startup fails loudly instead of spinning.
+        handleChildDone(
+          `connect handshake timed out after ${connectTimeoutMs}ms (transport up, no first RPC)`,
+          "remote",
+        );
+        return;
+      }
+      const reason = `agent exited (code=${code}, signal=${signal})`;
+      // A live link that dropped, or ssh's own connection failure (exit
+      // 255), is transport — retry forever. A non-255 exit before we ever
+      // connected means ssh ran the agent and *it* exited (bad path,
+      // missing exe, startup crash) — bounded.
+      const cause: FailureCause =
+        wasConnected || code === 255 ? "network" : "remote";
+      handleChildDone(reason, cause);
     });
 
     child.on("error", (err) => {
-      handleChildDone(`ssh failed to spawn: ${err.message}`);
+      // ssh (or the local exe) couldn't even be spawned — a local/config
+      // problem that won't self-heal. Bounded.
+      handleChildDone(`ssh failed to spawn: ${err.message}`, "remote");
     });
 
     if (child.stdin === null || child.stdout === null) {
@@ -561,11 +567,14 @@ export class HostSession<C extends AnyContractRouter> {
    *  pending backoff (retry *now*, not after the remaining wait). Then:
    *
    *   - live child → `kill` it; the existing `exit` handler routes through
-   *     `handleChildDone` → `scheduleReconnect("network")`, which nulls
-   *     `clientPromise` and re-arms. We must NOT also spawn here, or we'd
-   *     stack two spawns onto one session.
+   *     `handleChildDone` → `scheduleReconnect`, which nulls `clientPromise`
+   *     and re-arms. We must NOT also spawn here, or we'd stack two spawns
+   *     onto one session.
    *   - no child (failed / idle / mid-backoff) → spawn immediately, like
    *     `reconnect()` but without its "don't touch a live link" stance.
+   *     `scheduleReconnect` nulls `clientPromise` for every backoff, so the
+   *     `clientPromise !== null` guard here can't be tripped by a stale
+   *     rejected promise from a pre-child failure.
    *
    *  No-op if destroyed or unreferenced. Safe to call on every host on
    *  each wake — a healthy host simply blips through one fast reconnect. */
@@ -586,6 +595,18 @@ export class HostSession<C extends AnyContractRouter> {
 
   private scheduleReconnect(cause: FailureCause): void {
     if (this.destroyed || this.pendingTimer !== null) return;
+    // No spawn is in flight while we wait out the backoff, so null the
+    // client handle now — uniformly, for every path that schedules a retry.
+    // `handleChildDone` already nulled it for the post-child path, but the
+    // *pre-child* failure paths (resolver / `provisionAgent` reject) throw
+    // out of `spawn()` leaving the rejected promise in `clientPromise`, and
+    // nothing replaced it until the backoff timer fired. If `recheck()`
+    // (or `reconnect()`) cleared that timer first, it then saw a stale
+    // non-null `clientPromise`, refused to respawn, and stranded the
+    // session in `disconnected` with no timer and no spawn (Codex P1).
+    // Clearing here makes "no spawn in flight ⇒ clientPromise null" hold
+    // throughout backoff, so the re-arm guards stay correct.
+    this.clearClientPromise();
     // Exponential backoff is keyed on attempts-so-far, not "this is
     // attempt N after the failure". The previous code post-incremented
     // and then subtracted one to compensate (`2 ** (count - 1)`), which
@@ -607,18 +628,11 @@ export class HostSession<C extends AnyContractRouter> {
       this.addLocalProgress(
         `gave up after ${MAX_CONSECUTIVE_FAILURES} consecutive failures — fix the underlying issue (often: remote nix-daemon needs your user in 'trusted-users' to accept unsigned closures), then reconnect`,
       );
-      // Clear the in-flight handle BEFORE entering the terminal state.
-      // The provision-failure path (`nix copy` exited non-zero) throws
-      // out of `spawn()` without ever creating a child, so
-      // `handleChildDone` — the only other site that nulls the slot —
-      // never ran; the slot still holds the last *rejected* spawn
-      // promise. Without this, `reconnect()`'s `clientPromise !== null`
-      // guard sees a non-null slot and silently no-ops, stranding a
-      // genuinely-failed session. (See `clearClientPromise`.)
-      this.clearClientPromise();
-      // Move off `disconnected` so consumers can distinguish "still
-      // retrying" from "gave up". `lastError` is already set by the
-      // spawn-failure path that led here; preserve it.
+      // `clientPromise` was already nulled at the top of this method, so the
+      // terminal state upholds "no spawn in flight" and `reconnect()` can
+      // re-arm it. Move off `disconnected` so consumers can distinguish
+      // "still retrying" from "gave up"; `lastError` is preserved from the
+      // spawn-failure path that led here.
       this.updateState({ connection: "failed" });
       return;
     }

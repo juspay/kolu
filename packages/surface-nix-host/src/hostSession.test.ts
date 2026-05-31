@@ -34,6 +34,17 @@ vi.mock("./nixCopy", () => ({
 const PROVISION_FAILURE = {
   ok: false as const,
   reason: "testhost: 'nix copy --derivation' exited with code 1",
+  // Reached the host, it rejected the closure (trusted-users) — terminal.
+  cause: "remote" as const,
+};
+
+// Reached the arch probe, but the host went unreachable mid-provision
+// (asleep/roaming after the probe). A `"network"` provision failure — must
+// keep retrying, not give up.
+const PROVISION_NETWORK_FAILURE = {
+  ok: false as const,
+  reason: "testhost: 'nix copy --derivation' exited with code 1",
+  cause: "network" as const,
 };
 
 function failingSession() {
@@ -112,6 +123,26 @@ describe("HostSession reconnect after give-up", () => {
     session.destroy();
     await vi.advanceTimersByTimeAsync(20_000);
   });
+
+  it("keeps retrying a network-class provision failure instead of giving up", async () => {
+    // A provision failure isn't automatically terminal: if the host went
+    // unreachable mid-`nix copy` (after the arch probe succeeded),
+    // `provisionAgent` reports `cause: "network"`, and that must retry like
+    // any transport fault rather than burn the give-up budget.
+    vi.mocked(provisionAgent).mockResolvedValue(
+      PROVISION_NETWORK_FAILURE as never,
+    );
+    const session = failingSession();
+    session.pin().catch(() => {});
+
+    // Well past the 5th attempt a "remote" provision failure would have
+    // given up at (1+2+4+8s).
+    await vi.advanceTimersByTimeAsync(70_000);
+    expect(session.current().connection).not.toBe("failed");
+    expect(session.current().failureCause).toBe("network");
+
+    session.destroy();
+  });
 });
 
 describe("HostSession with a failing drv resolver (network-unreachable)", () => {
@@ -164,6 +195,27 @@ describe("HostSession with a failing drv resolver (network-unreachable)", () => 
       .current()
       .progressLines.filter((l) => l.includes("host unreachable"));
     expect(retries.length).toBeGreaterThan(5);
+
+    session.destroy();
+  });
+
+  it("recheck() re-arms a backoff session instead of stranding it (Codex P1)", async () => {
+    const session = unresolvableSession();
+    session.pin().catch(() => {});
+
+    // First probe fails → disconnected with the backoff timer armed.
+    await vi.advanceTimersByTimeAsync(10);
+    expect(session.current().connection).toBe("disconnected");
+
+    // The bug: `recheck()` cleared the backoff timer, then early-returned
+    // because `clientPromise` still held the *rejected* pre-child spawn
+    // promise — leaving no timer and no spawn, stranded forever. Post-fix,
+    // `scheduleReconnect` nulls `clientPromise` during backoff, so
+    // `recheck()` respawns: `spawn()` sets "copying" before its first await,
+    // so the re-arm is observable synchronously.
+    session.recheck();
+    expect(session.current().connection).toBe("copying");
+    expect(session.currentClient()).not.toBeNull();
 
     session.destroy();
   });

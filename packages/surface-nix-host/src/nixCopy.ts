@@ -34,7 +34,13 @@
  * transport layer.
  */
 
-import { buildSshProbeCommand, isLocalHost, NIX_SSHOPTS } from "./host";
+import {
+  buildSshProbeCommand,
+  type FailureCause,
+  isLocalHost,
+  looksLikeNetworkError,
+  NIX_SSHOPTS,
+} from "./host";
 import { runCapture, runProgress } from "./process";
 
 export interface ProvisionOptions {
@@ -48,7 +54,11 @@ export interface ProvisionOptions {
 
 export type ProvisionResult =
   | { ok: true; agentPath: string }
-  | { ok: false; reason: string };
+  // `cause` lets `HostSession` keep retrying a host that went unreachable
+  // *mid-provision* (asleep/roaming after the arch probe succeeded) instead
+  // of burning the give-up budget — while a genuine `"remote"` rejection
+  // (e.g. `trusted-users`) still fails loudly. See `FailureCause`.
+  | { ok: false; reason: string; cause: FailureCause };
 
 /** Per-agent GC-root path for the realised output, or `null` when one
  *  can't be formed (see the localhost case below). Keyed on the .drv's
@@ -87,10 +97,25 @@ export async function provisionAgent(
 ): Promise<ProvisionResult> {
   const isLocal = isLocalHost(opts.host);
 
+  // Watch the streamed output for ssh/nix connection errors as it flows by,
+  // so a host that went unreachable mid-`nix copy` (which exits with nix's
+  // code, not ssh's 255) is still classified `"network"`. We only flip a
+  // flag — no buffering of the (potentially large) transfer log.
+  let sawNetworkError = false;
+  const onProgress = (line: string): void => {
+    if (looksLikeNetworkError(line)) sawNetworkError = true;
+    opts.onProgress(line);
+  };
+  // A direct-ssh command (realise/pin) surfaces ssh's own 255 on a transport
+  // failure; combined with the stderr scan this covers both the copy step
+  // (nix-wrapped ssh) and the realise step (bare ssh).
+  const causeFor = (code: number | null): FailureCause =>
+    sawNetworkError || code === 255 ? "network" : "remote";
+
   // 2. Copy the .drv (and its build-inputs) to the remote. Skipped
   //    for localhost — the .drv is already in /nix/store.
   if (!isLocal) {
-    opts.onProgress(`${opts.host}: copying derivation '${opts.drvPath}'…`);
+    onProgress(`${opts.host}: copying derivation '${opts.drvPath}'…`);
     const copyRes = await runProgress(
       "nix",
       [
@@ -105,7 +130,7 @@ export async function provisionAgent(
         `ssh-ng://${opts.host}`,
         opts.drvPath,
       ],
-      opts.onProgress,
+      onProgress,
       // The copy is a remote transfer that can sit idle for minutes; the
       // ssh it forks internally only honours dead-peer keepalive through
       // NIX_SSHOPTS. Without it a degraded host wedges this step forever.
@@ -115,14 +140,15 @@ export async function provisionAgent(
       return {
         ok: false,
         reason: `${opts.host}: 'nix copy --derivation' exited with code ${copyRes.code}`,
+        cause: causeFor(copyRes.code),
       };
     }
-    opts.onProgress(`${opts.host}: derivation copy complete`);
+    onProgress(`${opts.host}: derivation copy complete`);
   }
 
   // 3. Realise (build) the .drv on the target. Output is the agent's
   //    nix-store path on that host.
-  opts.onProgress(
+  onProgress(
     isLocal
       ? `localhost: realising '${opts.drvPath}'…`
       : `${opts.host}: realising '${opts.drvPath}' on remote…`,
@@ -133,11 +159,12 @@ export async function provisionAgent(
     "--realise",
     opts.drvPath,
   );
-  const realiseRes = await runCapture(command, args, opts.onProgress);
+  const realiseRes = await runCapture(command, args, onProgress);
   if (!realiseRes.ok) {
     return {
       ok: false,
       reason: `${opts.host}: 'nix-store --realise' exited with code ${realiseRes.code}`,
+      cause: causeFor(realiseRes.code),
     };
   }
   const agentPath = realiseRes.stdout.trim();
@@ -145,9 +172,12 @@ export async function provisionAgent(
     return {
       ok: false,
       reason: `${opts.host}: realise returned no output path`,
+      // The build ran and returned cleanly but empty — a remote-state
+      // anomaly, not a transport failure.
+      cause: "remote",
     };
   }
-  opts.onProgress(`${opts.host}: agent realised at ${agentPath}`);
+  onProgress(`${opts.host}: agent realised at ${agentPath}`);
 
   // 4. Pin the realised output behind a stable, per-agent GC root.
   //    Re-realising an already-built store path is instant; the
