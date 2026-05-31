@@ -29,23 +29,22 @@ The plan writes these as `nodes.list()` / `node.log(id)` / `node.rerun(id)`; the
 
 ```sh
 cd packages/surface/example/mini-ci
-just run                       # built-in build → test → lint pipeline
-just run-diamond               # build → {test, lint} → report (parallel)
-pnpm start -- --pipeline ci.json   # any pipeline JSON
-nix run .#mini-ci              # via Nix (builds the tsx-wrapped binary)
+just run                            # built-in build → test → lint pipeline
+just run --pipeline ci.json         # build → {test, lint} → report (parallel)
+nix run .#mini-ci                   # via Nix (builds the tsx-wrapped binary)
 ```
 
-The dashboard paints a node-status table plus the attached node's log tail. Keys: digits `1`–`9` attach a node, `n`/`p` cycle, `r` rerun the attached node, `q` quit. For scripting / CI:
+`just run` is parametrized — every argument passes straight to the TUI. The dashboard paints a node-status table plus the attached node's log tail. Keys: digits `1`–`9` attach a node, `n`/`p` cycle, `r` rerun the attached node, `q` quit. For scripting / CI:
 
 ```sh
-pnpm start -- --json           # run to completion, print final state, exit non-zero on failure
-pnpm start -- --headless       # stream status transitions as plain lines
+just run --json                # run to completion, print final state, exit non-zero on failure
+just run --headless            # stream status transitions as plain lines
 ```
 
 ## Run on a remote host
 
 ```sh
-just run-remote user@somehost
+just run --remote user@somehost
 ```
 
 This ships a clean snapshot of the flake source with `git archive HEAD | ssh user@somehost 'tar -x -C /tmp/mini-ci-src'` — no `.git`, no prebuilt closure — then runs `nix run path:/tmp/mini-ci-src#mini-ci-runner -- --stdio` on the host, with the TUI attached over **stdio-over-ssh**. **All target hosts are assumed to have Nix**, so the host *builds* the runner from the shipped source — no `node`/`pnpm`/`tsx` assumed on PATH, and Nix supplies the workspace deps (via the `pnpmDeps` fixed-output fetch). Requires only passwordless ssh + Nix on the host.
