@@ -12,6 +12,12 @@
 let
   koluEnv = import ./nix/env.nix { inherit pkgs; };
 
+  # INVARIANT: this fileset must include every workspace package that has a
+  # `typecheck` script — the typecheck derivation (nix/pnpm-typecheck.nix) reuses
+  # this `src`, so a package omitted here is silently skipped by the type
+  # gate even though `just check` (full working tree) would catch it.
+  # packages/tests is the only workspace member intentionally absent: it has
+  # no typecheck script, so it's outside the gate's scope either way.
   src = pkgs.lib.fileset.toSource {
     root = ./.;
     fileset = pkgs.lib.fileset.unions [
@@ -84,6 +90,11 @@ let
       KOLU_COMMIT_HASH = koluCommitPlaceholder;
     } // koluEnv;
 
+    # NOTE: this does NOT typecheck. The client is bundled by Vite (per-file
+    # transpile) and the server runs under tsx at runtime, so a green
+    # `nix build .#default` is not a type-proof (juspay/kolu#1049). The type
+    # gate is the separate `typecheck` derivation below, exposed as a flake
+    # check and built by CI's `nix` node.
     buildPhase = ''
       runHook preBuild
       pushd node_modules/.pnpm/node-pty@*/node_modules/node-pty
@@ -187,7 +198,17 @@ let
   remoteProcessMonitor = import ./packages/surface/example/remote-process-monitor/default.nix {
     inherit pkgs src pnpmDeps;
   };
+
+  # The workspace type gate (juspay/kolu#1049): `tsc --noEmit` over every
+  # package. Reuses this build's `src` + `pnpmDeps` — every package with a
+  # typecheck script is in the `src` fileset above (see its INVARIANT
+  # comment), so this checks exactly what `pnpm typecheck` does. flake.nix
+  # strips this from `packages` and routes it to `checks`.
+  typecheck = import ./nix/pnpm-typecheck.nix {
+    inherit pkgs src pnpmDeps;
+    pname = "kolu-typecheck";
+  };
 in
 {
-  inherit default koluBin koluEnv pnpmDeps;
+  inherit default koluBin koluEnv pnpmDeps typecheck;
 } // remoteProcessMonitor

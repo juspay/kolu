@@ -1,5 +1,5 @@
 /**
- * `HostSession<C>` — ref-counted ssh subprocess per `(host, drvPath)`,
+ * `HostSession<C>` — ref-counted ssh subprocess per `(host, binary)`,
  * generic over a `@kolu/surface` contract type `C`.
  *
  * Multiple subscriptions against the same host share ONE ssh
@@ -11,6 +11,7 @@
  * Connection state lifecycle (snapshot-then-delta on `onState`):
  *
  *     copying      ──provisionAgent ok──▶ connecting
+ *     copying      ──resolve/provision fail─▶ disconnected (backoff, then retry)
  *     connecting   ──first RPC ────────▶ connected
  *     connecting   ──watchdog timeout ─▶ disconnected (kill child, then retry)
  *     connected    ──read end  ────────▶ disconnected ──reconnect──▶ copying
@@ -67,10 +68,20 @@ export interface HostSessionState {
 
 export interface HostSessionOptions {
   host: string;
-  /** Path to the agent's `.drv`. The session ships this derivation to
-   *  the target host (no-op for localhost) and realises it there to
-   *  get a target-arch-correct output path. */
-  drvPath: string;
+  /** Resolve the agent's `.drv` for this host. Called at the top of
+   *  *every* spawn attempt (not once up front), so the round-trip that
+   *  picks the derivation — typically an ssh `nix-instantiate` arch
+   *  probe via `resolveSystem` — lives inside the session's own
+   *  reconnect machinery. An unreachable host makes the resolver reject,
+   *  which the session treats exactly like a `provisionAgent` failure:
+   *  `disconnected` → backoff → `failed`, re-armable via `reconnect()`.
+   *  The session ships the resolved derivation to the target host (no-op
+   *  for localhost) and realises it there to get a target-arch-correct
+   *  output path.
+   *
+   *  Pass a constant as `() => Promise.resolve(drv)` when the caller
+   *  already knows the path and has no probe to defer. */
+  resolveDrvPath: () => Promise<string>;
   /** Executable name inside the realised closure (e.g.
    *  `process-monitor-agent`, `kolu-terminal-agent`). The full spawn
    *  path is `${agentPath}/bin/${binary}`. */
@@ -326,9 +337,27 @@ export class HostSession<C extends AnyContractRouter> {
 
   private async spawn(): Promise<AgentClient<C>> {
     this.updateState({ connection: "copying", lastError: null });
+    // Resolve the derivation first. This is where the arch probe (or any
+    // other per-host drv lookup the caller deferred) actually runs, so a
+    // host that's unreachable at probe time fails here — and is handled
+    // identically to the `provisionAgent` failure below: surface the
+    // error on the connection cell, schedule a backoff retry, and throw.
+    // Folding the probe into the spawn cycle is what lets a boot-time
+    // unreachable host degrade to `failed` instead of crashing the caller
+    // before any session exists.
+    const drvPath = await this.opts.resolveDrvPath().catch((err: unknown) => {
+      // Mirror the `provisionAgent` failure path's message fidelity: that
+      // branch surfaces `provision.reason` (always a real string), so a
+      // non-Error rejection here mustn't degrade `lastError` to the string
+      // "undefined" on the connection cell the UI reads.
+      const reason = err instanceof Error ? err.message : String(err);
+      this.updateState({ connection: "disconnected", lastError: reason });
+      this.scheduleReconnect();
+      throw err;
+    });
     const provision = await provisionAgent({
       host: this.opts.host,
-      drvPath: this.opts.drvPath,
+      drvPath,
       onProgress: (line) => this.addLocalProgress(line),
     });
     if (!provision.ok) {
@@ -430,7 +459,9 @@ export class HostSession<C extends AnyContractRouter> {
    *  clears `clientPromise` (via `clearClientPromise`) and leaves
    *  `pendingTimer` null, so a genuinely-failed session always passes the
    *  guard — including the `nix copy`-driven failure that never spawned a
-   *  child. */
+   *  child. Like every spawn, this re-runs `resolveDrvPath` from scratch
+   *  (it is not cached) — a manual re-arm re-pays whatever the resolver
+   *  costs, e.g. an ssh arch probe. */
   reconnect(): void {
     if (this.destroyed || this.refCount === 0) return;
     if (this.clientPromise !== null || this.pendingTimer !== null) return;
@@ -500,12 +531,24 @@ export class HostSession<C extends AnyContractRouter> {
   }
 }
 
-// ── HostSession pool (one per (host, drvPath, binary)) ─────────────────
+// ── HostSession pool (one per (host, binary)) ──────────────────────────
 
 const pool = new Map<string, HostSession<AnyContractRouter>>();
 
-/** Get-or-create a `HostSession` for `(host, drvPath, binary)`.
- *  Multiple callers asking for the same triple share the same session.
+/** Get-or-create a `HostSession` for `(host, binary)`.
+ *  Multiple callers asking for the same pair share the same session.
+ *
+ *  The `.drv` is deliberately NOT part of the key: it's now resolved per
+ *  spawn attempt via `resolveDrvPath` (so a host whose nix-system changes
+ *  is picked up on the next reconnect), and a single host should map to a
+ *  single session regardless of which derivation a given resolve yields.
+ *
+ *  First call wins: once a `(host, binary)` session exists, later calls
+ *  return it and ignore their `opts` entirely — including a different
+ *  `resolveDrvPath`. A second caller wanting a different resolver for the
+ *  same host/binary is a key collision, not a new session; resolve the
+ *  conflict at the call site (one resolver per host/binary) rather than
+ *  expecting the pool to honour the second one.
  *
  *  Generic over `C extends AnyContractRouter` — the contract type the
  *  agent on the other side serves. Pass it explicitly so the returned
@@ -519,7 +562,7 @@ const pool = new Map<string, HostSession<AnyContractRouter>>();
 export function getHostSession<C extends AnyContractRouter>(
   opts: HostSessionOptions,
 ): HostSession<C> {
-  const key = `${opts.host}::${opts.drvPath}::${opts.binary}`;
+  const key = `${opts.host}::${opts.binary}`;
   let session = pool.get(key);
   if (session === undefined) {
     session = new HostSession<C>(opts) as HostSession<AnyContractRouter>;

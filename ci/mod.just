@@ -31,7 +31,7 @@ nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop --accep
 [macos]
 [parallel]
 [metadata("ci")]
-default: nix home-manager e2e smoke fmt typecheck biome unit surface-example-build pnpm-hash-fresh
+default: nix home-manager e2e smoke fmt biome unit surface-example-build pnpm-hash-fresh
 
 # Single per-platform `pnpm install`. The runner fans every recipe out into
 # its own process and starts them all in parallel as soon as setup completes,
@@ -59,15 +59,15 @@ pnpm-hash-fresh:
     nix build .#pnpmDeps .#website-pnpm-deps --no-link
     nix build --rebuild .#pnpmDeps .#website-pnpm-deps --no-link
 
-# Build all flake outputs via devour-flake.
+# Build all flake outputs via devour-flake. This includes `checks.*`, so the
+# workspace typecheck (checks.x86_64-linux.typecheck) runs here — it replaced
+# the standalone `typecheck` recipe (juspay/kolu#1049). The typecheck result
+# is content-addressed, so it only re-runs when a typechecked source changes.
 nix:
     nix build github:srid/devour-flake -L --no-link --print-out-paths --override-input flake .
 
 home-manager: nix
     nix build github:srid/devour-flake -L --no-link --print-out-paths --override-input flake ./nix/home/example --override-input flake/kolu .
-
-typecheck: install
-    {{ nix_shell }} pnpm typecheck
 
 # Boot the packaged Kolu and verify /api/health — runtime smoke that catches
 # packaging regressions where `nix build` passes but the binary crashes at

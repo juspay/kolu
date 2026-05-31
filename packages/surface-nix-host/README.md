@@ -18,8 +18,8 @@ import { contract } from "./your-surface";  // your typed @kolu/surface contract
 
 const session: HostSession<typeof contract> = getHostSession<typeof contract>({
   host: "alice@bob.example",                 // any ssh target; "localhost" short-circuits
-  drvPath: process.env.MY_AGENT_DRV!,        // operator-supplied; the derivation of
-                                              // the agent binary for the *target* arch
+  resolveDrvPath: () =>                       // resolve the agent's .drv for the *target*
+    Promise.resolve(process.env.MY_AGENT_DRV!),//   arch; called inside each spawn (see below)
   binary: "my-agent",                        // exe name inside the realised closure
 });
 
@@ -36,7 +36,7 @@ const sys = client.system.get({});           // typed oRPC — same shape your b
 ## What it's NOT
 
 - **Not a transport.** That's [`@kolu/surface/links/stdio`](../surface/src/links/stdio.ts). This package sits *on top of* the stdio link and adds: process supervision (spawn/respawn ssh), `.drv` provisioning (the Nix bit), and a reactive state cell for the connection's own lifecycle.
-- **Not a Nix utility.** `provisionAgent` is purposely minimal — `nix copy --derivation`, then `ssh $host nix-store --realise`, then return the resulting path. If you want richer flake handling (e.g. resolve a flake ref to a `.drv` at startup), compute the `.drv` outside and pass `{ drvPath }`.
+- **Not a Nix utility.** `provisionAgent` is purposely minimal — `nix copy --derivation`, then `ssh $host nix-store --realise`, then return the resulting path. If you want richer flake handling (e.g. resolve a flake ref to a `.drv`), do it inside the `resolveDrvPath` callback you pass.
 - **Not opinionated about UI.** The package returns a typed RPC client. Mirroring its streams into your parent server's local surface (so the browser can consume them) is the consumer's job. See the [`remote-process-monitor` example](../surface/example/remote-process-monitor/src/server/router.ts) for the canonical bridge pattern.
 
 ## Why Nix (locked-in)
@@ -61,8 +61,8 @@ Remote-side requirement: the parent's user must be in `trusted-users` in the rem
 
 | Export | Role |
 |---|---|
-| `HostSession<C>` | One ssh subprocess per `(host, drvPath, binary)`. Ref-counted. State machine. Survives drops via `scheduleReconnect`. Snapshot-then-delta `onState`. Generic over the contract type `C`. |
-| `getHostSession<C>(opts)` | Pool lookup — repeated calls with the same `(host, drvPath, binary)` return the same session. |
+| `HostSession<C>` | One ssh subprocess per `(host, binary)`. Ref-counted. State machine. Survives drops via `scheduleReconnect`. Snapshot-then-delta `onState`. Generic over the contract type `C`. |
+| `getHostSession<C>(opts)` | Pool lookup — repeated calls with the same `(host, binary)` return the same session (first call's `opts` win). |
 | `destroyAllSessions()` | Tear down every pooled session. Call on parent shutdown. |
 | `provisionAgent({ host, drvPath, onProgress })` | Ship the `.drv` to the host (skipped for localhost), `nix-store --realise` it there, return the realised output path. Progress lines forwarded to `onProgress`. |
 | `mirrorRemoteCollection<K,V>(opts)` | Helper: bridge a remote `Collection<K,V>` to a local one — keys stream + per-key value streams, with abort cleanup on key departure. |
@@ -116,9 +116,14 @@ async function resolveDrv(host: string): Promise<string> {
   return drv;
 }
 
+// Pass the probe as `resolveDrvPath` — do NOT `await resolveDrv(host)` at
+// the call site. Eager resolution runs the ssh probe *before* the session
+// exists, so an unreachable host throws here instead of degrading to
+// `failed`. Deferred, the same failure flows through the session's own
+// `disconnected → backoff → failed → reconnect()` machinery.
 const session = getHostSession({
   host,
-  drvPath: await resolveDrv(host),
+  resolveDrvPath: () => resolveDrv(host),
   binary: "my-agent",
 });
 ```

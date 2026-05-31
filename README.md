@@ -312,6 +312,8 @@ Bug fixes, build/CI fixes, doc tweaks, and behavior-preserving refactors are wel
 
 The pipeline (defined in [`ci/mod.just`](ci/mod.just)) is driven by [juspay/ci](https://github.com/juspay/ci): it builds all flake outputs on x86_64-linux and aarch64-darwin, runs e2e tests, boots the packaged binary against `/api/health` as a runtime smoke, and posts GitHub commit statuses per `(recipe, platform)` pair. Non-local platforms run over SSH against hosts listed in `~/.config/ci/hosts.json`.
 
+Workspace typechecking runs as a flake check (`checks.x86_64-linux.typecheck`), so the all-outputs build is the type gate. Note that `nix build .#default` on its own does **not** typecheck — the client is bundled by Vite and the server runs under `tsx`, both transpile-only — so a green app build is not a type-proof.
+
 Only the runner posts GitHub commit statuses; the `just` shortcuts below stay entirely local.
 
 ```sh

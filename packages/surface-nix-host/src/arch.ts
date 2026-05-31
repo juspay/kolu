@@ -23,12 +23,20 @@
  * package. The probe adds no dependency the realise step didn't.
  *
  * Typical use, paired with a per-system `.drv` map the caller builds at
- * its own build time:
+ * its own build time. Pass the probe as `resolveDrvPath` so it runs
+ * inside the session's spawn cycle — an unreachable host then degrades to
+ * `failed` and retries, instead of throwing before the session exists:
  *
- *   const sys = await resolveSystem(host);
- *   const drv = myDrvBySystem[sys];
- *   if (!drv) throw new Error(`${host}: no .drv for ${sys}`);
- *   const session = getHostSession({ host, drvPath: drv, binary });
+ *   const session = getHostSession({
+ *     host,
+ *     binary,
+ *     resolveDrvPath: async () => {
+ *       const sys = await resolveSystem(host);
+ *       const drv = myDrvBySystem[sys];
+ *       if (!drv) throw new Error(`${host}: no .drv for ${sys}`);
+ *       return drv;
+ *     },
+ *   });
  */
 
 import { buildSshProbeCommand } from "./host";
