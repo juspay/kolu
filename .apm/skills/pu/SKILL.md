@@ -1,6 +1,14 @@
 ---
 name: pu
-description: Provision and drive an ephemeral `pu` box — a throwaway Incus container used as a clean Linux host for CI, builds, and evidence capture. Use when you need to run something on a fresh remote box instead of the user's machine: `nix run` a build, run CI against a real host, capture screenshots/video off-machine, or reproduce on a pristine environment. Covers create/connect/scp/destroy, running remote commands, copying artifacts back, and the no-egress failure mode. Triggers on "pu box", "spin up a box", "run this on a box", "ephemeral host", "pu create/connect/destroy".
+description: >-
+  Provision and drive an ephemeral `pu` box — a throwaway Incus container used as
+  a clean Linux host for CI, builds, and evidence capture. Use when you need to
+  run something on a fresh remote box instead of the user's machine: `nix run` a
+  build, run CI against a real host, capture screenshots/video off-machine, or
+  reproduce on a pristine environment. Covers create/connect/scp/destroy, running
+  remote commands, copying artifacts back, and the no-egress failure mode.
+  Triggers on "pu box", "spin up a box", "run this on a box", "ephemeral host",
+  "pu create/connect/destroy".
 ---
 
 # pu — ephemeral Incus boxes

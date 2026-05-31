@@ -61,47 +61,6 @@ When(
   },
 );
 
-When(
-  "the worktree {string} has an unpushed commit",
-  async function (this: KoluWorld, worktreePath: string) {
-    // Give the branch an upstream pointing at its current tip, then commit on
-    // top so HEAD is exactly one ahead of `@{u}`. Driven host-side (the same
-    // deterministic pattern as the repo/worktree setup steps) so the unpushed
-    // state exists before the terminal cd's in and the git provider resolves.
-    const branch = execFileSync("git", [
-      "-C",
-      worktreePath,
-      "rev-parse",
-      "--abbrev-ref",
-      "HEAD",
-    ])
-      .toString()
-      .trim();
-    execFileSync("git", [
-      "-C",
-      worktreePath,
-      "update-ref",
-      `refs/remotes/origin/${branch}`,
-      "HEAD",
-    ]);
-    execFileSync("git", [
-      "-C",
-      worktreePath,
-      "branch",
-      `--set-upstream-to=origin/${branch}`,
-      branch,
-    ]);
-    execFileSync("git", [
-      "-C",
-      worktreePath,
-      "commit",
-      "--allow-empty",
-      "-m",
-      "wip",
-    ]);
-  },
-);
-
 Then(
   "the close confirmation should be visible",
   async function (this: KoluWorld) {

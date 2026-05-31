@@ -1,6 +1,15 @@
 ---
 name: evidence
-description: Capture production-like PR evidence (screenshots and video) by running the app on an ephemeral pu box and driving headless Chrome with Playwright — entirely off the user's machine, the way CI builds. Use when a change has visible UI impact and you want to post a `## Evidence` PR comment. Project-agnostic: it parameterizes on a `nix run`-style serve command, so it reuses across any project whose app boots that way. Covers the self-contained Playwright capture, video recording, ffmpeg transcode, GitHub-release hosting, and posting. Triggers on "post evidence", "screenshot the change", "PR evidence", "record a video of this", "capture the UI".
+description: >-
+  Capture production-like PR evidence (screenshots and video) by running the app
+  on an ephemeral pu box and driving headless Chrome with Playwright — entirely
+  off the user's machine, the way CI builds. Use when a change has visible UI
+  impact and you want to post a `## Evidence` PR comment. Project-agnostic: it
+  parameterizes on a `nix run`-style serve command, so it reuses across any
+  project whose app boots that way. Covers the self-contained Playwright capture,
+  video recording, ffmpeg transcode, GitHub-release hosting, and posting.
+  Triggers on "post evidence", "screenshot the change", "PR evidence", "record a
+  video of this", "capture the UI".
 ---
 
 # evidence — PR screenshots & video, captured on a pu box

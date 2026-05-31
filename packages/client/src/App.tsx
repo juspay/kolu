@@ -9,7 +9,6 @@ import Dialog from "@corvu/dialog";
 import { Meta, Title } from "@solidjs/meta";
 import type { ServerIdentity } from "kolu-common/contract";
 import type { TerminalId } from "kolu-common/surface";
-import { prValue } from "kolu-github/schemas";
 import Commit from "./ui/Commit";
 import {
   type Component,
@@ -22,10 +21,7 @@ import {
 import { Toaster } from "solid-sonner";
 import { match } from "ts-pattern";
 import ChromeBar from "./ChromeBar";
-import CloseConfirm, {
-  type CloseConfirmTarget,
-  type WorktreeRemovalBlocker,
-} from "./CloseConfirm";
+import CloseConfirm, { type CloseConfirmTarget } from "./CloseConfirm";
 import CommandPalette from "./CommandPalette";
 import "kolu-common/test-hooks";
 import CanvasWatermark from "./canvas/CanvasWatermark";
@@ -280,28 +276,9 @@ const App: Component = () => {
     const worktreePath = meta.git?.isWorktree
       ? meta.git.worktreePath
       : undefined;
-    // Priority: unpushed local work > open PR > shared worktree — the first
-    // match wins, so the highest-stakes reason to keep the worktree is what
-    // the user sees. Every read is synchronous off the metadata snapshot (no
-    // re-fetch), keeping the dialog a frozen confirmation. Only an `open` PR
-    // blocks — closed/merged PRs mean the work has landed. `prValue` is null
-    // for pending/absent PRs, so an unconfirmed PR never blocks.
-    const pr = prValue(meta.pr);
-    const blocker: WorktreeRemovalBlocker | undefined = !worktreePath
-      ? undefined
-      : (meta.git?.unpushedCommitCount ?? 0) > 0
-        ? "hasUnpushedCommits"
-        : pr?.state === "open"
-          ? "hasOpenPullRequest"
-          : store.isWorktreeShared(worktreePath, id)
-            ? "sharedWithOtherTerminals"
-            : undefined;
     const worktreeRemoval = worktreePath
-      ? blocker
-        ? // Freeze the PR number here, at decision time, so the dialog's
-          // message reads it off this snapshot rather than the reactive
-          // `meta.pr`. Only `hasOpenPullRequest` carries one.
-          ({ eligible: false, reason: blocker, prNumber: pr?.number } as const)
+      ? store.isWorktreeShared(worktreePath, id)
+        ? ({ eligible: false, reason: "sharedWithOtherTerminals" } as const)
         : ({ eligible: true } as const)
       : undefined;
     setCloseConfirmTarget({ id, meta, splitCount, worktreeRemoval });

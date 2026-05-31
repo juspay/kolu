@@ -61,6 +61,9 @@ importers:
       '@kolu/artifact-sdk':
         specifier: workspace:*
         version: link:../artifact-sdk
+      '@kolu/solid-markdown':
+        specifier: workspace:*
+        version: link:../solid-markdown
       '@kolu/solid-pierre':
         specifier: workspace:*
         version: link:../solid-pierre
@@ -127,9 +130,6 @@ importers:
       fix-webm-duration:
         specifier: ^1.0.6
         version: 1.0.6
-      marked:
-        specifier: ^18.0.2
-        version: 18.0.2
       memorable-names:
         specifier: workspace:*
         version: link:../memorable-names
@@ -600,6 +600,19 @@ importers:
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+
+  packages/solid-markdown:
+    dependencies:
+      marked:
+        specifier: ^18.0.2
+        version: 18.0.2
+      solid-js:
+        specifier: ^1.9.0
+        version: 1.9.11
+    devDependencies:
       typescript:
         specifier: ^5.8.0
         version: 5.9.3
