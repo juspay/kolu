@@ -40,9 +40,11 @@ type Styles = {
   table: string;
 };
 
-/** Per-scale class sets. "compact" reproduces the intent surface's
- *  long-standing chat-scale styling byte-for-byte; "document" is its
- *  reading-scale counterpart for full-pane previews. */
+/** Per-scale class sets — Kolu-tuned built-in defaults, not an app-neutral
+ *  design system. The renderer and its API are app-agnostic; these specific
+ *  sizes are the scales a consumer accepts or replaces. "compact" reproduces
+ *  kolu's intent-surface chat scale byte-for-byte; "document" is the
+ *  reading scale for full-pane previews. */
 const STYLES: Record<"compact" | "document", Styles> = {
   compact: {
     block: "min-w-0 flex-1 space-y-1 break-words",
@@ -295,12 +297,20 @@ export const Markdown: Component<{
   links?: boolean;
 }> = (props) => {
   const variant = (): MarkdownVariant => props.variant ?? "document";
-  const styles = (): Styles =>
-    STYLES[variant() === "document" ? "document" : "compact"];
-  const ctx = (): Ctx => ({
-    links: props.links ?? variant() !== "inline",
-    styles: styles(),
-  });
+  // `links` is resolved here, during the token walk — a links-only change
+  // does not re-render on its own (the walk is memoised on markdown +
+  // variant). No consumer drives `links` reactively today; one that needs
+  // to should react at the render layer rather than re-parse on each toggle.
+  // "inline" shares the compact token-scale classes (codespan etc.): it
+  // emits no block wrapper, so only token-level styling applies and a
+  // dedicated inline scale would be dead weight.
+  const ctx = (): Ctx => {
+    const v = variant();
+    return {
+      links: props.links ?? v !== "inline",
+      styles: STYLES[v === "document" ? "document" : "compact"],
+    };
+  };
   const tokens = createMemo<Token[]>(() =>
     variant() === "inline"
       ? Lexer.lexInline(props.markdown, MARKED_OPTIONS)
@@ -312,7 +322,7 @@ export const Markdown: Component<{
       when={variant() !== "inline"}
       fallback={<InlineTokens tokens={tokens()} ctx={ctx()} />}
     >
-      <div class={styles().block}>
+      <div class={ctx().styles.block}>
         <BlockTokens tokens={tokens()} ctx={ctx()} />
       </div>
     </Show>
