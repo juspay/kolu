@@ -87,7 +87,7 @@ export async function provisionAgent(
 ): Promise<ProvisionResult> {
   const isLocal = isLocalHost(opts.host);
 
-  // 1. Copy the .drv (and its build-inputs) to the remote. Skipped
+  // 2. Copy the .drv (and its build-inputs) to the remote. Skipped
   //    for localhost — the .drv is already in /nix/store.
   if (!isLocal) {
     opts.onProgress(`${opts.host}: copying derivation '${opts.drvPath}'…`);
@@ -116,7 +116,7 @@ export async function provisionAgent(
     opts.onProgress(`${opts.host}: derivation copy complete`);
   }
 
-  // 2. Realise (build) the .drv on the target. Output is the agent's
+  // 3. Realise (build) the .drv on the target. Output is the agent's
   //    nix-store path on that host.
   opts.onProgress(
     isLocal
