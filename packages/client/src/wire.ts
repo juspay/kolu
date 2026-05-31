@@ -15,9 +15,8 @@
  * consumer reads the same singleton without per-component lookups.
  */
 
+import { websocketLink } from "@kolu/surface/links/websocket";
 import { surfaceClient } from "@kolu/surface/solid";
-import type { ClientRetryPluginContext } from "@orpc/client/plugins";
-import type { ContractRouterClient } from "@orpc/contract";
 import type { contract } from "kolu-common/contract";
 import {
   DEFAULT_PREFERENCES,
@@ -41,10 +40,10 @@ export const ws = new PartySocket(wsUrl);
 // terminal container. Harmless in production — just an attribute on window.
 (window as Window & { __koluWs?: PartySocket }).__koluWs = ws;
 
-export const app = surfaceClient<
-  typeof surface.spec,
-  ContractRouterClient<typeof contract, ClientRetryPluginContext>
->(surface, { websocket: ws as unknown as WebSocket });
+export const app = surfaceClient(
+  surface,
+  websocketLink<typeof contract>(ws as unknown as WebSocket),
+);
 
 /** Convenience alias — `client.terminal.create(...)`, `client.git.worktreeCreate(...)`,
  *  `client.surface.preferences.patch(...)`, etc. */

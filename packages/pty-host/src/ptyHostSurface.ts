@@ -11,8 +11,8 @@
  * foreground · exit).
  *
  * In-process today, kolu-server consumes this contract through the identity
- * link (`inProcessSurfaceClient` — `implementSurface` composed with
- * `createRouterClient`, no wire). The point of stating it as a *contract* now
+ * link (`directLink` over `servePtyHost`'s router — `implementSurface` with no
+ * wire). The point of stating it as a *contract* now
  * is that the consumer is written against `ContractRouterClient<contract>`,
  * so a later step can serve the same shape over a unix socket (a surviving
  * daemon) or ssh stdio (a remote pty-host) by swapping only which morphism

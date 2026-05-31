@@ -1,19 +1,16 @@
 /**
- * `inProcessSurfaceClient` is the identity transport: it composes a surface's
- * handlers with `createRouterClient` so a consumer holds the exact
- * `ContractRouterClient<contract>` it would hold against a socket, but every
- * call is a direct in-process invocation. These tests pin that both a
- * request/response procedure AND a stream round-trip through it with no wire.
+ * `directLink` is the identity element of the link family: given a served
+ * router (from `implementSurface`), it builds the exact
+ * `ContractRouterClient<contract>` a consumer would hold against a socket —
+ * but every call is a direct in-process invocation, no wire. These tests pin
+ * that both a request/response procedure AND a stream round-trip through it.
  */
 
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { defineSurface } from "./define";
-import {
-  type Channel,
-  inMemoryChannel,
-  inProcessSurfaceClient,
-} from "./server";
+import { defineSurface } from "../define";
+import { type Channel, implementSurface, inMemoryChannel } from "../server";
+import { directLink } from "./direct";
 
 function buildClient() {
   const surface = defineSurface({
@@ -32,7 +29,7 @@ function buildClient() {
       },
     },
   });
-  const { client } = inProcessSurfaceClient(surface, {
+  const { router } = implementSurface(surface, {
     channel: <T>(_n: string): Channel<T> => inMemoryChannel<T>(),
     procedures: {
       math: { double: async ({ input }) => ({ y: input.x * 2 }) },
@@ -45,10 +42,10 @@ function buildClient() {
       },
     },
   });
-  return client;
+  return directLink<typeof surface.contract>(router);
 }
 
-describe("inProcessSurfaceClient", () => {
+describe("directLink — the in-process identity link", () => {
   it("round-trips a request/response procedure with no wire", async () => {
     const client = buildClient();
     expect(await client.surface.math.double({ x: 21 })).toEqual({ y: 42 });
