@@ -28,8 +28,8 @@ import {
 import {
   type AgentClient,
   type HostSession,
+  makeClientCursor,
   mirrorRemoteCollection,
-  waitForNextClient,
 } from "@kolu/surface-nix-host";
 import { implement } from "@orpc/server";
 import {
@@ -206,7 +206,7 @@ function log(line: string): void {
  *  happens when the link errors — stdio process death), then wait for
  *  the session to provide a fresh client (post-reconnect) and repeat.
  *
- *  The reconnect-loop primitive itself (`waitForNextClient`) lives in
+ *  The reconnect-loop primitive itself (`makeClientCursor`) lives in
  *  `@kolu/surface-nix-host`; this function is the demo-specific
  *  composition (which pumps to run on each cycle). */
 async function bridgeAgentToParent(
@@ -222,16 +222,16 @@ async function bridgeAgentToParent(
     /* logged via state cell; loop handles recovery */
   });
 
-  // Thread the *clientPromise* (not the awaited client) back in — see
-  // `waitForNextClient`: the client proxy is thenable, so comparing it by
-  // identity busy-spins once the link fails fast.
-  let lastClientPromise: Promise<ProcessMonitorAgent> | null = null;
+  // A cursor over the session's spawn lifecycle — `next()` blocks until a
+  // genuinely new spawn appears. It owns the spawn-identity token internally,
+  // so this loop can't re-introduce the busy-spin by mis-threading it (the
+  // client proxy is thenable, so comparing *it* spins once the link fails
+  // fast; the cursor compares the stable clientPromise for us).
+  const cursor = makeClientCursor(session);
   while (!session.isDestroyed()) {
     let client: ProcessMonitorAgent;
     try {
-      const next = await waitForNextClient(session, lastClientPromise);
-      client = next.client;
-      lastClientPromise = next.clientPromise;
+      client = await cursor.next();
     } catch (err) {
       log(`bridge: waiting for next client failed: ${(err as Error).message}`);
       break;

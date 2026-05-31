@@ -23,7 +23,7 @@ import { z } from "zod";
 import type { AgentClient } from "./hostSession";
 import { HostSession } from "./hostSession";
 import { provisionAgent } from "./nixCopy";
-import { waitForNextClient } from "./waitForNextClient";
+import { makeClientCursor } from "./waitForNextClient";
 
 vi.mock("./nixCopy", () => ({ provisionAgent: vi.fn() }));
 vi.mock("node:child_process", () => ({ spawn: vi.fn() }));
@@ -96,21 +96,24 @@ describe("reconnect bridge loop", () => {
     });
     session.pin().catch(() => {});
 
+    // The cursor threads the spawn-identity token internally, so this loop is
+    // the exact shape a real consumer writes. If the fix regressed (comparing
+    // the thenable client instead of the clientPromise), `next()` would
+    // resolve every iteration and the count would explode into the thousands.
+    const cursor = makeClientCursor(session);
     let iterations = 0;
-    let prev: Promise<AgentClient<typeof contract>> | null = null;
     const deadline = Date.now() + 500;
     while (!session.isDestroyed() && Date.now() < deadline) {
-      let next: { client: unknown; clientPromise: Promise<unknown> };
+      let client: AgentClient<typeof contract>;
       try {
-        next = await waitForNextClient(session, prev);
+        client = await cursor.next();
       } catch {
         break;
       }
-      prev = next.clientPromise as Promise<AgentClient<typeof contract>>;
       iterations += 1;
       try {
         // biome-ignore lint/suspicious/noExplicitAny: proxy call in a repro
-        for await (const _ of await (next.client as any).tick({})) {
+        for await (const _ of await (client as any).tick({})) {
           session.markConnected();
         }
       } catch {
