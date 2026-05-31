@@ -256,6 +256,10 @@ export function createXterm<TLink>(opts: XtermOptions<TLink>): XtermHandle {
     const policy = opts.rendererPolicy();
     if (policy === "webgl") return true;
     if (policy === "dom") return false;
+    if (policy === "auto") return opts.webglEligible();
+    // Exhaustiveness guard: a future RendererPolicy variant is a compile error
+    // here rather than silently falling through to "auto" behaviour.
+    policy satisfies never;
     return opts.webglEligible();
   }
 
@@ -462,7 +466,13 @@ export function createXterm<TLink>(opts: XtermOptions<TLink>): XtermHandle {
               scroll.reset();
             },
           }),
-        (data) => scroll.writeData(term, data),
+        // Guard against the write-after-dispose microtask race: dispose()
+        // sets `disposed` and calls streamAbort.abort() synchronously, but the
+        // `for await` loop only exits on the next microtask — a chunk arriving
+        // in that window would otherwise write to an already-disposed Terminal.
+        (data) => {
+          if (!disposed) scroll.writeData(term, data);
+        },
         opts.isExpectedStreamError,
       );
 
