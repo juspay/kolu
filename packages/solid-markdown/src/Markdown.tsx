@@ -11,11 +11,12 @@
  *    - "compact"  — block lexing at chat/dock scale (kolu's intent body).
  *    - "document" — block lexing at reading scale (full-pane previews).
  *
- *  Note: "document" renders headings as bold paragraphs (no per-level size
- *  hierarchy) — exactly as the intent surface always has. Real heading
- *  sizes are a deliberate later refinement for when the Code tab consumes
- *  this variant; keeping them flat here makes the extraction behaviour-
- *  preserving for today's only consumer. */
+ *  Note: every scale currently renders headings as flat bold paragraphs —
+ *  exactly as the intent surface always has — so the extraction stays
+ *  behaviour-preserving for today's only consumer. The parsed heading
+ *  depth is threaded through `Styles.headingFor(depth)` rather than
+ *  discarded, so giving "document" real per-level sizes later is a
+ *  values-only change at one seam, not an API break. */
 
 import { Lexer, marked, type Token, type Tokens } from "marked";
 import { type Component, createMemo, For, type JSX, Show } from "solid-js";
@@ -26,7 +27,10 @@ export type MarkdownVariant = "inline" | "compact" | "document";
 
 type Styles = {
   block: string;
-  heading: string;
+  /** Keyed by heading depth (1–6). Flat today, but the parsed depth is
+   *  threaded in so a scale can give real per-level sizes without an API
+   *  break — see the `document` note in the file header. */
+  headingFor: (depth: number) => string;
   code: string;
   codespan: string;
   blockquote: string;
@@ -42,7 +46,7 @@ type Styles = {
 const STYLES: Record<"compact" | "document", Styles> = {
   compact: {
     block: "min-w-0 flex-1 space-y-1 break-words",
-    heading: "m-0 text-[0.78rem] font-semibold leading-snug",
+    headingFor: () => "m-0 text-[0.78rem] font-semibold leading-snug",
     code: "my-1 max-w-full overflow-x-auto rounded px-2 py-1 font-mono text-[0.67rem] leading-snug",
     codespan: "rounded px-1 py-0.5 font-mono text-[0.68rem]",
     blockquote: "my-1 border-l-2 border-current/30 pl-2 opacity-90",
@@ -53,7 +57,8 @@ const STYLES: Record<"compact" | "document", Styles> = {
   },
   document: {
     block: "min-w-0 space-y-3 break-words text-sm leading-relaxed",
-    heading: "m-0 mt-4 mb-1 text-base font-semibold leading-snug first:mt-0",
+    headingFor: () =>
+      "m-0 mt-4 mb-1 text-base font-semibold leading-snug first:mt-0",
     code: "my-2 max-w-full overflow-x-auto rounded px-3 py-2 font-mono text-[0.8rem] leading-normal",
     codespan: "rounded px-1 py-0.5 font-mono text-[0.85em]",
     blockquote: "my-2 border-l-2 border-current/30 pl-3 opacity-90",
@@ -111,7 +116,7 @@ function renderBlock(token: Token, ctx: Ctx): JSX.Element {
       );
     case "heading":
       return (
-        <p class={ctx.styles.heading}>
+        <p class={ctx.styles.headingFor(token.depth)}>
           <InlineTokens tokens={token.tokens ?? []} ctx={ctx} />
         </p>
       );
