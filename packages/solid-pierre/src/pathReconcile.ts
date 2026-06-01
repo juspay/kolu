@@ -62,8 +62,9 @@ export function pathDiffOperations(
  *  the rest of the tree behind as hollow rows. A directory survives iff it is
  *  still an ancestor of some `next` file; the rest are pruned. Derived purely
  *  from the two file inventories — no separate directory state to drift out of
- *  sync, and an empty `next` (a cleared filter) yields no removals because its
- *  ancestor set then covers every surviving directory. For each dropped file
+ *  sync, and a full-inventory `next` (a cleared search filter, which projects
+ *  the whole inventory — not an empty list) yields no removals: its ancestor
+ *  set then covers every directory that was in `prev`. For each dropped file
  *  we take its shallowest now-orphaned ancestor (the first absent from
  *  `next`'s ancestor set). That set is upward-closed, so the chosen ancestor
  *  is the root of a maximal dead subtree and the roots are pairwise disjoint;
