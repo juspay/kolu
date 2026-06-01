@@ -16,10 +16,9 @@ Before any work, ask the user via **`AskUserQuestion`** (one call, batched):
 
 - **Plan first?** — write an HTML plan to `docs/plans/<slug>.html` for review *before* implementing, or implement straight. Default: straight, unless the task is large/ambiguous.
 - **Task kind** — bug fix · feature/new behavior · refactor/chore. This sets the test strategy (see §2).
+- **Ultracode?** — include this question *only when no system-reminder says ultracode is on*. Remind the user that `/be` runs richer with ultracode (deeper review fan-out, adversarial verification of each finding) and ask whether to proceed on the standard pass or pause so they can enable it. Options: *Proceed (standard pass)* / *I'll enable ultracode first*. If they pick the latter, stop and let them turn it on, then re-run.
 
-Add a question only when something material is genuinely unclear — don't pad. Honor anything the user already pinned in the prompt instead of re-asking. **This single `AskUserQuestion` call is your one and only chance to ask** — surface every clarification you need now, because everything after this is autonomous.
-
-**Ultracode reminder:** if no system-reminder says ultracode is *on*, tell the user once — "`/be` runs richer with ultracode (deeper review fan-out, more verification). Enable it for max effort; otherwise I'll run the standard pass." Then proceed; don't block on it.
+Add a question only when something material is genuinely unclear — don't pad. Honor anything the user already pinned in the prompt instead of re-asking. **This single `AskUserQuestion` call is your one and only chance to ask** — surface every clarification you need now (including the ultracode check above), because everything after this is autonomous.
 
 ## 1. Set up
 
