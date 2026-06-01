@@ -136,11 +136,11 @@ describe("parseMessageState", () => {
     expect(parseMessageState("not json")).toBeNull();
   });
 
-  it("logs an error (not silence) for malformed JSON, tagged with ctx", () => {
+  it("logs an error (not silence) for malformed JSON, tagged with sessionId", () => {
     const log = spyLog();
-    expect(parseMessageState("not json", log, { session: "s1" })).toBeNull();
+    expect(parseMessageState("not json", log, "s1")).toBeNull();
     expect(log.error).toHaveBeenCalledWith(
-      expect.objectContaining({ session: "s1" }),
+      expect.objectContaining({ sessionId: "s1" }),
       PARSE_FAILED_MSG,
     );
   });
@@ -170,7 +170,7 @@ describe("deriveSessionState", () => {
     const db = withMessages([{ id: "m1", data: "not json", time_created: 1 }]);
     expect(deriveSessionState("s1", log, db)).toBeNull();
     expect(log.error).toHaveBeenCalledWith(
-      expect.objectContaining({ session: "s1" }),
+      expect.objectContaining({ sessionId: "s1" }),
       PARSE_FAILED_MSG,
     );
     expect(log.debug).not.toHaveBeenCalledWith(

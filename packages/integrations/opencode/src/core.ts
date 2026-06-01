@@ -312,13 +312,10 @@ export function deriveSessionState(
         // Genuinely empty session — an expected-absent condition, logged at
         // the layer that knows the row is missing. A malformed latest row is
         // a different story: parseMessageState logs that as an error below.
-        log?.debug(
-          { session: sessionId },
-          "no messages yet for opencode session",
-        );
+        log?.debug({ sessionId }, "no messages yet for opencode session");
         return null;
       }
-      const parsed = parseMessageState(row.data, log, { session: sessionId });
+      const parsed = parseMessageState(row.data, log, sessionId);
       if (!parsed) return null;
       return { ...parsed, messageId: row.id };
     },
@@ -332,12 +329,12 @@ export function deriveSessionState(
 /** Parse a `message.data` JSON blob into derived state. Returns null for a
  *  blob whose role we don't model, and for malformed JSON — but the latter
  *  is logged as an error (OpenCode owns this JSON, so a parse failure is
- *  real schema drift or corruption, not an empty session). Pass `ctx`
- *  (e.g. `{ session }`) to tag that error. Exported for unit testing. */
+ *  real schema drift or corruption, not an empty session). Pass `sessionId`
+ *  to tag that error. Exported for unit testing. */
 export function parseMessageState(
   data: string,
   log?: Logger,
-  ctx?: Record<string, unknown>,
+  sessionId?: string,
 ): ParsedMessageState | null {
   let parsed: MessageData;
   try {
@@ -346,8 +343,9 @@ export function parseMessageState(
     // Distinct from "no row": there IS a latest message, we just can't read
     // it. Surface it as a dropped-state error so the watcher never reports
     // it as the benign "no messages yet". Mirrors
-    // getLatestAssistantContextTokens' handling of the same blob.
-    log?.error({ err, ...ctx }, "opencode message.data parse failed");
+    // getLatestAssistantContextTokens' handling of the same blob — same
+    // `{ err, sessionId }` shape, same error level.
+    log?.error({ err, sessionId }, "opencode message.data parse failed");
     return null;
   }
 
