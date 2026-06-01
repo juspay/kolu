@@ -40,7 +40,7 @@ import { CommentTextSurface } from "../comments/CommentTextSurface";
 import { useComposer } from "../comments/composerState";
 import { useCommentScrollRequest } from "../comments/scrollRequest";
 import { useColorScheme } from "../settings/useColorScheme";
-import { isMobile } from "../useMobile";
+import { isMobile, isTouch } from "../useMobile";
 import { FileBrowseIcon, FileDiffIcon, GitBranchIcon } from "../ui/Icons";
 import { resolveLineRefPath } from "../ui/lineRef";
 import {
@@ -98,9 +98,11 @@ const CodeTab: Component<{
   const rightPanel = useRightPanel();
 
   // Pierre captures `density` once at construction (like `initialExpansion`),
-  // so snapshot the mobile choice here rather than passing a reactive accessor
-  // in the JSX, where it would read as reactive. Roomier rows on touch.
-  const treeDensity = isMobile() ? "relaxed" : undefined;
+  // so snapshot the choice here rather than passing a reactive accessor in the
+  // JSX, where it would read as reactive. Keyed on `isTouch` (input modality),
+  // not `isMobile` (viewport): roomier rows are a tap-target affordance, so a
+  // coarse-pointer tablet wider than `sm` wants them too.
+  const treeDensity = isTouch() ? "relaxed" : undefined;
 
   // Read `codeMode` directly rather than projecting it from `activeTab`.
   // CodeTab now stays mounted across the Inspector tab toggle (#818); a
@@ -541,10 +543,13 @@ const CodeTab: Component<{
                   <div
                     class="h-full w-full min-h-0"
                     ref={(el) => {
-                      // Mobile only: drive Pierre's shadow-DOM scroll from
-                      // touch deltas, since iOS native scroll can't reach it
-                      // inside the portaled drawer (see pierreTouchScroll.ts).
-                      // Inert on desktop — no touch events, no Corvu drawer.
+                      // Keyed on `isMobile` (the mobile drawer layout), NOT
+                      // `isTouch`: the workaround is for iOS native scroll
+                      // failing to reach Pierre's shadow scroller below the
+                      // *portaled* drawer (see pierreTouchScroll.ts). A touch
+                      // tablet on the desktop split uses the non-portaled
+                      // Resizable panel where native scroll works — attaching
+                      // the driver there would preventDefault working scroll.
                       if (isMobile()) attachPierreTouchScroll(el);
                     }}
                   >
