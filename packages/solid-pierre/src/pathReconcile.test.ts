@@ -107,9 +107,10 @@ describe("directoryRemovalOps applied to a Pierre tree", () => {
   it("prunes the stranded directories while keeping match ancestors", () => {
     const tree = makeTree(full);
     tree.batch(fileRemovals(full, matches));
-    for (const op of directoryRemovalOps(full, matches)) {
-      if (tree.getItem(op.path)) tree.batch([op]);
-    }
+    const dirOps = directoryRemovalOps(full, matches).filter((op) =>
+      tree.getItem(op.path),
+    );
+    if (dirOps.length > 0) tree.batch(dirOps);
     // Dead subtrees gone:
     expect(tree.getItem(".claude/")).toBeNull();
     expect(tree.getItem(".codex/")).toBeNull();
@@ -126,9 +127,10 @@ describe("directoryRemovalOps applied to a Pierre tree", () => {
     dirHandle(tree, "docs/plans/")?.collapse();
     expect(dirHandle(tree, "docs/plans/")?.isExpanded()).toBe(false);
     tree.batch(fileRemovals(full, matches));
-    for (const op of directoryRemovalOps(full, matches)) {
-      if (tree.getItem(op.path)) tree.batch([op]);
-    }
+    const dirOps = directoryRemovalOps(full, matches).filter((op) =>
+      tree.getItem(op.path),
+    );
+    if (dirOps.length > 0) tree.batch(dirOps);
     // Pruning files + dead dirs neither re-expands nor collapses the surviving
     // directory — its hand-collapsed state is preserved.
     expect(dirHandle(tree, "docs/plans/")?.isExpanded()).toBe(false);
