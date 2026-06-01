@@ -258,14 +258,17 @@ export const FileTree: Component<FileTreeProps> = (props) => {
           // Pierre's `remove` promotes an emptied directory to an explicit
           // empty folder instead of deleting it (see `directoryRemovalOps`),
           // so the file removals above would otherwise strand a filter's
-          // emptied directories as hollow rows. Prune them: the ops are
-          // disjoint maximal subtrees, each removed recursively. The `getItem`
-          // guard is defensive — every root still resolves after the file
-          // batch — and pruning never touches a surviving directory's
-          // expansion, so a hand-collapsed match folder stays collapsed.
+          // emptied directories as hollow rows. Prune them in one batch,
+          // mirroring the file pass: the ops are disjoint maximal subtrees,
+          // each removed recursively. The `getItem` guard is defensive — every
+          // root still resolves after the file batch — and pruning never
+          // touches a surviving directory's expansion, so a hand-collapsed
+          // match folder stays collapsed.
+          const dirOps: FileTreeRemoveOperation[] = [];
           for (const op of directoryRemovalOps(appliedPaths, paths)) {
-            if (tree.getItem(op.path)) tree.batch([op]);
+            if (tree.getItem(op.path)) dirOps.push(op);
           }
+          if (dirOps.length > 0) tree.batch(dirOps);
           appliedPaths = paths;
           const selectedPath = props.selectedPath ?? null;
           const toOpen = [
