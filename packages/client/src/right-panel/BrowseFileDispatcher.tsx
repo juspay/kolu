@@ -109,6 +109,9 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
   const textRenderers: RenderedRenderer[] = [
     {
       match: isMarkdown,
+      // A `kind:"text"` FileData always carries `source` (see textFile()
+      // below), so the `?.`/`?? ""` is type-defensive narrowing of the
+      // optional field — never a real blank-document path.
       render: (file) => (
         <MarkdownRenderer markdown={file.source?.content ?? ""} />
       ),
