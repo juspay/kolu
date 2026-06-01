@@ -570,7 +570,7 @@ Then(
       .locator("body");
     await pollFor({
       observe: () => body.textContent({ timeout: 1_000 }).catch(() => null),
-      isDone: (text) => (text ?? "").includes(expected),
+      isDone: (text) => text !== null && text.includes(expected),
       onTimeout: (last) =>
         new Error(
           `iframe preview never contained "${expected}"; last body text: ${JSON.stringify(last)}`,
