@@ -15,14 +15,17 @@
     "./terminalKey": "./src/terminalKey.ts",
     "./transcript": "./src/transcript.ts",
     "./test-hooks": "./src/test-hooks.ts",
-    "./upload": "./src/upload.ts"
+    "./upload": "./src/upload.ts",
+    "./preview": "./src/preview.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:unit": "vitest run"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
-    "typescript": "^5.8.0"
+    "typescript": "^5.8.0",
+    "vitest": "^4.1.2"
   },
   "dependencies": {
     "@kolu/surface": "workspace:*",

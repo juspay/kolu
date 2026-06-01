@@ -414,6 +414,36 @@ Feature: Code tab (review + browse)
     Then the file content should contain "hello"
     And the file preview iframe should not be visible
 
+  # ── Browse mode: Markdown renders client-side with a Source ⇄ Rendered toggle ──
+  # Unlike .html/.svg/.pdf (route-served, kind:"binary"), a .md file stays
+  # kind:"text" on the wire — the client renders it from `content` via
+  # `@kolu/solid-markdown`. Because it carries *both* a source and a rendered
+  # form, FileView shows the Source ⇄ Rendered toggle, defaulting to rendered.
+
+  Scenario: Markdown renders as a document by default, with a Source/Rendered toggle
+    When I run "rm -rf /tmp/kolu-md-doc && git init /tmp/kolu-md-doc && cd /tmp/kolu-md-doc"
+    And I run "printf '# Hello Doc\n\nRendered body text.\n' > README.md"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    When I click the file "README.md" in the file browser
+    Then the markdown preview should be visible
+    And the markdown preview should contain "Hello Doc"
+    And the file view toggle should be visible
+    And the file preview iframe should not be visible
+
+  Scenario: Markdown source toggle reveals the raw markdown
+    When I run "rm -rf /tmp/kolu-md-src && git init /tmp/kolu-md-src && cd /tmp/kolu-md-src"
+    And I run "printf '# Heading One\n\nbody text\n' > notes.md"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    When I click the file "notes.md" in the file browser
+    Then the markdown preview should be visible
+    When I switch the file view to "source"
+    Then the file content should contain "# Heading One"
+    And the markdown preview should not be visible
+
   # ── Tree/content vertical split is draggable ──
   # The tree pane used to be a fixed `h-[35%]`; it's now a Corvu Resizable
   # panel keyed off `preferences.rightPanel.codeTabTreeSize`. The handle
