@@ -255,6 +255,7 @@
 <li>When you <em>next touch</em> a dotted-name file, rename it to a flat slug and update the MOC link. Don't mass-rename cold.</li>
 <li>Split <code>remote-terminals.html</code> into atomic children the next time it's edited; rewrite the parent as a thin map.</li>
 <li>Backfill maturity tags opportunistically as you revisit each doc.</li>
+<li>Add a <strong>breadcrumb trail</strong> (root → parent chain → self, derived from the dotted name, e.g. <code>docs/plans / remote-terminals / pty-daemon / tui</code>) to each doc <em>as it's migrated</em> — so you can navigate up to the parent plan all the way to root. New EPM docs carry one already; existing plans get theirs on next touch, not in a bulk pass.</li>
 </ol>
 <p class="muted">The existing <code>#lessons</code>, <code>#r4-lessons</code>, and <code>#r4ui-postmortem</code> anchors inside <code>remote-terminals.html</code> are the proto-version of this system — learnings already captured inline in plan HTML. <code>/retro</code> formalizes that instinct into a repeatable habit.</p>
 
@@ -291,7 +292,7 @@
 <thead><tr><th>Phase</th><th>What</th></tr></thead>
 <tbody>
 <tr><td>0 ✅ <span class="muted">#1095</span></td><td>Initial plans + MOC + house style + the <code>docs/**</code> agent rule.</td></tr>
-<tr><td>1</td><td>Garden restructure: rename to <code>docs/garden</code>, fold proposals, thread EPM. <span class="muted">(The <code>/talk</code> skill is a dependency that hardcodes <code>docs/plans/</code> — parameterize upstream.)</span></td></tr>
+<tr><td>1</td><td>Garden restructure: rename to <code>docs/garden</code>, fold proposals, thread EPM. Existing-plan migration — flat-slug renames, breadcrumb trails (parent chain → root), splitting monoliths — is <strong>incremental per §9</strong>, not a bulk pass. <span class="muted">(The <code>/talk</code> skill is a dependency that hardcodes <code>docs/plans/</code> — parameterize upstream.)</span></td></tr>
 <tr><td>2</td><td>Publish the garden to <code>kolu.dev/dev/</code> via an Astro collection (md → public HTML for free), gated by maturity.</td></tr>
 <tr><td>3</td><td>First public release — <code>v0.1.0</code>. See <a href="./release-workflow.html">release-workflow.html</a>.</td></tr>
 <tr><td>4</td><td><code>/retro</code> capture skill (§5).</td></tr>
