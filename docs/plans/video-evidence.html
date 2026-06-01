@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Video evidence for PRs — screencast capture + shared Pages player</title>
+<title>Video evidence for PRs — capture source + shared Pages player</title>
 <style>
   :root{
     --bg:#0d1117; --panel:#161b22; --panel2:#1c2128; --line:#30363d;
@@ -28,7 +28,7 @@
   .bad{border-left:3px solid var(--red)}
   .good{border-left:3px solid var(--green)}
   .note{border-left:3px solid var(--amber)}
-  ul{margin:8px 0;padding-left:22px} li{margin:4px 0}
+  ul,ol{margin:8px 0;padding-left:22px} li{margin:4px 0}
   table{border-collapse:collapse;width:100%;margin:12px 0;font-size:13px}
   th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top}
   th{color:var(--dim)}
@@ -40,60 +40,109 @@
 <div class="wrap">
 
 <h1>Video evidence for PRs</h1>
-<p class="lede">Let <code>/do</code> attach <em>video</em> to a PR — not just screenshots — for changes about motion (animations, transitions, multi-step interactions). Shipped as three small pieces across three repos.</p>
+<p class="lede">Let <code>/do</code> attach <em>video</em> to a PR — not just screenshots — for changes about motion (animations, transitions, multi-step interactions). The <strong>delivery</strong> layer (GIF inline + a shared GitHub-Pages player, hosted on each project's <code>evidence-assets</code> release) already shipped — compacted into <a href="#history">History</a>. The question this page now answers: <strong>where to drive capture from</strong>. For kolu, reuse the e2e Cucumber harness rather than a hand-rolled script.</p>
 
-<h2>Problem</h2>
-<p>The <code>## PR evidence</code> flow in <code>.agency/do.md</code> captures stills via the <code>chrome-devtools</code> MCP's <code>take_screenshot</code>, uploads them to a long-lived <code>evidence-assets</code> GitHub release, and embeds them inline. A still can't convey a transition or a multi-step interaction. We want the same agent-driven flow to produce video.</p>
-<p>Two independent gaps: <strong>capture</strong> (the MCP wasn't recording video) and <strong>embedding</strong> (getting a clip to render in a PR comment).</p>
+<h2 id="harness">Capture source — reuse the Cucumber harness (not a hand-rolled script)</h2>
+<p>Capture has been driven two ways so far (<a href="#history">History</a>): the chrome-devtools MCP screencast, and — in <code>/do</code>'s evidence step — a bespoke Playwright <code>capture.mjs</code> provisioned on an ephemeral <code>pu</code> box. Both <em>hand-drive the UI</em>, re-implementing clicks the e2e step library already owns. A research sweep of the Cucumber ecosystem (10 agents, primary-doc-verified, 2026-06) lands a clear conclusion for kolu.</p>
 
-<h2>Capture — the MCP already has it, gated</h2>
-<p><code>chrome-devtools-mcp</code> ships <code>screencast_start</code> / <code>screencast_stop</code> (<code>.mp4</code>/<code>.webm</code>) via Puppeteer's <code>page.screencast()</code>, which shells out to <strong>ffmpeg</strong>. They are hidden behind <code>--experimentalScreencast=true</code>, and the kolu launcher didn't pass it or provide ffmpeg.</p>
-<p class="cite">chrome-devtools-mcp build/src/tools/screencast.js:18-70 (tools); :53-66 (ffmpeg shell-out + ENOENT error); cli-options screencast flag.</p>
 <div class="card good">
-<strong>Fix (upstream):</strong> the launcher at <code>.apm/skills/nix-chrome-devtools-mcp/bin/serve</code> now runs <code>nix shell …#nodejs …#ffmpeg</code> and passes <code>--experimentalScreencast=true</code> — ffmpeg and the tools resolve through Nix, no host install.
-<div class="cite" style="margin-top:6px">→ juspay/nix-chrome-devtools-mcp#2 (branch <code>screencast</code>). kolu pins it via <code>apm.yml</code> (<code>juspay/nix-chrome-devtools-mcp#screencast</code>) until merged; <code>just ai::apm-update</code> regenerates the vendored <code>serve</code>. Drop the <code>#screencast</code> ref after merge.</div>
+<strong>Drive capture from the existing Cucumber + Playwright e2e harness.</strong> Kolu already owns the whole scaffold — a custom <code>KoluWorld extends World</code>, the <code>browser.newContext()</code> call in <code>support/hooks.ts</code>, the ~880-line <code>code-tab.feature</code> step library, and the <code>html:reports/report.html</code> formatter in <code>cucumber.js</code>. Wiring Playwright's <code>recordVideo</code> into the test context is a few lines and <em>deletes</em> the parallel UI-driving logic <code>capture.mjs</code> re-implements by hand.
 </div>
 
-<h2>Embedding — the real constraint</h2>
-<p>GitHub auto-mounts a <code>&lt;video&gt;</code> player <strong>only</strong> for files uploaded through the web composer (a <code>user-attachments</code> URL needing a session cookie + CSRF — <code>gh</code>/PAT can't mint it). A git-committed or release-hosted <code>raw.</code> mp4 renders as a download link, and a hand-authored <code>&lt;video&gt;</code> tag is stripped by the comment sanitizer.</p>
+<h3>The ecosystem does exactly this — two models</h3>
+<p>One dominant, framework-agnostic path: capture media in a hook, push it into the run via the runner's attach API (<code>this.attach</code> in cucumber-js, <code>scenario.attach</code> in cucumber-jvm), let a formatter render it. The only real variation is <em>when capture fires</em>:</p>
+<table>
+  <tr><th></th><th>Explicit-attach</th><th>Record-everything</th></tr>
+  <tr><td>Trigger</td><td>hook/step calls capture (often failure-gated)</td><td>framework records implicitly from config</td></tr>
+  <tr><td>Granularity</td><td>per-step / per-scenario / per-failure</td><td>per spec (coarse)</td></tr>
+  <tr><td>Green-run cost</td><td>~zero if failure-gated</td><td>pays on every test unless pruned</td></tr>
+  <tr><td>Examples</td><td>cucumber-js <code>this.attach</code>; Serenity BDD; Playwright trace</td><td>Cypress <code>video:true</code>; <code>wdio-video-reporter</code></td></tr>
+</table>
+<p>Even Cypress retreated from record-everything: video is <strong>off by default</strong> since Cypress 13 (Aug 2023), citing CI cost. For evidence of a <em>known, deliberate</em> change (kolu's case), explicit-attach of one scenario is the right model.</p>
+
+<h3>Per-ecosystem, condensed</h3>
+<table>
+  <tr><th>Stack</th><th>Capture</th><th>Surfaced via</th></tr>
+  <tr><td><strong>cucumber-js + Playwright</strong> <span class="tag">kolu</span></td><td><code>recordVideo</code> on <code>newContext</code>; <code>page.screenshot()</code>; optional <code>context.tracing</code></td><td><code>this.attach</code> → html formatter, or save <code>.webm</code> + upload</td></tr>
+  <tr><td>cucumber-js + Cypress</td><td>auto 1 video/feature; auto failure shot</td><td>screenshots auto-embedded; video = sidecar mp4</td></tr>
+  <tr><td>WebdriverIO + Cucumber</td><td><code>wdio-video-reporter</code> stitches frames via ffmpeg</td><td>auto-embeds into Allure</td></tr>
+  <tr><td>cucumber-jvm + Serenity BDD</td><td>auto screenshot-<em>per-step</em></td><td>"living documentation" HTML</td></tr>
+  <tr><td>Playwright Trace Viewer</td><td><code>context.tracing.start/stop</code> → <code>trace.zip</code></td><td>open in trace.playwright.dev; link from PR</td></tr>
+</table>
+
+<h3>The kolu wiring</h3>
+<p><strong>1</strong> — env-gate <code>recordVideo</code> on the existing context (it is a <em>context</em> option, verified — not a <code>launch()</code> option):</p>
+<pre>// support/hooks.ts — inside newScenarioPage(), extending the existing newContext call
+const context = await browser.newContext({
+  viewport, baseURL, ignoreHTTPSErrors: true,
+  permissions: ["clipboard-write", "clipboard-read"],
+  ...(process.env.KOLU_EVIDENCE
+    ? { recordVideo: { dir: videoDir, size: { width: 1366, height: 768 } } }
+    : {}),                                     // normal runs pay nothing
+});</pre>
+<p><strong>2</strong> — the file is finalized <em>only</em> on <code>context.close()</code> (verified). Grab the handle <em>before</em> closing, read <em>after</em>:</p>
+<pre>// support/hooks.ts — extending the existing After hook
+const video = this.page?.video();             // handle BEFORE close
+if (this.context) await this.context.close();  // flushes the .webm
+if (video &amp;&amp; process.env.KOLU_EVIDENCE) {
+  const webm = await video.path();            // valid only post-close
+  // leave on disk → feed the SAME ffmpeg → GIF/mp4 → evidence-assets flow (History)
+}</pre>
+<p><strong>3</strong> — run one scenario, reusing the step library:</p>
+<pre>KOLU_EVIDENCE=1 cucumber-js features/code-tab.feature --tags @evidence</pre>
+
 <div class="card note">
-<strong>Proof it's the embed, not hosting:</strong> <code>srid/ema</code>'s README plays an inline clip via a bare <code>user-images.githubusercontent.com</code> URL (a one-time human drag-drop). The repo <em>also</em> commits the same file at <code>docs/static/ema-demo.mp4</code>, yet the README does <em>not</em> use that committed file's <code>raw.</code> URL — because it wouldn't render a player. A dedicated mp4 repo lands on that same non-embedding <code>raw.</code> path.
-<div class="cite" style="margin-top:6px">→ srid/ema README.md:10 (bare user-images URL); git tree has docs/static/ema-demo.mp4.</div>
+<strong>The real legibility trap isn't speed — it's animation.</strong> "Machine-speed video" is trivially fixable: <code>ffmpeg setpts</code> post-hoc, or <code>chromium.launch({ slowMo })</code> + a trailing dwell. The genuine gotcha: <code>hooks.ts</code> injects <code>transition-duration:0s</code> / <code>prefers-reduced-motion: reduce</code> for test determinism. If the evidence is <em>about motion</em>, an evidence run must <strong>skip that animations-off init script</strong> under <code>KOLU_EVIDENCE</code> — else you film the effect with its motion suppressed.
 </div>
 
-<h3>Two outputs, each for what it's good at</h3>
+<h3>Corrections the verification pass forced</h3>
+<ul>
+  <li><strong>Per-<em>page</em>, not per-context, never per-step.</strong> <code>recordVideo</code> writes one <code>.webm</code> per page; kolu opens one page per scenario → one file per scenario. There is <em>no</em> per-step video (screenshots can be per-step; video can't).</li>
+  <li><strong><code>this.attach</code> takes an options object now</strong> — <code>this.attach(buf, { mediaType, fileName })</code>; the bare-string form is legacy-compat. <code>KoluWorld extends World</code> inherits <code>attach</code>; it's unavailable in <code>BeforeAll</code>/<code>AfterAll</code>.</li>
+  <li><strong>Don't base64-inline a <code>.webm</code> into <code>report.html</code></strong> (bloat) — externalize, or skip the report and upload the clip (what the delivery layer already does).</li>
+  <li>Comparison nits: <code>@wdio/video-reporter</code> (scoped) doesn't exist — it's the unscoped <code>wdio-video-reporter</code>; <code>playwright-video</code> is abandoned-in-practice. Neither affects kolu.</li>
+</ul>
+
+<h3>Recommended design</h3>
+<ol>
+  <li>Env-gate <code>recordVideo</code> (+ optional <code>slowMo</code>, + skip the animations-off init) in <code>support/hooks.ts</code> under <code>KOLU_EVIDENCE</code>.</li>
+  <li>Tag/author a tiny <code>@evidence</code> scenario reusing existing steps — no hand-driven clicks.</li>
+  <li>Grab the <code>.webm</code> in <code>After</code>; hand it to the <strong>unchanged</strong> ffmpeg → GIF/mp4 → <code>evidence-assets</code> release → Pages-player flow (<a href="#history">History</a>). Capture <em>source</em> changes; delivery is identical.</li>
+  <li>Point the harness at the pu-served packaged binary via the existing <code>KOLU_SERVER=&lt;url&gt;</code> support (it already accepts a running-server URL) — the one piece of genuinely new plumbing.</li>
+</ol>
+<p>Trace Viewer (<code>context.tracing</code>) is the richer-but-not-inline alternative for deep-debug artifacts; it can't render in a PR, so it complements an inline GIF rather than replacing it.</p>
+<p class="cite">Sources: playwright.dev/docs/videos · /docs/api/class-video · /docs/api/class-browser#browser-new-context · /docs/trace-viewer · cucumber-js docs/support_files/attachments.md · docs/formatters.md · cypress.io/blog/2023/08/29/announcing-cypress-13-test-replay · serenity-bdd.github.io/docs/reporting/living_documentation. Verified vs the kolu tree: support/hooks.ts, support/world.ts, cucumber.js, features/code-tab.feature, packages/tests/package.json (@cucumber/cucumber 12.8.1, playwright 1.57.0).</p>
+
+<h2 id="history">History — what shipped</h2>
+<p>The <strong>delivery + embedding layer is solved and durable</strong>; only the capture <em>source</em> is still evolving (above). Compacted from the original plan:</p>
 <table>
-  <tr><th>Output</th><th>Renders</th><th>Use</th></tr>
-  <tr><td><strong>Animated GIF</strong></td><td>Inline in the comment via <code>![](release-url)</code> — a GIF is an image to GitHub, embeds from any URL like the PNG flow.</td><td>The at-a-glance proof. No audio, larger file, 256-color.</td></tr>
-  <tr><td><strong>MP4 + Pages player</strong></td><td>A real <code>&lt;video&gt;</code> on a GitHub Pages page we control; the comment links to it.</td><td>HD + audio + seeking, on click-through.</td></tr>
+  <tr><th>PR</th><th>What it shipped</th></tr>
+  <tr><td><a href="https://github.com/juspay/nix-chrome-devtools-mcp/pull/2">nix-chrome-devtools-mcp#2</a> <span class="tag">merged</span></td><td>Screencast capability: the launcher runs <code>nix shell …#ffmpeg</code> and passes <code>--experimentalScreencast=true</code>, exposing the MCP's <code>screencast_start/stop</code> (<code>page.screencast()</code> → ffmpeg). No host install.</td></tr>
+  <tr><td><a href="https://github.com/juspay/kolu/pull/1033">kolu#1033</a> <span class="tag">merged</span></td><td>The original "video evidence" feature: MCP-screencast capture + the embedding solution (below) + the 3-repo split + the <code>.agency/do.md</code> video procedure + this plan.</td></tr>
+  <tr><td><a href="https://github.com/juspay/kolu/pull/1037">kolu#1037</a> <span class="tag">merged</span></td><td>Moved capture <em>off-machine</em>: PR evidence runs on an ephemeral <code>pu</code> box (like CI) via a bespoke Playwright <code>capture.mjs</code>; extracted the reusable <code>pu</code> + <code>evidence</code> skills. <em>This is the capture path the harness-reuse work above replaces.</em></td></tr>
+  <tr><td><a href="https://github.com/juspay/kolu/pull/1080">kolu#1080</a> <span class="tag">merged</span></td><td>Let Codex load the <code>pu</code> + <code>evidence</code> skills.</td></tr>
 </table>
 
-<h2>Architecture — three repos</h2>
-<table>
-  <tr><th>Repo</th><th>Role</th><th>Change</th></tr>
-  <tr><td><code>juspay/nix-chrome-devtools-mcp</code></td><td>Capture capability</td><td>Launcher enables screencast + ffmpeg (PR&nbsp;#2).</td></tr>
-  <tr><td><code>juspay/video-evidence</code></td><td>Shared player host</td><td>GitHub Pages <code>evidence.html?repo=&lt;owner/repo&gt;&amp;v=&lt;file&gt;</code>, project-agnostic, org-allowlisted.</td></tr>
-  <tr><td><code>juspay/kolu</code> (this PR)</td><td>Consumer</td><td><code>apm.yml</code> pin + regen; <code>.agency/do.md</code> video procedure; this plan.</td></tr>
-</table>
-<div class="card good">
-<strong>Key decision (per review):</strong> clips live on <strong>each project's own <code>evidence-assets</code> release</strong> — kolu's on <code>juspay/kolu</code>, exactly where screenshots already go. The <code>video-evidence</code> repo holds <em>only</em> the player, so it is reused across juspay projects with no per-project hosting and no git-blob bloat. One parametrized player (org-allowlisted <code>repo</code>) rather than per-project HTML pages — avoids multiplying artifacts.
+<h3>The durable constraint: GitHub video embedding</h3>
+<div class="card note">
+GitHub auto-mounts a <code>&lt;video&gt;</code> player <strong>only</strong> for files uploaded through the web composer (a <code>user-attachments</code> URL needing a session cookie + CSRF — <code>gh</code>/PAT can't mint it). A release-hosted or git-committed <code>raw.</code> mp4 renders as a <em>download link</em>, and a hand-authored <code>&lt;video&gt;</code> tag is stripped by the comment sanitizer. Hence two outputs:
+<ul>
+  <li><strong>Animated GIF</strong> — embeds inline via <code>![](release-url)</code> (a GIF is an image to GitHub). The at-a-glance proof.</li>
+  <li><strong>MP4 + Pages player</strong> — a real <code>&lt;video&gt;</code> on the shared <code>juspay/video-evidence</code> Pages page (<code>evidence.html?repo=&lt;owner/repo&gt;&amp;v=&lt;file&gt;</code>, org-allowlisted); the comment links to it for HD + audio + seeking.</li>
+</ul>
+Clips live on <em>each project's own</em> <code>evidence-assets</code> release (where screenshots already go); the <code>video-evidence</code> repo holds only the parametrized player — one artifact, reused across projects.
 </div>
-
-<h2>Validated end-to-end</h2>
-<p>Before wiring the launcher, the embed path was proven in a real browser (chrome-devtools): the Pages player loaded a clip from the cross-origin release URL, reached <code>readyState 4</code>, played to completion, and <strong>seeked mid-clip</strong> — confirming HTTP range requests work on release assets. Test clip generated offline with <code>nix shell nixpkgs#ffmpeg</code> (the same ffmpeg-via-nix the launcher now uses).</p>
-
-<h2>The <code>/do</code> flow (documented in <code>.agency/do.md</code>)</h2>
-<pre>screencast_start { filePath: /tmp/kolu-evidence-&lt;slug&gt;.mp4 }
-  → drive the interaction → screencast_stop
-ffmpeg -i …mp4 -vf "fps=12,scale=900:-1:flags=lanczos" -loop 0 …gif   # inline
-gh release upload evidence-assets …gif …mp4 --clobber                # kolu's release
+<pre># the delivery half of the /do evidence flow — unchanged regardless of capture source
+ffmpeg -i clip.webm -vf "fps=12,scale=900:-1:flags=lanczos" -loop 0 clip.gif
+gh release upload evidence-assets clip.gif clip.mp4 --clobber          # this project's release
 comment: ![](…/evidence-assets/&lt;slug&gt;.gif)
          ▶ HD: …/video-evidence/evidence.html?repo=juspay/kolu&amp;v=&lt;slug&gt;.mp4</pre>
 
 <h2>Follow-up</h2>
 <ul>
-  <li>When <a href="https://github.com/juspay/nix-chrome-devtools-mcp/pull/2">nix-chrome-devtools-mcp#2</a> merges, drop the <code>#screencast</code> ref in <code>apm.yml</code> and re-run <code>just ai::apm-update</code>.</li>
-  <li>Picking up the new launcher requires a Claude restart (the MCP server is spawned at session start).</li>
+  <li><strong>Wire env-gated <code>recordVideo</code> into <code>packages/tests/support/hooks.ts</code></strong> and move PR-evidence capture onto the Cucumber harness (a tagged <code>@evidence</code> scenario), retiring the bespoke <code>capture.mjs</code> for kolu — see <a href="#harness">Capture source</a>.</li>
+  <li><a href="https://github.com/juspay/nix-chrome-devtools-mcp/pull/2">nix-chrome-devtools-mcp#2</a> has merged — if <code>apm.yml</code> still pins <code>#screencast</code>, drop the ref and re-run <code>just ai::apm-update</code>.</li>
+  <li>Picking up a new MCP launcher requires a Claude restart (the MCP server is spawned at session start).</li>
 </ul>
 
 </div>
