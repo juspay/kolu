@@ -7,11 +7,14 @@
  *  can reach it without pulling in the whole `kolu-common` domain contract
  *  package — which would otherwise drag the entire agent/git/oRPC dependency
  *  tree into a consumer that only needs five string replacements. */
+const HTML_ENTITIES: Record<string, string> = {
+  "&": "&amp;",
+  "<": "&lt;",
+  ">": "&gt;",
+  '"': "&quot;",
+  "'": "&#39;",
+};
+
 export function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
+  return s.replace(/[&<>"']/g, (c) => HTML_ENTITIES[c] ?? c);
 }
