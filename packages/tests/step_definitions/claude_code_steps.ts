@@ -30,7 +30,6 @@ type MockState =
   | "tool_use"
   | "waiting"
   | "running_background"
-  | "orphaned_workflow"
   | "background_bash"
   | "interrupted"
   | "interrupted_tool_use";
@@ -115,11 +114,10 @@ function buildTranscript(state: MockState): string {
   if (state === "tool_use") lines.push(assistantMsg("tool_use"));
   if (state === "waiting") lines.push(assistantMsg("end_turn"));
   // "running_background": a launched-but-uncompleted `Workflow` task (carries a
-  // Run ID → has a journal) followed by an end-of-turn — deriveState promotes
-  // the bare `waiting` to `running_background`. "orphaned_workflow" uses the
-  // same transcript, but the mock step back-dates its journal so the run reads
-  // as dead (a restart orphaned it) and the promotion is vetoed.
-  if (state === "running_background" || state === "orphaned_workflow") {
+  // Run ID) followed by an end-of-turn — deriveState promotes the bare
+  // `waiting` to `running_background`. The matching journal is written by the
+  // mock step so the fan-out badge can read its name/agent count.
+  if (state === "running_background") {
     lines.push(
       JSON.stringify({
         type: "user",
@@ -198,30 +196,18 @@ function buildTranscript(state: MockState): string {
   return `${lines.join("\n")}\n`;
 }
 
-/** Write the run journal a `running_background` mock reads its fan-out from.
- *  `stale: true` back-dates its mtime well past the orphaned-journal window so
- *  the run reads as dead (the "orphaned_workflow" case). */
-function writeWorkflowJournal(
-  projectDir: string,
-  opts: { stale?: boolean } = {},
-): void {
+/** Write the run journal a `running_background` mock reads its fan-out from. */
+function writeWorkflowJournal(projectDir: string): void {
   const wfDir = path.join(projectDir, SESSION_ID, "workflows");
   fs.mkdirSync(wfDir, { recursive: true });
-  const journalPath = path.join(wfDir, `${WORKFLOW_RUN_ID}.json`);
   fs.writeFileSync(
-    journalPath,
+    path.join(wfDir, `${WORKFLOW_RUN_ID}.json`),
     JSON.stringify({
       workflowName: WORKFLOW_NAME,
       status: "running",
       agentCount: WORKFLOW_AGENTS,
     }),
   );
-  if (opts.stale) {
-    // 10 min ago — comfortably past WORKFLOW_JOURNAL_STALE_MS (2 min), so the
-    // still-"running" journal reads as orphaned regardless of poll duration.
-    const old = new Date(Date.now() - 10 * 60 * 1000);
-    fs.utimesSync(journalPath, old, old);
-  }
 }
 
 /** Unique CWD per scenario to avoid collisions in parallel workers. */
@@ -284,8 +270,6 @@ When(
     mockTranscriptPath = path.join(mockProjectDir, `${SESSION_ID}.jsonl`);
     fs.writeFileSync(mockTranscriptPath, buildTranscript(state as MockState));
     if (state === "running_background") writeWorkflowJournal(mockProjectDir);
-    if (state === "orphaned_workflow")
-      writeWorkflowJournal(mockProjectDir, { stale: true });
 
     // Now the trigger — session file last.
     fs.mkdirSync(sessionsDir, { recursive: true });

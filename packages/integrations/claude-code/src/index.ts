@@ -27,7 +27,6 @@ export {
   extractTasks,
   fetchSessionSummary,
   findTranscriptPath,
-  liveOutstandingTasks,
   outstandingBackgroundTasks,
   PROJECTS_DIR,
   readSessionFile,
@@ -39,7 +38,6 @@ export {
   tailJsonlLines,
   tryWatchDir,
   watchOrWaitForDir,
-  WORKFLOW_JOURNAL_STALE_MS,
   workflowsDirFor,
 } from "./core.ts";
 export {
