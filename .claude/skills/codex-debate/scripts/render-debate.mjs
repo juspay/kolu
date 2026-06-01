@@ -36,6 +36,7 @@ const STATUS_LABEL = {
   consensus: "Consensus reached",
   deadlock: "Deadlock — needs you",
   "max-rounds": "Round cap hit",
+  "in-progress": "Debate in progress…",
 };
 
 const sevRank = { blocking: 0, major: 1, minor: 2, nit: 3 };
@@ -164,6 +165,7 @@ const html = `<!doctype html>
   .badge-consensus { background: #1f9d55; color: #fff; }
   .badge-deadlock { background: #e5484d; color: #fff; }
   .badge-max-rounds { background: #f5a623; color: #1c2024; }
+  .badge-in-progress { background: #4f7cff; color: #fff; }
   .files { margin: .3rem 0; padding-left: 1.2rem; }
   .sub { margin-top: .5rem; }
   footer { margin-top: 2rem; padding-top: 1rem; border-top: 1px solid #8883; }

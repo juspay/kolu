@@ -213,9 +213,15 @@ ${message}
 }
 
 // ---------------------------------------------------------------------------
-// The loop
+// Live HTML rendering. The transcript is re-rendered after every state change
+// (each codex verdict and each claude round) so htmlOut updates in REAL TIME —
+// open it to watch the debate unfold — plus a final pass stamping the terminal
+// status. htmlOut defaults to a committable repo-root file (NOT the gitignored
+// scratch dir), so it can be reviewed and committed. Best-effort: a render
+// hiccup must never fail the debate.
 // ---------------------------------------------------------------------------
-phase('Debate')
+const htmlOut = a.htmlOut || `${repoPath}/codex-debate-transcript.html`
+const transcriptJsonPath = `${workDir}/transcript.json`
 
 const transcript = []
 let status = 'max-rounds'
@@ -223,16 +229,45 @@ let finalVerdict = null
 let lastClaude = null
 let prevSignature = null
 
+async function renderTranscript(statusVal, label) {
+  const fc = Array.from(new Set(transcript.flatMap((e) => (e.claude && e.claude.filesChanged) || [])))
+  const snapshot = { status: statusVal, rounds: transcript.length, base, finalVerdict, filesChanged: fc, transcript }
+  const prompt = `You are a MECHANICAL RENDERER. Do exactly these steps and nothing else — do not edit any repository files, do not add commentary.
+
+1. Ensure the scratch dir exists: \`mkdir -p ${workDir}\`.
+2. Using the Write tool, create \`${transcriptJsonPath}\` with EXACTLY this content (copy it verbatim):
+
+${JSON.stringify(snapshot, null, 2)}
+
+3. Run, from the repo root \`${repoPath}\`:
+   \`node ${skillDir}/scripts/render-debate.mjs ${transcriptJsonPath} ${htmlOut}\`
+   (the renderer creates the output's parent directory itself.)
+
+Return only "rendered".`
+  try {
+    return await agent(prompt, { label, phase: 'Render' })
+  } catch (e) {
+    log(`render (${label}) failed, continuing debate: ${e}`)
+    return null
+  }
+}
+
+// ---------------------------------------------------------------------------
+// The loop
+// ---------------------------------------------------------------------------
+phase('Debate')
+
 for (let round = 1; round <= maxRounds; round++) {
   const verdict = await codexReviews(round, lastClaude ? JSON.stringify(lastClaude) : null)
   finalVerdict = verdict
   const entry = { round, codex: verdict, claude: null }
+  transcript.push(entry) // push immediately so the live renders include this round
   const blocking = blockingOpen(verdict)
   log(`Round ${round}: codex approved=${verdict.approved}, blocking/major open=${blocking.length}`)
+  await renderTranscript('in-progress', `render:r${round}-codex`) // live update: codex verdict in
 
   // Consensus: codex is satisfied and nothing blocking/major remains open.
   if (verdict.approved && blocking.length === 0) {
-    transcript.push(entry)
     status = 'consensus'
     break
   }
@@ -242,7 +277,6 @@ for (let round = 1; round <= maxRounds; round++) {
   // the human adjudicate rather than burn rounds.
   const signature = blockingSignature(verdict)
   if (prevSignature !== null && signature === prevSignature && claudeDisputedEverything(lastClaude)) {
-    transcript.push(entry)
     status = 'deadlock'
     break
   }
@@ -251,7 +285,6 @@ for (let round = 1; round <= maxRounds; round++) {
   // Last round budget spent — record codex's final verdict, don't ask claude
   // to edit with no re-review to follow.
   if (round === maxRounds) {
-    transcript.push(entry)
     status = 'max-rounds'
     break
   }
@@ -273,38 +306,16 @@ for (let round = 1; round <= maxRounds; round++) {
     log(`Round ${round}: committed ${entry.commit}`)
   }
 
-  transcript.push(entry)
+  await renderTranscript('in-progress', `render:r${round}-claude`) // live update: claude round in
 }
 
 const filesChanged = Array.from(
   new Set(transcript.flatMap((e) => (e.claude && e.claude.filesChanged) || [])),
 )
-
 log(`Debate ended: ${status} after ${transcript.length} round(s); ${filesChanged.length} file(s) changed.`)
 
-const result = { status, rounds: transcript.length, base, finalVerdict, filesChanged, transcript }
-
-// ---------------------------------------------------------------------------
-// Render the transcript to a self-contained HTML file for the user to review.
-// Offloaded to a subagent so the main session isn't burdened; the actual HTML
-// is produced by a deterministic node script (no LLM variance in the record).
-// ---------------------------------------------------------------------------
+// Final render stamps the terminal status (consensus / deadlock / max-rounds).
 phase('Render')
-const htmlOut = a.htmlOut || `${workDir}/transcript.html`
-const transcriptJsonPath = `${workDir}/transcript.json`
-const renderPrompt = `You are a MECHANICAL RENDERER. Do exactly these steps and nothing else — do not edit any repository files, do not add commentary.
+await renderTranscript(status, 'render:final')
 
-1. Ensure the scratch dir exists: \`mkdir -p ${workDir}\`.
-
-2. Using the Write tool, create the file \`${transcriptJsonPath}\` with EXACTLY this content (copy it verbatim):
-
-${JSON.stringify(result, null, 2)}
-
-3. Run, from the repo root \`${repoPath}\`:
-   \`node ${skillDir}/scripts/render-debate.mjs ${transcriptJsonPath} ${htmlOut}\`
-   (the renderer creates the output's parent directory itself.)
-
-4. Confirm the output exists with \`ls -la ${htmlOut}\` and return ONLY its absolute path.`
-const htmlPath = await agent(renderPrompt, { label: 'render-html', phase: 'Render' })
-
-return { ...result, htmlOut, htmlPath }
+return { status, rounds: transcript.length, base, finalVerdict, filesChanged, transcript, htmlOut }

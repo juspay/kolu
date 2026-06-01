@@ -1,7 +1,7 @@
 ---
 name: codex-debate
 description: Run an automated code-review debate between the codex CLI (reviewer) and a Claude subagent (author) on the current diff, looping until they reach consensus, deadlock, or a round cap. Use when the user types `/codex-debate`, or asks to "have codex review this", "run the codex debate", "review this PR with codex", or "argue this with codex until you agree".
-argument-hint: "[<pr-number>] [--base <branch>] [--max-rounds <n>] [--html <path>] [--no-commit] [--comment]"
+argument-hint: "[<pr-number>] [--base <branch>] [--max-rounds <n>] [--html <path>] [--no-commit] [--no-comment]"
 ---
 
 # Codex ⇄ Claude review debate
@@ -10,10 +10,11 @@ Automate the back-and-forth you'd otherwise courier by hand: **codex** (the
 reviewer) critiques the current change, a **Claude subagent** (the author)
 fixes what it agrees with and disputes what it doesn't, codex re-reviews, and so
 on — until they reach **consensus**, hit a **deadlock**, or burn the **round
-cap**. You stay out of the middle and review the agreed result at the end —
-where each round lands as its own commit whose message carries the debate
-context (codex's findings + Claude's dispositions), so the PR history reads as
-the debate itself.
+cap**. You stay out of the middle: each round lands as its own commit whose
+message carries the debate context (codex's findings + Claude's dispositions) so
+the PR history reads as the debate, a **live HTML transcript** updates after
+every round so you can watch it unfold, and the summary is **posted to the PR**
+as a comment at the end.
 
 ## Why this shape
 
@@ -35,7 +36,7 @@ codex/opencode runtimes the skill is inert.
 
 ## Arguments
 
-Parse `[<pr-number>] [--base <branch>] [--max-rounds <n>] [--html <path>] [--no-commit] [--comment]`:
+Parse `[<pr-number>] [--base <branch>] [--max-rounds <n>] [--html <path>] [--no-commit] [--no-comment]`:
 
 - **`<pr-number>`** (optional): a PR to debate. If given, `gh pr checkout <n>`
   first and default the base to that PR's base branch. If omitted, debate the
@@ -44,14 +45,15 @@ Parse `[<pr-number>] [--base <branch>] [--max-rounds <n>] [--html <path>] [--no-
   number is given) else the repo default branch (`git symbolic-ref --short refs/remotes/origin/HEAD` → strip `origin/`, fallback `master`).
 - **`--max-rounds <n>`**: hard cap on codex review rounds. Default **5**.
 - **`--html <path>`**: where to write the reviewable HTML transcript. Default:
-  `.codex-debate/transcript.html` (the gitignored per-worktree scratch dir). Pass
-  a path under a tracked dir (e.g. `docs/`) if you want to commit the transcript.
+  `codex-debate-transcript.html` in the repo root — a **committable** file (NOT
+  gitignored), re-rendered live after every round so you can open it and watch
+  the debate unfold. Per-worktree, so parallel debates don't collide.
 - **`--no-commit`**: don't commit per round — leave all agreed changes
   uncommitted in the working tree for you to commit yourself. Default is to
   **commit each round** (see below).
-- **`--comment`**: also post a summary of the debate as a PR comment (only when a
-  PR exists). **Off by default** — posting to a PR is an outward-facing write, so
-  require the flag. Without it, report in chat only.
+- **`--no-comment`**: don't post the debate summary to the PR. By **default**, when
+  a PR exists, the debate summary IS posted as a PR comment (see step 3). Pass
+  this to suppress the outward-facing write and report in chat only.
 
 ## Steps
 
@@ -77,7 +79,7 @@ Workflow({
     repoPath: "<worktree root>",        // also the per-worktree scratch dir root
     base: "<base branch>",
     maxRounds: <n, default 5>,
-    htmlOut: "<resolved --html path>",  // omit to default to .codex-debate/transcript.html
+    htmlOut: "<resolved --html path>",  // omit to default to ./codex-debate-transcript.html
     commit: <false only if --no-commit>,
     skillDir: ".claude/skills/codex-debate"
   }
@@ -89,16 +91,23 @@ alternates `codex:roundN` and `claude:roundN` agents under a **Debate** phase �
 the user can watch live via `/workflows`. Each Claude round edits the working
 tree, then (unless `--no-commit`) a `commit:roundN` agent **commits exactly that
 round's changed files** with a message embedding the round's codex findings and
-Claude's dispositions — never pushing or merging. Scratch files
-(verdicts, rebuttals, transcript JSON) live under the gitignored, per-worktree
-`<repoPath>/.codex-debate/`, so **parallel debates in different worktrees never
-collide** and the scratch never shows up in the diff codex reviews. After the
-debate, a final **Render** phase subagent runs `scripts/render-debate.mjs` to
-write the self-contained HTML transcript to `htmlOut`. It returns:
+Claude's dispositions — never pushing or merging.
+
+**Live HTML.** After every state change — each codex verdict (`render:rN-codex`)
+and each Claude round (`render:rN-claude`), plus a final `render:final` — a
+mechanical render agent re-writes `htmlOut` via `scripts/render-debate.mjs`. So
+the committable `codex-debate-transcript.html` updates in **real time**: open it
+and watch the debate unfold, round by round, rather than waiting for the end.
+
+Ephemeral scratch (verdicts, rebuttals, transcript JSON) lives under the
+gitignored, per-worktree `<repoPath>/.codex-debate/`, so **parallel debates in
+different worktrees never collide** and the scratch never shows up in the diff
+codex reviews. The HTML output itself sits at the repo root (committable). It
+returns:
 
 ```
 { status: "consensus" | "deadlock" | "max-rounds",
-  rounds, base, finalVerdict, filesChanged, transcript, htmlOut, htmlPath }
+  rounds, base, finalVerdict, filesChanged, transcript, htmlOut }
 ```
 
 (each `transcript[]` round also carries a `commit` SHA when that round committed.)
@@ -113,9 +122,9 @@ write the self-contained HTML transcript to `htmlOut`. It returns:
 Report in chat (do **not** push or merge — the per-round commits sit on the
 local branch for the human to review):
 
-- **The HTML transcript path** (`htmlOut`) front and center — the workflow's
-  Render phase already wrote it; this is the reviewable record of the whole
-  debate. Surface it as a clickable path so the user can open it.
+- **The HTML transcript path** (`htmlOut`) front and center — re-rendered live
+  throughout the run and finalized at the end; this committable file is the
+  reviewable record of the whole debate. Surface it as a clickable path.
 - The outcome (`status`) and round count.
 - `git log --oneline <base>..HEAD` (the per-round debate commits) and
   `git diff --stat <base>` so the user sees what the debate changed.
@@ -128,9 +137,14 @@ local branch for the human to review):
 - The agreed changes are committed per round on the local branch (or, under
   `--no-commit`, uncommitted in the working tree). The user reviews, then pushes
   / merges (or runs `/do --from post-implement`) when satisfied.
-- **If `--comment`** and a PR exists: post a `## Codex ⇄ Claude debate` summary
-  comment via `gh pr comment` (outcome, round count, the per-round table). Use a
-  single-quoted heredoc so backticks/`$` survive.
+- **Post the debate summary to the PR (default).** When a PR exists and
+  `--no-comment` was NOT passed, post a `## Codex ⇄ Claude debate` comment via
+  `gh pr comment`. Include: the outcome badge (consensus/deadlock/max-rounds) and
+  round count; a per-round table (codex approved? open blocking/major findings;
+  Claude's dispositions; the round's commit SHA); and, on deadlock, both
+  positions. Use a single-quoted heredoc so backticks/`$` survive. This is an
+  outward-facing write — it's on by default because the whole point is to leave
+  the review trail on the PR; `--no-comment` suppresses it.
 
 ## Safety & notes
 
@@ -145,9 +159,14 @@ local branch for the human to review):
   `--no-commit`) so the PR history reads as the debate, but the skill never
   pushes or merges. Consensus means "both AIs agree on the committed code," not
   "ship it" — the human reviews the commits and pushes/merges.
-- **Parallel-safe.** All scratch state lives under the gitignored, per-worktree
-  `<repoPath>/.codex-debate/`. Run debates on many worktrees at once without them
-  clobbering each other's verdicts/rebuttals/transcripts — no shared `/tmp` paths.
+- **Parallel-safe.** Ephemeral scratch (verdicts, rebuttals, transcript JSON) lives
+  under the gitignored, per-worktree `<repoPath>/.codex-debate/`; the HTML output
+  sits at the repo root (committable, not gitignored). Both are per-worktree, so
+  debates on many worktrees run at once without clobbering each other — no shared
+  `/tmp` paths.
+- **Posts to the PR by default.** When a PR exists, the debate summary is posted
+  as a PR comment (outward-facing write) unless `--no-comment` is passed — the
+  point is to leave the review trail on the PR.
 - **Bounded.** The loop always terminates — consensus, deadlock detection, or the
   round cap. It cannot run forever.
 
