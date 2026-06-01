@@ -11,9 +11,18 @@
  *  surviving process; only then can its column diverge (outdated / dead). Those
  *  branches are intentionally absent here — nothing can diverge from itself —
  *  and land with B's read-site `staleKey !== currentBuildId()` derivation, with
- *  no re-layout. */
+ *  no re-layout.
+ *
+ *  Currently the rail renders `srv`-only: the `pty` column and `≡ in-process`
+ *  tag are commented out below (a no-op duplicate of `srv` while the pty-host
+ *  is in-process) and a follow-up PR uncomments them once the pty-host lands as
+ *  a separate, divergeable process. */
 
-import { type Component, Show } from "solid-js";
+import type { Component } from "solid-js";
+// NOTE (remote-terminals A2): `Show` is only needed by the pty column +
+// `≡ in-process` tag, both commented out below until the pty-host lands as a
+// separate process. Re-import when uncommenting.
+// import { Show } from "solid-js";
 import { serverInfo, type WsStatus } from "../rpc/rpc";
 import Commit from "./Commit";
 import Tip from "./Tip";
@@ -25,38 +34,46 @@ const srvDot: Record<WsStatus, string> = {
   closed: "bg-danger",
 };
 
-/** Short-form a build id for display: a nix store hash's leading 7 chars, or a
- *  path basename capped at 12. The full id lives in the tooltip. */
-function shortId(id: string | null | undefined): string {
-  if (!id) return "—";
-  const hash = /^([a-z0-9]{7})/.exec(id);
-  if (hash) return hash[1] as string;
-  const tail = id.split("/").pop() ?? id;
-  return tail.length > 12 ? `${tail.slice(0, 12)}…` : tail;
-}
-
-/** pty-host liveness dot in A2: mirrors the WebSocket status but with a
- *  different "closed" value — grey ("unknown") rather than red, because with
- *  the link down we can't claim pty state. Phase B replaces "closed" with a
- *  real daemon-state derivation (connected | outdated | dead). */
-const ptyDot: Record<WsStatus, string> = {
-  open: "bg-ok",
-  connecting: "bg-warning animate-pulse",
-  closed: "bg-fg-3/50", // link down → pty state unknown, not dead
-};
+// --- pty column (remote-terminals, Phase B) -------------------------------
+// The `srv · pty` rail collapses to `srv`-only until the pty-host is a real
+// surviving process whose commit can diverge from the server's. The pty
+// column, its divider, and the `≡ in-process` coincidence tag — plus the
+// helpers they need — are kept here verbatim so a future PR can uncomment.
+//
+// /** Short-form a build id for display: a nix store hash's leading 7 chars, or
+//  *  a path basename capped at 12. The full id lives in the tooltip. */
+// function shortId(id: string | null | undefined): string {
+//   if (!id) return "—";
+//   const hash = /^([a-z0-9]{7})/.exec(id);
+//   if (hash) return hash[1] as string;
+//   const tail = id.split("/").pop() ?? id;
+//   return tail.length > 12 ? `${tail.slice(0, 12)}…` : tail;
+// }
+//
+// /** pty-host liveness dot in A2: mirrors the WebSocket status but with a
+//  *  different "closed" value — grey ("unknown") rather than red, because with
+//  *  the link down we can't claim pty state. Phase B replaces "closed" with a
+//  *  real daemon-state derivation (connected | outdated | dead). */
+// const ptyDot: Record<WsStatus, string> = {
+//   open: "bg-ok",
+//   connecting: "bg-warning animate-pulse",
+//   closed: "bg-fg-3/50", // link down → pty state unknown, not dead
+// };
+// --------------------------------------------------------------------------
 
 const IdentityRail: Component<{ status: WsStatus }> = (props) => {
   // srv and pty coincide when connected and the relayed pty commit equals the
   // server's own — the A2 acceptance signal that the plumbing agrees. A plain
   // function (single consumer, per solidjs.md); still reactive inside <Show>.
-  const coincident = () => {
-    const i = serverInfo();
-    return (
-      props.status === "open" &&
-      !!i?.ptyHost &&
-      i.commit === i.ptyHost.navigableCommit
-    );
-  };
+  // Restore alongside the pty column below.
+  // const coincident = () => {
+  //   const i = serverInfo();
+  //   return (
+  //     props.status === "open" &&
+  //     !!i?.ptyHost &&
+  //     i.commit === i.ptyHost.navigableCommit
+  //   );
+  // };
 
   return (
     <div class="inline-flex items-stretch rounded-lg border border-edge bg-surface-2/60 p-0.5 font-mono text-xs">
@@ -70,6 +87,10 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
         </Tip>
         <Commit sha={serverInfo()?.commit} />
       </span>
+      {/* pty column + `≡ in-process` tag — hidden until the pty-host is a
+          separate process (remote-terminals Phase B). Uncomment with the
+          helpers and `Show` import above.
+
       <span class="mx-0.5 h-4 w-px self-center bg-edge-bright/70" />
       <span class="inline-flex items-center gap-1.5 px-2 py-0.5">
         <span class="text-[9px] uppercase tracking-wide text-fg-3">pty</span>
@@ -98,6 +119,7 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
           </span>
         </Tip>
       </Show>
+      */}
     </div>
   );
 };
