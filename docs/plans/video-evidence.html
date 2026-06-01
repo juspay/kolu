@@ -89,7 +89,7 @@ if (video &amp;&amp; process.env.KOLU_EVIDENCE) {
   // leave on disk → feed the SAME ffmpeg → GIF/mp4 → evidence-assets flow (History)
 }</pre>
 <p><strong>3</strong> — run one scenario, reusing the step library:</p>
-<pre>KOLU_EVIDENCE=1 cucumber-js features/code-tab.feature --tags @evidence</pre>
+<pre>KOLU_EVIDENCE=1 just test-quick features/code-tab.feature --name "Editing an HTML file refreshes the iframe preview live"</pre>
 
 <div class="card note">
 <strong>The real legibility trap isn't speed — it's animation.</strong> "Machine-speed video" is trivially fixable: <code>ffmpeg setpts</code> post-hoc, or <code>chromium.launch({ slowMo })</code> + a trailing dwell. The genuine gotcha: <code>hooks.ts</code> injects <code>transition-duration:0s</code> / <code>prefers-reduced-motion: reduce</code> for test determinism. If the evidence is <em>about motion</em>, an evidence run must <strong>skip that animations-off init script</strong> under <code>KOLU_EVIDENCE</code> — else you film the effect with its motion suppressed.
@@ -106,7 +106,7 @@ if (video &amp;&amp; process.env.KOLU_EVIDENCE) {
 <h3>Recommended design</h3>
 <ol>
   <li>Env-gate <code>recordVideo</code> (+ optional <code>slowMo</code>, + skip the animations-off init) in <code>support/hooks.ts</code> under <code>KOLU_EVIDENCE</code>.</li>
-  <li>Tag/author a tiny <code>@evidence</code> scenario reusing existing steps — no hand-driven clicks.</li>
+  <li>Pick (or author) a scenario reusing existing steps and select it by <code>--name</code> — no hand-driven clicks, no feature-file edit.</li>
   <li>Grab the <code>.webm</code> in <code>After</code>; hand it to the <strong>unchanged</strong> ffmpeg → GIF/mp4 → <code>evidence-assets</code> release → Pages-player flow (<a href="#history">History</a>). Capture <em>source</em> changes; delivery is identical.</li>
   <li>Point the harness at the pu-served packaged binary via the existing <code>KOLU_SERVER=&lt;url&gt;</code> support (it already accepts a running-server URL) — the one piece of genuinely new plumbing.</li>
 </ol>
@@ -140,7 +140,7 @@ comment: ![](…/evidence-assets/&lt;slug&gt;.gif)
 
 <h2>Follow-up</h2>
 <ul>
-  <li><strong>Wire env-gated <code>recordVideo</code> into <code>packages/tests/support/hooks.ts</code></strong> and move PR-evidence capture onto the Cucumber harness (a tagged <code>@evidence</code> scenario), retiring the bespoke <code>capture.mjs</code> for kolu — see <a href="#harness">Capture source</a>.</li>
+  <li><strong>Wire env-gated <code>recordVideo</code> into <code>packages/tests/support/hooks.ts</code></strong> and move PR-evidence capture onto the Cucumber harness (record a scenario by <code>--name</code>), retiring the bespoke <code>capture.mjs</code> for kolu — see <a href="#harness">Capture source</a>.</li>
   <li><a href="https://github.com/juspay/nix-chrome-devtools-mcp/pull/2">nix-chrome-devtools-mcp#2</a> has merged — if <code>apm.yml</code> still pins <code>#screencast</code>, drop the ref and re-run <code>just ai::apm-update</code>.</li>
   <li>Picking up a new MCP launcher requires a Claude restart (the MCP server is spawned at session start).</li>
 </ul>

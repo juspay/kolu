@@ -2,13 +2,14 @@
 name: evidence
 description: >-
   Capture production-like PR evidence (screenshots and video) on an ephemeral pu
-  box by recording the project's own Cucumber + Playwright e2e harness — tag a
-  scenario `@evidence`, run it with `KOLU_EVIDENCE=1`, and the harness records the
-  clip while reusing every step definition. Entirely off the user's machine, the
-  way CI runs e2e. Then transcode (ffmpeg), host on a GitHub release, and post a
-  `## Evidence` comment. Use when a change has visible or behavioral impact worth
-  proving. Triggers on "post evidence", "screenshot the change", "PR evidence",
-  "record a video of this", "capture the UI".
+  box by recording the project's own Cucumber + Playwright e2e harness — pick the
+  scenario that exercises the change, run it by name with `KOLU_EVIDENCE=1`, and
+  the harness records the clip while reusing every step definition. No feature-file
+  edit. Entirely off the user's machine, the way CI runs e2e. Then transcode
+  (ffmpeg), host on a GitHub release, and post a `## Evidence` comment. Use when a
+  change has visible or behavioral impact worth proving. Triggers on "post
+  evidence", "screenshot the change", "PR evidence", "record a video of this",
+  "capture the UI".
 ---
 
 # evidence — PR screenshots & video, recorded via the e2e harness on a pu box
@@ -18,17 +19,17 @@ reflects a clean, CI-like build of the PR's own commit and nothing touches the u
 machine. The box has its own loopback, so the harness binds plain ports there with zero
 risk to anything the user is running.
 
-**Capture is the project's existing Cucumber + Playwright e2e harness — you record a
-tagged scenario, never a hand-rolled one-off script.** The harness already drives every
-UI surface through a maintained step library, so the clip is produced by the same code CI
-exercises, and there is no parallel capture script to keep in sync. (There is no
-`capture.mjs` fallback — if a surface isn't reachable by an e2e scenario, write the
-scenario.)
+**Capture is the project's existing Cucumber + Playwright e2e harness — you record an
+existing scenario by name, never a hand-rolled one-off script and never a tag edit to the
+feature file.** The harness already drives every UI surface through a maintained step
+library, so the clip is produced by the same code CI exercises, there is no parallel
+capture script to keep in sync, and the `.feature` files stay pristine. (If a surface
+isn't reachable by a scenario, write the scenario — there is no `capture.mjs` fallback.)
 
 **Delegate to a subagent** (`Agent(subagent_type="general-purpose", model="sonnet")`) so
 the main context stays clear of capture noise. Brief it with the box name, the branch, the
-`@evidence` scenario (feature file + tag), a `<slug>`, and the PR number; have it return
-only the markdown body it posted.
+scenario to record (feature file + exact scenario name), a `<slug>`, and the PR number;
+have it return only the markdown body it posted.
 
 ## How the harness records (wired in `packages/tests/support/hooks.ts`, gated on `KOLU_EVIDENCE`)
 
@@ -43,8 +44,8 @@ Off by default — normal runs pay nothing. With `KOLU_EVIDENCE=1` the e2e harne
 - saves the page's `.webm` scenario-named to `packages/tests/reports/videos/` in the
   `After` hook (grabs `page.video()` before `context.close()`, `saveAs` after).
 
-To capture a surface, tag the scenario that exercises it `@evidence` (or author a tiny one
-reusing existing steps). One `@evidence` scenario per clip.
+To capture a surface, pick the scenario that exercises it (or author a tiny one reusing
+existing steps) and select it by name. One scenario per clip.
 
 ## 1. Provision & get the repo on the box
 
@@ -55,20 +56,25 @@ pu create "$host"                          # see the pu skill (incl. egress chec
 pu connect "$host" -- "git clone --depth 1 -b $branch https://github.com/juspay/kolu ~/kolu"
 ```
 
-## 2. Capture — run the `@evidence` scenario (the harness records it)
+## 2. Capture — run the scenario by name (the harness records it)
 
 Run it on the box exactly the way CI runs e2e (`ci::e2e`): inside the Nix dev shell, with
-`KOLU_EVIDENCE=1`. `just test-quick` builds the client and spawns the server from source,
-so there is no separate serve step.
+`KOLU_EVIDENCE=1`. Select the scenario **by name** (`--name`, a regex over the scenario
+title) — no feature-file edit. `just test-quick` builds the client and spawns the server
+from source, so there is no separate serve step. Send a one-line runner script to dodge the
+nested ssh/devshell quoting (`$scenario` expands locally into the script):
 
 ```sh
-pu connect "$host" -- 'cd ~/kolu && nix develop -c bash -lc \
-  "KOLU_EVIDENCE=1 just test-quick features/<file>.feature --tags @evidence"'
-# → ~/kolu/packages/tests/reports/videos/<scenario>.webm
+scenario="Editing an HTML file refreshes the iframe preview live"   # the scenario to record
+pu connect "$host" -- "cat > ~/run-evidence.sh" <<SH
+cd ~/kolu && nix develop -c bash -lc "KOLU_EVIDENCE=1 just test-quick features/<file>.feature --name '$scenario'"
+SH
+pu connect "$host" -- "bash ~/run-evidence.sh"
+# → ~/kolu/packages/tests/reports/videos/<scenario-slug>.webm
 ```
 
-For a **"before"** clip, run the same `@evidence` scenario on a second box cloned at the
-base ref (e.g. `master`).
+For a **"before"** clip, run the same scenario on a second box cloned at the base ref
+(e.g. `master`).
 
 ## 3. Legibility (the #1 quality issue)
 
@@ -80,7 +86,7 @@ base ref (e.g. `master`).
 - **Motion stays on** under `KOLU_EVIDENCE` (the determinism init script is skipped), so
   transitions actually show.
 - **Brisk, then speed up** in transcode (`setpts=PTS/2`–`/3`) so agent-latency dead time
-  doesn't drag; add an `@evidence`-gated dwell step at the payoff if a beat gets lost.
+  doesn't drag; add a brief dwell step at the payoff if a beat gets lost.
 
 Transcode on the box with `nix shell nixpkgs#ffmpeg` (GIF for inline, MP4 for HD):
 

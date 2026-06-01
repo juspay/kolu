@@ -658,13 +658,6 @@ Feature: Code tab (review + browse)
   # re-points the iframe `src`. This reads the rendered content *inside* the
   # frame — proof the new bytes actually reached the preview, not merely that
   # the src attribute moved.
-  #
-  # Tagged @evidence: this doubles as the PR-evidence demo. Recording rides the
-  # existing harness — `KOLU_EVIDENCE=1 just test-quick features/code-tab.feature
-  # --tags @evidence` saves a legible .webm of the preview auto-reloading
-  # (hooks.ts wires Playwright recordVideo + slowMo and keeps animations on
-  # under KOLU_EVIDENCE). See docs/plans/video-evidence.html.
-  @evidence
   Scenario: Editing an HTML file refreshes the iframe preview live
     When I run "rm -rf /tmp/kolu-live-html && git init /tmp/kolu-live-html && cd /tmp/kolu-live-html"
     And I run "printf '<!doctype html><h1>preview version one</h1>\n' > page.html"
