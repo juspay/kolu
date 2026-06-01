@@ -648,8 +648,11 @@ describe("liveOutstandingTasks", () => {
     expect(live(session, [wf("wf_stale")])).toEqual([]);
   });
 
-  it("drops a workflow with no journal on disk", () => {
-    expect(live(session, [wf("wf_missing")])).toEqual([]);
+  it("keeps a workflow with no journal on disk (fail-open against format churn)", () => {
+    // The gate vetoes only on a journal it can positively read as terminal/stale;
+    // an absent journal (e.g. a future runtime that moves the snapshot path) must
+    // degrade to narrowing-only behaviour, never drop a live workflow.
+    expect(live(session, [wf("wf_missing")])).toEqual([wf("wf_missing")]);
   });
 
   it("passes non-workflow tasks (runId null) through unchanged", () => {

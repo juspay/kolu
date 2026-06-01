@@ -581,12 +581,26 @@ const TERMINAL_JOURNAL_STATUSES = new Set([
 export const WORKFLOW_JOURNAL_STALE_MS = 2 * 60 * 1000;
 
 /** Filter `outstanding` to the tasks that may drive the `running_background`
- *  promotion, dropping `Workflow` runs whose on-disk journal is terminal or
- *  stale (orphaned by a restart). Non-`Workflow` tasks (runId null) pass
- *  through unchanged — `deriveState`'s own narrowing already declines to
- *  promote on them. The IO (a `stat` + read per workflow task) only runs when
- *  the tail carries an outstanding task, so the common path stays off disk.
- *  `now` is injectable for tests. */
+ *  promotion, dropping a `Workflow` run only when its on-disk journal is
+ *  *positively* observed to be terminal or stale (the orphaned-by-restart
+ *  signature). Non-`Workflow` tasks (runId null) pass through unchanged —
+ *  `deriveState`'s own narrowing already declines to promote on them.
+ *
+ *  Fail-open by design: a missing or unreadable journal returns `true` (keep).
+ *  The Claude Code Workflow runtime's on-disk layout has churned across
+ *  versions — the same snapshot kolu reads (`workflows/<runId>.json`, the path
+ *  `deriveWorkflowProgress` already consumes) was present, then absent (see
+ *  `dynamic-workflow-viewer.html`), and is present again today, carrying
+ *  `{workflowName,status,agentCount}` and rewritten live (that snapshot is what
+ *  the workflows-dir watcher reacts to for the live fan-out count — #1015). If
+ *  a future version moves or drops it, this gate must degrade to a no-op — the
+ *  worst case is the pre-existing narrowing behaviour (a real workflow keeps
+ *  promoting), never the codex-flagged regression of dropping live workflows.
+ *  So the gate ACTS only on a journal it can read; it never vetoes on absence.
+ *
+ *  The IO (a `stat` + read per workflow task) only runs when the tail carries an
+ *  outstanding task, so the common path stays off disk. `now` is injectable for
+ *  tests. */
 export function liveOutstandingTasks(
   session: SessionFile,
   outstanding: BackgroundTask[],
@@ -596,20 +610,19 @@ export function liveOutstandingTasks(
   return outstanding.filter((task) => {
     if (!task.runId) return true; // not a workflow — deriveState's narrowing decides
     const journalPath = path.join(wfDir, `${task.runId}.json`);
-    let stat: fs.Stats;
+    let raw: string;
     try {
-      stat = fs.statSync(journalPath);
+      const stat = fs.statSync(journalPath);
+      if (now - stat.mtimeMs > WORKFLOW_JOURNAL_STALE_MS) return false; // orphaned
+      raw = fs.readFileSync(journalPath, "utf8");
     } catch {
-      return false; // no journal to observe → not a live, backed run
+      return true; // no observable journal (absent / churned path) → keep, don't regress
     }
-    if (now - stat.mtimeMs > WORKFLOW_JOURNAL_STALE_MS) return false; // orphaned
     let status: unknown;
     try {
-      status = (
-        JSON.parse(fs.readFileSync(journalPath, "utf8")) as { status?: unknown }
-      ).status;
+      status = (JSON.parse(raw) as { status?: unknown }).status;
     } catch {
-      return true; // fresh but unreadable (transient mid-write) → keep
+      return true; // present + fresh but unparseable (transient mid-write) → keep
     }
     return !(
       typeof status === "string" && TERMINAL_JOURNAL_STATUSES.has(status)
