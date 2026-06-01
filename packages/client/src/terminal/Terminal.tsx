@@ -574,9 +574,11 @@ const Terminal: Component<{
                 startY: number;
               } | null = null;
               // Map a tap point to the `path:line` reference under it, if any.
-              // Converts the viewport pixel to a (col, buffer-line) cell using
-              // the same screen/grid geometry the touch-scroll handler uses,
-              // then hit-tests against the link parser.
+              // Reads the screen's `getBoundingClientRect()` to convert the
+              // viewport pixel into a (col, buffer-line) cell — both axes plus
+              // the rect offsets, since a tap is 2D (the touch-scroll handler
+              // below needs only `clientHeight`, one dimension, so the two
+              // don't share a geometry helper). Then hit-tests the link parser.
               const fileRefAtPoint = (
                 clientX: number,
                 clientY: number,
