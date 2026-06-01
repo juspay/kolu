@@ -311,7 +311,18 @@ const CodeTab: Component<{
   });
 
   const treePaths = createMemo(() => {
-    if (view() === "browse") return allPaths()?.paths ?? [];
+    // Copy `paths` out rather than returning the store proxy directly:
+    // `fsListAll` lands in a reconciled store whose `paths` array is
+    // mutated in place, so the proxy's reference is stable across an
+    // in-place add/remove. Returning it bare means this memo never reads
+    // the contents (so an in-place add doesn't re-run it) and, even when it
+    // does re-run, the stable reference defeats the downstream
+    // reference-equality memos/effects that feed Pierre — a file created in
+    // a hand-expanded folder would never surface. Spreading tracks every
+    // element + length and mints a fresh reference, matching the diff
+    // branch's `.map()` below. See `createReactiveSubscription` /
+    // `writeValue.ts` for the reconcile strategy.
+    if (view() === "browse") return [...(allPaths()?.paths ?? [])];
     return status()?.files.map((f) => f.path) ?? [];
   });
 
