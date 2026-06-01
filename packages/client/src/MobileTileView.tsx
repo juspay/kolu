@@ -27,7 +27,7 @@ import MobileChromeSheet from "./MobileChromeSheet";
 import type { WsStatus } from "./rpc/rpc";
 import { TerminalMetaCompact } from "./terminal/TerminalMeta";
 import { useTerminalStore } from "./terminal/useTerminalStore";
-import { drawerKeyboardOnOpenChange } from "./ui/dismissSoftKeyboard";
+import { withKeyboardDismiss } from "./ui/dismissSoftKeyboard";
 
 /** Minimum horizontal travel (px) before a swipe commits to a tile change. */
 const SWIPE_THRESHOLD = 60;
@@ -72,8 +72,8 @@ const MobileTileView: Component<{
   // onOpenChange) and the in-sheet buttons (`onClose`, routed through
   // `handler(false)`) — funnels through these so the soft keyboard never
   // lingers on a touch device after the drawer goes away.
-  const onChromeOpenChange = drawerKeyboardOnOpenChange(setChromeOpen);
-  const onDockOpenChange = drawerKeyboardOnOpenChange(setDockOpen);
+  const onChromeOpenChange = withKeyboardDismiss(setChromeOpen);
+  const onDockOpenChange = withKeyboardDismiss(setDockOpen);
   // Pull-handle drag state for the chrome (top) drawer. Not reactive —
   // only the touch handlers read it.
   let pullStartY: number | null = null;

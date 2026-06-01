@@ -39,19 +39,19 @@ export function dismissSoftKeyboard(): void {
   requestAnimationFrame(blur);
 }
 
-/** Wrap a drawer's open-state setter into a Corvu `onOpenChange` handler that
+/** Wrap a Corvu overlay's `onOpenChange` (or a bare open-state setter) so it
  *  drops the soft keyboard on close. Corvu fires `onOpenChange` in both
- *  directions, so opening just sets state while closing also dismisses. Every
- *  mobile drawer wires its `onOpenChange` — and routes its in-sheet close
- *  button through `handler(false)` — through this, so "dismissing a drawer
- *  leaves the keyboard down" is structural, not a per-drawer convention a new
- *  drawer could forget. The consumer still owns its open state (it passes the
- *  setter); only the keyboard mechanism is shared. */
-export function drawerKeyboardOnOpenChange(
-  setOpen: (open: boolean) => void,
+ *  directions, so opening just forwards the state while closing also dismisses.
+ *  Every mobile drawer AND `ModalDialog` wire their `onOpenChange` — and route
+ *  their in-sheet close buttons through `handler(false)` — through this, so
+ *  "dismissing an overlay leaves the keyboard down" is structural, not a
+ *  per-overlay convention a new one could forget. The consumer still owns its
+ *  open state (it passes the setter); only the keyboard mechanism is shared. */
+export function withKeyboardDismiss(
+  onOpenChange: (open: boolean) => void,
 ): (open: boolean) => void {
   return (open) => {
-    setOpen(open);
+    onOpenChange(open);
     if (!open) dismissSoftKeyboard();
   };
 }

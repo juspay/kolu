@@ -19,7 +19,7 @@
 import Drawer from "@corvu/drawer";
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import type { Component, JSX } from "solid-js";
-import { drawerKeyboardOnOpenChange } from "../ui/dismissSoftKeyboard";
+import { withKeyboardDismiss } from "../ui/dismissSoftKeyboard";
 import RightPanel from "./RightPanel";
 import { useRightPanel } from "./useRightPanel";
 
@@ -43,9 +43,7 @@ const RightPanelDrawer: Component<HostProps> = (props) => {
   // stops Corvu re-summoning it. Both close paths — backdrop tap / drag
   // (Corvu's onOpenChange) and the in-panel close button (onToggle, routed
   // through `handler(false)`) — funnel through here.
-  const onDrawerOpenChange = drawerKeyboardOnOpenChange(
-    rightPanel.setDrawerOpen,
-  );
+  const onDrawerOpenChange = withKeyboardDismiss(rightPanel.setDrawerOpen);
 
   return (
     <>

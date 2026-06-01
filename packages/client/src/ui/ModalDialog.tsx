@@ -15,7 +15,7 @@ import {
   getFirstTerminalNode,
 } from "../canvas/activeTerminal";
 import { isTouch } from "../useMobile";
-import { dismissSoftKeyboard } from "./dismissSoftKeyboard";
+import { withKeyboardDismiss } from "./dismissSoftKeyboard";
 
 /** Click the visible terminal to restore focus after a dialog closes.
  *  If a terminal already has focus (e.g. sub-panel managed its own focus),
@@ -70,14 +70,12 @@ const ModalDialog: Component<{
 }> = (props) => (
   <Dialog
     open={props.open}
-    onOpenChange={(open) => {
-      props.onOpenChange(open);
-      // On close, blur any dialog-hosted input (palette query, intent editor,
-      // …) so closing the dialog on touch leaves the soft keyboard down —
-      // restoreFocus={false} + refocusTerminal's touch no-op keep it from
-      // coming back. No-op on desktop.
-      if (!open) dismissSoftKeyboard();
-    }}
+    // withKeyboardDismiss: on close, blur any dialog-hosted input (palette
+    // query, intent editor, …) so closing the dialog on touch leaves the soft
+    // keyboard down — the same overlay-close policy the mobile drawers carry.
+    // restoreFocus={false} + refocusTerminal's touch no-op keep it from coming
+    // back. No-op on desktop.
+    onOpenChange={withKeyboardDismiss(props.onOpenChange)}
     restoreFocus={false}
     onFinalFocus={(e) => e.preventDefault()}
     // terminal.focus() calls (visibility effects, click handlers) emit focusin
