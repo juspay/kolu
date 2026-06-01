@@ -24,7 +24,7 @@
  *  Code tab was unified into `CodeTab.tsx` + `RightPanelDrawer.tsx`.) */
 
 import { makeEventListener } from "@solid-primitives/event-listener";
-import { walkShadowRoots } from "../comments/shadowWalk";
+import { walkShadowRoots } from "../dom/shadowWalk";
 
 /** Below this many pixels of finger travel, a touch is still a tap — let
  *  Pierre's row-click fire on `touchend` rather than eating it as a scroll. */

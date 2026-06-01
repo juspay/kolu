@@ -15,7 +15,7 @@
     "test:unit": "vitest run"
   },
   "dependencies": {
-    "kolu-shared": "workspace:*",
+    "@kolu/log": "workspace:*",
     "zod": "^4.3.6"
   },
   "devDependencies": {

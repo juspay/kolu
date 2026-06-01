@@ -12,21 +12,8 @@
  * fire on a closed watcher.
  */
 
+import type { Logger } from "@kolu/log";
 import fs from "node:fs";
-
-/** Minimal structured-logging contract for the optional `log?` parameter.
- *  Structurally compatible with [pino](https://getpino.io)'s child loggers
- *  and with `kolu-shared`'s `Logger` — callers pass either without an
- *  adapter. Kept private (no re-export from the barrel) so `kolu-shared/log`
- *  remains the workspace's single authoritative public `Logger` contract;
- *  this declaration exists only to keep `kolu-io` a zero-`kolu-*`-deps
- *  leaf. */
-type Logger = {
-  debug: (obj: Record<string, unknown>, msg: string) => void;
-  info: (obj: Record<string, unknown>, msg: string) => void;
-  warn: (obj: Record<string, unknown>, msg: string) => void;
-  error: (obj: Record<string, unknown>, msg: string) => void;
-};
 
 interface SharedFilenameWatcher {
   subscribe(onChange: () => void): () => void;

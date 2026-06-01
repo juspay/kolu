@@ -18,7 +18,7 @@ import {
 } from "@kolu/artifact-sdk/client";
 import { type Accessor, createEffect, onCleanup } from "solid-js";
 import { useCommentScrollRequest } from "./scrollRequest";
-import { walkShadowRoots } from "./shadowWalk";
+import { walkShadowRoots } from "../dom/shadowWalk";
 import type { Comment } from "./types";
 
 const HIGHLIGHT_NAME = "kolu-comment";

@@ -61,6 +61,9 @@ importers:
       '@kolu/artifact-sdk':
         specifier: workspace:*
         version: link:../artifact-sdk
+      '@kolu/html-escape':
+        specifier: workspace:*
+        version: link:../html-escape
       '@kolu/solid-fileview':
         specifier: workspace:*
         version: link:../solid-fileview
@@ -238,6 +241,12 @@ importers:
         specifier: ^5.8.0
         version: 5.9.3
 
+  packages/html-escape:
+    devDependencies:
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+
   packages/integrations/anyagent:
     dependencies:
       kolu-shared:
@@ -376,6 +385,10 @@ importers:
         version: 4.1.2(@types/node@22.19.15)(vite@6.4.2(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.47.1)(tsx@4.21.0)(yaml@2.8.3))
 
   packages/integrations/io:
+    dependencies:
+      '@kolu/log':
+        specifier: workspace:*
+        version: link:../../log
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -426,6 +439,12 @@ importers:
       vitest:
         specifier: ^4.1.2
         version: 4.1.2(@types/node@22.19.15)(vite@6.4.2(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.47.1)(tsx@4.21.0)(yaml@2.8.3))
+
+  packages/log:
+    devDependencies:
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
 
   packages/memorable-names:
     dependencies:
@@ -599,6 +618,10 @@ importers:
         version: 4.1.2(@types/node@22.19.15)(vite@6.4.2(@types/node@22.19.15)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.47.1)(tsx@4.21.0)(yaml@2.8.3))
 
   packages/shared:
+    dependencies:
+      '@kolu/log':
+        specifier: workspace:*
+        version: link:../log
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -921,9 +944,9 @@ importers:
 
   packages/transcript-core:
     dependencies:
-      kolu-shared:
+      '@kolu/log':
         specifier: workspace:*
-        version: link:../shared
+        version: link:../log
       zod:
         specifier: ^4.3.6
         version: 4.3.6
@@ -940,12 +963,12 @@ importers:
 
   packages/transcript-html:
     dependencies:
+      '@kolu/html-escape':
+        specifier: workspace:*
+        version: link:../html-escape
       '@pierre/diffs':
         specifier: ^1.2.1
         version: 1.2.1(react@19.2.5)
-      kolu-common:
-        specifier: workspace:*
-        version: link:../common
       kolu-transcript-core:
         specifier: workspace:*
         version: link:../transcript-core

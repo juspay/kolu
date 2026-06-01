@@ -210,11 +210,13 @@ pnpm monorepo:
 | `packages/integrations/opencode/`    | OpenCode detection — reads OpenCode's SQLite database via Node's built-in `node:sqlite`; exports an `opencodeProvider` `AgentProvider`                                |
 | `packages/integrations/git/`         | Pure git operations — `simple-git` wrapper: repo resolution, worktree lifecycle, diff review, path security; schemas re-exported by `kolu-common`                     |
 | `packages/integrations/github/`      | GitHub PR schemas + pure helpers (`deriveCheckStatus`, `classifyGhError`, `prResultEqual`); server wraps with `gh pr view` spawn via `KOLU_GH_BIN`                    |
-| `packages/integrations/io/`          | Filesystem & I/O primitives — refcounted shared `fs.watch` keyed by directory (`createDirFilenameWatcher`); zero `kolu-*` deps so any package can adopt without coupling |
+| `packages/integrations/io/`          | Filesystem & I/O primitives — refcounted shared `fs.watch` keyed by directory (`createDirFilenameWatcher`); its only dependency is the types-only `@kolu/log` leaf, so any package can adopt it without runtime coupling |
 | `packages/transcript-core/`          | Vendor-neutral transcript IR (`Transcript`, `TranscriptEvent`, typed `ToolInput` union) + structural transforms; per-agent loaders normalize into this shape          |
 | `packages/transcript-html/`          | Static-export renderer — `marked` for prose, [`@pierre/diffs`](https://www.npmjs.com/package/@pierre/diffs) SSR for shiki-tokenized code/diffs, [Preact](https://preactjs.com/) JSX for chrome; emits one self-contained `.html` |
 | `packages/terminal-themes/`          | Terminal color scheme catalog + perceptual-distance picker — themes checked-in as JSON                                                                                |
 | `packages/memorable-names/`          | ADJ-NOUN random name generator — word lists checked-in as JSON                                                                                                        |
+| `packages/log/`                      | Structured-logging contract (`Logger`) — a zero-runtime-dependency, zero-`kolu-*`-dependency leaf, so even packages that refuse a `kolu-shared` dep import one canonical type instead of re-declaring it (`kolu-shared`, `kolu-io`, `kolu-transcript-core` all defer here) |
+| `packages/html-escape/`              | `escapeHtml` — a zero-dependency leaf, so app-agnostic appliances (`transcript-html`, the scrollback PDF export) reach it without dragging the `kolu-common` domain contract into their dependency tree |
 
 ### Communication
 

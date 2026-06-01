@@ -6,10 +6,9 @@
  */
 
 import { makeEventListener } from "@solid-primitives/event-listener";
-import { makePersisted } from "@solid-primitives/storage";
 import { DEFAULT_FONT_SIZE } from "kolu-common/config";
 import type { TerminalId } from "kolu-common/surface";
-import { createSignal } from "solid-js";
+import { persistedPref } from "../persistedPref";
 import { isPlatformModifier, ZOOM_KEYS } from "./keyboard";
 
 /**
@@ -20,14 +19,20 @@ import { isPlatformModifier, ZOOM_KEYS } from "./keyboard";
  * @param isActive — accessor; zoom keys only apply when true (only the visible terminal zooms)
  */
 export function createZoom(terminalId: TerminalId, isActive: () => boolean) {
-  const [fontSize, setFontSize] = makePersisted(
-    createSignal(DEFAULT_FONT_SIZE),
-    {
-      name: `kolu-font-size-${terminalId}`,
-      serialize: String,
-      deserialize: Number,
+  const [fontSize, setFontSize] = persistedPref<number>({
+    name: `kolu-font-size-${terminalId}`,
+    fallback: DEFAULT_FONT_SIZE,
+    serialize: String,
+    // Guard the read: `Number("garbage")` is `NaN`, which would otherwise
+    // become the font size. Reject non-finite / non-positive and fall back.
+    parse: (raw) => {
+      const n = Number(raw);
+      if (!Number.isFinite(n) || n <= 0) {
+        throw new Error(`invalid persisted font size: ${raw}`);
+      }
+      return n;
     },
-  );
+  });
 
   // Capture phase: intercept before xterm's own keydown handler in bubble phase
   makeEventListener(

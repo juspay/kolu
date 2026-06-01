@@ -5,10 +5,10 @@
  *  Terminal grid dimensions are per-instance — each xterm measures its
  *  own container via FitAddon. */
 
-import { makePersisted } from "@solid-primitives/storage";
 import type { TerminalId } from "kolu-common/surface";
 import { createEffect, createSignal, on } from "solid-js";
 import { createStore, produce, reconcile } from "solid-js/store";
+import { persistedPref } from "./persistedPref";
 import { client } from "./wire";
 
 type TerminalAttention = "unread" | "badge-only";
@@ -22,10 +22,14 @@ export function useViewState() {
    *  it's a per-tab view preference, not session state, so it lives
    *  alongside other view prefs (e.g. minimap-expanded), not in the
    *  server's SavedSession. */
-  const [canvasMaximized, setCanvasMaximizedSignal] = makePersisted(
-    createSignal(false),
-    { name: "kolu-canvas-maximized" },
-  );
+  const [canvasMaximized, setCanvasMaximizedSignal] = persistedPref<boolean>({
+    name: "kolu-canvas-maximized",
+    fallback: false,
+    // Strict: the default coercion read the stored string `"false"` as
+    // truthy, so the posture latched on once persisted. Only literal
+    // `"true"` is true.
+    parse: (raw) => raw === "true",
+  });
 
   /** Terminals needing attention. `unread` drives in-app dots and badges;
    *  `badge-only` is for OS/PWA attention that should not show an in-app dot. */

@@ -22,7 +22,7 @@ import {
   onMount,
 } from "solid-js";
 import { useComposer } from "./composerState";
-import { walkShadowRoots } from "./shadowWalk";
+import { walkShadowRoots } from "../dom/shadowWalk";
 
 /** Debounced live-selection snapshot. The pill placement only needs the
  *  rect — the real W3C Locator is built lazily in `activate()` from the

@@ -26,7 +26,7 @@ import {
   preloadFileDiff,
   preloadMultiFileDiff,
 } from "@pierre/diffs/ssr";
-import { escapeHtml } from "kolu-common/html";
+import { escapeHtml } from "@kolu/html-escape";
 
 /** Read Pierre's compiled `style.js` module and pull out the core CSS
  *  string literal. The file shape is `var style_default = "...";

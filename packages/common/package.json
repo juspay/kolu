@@ -12,7 +12,6 @@
     "./errors": "./src/errors.ts",
     "./config": "./src/config.ts",
     "./path": "./src/path.ts",
-    "./html": "./src/html.ts",
     "./terminalKey": "./src/terminalKey.ts",
     "./transcript": "./src/transcript.ts",
     "./test-hooks": "./src/test-hooks.ts",
