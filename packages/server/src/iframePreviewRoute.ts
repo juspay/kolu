@@ -18,6 +18,7 @@
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { resolveUnder } from "kolu-git";
+import { encodePreviewPath } from "kolu-git/previewPath";
 
 /** Base URL for the iframe-preview file route. Used by both
  *  `buildIframePreviewUrl` (server emits URLs in this shape) and the Hono
@@ -38,7 +39,7 @@ export function buildIframePreviewUrl(
   filePath: string,
   mtimeMs: number,
 ): string {
-  const encodedPath = filePath.split("/").map(encodeURIComponent).join("/");
+  const encodedPath = encodePreviewPath(filePath);
   return `${TERMINAL_FILE_ROUTE_BASE}/${terminalId}/${TERMINAL_FILE_ROUTE_FILE_SEGMENT}/${encodedPath}?v=${Math.floor(mtimeMs)}`;
 }
 

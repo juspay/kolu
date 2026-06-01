@@ -1,3 +1,5 @@
+import { decodePreviewPath, encodePreviewPath } from "kolu-git/previewPath";
+
 /** Map an in-iframe-reported `location.pathname` back to the repo-relative
  *  path it previews. The browse preview iframe is served from
  *  `buildIframePreviewUrl` (server-side) as
@@ -9,10 +11,10 @@
  *  The route prefix isn't hardcoded here — the client can't import the
  *  server's URL contract — so it's derived from the file currently shown:
  *  `currentUrl` (its `buildIframePreviewUrl` output) ends with the
- *  per-segment-encoded `currentPath`, and everything before that is the
- *  shared `/api/terminals/{id}/file/` prefix. Stripping that prefix off the
- *  reported pathname and per-segment-decoding inverts the builder's
- *  `encodeURIComponent` exactly — no second source of truth for the route.
+ *  `encodePreviewPath(currentPath)`, and everything before that is the shared
+ *  `/api/terminals/{id}/file/` prefix. The encode/decode use the same
+ *  `kolu-git/previewPath` codec the server's builder uses, so the inversion
+ *  can't drift from the encoding — no second source of truth.
  *
  *  Returns null when the iframe navigated outside the file route (an external
  *  link, or a prefix mismatch that shouldn't happen) — the caller leaves the
@@ -23,10 +25,7 @@ export function repoPathFromPreviewPathname(
   currentPath: string,
 ): string | null {
   const currentPathname = currentUrl.split("?")[0] ?? currentUrl;
-  const encodedCurrent = currentPath
-    .split("/")
-    .map(encodeURIComponent)
-    .join("/");
+  const encodedCurrent = encodePreviewPath(currentPath);
   if (!currentPathname.endsWith(encodedCurrent)) return null;
   const prefix = currentPathname.slice(
     0,
@@ -36,7 +35,7 @@ export function repoPathFromPreviewPathname(
   const encodedNext = reportedPathname.slice(prefix.length);
   if (encodedNext === "") return null;
   try {
-    return encodedNext.split("/").map(decodeURIComponent).join("/");
+    return decodePreviewPath(encodedNext);
   } catch {
     // A malformed percent-sequence can only arrive if the previewed page
     // crafted a bogus `ready` pathname — treat it as "no navigation".

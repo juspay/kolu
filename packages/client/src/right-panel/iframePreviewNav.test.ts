@@ -1,3 +1,4 @@
+import { encodePreviewPath } from "kolu-git/previewPath";
 import { describe, expect, it } from "vitest";
 import { repoPathFromPreviewPathname } from "./iframePreviewNav";
 
@@ -100,5 +101,31 @@ describe("repoPathFromPreviewPathname", () => {
         "first.html",
       ),
     ).toBeNull();
+  });
+
+  // Round-trip against the SHARED `kolu-git/previewPath` codec — the same
+  // encoder `buildIframePreviewUrl` uses server-side. This is the guard that
+  // matters: if the encoding scheme ever changes, the inversion must still
+  // invert it. Building inputs via `encodePreviewPath` (rather than a
+  // hand-written encoded string) pins the test to the real encoder, so a
+  // change there that `repoPathFromPreviewPathname` no longer inverts fails
+  // here at the unit layer instead of only at e2e.
+  describe("round-trips encodePreviewPath for any repo path", () => {
+    const navigate = (from: string, to: string): string | null => {
+      const currentUrl = `${PREFIX}/${encodePreviewPath(from)}?v=1`;
+      const reported = `${PREFIX}/${encodePreviewPath(to)}`;
+      return repoPathFromPreviewPathname(reported, currentUrl, from);
+    };
+    it.each([
+      { from: "first.html", to: "second.html" },
+      { from: "docs/a.html", to: "docs/b.html" },
+      { from: "docs/a.html", to: "other.html" },
+      { from: "a.html", to: "deep/nested/dir/b.html" },
+      { from: "my notes/page one.html", to: "my notes/page two.html" },
+      { from: "weird & name.html", to: "100%/=done?.html" },
+      { from: "café/résumé.html", to: "naïve/façade.html" },
+    ])("$from → $to", ({ from, to }) => {
+      expect(navigate(from, to)).toBe(to);
+    });
   });
 });
