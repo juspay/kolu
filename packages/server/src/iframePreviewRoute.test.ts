@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { BINARY_PREVIEWABLE_EXTENSIONS } from "kolu-git";
+import { BINARY_PREVIEWABLE_EXTENSIONS } from "kolu-common/preview";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   contentTypeForPath,
@@ -10,7 +10,7 @@ import {
 } from "./iframePreviewRoute";
 
 // The classifier (`isBinaryPreviewable` / `isRasterImage`) and its own tests
-// live in `kolu-git/previewable`. This suite covers the route's serving
+// live in `kolu-common/preview`. This suite covers the route's serving
 // layer and the one invariant that couples it to that classifier:
 
 describe("CONTENT_TYPES covers every binary-previewable extension", () => {

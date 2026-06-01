@@ -48,8 +48,8 @@ import {
   fsReadFileOutputEqual,
   gitDiffOutputEqual,
   gitStatusOutputEqual,
-  isBinaryPreviewable,
 } from "kolu-git";
+import { isBinaryPreviewable } from "kolu-common/preview";
 import { buildIframePreviewUrl } from "./iframePreviewRoute.ts";
 import { log } from "./log.ts";
 import { publisher } from "./publisher.ts";

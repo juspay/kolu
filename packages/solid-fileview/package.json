@@ -10,7 +10,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./renderers/image": "./src/renderers/image.tsx",
-    "./renderers/iframe": "./src/renderers/iframe.tsx"
+    "./renderers/iframe": "./src/renderers/iframe.tsx",
+    "./renderers/markdown": "./src/renderers/markdown.tsx"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"
@@ -19,6 +20,7 @@
     "typescript": "^5.8.0"
   },
   "dependencies": {
+    "@kolu/solid-markdown": "workspace:*",
     "solid-js": "^1.9.0"
   }
 }

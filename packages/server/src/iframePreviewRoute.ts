@@ -44,7 +44,7 @@ export function buildIframePreviewUrl(
 
 /** Content-Type per extension for files served by this route. Every
  *  extension in `BINARY_PREVIEWABLE_EXTENSIONS` (the node-free classifier in
- *  `kolu-git/previewable` that decides `FsReadFileOutput.kind`) must have a
+ *  `kolu-common/preview` that decides `FsReadFileOutput.kind`) must have a
  *  real entry here, or the route serves it as `application/octet-stream` and
  *  the browser downloads it instead of rendering. That coverage invariant is
  *  asserted in `iframePreviewRoute.test.ts`. The extra `.css`/`.js`/font
