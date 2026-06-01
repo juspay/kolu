@@ -177,10 +177,16 @@ should be read off a real `/do` run's `--progress json` timeline.
   contiguous and one-per-line with no nested braces, so `grep -o '{.*}' | jq
   'fromjson?'`-style extraction is fully robust — documented as the consumer
   contract rather than worked around in the producer.
-- **`home-manager` decoupling is the lowest-confidence edge.** It's not the long
-  pole (e2e is), and it adds a third concurrent heavy nix build. Kept it for
-  consistency and because store-locking prevents double work, but it's the first
-  edge to re-add if a real run shows contention hurting wall-clock more than the
-  overlap helps.
+- **`home-manager` is decoupled on the same principle as `e2e`/`smoke`, owned
+  deliberately.** All three follow one rule — a recipe depends on the store
+  paths it actually needs, not on the global all-outputs build gate. Applying
+  that rule uniformly (rather than special-casing `home-manager` back onto
+  `nix`) is the justification: the decision is the *rule*, not a per-edge
+  confidence bet. `home-manager` is the smallest of the three wins because it
+  isn't the long pole, and it does add a third concurrent heavy nix build —
+  that contention is the trade, and it's directly observable in the
+  `--progress json` timeline (the gap between each node's `running` and
+  terminal line). If a real run shows contention dominating the overlap, that's
+  *data* feeding the next ralph cycle — not a reason this edge is provisional.
 - **Absolute wall-clock not measured cold.** See above — it's a property of the
   per-run pu box, not the dev machine; the structural model is the justification.
