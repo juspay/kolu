@@ -27,7 +27,6 @@ type HydrationEntry = { t: TerminalInfo; m: TerminalMetadata };
 
 export function useSessionRestore(deps: {
   store: TerminalStore;
-  subscribeExit: (id: TerminalId) => void;
   handleCreate: (
     cwd?: string,
     initial?: InitialTerminalMetadata,
@@ -124,8 +123,6 @@ export function useSessionRestore(deps: {
     store.setMruOrder(
       active ? [active, ...topIds.filter((x) => x !== active)] : topIds,
     );
-
-    for (const { t } of entries) deps.subscribeExit(t.id);
   }
 
   // Re-fetch saved session when all terminals are killed mid-session,
