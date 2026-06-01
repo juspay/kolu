@@ -21,9 +21,6 @@ export type { CodeViewProps } from "./CodeView";
 export { CodeView } from "./CodeView";
 export { diffItem, fileItem } from "./codeViewItem";
 export type { FileTreeProps } from "./FileTree";
-export {
-  ancestorDirectoryPaths,
-  directoryRemovalOps,
-  FileTree,
-} from "./FileTree";
+export { FileTree } from "./FileTree";
+export { ancestorDirectoryPaths } from "./pathReconcile";
 export { useCodeViewSelection } from "./useCodeViewSelection";
