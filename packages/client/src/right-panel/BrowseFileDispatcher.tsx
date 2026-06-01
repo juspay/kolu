@@ -63,8 +63,8 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
       <BrowseFileView
         terminalId={props.terminalId}
         filePath={file.path}
-        content={file.content ?? ""}
-        truncated={file.truncated ?? false}
+        content={file.source?.content ?? ""}
+        truncated={file.source?.truncated ?? false}
         theme={props.theme}
         initialSelectedLines={props.initialSelectedLines}
       />
@@ -104,7 +104,10 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
   const textFile = createMemo<FileData | null>(() => {
     const fc = fileContent();
     return fc?.kind === "text"
-      ? { path: props.filePath, content: fc.content, truncated: fc.truncated }
+      ? {
+          path: props.filePath,
+          source: { content: fc.content, truncated: fc.truncated },
+        }
       : null;
   });
   const binaryFile = createMemo<FileData | null>(() => {

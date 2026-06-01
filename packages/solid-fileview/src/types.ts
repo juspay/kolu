@@ -5,21 +5,29 @@
 
 import type { JSX } from "solid-js";
 
-/** What a renderer draws from. A file may have a `content` (UTF-8 source on
+/** What a renderer draws from. A file may have a `source` (UTF-8 text on
  *  disk), a `url` (a server-rendered form), or *both* — the two orthogonal
  *  axes the preview taxonomy is built on:
- *    - source only   → plain code (content, no url)
- *    - rendered only → image / pdf (url, no content)
- *    - both          → markdown / html / svg (content AND url)
+ *    - source only   → plain code (source, no url)
+ *    - rendered only → image / pdf (url, no source)
+ *    - both          → markdown / html / svg (source AND url)
  *  The presence of each field is exactly what decides whether the Source ⇄
- *  Rendered toggle is offered. */
+ *  Rendered toggle is offered.
+ *
+ *  `content` and `truncated` are nested under `source` so their presence is
+ *  coupled structurally: a file either has a source form (text + its
+ *  truncation flag, as one unit) or it doesn't. The flat shape would admit
+ *  the illegal `{ url, truncated }`-without-content state. */
 export type FileData = {
   /** Path the file lives at — drives renderer matching and labels. */
   path: string;
-  /** UTF-8 source text, when the file has a source form. */
-  content?: string;
-  /** True when `content` was truncated by a size limit upstream. */
-  truncated?: boolean;
+  /** The file's source form, when it has one. */
+  source?: {
+    /** UTF-8 source text. */
+    content: string;
+    /** True when `content` was truncated by a size limit upstream. */
+    truncated: boolean;
+  };
   /** Server-built URL for a rendered form (image `<img src>`, iframe `src`),
    *  when the file has one. */
   url?: string;
