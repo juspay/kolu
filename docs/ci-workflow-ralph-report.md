@@ -127,21 +127,55 @@ so there's no double work — the three lanes simply *overlap* the big build
 instead of queuing behind it. Critical path becomes **`max(T_nix, T_e2e_branch,
 T_hm_branch, …)`** instead of a sum.
 
-### Component profile (hot / cached)
+### Measured per-node durations (real `/do` CI run, HEAD `db15cc51`)
 
-| Build | Time (hot) | Note |
+From `gh pr checks` on the green run — darwin (`nix-infra`, cold-ish) and linux
+(`drishti-ci`, warm cache):
+
+| Node | darwin | linux |
 |---|---|---|
-| `.#koluBin` (what `e2e` self-builds) | ~23s | strict subset of the `nix` node |
-| `.#default` (what `smoke` self-builds) | ~3s | wrapper over `koluBin` |
-| `nix` node (devour-flake) | superset of both + website + all `checks.*` | the big build |
-| `e2e` suite (`just test`) | ~144s | the actual long pole, per the flaky-tests report |
+| `_ci-setup` | 13s | 20s |
+| `nix` (devour-flake, all outputs) | 1m53s | 34s |
+| **`e2e` (`just test`)** | **5m33s** | **1m47s** |
+| `pnpm-hash-fresh` | 2m45s | 25s |
+| `fmt` | 2m27s | 14s |
+| `unit` | 2m7s | 23s |
+| `home-manager` | 1m58s | 53s |
+| `surface-example-build` | 1m52s | 14s |
+| `smoke` | 1m50s | 36s |
+| `biome` | 1m41s | 13s |
+| `install` | 17s | 10s |
 
-The profile confirms the structural claim: `e2e`'s self-build of `koluBin` is a
-*subset* of the `nix` node, so moving `e2e` to its own branch can never make it
-*reach test-start* later than `nix` finishes — and the dominant ~144s suite now
-runs concurrently with the big build rather than after it. For an early failure
-that's also the error-surfacing win compounding: the agent learns of a `biome`
-or `unit` failure at ~tens of seconds while `e2e` and `nix` both run.
+`e2e` is the long pole on both lanes, and it's a *subset*-builder: `just test`
+builds only `.#koluBin`, so on the new DAG it reaches test-start no later than
+`nix` finishes and the ~5m suite overlaps the big build.
+
+### Measured critical-path reduction
+
+Cross-platform lanes run in parallel, so the pipeline wall-clock is the slower
+lane's critical path — darwin here.
+
+| Lane | Old (`e2e: nix install`) | New (`e2e: install`) | Reduction |
+|---|---|---|---|
+| **darwin** | `setup + nix + e2e` = 13s + 1m53s + 5m33s ≈ **7m39s** | `setup + max(e2e, nix, …)` = 13s + 5m33s ≈ **5m46s** | **~25%** (−1m53s) |
+| linux (warm) | 20s + 34s + 1m47s ≈ **2m41s** | 20s + 1m47s ≈ **2m7s** | ~21% (−34s) |
+
+The saving is exactly the `nix`-node time `e2e` no longer waits for. The
+error-surfacing win compounds on top: via `--progress json` the agent learns of
+a `biome`/`unit`/`fmt` failure at ~tens of seconds while `e2e` and `nix` are
+still running, instead of at end-of-run minutes later.
+
+### Real-world `--progress json` proof (the no-egress incident)
+
+The first attempt provisioned an ephemeral `pu` linux box that came up **without
+network egress** (DNS timeouts to `cache.nixos.asia` / `ftpmirror.gnu.org`). The
+`--progress json` stream surfaced this *live and per-node*: each linux recipe
+emitted `{"status":"failed","exit_code":127,"log":"…"}` the instant it failed
+(with the egress errors visible in the streamed logs), while the **darwin lane
+kept running and went green** — exactly the fail-fast, sibling-lanes-unblocked
+behavior the feature is for. Diagnosed as infra (not the DAG — darwin ran the
+identical pipeline clean), posted a `pu`-misbehaved diagnostic comment, and fell
+back to `hosts.json` (`drishti-ci`) for the linux lane, which went all-green.
 
 ### Coverage trade (authorized: "may trade coverage for speed")
 
@@ -153,11 +187,10 @@ all four remain required checks — so the merge gate is identical. The cost is 
 concurrent nix builds on one host; on the ephemeral per-run linux box (a full
 machine) that's the intended trade.
 
-**Authoritative wall-clock to confirm on the per-run linux box.** The absolute
-before/after wall-clock is host-dependent (CPU/RAM, substituter warmth,
-contention between concurrent builds). The change is justified on the
-critical-path restructuring + component profile above; the end-to-end number
-should be read off a real `/do` run's `--progress json` timeline.
+**Authoritative wall-clock — confirmed.** Measured on the real `/do` CI run
+above: ~25% critical-path reduction on the dominant (darwin) lane, ~21% on
+linux. The absolute number stays host-dependent (CPU/RAM, substituter warmth,
+contention), but the direction and magnitude held on a real two-platform run.
 
 ---
 
