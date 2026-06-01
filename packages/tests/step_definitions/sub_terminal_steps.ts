@@ -1,7 +1,12 @@
 import * as assert from "node:assert";
 import { Then, When } from "@cucumber/cucumber";
 import { waitForBufferContains } from "../support/buffer.ts";
-import { type KoluWorld, MOD_KEY, POLL_TIMEOUT } from "../support/world.ts";
+import {
+  COARSE_POINTER_QUERY,
+  type KoluWorld,
+  MOD_KEY,
+  POLL_TIMEOUT,
+} from "../support/world.ts";
 
 const PALETTE = '[data-testid="command-palette"]';
 
@@ -59,9 +64,16 @@ async function paletteCommand(world: KoluWorld, query: string) {
     { timeout: POLL_TIMEOUT },
   );
   // Wait for focus to land in a terminal — Corvu's focus trap release is async
-  // and waitForFrame (2x rAF) is insufficient on loaded CI.
+  // and waitForFrame (2x rAF) is insufficient on loaded CI. On touch the
+  // refocus-terminal-on-dialog-close is intentionally suppressed (it would
+  // summon the soft keyboard with no tap), so the terminal stays unfocused by
+  // design — short-circuit the wait there; the typing steps focus their target
+  // explicitly.
   await world.page.waitForFunction(
-    () => !!document.activeElement?.closest("[data-terminal-id]"),
+    (coarsePointer) =>
+      matchMedia(coarsePointer).matches ||
+      !!document.activeElement?.closest("[data-terminal-id]"),
+    COARSE_POINTER_QUERY,
     { timeout: POLL_TIMEOUT },
   );
 }

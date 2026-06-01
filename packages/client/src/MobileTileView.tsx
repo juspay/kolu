@@ -27,6 +27,7 @@ import MobileChromeSheet from "./MobileChromeSheet";
 import type { WsStatus } from "./rpc/rpc";
 import { TerminalMetaCompact } from "./terminal/TerminalMeta";
 import { useTerminalStore } from "./terminal/useTerminalStore";
+import { dismissSoftKeyboard } from "./ui/dismissSoftKeyboard";
 
 /** Minimum horizontal travel (px) before a swipe commits to a tile change. */
 const SWIPE_THRESHOLD = 60;
@@ -67,6 +68,18 @@ const MobileTileView: Component<{
   } | null>(null);
   const [chromeOpen, setChromeOpen] = createSignal(false);
   const [dockOpen, setDockOpen] = createSignal(false);
+  // Close a drawer AND drop the soft keyboard. Every dismiss path — backdrop
+  // tap, drag-to-close (both via Corvu's onOpenChange) and the in-sheet
+  // buttons' onClose — funnels through these so the keyboard never lingers on
+  // a touch device after the drawer goes away. See `dismissSoftKeyboard`.
+  const closeChrome = () => {
+    setChromeOpen(false);
+    dismissSoftKeyboard();
+  };
+  const closeDock = () => {
+    setDockOpen(false);
+    dismissSoftKeyboard();
+  };
   // Pull-handle drag state for the chrome (top) drawer. Not reactive —
   // only the touch handlers read it.
   let pullStartY: number | null = null;
@@ -208,12 +221,14 @@ const MobileTileView: Component<{
       <Drawer
         side="top"
         open={chromeOpen()}
-        onOpenChange={setChromeOpen}
+        onOpenChange={(open) => (open ? setChromeOpen(true) : closeChrome())}
         snapPoints={CORVU_SNAP_WORKAROUND}
-        // Don't restore focus to the previously-active element on close. On a
-        // touch device that element is the terminal's contenteditable /
-        // helper textarea (auto-focused on mount); re-focusing it after a
-        // backdrop-tap dismissal pops the soft keyboard with no user intent.
+        // Keep Corvu from restoring focus to the terminal textarea on close;
+        // `closeChrome` then actively blurs it. The two are complementary:
+        // restoreFocus={false} stops Corvu re-summoning the keyboard, and the
+        // blur drops a keyboard iOS left lingering while the drawer was open
+        // (focus-trapping into the sheet does not reliably blur the field
+        // underneath). See `dismissSoftKeyboard`.
         restoreFocus={false}
       >
         <Drawer.Portal>
@@ -226,7 +241,7 @@ const MobileTileView: Component<{
               status={props.status}
               appTitle={props.appTitle}
               onOpenPalette={props.onOpenPalette}
-              onClose={() => setChromeOpen(false)}
+              onClose={closeChrome}
             />
           </Drawer.Content>
         </Drawer.Portal>
@@ -238,11 +253,12 @@ const MobileTileView: Component<{
       <Drawer
         side="left"
         open={dockOpen()}
-        onOpenChange={setDockOpen}
+        onOpenChange={(open) => (open ? setDockOpen(true) : closeDock())}
         snapPoints={CORVU_SNAP_WORKAROUND}
-        // See the chrome drawer above: restoring focus on close re-focuses the
-        // terminal textarea and summons the soft keyboard when the user taps
-        // the backdrop to dismiss the dock.
+        // See the chrome drawer above: restoreFocus={false} keeps Corvu from
+        // re-summoning the keyboard, `closeDock` blurs the field to drop a
+        // keyboard left lingering. Covers both dismiss paths — backdrop tap
+        // (Corvu's onOpenChange) and selecting a terminal row (onClose below).
         restoreFocus={false}
       >
         <Drawer.Portal>
@@ -253,7 +269,7 @@ const MobileTileView: Component<{
           <Drawer.Content class="fixed top-0 left-0 bottom-0 z-50 w-[78vw] max-w-[20rem] bg-surface-1 border-r border-edge shadow-xl">
             <MobileDockDrawer
               onSelect={store.setActiveSilently}
-              onClose={() => setDockOpen(false)}
+              onClose={closeDock}
             />
           </Drawer.Content>
         </Drawer.Portal>

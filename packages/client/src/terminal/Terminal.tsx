@@ -927,7 +927,11 @@ const Terminal: Component<{
         active={scrollLock.hasNewOutput()}
         onClick={() => {
           if (terminal) scrollLock.scrollToBottom(terminal);
-          terminal?.focus();
+          // focusOnSelection is a no-op on touch: tapping the scroll-to-bottom
+          // FAB to catch up on output must not summon the soft keyboard (only
+          // an explicit tap on the terminal does). Desktop still refocuses so
+          // the user can keep typing.
+          focusOnSelection();
         }}
       />
       <div

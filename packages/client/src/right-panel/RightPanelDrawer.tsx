@@ -19,6 +19,7 @@
 import Drawer from "@corvu/drawer";
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import type { Component, JSX } from "solid-js";
+import { dismissSoftKeyboard } from "../ui/dismissSoftKeyboard";
 import RightPanel from "./RightPanel";
 import { useRightPanel } from "./useRightPanel";
 
@@ -36,6 +37,17 @@ type HostProps = {
 const RightPanelDrawer: Component<HostProps> = (props) => {
   const rightPanel = useRightPanel();
 
+  // Close the sheet AND drop the soft keyboard. Same policy the dock/chrome
+  // drawers carry: blur the focused field so dismissing this bottom sheet
+  // (which holds its own focused inputs, e.g. the comment composer) leaves the
+  // keyboard down. restoreFocus={false} stops Corvu re-summoning it. Both close
+  // paths — backdrop tap / drag (Corvu's onOpenChange) and the in-panel close
+  // button (onToggle) — funnel through here. See `dismissSoftKeyboard`.
+  const closeDrawer = () => {
+    rightPanel.setDrawerOpen(false);
+    dismissSoftKeyboard();
+  };
+
   return (
     <>
       <div
@@ -46,10 +58,9 @@ const RightPanelDrawer: Component<HostProps> = (props) => {
       <Drawer
         side="bottom"
         open={rightPanel.drawerOpen()}
-        onOpenChange={rightPanel.setDrawerOpen}
-        // Same soft-keyboard policy the dock/chrome drawers carry: don't
-        // restore focus to the terminal textarea on close, or backdrop-
-        // dismissing this bottom sheet pops the keyboard with no intent.
+        onOpenChange={(open) =>
+          open ? rightPanel.setDrawerOpen(true) : closeDrawer()
+        }
         restoreFocus={false}
       >
         <Drawer.Portal>
@@ -65,7 +76,7 @@ const RightPanelDrawer: Component<HostProps> = (props) => {
               <RightPanel
                 terminalId={props.terminalId}
                 meta={props.meta}
-                onToggle={() => rightPanel.setDrawerOpen(false)}
+                onToggle={closeDrawer}
                 themeName={props.themeName}
                 onThemeClick={props.onThemeClick}
                 visible={rightPanel.drawerOpen()}

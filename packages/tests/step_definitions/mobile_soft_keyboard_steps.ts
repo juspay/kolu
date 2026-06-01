@@ -45,6 +45,31 @@ function teardownDocumentCaptureProbe(world: KoluWorld): Promise<number> {
   });
 }
 
+/** Assert the document-capture probe saw NO helper-textarea focus during the
+ *  interaction just performed. Shared by every "must not summon the keyboard"
+ *  Then. Some popping paths fire asynchronously — restoreFocus runs after the
+ *  close transition, refocusTerminal runs in a requestAnimationFrame — so
+ *  reading the counter immediately would race ahead of the bug and pass
+ *  vacuously. Actively wait (bounded) for a pop; if none arrives the keyboard
+ *  stayed down. Always tears the probe down so a later scenario can re-arm. */
+async function expectNoTextareaPop(
+  world: KoluWorld,
+  context: string,
+): Promise<void> {
+  const popped = await world.page
+    .waitForFunction(
+      () => ((window as FocusProbeWindow).__textareaFocusCount ?? 0) > 0,
+      { timeout: 1500 },
+    )
+    .then(() => true)
+    .catch(() => false);
+  const count = await teardownDocumentCaptureProbe(world);
+  assert.ok(
+    !popped && count === 0,
+    `Expected no helper-textarea focus ${context} on touch (it must not summon the soft keyboard), got ${count}`,
+  );
+}
+
 When(
   "I tap the mobile key {string}",
   async function (this: KoluWorld, testId: string) {
@@ -374,28 +399,43 @@ Then(
 Then(
   "xterm's helper textarea should not have been focused by closing the dock",
   async function (this: KoluWorld) {
-    // Reuses the document-capture probe armed above. Corvu's Drawer defaults
-    // to restoreFocus=true, which on close re-focuses the element active
-    // before it opened — here the terminal textarea — popping the soft
-    // keyboard. The drawers pass restoreFocus={false}; this asserts the
-    // backdrop dismissal leaves the keyboard down.
-    //
-    // The restore fires asynchronously, AFTER the close transition — later
-    // than the "sheet not visible" wait — so reading the counter immediately
-    // would race ahead of the bug and pass vacuously. Actively wait for a pop
-    // (bounded); if none arrives the keyboard stayed down.
-    const popped = await this.page
-      .waitForFunction(
-        () => ((window as FocusProbeWindow).__textareaFocusCount ?? 0) > 0,
-        { timeout: 1500 },
-      )
-      .then(() => true)
-      .catch(() => false);
-    const count = await teardownDocumentCaptureProbe(this);
-    assert.ok(
-      !popped && count === 0,
-      `Expected no helper-textarea focus when dismissing the dock on touch (closing must not summon the keyboard), got ${count}`,
-    );
+    // The dock drawer carries restoreFocus={false} AND blurs the focused field
+    // on close (`dismissSoftKeyboard`), so a backdrop dismiss must leave the
+    // keyboard down.
+    await expectNoTextareaPop(this, "when dismissing the dock");
+  },
+);
+
+When("I tap the scroll-to-bottom button", async function (this: KoluWorld) {
+  // Real CDP touch tap on the floating FAB — fires its onClick, which scrolls
+  // to the bottom. On touch that must NOT also focus the terminal (the bug:
+  // the onClick used to call terminal.focus() unconditionally).
+  const btn = this.page.locator('[data-testid="scroll-to-bottom"]');
+  const box = await btn.boundingBox();
+  assert.ok(box, "scroll-to-bottom button has no bounding box");
+  await this.page.touchscreen.tap(
+    box.x + box.width / 2,
+    box.y + box.height / 2,
+  );
+  await this.waitForFrame();
+});
+
+Then(
+  "xterm's helper textarea should not have been focused by scrolling to the bottom",
+  async function (this: KoluWorld) {
+    await expectNoTextareaPop(this, "when tapping the scroll-to-bottom FAB");
+  },
+);
+
+Then(
+  "xterm's helper textarea should not have been focused by closing the dialog",
+  async function (this: KoluWorld) {
+    // refocusTerminal() (the dialog-close handler) .click()s the terminal,
+    // which on touch would fire term.focus() and pop the keyboard. It is now an
+    // isTouch() no-op; this guards that closing a dialog leaves the keyboard
+    // down. The refocus is scheduled via requestAnimationFrame, so the wait
+    // inside expectNoTextareaPop is load-bearing.
+    await expectNoTextareaPop(this, "when closing a dialog");
   },
 );
 
