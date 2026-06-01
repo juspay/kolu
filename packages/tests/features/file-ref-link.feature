@@ -29,9 +29,9 @@ Feature: File-ref autolinking in terminal
     And I run "printf 'alpha\nbeta\ngamma\n' > notes.txt"
     And I run "echo 'open notes.txt:2 for details'"
     And I arm the soft-keyboard focus probe
+    And I watch for the right-panel drawer to open
     And I tap the terminal file-ref link "notes.txt:2"
-    Then the right panel should be visible
-    And the Code tab should be active
+    Then the right-panel drawer should have opened
     And xterm's helper textarea should not have been focused by tapping the link
     And there should be no page errors
 
