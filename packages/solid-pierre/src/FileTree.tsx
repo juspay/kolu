@@ -46,16 +46,21 @@ export function ancestorDirectoryPaths(path: string): string[] {
 }
 
 type FileTreeBatchOperation = Parameters<FileTreeClass["batch"]>[0][number];
+type FileTreeRemoveOperation = Extract<
+  FileTreeBatchOperation,
+  { type: "remove" }
+>;
 
 /** The add/remove operations that turn the `prev` file inventory into
  *  `next`, as Pierre `batch` ops. Driving path changes through `batch`
  *  rather than `resetPaths` mutates the tree in place: Pierre keeps the
  *  expansion, selection, and scroll state of every node it doesn't touch,
  *  so live-watcher churn (a file added or removed) and filter changes no
- *  longer collapse hand-opened folders. A file dropped from `next` takes
- *  its now-empty ancestor directories with it — Pierre infers directories
- *  from path prefixes — which is the one expansion loss that's intrinsic,
- *  not a rebuild artifact (there is no row left to keep open). */
+ *  longer collapse hand-opened folders. Removing a file does NOT delete its
+ *  now-empty ancestor directories: Pierre `remove` promotes an emptied
+ *  directory to an explicit empty folder so its row survives. Pruning those
+ *  is the caller's job (`directoryRemovalOps`); this function only diffs
+ *  files. */
 function pathDiffOperations(
   prev: readonly string[],
   next: readonly string[],
@@ -70,6 +75,46 @@ function pathDiffOperations(
     if (!prevSet.has(path)) ops.push({ type: "add", path });
   }
   return ops;
+}
+
+/** Recursive-remove ops that prune the directories the `prev`→`next` file
+ *  change strands. `pathDiffOperations` removes files, but Pierre's `remove`
+ *  promotes each emptied directory to an explicit empty folder rather than
+ *  deleting it — so narrowing a filter to a handful of matches would leave
+ *  the rest of the tree behind as hollow rows. A directory survives iff it is
+ *  still an ancestor of some `next` file; the rest are pruned. Derived purely
+ *  from the two file inventories — no separate directory state to drift out of
+ *  sync, and an empty `next` (a cleared filter) yields no removals because its
+ *  ancestor set then covers every surviving directory. For each dropped file
+ *  we take its shallowest now-orphaned ancestor (the first absent from
+ *  `next`'s ancestor set). That set is upward-closed, so the chosen ancestor
+ *  is the root of a maximal dead subtree and the roots are pairwise disjoint;
+ *  one `recursive` remove takes each whole subtree — emptied child directories
+ *  and all — in a single op. */
+export function directoryRemovalOps(
+  prev: readonly string[],
+  next: readonly string[],
+): FileTreeRemoveOperation[] {
+  const nextDirs = new Set<string>();
+  for (const file of next) {
+    for (const dir of ancestorDirectoryPaths(file)) nextDirs.add(dir);
+  }
+  const roots = new Set<string>();
+  for (const file of prev) {
+    for (const dir of ancestorDirectoryPaths(file)) {
+      if (!nextDirs.has(dir)) {
+        roots.add(dir);
+        break;
+      }
+    }
+  }
+  return [...roots].map(
+    (path): FileTreeRemoveOperation => ({
+      type: "remove",
+      path,
+      recursive: true,
+    }),
+  );
 }
 
 export type FileTreeProps = {
@@ -208,8 +253,19 @@ export const FileTree: Component<FileTreeProps> = (props) => {
       ([paths, expandPaths]) => {
         safeApply(() => {
           if (!tree) return;
-          const ops = pathDiffOperations(appliedPaths, paths);
-          if (ops.length > 0) tree.batch(ops);
+          const fileOps = pathDiffOperations(appliedPaths, paths);
+          if (fileOps.length > 0) tree.batch(fileOps);
+          // Pierre's `remove` promotes an emptied directory to an explicit
+          // empty folder instead of deleting it (see `directoryRemovalOps`),
+          // so the file removals above would otherwise strand a filter's
+          // emptied directories as hollow rows. Prune them: the ops are
+          // disjoint maximal subtrees, each removed recursively. The `getItem`
+          // guard is defensive — every root still resolves after the file
+          // batch — and pruning never touches a surviving directory's
+          // expansion, so a hand-collapsed match folder stays collapsed.
+          for (const op of directoryRemovalOps(appliedPaths, paths)) {
+            if (tree.getItem(op.path)) tree.batch([op]);
+          }
           appliedPaths = paths;
           const selectedPath = props.selectedPath ?? null;
           const toOpen = [
