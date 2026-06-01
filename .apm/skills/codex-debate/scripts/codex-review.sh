@@ -1,0 +1,121 @@
+#!/usr/bin/env bash
+#
+# codex-review.sh — the canonical, deterministic codex invocation for the
+# codex<->claude review debate. Runs the codex CLI as a READ-ONLY reviewer of
+# the current working-tree state against a base branch, constrained to
+# codex-verdict.schema.json, and writes the JSON verdict to <out-json>.
+#
+# Usage:
+#   codex-review.sh <base-branch> <rebuttal-file|-> <out-json>
+#
+#   <base-branch>    branch to diff against (e.g. master)
+#   <rebuttal-file>  path to a file holding CLAUDE's previous response (JSON),
+#                    or "-" on the first round (no rebuttal yet)
+#   <out-json>       path the JSON verdict is written to (also echoed to stdout)
+#
+# Notes:
+#   * --dangerously-bypass-approvals-and-sandbox is used deliberately: we are
+#     already inside Claude Code's sandbox, and codex's own `--sandbox read-only`
+#     mode hangs in containers without landlock. The prompt forbids writes; the
+#     caller (the workflow) reviews the final working tree regardless.
+#   * Always emits a schema-valid verdict on stdout, even if codex errors — a
+#     synthesized error verdict (approved:false) so the loop never wedges.
+set -uo pipefail
+
+base="${1:?usage: codex-review.sh <base-branch> <rebuttal-file|-> <out-json>}"
+rebuttal_file="${2:?missing rebuttal-file (use - for none)}"
+out="${3:?missing out-json path}"
+
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+schema="$here/codex-verdict.schema.json"
+log="$out.log"
+
+# Pull CLAUDE's previous response, if any. Built as a plain string and injected
+# below via a simple variable reference so any special characters in the JSON
+# (backticks, $, ...) stay literal — heredoc expansion results are not re-scanned.
+# Never let a stale verdict from a previous run survive: if the current codex
+# invocation fails to write one, the empty-check below must catch it and
+# synthesize an error verdict (otherwise a leftover /tmp file reads as a fresh
+# pass — a false consensus).
+rm -f "$out" "$log"
+
+rebuttal=""
+if [ "$rebuttal_file" != "-" ]; then
+  if [ -s "$rebuttal_file" ]; then
+    rebuttal="$(cat "$rebuttal_file")"
+  else
+    # A rebuttal was expected (path given, not "-") but the file is missing or
+    # empty — the handoff broke. Proceed without it, but make the failure loud
+    # so codex's responseToRebuttal isn't silently empty.
+    echo "WARNING: expected rebuttal file '$rebuttal_file' is missing or empty; proceeding with no rebuttal this round." >&2
+  fi
+fi
+
+rebuttal_block=""
+if [ -n "$rebuttal" ]; then
+  rebuttal_block="
+CLAUDE responded to your PREVIOUS review as follows. Take it seriously: where a
+fix landed in the working tree, verify it and mark that finding resolved; where
+CLAUDE disputes a finding, either concede (mark it resolved) or hold firm with
+specific reasoning in responseToRebuttal.
+
+CLAUDE's response (JSON):
+$rebuttal
+"
+fi
+
+# Unquoted heredoc: only $base and $rebuttal_block expand. No backticks and no
+# other $/$(...) appear in the body, so there is nothing else to interpret.
+prompt="$(cat <<EOF
+You are CODEX, a rigorous, fair senior code reviewer in an automated review
+debate with another AI engineer ("CLAUDE") who authored the changes.
+
+REVIEW SCOPE — the full current state of the working tree against the base
+branch '$base', which includes committed AND uncommitted changes. Run these
+yourself:
+
+    git diff $base       (committed + tracked-but-unstaged changes)
+    git status --short   (find untracked/new files)
+
+Then read every new/changed file plus surrounding context and review the change
+as a whole. Untracked new files do NOT appear in 'git diff', so you MUST inspect
+'git status --short' and read those files explicitly.
+
+THIS IS READ-ONLY. Do NOT modify, create, or delete any files. Do NOT run any
+git write command (add/commit/push/stash/checkout) or any other state-mutating
+command. You are only inspecting.
+
+Review for correctness bugs, logic errors, silent error-swallowing, unjustified
+fallbacks, security issues, and clear simplicity/efficiency problems. Be
+specific and concrete; cite file:line. Do NOT invent issues to look busy — if
+the change is sound, approve it.
+$rebuttal_block
+Return a verdict matching the provided JSON schema:
+  - approved: true ONLY when no blocking or major issues remain (minor/nits may remain).
+  - findings: reuse stable ids (F1, F2, ...) across rounds for the same issue; set
+    status=resolved once adequately addressed, else open.
+  - responseToRebuttal: address CLAUDE's disputes directly (empty on round 1).
+EOF
+)"
+
+if ! codex exec \
+      --dangerously-bypass-approvals-and-sandbox \
+      --output-schema "$schema" \
+      -o "$out" \
+      "$prompt" </dev/null >"$log" 2>&1; then
+  echo "codex exec exited non-zero (see $log)" >&2
+fi
+
+if [ ! -s "$out" ]; then
+  # codex produced no verdict — synthesize a schema-valid error verdict so the
+  # debate loop can surface the failure instead of hanging.
+  tail_log="$(tail -c 2000 "$log" 2>/dev/null || true)"
+  jq -n --arg log "$tail_log" '{
+    approved: false,
+    summary: ("codex produced no verdict this round. Tail of log: " + $log),
+    findings: [],
+    responseToRebuttal: ""
+  }' >"$out"
+fi
+
+cat "$out"

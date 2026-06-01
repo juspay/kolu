@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-06-01T17:55:49.852287+00:00'
+generated_at: '2026-06-01T19:12:43.979562+00:00'
 apm_version: 0.16.1
 dependencies:
 - repo_url: anthropics/skills
@@ -112,6 +112,7 @@ mcp_configs:
     registry: false
     command: .agents/skills/nix-chrome-devtools-mcp/bin/serve
 local_deployed_files:
+- .agents/skills/codex-debate
 - .agents/skills/evidence
 - .agents/skills/hk
 - .agents/skills/parcel
@@ -129,6 +130,7 @@ local_deployed_files:
 - .claude/rules/state.md
 - .claude/rules/streaming.md
 - .claude/rules/toast-conventions.md
+- .claude/skills/codex-debate
 - .claude/skills/evidence
 - .claude/skills/hk
 - .claude/skills/parcel
