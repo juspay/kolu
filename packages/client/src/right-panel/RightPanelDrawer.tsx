@@ -19,7 +19,7 @@
 import Drawer from "@corvu/drawer";
 import type { TerminalId, TerminalMetadata } from "kolu-common/surface";
 import type { Component, JSX } from "solid-js";
-import { dismissSoftKeyboard } from "../ui/dismissSoftKeyboard";
+import { drawerKeyboardOnOpenChange } from "../ui/dismissSoftKeyboard";
 import RightPanel from "./RightPanel";
 import { useRightPanel } from "./useRightPanel";
 
@@ -37,16 +37,15 @@ type HostProps = {
 const RightPanelDrawer: Component<HostProps> = (props) => {
   const rightPanel = useRightPanel();
 
-  // Close the sheet AND drop the soft keyboard. Same policy the dock/chrome
-  // drawers carry: blur the focused field so dismissing this bottom sheet
-  // (which holds its own focused inputs, e.g. the comment composer) leaves the
-  // keyboard down. restoreFocus={false} stops Corvu re-summoning it. Both close
-  // paths — backdrop tap / drag (Corvu's onOpenChange) and the in-panel close
-  // button (onToggle) — funnel through here. See `dismissSoftKeyboard`.
-  const closeDrawer = () => {
-    rightPanel.setDrawerOpen(false);
-    dismissSoftKeyboard();
-  };
+  // Same policy the dock/chrome drawers carry: on close, blur the focused
+  // field so dismissing this bottom sheet (which holds its own focused inputs,
+  // e.g. the comment composer) leaves the keyboard down. restoreFocus={false}
+  // stops Corvu re-summoning it. Both close paths — backdrop tap / drag
+  // (Corvu's onOpenChange) and the in-panel close button (onToggle, routed
+  // through `handler(false)`) — funnel through here.
+  const onDrawerOpenChange = drawerKeyboardOnOpenChange(
+    rightPanel.setDrawerOpen,
+  );
 
   return (
     <>
@@ -58,9 +57,7 @@ const RightPanelDrawer: Component<HostProps> = (props) => {
       <Drawer
         side="bottom"
         open={rightPanel.drawerOpen()}
-        onOpenChange={(open) =>
-          open ? rightPanel.setDrawerOpen(true) : closeDrawer()
-        }
+        onOpenChange={onDrawerOpenChange}
         restoreFocus={false}
       >
         <Drawer.Portal>
@@ -76,7 +73,7 @@ const RightPanelDrawer: Component<HostProps> = (props) => {
               <RightPanel
                 terminalId={props.terminalId}
                 meta={props.meta}
-                onToggle={closeDrawer}
+                onToggle={() => onDrawerOpenChange(false)}
                 themeName={props.themeName}
                 onThemeClick={props.onThemeClick}
                 visible={rightPanel.drawerOpen()}

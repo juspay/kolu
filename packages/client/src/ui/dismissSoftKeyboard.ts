@@ -38,3 +38,20 @@ export function dismissSoftKeyboard(): void {
   blur();
   requestAnimationFrame(blur);
 }
+
+/** Wrap a drawer's open-state setter into a Corvu `onOpenChange` handler that
+ *  drops the soft keyboard on close. Corvu fires `onOpenChange` in both
+ *  directions, so opening just sets state while closing also dismisses. Every
+ *  mobile drawer wires its `onOpenChange` — and routes its in-sheet close
+ *  button through `handler(false)` — through this, so "dismissing a drawer
+ *  leaves the keyboard down" is structural, not a per-drawer convention a new
+ *  drawer could forget. The consumer still owns its open state (it passes the
+ *  setter); only the keyboard mechanism is shared. */
+export function drawerKeyboardOnOpenChange(
+  setOpen: (open: boolean) => void,
+): (open: boolean) => void {
+  return (open) => {
+    setOpen(open);
+    if (!open) dismissSoftKeyboard();
+  };
+}
