@@ -11,7 +11,7 @@ export const meta = {
 // ---------------------------------------------------------------------------
 const a = args || {}
 const repoPath = a.repoPath || '.'
-const base = a.base || 'master'
+const base = a.base || 'origin/master'
 const maxRounds = a.maxRounds || 5
 // Where the generated skill lives, so the codex runner can find codex-review.sh.
 const skillDir = a.skillDir || '.claude/skills/codex-debate'

@@ -41,8 +41,12 @@ Parse `[<pr-number>] [--base <branch>] [--max-rounds <n>] [--html <path>] [--no-
 - **`<pr-number>`** (optional): a PR to debate. If given, `gh pr checkout <n>`
   first and default the base to that PR's base branch. If omitted, debate the
   **current branch's** working-tree diff.
-- **`--base <branch>`**: branch to diff against. Default: the PR base (when a PR
-  number is given) else the repo default branch (`git symbolic-ref --short refs/remotes/origin/HEAD` → strip `origin/`, fallback `master`).
+- **`--base <branch>`**: ref to diff against. Always a **remote-tracking ref**, never
+  a stale local branch. Default: `origin/<PR base>` when a PR number is given, else
+  the repo default branch as `git symbolic-ref --short refs/remotes/origin/HEAD`
+  (e.g. `origin/master`) — used **as-is**, NOT stripped to local `master` (which
+  can lag the remote). Fallback `origin/master`. Step 1 runs `git fetch origin`
+  first so the ref is current.
 - **`--max-rounds <n>`**: hard cap on codex review rounds. Default **5**.
 - **`--html <path>`**: where to write the reviewable HTML transcript. Default:
   `codex-debate-transcript.html` in the repo root — a **committable** file (NOT
@@ -60,7 +64,9 @@ Parse `[<pr-number>] [--base <branch>] [--max-rounds <n>] [--html <path>] [--no-
 ### 1. Resolve context
 
 - Determine `repoPath` (the worktree root, normally the cwd).
-- Resolve `base` per the rules above.
+- **`git fetch origin`** so remote-tracking refs are current — the base is an
+  `origin/...` ref, and a stale one would diff against the wrong tree.
+- Resolve `base` per the rules above (a remote-tracking ref like `origin/master`).
 - If a PR number was given, `gh pr checkout <n>` and confirm the branch.
 - Confirm there is a non-empty diff: `git diff --stat <base>`. If empty, tell the
   user there's nothing to review and stop.
