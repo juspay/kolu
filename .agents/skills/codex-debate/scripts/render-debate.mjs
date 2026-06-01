@@ -6,7 +6,8 @@
 //
 // Usage: node render-debate.mjs <transcript.json> <out.html>
 
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 
 const [, , inPath, outPath] = process.argv;
 if (!inPath || !outPath) {
@@ -187,5 +188,6 @@ const html = `<!doctype html>
 </html>
 `;
 
+mkdirSync(dirname(outPath), { recursive: true });
 writeFileSync(outPath, html);
 console.log(outPath);
