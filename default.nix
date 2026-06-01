@@ -42,6 +42,8 @@ let
       ./packages/transcript-core
       ./packages/transcript-html
       ./packages/artifact-sdk
+      ./packages/html-escape
+      ./packages/log
     ];
   };
 
