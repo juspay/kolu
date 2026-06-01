@@ -146,6 +146,15 @@ export class HostSession<C extends AnyContractRouter> {
   private refCount = 0;
   private child: ChildProcess | null = null;
   private clientPromise: Promise<AgentClient<C>> | null = null;
+  /** Set by `recheck()` immediately before it kills a *live* child to
+   *  re-probe after a wake/network change. The child's `exit` handler reads
+   *  it to label that self-inflicted kill a `"network"` retry — otherwise a
+   *  recheck during `connecting` (SIGTERM, no first RPC yet) would be
+   *  classified `"remote"` and burn the bounded give-up budget on what is a
+   *  transient recovery. Consumed (reset) in the exit handler. A class field
+   *  rather than a spawn-local (like `connectTimedOut`) because `recheck()`
+   *  lives outside the spawn closure. */
+  private cyclingForRecheck = false;
   /** The session's observable state — current snapshot + delta stream
    *  in one. The framework's `inMemoryCell` owns the snapshot-then-
    *  delta contract, so this class doesn't hand-roll a listener set or
@@ -471,6 +480,18 @@ export class HostSession<C extends AnyContractRouter> {
       // faults should. `wasConnected` is read before `handleChildDone`
       // transitions us off `connected`.
       const wasConnected = this.stateCell.current().connection === "connected";
+      if (this.cyclingForRecheck) {
+        // We killed this child ourselves to re-probe after a wake/network
+        // change — a transient recovery, not a fault. Retry as `"network"`
+        // so it never counts toward the bounded give-up budget, even if the
+        // kill landed mid-`connecting` (SIGTERM, no first RPC).
+        this.cyclingForRecheck = false;
+        handleChildDone(
+          "rechecking link after wake/network change — cycled ssh child",
+          "network",
+        );
+        return;
+      }
       if (connectTimedOut) {
         // Transport came up but the agent never answered the first RPC —
         // it's wedged, not unreachable. Bounded (`"remote"`) so a broken
@@ -583,13 +604,11 @@ export class HostSession<C extends AnyContractRouter> {
     this.consecutiveFailures = 0;
     if (this.child !== null) {
       // A live (connecting/connected) child whose socket may be stale after
-      // a sleep. Clear the connect-watchdog and cycle it; the exit handler
-      // routes through `handleChildDone` → `scheduleReconnect`, which
-      // re-establishes the link.
+      // a sleep. Clear the connect-watchdog and cycle it; `cyclingForRecheck`
+      // tells the exit handler to schedule a `"network"` retry (a wake cycle
+      // is recovery, never a budget-consuming fault — even mid-`connecting`).
       this.clearTimer();
-      this.addLocalProgress(
-        "rechecking link after wake/network change — cycling ssh child",
-      );
+      this.cyclingForRecheck = true;
       this.child.kill("SIGTERM");
       return;
     }

@@ -210,9 +210,11 @@ describe("HostSession with a failing drv resolver (network-unreachable)", () => 
     // The bug: `recheck()` cleared the backoff timer, then early-returned
     // because `clientPromise` still held the *rejected* pre-child spawn
     // promise — leaving no timer and no spawn, stranded forever. Post-fix,
-    // `scheduleReconnect` nulls `clientPromise` during backoff, so
-    // `recheck()` respawns: `spawn()` sets "copying" before its first await,
-    // so the re-arm is observable synchronously.
+    // `clientPromise` stays non-null during backoff (so `ensureSpawned` can't
+    // race a second spawn), and `recheck()` takes its backoff branch: it
+    // cancels the timer, drops the stale rejected handle, and respawns —
+    // `spawn()` sets "copying" before its first await, so the re-arm is
+    // observable synchronously.
     session.recheck();
     expect(session.current().connection).toBe("copying");
     expect(session.currentClient()).not.toBeNull();

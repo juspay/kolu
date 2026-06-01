@@ -175,6 +175,31 @@ describe("HostSession.recheck", () => {
     session.destroy();
   });
 
+  it("a recheck() cycle mid-connecting retries as network, not bounded remote (Codex P1)", async () => {
+    const session = new HostSession<typeof contract>({
+      host: "testhost",
+      resolveDrvPath: () => Promise.resolve("/nix/store/deadbeef-agent.drv"),
+      binary: "agent",
+      reconnectDelayMs: 50,
+    });
+    session.pin().catch(() => {});
+
+    // Child spawned, link is `connecting` — first RPC hasn't roundtripped, so
+    // markConnected() hasn't fired. A wake recheck here kills the child with
+    // SIGTERM (code null). Without the self-inflicted-kill flag the exit
+    // would be classified `"remote"` (not 255, never connected) and consume
+    // the bounded give-up budget; the fix labels it `"network"`.
+    await vi.advanceTimersByTimeAsync(1);
+    expect(session.current().connection).toBe("connecting");
+
+    session.recheck();
+    // controllableChild.kill() emits `exit` synchronously, so the
+    // classification has already run by the time recheck() returns.
+    expect(session.current().failureCause).toBe("network");
+
+    session.destroy();
+  });
+
   it("is a no-op on an unreferenced session (no spawn, no throw)", () => {
     const session = new HostSession<typeof contract>({
       host: "testhost",
