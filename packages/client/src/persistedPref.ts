@@ -68,6 +68,12 @@ export function readWithFallback<T>(
   }
 }
 
+/** Default storage encoding: strings store verbatim, everything else via
+ *  `JSON.stringify`. Note for boolean prefs: this writes the literal strings
+ *  `"true"` / `"false"`, so a boolean `parse` must accept exactly those two —
+ *  not `Boolean(raw)` or `JSON.parse(raw)` followed by a truthiness check,
+ *  which read the stored `"false"` as truthy (the bug the canvas-maximized
+ *  pref was fixed to avoid). */
 function defaultSerialize<T>(value: T): string {
   return typeof value === "string" ? value : JSON.stringify(value);
 }
