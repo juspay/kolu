@@ -142,7 +142,7 @@
 <section id="summary">
   <h2>Summary</h2>
   <div class="callout">
-    <p><strong>Verdict:</strong> I found six correctness issues worth fixing. One high-severity lifecycle issue is now fixed by <a href="https://github.com/juspay/kolu/pull/1105">PR #1105</a>. The remaining open set is one high-severity path-authority bug and four medium-severity issues.</p>
+    <p><strong>Verdict:</strong> I found six correctness issues worth fixing. The high-severity terminal lifecycle leak is fixed by <a href="https://github.com/juspay/kolu/pull/1105">PR #1105</a>, and the OpenCode silent-parse issue by <a href="https://github.com/juspay/kolu/pull/1108">PR #1108</a>. The remaining open set is one high-severity path-authority bug and three medium-severity issues.</p>
   </div>
 
   <table>
@@ -183,7 +183,7 @@
         <td><span class="severity medium">Medium</span></td>
         <td>OpenCode message JSON parse failure is silently treated as "no messages yet".</td>
         <td>OpenCode integration watcher</td>
-        <td><span class="status open">Open</span></td>
+        <td><span class="status fixed">Fixed</span> <a href="https://github.com/juspay/kolu/pull/1108">#1108</a></td>
       </tr>
       <tr>
         <td><span class="severity medium">Medium</span></td>
@@ -273,6 +273,8 @@
     <p><span class="risk">Risk:</span> upstream schema drift or database corruption hides behind a normal empty-state log. The terminal badge can disappear or stale out without an actionable error.</p>
     <p><span class="fix">Fix:</span> return a discriminated parse result or pass logging context into <code>parseMessageState</code>. Treat malformed latest-row JSON as a warn/error condition distinct from "no row". Prefer preserving the last known state or publishing an explicit degraded state.</p>
     <p><span class="fix">Tests:</span> assert that malformed <code>message.data</code> logs a parse failure and is not reported as "no messages yet".</p>
+    <p class="label">Status - fixed</p>
+    <p><span class="fix">Implemented</span> in <a href="https://github.com/juspay/kolu/pull/1108">PR #1108, "Surface malformed OpenCode message.data instead of empty-state"</a>. The fix takes the finding's lighter alternative - pass logging context into <code>parseMessageState</code> rather than thread a discriminated result through the watcher - because the sibling <code>getLatestAssistantContextTokens</code> already logs the same blob's parse failure as an <code>error</code>, so consistency beat a new return type. The two <code>null</code> causes are now logged where each is actually known: <code>parseMessageState</code> logs malformed JSON as <code>error</code> ("opencode message.data parse failed", tagged with the session), and the genuine no-row "no messages yet" <code>debug</code> moved into <code>deriveSessionState</code> at the <code>!row</code> branch. <code>session-watcher.ts</code> no longer flattens both back into one ambiguous line. Covered by unit tests at the <code>parseMessageState</code> and <code>deriveSessionState</code> layers in <a href="../../packages/integrations/opencode/src/index.test.ts">index.test.ts</a> - malformed data logs the parse error and never the empty-state line, an empty session still logs only the debug, and a valid-but-unmodelled role stays silent.</p>
   </article>
 
   <article class="finding medium" id="kill-confirmation">
@@ -297,7 +299,7 @@
     <li><strong>Terminal subscription lifecycle is fixed.</strong> <a href="https://github.com/juspay/kolu/pull/1105">PR #1105</a> landed the list-keyed cleanup and regression coverage.</li>
     <li><strong>Fix channel abort cleanup before daemon work expands.</strong> It is a small primitive with a large downstream blast radius.</li>
     <li><strong>Fix sub-terminal restore and kill-confirmation behavior together with tests.</strong> Both are terminal lifecycle fidelity issues and should be covered by restore/CRUD scenarios.</li>
-    <li><strong>Harden OpenCode parser errors.</strong> This is a low-risk observability/correctness change, but it prevents future upstream changes from failing silently.</li>
+    <li><strong>OpenCode parser errors are hardened.</strong> <a href="https://github.com/juspay/kolu/pull/1108">PR #1108</a> landed the malformed-JSON error path and the empty-vs-malformed log split, so future upstream schema drift surfaces instead of failing silently.</li>
   </ol>
 </section>
 
