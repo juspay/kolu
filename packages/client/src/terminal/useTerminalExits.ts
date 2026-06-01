@@ -28,13 +28,12 @@ export function useTerminalExits(deps: {
    *  wire event's `useEvent`) is disposed when the id leaves the list. */
   subscribe: (id: TerminalId) => void;
 }) {
-  const subscriptions = mapArray(deps.ids, (id) => {
-    deps.subscribe(id);
-    return id;
-  });
   // `mapArray` is lazy — it only reconciles (creating new owners, disposing
   // departed ones) when its accessor is read in a tracking scope. There is no
-  // value consumer here (the subscriptions are pure side effects), so read it
+  // value consumer here (the subscriptions are pure side effects), so drive it
   // from an effect to keep the per-id owners instantiated and reconciled.
-  createEffect(() => void subscriptions());
+  const reconcile = mapArray(deps.ids, (id) => {
+    deps.subscribe(id);
+  });
+  createEffect(reconcile);
 }
