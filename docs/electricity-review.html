@@ -274,6 +274,10 @@
       <span><b>method</b> 41 agents · adversarial verification</span>
       <span><b>date</b> 2026-06-01</span>
     </div>
+    <div style="margin: 26px 0 4px; padding: 16px 22px; border-radius: 12px; border: 1px solid oklch(0.6 0.13 150 / 0.5); background: linear-gradient(90deg, oklch(0.4 0.1 150 / 0.16), transparent);">
+      <span style="font-family: var(--mono); font-size: 12px; letter-spacing:0.1em; text-transform:uppercase; color: var(--green); border:1px solid oklch(0.6 0.13 150 / 0.6); border-radius:6px; padding:3px 9px; margin-right:10px;">✓ Shipped</span>
+      <span style="color: var(--ink-dim); font-size: 15px;">The <b style="color:var(--ink)">"ship now"</b> tier landed in <a href="https://github.com/juspay/kolu/pull/1089">#1089</a> — <code>persistedPref</code> (closing the zoom-<code>NaN</code> and maximize bugs), the <code>@kolu/log</code> + <code>@kolu/html-escape</code> leaf packages, and the <code>dom/</code> + keybind relocations. The verdicts below stand as the original analysis; <a href="#do">§07</a> now tracks what's done and what's next.</span>
+    </div>
     <nav class="toc">
       <a href="#test">the test</a>
       <a href="#verdict">verdict</a>
@@ -613,22 +617,23 @@
 <section id="do">
   <div class="wrap">
     <div class="sec-head"><span class="sec-num">07</span><h2>What to actually do</h2></div>
-    <p class="sec-sub">Five tiers, ordered by confidence-per-effort. The honest takeaway: there is far less to <em>build</em> than to <em>relocate and fix</em> — and the bottom two tiers split on whether the objection is structural (stands) or merely temporal (your call).</p>
+    <p class="sec-sub"><b>The "ship now" tier has landed in <a href="https://github.com/juspay/kolu/pull/1089">#1089</a></b> (first tier below). What remains, ordered by confidence-per-effort: two real decompositions, a few in-place fixes, then the don't-build / your-call backlog — the last two split on whether the objection is structural (stands) or merely temporal (your call).</p>
 
     <div class="tiers">
       <div class="tier ship">
-        <div class="tier-h"><span class="tag">ship now</span><h3>Small, high-confidence, cuts a real braid</h3></div>
+        <div class="tier-h"><span class="tag">✓ shipped · #1089</span><h3>Landed — the genuine receptacle, two leaf packages, the relocations</h3></div>
         <div class="tier-b">
           <ul>
-            <li><b>persistedPref</b> — the one genuine electricity. Ship the validate-on-read core; it also closes the <code>zoom</code>/<code>maximize</code> latent bugs. Defer versioned migration.</li>
-            <li><b>@kolu/log</b> + <b>@kolu/html-escape</b> — zero-runtime-dep leaf packages holding <em>only</em> the type / the 5-replace function. Collapses 3 re-typed Logger copies and unhooks two app-agnostic appliances from the domain dependency tree.</li>
-            <li><b>Relocate, don't package</b> — export <code>capturePointerGesture</code> from <code>canvas/viewport/</code>; move <code>walkShadowRoots</code> to a neutral <code>dom/</code> folder; inject <code>isMac</code> into the keybind-core.</li>
+            <li><b>persistedPref</b> ✓ — validate-on-read receptacle over <code>makePersisted</code>, applied to all 5 prefs; <b>closed the <code>zoom</code> <code>NaN</code> and <code>maximize</code> "false"-truthy bugs</b>. Review tightened <code>parse</code> to single-mode (always throw on invalid) so <code>onInvalid</code> can't be silently bypassed.</li>
+            <li><b>@kolu/log</b> + <b>@kolu/html-escape</b> ✓ — zero-dep leaf packages. <code>io</code> + <code>transcript-core</code> stopped re-typing <code>Logger</code> (<code>kolu-shared</code> re-exports), and <code>transcript-html</code> dropped its <code>kolu-common</code> dependency entirely.</li>
+            <li><b>Relocations</b> ✓ — <code>walkShadowRoots</code> → neutral <code>dom/</code>; <code>isMac</code> made injectable in the keybind-core. <em><code>capturePointerGesture</code> turned out to already be an exported, reused module — a no-op, flagged honestly rather than invented work.</em></li>
+            <li class="ev mono" style="color:var(--ink-mute); border:none;">In-PR follow-ups: single-pass <code>escapeHtml</code> (police), the boolean serialize/parse contract documented (lowy cross-validate), and a <code>default.nix</code> src-fileset fix CI caught — the new package dirs weren't in the curated allowlist, which <code>just check</code> can't see.</li>
           </ul>
         </div>
       </div>
 
       <div class="tier decomp">
-        <div class="tier-h"><span class="tag">decompose properly</span><h3>Real need — reshape into the right seam, not a grab-bag</h3></div>
+        <div class="tier-h"><span class="tag">next ▸ decompose</span><h3>Real need — reshape into the right seam, not a grab-bag</h3></div>
         <div class="tier-b">
           <ul>
             <li><b>fs-watch → two layers</b> — <code>refcountedWatcher</code> (L0, hides the watch backend) + <code>gatedReader</code> (L1, DB-decoupled). The clearest server-side "wrote it thrice" smell; folds in <code>installOnceFanOut</code>.</li>
@@ -672,7 +677,7 @@
     </div>
 
     <div class="pull" style="margin-top:34px">
-      The "prefer external libraries" rule is already paying off: <b>Corvu and @solid-primitives quietly own most of the browser-API volatility</b> a less disciplined codebase would have hand-rolled into a dozen bespoke spots. The remaining electricity isn't missing architecture — it's <b>one validated-storage receptacle, two leaf-type packages, two real decompositions, and a flag named <code>activate</code></b>.
+      The "prefer external libraries" rule is already paying off: <b>Corvu and @solid-primitives quietly own most of the browser-API volatility</b> a less disciplined codebase would have hand-rolled into a dozen bespoke spots. With the validated-storage receptacle and the two leaf-type packages now <b>shipped in #1089</b>, the remaining electricity is just <b>two real decompositions (fs-watch, optimisticOverlay) and a flag named <code>activate</code></b>.
     </div>
   </div>
 </section>
