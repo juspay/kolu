@@ -15,6 +15,15 @@ const base = a.base || 'master'
 const maxRounds = a.maxRounds || 5
 // Where the generated skill lives, so the codex runner can find codex-review.sh.
 const skillDir = a.skillDir || '.claude/skills/codex-debate'
+// Per-worktree scratch dir for rebuttal/verdict/transcript files. Derived from
+// repoPath (the worktree root === $PWD) so parallel debates in DIFFERENT
+// worktrees never collide on shared /tmp paths, and `.codex-debate/` is
+// gitignored so these files never pollute the diff codex reviews.
+const workDir = `${repoPath}/.codex-debate`
+// Commit each round's changes individually (default on). The commit message
+// carries the debate context (codex's findings + claude's dispositions). Never
+// pushes or merges — that stays the human's call.
+const commit = a.commit !== false
 
 // ---------------------------------------------------------------------------
 // Schemas — the codex verdict schema mirrors scripts/codex-verdict.schema.json
@@ -103,25 +112,29 @@ function claudeDisputedEverything(resp) {
 // The two debaters
 // ---------------------------------------------------------------------------
 async function codexReviews(round, rebuttalJson) {
+  const verdictPath = `${workDir}/verdict-${round}.json`
+  const rebuttalPath = `${workDir}/rebuttal.json`
   const rebuttalStep = rebuttalJson
-    ? `1. Using the Write tool (NOT a shell heredoc — the content has special characters), create the file \`/tmp/codex-debate-rebuttal.json\` with exactly this content:
+    ? `1. Using the Write tool (NOT a shell heredoc — the content has special characters), create the file \`${rebuttalPath}\` with exactly this content:
 
 ${rebuttalJson}
 
 2. Run, from the repo root \`${repoPath}\`:
-   \`bash ${skillDir}/scripts/codex-review.sh ${base} /tmp/codex-debate-rebuttal.json /tmp/codex-debate-verdict-${round}.json\``
+   \`bash ${skillDir}/scripts/codex-review.sh ${base} ${rebuttalPath} ${verdictPath}\``
     : `1. (No prior rebuttal this round.)
 
 2. Run, from the repo root \`${repoPath}\`:
-   \`bash ${skillDir}/scripts/codex-review.sh ${base} - /tmp/codex-debate-verdict-${round}.json\``
+   \`bash ${skillDir}/scripts/codex-review.sh ${base} - ${verdictPath}\``
 
   const prompt = `You are a MECHANICAL RUNNER for one round of an automated code-review debate. Do exactly the steps below and nothing else. Do NOT review the code yourself, do NOT edit any repository files, do NOT add commentary.
+
+First ensure the scratch dir exists: \`mkdir -p ${workDir}\`.
 
 ${rebuttalStep}
 
    This shells out to the codex CLI as a read-only reviewer; it can take 1-3 minutes. It prints a JSON verdict as its final stdout and also writes it to the \`-o\` path.
 
-3. Read \`/tmp/codex-debate-verdict-${round}.json\` and return its exact contents as your structured output. Copy the values faithfully; do not paraphrase or "improve" them.`
+3. Read \`${verdictPath}\` and return its exact contents as your structured output. Copy the values faithfully; do not paraphrase or "improve" them.`
 
   return agent(prompt, {
     label: `codex:round${round}`,
@@ -156,6 +169,47 @@ Then return your structured response:
     phase: 'Debate',
     schema: CLAUDE_RESPONSE_SCHEMA,
   })
+}
+
+// Commit message for one debate round, carrying the debate context: what codex
+// raised and how claude dispositioned each finding.
+function roundCommitMessage(round, verdict, response) {
+  const findings = (verdict.findings || [])
+    .map((f) => `- [${f.id} · ${f.severity}] ${f.issue} (${f.location})`)
+    .join('\n')
+  const actions = (response.actions || [])
+    .map((act) => `- ${act.findingId} ${act.disposition}: ${act.detail}`)
+    .join('\n')
+  return `fix: codex review — debate round ${round}
+
+${response.summary}
+
+codex (round ${round}) findings:
+${findings || '- (none)'}
+
+claude:
+${actions || '- (no actions)'}
+
+Committed by the codex<->claude debate (round ${round}); not pushed or merged.`
+}
+
+// Commit exactly the files claude changed this round, with the debate-context
+// message. A thin mechanical agent: the workflow can't run git itself.
+async function commitRound(round, files, message) {
+  const fileArgs = files.map((f) => `'${f.replace(/'/g, `'\\''`)}'`).join(' ')
+  const msgPath = `${workDir}/commit-msg-${round}.txt`
+  const prompt = `You are a MECHANICAL COMMITTER. Do exactly these steps and nothing else — do not edit files, do not push, do not stage anything beyond the listed files.
+
+1. Ensure the scratch dir exists: \`mkdir -p ${workDir}\`.
+2. Using the Write tool, create \`${msgPath}\` with EXACTLY this content:
+
+${message}
+
+3. Run, from the repo root \`${repoPath}\`:
+   \`git add -- ${fileArgs} && git commit -F ${msgPath}\`
+   Stage ONLY those files. Do NOT use \`git add -A\` or \`git add .\`.
+4. Return the new commit SHA from \`git rev-parse HEAD\`. Do NOT push.`
+  return agent(prompt, { label: `commit:round${round}`, phase: 'Debate' })
 }
 
 // ---------------------------------------------------------------------------
@@ -206,10 +260,20 @@ for (let round = 1; round <= maxRounds; round++) {
   const response = await claudeResponds(round, verdict)
   entry.claude = response
   lastClaude = response
-  transcript.push(entry)
   log(
     `Round ${round}: claude done=${response.done}, actions=${(response.actions || []).length}, files=${(response.filesChanged || []).length}`,
   )
+
+  // Commit this round individually so the PR history reads as the debate
+  // itself — one commit per round, message carrying codex's findings and
+  // claude's dispositions. Only when claude actually changed files.
+  if (commit && (response.filesChanged || []).length > 0) {
+    const sha = await commitRound(round, response.filesChanged, roundCommitMessage(round, verdict, response))
+    entry.commit = (sha || '').trim()
+    log(`Round ${round}: committed ${entry.commit}`)
+  }
+
+  transcript.push(entry)
 }
 
 const filesChanged = Array.from(
@@ -226,17 +290,21 @@ const result = { status, rounds: transcript.length, base, finalVerdict, filesCha
 // is produced by a deterministic node script (no LLM variance in the record).
 // ---------------------------------------------------------------------------
 phase('Render')
-const htmlOut = a.htmlOut || 'codex-debate-transcript.html'
+const htmlOut = a.htmlOut || `${workDir}/transcript.html`
+const transcriptJsonPath = `${workDir}/transcript.json`
 const renderPrompt = `You are a MECHANICAL RENDERER. Do exactly these steps and nothing else — do not edit any repository files, do not add commentary.
 
-1. Using the Write tool, create the file \`/tmp/codex-debate-transcript.json\` with EXACTLY this content (copy it verbatim):
+1. Ensure the scratch dir exists: \`mkdir -p ${workDir}\`.
+
+2. Using the Write tool, create the file \`${transcriptJsonPath}\` with EXACTLY this content (copy it verbatim):
 
 ${JSON.stringify(result, null, 2)}
 
-2. Run, from the repo root \`${repoPath}\`:
-   \`node ${skillDir}/scripts/render-debate.mjs /tmp/codex-debate-transcript.json ${htmlOut}\`
+3. Run, from the repo root \`${repoPath}\`:
+   \`node ${skillDir}/scripts/render-debate.mjs ${transcriptJsonPath} ${htmlOut}\`
+   (the renderer creates the output's parent directory itself.)
 
-3. Confirm the output exists with \`ls -la ${htmlOut}\` and return ONLY its absolute path.`
+4. Confirm the output exists with \`ls -la ${htmlOut}\` and return ONLY its absolute path.`
 const htmlPath = await agent(renderPrompt, { label: 'render-html', phase: 'Render' })
 
 return { ...result, htmlOut, htmlPath }

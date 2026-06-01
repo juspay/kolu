@@ -37,6 +37,10 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 schema="$here/codex-verdict.schema.json"
 log="$out.log"
 
+# The out path lives under a per-worktree scratch dir (e.g. .codex-debate/);
+# make sure it exists before codex tries to write the verdict there.
+mkdir -p "$(dirname "$out")"
+
 # Pull CLAUDE's previous response, if any. Built as a plain string and injected
 # below via a simple variable reference so any special characters in the JSON
 # (backticks, $, ...) stay literal — heredoc expansion results are not re-scanned.
