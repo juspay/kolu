@@ -648,6 +648,29 @@ Feature: Code tab (review + browse)
     And I run "printf 'second version\n' > letters.txt"
     Then the file content should contain "second version"
 
+  # Live-update for the iframe-previewed kinds (.html/.svg/.pdf): editing the
+  # previewed file must refresh the iframe with no manual reload. Unlike the
+  # text path above (new content arrives on the `fsReadFile` stream and re-feeds
+  # Pierre), the binary path carries only a `url`. The refresh hinges on the
+  # server bumping `?v=<mtime>` on every save (`buildIframePreviewUrl`): the new
+  # URL breaks `fsReadFileOutputEqual` (binary equality is `a.url === b.url`), so
+  # a fresh snapshot pushes, the `binaryFile` memo identity flips, and FileView
+  # re-points the iframe `src`. This reads the rendered content *inside* the
+  # frame — proof the new bytes actually reached the preview, not merely that
+  # the src attribute moved.
+  Scenario: Editing an HTML file refreshes the iframe preview live
+    When I run "rm -rf /tmp/kolu-live-html && git init /tmp/kolu-live-html && cd /tmp/kolu-live-html"
+    And I run "printf '<!doctype html><h1>preview version one</h1>\n' > page.html"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    And I click the file "page.html" in the file browser
+    Then the file preview iframe should be visible
+    And the file preview iframe should contain "preview version one"
+    When I click the terminal canvas
+    And I run "printf '<!doctype html><h1>preview version two</h1>\n' > page.html"
+    Then the file preview iframe should contain "preview version two"
+
   Scenario: Committing the selected local diff clears the stale content pane
     When I run "rm -rf /tmp/kolu-clear-selected-local && git init /tmp/kolu-clear-selected-local && cd /tmp/kolu-clear-selected-local"
     And I run "git commit --allow-empty -m init"

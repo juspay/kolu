@@ -54,19 +54,26 @@ export const FileView: Component<FileViewProps> = (props) => {
     return hasRendered() ? "rendered" : "source";
   });
 
+  // The active appliance for the resolved mode. Read as a child expression so
+  // Solid tracks `props.file`: a save mints a fresh `FileData` (new `url` for a
+  // binary, new `content` for text), and the matching renderer has to re-run to
+  // pick it up. The earlier `<Show>`-callback form ran the rendered branch once
+  // under `untrack` and keyed it on the (stable) matched-renderer identity, so
+  // an iframe/image preview captured its first `url` and never reloaded after an
+  // edit — only the source view (rendered via the tracked `fallback` slot)
+  // updated. One tracked expression keeps both branches symmetric: each
+  // re-renders its appliance on a fresh snapshot.
+  const active = () =>
+    mode() === "rendered"
+      ? matchedRendered()?.render(props.file)
+      : props.source?.render(props.file);
+
   return (
     <div class="flex h-full w-full flex-col">
       <Show when={both()}>
         <FileViewToggle mode={mode()} onChange={setChosen} />
       </Show>
-      <div class="min-h-0 flex-1">
-        <Show
-          when={mode() === "rendered" && matchedRendered()}
-          fallback={props.source?.render(props.file)}
-        >
-          {(renderer) => renderer().render(props.file)}
-        </Show>
-      </div>
+      <div class="min-h-0 flex-1">{active()}</div>
     </div>
   );
 };

@@ -554,6 +554,32 @@ Then(
   },
 );
 
+// Reads the rendered DOM *inside* the sandboxed preview iframe. The frame
+// runs at an opaque origin (`allow-scripts`, no `allow-same-origin`), but
+// Playwright resolves it through the browser frame tree, so `frameLocator`
+// reaches its `<body>` regardless of origin. Polling (not a single read)
+// because a save re-points the iframe `src` at a fresh `?v=<mtime>` URL: the
+// old frame detaches and the new one navigates, so `textContent` throws
+// transiently mid-swap — a short per-read timeout + `.catch(() => null)`
+// lets the poll ride through the navigation until the new content lands.
+Then(
+  "the file preview iframe should contain {string}",
+  async function (this: KoluWorld, expected: string) {
+    const body = this.page
+      .frameLocator('[data-testid="browse-preview-iframe"]')
+      .locator("body");
+    await pollFor({
+      observe: () => body.textContent({ timeout: 1_000 }).catch(() => null),
+      isDone: (text) => (text ?? "").includes(expected),
+      onTimeout: (last) =>
+        new Error(
+          `iframe preview never contained "${expected}"; last body text: ${JSON.stringify(last)}`,
+        ),
+      timeoutMs: POLL_TIMEOUT,
+    });
+  },
+);
+
 Then(
   "the file preview image should be visible",
   async function (this: KoluWorld) {
