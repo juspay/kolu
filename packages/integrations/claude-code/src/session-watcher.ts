@@ -20,6 +20,7 @@ import {
   extractTasks,
   fetchSessionSummary,
   findTranscriptPath,
+  liveOutstandingTasks,
   outstandingBackgroundTasks,
   PROJECTS_DIR,
   type SessionFile,
@@ -226,7 +227,15 @@ export function createSessionWatcher(
     if (transcriptWatching.kind !== "watching") return;
 
     const lines = tailJsonlLines(transcriptWatching.path, TAIL_BYTES);
-    const outstanding = outstandingBackgroundTasks(lines);
+    // Drop tasks that can't keep the session "working": a `Workflow` whose
+    // journal has gone terminal/stale (orphaned by a restart). `deriveState`
+    // further narrows to runId-bearing `Workflow` runs, so a bare backgrounded
+    // Bash/Agent never promotes. Together: only a live, observable workflow
+    // keeps `running_background`.
+    const outstanding = liveOutstandingTasks(
+      session,
+      outstandingBackgroundTasks(lines),
+    );
     const derived = deriveState(lines, outstanding);
     if (!derived) {
       plog.debug(

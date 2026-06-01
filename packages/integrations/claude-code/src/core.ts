@@ -300,10 +300,13 @@ function toolUseOrAwaitingUser(content: unknown): "tool_use" | "awaiting_user" {
  *  A newest `assistant` `end_turn` normally means `waiting` (the agent
  *  yielded its turn back to the user). But under dynamic workflows the
  *  agent can yield its turn while a background task it launched is still
- *  running — there it is busy-waiting, not awaiting the human. When
- *  `outstandingBackgroundTasks` finds such a task, that `waiting` is
- *  promoted to `running_background`. Pass the precomputed set via
- *  `outstanding` to avoid re-scanning; omitted, it is computed from `lines`. */
+ *  running — there it is busy-waiting, not awaiting the human. When the
+ *  outstanding set holds a task with an observable run journal (a `Workflow`'s
+ *  `runId`), that `waiting` is promoted to `running_background`; a bare
+ *  backgrounded `Bash`/`Agent` (runId null) is not enough, since its launch
+ *  marker outlives the process. Pass the precomputed set via `outstanding` to
+ *  avoid re-scanning (and so the watcher can pre-drop orphaned-journal
+ *  workflows); omitted, it is computed from `lines`. */
 export function deriveState(
   lines: string[],
   outstanding?: BackgroundTask[],
@@ -375,14 +378,21 @@ export function deriveState(
 
   if (stateAndModel === null) return null;
 
-  // Promote a bare `end_turn` (`waiting`) to `running_background` when the
-  // agent is still busy-waiting on a background task it launched. Only the
-  // `waiting` case is promoted — an in-flight `thinking`/`tool_use` already
-  // reads as working, and an `awaiting_user` prompt is a genuine human gate.
+  // Promote a bare `end_turn` (`waiting`) to `running_background` only when the
+  // agent is busy-waiting on a task kolu can actually observe: a `Workflow` run
+  // (it carries a `runId` and an on-disk journal). A bare backgrounded
+  // `Bash`/`Agent` (runId null) leaves only a launch marker that is permanent
+  // in the transcript — its completion notification can be lost forever to a
+  // restart, so promoting on it spins the pill indefinitely (the phantom
+  // `running_background` bug). The watcher additionally drops a `Workflow`
+  // whose journal has gone terminal/stale (`liveOutstandingTasks`), so an
+  // orphaned run stops promoting too. Only the `waiting` case is promoted — an
+  // in-flight `thinking`/`tool_use` already reads as working, and an
+  // `awaiting_user` prompt is a genuine human gate.
   let state = stateAndModel.state;
   if (state === "waiting") {
     const bg = outstanding ?? outstandingBackgroundTasks(lines);
-    if (bg.length > 0) state = "running_background";
+    if (bg.some((t) => t.runId !== null)) state = "running_background";
   }
 
   return { state, model: stateAndModel.model, contextTokens };
@@ -549,6 +559,62 @@ export function deriveWorkflowProgress(
     fallback ??= info;
   }
   return fallback;
+}
+
+/** Journal statuses meaning a workflow run has finished — not busy-waiting.
+ *  Mirrors the transcript notification's terminal set (`TERMINAL_STATUS_RE`);
+ *  "running" (the journal's default) is the only non-terminal status. */
+const TERMINAL_JOURNAL_STATUSES = new Set([
+  "completed",
+  "failed",
+  "stopped",
+  "killed",
+]);
+
+/** How long a still-`running` workflow journal may sit unwritten before its run
+ *  is treated as orphaned. A live workflow rewrites its journal on every phase
+ *  / sub-agent transition, so a multi-minute gap reliably means the launching
+ *  agent died (e.g. a Claude restart) and its completion notification can never
+ *  arrive. A false positive self-heals — the next journal write fires the
+ *  workflows-dir watcher and re-derives. #1017 suggested 60–120 s; 2 min is the
+ *  safe upper end. */
+export const WORKFLOW_JOURNAL_STALE_MS = 2 * 60 * 1000;
+
+/** Filter `outstanding` to the tasks that may drive the `running_background`
+ *  promotion, dropping `Workflow` runs whose on-disk journal is terminal or
+ *  stale (orphaned by a restart). Non-`Workflow` tasks (runId null) pass
+ *  through unchanged — `deriveState`'s own narrowing already declines to
+ *  promote on them. The IO (a `stat` + read per workflow task) only runs when
+ *  the tail carries an outstanding task, so the common path stays off disk.
+ *  `now` is injectable for tests. */
+export function liveOutstandingTasks(
+  session: SessionFile,
+  outstanding: BackgroundTask[],
+  now: number = Date.now(),
+): BackgroundTask[] {
+  const wfDir = workflowsDirFor(session);
+  return outstanding.filter((task) => {
+    if (!task.runId) return true; // not a workflow — deriveState's narrowing decides
+    const journalPath = path.join(wfDir, `${task.runId}.json`);
+    let stat: fs.Stats;
+    try {
+      stat = fs.statSync(journalPath);
+    } catch {
+      return false; // no journal to observe → not a live, backed run
+    }
+    if (now - stat.mtimeMs > WORKFLOW_JOURNAL_STALE_MS) return false; // orphaned
+    let status: unknown;
+    try {
+      status = (
+        JSON.parse(fs.readFileSync(journalPath, "utf8")) as { status?: unknown }
+      ).status;
+    } catch {
+      return true; // fresh but unreadable (transient mid-write) → keep
+    }
+    return !(
+      typeof status === "string" && TERMINAL_JOURNAL_STATUSES.has(status)
+    );
+  });
 }
 
 /** Sum the three input-side token counters that together represent what
