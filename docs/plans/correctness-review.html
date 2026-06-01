@@ -83,6 +83,17 @@
   }
   .severity.high { color: var(--danger); border-color: #efb3ad; background: #fff0ee; }
   .severity.medium { color: var(--warn); border-color: #e8c28a; background: #fff7e8; }
+  .status {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: .68rem;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: .1rem .5rem;
+    white-space: nowrap;
+  }
+  .status.open { color: var(--warn); border-color: #e8c28a; background: #fff7e8; }
+  .status.fixed { color: var(--ok); border-color: #a7d7b8; background: #eef9f1; }
   .refs {
     margin: .7rem 0;
     padding: .55rem .7rem;
@@ -131,7 +142,7 @@
 <section id="summary">
   <h2>Summary</h2>
   <div class="callout">
-    <p><strong>Verdict:</strong> I found six correctness issues worth fixing. Two are high severity because they violate an intended safety or lifecycle boundary. Four are medium severity because they can lose state, leak subscribers, hide upstream corruption, or create orphaned terminal process state under failure.</p>
+    <p><strong>Verdict:</strong> I found six correctness issues worth fixing. One high-severity lifecycle issue is now fixed by <a href="https://github.com/juspay/kolu/pull/1105">PR #1105</a>. The remaining open set is one high-severity path-authority bug and four medium-severity issues.</p>
   </div>
 
   <table>
@@ -140,6 +151,7 @@
         <th>Severity</th>
         <th>Finding</th>
         <th>Primary surface</th>
+        <th>Status</th>
       </tr>
     </thead>
     <tbody>
@@ -147,31 +159,37 @@
         <td><span class="severity high">High</span></td>
         <td>Repo-root guard is lexical only; symlinks can escape the repo for reads, previews, and local diffs.</td>
         <td><code>kolu-git</code>, iframe preview</td>
+        <td><span class="status open">Open</span></td>
       </tr>
       <tr>
         <td><span class="severity high">High</span></td>
         <td>Terminal exit subscriptions leak forever for explicitly killed terminals.</td>
         <td>client terminal lifecycle, server events</td>
+        <td><span class="status fixed">Fixed</span> <a href="https://github.com/juspay/kolu/pull/1105">#1105</a></td>
       </tr>
       <tr>
         <td><span class="severity medium">Medium</span></td>
         <td>PTY channel aborts leak subscribers when the abort fires between pulls.</td>
         <td><code>@kolu/pty-host</code></td>
+        <td><span class="status open">Open</span></td>
       </tr>
       <tr>
         <td><span class="severity medium">Medium</span></td>
         <td>Session restore drops persisted metadata and active selection for sub-terminals.</td>
         <td>client session restore</td>
+        <td><span class="status open">Open</span></td>
       </tr>
       <tr>
         <td><span class="severity medium">Medium</span></td>
         <td>OpenCode message JSON parse failure is silently treated as "no messages yet".</td>
         <td>OpenCode integration watcher</td>
+        <td><span class="status open">Open</span></td>
       </tr>
       <tr>
         <td><span class="severity medium">Medium</span></td>
         <td>Terminal kill unregisters local state even when pty-host kill fails; the client then removes the UI anyway.</td>
         <td>server terminal backend, client terminal CRUD</td>
+        <td><span class="status open">Open</span></td>
       </tr>
     </tbody>
   </table>
@@ -213,8 +231,8 @@
     <p><span class="risk">Risk:</span> terminal churn accumulates client roots and server event subscribers for terminals that are already gone. Over time, this can create memory growth and stale event channels.</p>
     <p><span class="fix">Fix:</span> make <code>subscribeExit</code> return a disposer and store it by terminal id. Dispose it after a natural exit, after an explicit kill, and whenever the terminal list removes the terminal. An alternative is to derive exit subscriptions from the terminal list with keyed cleanup.</p>
     <p><span class="fix">Tests:</span> cover explicit kill lifecycle with a mocked event stream or observable subscriber count: create terminal, subscribe, kill, then assert the per-terminal exit subscription is aborted.</p>
-    <p class="label">Status — fixed</p>
-    <p><span class="fix">Implemented</span> via the finding's keyed-cleanup alternative. Exit subscriptions are now derived from the live terminal list with <code>mapArray</code> in <a href="../../packages/client/src/terminal/useTerminalExits.ts">packages/client/src/terminal/useTerminalExits.ts</a> — the same list-keyed lifecycle <code>useTerminalMetadata</code> already uses. Each terminal id owns a reactive owner that SolidJS disposes the instant the id leaves the list, so explicit kills, <code>killAll</code>, and natural exits all release the subscription with no per-call-site disposer map. The leaky <code>createRoot</code> in <code>useTerminals.ts</code> and the <code>subscribeExit</code> threading through <code>useTerminalCrud</code> / <code>useSessionRestore</code> are gone. Covered by <code>useTerminalExits.test.ts</code> (asserts the subscription is released the moment a terminal leaves the list, including <code>killAll</code> to empty).</p>
+    <p class="label">Status - fixed</p>
+    <p><span class="fix">Implemented</span> in <a href="https://github.com/juspay/kolu/pull/1105">PR #1105, "Fix exit-subscription leak on explicit terminal kills"</a>. The fix uses the finding's keyed-cleanup alternative: exit subscriptions are now derived from the live terminal list with <code>mapArray</code> in <a href="../../packages/client/src/terminal/useTerminalExits.ts">packages/client/src/terminal/useTerminalExits.ts</a> - the same list-keyed lifecycle <code>useTerminalMetadata</code> already uses. Each terminal id owns a reactive owner that SolidJS disposes the instant the id leaves the list, so explicit kills, <code>killAll</code>, and natural exits all release the subscription with no per-call-site disposer map. The leaky <code>createRoot</code> in <code>useTerminals.ts</code> and the <code>subscribeExit</code> threading through <code>useTerminalCrud</code> / <code>useSessionRestore</code> are gone. Covered by <code>useTerminalExits.test.ts</code> (asserts the subscription is released the moment a terminal leaves the list, including <code>killAll</code> to empty).</p>
   </article>
 
   <article class="finding medium" id="channel-abort">
@@ -276,7 +294,7 @@
   <h2>Triage order</h2>
   <ol>
     <li><strong>Fix path authority first.</strong> It is the only issue that crosses from correctness into a direct workspace boundary violation.</li>
-    <li><strong>Fix terminal subscription lifecycle second.</strong> It is simple to contain and prevents steady memory growth during normal terminal use.</li>
+    <li><strong>Terminal subscription lifecycle is fixed.</strong> <a href="https://github.com/juspay/kolu/pull/1105">PR #1105</a> landed the list-keyed cleanup and regression coverage.</li>
     <li><strong>Fix channel abort cleanup before daemon work expands.</strong> It is a small primitive with a large downstream blast radius.</li>
     <li><strong>Fix sub-terminal restore and kill-confirmation behavior together with tests.</strong> Both are terminal lifecycle fidelity issues and should be covered by restore/CRUD scenarios.</li>
     <li><strong>Harden OpenCode parser errors.</strong> This is a low-risk observability/correctness change, but it prevents future upstream changes from failing silently.</li>
