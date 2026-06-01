@@ -113,7 +113,10 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
       // below), so the `?.`/`?? ""` is type-defensive narrowing of the
       // optional field — never a real blank-document path.
       render: (file) => (
-        <MarkdownRenderer markdown={file.source?.content ?? ""} />
+        <MarkdownRenderer
+          markdown={file.source?.content ?? ""}
+          truncated={file.source?.truncated ?? false}
+        />
       ),
     },
   ];

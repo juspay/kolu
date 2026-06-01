@@ -649,6 +649,27 @@ Then(
   },
 );
 
+// A >1 MB Markdown file is read back truncated; the rendered preview must
+// surface the same "File truncated" banner the source view shows, otherwise a
+// partial document renders with no warning. Scoped to the markdown preview
+// testid so it doesn't accidentally match the source-view banner.
+Then(
+  "the markdown preview should show the truncation warning",
+  async function (this: KoluWorld) {
+    const md = this.page.locator('[data-testid="browse-preview-markdown"]');
+    await pollFor({
+      observe: () => md.textContent({ timeout: 1_000 }).catch(() => null),
+      isDone: (text) =>
+        text !== null && text.includes("File truncated (exceeds 1 MB)"),
+      onTimeout: (last) =>
+        new Error(
+          `markdown preview never showed the truncation warning; last text: ${JSON.stringify(last)}`,
+        ),
+      timeoutMs: POLL_TIMEOUT,
+    });
+  },
+);
+
 Then(
   "the file view toggle should be visible",
   async function (this: KoluWorld) {

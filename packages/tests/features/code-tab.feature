@@ -432,6 +432,22 @@ Feature: Code tab (review + browse)
     And the file view toggle should be visible
     And the file preview iframe should not be visible
 
+  # Regression: a >1 MB .md file is read back truncated (first 1 MB only). It
+  # still defaults to the rendered view, so the rendered appliance must carry
+  # the same "File truncated" banner the source view shows — otherwise a partial
+  # document renders silently with no warning. The marker sits in the first
+  # bytes so it survives the 1 MB cut and proves content rendered.
+  Scenario: Truncated Markdown still warns in the rendered view
+    When I run "rm -rf /tmp/kolu-md-trunc && git init /tmp/kolu-md-trunc && cd /tmp/kolu-md-trunc"
+    And I run "printf '# Truncated Doc\n\nbody marker\n\n' > big.md && head -c 1100000 /dev/zero | tr '\0' 'x' >> big.md"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    When I click the file "big.md" in the file browser
+    Then the markdown preview should be visible
+    And the markdown preview should contain "Truncated Doc"
+    And the markdown preview should show the truncation warning
+
   Scenario: Markdown source toggle reveals the raw markdown
     When I run "rm -rf /tmp/kolu-md-src && git init /tmp/kolu-md-src && cd /tmp/kolu-md-src"
     And I run "printf '# Heading One\n\nbody text\n' > notes.md"
