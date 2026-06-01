@@ -185,6 +185,18 @@
 <li><strong>Enforce conventional commits going forward</strong> — a <code>commit-msg</code> hook plus a justci recipe that rejects non-conventional subjects. From the first tag onward, git-cliff produces clean grouped output because the history past that point is clean.</li>
 </ol>
 </div>
+<h3>What goes where — <code>CHANGELOG.md</code> vs GitHub Release vs blog</h3>
+<table>
+<thead><tr><th>Surface</th><th>Content</th><th>Audience</th></tr></thead>
+<tbody>
+<tr><td><code>CHANGELOG.md</code> <span class="muted">(in repo)</span></td><td>The spine: every user-relevant change since the last tag, grouped (feat/fix/…), one line each, PR/<code>#N</code> links. git-cliff, Keep-a-Changelog format, versioned with the code.</td><td>"What <em>exactly</em> changed between v0.1.0 and v0.2.0?"</td></tr>
+<tr><td>GitHub Release <span class="muted">(per tag)</span></td><td><em>Derived</em>, not authored: that version's CHANGELOG section (<code>git cliff --latest</code>) + a <code>compare/vPREV...vNEW</code> link + a link to the blog post + the demo media. The durable per-version record on GitHub.</td><td>The releases page; update notifiers.</td></tr>
+<tr><td>Blog post <span class="muted">(kolu.dev)</span></td><td>The curated narrative: whatchanged-derived, story-led, demos, "why it matters," and a <em>"what we learned"</em> footer linking the hk nodes.</td><td>Users; new visitors.</td></tr>
+<tr><td>hk nodes / garden</td><td>The <em>why</em> and the learnings. Linked <em>from</em> the three above — never copied into them.</td><td>You + future agents.</td></tr>
+</tbody>
+</table>
+<p>So the GitHub Release is <strong>generated from <code>CHANGELOG.md</code></strong>, and learnings are <strong>linked, never inlined</strong>. That's "the changelog is the downstream of captured history" made concrete — nothing in this table is written twice.</p>
+
 <p class="muted">Rejected: <code>semantic-release</code> (no-human-gate, couples version-bump to publish, monorepo support open since 2016); <code>standard-version</code> (deprecated — use <code>commit-and-tag-version</code> if ever needed); <code>changesets</code>/<code>towncrier</code> (their value is published-package semver propagation + per-PR fragment files; kolu publishes no app package and <code>whatchanged</code> already covers the human-intent layer).</p>
 
 <h2 id="cadence">6 · Cadence &amp; the per-release ritual</h2>

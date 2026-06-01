@@ -156,7 +156,7 @@
 <li><strong>Flat, ancestry-free slugs.</strong> <code>remote-terminals.pty-daemon.tui.html</code> → <code>pty-daemon-tui.html</code>. The name is a stable handle, not a path.</li>
 <li><strong>Split monoliths into atomic docs.</strong> Break the 208&nbsp;KB file into the children it already wants to be.</li>
 <li><strong>Recover structure with a Maps-of-Content index</strong> — a hand-written note that <em>links and annotates</em> its children, so a child can appear in multiple maps. See the live one at <a href="./index.html">docs/plans/index.html</a>.</li>
-<li><strong>Collapse depth in-page with <code>&lt;details&gt;</code></strong> — the same trick <code>remote-terminals.html</code> already uses 15 times. (This very document uses it in §8.)</li>
+<li><strong>Keep notes atomic — split, don't fold.</strong> The fix for "too big to parse" (for humans <em>and</em> LLMs) is small single-concept files. <code>&lt;details&gt;</code> only collapses the <em>view</em> — an agent still reads the whole DOM — so it's a human-navigation aid, not a token-cost one. Prefer markdown notes (§6) and split monoliths.</li>
 </ol>
 </div>
 <div class="panel corr">
@@ -195,16 +195,25 @@
 <p style="margin-bottom:0">The tempting design — "auto-promote a learning once it recurs 2–3 times, tracked by backlink count" — is <em>circular</em>: a backlink only accrues if a human already recognized the recurrence and linked it, which is the very judgment the gate was meant to automate. So either (a) make promotion an explicit call during the per-release ritual ("does this lesson keep biting?"), or (b) have <code>/retro</code> search existing learning nodes at capture time (by the verbatim error string / <code>file:line</code>) and auto-link matches, so the count becomes a <em>real</em> signal. Don't dress manual judgment as automation — nobody maintains a counter that lies. And remember the hard ceiling: always-loaded rules get ~150–200 instructions before models start dropping them (Claude Code's own prompt eats ~50), so the durable tier must stay lean — <em>point to docs, don't inline them.</em></p>
 </div>
 
-<h2 id="dogfood">6 · Why HTML — the dogfooding payoff</h2>
-<p>This is kolu's unfair advantage and the reason the garden is HTML, not just markdown. kolu's Code tab routes <code>.html</code>/<code>.svg</code>/<code>.pdf</code> to a sandboxed iframe and gives <strong>text-anchored comments</strong> on the rendered page — the same <code>extractQuote</code>/<code>findQuote</code> anchor model the in-iframe annotator uses. So the second brain is <em>read, navigated, and annotated without leaving kolu</em>, and the comment tray flushes to a Markdown list ready to paste back into an agent prompt.</p>
+<h2 id="dogfood">6 · Markdown-first — HTML for visual artifacts</h2>
+<p>The first instinct was "the garden is HTML, because only HTML renders in the Code tab." Two things revise it. First — correctly — <strong>large HTML files are hard for LLMs to parse, and <code>&lt;details&gt;</code> doesn't help</strong>: an agent reads the whole DOM regardless of what's folded. Second, with <a href="https://github.com/juspay/kolu/pull/1093">#1093</a> bringing markdown rendering to the Code tab, HTML loses its rendering monopoly. So the rule flips:</p>
+<table>
+<thead><tr><th>Note kind</th><th>Format</th><th>Why</th></tr></thead>
+<tbody>
+<tr><td>Retro · learning · decision · devlog</td><td><strong>Markdown</strong></td><td>Atomic, LLM-cheap, diffable; Astro renders it for the public <code>/dev</code> garden (§7) for free.</td></tr>
+<tr><td>Design doc · spec · review <span class="muted">(layout-heavy)</span></td><td><strong>HTML</strong></td><td>Tables, pipeline chips, side-by-side panels earn rich rendering. These two docs are the legit case.</td></tr>
+<tr><td>Mockup · diagram</td><td><strong>HTML / SVG</strong></td><td>Inherently visual.</td></tr>
+</tbody>
+</table>
+<p>The dogfooding survives intact: <code>@kolu/solid-markdown</code> already renders md (the intent surface uses it), #1093 brings it to the Code tab, and text-anchored comments work on <em>any</em> source file — so a markdown note renders <strong>and</strong> annotates in-app, then the comment tray flushes back into an agent prompt:</p>
 <div class="flow">
-  <span class="hot">docs/plans/*.html</span><span class="arrow">→</span>
-  <span>Code tab iframe</span><span class="arrow">→</span>
+  <span class="hot">docs/garden/*.md</span><span class="arrow">→</span>
+  <span>Code tab (rendered, #1093)</span><span class="arrow">→</span>
   <span>select text → "+ Comment"</span><span class="arrow">→</span>
   <span>copy tray</span><span class="arrow">→</span>
   <span class="hot">paste into agent</span>
 </div>
-<p>That loop is why "respond in <code>.html</code>" is the right instinct: a plan you can annotate in-app and feed straight back to an LLM closes the loop a markdown file can't. Keep the blog (a public Astro surface) distinct from the garden (in-app artifacts) — same content modes, different boundaries.</p>
+<p>The real fix for "too big to parse" isn't <code>&lt;details&gt;</code> — it's <strong>atomicity</strong>: small, single-concept files (the §4 split). Markdown just makes each piece cheaper to read and diff.</p>
 
 <h2 id="feed">7 · How the brain feeds releases</h2>
 <p>The two systems aren't independent. A changelog and a blog post should be the <strong>downstream artifact</strong> of captured history — not a separate manual effort. The spine, end to end:</p>
