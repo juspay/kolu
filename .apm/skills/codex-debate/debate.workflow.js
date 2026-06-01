@@ -233,9 +233,20 @@ let finalVerdict = null
 let lastClaude = null
 let prevSignature = null
 
-async function renderTranscript(statusVal, label) {
+// Renders the transcript snapshot to htmlOut via a subagent. Interim live
+// renders are best-effort (required=false): a render hiccup between rounds must
+// never fail the debate. The FINAL render is required (required=true) because
+// htmlOut is the user-facing artifact this feature promises — if it can't be
+// produced or verified, the workflow must fail loud rather than return a path
+// to a missing/stale file.
+async function renderTranscript(statusVal, label, required = false) {
   const fc = Array.from(new Set(transcript.flatMap((e) => (e.claude && e.claude.filesChanged) || [])))
   const snapshot = { status: statusVal, rounds: transcript.length, base, finalVerdict, filesChanged: fc, transcript }
+  const verifyStep = required
+    ? `
+
+4. Confirm the output exists with \`ls -la ${htmlOut}\`; if it does not exist, that is a fatal error.`
+    : ''
   const prompt = `You are a MECHANICAL RENDERER. Do exactly these steps and nothing else — do not edit any repository files, do not add commentary.
 
 1. Ensure the scratch dir exists: \`mkdir -p ${workDir}\`.
@@ -245,12 +256,13 @@ ${JSON.stringify(snapshot, null, 2)}
 
 3. Run, from the repo root \`${repoPath}\`:
    \`node ${skillDir}/scripts/render-debate.mjs ${transcriptJsonPath} ${htmlOut}\`
-   (the renderer creates the output's parent directory itself.)
+   (the renderer creates the output's parent directory itself.)${verifyStep}
 
 Return only "rendered".`
   try {
     return await agent(prompt, { label, phase: 'Render' })
   } catch (e) {
+    if (required) throw new Error(`final transcript render failed (${label}): ${e}`)
     log(`render (${label}) failed, continuing debate: ${e}`)
     return null
   }
@@ -319,7 +331,9 @@ const filesChanged = Array.from(
 log(`Debate ended: ${status} after ${transcript.length} round(s); ${filesChanged.length} file(s) changed.`)
 
 // Final render stamps the terminal status (consensus / deadlock / max-rounds).
+// Required: this is the user-facing artifact, so a failure here must abort the
+// workflow rather than silently return a path to a missing/stale file.
 phase('Render')
-await renderTranscript(status, 'render:final')
+await renderTranscript(status, 'render:final', true)
 
 return { status, rounds: transcript.length, base, finalVerdict, filesChanged, transcript, htmlOut }
