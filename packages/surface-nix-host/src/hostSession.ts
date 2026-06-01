@@ -15,7 +15,7 @@
  *     connecting   ──first RPC ────────▶ connected
  *     connecting   ──watchdog timeout ─▶ disconnected (kill child, then retry)
  *     connected    ──read end  ────────▶ disconnected ──reconnect──▶ copying
- *     disconnected ──gave up (N fails)──▶ failed   (terminal; `reconnect()` re-arms)
+ *     disconnected ──gave up (N *remote* fails)──▶ failed   (terminal; `reconnect()` re-arms)
  *
  * New listeners attached via `onState` see the *current* state
  * synchronously before any deltas arrive — matching the snapshot-then-
@@ -23,10 +23,25 @@
  *
  * When the link dies (the agent process exits, ssh drops), the session
  * clears the stdio client and respawns after an exponentially-backed-
- * off delay, capped at 60 s, with `MAX_CONSECUTIVE_FAILURES` as a
- * give-up gate (so a permanently-misconfigured remote — e.g.
- * `trusted-users` not granting the parent's user — fails loudly
- * instead of spinning).
+ * off delay, capped at 60 s. Whether the loop ever *gives up* depends on
+ * the failure's `FailureCause` (see that type):
+ *
+ *   - `"remote"` (reached the host, it rejected us — e.g. `trusted-users`
+ *     doesn't grant the parent's user) is terminal after
+ *     `MAX_CONSECUTIVE_FAILURES`: retrying can't fix a misconfiguration,
+ *     so it fails loudly into `failed` instead of spinning forever.
+ *   - `"network"` (couldn't reach the host at all — asleep, roaming
+ *     between Wi-Fi networks, VPN down) is *never* terminal: it keeps
+ *     retrying at the capped backoff indefinitely, so a laptop that
+ *     closes its lid at home and reopens at a café self-heals the moment
+ *     the host is reachable again, with no manual Reconnect.
+ *
+ * `recheck()` is the wake/network-change companion: unlike `reconnect()`
+ * (which only re-arms a `failed`/idle session and won't disturb a live
+ * link), it force-cycles even a *seemingly-connected* link whose socket
+ * may have gone stale across a sleep — the parent can't otherwise tell a
+ * live link from one the far end already dropped until ssh's keepalive
+ * notices ~30 s later.
  *
  * The `connecting` phase has its own escape hatch: a watchdog timer
  * (`connectTimeoutMs`, default 30 s) armed the moment the ssh child is
@@ -43,8 +58,13 @@ import { stdioLink } from "@kolu/surface/links/stdio";
 import { inMemoryCell } from "@kolu/surface/server";
 import type { ClientRetryPluginContext } from "@orpc/client/plugins";
 import type { AnyContractRouter, ContractRouterClient } from "@orpc/contract";
-import { buildAgentCommand, forEachLine } from "./host";
+import { buildAgentCommand, type FailureCause, forEachLine } from "./host";
 import { provisionAgent } from "./nixCopy";
+
+// `FailureCause` lives in `./host` (shared with `provisionAgent`, which now
+// decides it per provisioning step); re-export so existing importers of it
+// from this module keep working.
+export type { FailureCause };
 
 export type ConnectionState =
   | "copying"
@@ -52,9 +72,10 @@ export type ConnectionState =
   | "connected"
   | "disconnected"
   // Terminal: the reconnect loop exhausted `MAX_CONSECUTIVE_FAILURES`
-  // and stopped retrying. Distinct from `disconnected` (which is the
-  // brief gap between attempts) so consumers can tell "still trying"
-  // from "gave up — needs intervention". `reconnect()` re-arms it.
+  // on a `"remote"` fault and stopped retrying. Distinct from
+  // `disconnected` (the brief gap between attempts) so consumers can tell
+  // "still trying" from "gave up — needs intervention". `reconnect()`
+  // re-arms it. A `"network"` fault never reaches this state.
   | "failed";
 
 export interface HostSessionState {
@@ -64,6 +85,12 @@ export interface HostSessionState {
   progressLines: readonly string[];
   /** Last error if `connection === "disconnected"` or `"failed"`. */
   lastError: string | null;
+  /** Why the link is down — set alongside `disconnected`/`failed`, and
+   *  `null` while `copying`/`connecting`/`connected`. Lets consumers say
+   *  *why* a host is reconnecting ("host unreachable" vs "remote rejected
+   *  the closure") rather than a single undifferentiated "reconnecting…".
+   */
+  failureCause: FailureCause | null;
 }
 
 export interface HostSessionOptions {
@@ -73,11 +100,12 @@ export interface HostSessionOptions {
    *  picks the derivation — typically an ssh `nix-instantiate` arch
    *  probe via `resolveSystem` — lives inside the session's own
    *  reconnect machinery. An unreachable host makes the resolver reject,
-   *  which the session treats exactly like a `provisionAgent` failure:
-   *  `disconnected` → backoff → `failed`, re-armable via `reconnect()`.
-   *  The session ships the resolved derivation to the target host (no-op
-   *  for localhost) and realises it there to get a target-arch-correct
-   *  output path.
+   *  which the session treats as a `"network"` fault: `disconnected` →
+   *  backoff → `disconnected` → …, retrying indefinitely until the host is
+   *  reachable again (never terminal — only a `"remote"` provisioning
+   *  rejection gives up into `failed`). See `FailureCause`. The session
+   *  ships the resolved derivation to the target host (no-op for localhost)
+   *  and realises it there to get a target-arch-correct output path.
    *
    *  Pass a constant as `() => Promise.resolve(drv)` when the caller
    *  already knows the path and has no probe to defer. */
@@ -118,6 +146,15 @@ export class HostSession<C extends AnyContractRouter> {
   private refCount = 0;
   private child: ChildProcess | null = null;
   private clientPromise: Promise<AgentClient<C>> | null = null;
+  /** Set by `recheck()` immediately before it kills a *live* child to
+   *  re-probe after a wake/network change. The child's `exit` handler reads
+   *  it to label that self-inflicted kill a `"network"` retry — otherwise a
+   *  recheck during `connecting` (SIGTERM, no first RPC yet) would be
+   *  classified `"remote"` and burn the bounded give-up budget on what is a
+   *  transient recovery. Consumed (reset) in the exit handler. A class field
+   *  rather than a spawn-local (like `connectTimedOut`) because `recheck()`
+   *  lives outside the spawn closure. */
+  private cyclingForRecheck = false;
   /** The session's observable state — current snapshot + delta stream
    *  in one. The framework's `inMemoryCell` owns the snapshot-then-
    *  delta contract, so this class doesn't hand-roll a listener set or
@@ -126,6 +163,7 @@ export class HostSession<C extends AnyContractRouter> {
     connection: "copying",
     progressLines: [],
     lastError: null,
+    failureCause: null,
   });
   /** The session's single pending phase-transition timer — either the
    *  reconnect-backoff delay (armed in `disconnected`) or the connect
@@ -254,6 +292,18 @@ export class HostSession<C extends AnyContractRouter> {
     this.clientPromise = null;
   }
 
+  /** Assign and fire a new spawn, suppressing the rejection — spawn
+   *  surfaces failure via state updates; the promise rejection is
+   *  intentionally not propagated to callers. The three "fire and
+   *  forget" spawn sites (reconnect, recheck, scheduleReconnect timer)
+   *  all use this pattern. */
+  private launchSpawn(): void {
+    this.clientPromise = this.spawn();
+    this.clientPromise.catch(() => {
+      /* spawn surfaces failure via state; we just clear the promise */
+    });
+  }
+
   private updateState(patch: Partial<HostSessionState>): void {
     const prev = this.stateCell.current();
     const next: HostSessionState = { ...prev, ...patch };
@@ -336,7 +386,11 @@ export class HostSession<C extends AnyContractRouter> {
   }
 
   private async spawn(): Promise<AgentClient<C>> {
-    this.updateState({ connection: "copying", lastError: null });
+    this.updateState({
+      connection: "copying",
+      lastError: null,
+      failureCause: null,
+    });
     // Resolve the derivation first. This is where the arch probe (or any
     // other per-host drv lookup the caller deferred) actually runs, so a
     // host that's unreachable at probe time fails here — and is handled
@@ -351,8 +405,15 @@ export class HostSession<C extends AnyContractRouter> {
       // non-Error rejection here mustn't degrade `lastError` to the string
       // "undefined" on the connection cell the UI reads.
       const reason = err instanceof Error ? err.message : String(err);
-      this.updateState({ connection: "disconnected", lastError: reason });
-      this.scheduleReconnect();
+      // Couldn't even resolve the .drv — the arch probe is an ssh
+      // round-trip, so a rejection here means the host is unreachable:
+      // a `"network"` fault, never terminal.
+      this.updateState({
+        connection: "disconnected",
+        lastError: reason,
+        failureCause: "network",
+      });
+      this.scheduleReconnect("network");
       throw err;
     });
     const provision = await provisionAgent({
@@ -361,11 +422,19 @@ export class HostSession<C extends AnyContractRouter> {
       onProgress: (line) => this.addLocalProgress(line),
     });
     if (!provision.ok) {
+      // Provisioning failed. `provisionAgent` tells us *why*: a `"remote"`
+      // rejection (e.g. `trusted-users` won't accept the closure) is
+      // terminal after the give-up gate — retrying can't fix it — but a
+      // `"network"` failure (the host went unreachable mid-copy/realise,
+      // after the arch probe had succeeded) keeps retrying like any other
+      // transport fault. Without this, a sleep that lands between probe and
+      // copy would still strand the host in `failed`.
       this.updateState({
         connection: "disconnected",
         lastError: provision.reason,
+        failureCause: provision.cause,
       });
-      this.scheduleReconnect();
+      this.scheduleReconnect(provision.cause);
       throw new Error(provision.reason);
     }
     const realisedAgentPath = provision.agentPath;
@@ -392,24 +461,61 @@ export class HostSession<C extends AnyContractRouter> {
       forEachLine(chunk, (line) => this.addRemoteProgress(line)),
     );
 
-    const handleChildDone = (reason: string): void => {
+    const handleChildDone = (reason: string, cause: FailureCause): void => {
       this.addLocalProgress(reason);
-      this.updateState({ connection: "disconnected", lastError: reason });
+      this.updateState({
+        connection: "disconnected",
+        lastError: reason,
+        failureCause: cause,
+      });
       this.child = null;
       this.clearClientPromise();
-      if (!this.destroyed && this.refCount > 0) this.scheduleReconnect();
+      if (!this.destroyed && this.refCount > 0) this.scheduleReconnect(cause);
     };
 
     child.on("exit", (code, signal) => {
-      handleChildDone(
-        connectTimedOut
-          ? `connect handshake timed out after ${connectTimeoutMs}ms (transport up, no first RPC)`
-          : `agent exited (code=${code}, signal=${signal})`,
-      );
+      // Classify the exit by *phase*, not blanket `"network"`. A child that
+      // exits before the first RPC because the agent binary is missing or
+      // crashes on startup must NOT retry forever — only genuine transport
+      // faults should. `wasConnected` is read before `handleChildDone`
+      // transitions us off `connected`.
+      const wasConnected = this.stateCell.current().connection === "connected";
+      if (this.cyclingForRecheck) {
+        // We killed this child ourselves to re-probe after a wake/network
+        // change — a transient recovery, not a fault. Retry as `"network"`
+        // so it never counts toward the bounded give-up budget, even if the
+        // kill landed mid-`connecting` (SIGTERM, no first RPC).
+        this.cyclingForRecheck = false;
+        handleChildDone(
+          "rechecking link after wake/network change — cycled ssh child",
+          "network",
+        );
+        return;
+      }
+      if (connectTimedOut) {
+        // Transport came up but the agent never answered the first RPC —
+        // it's wedged, not unreachable. Bounded (`"remote"`) so a broken
+        // startup fails loudly instead of spinning.
+        handleChildDone(
+          `connect handshake timed out after ${connectTimeoutMs}ms (transport up, no first RPC)`,
+          "remote",
+        );
+        return;
+      }
+      const reason = `agent exited (code=${code}, signal=${signal})`;
+      // A live link that dropped, or ssh's own connection failure (exit
+      // 255), is transport — retry forever. A non-255 exit before we ever
+      // connected means ssh ran the agent and *it* exited (bad path,
+      // missing exe, startup crash) — bounded.
+      const cause: FailureCause =
+        wasConnected || code === 255 ? "network" : "remote";
+      handleChildDone(reason, cause);
     });
 
     child.on("error", (err) => {
-      handleChildDone(`ssh failed to spawn: ${err.message}`);
+      // ssh (or the local exe) couldn't even be spawned — a local/config
+      // problem that won't self-heal. Bounded.
+      handleChildDone(`ssh failed to spawn: ${err.message}`, "remote");
     });
 
     if (child.stdin === null || child.stdout === null) {
@@ -466,53 +572,117 @@ export class HostSession<C extends AnyContractRouter> {
     if (this.destroyed || this.refCount === 0) return;
     if (this.clientPromise !== null || this.pendingTimer !== null) return;
     this.consecutiveFailures = 0;
-    this.clientPromise = this.spawn();
-    this.clientPromise.catch(() => {
-      /* spawn surfaces failure via state; we just clear the promise */
-    });
+    this.launchSpawn();
   }
 
-  private scheduleReconnect(): void {
+  /** Re-probe the link after a host sleep or network change — the
+   *  companion to the wake/`online` signals a long-running parent can
+   *  observe. Where `reconnect()` deliberately won't disturb a live link
+   *  (it's the manual "Reconnect" button, only meaningful from `failed`),
+   *  `recheck()` force-cycles whatever is there, because a wake is exactly
+   *  the case where a `connected` link is *lying*: the laptop slept, the
+   *  far end dropped the TCP socket, but the local ssh child won't notice
+   *  until its keepalive fails ~30 s later. Rather than wait, we cycle the
+   *  child now and let the reconnect loop re-establish.
+   *
+   *  Resets the failure gate (a wake earns a fresh budget) and clears any
+   *  pending backoff (retry *now*, not after the remaining wait). Then:
+   *
+   *   - live child → `kill` it; the existing `exit` handler routes through
+   *     `handleChildDone` → `scheduleReconnect`, which nulls `clientPromise`
+   *     and re-arms. We must NOT also spawn here, or we'd stack two spawns
+   *     onto one session.
+   *   - no child (failed / idle / mid-backoff) → spawn immediately, like
+   *     `reconnect()` but without its "don't touch a live link" stance.
+   *     here we cancel the backoff timer and respawn immediately, dropping
+   *     the stale handle so the spawn isn't blocked.
+   *
+   *  No-op if destroyed or unreferenced. Safe to call on every host on
+   *  each wake — a healthy host simply blips through one fast reconnect. */
+  recheck(): void {
+    if (this.destroyed || this.refCount === 0) return;
+    this.consecutiveFailures = 0;
+    if (this.child !== null) {
+      // A live (connecting/connected) child whose socket may be stale after
+      // a sleep. Clear the connect-watchdog and cycle it; `cyclingForRecheck`
+      // tells the exit handler to schedule a `"network"` retry (a wake cycle
+      // is recovery, never a budget-consuming fault — even mid-`connecting`).
+      this.clearTimer();
+      this.cyclingForRecheck = true;
+      this.child.kill("SIGTERM");
+      return;
+    }
+    if (this.pendingTimer !== null) {
+      // In backoff: a retry is scheduled and `clientPromise` holds the last
+      // *rejected* spawn (kept non-null so `ensureSpawned` stays idempotent
+      // during the wait — see `scheduleReconnect`). Cancel the wait, drop the
+      // stale handle, and spawn now. This is the case the original `recheck()`
+      // mishandled — clearing the timer then bailing on the non-null slot.
+      this.clearTimer();
+      this.clearClientPromise();
+      this.launchSpawn();
+      return;
+    }
+    // No child, no pending timer: either a spawn is genuinely in flight
+    // (`copying`, `clientPromise` pending) — leave it to run, don't stack a
+    // second — or the session is idle/`failed` (`clientPromise` null) — spawn.
+    if (this.clientPromise !== null) return;
+    this.launchSpawn();
+  }
+
+  private scheduleReconnect(cause: FailureCause): void {
     if (this.destroyed || this.pendingTimer !== null) return;
+    // NOTE: we deliberately do NOT null `clientPromise` here. While the
+    // backoff timer is armed, a stale (rejected) `clientPromise` is what
+    // keeps `ensureSpawned()` idempotent — an `acquire()`/`pin()` during
+    // backoff sees it non-null and won't start a *second*, concurrent spawn
+    // racing the timer. (`recheck()` handles the "cancel the timer →
+    // respawn now" case explicitly; it doesn't rely on this slot being
+    // null.) The terminal give-up branch below clears it, since `failed`
+    // has no pending timer to act as the guard.
     // Exponential backoff is keyed on attempts-so-far, not "this is
     // attempt N after the failure". The previous code post-incremented
     // and then subtracted one to compensate (`2 ** (count - 1)`), which
     // is correct but reads like two off-by-ones cancelling. Decouple:
     // compute the delay from the pre-increment count, then bump.
-    // Sequence: 2s, 4s, 8s, 16s — capped at 60s — then "gave up" on
-    // the next call.
+    // Sequence: 2s, 4s, 8s, 16s — capped at 60s.
     const attemptsSoFar = this.consecutiveFailures;
     this.consecutiveFailures += 1;
-    if (this.consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+    // Only a `"remote"` fault is terminal: we reached the host and it
+    // rejected us, so retrying past the gate just spins. A `"network"`
+    // fault (unreachable host — asleep, roaming, VPN down) is never
+    // terminal: the host will answer again once it's reachable, and the
+    // capped backoff keeps probing for that moment without manual
+    // intervention. This is the roaming-laptop fix — see `FailureCause`.
+    if (
+      cause === "remote" &&
+      this.consecutiveFailures >= MAX_CONSECUTIVE_FAILURES
+    ) {
       this.addLocalProgress(
         `gave up after ${MAX_CONSECUTIVE_FAILURES} consecutive failures — fix the underlying issue (often: remote nix-daemon needs your user in 'trusted-users' to accept unsigned closures), then reconnect`,
       );
-      // Clear the in-flight handle BEFORE entering the terminal state.
-      // The provision-failure path (`nix copy` exited non-zero) throws
-      // out of `spawn()` without ever creating a child, so
-      // `handleChildDone` — the only other site that nulls the slot —
-      // never ran; the slot still holds the last *rejected* spawn
-      // promise. Without this, `reconnect()`'s `clientPromise !== null`
-      // guard sees a non-null slot and silently no-ops, stranding a
-      // genuinely-failed session. (See `clearClientPromise`.)
+      // Terminal state has no pending timer, so null the (rejected) handle
+      // here — otherwise `reconnect()`'s `clientPromise !== null` guard would
+      // see the stale slot and silently no-op, stranding a failed session
+      // (the original "Reconnect does nothing" bug). See `clearClientPromise`.
       this.clearClientPromise();
-      // Move off `disconnected` so consumers can distinguish "still
-      // retrying" from "gave up". `lastError` is already set by the
-      // spawn-failure path that led here; preserve it.
+      // Move off `disconnected` so consumers can distinguish "still retrying"
+      // from "gave up"; `lastError` is preserved from the spawn-failure path.
       this.updateState({ connection: "failed" });
       return;
     }
     const baseDelay = this.opts.reconnectDelayMs ?? 2000;
     const delay = Math.min(baseDelay * 2 ** attemptsSoFar, 60_000);
+    // A `"network"` retry has no ceiling to count toward, so don't show a
+    // misleading "attempt 7/5" — report it as the open-ended probe it is.
     this.addLocalProgress(
-      `reconnecting in ${delay}ms… (attempt ${this.consecutiveFailures}/${MAX_CONSECUTIVE_FAILURES})`,
+      cause === "network"
+        ? `host unreachable — retrying in ${delay}ms… (attempt ${this.consecutiveFailures})`
+        : `reconnecting in ${delay}ms… (attempt ${this.consecutiveFailures}/${MAX_CONSECUTIVE_FAILURES})`,
     );
     this.armTimer(delay, () => {
       if (this.destroyed || this.refCount === 0) return;
-      this.clientPromise = this.spawn();
-      this.clientPromise.catch(() => {
-        /* spawn surfaces failure via state; we just clear the promise */
-      });
+      this.launchSpawn();
     });
   }
 
