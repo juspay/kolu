@@ -99,6 +99,7 @@ export async function servePtyHostOverUnixSocket(opts: {
     close() {
       if (closed) return;
       closed = true;
+      log?.info({ socketPath }, "pty-host socket closed");
       server.close();
       rmSync(socketPath, { force: true });
     },
