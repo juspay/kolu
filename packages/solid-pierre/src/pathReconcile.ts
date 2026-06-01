@@ -23,8 +23,10 @@ export function ancestorDirectoryPaths(path: string): string[] {
   if (normalized.length === 0) return [];
   const segments = normalized.split("/").filter(Boolean);
   const out: string[] = [];
-  for (let i = 1; i < segments.length; i += 1) {
-    out.push(`${segments.slice(0, i).join("/")}/`);
+  let prefix = "";
+  for (let i = 0; i < segments.length - 1; i++) {
+    prefix += `${segments[i]}/`;
+    out.push(prefix);
   }
   return out;
 }
