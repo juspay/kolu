@@ -344,10 +344,10 @@
     <td>Low — mechanical extraction, one call-site.</td>
   </tr>
   <tr>
-    <td><strong>2 · Extract <code>@kolu/solid-fileview</code></strong></td>
-    <td>The toggle host + mode logic + renderer registry + the <code>image</code>/<code>iframe</code> renderers. Rewrite <code>right-panel/</code> preview as a thin <code>fsReadFile</code>→<code>FileView</code> adapter injecting pierre-source + image + iframe(+comment-bridge). Renders <em>exactly today's formats</em> — no user-visible change.</td>
+    <td><strong>2 · Extract <code>@kolu/solid-fileview</code></strong> <span class="pill ok">shipped · <a href="https://github.com/juspay/kolu/pull/1082">#1082</a></span></td>
+    <td>The toggle host + mode logic + renderer registry + the <code>image</code>/<code>iframe</code> renderers. Rewrote <code>right-panel/</code> preview as a thin <code>fsReadFile</code>→<code>FileView</code> adapter injecting pierre-source + image + iframe(+comment-bridge). Renders <em>exactly today's formats</em> — no user-visible change. <em>As-built deltas:</em> <code>BrowseFileView.tsx</code> was <strong>kept</strong> (now injected as the <code>SourceRenderer</code>, not deleted); only <code>BrowsePreviewView.tsx</code> went. <code>FileData</code> nests <code>source?: {content, truncated}</code> (hickey: make source-presence structural). Verified: workspace typecheck + biome clean, 211 client unit tests, <code>code-tab.feature</code> 66 scenarios / 809 steps, full justci 24/24 green.</td>
     <td><strong>↓↓</strong> (3 presenters → 1 adapter)</td>
-    <td>Medium — refactor of a live surface; covered by behavior-preserving e2e.</td>
+    <td>Medium — refactor of a live surface; covered by behavior-preserving e2e. <em>(One real defect caught only by the Nix build: the new package was missing from <code>default.nix</code>'s fileset, so Rollup couldn't resolve it — invisible to the pnpm-workspace symlink that local typecheck/test use.)</em></td>
   </tr>
   <tr>
     <td><strong>3 · Light the Markdown toggle</strong></td>
@@ -387,18 +387,21 @@
 <table>
   <tr><th>Package</th><th>Contents</th></tr>
   <tr><td><code>packages/solid-markdown</code> <span class="pill todo">new</span></td><td>The token-walk core (<code>marked</code> + <code>safeHref</code> sanitization) + <code>inline</code>/<code>document</code> variants. Kolu-free; publishable.</td></tr>
-  <tr><td><code>packages/solid-fileview</code> <span class="pill todo">new</span></td><td><code>FileView</code> host (toggle, mode-availability, registry pick) + the <code>RenderedRenderer</code> contract. No rendering deps — pure mechanism. Sub-path renderers: <code>/renderers/{markdown,image,iframe}</code>.</td></tr>
+  <tr><td><code>packages/solid-fileview</code> <span class="pill ok">shipped · #1082</span></td><td><code>FileView</code> host (toggle, mode-availability, registry pick) + the <code>SourceRenderer</code>/<code>RenderedRenderer</code> contracts. No rendering deps — pure mechanism. Sub-path renderers shipped: <code>/renderers/{image,iframe}</code> (the <code>markdown</code> renderer lands in P3 when it's first needed).</td></tr>
 </table>
 
 <h3>Kolu — the net shrink (where the wiring gets <em>simpler</em>)</h3>
 <table>
   <tr><th>File</th><th>Change</th></tr>
   <tr><td><code>intent/IntentMarkdown.tsx</code></td><td><span class="pill ok">−~250 LOC</span> Becomes a thin consumer of <code>@kolu/solid-markdown</code> (variant + Kolu link policy).</td></tr>
-  <tr><td><code>right-panel/BrowseFileView.tsx</code> · <code>BrowsePreviewView.tsx</code></td><td><span class="pill ok">deleted</span> Their source/img/iframe mechanics move into <code>@kolu/solid-fileview</code> + its renderers.</td></tr>
-  <tr><td><code>right-panel/BrowseFileDispatcher.tsx</code></td><td><span class="pill warn">slimmed</span> Becomes the <code>fsReadFile</code>→<code>FileView</code> adapter: map <code>kind</code> to props, inject Kolu's renderer set (pierre-source themed, markdown, image, iframe+comment-bridge). A projection, not logic.</td></tr>
+  <tr><td><code>right-panel/BrowsePreviewView.tsx</code></td><td><span class="pill ok">deleted · #1082</span> Its img/iframe mechanics moved into <code>@kolu/solid-fileview</code> + its renderers.</td></tr>
+  <tr><td><code>right-panel/BrowseFileView.tsx</code></td><td><span class="pill warn">kept · #1082</span> <em>As-built:</em> not deleted — wrapped as the injected pierre <code>SourceRenderer</code> (it carries Kolu's comment surface + line-selection, which stay Kolu's). The library never gains a syntax-highlighter dep.</td></tr>
+  <tr><td><code>right-panel/BrowseIframeRenderer.tsx</code> <span class="pill ok">new · #1082</span></td><td>Kolu's iframe appliance: the library <code>IframeRenderer</code> + the artifact-sdk <code>CommentIframeSurface</code> bridge wired via the frame's <code>ref</code>. Comments are Kolu's volatility, so the bridge lives here, not in the package.</td></tr>
+  <tr><td><code>right-panel/BrowseFileDispatcher.tsx</code></td><td><span class="pill ok">slimmed · #1082</span> Now the <code>fsReadFile</code>→<code>FileView</code> adapter: maps <code>kind</code> to a <code>FileData</code>, injects Kolu's renderer set (pierre-source, image, iframe+comment-bridge). A projection, not logic. (<code>markdown</code> renderer added in P3.)</td></tr>
   <tr><td>preview classification (was <code>kolu-git/previewable.ts</code>) <span class="pill todo">relocate</span></td><td>Server-side wire classification (text vs URL) moves to a node-free preview module (e.g. <code>kolu-common/preview</code>) — <em>out of <code>kolu-git</code></em>, which never had business owning it. P4 adds the <code>renderable</code> extension set.</td></tr>
   <tr><td><code>FsReadFileOutputSchema</code> (<code>kolu-git/schemas.ts</code>)</td><td>P4: add the <code>kind:"renderable"</code> variant (<code>content + truncated + url</code>). Candidate to relocate alongside the taxonomy.</td></tr>
-  <tr><td><code>README.md</code></td><td>Document the Source ⇄ Rendered toggle in the Code-browser section.</td></tr>
+  <tr><td><code>default.nix</code> <span class="pill ok">+1 · #1082</span></td><td><em>As-built (not in the original plan):</em> each new package must be added to the Nix build fileset (the build copies only listed sources into the sandbox). Mirrors the <code>solid-markdown</code> entry from P1; every future appliance package needs the same one-line add or the Vite build fails to resolve it.</td></tr>
+  <tr><td><code>README.md</code></td><td><span class="pill ok">P2 · #1082</span> Architecture table now lists <code>@kolu/solid-fileview</code>. The Source ⇄ Rendered <em>toggle</em> itself gets documented in the Code-browser section when P3 first lights it for a user.</td></tr>
 </table>
 <p class="warn"><strong>The accounting:</strong> we add two packages and a feature, yet the Kolu app tree (<code>client/</code>, <code>server/</code>, <code>kolu-git</code>) ends up with <em>fewer</em> lines and one fewer responsibility — exactly the electricity payoff. The complexity didn't vanish; it moved behind an outlet and stopped being Kolu's to maintain.</p>
 
