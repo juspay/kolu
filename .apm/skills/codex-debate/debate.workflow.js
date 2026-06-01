@@ -20,6 +20,12 @@ const skillDir = a.skillDir || '.claude/skills/codex-debate'
 // worktrees never collide on shared /tmp paths, and `.codex-debate/` is
 // gitignored so these files never pollute the diff codex reviews.
 const workDir = `${repoPath}/.codex-debate`
+// Live transcript output. Defaults to a committable repo-root file (NOT the
+// gitignored scratch dir) so it can be reviewed and committed. Declared here so
+// codexReviews() can tell codex to exclude this exact path from review scope —
+// it is re-rendered between rounds and would otherwise pollute the diff.
+const htmlOut = a.htmlOut || `${repoPath}/codex-debate-transcript.html`
+const transcriptJsonPath = `${workDir}/transcript.json`
 // Commit each round's changes individually (default on). The commit message
 // carries the debate context (codex's findings + claude's dispositions). Never
 // pushes or merges — that stays the human's call.
@@ -120,11 +126,11 @@ async function codexReviews(round, rebuttalJson) {
 ${rebuttalJson}
 
 2. Run, from the repo root \`${repoPath}\`:
-   \`bash ${skillDir}/scripts/codex-review.sh ${base} ${rebuttalPath} ${verdictPath}\``
+   \`bash ${skillDir}/scripts/codex-review.sh ${base} ${rebuttalPath} ${verdictPath} ${htmlOut}\``
     : `1. (No prior rebuttal this round.)
 
 2. Run, from the repo root \`${repoPath}\`:
-   \`bash ${skillDir}/scripts/codex-review.sh ${base} - ${verdictPath}\``
+   \`bash ${skillDir}/scripts/codex-review.sh ${base} - ${verdictPath} ${htmlOut}\``
 
   const prompt = `You are a MECHANICAL RUNNER for one round of an automated code-review debate. Do exactly the steps below and nothing else. Do NOT review the code yourself, do NOT edit any repository files, do NOT add commentary.
 
@@ -216,12 +222,10 @@ ${message}
 // Live HTML rendering. The transcript is re-rendered after every state change
 // (each codex verdict and each claude round) so htmlOut updates in REAL TIME —
 // open it to watch the debate unfold — plus a final pass stamping the terminal
-// status. htmlOut defaults to a committable repo-root file (NOT the gitignored
-// scratch dir), so it can be reviewed and committed. Best-effort: a render
-// hiccup must never fail the debate.
+// status. (htmlOut / transcriptJsonPath are declared up top so codexReviews can
+// exclude the resolved path.) Best-effort: a render hiccup must never fail the
+// debate.
 // ---------------------------------------------------------------------------
-const htmlOut = a.htmlOut || `${repoPath}/codex-debate-transcript.html`
-const transcriptJsonPath = `${workDir}/transcript.json`
 
 const transcript = []
 let status = 'max-rounds'
