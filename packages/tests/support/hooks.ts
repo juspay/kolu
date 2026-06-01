@@ -111,6 +111,23 @@ process.env.KOLU_FAKE_OPENCODE_BIN = fakeBins.opencode;
  *  `testBaseDir` means the whole run's scratch space cleans up together. */
 const koluStateDir = mkSubDir("state");
 
+/** PR-evidence capture (set `KOLU_EVIDENCE=1`): record a Playwright video per
+ *  scenario and save it, scenario-named, under `reports/videos/` for the /do
+ *  evidence flow to transcode + upload (the same GIF/Pages-player delivery the
+ *  bespoke `capture.mjs` used). Off by default so normal runs pay nothing — the
+ *  whole point of reusing the harness is that capture rides the existing step
+ *  library. See `docs/plans/video-evidence.html`. `rawVideoDir` holds
+ *  Playwright's auto-named files (under `testBaseDir`, wiped in AfterAll);
+ *  `evidenceVideoDir` holds the saved, named `.webm`s and survives the run. */
+const EVIDENCE = !!process.env.KOLU_EVIDENCE;
+const rawVideoDir = EVIDENCE ? mkSubDir("video-raw") : undefined;
+const evidenceVideoDir = path.resolve(
+  import.meta.dirname,
+  "..",
+  "reports",
+  "videos",
+);
+
 let baseUrl: string;
 let browser: Browser;
 let serverProcess: ChildProcess | undefined;
@@ -256,6 +273,17 @@ async function newScenarioPage(
       // clipboard-read: lets tests verify clipboard contents after copy operations.
       // Production code never calls clipboard.read — these are test-only permissions.
       permissions: ["clipboard-write", "clipboard-read"],
+      // KOLU_EVIDENCE: record a video of the context. recordVideo is a
+      // context option (not a launch option); the file is finalized on
+      // context.close() and retrieved per-page via page.video() in After.
+      ...(rawVideoDir
+        ? {
+            recordVideo: {
+              dir: rawVideoDir,
+              size: { width: 1366, height: 768 },
+            },
+          }
+        : {}),
     });
     previousContext = context;
     const page = await context.newPage();
@@ -344,6 +372,10 @@ BeforeAll(async () => {
   browser = await chromium.launch({
     headless: process.env.HEADLESS !== "false",
     args: ciArgs,
+    // KOLU_EVIDENCE: pace driver actions so the recorded video is legible
+    // (the lead-up; the app's own async — e.g. an iframe reload — still runs
+    // at real speed, so the payoff is shown via the scenario's own waits).
+    ...(EVIDENCE ? { slowMo: 250 } : {}),
   });
 });
 
@@ -407,18 +439,24 @@ Before(async function (this: KoluWorld, scenario) {
   this.context = created.context;
   this.page = created.page;
   // Disable CSS transitions/animations so Corvu dialogs open/close instantly.
-  // prefers-reduced-motion tells well-behaved libraries to skip animations.
-  // The style override catches anything that doesn't respect the media query.
-  await this.page.emulateMedia({ reducedMotion: "reduce" });
+  // prefers-reduced-motion tells well-behaved libraries to skip animations;
+  // the style override catches anything that ignores the media query. SKIPPED
+  // under KOLU_EVIDENCE — when we're recording a video, motion is the point.
+  if (!EVIDENCE) {
+    await this.page.emulateMedia({ reducedMotion: "reduce" });
+    await this.page.addInitScript(`
+      document.addEventListener("DOMContentLoaded", function() {
+        var style = document.createElement("style");
+        style.textContent = "*, *::before, *::after { transition-duration: 0s !important; animation-duration: 0s !important; }";
+        document.head.appendChild(style);
+      });
+    `);
+  }
+  // Shared xterm buffer reader for e2e tests — used by waitForBufferContains,
+  // readBufferText, and getTerminalPid via page.evaluate / page.waitForFunction.
+  // Single definition avoids the buffer-read loop being duplicated across files.
+  // Always injected (independent of the motion gate above).
   await this.page.addInitScript(`
-    document.addEventListener("DOMContentLoaded", function() {
-      var style = document.createElement("style");
-      style.textContent = "*, *::before, *::after { transition-duration: 0s !important; animation-duration: 0s !important; }";
-      document.head.appendChild(style);
-    });
-    // Shared xterm buffer reader for e2e tests — used by waitForBufferContains,
-    // readBufferText, and getTerminalPid via page.evaluate / page.waitForFunction.
-    // Single definition avoids the buffer-read loop being duplicated across files.
     window.__readXtermBuffer = function(sel, idx) {
       var containers = document.querySelectorAll(sel);
       var container = containers[idx];
@@ -461,5 +499,22 @@ After(async function (this: KoluWorld, scenario) {
         );
       });
   }
+  // PR-evidence video (KOLU_EVIDENCE): grab the page's video handle BEFORE
+  // closing the context — the .webm is only finalized on close — then save it
+  // scenario-named under reports/videos/ once closed. saveAs waits for the
+  // file to be fully written, so the order (handle → close → save) is safe.
+  const video = EVIDENCE ? this.page?.video() : undefined;
   if (this.context) await this.context.close();
+  if (video) {
+    const name = scenario.pickle.name.replace(/\s+/g, "-").toLowerCase();
+    fs.mkdirSync(evidenceVideoDir, { recursive: true });
+    await video
+      .saveAs(path.join(evidenceVideoDir, `${name}.webm`))
+      .catch((err) => {
+        console.error(
+          `[worker:${workerId}] Failed to save evidence video:`,
+          err,
+        );
+      });
+  }
 });
