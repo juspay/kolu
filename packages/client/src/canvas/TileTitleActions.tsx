@@ -62,7 +62,7 @@ const TileTitleActions: Component<{
             onClick={(e) => {
               e.stopPropagation();
               store.setActiveSilently(props.id);
-              rightPanel.expandPanel();
+              rightPanel.reveal();
             }}
             title="Open inspector"
           >

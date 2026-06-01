@@ -27,6 +27,11 @@ body {
  * Values here double as the dark palette — :root:not(.dark) overrides them for light mode.
  */
 @theme {
+  /* The single definition of the `sm` breakpoint — where "mobile" begins.
+   * `useMobile.ts` reads this token (`--breakpoint-sm`) so the JS media query
+   * and Tailwind's `sm:` / `max-sm:` utilities can never disagree by a pixel. */
+  --breakpoint-sm: 40rem; /* 640px */
+
   --font-sans: "DM Sans", ui-sans-serif, system-ui, sans-serif;
 
   --color-surface-0: #0c0c0e;

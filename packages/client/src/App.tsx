@@ -31,6 +31,7 @@ import { buildWorkspaceEntries } from "./canvas/dockModel";
 import TerminalCanvas from "./canvas/TerminalCanvas";
 import TileTitleActions from "./canvas/TileTitleActions";
 import { useCanvasArrange } from "./canvas/useCanvasArrange";
+import { showsWorkspaceSwitcher, supportsSpatialCanvas } from "./capabilities";
 import { createCommands } from "./commands";
 import DiagnosticInfo from "./DiagnosticInfo";
 import EmptyState from "./EmptyState";
@@ -191,7 +192,7 @@ const App: Component = () => {
   }
 
   function handleCanvasCenterActive() {
-    if (isMobile()) return;
+    if (!supportsSpatialCanvas()) return;
     const id = store.activeId();
     if (id) store.activate(id);
   }
@@ -204,7 +205,6 @@ const App: Component = () => {
   const arrange = useCanvasArrange({
     store,
     crud,
-    isMobile,
   });
 
   // Shared between the keyboard dispatcher and the command palette so a single
@@ -222,7 +222,7 @@ const App: Component = () => {
       void crud.handleCreateSubTerminal(parentId, cwd),
     openNewTerminalMenu: () => openPaletteGroup("New terminal"),
     openWorkspaceSwitcher: () => {
-      if (!isMobile()) openPaletteGroup("Search workspaces");
+      if (showsWorkspaceSwitcher()) openPaletteGroup("Search workspaces");
     },
     setPaletteOpen,
     setShortcutsHelpOpen,
@@ -312,7 +312,6 @@ const App: Component = () => {
         (s) => s && session.handleRestoreSession({ session: s }),
       ),
     simulateAlert: alerts.simulateAlert,
-    isMobile,
     canvasCenterActive: handleCanvasCenterActive,
     canvasAutoArrange: arrange.handleCanvasAutoArrange,
     workspaceEntries,

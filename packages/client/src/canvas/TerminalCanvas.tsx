@@ -96,7 +96,7 @@ const TerminalCanvas: Component<{
    *  Threaded as a prop rather than consumed via a singleton hook
    *  (the way `useCanvasViewport` and `usePendingLayouts` are read
    *  inside `CanvasMinimap`) because `useCanvasArrange` takes
-   *  composition-root deps (`{ store, crud, viewport, isMobile }`) —
+   *  composition-root deps (`{ store, crud }`) —
    *  it's a function, not a zero-arg singleton. The prop captures
    *  the bound result; the minimap doesn't know or care about the
    *  arrange policy. */
