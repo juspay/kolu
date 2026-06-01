@@ -35,7 +35,7 @@ fi
 
 ```sh
 # Against the backgrounded CI output (the /do skill's task output file):
-grep -o '{.*"node":.*}' "$ci_output" | jq -c 'select(.status=="failed" or .status=="errored")'
+grep -o '{.*}' "$ci_output" | jq -c 'select(.status=="failed" or .status=="errored")'
 # → {"node":"biome@x86_64-linux","recipe":"biome","status":"failed","exit_code":1,"log":".ci/<sha>/x86_64-linux/biome.log"}
 ```
 
