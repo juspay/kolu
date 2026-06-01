@@ -16,3 +16,5 @@ packages/client/public/fonts
 /.do-results.json
 .kolu-dev/
 .ralph-logs/
+# /codex-debate skill: per-worktree scratch (verdicts, rebuttals, transcript)
+.codex-debate/

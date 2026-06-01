@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Release workflow for kolu — first public release & a sustainable cadence</title>
+<style>
+  :root{
+    --bg:#fafaf7; --panel:#ffffff; --panel2:#f4eefb; --ink:#1a1c20; --dim:#5b6470;
+    --line:#e6e2d6; --accent:#6b4eff; --accent2:#7c4dd4; --good:#1b7a3a; --bad:#a02a2a;
+    --warn:#a96400; --teal:#0e7490; --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  }
+  *{ box-sizing:border-box; } html{ scroll-behavior:smooth; }
+  body{ margin:0; background:var(--bg); color:var(--ink); font:15px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif; padding:2.4rem 1.25rem 6rem; }
+  main{ max-width:880px; margin:0 auto; }
+  a{ color:var(--accent); text-decoration:none; } a:hover{ text-decoration:underline; }
+  .crumb{ font-family:var(--mono); font-size:.72rem; color:var(--dim); letter-spacing:.04em; margin:0 0 1.1rem; }
+  .crumb a{ color:var(--dim); } .crumb a:hover{ color:var(--accent); }
+  h1{ font-size:1.7rem; line-height:1.2; margin:0 0 .35rem; letter-spacing:-.01em; }
+  h2{ font-size:1.12rem; margin:2.6rem 0 .7rem; padding-bottom:.35rem; border-bottom:1px solid var(--line); color:#13151b; scroll-margin-top:1rem; }
+  h3{ font-size:.98rem; margin:1.5rem 0 .45rem; color:var(--accent); }
+  h4{ font-size:.8rem; text-transform:uppercase; letter-spacing:.05em; color:var(--dim); margin:1.1rem 0 .35rem; }
+  .sub{ color:var(--dim); margin:.1rem 0 1.3rem; font-size:.95rem; }
+  p{ margin:.6rem 0; } ul,ol{ margin:.5rem 0; padding-left:1.3rem; } li{ margin:.32rem 0; }
+  code{ font-family:var(--mono); font-size:.85em; background:#f4f1e8; padding:.08em .35em; border-radius:4px; color:#2a2d33; }
+  pre{ background:#f6f3ea; border:1px solid var(--line); border-radius:8px; padding:.85rem 1rem; overflow-x:auto; font-family:var(--mono); font-size:.79rem; line-height:1.55; }
+  pre code{ background:none; padding:0; }
+  .cite{ font-family:var(--mono); font-size:.78em; color:var(--accent); }
+  .muted{ color:var(--dim); } .rec{ color:var(--good); font-weight:600; }
+  .tag{ display:inline-block; font-family:var(--mono); font-size:.66rem; text-transform:uppercase; letter-spacing:.04em; padding:.12em .5em; border-radius:999px; vertical-align:middle; border:1px solid transparent; }
+  .tag.good{ background:#e3f4e9; color:#1b7a3a; border-color:#bce3c8; }
+  .tag.bad{ background:#f7e0e0; color:#a02a2a; border-color:#e9bcbc; }
+  .tag.warn{ background:#f8efd9; color:#8a5200; border-color:#e8d3a3; }
+  .tag.accent{ background:#efebff; color:#5a3ff0; border-color:#d4cbff; }
+  .tag.budding{ background:#dcf0f4; color:#0b6478; border-color:#bfe3ea; }
+  .panel{ background:var(--panel); border:1px solid var(--line); border-radius:9px; padding:1rem 1.2rem; margin:1rem 0; }
+  .panel.accent{ border-left:3px solid var(--accent); }
+  .panel.good{ border-left:3px solid var(--good); }
+  .panel.warn{ border-left:3px solid var(--warn); }
+  .panel.bad{ border-left:3px solid var(--bad); }
+  .panel.corr{ border-left:3px solid var(--accent2); background:var(--panel2); }
+  .verdict{ font-size:1.05rem; font-weight:600; margin-top:0; }
+  table{ width:100%; border-collapse:collapse; margin:1rem 0; font-size:.85rem; }
+  th,td{ text-align:left; padding:.5rem .6rem; border-bottom:1px solid var(--line); vertical-align:top; }
+  th{ color:var(--dim); font-weight:600; font-size:.73rem; text-transform:uppercase; letter-spacing:.03em; }
+  .flow{ display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; font-family:var(--mono); font-size:.75rem; margin:.8rem 0; }
+  .flow span{ background:#f4f1e8; border:1px solid var(--line); border-radius:6px; padding:.3rem .55rem; }
+  .flow .arrow{ background:none; border:none; color:var(--dim); padding:0; }
+  .flow .hot{ background:#efebff; color:var(--accent); border-color:#cfc4ff; }
+  .flow .miss{ background:#f7e0e0; color:var(--bad); border-color:#e6b9b9; }
+  .toc{ background:var(--panel); border:1px solid var(--line); border-radius:9px; padding:.7rem 1.1rem .8rem; margin:1.4rem 0; font-size:.86rem; }
+  .toc h4{ margin:.3rem 0 .4rem; }
+  details{ border:1px solid var(--line); border-radius:8px; padding:.45rem .95rem; margin:.7rem 0; background:var(--panel); }
+  details summary{ cursor:pointer; font-weight:600; color:var(--accent); }
+  details[open] summary{ margin-bottom:.5rem; }
+  hr{ border:none; border-top:1px solid var(--line); margin:2.2rem 0; }
+  .src{ font-size:.78rem; } .src a{ color:var(--teal); }
+</style>
+</head>
+<body>
+<main>
+
+<p class="crumb"><a href="./index.html">docs/plans</a> / release-workflow</p>
+
+<h1>Release workflow for kolu</h1>
+<p class="sub">Cutting the first public release, then a sustainable frequent cadence with a changelog + blog post per release. <span class="tag budding">budding</span> &nbsp;<span class="muted">research → design · captured 2026-06-01 · grounded in the repo + 8-lane web research, adversarially verified</span></p>
+
+<div class="panel accent">
+<p class="verdict">Ship <code>v0.1.0</code> as a hand-cut git tag this week; let everything else grow from there.</p>
+<p style="margin-bottom:.4rem">kolu is unusually close to releasable: the commit-identity rail, a deployed Astro blog, multi-platform CI, and a binary cache already exist. The genuinely missing primitive is <strong>a stable per-release anchor — a git tag</strong>. Everything users ask for (a changelog, a blog post, demos, a way to pin a known-good build) hangs off that one tag.</p>
+<ul style="margin-bottom:0">
+<li><strong>Version:</strong> start at <code>v0.1.0</code> (0.x SemVer — honestly signals "early, expect breakage"). Graduate to CalVer later <em>if</em> the cadence makes dates the more useful signal. CalVer-now is defensible but <em>not</em> the consensus the hype claims — see <a href="#decision-version">§ Decision&nbsp;1</a>.</li>
+<li><strong>Channels for free:</strong> keep <code>nix run github:juspay/kolu</code> as rolling "edge"; <code>github:juspay/kolu/v0.1.0</code> is "stable" with <em>zero</em> flake changes.</li>
+<li><strong>Two changelog artifacts, two audiences:</strong> a machine <code>CHANGELOG.md</code> (git-cliff) for the audit trail, a curated blog post (the existing <code>whatchanged</code> skill + <code>evidence</code> demos) for humans. Don't conflate them.</li>
+<li><strong>Cadence:</strong> a biweekly <em>rhythm</em>, not a deadline. Small batches, skippable quiet cycles. Automate the mechanical half; keep the narrative human.</li>
+</ul>
+</div>
+
+<div class="toc">
+<h4>Contents</h4>
+<ol>
+<li><a href="#today">Where kolu is today (measured, not assumed)</a></li>
+<li><a href="#decision-version">Decision 1 — the version scheme (the one call to make first)</a></li>
+<li><a href="#channels">Two channels for free</a></li>
+<li><a href="#stamp">Stamping the version through the existing rail</a></li>
+<li><a href="#changelog">The changelog: two artifacts, two audiences</a></li>
+<li><a href="#cadence">Cadence &amp; the per-release ritual</a></li>
+<li><a href="#blog">Release → blog post → demo pipeline</a></li>
+<li><a href="#hardparts">The hard parts the happy path skips</a></li>
+<li><a href="#automate">Automate vs. keep manual (and the <code>/release</code> split)</a></li>
+<li><a href="#first">The first release — concrete MVP checklist</a></li>
+<li><a href="#verified">What we verified &amp; corrected</a></li>
+<li><a href="#open">Open decisions</a></li>
+</ol>
+</div>
+
+<h2 id="today">1 · Where kolu is today <span class="muted" style="font-size:.8rem">(measured, not assumed)</span></h2>
+<table>
+<thead><tr><th>Fact</th><th>State</th><th>Source</th></tr></thead>
+<tbody>
+<tr><td>Distribution</td><td>Rolling HEAD — <code>nix --refresh run github:juspay/kolu</code>. Most users auto-update.</td><td><span class="cite">README.md:23-27</span></td></tr>
+<tr><td>Versioning</td><td><span class="tag bad">none</span> root <code>package.json</code> is <code>{private:true}</code>, no <code>version</code>. Only tag is <code>evidence-assets</code> (an asset host).</td><td><span class="cite">package.json</span></td></tr>
+<tr><td>Changelog</td><td><span class="tag bad">none</span></td><td>—</td></tr>
+<tr><td>Commit hygiene</td><td><span class="tag warn">~37%</span> only <strong>73 of the last 200</strong> commit subjects are conventional-commit shaped. The convention is aspirational, not enforced.</td><td><span class="cite">git log -200</span> (measured)</td></tr>
+<tr><td>Build platforms</td><td><strong>Three</strong>: <code>x86_64-linux</code>, <code>aarch64-linux</code>, <code>aarch64-darwin</code>.</td><td><span class="cite">flake.nix:20</span></td></tr>
+<tr><td>Identity rail</td><td>Already stamps the commit: <code>self.shortRev → KOLU_COMMIT_HASH</code>, rendered as a clickable srv-commit.</td><td><span class="cite">flake.nix:27</span>, <span class="cite">default.nix:199</span></td></tr>
+<tr><td>Blog</td><td>Astro + Tailwind at <a href="https://kolu.dev">kolu.dev</a>, 4 posts, auto-deploys on push to <code>master</code> touching <code>website/**</code>.</td><td><span class="cite">.github/workflows/pages.yml</span></td></tr>
+<tr><td>Cache</td><td><code>cache.nixos.asia/oss</code> (Attic) already advertised in <code>nixConfig</code>.</td><td><span class="cite">flake.nix</span></td></tr>
+<tr><td>Reusable release tooling</td><td><code>whatchanged</code> (PRs→feature list), <code>evidence</code> (Playwright video on a pu box), in-app screen recording, <code>forge-pr</code>.</td><td><span class="cite">.claude/skills/</span></td></tr>
+</tbody>
+</table>
+
+<p>The two facts in red boxes shape every decision below: <strong>commit hygiene is not real today</strong> (so no tool can magic a clean grouped changelog out of past history), and <strong>there are three platforms, not two</strong> (so the release gate and cache push must cover all three or aarch64-linux users fall back to a from-source build).</p>
+
+<h2 id="decision-version">2 · Decision 1 — the version scheme</h2>
+<p>This is the one thing you must settle before the first <code>git tag</code>. The research surfaced a strong "CalVer for apps" narrative; adversarial verification knocked it down to "it's a free choice." Here is the honest landscape.</p>
+
+<div class="panel corr">
+<p style="margin-top:0"><strong>Correction applied.</strong> The claim "CalVer is the modern consensus for apps" is <span class="tag bad">overstated</span>. Verified counter-facts: <strong>PEP&nbsp;2026 (CalVer for Python) was <em>rejected</em></strong> in 2025; <strong>Unity abandoned</strong> year-based versioning in Unity&nbsp;6 (2024); the flagship desktop app VS&nbsp;Code ships <code>1.x</code> SemVer, not <code>2026.x</code>; GitHub CLI, ripgrep, fd, Neovim, kubectl, Terraform all ship SemVer-format. <code>semver.org</code> never restricts SemVer to libraries — a CLI's flags <em>are</em> a public API. The real axis is <em>"do code-level consumers pin you?"</em>, not <em>"app vs library."</em></p>
+</div>
+
+<table>
+<thead><tr><th>Option</th><th>First tag</th><th>Signals</th><th>Verdict for kolu</th></tr></thead>
+<tbody>
+<tr><td><strong>0.x SemVer</strong></td><td><code>v0.1.0</code></td><td>"Early, unstable, expect breakage." Patch = <code>0.1.1</code>, feature = <code>0.2.0</code>.</td><td class="rec">Recommended for now. Honest for a project with zero prior releases; the posture Neovim &amp; Zed use. Costs nothing to leave later.</td></tr>
+<tr><td><strong>CalVer</strong></td><td><code>v2026.6.0</code></td><td>"When it shipped." <code>YYYY.MINOR.MICRO</code>; valid SemVer so pnpm/cargo parse it.</td><td>Defensible <em>later</em>. Erases the pre-1.0 "still early" signal — reads "mature" on day one. Adopt once the CLI/agent surface stabilizes and cadence makes the date the useful fact. <span class="muted">Closest precedent: Helix.</span></td></tr>
+<tr><td><strong>SemVer, pinned major as counter</strong></td><td><code>v1.0.0</code> then minor each release</td><td>The VS&nbsp;Code pattern.</td><td>Fine, but a <code>1.0.0</code> on a first cut over-promises a stable contract kolu doesn't yet make.</td></tr>
+</tbody>
+</table>
+
+<p><strong>Recommendation:</strong> tag <code>v0.1.0</code> now. It is the truthful description of a brand-new public release, keeps every door open, and the changelog — not the digit — is where you communicate user-visible breaks (a persisted-prefs schema change, a renamed keybinding, a CLI-flag change). Re-open this as a one-paragraph decision node the day a date-based number would genuinely serve users better than "how early is this."</p>
+
+<details>
+<summary>If you choose CalVer anyway — the two traps</summary>
+<ul style="margin-bottom:.2rem">
+<li><strong>Never zero-pad.</strong> <code>2026.06.01</code> is <em>unconditionally invalid</em> SemVer (leading zeros) and npm/pnpm silently strip them. Use <code>2026.6.0</code>.</li>
+<li><strong>Pick MINOR semantics and write it down.</strong> 1-based month (date-legible, gaps in quiet months) <em>or</em> a per-year release counter from 1 (no gaps, less calendar-legible). Don't leave it ambiguous — a script reading the SemVer-valid string can't tell a year rollover from a breaking change.</li>
+</ul>
+</details>
+
+<h2 id="channels">3 · Two channels for free</h2>
+<p>The single highest-leverage, lowest-cost insight: the flake-ref third component <em>already accepts a tag</em>. Stable-vs-rolling is pure tagging discipline — <strong>zero <code>flake.nix</code> changes</strong>.</p>
+<div class="flow">
+  <span class="hot">edge / rolling</span><span class="arrow">→</span><span><code>nix run github:juspay/kolu</code></span><span class="arrow">·</span><span class="muted">tracks master HEAD</span>
+</div>
+<div class="flow">
+  <span class="hot">stable / pinned</span><span class="arrow">→</span><span><code>nix run github:juspay/kolu/v0.1.0</code></span><span class="arrow">·</span><span class="muted">exact tag, reproducible</span>
+</div>
+<p>To make the pinned channel an <em>instant substitute</em> instead of a from-source build, the release job pushes the tagged commit's outputs to the existing <code>cache.nixos.asia/oss</code> Attic cache — <strong>for all three platforms</strong> (<span class="cite">flake.nix:20</span>). README must document both channels; today it documents only rolling (<span class="cite">README.md:23-27</span>).</p>
+<p class="muted">Rejected: a long-lived <code>stable</code> branch with devenv-style promotion (overkill for a solo maintainer — add only when you actually need to backport onto an old release); force-pushing a single rolling tag (Neovim's clobber problem broke source builders).</p>
+
+<h2 id="stamp">4 · Stamping the version through the existing rail</h2>
+<p>The version answers <em>"which release"</em>; the commit answers <em>"exactly which build."</em> Show both: <code>v0.1.0 · 9f2c1ab</code>. The plumbing already exists for the commit — <code>KOLU_VERSION</code> just rides alongside <code>KOLU_COMMIT_HASH</code>.</p>
+<div class="panel warn">
+<p style="margin-top:0"><strong>Source of truth: a checked-in <code>VERSION</code> file, not <code>git describe</code>.</strong></p>
+<p style="margin-bottom:0">The flake has <strong>zero inputs by design</strong> (a deliberate ~1.5s/input devshell budget), and <code>github:</code> tarball fetches don't expose <code>revCount</code> — so <code>git describe</code> is impossible in the hermetic sandbox. A <code>VERSION</code> file travels with the tagged source tree and reuses the exact existing chain.</p>
+</div>
+<div class="flow">
+  <span><code>./VERSION</code></span><span class="arrow">→</span>
+  <span>flake.nix</span><span class="arrow">→</span>
+  <span>default.nix <code>--set KOLU_VERSION</code></span><span class="arrow">→</span>
+  <span>server/hostname.ts</span><span class="arrow">→</span>
+  <span>router.ts serverInfo</span><span class="arrow">→</span>
+  <span>contract.ts <code>ServerInfo</code></span><span class="arrow">→</span>
+  <span class="hot">IdentityRail.tsx</span>
+</div>
+<p class="muted">Mirror the verified commit chain: <span class="cite">flake.nix:27</span> <code>commitHash = self.shortRev or self.dirtyShortRev or "dev"</code> → <span class="cite">default.nix:199</span> <code>--set KOLU_COMMIT_HASH</code>. Add a sibling <code>version = builtins.readFile ./VERSION</code> and a parallel <code>--set KOLU_VERSION</code>.</p>
+
+<h2 id="changelog">5 · The changelog: two artifacts, two audiences</h2>
+<p>Keep&nbsp;a&nbsp;Changelog's core argument is that <em>raw commit logs make bad human changelogs</em>. So produce <strong>two</strong> things and never conflate them:</p>
+<table>
+<thead><tr><th></th><th>Machine <code>CHANGELOG.md</code></th><th>Curated release post</th></tr></thead>
+<tbody>
+<tr><td>Audience</td><td>Anyone diffing "what exactly changed" — the audit trail.</td><td>Users — "what's new and why I care."</td></tr>
+<tr><td>Tool</td><td><strong>git-cliff</strong> (single Rust binary, in nixpkgs, no Node/registry coupling).</td><td><strong>whatchanged</strong> skill → rewritten as prose in the Astro blog.</td></tr>
+<tr><td>Source</td><td>All commits since the prior tag.</td><td>Merged PRs in the window (judgment: drops refactors/CI/docs).</td></tr>
+<tr><td>Cadence</td><td>Regenerated mechanically on tag.</td><td>Hand-curated per release.</td></tr>
+</tbody>
+</table>
+
+<div class="panel bad">
+<p style="margin-top:0"><strong>The commit-hygiene reality bites here.</strong> With only ~37% of history conventional, <code>git cliff</code> over <em>all</em> history dumps ~63% of commits into one ungrouped bucket — exactly the raw-dump Keep&nbsp;a&nbsp;Changelog warns against. Two honest moves:</p>
+<ol style="margin-bottom:0">
+<li><strong>Seed <code>CHANGELOG.md</code> by hand</strong> for <code>v0.1.0</code> — a single curated "Initial public release" entry. Do <em>not</em> ship a git-cliff dump of 600+ noisy commits as your launch changelog.</li>
+<li><strong>Enforce conventional commits going forward</strong> — a <code>commit-msg</code> hook plus a justci recipe that rejects non-conventional subjects. From the first tag onward, git-cliff produces clean grouped output because the history past that point is clean.</li>
+</ol>
+</div>
+<h3>What goes where — <code>CHANGELOG.md</code> vs GitHub Release vs blog</h3>
+<table>
+<thead><tr><th>Surface</th><th>Content</th><th>Audience</th></tr></thead>
+<tbody>
+<tr><td><code>CHANGELOG.md</code> <span class="muted">(in repo)</span></td><td>The spine: every user-relevant change since the last tag, grouped (feat/fix/…), one line each, PR/<code>#N</code> links. git-cliff, Keep-a-Changelog format, versioned with the code.</td><td>"What <em>exactly</em> changed between v0.1.0 and v0.2.0?"</td></tr>
+<tr><td>GitHub Release <span class="muted">(per tag)</span></td><td><em>Derived</em>, not authored: that version's CHANGELOG section (<code>git cliff --latest</code>) + a <code>compare/vPREV...vNEW</code> link + a link to the blog post + the demo media. The durable per-version record on GitHub.</td><td>The releases page; update notifiers.</td></tr>
+<tr><td>Blog post <span class="muted">(kolu.dev)</span></td><td>The curated narrative: whatchanged-derived, story-led, demos, "why it matters," and a <em>"what we learned"</em> footer linking the hk nodes.</td><td>Users; new visitors.</td></tr>
+<tr><td>hk nodes / garden</td><td>The <em>why</em> and the learnings. Linked <em>from</em> the three above — never copied into them.</td><td>You + future agents.</td></tr>
+</tbody>
+</table>
+<p>So the GitHub Release is <strong>generated from <code>CHANGELOG.md</code></strong>, and learnings are <strong>linked, never inlined</strong>. That's "the changelog is the downstream of captured history" made concrete — nothing in this table is written twice.</p>
+
+<p class="muted">Rejected: <code>semantic-release</code> (no-human-gate, couples version-bump to publish, monorepo support open since 2016); <code>standard-version</code> (deprecated — use <code>commit-and-tag-version</code> if ever needed); <code>changesets</code>/<code>towncrier</code> (their value is published-package semver propagation + per-PR fragment files; kolu publishes no app package and <code>whatchanged</code> already covers the human-intent layer).</p>
+
+<h2 id="cadence">6 · Cadence &amp; the per-release ritual</h2>
+<p>Frequent releases reduce burnout <em>only when each release is small and the mechanics are automated</em> — the toil is per-release manual work, not frequency itself. So: a <strong>biweekly rhythm, not a deadline.</strong> A feature that isn't ready rides the next train. A quiet fortnight skips silently.</p>
+<div class="panel">
+<h4 style="margin-top:.2rem">The per-release ritual (steady state — one boring command)</h4>
+<ol style="margin-bottom:0">
+<li>On a green-CI <code>master</code> commit, run <code>whatchanged</code> over the window → draft the post.</li>
+<li>Write the one-paragraph lede; skim the auto-grouped features; cut what's noise.</li>
+<li>Capture one flagship demo (<code>evidence</code> skill).</li>
+<li>Decide any learning→rule promotions (see <a href="./second-brain.html">second-brain.html</a>).</li>
+<li>Open the release PR (CHANGELOG + blog) → squash-merge → tag the merge commit → CI does the rest.</li>
+</ol>
+</div>
+<p class="muted">Rejected: weekly (Zed/VS&nbsp;Code cadence — sustained by teams); per-merge continuous (would make a blog-post-per-release crushing); fixed-date commitments (the open-source burnout trap).</p>
+
+<h2 id="blog">7 · Release → blog post → demo pipeline</h2>
+<p>Every stage already exists; the work is wiring them in order. Crucially — <strong>kolu is a browser canvas, not a TUI</strong> — so its <em>own</em> demos use the <code>evidence</code> skill (headless-Chrome Playwright → <code>.webm</code> → ffmpeg → GitHub-release host), which it already implements end-to-end. Reserve Charm&nbsp;VHS / asciinema only for demoing the CLI agents (claude/codex) running <em>inside</em> kolu's panes.</p>
+<div class="flow">
+  <span>tag</span><span class="arrow">→</span>
+  <span class="hot">whatchanged</span><span class="arrow">→</span>
+  <span>blog draft</span><span class="arrow">→</span>
+  <span class="hot">evidence</span><span class="arrow">→</span>
+  <span>MP4/WebM + poster</span><span class="arrow">→</span>
+  <span>website/src/content/blog/*.mdx</span><span class="arrow">→</span>
+  <span class="hot">pages.yml</span><span class="arrow">→</span>
+  <span>kolu.dev</span>
+</div>
+<p>Post shape worth copying (Helix / Bun / Ghostty): lead with impact and the "why," embed the demo early, link every feature to its PR, end with a community CTA. Prefer <strong>MP4/WebM over GIF</strong> for self-hosted docs (10–40× smaller at better quality); reserve GIF for surfaces that can't embed <code>&lt;video&gt;</code> (the README, Slack). OG images come free from the blog's existing <code>astro-og-canvas</code>.</p>
+
+<h2 id="hardparts">8 · The hard parts the happy path skips</h2>
+<p>The optimistic design glossed several failure modes. These are the ones that actually hurt.</p>
+
+<details open>
+<summary>Hotfix / security / revert — you <em>do</em> need to build from a tag</summary>
+<ul style="margin-bottom:.2rem">
+<li><strong>Hotfix:</strong> <code>git checkout -b hotfix/v0.1.1 v0.1.0</code>, cherry-pick the fix, tag <code>v0.1.1</code>. This means you build from a non-HEAD ref — so the "no stable branch needed" line is only true until the first hotfix. Branch from the tag on demand; you don't need a <em>permanent</em> stable branch.</li>
+<li><strong>Security:</strong> same path, but skips the biweekly train — define an out-of-band release trigger.</li>
+<li><strong>Reverting a bad release:</strong> tags are immutable, so you <em>roll forward</em> with a new tag, mark the bad GitHub Release as "yanked" in its notes, and overwrite/pull the bad cache artifacts. (<code>HEAD~15</code> is literally a revert — this is a live scenario, not hypothetical.)</li>
+</ul>
+</details>
+
+<details>
+<summary>The changelog ↔ tag ordering paradox</summary>
+<p style="margin-bottom:0">The changelog references the tag, but to be <em>inside</em> the tag it must be committed before tagging. Resolution: <code>/release</code> writes <code>CHANGELOG.md</code> + the blog as a <strong>PR</strong> → squash-merge to master → <strong>then tag the merge commit</strong>. The tag contains its own changelog and master/tag never diverge. <em>Never</em> have CI commit back <em>after</em> tagging.</p>
+</details>
+
+<details>
+<summary>The first CI secret, and the cache-substitution check</summary>
+<ul style="margin-bottom:.2rem">
+<li>Today the repo has <strong>zero CI secrets</strong> (<code>pages.yml</code> is secret-free). The release job needs an <strong>Attic push token</strong> (not the signing key — Attic signs server-side) in GitHub Actions secrets. Document its mint, least-privilege (push-only to <code>oss</code>), and that this is the repo's first secret.</li>
+<li>After pushing, <strong>verify substitution on all three platforms</strong> (<code>nix path-info --store https://cache.nixos.asia/oss .#default</code>) <em>before</em> announcing — an incomplete push silently drops users to a multi-minute from-source build.</li>
+</ul>
+</details>
+
+<details>
+<summary>Design for the degraded steady state (a solo maintainer <em>will</em> skip the manual half)</summary>
+<table style="margin-bottom:0">
+<thead><tr><th>When the human skips…</th><th>Behavior</th></tr></thead>
+<tbody>
+<tr><td>No blog post written</td><td><span class="tag warn">warn &amp; proceed</span> — don't block shipping a tag on a marketing artifact.</td></tr>
+<tr><td><code>VERSION</code> not bumped</td><td><span class="tag bad">fail hard</span> — prevents a tag collision.</td></tr>
+<tr><td>Non-conventional commit</td><td>Caught earlier by the pre-merge CI check.</td></tr>
+</tbody>
+</table>
+</details>
+
+<h2 id="automate">9 · Automate vs. keep manual — and split <code>/release</code></h2>
+<p>Draw the automate/manual line at <em>mechanical &amp; idempotent</em> vs. <em>judgment-bearing</em>. The happy-path design bundled both into one <code>/release</code> skill — that complects "produce the artifact" (deterministic, always identical) with "announce it" (judgment, sometimes skipped). Split them:</p>
+<table>
+<thead><tr><th>Part A — produce <span class="tag good">no human</span></th><th>Part B — announce <span class="tag accent">human, skippable</span></th></tr></thead>
+<tbody>
+<tr><td>On <code>v*</code> tag: build + cache tagged outputs (3 platforms), run git-cliff → <code>CHANGELOG.md</code>, cut the GitHub Release with a <code>compare/vPREV...vNEW</code> link.</td><td><code>whatchanged</code> → blog draft → <code>evidence</code> demo → publish. Each runs standalone, so a point release can skip the announce half entirely.</td></tr>
+</tbody>
+</table>
+<div class="panel warn">
+<p style="margin:0"><strong>Where Part A lives:</strong> <code>ci/mod.just</code> is a push/PR DAG with <em>no tag-trigger concept</em>. A release-on-tag job is a different trigger model — it likely wants its own thin <code>.github/workflows/release.yml</code> (the repo's second workflow, beside <code>pages.yml</code>), <em>not</em> a justci recipe. Confirm before building.</p>
+</div>
+<p class="muted">A <code>/release</code> skill is still worth having as the orchestrator for Part B — mirroring how <code>/do</code> chains steps — but only if each half is independently runnable.</p>
+
+<h2 id="first">10 · The first release — concrete MVP checklist</h2>
+<p>Resist scope creep. Ship <em>only</em> this for <code>v0.1.0</code>; defer the <code>/release</code> skill, the "N behind stable" rail, and the second-brain reorg until the flow has proven itself once by hand.</p>
+<div class="panel good">
+<ol style="margin:0">
+<li><strong>Decide the version</strong> (<a href="#decision-version">§2</a>) → <code>echo '0.1.0' &gt; VERSION</code> with a one-line comment on the scheme.</li>
+<li><strong>Wire the rail:</strong> read <code>./VERSION</code> in <code>flake.nix</code>; <code>--set KOLU_VERSION</code> in <code>default.nix</code>; thread through <code>hostname.ts</code> → <code>router.ts</code> → <code>contract.ts</code> → render <code>v0.1.0 · &lt;sha&gt;</code> in <code>IdentityRail.tsx</code>.</li>
+<li><strong>Add <code>pkgs.git-cliff</code></strong> + <code>cliff.toml</code> (<code>git cliff --init keepachangelog</code>, with a catch-all parser so stray commits don't error).</li>
+<li><strong>Seed <code>CHANGELOG.md</code> by hand</strong> — one "Initial public release" section (not a 600-commit dump).</li>
+<li><strong>Add the conventional-commit gate</strong> (<code>commit-msg</code> hook + justci recipe) so future git-cliff output is clean.</li>
+<li><strong>Write the launch post</strong> in <code>website/src/content/blog/2026-06-launch.mdx</code>; embed one <code>evidence</code> demo.</li>
+<li><strong>Confirm all three platforms green</strong>, then <code>git tag -a v0.1.0</code> + push.</li>
+<li><strong>Cut the GitHub Release by hand</strong> the first time: <code>gh release create v0.1.0</code>, trim to highlights.</li>
+<li><strong>Update README</strong> to document both channels.</li>
+<li><strong>Verify</strong> the tagged build shows <code>v0.1.0 · &lt;sha&gt;</code> and that the pin substitutes from cache on all three platforms.</li>
+</ol>
+</div>
+<p class="muted">Per CONTRIBUTING, a user-facing change wants a merged proposal first. The release process is exactly such a change — and notably <strong>no proposal has ever merged here</strong> (only the template exists). Writing <code>docs/proposals/0001-release-process.md</code> is both the honest first step and the project's chance to exercise its own review loop. Acknowledge the solo-maintainer smell of self-accepting the first one.</p>
+
+<h2 id="verified">11 · What we verified &amp; corrected</h2>
+<p>This plan came out of 8 web-research lanes, 16 adversarially-verified claims, and two critics who checked the repo at the terminal. The load-bearing corrections:</p>
+<table>
+<thead><tr><th>Original claim</th><th>Verdict</th><th>Correction</th></tr></thead>
+<tbody>
+<tr><td>"CalVer is the modern consensus for apps"</td><td><span class="tag warn">partial</span></td><td>Overstated. PEP 2026 rejected, Unity left CalVer, VS Code is SemVer. It's a free choice; lead with the consumer-contract axis, not app-vs-library.</td></tr>
+<tr><td>"Python adopted CalVer (PEP 2026)"</td><td><span class="tag bad">refuted</span></td><td>PEP 2026 was <em>rejected</em> (2025). Python 3.15 ships 2026, sequential as ever.</td></tr>
+<tr><td>"git-cliff gives a clean changelog with zero hygiene tax"</td><td><span class="tag bad">refuted</span></td><td>Only on a clean history. ~37% conventional today → seed by hand + enforce going forward.</td></tr>
+<tr><td>"whatchanged over the since-last-tag range"</td><td><span class="tag warn">partial</span></td><td><code>whatchanged</code> is date-based (<code>merged:&gt;=DATE</code>), no tag-range mode; the first release has no prior tag. Needs a real <code>--since &lt;ref&gt;</code> edit.</td></tr>
+<tr><td>"Release gate = x86_64-linux + aarch64-darwin"</td><td><span class="tag bad">refuted</span></td><td>Three platforms (<span class="cite">flake.nix:20</span>); aarch64-linux must be in the gate &amp; cache push.</td></tr>
+<tr><td>"2026.06.01 is fine"</td><td><span class="tag bad">refuted</span></td><td>Invalid SemVer (leading zeros); npm strips them. Use <code>2026.6.0</code>.</td></tr>
+<tr><td>"CI never holds the key"</td><td><span class="tag warn">partial</span></td><td>Attic signs server-side, but CI <em>does</em> hold a push token — the repo's first secret.</td></tr>
+<tr><td>The commit-identity plumbing</td><td><span class="tag good">confirmed</span></td><td><span class="cite">flake.nix:27</span>, <span class="cite">default.nix:199</span> verified — <code>KOLU_VERSION</code> can ride alongside.</td></tr>
+<tr><td>"Channels for free via <code>github:owner/repo/&lt;tag&gt;</code>"</td><td><span class="tag good">confirmed</span></td><td>The flake-ref already accepts a tag; zero flake changes.</td></tr>
+</tbody>
+</table>
+
+<h2 id="open">12 · Open decisions</h2>
+<ul>
+<li><strong>Version scheme</strong> — <code>v0.1.0</code> recommended; lock it before tagging.</li>
+<li><strong>Part-A home</strong> — thin <code>.github/workflows/release.yml</code> vs. a tag-triggered justci recipe. Confirm whether justci can be cleanly tag-triggered.</li>
+<li><strong>Preview channel?</strong> — two channels (edge/stable) recommended now; add a Zed-style middle "preview" only if real users ask for a buffer.</li>
+<li><strong>"N commits behind stable" rail</strong> — <span class="tag warn">defer past v1</span>. It needs an unauthenticated GitHub compare call (rate-limited 60/hr/IP), has no actionable lane for rolling <code>nix run</code> users (no persistent install), and the home-manager <code>package</code> option has no default. Bolting a network freshness check onto the local build-identity rail complects two volatilities — make it a separate later proposal.</li>
+<li><strong>Leaf packages</strong> — <code>@kolu/log</code>, <code>@kolu/html-escape</code>: if ever published to npm they need independent SemVer, separate from the app's version. Out of scope until then.</li>
+</ul>
+
+<hr>
+<p class="muted">Companion: <a href="./second-brain.html">second-brain.html</a> — the changelog &amp; blog post are the <em>downstream</em> of captured history + learnings, not a separate chore. Index: <a href="./index.html">docs/plans</a>.</p>
+<p class="src muted">Sources: <a href="https://calver.org/">calver.org</a> · <a href="https://0ver.org/about.html">0ver.org</a> · <a href="https://github.com/helix-editor/helix/blob/master/docs/releases.md">Helix releases</a> · <a href="https://zed.dev/blog/preview-channel">Zed channels</a> · <a href="https://git-cliff.org/">git-cliff</a> · <a href="https://keepachangelog.com/en/1.1.0/">Keep a Changelog</a> · <a href="https://peps.python.org/pep-2026/">PEP 2026 (rejected)</a> · <a href="https://github.com/zhaofengli/attic">Attic</a> · <a href="https://bun.com/blog/bun-v1.3.14">Bun release post</a></p>
+
+</main>
+</body>
+</html>
