@@ -15,17 +15,11 @@ const base = a.base || 'origin/master'
 const maxRounds = a.maxRounds || 5
 // Where the generated skill lives, so the codex runner can find codex-review.sh.
 const skillDir = a.skillDir || '.claude/skills/codex-debate'
-// Per-worktree scratch dir for rebuttal/verdict/transcript files. Derived from
-// repoPath (the worktree root === $PWD) so parallel debates in DIFFERENT
-// worktrees never collide on shared /tmp paths, and `.codex-debate/` is
-// gitignored so these files never pollute the diff codex reviews.
+// Per-worktree scratch dir for rebuttal/verdict files. Derived from repoPath
+// (the worktree root === $PWD) so parallel debates in DIFFERENT worktrees never
+// collide on shared /tmp paths, and `.codex-debate/` is gitignored so these
+// files never pollute the diff codex reviews.
 const workDir = `${repoPath}/.codex-debate`
-// Live transcript output. Defaults to a committable repo-root file (NOT the
-// gitignored scratch dir) so it can be reviewed and committed. Declared here so
-// codexReviews() can tell codex to exclude this exact path from review scope —
-// it is re-rendered between rounds and would otherwise pollute the diff.
-const htmlOut = a.htmlOut || `${repoPath}/codex-debate-transcript.html`
-const transcriptJsonPath = `${workDir}/transcript.json`
 // Commit each round's changes individually (default on). The commit message
 // carries the debate context (codex's findings + claude's dispositions). Never
 // pushes or merges — that stays the human's call.
@@ -126,11 +120,11 @@ async function codexReviews(round, rebuttalJson) {
 ${rebuttalJson}
 
 2. Run, from the repo root \`${repoPath}\`:
-   \`bash ${skillDir}/scripts/codex-review.sh ${base} ${rebuttalPath} ${verdictPath} ${htmlOut}\``
+   \`bash ${skillDir}/scripts/codex-review.sh ${base} ${rebuttalPath} ${verdictPath}\``
     : `1. (No prior rebuttal this round.)
 
 2. Run, from the repo root \`${repoPath}\`:
-   \`bash ${skillDir}/scripts/codex-review.sh ${base} - ${verdictPath} ${htmlOut}\``
+   \`bash ${skillDir}/scripts/codex-review.sh ${base} - ${verdictPath}\``
 
   const prompt = `You are a MECHANICAL RUNNER for one round of an automated code-review debate. Do exactly the steps below and nothing else. Do NOT review the code yourself, do NOT edit any repository files, do NOT add commentary.
 
@@ -218,55 +212,11 @@ ${message}
   return agent(prompt, { label: `commit:round${round}`, phase: 'Debate' })
 }
 
-// ---------------------------------------------------------------------------
-// Live HTML rendering. The transcript is re-rendered after every state change
-// (each codex verdict and each claude round) so htmlOut updates in REAL TIME —
-// open it to watch the debate unfold — plus a final pass stamping the terminal
-// status. (htmlOut / transcriptJsonPath are declared up top so codexReviews can
-// exclude the resolved path.) Best-effort: a render hiccup must never fail the
-// debate.
-// ---------------------------------------------------------------------------
-
 const transcript = []
 let status = 'max-rounds'
 let finalVerdict = null
 let lastClaude = null
 let prevSignature = null
-
-// Renders the transcript snapshot to htmlOut via a subagent. Interim live
-// renders are best-effort (required=false): a render hiccup between rounds must
-// never fail the debate. The FINAL render is required (required=true) because
-// htmlOut is the user-facing artifact this feature promises — if it can't be
-// produced or verified, the workflow must fail loud rather than return a path
-// to a missing/stale file.
-async function renderTranscript(statusVal, label, required = false) {
-  const fc = Array.from(new Set(transcript.flatMap((e) => (e.claude && e.claude.filesChanged) || [])))
-  const snapshot = { status: statusVal, rounds: transcript.length, base, finalVerdict, filesChanged: fc, transcript }
-  const verifyStep = required
-    ? `
-
-4. Confirm the output exists with \`ls -la ${htmlOut}\`; if it does not exist, that is a fatal error.`
-    : ''
-  const prompt = `You are a MECHANICAL RENDERER. Do exactly these steps and nothing else — do not edit any repository files, do not add commentary.
-
-1. Ensure the scratch dir exists: \`mkdir -p ${workDir}\`.
-2. Using the Write tool, create \`${transcriptJsonPath}\` with EXACTLY this content (copy it verbatim):
-
-${JSON.stringify(snapshot, null, 2)}
-
-3. Run, from the repo root \`${repoPath}\`:
-   \`node ${skillDir}/scripts/render-debate.mjs ${transcriptJsonPath} ${htmlOut}\`
-   (the renderer creates the output's parent directory itself.)${verifyStep}
-
-Return only "rendered".`
-  try {
-    return await agent(prompt, { label, phase: 'Render' })
-  } catch (e) {
-    if (required) throw new Error(`final transcript render failed (${label}): ${e}`)
-    log(`render (${label}) failed, continuing debate: ${e}`)
-    return null
-  }
-}
 
 // ---------------------------------------------------------------------------
 // The loop
@@ -277,10 +227,9 @@ for (let round = 1; round <= maxRounds; round++) {
   const verdict = await codexReviews(round, lastClaude ? JSON.stringify(lastClaude) : null)
   finalVerdict = verdict
   const entry = { round, codex: verdict, claude: null }
-  transcript.push(entry) // push immediately so the live renders include this round
+  transcript.push(entry) // record this round (mutated in place as it progresses)
   const blocking = blockingOpen(verdict)
   log(`Round ${round}: codex approved=${verdict.approved}, blocking/major open=${blocking.length}`)
-  await renderTranscript('in-progress', `render:r${round}-codex`) // live update: codex verdict in
 
   // Consensus: codex is satisfied and nothing blocking/major remains open.
   if (verdict.approved && blocking.length === 0) {
@@ -321,8 +270,6 @@ for (let round = 1; round <= maxRounds; round++) {
     entry.commit = (sha || '').trim()
     log(`Round ${round}: committed ${entry.commit}`)
   }
-
-  await renderTranscript('in-progress', `render:r${round}-claude`) // live update: claude round in
 }
 
 const filesChanged = Array.from(
@@ -330,10 +277,4 @@ const filesChanged = Array.from(
 )
 log(`Debate ended: ${status} after ${transcript.length} round(s); ${filesChanged.length} file(s) changed.`)
 
-// Final render stamps the terminal status (consensus / deadlock / max-rounds).
-// Required: this is the user-facing artifact, so a failure here must abort the
-// workflow rather than silently return a path to a missing/stale file.
-phase('Render')
-await renderTranscript(status, 'render:final', true)
-
-return { status, rounds: transcript.length, base, finalVerdict, filesChanged, transcript, htmlOut }
+return { status, rounds: transcript.length, base, finalVerdict, filesChanged, transcript }

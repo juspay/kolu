@@ -1,7 +1,7 @@
 ---
 name: codex-debate
 description: Run an automated code-review debate between the codex CLI (reviewer) and a Claude subagent (author) on the current diff, looping until they reach consensus, deadlock, or a round cap. Use when the user types `/codex-debate`, or asks to "have codex review this", "run the codex debate", "review this PR with codex", or "argue this with codex until you agree".
-argument-hint: "[<pr-number>] [--base <branch>] [--max-rounds <n>] [--html <path>] [--no-commit] [--no-comment]"
+argument-hint: "[<pr-number>] [--base <branch>] [--max-rounds <n>] [--no-commit] [--no-comment]"
 ---
 
 # Codex ⇄ Claude review debate
@@ -12,9 +12,8 @@ fixes what it agrees with and disputes what it doesn't, codex re-reviews, and so
 on — until they reach **consensus**, hit a **deadlock**, or burn the **round
 cap**. You stay out of the middle: each round lands as its own commit whose
 message carries the debate context (codex's findings + Claude's dispositions) so
-the PR history reads as the debate, a **live HTML transcript** updates after
-every round so you can watch it unfold, and the summary is **posted to the PR**
-as a comment at the end.
+the PR history reads as the debate, and the summary is **posted to the PR** as a
+comment at the end.
 
 ## Why this shape
 
@@ -36,7 +35,7 @@ codex/opencode runtimes the skill is inert.
 
 ## Arguments
 
-Parse `[<pr-number>] [--base <branch>] [--max-rounds <n>] [--html <path>] [--no-commit] [--no-comment]`:
+Parse `[<pr-number>] [--base <branch>] [--max-rounds <n>] [--no-commit] [--no-comment]`:
 
 - **`<pr-number>`** (optional): a PR to debate. If given, `gh pr checkout <n>`
   first and default the base to that PR's base branch. If omitted, debate the
@@ -48,10 +47,6 @@ Parse `[<pr-number>] [--base <branch>] [--max-rounds <n>] [--html <path>] [--no-
   can lag the remote). Fallback `origin/master`. Step 1 runs `git fetch origin`
   first so the ref is current.
 - **`--max-rounds <n>`**: hard cap on codex review rounds. Default **5**.
-- **`--html <path>`**: where to write the reviewable HTML transcript. Default:
-  `codex-debate-transcript.html` in the repo root — a **committable** file (NOT
-  gitignored), re-rendered live after every round so you can open it and watch
-  the debate unfold. Per-worktree, so parallel debates don't collide.
 - **`--no-commit`**: don't commit per round — leave all agreed changes
   uncommitted in the working tree for you to commit yourself. Default is to
   **commit each round** (see below).
@@ -85,7 +80,6 @@ Workflow({
     repoPath: "<worktree root>",        // also the per-worktree scratch dir root
     base: "<base branch>",
     maxRounds: <n, default 5>,
-    htmlOut: "<resolved --html path>",  // omit to default to ./codex-debate-transcript.html
     commit: <false only if --no-commit>,
     skillDir: ".claude/skills/codex-debate"
   }
@@ -99,21 +93,13 @@ tree, then (unless `--no-commit`) a `commit:roundN` agent **commits exactly that
 round's changed files** with a message embedding the round's codex findings and
 Claude's dispositions — never pushing or merging.
 
-**Live HTML.** After every state change — each codex verdict (`render:rN-codex`)
-and each Claude round (`render:rN-claude`), plus a final `render:final` — a
-mechanical render agent re-writes `htmlOut` via `scripts/render-debate.mjs`. So
-the committable `codex-debate-transcript.html` updates in **real time**: open it
-and watch the debate unfold, round by round, rather than waiting for the end.
-
-Ephemeral scratch (verdicts, rebuttals, transcript JSON) lives under the
-gitignored, per-worktree `<repoPath>/.codex-debate/`, so **parallel debates in
-different worktrees never collide** and the scratch never shows up in the diff
-codex reviews. The HTML output itself sits at the repo root (committable). It
-returns:
+Ephemeral scratch (verdicts, rebuttals) lives under the gitignored, per-worktree
+`<repoPath>/.codex-debate/`, so **parallel debates in different worktrees never
+collide** and the scratch never shows up in the diff codex reviews. It returns:
 
 ```
 { status: "consensus" | "deadlock" | "max-rounds",
-  rounds, base, finalVerdict, filesChanged, transcript, htmlOut }
+  rounds, base, finalVerdict, filesChanged, transcript }
 ```
 
 (each `transcript[]` round also carries a `commit` SHA when that round committed.)
@@ -128,9 +114,6 @@ returns:
 Report in chat (do **not** push or merge — the per-round commits sit on the
 local branch for the human to review):
 
-- **The HTML transcript path** (`htmlOut`) front and center — re-rendered live
-  throughout the run and finalized at the end; this committable file is the
-  reviewable record of the whole debate. Surface it as a clickable path.
 - The outcome (`status`) and round count.
 - `git log --oneline <base>..HEAD` (the per-round debate commits) and
   `git diff --stat <base>` so the user sees what the debate changed.
@@ -165,11 +148,9 @@ local branch for the human to review):
   `--no-commit`) so the PR history reads as the debate, but the skill never
   pushes or merges. Consensus means "both AIs agree on the committed code," not
   "ship it" — the human reviews the commits and pushes/merges.
-- **Parallel-safe.** Ephemeral scratch (verdicts, rebuttals, transcript JSON) lives
-  under the gitignored, per-worktree `<repoPath>/.codex-debate/`; the HTML output
-  sits at the repo root (committable, not gitignored). Both are per-worktree, so
-  debates on many worktrees run at once without clobbering each other — no shared
-  `/tmp` paths.
+- **Parallel-safe.** Ephemeral scratch (verdicts, rebuttals) lives under the
+  gitignored, per-worktree `<repoPath>/.codex-debate/`, so debates on many
+  worktrees run at once without clobbering each other — no shared `/tmp` paths.
 - **Posts to the PR by default.** When a PR exists, the debate summary is posted
   as a PR comment (outward-facing write) unless `--no-comment` is passed — the
   point is to leave the review trail on the PR.
@@ -178,10 +159,9 @@ local branch for the human to review):
 
 ## Files
 
-- `debate.workflow.js` — the Workflow script (the loop + consensus/deadlock logic + Render phase).
+- `debate.workflow.js` — the Workflow script (the loop + consensus/deadlock logic).
 - `scripts/codex-review.sh` — the canonical, deterministic `codex exec` invocation.
 - `scripts/codex-verdict.schema.json` — the JSON Schema codex's verdict is constrained to.
-- `scripts/render-debate.mjs` — deterministic node renderer: transcript JSON → self-contained HTML.
 
 These are generated from `.apm/skills/codex-debate/`; edit the source there and
 run `just ai apm` to regenerate.
