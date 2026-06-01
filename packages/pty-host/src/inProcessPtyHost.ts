@@ -236,13 +236,39 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
   });
 }
 
+/** The transport-agnostic pty-host router — the `.router` field of
+ *  `servePtyHost`. The same value feeds `directLink` (the in-process web
+ *  client) AND `serveOverStdio` (a unix-socket listener for `kolu-tui`), so
+ *  both transports share one PTY host. */
+export type PtyHostRouter = ReturnType<typeof servePtyHost>["router"];
+
+/** Build the in-process pty-host ONCE and return both its router (the
+ *  transport-agnostic seam) and a contract-typed identity-link client over
+ *  it. kolu-server consumes `.client` for the web path (no wire, via
+ *  `directLink`) and serves the SAME `.router` over a unix socket for
+ *  `kolu-tui` (R-4 Phase 1) — one PTY host, two transports, byte-identical
+ *  handlers. Call this once per process; calling it twice spawns two
+ *  independent hosts. */
+export function createInProcessPtyHost(deps: InProcessPtyHostDeps): {
+  router: PtyHostRouter;
+  client: PtyHostClient;
+} {
+  const router = servePtyHost(deps).router;
+  return {
+    router,
+    client: directLink<typeof ptyHostSurface.contract>(router),
+  };
+}
+
 /** Build the in-process pty-host and return a contract-typed client over it —
  *  the **identity link**: `directLink` consumes `servePtyHost`'s router with
  *  no wire, so the consumer (kolu-server) holds the exact `PtyHostClient` type
  *  a socket-served daemon would later hand it. Swapping `directLink` for a
- *  socket link is the only change that decoupling needs. */
+ *  socket link is the only change that decoupling needs. (Prefer
+ *  `createInProcessPtyHost` when you also need the router to serve over a
+ *  socket — this is the client-only shorthand.) */
 export function createInProcessPtyHostClient(
   deps: InProcessPtyHostDeps,
 ): PtyHostClient {
-  return directLink<typeof ptyHostSurface.contract>(servePtyHost(deps).router);
+  return createInProcessPtyHost(deps).client;
 }

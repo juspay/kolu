@@ -509,6 +509,98 @@ const features = [
     </ul>
   </section>
 
+  <!-- ── SNEAK PREVIEW: kolu-tui ──────────────────────────────────────────
+       Beta announcement for the CLI client. Separate from the numbered
+       feature grid above — this is what's coming, not what ships today.
+       Reuses the RUN WITH NIX faux-terminal pattern for the mock.
+  -->
+  <section class="mx-auto max-w-[68rem] px-6 py-20">
+    <div class="mb-6 flex items-baseline justify-between">
+      <p class="eyebrow">sneak preview</p>
+      <p class="mono text-[0.72rem] text-ink-faint">kolu-tui · beta</p>
+    </div>
+
+    <div class="grid md:grid-cols-[1fr_1.4fr] gap-10 md:gap-16 items-start">
+      <div>
+        <h2 class="display-sm text-[2.3rem] md:text-[2.8rem] text-ink mb-4 flex flex-wrap items-baseline gap-3">
+          Drive kolu<br />from the shell.
+          <span class="mono text-[0.6rem] uppercase tracking-widest text-amber-dim border border-amber-dim/60 rounded-sm px-2 py-0.5 align-middle">beta</span>
+        </h2>
+        <p class="text-ink-dim leading-relaxed mb-4">
+          <span class="mono text-ink">kolu-tui</span> is a command-line client that
+          connects to a running kolu-server over a local unix socket — no browser.
+          It's the CLI face of kolu, and the seed of a tmux replacement.
+        </p>
+        <p class="text-ink-muted text-sm">
+          The first beta ships two read-only commands: <span class="mono text-ink-dim">list</span>
+          your live PTYs, and <span class="mono text-ink-dim">snapshot</span> a terminal's
+          scrollback. Attach, spawn, and kill land in later phases.
+        </p>
+      </div>
+
+      <!-- Faux terminal window — mirrors the RUN WITH NIX mock -->
+      <div
+        class="rounded-md border border-rule-strong bg-void-sunk overflow-hidden shadow-[0_0_60px_-20px_rgba(231,184,122,0.25)]"
+      >
+        <!-- Title bar -->
+        <div
+          class="flex items-center gap-2 px-4 py-2.5 border-b border-rule bg-void-raised"
+        >
+          <span class="size-2.5 rounded-full bg-dot-close"></span>
+          <span class="size-2.5 rounded-full bg-dot-minimize"></span>
+          <span class="size-2.5 rounded-full bg-dot-maximize"></span>
+          <span class="mono text-[0.68rem] text-ink-muted tracking-wider ml-3">
+            ~/code/kolu — zsh
+          </span>
+        </div>
+        <!-- Terminal body -->
+        <div class="p-5 mono text-[0.82rem] leading-relaxed">
+          <div class="text-ink-muted">
+            <span class="text-amber"># beta — connects to a running kolu-server</span>
+          </div>
+          <div class="flex items-start gap-2 mt-1">
+            <span class="text-amber-dim select-none">$</span>
+            <span class="text-ink">nix run <span class="text-amber">github:juspay/kolu#kolu-tui</span> -- list</span>
+          </div>
+
+          <div class="mt-4 grid grid-cols-[auto_auto_1fr] gap-x-6 gap-y-1 text-[0.78rem]">
+            <span class="text-ink-faint">ID</span>
+            <span class="text-ink-faint">PID</span>
+            <span class="text-ink-faint">CWD</span>
+
+            <span class="text-ink flex items-center gap-2">
+              <span class="size-1.5 rounded-full bg-dot-maximize"></span>3f9a…c21
+            </span>
+            <span class="text-ink-dim">12843</span>
+            <span class="text-ink-muted">~/code/kolu</span>
+
+            <span class="text-ink flex items-center gap-2">
+              <span class="size-1.5 rounded-full bg-dot-maximize"></span>b71e…04f
+            </span>
+            <span class="text-ink-dim">12907</span>
+            <span class="text-ink-muted">~/code/emanote</span>
+
+            <span class="text-ink flex items-center gap-2">
+              <span class="size-1.5 rounded-full bg-dot-maximize"></span>a02d…9ee
+            </span>
+            <span class="text-ink-dim">13164</span>
+            <span class="text-ink-muted">~/dotfiles</span>
+          </div>
+
+          <div class="flex items-start gap-2 mt-5">
+            <span class="text-amber-dim select-none">$</span>
+            <span class="text-ink">kolu-tui snapshot <span class="text-amber-dim">3f9a…c21</span></span>
+          </div>
+          <div class="mt-1 pt-3 border-t border-rule text-ink-muted">
+            <span class="text-ink-faint select-none">→</span>
+            dumped <span class="text-ink">2,184 lines</span> of scrollback
+            <span class="cursor" aria-hidden="true"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <!-- ── RUN WITH NIX ─────────────────────────────────────────────────── -->
   <section id="run" class="mx-auto max-w-[68rem] px-6 py-20 scroll-mt-16">
     <div class="grid md:grid-cols-[1fr_1.4fr] gap-10 md:gap-16 items-start">

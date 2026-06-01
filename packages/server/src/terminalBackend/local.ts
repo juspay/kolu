@@ -1,7 +1,8 @@
 /**
  * `LocalTerminalBackend` — this kolu process. It owns `@kolu/pty-host`
  * in-process, but consumes it through the typed `ptyHostSurface` contract (via
- * `createInProcessPtyHostClient`, the identity link): it forwards
+ * the shared in-process `ptyHostClient` in `../ptyHost.ts`, the identity
+ * link): it forwards
  * spawn/kill/write/resize/attach through that client AND **runs the
  * per-terminal provider DAG** (`./providers.ts`) against the pty-host's raw tap
  * streams (cwd · title · command-run · foreground).
@@ -12,18 +13,17 @@
  * A later step swaps only `createInProcessPtyHostClient` for a socket-served client;
  * everything in this file is unchanged. And the provider DAG already has zero
  * synchronous dependency on the host (it reads taps, not a `PtyHandle`), so it
- * runs identically whether pty-host is in-process or across a wire. See
+ * runs identically whether pty-host is in-process or across a wire. The same
+ * `ptyHostRouter` is additionally served over a unix socket (`../index.ts`)
+ * so `kolu-tui` can reach these PTYs — that's a second transport on the one
+ * host, and changes nothing in this file. See
  * `docs/plans/remote-terminals.pty-daemon.html` (#fresh-approach).
  *
  * `TerminalBackend.fs/git` stay on this side, abstracted per-location and (for
  * local) shelling out to `kolu-git` directly.
  */
 
-import {
-  createInProcessPtyHostClient,
-  type ForegroundSample,
-  type PtyHostClient,
-} from "@kolu/pty-host";
+import type { ForegroundSample, PtyHostClient } from "@kolu/pty-host";
 import { inMemoryChannel } from "@kolu/surface/server";
 import type {
   TerminalId,
@@ -53,6 +53,7 @@ import {
 import type { GitDiffMode, GitInfo } from "kolu-git/schemas";
 import { trackRecentAgent, trackRecentRepo } from "../activity.ts";
 import { log } from "../log.ts";
+import { ptyHostClient } from "../ptyHost.ts";
 import { terminalsDirtyChannel } from "../publisher.ts";
 import { surfaceCtx } from "../surfaceCtx.ts";
 import {
@@ -65,8 +66,6 @@ import {
 } from "../terminal-registry.ts";
 import { cleanupTerminalScratch } from "../terminalScratch.ts";
 import { unwrapGit } from "../unwrapGit.ts";
-import pkg from "../../package.json" with { type: "json" };
-import { koluShellDir } from "../koluRoot.ts";
 import {
   createMetadata,
   updateServerLiveMetadata,
@@ -123,14 +122,6 @@ const localGit: TerminalBackendGit = {
     return unwrapGit(await getDiff(repoPath, filePath, mode, log, oldPath));
   },
 };
-
-/** The single in-process pty-host for this kolu process, consumed through its
- *  wire contract. kolu-server is its client. */
-const ptyHostClient: PtyHostClient = createInProcessPtyHostClient({
-  log,
-  shellDir: koluShellDir,
-  version: pkg.version,
-});
 
 /** The in-process pty-host's self-declared identity (its own commit + closure
  *  staleKey), fetched once at boot through the contract. Surfaced on
