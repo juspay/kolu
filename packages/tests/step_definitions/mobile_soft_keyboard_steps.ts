@@ -440,6 +440,16 @@ Then(
 );
 
 Then(
+  "xterm's helper textarea should not have been focused by tapping the link",
+  async function (this: KoluWorld) {
+    // A tap on a file-ref link follows the link into the Code tab; it must NOT
+    // focus the terminal. Without the fix the tap handler called term.focus()
+    // unconditionally, popping the keyboard AND leaving the link unopened.
+    await expectNoTextareaPop(this, "when tapping a terminal link");
+  },
+);
+
+Then(
   "the --app-h CSS variable should match visualViewport.height",
   async function (this: KoluWorld) {
     // Wire-check: useVisualViewportHeight is mounted and the inline-style

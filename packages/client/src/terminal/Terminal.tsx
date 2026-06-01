@@ -41,11 +41,15 @@ import { matchesKeybind } from "../input/keyboard";
 import { createZoom } from "../input/zoom";
 import { refitOnTabVisible } from "../refitOnTabVisible";
 import { openInCodeTab } from "../right-panel/openInCodeTab";
+import type { LineRef } from "../ui/lineRef";
 import { isExpectedCleanupError } from "../rpc/streamCleanup";
 import { createScrollLock } from "../scrollLock";
 import { isTouch } from "../useMobile";
 import { client, preferences } from "../wire";
-import { createFileRefLinkProvider } from "./fileRefLinkProvider";
+import {
+  createFileRefLinkProvider,
+  fileRefAtCell,
+} from "./fileRefLinkProvider";
 import ScrollToBottom from "./ScrollToBottom";
 import { applyStickyModifiers } from "./stickyModifiers";
 import SearchBar from "./SearchBar";
@@ -288,6 +292,16 @@ const Terminal: Component<{
     if (!isTouch()) terminal?.focus();
   }
 
+  // Open a `path:line` reference in the Code tab. Shared by the hover link
+  // provider (desktop mouse click) and the mobile tap handler — both resolve
+  // the same ref against this terminal's repo and route through one front door.
+  function activateFileRef(ref: LineRef) {
+    const meta = terminalStore.getMetadata(props.terminalId);
+    const repoRoot = meta?.git?.repoRoot ?? null;
+    if (!repoRoot) return;
+    openInCodeTab({ ref, repoRoot, cwd: meta?.cwd, targetMode: "browse" });
+  }
+
   // Re-fit and auto-focus when terminal becomes visible (display:none → visible).
   // Only auto-focus if this terminal should have focus (focused prop is true or unset).
   // defer: true skips the initial run (onMount handles first fit + focus).
@@ -479,19 +493,7 @@ const Terminal: Component<{
           // terminal store at click time (not at mount) so a cwd
           // change keeps subsequent clicks anchored to the new repo.
           linkProviderDisposable = term.registerLinkProvider(
-            createFileRefLinkProvider(term, {
-              onActivate: (ref) => {
-                const meta = terminalStore.getMetadata(props.terminalId);
-                const repoRoot = meta?.git?.repoRoot ?? null;
-                if (!repoRoot) return;
-                openInCodeTab({
-                  ref,
-                  repoRoot,
-                  cwd: meta?.cwd,
-                  targetMode: "browse",
-                });
-              },
-            }),
+            createFileRefLinkProvider(term, { onActivate: activateFileRef }),
           );
           const search = new SearchAddon();
           term.loadAddon(search);
@@ -571,6 +573,30 @@ const Terminal: Component<{
                 startX: number;
                 startY: number;
               } | null = null;
+              // Map a tap point to the `path:line` reference under it, if any.
+              // Converts the viewport pixel to a (col, buffer-line) cell using
+              // the same screen/grid geometry the touch-scroll handler uses,
+              // then hit-tests against the link parser.
+              const fileRefAtPoint = (
+                clientX: number,
+                clientY: number,
+              ): LineRef | null => {
+                if (!terminal) return null;
+                const rect = screen.getBoundingClientRect();
+                const cellW = rect.width / terminal.cols;
+                const cellH = rect.height / terminal.rows;
+                if (
+                  !Number.isFinite(cellW) ||
+                  cellW <= 0 ||
+                  !Number.isFinite(cellH) ||
+                  cellH <= 0
+                )
+                  return null;
+                const col = Math.floor((clientX - rect.left) / cellW);
+                const row = Math.floor((clientY - rect.top) / cellH);
+                const bufferLine = terminal.buffer.active.viewportY + row;
+                return fileRefAtCell(terminal, col, bufferLine);
+              };
               makeEventListener(screen, "pointerdown", (e: PointerEvent) => {
                 e.preventDefault();
                 activeTap = {
@@ -585,6 +611,16 @@ const Terminal: Component<{
                 const { startX, startY } = activeTap;
                 activeTap = null;
                 if (!isTap(e.clientX - startX, e.clientY - startY)) return;
+                // What the tap does decides whether the keyboard rises: a tap on
+                // a `path:line` reference follows the link into the Code tab
+                // (xterm's own link activation is mouse/hover-only and never
+                // fires for touch), a tap on plain content focuses to type.
+                // Only the latter summons the soft keyboard.
+                const ref = fileRefAtPoint(e.clientX, e.clientY);
+                if (ref) {
+                  activateFileRef(ref);
+                  return;
+                }
                 term.focus();
               });
               makeEventListener(screen, "pointercancel", (e: PointerEvent) => {

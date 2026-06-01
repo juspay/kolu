@@ -413,7 +413,16 @@ Before(async function (this: KoluWorld, scenario) {
   await this.page.addInitScript(`
     document.addEventListener("DOMContentLoaded", function() {
       var style = document.createElement("style");
-      style.textContent = "*, *::before, *::after { transition-duration: 0s !important; animation-duration: 0s !important; }";
+      // Zero out transitions/animations so Corvu dialogs settle instantly —
+      // EXCEPT Corvu drawer content. A drawer whose computed transition-duration
+      // is 0s makes Corvu bypass its normal open/close path (it reads the
+      // duration to schedule onTransitionEnd) and self-dismiss the instant it
+      // opens, so any "open the mobile bottom drawer, then assert it" test is
+      // unrunnable. Leaving the drawer a 1ms duration keeps it effectively
+      // instant while preserving the transition-driven path Corvu relies on.
+      style.textContent =
+        "*, *::before, *::after { transition-duration: 0s !important; animation-duration: 0s !important; }" +
+        "[data-corvu-drawer-content] { transition-duration: 1ms !important; }";
       document.head.appendChild(style);
     });
     // Shared xterm buffer reader for e2e tests — used by waitForBufferContains,

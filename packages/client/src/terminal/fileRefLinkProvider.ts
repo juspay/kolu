@@ -58,3 +58,36 @@ export function createFileRefLinkProvider(
     },
   };
 }
+
+/** Hit-test a `path:line` reference at a buffer cell — the touch counterpart
+ *  to the hover link provider above. xterm's built-in link activation is
+ *  mouse/hover-driven and never fires for a touch tap, so the mobile tap
+ *  handler resolves the ref itself: it converts the tap to a (col, buffer-line)
+ *  cell and asks here whether a reference covers it. Uses the same
+ *  `parseLineRefs` as the provider, so a tap and a hover never disagree about
+ *  what is a link.
+ *
+ *  `col` and `bufferLine` are 0-based xterm buffer indices. Returns the
+ *  covering ref, or null for plain content (the tap should focus to type). */
+export function fileRefAtCell(
+  terminal: Terminal,
+  col: number,
+  bufferLine: number,
+): LineRef | null {
+  const lineObj = terminal.buffer.active.getLine(bufferLine);
+  if (!lineObj) return null;
+  const text = lineObj.translateToString(true);
+  if (text.indexOf("/") < 0 && text.indexOf(".") < 0) return null;
+  for (const match of parseLineRefs(text)) {
+    // Link range covers source indices [index, index + text.length); the
+    // 0-based tap column maps directly onto that span.
+    if (col >= match.index && col < match.index + match.text.length) {
+      return {
+        path: match.path,
+        startLine: match.startLine,
+        endLine: match.endLine,
+      };
+    }
+  }
+  return null;
+}
