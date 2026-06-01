@@ -58,9 +58,9 @@ type FileTreeRemoveOperation = Extract<
  *  so live-watcher churn (a file added or removed) and filter changes no
  *  longer collapse hand-opened folders. Removing a file does NOT delete its
  *  now-empty ancestor directories: Pierre `remove` promotes an emptied
- *  directory to an explicit empty folder so its row survives. Pruning those
- *  is the caller's job (`directoryRemovalOps`); this function only diffs
- *  files. */
+ *  directory to an explicit empty folder so its row survives. The same
+ *  path-change effect runs `directoryRemovalOps` right after to prune those
+ *  stranded rows; this function only diffs files. */
 function pathDiffOperations(
   prev: readonly string[],
   next: readonly string[],
