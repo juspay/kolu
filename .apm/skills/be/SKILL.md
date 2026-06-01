@@ -14,7 +14,7 @@ Take a task to a shipped, reviewed PR. Unlike `/do` (autonomous start to finish)
 
 Before any work, ask the user via **`AskUserQuestion`** (one call, batched):
 
-- **Plan first?** — write an HTML plan to `docs/plans/<slug>.html` for review *before* implementing, or implement straight. Default: straight, unless the task is large/ambiguous.
+- **Plan first?** — write an HTML plan to `docs/plans/<slug>.html` for review *before* implementing, or implement straight. Default: straight, unless the task is large/ambiguous. *(If the prompt already points at an existing `docs/plans/*.html`, skip this question — that file is the plan of record; reuse it.)*
 - **Task kind** — bug fix · feature/new behavior · refactor/chore. This sets the test strategy (see §2).
 - **Ultracode?** — include this question *only when no system-reminder says ultracode is on*. Remind the user that `/be` runs richer with ultracode (deeper review fan-out, adversarial verification of each finding) and ask whether to proceed on the standard pass or pause so they can enable it. Options: *Proceed (standard pass)* / *I'll enable ultracode first*. If they pick the latter, stop and let them turn it on, then re-run.
 
@@ -24,7 +24,7 @@ Add a question only when something material is genuinely unclear — don't pad. 
 
 - `git fetch origin`; branch off `origin/<default>` (`git symbolic-ref --short refs/remotes/origin/HEAD`). Feature branches only — never commit to master.
 - Read `.agency/do.md` for the project's **check / fmt / test / ci** commands and its **`## PR evidence`** section. Reuse them throughout.
-- **If "plan first":** write `docs/plans/<slug>.html`, then **stop and hand it to the user to read and comment** — do *not* use plan mode. Wait for them to reply; incorporate their feedback, and resume the workflow only once they say proceed. This is the one sanctioned pause.
+- **If "plan first" (or working off an existing plan):** the `docs/plans/<slug>.html` file is the **plan of record**. If new, write it; either way **stop and hand it to the user to read and comment** — do *not* use plan mode. Wait for them to reply; incorporate their feedback, and resume the workflow only once they say proceed. This is the one sanctioned pause. **The plan ships in the PR** — commit it onto the branch (with the §2 work or its own commit) so the merged diff carries the plan it was built from.
 
 ## 2. Implement
 
@@ -37,6 +37,8 @@ Run **check** and **fmt**, then commit (conventional message) and push the featu
 ## 3. Open the PR
 
 **Before any review** — so every reviewer's findings land as comments on a real PR. Load **`/forge-pr`** (Skill tool) and `gh pr create --draft` with a genuine title/body covering the scope so far. The PR exists for the rest of the run; later steps push commits and post comments to it.
+
+**If there's a plan of record, finalize it now.** Once the PR URL exists, update `docs/plans/<slug>.html` to read as it will *after merge* — flip its status to implemented/done and **link the PR** (e.g. a header line `Implemented in #<n>`) — then commit (`docs(plan): link PR #<n>`) and push so the finalized plan is part of this PR. This applies equally to a freshly-written plan and one the user brought in.
 
 ## 4. Review gauntlet
 
