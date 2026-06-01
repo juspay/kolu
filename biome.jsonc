@@ -28,6 +28,10 @@
       "!.codex",
       "!.opencode",
       "!opencode.json",
+      // Claude Code dynamic-workflow scripts use top-level return/await and
+      // runtime-injected globals (agent/phase/log/...) — they aren't valid
+      // standalone ES modules, so biome can't parse them. Authored, not linted.
+      "!**/*.workflow.js",
       "!**/dist",
       "!**/node_modules",
       "!**/.direnv",

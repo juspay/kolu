@@ -637,6 +637,89 @@ Then(
   },
 );
 
+// ── Markdown preview + Source ⇄ Rendered toggle (.md in browse mode) ──
+
+Then(
+  "the markdown preview should be visible",
+  async function (this: KoluWorld) {
+    const md = this.page.locator('[data-testid="browse-preview-markdown"]');
+    await md.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+// The rendered preview is plain DOM (not a sandboxed iframe), so its text
+// reads directly. Poll because the content arrives over the `fsReadFile`
+// subscription a frame or two after the click.
+Then(
+  "the markdown preview should contain {string}",
+  async function (this: KoluWorld, expected: string) {
+    const md = this.page.locator('[data-testid="browse-preview-markdown"]');
+    await pollFor({
+      observe: () => md.textContent({ timeout: 1_000 }).catch(() => null),
+      isDone: (text) => text !== null && text.includes(expected),
+      onTimeout: (last) =>
+        new Error(
+          `markdown preview never contained "${expected}"; last text: ${JSON.stringify(last)}`,
+        ),
+      timeoutMs: POLL_TIMEOUT,
+    });
+  },
+);
+
+// A >1 MB Markdown file is read back truncated; the rendered preview must
+// surface the same "File truncated" banner the source view shows, otherwise a
+// partial document renders with no warning. Scoped to the markdown preview
+// testid so it doesn't accidentally match the source-view banner.
+Then(
+  "the markdown preview should show the truncation warning",
+  async function (this: KoluWorld) {
+    const md = this.page.locator('[data-testid="browse-preview-markdown"]');
+    await pollFor({
+      observe: () => md.textContent({ timeout: 1_000 }).catch(() => null),
+      isDone: (text) =>
+        text !== null && text.includes("File truncated (exceeds 1 MB)"),
+      onTimeout: (last) =>
+        new Error(
+          `markdown preview never showed the truncation warning; last text: ${JSON.stringify(last)}`,
+        ),
+      timeoutMs: POLL_TIMEOUT,
+    });
+  },
+);
+
+Then(
+  "the file view toggle should be visible",
+  async function (this: KoluWorld) {
+    const toggle = this.page.locator('[data-testid="fileview-toggle"]');
+    await toggle.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+When(
+  "I switch the file view to {string}",
+  async function (this: KoluWorld, mode: string) {
+    const btn = this.page.locator(`[data-testid="fileview-toggle-${mode}"]`);
+    await btn.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await btn.click();
+    await this.waitForFrame();
+  },
+);
+
+Then(
+  "the markdown preview should not be visible",
+  async function (this: KoluWorld) {
+    // Toggling to source unmounts the rendered appliance (FileView swaps the
+    // active branch), so assert count, mirroring the iframe absence check.
+    await this.page.waitForFunction(
+      () =>
+        document.querySelectorAll('[data-testid="browse-preview-markdown"]')
+          .length === 0,
+      undefined,
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
 // ── Right-panel tab switching + filter input ──
 
 When(

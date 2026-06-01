@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>docs/plans — Maps of Content</title>
+<style>
+  :root{
+    --bg:#fafaf7; --panel:#ffffff; --panel2:#f4eefb; --ink:#1a1c20; --dim:#5b6470;
+    --line:#e6e2d6; --accent:#6b4eff; --accent2:#7c4dd4; --good:#1b7a3a; --bad:#a02a2a;
+    --warn:#a96400; --teal:#0e7490; --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  }
+  *{ box-sizing:border-box; } html{ scroll-behavior:smooth; }
+  body{ margin:0; background:var(--bg); color:var(--ink); font:15px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif; padding:2.4rem 1.25rem 6rem; }
+  main{ max-width:880px; margin:0 auto; }
+  a{ color:var(--accent); text-decoration:none; } a:hover{ text-decoration:underline; }
+  .crumb{ font-family:var(--mono); font-size:.72rem; color:var(--dim); letter-spacing:.04em; margin:0 0 1.1rem; }
+  h1{ font-size:1.7rem; line-height:1.2; margin:0 0 .35rem; letter-spacing:-.01em; }
+  h2{ font-size:1.05rem; margin:2.4rem 0 .5rem; padding-bottom:.35rem; border-bottom:1px solid var(--line); color:#13151b; }
+  h3{ font-size:.92rem; margin:1.3rem 0 .3rem; color:var(--accent); }
+  .sub{ color:var(--dim); margin:.1rem 0 1.3rem; font-size:.95rem; }
+  p{ margin:.6rem 0; }
+  code{ font-family:var(--mono); font-size:.85em; background:#f4f1e8; padding:.08em .35em; border-radius:4px; color:#2a2d33; }
+  .muted{ color:var(--dim); }
+  .tag{ display:inline-block; font-family:var(--mono); font-size:.64rem; text-transform:uppercase; letter-spacing:.04em; padding:.1em .5em; border-radius:999px; vertical-align:middle; border:1px solid transparent; }
+  .tag.seedling{ background:#f8efd9; color:#8a5200; border-color:#e8d3a3; }
+  .tag.budding{ background:#dcf0f4; color:#0b6478; border-color:#bfe3ea; }
+  .tag.evergreen{ background:#e3f4e9; color:#1b7a3a; border-color:#bce3c8; }
+  .tag.accent{ background:#efebff; color:#5a3ff0; border-color:#d4cbff; }
+  .panel{ background:var(--panel); border:1px solid var(--line); border-radius:9px; padding:1rem 1.2rem; margin:1rem 0; }
+  .panel.accent{ border-left:3px solid var(--accent); }
+  .entry{ display:block; padding:.6rem .9rem; margin:.45rem 0; background:var(--panel); border:1px solid var(--line); border-radius:8px; }
+  .entry:hover{ border-color:var(--accent); text-decoration:none; }
+  .entry .t{ color:var(--ink); font-weight:600; }
+  .entry:hover .t{ color:var(--accent); }
+  .entry .f{ font-family:var(--mono); font-size:.72rem; color:var(--dim); }
+  .entry .d{ color:var(--dim); font-size:.86rem; margin-top:.15rem; display:block; }
+  .nest{ margin-left:1.4rem; border-left:2px solid var(--line); padding-left:.8rem; }
+  .legend{ font-family:var(--mono); font-size:.74rem; color:var(--dim); }
+  .surfaces{ display:grid; grid-template-columns:repeat(3,1fr); gap:.7rem; margin:1rem 0; }
+  @media (max-width:640px){ .surfaces{ grid-template-columns:1fr; } }
+  .surf{ background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:.7rem .9rem; font-size:.85rem; }
+  .surf h3{ margin:0 0 .25rem; }
+  hr{ border:none; border-top:1px solid var(--line); margin:2.2rem 0; }
+</style>
+</head>
+<body>
+<!--
+  HAND-CURATED MAP OF CONTENT — there is no generator.
+  Adding, renaming, or removing a file under docs/plans/? Add or refresh its
+  one-line entry below, in the right section, in the SAME commit. Prefer flat
+  ancestry-free slugs (pty-daemon-tui.html) over dotted names
+  (remote-terminals.pty-daemon.tui.html). Rationale: ./second-brain.html §4.
+  Also enforced as an agent rule: .apm/instructions/docs.instructions.md
+-->
+<main>
+
+<p class="crumb">docs / plans</p>
+
+<h1>docs/plans — Maps of Content</h1>
+<p class="sub">The hand-curated index for kolu's in-repo knowledge garden. A note's <em>name</em> is a stable handle; its <em>structure</em> lives here, in links and annotations — not in the filename. <span class="muted">See <a href="./second-brain.html">second-brain.html</a> for why.</span></p>
+
+<div class="panel accent">
+<p style="margin-top:0"><strong>How the brain is split</strong> — by one axis, <em>mutability</em>. This page maps the frozen-and-rich half (the garden). The living half lives in <code>hk</code> (GitHub Issues); the dated stream is the blog.</p>
+<div class="surfaces">
+  <div class="surf"><h3 style="color:var(--teal)">Living</h3><span class="muted">roadmaps, bugs, decisions, learnings · cheap <code>#N</code> links</span><br><strong>hk</strong> <span class="muted">(GitHub Issues)</span></div>
+  <div class="surf"><h3 style="color:var(--good)">Frozen &amp; rich</h3><span class="muted">plans, specs, reviews, retros · rendered in-app</span><br><strong>docs/plans</strong> <span class="muted">+ <a href="../proposals/">docs/proposals</a></span></div>
+  <div class="surf"><h3 style="color:var(--accent)">Stream</h3><span class="muted">what shipped / what we learned</span><br><strong><a href="https://kolu.dev">kolu.dev</a></strong> <span class="muted">(blog)</span></div>
+</div>
+<p class="legend" style="margin-bottom:0">maturity: <span class="tag seedling">seedling</span> raw &nbsp; <span class="tag budding">budding</span> developing &nbsp; <span class="tag evergreen">evergreen</span> durable &nbsp;·&nbsp; tags below are illustrative, applied opportunistically as docs are revisited.</p>
+</div>
+
+<h2>Process &amp; meta</h2>
+<a class="entry" href="./release-workflow.html">
+  <span class="t">Release workflow for kolu</span> <span class="tag budding">budding</span>
+  <span class="f">release-workflow.html</span>
+  <span class="d">First public release (ship <code>v0.1.0</code>), two-channel Nix distribution, git-cliff + whatchanged changelog, biweekly cadence, blog+demo pipeline.</span>
+</a>
+<a class="entry" href="./second-brain.html">
+  <span class="t">The kolu second brain</span> <span class="tag budding">budding</span>
+  <span class="f">second-brain.html</span>
+  <span class="d">One knowledge system governed by mutability; <code>hk</code> vs <code>docs/</code>; fixing the dotted-filename gnarliness; capturing LLM-session history &amp; learnings via <code>/retro</code>.</span>
+</a>
+
+<h2>Plans &amp; specs <span class="muted" style="font-size:.8rem; font-weight:400">— forward-looking design &amp; phases</span></h2>
+<a class="entry" href="./remote-terminals.html">
+  <span class="t">Remote terminals over SSH</span> <span class="tag evergreen">evergreen</span> <span class="tag accent">#951</span>
+  <span class="f">remote-terminals.html · 208 KB</span>
+  <span class="d">The implementation plan. Anchors worth knowing: <code>#lessons</code>, <code>#r4-lessons</code>, <code>#r4ui-postmortem</code> — learnings captured inline (the proto-<code>/retro</code>). <span class="muted">Candidate for the §"split monoliths" treatment.</span></span>
+</a>
+<div class="nest">
+  <a class="entry" href="./remote-terminals.pty-daemon.html">
+    <span class="t">R-4 — Local PTY daemon (@kolu/pty-host)</span> <span class="tag budding">budding</span>
+    <span class="f">remote-terminals.pty-daemon.html → pty-daemon.html</span>
+    <span class="d">Design + phases for extracting the PTY host into its own process.</span>
+  </a>
+  <a class="entry" href="./remote-terminals.pty-daemon.chrome-bar.html">
+    <span class="t">R-4 A2 — ChromeBar identity rail (srv · pty)</span> <span class="tag budding">budding</span>
+    <span class="f">remote-terminals.pty-daemon.chrome-bar.html → chrome-bar.html</span>
+    <span class="d">UI prototype for the build/commit identity rail — the surface the release version stamp lands on.</span>
+  </a>
+  <a class="entry" href="./remote-terminals.pty-daemon.tui.html">
+    <span class="t">R-4 — kolu-tui: a CLI client for kolu-server</span> <span class="tag seedling">seedling</span>
+    <span class="f">remote-terminals.pty-daemon.tui.html → pty-daemon-tui.html</span>
+    <span class="d">An in-process terminal client. <span class="muted">Relates to both <em>pty-daemon</em> and <em>chrome-bar</em> — the "one true parent" conflict the flat-slug rename resolves.</span></span>
+  </a>
+</div>
+<a class="entry" href="./code-browser-preview.solid-fileview.html">
+  <span class="t">Code browser preview → @kolu/solid-fileview</span> <span class="tag budding">budding</span> <span class="tag accent">#1093</span>
+  <span class="f">code-browser-preview.solid-fileview.html → solid-fileview.html</span>
+  <span class="d">"Invent the grid, slim the house" — a Source ⇄ Rendered file-view toggle built on reusable leaf packages. Phases 1–3 shipped (#1079 solid-markdown, #1082 solid-fileview, #1093 the Markdown toggle); rendered-comments (3a), HTML/SVG source, and code-fence highlighting next.</span>
+</a>
+<a class="entry" href="./dynamic-workflow-viewer.html">
+  <span class="t">Workflow viewer</span> <span class="tag budding">budding</span>
+  <span class="f">dynamic-workflow-viewer.html</span>
+  <span class="d">Integrating Claude Code dynamic-workflow JSONL into kolu — surfacing fan-out runs on the tile chrome.</span>
+</a>
+
+<h2>Reviews <span class="muted" style="font-size:.8rem; font-weight:400">— Hickey / Lowy structural audits</span></h2>
+<a class="entry" href="./mobile-architecture-review.html">
+  <span class="t">Is Mobile Electricity?</span> <span class="tag evergreen">evergreen</span>
+  <span class="f">mobile-architecture-review.html</span>
+  <span class="d">A Hickey/Lowy review of kolu's mobile support. <span class="muted">Sibling: <a href="../electricity-review.html">docs/electricity-review.html</a> (whole-app audit).</span></span>
+</a>
+
+<h2>Talks &amp; research <span class="muted" style="font-size:.8rem; font-weight:400">— /talk captures, no repo changes</span></h2>
+<a class="entry" href="./talk-nix-typecheck-gate.html">
+  <span class="t">nix build ≠ typecheck</span> <span class="tag evergreen">evergreen</span> <span class="tag accent">#1049</span>
+  <span class="f">talk-nix-typecheck-gate.html</span>
+  <span class="d">Diagnosis + design for a <code>checks.typecheck</code> derivation so a green <code>nix build</code> is a type-proof.</span>
+</a>
+<a class="entry" href="./talk-pref-storm.html">
+  <span class="t">Preferences storm</span> <span class="tag budding">budding</span> <span class="tag accent">#1041</span>
+  <span class="f">talk-pref-storm.html</span>
+  <span class="d">Debouncing the rightPanel resize feedback loop.</span>
+</a>
+<a class="entry" href="./talk-ghostex-vs-remote-terminals.html">
+  <span class="t">Ghostex vs. kolu remote-terminals</span> <span class="tag budding">budding</span>
+  <span class="f">talk-ghostex-vs-remote-terminals.html</span>
+  <span class="d">What their PTY-persistence decision teaches us. <span class="muted">Links into the remote-terminals plan above.</span></span>
+</a>
+
+<h2>Demos &amp; process</h2>
+<a class="entry" href="./video-evidence.html">
+  <span class="t">Video evidence for PRs</span> <span class="tag evergreen">evergreen</span>
+  <span class="f">video-evidence.html</span>
+  <span class="d">Screencast capture + shared Pages player — the substrate the <code>evidence</code> skill and per-release demos build on.</span>
+</a>
+
+<hr>
+<p class="muted">This index is <strong>hand-written prose</strong>, deliberately — no generator. It's updated when a doc is added or renamed, the same moment you'd touch the file anyway. Dotted-name files keep their names until next edited (incremental migration); the "→" shows the flat slug each will take. Also under <code>docs/</code>: <a href="../proposals/">proposals</a> (frozen RFCs), <code>*.md</code> ralph/perf reports, <a href="../perf-investigations/">perf-investigations</a>.</p>
+
+</main>
+</body>
+</html>

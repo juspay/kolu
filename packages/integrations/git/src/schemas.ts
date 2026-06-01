@@ -166,8 +166,8 @@ export const FsReadFileInputSchema = z.object({
 /** Discriminated by `kind`. Text files yield their content; binary-
  *  previewable files yield a cache-busted URL the client points an
  *  `<iframe>` (documents) or `<img>` (raster images) at. The variant-picker
- *  (`isBinaryPreviewable`) lives in `./previewable.ts`; the URL builder
- *  lives server-side in `iframePreviewRoute.ts`. */
+ *  (`isBinaryPreviewable`) lives in the node-free `kolu-common/preview`
+ *  classifier; the URL builder lives server-side in `iframePreviewRoute.ts`. */
 export const FsReadFileOutputSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("text"),

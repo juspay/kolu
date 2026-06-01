@@ -1,4 +1,4 @@
-import { decodePreviewPath, encodePreviewPath } from "kolu-git/previewPath";
+import { decodePreviewPath, encodePreviewPath } from "kolu-common/preview";
 
 /** Map an in-iframe-reported `location.pathname` back to the repo-relative
  *  path it previews. The browse preview iframe is served from
@@ -13,7 +13,7 @@ import { decodePreviewPath, encodePreviewPath } from "kolu-git/previewPath";
  *  `currentUrl` (its `buildIframePreviewUrl` output) ends with the
  *  `encodePreviewPath(currentPath)`, and everything before that is the shared
  *  `/api/terminals/{id}/file/` prefix. The encode/decode use the same
- *  `kolu-git/previewPath` codec the server's builder uses, so the inversion
+ *  `kolu-common/preview` codec the server's builder uses, so the inversion
  *  can't drift from the encoding — no second source of truth.
  *
  *  Returns null when the iframe navigated outside the file route (an external

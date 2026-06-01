@@ -1,4 +1,4 @@
-import { encodePreviewPath } from "kolu-git/previewPath";
+import { encodePreviewPath } from "kolu-common/preview";
 import { describe, expect, it } from "vitest";
 import { repoPathFromPreviewPathname } from "./iframePreviewNav";
 
@@ -103,7 +103,7 @@ describe("repoPathFromPreviewPathname", () => {
     ).toBeNull();
   });
 
-  // Round-trip against the SHARED `kolu-git/previewPath` codec — the same
+  // Round-trip against the SHARED `kolu-common/preview` codec — the same
   // encoder `buildIframePreviewUrl` uses server-side. This is the guard that
   // matters: if the encoding scheme ever changes, the inversion must still
   // invert it. Building inputs via `encodePreviewPath` (rather than a

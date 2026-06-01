@@ -17,8 +17,8 @@
 
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
+import { encodePreviewPath } from "kolu-common/preview";
 import { resolveUnder } from "kolu-git";
-import { encodePreviewPath } from "kolu-git/previewPath";
 
 /** Base URL for the iframe-preview file route. Used by both
  *  `buildIframePreviewUrl` (server emits URLs in this shape) and the Hono
@@ -45,7 +45,7 @@ export function buildIframePreviewUrl(
 
 /** Content-Type per extension for files served by this route. Every
  *  extension in `BINARY_PREVIEWABLE_EXTENSIONS` (the node-free classifier in
- *  `kolu-git/previewable` that decides `FsReadFileOutput.kind`) must have a
+ *  `kolu-common/preview` that decides `FsReadFileOutput.kind`) must have a
  *  real entry here, or the route serves it as `application/octet-stream` and
  *  the browser downloads it instead of rendering. That coverage invariant is
  *  asserted in `iframePreviewRoute.test.ts`. The extra `.css`/`.js`/font
