@@ -90,29 +90,18 @@ Post a `## Evidence` PR comment when **any** of these holds — the trigger is "
 2. **Behavioral / round-trip changes** — the diff touches a persistence, restore, session, autosave, debounce/coalesce, or reconnect path, and the proof is *"state survives an interaction or a restart,"* not a pixel change. Capture the before→after **behavior** — often with **zero visual diff** (e.g. resize → stop kolu → start → restore session → the panel returns at the resized width). A video of the round-trip is the proof the fix didn't break recoverability.
 3. **Bug fixes generally** — the default for a fix is *"demonstrate the fixed behavior."* The bug was often a storm, a lost write, or a hang, so a before/after or survives-restart clip is the evidence **even when nothing looks different**. Don't skip evidence just because a fix has no visual diff; skip only when the behavior genuinely can't be observed (e.g. a pure internal refactor with no externally visible effect).
 
-**Capture source — reuse the Cucumber e2e harness (preferred).** Kolu's e2e suite (`@cucumber/cucumber` + Playwright) already drives every UI surface through a maintained step library, so capture a clip by *recording an e2e scenario* — don't hand-roll a one-off Playwright script that re-implements the same clicks. Tag the scenario that exercises the change `@evidence` (or author a tiny one reusing existing steps), then run it on the pu box the same way `ci::e2e` runs e2e, with `KOLU_EVIDENCE=1`:
+**Capture by recording a tagged e2e scenario — the [`evidence`](../.apm/skills/evidence/SKILL.md) skill owns the procedure** (it builds on the [`pu`](../.apm/skills/pu/SKILL.md) skill; everything runs on an ephemeral `pu` box, off-machine, the way CI runs e2e). Kolu's e2e suite (`@cucumber/cucumber` + Playwright) already drives every UI surface through a maintained step library, so you capture a clip by *recording a scenario*, never a hand-rolled Playwright script. Tag the scenario that exercises the change `@evidence` (or author a tiny one reusing existing steps); on the box the skill runs it with `KOLU_EVIDENCE=1`, which makes `packages/tests/support/hooks.ts` record the `.webm` (recordVideo + slowMo, animations left on), then transcodes (ffmpeg → GIF/mp4), uploads to the `evidence-assets` release, and links the shared Pages player.
 
 ```sh
 KOLU_EVIDENCE=1 just test-quick features/<file>.feature --tags @evidence
 # → packages/tests/reports/videos/<scenario>.webm
 ```
 
-`packages/tests/support/hooks.ts` (gated on `KOLU_EVIDENCE`, off by default) wires Playwright `recordVideo` + `slowMo`, skips the animations-off init script (motion is the point of a video), and saves the `.webm` in the `After` hook. Hand that `.webm` to the **delivery half** below (ffmpeg → GIF/mp4 → release → Pages player). Reach for the bespoke `capture.mjs` only for evidence no scenario can produce (a flow with no e2e coverage). Rationale + the full ecosystem survey: [`docs/plans/video-evidence.html`](../docs/plans/video-evidence.html).
-
-**Delivery — and the `capture.mjs` capture fallback — live in the [`evidence`](../.apm/skills/evidence/SKILL.md) skill** (which builds on the [`pu`](../.apm/skills/pu/SKILL.md) skill): everything runs on an ephemeral `pu` box — `nix run`, Chrome, Playwright, and ffmpeg all off-machine, exactly like CI. The host/player + transcode below apply to *any* capture source (a harness `.webm` or a `capture.mjs` clip); plug in kolu's parameters:
-
-- **Serve** the PR's own commit on the box's loopback (`/do` has already pushed by the evidence step, so the branch flake-ref resolves; `--refresh` busts the flake cache):
-  ```sh
-  branch=$(git rev-parse --abbrev-ref HEAD)
-  nix run --refresh "github:juspay/kolu?ref=$branch" -- --host 127.0.0.1 --port 7681
-  ```
-  Health is `http://127.0.0.1:7681/api/health`; the app is at `/`. The box has its own loopback, so plain `7681` is safe — no clash with the user's kolu. For a **"before"** shot, serve a second box from `github:juspay/kolu` (master).
-- **Host & player:** upload to the `evidence-assets` release; HD clips use the shared player with `repo=juspay/kolu`.
-- **Legibility:** maximize the terminal in the capture script with `page.click('[data-testid="maximize-toggle"]')`; pick a high-contrast theme (e.g. Melange Dark).
+Rationale + the ecosystem survey: [`docs/plans/video-evidence.html`](../docs/plans/video-evidence.html).
 
 ### Agent-state scenarios
 
-When the change touches the Dock, terminal, or any UI surface that reflects agent activity, the capture has to show real states — a blank Dock proves nothing. Kolu's opencode integration is first-class: from inside `capture.mjs`, open a terminal and run opencode in it; the preexec hook surfaces state in the Dock within ~300ms (states: `thinking`, `tool_use`, `awaiting_user`, `waiting`; bucketed in the Dock as `working ▸`, `awaiting ⏵`, `idle ☾`).
+When the change touches the Dock, terminal, or any UI surface that reflects agent activity, the capture has to show real states — a blank Dock proves nothing. Kolu's opencode integration is first-class: have the `@evidence` scenario open a terminal and run opencode in it (an `I run "…"` step); the preexec hook surfaces state in the Dock within ~300ms (states: `thinking`, `tool_use`, `awaiting_user`, `waiting`; bucketed in the Dock as `working ▸`, `awaiting ⏵`, `idle ☾`).
 
 ```sh
 # Inside a Kolu terminal on the box — no global install needed

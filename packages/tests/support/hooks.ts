@@ -127,6 +127,11 @@ const evidenceVideoDir = path.resolve(
   "reports",
   "videos",
 );
+/** Evidence records at a denser desktop viewport than the normal 1920×1080:
+ *  at full width the single terminal tile + side panel float small in a sea of
+ *  canvas, so the clip reads tiny. 1280×720 fills the frame and matches
+ *  recordVideo.size exactly, so the capture is 1:1 with no downscaling. */
+const EVIDENCE_VIEWPORT = { width: 1280, height: 720 };
 
 let baseUrl: string;
 let browser: Browser;
@@ -265,7 +270,9 @@ async function newScenarioPage(
       // to the viewport vs nearly filling it).
       viewport: isMobile
         ? { width: 390, height: 844 }
-        : { width: 1920, height: 1080 },
+        : EVIDENCE
+          ? EVIDENCE_VIEWPORT
+          : { width: 1920, height: 1080 },
       ...(isMobile && { hasTouch: true, isMobile: true }),
       baseURL: baseUrl,
       ignoreHTTPSErrors: true,
@@ -276,13 +283,9 @@ async function newScenarioPage(
       // KOLU_EVIDENCE: record a video of the context. recordVideo is a
       // context option (not a launch option); the file is finalized on
       // context.close() and retrieved per-page via page.video() in After.
+      // size matches the evidence viewport so the capture is 1:1.
       ...(rawVideoDir
-        ? {
-            recordVideo: {
-              dir: rawVideoDir,
-              size: { width: 1366, height: 768 },
-            },
-          }
+        ? { recordVideo: { dir: rawVideoDir, size: EVIDENCE_VIEWPORT } }
         : {}),
     });
     previousContext = context;
