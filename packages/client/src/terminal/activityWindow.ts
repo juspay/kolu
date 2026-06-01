@@ -89,7 +89,10 @@ export const [activityWindow, setActivityWindow] =
   persistedPref<ActivityWindow>({
     name: "kolu-activity-window",
     fallback: DEFAULT_ACTIVITY_WINDOW,
-    parse: (raw) => (isActivityWindow(raw) ? raw : DEFAULT_ACTIVITY_WINDOW),
+    parse: (raw) => {
+      if (isActivityWindow(raw)) return raw;
+      throw new Error(`unrecognized activity window: ${raw}`);
+    },
   });
 
 /** Reactive threshold (ms) for the currently-selected activity window.

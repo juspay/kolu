@@ -120,7 +120,10 @@ const useModHeld = createSharedRoot(() => {
 export const [dockMode, setDockMode] = persistedPref<DockMode>({
   name: "kolu-dock-mode",
   fallback: "cards",
-  parse: (raw) => (raw === "rail" ? "rail" : "cards"),
+  parse: (raw) => {
+    if (raw === "rail" || raw === "cards") return raw;
+    throw new Error(`unrecognized dock mode: ${raw}`);
+  },
 });
 
 /** Toggle the dock between rail (collapsed) and cards (expanded).

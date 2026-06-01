@@ -11,10 +11,12 @@
  *  string `"false"` reads back truthy. Both are fixed by routing through one
  *  receptacle whose `parse` seam is mandatory.
  *
- *  `parse` is that single validation seam: raw stored string -> `T`. Throw
- *  (or return the fallback) on anything unexpected; {@link readWithFallback}
- *  catches, calls `onInvalid`, and substitutes `fallback`, so a corrupt entry
- *  degrades to the default instead of poisoning the signal. The serialized
+ *  `parse` is that single validation seam: raw stored string -> `T`. Throw on
+ *  anything unexpected; {@link readWithFallback} catches, calls `onInvalid`,
+ *  and substitutes `fallback`, so a corrupt entry
+ *  degrades to the default instead of poisoning the signal. `parse` reaches
+ *  the fallback *only* by throwing, so `onInvalid` is never silently skipped.
+ *  The serialized
  *  format is unchanged from the hand-rolled sites, so values already in
  *  `localStorage` keep loading. */
 
@@ -27,10 +29,13 @@ export interface PersistedPrefOptions<T> {
   /** Value used before anything is stored, and whenever the stored value
    *  fails `parse`. */
   fallback: T;
-  /** Validate a raw stored string into `T`. Throw (or return `fallback`)
-   *  when the stored value is unexpected — the wrapper substitutes
-   *  `fallback` and calls `onInvalid`. This is the seam that turns "trust
-   *  whatever localStorage holds" into "trust it only if it validates". */
+  /** Validate a raw stored string into `T`. **Throw** when the stored value
+   *  is unexpected — {@link readWithFallback} catches, substitutes `fallback`,
+   *  and calls `onInvalid`. Returning is the *only* signal for "valid";
+   *  throwing is the *only* way to reach the fallback. Keeping it single-mode
+   *  means the `onInvalid` reporting path can never be silently bypassed by a
+   *  call site that returns the fallback inline. This is the seam that turns
+   *  "trust whatever localStorage holds" into "trust it only if it validates". */
   parse: (raw: string) => T;
   /** Serialize `T` for storage. Defaults to identity for strings and
    *  `JSON.stringify` otherwise — matching the formats the call sites

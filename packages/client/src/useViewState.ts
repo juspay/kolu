@@ -27,8 +27,12 @@ export function useViewState() {
     fallback: false,
     // Strict: the default coercion read the stored string `"false"` as
     // truthy, so the posture latched on once persisted. Only literal
-    // `"true"` is true.
-    parse: (raw) => raw === "true",
+    // `"true"`/`"false"` are valid; anything else throws and falls back.
+    parse: (raw) => {
+      if (raw === "true") return true;
+      if (raw === "false") return false;
+      throw new Error(`unrecognized maximized flag: ${raw}`);
+    },
   });
 
   /** Terminals needing attention. `unread` drives in-app dots and badges;
