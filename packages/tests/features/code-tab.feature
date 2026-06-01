@@ -673,6 +673,27 @@ Feature: Code tab (review + browse)
     Then the file browser should not show a file "obsolete.txt"
     And the Code tab content should show the select hint "Select a file to view its content"
 
+  # Regression: creating a new file inside a hand-expanded folder in browse
+  # mode used to leave the tree stale — the new row never appeared until a
+  # mode switch or reload. The `fsListAll` value lands in a reconciled store
+  # whose `paths` array is mutated in place, so a `treePaths()` memo that
+  # returned the array proxy without reading its contents never re-ran on an
+  # in-place add, and even when it did the stable reference defeated the
+  # downstream reference-equality memos/effects feeding Pierre. Copying the
+  # paths out (`[...]`) tracks the contents and mints a fresh reference, so
+  # the in-place add propagates and Pierre's `batch` reveals the file.
+  Scenario: New file in an expanded folder appears in the browse tree live
+    When I run "rm -rf /tmp/kolu-browse-newfile && git init /tmp/kolu-browse-newfile && cd /tmp/kolu-browse-newfile"
+    And I run "mkdir -p lib && printf 'x\n' > lib/util.ts"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    And I click the directory "lib" in the file browser
+    Then the file browser should show a file "lib/util.ts"
+    When I click the terminal canvas
+    And I run "printf 'y\n' > lib/added.ts"
+    Then the file browser should show a file "lib/added.ts"
+
   # ── Comments on files (#881) ──
   #
   # End-to-end coverage of the select → pill → composer → tray → copy
