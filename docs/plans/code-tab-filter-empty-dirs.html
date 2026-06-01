@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Code-tab filter — empty directories survive the search</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --ink: #d7dce3; --dim: #8b95a5;
+    --line: #262b35; --accent: #7aa2f7; --good: #7bc97b; --bad: #e06c75;
+    --warn: #e5c07b; --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    padding: 2.5rem 1.25rem 6rem;
+  }
+  main { max-width: 860px; margin: 0 auto; }
+  h1 { font-size: 1.5rem; line-height: 1.25; margin: 0 0 .25rem; }
+  h2 { font-size: 1.05rem; margin: 2.4rem 0 .6rem; padding-bottom: .3rem; border-bottom: 1px solid var(--line); color: #fff; }
+  h3 { font-size: .95rem; margin: 1.4rem 0 .4rem; color: var(--accent); }
+  .sub { color: var(--dim); margin: 0 0 1.5rem; font-size: .9rem; }
+  code { font-family: var(--mono); font-size: .86em; background: #1f242d; padding: .08em .35em; border-radius: 4px; color: #c8d3e6; }
+  pre { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: .9rem 1rem; overflow-x: auto; font-family: var(--mono); font-size: .82rem; line-height: 1.5; }
+  pre code { background: none; padding: 0; }
+  p { margin: .6rem 0; }
+  ul { margin: .5rem 0; padding-left: 1.3rem; }
+  li { margin: .3rem 0; }
+  .cite { font-family: var(--mono); font-size: .8em; color: var(--accent); }
+  .tag { display: inline-block; font-family: var(--mono); font-size: .68rem; text-transform: uppercase; letter-spacing: .04em; padding: .12em .5em; border-radius: 999px; vertical-align: middle; }
+  .tag.good { background: rgba(123,201,123,.14); color: var(--good); }
+  .tag.bad { background: rgba(224,108,117,.14); color: var(--bad); }
+  .tag.warn { background: rgba(229,192,123,.14); color: var(--warn); }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 1rem 1.2rem; margin: 1rem 0; }
+  .panel.accent { border-left: 3px solid var(--accent); }
+  .panel.good { border-left: 3px solid var(--good); }
+  .panel.warn { border-left: 3px solid var(--warn); }
+  .panel.bad { border-left: 3px solid var(--bad); }
+  table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: .88rem; }
+  th, td { text-align: left; padding: .5rem .6rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--dim); font-weight: 600; font-size: .78rem; text-transform: uppercase; letter-spacing: .03em; }
+  .verdict { font-size: 1.05rem; font-weight: 600; }
+  .strike { color: var(--bad); }
+  .add { color: var(--good); }
+  .muted { color: var(--dim); }
+  hr { border: none; border-top: 1px solid var(--line); margin: 2rem 0; }
+  .flow { display: flex; gap: .6rem; flex-wrap: wrap; align-items: center; font-family: var(--mono); font-size: .8rem; margin: .6rem 0; }
+  .flow span { background: #1f242d; border: 1px solid var(--line); border-radius: 6px; padding: .3rem .55rem; }
+  .flow .arrow { background: none; border: none; color: var(--dim); padding: 0; }
+  .flow .miss { color: var(--bad); border-color: rgba(224,108,117,.4); }
+  .flow .good { color: var(--good); border-color: rgba(123,201,123,.4); }
+</style>
+</head>
+<body>
+<main>
+
+<h1>Code-tab filter keeps <em>empty</em> directories — “why is search expanding directories which have no results?”</h1>
+<p class="sub">Diagnosis · branch <code>search-collapsae</code> · confirmed against Kolu source and <code>@pierre/trees@1.0.0-beta.4</code> internals</p>
+
+<div class="panel bad">
+<p class="verdict">Root cause: the filter removes the matching <em>files</em>, but nothing removes the directories those removals leave empty — and Pierre deliberately keeps an emptied directory as a visible “explicit” folder.</p>
+<p style="margin-bottom:0">Searching <code>docs plans</code> batch-<code>remove</code>s every non-matching file. Pierre’s <code>removePath</code> removes only the file node, then <strong>promotes the now-empty parent directory to <code>EXPLICIT</code></strong> (its flag for “intentional empty folder, keep it shown”) instead of deleting it. So the whole tree of result-less directories survives. The wrapper comment that claims the opposite — “a file dropped takes its now-empty ancestor directories with it” <span class="cite">FileTree.tsx:55-58</span> — is <strong>false for <code>batch</code>/<code>remove</code></strong>; it is only true for <code>resetPaths</code>, which this branch abandoned to preserve hand-expansion.</p>
+</div>
+
+<h2>How the filter is wired</h2>
+<p>The Code-tab search is <strong>host-driven</strong> — Pierre’s own search is off, and Kolu projects a path set into the tree:</p>
+<div class="flow">
+  <span>type in filter</span><span class="arrow">→</span>
+  <span><code>searchQuery()</code></span><span class="arrow">→</span>
+  <span><code>projectFileTreeSearch</code></span><span class="arrow">→</span>
+  <span><code>{ projectedPaths, expandedAncestors }</code></span><span class="arrow">→</span>
+  <span><code>&lt;FileTree&gt;</code> batch + expand</span>
+</div>
+<ul>
+<li><code>projectFileTreeSearch(treePaths(), searchQuery())</code> <span class="cite">CodeTab.tsx:331-333</span> returns <code>projectedPaths</code> (matching <strong>files only</strong>) and <code>expandedAncestors</code> <span class="cite">fileSearch.ts:44-62</span>. For <code>docs plans</code> that’s the files under <code>docs/plans/</code> and the ancestors <code>["docs/", "docs/plans/"]</code>.</li>
+<li><code>&lt;FileTree&gt;</code> receives <code>paths={…projectedPaths}</code>, <code>search={false}</code>, <code>expandPaths={…expandedAncestors}</code> <span class="cite">CodeTab.tsx:557,562-563</span>. <code>search={false}</code> means Pierre’s <code>hide-non-matches</code> machinery is dormant — <strong>all filtering is Kolu-side</strong>.</li>
+<li>The wrapper turns the old inventory into the new one as an <strong>in-place delta</strong>: <code>pathDiffOperations(appliedPaths, paths)</code> emits <code>{type:"remove"}</code> for each dropped file, then <code>tree.batch(ops)</code>, then additively <code>.expand()</code>s the ancestors <span class="cite">FileTree.tsx:205-227</span>. It uses <code>batch</code> rather than <code>resetPaths</code> specifically so hand-opened folders survive.</li>
+</ul>
+
+<h2>What I verified in Pierre’s source</h2>
+<table>
+<thead><tr><th>Claim</th><th>Status</th><th>Source</th></tr></thead>
+<tbody>
+<tr><td><code>tree.batch([{remove}])</code> ⇒ <code>store.remove</code> ⇒ <code>removePath</code></td><td><span class="tag good">true</span></td><td><span class="cite">FileTreeController.js:522</span> → <span class="cite">store.js:121-139</span> → <span class="cite">store.js:108-113</span></td></tr>
+<tr><td><code>removeSubtree</code> removes <strong>only the target file node</strong>, never its parent</td><td><span class="tag good">true</span></td><td><span class="cite">canonical.js:406-441</span> (only nodes under <code>nodeId</code> get <code>FLAG_REMOVED</code>)</td></tr>
+<tr><td>After unlinking the file, <code>removePath</code> calls <code>promoteEmptyAncestorsToExplicit(parentId)</code></td><td><span class="tag bad">the bug</span></td><td><span class="cite">canonical.js:46-66</span> (line 56)</td></tr>
+<tr><td>That walks <em>up</em> and flags every emptied directory <code>EXPLICIT</code> instead of deleting it</td><td><span class="tag bad">the bug</span></td><td><span class="cite">canonical.js:442-451</span></td></tr>
+<tr><td>An <code>EXPLICIT</code> empty directory stays a visible row (listed, <code>visibleSubtreeCount = 1</code>)</td><td><span class="tag good">true</span></td><td><span class="cite">canonical.js:201,222</span>; <span class="cite">canonical.js:557</span></td></tr>
+<tr><td>The wrapper only ever <code>.expand()</code>s; it never collapses</td><td><span class="tag good">true</span></td><td><span class="cite">FileTree.tsx:198,219-222</span></td></tr>
+<tr><td>The filter input has <strong>no debounce</strong> — every keystroke re-projects</td><td><span class="tag good">true</span></td><td><span class="cite">FileSearchInput.tsx:19</span></td></tr>
+</tbody>
+</table>
+
+<p>The decisive few lines:</p>
+<pre><code>// path-store/src/canonical.js — removePath
+const removedNodeIds = removeSubtree(state, nodeId);   <span class="muted">// removes ONLY the file node</span>
+removeChildReference(state, parentId, nodeId, …);      <span class="muted">// unlinks it from the parent</span>
+<span class="strike">promoteEmptyAncestorsToExplicit(state, parentId);</span>      <span class="muted">// ← the emptied directory SURVIVES</span>
+
+// promoteEmptyAncestorsToExplicit
+while (currentDirectoryId != null) {
+  …
+  if (getDirectoryIndex(state, currentDirectoryId).childIds.length &gt; 0) return;
+  <span class="strike">addNodeFlag(currentNode, PATH_STORE_NODE_FLAG_EXPLICIT);</span>  <span class="muted">// keep the empty folder visible</span>
+  currentDirectoryId = currentNode.parentId;            <span class="muted">// …and keep walking up</span>
+}</code></pre>
+
+<h2>Why the screenshot looks the way it does</h2>
+
+<h3>Why the directories are present at all <span class="tag bad">defect A</span></h3>
+<p><code>pathDiffOperations</code> <span class="cite">FileTree.tsx:59-73</span> diffs only <strong>file</strong> path lists; directories never appear in <code>projectedPaths</code>, so no remove op ever targets a directory. Every directory that contained only non-matching files is emptied by the file removals and then promoted to a persistent empty folder. Net: the entire pre-search directory skeleton remains, now hollow.</p>
+
+<h3>Why they’re shown <em>expanded</em> <span class="tag warn">defect B</span></h3>
+<p>Two compounding facts, both about expansion being <strong>monotonic</strong>:</p>
+<ul>
+<li><strong>No debounce</strong> <span class="cite">FileSearchInput.tsx:19</span> → every intermediate keystroke re-projects. Typing <code>d</code> matches almost every path, so <code>expandedAncestors</code> ≈ <em>every directory</em>, and the wrapper <code>.expand()</code>s them all.</li>
+<li>As the query narrows to <code>docs plans</code>, the files vanish but the wrapper <strong>never collapses</strong> <span class="cite">FileTree.tsx:198</span>, and Pierre keeps the expanded flag on a directory even after it’s emptied. So the leftover empty dirs stay expanded.</li>
+</ul>
+<p><code>.github/workflows</code> is the lone collapsed row because no intermediate prefix ever expanded it. Even with a single <em>paste</em> of <code>docs plans</code>, the empty directories would still appear — just collapsed rather than expanded.</p>
+
+<div class="panel accent">
+<p style="margin-top:0"><strong>The trace, end to end</strong></p>
+<div class="flow">
+  <span>remove non-matching files (batch)</span><span class="arrow">→</span>
+  <span class="miss">parents emptied</span><span class="arrow">→</span>
+  <span class="miss">promoted to EXPLICIT</span><span class="arrow">→</span>
+  <span class="miss">still listed</span><span class="arrow">→</span>
+  <span>+ stale expanded flag</span><span class="arrow">→</span>
+  <span class="miss">empty expanded rows</span>
+</div>
+</div>
+
+<h2>Fix direction — <span class="cite">/hickey</span> + <span class="cite">/lowy</span> verdict</h2>
+
+<div class="panel good">
+<p class="verdict">Chosen: <strong>prune the emptied directories inside <code>FileTree.tsx</code>, derived from the file set</strong>. Reject the collapse pass. Reject <code>resetPaths</code>-on-filter.</p>
+<p style="margin-bottom:0">Lowy fixes the <em>boundary</em> (the fix belongs in the wrapper; <code>fileSearch.ts</code> and <code>CodeTab.tsx</code> stay inert; do not inject filter-state into the search-agnostic wrapper). Hickey fixes the <em>internals</em> (derive directories from <code>appliedPaths</code>; no parallel <code>appliedDirs</code> state; no collapse pass). They are the intended complement — Lowy gets the seam right, Hickey gets the structure right.</p>
+</div>
+
+<table>
+<thead><tr><th>Direction</th><th>/hickey</th><th>/lowy</th><th>Verdict</th></tr></thead>
+<tbody>
+<tr>
+  <td><strong>A · prune emptied dirs</strong> in the wrapper</td>
+  <td>Yes — but <strong>derive</strong> dirs from the file set, don’t track <code>appliedDirs</code> (parallel array = silent-divergence invariant; two write sites at <span class="cite">FileTree.tsx:183,213</span> become three)</td>
+  <td>Yes — correct seam. <code>fileSearch.ts</code> owns “what should be visible”, the wrapper owns “how to get Pierre there”. Both stay put.</td>
+  <td><span class="tag good">chosen</span> in Hickey’s derived form</td>
+</tr>
+<tr>
+  <td><strong>B · collapse pass</strong> (contract expansion)</td>
+  <td>No — <code>collapse()</code> on a directory the wrapper doesn’t own destroys hand-opens (high, silent blast radius); the expand loop is safe only because it’s monotonic</td>
+  <td>Add it for symmetry; make the policy explicit</td>
+  <td><span class="tag bad">rejected</span> — see below</td>
+</tr>
+<tr>
+  <td><strong>C · <code>resetPaths</code> on active filter</strong></td>
+  <td>No — mode-branch state machine in the effect; “user-expansions” is a <em>ghost variable</em> Pierre never exposes</td>
+  <td>No — couples the deliberately search-agnostic wrapper to <code>CodeTab</code>’s search axis; circular (the wrapper was extracted to keep search out)</td>
+  <td><span class="tag bad">rejected</span> — firm consensus</td>
+</tr>
+</tbody>
+</table>
+
+<h3>Resolving the disagreement on A — derive, don’t track <span class="tag good">correctness, not taste</span></h3>
+<p>Lowy’s concrete prescription (“diff <code>appliedDirs</code> against <code>new Set(expandPaths)</code>”) has a latent <strong>filter-clear bug</strong>: on an empty query <code>projectFileTreeSearch</code> returns <code>expandedAncestors: []</code> by design <span class="cite">fileSearch.ts:49-50</span> while <code>projectedPaths</code> is the <em>full</em> inventory. Using <code>expandPaths</code> as the directory authority would therefore remove <em>every</em> directory the moment the user clears the filter. Deriving the authority from the file set is immune:</p>
+<pre><code>// after the file batch + appliedPaths = paths:
+const prevDirs = new Set(appliedPaths.flatMap(ancestorDirectoryPaths));
+const nextDirs = new Set(paths.flatMap(ancestorDirectoryPaths));   <span class="muted">// full set on empty query ⇒ no removals</span>
+for (const dir of [...prevDirs].filter(d =&gt; !nextDirs.has(d))
+                               .sort((a, b) =&gt; a.length - b.length)) {  <span class="muted">// shallowest first</span>
+  const item = tree.getItem(dir);
+  if (item) tree.batch([{ type: "remove", path: dir, recursive: true }]); <span class="muted">// recursive: emptied dirs still hold empty child dirs</span>
+}</code></pre>
+<p class="muted">Two corrections to the originally-sketched op: <strong>(1)</strong> <code>recursive: true</code> — an emptied directory still contains its (now-explicit) empty child directories, so a bare remove throws <span class="cite">canonical.js:51</span>; <strong>(2)</strong> shallowest-first so the maximal empty subtree is removed in one op and deeper entries narrow away via the <code>if (item)</code> null-guard. No new tracked state: <code>appliedPaths</code> stays the single source, directories are a pure derivation.</p>
+
+<h3>Why defect B folds into defect A <span class="tag bad">no collapse pass</span></h3>
+<p>Once empty directories are <em>removed</em>, the “expanded empty rows” symptom is gone — an absent directory has no row to render open. And among the directories that <em>survive</em>, every one is an ancestor of a live match, so it <strong>must stay expanded</strong> to reveal that match. There is no “surviving directory that should be collapsed” case during an active filter — a collapse pass would be a no-op at best and, where not a no-op, would re-hide matches and fight the user’s own collapse (the <code>#867</code> “folders collapse while the filter stays active” feature). So Lowy’s symmetry is a <em>false</em> symmetry here: expand-to-reveal is mandatory, collapse-to-hide is never wanted. The expansion “policy” is simply <em>“every surviving dir is open; a user collapse sticks”</em> — the existing design, not a new pass.</p>
+
+<h2>Test plan — perfect coverage <span class="tag warn">required</span></h2>
+<p><code>fileSearch.test.ts</code> tests only the pure projection and <strong>cannot</strong> see this bug — it never drives the Pierre <code>batch</code> where <code>promoteEmptyAncestorsToExplicit</code> lives. Two layers, full coverage:</p>
+<ul>
+<li><strong>Pure unit — extract <code>directoryRemovalOps(prevFiles, nextFiles)</code></strong> (the derivation above) and table-test it exhaustively:
+  <ul>
+  <li>empty/cleared query (<code>nextFiles</code> = full) ⇒ <strong>no</strong> removals;</li>
+  <li>single deep match ⇒ sibling subtrees removed, match ancestors kept;</li>
+  <li>nested empty subtree ⇒ one recursive op on the shallowest, no throw on the non-empty intermediate;</li>
+  <li>dir with one matching + one non-matching file ⇒ kept (no removal);</li>
+  <li>progressive narrowing (<code>prev</code> = broad matches → <code>next</code> = narrow) ⇒ dirs that lost all matches removed.</li>
+  </ul>
+</li>
+<li><strong>Integration — mount <code>&lt;FileTree&gt;</code></strong> (jsdom, query the shadow-root rows): filter a populated tree and assert (a) emptied directories are <em>absent</em>, (b) directories still holding a match are present and expanded, and (c) a directory the user collapses <em>during</em> a filter stays collapsed across the next keystroke (the <code>#867</code> guard — proves the additive expand loop doesn’t re-open hand-collapses).</li>
+</ul>
+
+<hr>
+<p class="muted">Want this built? <code>/do</code> turns this into the implementation brief — it’ll re-run Hickey + Lowy on the real diff and settle defect-A’s pruning seam (wrapper-side directory diff vs. resetPaths-on-filter) against the actual change.</p>
+
+</main>
+</body>
+</html>

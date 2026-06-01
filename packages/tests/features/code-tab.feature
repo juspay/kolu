@@ -293,6 +293,32 @@ Feature: Code tab (review + browse)
       | branch |
       | browse |
 
+  # Regression: Pierre's `remove` promotes an emptied directory to an
+  # "explicit empty folder", so a directory whose files were all filtered
+  # out kept a hollow, result-less row in the tree. The fix
+  # (`directoryRemovalOps` in solid-pierre's `pathReconcile.ts`, applied in
+  # `FileTree.tsx`) prunes any directory that is no longer an ancestor of a
+  # matching file. After filtering, a directory that still contains a match
+  # stays; a directory whose only files were excluded disappears.
+  Scenario Outline: Filter prunes directories with no matching files [<mode>]
+    Given a Code tab in "<mode>" mode showing files:
+      | path                | content |
+      | docs/keep.md        | keep    |
+      | docs/plans/note.md  | note    |
+      | widgets/list/a.ts   | a       |
+      | widgets/forms/b.ts  | b       |
+    When I type "docs keep" into the Code tab filter
+    Then the Code tab should show file "docs/keep.md"
+    And the Code tab should show a directory node "docs"
+    And the Code tab should not show file "widgets/list/a.ts"
+    And the Code tab should not show a directory node "widgets"
+
+    Examples:
+      | mode   |
+      | local  |
+      | branch |
+      | browse |
+
   Scenario: Untracked files appear alongside modified tracked files
     When I run "git init /tmp/kolu-review-untracked && cd /tmp/kolu-review-untracked"
     And I run "git commit --allow-empty -m init"

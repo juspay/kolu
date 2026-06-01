@@ -301,6 +301,14 @@ Then(
   },
 );
 
+Then(
+  "the Code tab should not show a directory node {string}",
+  async function (this: KoluWorld, path: string) {
+    const dir = this.page.locator(dirRow(path));
+    await dir.waitFor({ state: "detached", timeout: POLL_TIMEOUT });
+  },
+);
+
 When(
   "I click the directory node {string} in the Code tab",
   async function (this: KoluWorld, path: string) {
