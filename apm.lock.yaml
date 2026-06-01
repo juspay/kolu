@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-06-01T17:49:16.366218+00:00'
+generated_at: '2026-06-01T17:53:35.711453+00:00'
 apm_version: 0.16.1
 dependencies:
 - repo_url: anthropics/skills
@@ -33,14 +33,13 @@ dependencies:
   content_hash: sha256:51308bd8cc8b6ae24781a77b67a7c8140bdea5d793e35427e7b8fcbeb0662074
 - repo_url: juspay/project-unknown
   host: github.com
-  resolved_commit: c8c7d59b82de1a01452f8496694d8b3ab861ce45
-  virtual_path: .apm/skills/pu
-  is_virtual: true
-  package_type: claude_skill
+  resolved_commit: d2083f2041328b4c3f0fa1c0b5cd9f3e13d61a12
+  resolved_ref: add-apm-manifest
+  package_type: apm_package
   deployed_files:
   - .agents/skills/pu
   - .claude/skills/pu
-  content_hash: sha256:a4b9446bd02cae84c96e96754ec69d2a4556ae0ed02efe5bdfae0a1de41e6250
+  content_hash: sha256:3694a4feafcb2a8e33364e0eacd9ef5ab37f893733769570e2f18e4eb13ae3c8
 - repo_url: juspay/skills
   host: github.com
   resolved_commit: 6e2df2d9ab3a4031e89598b50aa1074c3fd87748
