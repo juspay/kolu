@@ -18,10 +18,7 @@ import { client, preferences } from "../wire";
 import { useSubPanel } from "./useSubPanel";
 import type { TerminalStore } from "./useTerminalStore";
 
-export function useTerminalCrud(deps: {
-  store: TerminalStore;
-  subscribeExit: (id: TerminalId) => void;
-}) {
+export function useTerminalCrud(deps: { store: TerminalStore }) {
   const { store } = deps;
   const subPanel = useSubPanel();
   const rightPanel = useRightPanel();
@@ -143,7 +140,6 @@ export function useTerminalCrud(deps: {
     // the centering signal once the new tile's pending layout is set —
     // calling `activate` here would race the layout and read undefined.
     store.setActiveSilently(info.id);
-    deps.subscribeExit(info.id);
     showTipOnce(CONTEXTUAL_TIPS.themeSwitch);
     return info.id;
   }
@@ -157,7 +153,6 @@ export function useTerminalCrud(deps: {
       });
     subPanel.setActiveSubTab(parentId, info.id);
     subPanel.expandPanel(parentId);
-    deps.subscribeExit(info.id);
   }
 
   async function handleKill(id: TerminalId) {
