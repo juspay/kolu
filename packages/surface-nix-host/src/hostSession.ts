@@ -100,11 +100,12 @@ export interface HostSessionOptions {
    *  picks the derivation — typically an ssh `nix-instantiate` arch
    *  probe via `resolveSystem` — lives inside the session's own
    *  reconnect machinery. An unreachable host makes the resolver reject,
-   *  which the session treats exactly like a `provisionAgent` failure:
-   *  `disconnected` → backoff → `failed`, re-armable via `reconnect()`.
-   *  The session ships the resolved derivation to the target host (no-op
-   *  for localhost) and realises it there to get a target-arch-correct
-   *  output path.
+   *  which the session treats as a `"network"` fault: `disconnected` →
+   *  backoff → `disconnected` → …, retrying indefinitely until the host is
+   *  reachable again (never terminal — only a `"remote"` provisioning
+   *  rejection gives up into `failed`). See `FailureCause`. The session
+   *  ships the resolved derivation to the target host (no-op for localhost)
+   *  and realises it there to get a target-arch-correct output path.
    *
    *  Pass a constant as `() => Promise.resolve(drv)` when the caller
    *  already knows the path and has no probe to defer. */
@@ -572,41 +573,54 @@ export class HostSession<C extends AnyContractRouter> {
    *     onto one session.
    *   - no child (failed / idle / mid-backoff) → spawn immediately, like
    *     `reconnect()` but without its "don't touch a live link" stance.
-   *     `scheduleReconnect` nulls `clientPromise` for every backoff, so the
-   *     `clientPromise !== null` guard here can't be tripped by a stale
-   *     rejected promise from a pre-child failure.
+   *     here we cancel the backoff timer and respawn immediately, dropping
+   *     the stale handle so the spawn isn't blocked.
    *
    *  No-op if destroyed or unreferenced. Safe to call on every host on
    *  each wake — a healthy host simply blips through one fast reconnect. */
   recheck(): void {
     if (this.destroyed || this.refCount === 0) return;
     this.consecutiveFailures = 0;
-    this.clearTimer();
     if (this.child !== null) {
+      // A live (connecting/connected) child whose socket may be stale after
+      // a sleep. Clear the connect-watchdog and cycle it; the exit handler
+      // routes through `handleChildDone` → `scheduleReconnect`, which
+      // re-establishes the link.
+      this.clearTimer();
       this.addLocalProgress(
         "rechecking link after wake/network change — cycling ssh child",
       );
       this.child.kill("SIGTERM");
       return;
     }
+    if (this.pendingTimer !== null) {
+      // In backoff: a retry is scheduled and `clientPromise` holds the last
+      // *rejected* spawn (kept non-null so `ensureSpawned` stays idempotent
+      // during the wait — see `scheduleReconnect`). Cancel the wait, drop the
+      // stale handle, and spawn now. This is the case the original `recheck()`
+      // mishandled — clearing the timer then bailing on the non-null slot.
+      this.clearTimer();
+      this.clearClientPromise();
+      this.launchSpawn();
+      return;
+    }
+    // No child, no pending timer: either a spawn is genuinely in flight
+    // (`copying`, `clientPromise` pending) — leave it to run, don't stack a
+    // second — or the session is idle/`failed` (`clientPromise` null) — spawn.
     if (this.clientPromise !== null) return;
     this.launchSpawn();
   }
 
   private scheduleReconnect(cause: FailureCause): void {
     if (this.destroyed || this.pendingTimer !== null) return;
-    // No spawn is in flight while we wait out the backoff, so null the
-    // client handle now — uniformly, for every path that schedules a retry.
-    // `handleChildDone` already nulled it for the post-child path, but the
-    // *pre-child* failure paths (resolver / `provisionAgent` reject) throw
-    // out of `spawn()` leaving the rejected promise in `clientPromise`, and
-    // nothing replaced it until the backoff timer fired. If `recheck()`
-    // (or `reconnect()`) cleared that timer first, it then saw a stale
-    // non-null `clientPromise`, refused to respawn, and stranded the
-    // session in `disconnected` with no timer and no spawn (Codex P1).
-    // Clearing here makes "no spawn in flight ⇒ clientPromise null" hold
-    // throughout backoff, so the re-arm guards stay correct.
-    this.clearClientPromise();
+    // NOTE: we deliberately do NOT null `clientPromise` here. While the
+    // backoff timer is armed, a stale (rejected) `clientPromise` is what
+    // keeps `ensureSpawned()` idempotent — an `acquire()`/`pin()` during
+    // backoff sees it non-null and won't start a *second*, concurrent spawn
+    // racing the timer. (`recheck()` handles the "cancel the timer →
+    // respawn now" case explicitly; it doesn't rely on this slot being
+    // null.) The terminal give-up branch below clears it, since `failed`
+    // has no pending timer to act as the guard.
     // Exponential backoff is keyed on attempts-so-far, not "this is
     // attempt N after the failure". The previous code post-incremented
     // and then subtracted one to compensate (`2 ** (count - 1)`), which
@@ -628,11 +642,13 @@ export class HostSession<C extends AnyContractRouter> {
       this.addLocalProgress(
         `gave up after ${MAX_CONSECUTIVE_FAILURES} consecutive failures — fix the underlying issue (often: remote nix-daemon needs your user in 'trusted-users' to accept unsigned closures), then reconnect`,
       );
-      // `clientPromise` was already nulled at the top of this method, so the
-      // terminal state upholds "no spawn in flight" and `reconnect()` can
-      // re-arm it. Move off `disconnected` so consumers can distinguish
-      // "still retrying" from "gave up"; `lastError` is preserved from the
-      // spawn-failure path that led here.
+      // Terminal state has no pending timer, so null the (rejected) handle
+      // here — otherwise `reconnect()`'s `clientPromise !== null` guard would
+      // see the stale slot and silently no-op, stranding a failed session
+      // (the original "Reconnect does nothing" bug). See `clearClientPromise`.
+      this.clearClientPromise();
+      // Move off `disconnected` so consumers can distinguish "still retrying"
+      // from "gave up"; `lastError` is preserved from the spawn-failure path.
       this.updateState({ connection: "failed" });
       return;
     }

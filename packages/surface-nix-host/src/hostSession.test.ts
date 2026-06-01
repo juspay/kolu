@@ -219,4 +219,36 @@ describe("HostSession with a failing drv resolver (network-unreachable)", () => 
 
     session.destroy();
   });
+
+  it("recheck() recovers even after an acquire() during backoff (Codex P1 follow-up)", async () => {
+    const session = unresolvableSession();
+    session.pin().catch(() => {});
+
+    await vi.advanceTimersByTimeAsync(10);
+    expect(session.current().connection).toBe("disconnected");
+
+    // An `acquire()` landing during backoff must NOT spin up a second,
+    // concurrent spawn racing the timer — `ensureSpawned` stays idempotent
+    // on the (non-null, rejected) `clientPromise`, returning it rather than
+    // re-spawning. Earlier this stranded the session: the concurrent spawn's
+    // failure left a stale handle the give-up early-return never cleared.
+    await session.acquire().then(
+      () => {
+        throw new Error(
+          "acquire() should reject while the host is unreachable",
+        );
+      },
+      () => {
+        /* expected: the in-flight handle is the last rejected spawn */
+      },
+    );
+
+    // The backoff timer is untouched, so recheck() takes the "cancel the
+    // wait, drop the stale handle, respawn now" path and recovers cleanly.
+    session.recheck();
+    expect(session.current().connection).toBe("copying");
+    expect(session.currentClient()).not.toBeNull();
+
+    session.destroy();
+  });
 });
