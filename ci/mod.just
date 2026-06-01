@@ -1,11 +1,11 @@
-# Kolu CI pipeline — consumed by github:juspay/ci.
+# Kolu CI pipeline — consumed by github:juspay/justci.
 #
 # The runner discovers the recipe tagged [metadata("ci")] (exactly one across
 # this justfile and its submodules), expands its reachable dependency subgraph,
 # and fans every (recipe × platform) pair out into a process-compose node.
 # Local platform runs against the worktree; non-local platforms ship a git
 # bundle over SSH to the host configured under that system tuple in
-# ~/.config/ci/hosts.json.
+# ~/.config/justci/hosts.json.
 #
 # Today every reachable recipe is replicated to every pipeline platform — the
 # per-recipe [linux]/[macos] filter is on the runner's roadmap. So a step
@@ -27,6 +27,29 @@ nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop --accep
 # Body is empty — the runner expands `depends_on` from this DAG and executes
 # each leaf via `just --no-deps <recipe>`. `just ci` (without the runner) still
 # works for single-platform local runs via the [parallel] expansion.
+#
+# Dependency edges exist to ORDER work, and every edge is latency: a node
+# can't start until all its deps finish. The runner already fans these out
+# maximally, so the wall-clock is the *critical path* — the longest dependency
+# chain. We keep that path as short as honestly possible:
+#
+#   * `nix` (devour-flake, all outputs incl. the typecheck `checks.*`) is the
+#     big build, but `e2e`, `smoke`, and `home-manager` no longer wait on it.
+#     Each of those self-builds exactly the store path it needs (`just test`
+#     builds `.#koluBin`; `smoke.sh` builds `.#default`; `home-manager` builds
+#     kolu via `--override-input`), and Nix store locking dedups the shared
+#     drv with `nix`'s concurrent build — so they overlap the big build
+#     instead of queuing behind it. This moves the ~2-min `e2e` lane (the long
+#     pole) off the `nix → e2e` chain and onto its own parallel branch.
+#   * Coverage is unchanged: `nix` still runs (it's a direct `default` dep), so
+#     the typecheck/website/packaging gates all still fire. The only behavior
+#     traded is that `e2e`/`smoke`/`home-manager` now run even when `nix`
+#     fails — which surfaces *more* independent signal per run, and all four
+#     stay required checks, so the merge gate is identical.
+#
+# The cost is more concurrent nix builds on one host; on the ephemeral per-run
+# linux box (a full machine) that's the intended trade. See the ralph report
+# at docs/ci-workflow-ralph-report.md for the critical-path measurements.
 [linux]
 [macos]
 [parallel]
@@ -66,17 +89,29 @@ pnpm-hash-fresh:
 nix:
     nix build github:srid/devour-flake -L --no-link --print-out-paths --override-input flake .
 
-home-manager: nix
+# Builds the home-manager example flake, which pulls kolu in via
+# `--override-input flake/kolu .` — so it builds kolu from source itself. No
+# `nix` dep: store locking dedups the shared kolu drv with the `nix` node's
+# concurrent build, letting the home-manager VM work overlap the big build
+# instead of queuing behind every devour-flake output.
+home-manager:
     nix build github:srid/devour-flake -L --no-link --print-out-paths --override-input flake ./nix/home/example --override-input flake/kolu .
 
 # Boot the packaged Kolu and verify /api/health — runtime smoke that catches
 # packaging regressions where `nix build` passes but the binary crashes at
 # boot (e.g. missing workspace dep — see #761). smoke.sh shells out to
-# `nix build .#default` itself; no pnpm install needed here.
-smoke: nix
+# `nix build .#default` itself, so no `nix` dep (and no pnpm install): it
+# builds the `.#default` drv directly, deduped against `nix`'s concurrent
+# build via store locking, and boots as soon as that one path is ready.
+smoke:
     {{ nix_shell }} bash ci/smoke.sh
 
-e2e: nix install
+# No `nix` dep: `just test` builds `.#koluBin` itself (justfile `test`
+# recipe), so e2e needs only the pnpm deps `install` provides — not the full
+# devour-flake build. Dropping the `nix` edge lets the ~2-min suite run
+# concurrently with the big build (koluBin drv deduped via store locking)
+# instead of strictly after it. This is the single largest critical-path win.
+e2e: install
     # CUCUMBER_RETRY=1 is the residual safety net for darwin-runner-load
     # flakes that survive the structural fixes in #955. Local
     # `just test-quick` runs leave it unset (0 = off) so real failures

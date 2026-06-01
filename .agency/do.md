@@ -18,18 +18,28 @@ Invoke the `/test` skill. It selects relevant `.feature` files from the git diff
 
 Use the `/ci` skill for the runner mechanics (subcommands, flags, modes, retry shape). Two Kolu-specific operational notes layered on top of it:
 
-**Ephemeral linux build host per run.** Static darwin (`sincereintent`) lives in `~/.config/ci/hosts.json`; the linux lane uses a throwaway Incus container per CI invocation so prior runs' nix-store cruft can't poison the verdict. (Box lifecycle — create/connect/destroy, the no-egress retry — is the [`pu`](../.apm/skills/pu/SKILL.md) skill.) If `pu create` fails (e.g. no-egress), drop the `--host` flag and let justci fall back to `hosts.json` resolution for the linux lane rather than blocking the run.
+**Ephemeral linux build host per run.** Static darwin (`sincereintent`) lives in `~/.config/justci/hosts.json`; the linux lane uses a throwaway Incus container per CI invocation so prior runs' nix-store cruft can't poison the verdict. (Box lifecycle — create/connect/destroy, the no-egress retry — is the [`pu`](../.apm/skills/pu/SKILL.md) skill.) If `pu create` fails (e.g. no-egress), drop the `--host` flag and let justci fall back to `hosts.json` resolution for the linux lane rather than blocking the run.
 
 ```sh
 pr=$(gh pr view --json number --jq .number)
 host="kolu-pr-$pr"
-if pu create "$host"; then                                             # name is positional; writes ~/.pu-state/$host/ssh_config (included by ~/.ssh/config)
-  CI=true nix run github:juspay/ci -- run --host x86_64-linux="$host"   # --host wins over hosts.json on collision; darwin keeps using sincereintent
+if pu create "$host"; then                                                             # name is positional; writes ~/.pu-state/$host/ssh_config (included by ~/.ssh/config)
+  nix run github:juspay/justci -- run --progress json --host x86_64-linux="$host"           # --host wins over hosts.json on collision; darwin keeps using sincereintent
   pu destroy "$host"
-else                                                                    # pu provisioning failed (e.g. no-egress) — drop --host and let hosts.json resolve the linux lane
-  CI=true nix run github:juspay/ci -- run
+else                                                                                    # pu provisioning failed (e.g. no-egress) — drop --host and let hosts.json resolve the linux lane
+  nix run github:juspay/justci -- run --progress json
 fi
 ```
+
+**Live failure surfacing — consume the `--progress json` stream.** The CI step runs in the background (the `/do` skill backgrounds it), and `--progress json` makes the runner emit one NDJSON line to stdout per node transition the instant process-compose reports it: `{node, recipe, platform, status, exit_code?, log?}` with `status ∈ running|success|failed|skipped|errored`. **Don't wait for the run to finish, and don't poll `gh pr checks` in a loop.** Tail the backgrounded output and react the moment a node turns `failed`/`errored` — while sibling lanes are still running:
+
+```sh
+# Against the backgrounded CI output (the /do skill's task output file):
+grep -o '{.*}' "$ci_output" | jq -c 'select(.status=="failed" or .status=="errored")'
+# → {"node":"biome@x86_64-linux","recipe":"biome","platform":"x86_64-linux","status":"failed","exit_code":1,"log":".ci/<sha>/x86_64-linux/biome.log"}
+```
+
+The instant such a line appears, read its `log` path (`.ci/<sha>/<platform>/<recipe>.log`) to diagnose — the failing recipe's full output is already on disk before the other lanes finish. Extract JSON objects (`grep -o '{.*}'`) rather than matching line starts: process-compose shares the inherited stdout and emits its own `[<recipe>@<platform>]` log lines plus an xterm title escape that can prefix the very first JSON line. Begin the fix → fmt → commit → retry-CI loop as soon as you have a confirmed failure; you needn't let the rest of the pipeline drain first. (`gh pr checks` / `justci protect --dry-run` remain the source of truth for the *final* green-gate below — the stream is for reacting fast, the checks are for confirming done.) The `CI=true` prefix is gone: justci is strict by default now, and the var is a harmless no-op.
 
 **`pu` misbehaves → comment on the PR with full diagnostics.** Whenever `pu` fails to do its job — `create` errors out, a box lands with no egress (`nix run` hangs on "Resolving timed out"), retries keep landing on dead hosts, or `connect`/`destroy` misbehaves — don't just silently fall back. Post a PR comment so the `pu`/Incus admin can fix the underlying host permanently instead of every run papering over it. Gather everything the admin needs to pin the bad physical host, then drop `--host` and continue per the fallback above (a diagnostic comment must never block the run).
 

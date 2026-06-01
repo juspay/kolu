@@ -29,6 +29,7 @@ let
       ./packages/surface-nix-host
       ./packages/solid-pierre
       ./packages/solid-markdown
+      ./packages/solid-fileview
       ./packages/common
       ./packages/integrations
       ./packages/nonempty

@@ -202,6 +202,7 @@ pnpm monorepo:
 | `packages/surface/`                  | Reactive state framework — typed `Cell<T>`, `Collection<K,T>`, `Stream<I,T>`, `Event<I,T>` over oRPC streams; SolidJS hooks (`useCell`, `useCollection`, `useStream`, `useEvent`)               |
 | `packages/solid-pierre/`             | Solid-native wrappers around [`@pierre/trees`](https://www.npmjs.com/package/@pierre/trees) and [`@pierre/diffs`](https://www.npmjs.com/package/@pierre/diffs); encapsulates Pierre's imperative mount/render lifecycle behind `<FileTree>` and `<CodeView>` with required `onError` props. `<CodeView>` (Pierre's 1.2.x advanced-mode viewport) hosts files and/or diffs in one virtualized scroll — windowed-rendering is unconditional, so single-file callers ride the same path as future multi-file ones |
 | `packages/solid-markdown/`           | App-agnostic safe Markdown → SolidJS renderer built on [`marked`](https://marked.js.org/) (GFM) — a `safeHref` allowlist and no raw-HTML injection (`html` tokens render as escaped text). One `<Markdown>` component with `inline` / `compact` / `document` variants bundling parse mode + styling scale. Kolu's intent surface consumes it; the first renderer "appliance" for the planned Code-tab Source ⇄ Rendered preview |
+| `packages/solid-fileview/`           | App-agnostic file-preview "outlet". `<FileView>` owns the Source ⇄ Rendered toggle, mode-availability logic (offered iff a file has *both* a source and a rendered form), and the renderer-registry pick — with **no rendering dependencies of its own**: the source view and every rendered form are injected `Renderer` values. Ships generic `image` / `iframe` rendered-appliances under `/renderers`. Kolu's Code-tab plugs in pierre-source + image + an iframe wrapped with the artifact-sdk comment bridge, so `right-panel/BrowseFileDispatcher` is a thin `fsReadFile`→`FileView` adapter rather than bespoke render wiring |
 | `packages/artifact-sdk/`             | Self-contained comments-on-files toolkit. Three exports: `./core` (pure W3C TextQuoteSelector functions used by both runtimes), `./client` (parent-side iframe ↔ parent bridge + core re-exports), `./server` (one-line `mountArtifactSdk(app, ...)` that wires the SDK bundle route and an HTML-decoration middleware — esbuild bundles the in-iframe script at server startup, hash-keyed for cache busting). The host server never imports HTML rewriting logic |
 | `packages/server/`                   | [Hono](https://hono.dev/); owns `@kolu/pty-host` in-process but consumes it through the typed `ptyHostSurface` contract (an in-process link), and runs the per-terminal provider DAG fresh in kolu-server against its taps. The same pty-host router is additionally served over a unix socket (`serveOverStdio`) for `kolu-tui` — one host, two transports, web path byte-identical |
 | `packages/pty-host/`                 | The multi-client PTY-owner primitive + its wire contract — [node-pty](https://github.com/microsoft/node-pty) + [@xterm/headless](https://www.npmjs.com/package/@xterm/headless) screen mirror + VT-derived taps (OSC 7 cwd, OSC 0/2 title, OSC 633 command-run, foreground, exit), each fanned out to many consumers via a bounded `Channel`. Owns *only* the PTY; race-free `attach` (snapshot+deltas). `ptyHostSurface` is the typed contract for consuming it — in-process for the browser, and the identical shape now also rides a unix socket (`servePtyHostOverUnixSocket`) for `kolu-tui` (ssh later) |
@@ -316,17 +317,22 @@ Bug fixes, build/CI fixes, doc tweaks, and behavior-preserving refactors are wel
 
 ## CI
 
-The pipeline (defined in [`ci/mod.just`](ci/mod.just)) is driven by [juspay/ci](https://github.com/juspay/ci): it builds all flake outputs on x86_64-linux and aarch64-darwin, runs e2e tests, boots the packaged binary against `/api/health` as a runtime smoke, and posts GitHub commit statuses per `(recipe, platform)` pair. Non-local platforms run over SSH against hosts listed in `~/.config/ci/hosts.json`.
+The pipeline (defined in [`ci/mod.just`](ci/mod.just)) is driven by [juspay/justci](https://github.com/juspay/justci): it builds all flake outputs on x86_64-linux and aarch64-darwin, runs e2e tests, boots the packaged binary against `/api/health` as a runtime smoke, and posts GitHub commit statuses per `(recipe, platform)` pair. Non-local platforms run over SSH against hosts listed in `~/.config/justci/hosts.json`.
+
+The DAG is shaped to keep the critical path short: `e2e`, `smoke`, and `home-manager` each build the one store path they need (`.#koluBin`, `.#default`, kolu-via-override) rather than depending on the full devour-flake `nix` node, so the ~2-min e2e suite runs **concurrently** with the big build instead of after it (Nix store locking dedups the shared drv). `nix` still runs as a gate, so typecheck/website/packaging coverage is unchanged. See [`docs/ci-workflow-ralph-report.md`](docs/ci-workflow-ralph-report.md) for the critical-path model.
 
 Workspace typechecking runs as a flake check (`checks.x86_64-linux.typecheck`), so the all-outputs build is the type gate. Note that `nix build .#default` on its own does **not** typecheck — the client is bundled by Vite and the server runs under `tsx`, both transpile-only — so a green app build is not a type-proof.
 
 Only the runner posts GitHub commit statuses; the `just` shortcuts below stay entirely local.
 
 ```sh
-CI=true nix run github:juspay/ci -- run    # multi-platform fanout + commit statuses
-just ci                                    # local single-platform pipeline, no statuses
-just ci::e2e                               # one recipe, no statuses
+nix run github:juspay/justci -- run                  # multi-platform fanout + commit statuses (strict by default)
+nix run github:juspay/justci -- run --progress json  # + live NDJSON per-node feed on stdout (for agents/tools driving CI in the background)
+just ci                                          # local single-platform pipeline, no statuses
+just ci::e2e                                     # one recipe, no statuses
 ```
+
+`--progress json` streams one line per node transition the instant it happens (`{node, recipe, platform, status, exit_code?, log?}`), so a tool driving CI in the background surfaces a failing recipe immediately — while sibling lanes keep running — instead of waiting for the run to finish. This is how `/do` reacts to failures fast; see [`.agency/do.md`](.agency/do.md).
 
 ## Deployment (home-manager)
 
