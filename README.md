@@ -311,7 +311,7 @@ Bug fixes, build/CI fixes, doc tweaks, and behavior-preserving refactors are wel
 
 ## CI
 
-The pipeline (defined in [`ci/mod.just`](ci/mod.just)) is driven by [juspay/ci](https://github.com/juspay/ci): it builds all flake outputs on x86_64-linux and aarch64-darwin, runs e2e tests, boots the packaged binary against `/api/health` as a runtime smoke, and posts GitHub commit statuses per `(recipe, platform)` pair. Non-local platforms run over SSH against hosts listed in `~/.config/ci/hosts.json`.
+The pipeline (defined in [`ci/mod.just`](ci/mod.just)) is driven by [juspay/justci](https://github.com/juspay/justci): it builds all flake outputs on x86_64-linux and aarch64-darwin, runs e2e tests, boots the packaged binary against `/api/health` as a runtime smoke, and posts GitHub commit statuses per `(recipe, platform)` pair. Non-local platforms run over SSH against hosts listed in `~/.config/justci/hosts.json`.
 
 The DAG is shaped to keep the critical path short: `e2e`, `smoke`, and `home-manager` each build the one store path they need (`.#koluBin`, `.#default`, kolu-via-override) rather than depending on the full devour-flake `nix` node, so the ~2-min e2e suite runs **concurrently** with the big build instead of after it (Nix store locking dedups the shared drv). `nix` still runs as a gate, so typecheck/website/packaging coverage is unchanged. See [`docs/ci-workflow-ralph-report.md`](docs/ci-workflow-ralph-report.md) for the critical-path model.
 
@@ -320,8 +320,8 @@ Workspace typechecking runs as a flake check (`checks.x86_64-linux.typecheck`), 
 Only the runner posts GitHub commit statuses; the `just` shortcuts below stay entirely local.
 
 ```sh
-nix run github:juspay/ci -- run                  # multi-platform fanout + commit statuses (strict by default)
-nix run github:juspay/ci -- run --progress json  # + live NDJSON per-node feed on stdout (for agents/tools driving CI in the background)
+nix run github:juspay/justci -- run                  # multi-platform fanout + commit statuses (strict by default)
+nix run github:juspay/justci -- run --progress json  # + live NDJSON per-node feed on stdout (for agents/tools driving CI in the background)
 just ci                                          # local single-platform pipeline, no statuses
 just ci::e2e                                     # one recipe, no statuses
 ```

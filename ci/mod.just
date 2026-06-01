@@ -1,11 +1,11 @@
-# Kolu CI pipeline — consumed by github:juspay/ci.
+# Kolu CI pipeline — consumed by github:juspay/justci.
 #
 # The runner discovers the recipe tagged [metadata("ci")] (exactly one across
 # this justfile and its submodules), expands its reachable dependency subgraph,
 # and fans every (recipe × platform) pair out into a process-compose node.
 # Local platform runs against the worktree; non-local platforms ship a git
 # bundle over SSH to the host configured under that system tuple in
-# ~/.config/ci/hosts.json.
+# ~/.config/justci/hosts.json.
 #
 # Today every reachable recipe is replicated to every pipeline platform — the
 # per-recipe [linux]/[macos] filter is on the runner's roadmap. So a step
