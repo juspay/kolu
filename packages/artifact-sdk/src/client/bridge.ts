@@ -19,7 +19,7 @@
  *    onCleanup(dispose);
  */
 
-import { match } from "ts-pattern";
+import { match, P } from "ts-pattern";
 import type {
   IframeToParent,
   Locator,
@@ -108,8 +108,13 @@ export function observeIframeNavigation(
     if (event.source !== iframe.contentWindow) return;
     const msg = event.data;
     if (!msg || typeof msg !== "object") return;
+    // Match the payload shape, not just the `type`: previewed HTML runs
+    // scripts under the same opaque origin and can post a `ready` message
+    // with a missing or non-string `pathname`. `P.string` keeps that off
+    // `onNavigate` (and out of `repoPathFromPreviewPathname`, which calls
+    // string methods on it) instead of throwing from this handler.
     match(msg)
-      .with({ type: "kolu-artifact-sdk:ready" }, (m) => {
+      .with({ type: "kolu-artifact-sdk:ready", pathname: P.string }, (m) => {
         onNavigate(m.pathname);
       })
       .otherwise(() => undefined);
