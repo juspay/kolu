@@ -90,7 +90,16 @@ Post a `## Evidence` PR comment when **any** of these holds — the trigger is "
 2. **Behavioral / round-trip changes** — the diff touches a persistence, restore, session, autosave, debounce/coalesce, or reconnect path, and the proof is *"state survives an interaction or a restart,"* not a pixel change. Capture the before→after **behavior** — often with **zero visual diff** (e.g. resize → stop kolu → start → restore session → the panel returns at the resized width). A video of the round-trip is the proof the fix didn't break recoverability.
 3. **Bug fixes generally** — the default for a fix is *"demonstrate the fixed behavior."* The bug was often a storm, a lost write, or a hang, so a before/after or survives-restart clip is the evidence **even when nothing looks different**. Don't skip evidence just because a fix has no visual diff; skip only when the behavior genuinely can't be observed (e.g. a pure internal refactor with no externally visible effect).
 
-**The mechanics live in the [`evidence`](../.apm/skills/evidence/SKILL.md) skill** (which builds on the [`pu`](../.apm/skills/pu/SKILL.md) skill): capture runs on an ephemeral `pu` box — `nix run`, Chrome, Playwright, and ffmpeg all off-machine, exactly like CI. Drive it through that skill and plug in kolu's parameters:
+**Capture source — reuse the Cucumber e2e harness (preferred).** Kolu's e2e suite (`@cucumber/cucumber` + Playwright) already drives every UI surface through a maintained step library, so capture a clip by *recording an e2e scenario* — don't hand-roll a one-off Playwright script that re-implements the same clicks. Tag the scenario that exercises the change `@evidence` (or author a tiny one reusing existing steps), then run it on the pu box the same way `ci::e2e` runs e2e, with `KOLU_EVIDENCE=1`:
+
+```sh
+KOLU_EVIDENCE=1 just test-quick features/<file>.feature --tags @evidence
+# → packages/tests/reports/videos/<scenario>.webm
+```
+
+`packages/tests/support/hooks.ts` (gated on `KOLU_EVIDENCE`, off by default) wires Playwright `recordVideo` + `slowMo`, skips the animations-off init script (motion is the point of a video), and saves the `.webm` in the `After` hook. Hand that `.webm` to the **delivery half** below (ffmpeg → GIF/mp4 → release → Pages player). Reach for the bespoke `capture.mjs` only for evidence no scenario can produce (a flow with no e2e coverage). Rationale + the full ecosystem survey: [`docs/plans/video-evidence.html`](../docs/plans/video-evidence.html).
+
+**Delivery — and the `capture.mjs` capture fallback — live in the [`evidence`](../.apm/skills/evidence/SKILL.md) skill** (which builds on the [`pu`](../.apm/skills/pu/SKILL.md) skill): everything runs on an ephemeral `pu` box — `nix run`, Chrome, Playwright, and ffmpeg all off-machine, exactly like CI. The host/player + transcode below apply to *any* capture source (a harness `.webm` or a `capture.mjs` clip); plug in kolu's parameters:
 
 - **Serve** the PR's own commit on the box's loopback (`/do` has already pushed by the evidence step, so the branch flake-ref resolves; `--refresh` busts the flake cache):
   ```sh
