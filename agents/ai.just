@@ -6,7 +6,12 @@ set working-directory := '..'
 # these recipes need to enter it when invoked from a bare shell.
 nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop --accept-flake-config -c' }
 
-apm_cmd := nix_shell + ' uvx --from apm-cli apm'
+# TEMPORARY: build apm-cli from the open PR that fixes `apm compile` hanging
+# at 100% CPU / multi-GB RSS on pnpm projects (its `**` applyTo glob followed
+# node_modules/.pnpm symlink cycles). The `refs/pull/1576/head` ref tracks the
+# PR head from the base repo. Revert to `--from apm-cli` once it merges and a
+# release ships. Upstream PR: https://github.com/microsoft/apm/pull/1576
+apm_cmd := nix_shell + ' uvx --from git+https://github.com/microsoft/apm@refs/pull/1576/head apm'
 apm_targets := 'claude,codex,opencode'
 apm_compile_targets := 'codex,opencode'
 
