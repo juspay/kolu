@@ -671,6 +671,29 @@ Feature: Code tab (review + browse)
     And I run "printf '<!doctype html><h1>preview version two</h1>\n' > page.html"
     Then the file preview iframe should contain "preview version two"
 
+  # In-iframe navigation must move the tree selection. The preview iframe is
+  # sandboxed at an opaque origin (`allow-scripts`, no `allow-same-origin`), so
+  # the parent can't read `contentWindow.location` after a same-frame link
+  # click — the new path has to be reported out by the in-iframe artifact-sdk
+  # (`ReadyMsg.pathname`, posted on every document boot). Without that report
+  # the page renders the linked file but the tree stays stuck on the first
+  # file, so the user loses their place. Unquoted `href` keeps the fixture
+  # free of inner quotes (the `I run "…"` step has no escape for them).
+  Scenario: Clicking an in-page link moves the file tree selection
+    When I run "rm -rf /tmp/kolu-html-nav && git init /tmp/kolu-html-nav && cd /tmp/kolu-html-nav"
+    And I run "printf '<!doctype html><h1>first page</h1><a href=second.html>go to second</a>\n' > first.html"
+    And I run "printf '<!doctype html><h1>second page</h1>\n' > second.html"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    And I click the file "first.html" in the file browser
+    Then the file preview iframe should be visible
+    And the file preview iframe should contain "first page"
+    And the file "first.html" should be selected in the file browser
+    When I click the link "go to second" in the file preview iframe
+    Then the file preview iframe should contain "second page"
+    And the file "second.html" should be selected in the file browser
+
   Scenario: Committing the selected local diff clears the stale content pane
     When I run "rm -rf /tmp/kolu-clear-selected-local && git init /tmp/kolu-clear-selected-local && cd /tmp/kolu-clear-selected-local"
     And I run "git commit --allow-empty -m init"

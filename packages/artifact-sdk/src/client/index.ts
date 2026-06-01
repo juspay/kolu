@@ -4,7 +4,9 @@
  *    capture or render comments outside the iframe (text browse, branch
  *    diff) import these so the W3C TextQuoteSelector behavior is
  *    bit-identical across runtimes.
- *  - `bindArtifactSdk` wires the parent ↔ iframe message protocol. */
+ *  - `bindArtifactSdk` wires the parent ↔ iframe message protocol;
+ *    `observeIframeNavigation` is the focused sibling that follows
+ *    same-frame link navigation. */
 
 export {
   applyHighlights,
@@ -28,5 +30,6 @@ export type {
 export {
   type BindOptions,
   bindArtifactSdk,
+  observeIframeNavigation,
   pushHighlightsTo,
 } from "./bridge";

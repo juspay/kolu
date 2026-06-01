@@ -580,6 +580,23 @@ Then(
   },
 );
 
+// Click an `<a>` link *inside* the sandboxed preview iframe. Same origin
+// boundary as the read step above — Playwright's `frameLocator` resolves the
+// frame through the browser frame tree regardless of the opaque-origin
+// sandbox, so the click drives a real same-frame navigation, exactly the
+// gesture a user makes following a hyperlink between two HTML files.
+When(
+  "I click the link {string} in the file preview iframe",
+  async function (this: KoluWorld, linkText: string) {
+    const link = this.page
+      .frameLocator('[data-testid="browse-preview-iframe"]')
+      .getByRole("link", { name: linkText });
+    await link.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await link.click();
+    await this.waitForFrame();
+  },
+);
+
 Then(
   "the file preview image should be visible",
   async function (this: KoluWorld) {

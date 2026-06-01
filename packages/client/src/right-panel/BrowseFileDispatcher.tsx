@@ -40,6 +40,9 @@ export type BrowseFileDispatcherProps = {
   filePath: string;
   theme: "light" | "dark";
   initialSelectedLines?: SelectedLineRange | null;
+  /** Forwarded to the iframe renderer so an in-iframe link click moves the
+   *  tree selection to the linked file (HTML-preview navigation). */
+  onNavigate?: (path: string) => void;
 };
 
 const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
@@ -93,6 +96,7 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
           terminalId={props.terminalId}
           path={file.path}
           url={file.url ?? ""}
+          onNavigate={props.onNavigate}
         />
       ),
     },

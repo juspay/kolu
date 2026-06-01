@@ -87,6 +87,37 @@ export function bindArtifactSdk(
   };
 }
 
+/** Observe in-iframe navigation. The in-iframe SDK reports its document's own
+ *  `location.pathname` on every boot via the `ready` message — the initial
+ *  load AND every load after a same-frame link click. The parent can't read
+ *  `contentWindow.location` under the opaque-origin sandbox, so this report is
+ *  the only way to learn where an in-iframe link took the user. Fires
+ *  `onNavigate(pathname)` on each report; the caller maps the pathname to its
+ *  own notion of identity (e.g. a repo-relative file path) and follows it.
+ *
+ *  A focused listener rather than another `bindArtifactSdk` option: navigation
+ *  following and comments are independent concerns with independent owners, so
+ *  each binds its own slice of the protocol. The `event.source` identity check
+ *  is the same network-grade boundary `bindArtifactSdk` applies. Returns a
+ *  disposer. */
+export function observeIframeNavigation(
+  iframe: HTMLIFrameElement,
+  onNavigate: (pathname: string) => void,
+): () => void {
+  const onMessage = (event: MessageEvent<IframeToParent>): void => {
+    if (event.source !== iframe.contentWindow) return;
+    const msg = event.data;
+    if (!msg || typeof msg !== "object") return;
+    match(msg)
+      .with({ type: "kolu-artifact-sdk:ready" }, (m) => {
+        onNavigate(m.pathname);
+      })
+      .otherwise(() => undefined);
+  };
+  window.addEventListener("message", onMessage);
+  return () => window.removeEventListener("message", onMessage);
+}
+
 /** Imperative push — call when the comments set or current path changes
  *  after the initial handshake. The bridge re-broadcasts on every call. */
 export function pushHighlightsTo(
