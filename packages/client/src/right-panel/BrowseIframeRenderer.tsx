@@ -41,11 +41,14 @@ const BrowseIframeRenderer: Component<BrowseIframeRendererProps> = (props) => {
   // already show, so it's a no-op.
   createEffect(() => {
     const el = iframeEl();
-    const onNavigate = props.onNavigate;
-    if (!el || !onNavigate) return;
+    if (!el) return;
+    // All three props are read live inside the callback (which fires on a
+    // postMessage, outside this tracking scope) rather than captured here —
+    // so a changed `onNavigate`/`url`/`path` is reflected without re-binding
+    // the listener, and the effect depends only on the iframe element.
     const dispose = observeIframeNavigation(el, (pathname) => {
       const next = repoPathFromPreviewPathname(pathname, props.url, props.path);
-      if (next !== null && next !== props.path) onNavigate(next);
+      if (next !== null && next !== props.path) props.onNavigate?.(next);
     });
     onCleanup(dispose);
   });
