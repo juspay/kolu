@@ -117,11 +117,13 @@ changes for the human to review):
 
 ## Safety & notes
 
-- **codex runs read-only.** The review prompt forbids file writes and git-write
-  commands; the only writes to the tree come from the Claude author rounds.
-  codex is invoked with `--dangerously-bypass-approvals-and-sandbox` on purpose:
-  we're already inside Claude Code's sandbox, and codex's own `--sandbox
-  read-only` mode hangs in containers without landlock.
+- **codex runs read-only — enforced, not just asked.** codex is invoked with
+  `--sandbox read-only`, so the kernel sandbox blocks file writes and other
+  state-mutating syscalls; the prompt's "don't write" instruction is belt-and-
+  suspenders, not the only guard. This matters because codex reviews arbitrary
+  diffs and could be prompt-injected by file contents. The only writes to the
+  tree come from the Claude author rounds. (codex auto-falls-back to its bundled
+  bubblewrap when the system one is absent, so read-only works in containers.)
 - **No auto-merge.** The skill never commits, pushes, or merges. Consensus means
   "both AIs agree on the code in the working tree," not "ship it."
 - **Bounded.** The loop always terminates — consensus, deadlock detection, or the

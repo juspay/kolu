@@ -14,10 +14,17 @@
 #   <out-json>       path the JSON verdict is written to (also echoed to stdout)
 #
 # Notes:
-#   * --dangerously-bypass-approvals-and-sandbox is used deliberately: we are
-#     already inside Claude Code's sandbox, and codex's own `--sandbox read-only`
-#     mode hangs in containers without landlock. The prompt forbids writes; the
-#     caller (the workflow) reviews the final working tree regardless.
+#   * codex runs under `--sandbox read-only`, which enforces read-only at the
+#     execution boundary (the kernel sandbox blocks file writes and other
+#     state-mutating syscalls), NOT merely by prompt text. codex reviews
+#     arbitrary diffs and could be prompt-injected by file contents, so the
+#     read-only promise must be enforced, not advertised. codex auto-falls-back
+#     to its bundled bubblewrap when the system one is absent, so this works in
+#     containers; `--sandbox read-only` permits read-only command execution
+#     (git diff/status, reading files) but denies writes. `codex exec` is already
+#     non-interactive (approval policy "never"), so a command the sandbox blocks
+#     is denied outright rather than escalating to a prompt that would wedge the
+#     headless loop.
 #   * Always emits a schema-valid verdict on stdout, even if codex errors — a
 #     synthesized error verdict (approved:false) so the loop never wedges.
 set -uo pipefail
@@ -99,7 +106,7 @@ EOF
 )"
 
 if ! codex exec \
-      --dangerously-bypass-approvals-and-sandbox \
+      --sandbox read-only \
       --output-schema "$schema" \
       -o "$out" \
       "$prompt" </dev/null >"$log" 2>&1; then
