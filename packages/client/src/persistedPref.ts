@@ -13,11 +13,10 @@
  *
  *  `parse` is that single validation seam: raw stored string -> `T`. Throw on
  *  anything unexpected; {@link readWithFallback} catches, calls `onInvalid`,
- *  and substitutes `fallback`, so a corrupt entry
- *  degrades to the default instead of poisoning the signal. `parse` reaches
- *  the fallback *only* by throwing, so `onInvalid` is never silently skipped.
- *  The serialized
- *  format is unchanged from the hand-rolled sites, so values already in
+ *  and substitutes `fallback`, so a corrupt entry degrades to the default
+ *  instead of poisoning the signal. `parse` reaches the fallback *only* by
+ *  throwing, so `onInvalid` is never silently skipped. The serialized format
+ *  is unchanged from the hand-rolled sites, so values already in
  *  `localStorage` keep loading. */
 
 import { makePersisted } from "@solid-primitives/storage";
