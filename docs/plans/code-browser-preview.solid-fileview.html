@@ -126,11 +126,11 @@
 
 <div class="crumb">
   kolu › docs/plans › <strong>code-browser-preview · solid-fileview</strong>
-  &nbsp;·&nbsp; touches: <code>kolu-git/previewable.ts</code> · <code>right-panel/Browse*</code> · <code>@kolu/solid-pierre</code>
+  &nbsp;·&nbsp; touches: <code>kolu-common/preview.ts</code> · <code>right-panel/Browse*</code> · <code>@kolu/solid-{markdown,fileview,pierre}</code>
 </div>
 
 <h1>Code browser preview — formats today, and the ones to add</h1>
-<p class="lead">The Code tab can <em>open</em> any file in the repo, but "open" means two different things: show its <strong>source</strong> (syntax-highlighted text) or show its <strong>rendered form</strong> (the image, the page, the document). Markdown sits in the gap — today a <code>README.md</code> opens as syntax-highlighted source (see the screenshot that prompted this plan), never as a rendered document. The organizing idea of this plan is a <strong>Source ⇄ Rendered toggle</strong>: for any file that has <em>both</em> a source and a rendered form, the user picks. Markdown is the first; HTML and SVG join it.</p>
+<p class="lead">The Code tab can <em>open</em> any file in the repo, but "open" means two different things: show its <strong>source</strong> (syntax-highlighted text) or show its <strong>rendered form</strong> (the image, the page, the document). Markdown sat in the gap — a <code>README.md</code> used to open as syntax-highlighted source (the screenshot that prompted this plan), never as a rendered document. The organizing idea of this plan is a <strong>Source ⇄ Rendered toggle</strong>: for any file that has <em>both</em> a source and a rendered form, the user picks. Markdown is now <strong>the first lit toggle</strong> (<a href="https://github.com/juspay/kolu/pull/1093">#1093</a>, shipped) — it defaults to Rendered, one click to source; HTML and SVG join it next.</p>
 
 <div class="panel">
   <strong>The one-line summary.</strong> Previewing is decided at a single seam — a file is classified, the <code>fsReadFile</code> wire carries a <code>kind</code> discriminator, and a dispatcher routes <code>kind</code> to a presenter. The toggle is available exactly when a file has <em>both</em> a source and a rendered form. Markdown is the easy case (already <code>text</code> on the wire). HTML/SVG are the instructive case (text-backed but delivered as <code>binary</code>/URL today).
@@ -240,8 +240,30 @@
 <h2 id="md">The feature — a Source ⇄ Rendered toggle, Markdown first</h2>
 <p>The toggle is the real deliverable; Markdown is the first format to wear it because it's the highest-value, lowest-cost case and rehearses the control the others (HTML, SVG, later CSV) reuse.</p>
 
-<h3>Markdown needs no new wire <code>kind</code></h3>
-<p>Markdown <em>is</em> text — it already arrives as <code>{kind: "text", content, truncated}</code>. The render decision is purely client-side and reversible: a <code>.md</code> file should default to <strong>rendered</strong>, but the user must be able to flip to <strong>source</strong> (to see exact syntax, copy raw, or select lines for comments). So Markdown is just a renderer appliance plugged into the grid (next section), entirely above the wire.</p>
+<h3>Markdown needs no new wire <code>kind</code> <span class="pill ok">confirmed by P3</span></h3>
+<p>Markdown <em>is</em> text — it already arrives as <code>{kind: "text", content, truncated}</code>. The render decision is purely client-side and reversible: a <code>.md</code> file should default to <strong>rendered</strong>, but the user must be able to flip to <strong>source</strong> (to see exact syntax, copy raw, or select lines for comments). So Markdown is just a renderer appliance plugged into the grid (next section), entirely above the wire. <em>P3 confirmed this in the build:</em> no new <code>kind</code>, no <code>defaultMode</code> — Markdown stayed <code>kind:"text"</code> and the dispatcher passed a one-entry <code>rendered={[markdownRenderer]}</code> matched by <code>isMarkdown</code>; <code>FileView</code>'s existing "both forms → default Rendered, show the toggle" rule did the rest, and non-markdown text matched nothing so it stayed source-only.</p>
+
+<h3 id="md-comments">3a · Comments on rendered Markdown — the way through</h3>
+<p>v1 shipped comments only in <strong>source</strong> view: <code>CommentTextSurface</code> wraps Pierre's <code>CodeView</code> and gives char-range selection there, while the rendered document is read-only (a new e2e scenario documents that you flip to source to comment). The original plan flagged the real problem — <em>anchoring a comment to a character range in rendered output</em>. Here is the concrete path through it, and it costs no new model.</p>
+<p>Kolu already has <em>one</em> anchoring model used in two surfaces: the W3C <strong><code>TextQuoteSelector</code></strong> (<code>{quote, prefix, suffix}</code>) and the pure functions <code>extractQuote(range, root)</code> / <code>findQuote(text, locator)</code> in <code>@kolu/artifact-sdk/core</code>. The source comment surface uses it; the in-iframe HTML annotator uses it (re-exported via the SDK's client entry). Rendered Markdown is the third surface — and the <em>simplest</em> of the three, because:</p>
+<ul>
+  <li>Markdown renders <strong>inline in the parent document</strong>, not in a sandboxed iframe. So there is <strong>no postMessage bridge</strong> — unlike the HTML-artifact path, which must marshal the selection across an opaque-origin frame. A plain DOM <code>Range</code> over the rendered Markdown nodes feeds <code>extractQuote</code> directly; <code>findQuote</code> re-locates it against the node text on rehydrate.</li>
+  <li>The locator is durable across re-renders by construction (it's text + context windows, not a DOM path), which is exactly the property a rendered tree needs.</li>
+</ul>
+<p>Volatility split (Lowy): the <em>generic mechanism</em> — turn a user selection over a rendered subtree into a locator, and paint a locator back as a highlight overlay — is Kolu-free and belongs as a <strong>rendered-annotation hook in <code>@kolu/solid-fileview</code></strong> (any consumer annotating a rendered document wants it). The <em>comment feature</em> — the tray, threads, persistence — is Kolu's volatility and stays in Kolu's renderer wiring, the same place the iframe comment bridge lives today. Net: a small hook in the library, a tray adapter in Kolu, and one anchoring model shared across all three surfaces instead of a fourth invented for Markdown.</p>
+
+<h3 id="md-features">3c · More Markdown features — appliances on the grid</h3>
+<p>Each of these lives <em>inside the appliance</em> (<code>@kolu/solid-markdown</code>) or plugs into the same outlet — the host never changes. Grounded against what the renderer ships today (<code>marked</code> configured <code>{gfm: true, breaks: true}</code>):</p>
+<table>
+  <tr><th>Feature</th><th>Status today</th><th>The work</th></tr>
+  <tr><td><strong>GFM tables / task lists</strong></td><td><code>marked</code> parses them and the renderer already emits <code>&lt;table&gt;</code> + checkbox nodes (the <code>table</code> / <code>item.task</code> cases exist).</td><td>Mostly styling polish for the <code>document</code> variant; verify task-list checkboxes read as disabled/decorative.</td></tr>
+  <tr><td><strong>Strikethrough / autolinks</strong></td><td>Parsed by GFM mode.</td><td>Confirm a <code>del</code> token case and that bare URLs resolve through <code>safeHref</code>; add styling if missing.</td></tr>
+  <tr><td><strong>Syntax-highlighted code fences</strong></td><td>Rendered as plain <code>&lt;pre&gt;&lt;code&gt;</code>.</td><td><strong>3b</strong> — Shiki on the <code>code</code> token; highlighter already in-repo via <code>@kolu/solid-pierre</code>.</td></tr>
+  <tr><td><strong>Heading anchor links</strong></td><td>Headings render without ids.</td><td>Slug-id each heading and add a clickable <code>#</code> permalink — standard doc affordance.</td></tr>
+  <tr><td><strong>Relative <em>file</em> links</strong></td><td><code>safeHref</code> allows them; clicking does nothing useful.</td><td>Resolve a relative path to <strong>opening that file in the Code tab</strong> (Kolu link policy, injected — the package stays Kolu-free). Group with relative-<em>image</em> resolution (Polish) — same file-route reuse.</td></tr>
+  <tr><td><strong>Frontmatter</strong></td><td>YAML frontmatter renders as a literal block.</td><td>Strip-and-ignore by default; optional small metadata header later.</td></tr>
+  <tr><td><strong>KaTeX math · Mermaid diagrams</strong></td><td>Not handled.</td><td><em>Optional appliances</em> a reader plugs into the same outlet later — more appliances on the grid, <strong>no host changes</strong>, consistent with the electricity thesis. Demand-gated; don't over-promise.</td></tr>
+</table>
 
 <h2 id="grid">Invent the grid — extract three packages, slim Kolu</h2>
 <p>The naïve build wires each format into Kolu's <code>right-panel/</code>: a <code>BrowseMarkdownView</code>, then a <code>BrowseHtmlView</code>, each a <code>Switch</code> arm. That's the pre-electricity house — generation tangled into the wiring. Two things vary independently and must be encapsulated apart (Lowy), and neither is <em>about Kolu</em>:</p>
@@ -307,9 +329,9 @@
 <table>
   <tr><th>Decision</th><th>Recommendation</th><th>Why</th></tr>
   <tr>
-    <td>Default view for <code>.md</code></td>
-    <td><strong>Rendered</strong></td>
-    <td>Matches GitHub/editor expectations; the screenshot's raw-source default is the surprise we're fixing. Source is one click away.</td>
+    <td>Default view for <code>.md</code> <span class="pill ok">done · #1093</span></td>
+    <td><strong>Rendered</strong> — implemented, and it fell out of <code>FileView</code>'s existing default (no <code>defaultMode</code> needed).</td>
+    <td>Matches GitHub/editor expectations; the screenshot's raw-source default was the surprise we fixed. Source is one click away.</td>
   </tr>
   <tr>
     <td>Toggle placement & persistence</td>
@@ -317,9 +339,9 @@
     <td>The "Change view" control already lives in the header for diff-base; this is a sibling toggle on a different axis. Don't conflate them.</td>
   </tr>
   <tr>
-    <td>Comments on rendered Markdown</td>
-    <td>v1: comments only in <strong>source</strong> view (where <code>CommentTextSurface</code> already gives char-range selection). Rendered view is read-only.</td>
-    <td>Anchoring a comment to a character range in rendered HTML is a real design problem (the artifact-sdk bridge solves it for the sandbox path, but Markdown isn't sandboxed). Keep v1 honest; revisit.</td>
+    <td>Comments on rendered Markdown <span class="pill ok">v1 shipped · #1093</span> <span class="pill todo">3a next</span></td>
+    <td>v1 (shipped): comments only in <strong>source</strong> view (where <code>CommentTextSurface</code> gives char-range selection); rendered view is read-only — a new e2e scenario documents that you flip to source to comment. <strong>3a</strong> revisits it: select-and-comment <em>in the rendered document</em> via the shared <code>TextQuoteSelector</code> model.</td>
+    <td>Anchoring a comment to a character range in rendered output is a real design problem — but the same <code>extractQuote</code>/<code>findQuote</code> the source surface and the in-iframe annotator share works over a DOM <code>Range</code> too, and Markdown renders inline (no sandbox, no bridge). Kept v1 honest; <a href="#md-comments">3a is the way through ↓</a>.</td>
   </tr>
   <tr>
     <td>Relative links & images inside <code>.md</code></td>
@@ -350,10 +372,28 @@
     <td>Medium — refactor of a live surface; covered by behavior-preserving e2e. <em>(One real defect caught only by the Nix build: the new package was missing from <code>default.nix</code>'s fileset, so Rollup couldn't resolve it — invisible to the pnpm-workspace symlink that local typecheck/test use.)</em></td>
   </tr>
   <tr>
-    <td><strong>3 · Light the Markdown toggle</strong></td>
-    <td>Add the <code>markdown</code> renderer entry (wraps <code>@kolu/solid-markdown</code>); default <code>.md</code> to Rendered; relocate server classification out of <code>kolu-git</code>. First user-visible win. README update.</td>
-    <td>flat (one entry + a default)</td>
-    <td>Low — the grid does the work.</td>
+    <td><strong>3 · Light the Markdown toggle</strong> <span class="pill ok">shipped · <a href="https://github.com/juspay/kolu/pull/1093">#1093</a></span></td>
+    <td>The first user-visible win, and it fell out of the grid almost for free. The <code>markdown</code> renderer landed <em>in the library</em> as a new sub-path appliance <code>@kolu/solid-fileview/renderers/markdown</code> (wrapping <code>@kolu/solid-markdown</code>'s <code>document</code> variant) — mirroring the <code>image</code>/<code>iframe</code> siblings, and adding a package-level <code>solid-fileview → solid-markdown</code> dep confined to that sub-path (the core entry stays dep-free). <em>No new wire <code>kind</code>, no <code>defaultMode</code>:</em> <code>FileView</code> already defaults to Rendered and shows the toggle whenever a file has <em>both</em> a source and a rendered renderer, so Kolu's <code>BrowseFileDispatcher</code> just passes a one-entry <code>rendered={[markdownRenderer]}</code> (matched by <code>isMarkdown</code>) on its existing text path — non-markdown text matches nothing and stays source-only (no toggle); Markdown stays <code>kind:"text"</code>. Server classification was <strong>relocated</strong> out of <code>kolu-git/previewable.ts</code> into the node-free <code>kolu-common/preview.ts</code> (a shared preview concern, not a git op), gaining <code>isMarkdown</code>/<code>MARKDOWN_EXTENSIONS</code>; the old <code>kolu-git/previewable</code> subpath + file were deleted and all importers repointed, the co-located unit test moved, and <code>kolu-common</code> <strong>gained a <code>test:unit</code> vitest runner</strong> (it had none). A discoverability tip (<code>amb-markdown-preview</code>) and README updates landed. e2e: two new <code>code-tab.feature</code> scenarios (default-rendered; toggle-to-source); the 8 comment-tray scenarios that used <code>.md</code> as a generic text fixture were switched to <code>.txt</code> (they test the comment mechanism, not markdown), plus a new scenario documenting that comments on a <code>.md</code> file require flipping to source (the v1 read-only-rendered decision). CI 24/24 green on aarch64-darwin + x86_64-linux.</td>
+    <td>flat (one library appliance + a one-entry renderer list; <code>kolu-git</code> loses the classifier)</td>
+    <td>Low — the grid did the work. Hickey: 0 findings; Lowy: 2, both No-op (see footnote).</td>
+  </tr>
+  <tr>
+    <td><strong>3a · Comments on <em>rendered</em> Markdown</strong> <span class="pill todo">next</span></td>
+    <td>Close the v1 seam: today comments work only in source view (where <code>CommentTextSurface</code> gives char-range selection over Pierre's <code>CodeView</code>); rendered Markdown is read-only. Let the user select text <em>in the rendered document</em> and drop a comment, by reusing the same W3C <code>TextQuoteSelector</code> model the source surface and the in-iframe HTML annotator already share — the pure <code>extractQuote</code>/<code>findQuote</code> functions from <code>@kolu/artifact-sdk/core</code> — applied to a DOM <code>Range</code> over the rendered Markdown nodes. Because Markdown renders <em>inline in the parent</em> (not sandboxed), there is <strong>no iframe and no postMessage bridge</strong> — unlike the HTML-artifact path — so this is a direct in-document anchor. Likely splits as a generic "rendered-annotation" hook in <code>@kolu/solid-fileview</code> (selection → locator, locator → highlight) plus Kolu's comment-tray wiring. <a href="#md-comments">Detail ↓</a></td>
+    <td>flat — a library hook + tray wiring</td>
+    <td>Medium — anchoring to a char range in rendered output is the open problem the plan flagged; the selector model is the concrete way through.</td>
+  </tr>
+  <tr>
+    <td><strong>3b · Syntax-highlighted code fences</strong> <span class="pill todo">next</span></td>
+    <td>Fenced code blocks inside rendered Markdown highlighted via Shiki, <em>inside <code>@kolu/solid-markdown</code></em> (the appliance, not the host). Kolu already ships Shiki via <code>@kolu/solid-pierre</code>, so the highlighter is in-repo — the work is wiring it to the markdown renderer's <code>code</code> token, not adding a dependency. (Promoted out of Phase 5 Polish: it's the most-visible markdown gap now that the toggle is lit.)</td>
+    <td>flat (inside the appliance)</td>
+    <td>Low.</td>
+  </tr>
+  <tr>
+    <td><strong>3c · More Markdown features</strong> <span class="pill todo">grid</span></td>
+    <td>The appliance evolves; the host doesn't. Tied to <code>@kolu/solid-markdown</code>'s growth — see the dedicated section for the grounded list (GFM polish, heading anchors, relative <em>file</em>/image link resolution, frontmatter, and optional plug-in appliances like KaTeX/Mermaid). <a href="#md-features">Detail ↓</a></td>
+    <td>flat (appliance-local)</td>
+    <td>Low; each item independent.</td>
   </tr>
   <tr>
     <td><strong>4 · HTML / SVG source</strong></td>
@@ -363,7 +403,7 @@
   </tr>
   <tr>
     <td><strong>5 · Polish</strong></td>
-    <td>Syntax-highlighted code fences (Shiki) inside <code>@kolu/solid-markdown</code>; relative-image resolution via the file route; persisted toggle default.</td>
+    <td>Persisted per-session toggle choice (<code>makePersisted</code>). <em>(Code fences moved to 3b; relative-image/link resolution grouped under 3c.)</em></td>
     <td>flat</td>
     <td>Low.</td>
   </tr>
@@ -386,27 +426,30 @@
 <h3>The grid — new reusable packages (where the code <em>goes</em>)</h3>
 <table>
   <tr><th>Package</th><th>Contents</th></tr>
-  <tr><td><code>packages/solid-markdown</code> <span class="pill todo">new</span></td><td>The token-walk core (<code>marked</code> + <code>safeHref</code> sanitization) + <code>inline</code>/<code>document</code> variants. Kolu-free; publishable.</td></tr>
-  <tr><td><code>packages/solid-fileview</code> <span class="pill ok">shipped · #1082</span></td><td><code>FileView</code> host (toggle, mode-availability, registry pick) + the <code>SourceRenderer</code>/<code>RenderedRenderer</code> contracts. No rendering deps — pure mechanism. Sub-path renderers shipped: <code>/renderers/{image,iframe}</code> (the <code>markdown</code> renderer lands in P3 when it's first needed).</td></tr>
+  <tr><td><code>packages/solid-markdown</code> <span class="pill ok">shipped · #1079</span></td><td>The token-walk core (<code>marked</code> + <code>safeHref</code> sanitization) + <code>inline</code>/<code>compact</code>/<code>document</code> variants. Kolu-free; publishable. As of P3 its <code>document</code> variant now backs the Code-tab markdown appliance (via <code>solid-fileview/renderers/markdown</code>), in addition to the intent surface. 3b adds Shiki code-fence highlighting here; 3c grows the feature set.</td></tr>
+  <tr><td><code>packages/solid-fileview</code> <span class="pill ok">shipped · #1082, #1093</span></td><td><code>FileView</code> host (toggle, mode-availability, registry pick) + the <code>SourceRenderer</code>/<code>RenderedRenderer</code> contracts. Core entry has no rendering deps — pure mechanism. Sub-path renderers: <code>/renderers/{image,iframe}</code> (#1082) and now <code>/renderers/markdown</code> (#1093, wraps <code>@kolu/solid-markdown</code>'s <code>document</code> variant) — the markdown dep is confined to that one sub-path. 3a is slated to add a generic rendered-annotation hook here.</td></tr>
 </table>
 
 <h3>Kolu — the net shrink (where the wiring gets <em>simpler</em>)</h3>
 <table>
   <tr><th>File</th><th>Change</th></tr>
-  <tr><td><code>intent/IntentMarkdown.tsx</code></td><td><span class="pill ok">−~250 LOC</span> Becomes a thin consumer of <code>@kolu/solid-markdown</code> (variant + Kolu link policy).</td></tr>
+  <tr><td><code>intent/IntentMarkdown.tsx</code></td><td><span class="pill ok">−~250 LOC · #1079</span> A thin consumer of <code>@kolu/solid-markdown</code> (variant + Kolu link policy). Same appliance whose <code>document</code> variant now backs the Code tab.</td></tr>
   <tr><td><code>right-panel/BrowsePreviewView.tsx</code></td><td><span class="pill ok">deleted · #1082</span> Its img/iframe mechanics moved into <code>@kolu/solid-fileview</code> + its renderers.</td></tr>
   <tr><td><code>right-panel/BrowseFileView.tsx</code></td><td><span class="pill warn">kept · #1082</span> <em>As-built:</em> not deleted — wrapped as the injected pierre <code>SourceRenderer</code> (it carries Kolu's comment surface + line-selection, which stay Kolu's). The library never gains a syntax-highlighter dep.</td></tr>
   <tr><td><code>right-panel/BrowseIframeRenderer.tsx</code> <span class="pill ok">new · #1082</span></td><td>Kolu's iframe appliance: the library <code>IframeRenderer</code> + the artifact-sdk <code>CommentIframeSurface</code> bridge wired via the frame's <code>ref</code>. Comments are Kolu's volatility, so the bridge lives here, not in the package.</td></tr>
-  <tr><td><code>right-panel/BrowseFileDispatcher.tsx</code></td><td><span class="pill ok">slimmed · #1082</span> Now the <code>fsReadFile</code>→<code>FileView</code> adapter: maps <code>kind</code> to a <code>FileData</code>, injects Kolu's renderer set (pierre-source, image, iframe+comment-bridge). A projection, not logic. (<code>markdown</code> renderer added in P3.)</td></tr>
-  <tr><td>preview classification (was <code>kolu-git/previewable.ts</code>) <span class="pill todo">relocate</span></td><td>Server-side wire classification (text vs URL) moves to a node-free preview module (e.g. <code>kolu-common/preview</code>) — <em>out of <code>kolu-git</code></em>, which never had business owning it. P4 adds the <code>renderable</code> extension set.</td></tr>
+  <tr><td><code>right-panel/BrowseFileDispatcher.tsx</code></td><td><span class="pill ok">slimmed · #1082, #1093</span> The <code>fsReadFile</code>→<code>FileView</code> adapter: maps <code>kind</code> to a <code>FileData</code>, injects Kolu's renderer set (pierre-source, image, iframe+comment-bridge). #1093 added a one-entry <code>rendered={[markdownRenderer]}</code> (matched by <code>isMarkdown</code>) on the existing text path — markdown gets the toggle, all other text stays source-only. Still a projection, not logic.</td></tr>
+  <tr><td><code>kolu-common/preview.ts</code> (was <code>kolu-git/previewable.ts</code>) <span class="pill ok">relocated · #1093</span></td><td>Server-side wire classification (text vs URL) moved to the node-free <code>kolu-common/preview</code> — <em>out of <code>kolu-git</code></em>, which never had business owning a shared client+server preview concern. Gained <code>isMarkdown</code>/<code>MARKDOWN_EXTENSIONS</code>. The old <code>kolu-git/previewable</code> subpath export + file were deleted, all importers (server <code>surface.ts</code>, server <code>iframePreviewRoute.test.ts</code>, client <code>BrowseFileDispatcher</code>) repointed, the co-located unit test moved, and <code>kolu-common</code> gained a <code>test:unit</code> vitest runner (it had none). P4 adds the <code>renderable</code> extension set here.</td></tr>
+  <tr><td><code>settings/tips.ts</code> <span class="pill ok">+1 · #1093</span></td><td>New discoverability tip <code>amb-markdown-preview</code> — surfaces the Source ⇄ Rendered toggle so users find it.</td></tr>
   <tr><td><code>FsReadFileOutputSchema</code> (<code>kolu-git/schemas.ts</code>)</td><td>P4: add the <code>kind:"renderable"</code> variant (<code>content + truncated + url</code>). Candidate to relocate alongside the taxonomy.</td></tr>
   <tr><td><code>default.nix</code> <span class="pill ok">+1 · #1082</span></td><td><em>As-built (not in the original plan):</em> each new package must be added to the Nix build fileset (the build copies only listed sources into the sandbox). Mirrors the <code>solid-markdown</code> entry from P1; every future appliance package needs the same one-line add or the Vite build fails to resolve it.</td></tr>
-  <tr><td><code>README.md</code></td><td><span class="pill ok">P2 · #1082</span> Architecture table now lists <code>@kolu/solid-fileview</code>. The Source ⇄ Rendered <em>toggle</em> itself gets documented in the Code-browser section when P3 first lights it for a user.</td></tr>
+  <tr><td><code>README.md</code></td><td><span class="pill ok">P2, P3 · #1082, #1093</span> Architecture table lists <code>@kolu/solid-fileview</code>; #1093 added a rendered-Markdown + toggle bullet and updated the <code>solid-markdown</code>/<code>solid-fileview</code> rows to describe the wired Code-tab appliance.</td></tr>
 </table>
 <p class="warn"><strong>The accounting:</strong> we add two packages and a feature, yet the Kolu app tree (<code>client/</code>, <code>server/</code>, <code>kolu-git</code>) ends up with <em>fewer</em> lines and one fewer responsibility — exactly the electricity payoff. The complexity didn't vanish; it moved behind an outlet and stopped being Kolu's to maintain.</p>
 
 <hr />
-<p class="lead">Bottom line: the feature is a <strong>Source ⇄ Rendered toggle</strong>, offered wherever a file has both forms — Markdown first, then HTML/SVG. But the <em>shape</em> of the work is the point: rather than wire each format into Kolu's right-panel, we invent the grid — <code>@kolu/solid-markdown</code> and <code>@kolu/solid-fileview</code>, reusable packages beside <code>@kolu/solid-pierre</code> — and Kolu becomes a thin adapter plugging into the outlet. Adding a format becomes plugging in an appliance, never rewiring the house; and Kolu's own code comes out slimmer than before we started.</p>
+<p class="lead">Bottom line: the feature is a <strong>Source ⇄ Rendered toggle</strong>, offered wherever a file has both forms. Markdown is now <strong>the first lit toggle</strong> (#1093) — and lighting it cost a single library appliance plus a one-entry renderer list, because the grid (<code>@kolu/solid-markdown</code> + <code>@kolu/solid-fileview</code>, beside <code>@kolu/solid-pierre</code>) was already built and the "both forms → default Rendered" rule already lived in the outlet. HTML/SVG are next, then the markdown appliance grows (comments on the rendered doc, Shiki fences, anchors, math/diagrams) — every one an appliance on the grid, never a rewiring of the house. Adding a format keeps making Kolu's own code <em>simpler</em>, not larger.</p>
+
+<p class="lead" style="font-size:13px"><strong>As-built footnote (P3 structural review).</strong> Hickey: 0 findings. Lowy: 2, both <strong>No-op</strong>. (1) Lowy confirmed leaving <code>FsReadFileOutputSchema</code> in <code>kolu-git/schemas.ts</code> while the classifier moved to <code>kolu-common/preview</code> is volatility-correct — classifier and wire-schema are different volatilities. (2) Lowy suggested making the appliances' hardcoded <code>data-testid</code>s host-overridable via an optional <code>testId?</code> prop; Hickey's cross-validation rejected it as net-negative (configuration-as-complexity; the default would still carry Kolu naming, and it breaks symmetry with the image/iframe renderers) — so the consistent hardcoded literals were kept.</p>
 
 </main>
 </body>
