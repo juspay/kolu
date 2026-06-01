@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The kolu second brain — one knowledge system, named roles</title>
+<style>
+  :root{
+    --bg:#fafaf7; --panel:#ffffff; --panel2:#f4eefb; --ink:#1a1c20; --dim:#5b6470;
+    --line:#e6e2d6; --accent:#6b4eff; --accent2:#7c4dd4; --good:#1b7a3a; --bad:#a02a2a;
+    --warn:#a96400; --teal:#0e7490; --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  }
+  *{ box-sizing:border-box; } html{ scroll-behavior:smooth; }
+  body{ margin:0; background:var(--bg); color:var(--ink); font:15px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif; padding:2.4rem 1.25rem 6rem; }
+  main{ max-width:880px; margin:0 auto; }
+  a{ color:var(--accent); text-decoration:none; } a:hover{ text-decoration:underline; }
+  .crumb{ font-family:var(--mono); font-size:.72rem; color:var(--dim); letter-spacing:.04em; margin:0 0 1.1rem; }
+  .crumb a{ color:var(--dim); } .crumb a:hover{ color:var(--accent); }
+  h1{ font-size:1.7rem; line-height:1.2; margin:0 0 .35rem; letter-spacing:-.01em; }
+  h2{ font-size:1.12rem; margin:2.6rem 0 .7rem; padding-bottom:.35rem; border-bottom:1px solid var(--line); color:#13151b; scroll-margin-top:1rem; }
+  h3{ font-size:.98rem; margin:1.5rem 0 .45rem; color:var(--accent); }
+  h4{ font-size:.8rem; text-transform:uppercase; letter-spacing:.05em; color:var(--dim); margin:1.1rem 0 .35rem; }
+  .sub{ color:var(--dim); margin:.1rem 0 1.3rem; font-size:.95rem; }
+  p{ margin:.6rem 0; } ul,ol{ margin:.5rem 0; padding-left:1.3rem; } li{ margin:.32rem 0; }
+  code{ font-family:var(--mono); font-size:.85em; background:#f4f1e8; padding:.08em .35em; border-radius:4px; color:#2a2d33; }
+  pre{ background:#f6f3ea; border:1px solid var(--line); border-radius:8px; padding:.85rem 1rem; overflow-x:auto; font-family:var(--mono); font-size:.79rem; line-height:1.55; }
+  pre code{ background:none; padding:0; }
+  .cite{ font-family:var(--mono); font-size:.78em; color:var(--accent); }
+  .muted{ color:var(--dim); } .rec{ color:var(--good); font-weight:600; }
+  .tag{ display:inline-block; font-family:var(--mono); font-size:.66rem; text-transform:uppercase; letter-spacing:.04em; padding:.12em .5em; border-radius:999px; vertical-align:middle; border:1px solid transparent; }
+  .tag.good{ background:#e3f4e9; color:#1b7a3a; border-color:#bce3c8; }
+  .tag.bad{ background:#f7e0e0; color:#a02a2a; border-color:#e9bcbc; }
+  .tag.warn{ background:#f8efd9; color:#8a5200; border-color:#e8d3a3; }
+  .tag.accent{ background:#efebff; color:#5a3ff0; border-color:#d4cbff; }
+  .tag.seedling{ background:#f8efd9; color:#8a5200; border-color:#e8d3a3; }
+  .tag.budding{ background:#dcf0f4; color:#0b6478; border-color:#bfe3ea; }
+  .tag.evergreen{ background:#e3f4e9; color:#1b7a3a; border-color:#bce3c8; }
+  .panel{ background:var(--panel); border:1px solid var(--line); border-radius:9px; padding:1rem 1.2rem; margin:1rem 0; }
+  .panel.accent{ border-left:3px solid var(--accent); }
+  .panel.good{ border-left:3px solid var(--good); }
+  .panel.warn{ border-left:3px solid var(--warn); }
+  .panel.bad{ border-left:3px solid var(--bad); }
+  .panel.corr{ border-left:3px solid var(--accent2); background:var(--panel2); }
+  .verdict{ font-size:1.05rem; font-weight:600; margin-top:0; }
+  table{ width:100%; border-collapse:collapse; margin:1rem 0; font-size:.85rem; }
+  th,td{ text-align:left; padding:.5rem .6rem; border-bottom:1px solid var(--line); vertical-align:top; }
+  th{ color:var(--dim); font-weight:600; font-size:.73rem; text-transform:uppercase; letter-spacing:.03em; }
+  .flow{ display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; font-family:var(--mono); font-size:.75rem; margin:.8rem 0; }
+  .flow span{ background:#f4f1e8; border:1px solid var(--line); border-radius:6px; padding:.3rem .55rem; }
+  .flow .arrow{ background:none; border:none; color:var(--dim); padding:0; }
+  .flow .hot{ background:#efebff; color:var(--accent); border-color:#cfc4ff; }
+  .toc{ background:var(--panel); border:1px solid var(--line); border-radius:9px; padding:.7rem 1.1rem .8rem; margin:1.4rem 0; font-size:.86rem; }
+  .toc h4{ margin:.3rem 0 .4rem; }
+  details{ border:1px solid var(--line); border-radius:8px; padding:.45rem .95rem; margin:.7rem 0; background:var(--panel); }
+  details summary{ cursor:pointer; font-weight:600; color:var(--accent); }
+  details[open] summary{ margin-bottom:.5rem; }
+  hr{ border:none; border-top:1px solid var(--line); margin:2.2rem 0; }
+  .src{ font-size:.78rem; } .src a{ color:var(--teal); }
+  .two{ display:grid; grid-template-columns:1fr 1fr; gap:1rem; }
+  @media (max-width:640px){ .two{ grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+<main>
+
+<p class="crumb"><a href="./index.html">docs/plans</a> / second-brain</p>
+
+<h1>The kolu second brain</h1>
+<p class="sub">Capturing not just plans but <em>history</em> and <em>learnings</em> from LLM sessions — without building a second system on top of the one you already have. <span class="tag budding">budding</span> &nbsp;<span class="muted">design · captured 2026-06-01 · reconciles <code>docs/plans</code> with the <code>hk</code> zettelkasten</span></p>
+
+<div class="panel accent">
+<p class="verdict">You don't need a new second brain. You have one — name the roles and govern it by a single axis: <strong>mutability</strong>.</p>
+<p style="margin-bottom:.4rem">kolu already owns every organ of a second brain: a zettelkasten (<code>hk</code> on GitHub Issues), an evergreen garden (<code>docs/plans/*.html</code>), a frozen log (<code>docs/proposals</code>), and a dated stream (the blog). The risk isn't a missing system — it's <em>two competing ones</em> that write the same knowledge twice. The fix is one rule for "where does this go," one cheap fix for the gnarliness, and one capture habit.</p>
+<ul style="margin-bottom:0">
+<li><strong>One axis — mutability.</strong> Living &amp; cross-linked → <code>hk</code> (Issues, free backlinks). Frozen &amp; rich-enough-to-render → <code>docs/</code>. That's the whole split.</li>
+<li><strong>Kill the gnarliness cheaply.</strong> Stop encoding ancestry in filenames; split the 208&nbsp;KB monolith; hand-write a Maps-of-Content index. <em>No generator.</em></li>
+<li><strong>Capture once.</strong> A <code>/retro</code> skill distills a finished session into an <code>hk</code> learning node; only the rich ones graduate to an annotatable <code>docs/plans</code> artifact.</li>
+<li><strong>Link one direction only.</strong> <code>docs → #N</code>. Never build a two-way sync — that's the thing that rots.</li>
+</ul>
+</div>
+
+<div class="toc">
+<h4>Contents</h4>
+<ol>
+<li><a href="#problem">The actual problem — two brains, not zero</a></li>
+<li><a href="#axis">The single axis: mutability</a></li>
+<li><a href="#map">The map — stream / garden / frozen log</a></li>
+<li><a href="#gnarly">Fixing the gnarliness (flat slugs + MOC)</a></li>
+<li><a href="#capture">Capturing history &amp; learnings from LLM sessions</a></li>
+<li><a href="#dogfood">Why HTML — the dogfooding payoff</a></li>
+<li><a href="#feed">How the brain feeds releases</a></li>
+<li><a href="#defer">What we deliberately are <em>not</em> building</a></li>
+<li><a href="#migrate">Migrating the existing 11 files</a></li>
+<li><a href="#open">Open questions</a></li>
+</ol>
+</div>
+
+<h2 id="problem">1 · The actual problem — two brains, not zero</h2>
+<p>The instinct "I should design a second brain" hides the real situation: kolu already has <strong>two</strong> knowledge systems, and they overlap dangerously.</p>
+<table>
+<thead><tr><th>System</th><th>What it is</th><th>Already claims to hold…</th></tr></thead>
+<tbody>
+<tr><td><code>hk</code> (hubkasten)</td><td>Zettelkasten on GitHub Issues. <code>#N</code> = the only link; backlinks are free via <code>CrossReferencedEvent</code>. "Replacing the issue tracker."</td><td>roadmaps, bugs, <strong>"create a TIL / ADR / decision node"</strong> <span class="cite">hk/SKILL.md:3</span></td></tr>
+<tr><td><code>docs/</code></td><td>In-repo: <code>plans/*.html</code> (evergreen), <code>proposals/*.md</code> (frozen RFCs), reports.</td><td>plans, specs, reviews, proposals — and now you want history + learnings here too</td></tr>
+</tbody>
+</table>
+<div class="panel corr">
+<p style="margin-top:0"><strong>The trap the first design walked into.</strong> It proposed a brand-new <code>docs/decisions/</code> + <code>docs/devlog/</code> and a seven-kind taxonomy. But <code>hk</code>'s own skill description <em>already</em> claims TIL / ADR / decision nodes — so ADRs would get <strong>two homes</strong>. That is exactly "the same knowledge written twice." Both an independent Hickey review (does it complect?) and a Lowy review (are boundaries drawn around what changes together?) rejected it. The seven kinds aren't seven axes of change — they collapse onto two: <em>mutability</em> (living vs frozen) and <em>distilled-vs-raw</em>. "Decision vs proposal" is ceremony of the same concern; "learning vs devlog" is the same capture at two resolutions.</p>
+</div>
+
+<h2 id="axis">2 · The single axis: mutability</h2>
+<p>Pick <strong>one</strong> question to route any artifact: <em>"Will this keep changing, and does it want cheap cross-links — or is it settled and rich?"</em></p>
+<div class="two">
+<div class="panel">
+<h4 style="margin-top:.2rem; color:var(--teal)">Living → <code>hk</code> (GitHub Issues)</h4>
+<p style="margin:.3rem 0">High-volatility, frequently re-edited, cheaply cross-linked. The working edge of thought.</p>
+<ul style="margin-bottom:0">
+<li>Roadmaps, open questions, bug lists</li>
+<li>Settled decisions (a <em>locked</em> node)</li>
+<li>TILs &amp; tier-2 session learnings <em>before they harden</em></li>
+<li>Anything that wants <code>#N</code> backlinks</li>
+</ul>
+</div>
+<div class="panel">
+<h4 style="margin-top:.2rem; color:var(--good)">Frozen &amp; rich → <code>docs/</code></h4>
+<p style="margin:.3rem 0">Hardened, durable, worth rendering &amp; annotating in kolu's own Code tab.</p>
+<ul style="margin-bottom:0">
+<li><code>plans/*.html</code> — evergreen design &amp; research (the garden)</li>
+<li><code>proposals/*.md</code> — frozen RFCs (the formal log)</li>
+<li>Retros worth re-reading &amp; commenting on</li>
+</ul>
+</div>
+</div>
+<p>Why mutability and not, say, linkability? Because <strong>both</strong> surfaces give cheap links, so linkability can't decide. Topic/PARA-actionability can't decide either — it discards the conceptual cross-links the learnings goal needs. Mutability is the one question whose answer is always clear and always picks the right home. This is precisely the Rust pattern (frozen RFC + live tracking issue) and the Oxide pattern (Committed RFD + follow-up Issues).</p>
+<p class="muted">ADR placement, concretely: a settled technical decision becomes a <em>closed + locked</em> <code>hk</code> node (frozen by the lock, linked by <code>#N</code>) — or, if it needs ceremony, a <code>docs/proposals</code> entry with <code>status: accepted</code> (the template already carries <code>implemented-in:</code> / <code>superseded-by:</code> fields). Do <strong>not</strong> create <code>docs/decisions/</code>.</p>
+
+<h2 id="map">3 · The map — stream / garden / frozen log</h2>
+<p>The digital-garden vocabulary names three modes; each already maps onto a surface kolu owns. No new infrastructure — just naming.</p>
+<table>
+<thead><tr><th>Mode</th><th>kolu surface</th><th>Mutability</th><th>Role</th></tr></thead>
+<tbody>
+<tr><td><strong>Stream</strong></td><td>Astro blog (kolu.dev)</td><td>append-only, dated</td><td>"What shipped / what I learned, publicly." One post per release.</td></tr>
+<tr><td><strong>Garden</strong></td><td><code>docs/plans/*.html</code> + <code>hk</code></td><td>evergreen, tended</td><td>Living &amp; hardened knowledge, linked by MOCs and <code>#N</code>.</td></tr>
+<tr><td><strong>Frozen log</strong></td><td><code>docs/proposals</code></td><td>immutable post-merge</td><td>"Why we committed to X" — the audit record.</td></tr>
+</tbody>
+</table>
+<p>Maturity is a <em>property of a garden note</em>, not a folder. Borrow Maggie Appleton's growth stages as house-style tags so half-finished thinking is honestly labelled:</p>
+<p><span class="tag seedling">seedling</span> raw, just captured &nbsp; <span class="tag budding">budding</span> developing, partially verified &nbsp; <span class="tag evergreen">evergreen</span> durable, trusted</p>
+<p class="muted">These two HTML deliverables already wear <span class="tag budding">budding</span> tags in their subtitles — the convention is live the moment you read this.</p>
+
+<h2 id="gnarly">4 · Fixing the gnarliness</h2>
+<p>The complaint is real and has a precise diagnosis. <code>docs/plans/remote-terminals.pty-daemon.tui.html</code> encodes its ancestry <em>into its filename</em> — a hand-rolled folgezettel. Every authority on PKM warns about exactly this failure: a strict path forces <strong>one true parent</strong>, and <code>tui</code> genuinely relates to both <code>pty-daemon</code> <em>and</em> <code>chrome-bar</code>. Because linking out was expensive, content piled up instead — that's how <code>remote-terminals.html</code> reached <strong>208&nbsp;KB</strong>.</p>
+<div class="panel good">
+<h4 style="margin-top:.2rem">The cheap fix (zero new machinery)</h4>
+<ol style="margin-bottom:0">
+<li><strong>Flat, ancestry-free slugs.</strong> <code>remote-terminals.pty-daemon.tui.html</code> → <code>pty-daemon-tui.html</code>. The name is a stable handle, not a path.</li>
+<li><strong>Split monoliths into atomic docs.</strong> Break the 208&nbsp;KB file into the children it already wants to be.</li>
+<li><strong>Recover structure with a Maps-of-Content index</strong> — a hand-written note that <em>links and annotates</em> its children, so a child can appear in multiple maps. See the live one at <a href="./index.html">docs/plans/index.html</a>.</li>
+<li><strong>Collapse depth in-page with <code>&lt;details&gt;</code></strong> — the same trick <code>remote-terminals.html</code> already uses 15 times. (This very document uses it in §8.)</li>
+</ol>
+</div>
+<div class="panel corr">
+<p style="margin:0"><strong>Rejected: a <code>just docs::index</code> generator.</strong> It would be new machinery to solve a problem the <em>filename scheme itself</em> created — and it adds its own rot (a CI staleness check, an "is the index stale?" gate). Flat slugs + a hand-curated MOC solve it with nothing to maintain but prose. Also rejected: Johnny.Decimal numeric prefixes (its own community found the numbers add friction; keep the shallowness, drop the numbers) and real nested folders (same one-true-parent problem, plus cascading renames).</p>
+</div>
+
+<h2 id="capture">5 · Capturing history &amp; learnings from LLM sessions</h2>
+<p>This is the new capability you asked for. The 2025–26 consensus is a three-tier pipeline — and the tiers must live in <em>different homes at different cadences</em>, or the durable layer bloats.</p>
+<div class="flow">
+  <span>① transcript</span><span class="arrow">→</span>
+  <span class="hot">/retro distills</span><span class="arrow">→</span>
+  <span>② learning node (hk)</span><span class="arrow">→</span>
+  <span class="muted">recurs?</span><span class="arrow">→</span>
+  <span class="hot">③ durable rule (.apm/)</span>
+</div>
+<table>
+<thead><tr><th>Tier</th><th>What</th><th>Home</th></tr></thead>
+<tbody>
+<tr><td>① Ephemeral</td><td>The raw agent transcript.</td><td>Already exported by <code>exportSessionAsHtml.ts</code> (Claude JSONL / Codex JSONL / OpenCode SQLite → self-contained HTML).</td></tr>
+<tr><td>② Curated learning</td><td>"What we found, what worked, what to avoid" — distilled, concept-oriented.</td><td><code>hk</code> node by default; a <code>docs/plans/&lt;slug&gt;.retro.html</code> only when rich enough to annotate.</td></tr>
+<tr><td>③ Durable rule</td><td>An instruction that changes agent behavior next time.</td><td><code>.apm/</code> sources → regenerated into <code>AGENTS.md</code>/<code>.claude</code> by <code>just ai::apm</code>.</td></tr>
+</tbody>
+</table>
+
+<h3>The <code>/retro</code> skill</h3>
+<p>A new APM-sourced skill that runs as a <strong>fresh subagent</strong> (same-context self-evaluation is overconfident — this mirrors how kolu already isolates <code>/hickey</code> and <code>/lowy</code>). It:</p>
+<ul>
+<li>Reads the <strong>raw transcript</strong> (JSONL) — not the rendered HTML. <span class="muted">The raw JSONL is what Claude Code deletes after ~30 days, so the distillation must happen before then; the rendered HTML is lossy for distillation. Reuse/extend <code>exportSessionAsHtml.ts</code> rather than re-implementing the parse.</span></li>
+<li><strong>Preserves surviving vocabulary verbatim</strong> — error strings, <code>file:line</code> refs, param names — while paraphrasing the decisions. The note <em>indexes back to</em> the transcript; it doesn't replace it.</li>
+<li>Writes one <code>hk</code> learning node, cross-linked by <code>#N</code> to the proposal/plan it touched.</li>
+<li>Is offered as an <em>optional</em> final step in the <code>/do</code> chain — habit-forming without nagging on trivial diffs.</li>
+</ul>
+
+<div class="panel warn">
+<p style="margin-top:0"><strong>Promotion to a rule is maintainer judgment, not an automated counter.</strong></p>
+<p style="margin-bottom:0">The tempting design — "auto-promote a learning once it recurs 2–3 times, tracked by backlink count" — is <em>circular</em>: a backlink only accrues if a human already recognized the recurrence and linked it, which is the very judgment the gate was meant to automate. So either (a) make promotion an explicit call during the per-release ritual ("does this lesson keep biting?"), or (b) have <code>/retro</code> search existing learning nodes at capture time (by the verbatim error string / <code>file:line</code>) and auto-link matches, so the count becomes a <em>real</em> signal. Don't dress manual judgment as automation — nobody maintains a counter that lies. And remember the hard ceiling: always-loaded rules get ~150–200 instructions before models start dropping them (Claude Code's own prompt eats ~50), so the durable tier must stay lean — <em>point to docs, don't inline them.</em></p>
+</div>
+
+<h2 id="dogfood">6 · Why HTML — the dogfooding payoff</h2>
+<p>This is kolu's unfair advantage and the reason the garden is HTML, not just markdown. kolu's Code tab routes <code>.html</code>/<code>.svg</code>/<code>.pdf</code> to a sandboxed iframe and gives <strong>text-anchored comments</strong> on the rendered page — the same <code>extractQuote</code>/<code>findQuote</code> anchor model the in-iframe annotator uses. So the second brain is <em>read, navigated, and annotated without leaving kolu</em>, and the comment tray flushes to a Markdown list ready to paste back into an agent prompt.</p>
+<div class="flow">
+  <span class="hot">docs/plans/*.html</span><span class="arrow">→</span>
+  <span>Code tab iframe</span><span class="arrow">→</span>
+  <span>select text → "+ Comment"</span><span class="arrow">→</span>
+  <span>copy tray</span><span class="arrow">→</span>
+  <span class="hot">paste into agent</span>
+</div>
+<p>That loop is why "respond in <code>.html</code>" is the right instinct: a plan you can annotate in-app and feed straight back to an LLM closes the loop a markdown file can't. Keep the blog (a public Astro surface) distinct from the garden (in-app artifacts) — same content modes, different boundaries.</p>
+
+<h2 id="feed">7 · How the brain feeds releases</h2>
+<p>The two systems aren't independent. A changelog and a blog post should be the <strong>downstream artifact</strong> of captured history — not a separate manual effort. The spine, end to end:</p>
+<div class="flow">
+  <span>/talk · /do session</span><span class="arrow">→</span>
+  <span class="hot">/retro → hk node</span><span class="arrow">→</span>
+  <span>conventional commit + PR <code>(#N)</code></span><span class="arrow">→</span>
+  <span>git-cliff CHANGELOG</span><span class="arrow">→</span>
+  <span class="hot">whatchanged → blog</span><span class="arrow">→</span>
+  <span>evidence demo</span><span class="arrow">→</span>
+  <span>release</span>
+</div>
+<p><strong>Link one direction:</strong> per-release CHANGELOG sections and blog posts carry <code>#N</code> links back to the <code>hk</code> nodes and proposals that shipped (free backlinks via <code>CrossReferencedEvent</code>). Traceability flows without a two-way sync invariant to maintain. Surface learnings publicly as a "What we learned" <em>footer</em> on the release post — not a top-of-post section that buries the features. See <a href="./release-workflow.html">release-workflow.html</a> for the release mechanics this plugs into.</p>
+
+<h2 id="defer">8 · What we deliberately are <em>not</em> building</h2>
+<p>The user's #1 ask is the first release. The second-brain reorg is a <em>later</em> project. Both reviewers flagged the original design as a multi-week doc-engineering effort that would delay the release and likely rot. Cut it to the bone:</p>
+<details>
+<summary>The deferred / rejected list (and why)</summary>
+<table style="margin-bottom:0">
+<thead><tr><th>Proposed</th><th>Verdict</th><th>Why</th></tr></thead>
+<tbody>
+<tr><td><code>docs/decisions/</code> (separate ADR dir)</td><td><span class="tag bad">cut</span></td><td><code>hk</code> + <code>docs/proposals</code> already cover settled decisions. Two homes = double-writes.</td></tr>
+<tr><td><code>docs/devlog/</code></td><td><span class="tag bad">cut</span></td><td>Raw narrative is the transcript (tier ①) + the <code>hk</code> node (tier ②). No third store.</td></tr>
+<tr><td>Seven-kind taxonomy</td><td><span class="tag bad">cut</span></td><td>Collapses to one axis (mutability). The kinds blur in practice; deciding "learning or devlog?" is accidental cost.</td></tr>
+<tr><td><code>just docs::index</code> generator</td><td><span class="tag bad">cut</span></td><td>Machinery to fix a filename problem; flat slugs + hand MOC need none.</td></tr>
+<tr><td>Auto rule-promotion by backlink count</td><td><span class="tag warn">manual</span></td><td>The counter is circular. Promote by judgment at release time.</td></tr>
+<tr><td>Two-way <code>hk ↔ docs</code> sync</td><td><span class="tag bad">cut</span></td><td>A cross-store invariant that drifts. Link <code>docs → #N</code> only.</td></tr>
+<tr><td>Maturity tags + <code>/retro</code> + flat-slug MOC</td><td><span class="tag good">keep</span></td><td>Cheap, additive, no generator. The actual MVP of the brain.</td></tr>
+</tbody>
+</table>
+</details>
+<p class="panel good" style="display:block">The brain's MVP is small: <strong>maturity tags in the house style</strong> + <strong>one hand-written MOC index</strong> + <strong>a <code>/retro</code> capture skill</strong> + <strong>the one-direction link rule</strong>. Ship that after the first release, not before.</p>
+
+<h2 id="migrate">9 · Migrating the existing 11 files</h2>
+<p>Incremental, not a big-bang reorg. Order of operations:</p>
+<ol>
+<li>Author <a href="./index.html">docs/plans/index.html</a> as the root MOC (done — it groups today's files by kind &amp; maturity).</li>
+<li>When you <em>next touch</em> a dotted-name file, rename it to a flat slug and update the MOC link. Don't mass-rename cold.</li>
+<li>Split <code>remote-terminals.html</code> into atomic children the next time it's edited; rewrite the parent as a thin map.</li>
+<li>Backfill maturity tags opportunistically as you revisit each doc.</li>
+</ol>
+<p class="muted">The existing <code>#lessons</code>, <code>#r4-lessons</code>, and <code>#r4ui-postmortem</code> anchors inside <code>remote-terminals.html</code> are the proto-version of this system — learnings already captured inline in plan HTML. <code>/retro</code> formalizes that instinct into a repeatable habit.</p>
+
+<h2 id="open">10 · Open questions</h2>
+<ul>
+<li><strong>Shared CSS.</strong> The house style is copy-pasted per file today (these two docs included). A single <code>docs/plans/style.css</code> would stop maturity-tag drift — but adds a load dependency for standalone-rendered artifacts. Decide before the tags spread.</li>
+<li><strong>Transcript durability.</strong> Commit exported transcripts into the repo (diffable, Code-tab-readable, but bloats git) or host out-of-band (like the <code>evidence-assets</code> release)? The 30-day JSONL deletion argues for committing <em>something</em> durable.</li>
+<li><strong>Public learnings.</strong> Should the blog's "What we learned" footer link raw <code>hk</code> Issues (exposing the kasten) or a curated subset? Some postmortem nodes carry internal detail.</li>
+<li><strong>/retro trigger.</strong> Offered automatically after any <code>/do</code> that involved debugging, or fully manual? Auto guarantees capture but risks prompt fatigue on routine sessions.</li>
+</ul>
+
+<hr>
+<p class="muted">Companion: <a href="./release-workflow.html">release-workflow.html</a>. Index &amp; live MOC demo: <a href="./index.html">docs/plans</a>.</p>
+<p class="src muted">Sources: <a href="https://notes.andymatuschak.org/">Matuschak evergreen notes</a> · <a href="https://maggieappleton.com/garden/">Appleton digital garden</a> · <a href="https://notes.linkingyourthinking.com/Cards/MOCs+Overview">LYT — Maps of Content</a> · <a href="https://johnnydecimal.com/">Johnny.Decimal</a> · <a href="https://github.com/joelparkerhenderson/architecture-decision-record">ADR templates</a> · <a href="https://github.com/simonw/til">simonw/til</a> · <a href="https://github.com/simonw/claude-code-transcripts">claude-code-transcripts</a> · <a href="https://www.humanlayer.dev/blog/writing-a-good-claude-md">Writing a good CLAUDE.md</a> · <a href="https://arxiv.org/pdf/2503.08026">Reflective memory (distillation)</a></p>
+
+</main>
+</body>
+</html>
