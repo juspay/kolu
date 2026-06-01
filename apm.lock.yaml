@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-05-30T18:43:45.258766+00:00'
+generated_at: '2026-06-01T01:35:22.383583+00:00'
 apm_version: 0.16.0
 dependencies:
 - repo_url: anthropics/skills
@@ -14,7 +14,7 @@ dependencies:
   content_hash: sha256:063a0e6448123cd359ad0044cc46b0e490cc7964d45ef4bb9fd842bd2ffbca67
 - repo_url: juspay/justci
   host: github.com
-  resolved_commit: 598b63f3bbbb5ae5315727ae662f83f7b0a44606
+  resolved_commit: 8db5e285d2d0fbf23f85b34c63dc4a1abf8129dc
   package_type: apm_package
   deployed_files:
   - .agents/skills/ci
@@ -22,7 +22,7 @@ dependencies:
   - .claude/skills/ci
   deployed_file_hashes:
     .claude/rules/workflow.md: sha256:babf61cdd29cfc8f03b3d20f17b4bf13ef5f173dc05640bc83c505dca4b42010
-  content_hash: sha256:dea7f0a0315be995232b9d7153f1a1354ad726b2cbf9121f2e7576bbea256718
+  content_hash: sha256:efbf3ea93d59fcc6eec2d84e67bd229a80b6403e972fc483cf01af28120feb9c
 - repo_url: juspay/nix-chrome-devtools-mcp
   host: github.com
   resolved_commit: a202612693800c9d9ac9035ca0df80f2e92ded3b
