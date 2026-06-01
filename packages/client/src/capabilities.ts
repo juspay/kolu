@@ -1,18 +1,21 @@
-/** Resolved view capabilities — named answers to "what does this surface
- *  support?", each computed once from the raw viewport/input signals in
- *  `useMobile`. Feature code asks about a capability instead of re-deriving it
+/** Resolved view capabilities — named answers to "what feature does this surface
+ *  offer?", each computed once from the raw viewport signal in `useMobile`.
+ *  Feature-availability code asks a capability here instead of re-deriving it
  *  from `isMobile()` at every call site, so when the form-factor rule for a
- *  capability changes it changes here, not across every consumer.
+ *  capability changes it changes here, not across every consumer. All three
+ *  currently key off viewport size (`isMobile`) — the canvas isn't mounted on the
+ *  mobile layout, and tips/switcher follow the same compact-layout decision — but
+ *  each is a distinct capability that can change axis independently.
  *
- *  The macro layout fork in `App.tsx` (`match(isMobile())`) and the soft-keyboard
- *  receptacle (`withKeyboardDismiss`) stay where they are — those are the two
- *  places that legitimately resolve the raw signal. Everything that gates a
- *  *feature* on form factor routes through the verbs below.
- *
- *  All three currently key off viewport size (`isMobile`) — the canvas isn't
- *  mounted on the mobile layout, and tips/switcher follow the same compact-layout
- *  decision — but each is a distinct capability that can change axis independently
- *  without touching its consumers. */
+ *  NOT every form-factor read belongs here — only boolean *feature-availability*
+ *  gates do. These raw reads are deliberate and stay raw:
+ *   - `App.tsx`'s `match(isMobile())` macro layout fork — the receptacle that
+ *     mounts the mobile vs. desktop subtree.
+ *   - Layout-specific workarounds keyed on the mobile drawer layout, e.g.
+ *     `CodeTab`'s portaled-tree touch-scroll driver (`isMobile`).
+ *   - Diagnostic display of the signal's current value (`DiagnosticInfo`).
+ *   - Input-modality behavior keyed on `isTouch` (a separate axis): soft-keyboard
+ *     dismissal, tap-target density, the soft-keyboard input surface. */
 
 import { isMobile } from "./useMobile";
 
