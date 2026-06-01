@@ -17,7 +17,7 @@
   "devDependencies": {
     "@types/node": "^22.0.0",
     "typescript": "^5.8.0",
-    "vitest": "^4.1.2"
+    "vitest": "^4.1.0"
   },
   "dependencies": {
     "@pierre/diffs": "^1.2.1",
