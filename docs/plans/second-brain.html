@@ -66,7 +66,7 @@
 <p class="crumb"><a href="./index.html">docs/plans</a> / second-brain</p>
 
 <h1>The kolu second brain</h1>
-<p class="sub">Capturing not just plans but <em>history</em> and <em>learnings</em> from LLM sessions — without building a second system on top of the one you already have. <span class="tag budding">budding</span> &nbsp;<span class="muted">design · captured 2026-06-01 · reconciles <code>docs/plans</code> with the <code>hk</code> zettelkasten</span></p>
+<p class="sub"><strong>EPM — Evergreen Project Management.</strong> Capturing not just plans but <em>history</em> and <em>learnings</em> from LLM sessions, without building a second system on top of the one you already have. <span class="tag budding">budding</span> &nbsp;<span class="muted">design · captured 2026-06-01 · reconciles <code>docs/plans</code> with the <code>hk</code> zettelkasten</span></p>
 
 <div class="panel accent">
 <p class="verdict">You don't need a new second brain. You have one — name the roles and govern it by a single axis: <strong>mutability</strong>.</p>
@@ -92,6 +92,7 @@
 <li><a href="#defer">What we deliberately are <em>not</em> building</a></li>
 <li><a href="#migrate">Migrating the existing 11 files</a></li>
 <li><a href="#open">Open questions</a></li>
+<li><a href="#rollout">Rollout &amp; open decisions</a></li>
 </ol>
 </div>
 
@@ -141,7 +142,7 @@
 <tbody>
 <tr><td><strong>Stream</strong></td><td>Astro blog (kolu.dev)</td><td>append-only, dated</td><td>"What shipped / what I learned, publicly." One post per release.</td></tr>
 <tr><td><strong>Garden</strong></td><td><code>docs/plans/*.html</code> + <code>hk</code></td><td>evergreen, tended</td><td>Living &amp; hardened knowledge, linked by MOCs and <code>#N</code>.</td></tr>
-<tr><td><strong>Frozen log</strong></td><td><code>docs/proposals</code></td><td>immutable post-merge</td><td>"Why we committed to X" — the audit record.</td></tr>
+<tr><td><strong>Frozen log</strong></td><td><code>docs/proposals</code> <span class="muted">(folding into the garden as <code>status: accepted</code> — see §11)</span></td><td>immutable post-merge</td><td>"Why we committed to X" — the audit record.</td></tr>
 </tbody>
 </table>
 <p>Maturity is a <em>property of a garden note</em>, not a folder. Borrow Maggie Appleton's growth stages as house-style tags so half-finished thinking is honestly labelled:</p>
@@ -264,6 +265,40 @@
 <li><strong>Public learnings.</strong> Should the blog's "What we learned" footer link raw <code>hk</code> Issues (exposing the kasten) or a curated subset? Some postmortem nodes carry internal detail.</li>
 <li><strong>/retro trigger.</strong> Offered automatically after any <code>/do</code> that involved debugging, or fully manual? Auto guarantees capture but risks prompt fatigue on routine sessions.</li>
 </ul>
+
+<h2 id="rollout">11 · Rollout &amp; open decisions</h2>
+<p>This design ships in phases, not a big-bang reorg. <strong>Phase 0 shipped in <a href="https://github.com/juspay/kolu/pull/1095">#1095</a></strong> (these three docs, the MOC, the house style, the <code>docs/**</code> agent rule). What follows is the plan — this is the roadmap, kept here rather than in a separate file.</p>
+<div class="panel accent">
+<h4 style="margin-top:.2rem">Decisions locked</h4>
+<ul style="margin-bottom:0">
+<li><strong>EPM</strong> — Evergreen Project Management — is the name.</li>
+<li><strong>One axis: mutability</strong> (§2). Living → <code>hk</code>; frozen &amp; rich → the garden.</li>
+<li><strong>Rename <code>docs/plans</code> → <code>docs/garden</code></strong> (Phase 1).</li>
+<li><strong>Proposals fold into the garden</strong> as notes with <code>status: proposed</code> — no separate <code>docs/proposals/</code>; the merged-proposal gate survives.</li>
+<li><strong>Markdown-first</strong> (§6); HTML only for layout-heavy visual artifacts.</li>
+<li><strong>Link one direction</strong>: <code>docs → #N</code>.</li>
+<li><strong>Skills are project-agnostic</strong> (parameterized like <code>evidence</code>) so EPM can be upstreamed for reuse.</li>
+</ul>
+</div>
+<div class="panel warn">
+<h4 style="margin-top:.2rem">Open — your call</h4>
+<ul style="margin-bottom:0">
+<li>Top maturity tier: keep <span class="tag evergreen">evergreen</span> or rename to <strong>perennial</strong>?</li>
+<li><code>/dev</code> publishing: <strong>gated</strong> (budding+ only; seedlings &amp; internal postmortems stay private) or <strong>all</strong>?</li>
+</ul>
+</div>
+<table>
+<thead><tr><th>Phase</th><th>What</th></tr></thead>
+<tbody>
+<tr><td>0 ✅ <span class="muted">#1095</span></td><td>Initial plans + MOC + house style + the <code>docs/**</code> agent rule.</td></tr>
+<tr><td>1</td><td>Garden restructure: rename to <code>docs/garden</code>, fold proposals, thread EPM. <span class="muted">(The <code>/talk</code> skill is a dependency that hardcodes <code>docs/plans/</code> — parameterize upstream.)</span></td></tr>
+<tr><td>2</td><td>Publish the garden to <code>kolu.dev/dev/</code> via an Astro collection (md → public HTML for free), gated by maturity.</td></tr>
+<tr><td>3</td><td>First public release — <code>v0.1.0</code>. See <a href="./release-workflow.html">release-workflow.html</a>.</td></tr>
+<tr><td>4</td><td><code>/retro</code> capture skill (§5).</td></tr>
+<tr><td>5</td><td><code>/release</code> skill — split deterministic tag job + skippable announce.</td></tr>
+<tr><td>6</td><td>Upstream EPM as a reusable APM skill set.</td></tr>
+</tbody>
+</table>
 
 <hr>
 <p class="muted">Companion: <a href="./release-workflow.html">release-workflow.html</a>. Index &amp; live MOC demo: <a href="./index.html">docs/plans</a>.</p>
