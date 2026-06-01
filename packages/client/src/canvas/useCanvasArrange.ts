@@ -12,6 +12,7 @@
  *  - `handleCanvasAutoArrange()` — the one-shot palette command. */
 
 import type { TerminalId } from "kolu-common/surface";
+import { supportsSpatialCanvas } from "../capabilities";
 import type { useTerminalCrud } from "../terminal/useTerminalCrud";
 import type { TerminalStore } from "../terminal/useTerminalStore";
 import { getBucketFor, resolvePlacementBucket } from "./placementPolicy";
@@ -26,9 +27,8 @@ import { usePendingLayouts } from "./usePendingLayouts";
 export function useCanvasArrange(deps: {
   store: TerminalStore;
   crud: ReturnType<typeof useTerminalCrud>;
-  isMobile: () => boolean;
 }) {
-  const { store, crud, isMobile } = deps;
+  const { store, crud } = deps;
   const pendingLayouts = usePendingLayouts();
 
   /** Apply a tile's geometry — drag-end, resize-end, default-place,
@@ -93,7 +93,7 @@ export function useCanvasArrange(deps: {
 
   /** One-shot rearrange triggered from the command palette. */
   function handleCanvasAutoArrange() {
-    if (isMobile()) return;
+    if (!supportsSpatialCanvas()) return;
     const tiles = store.terminalIds().flatMap((id) => {
       const layout = store.getMetadata(id)?.canvasLayout;
       if (!layout) return [];

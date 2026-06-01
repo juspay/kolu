@@ -7,7 +7,7 @@
 
 import type { TerminalId } from "kolu-common/surface";
 import { type Accessor, createEffect, createSignal } from "solid-js";
-import { isMobile } from "../useMobile";
+import { showsAmbientTips } from "../capabilities";
 import { preferences, updatePreferences } from "../wire";
 import { AMBIENT_TIPS, type Tip, type TipId } from "./tips";
 
@@ -62,7 +62,7 @@ function markSeen(id: TipId) {
 
 /** Show a contextual tip once. Marks it seen so it never reappears. */
 function showTipOnce(tip: Tip) {
-  if (isMobile()) return;
+  if (!showsAmbientTips()) return;
   if (seen().has(tip.id)) return;
   markSeen(tip.id);
   present(tip);
@@ -70,7 +70,7 @@ function showTipOnce(tip: Tip) {
 
 /** Internal pure peek — picks a tip without marking it seen. */
 function pickAmbientTip(): Tip | null {
-  if (isMobile()) return null;
+  if (!showsAmbientTips()) return null;
   const unseen = ambientPool.filter((t) => !seen().has(t.id));
   const pool = unseen.length > 0 ? unseen : ambientPool;
   return pool[Math.floor(Math.random() * pool.length)] ?? null;

@@ -26,7 +26,6 @@
 import type { CodeTabView } from "kolu-common/surface";
 import { batch, createSignal } from "solid-js";
 import type { LineRef } from "../ui/lineRef";
-import { isMobile } from "../useMobile";
 import { useRightPanel } from "./useRightPanel";
 
 export interface OpenInCodeTabRequest {
@@ -67,17 +66,13 @@ export const pendingOpen = pending;
 /** Open the right panel's Code tab at `req.targetMode` showing `req.ref`.
  *  Three reactive writes wrapped in `batch()` so downstream effects see
  *  the changes in one reactive transaction: per-terminal tab/mode
- *  (`openCodeAt`), workspace visibility (uncollapse desktop / open mobile
- *  drawer), and the producer signal (`setPending`). */
+ *  (`openCodeAt`), workspace visibility (`rp.reveal()` — uncollapse desktop or
+ *  open the mobile drawer), and the producer signal (`setPending`). */
 export function openInCodeTab(req: OpenInCodeTabRequest): void {
   const rp = useRightPanel();
   batch(() => {
     rp.openCodeAt(req.targetMode);
-    if (isMobile()) {
-      rp.setDrawerOpen(true);
-    } else if (rp.collapsed()) {
-      rp.expandPanel();
-    }
+    rp.reveal();
     setPending(req);
   });
 }

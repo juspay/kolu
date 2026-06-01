@@ -53,6 +53,7 @@ import {
 import ScrollToBottom from "./ScrollToBottom";
 import { applyStickyModifiers } from "./stickyModifiers";
 import SearchBar from "./SearchBar";
+import { enableSoftKeyboardInput } from "./softKeyboardInput";
 import { registerTerminalRefs, unregisterTerminalRefs } from "./terminalRefs";
 import { registerDiagnostics } from "./useTerminalDiagnostics";
 import { useTerminalStore } from "./useTerminalStore";
@@ -520,115 +521,94 @@ const Terminal: Component<{
           containerRef.addEventListener("click", (e) => {
             if (e.target === containerRef) term.focus();
           });
-          // Mobile: route soft-keyboard input through `.xterm-screen` itself,
-          // the way hterm does (libapps/hterm/js/hterm_scrollport.js:617-655).
-          //
-          // xterm's own hidden helper textarea already has spellcheck/autocorrect
-          // disabled by the library (CoreBrowserTerminal.ts:448-450), but iOS
-          // Safari still runs spell-check against the accumulated `textarea.value`
-          // that `_syncTextArea()` parks at the cursor cell — hence the phantom
-          // underlines. Making the screen element contenteditable gives mobile a
-          // real focus target and lets us opt the whole input surface out of
-          // correction features. `caret-color: transparent` keeps the native
-          // contenteditable caret from fighting xterm's rendered cursor.
-          //
-          // Desktop is left alone — xterm's unmodified mousedown → textarea.focus
-          // path works fine with a hardware keyboard and we don't want to risk
-          // fighting its selection handling.
-          if (isTouch()) {
-            const screen = term.element?.querySelector(
-              ".xterm-screen",
-            ) as HTMLElement | null;
-            if (screen) {
-              screen.setAttribute("contenteditable", "true");
-              screen.setAttribute("spellcheck", "false");
-              screen.setAttribute("autocorrect", "off");
-              screen.setAttribute("autocapitalize", "none");
-              screen.setAttribute("autocomplete", "off");
-              screen.setAttribute("aria-readonly", "true");
-              screen.style.caretColor = "transparent";
-              screen.style.outline = "none";
-              // iOS Safari rejects the soft keyboard when focus shuffles
-              // mid-gesture from the contenteditable above to xterm's
-              // opacity-0 helper textarea — which is exactly what happens
-              // when the wrapper-click handler (line 500) fires
-              // term.focus() right after the browser auto-focuses
-              // .xterm-screen on pointerdown. preventDefault on pointerdown
-              // blocks the contenteditable auto-focus.
-              //
-              // Defer the focus call to pointerup, gated on a tap-sized
-              // movement threshold: taps summon the keyboard, touch-scrolls
-              // don't. pointerup still fires inside the user-gesture window
-              // iOS requires for programmatic focus, and the call sees the
-              // same "single focus event, no shuffle" iOS heuristic the
-              // pointerdown variant did. Threshold is generous enough to
-              // tolerate finger jitter on a real tap but tighter than the
-              // ~1-cell-height step the scroll handler at line 716 reads as
-              // "scroll started".
-              const TAP_THRESHOLD_PX = 10;
-              const isTap = (dx: number, dy: number) =>
-                Math.hypot(dx, dy) <= TAP_THRESHOLD_PX;
-              let activeTap: {
-                pointerId: number;
-                startX: number;
-                startY: number;
-              } | null = null;
-              // Map a tap point to the `path:line` reference under it, if any.
-              // Reads the screen's `getBoundingClientRect()` to convert the
-              // viewport pixel into a (col, buffer-line) cell — both axes plus
-              // the rect offsets, since a tap is 2D (the touch-scroll handler
-              // below needs only `clientHeight`, one dimension, so the two
-              // don't share a geometry helper). Then hit-tests the link parser.
-              const fileRefAtPoint = (
-                clientX: number,
-                clientY: number,
-              ): LineRef | null => {
-                if (!terminal) return null;
-                const rect = screen.getBoundingClientRect();
-                const cellW = rect.width / terminal.cols;
-                const cellH = rect.height / terminal.rows;
-                if (
-                  !Number.isFinite(cellW) ||
-                  cellW <= 0 ||
-                  !Number.isFinite(cellH) ||
-                  cellH <= 0
-                )
-                  return null;
-                const col = Math.floor((clientX - rect.left) / cellW);
-                const row = Math.floor((clientY - rect.top) / cellH);
-                const bufferLine = terminal.buffer.active.viewportY + row;
-                return fileRefAtCell(terminal, col, bufferLine);
+          // Touch: give the soft keyboard a contenteditable `.xterm-screen`
+          // input surface (xterm's hidden helper textarea triggers iOS
+          // spell-check underlines). Extracted to `softKeyboardInput.ts` so the
+          // xterm shadow-DOM knowledge and the `isTouch()` guard live in one
+          // testable place; returns the prepared screen (null on desktop) onto
+          // which the tap-routing gestures below wire link-activation vs. focus.
+          const screen = enableSoftKeyboardInput(term);
+          if (screen) {
+            // iOS Safari rejects the soft keyboard when focus shuffles
+            // mid-gesture from the contenteditable above to xterm's
+            // opacity-0 helper textarea — which is exactly what happens
+            // when the wrapper-click handler (line 500) fires
+            // term.focus() right after the browser auto-focuses
+            // .xterm-screen on pointerdown. preventDefault on pointerdown
+            // blocks the contenteditable auto-focus.
+            //
+            // Defer the focus call to pointerup, gated on a tap-sized
+            // movement threshold: taps summon the keyboard, touch-scrolls
+            // don't. pointerup still fires inside the user-gesture window
+            // iOS requires for programmatic focus, and the call sees the
+            // same "single focus event, no shuffle" iOS heuristic the
+            // pointerdown variant did. Threshold is generous enough to
+            // tolerate finger jitter on a real tap but tighter than the
+            // ~1-cell-height step the scroll handler at line 716 reads as
+            // "scroll started".
+            const TAP_THRESHOLD_PX = 10;
+            const isTap = (dx: number, dy: number) =>
+              Math.hypot(dx, dy) <= TAP_THRESHOLD_PX;
+            let activeTap: {
+              pointerId: number;
+              startX: number;
+              startY: number;
+            } | null = null;
+            // Map a tap point to the `path:line` reference under it, if any.
+            // Reads the screen's `getBoundingClientRect()` to convert the
+            // viewport pixel into a (col, buffer-line) cell — both axes plus
+            // the rect offsets, since a tap is 2D (the touch-scroll handler
+            // below needs only `clientHeight`, one dimension, so the two
+            // don't share a geometry helper). Then hit-tests the link parser.
+            const fileRefAtPoint = (
+              clientX: number,
+              clientY: number,
+            ): LineRef | null => {
+              if (!terminal) return null;
+              const rect = screen.getBoundingClientRect();
+              const cellW = rect.width / terminal.cols;
+              const cellH = rect.height / terminal.rows;
+              if (
+                !Number.isFinite(cellW) ||
+                cellW <= 0 ||
+                !Number.isFinite(cellH) ||
+                cellH <= 0
+              )
+                return null;
+              const col = Math.floor((clientX - rect.left) / cellW);
+              const row = Math.floor((clientY - rect.top) / cellH);
+              const bufferLine = terminal.buffer.active.viewportY + row;
+              return fileRefAtCell(terminal, col, bufferLine);
+            };
+            makeEventListener(screen, "pointerdown", (e: PointerEvent) => {
+              e.preventDefault();
+              activeTap = {
+                pointerId: e.pointerId,
+                startX: e.clientX,
+                startY: e.clientY,
               };
-              makeEventListener(screen, "pointerdown", (e: PointerEvent) => {
-                e.preventDefault();
-                activeTap = {
-                  pointerId: e.pointerId,
-                  startX: e.clientX,
-                  startY: e.clientY,
-                };
-              });
-              makeEventListener(screen, "pointerup", (e: PointerEvent) => {
-                if (activeTap === null || e.pointerId !== activeTap.pointerId)
-                  return;
-                const { startX, startY } = activeTap;
-                activeTap = null;
-                if (!isTap(e.clientX - startX, e.clientY - startY)) return;
-                // What the tap does decides whether the keyboard rises: a tap on
-                // a `path:line` reference follows the link into the Code tab
-                // (xterm's own link activation is mouse/hover-only and never
-                // fires for touch), a tap on plain content focuses to type.
-                // Only the latter summons the soft keyboard.
-                const ref = fileRefAtPoint(e.clientX, e.clientY);
-                if (ref) {
-                  activateFileRef(ref);
-                  return;
-                }
-                term.focus();
-              });
-              makeEventListener(screen, "pointercancel", (e: PointerEvent) => {
-                if (activeTap?.pointerId === e.pointerId) activeTap = null;
-              });
-            }
+            });
+            makeEventListener(screen, "pointerup", (e: PointerEvent) => {
+              if (activeTap === null || e.pointerId !== activeTap.pointerId)
+                return;
+              const { startX, startY } = activeTap;
+              activeTap = null;
+              if (!isTap(e.clientX - startX, e.clientY - startY)) return;
+              // What the tap does decides whether the keyboard rises: a tap on
+              // a `path:line` reference follows the link into the Code tab
+              // (xterm's own link activation is mouse/hover-only and never
+              // fires for touch), a tap on plain content focuses to type.
+              // Only the latter summons the soft keyboard.
+              const ref = fileRefAtPoint(e.clientX, e.clientY);
+              if (ref) {
+                activateFileRef(ref);
+                return;
+              }
+              term.focus();
+            });
+            makeEventListener(screen, "pointercancel", (e: PointerEvent) => {
+              if (activeTap?.pointerId === e.pointerId) activeTap = null;
+            });
           }
           // Kolu-owned bridge consumed by e2e step definitions —
           // `support/buffer.ts`, `step_definitions/file_ref_link_steps.ts`,

@@ -100,7 +100,7 @@ const CanvasMinimap: Component<{
    *  Why a prop and not `useCanvasArrange()` directly: this minimap
    *  consumes `useCanvasViewport()` and `useTerminalStore()` as
    *  zero-arg singletons, but `useCanvasArrange` takes composition-
-   *  root deps (`{ store, crud, viewport, isMobile }`) bound once at
+   *  root deps (`{ store, crud }`) bound once at
    *  App.tsx. The prop carries the bound result; the minimap stays
    *  ignorant of the arrange policy itself. */
   onAutoArrange?: () => void;
