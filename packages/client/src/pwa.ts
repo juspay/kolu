@@ -108,8 +108,7 @@ export function initPwa(): void {
         // Skip while offline — a failed fetch would needlessly churn. Errors
         // (e.g. the server momentarily down mid-deploy) are swallowed; the next
         // poll or the reconnect nudge retries.
-        if (typeof navigator !== "undefined" && navigator.onLine === false)
-          return;
+        if (!navigator.onLine) return;
         void reg.update().catch(() => {});
       }, UPDATE_POLL_MS);
     },
