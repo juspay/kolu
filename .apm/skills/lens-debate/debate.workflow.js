@@ -1,19 +1,25 @@
-// The model every lens/agent runs on. SKILL.md flags this as load-bearing
-// (lenses run on Opus, overriding their `model: sonnet` frontmatter) and model
-// migrations are a recurring change — keep it to one socket. `meta` is evaluated
-// before inputs, so this lives module-level; the `model` input below defaults to it.
-const MODEL = 'opus'
-
+// The Workflow runtime requires `export const meta` to be the FIRST statement
+// and a PURE LITERAL (no variable interpolation), so the model is inlined as
+// 'opus' in each phase below. The single `const MODEL` socket lives just after
+// meta — every other model reference in this script reads it lazily at
+// input-resolution time, well after meta is evaluated.
 export const meta = {
   name: 'lens-debate',
   description:
     'lowy + hickey review a diff independently in parallel, then debate every finding to consensus; apply the agreed fixes',
   phases: [
-    { title: 'Review', detail: 'lowy and hickey (and optionally code-police) review the diff independently, in parallel', model: MODEL },
-    { title: 'Debate', detail: 'lowy and hickey cross-examine every finding until they agree per-finding', model: MODEL },
-    { title: 'Apply', detail: 'implement each agreed fix as its own commit', model: MODEL },
+    { title: 'Review', detail: 'lowy and hickey (and optionally code-police) review the diff independently, in parallel', model: 'opus' },
+    { title: 'Debate', detail: 'lowy and hickey cross-examine every finding until they agree per-finding', model: 'opus' },
+    { title: 'Apply', detail: 'implement each agreed fix as its own commit', model: 'opus' },
   ],
 }
+
+// The model every lens/agent runs on. SKILL.md flags this as load-bearing
+// (lenses run on Opus, overriding their `model: sonnet` frontmatter) and model
+// migrations are a recurring change — keep it to one socket. Inlined into the
+// phase entries above (meta must be a pure literal); the `model` input below
+// defaults to it.
+const MODEL = 'opus'
 
 // ---------------------------------------------------------------------------
 // Inputs (passed via the Workflow tool's `args`)
