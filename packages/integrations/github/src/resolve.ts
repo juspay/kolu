@@ -146,12 +146,11 @@ export function subscribeGitHubPr(
   function emit(pr: PrResult): void {
     if (stopped || prResultEqual(pr, lastPr)) return;
     lastPr = pr;
-    // `onChange` runs the caller's callback (a metadata write that can throw).
-    // Contain it here, the single point every emission — the synchronous
-    // pending emit in `setGit` and the resolved emit in `fetchAndEmit` —
-    // funnels through, so a throwing consumer degrades this terminal's PR
-    // metadata instead of escaping (sync into `setGit`, or as an unhandled
-    // rejection out of the floated `fetchAndEmit`).
+    // `onChange` is the caller's callback (a metadata write that can throw).
+    // Guard it here — the single funnel every emission path passes through —
+    // so a throwing consumer degrades this terminal's PR metadata instead of
+    // escaping: synchronously out of `setGit` into the git channel's consume
+    // loop, or as an unhandled rejection out of the floated `fetchAndEmit`.
     try {
       onChange(pr);
     } catch (err) {
