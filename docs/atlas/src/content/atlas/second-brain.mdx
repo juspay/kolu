@@ -1,6 +1,6 @@
 ---
 title: The kolu Atlas
-description: kolu's second brain as an in-repo, MDX-authored knowledge base — a self-contained Astro project, dogfooded in the Code tab.
+description: kolu's second brain — an in-repo, MDX-authored knowledge base in a self-contained Astro project, dogfooded in the Code tab.
 kind: design
 maturity: budding
 status: proposed
@@ -10,193 +10,144 @@ updated: 2026-06-02
 import PrLink from "../../components/PrLink.astro";
 import AtlasMockup from "../../components/AtlasMockup.astro";
 
-> **This doc dogfoods itself.** It's the Atlas design, authored as MDX and
-> living *in* the Atlas it describes (`docs/atlas/`), rendered to a
-> self-contained `docs/atlas/dist/second-brain.html` you can read in kolu's Code
-> tab — no dev server.
+> **This doc dogfoods itself** — authored as MDX, living *in* the Atlas it
+> describes (`docs/atlas/`), rendered to a self-contained
+> `docs/atlas/dist/second-brain.html` you read in the Code tab. No dev server.
 
-You already have a second brain — name the roles, don't build a new system.
-kolu has two overlapping stores (**GitHub Issues** and in-repo **docs**), a
-blog, and an app whose Code tab renders and annotates files. The job is to
-assign roles, not add machinery.
+**Premise: you already have a second brain — assign roles, don't build a new
+system.** kolu's existing stores:
+
+- **GitHub Issues** — lightweight, living nodes.
+- **In-repo docs** — substantial, structured artifacts.
+- **The blog** — the public stream.
+- **The Code tab** — renders + annotates both.
 
 ## The one routing rule
 
-Route by a single question, stated once and identically everywhere:
-
-> *Is this a **substantial, structured artifact** — or a **lightweight,
-> transient node**?*
+> *Substantial, structured artifact — or lightweight, transient node?*
 
 | Substantial → an **Atlas note** | Lightweight → a **GitHub Issue** |
 | --- | --- |
 | Plans, designs, research, reviews, retros, history | Bugs, tasks, roadmap items, quick questions |
 
-**Living-vs-frozen is *not* the divider** — a plan tree like `remote-terminals`
-lives and evolves for months. Maturity is a per-note **tag**
-(`seedling` → `budding` → `evergreen`), never a routing axis and never a
-location. The boundary blurs by design: a concept can have both an Atlas note
-and a tracking issue. When an issue thread becomes the source of truth,
-**extract** its summary into an Atlas note.
+- **Maturity is a tag, not a divider** — `seedling` → `budding` → `evergreen`; never a location, never a routing axis.
+- **Living ≠ frozen** — a plan like `remote-terminals` evolves for months and still lives in the Atlas.
+- **The boundary blurs by design** — a concept can hold both a note and an issue.
+- **Extract, don't sync** — when an issue thread becomes the source of truth, lift its summary into a note.
 
-## The map — public & Atlas
+## The map
 
 | Surface | Where | Role |
 | --- | --- | --- |
 | **Public** | the blog (kolu.dev) + per-release changelog | outward-facing; one post per release |
-| **Atlas** | `docs/atlas/` → rendered to `docs/atlas/dist/` | the working brain; markdown/MDX notes, internal-only |
+| **Atlas** | `docs/atlas/` → `docs/atlas/dist/` | the working brain; markdown/MDX notes, internal-only |
 
-History isn't a third place — it's the Atlas over time (a settled note is just
-`evergreen`; git is the history; the changelog is a release artifact).
+- **History isn't a third place** — it's the Atlas over time: a settled note is just `evergreen`, git is the history, the changelog is the release artifact.
 
-## Where the Atlas lives: a self-contained Astro project under `docs/`
+## Where it lives: a self-contained Astro project
 
-The Atlas is its **own little Astro project** at `docs/atlas/`, with notes as a
-content collection in `docs/atlas/src/content/atlas/*.{md,mdx}`. It is
-**deliberately decoupled from the public website** (`website/`) — different
-audience, different cadence — and is **not published anywhere**. This is the big
-call, and it earns its keep:
+`docs/atlas/` is its **own little Astro project** — decoupled from the public
+`website/` (different audience + cadence), **not published anywhere**.
 
-- **Author markdown/MDX, get rendered HTML.** Agents that edit it write plain
-  `.md`/`.mdx` + frontmatter; Astro renders the rest.
-- **One shared layout + theme** — no per-file CSS (the old HTML notes
-  duplicated ~76 KB of it).
-- **Generated index + metadata** from frontmatter — see *Navigation* below;
-  this retires the hand-curated map *and* its CI gate.
-- **Self-contained output, committed.** Each `docs/atlas/dist/<slug>.html`
-  inlines its styles, so it previews in the Code tab with no dev server and
-  cross-links with plain relative hrefs.
-- **`draft: true`** keeps a half-baked note out of the index while it still
-  lives in-repo and stays readable by agents from disk.
+- **Author markdown/MDX, get HTML** — write `.md`/`.mdx` + frontmatter; Astro renders.
+- **One layout + theme** — no per-file CSS (the old HTML notes duplicated ~76 KB).
+- **Generated index** from frontmatter — no hand-curated map (see *Navigation*).
+- **Self-contained committed output** — each `dist/<slug>.html` inlines its styles and cross-links with relative hrefs → previews in the Code tab, no server.
+- **`draft: true`** hides a half-baked note from the index but keeps it on disk for agents.
 
-> **Spiked 2026-06-02.** The project + a generated index + a render route are
-> live; this very note renders to `docs/atlas/dist/second-brain.html` and the
-> build is green. The rendered `.html` is committed (marked generated via
-> `.gitattributes`) so it's previewable in the Code tab — an `.apm` rule
-> rebuilds it whenever an Atlas note changes.
+> **Spiked 2026-06-02** — project + index + render route are live; this note
+> builds green; `dist/` is committed (generated via `.gitattributes`), and an
+> `.apm` rule + the `ci::atlas-sync` gate keep it in sync.
 
-## Format — MDX: markdown prose + typed components
+## Format — markdown prose + MDX components
 
-Author **prose in markdown**; when a note needs more, the file is **`.mdx`**, so
-it can import typed Astro/TypeScript components and use them inline. Markdown for
-the words, components for everything structured or visual — no raw HTML to
-hand-maintain, no per-note CSS.
+- **Prose in markdown** — the default.
+- **`.mdx` when a note needs more** — import typed Astro/TS components, use them inline. No raw HTML, no per-note CSS.
 
 | Why markdown for prose | Evidence |
 | --- | --- |
-| Far fewer tokens — paid on every agent read | Cloudflare measured ~80% fewer tokens md vs html |
+| Far fewer tokens — paid on every agent read | Cloudflare: ~80% fewer tokens md vs html |
 | The CLIs kolu runs prefer it | Claude Code & OpenCode send `Accept: text/markdown` |
-| Renders for free where it matters | github.com renders `.md`; the Code tab renders it (#1093) |
+| Renders where it matters | github.com renders `.md`; the Code tab renders it (#1093) |
 
-> **Honest caveat:** in-app annotation of *rendered* markdown is source-view-only
-> today (#1093 v1). Split by regime: markdown prose for agent-ingested text;
-> components for visual or interactive artifacts.
+> **Caveat:** annotating *rendered* markdown is source-view-only today (#1093
+> v1). Regime split: markdown for agent-ingested prose, components for visual or
+> interactive bits.
 
 ## Extending markdown with components
 
-Because this note is **`.mdx`**, a component is just an import away. A GitHub PR
-chip is a typed component — `<PrLink pr={1131} />` — that renders a real link
-with the repo baked in: this design shipped its first slice in <PrLink pr={1095} />
-and is iterated in <PrLink pr={1131} label="this PR" />. Props are typechecked at
-build; plain markdown can't do that.
+Because this note is `.mdx`, a component is one import away:
 
-A self-contained visual prototype is a component too — `<AtlasMockup />` bundles
-HTML, inline SVG, and styles into one reusable tag:
+- **`<PrLink>`** — a typed GitHub-PR chip with the repo baked in: first slice in <PrLink pr={1095} />, iterated in <PrLink pr={1131} label="this PR" />. Props are typechecked at build.
+- **`<AtlasMockup>`** — bundles HTML + inline SVG + styles into one reusable tag:
 
 <AtlasMockup />
 
-The raw `.md` preview can't render any of this; the Astro layer can — which is
-the whole point. Components keep notes terse and consistent: define once, reuse
-across the Atlas.
+The raw `.md` preview can't render these; the Astro layer can. Define once, reuse across the Atlas.
 
 ## Navigation — generated, not hand-curated
 
-Astro builds the index from the collection's frontmatter, so **a note can never
-be unfiled** — which retires both the hand-curated Map-of-Content *and* the
-`docs-moc` CI gate (kept only as long as legacy `docs/plans/*.html` exist).
-
+- **Index built from frontmatter** → a note can never be unfiled (retires the hand MOC + its `docs-moc` link-gate, kept only while legacy `docs/plans/*.html` exist).
 - **Flat, ancestry-free slugs** — the filename is a handle, not a path.
-- The index groups by `kind`, sorts, shows the `maturity` badge, and hides
-  drafts in the built index.
-- Dead-link checking stays a real, generic invariant (a linter), not a
-  bespoke build gate.
+- **Index groups by `kind`, shows `maturity`, hides drafts.**
+- **Dead-link checking stays a generic linter**, not a bespoke gate.
 
 ## Proposals & decisions — keep the numbered log
 
-A decision/RFC log's value *is* a **stable monotonic identifier** + **append-only
-immutability** + supersede links. Don't dissolve it into mutable notes: keep
-proposals as **numbered markdown** (`status: proposed → accepted`), which is also
-what `CONTRIBUTING.md` already requires. `proposed → accepted` is a *lifecycle*
-(a status field), so no separate `docs/decisions/` dir is needed.
+- Value of a decision/RFC log = **stable monotonic id** + **append-only immutability** + **supersede links**.
+- Keep proposals as **numbered markdown** (`status: proposed → accepted`) — already required by `CONTRIBUTING.md`.
+- `proposed → accepted` is a *lifecycle* (a status field) — no separate `docs/decisions/` dir needed.
 
 ## Capture — manual `/atlas retro` first
-
-Three tiers, each in a different home so the always-loaded layer stays lean:
 
 `/be session` → **`/atlas retro` (manual, fresh subagent)** → draft → *accept?* → note → *recurs?* → rule/hook
 
 | Tier | What · where |
 | --- | --- |
 | ① Ephemeral | the raw transcript (`exportSessionAsHtml.ts`) |
-| ② Curated learning | a GitHub Issue, or a `<slug>` Atlas note when rich |
-| ③ Durable rule | `.apm/` sources — **graduate must-hold rules to a justci recipe/hook** (memory → rule → code) |
+| ② Curated learning | a GitHub Issue, or an Atlas note when rich |
+| ③ Durable rule | `.apm/` sources — graduate must-hold rules to a justci recipe/hook |
 
-**Start manual, then automate.** Ship a manual `/atlas retro` the maintainer
-invokes; it runs as a fresh subagent (same-context self-eval is overconfident),
-preserves verbatim vocabulary (error strings, `file:line`), and **drafts** a
-note that persists only on accept. Use it ~10×, then consider a gated `/be`
-final stage. Promotion ②→③ is human judgment, never an automated counter.
+- **Start manual, then automate** — ship the manual `/atlas retro`; use it ~10× before a gated `/be` stage.
+- **Fresh subagent** — same-context self-eval is overconfident.
+- **Preserve verbatim vocabulary** — error strings, `file:line`.
+- **Persist only on accept**; promotion ②→③ is human judgment, never a counter.
 
 ## How the brain feeds releases
 
-A changelog and blog post are the **downstream** of captured history:
-
 `/be session` → `/atlas retro → note` → conventional commit + PR `(#N)` → git-cliff CHANGELOG → `whatchanged → blog` → release
 
-> **Highest-ROI gate of all: a conventional-commit lint on PRs.** Hygiene is
-> ~41/100 and the whole release pipeline depends on it. Start warn-only.
+> **Highest-ROI gate: a conventional-commit lint on PRs.** Hygiene is ~41/100
+> and the whole release pipeline depends on it. Start warn-only.
 
 ## Links — one direction, and the `#N` reality
 
-Links go **one direction** (note → `#N`, note → note) with **no two-way sync**.
-But: GitHub does *not* autolink `#N` inside committed files — the real reverse
-pointer comes from the **PR/commit that adds the note**. There are no "free
-backlinks" from file content.
+- Links go **one way** (note → `#N`, note → note); **no two-way sync**.
+- GitHub does **not** autolink `#N` in committed files — the real reverse pointer is the **PR/commit that adds the note**.
+- There are no "free backlinks" from file content.
 
 ## Deliberately not building (yet)
 
-A separate `docs/decisions/` or `docs/devlog/` · a seven-kind taxonomy ·
-two-way Issue↔docs sync · auto rule-promotion by backlink count ·
-auto-capture on every `/be` (until manual proves out) · a decay ritual.
+- A separate `docs/decisions/` or `docs/devlog/`.
+- A seven-kind taxonomy · two-way Issue↔docs sync.
+- Auto rule-promotion by backlink count · auto-capture on every `/be` · a decay ritual.
 
 ## Rollout
 
-- **Shipped:** the original plans + MOC + house style + the `docs/**` agent rule
-  (#1095); the `docs-moc` gate + `plans::check` module (#1098).
-- **Now:** the Atlas as a **self-contained Astro project** under `docs/atlas/`
-  (decoupled from the public `website/`, not published) — generated index +
-  render route, committed self-contained HTML, an auto-rebuild `.apm` rule, and
-  MDX components (`<PrLink>`, `<AtlasMockup>`). This note is the first migrated
-  artifact; `release-workflow` was removed.
-- **Next:** migrate the remaining `docs/plans/*.html` to Atlas notes on-touch;
-  retire the hand-MOC + `docs-moc` gate as that completes; add the
-  conventional-commit lint; ship the first release; then the `/atlas` skill.
+- **Shipped** — original plans + MOC + house style + the `docs/**` rule (#1095); the `docs-moc` gate + `plans::check` (#1098).
+- **Now** — the Atlas as a self-contained `docs/atlas/` project: generated index, render route, committed HTML, `.apm` rule + `ci::atlas-sync` gate, MDX components. First migrated note; `release-workflow` removed.
+- **Next** — migrate remaining `docs/plans/*.html` on-touch; retire the hand-MOC + `docs-moc` as that completes; add the conventional-commit lint; ship the first release; then the `/atlas` skill.
 
 ## Open
 
-- Maturity tier names settled (`seedling`/`budding`/`evergreen`).
-- Committed-generated-HTML churn: marked generated via `.gitattributes`; pages
-  are self-contained (inlined styles) so only the touched page changes. A CI gate
-  (`ci::atlas-sync` → `just atlas::check-sync`) rebuilds and fails if `dist/` is
-  stale, so the committed HTML can't drift from source.
 - Conventional-commit lint: warn-only or hard-fail to start?
 - Transcript durability: commit exported transcripts, or host out-of-band?
 
 ---
 
-*Revised 2026-06-02 after a 7-lane adversarial research pass (format,
-navigation, storage, capture, decision-records, comparables, system-shape) with
-fact-checking + Hickey/Lowy/completeness critics — which flipped HTML-all-the-way
-to markdown-first, kept the numbered proposal log, and dropped a planned rename;
-then the Astro direction was chosen for rendering, the Atlas was extracted into a
-self-contained `docs/atlas/` project (decoupled from the public site), and its
-notes moved to MDX with typed components.*
+*Revised 2026-06-02: a 7-lane adversarial research pass (format, navigation,
+storage, capture, decision-records, comparables, system-shape) + Hickey/Lowy/
+completeness critics flipped HTML-all-the-way → markdown-first, kept the numbered
+proposal log, and dropped a planned rename; then Astro was chosen for rendering,
+the Atlas extracted into a self-contained `docs/atlas/` project, and notes moved
+to MDX with typed components.*
