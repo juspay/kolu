@@ -50,7 +50,7 @@
   Adding, renaming, or removing a file under docs/plans/? Add or refresh its
   one-line entry below, in the right section, in the SAME commit. Prefer flat
   ancestry-free slugs (pty-daemon-tui.html) over dotted names
-  (remote-terminals.pty-daemon.tui.html). Rationale: ./second-brain.html §4.
+  (remote-terminals.pty-daemon.tui.html). Rationale: the Atlas design in the garden (website/src/content/garden/second-brain.md).
   Also enforced as an agent rule: .apm/instructions/docs.instructions.md
 -->
 <main>
@@ -58,7 +58,7 @@
 <p class="crumb">docs / plans</p>
 
 <h1>docs/plans — Maps of Content</h1>
-<p class="sub">The hand-curated index for kolu's in-repo knowledge garden. A note's <em>name</em> is a stable handle; its <em>structure</em> lives here, in links and annotations — not in the filename. <span class="muted">See <a href="./second-brain.html">second-brain.html</a> for why.</span></p>
+<p class="sub">The hand-curated index for kolu's in-repo knowledge garden. A note's <em>name</em> is a stable handle; its <em>structure</em> lives here, in links and annotations — not in the filename. <span class="muted">See the Atlas design in the garden (<code>/garden/second-brain</code>) for why.</span></p>
 
 <div class="panel accent">
 <p style="margin-top:0"><strong>How the brain is split</strong> — by one rule: <em>substantial, structured artifacts</em> live in the garden (this page maps it); <em>lightweight, transient nodes</em> live in GitHub Issues; the public stream is the blog. Maturity (seedling→evergreen) is a per-note <em>tag</em>, never a location.</p>
@@ -71,16 +71,7 @@
 </div>
 
 <h2>Process &amp; meta</h2>
-<a class="entry" href="./release-workflow.html">
-  <span class="t">Release workflow for kolu</span> <span class="tag budding">budding</span>
-  <span class="f">release-workflow.html</span>
-  <span class="d">First public release (ship <code>v0.1.0</code>), two-channel Nix distribution, git-cliff + whatchanged changelog, biweekly cadence, blog+demo pipeline.</span>
-</a>
-<a class="entry" href="./second-brain.html">
-  <span class="t">The kolu Atlas</span> <span class="tag budding">budding</span>
-  <span class="f">second-brain.html</span>
-  <span class="d">One knowledge system: substantial artifacts in the garden vs lightweight nodes in GitHub Issues; markdown-first (HTML for visual artifacts); flat slugs + this MOC; capture via a manual <code>/atlas retro</code>.</span>
-</a>
+<p class="muted">The <strong>Atlas</strong> design has moved into the Astro garden — authored as markdown at <code>website/src/content/garden/second-brain.md</code> and rendered at <code>/garden/second-brain</code>. New garden notes are authored there, not here; <code>release-workflow</code> was removed. This <code>docs/plans</code> index covers the not-yet-migrated plans below.</p>
 
 <h2>Plans &amp; specs <span class="muted" style="font-size:.8rem; font-weight:400">— forward-looking design &amp; phases</span></h2>
 <a class="entry" href="./remote-terminals.html">

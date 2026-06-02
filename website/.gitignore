@@ -1,4 +1,5 @@
-dist/
+/dist/*
+!/dist/garden
 .astro/
 node_modules/
 .env

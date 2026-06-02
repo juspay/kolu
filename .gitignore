@@ -1,5 +1,9 @@
 node_modules/
 dist/
+# …except the Astro garden output, committed for in-app Code-tab preview.
+!/website/dist/
+/website/dist/*
+!/website/dist/garden/
 result
 .direnv/
 # APM: generated metadata + per-user state (not vendored)

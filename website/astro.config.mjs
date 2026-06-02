@@ -13,6 +13,10 @@ const DEV_PORT = 4321;
 export default defineConfig({
   site: "https://kolu.dev",
   trailingSlash: "ignore",
+  // Inline each page's CSS so the committed dist/garden/*.html is self-contained
+  // and previews in kolu's Code tab without the hashed _astro bundle (which would
+  // churn git on every build).
+  build: { inlineStylesheets: "always" },
   server: { port: DEV_PORT, host: "127.0.0.1" },
   integrations: [mdx(), sitemap()],
   vite: {
