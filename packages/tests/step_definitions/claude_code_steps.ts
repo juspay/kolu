@@ -31,6 +31,7 @@ type MockState =
   | "waiting"
   | "running_background"
   | "orphaned_workflow"
+  | "journalless_workflow"
   | "background_bash"
   | "interrupted"
   | "interrupted_tool_use";
@@ -119,7 +120,16 @@ function buildTranscript(state: MockState): string {
   // the bare `waiting` to `running_background`. "orphaned_workflow" uses the
   // same transcript, but the mock step back-dates its journal so the run reads
   // as dead (a restart orphaned it) and the promotion is vetoed.
-  if (state === "running_background" || state === "orphaned_workflow") {
+  // "journalless_workflow" uses the same Workflow-launch transcript but the mock
+  // step writes NO journal and no `workflows/` dir, so the run carries a Run ID
+  // kolu can never observe. Pre-fix that promoted to `running_background` forever
+  // (the phantom bug F3 flagged); post-fix the gate has no liveness anchor and
+  // demotes to `waiting` rather than spinning indefinitely.
+  if (
+    state === "running_background" ||
+    state === "orphaned_workflow" ||
+    state === "journalless_workflow"
+  ) {
     lines.push(
       JSON.stringify({
         type: "user",

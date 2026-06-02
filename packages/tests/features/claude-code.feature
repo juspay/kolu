@@ -85,6 +85,11 @@ Feature: Claude Code status detection
     Then the tile chrome should show an agent indicator with state "waiting"
     And there should be no page errors
 
+  Scenario: A workflow launch with a Run ID but no journal does not spin forever
+    When a Claude Code session is mocked with state "journalless_workflow"
+    Then the tile chrome should show an agent indicator with state "waiting"
+    And there should be no page errors
+
   Scenario: Claude Code indicator disappears when session ends
     When a Claude Code session is mocked with state "thinking"
     Then the tile chrome should show an agent indicator with state "thinking"

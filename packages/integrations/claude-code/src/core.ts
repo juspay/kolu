@@ -385,8 +385,10 @@ export function deriveState(
   // in the transcript — its completion notification can be lost forever to a
   // restart, so promoting on it spins the pill indefinitely (the phantom
   // `running_background` bug). The watcher additionally drops a `Workflow`
-  // whose journal has gone terminal/stale (`liveOutstandingTasks`), so an
-  // orphaned run stops promoting too. Only the `waiting` case is promoted — an
+  // once kolu can no longer observe it as live — journal read as terminal, or
+  // its liveness anchor aged past the stale window (`liveOutstandingTasks`) —
+  // so an orphaned or unobservable run stops promoting too. Only the `waiting`
+  // case is promoted — an
   // in-flight `thinking`/`tool_use` already reads as working, and an
   // `awaiting_user` prompt is a genuine human gate.
   let state = stateAndModel.state;
@@ -580,23 +582,59 @@ const TERMINAL_JOURNAL_STATUSES = new Set([
  *  safe upper end. */
 export const WORKFLOW_JOURNAL_STALE_MS = 2 * 60 * 1000;
 
-/** Filter `outstanding` to the tasks that may drive the `running_background`
- *  promotion, dropping a `Workflow` run only when its on-disk journal is
- *  *positively* observed to be terminal or stale (the orphaned-by-restart
- *  signature). Non-`Workflow` tasks (runId null) pass through unchanged —
- *  `deriveState`'s own narrowing already declines to promote on them.
+/** Liveness anchor (an mtime) for a `Workflow` run's staleness clock: the most
+ *  recent on-disk write kolu can attribute to the run.
  *
- *  Fail-open by design: a missing or unreadable journal returns `true` (keep).
- *  The Claude Code Workflow runtime's on-disk layout has churned across
- *  versions — the same snapshot kolu reads (`workflows/<runId>.json`, the path
- *  `deriveWorkflowProgress` already consumes) was present, then absent (see
+ *  Preference order, each a strictly weaker observation than the last:
+ *   1. the run's own journal (`workflows/<runId>.json`) — the live signal, bumped
+ *      on every phase / sub-agent transition;
+ *   2. the `workflows/` directory itself — created when the run launches and
+ *      bumped whenever a journal is created/renamed inside it, so it still ages
+ *      out a run whose journal path *churned* to a name kolu no longer reads;
+ *   3. `null` — neither is stat-able, so there is no observable anchor at all.
+ *
+ *  Crucially this never returns `now`: the anchor is a real, monotonic on-disk
+ *  timestamp that does not reset between calls, so a bounded grace measured from
+ *  it actually expires. A journal that is never written (the phantom case — a
+ *  launch marker carrying a `Run ID` whose journal kolu cannot read) ages out
+ *  `WORKFLOW_JOURNAL_STALE_MS` after the directory's launch write, instead of
+ *  promoting forever. The directory fallback is what keeps a churned-path but
+ *  genuinely-live workflow promoting (its dir mtime advances as journals appear),
+ *  while still guaranteeing termination for a truly unobservable run. */
+function workflowStaleAnchorMs(wfDir: string, runId: string): number | null {
+  try {
+    return fs.statSync(path.join(wfDir, `${runId}.json`)).mtimeMs;
+  } catch {
+    // No readable journal — fall back to the directory's launch/last-write mtime.
+  }
+  try {
+    return fs.statSync(wfDir).mtimeMs;
+  } catch {
+    return null; // nothing observable to age out against
+  }
+}
+
+/** Filter `outstanding` to the tasks that may drive the `running_background`
+ *  promotion, dropping a `Workflow` run once kolu can no longer observe it as
+ *  live: its on-disk journal is *positively* read as terminal, or its liveness
+ *  anchor (`workflowStaleAnchorMs`) has aged past `WORKFLOW_JOURNAL_STALE_MS`
+ *  (the orphaned-by-restart signature). Non-`Workflow` tasks (runId null) pass
+ *  through unchanged — `deriveState`'s own narrowing already declines to promote
+ *  on them.
+ *
+ *  Bounded fail-open: a missing or unreadable journal is *kept* only while the
+ *  workflows-directory mtime is still within the stale window, then dropped. The
+ *  Claude Code Workflow runtime's on-disk layout has churned across versions —
+ *  the snapshot kolu reads (`workflows/<runId>.json`, the path
+ *  `deriveWorkflowProgress` consumes) was present, then absent (see
  *  `dynamic-workflow-viewer.html`), and is present again today, carrying
- *  `{workflowName,status,agentCount}` and rewritten live (that snapshot is what
- *  the workflows-dir watcher reacts to for the live fan-out count — #1015). If
- *  a future version moves or drops it, this gate must degrade to a no-op — the
- *  worst case is the pre-existing narrowing behaviour (a real workflow keeps
- *  promoting), never the codex-flagged regression of dropping live workflows.
- *  So the gate ACTS only on a journal it can read; it never vetoes on absence.
+ *  `{workflowName,status,agentCount}` and rewritten live (#1015). A churned
+ *  journal path must not *instantly* drop a live run, so the directory mtime
+ *  grants it a grace window (and keeps advancing while that dir sees writes). But
+ *  an unobservable run must not promote *forever* either — that was the phantom
+ *  `running_background` bug — so once even the directory anchor goes stale (or is
+ *  itself unreadable), the gate demotes. It still never drops a run on a single
+ *  transient unparseable read.
  *
  *  The IO (a `stat` + read per workflow task) only runs when the tail carries an
  *  outstanding task, so the common path stays off disk. `now` is injectable for
@@ -612,11 +650,18 @@ export function liveOutstandingTasks(
     const journalPath = path.join(wfDir, `${task.runId}.json`);
     let raw: string;
     try {
-      const stat = fs.statSync(journalPath);
-      if (now - stat.mtimeMs > WORKFLOW_JOURNAL_STALE_MS) return false; // orphaned
       raw = fs.readFileSync(journalPath, "utf8");
     } catch {
-      return true; // no observable journal (absent / churned path) → keep, don't regress
+      // No readable journal: keep only while the directory anchor is still
+      // fresh; a missing/stale anchor (or none) demotes so the spinner can't
+      // promote indefinitely on an unobservable run.
+      const anchor = workflowStaleAnchorMs(wfDir, task.runId);
+      return anchor !== null && now - anchor <= WORKFLOW_JOURNAL_STALE_MS;
+    }
+    // Journal read OK: age it out against its own mtime (the live signal).
+    const anchor = workflowStaleAnchorMs(wfDir, task.runId);
+    if (anchor !== null && now - anchor > WORKFLOW_JOURNAL_STALE_MS) {
+      return false; // orphaned — fresh enough to read, but no longer being written
     }
     let status: unknown;
     try {
@@ -630,22 +675,25 @@ export function liveOutstandingTasks(
   });
 }
 
-/** Earliest wall-clock time at which one of `tasks`' workflow journals would
- *  cross the stale threshold, or null if none has a readable journal to age out.
+/** Earliest wall-clock time at which one of `tasks`' workflow runs would cross
+ *  the stale threshold, or null if none has an observable liveness anchor to age
+ *  out.
  *
  *  `liveOutstandingTasks` only re-evaluates staleness when it is *called*, and
  *  the watcher only calls it on fs events (transcript / workflows-dir writes,
- *  initial attach). A journal going stale is the absence of writes, so it emits
- *  no event — without a timer scheduled at this deadline, a session published as
- *  `running_background` on a still-fresh journal whose agent then dies silently
- *  would keep its spinner forever (the phantom bug). The watcher arms a one-shot
- *  timer here; when it fires, the next `liveOutstandingTasks` sees the journal as
- *  stale and demotes the state.
+ *  initial attach). A run going stale is the absence of writes, so it emits no
+ *  event — without a timer scheduled at this deadline, a session published as
+ *  `running_background` whose agent then dies silently would keep its spinner
+ *  forever (the phantom bug). The watcher arms a one-shot timer here; when it
+ *  fires, the next `liveOutstandingTasks` sees the anchor as stale and demotes.
  *
- *  Returns the minimum deadline across all readable journals so the watcher
- *  re-checks as soon as the soonest one could age out (the rest are re-armed on
- *  that pass). A missing/unreadable journal contributes no deadline — it never
- *  promoted via this gate, so there is nothing to age out. */
+ *  Uses the same `workflowStaleAnchorMs` as the gate so the two never disagree:
+ *  every run the gate could still be keeping (including one with a missing/
+ *  unreadable journal that survives on the directory anchor) gets a deadline, so
+ *  there is always a timer to clear it. Returns the minimum deadline across runs
+ *  so the watcher re-checks as soon as the soonest one could age out (the rest
+ *  are re-armed on that pass). A run with no observable anchor at all contributes
+ *  no deadline — but the gate has already demoted it, so no timer is needed. */
 export function nextWorkflowStaleDeadline(
   session: SessionFile,
   tasks: BackgroundTask[],
@@ -655,13 +703,9 @@ export function nextWorkflowStaleDeadline(
   let earliest: number | null = null;
   for (const task of tasks) {
     if (!task.runId) continue;
-    let mtimeMs: number;
-    try {
-      mtimeMs = fs.statSync(path.join(wfDir, `${task.runId}.json`)).mtimeMs;
-    } catch {
-      continue; // no observable journal → nothing to age out
-    }
-    const deadline = Math.max(mtimeMs + WORKFLOW_JOURNAL_STALE_MS, now);
+    const anchor = workflowStaleAnchorMs(wfDir, task.runId);
+    if (anchor === null) continue; // no observable anchor → gate already demoted it
+    const deadline = Math.max(anchor + WORKFLOW_JOURNAL_STALE_MS, now);
     if (earliest === null || deadline < earliest) earliest = deadline;
   }
   return earliest;

@@ -650,11 +650,37 @@ describe("liveOutstandingTasks", () => {
     expect(live(session, [wf("wf_stale")])).toEqual([]);
   });
 
-  it("keeps a workflow with no journal on disk (fail-open against format churn)", () => {
-    // The gate vetoes only on a journal it can positively read as terminal/stale;
-    // an absent journal (e.g. a future runtime that moves the snapshot path) must
-    // degrade to narrowing-only behaviour, never drop a live workflow.
-    expect(live(session, [wf("wf_missing")])).toEqual([wf("wf_missing")]);
+  it("keeps a journal-less workflow while the workflows dir is still fresh (grace against format churn)", () => {
+    // A future runtime that moves the snapshot path leaves the run's own journal
+    // unreadable. The gate must not *instantly* drop such a (possibly live) run,
+    // so it grants a grace window anchored on the workflows-directory mtime — the
+    // launch/last-write timestamp that survives a journal-path churn. `wf_grace`
+    // has no journal, but the dir exists and is fresh (prior writes), so it stays.
+    fs.mkdirSync(wfDir(), { recursive: true });
+    expect(live(session, [wf("wf_grace")])).toEqual([wf("wf_grace")]);
+  });
+
+  it("drops a journal-less workflow once the workflows dir itself goes stale (phantom guard)", () => {
+    // The phantom `running_background` bug: a launch marker carrying a `Run ID`
+    // whose journal kolu can never read must NOT promote forever. Once even the
+    // directory anchor ages past the stale window, the gate demotes it.
+    fs.mkdirSync(wfDir(), { recursive: true });
+    const dirMtime = fs.statSync(wfDir()).mtimeMs;
+    expect(live(session, [wf("wf_phantom")], dirMtime + staleMs + 1)).toEqual(
+      [],
+    );
+  });
+
+  it("drops a journal-less workflow when the workflows dir is absent (no anchor at all)", () => {
+    // A fresh module with no projects dir written yet: neither the journal nor
+    // its directory is stat-able, so there is no observable liveness anchor and
+    // nothing can justify an indefinite spinner — demote.
+    const fresh = {
+      pid: 9,
+      sessionId: "no-dir-session",
+      cwd: "/home/user/no-dir-project",
+    };
+    expect(live(fresh, [wf("wf_nodir")])).toEqual([]);
   });
 
   it("passes non-workflow tasks (runId null) through unchanged", () => {
@@ -703,8 +729,23 @@ describe("liveOutstandingTasks", () => {
       );
     });
 
-    it("returns null when no task has a readable journal (nothing to age out)", () => {
-      expect(nextDeadline(session, [wf("wf_absent")])).toBeNull();
+    it("falls back to the workflows-dir mtime for a journal-less workflow (a timer still clears the phantom)", () => {
+      // A run kept on the directory grace anchor must still get a deadline, or
+      // the watcher would arm no timer and the spinner could never self-clear.
+      fs.mkdirSync(wfDir(), { recursive: true });
+      const dirMtime = fs.statSync(wfDir()).mtimeMs;
+      expect(nextDeadline(session, [wf("wf_absent")])).toBe(dirMtime + staleMs);
+    });
+
+    it("returns null when nothing observable anchors the run (gate has already demoted it)", () => {
+      // No workflows dir at all → no anchor → no deadline; the gate drops the
+      // task in the same pass, so there is nothing left to age out.
+      const fresh = {
+        pid: 9,
+        sessionId: "no-dir-deadline-session",
+        cwd: "/home/user/no-dir-deadline-project",
+      };
+      expect(nextDeadline(fresh, [wf("wf_absent")])).toBeNull();
       expect(nextDeadline(session, [{ taskId: "b1", runId: null }])).toBeNull();
     });
   });
