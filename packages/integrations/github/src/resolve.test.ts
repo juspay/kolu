@@ -48,4 +48,50 @@ describe("subscribeGitHubPr", () => {
       else process.env.KOLU_GH_BIN = original;
     }
   });
+
+  it("contains a throwing onChange on the synchronous pending emit after the watcher has left its initial pending state", async () => {
+    // Regression for the synchronous path: `setGit` emits `{ kind: "pending" }`
+    // directly (not via the floated `fetchAndEmit`). On the *first* branch the
+    // initial `lastPr` is already pending, so dedup suppresses it. But once a
+    // resolve has driven `lastPr` to a non-pending value, a *later* branch
+    // change re-emits pending through the consumer — synchronously, inside
+    // `setGit`. If the boundary lived only in `fetchAndEmit`, this throw would
+    // escape straight out of `setGit` into the server's `channels.git.consume`
+    // and freeze the subscription. The boundary belongs on the shared `emit`.
+    const original = process.env.KOLU_GH_BIN;
+    process.env.KOLU_GH_BIN = "/nonexistent/gh-for-test";
+    const unhandled = vi.fn();
+    process.on("unhandledRejection", unhandled);
+
+    const log = spyLogger();
+    // First, let a real resolve land so `lastPr` becomes non-pending, *without*
+    // throwing yet.
+    let shouldThrow = false;
+    const watcher = subscribeGitHubPr(() => {
+      if (shouldThrow) throw new Error("metadata write blew up");
+    }, log);
+
+    try {
+      watcher.setGit("/repo", "feature");
+      await new Promise((r) => setTimeout(r, 50)); // resolve settles → lastPr non-pending
+
+      // Now arm the throw and change branch. This drives the synchronous
+      // pending emit through the throwing consumer.
+      shouldThrow = true;
+      expect(() => watcher.setGit("/repo", "other-branch")).not.toThrow();
+
+      await new Promise((r) => setTimeout(r, 50));
+
+      expect(log.error).toHaveBeenCalledWith(
+        expect.objectContaining({ err: expect.anything() }),
+        "github pr watcher: emit failed",
+      );
+      expect(unhandled).not.toHaveBeenCalled();
+    } finally {
+      watcher.stop();
+      process.off("unhandledRejection", unhandled);
+      if (original === undefined) delete process.env.KOLU_GH_BIN;
+      else process.env.KOLU_GH_BIN = original;
+    }
+  });
 });
