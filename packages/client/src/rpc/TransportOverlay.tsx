@@ -7,17 +7,17 @@
  * Two independent signals drive it:
  * - `lifecycle()` is `"disconnected"` — the WebSocket dropped; show
  *   "Reconnecting…".
- * - `swUpdateReady()` — a freshly-built service worker is installed and
- *   waiting; show the reload prompt. This is the accurate "new build is ready"
- *   trigger: a server restart with unchanged assets no longer nags a reload,
- *   and clicking Reload is race-free — it activates the waiting worker and
- *   reloads only once that worker controls the page (see `pwa.ts`).
+ * - `updateReady()` — a fresh client build is ready; show the reload prompt.
+ *   `pwa.ts` owns what "ready" means: with a service worker it is the accurate
+ *   installed-and-waiting signal (race-free reload); without one (HTTP/LAN) it
+ *   falls back to the server-restart signal. This overlay does not reason about
+ *   service workers — it just renders the prompt when told to.
  *
  * The Reload button lives inside the card so the action is where the user's
  * eye already is, not tucked into a corner toast.
  */
 import { type Component, Show } from "solid-js";
-import { reloadForUpdate, swUpdateReady } from "../pwa";
+import { reloadForUpdate, updateReady } from "../pwa";
 import { surface } from "../ui/Surface";
 import { lifecycle } from "./rpc";
 
@@ -27,7 +27,7 @@ const TransportOverlay: Component = () => {
   const disconnected = () => lifecycle().kind === "disconnected";
 
   return (
-    <Show when={disconnected() || swUpdateReady()}>
+    <Show when={disconnected() || updateReady()}>
       <div class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center pointer-events-none">
         <div
           class={`${chrome.class} p-6 max-w-sm text-sm pointer-events-auto`}

@@ -25,6 +25,7 @@
 
 import { createSignal } from "solid-js";
 import { registerSW } from "virtual:pwa-register";
+import { lifecycle } from "./rpc/rpc";
 
 /** Hourly backstop poll. The fast path is `checkForUpdate()` on server restart
  *  (wired in `App.tsx`): a Kolu deploy restarts the server, the WebSocket
@@ -32,16 +33,45 @@ import { registerSW } from "virtual:pwa-register";
  *  This interval only matters for a tab left open with no reconnect. */
 const UPDATE_POLL_MS = 60 * 60 * 1000;
 
+/** Whether a service worker can register at all. This is exactly the gate
+ *  `registerSW` itself checks (`"serviceWorker" in navigator`), which is only
+ *  ever true in a secure context — so it's also `false` on plain HTTP (LAN
+ *  mode). It is the single source of truth for "is the SW update path live?":
+ *  when `false`, no SW callback ever fires, so `swUpdateReady()` stays `false`
+ *  forever and the returned `updateServiceWorker` is an inert no-op. Callers
+ *  branch on this, NOT on the truthiness of `updateServiceWorker` (which
+ *  `registerSW` returns even with no SW present). */
+export const serviceWorkerSupported =
+  typeof navigator !== "undefined" && "serviceWorker" in navigator;
+
 /** True once a freshly-built service worker is installed and waiting — i.e. a
- *  new client build is ready and `reloadForUpdate()` will land on it. Read by
- *  `TransportOverlay` to surface the reload prompt. */
+ *  new client build is ready and `reloadForUpdate()` will land on it. Only ever
+ *  flips when a SW is present (it is driven by `onNeedRefresh`); on plain
+ *  HTTP/LAN it stays `false`, which is why `updateReady()` falls back to the
+ *  server-restart signal there. */
 const [swUpdateReady, setSwUpdateReady] = createSignal(false);
-export { swUpdateReady };
+
+/** Should the app offer a "reload to apply the latest build" prompt right now?
+ *  The single accessor `TransportOverlay` reads — it never reasons about SW
+ *  availability or lifecycle itself.
+ *
+ *  - With a SW: the accurate "installed-and-waiting" signal. A server restart
+ *    that ships *unchanged* assets does not nag a reload, and clicking Reload is
+ *    race-free (activates the waiting worker, reloads on `controllerchange`).
+ *  - Without a SW (HTTP/LAN): no SW callback can fire, so fall back to the old
+ *    heuristic — a server restart (new process id) likely means a deploy with
+ *    new assets, so offer a plain reload. */
+export function updateReady(): boolean {
+  return serviceWorkerSupported
+    ? swUpdateReady()
+    : lifecycle().kind === "restarted";
+}
 
 /** Activates the waiting worker and reloads onto it; `registerSW`'s return.
- *  Assigned synchronously in `initPwa`, so it is defined before any callback
- *  (and thus before `swUpdateReady()` can be true). `undefined` only on plain
- *  HTTP (LAN mode), where the secure-context rule disables service workers. */
+ *  Assigned synchronously in `initPwa`. Note `registerSW` returns this function
+ *  even when no service worker is present (plain HTTP/LAN): there it resolves to
+ *  an inert no-op that never reloads. So `reloadForUpdate` must NOT decide which
+ *  path to take from this being defined — it branches on `serviceWorkerSupported`. */
 let updateServiceWorker: ((reloadPage?: boolean) => Promise<void>) | undefined;
 
 /** Latest registration, captured at register time so `checkForUpdate()` can
@@ -88,9 +118,12 @@ export function checkForUpdate(): void {
 
 /** Apply the waiting build and reload. With a service worker, this skips
  *  waiting and reloads on `controllerchange` — race-free, never the stale
- *  precache. Without one (HTTP/LAN), a plain reload is already fresh: no worker
- *  intercepts it and the server serves the shell `no-cache`. */
+ *  precache. Without one (HTTP/LAN), `updateServiceWorker` is an inert no-op
+ *  (see its doc), so we must call `location.reload()` ourselves — a plain
+ *  reload is already fresh there: no worker intercepts it and the server serves
+ *  the shell `no-cache`. */
 export function reloadForUpdate(): void {
-  if (updateServiceWorker) void updateServiceWorker(true);
+  if (serviceWorkerSupported && updateServiceWorker)
+    void updateServiceWorker(true);
   else location.reload();
 }
