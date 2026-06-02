@@ -1,0 +1,59 @@
+---
+title: Cite → open in the Code browser
+description: Make <Cite> refs open the cited file in kolu's Code-tab tree (line-highlighted) when a note is previewed inside kolu — wiring three pieces that already exist.
+kind: plan
+maturity: seedling
+status: proposed
+updated: 2026-06-02
+---
+
+import Cite from "../../components/Cite.astro";
+import Callout from "../../components/Callout.astro";
+import Roadmap from "../../components/Roadmap.astro";
+import Milestone from "../../components/Milestone.astro";
+
+**Goal.** Inside kolu's Code-tab preview, clicking a `<Cite>` ref jumps to that
+file at the line **in the Code browser tree** (with Pierre's line highlight) —
+not a GitHub blob in a new tab. Outside kolu (GitHub, a plain browser), it stays
+an ordinary blob link.
+
+## Why defer, not drop — this is wiring, not new infra
+
+Three pieces already exist; the feature just connects them, and `<Cite>` is the
+single producer, so it's a localized change:
+
+- **`<Cite>` centralizes every `file:line` ref** → one component + one host handler.
+- **Opening a `file:line` is solved** — <Cite file="packages/client/src/right-panel/openInCodeTab.ts" lines="71" /> exposes `openInCodeTab({ ref, repoRoot, targetMode })`, which opens a `path:line` in the Code tab with the line highlighted (already used by terminal-link clicks and the right-click "Open path:N" menu).
+- **The iframe↔host bridge already exists** — <Cite file="packages/artifact-sdk/src/client/bridge.ts" lines="103" /> (`observeIframeNavigation`) carries in-iframe events to the host, and <Cite file="packages/client/src/right-panel/iframePreviewNav.ts" lines="22" /> (`repoPathFromPreviewPathname`) maps a preview URL back to a repo path — that's how the preview already follows links (<Cite file="packages/client/src/right-panel/BrowseIframeRenderer.tsx" lines="50" />).
+
+## Mechanism — two options
+
+- **A — dedicated bridge message (preferred).** Add a `kolu-artifact-sdk:open-source { path, line }` message. `<Cite>` posts it on click; the host handler calls `openInCodeTab`. Keeps "open source in the tree" separate from the existing "navigate/swap the previewed file" semantics.
+- **B — piggyback on navigation.** `<Cite>` links into the file route with `#Lnn`; reuse `observeIframeNavigation` + parse the line. Cheaper, but overloads the preview-swap path with a second meaning (needs a discriminator).
+
+<Callout kind="accent" title="Key insight — progressive enhancement">
+Because `<Cite>` is the single producer, keep the GitHub-blob `href` as the
+default (works on GitHub and in any browser) and only intercept the click when
+the kolu bridge is detected. No dead links when a note is read outside kolu.
+</Callout>
+
+<Callout kind="warn" title="Open questions">
+- Does the server inject the artifact-sdk into *arbitrary* previewed HTML (so a `<Cite>` click can reach the bridge), or only opt-in pages? Check the iframe preview route.
+- Line ranges: `LineRef` already supports `path:line-end`, so `#L489-L509` maps directly.
+- Which `repoRoot` to pass `openInCodeTab` — the previewed file's per-terminal git root.
+</Callout>
+
+## Roadmap
+
+<Roadmap>
+  <Milestone status="next" label="1">Confirm the artifact-sdk is injected into Atlas previews and a `<Cite>` click can reach the bridge.</Milestone>
+  <Milestone status="next" label="2">Add `open-source { path, line }` to the artifact-sdk bridge (both ends).</Milestone>
+  <Milestone status="next" label="3">Host handler maps it to `openInCodeTab({ ref, repoRoot, targetMode: "browse" })`.</Milestone>
+  <Milestone status="next" label="4">`<Cite>` progressive enhancement — blob href by default; intercept + post when the bridge is present.</Milestone>
+  <Milestone status="next" label="5">Test (analogous to `file-ref-link.feature`): click a cite in a previewed note → the tree opens the file + line highlight.</Milestone>
+</Roadmap>
+
+---
+
+*Seedling plan — deferred from the component-kit work. The kit's `<Cite>` is what
+makes this a localized change rather than a cross-cutting one.*
