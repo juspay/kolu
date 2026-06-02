@@ -490,13 +490,20 @@ phase('Report')
 
 const comments = {}
 if (postComments) {
-  const ledger = consolidationSection(consolidation, consolidateOrder)
+  // Data-drive Report over the SAME track set as every other phase: a per-track
+  // comment builder keyed by track name, iterated in the canonical
+  // `consolidateOrder`/`liveTracks` order. Adding/removing a reviewer costs Report
+  // nothing — no hardcoded track literal to keep in sync.
+  const builder = { codex: codexComment, lens: lensComment, police: policeComment }
+  // The consolidation ledger is a WORKFLOW-level artifact, not a track artifact, so
+  // it posts as its own comment — surviving any track subset instead of being
+  // string-stapled onto whichever track happens to be present.
   const bodies = [
-    ['codex', `${codexComment(tracks.codex)}\n\n${ledger}`],
-    ['lens', lensComment(tracks.lens)],
-    ['police', policeComment(tracks.police)],
-  ].filter(([t]) => tracks[t])
-  // Post sequentially so the comments land in a stable order (codex, lens, police).
+    ['consolidation', consolidationSection(consolidation, consolidateOrder)],
+    ...liveTracks.filter((t) => builder[t]).map((t) => [t, builder[t](tracks[t])]),
+  ]
+  // Post sequentially so the comments land in a stable order (consolidation, then
+  // the tracks in canonical order).
   for (const [slug, body] of bodies) {
     const url = await postComment(slug, body)
     comments[slug] = (url || '').trim()
