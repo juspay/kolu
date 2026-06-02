@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-06-02T20:04:13.876215+00:00'
+generated_at: '2026-06-02T20:31:50.626201+00:00'
 apm_version: 0.16.1
 dependencies:
 - repo_url: anthropics/skills
@@ -147,7 +147,7 @@ local_deployed_file_hashes:
   .claude/rules/apm-sources.md: sha256:90626875e2a63e5658f0b5e77524c9c4f949f4ce890bd1f1ce9a2663d4fc8ea7
   .claude/rules/apm-workflow.md: sha256:16f4fed3d8fe9b1e334444b8885443c2ac26963270d3df0f3505075cc3bd604d
   .claude/rules/architecture.md: sha256:0f47ba876432c25a2cd54e3ed7995e8bbbb8b383fe3b790b0b3e252949c18032
-  .claude/rules/atlas.md: sha256:4b53c4552331fcbbe6ebe0a295fba56e28f85e2772c20248a129399a328f5b0b
+  .claude/rules/atlas.md: sha256:6e3c6844fcbfc0527b95f43442dd54f65fb4a793fb739ad8488d23836f883cd5
   .claude/rules/conventions.md: sha256:c9f6ab7de674fb0da8b3d29f0e188db0cb67f96df774e270848b18323a12760b
   .claude/rules/docs.md: sha256:40f097c700581ac22ddc7abe09cbb4b3485372a95227bdda3ec740715767bf32
   .claude/rules/e2e-testing.md: sha256:ecac44a197b0e2f73f2a85fc1b79e21b6ef1670275de0a9debdd54de1848f0af

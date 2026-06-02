@@ -185,7 +185,9 @@ auto-capture on every `/be` (until manual proves out) · a decay ritual.
 
 - Maturity tier names settled (`seedling`/`budding`/`evergreen`).
 - Committed-generated-HTML churn: marked generated via `.gitattributes`; pages
-  are self-contained (inlined styles) so only the touched page changes.
+  are self-contained (inlined styles) so only the touched page changes. A CI gate
+  (`ci::atlas-sync` → `just atlas::check-sync`) rebuilds and fails if `dist/` is
+  stale, so the committed HTML can't drift from source.
 - Conventional-commit lint: warn-only or hard-fail to start?
 - Transcript durability: commit exported transcripts, or host out-of-band?
 

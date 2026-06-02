@@ -211,7 +211,9 @@ conventional-commit lint; ship the first release; then the <code>/atlas</code> s
 <ul>
 <li>Maturity tier names settled (<code>seedling</code>/<code>budding</code>/<code>evergreen</code>).</li>
 <li>Committed-generated-HTML churn: marked generated via <code>.gitattributes</code>; pages
-are self-contained (inlined styles) so only the touched page changes.</li>
+are self-contained (inlined styles) so only the touched page changes. A CI gate
+(<code>ci::atlas-sync</code> → <code>just atlas::check-sync</code>) rebuilds and fails if <code>dist/</code> is
+stale, so the committed HTML can’t drift from source.</li>
 <li>Conventional-commit lint: warn-only or hard-fail to start?</li>
 <li>Transcript durability: commit exported transcripts, or host out-of-band?</li>
 </ul>

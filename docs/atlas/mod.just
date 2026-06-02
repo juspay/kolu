@@ -32,3 +32,19 @@ check: install
 # there is no post-processing — just build and commit dist/.
 build: install
     cd {{ here }} && {{ nix_shell }} pnpm build
+
+# CI gate (wired in as ci::atlas-sync): rebuild and fail if the committed dist/
+# is stale — i.e. a note changed but the generated HTML wasn't regenerated and
+# committed. The build is deterministic, so a clean working tree means dist/
+# matches source. This is the enforcement behind the .apm Atlas rule.
+check-sync: build
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd "{{ root }}"
+    if git diff --quiet -- docs/atlas/dist; then
+      echo "✓ docs/atlas/dist in sync with source"
+    else
+      echo "✗ docs/atlas/dist is out of sync — run 'just atlas::build' and commit docs/atlas/dist/ in the same change."
+      git --no-pager diff --stat -- docs/atlas/dist
+      exit 1
+    fi

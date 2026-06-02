@@ -11,3 +11,4 @@ The Atlas is a **self-contained Astro project** at `docs/atlas/` — decoupled f
 - Pages build with `format: "file"` + inlined styles, so each `docs/atlas/dist/<slug>.html` is self-contained and cross-links with relative hrefs — it previews correctly in the Code tab.
 - **Author markdown/MDX only** — never hand-edit the generated HTML under `docs/atlas/dist/`. For anything markdown can't express, add or reuse an Astro component under `docs/atlas/src/components/` (e.g. `<PrLink>`) and use it from the `.mdx`.
 - The generated index lives at `docs/atlas/dist/index.html`; a note can't be unfiled, so no hand-curated map or CI link-gate is needed for the Atlas.
+- **This is enforced.** CI runs `ci::atlas-sync` (`just atlas::check-sync`), which rebuilds and fails the pipeline if the committed `docs/atlas/dist/` is stale — so forgetting to regenerate is caught, not silently merged.
