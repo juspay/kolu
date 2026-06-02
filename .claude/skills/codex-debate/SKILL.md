@@ -98,24 +98,37 @@ Ephemeral scratch (verdicts, rebuttals) lives under the gitignored, per-worktree
 collide** and the scratch never shows up in the diff codex reviews. It returns:
 
 ```
-{ status: "consensus",   // the only terminal state
+{ status: "consensus" | "reviewer-error",
   rounds, base, finalVerdict, filesChanged, transcript }
 ```
 
 (each `transcript[]` round also carries a `commit` SHA when that round committed.)
 
 - **consensus** — codex approved with no blocking/major findings open. This is
-  the *only* way the loop ends: it keeps running rounds until codex and Claude
-  agree. (The harness's own per-workflow agent backstop is the sole hard ceiling;
-  if you ever need to stop a debate by hand, interrupt it via `/workflows` or
-  `TaskStop`.)
+  the *only* way the debate ends *normally*: it keeps running rounds until codex
+  and Claude agree, with no round cap and no deadlock exit. (The harness's own
+  per-workflow agent backstop is the sole hard ceiling; if you ever need to stop
+  a debate by hand, interrupt it via `/workflows` or `TaskStop`.)
+- **reviewer-error** — the one *abnormal* terminus: codex itself failed to
+  produce a verdict (broken/unavailable CLI), so the workflow synthesized an
+  error verdict and aborted rather than spin forever on a dead reviewer. This is
+  **infrastructure failure, not a debate outcome** — `finalVerdict.summary`
+  carries the failure detail. Do **not** treat it as consensus (see step 3).
 
 ### 3. Present the result
 
-Report in chat (do **not** push or merge — the per-round commits sit on the
-local branch for the human to review):
+**First branch on `status`.** If `status === "reviewer-error"`, the debate did
+**not** reach consensus — codex never produced a real verdict. Report it as a
+**failure**, not a success: surface `finalVerdict.summary` (and the workflow log)
+so the user sees codex was broken/unavailable, and tell them to fix codex (e.g.
+`codex login`, check the CLI) and re-run. Do **not** post a consensus badge or a
+`## Codex ⇄ Claude debate` PR comment for this path — there is no agreement to
+report. Skip the rest of this section.
 
-- The outcome — always **consensus** — and how many rounds it took to get there.
+Otherwise (`status === "consensus"`) report in chat (do **not** push or merge —
+the per-round commits sit on the local branch for the human to review):
+
+- The outcome — **consensus** — and how many rounds it took to get there.
 - **The reviewer's reasoning effort: codex runs at `xhigh`** (scoped to the
   debate via `-c model_reasoning_effort=xhigh` in `codex-review.sh`, regardless
   of the user's global codex default). State this so the depth of the review is
