@@ -157,6 +157,9 @@ importers:
       ts-pattern:
         specifier: ^5.9.0
         version: 5.9.0
+      workbox-window:
+        specifier: ^7.4.0
+        version: 7.4.0
     devDependencies:
       '@tailwindcss/vite':
         specifier: ^4.1.0
@@ -495,8 +498,8 @@ importers:
         specifier: workspace:*
         version: link:../shared
       node-pty:
-        specifier: github:juspay/node-pty#fix/darwin-pty-fd-leak
-        version: https://codeload.github.com/juspay/node-pty/tar.gz/cc137d90e39bb9e5c72ca8b9d81210e5005c5fa3
+        specifier: github:juspay/node-pty#feat/foreground-pid-dist
+        version: https://codeload.github.com/juspay/node-pty/tar.gz/999e2bdae2aeed45008bd34d8e886258f34eae8d
       zod:
         specifier: ^4.3.6
         version: 4.3.6
@@ -4036,8 +4039,8 @@ packages:
   node-addon-api@7.1.1:
     resolution: {integrity: sha512-5m3bsyrjFWE1xf7nz7YXdN4udnVtXK6/Yfgn5qnahL6bCkf2yKt4k3nuTKAtT4r3IG8JNR2ncsIMdZuAzJjHQQ==}
 
-  node-pty@https://codeload.github.com/juspay/node-pty/tar.gz/cc137d90e39bb9e5c72ca8b9d81210e5005c5fa3:
-    resolution: {tarball: https://codeload.github.com/juspay/node-pty/tar.gz/cc137d90e39bb9e5c72ca8b9d81210e5005c5fa3}
+  node-pty@https://codeload.github.com/juspay/node-pty/tar.gz/999e2bdae2aeed45008bd34d8e886258f34eae8d:
+    resolution: {tarball: https://codeload.github.com/juspay/node-pty/tar.gz/999e2bdae2aeed45008bd34d8e886258f34eae8d}
     version: 1.1.0
 
   node-releases@2.0.37:
@@ -8272,7 +8275,7 @@ snapshots:
 
   node-addon-api@7.1.1: {}
 
-  node-pty@https://codeload.github.com/juspay/node-pty/tar.gz/cc137d90e39bb9e5c72ca8b9d81210e5005c5fa3:
+  node-pty@https://codeload.github.com/juspay/node-pty/tar.gz/999e2bdae2aeed45008bd34d8e886258f34eae8d:
     dependencies:
       node-addon-api: 7.1.1
 

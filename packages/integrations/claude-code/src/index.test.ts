@@ -104,6 +104,7 @@ describe("deriveState", () => {
       state: expected,
       model: "claude-opus-4-6",
       contextTokens: null,
+      timestampMs: null,
     });
   });
 
@@ -123,6 +124,7 @@ describe("deriveState", () => {
       state: "awaiting_user",
       model: "claude-opus-4-7",
       contextTokens: null,
+      timestampMs: null,
     });
   });
 
@@ -174,6 +176,7 @@ describe("deriveState", () => {
       state: "thinking",
       model: "claude-opus-4-6",
       contextTokens: null,
+      timestampMs: null,
     });
   });
 
@@ -183,6 +186,7 @@ describe("deriveState", () => {
       state: "thinking",
       model: null,
       contextTokens: null,
+      timestampMs: null,
     });
   });
 
@@ -204,6 +208,7 @@ describe("deriveState", () => {
       state: "waiting",
       model: null,
       contextTokens: null,
+      timestampMs: null,
     });
   });
 
@@ -261,6 +266,7 @@ describe("deriveState", () => {
       state: "waiting",
       model: "claude-opus-4-6",
       contextTokens: null,
+      timestampMs: null,
     });
   });
 
@@ -271,6 +277,7 @@ describe("deriveState", () => {
       state: "thinking",
       model: null,
       contextTokens: null,
+      timestampMs: null,
     });
   });
 
@@ -292,6 +299,7 @@ describe("deriveState", () => {
       state: "waiting",
       model: "claude-opus-4-7",
       contextTokens: 29479,
+      timestampMs: null,
     });
   });
 
@@ -317,6 +325,7 @@ describe("deriveState", () => {
       state: "thinking",
       model: null,
       contextTokens: 29_105,
+      timestampMs: null,
     });
   });
 
@@ -338,6 +347,7 @@ describe("deriveState", () => {
       state: "waiting",
       model: "claude-opus-4-7",
       contextTokens: null,
+      timestampMs: null,
     });
   });
 
@@ -353,6 +363,7 @@ describe("deriveState", () => {
       state: "thinking",
       model: "claude-opus-4-7",
       contextTokens: 27871,
+      timestampMs: null,
     });
   });
 
@@ -365,6 +376,7 @@ describe("deriveState", () => {
       state: "waiting",
       model: "claude-opus-4-6",
       contextTokens: null,
+      timestampMs: null,
     });
   });
 
@@ -381,6 +393,7 @@ describe("deriveState", () => {
       state: "waiting",
       model: null,
       contextTokens: null,
+      timestampMs: null,
     });
   });
 
@@ -633,6 +646,40 @@ describe("liveOutstandingTasks", () => {
     }
   }
 
+  // #1123: live run dir is `<session>/subagents/workflows/<runId>/` — the
+  // runtime writes `journal.jsonl` (one `started` event per sub-agent) plus
+  // streaming `agent-*.jsonl` here during the run; the `workflows/<runId>.json`
+  // snapshot only appears at completion.
+  const liveDir = (runId: string) =>
+    path.join(
+      tmpDir,
+      encodeProjectPath(cwd),
+      sessionId,
+      "subagents",
+      "workflows",
+      runId,
+    );
+
+  /** Write a live workflow run dir with `agents` `started` events in
+   *  journal.jsonl and one streaming agent file; `ageMs > 0` back-dates both
+   *  file mtimes (the liveness anchor is the newest file mtime in the dir). */
+  function writeLiveJournal(runId: string, agents: number, ageMs = 0): void {
+    const d = liveDir(runId);
+    fs.mkdirSync(d, { recursive: true });
+    const lines = Array.from({ length: agents }, (_, i) =>
+      JSON.stringify({ type: "started", agentId: `a${i}` }),
+    ).join("\n");
+    const jp = path.join(d, "journal.jsonl");
+    const ap = path.join(d, "agent-a0.jsonl");
+    fs.writeFileSync(jp, lines);
+    fs.writeFileSync(ap, "{}");
+    if (ageMs > 0) {
+      const t = new Date(Date.now() - ageMs);
+      fs.utimesSync(jp, t, t);
+      fs.utimesSync(ap, t, t);
+    }
+  }
+
   const wf = (runId: string) => ({ taskId: `t-${runId}`, runId });
 
   it("keeps a workflow with a fresh, running journal", () => {
@@ -650,23 +697,44 @@ describe("liveOutstandingTasks", () => {
     expect(live(session, [wf("wf_stale")])).toEqual([]);
   });
 
-  it("keeps a journal-less workflow while the workflows dir is still fresh (grace against format churn)", () => {
-    // A future runtime that moves the snapshot path leaves the run's own journal
-    // unreadable. The gate must not *instantly* drop such a (possibly live) run,
-    // so it grants a grace window anchored on the workflows-directory mtime — the
-    // launch/last-write timestamp that survives a journal-path churn. `wf_grace`
-    // has no journal, but the dir exists and is fresh (prior writes), so it stays.
-    fs.mkdirSync(wfDir(), { recursive: true });
-    expect(live(session, [wf("wf_grace")])).toEqual([wf("wf_grace")]);
+  it("keeps a LIVE workflow read from subagents/workflows/<runId>/ (the #1123 layout)", () => {
+    // No completion snapshot yet — progress lives only in the live run dir. The
+    // gate must observe it there and keep the run promoted.
+    writeLiveJournal("wf_live2", 3);
+    expect(live(session, [wf("wf_live2")])).toEqual([wf("wf_live2")]);
   });
 
-  it("drops a journal-less workflow once the workflows dir itself goes stale (phantom guard)", () => {
+  it("#1123 regression: keeps a live workflow even with NO completion snapshot, anchored on the live run dir", () => {
+    // Pre-fix, with no `<session>/workflows/<runId>.json` the gate fell back to
+    // the (launch-stamped, never-bumped) `workflows/` dir mtime and demoted at
+    // launch+window mid-run. Now the anchor is the live run dir's streaming
+    // files, so a fresh live run stays promoted regardless of the snapshot path.
+    writeLiveJournal("wf_nosnap", 2);
+    const anchor = fs.statSync(
+      path.join(liveDir("wf_nosnap"), "agent-a0.jsonl"),
+    ).mtimeMs;
+    expect(live(session, [wf("wf_nosnap")], anchor + staleMs - 1)).toEqual([
+      wf("wf_nosnap"),
+    ]);
+    expect(live(session, [wf("wf_nosnap")], anchor + staleMs + 1)).toEqual([]);
+  });
+
+  it("drops a live workflow whose run-dir files have gone stale (orphaned)", () => {
+    writeLiveJournal("wf_livestale", 3, staleMs + 60_000);
+    expect(live(session, [wf("wf_livestale")])).toEqual([]);
+  });
+
+  it("demotes an unobservable workflow immediately, at any `now` (phantom guard)", () => {
     // The phantom `running_background` bug: a launch marker carrying a `Run ID`
-    // whose journal kolu can never read must NOT promote forever. Once even the
-    // directory anchor ages past the stale window, the gate demotes it.
+    // whose progress kolu can never read must NOT promote forever. With neither
+    // a completion snapshot (`workflows/<runId>.json`) nor a live run dir
+    // (`subagents/workflows/<runId>/`), there is no observable anchor, so the
+    // gate demotes on the spot — independent of the injected clock. The empty
+    // `workflows/` dir (a bare launch marker) carries no anchor of its own.
     fs.mkdirSync(wfDir(), { recursive: true });
-    const dirMtime = fs.statSync(wfDir()).mtimeMs;
-    expect(live(session, [wf("wf_phantom")], dirMtime + staleMs + 1)).toEqual(
+    expect(live(session, [wf("wf_phantom")], 0)).toEqual([]);
+    expect(live(session, [wf("wf_phantom")], Date.now())).toEqual([]);
+    expect(live(session, [wf("wf_phantom")], Number.MAX_SAFE_INTEGER)).toEqual(
       [],
     );
   });
@@ -729,12 +797,12 @@ describe("liveOutstandingTasks", () => {
       );
     });
 
-    it("falls back to the workflows-dir mtime for a journal-less workflow (a timer still clears the phantom)", () => {
-      // A run kept on the directory grace anchor must still get a deadline, or
-      // the watcher would arm no timer and the spinner could never self-clear.
-      fs.mkdirSync(wfDir(), { recursive: true });
-      const dirMtime = fs.statSync(wfDir()).mtimeMs;
-      expect(nextDeadline(session, [wf("wf_absent")])).toBe(dirMtime + staleMs);
+    it("anchors the deadline on the live run dir's newest file mtime (no snapshot)", () => {
+      writeLiveJournal("wf_dlive", 2);
+      const anchor = fs.statSync(
+        path.join(liveDir("wf_dlive"), "agent-a0.jsonl"),
+      ).mtimeMs;
+      expect(nextDeadline(session, [wf("wf_dlive")])).toBe(anchor + staleMs);
     });
 
     it("returns null when nothing observable anchors the run (gate has already demoted it)", () => {
@@ -1019,6 +1087,17 @@ describe("deriveWorkflowProgress", () => {
 
   const session = () => ({ pid: 1, sessionId, cwd });
 
+  /** Path to the live run dir `<session>/subagents/workflows/<runId>/`. */
+  const liveRunDir = (runId: string) =>
+    path.join(
+      tmpDir,
+      encodeProjectPath(cwd),
+      sessionId,
+      "subagents",
+      "workflows",
+      runId,
+    );
+
   it("reads name, status, and agent count from the run journal", () => {
     writeJournal("wf_run", {
       workflowName: "deep-research",
@@ -1028,6 +1107,74 @@ describe("deriveWorkflowProgress", () => {
     expect(
       deriveWorkflowProgressFn(session(), [{ taskId: "t1", runId: "wf_run" }]),
     ).toEqual({ name: "deep-research", status: "running", agents: 12 });
+  });
+
+  it("reads the agent count from the LIVE run dir when no snapshot exists yet (#1123)", () => {
+    // During a run there is no `workflows/<runId>.json`; progress lives in
+    // `subagents/workflows/<runId>/journal.jsonl` (one `started` per sub-agent).
+    const live = liveRunDir("wf_runlive");
+    fs.mkdirSync(live, { recursive: true });
+    fs.writeFileSync(
+      path.join(live, "journal.jsonl"),
+      [0, 1, 2, 3]
+        .map((i) => JSON.stringify({ type: "started", agentId: `a${i}` }))
+        .join("\n"),
+    );
+    expect(
+      deriveWorkflowProgressFn(session(), [
+        { taskId: "t1", runId: "wf_runlive" },
+      ]),
+    ).toEqual({ name: "workflow", status: "running", agents: 4 });
+  });
+
+  it("counts DISTINCT started agentIds (a replayed `started` doesn't inflate the badge)", () => {
+    const live = liveRunDir("wf_dupes");
+    fs.mkdirSync(live, { recursive: true });
+    fs.writeFileSync(
+      path.join(live, "journal.jsonl"),
+      [
+        { type: "started", agentId: "a0" },
+        { type: "started", agentId: "a1" },
+        { type: "started", agentId: "a0" }, // replay of a0 — must not double-count
+        { type: "result", agentId: "a0" },
+      ]
+        .map((e) => JSON.stringify(e))
+        .join("\n"),
+    );
+    expect(
+      deriveWorkflowProgressFn(session(), [
+        { taskId: "t1", runId: "wf_dupes" },
+      ]),
+    ).toMatchObject({ status: "running", agents: 2 });
+  });
+
+  it("derives the real workflow name from the persisted script during a live run (#1123)", () => {
+    // A live run has no completion snapshot, but the launch-time script
+    // `workflows/scripts/<name>-<runId>.js` carries the user-visible name — the
+    // tile badge/inspector must show it, not a hard-coded "workflow".
+    const live = liveRunDir("wf_named");
+    fs.mkdirSync(live, { recursive: true });
+    fs.writeFileSync(
+      path.join(live, "journal.jsonl"),
+      JSON.stringify({ type: "started", agentId: "a0" }),
+    );
+    const scriptsDir = path.join(
+      tmpDir,
+      encodeProjectPath(cwd),
+      sessionId,
+      "workflows",
+      "scripts",
+    );
+    fs.mkdirSync(scriptsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(scriptsDir, "deep-research-wf_named.js"),
+      "// script body\n",
+    );
+    expect(
+      deriveWorkflowProgressFn(session(), [
+        { taskId: "t1", runId: "wf_named" },
+      ]),
+    ).toEqual({ name: "deep-research", status: "running", agents: 1 });
   });
 
   it("returns null for a task with no run ID (plain background task)", () => {

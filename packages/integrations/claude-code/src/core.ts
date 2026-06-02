@@ -27,6 +27,7 @@ import path from "node:path";
 import { getSessionInfo } from "@anthropic-ai/claude-agent-sdk";
 import { classifyByAwaiting } from "anyagent";
 import { type Logger, readTailLines } from "kolu-shared";
+import { parseIsoTimestamp } from "kolu-transcript-core";
 import { match } from "ts-pattern";
 import { z } from "zod";
 import type {
@@ -80,6 +81,13 @@ export interface SessionFile {
   pid: number;
   sessionId: string;
   cwd: string;
+  /** Epoch-ms the claude process started (or resumed via `claude -c`), from the
+   *  session file's `startedAt`. A `claude -c` resume writes a *new* session
+   *  file with a fresh `startedAt`, so a transcript prompt whose timestamp
+   *  predates this value belongs to a previous, killed instance — the current
+   *  claude never processed it. Used to tell a resumed-idle phantom from a live
+   *  turn (see `decayTransientState`). Optional: absent on older session files. */
+  startedAt?: number;
 }
 
 /**
@@ -110,7 +118,13 @@ export function readSessionFile(
       log?.debug({ pid, parsed }, "claude session file shape unexpected");
       return null;
     }
-    return parsed as SessionFile;
+    return {
+      pid: parsed.pid,
+      sessionId: parsed.sessionId,
+      cwd: parsed.cwd,
+      startedAt:
+        typeof parsed.startedAt === "number" ? parsed.startedAt : undefined,
+    };
   } catch (err) {
     log?.debug({ err, pid }, "claude session file parse failed");
     return null;
@@ -315,11 +329,17 @@ export function deriveState(
   state: ClaudeCodeInfo["state"];
   model: string | null;
   contextTokens: number | null;
+  /** Epoch-ms timestamp of the entry the state was derived from (the newest
+   *  `user`/`assistant` entry), or null when it lacks a parseable `timestamp`.
+   *  Used to age a trailing `thinking` prompt against the session's `startedAt`
+   *  (the resumed-vs-live discriminator — see the #1017 module note). */
+  timestampMs: number | null;
 } | null {
   let stateAndModel: {
     state: ClaudeCodeInfo["state"];
     model: string | null;
   } | null = null;
+  let timestampMs: number | null = null;
   let contextTokens: number | null = null;
 
   for (let i = lines.length - 1; i >= 0; i--) {
@@ -328,6 +348,7 @@ export function deriveState(
     try {
       const entry: {
         type?: string;
+        timestamp?: string;
         message?: {
           stop_reason?: string | null;
           model?: string | null;
@@ -369,6 +390,12 @@ export function deriveState(
             model: null,
           }))
           .otherwise(() => null);
+        // Capture the timestamp of the very entry the state derives from — the
+        // newest `user`/`assistant` — so the orphaned-prompt age check reads the
+        // same entry, not a parallel walk (null if absent/unparseable).
+        if (stateAndModel !== null) {
+          timestampMs = parseIsoTimestamp(entry.timestamp);
+        }
       }
 
       if (stateAndModel !== null && contextTokens !== null) break;
@@ -398,7 +425,7 @@ export function deriveState(
     if (bg.some((t) => t.runId !== null)) state = "running_background";
   }
 
-  return { state, model: stateAndModel.model, contextTokens };
+  return { state, model: stateAndModel.model, contextTokens, timestampMs };
 }
 
 // --- Background-task detection (dynamic workflows) ---
@@ -509,15 +536,21 @@ export function outstandingBackgroundTasks(lines: string[]): BackgroundTask[] {
 
 // --- Workflow journal (dynamic-workflow fan-out progress) ---
 
-/** Per-session workflow-journal directory: `<projects>/<cwd>/<session>/workflows`.
- *  Sibling of the transcript JSONL, which lives at `<projects>/<cwd>/<session>.jsonl`. */
-export function workflowsDirFor(session: SessionFile): string {
+/** The on-disk session root: `<projects>/<cwd>/<session>`. The single anchor for
+ *  the per-session layout — both the workflow-journal dir and the live workflow
+ *  root derive from here, so a session-root layout move changes one place. */
+function sessionRootFor(session: SessionFile): string {
   return path.join(
     PROJECTS_DIR,
     encodeProjectPath(session.cwd),
     session.sessionId,
-    "workflows",
   );
+}
+
+/** Per-session workflow-journal directory: `<projects>/<cwd>/<session>/workflows`.
+ *  Sibling of the transcript JSONL, which lives at `<projects>/<cwd>/<session>.jsonl`. */
+export function workflowsDirFor(session: SessionFile): string {
+  return path.join(sessionRootFor(session), "workflows");
 }
 
 /** On-disk shape of a workflow run journal (`workflows/<runId>.json`) — just
@@ -542,206 +575,257 @@ const WorkflowJournalSchema = z
     }),
   );
 
-/** Directory mtime, or null when the dir can't be stat-ed — the weakest
- *  liveness anchor (see `workflowStaleAnchorMs`). */
-function dirMtimeMs(wfDir: string): number | null {
-  try {
-    return fs.statSync(wfDir).mtimeMs;
-  } catch {
-    return null;
-  }
-}
-
-/** One observation of a workflow run's on-disk journal — the single owner of the
- *  `workflows/<runId>.json` join + stat + read. Every consumer projects from this
- *  discriminated result and keeps its OWN policy: the liveness gate keeps on
- *  `unparseable` (transient mid-write), `deriveWorkflowProgress` layers
- *  `WorkflowJournalSchema` on `ok`. Deliberately a *status-only* parse, NOT
- *  `WorkflowJournalSchema`: the gate must tolerate a journal missing
- *  `workflowName` — a `{status:"completed"}` snapshot is a positive terminal read
- *  that must DROP the run, yet it would fail the strict schema and be mis-kept,
- *  re-opening the phantom-spinner bug. */
-type WorkflowJournalRead =
-  | { kind: "ok"; json: unknown; status: unknown; mtimeMs: number }
-  | { kind: "unparseable"; mtimeMs: number }
-  | { kind: "unreadable" };
-
-function readWorkflowJournal(
-  wfDir: string,
-  runId: string,
-): WorkflowJournalRead {
-  let mtimeMs: number;
-  let raw: string;
-  try {
-    const journalPath = path.join(wfDir, `${runId}.json`);
-    mtimeMs = fs.statSync(journalPath).mtimeMs;
-    raw = fs.readFileSync(journalPath, "utf8");
-  } catch {
-    return { kind: "unreadable" };
-  }
-  try {
-    const json: unknown = JSON.parse(raw);
-    return {
-      kind: "ok",
-      json,
-      status: (json as { status?: unknown }).status,
-      mtimeMs,
-    };
-  } catch {
-    return { kind: "unparseable", mtimeMs };
-  }
-}
-
-/** Read fan-out progress for outstanding background workflows from their
- *  on-disk journals (`workflows/<runId>.json`). Only `Workflow` launches have
- *  a `runId`/journal; plain background `Task`/`Agent` launches are skipped.
- *  Returns the first journal still `running` (falling back to the first
- *  readable one), or null when no outstanding task is a workflow with a
- *  readable journal. */
-export function deriveWorkflowProgress(
-  session: SessionFile,
-  outstanding: BackgroundTask[],
-): ClaudeWorkflow | null {
-  const wfDir = workflowsDirFor(session);
-  let fallback: ClaudeWorkflow | null = null;
-  for (const task of outstanding) {
-    if (!task.runId) continue;
-    const read = readWorkflowJournal(wfDir, task.runId);
-    if (read.kind !== "ok") continue; // unreadable / unparseable → skip
-    const parsed = WorkflowJournalSchema.safeParse(read.json);
-    if (!parsed.success) continue;
-    const info = parsed.data;
-    if (info.status === "running") return info;
-    fallback ??= info;
-  }
-  return fallback;
-}
-
 /** The journal-side matcher for `TERMINAL_STATUSES` — a Set for O(1) membership
- *  on the workflow journal's `status` field, derived from the same source as
+ *  on the workflow snapshot's `status` field, derived from the same source as
  *  `TERMINAL_STATUS_RE` so the two formats can't drift. "running" (the journal's
  *  default) is the only non-terminal status. */
 const TERMINAL_JOURNAL_STATUSES = new Set<string>(TERMINAL_STATUSES);
 
-/** How long a still-`running` workflow journal may sit unwritten before its run
- *  is treated as orphaned. A live workflow rewrites its journal on every phase
- *  / sub-agent transition, so a multi-minute gap reliably means the launching
- *  agent died (e.g. a Claude restart) and its completion notification can never
- *  arrive. A false positive self-heals — the next journal write fires the
- *  workflows-dir watcher and re-derives. #1017 suggested 60–120 s; 2 min is the
- *  safe upper end. */
+/** How long a `Workflow` run may go without any on-disk write before it is
+ *  treated as orphaned. A genuinely-running workflow streams its sub-agent
+ *  transcripts (`agent-*.jsonl`) continuously, so a multi-minute gap reliably
+ *  means the launching agent died (e.g. a Claude restart) and its completion
+ *  notification can never arrive (#1109 phantom guard). A false positive
+ *  self-heals — the next write re-derives. 2 min is the safe upper end. */
 export const WORKFLOW_JOURNAL_STALE_MS = 2 * 60 * 1000;
 
-/** Liveness anchor (an mtime) for a `Workflow` run's staleness clock: the most
- *  recent on-disk write kolu can attribute to the run.
+/** Newest file mtime (epoch ms) directly inside `dir`, or null when `dir` can't
+ *  be read / is empty. Unlike the directory's own mtime (which on Linux only
+ *  bumps on create/delete inside it, not on appends to existing files), this
+ *  tracks the sub-agent transcripts (`agent-*.jsonl`) as they stream while a
+ *  workflow's agents work — so it stays fresh throughout a live run. */
+function newestFileMtimeMs(dir: string): number | null {
+  let names: string[];
+  try {
+    names = fs.readdirSync(dir);
+  } catch {
+    return null;
+  }
+  let newest: number | null = null;
+  for (const name of names) {
+    try {
+      const m = fs.statSync(path.join(dir, name)).mtimeMs;
+      if (newest === null || m > newest) newest = m;
+    } catch {
+      // entry vanished between readdir and stat — skip
+    }
+  }
+  return newest;
+}
+
+/** The live workflow root under the current runtime layout:
+ *  `<session>/subagents/workflows/`. Created lazily on the first `Workflow`
+ *  launch; holds one `<runId>/` sub-dir per live run (see `liveWorkflowRunDir`).
+ *  The session-watcher watches this tree so live-run writes (`journal.jsonl` /
+ *  streaming `agent-*.jsonl` appends) re-derive progress (#1123). */
+function liveWorkflowsRootFor(session: SessionFile): string {
+  return path.join(sessionRootFor(session), "subagents", "workflows");
+}
+
+/** The live event-log directory for a `Workflow` run under the current runtime
+ *  layout: `<session>/subagents/workflows/<runId>/`. Holds `journal.jsonl`
+ *  (per-sub-agent `started`/`result` events) plus one streaming `agent-*.jsonl`
+ *  per sub-agent. This is where progress lives DURING a run; the
+ *  `<session>/workflows/<runId>.json` snapshot is only written at completion
+ *  (#1123 — the runtime layout churned and the snapshot path went write-on-end). */
+function liveWorkflowRunDir(session: SessionFile, runId: string): string {
+  return path.join(liveWorkflowsRootFor(session), runId);
+}
+
+/** The real workflow name of a live run, resolved from its persisted script
+ *  `<session>/workflows/scripts/<name>-<runId>.js` (the verified runtime layout
+ *  carries `meta.name` there, and the `<name>-<runId>.js` filename mirrors it).
+ *  During a live run only the completion snapshot carries the name as JSON, so
+ *  the script filename — written at launch — is the one on-disk source of the
+ *  user-visible workflow identity before completion. Returns null when no script
+ *  matching this `runId` exists (then callers keep a neutral fallback). */
+function liveWorkflowName(session: SessionFile, runId: string): string | null {
+  const scriptsDir = path.join(workflowsDirFor(session), "scripts");
+  let names: string[];
+  try {
+    names = fs.readdirSync(scriptsDir);
+  } catch {
+    return null;
+  }
+  const suffix = `-${runId}.js`;
+  for (const name of names) {
+    if (name.endsWith(suffix) && name.length > suffix.length) {
+      return name.slice(0, -suffix.length);
+    }
+  }
+  return null;
+}
+
+/** Number of sub-agents spawned so far in a live run — distinct `started`
+ *  agentIds in `journal.jsonl`. Null when the journal can't be read. Counting
+ *  distinct ids (not raw `started` rows) guards against a replayed/re-emitted
+ *  `started` for the same sub-agent overstating the fan-out badge; a `started`
+ *  row lacking an agentId still counts once. */
+function liveAgentCount(runDir: string): number | null {
+  let raw: string;
+  try {
+    raw = fs.readFileSync(path.join(runDir, "journal.jsonl"), "utf8");
+  } catch {
+    return null;
+  }
+  const ids = new Set<string>();
+  let anonymous = 0;
+  for (const line of raw.split("\n")) {
+    if (!line.trim()) continue;
+    try {
+      const e = JSON.parse(line) as { type?: string; agentId?: unknown };
+      if (e.type !== "started") continue;
+      if (typeof e.agentId === "string") ids.add(e.agentId);
+      else anonymous++;
+    } catch {
+      // skip a malformed line (transient mid-append)
+    }
+  }
+  return ids.size + anonymous;
+}
+
+/** One observation of a `Workflow` run across BOTH on-disk layouts, so every
+ *  consumer projects from a single source of truth (#1123):
+ *   - the completed snapshot `<session>/workflows/<runId>.json` — authoritative
+ *     end-state (name, terminal status, agentCount), written only at completion;
+ *   - the live run dir `<session>/subagents/workflows/<runId>/` — progress during
+ *     the run (agentCount from `journal.jsonl`, liveness from the newest
+ *     streaming file mtime).
  *
- *  Preference order, each a strictly weaker observation than the last:
- *   1. the run's own journal (`workflows/<runId>.json`) — the live signal, bumped
- *      on every phase / sub-agent transition;
- *   2. the `workflows/` directory itself — created when the run launches and
- *      bumped whenever a journal is created/renamed inside it, so it still ages
- *      out a run whose journal path *churned* to a name kolu no longer reads;
- *   3. `null` — neither is stat-able, so there is no observable anchor at all.
- *
- *  Crucially this never returns `now`: the anchor is a real, monotonic on-disk
- *  timestamp that does not reset between calls, so a bounded grace measured from
- *  it actually expires. A journal that is never written (the phantom case — a
- *  launch marker carrying a `Run ID` whose journal kolu cannot read) ages out
- *  `WORKFLOW_JOURNAL_STALE_MS` after the directory's launch write, instead of
- *  promoting forever. The directory fallback is what keeps a churned-path but
- *  genuinely-live workflow promoting (its dir mtime advances as journals appear),
- *  while still guaranteeing termination for a truly unobservable run. */
-function workflowStaleAnchorMs(wfDir: string, runId: string): number | null {
-  const read = readWorkflowJournal(wfDir, runId);
-  // A present journal (parseable or not) anchors on its own mtime; an
-  // unreadable one falls back to the directory's launch/last-write mtime.
-  return read.kind === "unreadable" ? dirMtimeMs(wfDir) : read.mtimeMs;
+ *  `anchorMs` is the most recent on-disk write attributable to the run — the
+ *  staleness clock. For a live run it tracks the sub-agent transcripts as they
+ *  stream, so a genuinely-running workflow never ages out; once the orchestrator
+ *  dies (no more writes) it goes stale and the gate demotes (the #1109 phantom
+ *  guard). `terminal` is true only on a positively-read terminal snapshot. */
+export interface WorkflowObservation {
+  workflow: ClaudeWorkflow | null;
+  anchorMs: number | null;
+  terminal: boolean;
+}
+
+/** Lookup that yields the observation for a run, shared across the three
+ *  projections so one running_background check pass observes each run once.
+ *  Defaults to a live `observeWorkflowRun(session, runId)` when callers (e.g.
+ *  standalone unit tests) don't pre-compute a Map. */
+export type ObserveWorkflowRun = (runId: string) => WorkflowObservation;
+
+export function observeWorkflowRun(
+  session: SessionFile,
+  runId: string,
+): WorkflowObservation {
+  // 1) Completed snapshot — authoritative end-state when present.
+  const snapPath = path.join(workflowsDirFor(session), `${runId}.json`);
+  try {
+    const mtimeMs = fs.statSync(snapPath).mtimeMs;
+    const raw = fs.readFileSync(snapPath, "utf8");
+    let json: unknown;
+    try {
+      json = JSON.parse(raw);
+    } catch {
+      // Snapshot mid-write: keep it alive on its mtime, no parsed workflow yet.
+      return { workflow: null, anchorMs: mtimeMs, terminal: false };
+    }
+    const status = (json as { status?: unknown }).status;
+    const terminal =
+      typeof status === "string" && TERMINAL_JOURNAL_STATUSES.has(status);
+    const parsed = WorkflowJournalSchema.safeParse(json);
+    return {
+      workflow: parsed.success ? parsed.data : null,
+      anchorMs: mtimeMs,
+      terminal,
+    };
+  } catch {
+    // no snapshot yet — fall through to the live layout
+  }
+
+  // 2) Live run dir — progress while the workflow is running.
+  const runDir = liveWorkflowRunDir(session, runId);
+  const anchorMs = newestFileMtimeMs(runDir);
+  const agents = liveAgentCount(runDir);
+  if (agents !== null) {
+    // The completion snapshot carries the name as JSON only at the end; during
+    // the run the persisted script filename is the on-disk source of the
+    // user-visible workflow identity. Fall back to a neutral label only when no
+    // script for this runId is found.
+    const name = liveWorkflowName(session, runId) ?? "workflow";
+    return {
+      workflow: { name, status: "running", agents },
+      anchorMs,
+      terminal: false,
+    };
+  }
+
+  // 3) Unobservable — neither layout readable. `anchorMs` (a bare run-dir mtime,
+  // if any) still lets the staleness gate age it out rather than spin forever.
+  return { workflow: null, anchorMs, terminal: false };
+}
+
+/** Read fan-out progress for outstanding background workflows. Only `Workflow`
+ *  launches have a `runId`; plain background `Task`/`Agent` launches are skipped.
+ *  Returns the first run still `running` (falling back to the first observable
+ *  one), or null when no outstanding task is an observable workflow. */
+export function deriveWorkflowProgress(
+  session: SessionFile,
+  outstanding: BackgroundTask[],
+  observe: ObserveWorkflowRun = (runId) => observeWorkflowRun(session, runId),
+): ClaudeWorkflow | null {
+  let fallback: ClaudeWorkflow | null = null;
+  for (const task of outstanding) {
+    if (!task.runId) continue;
+    const { workflow } = observe(task.runId);
+    if (!workflow) continue;
+    if (workflow.status === "running") return workflow;
+    fallback ??= workflow;
+  }
+  return fallback;
 }
 
 /** Filter `outstanding` to the tasks that may drive the `running_background`
  *  promotion, dropping a `Workflow` run once kolu can no longer observe it as
- *  live: its on-disk journal is *positively* read as terminal, or its liveness
- *  anchor (`workflowStaleAnchorMs`) has aged past `WORKFLOW_JOURNAL_STALE_MS`
- *  (the orphaned-by-restart signature). Non-`Workflow` tasks (runId null) pass
- *  through unchanged — `deriveState`'s own narrowing already declines to promote
- *  on them.
+ *  live: its snapshot is *positively* read as terminal, or its liveness anchor
+ *  has aged past `WORKFLOW_JOURNAL_STALE_MS` (the orphaned-by-restart signature).
+ *  Non-`Workflow` tasks (runId null) pass through unchanged — `deriveState`'s own
+ *  narrowing already declines to promote on them.
  *
- *  Bounded fail-open: a missing or unreadable journal is *kept* only while the
- *  workflows-directory mtime is still within the stale window, then dropped. The
- *  Claude Code Workflow runtime's on-disk layout has churned across versions —
- *  the snapshot kolu reads (`workflows/<runId>.json`, the path
- *  `deriveWorkflowProgress` consumes) was present, then absent (see
- *  `dynamic-workflow-viewer.html`), and is present again today, carrying
- *  `{workflowName,status,agentCount}` and rewritten live (#1015). A churned
- *  journal path must not *instantly* drop a live run, so the directory mtime
- *  grants it a grace window (and keeps advancing while that dir sees writes). But
- *  an unobservable run must not promote *forever* either — that was the phantom
- *  `running_background` bug — so once even the directory anchor goes stale (or is
- *  itself unreadable), the gate demotes. It still never drops a run on a single
- *  transient unparseable read.
- *
- *  The IO (a `stat` + read per workflow task) only runs when the tail carries an
- *  outstanding task, so the common path stays off disk. `now` is injectable for
- *  tests. */
+ *  The anchor is the newest write across the run's live dir
+ *  (`subagents/workflows/<runId>/`) or its completion snapshot — see
+ *  `observeWorkflowRun`. A streaming workflow keeps that anchor fresh and stays
+ *  promoted; an orphaned/dead one stops writing and ages out. `now` is injectable
+ *  for tests; the IO only runs when the tail carries an outstanding task. */
 export function liveOutstandingTasks(
   session: SessionFile,
   outstanding: BackgroundTask[],
   now: number = Date.now(),
+  observe: ObserveWorkflowRun = (runId) => observeWorkflowRun(session, runId),
 ): BackgroundTask[] {
-  const wfDir = workflowsDirFor(session);
   return outstanding.filter((task) => {
     if (!task.runId) return true; // not a workflow — deriveState's narrowing decides
-    const read = readWorkflowJournal(wfDir, task.runId);
-    if (read.kind === "unreadable") {
-      // No readable journal: keep only while the directory anchor is still
-      // fresh; a missing/stale anchor (or none) demotes so the spinner can't
-      // promote indefinitely on an unobservable run.
-      const dir = dirMtimeMs(wfDir);
-      return dir !== null && now - dir <= WORKFLOW_JOURNAL_STALE_MS;
-    }
-    // Journal present: age it out against its own mtime (the live signal).
-    if (now - read.mtimeMs > WORKFLOW_JOURNAL_STALE_MS) {
-      return false; // orphaned — fresh enough to read, but no longer being written
-    }
-    if (read.kind === "unparseable") return true; // transient mid-write → keep
-    return !(
-      typeof read.status === "string" &&
-      TERMINAL_JOURNAL_STATUSES.has(read.status)
-    );
+    const obs = observe(task.runId);
+    if (obs.terminal) return false; // positively finished → drop
+    if (obs.anchorMs === null) return false; // unobservable → demote (phantom guard)
+    return now - obs.anchorMs <= WORKFLOW_JOURNAL_STALE_MS; // live iff recently written
   });
 }
 
 /** Earliest wall-clock time at which one of `tasks`' workflow runs would cross
- *  the stale threshold, or null if none has an observable liveness anchor to age
- *  out.
+ *  the stale threshold, or null if none has an observable liveness anchor.
  *
- *  `liveOutstandingTasks` only re-evaluates staleness when it is *called*, and
- *  the watcher only calls it on fs events (transcript / workflows-dir writes,
- *  initial attach). A run going stale is the absence of writes, so it emits no
- *  event — without a timer scheduled at this deadline, a session published as
- *  `running_background` whose agent then dies silently would keep its spinner
- *  forever (the phantom bug). The watcher arms a one-shot timer here; when it
- *  fires, the next `liveOutstandingTasks` sees the anchor as stale and demotes.
- *
- *  Uses the same `workflowStaleAnchorMs` as the gate so the two never disagree:
- *  every run the gate could still be keeping (including one with a missing/
- *  unreadable journal that survives on the directory anchor) gets a deadline, so
- *  there is always a timer to clear it. Returns the minimum deadline across runs
- *  so the watcher re-checks as soon as the soonest one could age out (the rest
- *  are re-armed on that pass). A run with no observable anchor at all contributes
- *  no deadline — but the gate has already demoted it, so no timer is needed. */
+ *  A quiet run emits no fs event, so the watcher arms a one-shot timer here; when
+ *  it fires, the next `liveOutstandingTasks` sees the anchor as stale and demotes
+ *  (or, for a still-streaming run, sees it fresh and re-arms). Uses the same
+ *  `observeWorkflowRun` anchor as the gate so the two never disagree. */
 export function nextWorkflowStaleDeadline(
   session: SessionFile,
   tasks: BackgroundTask[],
   now: number = Date.now(),
+  observe: ObserveWorkflowRun = (runId) => observeWorkflowRun(session, runId),
 ): number | null {
-  const wfDir = workflowsDirFor(session);
   let earliest: number | null = null;
   for (const task of tasks) {
     if (!task.runId) continue;
-    const anchor = workflowStaleAnchorMs(wfDir, task.runId);
-    if (anchor === null) continue; // no observable anchor → gate already demoted it
-    const deadline = Math.max(anchor + WORKFLOW_JOURNAL_STALE_MS, now);
+    const { anchorMs } = observe(task.runId);
+    if (anchorMs === null) continue; // no observable anchor → gate already demoted it
+    const deadline = Math.max(anchorMs + WORKFLOW_JOURNAL_STALE_MS, now);
     if (earliest === null || deadline < earliest) earliest = deadline;
   }
   return earliest;
@@ -749,26 +833,33 @@ export function nextWorkflowStaleDeadline(
 
 // --- Phantom transient de-escalation (#1017) ---
 //
-// A dangling `tool_use` (an assistant tool call with no following
-// `tool_result`) keeps `deriveState` reporting a *working* state indefinitely.
-// That is correct while the tool is genuinely running, but wrong once the
-// session is abandoned (most reliably: claude killed mid-tool, then resumed
-// idle by session-restore) — the dock then spins a "running" pill forever. A
-// genuine in-flight tool and an abandoned one are transcript-indistinguishable
-// from a single snapshot, so two out-of-band signals settle it: the transcript
-// has gone quiet past a window, AND claude's process subtree is idle.
+// A trailing transient state keeps `deriveState` reporting a *working* state
+// indefinitely once the session is abandoned (most reliably: claude killed
+// mid-turn, then resumed idle by session-restore) — the dock then spins a
+// "running" pill forever. Two trailing shapes hit it, each disambiguated by a
+// different out-of-band signal once the transcript has gone quiet past a window:
 //
-// `thinking` is deliberately NOT decayed on this signal. A `thinking` turn that
-// is awaiting the model's first token (the newest transcript entry is the
-// `user` prompt) has spawned no tool child yet and writes nothing until the
-// reply streams back — so a slow or hung model request is indistinguishable
-// from abandonment by "quiet transcript + no descendants". Clearing it there
-// would publish `waiting` over a live turn. The no-descendants probe is only a
-// valid liveness signal for `tool_use`, where live tool work implies a child
-// process (a Bash child, or a sub-agent claude). Sibling of the
-// `running_background` decay (#1109), which handles the `end_turn`-promotion
-// half on its own workflow-journal signal; the states are disjoint, so the
-// paths never overlap.
+//   - dangling `tool_use` (an assistant tool call with no following
+//     `tool_result`): a *live* tool keeps a descendant process (a Bash child, a
+//     sub-agent claude), an abandoned one has none — so "subtree idle (no
+//     descendant)" tells them apart.
+//
+//   - `thinking` (the newest entry is a `user` prompt): childless and quiet
+//     whether the turn is live (awaiting the model's first token) or abandoned,
+//     so the subtree probe alone can't tell them apart. The discriminator is
+//     the prompt's age relative to the claude process: a `claude -c` resume
+//     writes a fresh `startedAt`, so a prompt that *predates* `startedAt`
+//     belongs to a killed instance the current (resumed-idle) claude never
+//     processed. A live turn's prompt always postdates `startedAt`, so it is
+//     never cleared. The subtree is NOT consulted for `thinking`: a
+//     resumed-idle claude often holds a long-lived helper child (a persistent
+//     MCP server such as `chrome-devtools-mcp`), so requiring an idle subtree
+//     would wrongly keep the phantom spinning forever — `orphaned` + stale is
+//     already definitive.
+//
+// Sibling of the `running_background` decay (#1109), which handles the
+// `end_turn`-promotion half on its own workflow-journal signal; the states are
+// disjoint, so the paths never overlap.
 
 /** How long the transcript may sit unwritten before a dangling `tool_use`
  *  becomes eligible to decay to `waiting`. A live tool writes the transcript as
@@ -839,35 +930,54 @@ export function isClaudeSubtreeIdle(pid: number): boolean {
   return hasNoDescendants(pid, procs);
 }
 
-/** Decide the state to publish for a dangling `tool_use`, and when (if ever) to
- *  re-probe. Pure policy: the caller supplies how long the transcript has been
- *  quiet and a subtree-idle probe, invoked only once the quiet window has
- *  elapsed so the real `ps` spawn stays off the common path.
+/** Decide the state to publish for a trailing transient (`tool_use` /
+ *  `thinking`), and when (if ever) to re-probe. Pure policy: the caller supplies
+ *  how long the transcript has been quiet, a subtree-idle probe (invoked only
+ *  once the quiet window has elapsed so the real `ps` spawn stays off the common
+ *  path), and — for `thinking` — whether the trailing prompt is orphaned (it
+ *  predates the current claude's `startedAt`, see the module note).
  *
- *   - not a dangling `tool_use` → unchanged, no recheck. In particular
- *     `thinking` is excluded: a turn awaiting the model's first token has no
- *     descendant and writes nothing, so "quiet + no descendants" cannot tell a
- *     slow/hung model request from abandonment (see the module note above).
+ *   - not a decayable transient → unchanged, no recheck.
+ *   - `thinking` whose prompt is NOT orphaned → unchanged, no recheck: this is a
+ *     live turn (the prompt postdates the running claude), never cleared.
  *   - not yet stale → unchanged; arm a recheck at the moment it would go stale
  *     (a quiet transcript fires no fs event, so the watcher needs a timer).
  *   - stale + subtree idle → decay to `waiting` (the phantom is settled).
- *   - stale + subtree busy → genuine long-running tool; keep it and re-probe
- *     after another window (the tool may yet end silently with no further write).
+ *   - stale + subtree busy → genuine work; keep it and re-probe after another
+ *     window (the work may yet end silently with no further write).
  */
 export function decayTransientState(
   state: ClaudeCodeInfo["state"],
   quietMs: number,
-  probeSubtreeIdle: () => boolean,
+  probes: { subtreeIdle: () => boolean; promptOrphaned: boolean },
   staleMs: number = TRANSIENT_STALE_MS,
   now: number = Date.now(),
 ): { state: ClaudeCodeInfo["state"]; recheckAt: number | null } {
-  if (state !== "tool_use") {
+  if (state !== "tool_use" && state !== "thinking") {
+    return { state, recheckAt: null };
+  }
+  // A `thinking` turn is childless and quiet whether live or abandoned; only an
+  // orphaned prompt (predating this resumed claude) proves abandonment.
+  if (state === "thinking" && !probes.promptOrphaned) {
     return { state, recheckAt: null };
   }
   if (quietMs < staleMs) {
     return { state, recheckAt: now + (staleMs - quietMs) };
   }
-  if (probeSubtreeIdle()) {
+  // Past the window, confirm abandonment with the signal appropriate to the
+  // state. For `thinking`, `promptOrphaned` is already definitive — the prompt
+  // predates this resumed claude, which `claude -c` never auto-continues — so
+  // it settles directly. The subtree is deliberately NOT consulted here: a
+  // resumed-idle claude often holds a long-lived helper child (e.g. a
+  // persistent MCP server like `chrome-devtools-mcp`), so requiring an idle
+  // subtree would wrongly keep the phantom spinning forever (observed on a live
+  // session). For `tool_use` the subtree IS the discriminator — a live tool
+  // keeps a child — so a busy subtree means real work; re-probe after another
+  // window in case it ends silently.
+  if (state === "thinking") {
+    return { state: "waiting", recheckAt: null };
+  }
+  if (probes.subtreeIdle()) {
     return { state: "waiting", recheckAt: null };
   }
   return { state, recheckAt: now + staleMs };

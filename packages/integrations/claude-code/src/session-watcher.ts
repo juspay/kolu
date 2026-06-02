@@ -24,9 +24,11 @@ import {
   isClaudeSubtreeIdle,
   liveOutstandingTasks,
   nextWorkflowStaleDeadline,
+  observeWorkflowRun,
   outstandingBackgroundTasks,
   PROJECTS_DIR,
   type SessionFile,
+  type WorkflowObservation,
   TAIL_BYTES,
   tailJsonlLines,
   watchOrWaitForDir,
@@ -149,8 +151,8 @@ export function createSessionWatcher(
   // spinner would never self-clear if the agent dies on a still-fresh journal.
   // Re-armed on every check, cleared on destroy.
   let staleDeadlineTimer: NodeJS.Timeout | null = null;
-  // Watcher over the per-session `workflows/` dir (dynamic-workflow journals).
-  // Journals update while the agent is busy-waiting and the transcript is
+  // Watcher over the per-session `workflows/` dir (completion snapshots).
+  // Snapshots land while the agent is busy-waiting and the transcript is
   // otherwise quiet, so this keeps the fan-out count live. Null until set up.
   let workflowsDirWatcher: (() => void) | null = null;
 
@@ -265,11 +267,41 @@ export function createSessionWatcher(
     }
   }
 
+  /** Whether the trailing prompt belongs to a killed instance the current
+   *  (resumed) claude never processed: its timestamp predates the session's
+   *  `startedAt`. `promptMs` is the timestamp `deriveState` read for state, so
+   *  the age check and the state share one walk. False when either timestamp is
+   *  unknown — so a live turn, or a session file without `startedAt`, is never
+   *  treated as orphaned. */
+  function isTrailingPromptOrphaned(
+    promptMs: number | null,
+    startedAt: number | undefined,
+  ): boolean {
+    if (startedAt === undefined) return false;
+    return promptMs !== null && promptMs < startedAt;
+  }
+
   function onTranscriptMaybeChanged() {
     if (destroyed) return;
     if (transcriptWatching.kind !== "watching") return;
 
     const lines = tailJsonlLines(transcriptWatching.path, TAIL_BYTES);
+    // observeWorkflowRun is the single source of truth; the three projections
+    // below (liveOutstandingTasks / nextWorkflowStaleDeadline /
+    // deriveWorkflowProgress) all read its result. Observe each distinct runId
+    // ONCE per check pass and memoize into this Map — each observation is now a
+    // readdir + N stats over the live streaming dir (#1123), so re-observing the
+    // same run three times would walk disk 3× per pass, scaling with sub-agent
+    // count. The `observe` lookup hands the same observation to every projection.
+    const obs = new Map<string, WorkflowObservation>();
+    const observe = (runId: string): WorkflowObservation => {
+      let o = obs.get(runId);
+      if (o === undefined) {
+        o = observeWorkflowRun(session, runId);
+        obs.set(runId, o);
+      }
+      return o;
+    };
     // Drop tasks that can't keep the session "working": a `Workflow` whose
     // journal has gone terminal/stale (orphaned by a restart). `deriveState`
     // further narrows to runId-bearing `Workflow` runs, so a bare backgrounded
@@ -278,6 +310,8 @@ export function createSessionWatcher(
     const outstanding = liveOutstandingTasks(
       session,
       outstandingBackgroundTasks(lines),
+      Date.now(),
+      observe,
     );
     const derived = deriveState(lines, outstanding);
     if (!derived) {
@@ -296,15 +330,24 @@ export function createSessionWatcher(
     //     stale; the deadline tracks the soonest live-journal stale time.
     //   - dangling tool_use (#1017): demote to `waiting` once the transcript is
     //     quiet past the window AND claude's subtree is idle (no descendant
-    //     process). A genuine long tool keeps a child, so it is never wrongly
-    //     cleared; the probe runs only past the window. `thinking` is left
-    //     untouched — a turn awaiting the model's first token also has no
-    //     descendant and writes nothing, so that signal can't distinguish a
-    //     slow model request from abandonment (see decayTransientState).
+    //     process). A genuine long tool keeps a child, so it is never cleared.
+    //   - thinking (#1017): a trailing `user` prompt is childless and quiet
+    //     whether the turn is live or abandoned, so demote only when the prompt
+    //     is ORPHANED — it predates this claude's `startedAt`, i.e. it belongs
+    //     to a killed instance and the current (resumed) claude never processed
+    //     it. A live turn's prompt postdates `startedAt`, so it is never cleared.
+    //     The subtree is NOT consulted here (unlike tool_use): a resumed-idle
+    //     claude often holds a long-lived MCP/helper child, which would wrongly
+    //     read as "busy" — orphaned + stale is already definitive.
     let publishedState = derived.state;
     let staleDeadline: number | null = null;
     if (derived.state === "running_background") {
-      staleDeadline = nextWorkflowStaleDeadline(session, outstanding);
+      staleDeadline = nextWorkflowStaleDeadline(
+        session,
+        outstanding,
+        Date.now(),
+        observe,
+      );
     } else {
       const now = Date.now();
       const quietMs = transcriptQuietMs(transcriptWatching.path, now);
@@ -312,7 +355,13 @@ export function createSessionWatcher(
         const decayed = decayTransientState(
           derived.state,
           quietMs,
-          () => isClaudeSubtreeIdle(session.pid),
+          {
+            subtreeIdle: () => isClaudeSubtreeIdle(session.pid),
+            promptOrphaned: isTrailingPromptOrphaned(
+              derived.timestampMs,
+              session.startedAt,
+            ),
+          },
           undefined,
           now,
         );
@@ -330,7 +379,7 @@ export function createSessionWatcher(
     // fan-out count refreshes via the workflows-dir watcher below.
     const workflow =
       publishedState === "running_background"
-        ? deriveWorkflowProgress(session, outstanding)
+        ? deriveWorkflowProgress(session, outstanding, observe)
         : null;
 
     const info: ClaudeCodeInfo = {
@@ -442,11 +491,13 @@ export function createSessionWatcher(
     }
   }
 
-  /** Watch the per-session `workflows/` dir so journal updates (fan-out
-   *  count climbing, status flipping to completed) re-derive state even when
-   *  the transcript itself is quiet. Routed through the same debounced check
-   *  as transcript events. `watchOrWaitForDir` handles the dir not existing
-   *  yet (created lazily on the first `Workflow` launch). */
+  /** Watch the per-session `workflows/` snapshot dir so a workflow's completion
+   *  snapshot (`<runId>.json`) re-derives progress even when the transcript is
+   *  quiet. Live progress under `subagents/workflows/<runId>/` is NOT watched
+   *  (a recursive watch there proved unreliable on macOS, #1123); the reused
+   *  stale-recheck timer (`nextWorkflowStaleDeadline`, anchored on the live run
+   *  dir's newest file) drives live re-derivation instead, so the fan-out count
+   *  refreshes each window rather than on every append. */
   function setupWorkflowsWatching() {
     workflowsDirWatcher = watchOrWaitForDir(
       workflowsDirFor(session),

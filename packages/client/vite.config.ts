@@ -28,7 +28,17 @@ export default defineConfig({
     solid(),
     tailwindcss(),
     VitePWA({
-      registerType: "autoUpdate",
+      // `prompt`, not `autoUpdate`: a new build must NOT reload an open tab out
+      // from under a live terminal session. `prompt` keeps the freshly-built
+      // worker in `waiting` until the user clicks Reload (see pwa.ts), whereas
+      // `autoUpdate` force-reloads on activation with no way to defer on the
+      // pinned plugin version. The worker still updates its precache eagerly;
+      // only the navigation is user-gated.
+      registerType: "prompt",
+      // `pwa.ts` registers the worker itself (via `virtual:pwa-register`) so it
+      // can own update detection and the reload — `false` tells the plugin not
+      // to also auto-inject a registration, which would double-register.
+      injectRegister: false,
       manifest: false,
       workbox: {
         globPatterns: ["**/*.{js,css,html,svg,png,woff2}"],
@@ -36,6 +46,11 @@ export default defineConfig({
         // pulled in by @pierre/diffs. Precaching keeps the Code tab snappy
         // offline.
         maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
+        // Take control of the page the moment the waiting worker is told to
+        // skip waiting (on the user's Reload click) so the `controllerchange`
+        // fires and the reload lands on the new build — `skipWaiting` stays
+        // off so the worker waits for that click rather than activating eagerly.
+        clientsClaim: true,
       },
     }),
   ],

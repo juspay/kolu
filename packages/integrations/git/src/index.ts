@@ -35,7 +35,11 @@ export {
 // Diff review
 export { getDiff, getStatus, parseNameStatus } from "./review.ts";
 // Path security
-export { resolveUnder } from "./safe-path.ts";
+export {
+  assertRealpathUnder,
+  resolveExistingUnder,
+  resolveUnder,
+} from "./safe-path.ts";
 // File-preview classification used to live here; it moved to the node-free
 // `kolu-common/preview` (a preview concern shared by client + server, not a
 // git operation). The `FsReadFileOutput` schema it feeds stays below.

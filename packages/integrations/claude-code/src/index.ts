@@ -29,6 +29,8 @@ export {
   findTranscriptPath,
   liveOutstandingTasks,
   nextWorkflowStaleDeadline,
+  type ObserveWorkflowRun,
+  observeWorkflowRun,
   outstandingBackgroundTasks,
   PROJECTS_DIR,
   readSessionFile,
@@ -40,6 +42,7 @@ export {
   tailJsonlLines,
   tryWatchDir,
   watchOrWaitForDir,
+  type WorkflowObservation,
   WORKFLOW_JOURNAL_STALE_MS,
   workflowsDirFor,
 } from "./core.ts";

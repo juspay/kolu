@@ -189,7 +189,10 @@ app.get(
     const repoRoot = term?.meta.git?.repoRoot;
     if (!repoRoot) return c.text("terminal has no repo", 404);
 
-    const res = await serveResolvedFile(resolvePreviewPath(repoRoot, rawTail));
+    const res = await serveResolvedFile(
+      resolvePreviewPath(repoRoot, rawTail),
+      repoRoot,
+    );
     // `Buffer` (subclass of `Uint8Array<ArrayBufferLike>`) is a runtime-valid
     // `BodyInit` but the DOM-typed lib.dom.d.ts narrows `BodyInit` to
     // `Uint8Array<ArrayBuffer>` — the unions don't align in TS even though
