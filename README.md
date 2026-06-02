@@ -6,7 +6,7 @@
 
 Your terminals are the workspace. Real `xterm.js` tiles on an infinite 2D canvas, for `claude`, `codex`, `opencode` — anything you run in a shell.
 
-Unlike agent command centers that wrap a single model behind their own chat UI, kolu stays out of the agent's way: the terminal is the universal interface, so `claude`, `opencode`, or whatever ships next week works out of the box — and you can drop to a plain shell whenever you want. It's an [Agentic Development Environment](https://x.com/jdegoes/status/2036931874057314390) (ADE) that treats terminals as the thesis, not the substrate.
+Unlike agent command centers that wrap a single model behind their own chat UI, kolu stays out of the agent's way: the terminal is the universal interface, so `claude`, `opencode`, or whatever ships next week works out of the box — and you can drop to a plain shell whenever you want. Kolu treats terminals as the thesis, not the substrate.
 
 ## Philosophy
 
@@ -197,6 +197,7 @@ pnpm monorepo:
 | ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `packages/common/`                   | [oRPC](https://orpc.dev/) contract + [Zod](https://zod.dev/) schemas + cell descriptors                                                                               |
 | `packages/surface/`                  | Reactive state framework — typed `Cell<T>`, `Collection<K,T>`, `Stream<I,T>`, `Event<I,T>` over oRPC streams; SolidJS hooks (`useCell`, `useCollection`, `useStream`, `useEvent`)               |
+| `packages/surface-nix-host/`         | Runs a typed `@kolu/surface` agent on a remote machine over `ssh`, with Nix as the provisioning mechanism — host-session lifecycle, `nix copy` provisioning, remote-collection mirroring, and reconnect handling. Backs the future `RemoteTerminalBackend` (terminals on SSH hosts) |
 | `packages/solid-pierre/`             | Solid-native wrappers around [`@pierre/trees`](https://www.npmjs.com/package/@pierre/trees) and [`@pierre/diffs`](https://www.npmjs.com/package/@pierre/diffs); encapsulates Pierre's imperative mount/render lifecycle behind `<FileTree>` and `<CodeView>` with required `onError` props. `<CodeView>` (Pierre's 1.2.x advanced-mode viewport) hosts files and/or diffs in one virtualized scroll — windowed-rendering is unconditional, so single-file callers ride the same path as future multi-file ones |
 | `packages/solid-markdown/`           | App-agnostic safe Markdown → SolidJS renderer built on [`marked`](https://marked.js.org/) (GFM) — a `safeHref` allowlist and no raw-HTML injection (`html` tokens render as escaped text). One `<Markdown>` component with `inline` / `compact` / `document` variants bundling parse mode + styling scale. Kolu's intent surface consumes it, and the `document` variant backs the Code-tab's Markdown rendered-appliance (`@kolu/solid-fileview/renderers/markdown`) that powers the Source ⇄ Rendered preview |
 | `packages/solid-fileview/`           | App-agnostic file-preview "outlet". `<FileView>` owns the Source ⇄ Rendered toggle, mode-availability logic (offered iff a file has *both* a source and a rendered form), and the renderer-registry pick — the core has **no rendering dependencies of its own**: the source view and every rendered form are injected `Renderer` values, and each concrete renderer is a separate `/renderers` sub-path appliance. Ships generic `image` / `iframe` / `markdown` appliances (the `markdown` one wires `@kolu/solid-markdown`). Kolu's Code-tab plugs in pierre-source + markdown + image + an iframe wrapped with the artifact-sdk comment bridge, so `right-panel/BrowseFileDispatcher` is a thin `fsReadFile`→`FileView` adapter rather than bespoke render wiring; `.md` now shows the toggle (rendered by default) |
@@ -212,12 +213,15 @@ pnpm monorepo:
 | `packages/integrations/git/`         | Pure git operations — `simple-git` wrapper: repo resolution, worktree lifecycle, diff review, path security; schemas re-exported by `kolu-common`                     |
 | `packages/integrations/github/`      | GitHub PR schemas + pure helpers (`deriveCheckStatus`, `classifyGhError`, `prResultEqual`); server wraps with `gh pr view` spawn via `KOLU_GH_BIN`                    |
 | `packages/integrations/io/`          | Filesystem & I/O primitives — refcounted shared `fs.watch` keyed by directory (`createDirFilenameWatcher`); its only dependency is the types-only `@kolu/log` leaf, so any package can adopt it without runtime coupling |
+| `packages/shared/`                   | `kolu-shared` — generic utilities for code that watches live external state on disk (filesystem, SQLite): the `Logger` type re-export, `readTailLines`, and SQLite helpers. No agent-specific concepts; used by `kolu-git` and the agent integrations |
 | `packages/transcript-core/`          | Vendor-neutral transcript IR (`Transcript`, `TranscriptEvent`, typed `ToolInput` union) + structural transforms; per-agent loaders normalize into this shape          |
 | `packages/transcript-html/`          | Static-export renderer — `marked` for prose, [`@pierre/diffs`](https://www.npmjs.com/package/@pierre/diffs) SSR for shiki-tokenized code/diffs, [Preact](https://preactjs.com/) JSX for chrome; emits one self-contained `.html` |
 | `packages/terminal-themes/`          | Terminal color scheme catalog + perceptual-distance picker — themes checked-in as JSON                                                                                |
 | `packages/memorable-names/`          | ADJ-NOUN random name generator — word lists checked-in as JSON                                                                                                        |
 | `packages/log/`                      | Structured-logging contract (`Logger`) — a zero-runtime-dependency, zero-`kolu-*`-dependency leaf, so even packages that refuse a `kolu-shared` dep import one canonical type instead of re-declaring it (`kolu-shared`, `kolu-io`, `kolu-transcript-core` all defer here) |
 | `packages/html-escape/`              | `escapeHtml` — a zero-dependency leaf, so app-agnostic appliances (`transcript-html`, the scrollback PDF export) reach it without dragging the `kolu-common` domain contract into their dependency tree |
+| `packages/nonempty/`                 | `NonEmpty<T>` — a zero-dependency leaf giving a list known at the type level to have at least one element, with a `nonEmpty()` smart constructor that returns `null` on empty so callers narrow at the type system instead of a runtime length check |
+| `packages/tests/`                    | End-to-end test harness — Cucumber feature files + Playwright step definitions exercised by `just test` |
 
 ### Communication
 
@@ -228,7 +232,7 @@ All traffic flows over a single WebSocket (`/rpc/ws`) via [oRPC](https://orpc.de
 | Request / response | one-shot RPC call                          | plain `client.*` calls                | `terminal.create`, `terminal.kill`, `terminal.reorder` |
 | Subscription       | server pushes values over WebSocket stream | `createSubscription` → SolidJS signal | Terminal list, metadata, server state                  |
 
-Subscriptions use [`createSubscription`](packages/client/src/rpc/createSubscription.ts) — a 150-line primitive that converts an `AsyncIterable` into a SolidJS signal via `createStore` + `reconcile` for fine-grained reactivity. Per-terminal subscriptions use SolidJS's `mapArray` for automatic lifecycle management.
+Subscriptions use [`createSubscription`](packages/surface/src/solid/createSubscription.ts) — a ~150-line primitive that converts an `AsyncIterable` into a SolidJS signal via `createStore` + `reconcile` for fine-grained reactivity; the client consumes it through `@kolu/surface`'s hooks (`useCell` / `useCollection` / `useStream` / `useEvent`) rather than directly. Per-terminal subscriptions use SolidJS's `mapArray` for automatic lifecycle management.
 
 ### Data flow
 
