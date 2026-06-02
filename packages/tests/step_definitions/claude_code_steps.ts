@@ -35,7 +35,8 @@ type MockState =
   | "journalless_workflow"
   | "background_bash"
   | "interrupted"
-  | "interrupted_tool_use";
+  | "interrupted_tool_use"
+  | "compact";
 // Read these lazily rather than at module load — `hooks.ts` sets per-worker
 // temp dirs on `process.env`, and cucumber's step/support module import
 // order is not guaranteed, so a top-level capture here would race.
@@ -202,6 +203,28 @@ function buildTranscript(state: MockState): string {
         },
       }),
       interruptTextMsg("u3", "[Request interrupted by user for tool use]"),
+    );
+  }
+  // "compact": a finished turn (end_turn) followed by the synthetic summary a
+  // `/compact` appends — a `user`-typed entry flagged `isCompactSummary`. After
+  // a *manual* compact the agent does not auto-respond, so this entry sits at
+  // the tail; reading it as a trailing user prompt pinned the pill in
+  // `thinking` forever. `deriveState` skips it and reads the prior `end_turn` →
+  // `waiting`.
+  if (state === "compact") {
+    lines.push(assistantMsg("end_turn"));
+    lines.push(
+      JSON.stringify({
+        type: "user",
+        uuid: "u2",
+        isCompactSummary: true,
+        isVisibleInTranscriptOnly: true,
+        timestamp: new Date().toISOString(),
+        message: {
+          role: "user",
+          content: "This session is being continued from a previous…",
+        },
+      }),
     );
   }
   // "thinking" = user message only (no assistant response yet)
