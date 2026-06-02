@@ -766,6 +766,35 @@ Feature: Code tab (review + browse)
     Then the file preview iframe should contain "second page"
     And the file "second.html" should be selected in the file browser
 
+  # Regression (CONFIRMED live on the Atlas docs): reaching a file via an
+  # IN-IFRAME LINK CLICK (not a tree click) desyncs the live-reload watch from
+  # the displayed file. Mirrors the real case: an index.html in a nested dist/
+  # dir links (relative href) to a sibling page; the inner document navigates
+  # browser-side, the tree highlight + iframe `src` follow via the artifact-sdk
+  # `ReadyMsg.pathname` report — but the `fsReadFile` WATCH does not re-arm on
+  # the navigated-to file, so a later edit fires events nobody listens for and
+  # the preview freezes on the navigated content. (Re-selecting the file via a
+  # tree click repairs it.) The nested dist/ layout matches the live repro;
+  # a flat repo did NOT trip the bug.
+  Scenario: Editing a file reached via an in-iframe link still refreshes the preview live
+    When I run "rm -rf /tmp/kolu-nav-edit && git init /tmp/kolu-nav-edit && cd /tmp/kolu-nav-edit"
+    And I run "mkdir dist"
+    And I run "printf '<!doctype html><h1>first page</h1><a href=second.html>go to second</a>\n' > dist/index.html"
+    And I run "printf '<!doctype html><h1>second page ALPHA</h1>\n' > dist/second.html"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    And I click the directory "dist" in the file browser
+    And I click the file "dist/index.html" in the file browser
+    Then the file preview iframe should be visible
+    And the file preview iframe should contain "first page"
+    When I click the link "go to second" in the file preview iframe
+    Then the file preview iframe should contain "second page ALPHA"
+    And the file "dist/second.html" should be selected in the file browser
+    When I click the terminal canvas
+    And I run "printf '<!doctype html><h1>second page BETA</h1>\n' > dist/second.html"
+    Then the file preview iframe should contain "second page BETA"
+
   Scenario: Committing the selected local diff clears the stale content pane
     When I run "rm -rf /tmp/kolu-clear-selected-local && git init /tmp/kolu-clear-selected-local && cd /tmp/kolu-clear-selected-local"
     And I run "git commit --allow-empty -m init"

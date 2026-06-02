@@ -28,8 +28,12 @@
  * Subscribers can pass a `filePath` to receive only events for that exact
  * file (the `BrowseFileView` case — one selected file, not the whole tree)
  * or omit it to receive every event (the `subscribeRepoChange` case). The
- * filter happens at the listener layer so a single shared watcher serves
- * both consumers — no separate single-file watcher module needed.
+ * filter happens at the listener layer, so a single shared watcher serves
+ * both consumers. The one exception: a previewed file that lives under an
+ * ignored build-output dir (Atlas commits and previews `docs/atlas/dist/`)
+ * re-roots parcel at the file's own directory (`watchRootFor`) — otherwise
+ * the repo-root ignore globs would prune the very file the user opened and
+ * its live-reload would silently never fire.
  */
 
 import path from "node:path";
@@ -40,38 +44,58 @@ import {
 import type { Logger } from "kolu-shared";
 import { WATCHER_DEBOUNCE_MS } from "./git-dir.ts";
 
-/** Hard-coded ignore list. Globs are matched against paths relative to the
- *  watched repo root by parcel-watcher's picomatch integration. The leading
- *  `**\/` wildcards catch nested instances (e.g. `packages/foo/node_modules`).
+/** Directory basenames the watch skips: VCS internals, dependency trees, and
+ *  build outputs. Single source of truth — the parcel ignore globs below AND
+ *  `watchRootFor` (which re-roots a single-file watch out of an ignored
+ *  ancestor) both derive from this list, so "what the repo-wide watch skips"
+ *  and "which previewed files the repo root would hide" can't drift apart. */
+const IGNORED_DIR_BASENAMES = [
+  ".git",
+  "node_modules",
+  ".kolu-dev",
+  ".kolu-state",
+  "dist",
+  "build",
+  "target",
+  ".next",
+  ".turbo",
+  ".cache",
+  ".parcel-cache",
+];
+
+/** Globs are matched against paths relative to the watched root by
+ *  parcel-watcher's picomatch integration. The leading `**\/` wildcards catch
+ *  nested instances (e.g. `packages/foo/node_modules`).
  *
  *  Not gitignore-aware. We accept some over-firing on user-generated build
  *  outputs that aren't in this list — the upstream debounce + the streaming
  *  endpoint's snapshot equality check absorb noise events. */
 const IGNORE_GLOBS = [
-  "**/.git",
-  "**/.git/**",
-  "**/node_modules",
-  "**/node_modules/**",
-  "**/.kolu-dev",
-  "**/.kolu-dev/**",
-  "**/.kolu-state",
-  "**/.kolu-state/**",
-  "**/dist",
-  "**/dist/**",
-  "**/build",
-  "**/build/**",
-  "**/target",
-  "**/target/**",
-  "**/.next",
-  "**/.next/**",
-  "**/.turbo",
-  "**/.turbo/**",
-  "**/.cache",
-  "**/.cache/**",
-  "**/.parcel-cache",
-  "**/.parcel-cache/**",
+  ...IGNORED_DIR_BASENAMES.flatMap((d) => [`**/${d}`, `**/${d}/**`]),
   "**/.DS_Store",
 ];
+
+/** Pick the parcel watch root for a subscription.
+ *
+ *  The repo-wide watch (no `filePath`) roots at `repoRoot` and lets the ignore
+ *  globs prune build outputs — correct, since the tree/status views don't care
+ *  about `dist/`. But a single-file preview watch for a file that LIVES under
+ *  an ignored dir (Atlas commits and previews `docs/atlas/dist/*.html`) would
+ *  get zero events: parcel never reports an ignored path. So when the
+ *  previewed file sits under an ignored ancestor, root parcel at the file's own
+ *  directory instead. The ignore globs are matched relative to the watch root,
+ *  so the file — now directly under the root — is no longer swallowed by
+ *  `**\/dist/**`, while any `node_modules`/`.git` *within* that directory stay
+ *  ignored. Files outside ignored dirs keep `repoRoot` and so keep sharing the
+ *  one repo-wide watcher (no extra OS handles for the common case). */
+function watchRootFor(repoRoot: string, filePath: string | undefined): string {
+  if (filePath === undefined) return repoRoot;
+  const dirSegments = filePath.split("/").slice(0, -1);
+  if (dirSegments.some((seg) => IGNORED_DIR_BASENAMES.includes(seg))) {
+    return path.dirname(path.resolve(repoRoot, filePath));
+  }
+  return repoRoot;
+}
 
 interface Listener {
   /** Absolute path to match against incoming events, or `null` to receive
@@ -81,13 +105,13 @@ interface Listener {
 }
 
 interface SharedWorkingTreeWatcher {
-  subscribe(filePath: string | undefined, onChange: () => void): () => void;
+  subscribe(matchAbs: string | null, onChange: () => void): () => void;
 }
 
 const sharedWorkingTreeWatchers = new Map<string, SharedWorkingTreeWatcher>();
 
 function installSharedWorkingTreeWatcher(
-  repoRoot: string,
+  watchRoot: string,
   onLast: () => void,
   log?: Logger,
 ): SharedWorkingTreeWatcher {
@@ -110,7 +134,7 @@ function installSharedWorkingTreeWatcher(
           listener.onChange();
         } catch (e) {
           log?.error(
-            { err: e instanceof Error ? e.message : String(e), repoRoot },
+            { err: e instanceof Error ? e.message : String(e), watchRoot },
             "git: working-tree listener threw",
           );
         }
@@ -125,12 +149,12 @@ function installSharedWorkingTreeWatcher(
   // future event will correct on its own. Fire a synthetic tick once
   // parcel is ready so consumers re-read state and reconcile.
   parcelSubscribe(
-    repoRoot,
+    watchRoot,
     (err, events) => {
       if (cancelled) return;
       if (err) {
         log?.error(
-          { err: err.message, repoRoot },
+          { err: err.message, watchRoot },
           "git: working-tree watcher callback error",
         );
         return;
@@ -159,14 +183,14 @@ function installSharedWorkingTreeWatcher(
       if (cancelled) {
         void sub.unsubscribe().catch((e: Error) => {
           log?.error(
-            { err: e.message, repoRoot },
+            { err: e.message, watchRoot },
             "git: working-tree late-unsubscribe failed",
           );
         });
         return;
       }
       subscription = sub;
-      log?.info({ repoRoot }, "git: working-tree watcher installed");
+      log?.info({ watchRoot }, "git: working-tree watcher installed");
 
       // Reconcile any mutations that landed in the install window —
       // parcel didn't see them, but the listener's own re-read will. Add
@@ -180,15 +204,13 @@ function installSharedWorkingTreeWatcher(
     })
     .catch((e: Error) => {
       log?.error(
-        { err: e.message, repoRoot },
+        { err: e.message, watchRoot },
         "git: working-tree watcher install failed",
       );
     });
 
   return {
-    subscribe(filePath, onChange) {
-      const matchAbs =
-        filePath === undefined ? null : path.resolve(repoRoot, filePath);
+    subscribe(matchAbs, onChange) {
       const listener: Listener = { matchAbs, onChange };
       listeners.add(listener);
       return () => {
@@ -200,14 +222,14 @@ function installSharedWorkingTreeWatcher(
           if (subscription) {
             void subscription.unsubscribe().catch((e: Error) => {
               log?.error(
-                { err: e.message, repoRoot },
+                { err: e.message, watchRoot },
                 "git: working-tree unsubscribe failed",
               );
             });
             subscription = null;
           }
           onLast();
-          log?.info({ repoRoot }, "git: working-tree watcher retired");
+          log?.info({ watchRoot }, "git: working-tree watcher retired");
         }
       };
     },
@@ -222,9 +244,12 @@ export interface WatchWorkingTreeOptions {
 
 /**
  * Subscribe to working-tree changes for `repoRoot`. Returns a cleanup
- * function. N callers on the same `repoRoot` collapse to one shared
+ * function. Callers sharing a watch root collapse to one shared
  * `@parcel/watcher` subscription; each listener installs its own optional
- * filePath filter without installing a separate OS handle.
+ * filePath filter without installing a separate OS handle. A single-file
+ * watch whose file lives under an ignored build-output dir re-roots at that
+ * file's directory (see `watchRootFor`) so it isn't pruned by the ignore
+ * globs — otherwise it shares `repoRoot` with the repo-wide watch.
  */
 export function watchWorkingTree(
   repoRoot: string,
@@ -232,19 +257,24 @@ export function watchWorkingTree(
   log?: Logger,
   options?: WatchWorkingTreeOptions,
 ): () => void {
-  let entry = sharedWorkingTreeWatchers.get(repoRoot);
+  const watchRoot = watchRootFor(repoRoot, options?.filePath);
+  const matchAbs =
+    options?.filePath === undefined
+      ? null
+      : path.resolve(repoRoot, options.filePath);
+  let entry = sharedWorkingTreeWatchers.get(watchRoot);
   if (!entry) {
     entry = installSharedWorkingTreeWatcher(
-      repoRoot,
-      () => sharedWorkingTreeWatchers.delete(repoRoot),
+      watchRoot,
+      () => sharedWorkingTreeWatchers.delete(watchRoot),
       log,
     );
-    sharedWorkingTreeWatchers.set(repoRoot, entry);
+    sharedWorkingTreeWatchers.set(watchRoot, entry);
   }
-  return entry.subscribe(options?.filePath, onChange);
+  return entry.subscribe(matchAbs, onChange);
 }
 
-/** Test-only inspector — number of distinct repoRoots with active shared
+/** Test-only inspector — number of distinct watch roots with active shared
  *  working-tree watchers. Mirrors `_sharedHeadWatcherCount`. */
 export function _sharedWorkingTreeWatcherCount(): number {
   return sharedWorkingTreeWatchers.size;
