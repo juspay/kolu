@@ -536,15 +536,21 @@ export function outstandingBackgroundTasks(lines: string[]): BackgroundTask[] {
 
 // --- Workflow journal (dynamic-workflow fan-out progress) ---
 
-/** Per-session workflow-journal directory: `<projects>/<cwd>/<session>/workflows`.
- *  Sibling of the transcript JSONL, which lives at `<projects>/<cwd>/<session>.jsonl`. */
-export function workflowsDirFor(session: SessionFile): string {
+/** The on-disk session root: `<projects>/<cwd>/<session>`. The single anchor for
+ *  the per-session layout — both the workflow-journal dir and the live workflow
+ *  root derive from here, so a session-root layout move changes one place. */
+function sessionRootFor(session: SessionFile): string {
   return path.join(
     PROJECTS_DIR,
     encodeProjectPath(session.cwd),
     session.sessionId,
-    "workflows",
   );
+}
+
+/** Per-session workflow-journal directory: `<projects>/<cwd>/<session>/workflows`.
+ *  Sibling of the transcript JSONL, which lives at `<projects>/<cwd>/<session>.jsonl`. */
+export function workflowsDirFor(session: SessionFile): string {
+  return path.join(sessionRootFor(session), "workflows");
 }
 
 /** On-disk shape of a workflow run journal (`workflows/<runId>.json`) — just
@@ -613,13 +619,7 @@ function newestFileMtimeMs(dir: string): number | null {
  *  The session-watcher watches this tree so live-run writes (`journal.jsonl` /
  *  streaming `agent-*.jsonl` appends) re-derive progress (#1123). */
 export function liveWorkflowsRootFor(session: SessionFile): string {
-  return path.join(
-    PROJECTS_DIR,
-    encodeProjectPath(session.cwd),
-    session.sessionId,
-    "subagents",
-    "workflows",
-  );
+  return path.join(sessionRootFor(session), "subagents", "workflows");
 }
 
 /** The live event-log directory for a `Workflow` run under the current runtime
