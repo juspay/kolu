@@ -23,6 +23,7 @@ import {
   findTranscriptPath,
   isClaudeSubtreeIdle,
   liveOutstandingTasks,
+  newestEntryTimestampMs,
   nextWorkflowStaleDeadline,
   outstandingBackgroundTasks,
   PROJECTS_DIR,
@@ -265,6 +266,19 @@ export function createSessionWatcher(
     }
   }
 
+  /** Whether the trailing prompt belongs to a killed instance the current
+   *  (resumed) claude never processed: its timestamp predates the session's
+   *  `startedAt`. False when either timestamp is unknown — so a live turn, or a
+   *  session file without `startedAt`, is never treated as orphaned. */
+  function isTrailingPromptOrphaned(
+    lines: string[],
+    startedAt: number | undefined,
+  ): boolean {
+    if (startedAt === undefined) return false;
+    const promptMs = newestEntryTimestampMs(lines);
+    return promptMs !== null && promptMs < startedAt;
+  }
+
   function onTranscriptMaybeChanged() {
     if (destroyed) return;
     if (transcriptWatching.kind !== "watching") return;
@@ -296,11 +310,13 @@ export function createSessionWatcher(
     //     stale; the deadline tracks the soonest live-journal stale time.
     //   - dangling tool_use (#1017): demote to `waiting` once the transcript is
     //     quiet past the window AND claude's subtree is idle (no descendant
-    //     process). A genuine long tool keeps a child, so it is never wrongly
-    //     cleared; the probe runs only past the window. `thinking` is left
-    //     untouched — a turn awaiting the model's first token also has no
-    //     descendant and writes nothing, so that signal can't distinguish a
-    //     slow model request from abandonment (see decayTransientState).
+    //     process). A genuine long tool keeps a child, so it is never cleared.
+    //   - thinking (#1017): a trailing `user` prompt is childless and quiet
+    //     whether the turn is live or abandoned, so demote only when the prompt
+    //     is ORPHANED — it predates this claude's `startedAt`, i.e. it belongs
+    //     to a killed instance and the current (resumed) claude never processed
+    //     it. A live turn's prompt postdates `startedAt`, so it is never cleared.
+    //     The subtree-idle probe (only past the window) is a second confirm.
     let publishedState = derived.state;
     let staleDeadline: number | null = null;
     if (derived.state === "running_background") {
@@ -312,7 +328,10 @@ export function createSessionWatcher(
         const decayed = decayTransientState(
           derived.state,
           quietMs,
-          () => isClaudeSubtreeIdle(session.pid),
+          {
+            subtreeIdle: () => isClaudeSubtreeIdle(session.pid),
+            promptOrphaned: isTrailingPromptOrphaned(lines, session.startedAt),
+          },
           undefined,
           now,
         );

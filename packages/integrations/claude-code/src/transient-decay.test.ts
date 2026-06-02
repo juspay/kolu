@@ -3,26 +3,26 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   decayTransientState,
   hasNoDescendants,
+  newestEntryTimestampMs,
   snapshotProcessTree,
   TRANSIENT_STALE_MS,
 } from "./core.ts";
 
 // --- The phantom transient pill (#1017) ---
 //
-// A dangling `tool_use` (an assistant tool call with no following tool_result)
-// keeps `deriveState` reporting a *working* state with no decay. Correct while
-// the tool runs; wrong once the session is abandoned (most reliably: claude
-// killed mid-tool, then resumed idle by session-restore). The dock spins
-// forever. `deriveState` can't tell a live tool from an abandoned one from a
-// single transcript snapshot, so de-escalation needs two out-of-band signals:
-// the transcript has gone quiet past a window AND claude's process subtree is
-// idle (no descendant process — a genuine tool keeps a child).
-// `decayTransientState` is the pure policy that composes them.
-//
-// `thinking` is deliberately NOT decayed on this signal: a turn awaiting the
-// model's first token has no descendant and writes nothing, so "quiet + no
-// descendants" can't distinguish a slow/hung model request (live) from
-// abandonment, and clearing it would publish `waiting` over a live turn.
+// A trailing transient state keeps `deriveState` reporting a *working* state
+// with no decay once the session is abandoned (most reliably: claude killed
+// mid-turn, then resumed idle by session-restore). The dock spins forever. Two
+// trailing shapes hit it, each disambiguated by its own out-of-band signal once
+// the transcript has gone quiet past a window:
+//   - dangling `tool_use`: a live tool keeps a descendant process; an abandoned
+//     one has none — so "subtree idle (no descendant)" tells them apart.
+//   - `thinking` (trailing `user` prompt): childless and quiet whether live or
+//     abandoned, so the discriminator is the prompt's age — an ORPHANED prompt
+//     (predating this resumed claude's `startedAt`) belongs to a killed instance
+//     the current claude never processed. A live turn's prompt postdates
+//     `startedAt`, so it is never cleared.
+// `decayTransientState` is the pure policy that composes these.
 
 describe("decayTransientState (#1017 phantom transient pill)", () => {
   const idle = () => true;
@@ -38,6 +38,16 @@ describe("decayTransientState (#1017 phantom transient pill)", () => {
       "subtree probe must not run before the quiet window elapses",
     );
   };
+  /** Probe bundle: `tool_use` reads `subtreeIdle`; `thinking` also reads
+   *  `promptOrphaned`. Default `promptOrphaned: false` (the safe live-turn
+   *  case); tests that exercise the orphaned path set it true. */
+  const probes = (
+    subtreeIdle: () => boolean,
+    promptOrphaned = false,
+  ): { subtreeIdle: () => boolean; promptOrphaned: boolean } => ({
+    subtreeIdle,
+    promptOrphaned,
+  });
 
   it("settles a dangling `tool_use` pill to `waiting` once stale and the subtree is idle", () => {
     // The reproduced case: claude killed mid-Bash, resumed idle — a dangling
@@ -46,7 +56,7 @@ describe("decayTransientState (#1017 phantom transient pill)", () => {
       decayTransientState(
         "tool_use",
         TRANSIENT_STALE_MS + 1_000,
-        idle,
+        probes(idle),
         undefined,
         now,
       ),
@@ -55,14 +65,12 @@ describe("decayTransientState (#1017 phantom transient pill)", () => {
 
   it("keeps a dangling `tool_use` and schedules a recheck before the window elapses", () => {
     // Not yet stale: never probe the subtree, but arm a one-shot recheck at the
-    // absolute moment the window *would* elapse — `now + (staleMs - quietMs)`
-    // off the caller's single clock sample (a quiet transcript fires no fs
-    // event).
+    // absolute moment the window *would* elapse — `now + (staleMs - quietMs)`.
     expect(
       decayTransientState(
         "tool_use",
         TRANSIENT_STALE_MS - 30_000,
-        neverProbed,
+        probes(neverProbed),
         undefined,
         now,
       ),
@@ -73,33 +81,111 @@ describe("decayTransientState (#1017 phantom transient pill)", () => {
     // Stale transcript but claude still has a descendant (a long Bash / a
     // sub-agent) → real work; never cleared. Re-probe a full window from now.
     expect(
-      decayTransientState("tool_use", TRANSIENT_STALE_MS, busy, undefined, now),
-    ).toEqual({
-      state: "tool_use",
-      recheckAt: now + TRANSIENT_STALE_MS,
-    });
+      decayTransientState(
+        "tool_use",
+        TRANSIENT_STALE_MS,
+        probes(busy),
+        undefined,
+        now,
+      ),
+    ).toEqual({ state: "tool_use", recheckAt: now + TRANSIENT_STALE_MS });
+  });
+
+  it("settles an ORPHANED `thinking` pill to `waiting` once stale and the subtree is idle", () => {
+    // The reproduced case: a trailing `user` prompt from a killed instance, the
+    // current claude resumed idle (prompt predates startedAt → promptOrphaned).
+    expect(
+      decayTransientState(
+        "thinking",
+        TRANSIENT_STALE_MS + 1_000,
+        probes(idle, true),
+        undefined,
+        now,
+      ),
+    ).toEqual({ state: "waiting", recheckAt: null });
+  });
+
+  it("keeps a LIVE `thinking` turn (prompt not orphaned) — never probes, never decays", () => {
+    // A live turn's prompt postdates startedAt → not orphaned. Even long past
+    // the window, it is left alone and the subtree probe is never spawned.
+    expect(
+      decayTransientState(
+        "thinking",
+        TRANSIENT_STALE_MS * 10,
+        probes(neverProbed, false),
+        undefined,
+        now,
+      ),
+    ).toEqual({ state: "thinking", recheckAt: null });
+  });
+
+  it("keeps an orphaned `thinking` and schedules a recheck before the window elapses", () => {
+    expect(
+      decayTransientState(
+        "thinking",
+        TRANSIENT_STALE_MS - 30_000,
+        probes(neverProbed, true),
+        undefined,
+        now,
+      ),
+    ).toEqual({ state: "thinking", recheckAt: now + 30_000 });
+  });
+
+  it("keeps an orphaned `thinking` whose subtree is still busy (resumed claude actively working)", () => {
+    expect(
+      decayTransientState(
+        "thinking",
+        TRANSIENT_STALE_MS,
+        probes(busy, true),
+        undefined,
+        now,
+      ),
+    ).toEqual({ state: "thinking", recheckAt: now + TRANSIENT_STALE_MS });
   });
 
   it.each([
     "waiting",
     "awaiting_user",
     "running_background",
-    "thinking",
-  ] as const)("never decays the non-`tool_use` state `%s`", (state) => {
-    // `thinking` is excluded by design (a slow model request has no
-    // descendant and a quiet transcript — indistinguishable from abandonment
-    // by this probe, so clearing it could mask a live turn).
+  ] as const)("never decays the non-transient state `%s`", (state) => {
     // running_background has its own decay path (#1109); waiting/awaiting_user
     // are settled / a genuine human gate. None should ever probe the subtree.
     expect(
       decayTransientState(
         state,
         TRANSIENT_STALE_MS * 10,
-        neverProbed,
+        probes(neverProbed, true),
         undefined,
         now,
       ),
     ).toEqual({ state, recheckAt: null });
+  });
+});
+
+describe("newestEntryTimestampMs", () => {
+  const entry = (type: string, ts?: string, extra: object = {}) =>
+    JSON.stringify({ type, ...(ts ? { timestamp: ts } : {}), ...extra });
+
+  it("returns the epoch-ms timestamp of the newest user/assistant entry", () => {
+    const lines = [
+      entry("assistant", "2026-06-02T11:33:48.779Z"),
+      entry("user", "2026-06-02T11:35:49.791Z"),
+      entry("permission-mode"), // metadata after the prompt — skipped
+      entry("ai-title"),
+    ];
+    expect(newestEntryTimestampMs(lines)).toBe(
+      Date.parse("2026-06-02T11:35:49.791Z"),
+    );
+  });
+
+  it("returns null when no user/assistant entry exists", () => {
+    expect(
+      newestEntryTimestampMs([entry("permission-mode"), entry("mode")]),
+    ).toBeNull();
+  });
+
+  it("returns null when the newest entry lacks a parseable timestamp", () => {
+    expect(newestEntryTimestampMs([entry("user")])).toBeNull();
   });
 });
 
