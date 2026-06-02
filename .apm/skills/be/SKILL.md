@@ -67,10 +67,24 @@ correctness-critical change where cross-track staleness matters — and is the
 automatic fallback under codex/opencode runtimes, which lack the `Workflow`
 engine `/be-review` needs.
 
-## 5. Ship
+## 5. Ship — CI and evidence in parallel
 
-1. **`/ci`** — run the pipeline (background; consume `--progress json`), fix→fmt→commit→retry on real failures, confirm green on current `HEAD`.
-2. **`/evidence`** — follow the **`## PR evidence`** section of `.agency/do.md` for the capture procedure, then post the result under `## Evidence`. For bug fixes, demonstrate the now-fixed behavior even when there's no visual diff. Skip only if that section says to (or is absent).
+`/ci` and `/evidence` are independent — one exercises the build/test pipeline, the
+other captures on-screen behavior — so **run them concurrently**; don't wait for
+green before capturing.
+
+1. **Kick off `/ci` first, backgrounded** — start the pipeline (background;
+   consume `--progress json`) so it churns while you capture evidence. React to
+   streamed `failed`/`errored` nodes the moment they land: fix→fmt→commit→retry
+   on real failures, confirm green on the final `HEAD`.
+2. **Concurrently, run `/evidence`** while CI runs — follow the **`## PR
+   evidence`** section of `.agency/do.md` for the capture procedure, then post the
+   result under `## Evidence`. For bug fixes, demonstrate the now-fixed behavior
+   even when there's no visual diff. Skip only if that section says to (or is
+   absent).
+3. **Join before Done** — confirm CI is green on the final `HEAD` **and** evidence
+   is posted. If a CI fix-commit changed visible behavior *after* capture,
+   re-capture so the evidence matches what actually merges.
 
 ## Done
 
