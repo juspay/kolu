@@ -749,26 +749,34 @@ export function nextWorkflowStaleDeadline(
 
 // --- Phantom transient de-escalation (#1017) ---
 //
-// A trailing transient transcript state — `thinking` (the newest entry is a
-// `user` line) or a dangling `tool_use` (an assistant tool call with no
-// following `tool_result`) — keeps `deriveState` reporting a *working* state
-// indefinitely. That is correct while a turn is genuinely in flight, but wrong
-// once the session is abandoned (most reliably: claude killed mid-tool, then
-// resumed idle by session-restore) — the dock then spins a "running" pill
-// forever. A genuine in-flight turn and an abandoned one are
-// transcript-indistinguishable from a single snapshot, so two out-of-band
-// signals settle it: the transcript has gone quiet past a window, AND claude's
-// process subtree is idle. Sibling of the `running_background` decay (#1109),
-// which handles the `end_turn`-promotion half on its own workflow-journal
-// signal; the two states are disjoint, so the paths never overlap.
+// A dangling `tool_use` (an assistant tool call with no following
+// `tool_result`) keeps `deriveState` reporting a *working* state indefinitely.
+// That is correct while the tool is genuinely running, but wrong once the
+// session is abandoned (most reliably: claude killed mid-tool, then resumed
+// idle by session-restore) — the dock then spins a "running" pill forever. A
+// genuine in-flight tool and an abandoned one are transcript-indistinguishable
+// from a single snapshot, so two out-of-band signals settle it: the transcript
+// has gone quiet past a window, AND claude's process subtree is idle.
+//
+// `thinking` is deliberately NOT decayed on this signal. A `thinking` turn that
+// is awaiting the model's first token (the newest transcript entry is the
+// `user` prompt) has spawned no tool child yet and writes nothing until the
+// reply streams back — so a slow or hung model request is indistinguishable
+// from abandonment by "quiet transcript + no descendants". Clearing it there
+// would publish `waiting` over a live turn. The no-descendants probe is only a
+// valid liveness signal for `tool_use`, where live tool work implies a child
+// process (a Bash child, or a sub-agent claude). Sibling of the
+// `running_background` decay (#1109), which handles the `end_turn`-promotion
+// half on its own workflow-journal signal; the states are disjoint, so the
+// paths never overlap.
 
-/** How long the transcript may sit unwritten before a trailing transient state
- *  (`thinking` / dangling `tool_use`) becomes eligible to decay to `waiting`.
- *  A live turn writes the transcript as it streams tool calls and replies, so a
- *  multi-minute gap with an idle subtree means the turn was abandoned. Mirrors
- *  `WORKFLOW_JOURNAL_STALE_MS` (2 min) — the same "quiet long enough to be sure"
- *  threshold as the sibling decay. A false positive self-heals: the next
- *  transcript write fires the watcher and re-derives the true state. */
+/** How long the transcript may sit unwritten before a dangling `tool_use`
+ *  becomes eligible to decay to `waiting`. A live tool writes the transcript as
+ *  it streams tool calls and replies, so a multi-minute gap with an idle
+ *  subtree means the tool was abandoned. Mirrors `WORKFLOW_JOURNAL_STALE_MS`
+ *  (2 min) — the same "quiet long enough to be sure" threshold as the sibling
+ *  decay. A false positive self-heals: the next transcript write fires the
+ *  watcher and re-derives the true state. */
 export const TRANSIENT_STALE_MS = 2 * 60 * 1000;
 
 /** One process-table row: a pid and its parent pid. */
@@ -831,17 +839,20 @@ export function isClaudeSubtreeIdle(pid: number): boolean {
   return hasNoDescendants(pid, procs);
 }
 
-/** Decide the state to publish for a trailing transient, and when (if ever) to
+/** Decide the state to publish for a dangling `tool_use`, and when (if ever) to
  *  re-probe. Pure policy: the caller supplies how long the transcript has been
  *  quiet and a subtree-idle probe, invoked only once the quiet window has
  *  elapsed so the real `ps` spawn stays off the common path.
  *
- *   - not a decayable transient (`thinking`/`tool_use`) → unchanged, no recheck.
+ *   - not a dangling `tool_use` → unchanged, no recheck. In particular
+ *     `thinking` is excluded: a turn awaiting the model's first token has no
+ *     descendant and writes nothing, so "quiet + no descendants" cannot tell a
+ *     slow/hung model request from abandonment (see the module note above).
  *   - not yet stale → unchanged; arm a recheck at the moment it would go stale
  *     (a quiet transcript fires no fs event, so the watcher needs a timer).
  *   - stale + subtree idle → decay to `waiting` (the phantom is settled).
- *   - stale + subtree busy → genuine long-running work; keep it and re-probe
- *     after another window (the work may yet end silently with no further write).
+ *   - stale + subtree busy → genuine long-running tool; keep it and re-probe
+ *     after another window (the tool may yet end silently with no further write).
  */
 export function decayTransientState(
   state: ClaudeCodeInfo["state"],
@@ -849,7 +860,7 @@ export function decayTransientState(
   probeSubtreeIdle: () => boolean,
   staleMs: number = TRANSIENT_STALE_MS,
 ): { state: ClaudeCodeInfo["state"]; recheckInMs: number | null } {
-  if (state !== "thinking" && state !== "tool_use") {
+  if (state !== "tool_use") {
     return { state, recheckInMs: null };
   }
   if (quietMs < staleMs) {

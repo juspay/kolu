@@ -292,10 +292,13 @@ export function createSessionWatcher(
     // recheck timer that re-derives without an external trigger:
     //   - running_background (#1109): demote once the workflow journal goes
     //     stale; the deadline tracks the soonest live-journal stale time.
-    //   - thinking / dangling tool_use (#1017): demote to `waiting` once the
-    //     transcript is quiet past the window AND claude's subtree is idle
-    //     (no descendant process). A genuine long tool keeps a child, so it is
-    //     never wrongly cleared; the probe runs only past the window.
+    //   - dangling tool_use (#1017): demote to `waiting` once the transcript is
+    //     quiet past the window AND claude's subtree is idle (no descendant
+    //     process). A genuine long tool keeps a child, so it is never wrongly
+    //     cleared; the probe runs only past the window. `thinking` is left
+    //     untouched — a turn awaiting the model's first token also has no
+    //     descendant and writes nothing, so that signal can't distinguish a
+    //     slow model request from abandonment (see decayTransientState).
     let publishedState = derived.state;
     let staleDeadline: number | null = null;
     if (derived.state === "running_background") {

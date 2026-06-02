@@ -9,16 +9,20 @@ import {
 
 // --- The phantom transient pill (#1017) ---
 //
-// A trailing transient transcript state — `thinking` (newest entry is a `user`
-// line) or a dangling `tool_use` (an assistant tool call with no following
-// tool_result) — keeps `deriveState` reporting a *working* state with no decay.
-// Correct transiently; wrong once the session is abandoned (most reliably:
-// claude killed mid-tool, then resumed idle by session-restore). The dock spins
-// forever. `deriveState` can't tell a genuine in-flight turn from an abandoned
-// one from a single transcript snapshot, so de-escalation needs two
-// out-of-band signals: the transcript has gone quiet past a window AND claude's
-// process subtree is idle (no descendant process — a genuine tool keeps a
-// child). `decayTransientState` is the pure policy that composes them.
+// A dangling `tool_use` (an assistant tool call with no following tool_result)
+// keeps `deriveState` reporting a *working* state with no decay. Correct while
+// the tool runs; wrong once the session is abandoned (most reliably: claude
+// killed mid-tool, then resumed idle by session-restore). The dock spins
+// forever. `deriveState` can't tell a live tool from an abandoned one from a
+// single transcript snapshot, so de-escalation needs two out-of-band signals:
+// the transcript has gone quiet past a window AND claude's process subtree is
+// idle (no descendant process — a genuine tool keeps a child).
+// `decayTransientState` is the pure policy that composes them.
+//
+// `thinking` is deliberately NOT decayed on this signal: a turn awaiting the
+// model's first token has no descendant and writes nothing, so "quiet + no
+// descendants" can't distinguish a slow/hung model request (live) from
+// abandonment, and clearing it would publish `waiting` over a live turn.
 
 describe("decayTransientState (#1017 phantom transient pill)", () => {
   const idle = () => true;
@@ -32,15 +36,6 @@ describe("decayTransientState (#1017 phantom transient pill)", () => {
     );
   };
 
-  it("settles an abandoned `thinking` pill to `waiting` once stale and the subtree is idle", () => {
-    // THE BUG: a trailing `user` entry keeps deriveState at `thinking` forever.
-    // Past the quiet window with an idle claude subtree it must decay.
-    expect(decayTransientState("thinking", TRANSIENT_STALE_MS, idle)).toEqual({
-      state: "waiting",
-      recheckInMs: null,
-    });
-  });
-
   it("settles a dangling `tool_use` pill to `waiting` once stale and the subtree is idle", () => {
     // The reproduced case: claude killed mid-Bash, resumed idle — a dangling
     // tool_use with no tool_result and no live child process.
@@ -49,15 +44,15 @@ describe("decayTransientState (#1017 phantom transient pill)", () => {
     ).toEqual({ state: "waiting", recheckInMs: null });
   });
 
-  it("keeps the transient and schedules a recheck before the window elapses", () => {
+  it("keeps a dangling `tool_use` and schedules a recheck before the window elapses", () => {
     // Not yet stale: never probe the subtree, but arm a one-shot recheck at the
     // moment the window *would* elapse (a quiet transcript fires no fs event).
     expect(
-      decayTransientState("thinking", TRANSIENT_STALE_MS - 30_000, neverProbed),
-    ).toEqual({ state: "thinking", recheckInMs: 30_000 });
+      decayTransientState("tool_use", TRANSIENT_STALE_MS - 30_000, neverProbed),
+    ).toEqual({ state: "tool_use", recheckInMs: 30_000 });
   });
 
-  it("keeps a genuinely-working transient when the subtree is busy", () => {
+  it("keeps a genuinely-working tool_use when the subtree is busy", () => {
     // Stale transcript but claude still has a descendant (a long Bash / a
     // sub-agent) → real work; never cleared. Re-probe after another window.
     expect(decayTransientState("tool_use", TRANSIENT_STALE_MS, busy)).toEqual({
@@ -70,7 +65,11 @@ describe("decayTransientState (#1017 phantom transient pill)", () => {
     "waiting",
     "awaiting_user",
     "running_background",
-  ] as const)("never decays the non-transient state `%s`", (state) => {
+    "thinking",
+  ] as const)("never decays the non-`tool_use` state `%s`", (state) => {
+    // `thinking` is excluded by design (a slow model request has no
+    // descendant and a quiet transcript — indistinguishable from abandonment
+    // by this probe, so clearing it could mask a live turn).
     // running_background has its own decay path (#1109); waiting/awaiting_user
     // are settled / a genuine human gate. None should ever probe the subtree.
     expect(
@@ -81,9 +80,9 @@ describe("decayTransientState (#1017 phantom transient pill)", () => {
 
 // --- Process-subtree discriminator ---
 //
-// The signal that separates a genuine in-flight turn from an abandoned one: a
-// working claude keeps a descendant process (the Bash child it spawned, or a
-// sub-agent claude); an abandoned / killed-then-resumed-idle claude has none.
+// The signal that separates a live tool from an abandoned one: a working claude
+// keeps a descendant process (the Bash child it spawned, or a sub-agent
+// claude); an abandoned / killed-then-resumed-idle claude has none.
 
 describe("hasNoDescendants", () => {
   it("is true when no process lists pid as its parent", () => {
