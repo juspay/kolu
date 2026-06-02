@@ -41,7 +41,7 @@ const UPDATE_POLL_MS = 60 * 60 * 1000;
  *  forever and the returned `updateServiceWorker` is an inert no-op. Callers
  *  branch on this, NOT on the truthiness of `updateServiceWorker` (which
  *  `registerSW` returns even with no SW present). */
-export const serviceWorkerSupported =
+const serviceWorkerSupported =
   typeof navigator !== "undefined" && "serviceWorker" in navigator;
 
 /** True once a freshly-built service worker is installed and waiting — i.e. a
