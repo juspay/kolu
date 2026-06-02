@@ -27,6 +27,9 @@ import {
 describe("decayTransientState (#1017 phantom transient pill)", () => {
   const idle = () => true;
   const busy = () => false;
+  // A fixed clock sample so the absolute `recheckAt` deadline is assertable
+  // (the caller passes the same `now` it used to measure the quiet window).
+  const now = 1_700_000_000_000;
   /** A probe that fails the test if invoked — asserts the window gate runs
    *  before the (real, process-spawning) subtree probe so the common path
    *  never pays for it. */
@@ -40,24 +43,40 @@ describe("decayTransientState (#1017 phantom transient pill)", () => {
     // The reproduced case: claude killed mid-Bash, resumed idle — a dangling
     // tool_use with no tool_result and no live child process.
     expect(
-      decayTransientState("tool_use", TRANSIENT_STALE_MS + 1_000, idle),
-    ).toEqual({ state: "waiting", recheckInMs: null });
+      decayTransientState(
+        "tool_use",
+        TRANSIENT_STALE_MS + 1_000,
+        idle,
+        undefined,
+        now,
+      ),
+    ).toEqual({ state: "waiting", recheckAt: null });
   });
 
   it("keeps a dangling `tool_use` and schedules a recheck before the window elapses", () => {
     // Not yet stale: never probe the subtree, but arm a one-shot recheck at the
-    // moment the window *would* elapse (a quiet transcript fires no fs event).
+    // absolute moment the window *would* elapse — `now + (staleMs - quietMs)`
+    // off the caller's single clock sample (a quiet transcript fires no fs
+    // event).
     expect(
-      decayTransientState("tool_use", TRANSIENT_STALE_MS - 30_000, neverProbed),
-    ).toEqual({ state: "tool_use", recheckInMs: 30_000 });
+      decayTransientState(
+        "tool_use",
+        TRANSIENT_STALE_MS - 30_000,
+        neverProbed,
+        undefined,
+        now,
+      ),
+    ).toEqual({ state: "tool_use", recheckAt: now + 30_000 });
   });
 
   it("keeps a genuinely-working tool_use when the subtree is busy", () => {
     // Stale transcript but claude still has a descendant (a long Bash / a
-    // sub-agent) → real work; never cleared. Re-probe after another window.
-    expect(decayTransientState("tool_use", TRANSIENT_STALE_MS, busy)).toEqual({
+    // sub-agent) → real work; never cleared. Re-probe a full window from now.
+    expect(
+      decayTransientState("tool_use", TRANSIENT_STALE_MS, busy, undefined, now),
+    ).toEqual({
       state: "tool_use",
-      recheckInMs: TRANSIENT_STALE_MS,
+      recheckAt: now + TRANSIENT_STALE_MS,
     });
   });
 
@@ -73,8 +92,14 @@ describe("decayTransientState (#1017 phantom transient pill)", () => {
     // running_background has its own decay path (#1109); waiting/awaiting_user
     // are settled / a genuine human gate. None should ever probe the subtree.
     expect(
-      decayTransientState(state, TRANSIENT_STALE_MS * 10, neverProbed),
-    ).toEqual({ state, recheckInMs: null });
+      decayTransientState(
+        state,
+        TRANSIENT_STALE_MS * 10,
+        neverProbed,
+        undefined,
+        now,
+      ),
+    ).toEqual({ state, recheckAt: null });
   });
 });
 

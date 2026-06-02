@@ -252,12 +252,14 @@ export function createSessionWatcher(
     onTranscriptMaybeChanged();
   }
 
-  /** Milliseconds since the transcript was last written, or null when it
-   *  can't be stat-ed — treated as "unknown", so no transient de-escalation
-   *  fires (never clear a pill on a stat failure). */
-  function transcriptQuietMs(filePath: string): number | null {
+  /** Milliseconds since the transcript was last written, measured against the
+   *  caller's `now` clock sample, or null when it can't be stat-ed — treated as
+   *  "unknown", so no transient de-escalation fires (never clear a pill on a
+   *  stat failure). Sharing `now` with `decayTransientState` keeps the quiet
+   *  window and the re-derived recheck instant on a single clock read. */
+  function transcriptQuietMs(filePath: string, now: number): number | null {
     try {
-      return Date.now() - fs.statSync(filePath).mtimeMs;
+      return now - fs.statSync(filePath).mtimeMs;
     } catch {
       return null;
     }
@@ -304,16 +306,18 @@ export function createSessionWatcher(
     if (derived.state === "running_background") {
       staleDeadline = nextWorkflowStaleDeadline(session, outstanding);
     } else {
-      const quietMs = transcriptQuietMs(transcriptWatching.path);
+      const now = Date.now();
+      const quietMs = transcriptQuietMs(transcriptWatching.path, now);
       if (quietMs !== null) {
-        const decayed = decayTransientState(derived.state, quietMs, () =>
-          isClaudeSubtreeIdle(session.pid),
+        const decayed = decayTransientState(
+          derived.state,
+          quietMs,
+          () => isClaudeSubtreeIdle(session.pid),
+          undefined,
+          now,
         );
         publishedState = decayed.state;
-        staleDeadline =
-          decayed.recheckInMs === null
-            ? null
-            : Date.now() + decayed.recheckInMs;
+        staleDeadline = decayed.recheckAt;
       }
     }
     scheduleStaleRecheck(staleDeadline);

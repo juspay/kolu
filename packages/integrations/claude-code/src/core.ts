@@ -859,17 +859,18 @@ export function decayTransientState(
   quietMs: number,
   probeSubtreeIdle: () => boolean,
   staleMs: number = TRANSIENT_STALE_MS,
-): { state: ClaudeCodeInfo["state"]; recheckInMs: number | null } {
+  now: number = Date.now(),
+): { state: ClaudeCodeInfo["state"]; recheckAt: number | null } {
   if (state !== "tool_use") {
-    return { state, recheckInMs: null };
+    return { state, recheckAt: null };
   }
   if (quietMs < staleMs) {
-    return { state, recheckInMs: staleMs - quietMs };
+    return { state, recheckAt: now + (staleMs - quietMs) };
   }
   if (probeSubtreeIdle()) {
-    return { state: "waiting", recheckInMs: null };
+    return { state: "waiting", recheckAt: null };
   }
-  return { state, recheckInMs: staleMs };
+  return { state, recheckAt: now + staleMs };
 }
 
 /** Sum the three input-side token counters that together represent what
