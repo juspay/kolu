@@ -16,6 +16,7 @@ import * as path from "node:path";
 import { After, Then, When } from "@cucumber/cucumber";
 import { ACTIVE_TERMINAL, readBufferText } from "../support/buffer.ts";
 import { nudgeFiles } from "../support/nudge.ts";
+import { pollFor } from "../support/poll.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
 const SESSION_ID = "test-claude-session-00000000-0000-0000-0000";
@@ -371,22 +372,22 @@ Then(
     // Polled check with periodic mock-file re-touch — see nudgeMockFiles().
     // Same total budget as a bare waitForFunction(POLL_TIMEOUT); we just slice
     // it into ~250ms ticks and re-trigger the server's fs.watch each tick.
-    const start = Date.now();
-    let last: string | null = null;
-    while (Date.now() - start < POLL_TIMEOUT) {
-      nudgeMockFiles();
-      last = await this.page.evaluate(() => {
-        const el = document.querySelector(
-          '[data-testid="canvas-tile"] [data-testid="agent-indicator"], [data-testid="mobile-tile-titlebar"] [data-testid="agent-indicator"]',
-        );
-        return el?.getAttribute("data-agent-state") ?? null;
-      });
-      if (last === expectedState) return;
-      await new Promise((r) => setTimeout(r, 250));
-    }
-    throw new Error(
-      `Expected agent indicator state "${expectedState}", got "${last}" after ${POLL_TIMEOUT}ms`,
-    );
+    await pollFor({
+      observe: () =>
+        this.page.evaluate(() => {
+          const el = document.querySelector(
+            '[data-testid="canvas-tile"] [data-testid="agent-indicator"], [data-testid="mobile-tile-titlebar"] [data-testid="agent-indicator"]',
+          );
+          return el?.getAttribute("data-agent-state") ?? null;
+        }),
+      isDone: (v) => v === expectedState,
+      onTick: nudgeMockFiles,
+      onTimeout: (last, elapsed) =>
+        new Error(
+          `Expected agent indicator state "${expectedState}", got "${last}" after ${elapsed}ms`,
+        ),
+      timeoutMs: POLL_TIMEOUT,
+    });
   },
 );
 
@@ -398,22 +399,22 @@ Then(
     // data-pip variant — scoped to the title bar here to disambiguate
     // from the dock's own pips. Polled + nudged like the agent-indicator
     // check because the variant derives from server-pushed agent state.
-    const start = Date.now();
-    let last: string | null = null;
-    while (Date.now() - start < POLL_TIMEOUT) {
-      nudgeMockFiles();
-      last = await this.page.evaluate(() => {
-        const el = document.querySelector(
-          '[data-testid="canvas-tile-titlebar"] [data-testid="dock-row-pip"]',
-        );
-        return el?.getAttribute("data-pip") ?? null;
-      });
-      if (last === expectedVariant) return;
-      await new Promise((r) => setTimeout(r, 250));
-    }
-    throw new Error(
-      `Expected title state pip "${expectedVariant}", got "${last}" after ${POLL_TIMEOUT}ms`,
-    );
+    await pollFor({
+      observe: () =>
+        this.page.evaluate(() => {
+          const el = document.querySelector(
+            '[data-testid="canvas-tile-titlebar"] [data-testid="dock-row-pip"]',
+          );
+          return el?.getAttribute("data-pip") ?? null;
+        }),
+      isDone: (v) => v === expectedVariant,
+      onTick: nudgeMockFiles,
+      onTimeout: (last, elapsed) =>
+        new Error(
+          `Expected title state pip "${expectedVariant}", got "${last}" after ${elapsed}ms`,
+        ),
+      timeoutMs: POLL_TIMEOUT,
+    });
   },
 );
 
@@ -422,22 +423,22 @@ Then(
   async function (this: KoluWorld, expected: string) {
     // Same polled + nudge shape as the agent-indicator check: re-touch the
     // transcript each tick so the server re-derives and re-reads the journal.
-    const start = Date.now();
-    let last: string | null = null;
-    while (Date.now() - start < POLL_TIMEOUT) {
-      nudgeMockFiles();
-      last = await this.page.evaluate(() => {
-        const el = document.querySelector(
-          '[data-testid="canvas-tile"] [data-testid="agent-workflow-badge"], [data-testid="mobile-tile-titlebar"] [data-testid="agent-workflow-badge"]',
-        );
-        return el?.textContent ?? null;
-      });
-      if (last?.includes(expected)) return;
-      await new Promise((r) => setTimeout(r, 250));
-    }
-    throw new Error(
-      `Expected workflow badge containing "${expected}", got "${last}" after ${POLL_TIMEOUT}ms`,
-    );
+    await pollFor({
+      observe: () =>
+        this.page.evaluate(() => {
+          const el = document.querySelector(
+            '[data-testid="canvas-tile"] [data-testid="agent-workflow-badge"], [data-testid="mobile-tile-titlebar"] [data-testid="agent-workflow-badge"]',
+          );
+          return el?.textContent ?? null;
+        }),
+      isDone: (v) => v?.includes(expected) ?? false,
+      onTick: nudgeMockFiles,
+      onTimeout: (last, elapsed) =>
+        new Error(
+          `Expected workflow badge containing "${expected}", got "${last}" after ${elapsed}ms`,
+        ),
+      timeoutMs: POLL_TIMEOUT,
+    });
   },
 );
 
