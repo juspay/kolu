@@ -92,21 +92,21 @@ describe("deriveState", () => {
     { stop_reason: "end_turn", expected: "waiting" },
     { stop_reason: "tool_use", expected: "tool_use" },
     { stop_reason: null, expected: "thinking" },
-  ])(
-    "assistant with stop_reason=$stop_reason → $expected",
-    ({ stop_reason, expected }) => {
-      const line = JSON.stringify({
-        type: "assistant",
-        message: { stop_reason, model: "claude-opus-4-6" },
-      });
-      expect(deriveState([line])).toEqual({
-        state: expected,
-        model: "claude-opus-4-6",
-        contextTokens: null,
-        timestampMs: null,
-      });
-    },
-  );
+  ])("assistant with stop_reason=$stop_reason → $expected", ({
+    stop_reason,
+    expected,
+  }) => {
+    const line = JSON.stringify({
+      type: "assistant",
+      message: { stop_reason, model: "claude-opus-4-6" },
+    });
+    expect(deriveState([line])).toEqual({
+      state: expected,
+      model: "claude-opus-4-6",
+      contextTokens: null,
+      timestampMs: null,
+    });
+  });
 
   it("returns awaiting_user when the only pending tool is AskUserQuestion", () => {
     const line = JSON.stringify({
@@ -623,17 +623,18 @@ describe("outstandingBackgroundTasks", () => {
     ).toEqual([]);
   });
 
-  it.each(["failed", "stopped", "killed"])(
-    "treats %s as a terminal status",
-    (status) => {
-      expect(
-        outstandingBackgroundTasks([
-          bgLaunch("t1", "wf_1"),
-          bgComplete("t1", status),
-        ]),
-      ).toEqual([]);
-    },
-  );
+  it.each([
+    "failed",
+    "stopped",
+    "killed",
+  ])("treats %s as a terminal status", (status) => {
+    expect(
+      outstandingBackgroundTasks([
+        bgLaunch("t1", "wf_1"),
+        bgComplete("t1", status),
+      ]),
+    ).toEqual([]);
+  });
 
   it("detects a backgrounded Bash launch (runId null), trailing period excluded", () => {
     // The id is followed by ". Output …"; the period must not be captured or
