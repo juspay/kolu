@@ -63,8 +63,11 @@ branch HEAD ┼─ wt-lens    ─ lowy⇄hickey debate  ─→ commits ─┼─
 - **`--tracks codex,lens,police`**: which tracks to run *and the order they
   consolidate in*. Default all three; codex first (it changes the most), police
   last (lightest touch), so an overlap surfaces picking the later track.
-- **`--no-commit`**: leave each track's fixes uncommitted (debugging a single
-  track); default is to commit, since consolidation cherry-picks those commits.
+- **`--no-commit`**: leave each track's fixes uncommitted for inspection
+  (debugging a single track). Consolidation cherry-picks per-track *commits*, so
+  with this flag the orchestrator **skips Consolidate + Cleanup and preserves the
+  worktrees** (status `no-commit`) rather than silently discarding the uncommitted
+  edits. Default is to commit, which is what actually ships fixes.
 
 ## Steps
 
@@ -74,6 +77,12 @@ branch HEAD ┼─ wt-lens    ─ lowy⇄hickey debate  ─→ commits ─┼─
 - `git fetch origin` so the base remote-tracking ref is current.
 - Resolve `base` (a remote-tracking ref like `origin/master`).
 - Confirm a non-empty diff: `git diff --stat <base>`. If empty, stop.
+- **Commit the change first.** Every track forks a detached worktree from the
+  branch HEAD, so only *committed* work is reviewed. If the main worktree has
+  staged/unstaged/untracked changes (outside `.be-review/`), commit (or stash)
+  them before invoking — the orchestrator's Setup preflight aborts with
+  `status: 'setup-failed'` on a dirty tree rather than reviewing an incomplete set.
+  (In `/be` this is automatic: §2/§3 commit and push before §4.)
 - **Preflight codex** (unless `--tracks` excludes it): `codex login status`. If
   not logged in, tell the user to run `codex login` (suggest the `!` prefix).
 
@@ -98,12 +107,24 @@ consensus), **Consolidate** (cherry-pick each track's commits onto the branch,
 reconciling overlap), **Cleanup** (tear down the worktrees). It returns:
 
 ```
-{ status,                  // 'done' | 'setup-failed'
+{ status,                  // 'done' | 'setup-failed' | 'no-commit'
   branchHead, finalHead, base, order,
-  tracks,                  // per-track result (codex/lens consensus, police findings/applied)
-  consolidation,           // { finalHead, picks[], conflicts[] }
+  tracks,                  // per-track result; ALWAYS one entry per requested track —
+                           //   a track whose worktree setup failed is status:'track-error'
+  consolidation,           // { finalHead, picks[], conflicts[] }  (null when not consolidated)
   conflicts }              // the overlaps reconciled (empty in the common case)
 ```
+
+- `setup-failed` — no work was consolidated: a dirty main worktree (commit/stash
+  and re-run) or no worktree could be created. `tracks` carries the per-track
+  `track-error` detail.
+- `no-commit` — `--no-commit` was set, so each track's fixes are left
+  **uncommitted in its preserved `.be-review/wt-<track>` worktree** and nothing is
+  consolidated or cleaned up. The result lists those `worktrees` to inspect; re-run
+  with commit enabled to actually consolidate. (`--no-commit` is a
+  single-track-debugging mode, not a way to ship fixes.)
+- For any per-track `track-error` (setup failure or a crashed gauntlet), fall back
+  to the serial path for that track.
 
 ### 3. Present the result
 

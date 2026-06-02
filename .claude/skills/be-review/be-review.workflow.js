@@ -63,9 +63,17 @@ const rationaleBlock = rationale
 const SETUP_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['branchHead', 'worktrees'],
+  required: ['branchHead', 'cleanTree', 'worktrees'],
   properties: {
     branchHead: { type: 'string', description: 'SHA of the branch HEAD every track was forked from' },
+    cleanTree: {
+      type: 'boolean',
+      description: 'true iff the main worktree had NO uncommitted changes (outside .be-review/) when checked',
+    },
+    dirtyStatus: {
+      type: 'string',
+      description: 'the offending `git status --short` lines when cleanTree is false; empty otherwise',
+    },
     worktrees: {
       type: 'array',
       description: 'one entry per track worktree created',
@@ -168,24 +176,51 @@ phase('Setup')
 const setupPrompt = `You are a MECHANICAL SETUP RUNNER preparing isolated worktrees for a parallel code-review gauntlet. Do exactly these steps in the repo at \`${repoPath}\`; do not edit any source files.
 
 1. Record the branch HEAD: \`git -C ${repoPath} rev-parse HEAD\` — this is \`branchHead\`, the commit every track forks from.
-2. Ensure the scratch root exists: \`mkdir -p ${workRoot}\`.
-3. For EACH track in [${TRACKS.join(', ')}], create a fresh detached worktree at \`branchHead\`:
+2. CLEAN-TREE PREFLIGHT. The tracks fork detached worktrees from \`branchHead\`, so anything NOT committed to HEAD is invisible to every reviewer. Run \`git -C ${repoPath} status --short\` and ignore only lines under \`.be-review/\` (the gitignored scratch root). If ANY other staged, unstaged, or untracked entry remains, the working tree is dirty: set \`cleanTree\`: false, put those offending lines in \`dirtyStatus\`, SKIP worktree creation entirely (return an empty \`worktrees\` array), and stop. Otherwise set \`cleanTree\`: true and \`dirtyStatus\`: "".
+3. Only if \`cleanTree\` is true — ensure the scratch root exists: \`mkdir -p ${workRoot}\`.
+4. Only if \`cleanTree\` is true — for EACH track in [${TRACKS.join(', ')}], create a fresh detached worktree at \`branchHead\`:
    - Path: \`${workRoot}/wt-<track>\`.
    - If that path already exists from a prior run, remove it first: \`git -C ${repoPath} worktree remove --force ${workRoot}/wt-<track>\` (ignore errors if it's not registered), then \`rm -rf ${workRoot}/wt-<track>\`.
    - Then: \`git -C ${repoPath} worktree add --detach ${workRoot}/wt-<track> <branchHead>\`.
-4. Run \`git -C ${repoPath} worktree prune\` to clear any stale entries.
+5. Run \`git -C ${repoPath} worktree prune\` to clear any stale entries.
 
-Return \`branchHead\` and, for each track, its worktree \`path\` and whether creation succeeded (\`ok\`). If a worktree failed, set \`ok\`: false and put the git error in \`note\` — do NOT invent success.`
+Return \`branchHead\`, \`cleanTree\`, \`dirtyStatus\`, and, for each track, its worktree \`path\` and whether creation succeeded (\`ok\`). If a worktree failed, set \`ok\`: false and put the git error in \`note\` — do NOT invent success.`
 
 const setup = await agent(setupPrompt, { label: 'setup:worktrees', phase: 'Setup', model, schema: SETUP_SCHEMA })
 const branchHead = (setup?.branchHead || '').trim()
+
+// Clean-tree gate. The tracks fork from HEAD, so uncommitted work in the main
+// worktree would be invisible to every reviewer — a /be-review run could then
+// approve an INCOMPLETE change set. Bail loudly instead (the caller commits or
+// stashes, then re-runs) rather than silently reviewing a subset.
+if (setup?.cleanTree === false) {
+  const dirty = (setup?.dirtyStatus || '').trim()
+  log(`Setup: ABORT — the main worktree at ${repoPath} has uncommitted changes; tracks fork from HEAD and would not see them.`)
+  return {
+    status: 'setup-failed',
+    branchHead,
+    base,
+    tracks: {},
+    consolidation: null,
+    note: `dirty working tree: the tracks fork from HEAD \`${branchHead.slice(0, 9)}\`, so staged/unstaged/untracked changes (outside .be-review/) would be invisible to every reviewer. Commit or stash them, then re-run.${dirty ? `\nOffending entries:\n${dirty}` : ''}`,
+  }
+}
+
+// Seed every requested track with an explicit `track-error` for setup failures, so
+// a dropped reviewer is a STRUCTURED signal the caller (/be §4 falls back per
+// track) — not just a log line that silently shrinks the set while status='done'.
+const tracks = {}
 const liveTracks = TRACKS.filter((t) => (setup?.worktrees || []).find((w) => w.track === t && w.ok))
 const failedTracks = TRACKS.filter((t) => !liveTracks.includes(t))
-if (failedTracks.length) log(`Setup: worktree creation FAILED for ${failedTracks.join(', ')} — those tracks are skipped.`)
+for (const t of failedTracks) {
+  const note = (setup?.worktrees || []).find((w) => w.track === t)?.note || 'worktree creation failed'
+  tracks[t] = { track: t, status: 'track-error', error: `setup: ${note}` }
+}
+if (failedTracks.length) log(`Setup: worktree creation FAILED for ${failedTracks.join(', ')} — recorded as track-error so the caller falls back for those.`)
 log(`Setup: branchHead ${branchHead.slice(0, 9)}; tracks live: ${liveTracks.join(', ') || '(none)'}`)
 
 if (!branchHead || liveTracks.length === 0) {
-  return { status: 'setup-failed', branchHead, base, tracks: {}, consolidation: null, note: 'no track worktrees could be created' }
+  return { status: 'setup-failed', branchHead, base, tracks, consolidation: null, note: 'no track worktrees could be created' }
 }
 
 // ---------------------------------------------------------------------------
@@ -278,9 +313,32 @@ const trackThunk = {
 }
 
 const trackResults = await parallel(liveTracks.map((t) => trackThunk[t]))
-const tracks = {}
+// `tracks` already carries a `track-error` entry for every setup failure; the live
+// tracks fill in alongside them, so the returned map covers EVERY requested track.
 liveTracks.forEach((t, i) => (tracks[t] = trackResults[i] || { track: t, status: 'track-error', error: 'no result' }))
 for (const t of liveTracks) log(`Track ${t}: ${tracks[t].status || 'unknown'}`)
+
+// `--no-commit` short-circuit. With commit=false the tracks deliberately leave
+// their fixes UNCOMMITTED in their own worktrees. Consolidation replays commits
+// (rev-list ${branchHead}..HEAD) and cleanup tears the worktrees down — so running
+// them now would discard every reviewer's edits. Instead, stop here and hand the
+// live worktrees to the user to inspect; nothing is consolidated and nothing is
+// cleaned up. (This is the documented single-track-debugging mode.)
+if (!commit) {
+  log(`--no-commit: skipping Consolidate + Cleanup. Per-track fixes are UNCOMMITTED in their worktrees; inspect them there (\`git -C ${workRoot}/wt-<track> diff\`).`)
+  return {
+    status: 'no-commit',
+    branchHead,
+    finalHead: branchHead,
+    base,
+    order: [],
+    tracks,
+    consolidation: null,
+    conflicts: [],
+    note: 'commit=false: each track left its fixes uncommitted in its worktree and nothing was consolidated. The worktrees are PRESERVED for inspection — review each `.be-review/wt-<track>` and re-run with commit enabled to consolidate.',
+    worktrees: liveTracks.map((t) => ({ track: t, path: wtPath(t) })),
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Phase 3 — consolidate: cherry-pick each track's commits onto the branch in
