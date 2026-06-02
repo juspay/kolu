@@ -43,7 +43,7 @@ import {
 } from "@parcel/watcher";
 import type { Logger } from "kolu-shared";
 import { WATCHER_DEBOUNCE_MS } from "./git-dir.ts";
-import { resolveUnder } from "./safe-path.ts";
+import { assertRealpathUnder, resolveUnder } from "./safe-path.ts";
 
 /** Directory basenames the watch skips: VCS internals, dependency trees, and
  *  build outputs. Single source of truth — the parcel ignore globs below AND
@@ -93,7 +93,15 @@ const IGNORE_GLOBS = [
  *  `rel`/`abs` must already have passed `resolveUnder` — re-rooting at a file's
  *  own directory means the ignore globs no longer protect against escaping the
  *  repo, so the lexical boundary check has to happen *before* we get here.
- *  `rel` is the normalized repo-relative path (no `..`, never absolute). */
+ *  `rel` is the normalized repo-relative path (no `..`, never absolute).
+ *
+ *  Lexical containment is necessary but NOT sufficient for the re-rooted path:
+ *  `resolveUnder` does not resolve symlinks, so a *symlinked* ignored ancestor
+ *  (`docs/atlas/dist -> /tmp/evil`) yields a `rel` that still lives under the
+ *  repo lexically, yet `path.dirname(abs)` points parcel at a directory the OS
+ *  backend will canonicalize outside the repo. Callers that re-root MUST also
+ *  realpath-check the returned root against the repo (`assertRealpathUnder`)
+ *  before installing parcel — see `watchWorkingTree`. */
 function watchRootFor(
   repoRoot: string,
   rel: string | undefined,
@@ -124,6 +132,12 @@ function installSharedWorkingTreeWatcher(
   watchRoot: string,
   onLast: () => void,
   log?: Logger,
+  /** When the watch root was re-rooted away from `repoRoot`, an async
+   *  symlink-aware authority check that must resolve `ok` before parcel is
+   *  installed. Resolving falsy means the re-rooted directory canonicalizes
+   *  outside the repo (a symlinked ignored ancestor) — install nothing and
+   *  retire the entry. Omitted for the repo-root watch, which never escapes. */
+  guard?: () => Promise<boolean>,
 ): SharedWorkingTreeWatcher {
   const listeners = new Set<Listener>();
   const pending = new Set<Listener>();
@@ -158,66 +172,100 @@ function installSharedWorkingTreeWatcher(
   // landing in that window leaves the client with a stale view that no
   // future event will correct on its own. Fire a synthetic tick once
   // parcel is ready so consumers re-read state and reconcile.
-  parcelSubscribe(
-    watchRoot,
-    (err, events) => {
-      if (cancelled) return;
-      if (err) {
-        log?.error(
-          { err: err.message, watchRoot },
-          "git: working-tree watcher callback error",
-        );
-        return;
-      }
+  const startParcel = (): void => {
+    parcelSubscribe(
+      watchRoot,
+      (err, events) => {
+        if (cancelled) return;
+        if (err) {
+          log?.error(
+            { err: err.message, watchRoot },
+            "git: working-tree watcher callback error",
+          );
+          return;
+        }
 
-      // Bucket events into the listeners they match. A single batch can
-      // hit several listeners (different filePaths) or none (all-ignored
-      // paths slipped through somehow).
-      for (const event of events) {
-        for (const listener of listeners) {
-          if (listener.matchAbs === null || listener.matchAbs === event.path) {
-            pending.add(listener);
+        // Bucket events into the listeners they match. A single batch can
+        // hit several listeners (different filePaths) or none (all-ignored
+        // paths slipped through somehow).
+        for (const event of events) {
+          for (const listener of listeners) {
+            if (
+              listener.matchAbs === null ||
+              listener.matchAbs === event.path
+            ) {
+              pending.add(listener);
+            }
           }
         }
-      }
 
-      if (pending.size === 0) return;
+        if (pending.size === 0) return;
 
-      // Trailing-edge debounce — a burst of events fires the listeners
-      // exactly once, after the burst settles. Reset on every new batch.
-      scheduleFire();
-    },
-    { ignore: IGNORE_GLOBS },
-  )
-    .then((sub) => {
-      if (cancelled) {
-        void sub.unsubscribe().catch((e: Error) => {
-          log?.error(
-            { err: e.message, watchRoot },
-            "git: working-tree late-unsubscribe failed",
-          );
-        });
-        return;
-      }
-      subscription = sub;
-      log?.info({ watchRoot }, "git: working-tree watcher installed");
-
-      // Reconcile any mutations that landed in the install window —
-      // parcel didn't see them, but the listener's own re-read will. Add
-      // every current listener to `pending` (the filter doesn't matter
-      // here; reconciliation is a "re-derive your state" signal, not a
-      // path-specific event) and schedule one debounced fire.
-      if (listeners.size > 0) {
-        for (const listener of listeners) pending.add(listener);
+        // Trailing-edge debounce — a burst of events fires the listeners
+        // exactly once, after the burst settles. Reset on every new batch.
         scheduleFire();
-      }
-    })
-    .catch((e: Error) => {
-      log?.error(
-        { err: e.message, watchRoot },
-        "git: working-tree watcher install failed",
-      );
-    });
+      },
+      { ignore: IGNORE_GLOBS },
+    )
+      .then((sub) => {
+        if (cancelled) {
+          void sub.unsubscribe().catch((e: Error) => {
+            log?.error(
+              { err: e.message, watchRoot },
+              "git: working-tree late-unsubscribe failed",
+            );
+          });
+          return;
+        }
+        subscription = sub;
+        log?.info({ watchRoot }, "git: working-tree watcher installed");
+
+        // Reconcile any mutations that landed in the install window —
+        // parcel didn't see them, but the listener's own re-read will. Add
+        // every current listener to `pending` (the filter doesn't matter
+        // here; reconciliation is a "re-derive your state" signal, not a
+        // path-specific event) and schedule one debounced fire.
+        if (listeners.size > 0) {
+          for (const listener of listeners) pending.add(listener);
+          scheduleFire();
+        }
+      })
+      .catch((e: Error) => {
+        log?.error(
+          { err: e.message, watchRoot },
+          "git: working-tree watcher install failed",
+        );
+      });
+  };
+
+  if (guard) {
+    // Re-rooted watch: prove the watch root canonicalizes inside the repo
+    // before handing it to parcel (a symlinked ignored ancestor would point
+    // the OS backend outside repo authority — lexical containment can't
+    // catch that). On failure, retire the entry so a later subscriber forces
+    // a fresh, re-guarded install instead of binding to a dead watcher.
+    void guard()
+      .then((allowed) => {
+        if (cancelled) return;
+        if (!allowed) {
+          cancelled = true;
+          onLast();
+          return;
+        }
+        startParcel();
+      })
+      .catch((e: Error) => {
+        log?.error(
+          { err: e.message, watchRoot },
+          "git: working-tree watch-root guard failed",
+        );
+        if (cancelled) return;
+        cancelled = true;
+        onLast();
+      });
+  } else {
+    startParcel();
+  }
 
   return {
     subscribe(matchAbs, onChange) {
@@ -281,12 +329,23 @@ export function watchWorkingTree(
   }
   const watchRoot = watchRootFor(repoRoot, resolved?.rel, resolved?.abs);
   const matchAbs = resolved?.abs ?? null;
+  // A re-rooted watch (root moved off `repoRoot` into an ignored ancestor)
+  // escaped the ignore globs *and* `resolveUnder`'s lexical check, so a
+  // symlinked ignored ancestor could canonicalize the watch root outside the
+  // repo. Guard that re-rooted install with the symlink-aware authority check
+  // before parcel touches it. The repo-root watch can't escape, so it skips
+  // the (async, filesystem-touching) guard and stays synchronous.
+  const guard =
+    watchRoot === repoRoot
+      ? undefined
+      : async () => (await assertRealpathUnder(repoRoot, watchRoot, log)).ok;
   let entry = sharedWorkingTreeWatchers.get(watchRoot);
   if (!entry) {
     entry = installSharedWorkingTreeWatcher(
       watchRoot,
       () => sharedWorkingTreeWatchers.delete(watchRoot),
       log,
+      guard,
     );
     sharedWorkingTreeWatchers.set(watchRoot, entry);
   }
