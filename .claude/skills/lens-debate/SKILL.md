@@ -117,7 +117,8 @@ Workflow({
     maxRounds: <n, default 12>,
     commit: <false only if --no-commit>,
     withPolice: <true only if --with-police>,
-    rationale: "<optional author note on deliberate design decisions>"
+    rationale: "<optional author note on deliberate design decisions>",
+    model: "<optional model override; defaults to opus>"
   }
 })
 ```
@@ -128,7 +129,10 @@ three phases the user can watch via `/workflows`:
 - **Review** — `review:lowy`, `review:hickey` (and `review:code-police` with
   `--with-police`) in parallel, each independent.
 - **Debate** — alternating `lowy:roundN` / `hickey:roundN` until every finding is
-  agreed. Agreed findings drop out of each subsequent round.
+  agreed. Agreed findings drop out of each subsequent round. Agreement on a `fix`
+  means both lenses agree on the disposition *and* the plan — if they both say
+  `fix` but propose different changes, the finding stays open until the plans
+  converge too (so Apply never picks one lens's plan arbitrarily).
 - **Apply** — one `apply:<finding-id>` per agreed `fix`, each followed (unless
   `--no-commit`) by a `commit:<finding-id>` that commits **exactly** that fix's
   changed files with a message carrying the debate context.
