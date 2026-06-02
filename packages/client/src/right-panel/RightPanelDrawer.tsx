@@ -63,16 +63,7 @@ const RightPanelDrawer: Component<HostProps> = (props) => {
             data-testid="right-panel-drawer-backdrop"
             class="fixed inset-0 z-40 bg-black/40 opacity-0 transition-opacity duration-200 data-open:opacity-100"
           />
-          {/* `transition-transform` is load-bearing, not cosmetic: Corvu's
-           *  drawer drives its open/close state machine off the *computed*
-           *  `transition-duration` of this content element. With none set it
-           *  reads 0s and mishandles a programmatic open (the terminal file-ref
-           *  tap flips `drawerOpen` via `openInCodeTab` rather than dragging the
-           *  sheet) — the drawer never settles open, so on mobile a tapped
-           *  `.html`/code link "does nothing": the tree selection updates but
-           *  the sheet is never brought up. A real transform transition gives
-           *  Corvu a non-zero duration to settle against. */}
-          <Drawer.Content class="fixed bottom-0 left-0 right-0 z-50 bg-surface-0 border-t border-edge shadow-xl h-[85vh] flex flex-col rounded-t-lg overflow-hidden transition-transform duration-200 ease-out">
+          <Drawer.Content class="fixed bottom-0 left-0 right-0 z-50 bg-surface-0 border-t border-edge shadow-xl h-[85vh] flex flex-col rounded-t-lg overflow-hidden">
             <div class="flex justify-center py-1.5 shrink-0" aria-hidden="true">
               <span class="w-10 h-1 rounded-full bg-fg-3/40" />
             </div>

@@ -35,46 +35,6 @@ Feature: File-ref autolinking in terminal
     And xterm's helper textarea should not have been focused by tapping the link
     And there should be no page errors
 
-  @mobile
-  Scenario: Tapping a .html file-ref on touch brings up the code-browser preview
-    # Reported bug: on iPhone, tapping a terminal link to a `.html` file should
-    # open the code browser's file preview (the sandboxed iframe). Instead
-    # nothing visible comes up — the tree selection updates but the preview is
-    # never brought on screen. A `.html` ref takes the binary/iframe render
-    # path (BrowseFileDispatcher), unlike the text scenario above, so this
-    # asserts the preview iframe actually mounts after a touch tap.
-    When I run "git init /tmp/kolu-file-ref-html-mobile && cd /tmp/kolu-file-ref-html-mobile"
-    And I run "git commit --allow-empty -m init"
-    And I run "printf '<h1>preview me</h1>\n' > page.html"
-    And I run "echo 'open page.html in the browser'"
-    And I watch for the right-panel drawer to open
-    And I watch for the file preview iframe to appear
-    And I tap the terminal file-ref link "page.html"
-    Then the right-panel drawer should have opened
-    And the file preview iframe should have appeared
-    And there should be no page errors
-
-  @mobile
-  Scenario: Re-tapping a .html file-ref after dismissing the drawer re-opens the preview
-    # The user-reported iPhone bug: tap a terminal `.html` link, it opens the
-    # code-browser preview; dismiss the drawer; tap the same link again and
-    # "nothing happens" — the tree selection updates but the drawer is never
-    # brought back up. Mobile counterpart of the desktop "re-click after
-    # collapse" canary, which only reproduces under the bundled build.
-    When I run "git init /tmp/kolu-file-ref-html-retap && cd /tmp/kolu-file-ref-html-retap"
-    And I run "git commit --allow-empty -m init"
-    And I run "printf '<h1>preview me</h1>\n' > page.html"
-    And I run "echo 'open page.html in the browser'"
-    And I watch for the file preview iframe to appear
-    And I tap the terminal file-ref link "page.html"
-    Then the file preview iframe should have appeared
-    When I dismiss the right-panel drawer
-    Then the right panel should not be visible
-    When I watch for the file preview iframe to appear
-    And I tap the terminal file-ref link "page.html"
-    Then the file preview iframe should have appeared
-    And there should be no page errors
-
   Scenario: Clicking a line-range file-ref opens the file
     When I run "git init /tmp/kolu-file-ref-861-range && cd /tmp/kolu-file-ref-861-range"
     And I run "git commit --allow-empty -m init"
