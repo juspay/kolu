@@ -1,6 +1,38 @@
 import { DatabaseSync } from "node:sqlite";
-import { describe, expect, it } from "vitest";
-import { parseMessageState, runningToolsBucket } from "./core.ts";
+import { describe, expect, it, vi } from "vitest";
+import {
+  deriveSessionState,
+  parseMessageState,
+  runningToolsBucket,
+} from "./core.ts";
+
+/** A Logger whose four methods are vi spies — lets a test assert which
+ *  level fired and with what message/context. */
+function spyLog() {
+  return { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+}
+
+/** Minimal `message` schema OpenCode writes — enough for `deriveSessionState`
+ *  to pick the latest row by `time_created`. */
+const MESSAGE_SCHEMA = `
+CREATE TABLE message (id TEXT, session_id TEXT NOT NULL, data TEXT NOT NULL, time_created INTEGER);
+`;
+
+function withMessages(
+  rows: Array<{ id: string; data: string; time_created: number }>,
+): DatabaseSync {
+  const db = new DatabaseSync(":memory:");
+  db.exec(MESSAGE_SCHEMA);
+  for (const r of rows) {
+    db.prepare(
+      "INSERT INTO message (id, session_id, data, time_created) VALUES (?, ?, ?, ?)",
+    ).run(r.id, "s1", r.data, r.time_created);
+  }
+  return db;
+}
+
+const NO_MESSAGES_MSG = "no messages yet for opencode session";
+const PARSE_FAILED_MSG = "opencode message.data parse failed";
 
 /** Minimal `part` schema OpenCode writes — enough for `runningToolsBucket`
  *  to do its single index scan. The fixture builder in `packages/tests`
@@ -102,6 +134,69 @@ describe("parseMessageState", () => {
 
   it("returns null for malformed JSON", () => {
     expect(parseMessageState("not json")).toBeNull();
+  });
+
+  it("logs an error (not silence) for malformed JSON, tagged with sessionId", () => {
+    const log = spyLog();
+    expect(parseMessageState("not json", log, "s1")).toBeNull();
+    expect(log.error).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: "s1" }),
+      PARSE_FAILED_MSG,
+    );
+  });
+
+  it("stays silent for valid JSON with an unmodelled role", () => {
+    // A parseable blob is not an anomaly worth an error — only malformed
+    // JSON is. This guards the error path from firing on schema we simply
+    // don't map to a state.
+    const log = spyLog();
+    expect(
+      parseMessageState(JSON.stringify({ role: "system" }), log),
+    ).toBeNull();
+    expect(log.error).not.toHaveBeenCalled();
+  });
+});
+
+describe("deriveSessionState", () => {
+  it("logs 'no messages yet' at debug for a genuinely empty session", () => {
+    const log = spyLog();
+    expect(deriveSessionState("s1", log, withMessages([]))).toBeNull();
+    expect(log.debug).toHaveBeenCalledWith(expect.anything(), NO_MESSAGES_MSG);
+    expect(log.error).not.toHaveBeenCalled();
+  });
+
+  it("logs a parse error — never 'no messages yet' — for a malformed latest row", () => {
+    const log = spyLog();
+    const db = withMessages([{ id: "m1", data: "not json", time_created: 1 }]);
+    expect(deriveSessionState("s1", log, db)).toBeNull();
+    expect(log.error).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: "s1" }),
+      PARSE_FAILED_MSG,
+    );
+    expect(log.debug).not.toHaveBeenCalledWith(
+      expect.anything(),
+      NO_MESSAGES_MSG,
+    );
+  });
+
+  it("derives state from the latest message by time_created", () => {
+    const db = withMessages([
+      { id: "m0", data: JSON.stringify({ role: "user" }), time_created: 1 },
+      {
+        id: "m1",
+        data: JSON.stringify({
+          role: "assistant",
+          finish: "stop",
+          time: { created: 2, completed: 3 },
+        }),
+        time_created: 2,
+      },
+    ]);
+    expect(deriveSessionState("s1", undefined, db)).toEqual({
+      state: "waiting",
+      model: null,
+      messageId: "m1",
+    });
   });
 });
 
