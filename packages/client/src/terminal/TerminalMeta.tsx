@@ -52,19 +52,6 @@ const TerminalMeta: Component<{
            *  repo name) — visible space is reserved for the OSC 2
            *  process title. */}
           <div class="flex items-center gap-1.5 min-h-7 text-sm font-medium min-w-0">
-            {/* Leading agent-state pip — the same shape-distinct StatePip
-             *  the dock row leads with (spinning ring = working, dot =
-             *  awaiting), reused verbatim so a working/awaiting agent
-             *  reads identically in the title and the dock. Gated on a
-             *  live agent: when none is attached the title shows no pip
-             *  (exactly as its agent-kind indicator vanishes when the
-             *  session ends), leaving the dock's idle/parked triage
-             *  states — which fold in recency/staleness — dock-only. */}
-            <Show when={info().meta.agent}>
-              {(agent) => (
-                <StatePip bucket={agentBucket(agent())} unread={props.unread} />
-              )}
-            </Show>
             <NameSpan info={info()} />
             <Show when={info().key.suffix}>
               {(suffix) => (
@@ -118,6 +105,21 @@ const TerminalMeta: Component<{
            *  separate glyph chip, so this slot is the canvas tile's
            *  sole intent affordance regardless of git state. */}
           <div class="flex items-center gap-1.5 min-w-0 text-xs">
+            {/* Agent-state pip leading the branch/intent annotation —
+             *  the same shape-distinct StatePip the dock row leads its
+             *  annotation line with (spinning ring = working, dot =
+             *  awaiting), reused verbatim so a working/awaiting agent
+             *  reads identically in the title and the dock, and sits
+             *  beside the same branch/intent context it does there.
+             *  Gated on a live agent: when none is attached the title
+             *  shows no pip (exactly as its agent-kind indicator vanishes
+             *  when the session ends), leaving the dock's idle/parked
+             *  triage states — which fold in recency/staleness — dock-only. */}
+            <Show when={info().meta.agent}>
+              {(agent) => (
+                <StatePip bucket={agentBucket(agent())} unread={props.unread} />
+              )}
+            </Show>
             <Tip label={info().meta.intent ? "Edit intent" : "Set intent"}>
               <button
                 type="button"
