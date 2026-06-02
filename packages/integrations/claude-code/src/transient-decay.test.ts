@@ -2,8 +2,8 @@ import { spawn } from "node:child_process";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   decayTransientState,
+  deriveState,
   hasNoDescendants,
-  newestEntryTimestampMs,
   snapshotProcessTree,
   TRANSIENT_STALE_MS,
 } from "./core.ts";
@@ -162,30 +162,28 @@ describe("decayTransientState (#1017 phantom transient pill)", () => {
   });
 });
 
-describe("newestEntryTimestampMs", () => {
+describe("deriveState timestampMs (the entry the state derives from)", () => {
   const entry = (type: string, ts?: string, extra: object = {}) =>
     JSON.stringify({ type, ...(ts ? { timestamp: ts } : {}), ...extra });
 
-  it("returns the epoch-ms timestamp of the newest user/assistant entry", () => {
+  it("is the epoch-ms timestamp of the newest user/assistant entry", () => {
     const lines = [
       entry("assistant", "2026-06-02T11:33:48.779Z"),
       entry("user", "2026-06-02T11:35:49.791Z"),
       entry("permission-mode"), // metadata after the prompt — skipped
       entry("ai-title"),
     ];
-    expect(newestEntryTimestampMs(lines)).toBe(
+    expect(deriveState(lines)?.timestampMs).toBe(
       Date.parse("2026-06-02T11:35:49.791Z"),
     );
   });
 
-  it("returns null when no user/assistant entry exists", () => {
-    expect(
-      newestEntryTimestampMs([entry("permission-mode"), entry("mode")]),
-    ).toBeNull();
+  it("deriveState returns null when no user/assistant entry exists", () => {
+    expect(deriveState([entry("permission-mode"), entry("mode")])).toBeNull();
   });
 
-  it("returns null when the newest entry lacks a parseable timestamp", () => {
-    expect(newestEntryTimestampMs([entry("user")])).toBeNull();
+  it("is null when the newest entry lacks a parseable timestamp", () => {
+    expect(deriveState([entry("user")])?.timestampMs).toBeNull();
   });
 });
 

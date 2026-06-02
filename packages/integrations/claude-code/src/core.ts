@@ -328,11 +328,17 @@ export function deriveState(
   state: ClaudeCodeInfo["state"];
   model: string | null;
   contextTokens: number | null;
+  /** Epoch-ms timestamp of the entry the state was derived from (the newest
+   *  `user`/`assistant` entry), or null when it lacks a parseable `timestamp`.
+   *  Used to age a trailing `thinking` prompt against the session's `startedAt`
+   *  (the resumed-vs-live discriminator — see the #1017 module note). */
+  timestampMs: number | null;
 } | null {
   let stateAndModel: {
     state: ClaudeCodeInfo["state"];
     model: string | null;
   } | null = null;
+  let timestampMs: number | null = null;
   let contextTokens: number | null = null;
 
   for (let i = lines.length - 1; i >= 0; i--) {
@@ -341,6 +347,7 @@ export function deriveState(
     try {
       const entry: {
         type?: string;
+        timestamp?: string;
         message?: {
           stop_reason?: string | null;
           model?: string | null;
@@ -382,6 +389,13 @@ export function deriveState(
             model: null,
           }))
           .otherwise(() => null);
+        // Capture the timestamp of the very entry the state derives from — the
+        // newest `user`/`assistant` — so the orphaned-prompt age check reads the
+        // same entry, not a parallel walk (null if absent/unparseable).
+        if (stateAndModel !== null) {
+          const ts = entry.timestamp ? Date.parse(entry.timestamp) : Number.NaN;
+          timestampMs = Number.isNaN(ts) ? null : ts;
+        }
       }
 
       if (stateAndModel !== null && contextTokens !== null) break;
@@ -411,7 +425,7 @@ export function deriveState(
     if (bg.some((t) => t.runId !== null)) state = "running_background";
   }
 
-  return { state, model: stateAndModel.model, contextTokens };
+  return { state, model: stateAndModel.model, contextTokens, timestampMs };
 }
 
 // --- Background-task detection (dynamic workflows) ---
@@ -785,27 +799,6 @@ export function nextWorkflowStaleDeadline(
 // Sibling of the `running_background` decay (#1109), which handles the
 // `end_turn`-promotion half on its own workflow-journal signal; the states are
 // disjoint, so the paths never overlap.
-
-/** Timestamp (epoch ms) of the newest `user`/`assistant` entry — the same entry
- *  `deriveState` reads for state. Returns null when there is none or it lacks a
- *  parseable `timestamp`. Used to age a trailing `thinking` prompt against the
- *  session's `startedAt` (the resumed-vs-live discriminator above). */
-export function newestEntryTimestampMs(lines: string[]): number | null {
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const raw = lines[i];
-    if (raw === undefined) continue;
-    try {
-      const e = JSON.parse(raw) as { type?: string; timestamp?: string };
-      if (e.type === "user" || e.type === "assistant") {
-        const t = e.timestamp ? Date.parse(e.timestamp) : Number.NaN;
-        return Number.isNaN(t) ? null : t;
-      }
-    } catch {
-      // skip malformed lines
-    }
-  }
-  return null;
-}
 
 /** How long the transcript may sit unwritten before a dangling `tool_use`
  *  becomes eligible to decay to `waiting`. A live tool writes the transcript as

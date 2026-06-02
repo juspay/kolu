@@ -104,6 +104,7 @@ describe("deriveState", () => {
       state: expected,
       model: "claude-opus-4-6",
       contextTokens: null,
+      timestampMs: null,
     });
   });
 
@@ -123,6 +124,7 @@ describe("deriveState", () => {
       state: "awaiting_user",
       model: "claude-opus-4-7",
       contextTokens: null,
+      timestampMs: null,
     });
   });
 
@@ -174,6 +176,7 @@ describe("deriveState", () => {
       state: "thinking",
       model: "claude-opus-4-6",
       contextTokens: null,
+      timestampMs: null,
     });
   });
 
@@ -183,6 +186,7 @@ describe("deriveState", () => {
       state: "thinking",
       model: null,
       contextTokens: null,
+      timestampMs: null,
     });
   });
 
@@ -204,6 +208,7 @@ describe("deriveState", () => {
       state: "waiting",
       model: null,
       contextTokens: null,
+      timestampMs: null,
     });
   });
 
@@ -261,6 +266,7 @@ describe("deriveState", () => {
       state: "waiting",
       model: "claude-opus-4-6",
       contextTokens: null,
+      timestampMs: null,
     });
   });
 
@@ -271,6 +277,7 @@ describe("deriveState", () => {
       state: "thinking",
       model: null,
       contextTokens: null,
+      timestampMs: null,
     });
   });
 
@@ -292,6 +299,7 @@ describe("deriveState", () => {
       state: "waiting",
       model: "claude-opus-4-7",
       contextTokens: 29479,
+      timestampMs: null,
     });
   });
 
@@ -317,6 +325,7 @@ describe("deriveState", () => {
       state: "thinking",
       model: null,
       contextTokens: 29_105,
+      timestampMs: null,
     });
   });
 
@@ -338,6 +347,7 @@ describe("deriveState", () => {
       state: "waiting",
       model: "claude-opus-4-7",
       contextTokens: null,
+      timestampMs: null,
     });
   });
 
@@ -353,6 +363,7 @@ describe("deriveState", () => {
       state: "thinking",
       model: "claude-opus-4-7",
       contextTokens: 27871,
+      timestampMs: null,
     });
   });
 
@@ -365,6 +376,7 @@ describe("deriveState", () => {
       state: "waiting",
       model: "claude-opus-4-6",
       contextTokens: null,
+      timestampMs: null,
     });
   });
 
@@ -381,6 +393,7 @@ describe("deriveState", () => {
       state: "waiting",
       model: null,
       contextTokens: null,
+      timestampMs: null,
     });
   });
 

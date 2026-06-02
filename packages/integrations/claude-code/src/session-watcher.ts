@@ -23,7 +23,6 @@ import {
   findTranscriptPath,
   isClaudeSubtreeIdle,
   liveOutstandingTasks,
-  newestEntryTimestampMs,
   nextWorkflowStaleDeadline,
   outstandingBackgroundTasks,
   PROJECTS_DIR,
@@ -268,14 +267,15 @@ export function createSessionWatcher(
 
   /** Whether the trailing prompt belongs to a killed instance the current
    *  (resumed) claude never processed: its timestamp predates the session's
-   *  `startedAt`. False when either timestamp is unknown — so a live turn, or a
-   *  session file without `startedAt`, is never treated as orphaned. */
+   *  `startedAt`. `promptMs` is the timestamp `deriveState` read for state, so
+   *  the age check and the state share one walk. False when either timestamp is
+   *  unknown — so a live turn, or a session file without `startedAt`, is never
+   *  treated as orphaned. */
   function isTrailingPromptOrphaned(
-    lines: string[],
+    promptMs: number | null,
     startedAt: number | undefined,
   ): boolean {
     if (startedAt === undefined) return false;
-    const promptMs = newestEntryTimestampMs(lines);
     return promptMs !== null && promptMs < startedAt;
   }
 
@@ -330,7 +330,10 @@ export function createSessionWatcher(
           quietMs,
           {
             subtreeIdle: () => isClaudeSubtreeIdle(session.pid),
-            promptOrphaned: isTrailingPromptOrphaned(lines, session.startedAt),
+            promptOrphaned: isTrailingPromptOrphaned(
+              derived.timestampMs,
+              session.startedAt,
+            ),
           },
           undefined,
           now,
