@@ -4,7 +4,7 @@
 
 # kolu
 
-Your terminals are the workspace. Real `xterm.js` tiles on an infinite 2D canvas, for `claude`, `codex`, `opencode` — anything you run in a shell.
+kolu is a terminal app built for scale: real `xterm.js` tiles on an infinite 2D canvas, with a dock that never loses one — for `claude`, `codex`, `opencode`, or anything you run in a shell, especially many at once.
 
 Unlike agent command centers that wrap a single model behind their own chat UI, kolu stays out of the agent's way: the terminal is the universal interface, so `claude`, `opencode`, or whatever ships next week works out of the box — and you can drop to a plain shell whenever you want. Kolu treats terminals as the thesis, not the substrate.
 
