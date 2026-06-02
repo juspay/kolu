@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Electricity at framework scale — is there a second @kolu/surface?</title>
+<style>
+  :root{
+    --bg:#fafaf7; --panel:#ffffff; --panel2:#f4eefb; --ink:#1a1c20; --dim:#5b6470;
+    --line:#e6e2d6; --accent:#6b4eff; --accent2:#7c4dd4; --good:#1b7a3a; --bad:#a02a2a;
+    --warn:#a96400; --teal:#0e7490; --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  }
+  *{ box-sizing:border-box; } html{ scroll-behavior:smooth; }
+  body{ margin:0; background:var(--bg); color:var(--ink); font:15px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif; padding:2.4rem 1.25rem 6rem; }
+  main{ max-width:880px; margin:0 auto; }
+  a{ color:var(--accent); text-decoration:none; } a:hover{ text-decoration:underline; }
+  .crumb{ font-family:var(--mono); font-size:.72rem; color:var(--dim); letter-spacing:.04em; margin:0 0 1.1rem; }
+  .crumb a{ color:var(--dim); } .crumb a:hover{ color:var(--accent); }
+  h1{ font-size:1.7rem; line-height:1.2; margin:0 0 .35rem; letter-spacing:-.01em; }
+  h2{ font-size:1.12rem; margin:2.6rem 0 .7rem; padding-bottom:.35rem; border-bottom:1px solid var(--line); color:#13151b; scroll-margin-top:1rem; }
+  h3{ font-size:1rem; margin:.2rem 0 .35rem; color:var(--accent); }
+  h4{ font-size:.78rem; text-transform:uppercase; letter-spacing:.05em; color:var(--dim); margin:1rem 0 .3rem; }
+  .sub{ color:var(--dim); margin:.1rem 0 1.3rem; font-size:.95rem; }
+  p{ margin:.6rem 0; } ul,ol{ margin:.5rem 0; padding-left:1.3rem; } li{ margin:.32rem 0; }
+  code{ font-family:var(--mono); font-size:.85em; background:#f4f1e8; padding:.08em .35em; border-radius:4px; color:#2a2d33; }
+  pre{ background:#f6f3ea; border:1px solid var(--line); border-radius:8px; padding:.8rem 1rem; overflow-x:auto; font-family:var(--mono); font-size:.78rem; line-height:1.55; }
+  pre code{ background:none; padding:0; white-space:pre; }
+  .cite{ font-family:var(--mono); font-size:.78em; color:var(--teal); }
+  .muted{ color:var(--dim); }
+  .tag{ display:inline-block; font-family:var(--mono); font-size:.64rem; text-transform:uppercase; letter-spacing:.04em; padding:.12em .55em; border-radius:999px; vertical-align:middle; border:1px solid transparent; }
+  .tag.seedling{ background:#f8efd9; color:#8a5200; border-color:#e8d3a3; }
+  .tag.budding{ background:#dcf0f4; color:#0b6478; border-color:#bfe3ea; }
+  .tag.evergreen{ background:#e3f4e9; color:#1b7a3a; border-color:#bce3c8; }
+  .tag.accent{ background:#efebff; color:#5a3ff0; border-color:#d4cbff; }
+  .tag.good{ background:#e3f4e9; color:#1b7a3a; border-color:#bce3c8; }
+  .tag.warn{ background:#f8efd9; color:#8a5200; border-color:#e8d3a3; }
+  .tag.bad{ background:#f7e3e0; color:#992018; border-color:#ecc4bd; }
+  .panel{ background:var(--panel); border:1px solid var(--line); border-radius:9px; padding:1rem 1.2rem; margin:1rem 0; }
+  .panel.accent{ border-left:3px solid var(--accent); }
+  .panel.good{ border-left:3px solid var(--good); }
+  .panel.warn{ border-left:3px solid var(--warn); }
+  .panel.bad{ border-left:3px solid var(--bad); }
+  .panel.corr{ border-left:3px solid var(--accent2); background:var(--panel2); }
+  .band{ display:grid; grid-template-columns:repeat(4,1fr); gap:.7rem; margin:1.1rem 0 .4rem; }
+  @media (max-width:640px){ .band{ grid-template-columns:repeat(2,1fr); } }
+  .stat{ background:var(--panel); border:1px solid var(--line); border-radius:9px; padding:.7rem .85rem; text-align:center; }
+  .stat .n{ font-size:1.5rem; font-weight:700; letter-spacing:-.02em; line-height:1.1; }
+  .stat .l{ font-family:var(--mono); font-size:.66rem; text-transform:uppercase; letter-spacing:.04em; color:var(--dim); margin-top:.2rem; }
+  .stat.framework .n{ color:var(--accent); }
+  .stat.short .n{ color:var(--bad); }
+  .stat.bar .n{ color:var(--teal); }
+  .stat.gold .n{ color:var(--good); }
+  .tests{ display:grid; grid-template-columns:repeat(2,1fr); gap:.7rem; margin:1rem 0; }
+  @media (max-width:640px){ .tests{ grid-template-columns:1fr; } }
+  .test{ background:#f6f3ea; border:1px solid var(--line); border-radius:8px; padding:.7rem .9rem; font-size:.86rem; }
+  .test h4{ margin:0 0 .25rem; color:var(--accent2); }
+  .pcard h3{ display:flex; align-items:baseline; gap:.5rem; flex-wrap:wrap; }
+  .pcard h3 .id{ font-family:var(--mono); }
+  .pcard h3 .kind{ font-family:var(--mono); font-size:.66rem; color:var(--dim); border:1px solid var(--line); border-radius:5px; padding:.05em .45em; text-transform:none; letter-spacing:0; }
+  .lens{ display:grid; grid-template-columns:1fr 1fr; gap:.8rem; margin:.7rem 0; }
+  @media (max-width:640px){ .lens{ grid-template-columns:1fr; } }
+  .lens .col{ background:#f6f3ea; border:1px solid var(--line); border-radius:8px; padding:.6rem .8rem; font-size:.84rem; }
+  .lens .col h4{ margin:0 0 .25rem; color:var(--accent2); }
+  .skeptic{ background:#f7efe2; border:1px solid #e8d3a3; border-radius:8px; padding:.6rem .85rem; font-size:.84rem; margin:.7rem 0; }
+  .skeptic h4{ margin:0 0 .25rem; color:var(--warn); }
+  table{ width:100%; border-collapse:collapse; margin:1rem 0; font-size:.85rem; }
+  th,td{ text-align:left; padding:.5rem .6rem; border-bottom:1px solid var(--line); vertical-align:top; }
+  th{ color:var(--dim); font-weight:600; font-size:.72rem; text-transform:uppercase; letter-spacing:.03em; }
+  .flow{ display:flex; gap:.45rem; flex-wrap:wrap; align-items:center; font-family:var(--mono); font-size:.74rem; margin:.8rem 0; }
+  .flow span{ background:#f4f1e8; border:1px solid var(--line); border-radius:6px; padding:.3rem .55rem; }
+  .flow .arrow{ background:none; border:none; color:var(--dim); padding:0; }
+  .flow .hot{ background:#efebff; color:var(--accent); border-color:#cfc4ff; }
+  hr{ border:none; border-top:1px solid var(--line); margin:2.2rem 0; }
+</style>
+</head>
+<body>
+<main>
+
+<p class="crumb"><a href="./index.html">docs/plans</a> / electricity-frameworks</p>
+
+<h1>Electricity at framework scale — is there a second <code>@kolu/surface</code>?</h1>
+<p class="sub">The ambitious sweep: held every candidate to the <em>surface</em> bar, not the dedup bar — and reports honestly where a new framework survives. <span class="tag budding">budding</span> &nbsp;<span class="muted">captured 2026-06-02 · sibling of <a href="./electricity-proposals.html">electricity-proposals.html</a> &amp; <a href="../electricity-review.html">electricity-review.html</a></span></p>
+
+<div class="panel accent">
+<p style="margin-top:0"><strong>The recalibration.</strong> The leaf-level sweep in <a href="./electricity-proposals.html">electricity-proposals.html</a> found only small dedup wins — a refcounting primitive, three helper merges, one inline. The maintainer pushed back: <em>"those are trivial; I want framework opportunities like <code>surface</code>."</em> This document is the answer. The yardstick here is not <em>"is this duplicated?"</em> but <em>"does this own a hard volatility axis behind a descriptors-not-plumbing programming model — the way <code>@kolu/surface</code> owns live-state transport?"</em> Leaf dedup is explicitly <strong>not the goal</strong>. The <a href="../electricity-review.html">whole-app audit</a> already concluded <em>"the big extraction already happened — <code>surface</code> ate the hardest axis (client↔server state) end-to-end."</em> This doc tests that conclusion <em>ambitiously</em>: it probes the hardest remaining axes against the full surface bar, and each framework-scale verdict had to survive an adversarial skeptic whose default was to refute. We report where the conclusion holds and where a genuine new framework remains.</p>
+</div>
+
+<div class="band">
+  <div class="stat framework"><div class="n">0</div><div class="l">framework candidates</div></div>
+  <div class="stat short"><div class="n">9</div><div class="l">hard axes probed</div></div>
+  <div class="stat bar"><div class="n">4+1</div><div class="l">tests + skeptic gate</div></div>
+  <div class="stat gold"><div class="n">1</div><div class="l">framework standing (surface)</div></div>
+</div>
+<p class="muted" style="margin-top:.3rem">The honest headline: <strong>the audit holds</strong>. No probe cleared the surface bar. The single most-promising candidate — an optimistic-write reconciliation framework (<code>defineMutation</code> / the audit's <code>optimisticOverlay</code>) — was taken all the way to a lowy⇄hickey debate and an adversarial skeptic, and <strong>fell short on all four tests</strong>. That negative result is the point of this document: it explains <em>why</em> the obvious-looking "next surface" is not one.</p>
+
+<h2 id="bar">The surface bar</h2>
+<p><code>@kolu/surface</code> is the gold standard because it owns live-state transport and lifecycle behind a <strong>descriptors-not-plumbing</strong> programming model: consumers declare state shape once with four primitives (<code>Cell</code>, <code>Collection</code>, <code>Stream</code>, <code>Event</code>) via <code>defineSurface</code>, and the framework derives the wire contract, server handlers, and client hooks. It encapsulates the snapshot-then-deltas + reconnect pattern that would otherwise be hand-rolled in N routes, absorbs the <code>AbortController</code>+<code>onCleanup</code>+<code>STREAM_RETRY</code> triplets duplicated at M sites, keeps per-descriptor cost at a 2-file invariant, shipped an escape hatch for wire shapes that don't fit (<code>terminal.attach</code>, custom retry), and proved domain-agnostic by extracting to a publishable package. Every candidate below was held against these four tests <em>at once</em> — plus an adversarial gate.</p>
+
+<div class="tests">
+  <div class="test"><h4>A · Owns a hard axis end-to-end</h4>Does it own a volatility axis that would force entire reactive-surface rewrites if leaked to consumers — the way snapshot+deltas+reconnect would? A pure UI cache or a fire-and-forget RPC owns no transport axis.</div>
+  <div class="test"><h4>B · A new programming model</h4>Does it reduce call-site plumbing from N orthogonal concerns to declaring <em>one shape</em> — replacing manual <code>createSubscription</code> / <code>AbortController</code> / <code>onCleanup</code> wiring? Swapping one method-call syntax for another is ceremony, not a model.</div>
+  <div class="test"><h4>C · Dissolves a pervasive braid</h4>Does the same shape recur across many sites and packages, such that extracting <em>dissolves</em> a braid rather than <em>moving</em> it across a wall? One consumer is a function; a single domain is not a braid.</div>
+  <div class="test"><h4>D · Graduates to a package</h4>Can it extract to a publishable, domain-agnostic <code>@kolu/*</code> package with a working non-Kolu example — encoding invariants as compile-time types and swapping transports without consumer rewrites?</div>
+</div>
+
+<div class="panel warn">
+<p style="margin:0"><strong>The adversarial gate.</strong> Clearing the four tests is necessary, not sufficient. Every <em>framework</em> verdict then had to survive a skeptic whose explicit default was to <strong>refute</strong> it — opening the real call sites, grepping for the claimed recurrence, and asking whether the "hard axis" reduces to UI plumbing the existing receptacles already own. A verdict that the skeptic could deflate to <em>helper-too-small</em>, <em>domain-coupled</em>, or <em>already-covered</em> does not graduate. This is the same adversarial discipline the <a href="../electricity-review.html#verdict">whole-app audit</a> used (<em>"each candidate handed to an independent skeptic told to refute it by opening the real call sites"</em>) — applied here at framework scale.</p>
+</div>
+
+<h2 id="frameworks">Framework-scale candidates</h2>
+<p>The probe targeted the hardest remaining axes the audit flagged — the file-watcher zoo, the optimistic-local-vs-server-echo braid, the god-procedures. <strong>None cleared the bar as a new framework.</strong> The closest — the optimistic-mutation reconciliation primitive the audit itself under-ranked and re-surfaced as a "missed" candidate — is detailed below as the one probe taken to full adjudication. It is recorded as <span class="tag budding">grow-surface</span> (a speculative extension to <code>surface</code>, not a new socket), and the consensus was <strong>helper-too-small</strong>.</p>
+
+<!-- ========== defineMutation ========== -->
+<div class="panel accent pcard">
+<h3><span class="tag budding">grow-surface</span> <span class="id">defineMutation</span> <span class="kind">live-state · write side</span></h3>
+<p class="muted" style="margin:.1rem 0 .6rem"><span class="cite">packages/client/src/canvas/usePendingLayouts.ts:45-111</span> · debated to consensus · disposition: <strong>helper-too-small</strong></p>
+
+<h4>The proposed hard axis</h4>
+<p>The pitch: a fifth surface primitive (or a <code>collection.patch</code> verb) owning <strong>per-collection-entry optimistic mutation with echo reconciliation</strong> — declarative mutation specs that own the optimistic-apply → RPC-send → server-echo-reconcile lifecycle. The audit's <a href="../electricity-review.html#missed"><code>optimisticOverlay</code></a> named this as <em>"the candidate the backlog under-ranked to invisibility … the mechanical core of the single biggest remaining complecting theme"</em> — the natural neighbor of <code>surface</code>'s <code>Cell</code>/<code>Collection</code>, which own server-reconcile but <em>not</em> optimistic-overlay-until-echo. On paper this is the strongest "second surface" story: a real braid (<a href="../electricity-review.html#hickey">Hickey theme §03</a>: <em>local pending value ⊗ server-saved value ⊗ equality-gated reconcile ⊗ per-key lifecycle</em>), adjacent to the gold-standard framework, parameterizable on an opaque id.</p>
+
+<h4>What consumers hand-roll today</h4>
+<p>Exactly one domain hand-rolls it — canvas tile layouts:</p>
+<ul>
+  <li><span class="cite">usePendingLayouts.ts:69-71</span> <code>setOne</code>, <span class="cite">:72-85</span> <code>applyMany</code>, <span class="cite">:86-106</span> <code>dropEvicted</code> (the equality-gated GC: <em>"drop entries whose saved layout has caught up to their pending value"</em>), <span class="cite">:107-109</span> <code>clear</code> — a singleton <code>createStore&lt;Record&lt;string, TileLayout&gt;&gt;</code>.</li>
+  <li>Consumed at two sites: <code>TerminalCanvas</code> reads pending in <code>layoutOf()</code> and calls <code>dropEvicted</code> as echoes settle (per the module doc, <span class="cite">usePendingLayouts.ts:1-13</span>); <span class="cite">useCanvasArrange.ts:56</span> seeds via <code>applyMany</code>.</li>
+  <li>The write itself is fire-and-forget RPC — <span class="cite">useTerminalCrud.ts:50-56</span> <code>setCanvasLayout</code> is <code>void client.terminal.setCanvasLayout(…).catch(toast)</code>; the server echo arrives through the <em>existing</em> metadata subscription that <code>surface</code> already owns.</li>
+</ul>
+
+<h4>The primitive that was proposed</h4>
+<p>A declarative mutation spec colocated with a <code>defineSurface</code> collection — declare the optimistic apply + the reconcile predicate once, let the framework own the pending store and eviction:</p>
+<pre><code>// PROPOSED — never built; recorded here to show what was rejected.
+// A fifth primitive / collection verb over the surface descriptor model:
+collection.patch(key, patch, {
+  reconcile(saved, pending): boolean,   // equality gate — when has the echo caught up?
+})
+// framework would own: per-key pending createStore, optimistic apply,
+// dropEvicted-on-echo, clear-on-unmount — the usePendingLayouts body, generically.</code></pre>
+<p class="muted">Contrast the real <code>surface</code> shape (built, shipped): <code>defineSurface</code> + <code>implementSurface</code> + <code>surfaceClient</code> with <code>Cell</code>/<code>Collection</code>/<code>Stream</code>/<code>Event</code> descriptors — see <span class="cite">packages/surface/src/define</span> and its consumption at <span class="cite">packages/pty-host/src/ptyHostSurface.ts:155</span>. <code>defineMutation</code> would have been a <em>fifth</em> verb on that model.</p>
+
+<h4>What it would dissolve — quantified</h4>
+<p>One module (<code>usePendingLayouts.ts</code>, 111 lines), two call sites, one domain. The grep is decisive: <strong>theme, intent, rename, and right-panel all use plain fire-and-forget RPC with no pending store anywhere</strong> (<span class="cite">useTerminalCrud.ts:50-56</span> is the pattern — a <code>void client…catch</code> with the echo arriving over the metadata subscription). The recurrence count is <strong>1</strong>. The proposal's own framing conceded <em>"without future patterns, dissolution is zero."</em></p>
+
+<div class="skeptic">
+<h4>Survived the skeptic? — No. The skeptic prevailed.</h4>
+<p style="margin:.2rem 0 0">Strongest case <em>for</em>: it is adjacent to <code>surface</code> and names a real Hickey braid. The skeptic's rebuttal held on every axis: <em>"Canvas layout mutations are not hard-axis transport problems — they are fine-grained reactive plumbing that fits Surface's existing local-authority <code>Cell</code> model. The claimed hard axis reduces to one-line store mutations + fire-and-forget RPC caught by existing metadata subscriptions. Surface's power is owning snapshot+deltas transport across reconnects; layout mutations never shift that axis."</em> The "dual-store / temporal coupling" issue is a UI-plumbing problem solvable with a memo merging pending+saved — not transport-level hardness. Adding a 5th primitive on the strength of a single domain is speculative, and apply/reconcile semantics differ per-domain (geometry equality here), so the interface <strong>would leak domain assumptions the moment a second use case landed</strong>. The proposal admitting it was <em>"lower-risk than immediate extraction"</em> was itself the tell: a framework that clears the bar does not need that hedge.</p>
+</div>
+
+<div class="lens">
+  <div class="col"><h4>lowy says</h4>Not a hard volatility axis owned by a candidate framework — it is UI plumbing colocated where it belongs. The transport axis (snapshot+deltas+reconnect) is <em>already</em> owned by <code>@kolu/surface</code>; pending is just a UI cache. Parameterizing reconciliation per-domain would leak assumptions and break surface's interface contract. Keep as-is; re-evaluate only if a second mutation domain lands with identical patterns.</div>
+  <div class="col"><h4>hickey says</h4>All four bars fail with codebase evidence. No complecting (the code is simple, isolated, per-domain, well-commented); no fragmentation (<code>pending</code>, <code>setOne</code>, <code>dropEvicted</code>, <code>clear</code> already unified under one module); no concept multiplication (no other code uses pending states, so there is no canonical pattern being reinvented). Replacing colocated function calls with declarative syntax is ceremony, not plumbing reduction. The path forward is: keep it.</div>
+</div>
+
+<h4>Graduation</h4>
+<p class="muted"><strong>Does not graduate.</strong> <code>canvasLayout</code> is a single field, not a collection (<span class="cite">useTerminalCrud.ts:50</span>); reconciliation is canvas-specific (geometry equality via <code>layoutsEqual</code>, <span class="cite">usePendingLayouts.ts:100</span>). There is no second app — and no second <em>domain in this app</em> — that would adopt it. The honest disposition: leave the module isolated; if a second optimistic-mutation domain (rename, reorder, comment-position) lands with the identical apply+echo shape, re-open the question then. That is a rule-of-two trigger, not a framework today.</p>
+</div>
+
+<h2 id="lookbig">Looks big, isn't the next surface</h2>
+<p>This is the honest core. Across <strong>nine probed axes</strong> — the file-watcher zoo, the optimistic write-side, server-side publish, intent/command, media capture, the god-procedures, "what should surface grow into?", and two open-ended fresh hunts in client and server — the candidates that <em>looked</em> framework-scale collapse under the bar to one of three diagnoses: <strong>helper-too-small</strong> (a real but narrow utility, not a hard axis), <strong>domain-coupled</strong> (the interface can't shed the domain, so extracting moves the braid rather than dissolving it), or <strong>already-covered</strong> (the hard axis is already owned by <code>surface</code> or an existing receptacle). The two open-ended hunts returned <em>not-a-real-axis</em> — no unnamed framework volatility surfaced beyond the seeded list.</p>
+<table>
+<thead><tr><th>Candidate</th><th>Where / what</th><th>Bar it fails</th><th>One-line reason</th></tr></thead>
+<tbody>
+<tr>
+  <td><code>defineMutation</code><br><span class="muted">(optimisticOverlay)</span></td>
+  <td class="cite">usePendingLayouts.ts:45-111</td>
+  <td><span class="tag bad">helper-too-small</span></td>
+  <td>One module, two sites, one domain (canvas layouts). Theme / intent / rename / right-panel all use plain fire-and-forget RPC — no pending store, no recurrence. The write axis is already owned by <code>surface</code>'s metadata subscription; pending is a UI cache. Per-domain reconcile semantics would leak the moment a second case lands. <span class="muted">Detailed above.</span></td>
+</tr>
+<tr>
+  <td><code>@kolu/fs-watch</code><br><span class="muted">(refcountedWatcher + fanout)</span></td>
+  <td class="cite">io/refcounted-dir-watcher.ts:63-151</td>
+  <td><span class="tag warn">helper-scale</span></td>
+  <td>The clearest server-side <em>"wrote it thrice"</em> smell — but the <a href="./electricity-proposals.html#proposals">leaf sweep already settled it</a> as an L0/L1 <em>refcounting primitive</em> + a <em>fanout micro-utility</em>, not a framework. It owns a lifecycle, not a streaming client-server transport axis: no wire contract, no snapshot-then-deltas, no descriptor programming model. A <code>@kolu/shared</code> helper, not a second socket.</td>
+</tr>
+<tr>
+  <td><code>@kolu/geometry</code></td>
+  <td class="cite">canvas TileLayout sites</td>
+  <td><span class="tag bad">domain-coupled</span></td>
+  <td>Per the audit: every site binds to <code>TileLayout = CanvasLayout</code>, a server-persisted domain type, so a <code>Rect</code> package <em>re-adapts at every boundary</em> — it <strong>moves</strong> the braid. Math is agnostic; the interface can't be. No hard axis, no descriptor model.</td>
+</tr>
+<tr>
+  <td>God-procedure decomposition<br><span class="muted">(Terminal.tsx onMount, CodeTab, boot)</span></td>
+  <td class="cite">Terminal.tsx:443-950</td>
+  <td><span class="tag warn">not a framework</span></td>
+  <td>The audit's biggest <em>organization</em> problem, but the fix is "break the unit into independently-extractable blocks" — pure intra-module reshaping. No volatility axis is hidden behind a new interface; nothing graduates to a package. A refactor, not a receptacle.</td>
+</tr>
+<tr>
+  <td><code>@kolu/surface-publish</code><br><span class="muted">(server snapshot+delta)</span></td>
+  <td class="cite">surface/src/server.ts:130 · 195 · 314</td>
+  <td><span class="tag teal" style="background:#dcf0f4; color:#0b6478; border-color:#bfe3ea">already-covered</span></td>
+  <td>The <em>"do oRPC routes hand-roll snapshot-then-deltas per route?"</em> probe came back empty. <code>cellHandlers</code> (<span class="cite">:130</span>), <code>collectionHandlers</code> (<span class="cite">:195</span>) and <code>pollOnEvent</code> (<span class="cite">:314</span>) already own the snapshot+deltas+reconnect invariant on the producer side; four cells, one collection, four streams and an event all route through <code>implementSurface</code>. The <em>only</em> raw streaming handler left is <code>terminal.attach</code> (<span class="cite">router.ts:141</span>), an intentional escape hatch for xterm-buffer reset on reconnect. The server half of surface <em>is</em> surface.</td>
+</tr>
+<tr>
+  <td><code>@kolu/commands</code><br><span class="muted">(intent · keybind · palette)</span></td>
+  <td class="cite">CommandPalette.tsx · input/actions.ts · commands.tsx</td>
+  <td><span class="tag bad">domain-coupled</span></td>
+  <td>Already framework + leaf + bridge, cleanly separated: the palette <em>engine</em> (~900 lines, zero domain logic) and the keybind primitives are domain-agnostic; every coupling lives in <code>createCommands</code> — the intent→palette registration bridge (30+ <code>CommandDeps</code> fields) that <em>must</em> stay in the app. Extracting the agnostic halves deletes ~0 lines from kolu, because the bridge is the irreducible part. No hidden volatility axis — keybinding/dispatch/palette is one-shot setup at init, not a cross-cutting transport.</td>
+</tr>
+<tr>
+  <td><code>createSharedRoot</code> / singleton model</td>
+  <td class="cite">client/src/createSharedRoot.ts:23-33</td>
+  <td><span class="tag teal" style="background:#dcf0f4; color:#0b6478; border-color:#bfe3ea">already-covered</span></td>
+  <td>The lazy app-scoped reactive-singleton pattern <em>is</em> the framework for shared client state — already extracted, 6+ consumers. The <a href="./electricity-proposals.html#proposals">leaf sweep</a> folded the one hand-rolled variant (<code>useComposer</code>) back onto it. Mature, not new.</td>
+</tr>
+</tbody>
+</table>
+<p class="muted">The pattern across the table: each candidate either owns a <em>lifecycle</em> (refcounting, singleton) rather than a <em>streaming transport</em> axis, binds irreducibly to a domain type, or is an organization problem in disguise. The one axis that <em>was</em> framework-hard — live client↔server state — <code>surface</code> already ate, snapshot-then-deltas and reconnect included.</p>
+
+<h2 id="unresolved">Unresolved</h2>
+<p class="muted">None. The single probe taken to full adjudication (<code>defineMutation</code>) reached per-finding consensus across both lenses <em>and</em> the adversarial skeptic — all converging on <strong>helper-too-small / keep as-is</strong>. No framework verdict was left split.</p>
+
+<h2 id="verdict">The verdict — does kolu have a second surface in it?</h2>
+<div class="panel good">
+<p style="margin-top:0"><strong>No — the audit largely holds, with zero genuine framework exceptions.</strong> Held to the <code>surface</code> bar rather than the dedup bar, the ambitious sweep confirms the <a href="../electricity-review.html#verdict">whole-app audit's</a> central claim: <em>"the big extraction already happened — <code>surface</code> ate the hardest volatility (client↔server state) end-to-end."</em> The most credible "second surface" — the optimistic-write reconciliation framework adjacent to <code>surface</code>'s <code>Cell</code>/<code>Collection</code> — was taken all the way to a lowy⇄hickey debate and an adversarial skeptic, and lost on all four tests: it owns a UI cache, not a transport axis; it recurs in exactly one domain; its reconcile semantics are domain-specific; and the write side it claims is already owned by <code>surface</code>'s metadata subscription.</p>
+<p>What remains after this probe is what the leaf sweep already found — a refcounting primitive, a fanout micro-utility, a few in-place fixes — plus organization work on the god-procedures. Valuable, but <em>not</em> framework-scale. <strong><code>@kolu/surface</code> remains the only framework-scale receptacle kolu has extracted, and the only one it currently needs.</strong> The honest answer to <em>"I want framework opportunities like surface"</em> is: there isn't a second one hiding in the codebase today. The right trigger to re-open the question is concrete — a <em>second</em> optimistic-mutation domain (rename / reorder / comment-position) landing with the identical apply-then-echo shape, at which point <code>defineMutation</code> graduates from speculative to rule-of-two.</p>
+</div>
+
+<hr>
+<h2 id="method">Methodology</h2>
+<div class="flow">
+  <span class="hot">the surface bar</span><span class="arrow">→</span>
+  <span>probe the hardest axes</span><span class="arrow">→</span>
+  <span>lowy ⇄ hickey debate</span><span class="arrow">→</span>
+  <span class="hot">adversarial skeptic gate</span><span class="arrow">→</span>
+  <span>per-finding consensus</span>
+</div>
+<p>Unlike the <a href="./electricity-proposals.html#method">leaf sweep</a> — which hunted duplicated <em>structure</em> — this pass started from the <strong>surface bar</strong> as the yardstick and probed the hardest remaining volatility axes the <a href="../electricity-review.html">whole-app audit</a> had flagged (the file-watcher zoo, the optimistic-local-vs-server-echo braid, the god-procedures). Each candidate was measured against all four tests at once — <em>owns a hard axis end-to-end</em>, <em>a new programming model</em>, <em>dissolves a pervasive braid</em>, <em>graduates to a domain-agnostic package</em> — using <a href="https://informit.com/articles/article.aspx?p=2995357">Lowy's volatility-based decomposition</a> and <a href="https://www.youtube.com/watch?v=SxdOUGdseq4">Hickey's structural simplicity</a>. Every <em>framework</em> verdict then faced an adversarial skeptic whose default was to refute it by opening the real call sites and grepping for the claimed recurrence. The skeptic prevailed on the one probe taken to adjudication — which is the load-bearing finding: the candidate that looked most like a second <code>surface</code> is not one.</p>
+<p class="muted">Grounded against Juval Lowy, <em>Righting Software</em> (the electricity-receptacle metaphor) and Rich Hickey, <em>Simple Made Easy</em> (complecting vs. one-fold simplicity). The surface bar is lifted from the shipped <code>@kolu/surface</code> spec — <code>defineSurface</code> / <code>implementSurface</code> / <code>surfaceClient</code> over <code>Cell</code>/<code>Collection</code>/<code>Stream</code>/<code>Event</code>, with the streaming invariants enforced in <code>.claude/rules/streaming.md</code>.</p>
+
+<hr>
+<p class="muted">Siblings: <a href="./electricity-proposals.html">electricity-proposals.html</a> (the leaf-level dedup sweep) · <a href="../electricity-review.html">electricity-review.html</a> (the whole-app audit; "ship now" tier in <a href="https://github.com/juspay/kolu/pull/1089">#1089</a>). Index: <a href="./index.html">docs/plans</a>. See <a href="./second-brain.html">second-brain.html</a> for how this doc is filed.</p>
+
+</main>
+</body>
+</html>
