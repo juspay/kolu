@@ -4,13 +4,19 @@ import { MetaProvider } from "@solidjs/meta";
 import { render } from "solid-js/web";
 import App from "./App";
 import "./index.css";
+import { initPwa } from "./pwa";
 
-// Unregister any stale service worker in dev mode — production SW from a previous
-// build can intercept dev server requests and serve cached assets indefinitely.
-if (import.meta.env.DEV && "serviceWorker" in navigator) {
-  navigator.serviceWorker.getRegistrations().then((registrations) => {
-    for (const r of registrations) r.unregister();
-  });
+// Service worker: in dev, unregister any stale production worker — it would
+// intercept dev-server requests and serve cached assets indefinitely. In
+// production, register it and wire update detection (see pwa.ts).
+if (import.meta.env.DEV) {
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.getRegistrations().then((registrations) => {
+      for (const r of registrations) r.unregister();
+    });
+  }
+} else {
+  initPwa();
 }
 
 // Install `window.__kolu` debug hook (dev only) — one-line console access to
