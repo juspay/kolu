@@ -130,7 +130,7 @@ const IMPL_SCHEMA = {
 const CONSOLIDATE_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['picks', 'conflicts'],
+  required: ['picks'],
   properties: {
     finalHead: { type: 'string', description: 'branch HEAD SHA after all picks' },
     picks: {
@@ -145,23 +145,8 @@ const CONSOLIDATE_SCHEMA = {
           sourceCommit: { type: 'string', description: 'the short SHA from the track worktree' },
           newCommit: { type: 'string', description: 'the resulting SHA on the branch' },
           outcome: { type: 'string', enum: ['clean', 'reconciled', 'dropped'] },
+          files: { type: 'array', items: { type: 'string' }, description: 'for reconciled/dropped: the overlapping files' },
           note: { type: 'string', description: 'for reconciled/dropped: how you resolved it and why' },
-        },
-      },
-    },
-    conflicts: {
-      type: 'array',
-      description: 'the overlaps you had to reconcile (subset of picks); empty in the common no-overlap case',
-      items: {
-        type: 'object',
-        additionalProperties: false,
-        required: ['track', 'sourceCommit', 'files', 'resolution'],
-        properties: {
-          track: { type: 'string' },
-          sourceCommit: { type: 'string' },
-          files: { type: 'array', items: { type: 'string' } },
-          resolution: { type: 'string', enum: ['merged', 'dropped'] },
-          note: { type: 'string' },
         },
       },
     },
@@ -228,19 +213,31 @@ if (!branchHead || liveTracks.length === 0) {
 // ---------------------------------------------------------------------------
 phase('Tracks')
 
-// The police track. /code-police is a skill, not a workflow, so its three cold
-// passes (rules / fact-check / elegance) are reproduced here as parallel agents,
-// then each agreed fix is applied as its own commit — matching /be §4.3's
-// "each finding is its own commit". Per-finding `just check` is deferred to the
-// post-consolidation check + §5 CI rather than run 3× concurrently across the
-// parallel worktrees (it would thrash the toolchain); fmt-on-touched-files still
-// runs in each apply.
+// The police track. /code-police is a skill, not a workflow, so its cold passes
+// (rules / fact-check / elegance) are fanned out here as parallel agents — but
+// each pass's *definition* stays single-sourced to code-police's SKILL.md (the
+// agents Read it; the briefs only name which section/pass to apply), and the
+// elegance pass honors the skill's tiny-diff skip. Each agreed fix is then
+// applied as its own commit — matching /be §4.3's "each finding is its own
+// commit". Per-finding `just check` is deferred to the post-consolidation check
+// + §5 CI rather than run 3× concurrently across the parallel worktrees (it
+// would thrash the toolchain); fmt-on-touched-files still runs in each apply.
 async function policeTrack(wt) {
+  // Pass *definitions* are single-sourced to code-police's SKILL.md: each brief
+  // names that pass's section so the agent (which Reads the skill below) reviews
+  // it exactly as written there — no inline checklist to drift. The elegance pass
+  // is gated on the tiny-diff heuristic the skill mandates (SKILL.md:141 — skip
+  // when the worktree diff against base is <10 lines).
+  const tinyDiff = await agent(
+    `Run \`git -C ${wt} diff ${base} --shortstat\` and report whether the changed-line total (insertions + deletions) is **under 10**. Return only that boolean.`,
+    { label: 'police:diff-size', phase: 'Tracks', model, schema: { type: 'object', properties: { tiny: { type: 'boolean' } }, required: ['tiny'] } },
+  )
   const passes = [
-    { key: 'rules', brief: 'the built-in code-police rule checklist (dry-rule-of-three, prefer-focused-library, invalid-states-unrepresentable, no-dead-code, no-silent-error-swallowing, and the rest) PLUS any project rules' },
-    { key: 'fact-check', brief: 'a CORRECTNESS audit: logic errors, silently swallowed errors, wishful thinking, unjustified fallbacks — not style' },
-    { key: 'elegance', brief: 'simplicity and idiom: hand-rolled code that a focused library or a simpler shape would replace' },
-  ]
+    { key: 'rules', brief: 'the **Rule checklist** pass exactly as defined in that skill\'s "Running the passes" section (Pass 1) — every built-in rule plus any project rules' },
+    { key: 'fact-check', brief: 'the **Fact-check** correctness audit exactly as defined in that skill\'s "Running the passes" section (Pass 2)' },
+    { key: 'elegance', brief: 'the **Elegance** pass exactly as defined in that skill\'s "Running the passes" section (Pass 3) — simplicity and idiom' },
+  ].filter((p) => p.key !== 'elegance' || !tinyDiff?.tiny)
+  if (tinyDiff?.tiny) log('police: skipping elegance pass (tiny diff <10 lines, per code-police SKILL.md)')
   const reviews = await parallel(
     passes.map((p) => () =>
       agent(
@@ -264,7 +261,7 @@ async function policeTrack(wt) {
     const files = impl?.filesChanged ?? []
     let sha = null
     if (commit && files.length) {
-      sha = (await commitFix(wt, f.id, `fix(police): ${f.title}`, `${impl.summary}\n\ncode-police ${f.pass} finding ${f.id} [${f.severity}]. Applied by the /be parallel gauntlet; not pushed or merged.`, files) || '').trim()
+      sha = (await commitFix(wt, f.id, `fix(police): ${f.title}`, `${impl.summary}\n\ncode-police ${f.pass} finding ${f.id} [${f.severity}]. Applied by the /be parallel gauntlet; not pushed or merged.`, files))?.sha?.trim() || null
     }
     applied.push({ id: f.id, title: f.title, severity: f.severity, files, commit: sha })
     log(`police: applied ${f.id}${sha ? ` (${sha.slice(0, 9)})` : ' (uncommitted)'}`)
@@ -289,7 +286,16 @@ ${message}
 
 3. Run: \`git -C ${wt} add -- ${fileArgs} && git -C ${wt} commit -F ${msgPath}\`. Stage ONLY those files; do NOT use \`git add -A\`/\`git add .\`.
 4. Return the new commit SHA from \`git -C ${wt} rev-parse HEAD\`. Do NOT push.`
-  return agent(prompt, { label: `police-commit:${id}`, phase: 'Tracks' })
+  return agent(prompt, {
+    label: `police-commit:${id}`,
+    phase: 'Tracks',
+    schema: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['sha'],
+      properties: { sha: { type: 'string', description: 'the new HEAD commit SHA, hex only' } },
+    },
+  })
 }
 
 // One thunk per live track. codex and lens are existing repoPath-parameterized
@@ -320,10 +326,10 @@ for (const t of liveTracks) log(`Track ${t}: ${tracks[t].status || 'unknown'}`)
 
 // `--no-commit` short-circuit. With commit=false the tracks deliberately leave
 // their fixes UNCOMMITTED in their own worktrees. Consolidation replays commits
-// (rev-list ${branchHead}..HEAD) and cleanup tears the worktrees down — so running
-// them now would discard every reviewer's edits. Instead, stop here and hand the
-// live worktrees to the user to inspect; nothing is consolidated and nothing is
-// cleaned up. (This is the documented single-track-debugging mode.)
+// (rev-list ${branchHead}..HEAD) and cleanup's `worktree remove --force` tears the
+// worktrees down — so running them now would silently discard every reviewer's edits.
+// Instead, stop here and hand the live worktrees to the user to inspect; nothing is
+// consolidated and nothing is cleaned up. (This is the documented single-track-debugging mode.)
 if (!commit) {
   log(`--no-commit: skipping Consolidate + Cleanup. Per-track fixes are UNCOMMITTED in their worktrees; inspect them there (\`git -C ${workRoot}/wt-<track> diff\`).`)
   return {
@@ -350,7 +356,7 @@ phase('Consolidate')
 
 // Skip tracks that errored or made no commits — the agent only picks real work.
 const consolidateOrder = liveTracks.filter((t) => tracks[t]?.status !== 'track-error')
-const consolidatePrompt = `You are CONSOLIDATING the results of a parallel code-review gauntlet onto the branch in the MAIN worktree at \`${repoPath}\`. Three review tracks each ran to consensus in their own detached worktree, all forked from branch HEAD \`${branchHead}\`, each committing its agreed fixes on top. Your job: replay every track's commits onto the branch, in the given order, reconciling the rare overlap.
+const consolidatePrompt = `You are CONSOLIDATING the results of a parallel code-review gauntlet onto the branch in the MAIN worktree at \`${repoPath}\`. ${consolidateOrder.length} review track(s) (${consolidateOrder.join(', ')}) each ran to consensus in their own detached worktree, all forked from branch HEAD \`${branchHead}\`, each committing its agreed fixes on top. Your job: replay every track's commits onto the branch, in the given order, reconciling the rare overlap.
 
 The branch in \`${repoPath}\` is currently AT \`${branchHead}\` (the tracks' shared fork point). Process tracks in THIS order: ${consolidateOrder.join(' → ')}.
 
@@ -362,12 +368,12 @@ Then, from the MAIN worktree \`${repoPath}\`, cherry-pick each of those commits 
   \`git -C ${repoPath} cherry-pick <sha>\`
 
 - **Clean pick** → record outcome \`clean\` with the new SHA (\`git -C ${repoPath} rev-parse HEAD\`).
-- **Conflict** (\`git -C ${repoPath} status\` shows unmerged paths) → this is an OVERLAP: an earlier track already changed the same lines. Resolve by Reading both sides and producing a result that HONORS BOTH fixes (they each came from a review debate — neither is noise). Edit the conflicted files to the merged result, \`git -C ${repoPath} add\` them, then \`git -C ${repoPath} cherry-pick --continue\` (keep the original commit message). Record outcome \`reconciled\`, list the conflicted files, and explain the merge in \`note\`. Only \`drop\` a commit (\`git -C ${repoPath} cherry-pick --abort\`) if the earlier track's change already FULLY subsumes this one — say so in \`note\`; never drop to avoid the work of merging.
+- **Conflict** (\`git -C ${repoPath} status\` shows unmerged paths) → this is an OVERLAP: an earlier track already changed the same lines. Resolve by Reading both sides and producing a result that HONORS BOTH fixes (they each came from a review debate — neither is noise). Edit the conflicted files to the merged result, \`git -C ${repoPath} add\` them, then \`git -C ${repoPath} cherry-pick --continue\` (keep the original commit message). Record outcome \`reconciled\`, list the conflicted files in \`files\`, and explain the merge in \`note\`. Only \`drop\` a commit (\`git -C ${repoPath} cherry-pick --abort\`) if the earlier track's change already FULLY subsumes this one — record outcome \`dropped\` with the overlapping \`files\` and say so in \`note\`; never drop to avoid the work of merging.
 
-Do NOT push and do NOT merge — leave the consolidated commits on the local branch for the human. Return the final branch HEAD, the per-commit \`picks\` ledger (in processing order), and the \`conflicts\` subset you had to reconcile.`
+Do NOT push and do NOT merge — leave the consolidated commits on the local branch for the human. Return the final branch HEAD and the per-commit \`picks\` ledger (in processing order); the overlaps you reconciled are just the picks whose outcome isn't \`clean\`.`
 
 const consolidation = await agent(consolidatePrompt, { label: 'consolidate:cherry-pick', phase: 'Consolidate', model, schema: CONSOLIDATE_SCHEMA })
-const conflicts = consolidation?.conflicts ?? []
+const conflicts = (consolidation?.picks ?? []).filter((p) => p.outcome !== 'clean')
 log(`Consolidate: ${(consolidation?.picks ?? []).length} commit(s) replayed, ${conflicts.length} overlap(s) reconciled. HEAD ${(consolidation?.finalHead || '').slice(0, 9)}`)
 
 // ---------------------------------------------------------------------------
