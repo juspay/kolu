@@ -73,9 +73,16 @@ async function computeIgnore(
   log?: Logger,
 ): Promise<string[]> {
   const ignored = await listIgnoredPaths(repoRoot, log);
-  const rels = ignored.ok
-    ? [...ALWAYS_IGNORE_RELS, ...ignored.value]
-    : [...ALWAYS_IGNORE_RELS, ...FALLBACK_IGNORE_RELS];
+  let rels: string[];
+  if (ignored.ok) {
+    rels = [...ALWAYS_IGNORE_RELS, ...ignored.value];
+  } else {
+    log?.warn(
+      { repoRoot },
+      "git: working-tree ignore enumeration failed, using fallback ignore set",
+    );
+    rels = [...ALWAYS_IGNORE_RELS, ...FALLBACK_IGNORE_RELS];
+  }
   return rels.map((rel) => path.resolve(repoRoot, rel));
 }
 
