@@ -362,7 +362,7 @@ phase('Consolidate')
 
 // Skip tracks that errored or made no commits — the agent only picks real work.
 const consolidateOrder = liveTracks.filter((t) => tracks[t]?.status !== 'track-error')
-const consolidatePrompt = `You are CONSOLIDATING the results of a parallel code-review gauntlet onto the branch in the MAIN worktree at \`${repoPath}\`. Three review tracks each ran to consensus in their own detached worktree, all forked from branch HEAD \`${branchHead}\`, each committing its agreed fixes on top. Your job: replay every track's commits onto the branch, in the given order, reconciling the rare overlap.
+const consolidatePrompt = `You are CONSOLIDATING the results of a parallel code-review gauntlet onto the branch in the MAIN worktree at \`${repoPath}\`. ${consolidateOrder.length} review track(s) (${consolidateOrder.join(', ')}) each ran to consensus in their own detached worktree, all forked from branch HEAD \`${branchHead}\`, each committing its agreed fixes on top. Your job: replay every track's commits onto the branch, in the given order, reconciling the rare overlap.
 
 The branch in \`${repoPath}\` is currently AT \`${branchHead}\` (the tracks' shared fork point). Process tracks in THIS order: ${consolidateOrder.join(' → ')}.
 
