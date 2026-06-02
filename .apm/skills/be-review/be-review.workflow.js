@@ -207,10 +207,11 @@ if (setup?.cleanTree === false) {
 // a dropped reviewer is a STRUCTURED signal the caller (/be §4 falls back per
 // track) — not just a log line that silently shrinks the set while status='done'.
 const tracks = {}
-const liveTracks = TRACKS.filter((t) => (setup?.worktrees || []).find((w) => w.track === t && w.ok))
+const wts = setup?.worktrees ?? []
+const liveTracks = TRACKS.filter((t) => wts.find((w) => w.track === t && w.ok))
 const failedTracks = TRACKS.filter((t) => !liveTracks.includes(t))
 for (const t of failedTracks) {
-  const note = (setup?.worktrees || []).find((w) => w.track === t)?.note || 'worktree creation failed'
+  const note = wts.find((w) => w.track === t)?.note || 'worktree creation failed'
   tracks[t] = { track: t, status: 'track-error', error: `setup: ${note}` }
 }
 if (failedTracks.length) log(`Setup: worktree creation FAILED for ${failedTracks.join(', ')} — recorded as track-error so the caller falls back for those.`)
