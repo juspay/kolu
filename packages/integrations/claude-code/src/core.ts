@@ -794,7 +794,11 @@ export function nextWorkflowStaleDeadline(
 //     writes a fresh `startedAt`, so a prompt that *predates* `startedAt`
 //     belongs to a killed instance the current (resumed-idle) claude never
 //     processed. A live turn's prompt always postdates `startedAt`, so it is
-//     never cleared. (`subtree idle` is still required as a second confirm.)
+//     never cleared. The subtree is NOT consulted for `thinking`: a
+//     resumed-idle claude often holds a long-lived helper child (a persistent
+//     MCP server such as `chrome-devtools-mcp`), so requiring an idle subtree
+//     would wrongly keep the phantom spinning forever — `orphaned` + stale is
+//     already definitive.
 //
 // Sibling of the `running_background` decay (#1109), which handles the
 // `end_turn`-promotion half on its own workflow-journal signal; the states are
@@ -902,6 +906,19 @@ export function decayTransientState(
   }
   if (quietMs < staleMs) {
     return { state, recheckAt: now + (staleMs - quietMs) };
+  }
+  // Past the window, confirm abandonment with the signal appropriate to the
+  // state. For `thinking`, `promptOrphaned` is already definitive — the prompt
+  // predates this resumed claude, which `claude -c` never auto-continues — so
+  // it settles directly. The subtree is deliberately NOT consulted here: a
+  // resumed-idle claude often holds a long-lived helper child (e.g. a
+  // persistent MCP server like `chrome-devtools-mcp`), so requiring an idle
+  // subtree would wrongly keep the phantom spinning forever (observed on a live
+  // session). For `tool_use` the subtree IS the discriminator — a live tool
+  // keeps a child — so a busy subtree means real work; re-probe after another
+  // window in case it ends silently.
+  if (state === "thinking") {
+    return { state: "waiting", recheckAt: null };
   }
   if (probes.subtreeIdle()) {
     return { state: "waiting", recheckAt: null };

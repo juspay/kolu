@@ -316,7 +316,9 @@ export function createSessionWatcher(
     //     is ORPHANED — it predates this claude's `startedAt`, i.e. it belongs
     //     to a killed instance and the current (resumed) claude never processed
     //     it. A live turn's prompt postdates `startedAt`, so it is never cleared.
-    //     The subtree-idle probe (only past the window) is a second confirm.
+    //     The subtree is NOT consulted here (unlike tool_use): a resumed-idle
+    //     claude often holds a long-lived MCP/helper child, which would wrongly
+    //     read as "busy" — orphaned + stale is already definitive.
     let publishedState = derived.state;
     let staleDeadline: number | null = null;
     if (derived.state === "running_background") {

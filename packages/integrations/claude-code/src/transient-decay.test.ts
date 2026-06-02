@@ -91,14 +91,18 @@ describe("decayTransientState (#1017 phantom transient pill)", () => {
     ).toEqual({ state: "tool_use", recheckAt: now + TRANSIENT_STALE_MS });
   });
 
-  it("settles an ORPHANED `thinking` pill to `waiting` once stale and the subtree is idle", () => {
+  it("settles an ORPHANED `thinking` pill to `waiting` past the window WITHOUT probing the subtree", () => {
     // The reproduced case: a trailing `user` prompt from a killed instance, the
     // current claude resumed idle (prompt predates startedAt → promptOrphaned).
+    // `orphaned + stale` is definitive, so the subtree is never consulted
+    // (`neverProbed`) — that's what makes the decay immune to a long-lived MCP/
+    // helper child. (On zest, the `append` session held a `chrome-devtools-mcp`
+    // child; requiring an idle subtree wrongly kept its phantom spinning.)
     expect(
       decayTransientState(
         "thinking",
         TRANSIENT_STALE_MS + 1_000,
-        probes(idle, true),
+        probes(neverProbed, true),
         undefined,
         now,
       ),
@@ -129,18 +133,6 @@ describe("decayTransientState (#1017 phantom transient pill)", () => {
         now,
       ),
     ).toEqual({ state: "thinking", recheckAt: now + 30_000 });
-  });
-
-  it("keeps an orphaned `thinking` whose subtree is still busy (resumed claude actively working)", () => {
-    expect(
-      decayTransientState(
-        "thinking",
-        TRANSIENT_STALE_MS,
-        probes(busy, true),
-        undefined,
-        now,
-      ),
-    ).toEqual({ state: "thinking", recheckAt: now + TRANSIENT_STALE_MS });
   });
 
   it.each([
