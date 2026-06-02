@@ -108,12 +108,12 @@ async function codexReviews(round, rebuttalJson) {
 
 ${rebuttalJson}
 
-2. Run, from the repo root \`${repoPath}\`:
-   \`bash ${skillDir}/scripts/codex-review.sh ${base} ${rebuttalPath} ${verdictPath}\``
+2. Run (cd into the repo root so the script's internal \`git diff\`/\`git status\` target THIS worktree — your shell cwd may be a different worktree):
+   \`cd ${repoPath} && bash ${skillDir}/scripts/codex-review.sh ${base} ${rebuttalPath} ${verdictPath}\``
     : `1. (No prior rebuttal this round.)
 
-2. Run, from the repo root \`${repoPath}\`:
-   \`bash ${skillDir}/scripts/codex-review.sh ${base} - ${verdictPath}\``
+2. Run (cd into the repo root so the script's internal \`git diff\`/\`git status\` target THIS worktree — your shell cwd may be a different worktree):
+   \`cd ${repoPath} && bash ${skillDir}/scripts/codex-review.sh ${base} - ${verdictPath}\``
 
   const prompt = `You are a MECHANICAL RUNNER for one round of an automated code-review debate. Do exactly the steps below and nothing else. Do NOT review the code yourself, do NOT edit any repository files, do NOT add commentary.
 
@@ -133,7 +133,7 @@ ${rebuttalStep}
 }
 
 async function claudeResponds(round, verdict) {
-  const prompt = `You are CLAUDE, the engineer who authored the changes now under review, in an automated review debate with CODEX (a rigorous senior reviewer). Work in the repository at \`${repoPath}\`. The change under review is the working-tree diff against \`${base}\` — inspect it with \`git diff ${base}\` and read surrounding code as needed.
+  const prompt = `You are CLAUDE, the engineer who authored the changes now under review, in an automated review debate with CODEX (a rigorous senior reviewer). Work in the repository at \`${repoPath}\` — your shell cwd may be a DIFFERENT worktree, so every file you Read/Edit MUST be an ABSOLUTE path under \`${repoPath}\` and every git command MUST use \`git -C ${repoPath}\`. The change under review is the working-tree diff against \`${base}\` — inspect it with \`git -C ${repoPath} diff ${base}\` and read surrounding code as needed.
 
 CODEX's latest verdict (JSON):
 ${JSON.stringify(verdict, null, 2)}
@@ -194,10 +194,10 @@ async function commitRound(round, files, message) {
 
 ${message}
 
-3. Run, from the repo root \`${repoPath}\`:
-   \`git add -- ${fileArgs} && git commit -F ${msgPath}\`
+3. Run (every git command uses \`git -C ${repoPath}\`, so it targets THIS worktree regardless of your shell cwd):
+   \`git -C ${repoPath} add -- ${fileArgs} && git -C ${repoPath} commit -F ${msgPath}\`
    Stage ONLY those files. Do NOT use \`git add -A\` or \`git add .\`.
-4. Return the new commit SHA from \`git rev-parse HEAD\`. Do NOT push.`
+4. Return the new commit SHA from \`git -C ${repoPath} rev-parse HEAD\`. Do NOT push.`
   return agent(prompt, { label: `commit:round${round}`, phase: 'Debate' })
 }
 

@@ -5,11 +5,12 @@
 export const meta = {
   name: 'be-review',
   description:
-    'Run the /be review gauntlet in PARALLEL: codex⇄claude, lowy⇄hickey, and code-police each debate to consensus in their own worktree at once, then consolidate the per-track commits onto the branch (overlap → reconcile)',
+    'Run the /be review gauntlet in PARALLEL: codex⇄claude, lowy⇄hickey, and code-police each debate to consensus in their own worktree at once, then consolidate the per-track commits onto the branch (overlap → reconcile) and post a detailed PR comment per track',
   phases: [
     { title: 'Setup', detail: 'fan out one detached worktree per review track off the branch HEAD', model: 'opus' },
     { title: 'Tracks', detail: 'codex, lens, and police gauntlets each run to consensus, concurrently and isolated', model: 'opus' },
     { title: 'Consolidate', detail: 'cherry-pick each track’s commits onto the branch in order; reconcile the rare overlap', model: 'opus' },
+    { title: 'Report', detail: 'post a detailed PR comment for each track plus the consolidation ledger', model: 'opus' },
     { title: 'Cleanup', detail: 'tear down the per-track worktrees', model: 'opus' },
   ],
 }
@@ -33,17 +34,28 @@ const rationale = (a.rationale || '').trim()
 // per-track commits are what consolidation cherry-picks, so leaving it on is the
 // norm. (`--no-commit` is for debugging a single track in isolation.)
 const commit = a.commit !== false
+// Post a detailed PR comment per track + the consolidation ledger (default on).
+// `--no-comment` (comment:false) suppresses the outward-facing write.
+const postComments = a.comment !== false
 const model = a.model || MODEL
 // The review tracks to run AND the order they consolidate in. codex first (it
 // changes the most — bug fixes), then the structural lenses, then police, so an
 // overlap surfaces as a conflict picking the later, lighter-touch track.
 const TRACKS = a.tracks || ['codex', 'lens', 'police']
 
-// Per-track worktrees + commit-message scratch live here. Gitignored (`.be-review/`),
-// so they never pollute the diff the reviewers inspect, and a track's own
-// `.codex-debate/`/`.lens-debate/` scratch nests harmlessly inside its worktree.
-const workRoot = `${repoPath}/.be-review`
-const wtPath = (track) => `${workRoot}/wt-${track}`
+// SHARED-CWD NOTE. Every workflow agent inherits the SESSION cwd (the main
+// worktree) — the harness offers no per-agent cwd, and `isolation:'worktree'`
+// can't host a multi-round debate (each agent would get a fresh tree and lose
+// the prior round's commits). So isolation here is STRUCTURAL, not behavioral:
+// every path below is ABSOLUTE and every git command is `git -C <worktree>`, so
+// the shared cwd is irrelevant — no agent can leak into the wrong tree by
+// forgetting to `cd`. The per-track worktrees live under the repo's conventional
+// `.worktrees/` (gitignored); commit-message + PR-comment scratch lives under
+// the gitignored `.be-review/`. Both are absolute and per-main-worktree, so
+// parallel /be-review runs in different worktrees never collide.
+const WT_ROOT = `${repoPath}/.worktrees`
+const wtDir = (track) => `${WT_ROOT}/be-review-${track}`
+const SCRATCH = `${repoPath}/.be-review`
 
 // Generated skill locations the child debate workflows live at.
 const CODEX_SCRIPT = '.claude/skills/codex-debate/debate.workflow.js'
@@ -51,7 +63,7 @@ const LENS_SCRIPT = '.claude/skills/lens-debate/debate.workflow.js'
 const CODEX_SKILLDIR = '.claude/skills/codex-debate'
 
 const DIFF = (wt) =>
-  `Inspect the FULL change in the worktree at \`${wt}\`: run \`git -C ${wt} diff ${base}\` (committed + unstaged) and \`git -C ${wt} status --short\` (untracked/new files do NOT appear in the diff), then Read every new/changed file plus enough surrounding code to judge it in context. Ignore any \`.be-review/\`, \`.codex-debate/\`, or \`.lens-debate/\` scratch dirs.`
+  `Inspect the FULL change in the worktree at \`${wt}\`: run \`git -C ${wt} diff ${base}\` (committed + unstaged) and \`git -C ${wt} status --short\` (untracked/new files do NOT appear in the diff), then Read every new/changed file (use ABSOLUTE paths under \`${wt}\`) plus enough surrounding code to judge it in context. Ignore the gitignored \`.worktrees/\` and \`.be-review/\` scratch dirs if they appear.`
 
 const rationaleBlock = rationale
   ? `\nAuthor's note on deliberate decisions (do not flag these as defects unless the reasoning is itself wrong):\n${rationale}\n`
@@ -68,7 +80,7 @@ const SETUP_SCHEMA = {
     branchHead: { type: 'string', description: 'SHA of the branch HEAD every track was forked from' },
     cleanTree: {
       type: 'boolean',
-      description: 'true iff the main worktree had NO uncommitted changes (outside .be-review/) when checked',
+      description: 'true iff the main worktree had NO uncommitted changes (outside the scratch dirs) when checked',
     },
     dirtyStatus: {
       type: 'string',
@@ -158,18 +170,18 @@ const CONSOLIDATE_SCHEMA = {
 // ---------------------------------------------------------------------------
 phase('Setup')
 
-const setupPrompt = `You are a MECHANICAL SETUP RUNNER preparing isolated worktrees for a parallel code-review gauntlet. Do exactly these steps in the repo at \`${repoPath}\`; do not edit any source files.
+const setupPrompt = `You are a MECHANICAL SETUP RUNNER preparing isolated worktrees for a parallel code-review gauntlet. Do exactly these steps (every path here is ABSOLUTE; use \`git -C\` and never rely on the current directory); do not edit any source files.
 
 1. Record the branch HEAD: \`git -C ${repoPath} rev-parse HEAD\` — this is \`branchHead\`, the commit every track forks from.
-2. CLEAN-TREE PREFLIGHT. The tracks fork detached worktrees from \`branchHead\`, so anything NOT committed to HEAD is invisible to every reviewer. Run \`git -C ${repoPath} status --short\` and ignore only lines under \`.be-review/\` (the gitignored scratch root). If ANY other staged, unstaged, or untracked entry remains, the working tree is dirty: set \`cleanTree\`: false, put those offending lines in \`dirtyStatus\`, SKIP worktree creation entirely (return an empty \`worktrees\` array), and stop. Otherwise set \`cleanTree\`: true and \`dirtyStatus\`: "".
-3. Only if \`cleanTree\` is true — ensure the scratch root exists: \`mkdir -p ${workRoot}\`.
+2. CLEAN-TREE PREFLIGHT. The tracks fork detached worktrees from \`branchHead\`, so anything NOT committed to HEAD is invisible to every reviewer. Run \`git -C ${repoPath} status --short\` and ignore only lines under the gitignored scratch dirs (\`.worktrees/\` and \`.be-review/\`). If ANY other staged, unstaged, or untracked entry remains, the working tree is dirty: set \`cleanTree\`: false, put those offending lines in \`dirtyStatus\`, SKIP worktree creation entirely (return an empty \`worktrees\` array), and stop. Otherwise set \`cleanTree\`: true and \`dirtyStatus\`: "".
+3. Only if \`cleanTree\` is true — ensure the scratch dirs exist: \`mkdir -p ${WT_ROOT} ${SCRATCH}\`.
 4. Only if \`cleanTree\` is true — for EACH track in [${TRACKS.join(', ')}], create a fresh detached worktree at \`branchHead\`:
-   - Path: \`${workRoot}/wt-<track>\`.
-   - If that path already exists from a prior run, remove it first: \`git -C ${repoPath} worktree remove --force ${workRoot}/wt-<track>\` (ignore errors if it's not registered), then \`rm -rf ${workRoot}/wt-<track>\`.
-   - Then: \`git -C ${repoPath} worktree add --detach ${workRoot}/wt-<track> <branchHead>\`.
+   - Path: \`${WT_ROOT}/be-review-<track>\` (absolute).
+   - If that path already exists from a prior run, remove it first: \`git -C ${repoPath} worktree remove --force ${WT_ROOT}/be-review-<track>\` (ignore errors if it's not registered), then \`rm -rf ${WT_ROOT}/be-review-<track>\`.
+   - Then: \`git -C ${repoPath} worktree add --detach ${WT_ROOT}/be-review-<track> <branchHead>\`.
 5. Run \`git -C ${repoPath} worktree prune\` to clear any stale entries.
 
-Return \`branchHead\`, \`cleanTree\`, \`dirtyStatus\`, and, for each track, its worktree \`path\` and whether creation succeeded (\`ok\`). If a worktree failed, set \`ok\`: false and put the git error in \`note\` — do NOT invent success.`
+Return \`branchHead\`, \`cleanTree\`, \`dirtyStatus\`, and, for each track, its absolute worktree \`path\` and whether creation succeeded (\`ok\`). If a worktree failed, set \`ok\`: false and put the git error in \`note\` — do NOT invent success.`
 
 const setup = await agent(setupPrompt, { label: 'setup:worktrees', phase: 'Setup', model, schema: SETUP_SCHEMA })
 const branchHead = (setup?.branchHead || '').trim()
@@ -187,7 +199,7 @@ if (setup?.cleanTree === false) {
     base,
     tracks: {},
     consolidation: null,
-    note: `dirty working tree: the tracks fork from HEAD \`${branchHead.slice(0, 9)}\`, so staged/unstaged/untracked changes (outside .be-review/) would be invisible to every reviewer. Commit or stash them, then re-run.${dirty ? `\nOffending entries:\n${dirty}` : ''}`,
+    note: `dirty working tree: the tracks fork from HEAD \`${branchHead.slice(0, 9)}\`, so staged/unstaged/untracked changes (outside the scratch dirs) would be invisible to every reviewer. Commit or stash them, then re-run.${dirty ? `\nOffending entries:\n${dirty}` : ''}`,
   }
 }
 
@@ -226,8 +238,8 @@ async function policeTrack(wt) {
   // Pass *definitions* are single-sourced to code-police's SKILL.md: each brief
   // names that pass's section so the agent (which Reads the skill below) reviews
   // it exactly as written there — no inline checklist to drift. The elegance pass
-  // is gated on the tiny-diff heuristic the skill mandates (SKILL.md:141 — skip
-  // when the worktree diff against base is <10 lines).
+  // is gated on the tiny-diff heuristic the skill mandates (skip when the worktree
+  // diff against base is <10 lines).
   const tinyDiff = await agent(
     `Run \`git -C ${wt} diff ${base} --shortstat\` and report whether the changed-line total (insertions + deletions) is **under 10**. Return only that boolean.`,
     { label: 'police:diff-size', phase: 'Tracks', model, schema: { type: 'object', properties: { tiny: { type: 'boolean' } }, required: ['tiny'] } },
@@ -241,7 +253,7 @@ async function policeTrack(wt) {
   const reviews = await parallel(
     passes.map((p) => () =>
       agent(
-        `You are the **code-police ${p.key}** reviewer on a fresh, cold context — the implementer is biased to rationalize their own diff, so you start from "assume the code is wrong until proven right" and NEVER talk yourself out of a finding. First Read \`.claude/skills/code-police/SKILL.md\` (and \`.agency/code-police.md\` if it exists) for the rules and reviewing principles, then ${DIFF(wt)}\n${rationaleBlock}\nReview through ${p.brief}. Emit high-confidence findings only; an empty list is a fine verdict for a clean diff. Each finding: a title, a file:line location, the problem, a concrete implementable fix, and a severity.`,
+        `You are the **code-police ${p.key}** reviewer on a fresh, cold context — the implementer is biased to rationalize their own diff, so you start from "assume the code is wrong until proven right" and NEVER talk yourself out of a finding. First Read \`${wt}/.claude/skills/code-police/SKILL.md\` (and \`${wt}/.agency/code-police.md\` if it exists) for the rules and reviewing principles, then ${DIFF(wt)}\n${rationaleBlock}\nReview through ${p.brief}. Emit high-confidence findings only; an empty list is a fine verdict for a clean diff. Each finding: a title, a file:line location, the problem, a concrete implementable fix, and a severity.`,
         { label: `police:${p.key}`, phase: 'Tracks', model, schema: POLICE_FINDINGS_SCHEMA },
       ),
     ),
@@ -251,11 +263,11 @@ async function policeTrack(wt) {
   log(`police: ${findings.length} finding(s) across ${passes.length} passes`)
 
   // Apply each finding as its own commit, sequentially (same-file edits can't be
-  // parallel-applied). Mechanical committer stages only the touched files.
+  // parallel-applied). Every edit and git command targets the absolute worktree.
   const applied = []
   for (const f of findings) {
     const impl = await agent(
-      `You are implementing ONE code-police finding in the worktree at \`${wt}\`. Read the surrounding code first so the edit fits the existing style; keep it tightly scoped.\n\nFinding ${f.id} [${f.severity}] — ${f.title}\n  at ${f.location}\n  problem: ${f.problem}\n  fix: ${f.fix}\n\nMake ONLY this change in the working tree. Do NOT git add / commit / push. You MAY run the project's formatter on files you touched. Return a one-line summary and the exact list of files you changed.`,
+      `You are implementing ONE code-police finding in the worktree at \`${wt}\`. Work ONLY inside that worktree — every file you Read or Edit MUST be an ABSOLUTE path under \`${wt}\` (your shell cwd is a DIFFERENT worktree, so a relative path would edit the wrong tree). Read the surrounding code first so the edit fits the existing style; keep it tightly scoped.\n\nFinding ${f.id} [${f.severity}] — ${f.title}\n  at ${f.location}\n  problem: ${f.problem}\n  fix: ${f.fix}\n\nMake ONLY this change. Do NOT git add / commit / push. You MAY run the project's formatter on files you touched (\`cd ${wt} && <formatter>\`). Return a one-line summary and the exact list of files you changed (absolute paths).`,
       { label: `police-apply:${f.id}`, phase: 'Tracks', model, schema: IMPL_SCHEMA },
     )
     const files = impl?.filesChanged ?? []
@@ -263,23 +275,25 @@ async function policeTrack(wt) {
     if (commit && files.length) {
       sha = (await commitFix(wt, f.id, `fix(police): ${f.title}`, `${impl.summary}\n\ncode-police ${f.pass} finding ${f.id} [${f.severity}]. Applied by the /be parallel gauntlet; not pushed or merged.`, files))?.sha?.trim() || null
     }
-    applied.push({ id: f.id, title: f.title, severity: f.severity, files, commit: sha })
+    applied.push({ id: f.id, title: f.title, severity: f.severity, problem: f.problem, files, commit: sha })
     log(`police: applied ${f.id}${sha ? ` (${sha.slice(0, 9)})` : ' (uncommitted)'}`)
   }
   return { status: findings.length ? 'consensus' : 'clean', findings: findings.length, applied }
 }
 
 // Mechanical committer shared by the police track: stages EXACTLY the listed
-// files in worktree `wt` and commits with the given message. The workflow can't
-// run git itself, so a thin agent does. (codex/lens commit via their own
-// workflows.)
+// files in worktree `wt` and commits with the given message — all via `git -C`
+// so it never depends on the shell cwd. The workflow can't run git itself, so a
+// thin agent does. (codex/lens commit via their own workflows.)
 async function commitFix(wt, id, subject, body, files) {
-  const fileArgs = files.map((f) => `'${f.replace(/'/g, `'\\''`)}'`).join(' ')
-  const msgPath = `${workRoot}/commit-msg-${id}.txt`
+  // Files may arrive as absolute worktree paths; git -C wants them relative to wt.
+  const rel = files.map((f) => f.replace(`${wt}/`, '').replace(/^\/+/, ''))
+  const fileArgs = rel.map((f) => `'${f.replace(/'/g, `'\\''`)}'`).join(' ')
+  const msgPath = `${SCRATCH}/commit-msg-${id}.txt`
   const message = `${subject}\n\n${body}`
-  const prompt = `You are a MECHANICAL COMMITTER. Do exactly these steps and nothing else — do not edit files, do not push, do not stage anything beyond the listed files.
+  const prompt = `You are a MECHANICAL COMMITTER. Do exactly these steps and nothing else — do not edit files, do not push, do not stage anything beyond the listed files. Every path is absolute / \`git -C\`; do not rely on the current directory.
 
-1. Ensure the scratch dir exists: \`mkdir -p ${workRoot}\`.
+1. Ensure the scratch dir exists: \`mkdir -p ${SCRATCH}\`.
 2. Using the Write tool, create \`${msgPath}\` with EXACTLY this content:
 
 ${message}
@@ -300,20 +314,21 @@ ${message}
 
 // One thunk per live track. codex and lens are existing repoPath-parameterized
 // workflows (built to run in separate worktrees), invoked as child workflows —
-// one level of nesting, which the runtime allows. police is inline (it's a
-// skill, not a workflow). Each thunk catches so one track's failure can't sink
-// the rest — consolidation just picks up whatever each track committed.
+// one level of nesting, which the runtime allows. They get the ABSOLUTE worktree
+// path as repoPath. police is inline (it's a skill, not a workflow). Each thunk
+// catches so one track's failure can't sink the rest — consolidation just picks
+// up whatever each track committed.
 const trackThunk = {
   codex: () =>
-    workflow({ scriptPath: CODEX_SCRIPT }, { repoPath: wtPath('codex'), base, skillDir: CODEX_SKILLDIR, commit })
+    workflow({ scriptPath: CODEX_SCRIPT }, { repoPath: wtDir('codex'), base, skillDir: CODEX_SKILLDIR, commit })
       .then((r) => ({ track: 'codex', ...r }))
       .catch((e) => ({ track: 'codex', status: 'track-error', error: String(e) })),
   lens: () =>
-    workflow({ scriptPath: LENS_SCRIPT }, { repoPath: wtPath('lens'), base, rationale, model, commit })
+    workflow({ scriptPath: LENS_SCRIPT }, { repoPath: wtDir('lens'), base, rationale, model, commit })
       .then((r) => ({ track: 'lens', ...r }))
       .catch((e) => ({ track: 'lens', status: 'track-error', error: String(e) })),
   police: () =>
-    policeTrack(wtPath('police'))
+    policeTrack(wtDir('police'))
       .then((r) => ({ track: 'police', ...r }))
       .catch((e) => ({ track: 'police', status: 'track-error', error: String(e) })),
 }
@@ -324,14 +339,104 @@ const trackResults = await parallel(liveTracks.map((t) => trackThunk[t]))
 liveTracks.forEach((t, i) => (tracks[t] = trackResults[i] || { track: t, status: 'track-error', error: 'no result' }))
 for (const t of liveTracks) log(`Track ${t}: ${tracks[t].status || 'unknown'}`)
 
+// ---------------------------------------------------------------------------
+// PR-comment builders + poster (used by the Report phase). Bodies are built
+// deterministically in JS from the structured track results; a thin mechanical
+// agent just writes each body to a scratch file and posts it with `gh pr comment`.
+// ---------------------------------------------------------------------------
+const sha9 = (s) => (s ? `\`${String(s).slice(0, 9)}\`` : '—')
+const esc = (s) => String(s ?? '').replace(/\|/g, '\\|').replace(/\n+/g, ' ').trim()
+
+function codexComment(t) {
+  if (!t || t.status === 'track-error') return `## 🤖 Codex ⇄ Claude debate\n\n**Track error:** ${esc(t?.error) || 'did not run'}.`
+  const rows = (t.transcript || [])
+    .map((r) => {
+      const v = r.codex || {}
+      const openBM = (v.findings || []).filter((f) => f.status !== 'resolved' && (f.severity === 'blocking' || f.severity === 'major')).length
+      const disp = (r.claude?.actions || []).map((act) => `${act.findingId}:${act.disposition}`).join(', ')
+      return `| ${r.round} | ${v.approved ? '✅' : '❌'} | ${openBM} | ${esc(disp) || '—'} | ${sha9(r.commit)} |`
+    })
+    .join('\n')
+  return `## 🤖 Codex ⇄ Claude debate
+
+**Outcome:** \`${t.status}\` after ${t.rounds} round(s) · codex reviewed at \`xhigh\` reasoning effort.
+
+${esc(t.finalVerdict?.summary)}
+
+| Round | codex approved | open blk/maj | claude dispositions | commit |
+|---|---|---|---|---|
+${rows || '| — | — | — | — | — |'}`
+}
+
+function lensComment(t) {
+  if (!t || t.status === 'track-error') return `## ⚖️ Lowy ⇄ Hickey lens debate\n\n**Track error:** ${esc(t?.error) || 'did not run'}.`
+  const appliedFor = (id) => (t.applied || []).find((x) => x.id === id)?.commit
+  const rows = (t.settled || [])
+    .map((s) => `| ${esc(s.origin)} | ${esc(s.title)} | ${esc(s.location)} | ${esc(s.disposition)} | ${s.disposition === 'fix' ? sha9(appliedFor(s.id)) : '—'} |`)
+    .join('\n')
+  const un = (t.unresolved || []).length
+    ? `\n\n**⚠️ ${t.unresolved.length} unresolved finding(s)** — needs a human:\n` + t.unresolved.map((u) => `- ${esc(u.title)} (${esc(u.location)})`).join('\n')
+    : ''
+  return `## ⚖️ Lowy ⇄ Hickey lens debate
+
+**Outcome:** \`${t.status}\` after ${t.rounds || 0} round(s). Independent review: ${Object.entries(t.reviews || {}).map(([k, v]) => `${k}=${(v || []).length}`).join(', ') || 'n/a'}.
+
+| origin | finding | location | disposition | commit |
+|---|---|---|---|---|
+${rows || '| — | — | — | — | — |'}${un}`
+}
+
+function policeComment(t) {
+  if (!t || t.status === 'track-error') return `## 👮 Code-police\n\n**Track error:** ${esc(t?.error) || 'did not run'}.`
+  const rows = (t.applied || [])
+    .map((x) => `| ${esc(x.severity)} | ${esc(x.title)} | ${esc((x.files || []).join(', '))} | ${sha9(x.commit)} |`)
+    .join('\n')
+  return `## 👮 Code-police
+
+**${t.findings || 0} finding(s)** across the rules / fact-check / elegance passes${t.status === 'clean' ? ' — clean diff' : ''}.
+
+| severity | finding | files | commit |
+|---|---|---|---|
+${rows || '| — | — | — | — |'}`
+}
+
+function consolidationSection(c, order) {
+  const rows = (c?.picks || [])
+    .map((p) => `| ${esc(p.track)} | ${sha9(p.sourceCommit)} | \`${esc(p.outcome)}\` | ${sha9(p.newCommit)} | ${esc(p.note) || ''} |`)
+    .join('\n')
+  return `### Consolidation onto the branch (order: ${order.join(' → ')})
+
+| track | source | outcome | new commit | note |
+|---|---|---|---|---|
+${rows || '| — | — | — | — | — |'}`
+}
+
+// Post one comment via a mechanical agent. Resolves the PR from the branch in the
+// MAIN worktree (gh uses cwd's repo; the agent runs `gh -C`-equivalent by cd-ing).
+async function postComment(slug, body) {
+  const file = `${SCRATCH}/comment-${slug}.md`
+  const prompt = `You are a MECHANICAL PR COMMENTER. Do exactly these steps and nothing else.
+
+1. \`mkdir -p ${SCRATCH}\`.
+2. Using the Write tool, create \`${file}\` with EXACTLY this markdown content:
+
+${body}
+
+3. Post it to THIS branch's PR: \`cd ${repoPath} && gh pr comment --body-file ${file}\`. (\`gh\` resolves the PR from the current branch.) If there is NO open PR for the branch, do nothing and report "no PR".
+4. Return the comment URL gh prints, or "no PR".`
+  return agent(prompt, { label: `comment:${slug}`, phase: 'Report', model })
+}
+
+// ---------------------------------------------------------------------------
 // `--no-commit` short-circuit. With commit=false the tracks deliberately leave
 // their fixes UNCOMMITTED in their own worktrees. Consolidation replays commits
 // (rev-list ${branchHead}..HEAD) and cleanup's `worktree remove --force` tears the
 // worktrees down — so running them now would silently discard every reviewer's edits.
 // Instead, stop here and hand the live worktrees to the user to inspect; nothing is
 // consolidated and nothing is cleaned up. (This is the documented single-track-debugging mode.)
+// ---------------------------------------------------------------------------
 if (!commit) {
-  log(`--no-commit: skipping Consolidate + Cleanup. Per-track fixes are UNCOMMITTED in their worktrees; inspect them there (\`git -C ${workRoot}/wt-<track> diff\`).`)
+  log(`--no-commit: skipping Consolidate + Cleanup. Per-track fixes are UNCOMMITTED in their worktrees; inspect them there (\`git -C ${WT_ROOT}/be-review-<track> diff\`).`)
   return {
     status: 'no-commit',
     branchHead,
@@ -341,8 +446,8 @@ if (!commit) {
     tracks,
     consolidation: null,
     conflicts: [],
-    note: 'commit=false: each track left its fixes uncommitted in its worktree and nothing was consolidated. The worktrees are PRESERVED for inspection — review each `.be-review/wt-<track>` and re-run with commit enabled to consolidate.',
-    worktrees: liveTracks.map((t) => ({ track: t, path: wtPath(t) })),
+    note: 'commit=false: each track left its fixes uncommitted in its worktree and nothing was consolidated. The worktrees are PRESERVED for inspection — review each `.worktrees/be-review-<track>` and re-run with commit enabled to consolidate.',
+    worktrees: liveTracks.map((t) => ({ track: t, path: wtDir(t) })),
   }
 }
 
@@ -356,19 +461,19 @@ phase('Consolidate')
 
 // Skip tracks that errored or made no commits — the agent only picks real work.
 const consolidateOrder = liveTracks.filter((t) => tracks[t]?.status !== 'track-error')
-const consolidatePrompt = `You are CONSOLIDATING the results of a parallel code-review gauntlet onto the branch in the MAIN worktree at \`${repoPath}\`. ${consolidateOrder.length} review track(s) (${consolidateOrder.join(', ')}) each ran to consensus in their own detached worktree, all forked from branch HEAD \`${branchHead}\`, each committing its agreed fixes on top. Your job: replay every track's commits onto the branch, in the given order, reconciling the rare overlap.
+const consolidatePrompt = `You are CONSOLIDATING the results of a parallel code-review gauntlet onto the branch in the MAIN worktree at \`${repoPath}\`. Every command below is \`git -C\` against an ABSOLUTE path — do not rely on the current directory. ${consolidateOrder.length} review track(s) (${consolidateOrder.join(', ')}) each ran to consensus in their own detached worktree, all forked from branch HEAD \`${branchHead}\`, each committing its agreed fixes on top. Your job: replay every track's commits onto the branch, in the given order, reconciling the rare overlap.
 
 The branch in \`${repoPath}\` is currently AT \`${branchHead}\` (the tracks' shared fork point). Process tracks in THIS order: ${consolidateOrder.join(' → ')}.
 
-For each track, its worktree is \`${workRoot}/wt-<track>\`. Get that track's new commits oldest-first:
-  \`git -C ${workRoot}/wt-<track> rev-list --reverse ${branchHead}..HEAD\`
+For each track, its worktree is \`${WT_ROOT}/be-review-<track>\`. Get that track's new commits oldest-first:
+  \`git -C ${WT_ROOT}/be-review-<track> rev-list --reverse ${branchHead}..HEAD\`
 (An empty list means the track found nothing to change — skip it.)
 
-Then, from the MAIN worktree \`${repoPath}\`, cherry-pick each of those commits onto the branch IN THAT ORDER:
+Then cherry-pick each of those commits onto the branch IN THAT ORDER:
   \`git -C ${repoPath} cherry-pick <sha>\`
 
 - **Clean pick** → record outcome \`clean\` with the new SHA (\`git -C ${repoPath} rev-parse HEAD\`).
-- **Conflict** (\`git -C ${repoPath} status\` shows unmerged paths) → this is an OVERLAP: an earlier track already changed the same lines. Resolve by Reading both sides and producing a result that HONORS BOTH fixes (they each came from a review debate — neither is noise). Edit the conflicted files to the merged result, \`git -C ${repoPath} add\` them, then \`git -C ${repoPath} cherry-pick --continue\` (keep the original commit message). Record outcome \`reconciled\`, list the conflicted files in \`files\`, and explain the merge in \`note\`. Only \`drop\` a commit (\`git -C ${repoPath} cherry-pick --abort\`) if the earlier track's change already FULLY subsumes this one — record outcome \`dropped\` with the overlapping \`files\` and say so in \`note\`; never drop to avoid the work of merging.
+- **Conflict** (\`git -C ${repoPath} status\` shows unmerged paths) → this is an OVERLAP: an earlier track already changed the same lines. Resolve by Reading both sides (ABSOLUTE paths under \`${repoPath}\`) and producing a result that HONORS BOTH fixes (they each came from a review debate — neither is noise). Edit the conflicted files to the merged result, \`git -C ${repoPath} add\` them, then \`git -C ${repoPath} cherry-pick --continue\` (keep the original commit message). Record outcome \`reconciled\`, list the conflicted files in \`files\`, and explain the merge in \`note\`. Only \`drop\` a commit (\`git -C ${repoPath} cherry-pick --abort\`) if the earlier track's change already FULLY subsumes this one — record outcome \`dropped\` with the overlapping \`files\` and say so in \`note\`; never drop to avoid the work of merging.
 
 Do NOT push and do NOT merge — leave the consolidated commits on the local branch for the human. Return the final branch HEAD and the per-commit \`picks\` ledger (in processing order); the overlaps you reconciled are just the picks whose outcome isn't \`clean\`.`
 
@@ -377,12 +482,37 @@ const conflicts = (consolidation?.picks ?? []).filter((p) => p.outcome !== 'clea
 log(`Consolidate: ${(consolidation?.picks ?? []).length} commit(s) replayed, ${conflicts.length} overlap(s) reconciled. HEAD ${(consolidation?.finalHead || '').slice(0, 9)}`)
 
 // ---------------------------------------------------------------------------
-// Phase 4 — tear down the per-track worktrees
+// Phase 4 — post a detailed PR comment for EVERY track + the consolidation
+// ledger. This is the review trail the whole gauntlet exists to leave; it runs
+// here (not in the caller) so it ALWAYS happens. `--no-comment` suppresses it.
+// ---------------------------------------------------------------------------
+phase('Report')
+
+const comments = {}
+if (postComments) {
+  const ledger = consolidationSection(consolidation, consolidateOrder)
+  const bodies = [
+    ['codex', `${codexComment(tracks.codex)}\n\n${ledger}`],
+    ['lens', lensComment(tracks.lens)],
+    ['police', policeComment(tracks.police)],
+  ].filter(([t]) => tracks[t])
+  // Post sequentially so the comments land in a stable order (codex, lens, police).
+  for (const [slug, body] of bodies) {
+    const url = await postComment(slug, body)
+    comments[slug] = (url || '').trim()
+    log(`Report: posted ${slug} comment${comments[slug] ? ` → ${comments[slug]}` : ''}`)
+  }
+} else {
+  log('Report: --no-comment — skipping PR comments.')
+}
+
+// ---------------------------------------------------------------------------
+// Phase 5 — tear down the per-track worktrees
 // ---------------------------------------------------------------------------
 phase('Cleanup')
 
 await agent(
-  `You are a MECHANICAL CLEANUP RUNNER. From \`${repoPath}\`, for each track in [${liveTracks.join(', ')}] run \`git -C ${repoPath} worktree remove --force ${workRoot}/wt-<track>\` (ignore errors if already gone), then \`git -C ${repoPath} worktree prune\`. Leave the gitignored \`${workRoot}\` directory itself (it holds commit-message scratch); do not delete the branch's commits. Return "done".`,
+  `You are a MECHANICAL CLEANUP RUNNER. Every path is absolute / \`git -C\`; do not rely on the current directory. For each track in [${liveTracks.join(', ')}] run \`git -C ${repoPath} worktree remove --force ${WT_ROOT}/be-review-<track>\` (ignore errors if already gone), then \`git -C ${repoPath} worktree prune\`. Leave the gitignored \`${SCRATCH}\` directory (it holds commit-message + comment scratch); do not delete the branch's commits. Return "done".`,
   { label: 'cleanup:worktrees', phase: 'Cleanup', model },
 )
 
@@ -395,4 +525,5 @@ return {
   tracks,
   consolidation,
   conflicts,
+  comments,
 }

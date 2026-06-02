@@ -69,7 +69,7 @@ if (withPolice) REVIEWERS.push({ lens: 'code-police', framework: 'code quality, 
 // How every agent is told to inspect the change. The lenses do NOT trust a
 // curated finding list — they read the source themselves (the load-bearing
 // lesson from #1109: curation biases the verdict).
-const DIFF = `Inspect the FULL change in the repo at \`${repoPath}\`: run \`git diff ${base}\` (committed + unstaged) and \`git status --short\` (untracked/new files do NOT appear in the diff), then Read every new/changed file plus enough surrounding code to judge it in context. Ignore the debate's own scratch dir \`.lens-debate/\` if it appears.`
+const DIFF = `Inspect the FULL change in the repo at \`${repoPath}\` — your shell cwd may be a DIFFERENT worktree, so use \`git -C ${repoPath}\` and ABSOLUTE paths under \`${repoPath}\`: run \`git -C ${repoPath} diff ${base}\` (committed + unstaged) and \`git -C ${repoPath} status --short\` (untracked/new files do NOT appear in the diff), then Read every new/changed file plus enough surrounding code to judge it in context. Ignore the debate's own scratch dir \`.lens-debate/\` if it appears.`
 
 const rationaleBlock = rationale ? `\nAuthor's note on deliberate decisions (do not flag these as defects unless the reasoning is itself wrong):\n${rationale}\n` : ''
 
@@ -172,7 +172,7 @@ Round ${roundNum}. For EVERY contested finding id above, output a disposition (\
 }
 
 function implementBrief(fix) {
-  return `You are implementing ONE change that two structural-review lenses (lowy and hickey) independently agreed should be fixed in THIS PR. Work in the repo at \`${repoPath}\`.
+  return `You are implementing ONE change that two structural-review lenses (lowy and hickey) independently agreed should be fixed in THIS PR. Work in the repo at \`${repoPath}\` — your shell cwd may be a DIFFERENT worktree, so every file you Read/Edit MUST be an ABSOLUTE path under \`${repoPath}\`.
 
 Finding ${fix.id} (raised by ${fix.origin}) — ${fix.title}
   at ${fix.location}
@@ -205,10 +205,10 @@ Agreed by the lowy ⇄ hickey lens debate (finding ${fix.id}, raised by ${fix.or
 
 ${message}
 
-3. Run, from the repo root \`${repoPath}\`:
-   \`git add -- ${fileArgs} && git commit -F ${msgPath}\`
+3. Run (every git command uses \`git -C ${repoPath}\`, so it targets THIS worktree regardless of your shell cwd):
+   \`git -C ${repoPath} add -- ${fileArgs} && git -C ${repoPath} commit -F ${msgPath}\`
    Stage ONLY those files. Do NOT use \`git add -A\` or \`git add .\`.
-4. Return the new commit SHA from \`git rev-parse HEAD\`. Do NOT push.`
+4. Return the new commit SHA from \`git -C ${repoPath} rev-parse HEAD\`. Do NOT push.`
   return agent(prompt, { label: `commit:${fix.id}`, phase: 'Apply' })
 }
 

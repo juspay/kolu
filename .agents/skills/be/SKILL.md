@@ -54,9 +54,10 @@ debates editing the same lines — is reconciled to honor both fixes.
 - Invoke `/be-review` with `base`, the change **`rationale`** (so the lenses
   don't flag deliberate decisions — same brief the old `/lens-debate` step got),
   and the default `tracks: [codex, lens, police]` (also the consolidation order).
-- It posts **one** consolidated `## Review gauntlet (parallel)` PR comment
-  covering all three tracks plus the consolidation ledger — confirm it landed.
-  This replaces the three separate per-reviewer comments.
+- Its **Report** phase posts a **detailed PR comment per track** (codex debate
+  table, lens per-finding ledger, police findings) plus the consolidation ledger —
+  automatically, so the trail lands regardless of caller. Confirm the comments
+  landed (the workflow returns their URLs in `comments`).
 - On the rare **unresolved** lens finding or a **dropped** overlap you disagree
   with, adjudicate it yourself before moving on. On `setup-failed` or a per-track
   `track-error`, fall back to the serial path below for the affected track.

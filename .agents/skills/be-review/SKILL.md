@@ -1,7 +1,7 @@
 ---
 name: be-review
-description: Run /be's review gauntlet in PARALLEL — codex⇄claude, lowy⇄hickey, and code-police each debate to consensus in their own git worktree at the same time, then consolidate the per-track commits onto the branch (the rare overlap is reconciled). Use from /be §4, or when the user asks to "run the review gauntlet in parallel". Requires Claude Code's Workflow tool.
-argument-hint: "[--base <branch>] [--tracks codex,lens,police] [--no-commit]"
+description: Run /be's review gauntlet in PARALLEL — codex⇄claude, lowy⇄hickey, and code-police each debate to consensus in their own git worktree at the same time, then consolidate the per-track commits onto the branch (the rare overlap is reconciled) and post a detailed PR comment per track. Use from /be §4, or when the user asks to "run the review gauntlet in parallel". Requires Claude Code's Workflow tool.
+argument-hint: "[--base <branch>] [--tracks codex,lens,police] [--no-commit] [--no-comment]"
 ---
 
 # Parallel review gauntlet
@@ -21,10 +21,18 @@ two tracks editing the same lines — surfaces as a cherry-pick conflict that is
 **reconciled to honor both fixes**.
 
 ```
-            ┌─ wt-codex   ─ codex⇄claude debate ─→ commits ─┐
-branch HEAD ┼─ wt-lens    ─ lowy⇄hickey debate  ─→ commits ─┼─→ cherry-pick onto branch
-            └─ wt-police  ─ rules/fact/elegance ─→ commits ─┘   (overlap → reconcile)
+            ┌─ be-review-codex   ─ codex⇄claude debate ─→ commits ─┐
+branch HEAD ┼─ be-review-lens    ─ lowy⇄hickey debate  ─→ commits ─┼─→ cherry-pick → PR comments
+            └─ be-review-police  ─ rules/fact/elegance ─→ commits ─┘   (overlap → reconcile)
 ```
+
+The per-track worktrees live under the repo's conventional `.worktrees/`
+(gitignored) — `.worktrees/be-review-<track>`. **Isolation is structural, not
+behavioral:** every workflow agent inherits the *session* cwd (the harness has no
+per-agent cwd, and `isolation:'worktree'` can't host a multi-round debate that
+accumulates commits in one tree), so every git command is `git -C <worktree>` and
+every file path is absolute — no agent can leak into the wrong tree by forgetting
+to `cd`.
 
 ## Why this shape
 
@@ -65,11 +73,15 @@ branch HEAD ┼─ wt-lens    ─ lowy⇄hickey debate  ─→ commits ─┼─
   last (lightest touch), so an overlap surfaces picking the later track.
 - **`--no-commit`**: leave each track's fixes uncommitted for inspection
   (debugging a single track). Consolidation cherry-picks per-track *commits*, so
-  with this flag the orchestrator **skips Consolidate + Cleanup and preserves the
-  worktrees** (status `no-commit`) — leaving every track's worktree in place under
-  `.be-review/wt-<track>/` (the branch is untouched) rather than silently discarding
-  the uncommitted edits; inspect and tear them down yourself. Default is to commit,
-  which is what actually ships fixes.
+  with this flag the orchestrator **skips Consolidate + Report + Cleanup and
+  preserves the worktrees** (status `no-commit`) — leaving every track's worktree
+  in place under `.worktrees/be-review-<track>/` (the branch is untouched) rather
+  than silently discarding the uncommitted edits; inspect and tear them down
+  yourself. Default is to commit, which is what actually ships fixes.
+- **`--no-comment`**: suppress the PR comments. By default the **Report** phase
+  posts a detailed PR comment per track (codex debate table, lens per-finding
+  ledger, police findings) plus the consolidation ledger — the review trail the
+  gauntlet exists to leave. This flag reports in chat only.
 
 ## Steps
 
@@ -81,10 +93,11 @@ branch HEAD ┼─ wt-lens    ─ lowy⇄hickey debate  ─→ commits ─┼─
 - Confirm a non-empty diff: `git diff --stat <base>`. If empty, stop.
 - **Commit the change first.** Every track forks a detached worktree from the
   branch HEAD, so only *committed* work is reviewed. If the main worktree has
-  staged/unstaged/untracked changes (outside `.be-review/`), commit (or stash)
-  them before invoking — the orchestrator's Setup preflight aborts with
-  `status: 'setup-failed'` on a dirty tree rather than reviewing an incomplete set.
-  (In `/be` this is automatic: §2/§3 commit and push before §4.)
+  staged/unstaged/untracked changes (outside the gitignored `.worktrees/` and
+  `.be-review/` scratch), commit (or stash) them before invoking — the
+  orchestrator's Setup preflight aborts with `status: 'setup-failed'` on a dirty
+  tree rather than reviewing an incomplete set. (In `/be` this is automatic: §2/§3
+  commit and push before §4.)
 - **Preflight codex** (unless `--tracks` excludes it): `codex login status`. If
   not logged in, tell the user to run `codex login` (suggest the `!` prefix).
 
@@ -98,52 +111,61 @@ Workflow({
     base: "<base branch>",                 // remote-tracking ref, e.g. origin/master
     rationale: "<optional author note on deliberate decisions>",
     tracks: ["codex", "lens", "police"],   // also the consolidation order
-    commit: <false only if --no-commit>
+    commit: <false only if --no-commit>,
+    comment: <false only if --no-comment>
   }
 })
 ```
 
-It runs four phases the user can watch via `/workflows`: **Setup** (fan out one
-detached worktree per track), **Tracks** (the three gauntlets run concurrently to
-consensus), **Consolidate** (cherry-pick each track's commits onto the branch,
-reconciling overlap), **Cleanup** (tear down the worktrees). It returns:
+It runs five phases the user can watch via `/workflows`: **Setup** (fan out one
+detached worktree per track under `.worktrees/`), **Tracks** (the three gauntlets
+run concurrently to consensus), **Consolidate** (cherry-pick each track's commits
+onto the branch, reconciling overlap), **Report** (post a detailed PR comment per
+track + the consolidation ledger), **Cleanup** (tear down the worktrees). It
+returns:
 
 ```
 { status,                  // 'done' | 'no-commit' | 'setup-failed'
   branchHead, finalHead, base, order,
   tracks,                  // per-track result; ALWAYS one entry per requested track —
                            //   a track whose worktree setup failed is status:'track-error'
-  consolidation,           // { finalHead, picks[], conflicts[] }  (null when not consolidated)
-  conflicts }              // the overlaps reconciled (empty in the common case)
+  consolidation,           // { finalHead, picks[] }  (null when not consolidated)
+  conflicts,               // the reconciled overlaps (picks whose outcome ≠ clean; empty common case)
+  comments }               // { codex, lens, police } → posted comment URLs ({} under --no-comment)
 ```
 
 - `setup-failed` — no work was consolidated: a dirty main worktree (commit/stash
   and re-run) or no worktree could be created. `tracks` carries the per-track
   `track-error` detail.
 - `no-commit` — `--no-commit` was set, so each track's fixes are left
-  **uncommitted in its preserved `.be-review/wt-<track>` worktree** and nothing is
-  consolidated or cleaned up. The result lists those `worktrees` to inspect; re-run
-  with commit enabled to actually consolidate. (`--no-commit` is a
-  single-track-debugging mode, not a way to ship fixes.)
+  **uncommitted in its preserved `.worktrees/be-review-<track>` worktree** and
+  nothing is consolidated, reported, or cleaned up. The result lists those
+  `worktrees` to inspect; re-run with commit enabled to actually consolidate.
+  (`--no-commit` is a single-track-debugging mode, not a way to ship fixes.)
 - For any per-track `track-error` (setup failure or a crashed gauntlet), fall back
   to the serial path for that track.
 
 ### 3. Present the result
 
-Report in chat and post **one** consolidated PR comment (this replaces the three
-separate per-reviewer comments): a `## Review gauntlet (parallel)` section with,
-per track, its outcome (codex consensus + rounds, lens consensus + per-finding
-table, police findings actioned); then the **consolidation ledger** — each
-cherry-picked commit and its outcome (`clean`/`reconciled`/`dropped`), with any
-overlap reconciliation explained. Then `git log --oneline <base>..HEAD` and
-`git diff --stat <base>` so the user sees the combined result. Never push or
-merge — the human reviews the per-track commits and merges.
+**The workflow already posted the PR comments** — one detailed comment per track
+(codex debate table, lens per-finding ledger, police findings) plus the
+consolidation ledger — in its **Report** phase, so the trail is on the PR no
+matter who invoked it (the `comments` field carries the URLs). Confirm they landed
+(re-post any that returned "no PR" once the PR exists). Then summarize in chat:
+the per-track outcomes, the consolidation ledger (`clean`/`reconciled`/`dropped`),
+and `git log --oneline <base>..HEAD` + `git diff --stat <base>` so the user sees
+the combined result. Never push or merge — the human reviews the per-track commits
+and merges.
 
 ## Safety & notes
 
 - **Reviewers are read-only; only their own worktree is written.** Each track's
-  fixes land in `.be-review/wt-<track>/`; the branch is touched only by the
+  fixes land in `.worktrees/be-review-<track>/`; the branch is touched only by the
   consolidation cherry-picks, which never push or merge.
+- **Isolation is structural (cwd-independent).** Workflow agents share the session
+  cwd; the orchestrator and both child workflows (`/codex-debate`, `/lens-debate`)
+  therefore use `git -C <worktree>` and absolute paths throughout, so a forgotten
+  `cd` can't make an agent edit or commit into the wrong tree.
 - **Overlap is reconciled, never silently dropped.** A cherry-pick conflict means
   two debates changed the same lines; the orchestrator merges both intents (it
   has both commit messages) and only drops a commit if an earlier track fully
@@ -154,14 +176,16 @@ merge — the human reviews the per-track commits and merges.
   residual semantic staleness is backstopped by `/be` §5 CI and human review. If a
   change is small and correctness-critical, the serial `/codex-debate` →
   `/lens-debate` → `/code-police` path is still available and sees each fix fresh.
-- **Parallel-safe.** Worktrees + scratch live under the gitignored, per-worktree
+- **Parallel-safe.** Worktrees live under the gitignored `<repoPath>/.worktrees/`
+  and commit-message + PR-comment scratch under the gitignored
   `<repoPath>/.be-review/`; each track's own `.codex-debate/`/`.lens-debate/`
-  scratch nests inside its worktree.
+  scratch nests inside its worktree. All paths are absolute and
+  per-main-worktree, so parallel `/be-review` runs never collide.
 
 ## Files
 
 - `be-review.workflow.js` — the orchestrator (worktree fan-out → parallel tracks
-  → cherry-pick consolidation → cleanup). It invokes
+  → cherry-pick consolidation → per-track PR comments → cleanup). It invokes
   `.claude/skills/{codex-debate,lens-debate}/debate.workflow.js` as child
   workflows and reads `.claude/skills/code-police/SKILL.md` at runtime.
 
