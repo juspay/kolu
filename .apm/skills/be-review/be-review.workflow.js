@@ -303,6 +303,7 @@ ${message}
   return agent(prompt, {
     label: `police-commit:${id}`,
     phase: 'Tracks',
+    model,
     schema: {
       type: 'object',
       additionalProperties: false,
