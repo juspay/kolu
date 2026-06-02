@@ -1,10 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  arrangeRepoIslands,
-  type RepoIslandTile,
-  repackBucket,
-} from "./repoIslands";
-import { DEFAULT_TILE_H, DEFAULT_TILE_W } from "./tilePlacement";
+import { arrangeRepoIslands, type RepoIslandTile } from "./repoIslands";
 import { GRID_SIZE } from "./viewport/transforms";
 
 const TILE_GAP = GRID_SIZE;
@@ -95,97 +90,5 @@ describe("arrangeRepoIslands", () => {
     const first = arrangeRepoIslands(tiles);
     const second = arrangeRepoIslands(tiles);
     expect([...first.entries()]).toEqual([...second.entries()]);
-  });
-});
-
-describe("repackBucket", () => {
-  it("returns undefined when no matching island exists", () => {
-    expect(
-      repackBucket(
-        "kolu",
-        [tile("a", "other", { x: 0, y: 0, w: 800, h: 540 })],
-        "new",
-      ),
-    ).toBeUndefined();
-  });
-
-  it("emits layouts for every same-bucket tile plus the new one, ignoring other buckets", () => {
-    const repacked = repackBucket(
-      "kolu",
-      [
-        tile("a", "kolu", { x: 0, y: 0, w: DEFAULT_TILE_W, h: DEFAULT_TILE_H }),
-        tile("o", "other", { x: 5000, y: 5000, w: 200, h: 100 }),
-      ],
-      "new",
-    );
-    if (!repacked) throw new Error("Expected a layout map");
-    expect([...repacked.keys()].sort()).toEqual(["a", "new"]);
-  });
-
-  it("anchors at the bucket bbox and places the new tile to the right (n=2 → 2×1)", () => {
-    const repacked = repackBucket(
-      "kolu",
-      [
-        tile("a", "kolu", {
-          x: 1200,
-          y: 720,
-          w: DEFAULT_TILE_W,
-          h: DEFAULT_TILE_H,
-        }),
-      ],
-      "new",
-    );
-    if (!repacked) throw new Error("Expected a layout map");
-    const a = repacked.get("a");
-    const next = repacked.get("new");
-    if (!a || !next) throw new Error("Expected entries");
-    expect(a.x).toBe(1200);
-    expect(a.y).toBe(720);
-    expect(next.y).toBe(a.y);
-    expect(next.x - (a.x + a.w)).toBe(TILE_GAP);
-    expect(next.w).toBe(DEFAULT_TILE_W);
-    expect(next.h).toBe(DEFAULT_TILE_H);
-  });
-
-  it("wraps the new tile below the first when n=3 (cols=2)", () => {
-    const w = DEFAULT_TILE_W;
-    const h = DEFAULT_TILE_H;
-    const repacked = repackBucket(
-      "kolu",
-      [
-        tile("a", "kolu", { x: 0, y: 0, w, h }),
-        tile("b", "kolu", { x: w + TILE_GAP, y: 0, w, h }),
-      ],
-      "c",
-    );
-    if (!repacked) throw new Error("Expected a layout map");
-    const a = repacked.get("a");
-    const b = repacked.get("b");
-    const c = repacked.get("c");
-    if (!a || !b || !c) throw new Error("Expected entries");
-    expect(c.x).toBe(a.x);
-    expect(c.y - (a.y + a.h)).toBe(TILE_GAP);
-    expect(c.y).toBeGreaterThan(b.y);
-  });
-
-  it("orders existing tiles by current (y, x) so a row stays a row across re-pack", () => {
-    const w = 200;
-    const h = 100;
-    // Tiles fed in reverse — repackBucket sorts by (y, x) so visual
-    // order is preserved across re-pack.
-    const repacked = repackBucket(
-      "kolu",
-      [
-        tile("right", "kolu", { x: w + TILE_GAP, y: 0, w, h }),
-        tile("left", "kolu", { x: 0, y: 0, w, h }),
-      ],
-      "next",
-    );
-    if (!repacked) throw new Error("Expected a layout map");
-    const left = repacked.get("left");
-    const right = repacked.get("right");
-    if (!left || !right) throw new Error("Expected entries");
-    expect(left.x).toBeLessThan(right.x);
-    expect(left.y).toBe(right.y);
   });
 });

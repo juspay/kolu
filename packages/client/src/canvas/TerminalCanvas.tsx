@@ -70,25 +70,6 @@ const TerminalCanvas: Component<{
   watermark?: string;
   /** Saved layout for a tile, or undefined if none exists yet. */
   getLayout: (id: TerminalId) => TileLayout | undefined;
-  /** Optional placement policy hook for new tiles. The canvas asks for a
-   *  position; if the hook returns one it's used, otherwise the default
-   *  cascade kicks in. `existing` is each currently-placed tile's
-   *  effective layout (pending merged with saved) plus tiles that the
-   *  same loop pass has just default-placed. The caller can't reconstruct
-   *  this from its own store: pending overrides live only inside the
-   *  canvas, and same-pass placements haven't round-tripped through the
-   *  server yet.
-   *
-   *  Side-effect contract (despite the pure-query signature shape):
-   *  the hook MAY mutate sibling layouts. Implementations that move
-   *  siblings must seed the canvas's pending store and dispatch
-   *  geometry RPCs for those siblings BEFORE returning, so the
-   *  new-tile write that follows lands on top of an already-applied
-   *  sibling layout. */
-  placeNew?: (
-    id: TerminalId,
-    existing: { id: TerminalId; layout: TileLayout }[],
-  ) => TileLayout | undefined;
   /** Optional one-shot arrange trigger. When provided, the minimap
    *  zoom-bar grows an arrange button. The canvas is just plumbing —
    *  the arrange logic itself lives in `useCanvasArrange`.
@@ -166,7 +147,10 @@ const TerminalCanvas: Component<{
     return result;
   });
 
-  // Auto-assign a default layout for tiles with no saved position.
+  // Auto-assign a default layout for tiles with no saved position. A new
+  // tile opens at the viewport-center cascade and NOTHING ELSE MOVES —
+  // there is no per-create auto-arrange. Repo-island clustering happens
+  // only on the explicit "Arrange canvas by repo" command (`onAutoArrange`).
   // The pending seed makes the tile paint at the cascade position on its
   // first render — without it, there would be a (0,0) frame while waiting
   // for the server's metadata echo.
@@ -197,11 +181,7 @@ const TerminalCanvas: Component<{
             placed.push({ id, layout: existing, isNew: false });
             continue;
           }
-          const fromPolicy = props.placeNew?.(
-            id,
-            placed.map(({ id, layout }) => ({ id, layout })),
-          );
-          const defaultLayout: TileLayout = fromPolicy ?? {
+          const defaultLayout: TileLayout = {
             ...findFreeTilePosition(
               cx,
               cy,
