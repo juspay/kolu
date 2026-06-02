@@ -319,10 +319,14 @@ export function useSessionRestore(deps: {
     // restore" while the saved-session snapshot is still in flight, so the
     // restore card only appears after a full reload re-subs.
     // When `terminalIds()` is empty we therefore also wait on `savedSessionSub`
-    // so the decision is made with the session snapshot in hand. When terminals
-    // exist, the canvas renders immediately — the session cell is irrelevant.
+    // so the decision is made with the session snapshot in hand. When at least
+    // one terminal's metadata has arrived (`terminalIds().length > 0`), the
+    // canvas renders immediately — the session cell is irrelevant.
+    // Note: `terminalIds()` excludes terminals whose per-terminal metadata
+    // hasn't arrived yet, so there is a brief window after `listSub` resolves
+    // where all metadata is still in-flight and the gate also holds loading.
     // `terminalIds()` is the same signal the empty-state branch reads at
-    // App.tsx:398 (`showEmpty = !session.isLoading() && terminalIds().length
+    // App.tsx:397 (`showEmpty = !session.isLoading() && terminalIds().length
     // === 0`), so the loading gate and the empty-state branch agree on what
     // "empty" means.
     isLoading: () =>
