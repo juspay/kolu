@@ -47,7 +47,8 @@
     "partysocket": "^1.1.16",
     "solid-js": "^1.9.0",
     "solid-sonner": "^0.2.0",
-    "ts-pattern": "^5.9.0"
+    "ts-pattern": "^5.9.0",
+    "workbox-window": "^7.4.0"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.0",

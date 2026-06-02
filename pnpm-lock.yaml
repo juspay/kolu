@@ -157,6 +157,9 @@ importers:
       ts-pattern:
         specifier: ^5.9.0
         version: 5.9.0
+      workbox-window:
+        specifier: ^7.4.0
+        version: 7.4.0
     devDependencies:
       '@tailwindcss/vite':
         specifier: ^4.1.0
