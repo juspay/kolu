@@ -92,21 +92,21 @@ describe("deriveState", () => {
     { stop_reason: "end_turn", expected: "waiting" },
     { stop_reason: "tool_use", expected: "tool_use" },
     { stop_reason: null, expected: "thinking" },
-  ])("assistant with stop_reason=$stop_reason → $expected", ({
-    stop_reason,
-    expected,
-  }) => {
-    const line = JSON.stringify({
-      type: "assistant",
-      message: { stop_reason, model: "claude-opus-4-6" },
-    });
-    expect(deriveState([line])).toEqual({
-      state: expected,
-      model: "claude-opus-4-6",
-      contextTokens: null,
-      timestampMs: null,
-    });
-  });
+  ])(
+    "assistant with stop_reason=$stop_reason → $expected",
+    ({ stop_reason, expected }) => {
+      const line = JSON.stringify({
+        type: "assistant",
+        message: { stop_reason, model: "claude-opus-4-6" },
+      });
+      expect(deriveState([line])).toEqual({
+        state: expected,
+        model: "claude-opus-4-6",
+        contextTokens: null,
+        timestampMs: null,
+      });
+    },
+  );
 
   it("returns awaiting_user when the only pending tool is AskUserQuestion", () => {
     const line = JSON.stringify({
@@ -327,20 +327,46 @@ describe("deriveState", () => {
     });
   });
 
-  it("skips a trailing isMeta user entry (system injection, not a prompt)", () => {
+  it("reads a prompt-style slash command as thinking, not stuck waiting", () => {
+    // A prompt-style/custom slash command (e.g. `/do`, `/whatchanged`) invokes
+    // the model. Its real transcript tail before the first assistant entry is:
+    // the `<command-name>`/`<command-message>` bookkeeping entry, then a SEPARATE
+    // `isMeta` user entry carrying the expanded prompt body that actually goes
+    // to Claude. The bookkeeping is artifact (skipped), but the `isMeta`
+    // expanded prompt is live model input and must read `thinking` — skipping it
+    // would walk back to the prior `end_turn` and report `waiting` while Claude
+    // is working.
     const endTurn = JSON.stringify({
       type: "assistant",
-      message: { stop_reason: "end_turn", model: "claude-opus-4-7" },
+      message: { stop_reason: "end_turn", model: "claude-opus-4-8" },
     });
-    const meta = JSON.stringify({
+    const bookkeeping = JSON.stringify({
+      type: "user",
+      message: {
+        role: "user",
+        content:
+          "<command-message>do</command-message>\n<command-name>/do</command-name>\n<command-args>fix the bug</command-args>",
+      },
+    });
+    const expandedPrompt = JSON.stringify({
       type: "user",
       isMeta: true,
       message: {
         role: "user",
-        content: "<system-reminder>…</system-reminder>",
+        content: [{ type: "text", text: "# Do Workflow\n\nTake a task…" }],
       },
     });
-    expect(deriveState([endTurn, meta])).toMatchObject({ state: "waiting" });
+    expect(deriveState([endTurn, bookkeeping, expandedPrompt])).toMatchObject({
+      state: "thinking",
+    });
+    // CODEX's exact shape: bookkeeping entry alone, expanded prompt not yet
+    // flushed. The bookkeeping carries no model input of its own, so reading
+    // through to the prior turn (`waiting`) here is correct — the `thinking`
+    // lands the instant the `isMeta` prompt (above) or the first assistant
+    // entry appears.
+    expect(deriveState([endTurn, bookkeeping])).toMatchObject({
+      state: "waiting",
+    });
   });
 
   it("does not skip a real prompt that follows a compact summary (auto-continue)", () => {
@@ -597,18 +623,17 @@ describe("outstandingBackgroundTasks", () => {
     ).toEqual([]);
   });
 
-  it.each([
-    "failed",
-    "stopped",
-    "killed",
-  ])("treats %s as a terminal status", (status) => {
-    expect(
-      outstandingBackgroundTasks([
-        bgLaunch("t1", "wf_1"),
-        bgComplete("t1", status),
-      ]),
-    ).toEqual([]);
-  });
+  it.each(["failed", "stopped", "killed"])(
+    "treats %s as a terminal status",
+    (status) => {
+      expect(
+        outstandingBackgroundTasks([
+          bgLaunch("t1", "wf_1"),
+          bgComplete("t1", status),
+        ]),
+      ).toEqual([]);
+    },
+  );
 
   it("detects a backgrounded Bash launch (runId null), trailing period excluded", () => {
     // The id is followed by ". Output …"; the period must not be captured or

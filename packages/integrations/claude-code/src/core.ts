@@ -314,22 +314,30 @@ function isLocalCommandArtifact(content: unknown): boolean {
 }
 
 /** True when a trailing `user` entry is a transcript-only artifact that the
- *  human did not type — the `/compact` summary (`isCompactSummary`), a
- *  system meta injection (`isMeta`), or slash-command bookkeeping
- *  (`isLocalCommandArtifact`). `deriveState` walks past these so state derives
- *  from the genuine prior turn (an idle `end_turn` → `waiting`) instead of
- *  reading the artifact as a fresh prompt. A turn that actually resumes work
- *  lands a newer `assistant` entry, which is seen first. */
+ *  human did not type — the `/compact` summary (`isCompactSummary`) or
+ *  slash-command bookkeeping/output (`isLocalCommandArtifact`). `deriveState`
+ *  walks past these so state derives from the genuine prior turn (an idle
+ *  `end_turn` → `waiting`) instead of reading the artifact as a fresh prompt.
+ *  A turn that actually resumes work lands a newer `assistant` entry, which is
+ *  seen first.
+ *
+ *  Deliberately NOT keyed on `isMeta`: that flag marks *injected* model input,
+ *  which is overwhelmingly a live prompt the agent is about to act on — a
+ *  slash-command/skill expansion ("Base directory for this skill: …"), an
+ *  auto-continue ("Continue from where you left off."), hook feedback, a
+ *  pasted image. Skipping those would read the prior `end_turn` as `waiting`
+ *  while Claude is working (e.g. the brief window after `/do` or
+ *  `/whatchanged` invokes the model but before its first assistant entry
+ *  lands). The one `isMeta` artifact that genuinely trails — the `/compact`
+ *  `<local-command-caveat>` — is already caught by `isLocalCommandArtifact`. */
 function isNonPromptUserEntry(entry: {
   type?: string;
   isCompactSummary?: boolean;
-  isMeta?: boolean;
   message?: { content?: unknown };
 }): boolean {
   if (entry.type !== "user") return false;
   return (
     entry.isCompactSummary === true ||
-    entry.isMeta === true ||
     isLocalCommandArtifact(entry.message?.content)
   );
 }
@@ -399,7 +407,6 @@ export function deriveState(
         type?: string;
         timestamp?: string;
         isCompactSummary?: boolean;
-        isMeta?: boolean;
         message?: {
           stop_reason?: string | null;
           model?: string | null;
@@ -412,16 +419,17 @@ export function deriveState(
       } = JSON.parse(raw);
 
       // Walk past transcript-only `user` entries the human never typed — the
-      // `/compact` summary, system meta injections, and slash-command
-      // bookkeeping (the `<command-name>` + `<local-command-stdout>` pair a
-      // `/compact` appends *after* its summary, leaving one of them as the
-      // newest entry). A no-op local command (`/compact`, `/config`, …) leaves
-      // these at the tail while the agent is idle; reading them as a fresh
-      // prompt would pin the pill in `thinking` forever (the stuck-pill bug).
-      // Skipping derives state from the genuine prior turn (`end_turn` →
-      // `waiting`); a turn that resumes work lands a newer assistant entry,
-      // seen first. These artifacts carry no `usage`, so skipping before the
-      // contextTokens read drops no accounting snapshot.
+      // `/compact` summary and slash-command bookkeeping/output (the
+      // `<command-name>` + `<local-command-stdout>` pair a `/compact` appends
+      // *after* its summary, leaving one of them as the newest entry). A no-op
+      // local command (`/compact`, `/config`, …) leaves these at the tail while
+      // the agent is idle; reading them as a fresh prompt would pin the pill in
+      // `thinking` forever (the stuck-pill bug). Skipping derives state from the
+      // genuine prior turn (`end_turn` → `waiting`); a turn that resumes work
+      // lands a newer assistant entry, seen first. These artifacts carry no
+      // `usage`, so skipping before the contextTokens read drops no accounting
+      // snapshot. (An `isMeta` injection is left alone — it is usually a live
+      // model prompt; see `isNonPromptUserEntry`.)
       if (isNonPromptUserEntry(entry)) continue;
 
       if (contextTokens === null) {
