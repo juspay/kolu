@@ -1124,6 +1124,34 @@ describe("deriveWorkflowProgress", () => {
     ).toEqual({ name: "workflow", status: "running", agents: 4 });
   });
 
+  it("counts DISTINCT started agentIds (a replayed `started` doesn't inflate the badge)", () => {
+    const live = path.join(
+      tmpDir,
+      encodeProjectPath(cwd),
+      sessionId,
+      "subagents",
+      "workflows",
+      "wf_dupes",
+    );
+    fs.mkdirSync(live, { recursive: true });
+    fs.writeFileSync(
+      path.join(live, "journal.jsonl"),
+      [
+        { type: "started", agentId: "a0" },
+        { type: "started", agentId: "a1" },
+        { type: "started", agentId: "a0" }, // replay of a0 — must not double-count
+        { type: "result", agentId: "a0" },
+      ]
+        .map((e) => JSON.stringify(e))
+        .join("\n"),
+    );
+    expect(
+      deriveWorkflowProgressFn(session(), [
+        { taskId: "t1", runId: "wf_dupes" },
+      ]),
+    ).toMatchObject({ status: "running", agents: 2 });
+  });
+
   it("derives the real workflow name from the persisted script during a live run (#1123)", () => {
     // A live run has no completion snapshot, but the launch-time script
     // `workflows/scripts/<name>-<runId>.js` carries the user-visible name — the

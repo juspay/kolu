@@ -659,8 +659,11 @@ function liveWorkflowName(session: SessionFile, runId: string): string | null {
   return null;
 }
 
-/** Number of sub-agents spawned so far in a live run — one `started` event per
- *  sub-agent in `journal.jsonl`. Null when the journal can't be read. */
+/** Number of sub-agents spawned so far in a live run — distinct `started`
+ *  agentIds in `journal.jsonl`. Null when the journal can't be read. Counting
+ *  distinct ids (not raw `started` rows) guards against a replayed/re-emitted
+ *  `started` for the same sub-agent overstating the fan-out badge; a `started`
+ *  row lacking an agentId still counts once. */
 function liveAgentCount(runDir: string): number | null {
   let raw: string;
   try {
@@ -668,16 +671,20 @@ function liveAgentCount(runDir: string): number | null {
   } catch {
     return null;
   }
-  let started = 0;
+  const ids = new Set<string>();
+  let anonymous = 0;
   for (const line of raw.split("\n")) {
     if (!line.trim()) continue;
     try {
-      if ((JSON.parse(line) as { type?: string }).type === "started") started++;
+      const e = JSON.parse(line) as { type?: string; agentId?: unknown };
+      if (e.type !== "started") continue;
+      if (typeof e.agentId === "string") ids.add(e.agentId);
+      else anonymous++;
     } catch {
       // skip a malformed line (transient mid-append)
     }
   }
-  return started;
+  return ids.size + anonymous;
 }
 
 /** One observation of a `Workflow` run across BOTH on-disk layouts, so every
