@@ -171,9 +171,10 @@ function implementBrief(fix) {
 Finding ${fix.id} (raised by ${fix.origin}) — ${fix.title}
   at ${fix.location}
   problem: ${fix.problem}
-  agreed plan: ${fix.plan || '(implement the agreed fix described above)'}
+  original suggestion (context, not the agreed plan): ${fix.suggestion}
+  agreed plan: ${fix.plan}
 
-Make ONLY this change in the working tree. Keep it tightly scoped to the finding; read the surrounding code first so the edit fits the existing style. Do NOT git add / commit / push. You may run the project's formatter on files you touched. Return a one-line summary and the exact list of files you changed.`
+Make ONLY this change in the working tree, following the agreed plan above. Keep it tightly scoped to the finding; read the surrounding code first so the edit fits the existing style. Do NOT git add / commit / push. You may run the project's formatter on files you touched. Return a one-line summary and the exact list of files you changed.`
 }
 
 // ---------------------------------------------------------------------------
@@ -276,7 +277,17 @@ for (let r = 1; r <= maxRounds && activeIds.length > 0; r++) {
     // For a `fix`, agreement requires the second poster (hickey, who has seen
     // lowy's positions) to endorse lowy's plan as-is — otherwise the finding
     // stays active so the plan converges the same way the disposition does.
-    const agreed = !!(l && h && l.disposition === h.disposition && (l.disposition !== 'fix' || h.agreesWithPlan === true))
+    // `plan` is optional in the schema, so a `fix` can only settle once lowy has
+    // actually supplied a non-empty plan: endorsing an absent plan is not
+    // consensus, and Apply must never run on a `plan: undefined` (it would fall
+    // back to a vague placeholder and commit an arbitrary edit as "agreed").
+    const lowyHasPlan = !!(l && typeof l.plan === 'string' && l.plan.trim())
+    const agreed = !!(
+      l &&
+      h &&
+      l.disposition === h.disposition &&
+      (l.disposition !== 'fix' || (h.agreesWithPlan === true && lowyHasPlan))
+    )
     per.push({ id, lowy: l?.disposition ?? '?', hickey: h?.disposition ?? '?', agreed })
     if (agreed) {
       // Endorsement guarantees l.plan is the converged text; no arbitrary fallback.
@@ -298,9 +309,9 @@ for (let r = 1; r <= maxRounds && activeIds.length > 0; r++) {
 const settledOut = combined.map((f) => {
   const s = settled[f.id]
   if (s) {
-    return { id: f.id, origin: f.origin, title: f.title, location: f.location, problem: f.problem, agreed: true, disposition: s.disposition, plan: s.plan, lowy: s.lowy, hickey: s.hickey }
+    return { id: f.id, origin: f.origin, title: f.title, location: f.location, problem: f.problem, suggestion: f.suggestion, agreed: true, disposition: s.disposition, plan: s.plan, lowy: s.lowy, hickey: s.hickey }
   }
-  return { id: f.id, origin: f.origin, title: f.title, location: f.location, problem: f.problem, agreed: false, disposition: 'unresolved', plan: undefined, lowy: lowyPrev?.[f.id], hickey: hickeyPrev?.[f.id] }
+  return { id: f.id, origin: f.origin, title: f.title, location: f.location, problem: f.problem, suggestion: f.suggestion, agreed: false, disposition: 'unresolved', plan: undefined, lowy: lowyPrev?.[f.id], hickey: hickeyPrev?.[f.id] }
 })
 const unresolved = settledOut.filter((s) => !s.agreed)
 log(`Debate ended: ${status} after ${rounds} round(s); ${settledOut.length - unresolved.length}/${settledOut.length} settled, ${unresolved.length} unresolved.`)
