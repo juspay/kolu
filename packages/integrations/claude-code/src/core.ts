@@ -1092,14 +1092,35 @@ export function tryWatchDir(
   }
 }
 
+/** Nearest existing ancestor of `dir` (possibly `dir` itself). Walks up until
+ *  `fs.existsSync` is true; returns the filesystem root in the impossible case
+ *  that nothing on the path exists (the root always does). */
+function nearestExistingAncestor(dir: string): string {
+  let cur = dir;
+  while (!fs.existsSync(cur)) {
+    const up = path.dirname(cur);
+    if (up === cur) break; // reached filesystem root
+    cur = up;
+  }
+  return cur;
+}
+
 /**
  * Watch a directory that may not yet exist. If direct watch fails, falls
- * back to watching the immediate parent (one level only) and re-attaches
- * to the target as soon as it appears. Returns a cleanup function.
+ * back to watching the *nearest existing ancestor* and re-anchors downward
+ * as each intermediate path component is created, finally attaching to the
+ * target as soon as it appears. Returns a cleanup function.
  *
- * Used for both SESSIONS_DIR (absent on fresh systems until first claude
- * run) and the per-session project dir under PROJECTS_DIR (created lazily
- * when claude writes its first transcript).
+ * Used for SESSIONS_DIR (absent on fresh systems until first claude run), the
+ * per-session project dir under PROJECTS_DIR (created lazily on the first
+ * transcript), and the live workflow root `<session>/subagents/workflows/`
+ * (#1123) — which sits *two* lazily-created levels deep (`subagents/` and
+ * `subagents/workflows/` both materialize together on the first `Workflow`
+ * launch). A single-level parent fallback can't attach there: when `subagents/`
+ * is itself absent at setup time, watching `path.dirname(dir)` would throw
+ * ENOENT and leave no live watcher, so live appends never re-derive progress.
+ * Climbing to the nearest existing ancestor (the session dir) and re-anchoring
+ * as the tree fills in closes that fresh-session gap.
  *
  * `recursive` watches the whole subtree (Node `fs.watch` recursive mode) — used
  * for the live workflow root, where progress writes land in nested per-run dirs
@@ -1115,29 +1136,54 @@ export function watchOrWaitForDir(
   if (direct) return direct;
 
   let child: (() => void) | null = null;
-  let parentWatcher: fs.FSWatcher | null = null;
-  const parent = path.dirname(dir);
-  try {
-    parentWatcher = fs.watch(parent, () => {
-      if (child) return;
-      const attached = tryWatchDir(dir, onChange, log, recursive);
-      if (!attached) return;
-      child = attached;
-      parentWatcher?.close();
-      parentWatcher = null;
-      log?.info({ dir, parent }, "claude-code: parent-dir watcher retired");
-      // Kick — dir may already contain files (race: created between our
-      // first attempt and the parent event).
-      onChange();
-    });
-    log?.info({ dir, parent }, "claude-code: parent-dir watcher installed");
-  } catch (err) {
-    log?.debug({ err, dir }, "fs.watch parent fallback failed");
-  }
+  let ancestorWatcher: fs.FSWatcher | null = null;
+  let ancestor = "";
+
+  // Watch the nearest existing ancestor of `dir`. On any event under it we
+  // retry the target directly; if the target still isn't there but the tree
+  // has grown closer (an intermediate component appeared), re-anchor onto the
+  // new nearest ancestor so we don't keep watching a now-too-distant dir.
+  const anchor = (): void => {
+    const next = nearestExistingAncestor(dir);
+    if (next === ancestor && ancestorWatcher) return; // already anchored here
+    ancestorWatcher?.close();
+    ancestorWatcher = null;
+    ancestor = next;
+    try {
+      ancestorWatcher = fs.watch(ancestor, () => {
+        if (child) return;
+        const attached = tryWatchDir(dir, onChange, log, recursive);
+        if (attached) {
+          child = attached;
+          ancestorWatcher?.close();
+          ancestorWatcher = null;
+          log?.info(
+            { dir, ancestor },
+            "claude-code: ancestor-dir watcher retired",
+          );
+          // Kick — dir may already contain files (race: created between our
+          // first attempt and the ancestor event).
+          onChange();
+          return;
+        }
+        // Target still absent — re-anchor if the tree filled in closer.
+        if (nearestExistingAncestor(dir) !== ancestor) anchor();
+      });
+      log?.info(
+        { dir, ancestor },
+        "claude-code: ancestor-dir watcher installed",
+      );
+    } catch (err) {
+      log?.debug({ err, dir, ancestor }, "fs.watch ancestor fallback failed");
+    }
+  };
+
+  anchor();
+
   return () => {
-    if (parentWatcher) {
-      parentWatcher.close();
-      log?.info({ dir, parent }, "claude-code: parent-dir watcher retired");
+    if (ancestorWatcher) {
+      ancestorWatcher.close();
+      log?.info({ dir, ancestor }, "claude-code: ancestor-dir watcher retired");
     }
     child?.();
   };

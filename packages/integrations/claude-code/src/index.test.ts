@@ -11,6 +11,7 @@ import {
   INTERRUPT_TOOL_RESULT_PREFIX,
   outstandingBackgroundTasks,
   tailJsonlLines,
+  watchOrWaitForDir,
 } from "./core.ts";
 
 // --- Shared fixtures for dynamic-workflow background-task entries ---
@@ -1154,5 +1155,61 @@ describe("deriveWorkflowProgress", () => {
         { taskId: "t2", runId: "wf_live" },
       ]),
     ).toMatchObject({ name: "b", status: "running" });
+  });
+});
+
+// #1123: the live workflow root sits two lazily-created levels below the
+// session dir (`<session>/subagents/workflows/`). A single-level parent
+// fallback can't attach when `subagents/` is also absent at setup time — the
+// regression these tests pin.
+describe("watchOrWaitForDir — deep, lazily-created targets", () => {
+  let tmpDir: string;
+
+  beforeAll(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "claude-watch-test-"));
+  });
+  afterAll(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  // fs.watch delivers asynchronously; give the event loop a beat to flush.
+  const settle = () => new Promise((r) => setTimeout(r, 120));
+
+  it("fires when neither intermediate dir exists at setup (fresh session)", async () => {
+    const root = fs.mkdtempSync(path.join(tmpDir, "fresh-"));
+    // Target two levels deep; only `root` exists right now.
+    const target = path.join(root, "subagents", "workflows");
+    let changes = 0;
+    const cleanup = watchOrWaitForDir(target, () => changes++, undefined, true);
+    try {
+      // Materialize both missing components together (mirrors the runtime
+      // creating `subagents/workflows/` on the first Workflow launch).
+      fs.mkdirSync(target, { recursive: true });
+      await settle();
+      // A nested per-run append should now re-derive (recursive watch).
+      const runDir = path.join(target, "wf_1");
+      fs.mkdirSync(runDir, { recursive: true });
+      fs.writeFileSync(path.join(runDir, "journal.jsonl"), "{}\n");
+      await settle();
+      expect(changes).toBeGreaterThan(0);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("fires for a target one level deep created later", async () => {
+    const root = fs.mkdtempSync(path.join(tmpDir, "one-"));
+    const target = path.join(root, "workflows");
+    let changes = 0;
+    const cleanup = watchOrWaitForDir(target, () => changes++, undefined);
+    try {
+      fs.mkdirSync(target);
+      await settle();
+      fs.writeFileSync(path.join(target, "wf_1.json"), "{}");
+      await settle();
+      expect(changes).toBeGreaterThan(0);
+    } finally {
+      cleanup();
+    }
   });
 });
