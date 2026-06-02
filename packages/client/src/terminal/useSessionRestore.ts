@@ -312,14 +312,19 @@ export function useSessionRestore(deps: {
 
   return {
     // Loading is true until we can make an HONEST empty-vs-restore decision.
-    // The terminal list alone isn't enough: the list yields `[]` (terminals
-    // were killed on the previous shutdown) before the `session` cell has
-    // reported, and rendering the bare empty state in that window is a *lie* —
-    // it claims "nothing to restore" while the saved-session snapshot is still
-    // in flight, so the restore card only appears after a full reload re-subs.
-    // When the list is empty we therefore also wait on `savedSessionSub` so the
-    // decision is made with the session snapshot in hand. When terminals exist,
-    // the canvas renders immediately — the session cell is irrelevant then.
+    // The terminal count alone isn't enough: `store.terminalIds()` (the
+    // metadata-derived top-level IDs) yields `[]` (terminals were killed on the
+    // previous shutdown) before the `session` cell has reported, and rendering
+    // the bare empty state in that window is a *lie* — it claims "nothing to
+    // restore" while the saved-session snapshot is still in flight, so the
+    // restore card only appears after a full reload re-subs.
+    // When `terminalIds()` is empty we therefore also wait on `savedSessionSub`
+    // so the decision is made with the session snapshot in hand. When terminals
+    // exist, the canvas renders immediately — the session cell is irrelevant.
+    // `terminalIds()` is the same signal the empty-state branch reads at
+    // App.tsx:398 (`showEmpty = !session.isLoading() && terminalIds().length
+    // === 0`), so the loading gate and the empty-state branch agree on what
+    // "empty" means.
     isLoading: () =>
       store.listSub.pending() ||
       (store.terminalIds().length === 0 && savedSessionSub.pending()),
