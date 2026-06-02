@@ -80,13 +80,12 @@ export function contentTypeForPath(filePath: string): string {
 }
 
 export type PathResolution =
-  | { ok: true; root: string; abs: string; mime: string }
+  | { ok: true; abs: string; mime: string }
   | { ok: false; status: 400 | 403 | 404; reason: string };
 
 /** Parse the URL tail, run both *lexical* guard stages, return the absolute
- *  file path (plus the repo root, for the fs-authority check `serveResolvedFile`
- *  runs before reading) or the HTTP status to respond with. Pure function — no
- *  I/O — so the Hono route stays a thin adapter and the guard is unit-testable.
+ *  file path or the HTTP status to respond with. Pure function — no I/O — so
+ *  the Hono route stays a thin adapter and the guard is unit-testable.
  *
  *  Symlink resolution can't happen here (it touches the filesystem); it lives
  *  in `serveResolvedFile`, the I/O half, which rejects a repo-local symlink
@@ -127,7 +126,6 @@ export function resolvePreviewPath(
 
   return {
     ok: true,
-    root: repoRoot,
     abs: resolved.value.abs,
     mime: contentTypeForPath(relPath),
   };
@@ -147,6 +145,7 @@ export interface ServeResult {
  *  fixtures, and the I/O failure modes are testable without crafting URLs. */
 export async function serveResolvedFile(
   res: PathResolution,
+  root: string,
 ): Promise<ServeResult> {
   if (!res.ok) {
     return {
@@ -158,7 +157,7 @@ export async function serveResolvedFile(
   // Stage 3: fs-authority check. `resolvePreviewPath` is lexical only, so a
   // repo-local `leak.html -> /etc/passwd` slips through it; resolve symlinks
   // and reject anything whose real path escapes the root before we read it.
-  const authority = await assertRealpathUnder(res.root, res.abs);
+  const authority = await assertRealpathUnder(root, res.abs);
   if (!authority.ok) {
     return {
       status: 403,

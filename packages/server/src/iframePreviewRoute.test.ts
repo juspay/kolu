@@ -146,6 +146,7 @@ describe("serveResolvedFile", () => {
   it("serves an existing HTML file with the right Content-Type", async () => {
     const res = await serveResolvedFile(
       resolvePreviewPath(tmpRoot, "page.html"),
+      tmpRoot,
     );
     expect(res.status).toBe(200);
     expect(res.headers["Content-Type"]).toBe("text/html; charset=utf-8");
@@ -156,24 +157,32 @@ describe("serveResolvedFile", () => {
   it("serves a nested asset", async () => {
     const res = await serveResolvedFile(
       resolvePreviewPath(tmpRoot, "sub/child.svg"),
+      tmpRoot,
     );
     expect(res.status).toBe(200);
     expect(res.headers["Content-Type"]).toBe("image/svg+xml");
   });
 
   it("404s for missing files (with valid path)", async () => {
-    const res = await serveResolvedFile(resolvePreviewPath(tmpRoot, "no.html"));
+    const res = await serveResolvedFile(
+      resolvePreviewPath(tmpRoot, "no.html"),
+      tmpRoot,
+    );
     expect(res.status).toBe(404);
   });
 
   it("404s for a directory (not a file)", async () => {
-    const res = await serveResolvedFile(resolvePreviewPath(tmpRoot, "sub"));
+    const res = await serveResolvedFile(
+      resolvePreviewPath(tmpRoot, "sub"),
+      tmpRoot,
+    );
     expect(res.status).toBe(404);
   });
 
   it("propagates the resolver's 400 verbatim", async () => {
     const res = await serveResolvedFile(
       resolvePreviewPath(tmpRoot, "../escape"),
+      tmpRoot,
     );
     expect(res.status).toBe(400);
   });
@@ -191,6 +200,7 @@ describe("serveResolvedFile", () => {
       fs.symlinkSync(secret, path.join(tmpRoot, "leak.html"));
       const res = await serveResolvedFile(
         resolvePreviewPath(tmpRoot, "leak.html"),
+        tmpRoot,
       );
       expect(res.status).toBe(403);
       expect(res.body.toString()).not.toContain("SECRET");
