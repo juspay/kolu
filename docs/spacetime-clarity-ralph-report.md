@@ -152,10 +152,25 @@ by the skeptic, and replaced with the skeptic's own endorsed fix.
 | 1 | #12 | "**space-like observer**" | physics: observers aren't space-like | adjective moved onto the slice/reading: "a space-like slice" / "the time-like reading" | ✅ skeptic-tweak |
 | 1 | #14 | "the **third**, synthesizing read" | ordinal before reads were counted | "a third read … yours, after theirs, synthesizing the two" | ✅ approved |
 | 2 | #2 | "revisions keep introducing **the defects both lenses catch together**" | near-circular causation; scope-ambiguous | dropped the circular clause: "the few that surfaced clustered in the later passes, after the revisions went in" | ✅ 3/3 lenses |
+| 3 | R1 | binocular-stats sentence: ratio + 3-pass scope + later-skew jammed into one dash-spliced run-on; "the few that surfaced" anchored to the wrong noun | overloaded sentence / under-anchored referent | split into two beats; re-named subject "binocular ones" so the skew can't attach to single-axis | ✅ kept (6/6→3/6) |
+| 3 | R2 | "the factoring … the real structure … the code's analogue of **that frame-invariant interval**" | over-stuffed triple appositive (self-inflicted in pass 1 #1); physics callback overclaims | defined factoring inline ("the way the code is carved into parts"), cut to one appositive, dropped the overclaiming callback (metaphor stays in its home section) | ✅ kept (drops overclaim) |
+| 3 | R4 | "two **orthogonal** agent reviewers" | "orthogonal" parses as "reviewers perpendicular to each other" | tried "two agent reviewers — one per axis —" | ↩︎ **reverted** |
 
-| 3 | R1 | binocular-stats sentence: ratio + 3-pass scope + later-skew jammed into one dash-spliced run-on; "the few that surfaced" anchored to the wrong noun | overloaded sentence / under-anchored referent | split into two beats; re-named subject "binocular ones" so the skew can't attach to single-axis | ✅ 3/3 lenses |
-| 3 | R4 | "two **orthogonal** agent reviewers" | "orthogonal" parses as "reviewers perpendicular to each other" | "two agent reviewers — one per axis —" (orthogonality belongs to the axes) | ✅ 3/3 lenses |
-| 3 | R2 | "the factoring … the real structure … the code's analogue of **that frame-invariant interval**" | over-stuffed triple appositive (self-inflicted in pass 1 #1); physics callback overclaims | defined factoring inline ("the way the code is carved into parts"), cut to one appositive, dropped the overclaiming callback (metaphor stays in its home section) | ✅ 3/3 lenses |
+**R4 reverted — the loop catching its own regression.** R4 passed all three
+pass-3 skeptics (3/3) and *did* clear the "orthogonal" misparse. But the final
+re-measure (a fresh panel that never saw the edit) flagged the new wording
+**5/6**: the em-dash aside I inserted stranded the subject "two agent reviewers"
+from its verb "are good at," and "run in parallel" garden-paths as an
+imperative. It traded a 2-judge stumble for a 5-judge one. Skeptics gate the
+*specific* fix; only a fresh measurement catches the *new* stumble the new
+wording creates. Reverted to the original wording, which scored better. This is
+the single most useful artifact of the run: a 3/3-approved edit, undone by
+measurement.
+
+**Pass 3 method.** Re-measure (same 6-judge panel) → three targeted rewrites of
+the new top defects, each gated 3/3 by meaning+facts+metaphor / clarity / voice
+skeptics → apply → final re-measure. R1 and R2 held; R4 regressed and was
+reverted.
 
 **Pass 2 method.** Three candidate rewrites of #2 from different angles
 (depth-mechanism, minimal, drop-causal), each vetted by a perspective-diverse
@@ -194,6 +209,115 @@ The over-fixing the post itself warns against, caught in the act.
   violation and were rejected — logged here as the dead end they were: there is
   no honest non-circular *cause* to state, so the clean observation is the fix.
 
+## Final measurement
+
+Three identical 6-judge panels (same personas, same rubric), run on the post
+after each milestone. Per-section median clarity:
+
+| Section | Baseline | After P1+P2 | Final (P3) | Δ |
+| --- | --- | --- | --- | --- |
+| Intro | 8 | 8 | 8 | — |
+| What the two lenses are | 9 | 9 | 9 | — |
+| The spacetime of code | 8 | 7.5 | 8 | — |
+| A spatial defect: `borderClass` | 9 | 9 | 9 | — |
+| A temporal defect: `displaySuffix` | 9 | 9 | 9 | — |
+| When both lenses fire: an aside | 7 | 7 | 7 | — |
+| **Why the two passes catch different things** | 8 | **9** | **9** | **+1** |
+| When to trust a single-lens finding | 9 | 8.5 | 9 | — |
+| How to run them | 9 | 9 | 9 | — |
+| In a line | 8.5 | 8 | 8.5 | — |
+| Further reading + footnotes | 9 | 9 | 9 | — |
+| **Overall median** | **8** | **8** | **8** | **—** |
+
+**The median didn't move — and that's the honest headline.** The post was
+already 8/10; this loop didn't raise a ceiling, it removed specific, nameable
+stumbles under that ceiling. The measurable wins are in the *distribution*, not
+the median:
+
+- **"Why the two passes" rose 8 → 9** and held — the `taste-decided` fix (#3)
+  is a durable, attributable gain.
+- **`borderClass`, "Why the two passes", and "Further reading" drew zero
+  flags** in the final panel.
+- **Of 14 baseline defects, 11 are durably cleared** and not re-flagged in any
+  later panel (#3, #4, #6, #8, #11, #14, plus the de-jargoned #10, #12). The
+  three that resisted are the frontier (below).
+
+## Loop termination — the clarity frontier
+
+Stopped after pass 3 + a confirming re-measure. Not because the post is
+"perfect," but because the residual friction is no longer the kind a
+behaviour-preserving clarity pass can remove. Two reasons, both decisive:
+
+1. **The residual is constraint-protected.** The most-flagged section after the
+   loop is still "The spacetime of code" — and the flag is the physicist judge's
+   recurring point that the *relativistic-mixing* image ("different observers
+   measure different mixes") fights the post's "orthogonal, non-overlapping
+   axes" thesis. That tension is inherent to the physics metaphor, which the
+   brief locks as must-not-change. Every attempt to "fix" it (pass 1 #5) made
+   the physics *worse*. It is a deliberate authorial flourish, not a clarity
+   bug we're allowed to remove.
+
+2. **The rest is whack-a-mole at the frontier.** The binocular-agreement
+   explanation has been flagged ~5–6/6 in *every* phrasing — the original
+   ("the invariant"), pass 1 ("frame-invariant interval"), and pass 3 ("the
+   real structure underneath both projections"). Each rewrite clears its
+   predecessor's stumble and a fresh panel finds a new one in the new wording.
+   R4 is the clean proof: a 3/3-approved edit that measurement showed *regressed*
+   the sentence. When edits relocate friction instead of removing it, the
+   sentence has reached the limit of what reshuffling can do — it needs the
+   author's own rethink of the idea, which is out of scope for a clarity pass.
+
+**Left for the author (out of scope here):**
+
+- The physics-metaphor ↔ orthogonality tension (ranks 3–4, 11 in the final
+  panel) — a content decision: keep the vivid relativity and accept the
+  loose fit, or trade it for a plainer "one structure, two slices" framing.
+- The binocular-agreement sentence — resists clean phrasing; likely wants a
+  structural rethink, not a word-swap.
+- **Two factual/consistency items a clarity pass must not silently "fix":** the
+  pass-count phrasing ("three review passes" / "later passes") sits in mild
+  tension with the only *shown* binocular case (canvasMaximized, said to land
+  in post-implementation pass 1); and the Further-Reading "pass 1" link
+  (`#4274565406`) vs the intro's "twice against the committed diff" link
+  (`#4274952616`) appear crossed. Flagged for the author to verify against the
+  actual PR comments.
+
 ## Key findings
 
-_(populated at wrap-up)_
+- **A judge panel is a real clarity instrument.** Six independent readers in
+  distinct stances (newcomer, anti-hand-waving architect, copy editor,
+  physicist, phone-skimmer, non-native) converged hard: the two weakest
+  sections were flagged 6/6 both times, and the dominant failure pattern
+  (undefined-term-on-a-definite-article) was named identically across runs.
+  Cross-judge agreement is the signal; a lone flag is a lead, not a verdict.
+- **The adversarial skeptic earns its keep — but isn't sufficient.** It
+  rejected 4 of pass 1's rewriter proposals outright and replaced 4 more with
+  its own tighter fix. It correctly killed the physics "fix" that would have
+  broken the metaphor. But it gates the *specific* edit in isolation; it cannot
+  see the *new* stumble a rewording introduces elsewhere. Only re-measurement
+  caught R4's regression. **Skeptic + fresh panel, not skeptic alone.**
+- **Most clarity bugs were one mechanism.** Name the load-bearing term before
+  you lean on it; front the concrete restatement before the abstract pivot.
+  That single move fixed #1, #4, #8, #10, and #3.
+- **Over-fixing is the dominant risk, and it's measurable.** Three deliberate
+  keeps (#5, #13) and one revert (R4) — the post's own warning ("if a
+  simplification is making your diff bigger, one of your lenses is broken")
+  applied to its own prose. The diff is +36/−34: it barely grew.
+- **Voice survived.** Every kept edit cleared a voice skeptic explicitly
+  briefed to reject corporate flattening. The terse closers, em-dash asides,
+  and physics imagery are intact; the post still sounds like its author.
+
+## Cost
+
+| Phase | Workflow | Agents | Output tokens |
+| --- | --- | --- | --- |
+| Baseline panel | clarity-baseline | 7 | ~207k |
+| Pass 1 (rewrite+verify) | clarity-pass | 21 | ~433k |
+| Pass 2 (#2, 3 candidates) | clarity-defect2 | 12 | ~274k |
+| Re-measure | clarity-baseline (re-run) | 7 | ~208k |
+| Pass 3 (3 targets) | clarity-pass3 | 12 | ~256k |
+| Final re-measure | clarity-baseline (re-run) | 7 | ~205k |
+| **Total** | 6 workflows | **66** | **~1.58M** |
+
+Behaviour gate (`just website::build`) run after every pass: **PASS** each time
+(6 pages, ~1.8–2.5s). The MDX compiled clean throughout.
