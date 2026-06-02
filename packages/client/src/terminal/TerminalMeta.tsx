@@ -14,6 +14,8 @@
 
 import { prUnavailableSource, prValue } from "kolu-github/schemas";
 import { type Component, Show } from "solid-js";
+import { StatePip } from "../canvas/dock/RowPips";
+import { agentBucket } from "../canvas/dockModel";
 import { IntentMarkdownInline } from "../intent/IntentMarkdown";
 import { annotationLine } from "../intent/text";
 import { agentWorkflow } from "../ui/agentDisplay";
@@ -26,6 +28,11 @@ import type { TerminalDisplayInfo } from "./terminalDisplay";
 
 const TerminalMeta: Component<{
   info: TerminalDisplayInfo | undefined;
+  /** True when this terminal has unseen agent activity. Drives the
+   *  leading state pip's attention escalation exactly as the dock row
+   *  does, so the title and the dock can't disagree on what's loud.
+   *  Sourced from view-state at the call site (`store.isUnread(id)`). */
+  unread: boolean;
   /** Open the intent editor for this terminal. Wired in `App.tsx` to
    *  `intentEditor.openTerminal(id)`. */
   onOpenIntent: () => void;
@@ -45,6 +52,17 @@ const TerminalMeta: Component<{
            *  repo name) — visible space is reserved for the OSC 2
            *  process title. */}
           <div class="flex items-center gap-1.5 min-h-7 text-sm font-medium min-w-0">
+            {/* Leading agent-state pip — the same shape-distinct StatePip
+             *  the dock row leads with (spinning ring = working, dot =
+             *  awaiting), reused verbatim so the title bar and the dock
+             *  speak one agent-state vocabulary. Gated on an agent being
+             *  present: plain shells get no pip (and no leading gap),
+             *  matching the dock's quiet rows. */}
+            <Show when={info().meta.agent}>
+              {(agent) => (
+                <StatePip bucket={agentBucket(agent())} unread={props.unread} />
+              )}
+            </Show>
             <NameSpan info={info()} />
             <Show when={info().key.suffix}>
               {(suffix) => (

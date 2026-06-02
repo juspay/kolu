@@ -391,6 +391,33 @@ Then(
 );
 
 Then(
+  "the tile title state pip should be {string}",
+  async function (this: KoluWorld, expectedVariant: string) {
+    // The dock's StatePip is reused verbatim in the canvas-tile title
+    // bar, so it carries the same data-testid ("dock-row-pip") and
+    // data-pip variant — scoped to the title bar here to disambiguate
+    // from the dock's own pips. Polled + nudged like the agent-indicator
+    // check because the variant derives from server-pushed agent state.
+    const start = Date.now();
+    let last: string | null = null;
+    while (Date.now() - start < POLL_TIMEOUT) {
+      nudgeMockFiles();
+      last = await this.page.evaluate(() => {
+        const el = document.querySelector(
+          '[data-testid="canvas-tile-titlebar"] [data-testid="dock-row-pip"]',
+        );
+        return el?.getAttribute("data-pip") ?? null;
+      });
+      if (last === expectedVariant) return;
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    throw new Error(
+      `Expected title state pip "${expectedVariant}", got "${last}" after ${POLL_TIMEOUT}ms`,
+    );
+  },
+);
+
+Then(
   "the tile chrome should show workflow badge {string}",
   async function (this: KoluWorld, expected: string) {
     // Same polled + nudge shape as the agent-indicator check: re-touch the

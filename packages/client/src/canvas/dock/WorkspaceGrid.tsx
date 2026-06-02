@@ -41,6 +41,7 @@ import {
   type DockSourceEntry,
 } from "../dockModel";
 import { agentLabel, metaLine, tokenLine } from "./dockRowChrome";
+import { StatePip } from "./RowPips";
 
 /** Slot tag on each card. The scroll-into-view effect queries by this
  *  value so the lookup stays scoped to *this* grid instance even if a
@@ -313,10 +314,21 @@ const ColumnView: Component<{
         "border-color": `color-mix(in oklch, ${props.column.accentVar} 22%, var(--color-edge))`,
       }}
     >
-      <div
-        class={`font-mono text-[0.65rem] font-semibold uppercase tracking-[0.2em] ${props.column.textClass}`}
-      >
-        {props.column.label}
+      <div class="flex items-center gap-1.5 min-w-0">
+        {/* Bucket-state pip — the same StatePip the dock row and tile
+         *  title lead with, here labelling the whole column: the Working
+         *  header carries the spinning ring, Awaiting/Idle a quiet dot.
+         *  `unread` is a per-terminal notion, so a column header never
+         *  escalates to the attention variant. The No-agent column omits
+         *  the pip (its variant would be empty anyway). */}
+        <Show when={props.column.key !== "none"}>
+          <StatePip bucket={props.column.key} unread={false} />
+        </Show>
+        <div
+          class={`font-mono text-[0.65rem] font-semibold uppercase tracking-[0.2em] ${props.column.textClass}`}
+        >
+          {props.column.label}
+        </div>
       </div>
       <div class="font-mono text-[0.65rem] text-fg-3 tabular-nums">
         {props.column.entries.length.toString().padStart(2, "0")}

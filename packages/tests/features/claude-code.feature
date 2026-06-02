@@ -15,6 +15,17 @@ Feature: Claude Code status detection
     Then the tile chrome should show an agent indicator with state "thinking"
     And there should be no page errors
 
+  Scenario: Tile title leads with the dock's agent-state pip
+    # The dock surfaces agent state via a shape-distinct StatePip
+    # (spinning ring = working, dim dot = awaiting). The same pip now
+    # leads the canvas-tile title bar, reused verbatim, so the title and
+    # the dock speak one agent-state vocabulary and track state together.
+    When a Claude Code session is mocked with state "thinking"
+    Then the tile title state pip should be "working"
+    When the Claude Code session state changes to "waiting"
+    Then the tile title state pip should be "awaiting"
+    And there should be no page errors
+
   Scenario: Claude Code state updates from thinking to waiting
     When a Claude Code session is mocked with state "thinking"
     Then the tile chrome should show an agent indicator with state "thinking"
