@@ -628,10 +628,7 @@ export function liveWorkflowsRootFor(session: SessionFile): string {
  *  per sub-agent. This is where progress lives DURING a run; the
  *  `<session>/workflows/<runId>.json` snapshot is only written at completion
  *  (#1123 — the runtime layout churned and the snapshot path went write-on-end). */
-export function liveWorkflowRunDir(
-  session: SessionFile,
-  runId: string,
-): string {
+function liveWorkflowRunDir(session: SessionFile, runId: string): string {
   return path.join(liveWorkflowsRootFor(session), runId);
 }
 
