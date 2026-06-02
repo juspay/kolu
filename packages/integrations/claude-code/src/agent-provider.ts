@@ -41,7 +41,15 @@ export const claudeCodeProvider: AgentProvider<SessionFile, ClaudeCodeInfo> = {
   },
 
   sessionKey(session) {
-    return session.sessionId;
+    // Keyed by transcript identity AND process identity. A `claude -c` resume
+    // reuses the same `sessionId` but writes a new session file with a fresh
+    // `pid` and `startedAt`; the watcher captures `session.pid`/`startedAt`
+    // once (for the #1017 subtree-idle probe and orphaned-prompt age check), so
+    // keying on `sessionId` alone would early-return on resume and leave the
+    // watcher probing the dead pid against a stale `startedAt`. Folding pid and
+    // startedAt into the key forces the orchestrator to recreate the watcher
+    // when either changes for the same transcript.
+    return `${session.sessionId}:${session.pid}:${session.startedAt ?? ""}`;
   },
 
   createWatcher(session, onChange, log) {
