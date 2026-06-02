@@ -18,7 +18,7 @@
  *  `breaks: true` so multi-line typing preserves its line breaks the
  *  way a chat UI would. */
 
-import { escapeHtml } from "kolu-common/html";
+import { escapeHtml } from "@kolu/html-escape";
 import { Marked, type Tokens } from "marked";
 
 import { renderCodeBlock } from "./pierre.ts";

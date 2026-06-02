@@ -17,6 +17,24 @@ Feature: File-ref autolinking in terminal
     And the Code tab mode should be "browse"
     And the selected file should show content "line three"
 
+  @mobile
+  Scenario: Tapping a file-ref on touch follows the link instead of summoning the keyboard
+    # xterm's own link activation is mouse/hover-only and never fires for a
+    # touch tap, so the terminal tap handler hit-tests the ref itself: a tap on
+    # a path:line reference opens the Code tab (here as the mobile bottom
+    # drawer), a tap on plain content focuses to type. Only the latter raises
+    # the soft keyboard — tapping the link must NOT pop it.
+    When I run "git init /tmp/kolu-file-ref-mobile && cd /tmp/kolu-file-ref-mobile"
+    And I run "git commit --allow-empty -m init"
+    And I run "printf 'alpha\nbeta\ngamma\n' > notes.txt"
+    And I run "echo 'open notes.txt:2 for details'"
+    And I arm the soft-keyboard focus probe
+    And I watch for the right-panel drawer to open
+    And I tap the terminal file-ref link "notes.txt:2"
+    Then the right-panel drawer should have opened
+    And xterm's helper textarea should not have been focused by tapping the link
+    And there should be no page errors
+
   Scenario: Clicking a line-range file-ref opens the file
     When I run "git init /tmp/kolu-file-ref-861-range && cd /tmp/kolu-file-ref-861-range"
     And I run "git commit --allow-empty -m init"

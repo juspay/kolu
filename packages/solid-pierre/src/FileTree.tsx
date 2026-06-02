@@ -23,54 +23,16 @@ import {
   onMount,
 } from "solid-js";
 import { safeApply } from "./safeApply";
+import {
+  ancestorDirectoryPaths,
+  directoryRemovalOps,
+  type FileTreeRemoveOperation,
+  pathDiffOperations,
+} from "./pathReconcile";
 
 type FileTreeOptions = ConstructorParameters<typeof FileTreeClass>[0];
 type Composition = NonNullable<FileTreeOptions["composition"]>;
 type FileTreeContextMenu = NonNullable<Composition["contextMenu"]>;
-
-/** Directory paths that contain `path`, formatted with the trailing
- *  slash Pierre uses for folder keys (`src/`, `src/right-panel/`).
- *  Tolerates an input that already carries a trailing slash (folder
- *  path) by stripping it before splitting. Mirrors the shape Pierre's
- *  internal `getAncestorDirectoryPaths` walks so the result can be
- *  fed back as `initialExpandedPaths` without surprises. */
-export function ancestorDirectoryPaths(path: string): string[] {
-  const normalized = path.endsWith("/") ? path.slice(0, -1) : path;
-  if (normalized.length === 0) return [];
-  const segments = normalized.split("/").filter(Boolean);
-  const out: string[] = [];
-  for (let i = 1; i < segments.length; i += 1) {
-    out.push(`${segments.slice(0, i).join("/")}/`);
-  }
-  return out;
-}
-
-type FileTreeBatchOperation = Parameters<FileTreeClass["batch"]>[0][number];
-
-/** The add/remove operations that turn the `prev` file inventory into
- *  `next`, as Pierre `batch` ops. Driving path changes through `batch`
- *  rather than `resetPaths` mutates the tree in place: Pierre keeps the
- *  expansion, selection, and scroll state of every node it doesn't touch,
- *  so live-watcher churn (a file added or removed) and filter changes no
- *  longer collapse hand-opened folders. A file dropped from `next` takes
- *  its now-empty ancestor directories with it — Pierre infers directories
- *  from path prefixes — which is the one expansion loss that's intrinsic,
- *  not a rebuild artifact (there is no row left to keep open). */
-function pathDiffOperations(
-  prev: readonly string[],
-  next: readonly string[],
-): FileTreeBatchOperation[] {
-  const prevSet = new Set(prev);
-  const nextSet = new Set(next);
-  const ops: FileTreeBatchOperation[] = [];
-  for (const path of prev) {
-    if (!nextSet.has(path)) ops.push({ type: "remove", path });
-  }
-  for (const path of next) {
-    if (!prevSet.has(path)) ops.push({ type: "add", path });
-  }
-  return ops;
-}
 
 export type FileTreeProps = {
   paths: string[];
@@ -208,8 +170,22 @@ export const FileTree: Component<FileTreeProps> = (props) => {
       ([paths, expandPaths]) => {
         safeApply(() => {
           if (!tree) return;
-          const ops = pathDiffOperations(appliedPaths, paths);
-          if (ops.length > 0) tree.batch(ops);
+          const fileOps = pathDiffOperations(appliedPaths, paths);
+          if (fileOps.length > 0) tree.batch(fileOps);
+          // Pierre's `remove` promotes an emptied directory to an explicit
+          // empty folder instead of deleting it (see `directoryRemovalOps`),
+          // so the file removals above would otherwise strand a filter's
+          // emptied directories as hollow rows. Prune them in one batch,
+          // mirroring the file pass: the ops are disjoint maximal subtrees,
+          // each removed recursively. The `getItem` guard is defensive — every
+          // root still resolves after the file batch — and pruning never
+          // touches a surviving directory's expansion, so a hand-collapsed
+          // match folder stays collapsed.
+          const dirOps: FileTreeRemoveOperation[] = [];
+          for (const op of directoryRemovalOps(appliedPaths, paths)) {
+            if (tree.getItem(op.path)) dirOps.push(op);
+          }
+          if (dirOps.length > 0) tree.batch(dirOps);
           appliedPaths = paths;
           const selectedPath = props.selectedPath ?? null;
           const toOpen = [

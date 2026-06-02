@@ -293,6 +293,32 @@ Feature: Code tab (review + browse)
       | branch |
       | browse |
 
+  # Regression: Pierre's `remove` promotes an emptied directory to an
+  # "explicit empty folder", so a directory whose files were all filtered
+  # out kept a hollow, result-less row in the tree. The fix
+  # (`directoryRemovalOps` in solid-pierre's `pathReconcile.ts`, applied in
+  # `FileTree.tsx`) prunes any directory that is no longer an ancestor of a
+  # matching file. After filtering, a directory that still contains a match
+  # stays; a directory whose only files were excluded disappears.
+  Scenario Outline: Filter prunes directories with no matching files [<mode>]
+    Given a Code tab in "<mode>" mode showing files:
+      | path                | content |
+      | docs/keep.md        | keep    |
+      | docs/plans/note.md  | note    |
+      | widgets/list/a.ts   | a       |
+      | widgets/forms/b.ts  | b       |
+    When I type "docs keep" into the Code tab filter
+    Then the Code tab should show file "docs/keep.md"
+    And the Code tab should show a directory node "docs"
+    And the Code tab should not show file "widgets/list/a.ts"
+    And the Code tab should not show a directory node "widgets"
+
+    Examples:
+      | mode   |
+      | local  |
+      | branch |
+      | browse |
+
   Scenario: Untracked files appear alongside modified tracked files
     When I run "git init /tmp/kolu-review-untracked && cd /tmp/kolu-review-untracked"
     And I run "git commit --allow-empty -m init"
@@ -413,6 +439,52 @@ Feature: Code tab (review + browse)
     When I click the file "note.txt" in the file browser
     Then the file content should contain "hello"
     And the file preview iframe should not be visible
+
+  # ── Browse mode: Markdown renders client-side with a Source ⇄ Rendered toggle ──
+  # Unlike .html/.svg/.pdf (route-served, kind:"binary"), a .md file stays
+  # kind:"text" on the wire — the client renders it from `content` via
+  # `@kolu/solid-markdown`. Because it carries *both* a source and a rendered
+  # form, FileView shows the Source ⇄ Rendered toggle, defaulting to rendered.
+
+  Scenario: Markdown renders as a document by default, with a Source/Rendered toggle
+    When I run "rm -rf /tmp/kolu-md-doc && git init /tmp/kolu-md-doc && cd /tmp/kolu-md-doc"
+    And I run "printf '# Hello Doc\n\nRendered body text.\n' > README.md"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    When I click the file "README.md" in the file browser
+    Then the markdown preview should be visible
+    And the markdown preview should contain "Hello Doc"
+    And the file view toggle should be visible
+    And the file preview iframe should not be visible
+
+  # Regression: a >1 MB .md file is read back truncated (first 1 MB only). It
+  # still defaults to the rendered view, so the rendered appliance must carry
+  # the same "File truncated" banner the source view shows — otherwise a partial
+  # document renders silently with no warning. The marker sits in the first
+  # bytes so it survives the 1 MB cut and proves content rendered.
+  Scenario: Truncated Markdown still warns in the rendered view
+    When I run "rm -rf /tmp/kolu-md-trunc && git init /tmp/kolu-md-trunc && cd /tmp/kolu-md-trunc"
+    And I run "printf '# Truncated Doc\n\nbody marker\n\n' > big.md && head -c 1100000 /dev/zero | tr '\0' 'x' >> big.md"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    When I click the file "big.md" in the file browser
+    Then the markdown preview should be visible
+    And the markdown preview should contain "Truncated Doc"
+    And the markdown preview should show the truncation warning
+
+  Scenario: Markdown source toggle reveals the raw markdown
+    When I run "rm -rf /tmp/kolu-md-src && git init /tmp/kolu-md-src && cd /tmp/kolu-md-src"
+    And I run "printf '# Heading One\n\nbody text\n' > notes.md"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    When I click the file "notes.md" in the file browser
+    Then the markdown preview should be visible
+    When I switch the file view to "source"
+    Then the file content should contain "# Heading One"
+    And the markdown preview should not be visible
 
   # ── Tree/content vertical split is draggable ──
   # The tree pane used to be a fixed `h-[35%]`; it's now a Corvu Resizable
@@ -648,6 +720,52 @@ Feature: Code tab (review + browse)
     And I run "printf 'second version\n' > letters.txt"
     Then the file content should contain "second version"
 
+  # Live-update for the iframe-previewed kinds (.html/.svg/.pdf): editing the
+  # previewed file must refresh the iframe with no manual reload. Unlike the
+  # text path above (new content arrives on the `fsReadFile` stream and re-feeds
+  # Pierre), the binary path carries only a `url`. The refresh hinges on the
+  # server bumping `?v=<mtime>` on every save (`buildIframePreviewUrl`): the new
+  # URL breaks `fsReadFileOutputEqual` (binary equality is `a.url === b.url`), so
+  # a fresh snapshot pushes, the `binaryFile` memo identity flips, and FileView
+  # re-points the iframe `src`. This reads the rendered content *inside* the
+  # frame — proof the new bytes actually reached the preview, not merely that
+  # the src attribute moved.
+  Scenario: Editing an HTML file refreshes the iframe preview live
+    When I run "rm -rf /tmp/kolu-live-html && git init /tmp/kolu-live-html && cd /tmp/kolu-live-html"
+    And I run "printf '<!doctype html><h1>preview version one</h1>\n' > page.html"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    And I click the file "page.html" in the file browser
+    Then the file preview iframe should be visible
+    And the file preview iframe should contain "preview version one"
+    When I click the terminal canvas
+    And I run "printf '<!doctype html><h1>preview version two</h1>\n' > page.html"
+    Then the file preview iframe should contain "preview version two"
+
+  # In-iframe navigation must move the tree selection. The preview iframe is
+  # sandboxed at an opaque origin (`allow-scripts`, no `allow-same-origin`), so
+  # the parent can't read `contentWindow.location` after a same-frame link
+  # click — the new path has to be reported out by the in-iframe artifact-sdk
+  # (`ReadyMsg.pathname`, posted on every document boot). Without that report
+  # the page renders the linked file but the tree stays stuck on the first
+  # file, so the user loses their place. Unquoted `href` keeps the fixture
+  # free of inner quotes (the `I run "…"` step has no escape for them).
+  Scenario: Clicking an in-page link moves the file tree selection
+    When I run "rm -rf /tmp/kolu-html-nav && git init /tmp/kolu-html-nav && cd /tmp/kolu-html-nav"
+    And I run "printf '<!doctype html><h1>first page</h1><a href=second.html>go to second</a>\n' > first.html"
+    And I run "printf '<!doctype html><h1>second page</h1>\n' > second.html"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    And I click the file "first.html" in the file browser
+    Then the file preview iframe should be visible
+    And the file preview iframe should contain "first page"
+    And the file "first.html" should be selected in the file browser
+    When I click the link "go to second" in the file preview iframe
+    Then the file preview iframe should contain "second page"
+    And the file "second.html" should be selected in the file browser
+
   Scenario: Committing the selected local diff clears the stale content pane
     When I run "rm -rf /tmp/kolu-clear-selected-local && git init /tmp/kolu-clear-selected-local && cd /tmp/kolu-clear-selected-local"
     And I run "git commit --allow-empty -m init"
@@ -708,27 +826,27 @@ Feature: Code tab (review + browse)
 
   Scenario: Comments tray is hidden when the queue is empty
     When I run "rm -rf /tmp/kolu-comments-empty && git init /tmp/kolu-comments-empty && cd /tmp/kolu-comments-empty"
-    And I run "printf 'hello\n' > a.md && git add . && git commit -m init"
+    And I run "printf 'hello\n' > a.txt && git add . && git commit -m init"
     And I click the Code tab
     And I click the Code tab mode "browse"
     Then the comments tray should not be visible
 
   Scenario: Selecting text in a file shows the floating comment pill
     When I run "rm -rf /tmp/kolu-comments-pill && git init /tmp/kolu-comments-pill && cd /tmp/kolu-comments-pill"
-    And I run "printf 'unique-pill-marker line one\n' > a.md && git add . && git commit -m init"
+    And I run "printf 'unique-pill-marker line one\n' > a.txt && git add . && git commit -m init"
     And I click the Code tab
     And I click the Code tab mode "browse"
-    And I click the file "a.md" in the file browser
+    And I click the file "a.txt" in the file browser
     Then the file content should contain "unique-pill-marker"
     When I select text "unique-pill-marker" in the file content
     Then the comment pill should be visible
 
   Scenario: Clicking the pill opens the composer; Save adds the comment to the tray
     When I run "rm -rf /tmp/kolu-comments-save && git init /tmp/kolu-comments-save && cd /tmp/kolu-comments-save"
-    And I run "printf 'save-flow-marker here\n' > a.md && git add . && git commit -m init"
+    And I run "printf 'save-flow-marker here\n' > a.txt && git add . && git commit -m init"
     And I click the Code tab
     And I click the Code tab mode "browse"
-    And I click the file "a.md" in the file browser
+    And I click the file "a.txt" in the file browser
     Then the comments tray should not be visible
     When I select text "save-flow-marker" in the file content
     And I click the comment pill
@@ -742,10 +860,10 @@ Feature: Code tab (review + browse)
 
   Scenario: Cancel button dismisses the composer without saving
     When I run "rm -rf /tmp/kolu-comments-cancel && git init /tmp/kolu-comments-cancel && cd /tmp/kolu-comments-cancel"
-    And I run "printf 'cancel-flow-marker\n' > a.md && git add . && git commit -m init"
+    And I run "printf 'cancel-flow-marker\n' > a.txt && git add . && git commit -m init"
     And I click the Code tab
     And I click the Code tab mode "browse"
-    And I click the file "a.md" in the file browser
+    And I click the file "a.txt" in the file browser
     And I select text "cancel-flow-marker" in the file content
     And I click the comment pill
     And I type "draft that should be discarded" into the comment composer
@@ -755,10 +873,10 @@ Feature: Code tab (review + browse)
 
   Scenario: Escape key dismisses the composer
     When I run "rm -rf /tmp/kolu-comments-escape && git init /tmp/kolu-comments-escape && cd /tmp/kolu-comments-escape"
-    And I run "printf 'escape-flow-marker\n' > a.md && git add . && git commit -m init"
+    And I run "printf 'escape-flow-marker\n' > a.txt && git add . && git commit -m init"
     And I click the Code tab
     And I click the Code tab mode "browse"
-    And I click the file "a.md" in the file browser
+    And I click the file "a.txt" in the file browser
     And I select text "escape-flow-marker" in the file content
     And I click the comment pill
     Then the comment composer should be visible
@@ -767,16 +885,16 @@ Feature: Code tab (review + browse)
 
   Scenario: Comments accumulate across multiple files in the same worktree
     When I run "rm -rf /tmp/kolu-comments-multi && git init /tmp/kolu-comments-multi && cd /tmp/kolu-comments-multi"
-    And I run "printf 'multi-A-marker\n' > a.md && printf 'multi-B-marker\n' > b.md && git add . && git commit -m init"
+    And I run "printf 'multi-A-marker\n' > a.txt && printf 'multi-B-marker\n' > b.txt && git add . && git commit -m init"
     And I click the Code tab
     And I click the Code tab mode "browse"
-    And I click the file "a.md" in the file browser
+    And I click the file "a.txt" in the file browser
     And I select text "multi-A-marker" in the file content
     And I click the comment pill
     And I type "first note on A" into the comment composer
     And I click the composer "Save" button
     Then the comments tray should have 1 comments
-    When I click the file "b.md" in the file browser
+    When I click the file "b.txt" in the file browser
     And I select text "multi-B-marker" in the file content
     And I click the comment pill
     And I type "second note on B" into the comment composer
@@ -787,10 +905,10 @@ Feature: Code tab (review + browse)
 
   Scenario: Per-comment × button removes just that one comment
     When I run "rm -rf /tmp/kolu-comments-remove && git init /tmp/kolu-comments-remove && cd /tmp/kolu-comments-remove"
-    And I run "printf 'remove-X-marker\nremove-Y-marker\n' > a.md && git add . && git commit -m init"
+    And I run "printf 'remove-X-marker\nremove-Y-marker\n' > a.txt && git add . && git commit -m init"
     And I click the Code tab
     And I click the Code tab mode "browse"
-    And I click the file "a.md" in the file browser
+    And I click the file "a.txt" in the file browser
     And I select text "remove-X-marker" in the file content
     And I click the comment pill
     And I type "note about alpha" into the comment composer
@@ -807,10 +925,10 @@ Feature: Code tab (review + browse)
 
   Scenario: Discard all empties the queue and hides the tray
     When I run "rm -rf /tmp/kolu-comments-discard && git init /tmp/kolu-comments-discard && cd /tmp/kolu-comments-discard"
-    And I run "printf 'discard-flow-marker\n' > a.md && git add . && git commit -m init"
+    And I run "printf 'discard-flow-marker\n' > a.txt && git add . && git commit -m init"
     And I click the Code tab
     And I click the Code tab mode "browse"
-    And I click the file "a.md" in the file browser
+    And I click the file "a.txt" in the file browser
     And I select text "discard-flow-marker" in the file content
     And I click the comment pill
     And I type "temporary note" into the comment composer
@@ -821,10 +939,10 @@ Feature: Code tab (review + browse)
 
   Scenario: Tray and queued comments persist across a page reload
     When I run "rm -rf /tmp/kolu-comments-persist && git init /tmp/kolu-comments-persist && cd /tmp/kolu-comments-persist"
-    And I run "printf 'persist-flow-marker\n' > a.md && git add . && git commit -m init"
+    And I run "printf 'persist-flow-marker\n' > a.txt && git add . && git commit -m init"
     And I click the Code tab
     And I click the Code tab mode "browse"
-    And I click the file "a.md" in the file browser
+    And I click the file "a.txt" in the file browser
     And I select text "persist-flow-marker" in the file content
     And I click the comment pill
     And I type "should survive reload" into the comment composer
@@ -833,6 +951,21 @@ Feature: Code tab (review + browse)
     When I reload the page
     And I click the Code tab
     Then the comments tray should contain "should survive reload"
+
+  # A .md file opens rendered, where there's no selectable source surface to
+  # anchor a comment to — so comments on Markdown live in the source view
+  # (plan phase-3 v1 decision: rendered Markdown is read-only). Flipping the
+  # toggle to source brings back Pierre's CommentTextSurface and the pill.
+  Scenario: Comments on a Markdown file work in the source view
+    When I run "rm -rf /tmp/kolu-comments-md && git init /tmp/kolu-comments-md && cd /tmp/kolu-comments-md"
+    And I run "printf '# Doc\n\nmd-source-comment-marker line\n' > notes.md && git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    And I click the file "notes.md" in the file browser
+    Then the markdown preview should be visible
+    When I switch the file view to "source"
+    And I select text "md-source-comment-marker" in the file content
+    Then the comment pill should be visible
 
   # Regression for #1026: Pierre's virtualizer defaults its row-height metric
   # to 20px, but Kolu renders rows at 16px (--diffs-line-height). The mismatch

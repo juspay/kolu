@@ -50,7 +50,7 @@
  *  has any terminal at all, the dock stays on screen, since it is the
  *  primary navigator. */
 
-import { makePersisted } from "@solid-primitives/storage";
+import { persistedPref } from "../../persistedPref";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, createMemo, createSignal, For, Show } from "solid-js";
 import { createSharedRoot } from "../../createSharedRoot";
@@ -117,14 +117,14 @@ const useModHeld = createSharedRoot(() => {
 
 /** Two-state mode persisted per-device. `"cards"` is the default — the
  *  dock surfaces real context first, ambient compression on opt-in. */
-export const [dockMode, setDockMode] = makePersisted(
-  createSignal<DockMode>("cards"),
-  {
-    name: "kolu-dock-mode",
-    serialize: (v) => v,
-    deserialize: (raw): DockMode => (raw === "rail" ? raw : "cards"),
+export const [dockMode, setDockMode] = persistedPref<DockMode>({
+  name: "kolu-dock-mode",
+  fallback: "cards",
+  parse: (raw) => {
+    if (raw === "rail" || raw === "cards") return raw;
+    throw new Error(`unrecognized dock mode: ${raw}`);
   },
-);
+});
 
 /** Toggle the dock between rail (collapsed) and cards (expanded).
  *  Exported so the chrome-bar dock-toggle button and the

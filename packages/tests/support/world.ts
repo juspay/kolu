@@ -48,8 +48,10 @@ const SETTLED_SELECTOR =
   '[data-visible] .xterm-screen, [data-testid="empty-state"]';
 /** Touch-device media query — mirrors `isTouch` in packages/client/src/useMobile.ts.
  *  The test package can't import from client src, so the literal is named here to
- *  keep the one place it's duplicated legible and self-documenting. */
-const COARSE_POINTER_QUERY = "(pointer: coarse)";
+ *  keep the one place it's duplicated legible and self-documenting. Exported so
+ *  step definitions can gate touch-specific waits (e.g. the suppressed
+ *  refocus-terminal-on-dialog-close) on the same query. */
+export const COARSE_POINTER_QUERY = "(pointer: coarse)";
 /** Canonical "list of terminals" affordance — one row per terminal in
  *  the dock. Replaced the chrome-bar workspace-switcher pill
  *  strip with #903; the surface is different, the semantics are the

@@ -29,6 +29,7 @@ import {
 import { createSignal } from "solid-js";
 import { createStore, produce } from "solid-js/store";
 import { useTerminalStore } from "../terminal/useTerminalStore";
+import { isMobile } from "../useMobile";
 import { client, preferences, updatePreferences } from "../wire";
 
 const MIN_PANEL_SIZE = 0.05;
@@ -148,6 +149,17 @@ export function useRightPanel() {
      *  mobile — desktop reads `collapsed()` instead. Not persisted. */
     drawerOpen,
     setDrawerOpen,
+    /** Reveal the panel by whatever mechanism the current layout uses — open
+     *  the bottom-drawer host on mobile, uncollapse the desktop Resizable
+     *  otherwise. Producers (e.g. `openInCodeTab`) call this to express intent
+     *  ("show the panel") without owning the mobile-vs-desktop fork; the two
+     *  visibility volatilities (session-local `drawerOpen`, persisted
+     *  `collapsed`) stay separate and are resolved here in one place. */
+    reveal: () => {
+      if (isMobile()) setDrawerOpen(true);
+      else if (rp().collapsed)
+        updatePreferences({ rightPanel: { collapsed: false } });
+    },
 
     // ── Per-terminal task state ──────────────────────────────────────
     /** DU view of the active tab — `{ kind: "inspector" }` or

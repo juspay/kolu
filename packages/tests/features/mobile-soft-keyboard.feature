@@ -107,6 +107,37 @@ Feature: Mobile soft keyboard
     And there should be no page errors
 
   @mobile
+  Scenario: Catching up via the scroll-to-bottom FAB does not summon the soft keyboard
+    # Scrolling up reveals the floating "scroll to bottom" button. Tapping it to
+    # catch up on output must only scroll — the onClick used to call
+    # terminal.focus() unconditionally, popping the keyboard on a phone with no
+    # tap on the terminal. It now routes through focusOnSelection() (no-op on
+    # touch), so the keyboard stays down.
+    When I run "seq 1 200"
+    And I note the terminal viewport scroll position
+    And I swipe down inside the terminal viewport
+    Then the scroll-to-bottom button should be visible
+    When I arm the soft-keyboard focus probe
+    And I tap the scroll-to-bottom button
+    Then xterm's helper textarea should not have been focused by scrolling to the bottom
+    And there should be no page errors
+
+  @mobile
+  Scenario: Closing a dialog does not summon the soft keyboard
+    # refocusTerminal() restores "keep typing" focus after a desktop dialog
+    # closes by .click()ing the terminal — which on touch fires term.focus()
+    # and pops the keyboard with no user intent. It is now an isTouch() no-op
+    # (and the dialog blurs its own inputs on close), so dismissing the command
+    # palette on a phone leaves the keyboard down.
+    When I arm the soft-keyboard focus probe
+    And I open the command palette
+    Then the command palette should be visible
+    When I press Escape
+    Then the command palette should not be visible
+    And xterm's helper textarea should not have been focused by closing the dialog
+    And there should be no page errors
+
+  @mobile
   Scenario: App root tracks visualViewport.height so the keyboard doesn't overlap the terminal
     # iOS Safari overlays the soft keyboard on top of the layout viewport;
     # `100dvh` doesn't shrink. useVisualViewportHeight sets `--app-h` on

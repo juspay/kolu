@@ -16,6 +16,7 @@ import type {
 } from "./CommandPalette";
 import WorkspaceGrid from "./canvas/dock/WorkspaceGrid";
 import type { DockSourceEntry } from "./canvas/dockModel";
+import { supportsSpatialCanvas } from "./capabilities";
 import {
   ACTIONS,
   type ActionContext,
@@ -116,9 +117,8 @@ export interface CommandDeps extends ActionContext {
   // Dialogs
   setAboutOpen: (open: boolean) => void;
   setDiagnosticInfoOpen: (open: boolean) => void;
-  // Canvas — desktop only (always active there); hidden on mobile where
-  // the canvas isn't mounted at all.
-  isMobile: () => boolean;
+  // Canvas — desktop only. The canvas isn't mounted on mobile, so these
+  // commands are hidden there via `supportsSpatialCanvas`.
   canvasCenterActive: () => void;
   canvasAutoArrange: () => void;
   // Worktree
@@ -315,7 +315,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
       : []),
 
     // --- Canvas (desktop only — spatial tile actions) ---
-    ...(!deps.isMobile()
+    ...(supportsSpatialCanvas()
       ? [
           {
             kind: "action" as const,

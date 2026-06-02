@@ -17,6 +17,7 @@
 
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
+import { encodePreviewPath } from "kolu-common/preview";
 import { resolveUnder } from "kolu-git";
 
 /** Base URL for the iframe-preview file route. Used by both
@@ -38,13 +39,13 @@ export function buildIframePreviewUrl(
   filePath: string,
   mtimeMs: number,
 ): string {
-  const encodedPath = filePath.split("/").map(encodeURIComponent).join("/");
+  const encodedPath = encodePreviewPath(filePath);
   return `${TERMINAL_FILE_ROUTE_BASE}/${terminalId}/${TERMINAL_FILE_ROUTE_FILE_SEGMENT}/${encodedPath}?v=${Math.floor(mtimeMs)}`;
 }
 
 /** Content-Type per extension for files served by this route. Every
  *  extension in `BINARY_PREVIEWABLE_EXTENSIONS` (the node-free classifier in
- *  `kolu-git/previewable` that decides `FsReadFileOutput.kind`) must have a
+ *  `kolu-common/preview` that decides `FsReadFileOutput.kind`) must have a
  *  real entry here, or the route serves it as `application/octet-stream` and
  *  the browser downloads it instead of rendering. That coverage invariant is
  *  asserted in `iframePreviewRoute.test.ts`. The extra `.css`/`.js`/font

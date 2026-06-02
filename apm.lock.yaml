@@ -1,6 +1,6 @@
 lockfile_version: '1'
-generated_at: '2026-06-01T01:35:22.383583+00:00'
-apm_version: 0.16.0
+generated_at: '2026-06-01T23:04:50.752792+00:00'
+apm_version: 0.16.1
 dependencies:
 - repo_url: anthropics/skills
   host: github.com
@@ -31,6 +31,14 @@ dependencies:
   - .agents/skills/nix-chrome-devtools-mcp
   - .claude/skills/nix-chrome-devtools-mcp
   content_hash: sha256:51308bd8cc8b6ae24781a77b67a7c8140bdea5d793e35427e7b8fcbeb0662074
+- repo_url: juspay/project-unknown
+  host: github.com
+  resolved_commit: 27c4973ae3837eaa54b0439faa5346a3320ac379
+  package_type: apm_package
+  deployed_files:
+  - .agents/skills/pu
+  - .claude/skills/pu
+  content_hash: sha256:3694a4feafcb2a8e33364e0eacd9ef5ab37f893733769570e2f18e4eb13ae3c8
 - repo_url: juspay/skills
   host: github.com
   resolved_commit: 6e2df2d9ab3a4031e89598b50aa1074c3fd87748
@@ -104,30 +112,33 @@ mcp_configs:
     registry: false
     command: .agents/skills/nix-chrome-devtools-mcp/bin/serve
 local_deployed_files:
+- .agents/skills/be
+- .agents/skills/codex-debate
 - .agents/skills/evidence
 - .agents/skills/hk
 - .agents/skills/parcel
 - .agents/skills/perf-diagnose
 - .agents/skills/pierre
-- .agents/skills/pu
 - .agents/skills/test
 - .claude/commands/whatchanged.md
 - .claude/rules/apm-sources.md
 - .claude/rules/apm-workflow.md
 - .claude/rules/architecture.md
 - .claude/rules/conventions.md
+- .claude/rules/docs.md
 - .claude/rules/e2e-testing.md
 - .claude/rules/nix.md
 - .claude/rules/solidjs.md
 - .claude/rules/state.md
 - .claude/rules/streaming.md
 - .claude/rules/toast-conventions.md
+- .claude/skills/be
+- .claude/skills/codex-debate
 - .claude/skills/evidence
 - .claude/skills/hk
 - .claude/skills/parcel
 - .claude/skills/perf-diagnose
 - .claude/skills/pierre
-- .claude/skills/pu
 - .claude/skills/test
 - .opencode/commands/whatchanged.md
 local_deployed_file_hashes:
@@ -136,6 +147,7 @@ local_deployed_file_hashes:
   .claude/rules/apm-workflow.md: sha256:16f4fed3d8fe9b1e334444b8885443c2ac26963270d3df0f3505075cc3bd604d
   .claude/rules/architecture.md: sha256:0f47ba876432c25a2cd54e3ed7995e8bbbb8b383fe3b790b0b3e252949c18032
   .claude/rules/conventions.md: sha256:c9f6ab7de674fb0da8b3d29f0e188db0cb67f96df774e270848b18323a12760b
+  .claude/rules/docs.md: sha256:0197d7a155e01b78b6c74c8596ca8285b9c038c6cd9c269d8dfdb3e9b4edff88
   .claude/rules/e2e-testing.md: sha256:ecac44a197b0e2f73f2a85fc1b79e21b6ef1670275de0a9debdd54de1848f0af
   .claude/rules/nix.md: sha256:1ac0f3738deafba04c3af189c863990809999021f4e9d0e6b38969ec1460acf3
   .claude/rules/solidjs.md: sha256:a5cfe688d4399be719565de823ccacec874b9d2faa01d29897a7b40de1f49367

@@ -18,7 +18,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { escapeHtml } from "kolu-common/html";
+import { escapeHtml } from "@kolu/html-escape";
 import {
   relativizeTranscript,
   type ToolInput,

@@ -14,9 +14,8 @@
  *  No flush logic lives here. `formatMarkdown` is a separate pure
  *  function; the tray's "Copy to clipboard" calls it directly. */
 
-import { makePersisted } from "@solid-primitives/storage";
-import { createSignal } from "solid-js";
 import { toast } from "solid-sonner";
+import { persistedPref } from "../persistedPref";
 import type { Comment, PersistedShape } from "./types";
 
 const STORAGE_PREFIX = "kolu:comments-by-terminal:";
@@ -37,43 +36,39 @@ const storesByKey: StoresByKey = new Map();
 function storeFor(terminalId: string) {
   const existing = storesByKey.get(terminalId);
   if (existing) return existing;
-  const [signal, setSignal] = makePersisted(
-    createSignal<PersistedShape>({ v: 1, comments: [] }),
-    {
-      name: `${STORAGE_PREFIX}${terminalId}`,
-      serialize: (v) => JSON.stringify(v),
-      deserialize: (s): PersistedShape => {
-        try {
-          const parsed = JSON.parse(s) as Partial<PersistedShape>;
-          if (parsed && parsed.v === 1 && Array.isArray(parsed.comments)) {
-            return parsed as PersistedShape;
-          }
-          // Shape mismatch — log + surface, then fall through to a
-          // fresh init so the app doesn't brick.
-          console.error(
-            `[comments] Stored data for ${terminalId} has unexpected shape; resetting queue`,
-            parsed,
-          );
-          toast.error(
-            `Comments for this repo had an unexpected shape and were reset. Check the console.`,
-          );
-        } catch (err) {
-          // JSON.parse failed — same fallback. Surface the error so the
-          // user knows their queue was wiped instead of silently
-          // returning {comments: []} (indistinguishable from a fresh
-          // install).
-          console.error(
-            `[comments] Failed to parse stored data for ${terminalId}:`,
-            err,
-          );
-          toast.error(
-            `Failed to load comments: ${(err as Error).message ?? "parse error"}. Queue reset.`,
-          );
-        }
-        return { v: 1, comments: [] };
-      },
+  const [signal, setSignal] = persistedPref<PersistedShape>({
+    name: `${STORAGE_PREFIX}${terminalId}`,
+    fallback: { v: 1, comments: [] },
+    serialize: (v) => JSON.stringify(v),
+    parse: (raw): PersistedShape => {
+      const parsed = JSON.parse(raw) as Partial<PersistedShape>;
+      if (parsed && parsed.v === 1 && Array.isArray(parsed.comments)) {
+        return parsed as PersistedShape;
+      }
+      throw new Error("unexpected comments shape");
     },
-  );
+    // Surface the loss either way — a wiped queue must not be silently
+    // indistinguishable from a fresh install.
+    onInvalid: (err) => {
+      if (err instanceof SyntaxError) {
+        console.error(
+          `[comments] Failed to parse stored data for ${terminalId}:`,
+          err,
+        );
+        toast.error(
+          `Failed to load comments: ${err.message ?? "parse error"}. Queue reset.`,
+        );
+      } else {
+        console.error(
+          `[comments] Stored data for ${terminalId} has unexpected shape; resetting queue`,
+          err,
+        );
+        toast.error(
+          `Comments for this repo had an unexpected shape and were reset. Check the console.`,
+        );
+      }
+    },
+  });
   const wrapped = {
     comments: () => signal().comments,
     setComments: (next: Comment[] | ((prev: Comment[]) => Comment[])): void => {

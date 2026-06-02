@@ -10,7 +10,7 @@
  *  not back into this composition root. See #221, #242. */
 
 import type { TerminalId } from "kolu-common/surface";
-import { createRoot } from "solid-js";
+import { createMemo } from "solid-js";
 import { toast } from "solid-sonner";
 import { isExpectedCleanupError } from "../rpc/streamCleanup";
 import { app } from "../wire";
@@ -18,6 +18,7 @@ import { terminalSubject } from "./terminalSubject";
 import { useSessionRestore } from "./useSessionRestore";
 import { useTerminalAlerts } from "./useTerminalAlerts";
 import { useTerminalCrud } from "./useTerminalCrud";
+import { useTerminalExits } from "./useTerminalExits";
 import { useTerminalStore } from "./useTerminalStore";
 import { useWorktreeOps } from "./useWorktreeOps";
 
@@ -39,14 +40,10 @@ export function useTerminals() {
     terminalIds: store.terminalIds,
   });
 
-  /** Subscribe to exit events for a terminal (one-shot action, not queryable state).
-   *
-   *  `subscribeExit` is invoked from `handleCreate` /
-   *  `handleSessionRestore` after `await client.terminal.create` — by
-   *  then there's no surrounding Solid reactive owner. Wrap the hook in
-   *  `createRoot` so onCleanup binds to a per-terminal root that lives
-   *  for the terminal's lifetime; the iterator naturally ends when the
-   *  server yields the exit code.
+  /** Open one terminal's exit subscription (one-shot action, not queryable
+   *  state). Called from `useTerminalExits` inside the per-terminal reactive
+   *  owner `mapArray` keys to the live list, so the subscription's `onCleanup`
+   *  is disposed when the terminal leaves the list — no manual `createRoot`.
    *
    *  Race: if the terminal exits while the socket is down, the retried
    *  re-subscribe throws `TerminalNotFoundError` (not retried, per
@@ -54,39 +51,40 @@ export function useTerminals() {
    *  itself is still removed via the list subscription in useTerminalStore,
    *  so correctness is preserved even if the toast is lost. */
   function subscribeExit(id: TerminalId) {
-    createRoot(() => {
-      app.events.terminalExit.use(
-        () => ({ id }),
-        (code) => {
-          const subject = getSubject(id);
-          const headline =
-            code === 0
-              ? `${subject.title} exited`
-              : `${subject.title} exited with code ${code}`;
-          const opts = { description: subject.description };
-          if (code === 0) toast(headline, opts);
-          else toast.warning(headline, opts);
-          crud.removeAndAutoSwitch(id);
+    app.events.terminalExit.use(
+      () => ({ id }),
+      (code) => {
+        const subject = getSubject(id);
+        const headline =
+          code === 0
+            ? `${subject.title} exited`
+            : `${subject.title} exited with code ${code}`;
+        const opts = { description: subject.description };
+        if (code === 0) toast(headline, opts);
+        else toast.warning(headline, opts);
+        crud.removeAndAutoSwitch(id);
+      },
+      {
+        onError: (err) => {
+          if (!isExpectedCleanupError(err)) {
+            console.error("Exit stream error:", err);
+          }
         },
-        {
-          onError: (err) => {
-            if (!isExpectedCleanupError(err)) {
-              console.error("Exit stream error:", err);
-            }
-          },
-        },
-      );
-    });
+      },
+    );
   }
 
-  const crud = useTerminalCrud({
-    store,
-    subscribeExit,
-  });
+  const crud = useTerminalCrud({ store });
+
+  // Keep exactly one exit subscription per live terminal (top-level and sub),
+  // keyed to the server list so kills/exits dispose it. See useTerminalExits.
+  const allTerminalIds = createMemo(
+    () => store.listSub()?.map((t) => t.id) ?? [],
+  );
+  useTerminalExits({ ids: allTerminalIds, subscribe: subscribeExit });
 
   const session = useSessionRestore({
     store,
-    subscribeExit,
     handleCreate: crud.handleCreate,
     handleCreateSubTerminal: crud.handleCreateSubTerminal,
   });

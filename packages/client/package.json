@@ -16,6 +16,7 @@
     "@corvu/resizable": "^0.2.5",
     "@corvu/tooltip": "^0.2.2",
     "@kolu/artifact-sdk": "workspace:*",
+    "@kolu/html-escape": "workspace:*",
     "@kolu/solid-fileview": "workspace:*",
     "@kolu/solid-markdown": "workspace:*",
     "@kolu/solid-pierre": "workspace:*",
@@ -61,6 +62,6 @@
     "vite": "^6.4.2",
     "vite-plugin-pwa": "^1.2.0",
     "vite-plugin-solid": "^2.11.0",
-    "vitest": "^4.1.2"
+    "vitest": "^4.1.0"
   }
 }

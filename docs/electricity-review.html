@@ -1,0 +1,702 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>kolu · the electricity review — Hickey + Lowy structural audit</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg:        oklch(0.17 0.018 255);
+    --bg-2:      oklch(0.21 0.020 255);
+    --panel:     oklch(0.235 0.021 255);
+    --panel-2:   oklch(0.27 0.022 255);
+    --edge:      oklch(0.34 0.024 255);
+    --edge-soft: oklch(0.30 0.020 255);
+    --ink:       oklch(0.93 0.012 255);
+    --ink-dim:   oklch(0.74 0.018 255);
+    --ink-mute:  oklch(0.58 0.018 255);
+
+    --volt:      oklch(0.82 0.15 195);   /* electricity — cyan/teal */
+    --volt-deep: oklch(0.62 0.13 195);
+    --violet:    oklch(0.74 0.16 300);   /* attention / missed */
+    --amber:     oklch(0.80 0.13 80);    /* reshape, don't grab-bag */
+    --green:     oklch(0.80 0.15 150);   /* ship / done */
+    --rose:      oklch(0.70 0.13 22);    /* wrong shape at any count */
+    --slate:     oklch(0.66 0.03 255);   /* clean, not yet needed */
+
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Fira Code", Menlo, Consolas, monospace;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Inter", "Segoe UI", Roboto, sans-serif;
+    --maxw: 1000px;
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background:
+      radial-gradient(1200px 700px at 80% -10%, oklch(0.27 0.05 195 / 0.20), transparent 60%),
+      radial-gradient(900px 600px at -5% 5%, oklch(0.27 0.06 300 / 0.14), transparent 55%),
+      var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    line-height: 1.62;
+    font-size: 16.5px;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 24px; }
+
+  a { color: var(--volt); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code, .mono { font-family: var(--mono); font-size: 0.86em; }
+  code {
+    background: oklch(0.27 0.02 255 / 0.8);
+    border: 1px solid var(--edge-soft);
+    padding: 0.06em 0.4em;
+    border-radius: 5px;
+    color: oklch(0.88 0.04 195);
+    white-space: nowrap;
+  }
+  h2 code, h3 code, td code, li code { white-space: normal; }
+
+  /* ---------- masthead ---------- */
+  header.masthead {
+    position: relative;
+    padding: 86px 0 56px;
+    border-bottom: 1px solid var(--edge);
+    overflow: hidden;
+  }
+  .kicker {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.32em;
+    text-transform: uppercase;
+    color: var(--volt);
+    display: flex; align-items: center; gap: 12px;
+    margin-bottom: 26px;
+  }
+  .kicker::after {
+    content: ""; flex: 1; height: 1px;
+    background: linear-gradient(90deg, var(--volt-deep), transparent);
+    opacity: 0.5;
+  }
+  h1 {
+    font-size: clamp(34px, 6vw, 58px);
+    line-height: 1.04;
+    letter-spacing: -0.022em;
+    margin: 0 0 22px;
+    font-weight: 680;
+  }
+  h1 .glow { color: var(--volt); text-shadow: 0 0 34px oklch(0.82 0.15 195 / 0.45); }
+  .dek {
+    font-size: clamp(17px, 2.4vw, 20px);
+    color: var(--ink-dim);
+    max-width: 50ch;
+    margin: 0 0 30px;
+  }
+  .dek strong { color: var(--ink); font-weight: 620; }
+  .meta-row {
+    display: flex; flex-wrap: wrap; gap: 10px 26px;
+    font-family: var(--mono); font-size: 12.5px; color: var(--ink-mute);
+  }
+  .meta-row b { color: var(--ink-dim); font-weight: 500; }
+
+  .plug {
+    position: absolute; right: -40px; top: 40px;
+    width: 320px; height: 320px; opacity: 0.5;
+    pointer-events: none;
+  }
+  @media (max-width: 760px){ .plug{ display:none; } }
+
+  /* ---------- generic section ---------- */
+  section { padding: 60px 0; border-bottom: 1px solid var(--edge-soft); }
+  .sec-head { display: flex; align-items: baseline; gap: 14px; margin: 0 0 8px; }
+  .sec-num {
+    font-family: var(--mono); font-size: 13px; color: var(--volt);
+    border: 1px solid var(--volt-deep); border-radius: 6px;
+    padding: 2px 8px; flex: none;
+  }
+  h2 { font-size: clamp(24px, 3.6vw, 33px); letter-spacing: -0.018em; margin: 0; font-weight: 660; }
+  .sec-sub { color: var(--ink-mute); margin: 4px 0 30px; max-width: 64ch; font-size: 15.5px; }
+  p { margin: 0 0 16px; }
+  .lede { color: var(--ink-dim); }
+
+  /* ---------- verdict band ---------- */
+  .verdict-band {
+    display: grid; grid-template-columns: repeat(5, 1fr); gap: 1px;
+    background: var(--edge);
+    border: 1px solid var(--edge); border-radius: 14px; overflow: hidden;
+    margin: 34px 0 18px;
+  }
+  .vb-cell { background: var(--panel); padding: 22px 18px; }
+  .vb-num { font-size: 38px; font-weight: 720; line-height: 1; letter-spacing: -0.03em; }
+  .vb-num.green  { color: var(--green); }
+  .vb-num.amber  { color: var(--amber); }
+  .vb-num.rose   { color: var(--rose); }
+  .vb-num.slate  { color: var(--slate); }
+  .vb-num.blue   { color: var(--volt); }
+  .vb-lab { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--ink-mute); margin-top: 10px; }
+  .vb-lab b { display:block; color: var(--ink-dim); font-weight:600; letter-spacing:0.04em; text-transform:none; font-size:12px; margin-bottom:2px;}
+  @media (max-width: 720px){ .verdict-band{ grid-template-columns: repeat(2,1fr);} }
+
+  .pull {
+    margin: 26px 0 0; padding: 22px 26px;
+    border-left: 3px solid var(--volt);
+    background: linear-gradient(90deg, oklch(0.27 0.04 195 / 0.18), transparent);
+    border-radius: 0 12px 12px 0;
+    font-size: 18px; color: var(--ink);
+  }
+  .pull b { color: var(--volt); }
+
+  /* ---------- chips / receptacle row ---------- */
+  .chips { display: flex; flex-wrap: wrap; gap: 9px; margin: 22px 0 6px; }
+  .chip {
+    font-family: var(--mono); font-size: 12.5px;
+    background: var(--panel-2); border: 1px solid var(--edge);
+    border-radius: 999px; padding: 6px 13px; color: var(--ink-dim);
+    display: inline-flex; align-items: center; gap: 7px;
+  }
+  .chip::before { content:""; width:7px; height:7px; border-radius:999px; background: var(--green); box-shadow: 0 0 8px var(--green); }
+  .chip.ext::before { background: var(--volt); box-shadow: 0 0 8px var(--volt); }
+
+  /* ---------- theme cards ---------- */
+  .grid { display: grid; gap: 16px; margin-top: 28px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--edge);
+    border-radius: 14px; padding: 22px 24px;
+  }
+  .card h3 { margin: 0 0 8px; font-size: 18px; letter-spacing: -0.01em; }
+  .card p { font-size: 15px; color: var(--ink-dim); margin: 0 0 10px; }
+  .card .braid {
+    font-family: var(--mono); font-size: 12.5px; color: var(--amber);
+    background: oklch(0.27 0.03 80 / 0.12); border: 1px solid oklch(0.5 0.06 80 / 0.3);
+    border-radius: 8px; padding: 10px 12px; margin: 0 0 10px; line-height: 1.7;
+  }
+  .card .ev { font-family: var(--mono); font-size: 12px; color: var(--ink-mute); }
+  .card .ev b { color: var(--ink-dim); font-weight: 500; }
+  .flag {
+    display:inline-block; font-family: var(--mono); font-size: 11px; letter-spacing:0.06em;
+    text-transform: uppercase; padding: 2px 8px; border-radius: 6px; margin-left: 8px;
+    vertical-align: middle; border:1px solid;
+  }
+  .flag.top { color: var(--violet); border-color: var(--violet); background: oklch(0.3 0.06 300 / 0.15); }
+
+  /* ---------- backlog table ---------- */
+  .legend { display:flex; flex-wrap:wrap; gap:18px; margin: 8px 0 24px; font-size:13px; color:var(--ink-mute); }
+  .legend span { display:inline-flex; align-items:center; gap:7px; }
+  .dot { width:10px; height:10px; border-radius:3px; flex:none; }
+  .dot.green{background:var(--green);} .dot.amber{background:var(--amber);}
+  .dot.rose{background:var(--rose);} .dot.slate{background:var(--slate);} .dot.blue{background:var(--volt);}
+
+  .tbl { width:100%; border-collapse: separate; border-spacing: 0; font-size: 14.5px; }
+  .tbl thead th {
+    text-align: left; font-family: var(--mono); font-size: 11px; letter-spacing: 0.1em;
+    text-transform: uppercase; color: var(--ink-mute); font-weight: 500;
+    padding: 0 14px 10px; border-bottom: 1px solid var(--edge);
+  }
+  .tbl tbody td { padding: 15px 14px; border-bottom: 1px solid var(--edge-soft); vertical-align: top; }
+  .tbl tbody tr:hover { background: oklch(0.24 0.02 255 / 0.6); }
+  .tbl .nm { font-weight: 600; color: var(--ink); }
+  .tbl .nm .one { display:block; font-weight: 400; color: var(--ink-mute); font-size: 13px; margin-top: 3px; max-width: 52ch; }
+  .tbl .cat { font-family: var(--mono); font-size: 11.5px; color: var(--ink-dim); }
+  .tbl .reuse { font-family: var(--mono); color: var(--ink-dim); white-space: nowrap; }
+
+  .vpill {
+    display:inline-block; font-family: var(--mono); font-size: 11px; font-weight: 600;
+    letter-spacing: 0.04em; text-transform: uppercase; padding: 4px 9px; border-radius: 6px;
+    border: 1px solid; white-space: nowrap;
+  }
+  .vpill.ship   { color: var(--green); border-color: oklch(0.6 0.13 150 / 0.6); background: oklch(0.4 0.1 150 / 0.16); }
+  .vpill.shape  { color: var(--amber); border-color: oklch(0.6 0.1 80 / 0.55);  background: oklch(0.4 0.08 80 / 0.14); }
+  .vpill.struct { color: var(--rose);  border-color: oklch(0.55 0.12 22 / 0.6); background: oklch(0.38 0.1 22 / 0.16); }
+  .vpill.notyet { color: var(--slate); border-color: var(--edge); background: oklch(0.3 0.01 255 / 0.5); }
+  .vpill.done   { color: var(--volt);  border-color: oklch(0.55 0.1 195 / 0.55); background: oklch(0.35 0.08 195 / 0.14); }
+
+  .yn { font-family: var(--mono); font-size: 12px; }
+  .yn .y { color: var(--green); } .yn .n { color: oklch(0.62 0.13 25); }
+
+  /* missed callouts */
+  .missed {
+    border: 1px solid var(--violet); border-radius: 14px; padding: 24px 26px;
+    background: linear-gradient(180deg, oklch(0.3 0.06 300 / 0.12), transparent);
+    margin-top: 18px;
+  }
+  .missed h3 { margin: 0 0 6px; color: var(--violet); font-size: 18px; }
+  .missed p { font-size: 15px; color: var(--ink-dim); margin: 0 0 8px; }
+
+  /* action plan */
+  .tiers { display: grid; gap: 16px; margin-top: 26px; }
+  .tier { border:1px solid var(--edge); border-radius: 14px; overflow: hidden; }
+  .tier-h {
+    display:flex; align-items:center; gap: 14px; padding: 16px 22px;
+    border-bottom: 1px solid var(--edge-soft); background: var(--panel-2);
+  }
+  .tier-h .tag { font-family: var(--mono); font-size: 11px; letter-spacing:0.1em; text-transform: uppercase; padding: 4px 10px; border-radius: 6px; border:1px solid; }
+  .tier.ship  .tag { color: var(--green); border-color: var(--green); }
+  .tier.decomp .tag { color: var(--amber); border-color: var(--amber); }
+  .tier.fix   .tag { color: var(--violet); border-color: var(--violet); }
+  .tier.struct .tag { color: var(--rose); border-color: var(--rose); }
+  .tier.no    .tag { color: var(--slate); border-color: var(--edge); }
+  .tier-h h3 { margin:0; font-size: 17px; }
+  .tier-b { padding: 8px 22px 18px; }
+  .tier-b ul { margin: 8px 0; padding-left: 0; list-style: none; }
+  .tier-b li { padding: 9px 0 9px 26px; position: relative; border-bottom: 1px solid var(--edge-soft); font-size: 15px; color: var(--ink-dim); }
+  .tier-b li:last-child { border-bottom: none; }
+  .tier-b li::before { content:"→"; position:absolute; left:0; color: var(--volt); font-family: var(--mono); }
+  .tier-b li b { color: var(--ink); font-weight:600; }
+
+  footer { padding: 56px 0 80px; color: var(--ink-mute); font-size: 13.5px; }
+  footer .mono-meta { font-family: var(--mono); font-size: 12.5px; line-height: 2; }
+  footer h2 { font-size: 20px; margin-bottom: 14px; color: var(--ink-dim); }
+
+  .toc { display:flex; flex-wrap:wrap; gap: 8px 18px; margin: 30px 0 0; font-family: var(--mono); font-size: 13px; }
+  .toc a { color: var(--ink-mute); }
+  .toc a:hover { color: var(--volt); }
+</style>
+</head>
+<body>
+
+<header class="masthead">
+  <svg class="plug" viewBox="0 0 200 200" fill="none" aria-hidden="true">
+    <circle cx="100" cy="100" r="78" stroke="oklch(0.5 0.1 195)" stroke-width="1.5" opacity="0.5"/>
+    <circle cx="100" cy="100" r="58" stroke="oklch(0.6 0.12 195)" stroke-width="1.5" opacity="0.7"/>
+    <rect x="84" y="64" width="9" height="34" rx="4" fill="oklch(0.82 0.15 195)"/>
+    <rect x="107" y="64" width="9" height="34" rx="4" fill="oklch(0.82 0.15 195)"/>
+    <rect x="92" y="116" width="16" height="26" rx="6" fill="oklch(0.74 0.16 300)"/>
+    <path d="M100 18 v18 M100 164 v18 M18 100 h18 M164 100 h18" stroke="oklch(0.5 0.1 195)" stroke-width="1.5" opacity="0.4"/>
+  </svg>
+  <div class="wrap">
+    <div class="kicker">Structural audit · Hickey × Lowy</div>
+    <h1>What in kolu is <span class="glow">electricity?</span></h1>
+    <p class="dek">A receptacle hides enormous volatility — AC/DC, 110/220V, 50/60Hz — behind one standardized socket. <strong>You don't reinvent it per appliance; you plug in and add value.</strong> We already did this once, for <code>@kolu/surface</code>. This audit asks what's left.</p>
+    <div class="meta-row">
+      <span><b>scope</b> 30k LOC · client + server + 18 packages</span>
+      <span><b>method</b> 41 agents · adversarial verification</span>
+      <span><b>date</b> 2026-06-01</span>
+    </div>
+    <div style="margin: 26px 0 4px; padding: 16px 22px; border-radius: 12px; border: 1px solid oklch(0.6 0.13 150 / 0.5); background: linear-gradient(90deg, oklch(0.4 0.1 150 / 0.16), transparent);">
+      <span style="font-family: var(--mono); font-size: 12px; letter-spacing:0.1em; text-transform:uppercase; color: var(--green); border:1px solid oklch(0.6 0.13 150 / 0.6); border-radius:6px; padding:3px 9px; margin-right:10px;">✓ Shipped</span>
+      <span style="color: var(--ink-dim); font-size: 15px;">The <b style="color:var(--ink)">"ship now"</b> tier landed in <a href="https://github.com/juspay/kolu/pull/1089">#1089</a> — <code>persistedPref</code> (closing the zoom-<code>NaN</code> and maximize bugs), the <code>@kolu/log</code> + <code>@kolu/html-escape</code> leaf packages, and the <code>dom/</code> + keybind relocations. The verdicts below stand as the original analysis; <a href="#do">§07</a> now tracks what's done and what's next.</span>
+    </div>
+    <nav class="toc">
+      <a href="#test">the test</a>
+      <a href="#verdict">verdict</a>
+      <a href="#hickey">what's braided (Hickey)</a>
+      <a href="#lowy">the boundaries (Lowy)</a>
+      <a href="#backlog">the backlog</a>
+      <a href="#missed">what we missed</a>
+      <a href="#do">what to do</a>
+    </nav>
+  </div>
+</header>
+
+<!-- ============ THE TEST ============ -->
+<section id="test">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-num">01</span><h2>The electricity test</h2></div>
+    <p class="sec-sub">Lowy's metaphor is not "anything reusable." A genuine receptacle clears three bars at once. Most "utilities" clear only the first.</p>
+
+    <div class="grid" style="grid-template-columns: repeat(3,1fr);">
+      <div class="card">
+        <h3>① Domain-agnostic</h3>
+        <p>Nothing about <em>terminals · canvas · agents · git</em> leaks into the interface. The Hickey check: would extracting it <b>dissolve</b> a braid, or merely <b>move</b> it across a package wall?</p>
+      </div>
+      <div class="card">
+        <h3>② Encapsulates a volatility</h3>
+        <p>It hides a real <em>axis of change</em> — browser-API churn, transport, persistence corruption. A pure 3-line <code>===</code> loop hides nothing that will ever change; that's not electricity.</p>
+      </div>
+      <div class="card">
+        <h3>③ Cross-cutting reuse</h3>
+        <p>The same need appears in <em>many</em> places — ideally across packages, the way <code>surface</code>/<code>pty-host</code> plug into a different app. One consumer is a function, not a utility.</p>
+      </div>
+    </div>
+
+    <p class="lede" style="margin-top:28px">The receptacle is <em>already installed</em> across most of kolu's high-volatility axes. These own their churn and rarely leak domain — the bar every new candidate is measured against:</p>
+    <div class="chips">
+      <span class="chip">@kolu/surface · snapshot-then-delta transport</span>
+      <span class="chip">@kolu/pty-host · multi-client PTY</span>
+      <span class="chip">@kolu/artifact-sdk · text-anchoring</span>
+      <span class="chip">integrations/io · refcounted fs.watch</span>
+      <span class="chip">integrations/git · github</span>
+      <span class="chip">solid-fileview · markdown · pierre</span>
+      <span class="chip">transcript-core · html</span>
+      <span class="chip ext">Corvu · dialog/drawer/focus-trap/scroll-lock</span>
+      <span class="chip ext">@solid-primitives · ResizeObserver/matchMedia/storage</span>
+    </div>
+    <p class="ev mono" style="margin-top:10px; color:var(--ink-mute)">● kolu-extracted &nbsp;&nbsp; ● external electricity the team correctly leans on instead of hand-rolling</p>
+  </div>
+</section>
+
+<!-- ============ VERDICT ============ -->
+<section id="verdict">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-num">02</span><h2>The verdict, up front</h2></div>
+    <p class="sec-sub">16 candidates surfaced. Each was handed to an independent skeptic told to <em>refute</em> it by opening the real call sites. The result is humbling — and good news. <em>(Buckets corrected: see the note below — "premature" was splitting a temporal claim from a structural one.)</em></p>
+
+    <div class="verdict-band">
+      <div class="vb-cell"><div class="vb-num green">1</div><div class="vb-lab"><b>Genuine electricity</b>ship it</div></div>
+      <div class="vb-cell"><div class="vb-num amber">7</div><div class="vb-lab"><b>Easy, not simple</b>real need — reshape, don't grab-bag</div></div>
+      <div class="vb-cell"><div class="vb-num rose">5</div><div class="vb-lab"><b>Would complect / nothing to hide</b>wrong shape at <em>any</em> count</div></div>
+      <div class="vb-cell"><div class="vb-num slate">2</div><div class="vb-lab"><b>Clean, not yet load-bearing</b>your call — cheap to extract</div></div>
+      <div class="vb-cell"><div class="vb-num blue">1</div><div class="vb-lab"><b>Already covered</b>done, just mislocated</div></div>
+    </div>
+
+    <div class="card" style="border-color: var(--rose); margin: 24px 0 0; background: linear-gradient(180deg, oklch(0.32 0.06 22 / 0.10), transparent);">
+      <h3 style="color: var(--rose);">A correction on "premature"</h3>
+      <p style="color: var(--ink-dim);">The first cut of this report filed seven candidates as <em>premature</em> — "the second consumer isn't here yet, extract later." That rationale rests on <b>lock-in</b>: once you publish a package, callers freeze against it and the shape is expensive to fix. <b>It barely applies to kolu.</b> You own every package <em>and</em> every call site, so an interface and all its consumers move in one atomic commit — "wait for the rule-of-three to learn the shape" is a hedge against a reversal cost you don't pay.</p>
+      <p style="color: var(--ink-dim); margin-bottom:0;">So the temporal verdict is dropped. What survives is purely <b>structural</b>, and it doesn't improve with consumer count: <span style="color:var(--rose)">five of the seven would <b>complect</b> (move a braid, fuse two policies behind a config-bag, leak domain) or hide <b>no volatility at all</b></span> — wrong whenever you built them; <span style="color:var(--slate)">two are genuinely clean and just not yet load-bearing</span> — fine to extract now, the only cost being one more import edge. The rule for an owned monorepo isn't <em>"wait for N consumers"</em> — it's <em>"extract when the boundary is simple; don't when it would complect — regardless of count."</em></p>
+    </div>
+
+    <div class="pull">
+      kolu is <b>~80% thin domain-composition over good electricity</b>, not a tangle. The big extraction already happened — <code>surface</code> ate the hardest volatility (client↔server state) end-to-end. What remains is mostly <b>relocations and leaf-type packages</b>, two real <b>decompositions</b>, and a handful of bugs wearing an architecture costume. Exactly one candidate is clean, new electricity — and it isn't the one anyone guessed.
+    </div>
+  </div>
+</section>
+
+<!-- ============ HICKEY ============ -->
+<section id="hickey">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-num">03</span><h2>What's still braided</h2></div>
+    <p class="sec-sub">The accidental complexity is concentrated, not pervasive. Six themes recur — and one is the cheapest high-value fix in the whole repo.</p>
+
+    <div class="grid">
+      <div class="card" style="border-color: var(--violet);">
+        <h3>Creation implies activation <span class="flag top">biggest braid · cheapest fix</span></h3>
+        <p><code>handleCreate</code> unconditionally calls <code>store.setActiveSilently</code> — so "make a terminal" and "make it active" are welded. The only caller that wants creation <em>without</em> activation (session restore) must fight back with a documented <b>three-step protocol</b> braiding identity, create-order, and canvas-pan.</p>
+        <div class="braid">make terminal &nbsp;⊗&nbsp; select active &nbsp;⊗&nbsp; pan viewport &nbsp;⊗&nbsp; fire contextual tip</div>
+        <p class="ev"><b>ev</b> useTerminalCrud.ts:145 · useSessionRestore.ts:179-301 — the code's own comment admits the protocol <em>"collapses to step 2 alone the day handleCreate accepts an <code>activate:false</code> flag (TODO)."</em> One flag dissolves it.</p>
+      </div>
+
+      <div class="card">
+        <h3>Optimistic-local vs. server-echo, braided with identity + time</h3>
+        <p>A single value (a tile's rect; the active terminal) exists in <em>two</em> representations whose "which is true" is a function of time + an equality check — re-threaded by hand through canvas, session-restore, and CRUD. This is the mechanical seam behind the candidate the synthesis under-ranked (see §05).</p>
+        <div class="braid">local pending value &nbsp;⊗&nbsp; server-saved value &nbsp;⊗&nbsp; equality-gated reconcile &nbsp;⊗&nbsp; per-key lifecycle</div>
+        <p class="ev"><b>ev</b> usePendingLayouts.ts:86-106 <code>dropEvicted</code> · TerminalCanvas.tsx:136-156 <code>layoutOf</code> merges pending over saved.</p>
+      </div>
+
+      <div class="card">
+        <h3>God-procedures: every concern under one owner</h3>
+        <p>Independently-extractable blocks share one un-touchable unit, so touching one concern forces re-reading the whole web.</p>
+        <div class="braid">Terminal.tsx onMount — ~500 lines: xterm ctor ⊗ WebGL ⊗ mobile input ⊗ keyboard ⊗ PTY stream ⊗ resize ⊗ touch-scroll ⊗ upload ⊗ owner-restore</div>
+        <p class="ev"><b>ev</b> Terminal.tsx:443-950 · CodeTab.tsx (~800 lines, 5 mutually-aware reactive invariants) · App.tsx (~700) · index.ts (307-line boot, no app-factory seam).</p>
+      </div>
+
+      <div class="card">
+        <h3>One concept, expressed two+ ways — drifting apart</h3>
+        <p>The same idea hand-rolled repeatedly, free to diverge.</p>
+        <div class="braid">bounding-box accumulation ×5 · the Logger contract re-typed in 3 packages · ~9 structural-equality comparators · two parallel agent-state bucket enums (4-bucket vs 5-bucket) · <code>isStale</code>'s boundary written twice (<code>&gt;</code> vs <code>&gt;=</code>)</div>
+        <p class="ev"><b>ev</b> the <code>isStale</code> off-by-one is real, papered over only by forced call-ordering at staleness.ts:84.</p>
+      </div>
+
+      <div class="card">
+        <h3>The query that is secretly a command</h3>
+        <p>A "pure" signature that quietly mutates — load-bearing prose substituting for a clean seam.</p>
+        <div class="braid"><code>placeNew</code> documented as a pure-query shape, but MAY mutate siblings + dispatch RPCs before returning · <code>makeHooks</code> takes a <code>record</code> arg it discards (<code>_record</code>) for a hypothetical second host</div>
+        <p class="ev"><b>ev</b> TerminalCanvas.tsx:82-87 — the hidden side-effect contract lives in the comment, not the type.</p>
+      </div>
+
+      <div class="card">
+        <h3>Switch-on-type where data would do</h3>
+        <p>String-literal special-casing and <code>match()</code> ladders where a registry would let new cases register without editing the transport file.</p>
+        <div class="braid"><code>useShortcuts</code> special-cases two action ids by literal · router's <code>exportTranscriptHtml</code> hard-codes <code>match(agent).with(…)</code> where a <code>Record&lt;agentKind, loader&gt;</code> belongs</div>
+        <p class="ev"><b>ev</b> mechanism braided with policy: <code>screenshotTerminal</code> welds pure xterm-buffer→color decoding to kolu window-chrome/branding in one 210-line fn.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ LOWY ============ -->
+<section id="lowy">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-num">04</span><h2>The boundaries hold</h2></div>
+    <p class="sec-sub">A Lowy read of the module walls — where volatility is encapsulated, and where it has leaked or never finished encapsulating.</p>
+
+    <p class="lede">The gold-standard receptacles genuinely own their volatilities and rarely leak domain: <code>surface</code>'s <code>Cell</code>/<code>Collection</code> are id-opaque; <code>artifact-sdk</code>'s anchoring core speaks only <code>Range</code>/<code>Document</code>/<code>ShadowRoot</code>; the <code>terminalBackend</code> <code>location.kind</code> dispatch is ready for the SSH-host variant. Whole axes the brief flagged as commonly-missed — focus/keyboard-scope, persisted storage, <code>ResizeObserver</code>, toast (<em>deliberately</em> colocated per <code>toast-conventions.md</code>), URL/route state (doesn't exist in a single-page canvas app) — are <b>not</b> missing electricity. They're already plugged, often by leaning on Corvu and <code>@solid-primitives</code> rather than hand-rolling.</p>
+
+    <p>The remaining friction clusters in four named patterns, not a pervasive mess:</p>
+
+    <div class="grid">
+      <div class="card">
+        <h3>Mislocation, not duplication</h3>
+        <p>Genuinely agnostic primitives live under <em>feature folders</em> and get cross-imported — proof they outgrew their home. <code>walkShadowRoots</code> lives under <code>comments/</code> but <code>pierreTouchScroll</code> reaches across for it; <code>capturePointerGesture</code> is clean electricity trapped unexported in <code>canvas/viewport/</code>. The fix is a neutral folder wall, not new abstraction.</p>
+      </div>
+      <div class="card">
+        <h3>Leaf-package policy forces re-typing</h3>
+        <p><code>io</code> and <code>transcript-core</code> re-declare the canonical <code>Logger</code> privately to avoid depending on <code>kolu-shared</code>; <code>transcript-html</code> pulls the whole <code>kolu-common</code> domain package just to reach <code>escapeHtml</code>. The missing receptacle is a <em>zero-dep leaf</em> every package can import.</p>
+      </div>
+      <div class="card">
+        <h3>A baked-in concretion blocks reuse</h3>
+        <p><code>createDebounceWatcher</code> welds <code>Db extends Closable</code> into a generic debounce frame, so JSONL-tail and git watchers can't use it and re-hand-roll the loop. The file-watcher mechanism is extracted <b>twice into non-interoperating families</b> (WAL vs dir) plus three hand-rolls. Pull the DB out and one factory serves all sources.</p>
+      </div>
+      <div class="card">
+        <h3>Half-applied boundaries</h3>
+        <p>A docstring claims cross-surface reuse the code never delivers. <code>tileChrome</code> says its <code>color-mix</code> formula flows to workspace pills — those hand-roll different recipes and never import it. <code>useActivityAlerts</code> claims "all output channels live here" — <code>navigator.setAppBadge</code> stayed inline. Decomposition started, not finished.</p>
+      </div>
+    </div>
+
+    <p style="margin-top:24px" class="ev mono">Also flagged: <b>speculative seams</b> (premature Lowy) — <code>makeHooks</code>'s discarded <code>record</code> arg, <code>getTerminalBackendFor</code>'s no-op resolver stub, ChromeBar's right-panel-width invariant "maintained by convention across two files." Fine if the second case arrives; pure carrying-cost if it never does.</p>
+  </div>
+</section>
+
+<!-- ============ BACKLOG ============ -->
+<section id="backlog">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-num">05</span><h2>The full backlog, adjudicated</h2></div>
+    <p class="sec-sub">Every candidate with its adversarial verdict, the <em>verified</em> reuse count (call sites a skeptic actually opened), and the honest call. Sorted by what survives.</p>
+
+    <div class="legend">
+      <span><i class="dot green"></i> electricity — ship</span>
+      <span><i class="dot amber"></i> easy-not-simple — reshape</span>
+      <span><i class="dot rose"></i> would-complect / nothing to hide — wrong shape at any count</span>
+      <span><i class="dot slate"></i> clean, not yet load-bearing — your call</span>
+      <span><i class="dot blue"></i> already covered</span>
+    </div>
+
+    <table class="tbl">
+      <thead>
+        <tr><th>Candidate</th><th>Class</th><th>Verdict</th><th>agn / cc</th><th>reuse</th><th>The call</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="nm">persistedPref<span class="one">versioned, validate-on-read keyed localStorage wrapper</span></td>
+          <td class="cat">persistence</td>
+          <td><span class="vpill ship">electricity</span></td>
+          <td class="yn"><span class="y">✓</span>/<span class="y">✓</span></td>
+          <td class="reuse">5</td>
+          <td><b>The one clean win.</b> <code>makePersisted</code> has no validate-on-read / default-fallback / corruption-recovery, so 5 prefs hand-roll the guard 4 incompatible ways — and 2 (<code>zoom</code>, <code>canvas-maximized</code>) skip it entirely (real latent bugs: <code>Number(garbage)→NaN</code> font; any truthy string flips maximize). Thin policy layer adds what the off-the-shelf receptacle lacks. Ship the validate core; defer migration.</td>
+        </tr>
+        <tr>
+          <td class="nm">@kolu/fs-watch<span class="one">refcounted + debounced fs.watch, decoupled from the DB</span></td>
+          <td class="cat">server-infra</td>
+          <td><span class="vpill shape">easy-not-simple</span></td>
+          <td class="yn"><span class="y">✓</span>/<span class="y">✓</span></td>
+          <td class="reuse">12</td>
+          <td><b>Strongest server opportunity.</b> The refcount + debounce + fault-isolated fan-out triad recurs near-verbatim across 5 sites + 3 hand-rolls. But don't ship one flat factory — split: <b>L0</b> <code>refcountedWatcher({install, debounceMs})</code> (the genuine electricity — hides fs.watch vs parcel vs inode-rearm) + <b>L1</b> <code>gatedReader({subscribe, read, isEqual})</code> (today's <code>createDebounceWatcher</code>, DB-dropped).</td>
+        </tr>
+        <tr>
+          <td class="nm">@kolu/log<span class="one">zero-dep structured-logging contract</span></td>
+          <td class="cat">server-infra</td>
+          <td><span class="vpill shape">easy-not-simple</span></td>
+          <td class="yn"><span class="y">✓</span>/<span class="y">✓</span></td>
+          <td class="reuse">9</td>
+          <td><b>Pure boundary fix.</b> The 4-method <code>Logger</code> is already a clean, implementation-free type — but it lives in <code>kolu-shared</code>, so leaf packages re-type byte-identical private copies to stay zero-kolu-dep. Mint a zero-<em>runtime</em>-dep package holding only the type (no pino, no adapter). The copies collapse.</td>
+        </tr>
+        <tr>
+          <td class="nm">@kolu/html-escape<span class="one">zero-dep escapeHtml leaf</span></td>
+          <td class="cat">text</td>
+          <td><span class="vpill shape">easy-not-simple</span></td>
+          <td class="yn"><span class="y">✓</span>/<span class="y">✓</span></td>
+          <td class="reuse">5</td>
+          <td><b>Cuts a real braid.</b> 5 string-replaces — but app-agnostic appliances (<code>transcript-html</code>, <code>solid-markdown</code>) reach it via <code>kolu-common/html</code>, dragging the entire agent/git/contract tree (claude-agent-sdk, simple-git, parcel, orpc, zod) into their deps to call it. Ship the leaf.</td>
+        </tr>
+        <tr>
+          <td class="nm">@kolu/solid-dom<span class="one">browser-DOM "receptacle belt"</span></td>
+          <td class="cat">browser-dom</td>
+          <td><span class="vpill shape">easy-not-simple</span></td>
+          <td class="yn"><span class="y">✓</span>/<span class="y">✓</span></td>
+          <td class="reuse">16</td>
+          <td><b>Don't mint a grab-bag.</b> One belt bundles 4 <em>unrelated</em> volatilities (shadow-DOM, clipboard secure-context, iOS focus-trap, cross-OS keybind) behind one version — the by-function bundling Parnas warns against. Do the narrow moves: relocate <code>walkShadowRoots</code> (3 cross-folder consumers); inject <code>isMac</code> into the keybind-core instead of reading the userAgent singleton. All reuse is cross-<em>folder</em>, one client — below the cross-app bar.</td>
+        </tr>
+        <tr>
+          <td class="nm">capturePointerGesture<span class="one">press-drag-release + rAF point tween</span></td>
+          <td class="cat">browser-dom</td>
+          <td><span class="vpill shape">easy-not-simple</span></td>
+          <td class="yn"><span class="y">✓</span>/<span class="n">✗</span></td>
+          <td class="reuse">4</td>
+          <td><b>Export the gesture, defer the tween.</b> <code>capturePointerGesture</code> is clean (3 sites, zero domain leak — domain math stays consumer-side) — just lift it out of <code>canvas/viewport/</code>. <code>animatePan</code> has 1 consumer → defer; reach for <code>@solid-primitives/tween</code> if a 2nd appears (and <code>/media</code> already supplies the reduced-motion check it hand-rolls).</td>
+        </tr>
+        <tr>
+          <td class="nm">consumeAsyncIterable<span class="one">fenced stream→callback pump</span></td>
+          <td class="cat">reactive</td>
+          <td><span class="vpill shape">easy-not-simple</span></td>
+          <td class="yn"><span class="y">✓</span>/<span class="n">✗</span></td>
+          <td class="reuse">6</td>
+          <td><b>The braid won't move.</b> Drain body is agnostic, but the 3 sites use 3 incompatible "expected abort?" regimes (signal-state / error-shape / identity). A unifier must take <code>isExpectedAbort</code> as a <em>required</em> param → the load-bearing logic stays at the call site; the helper is just the trivial try/catch. Don't fold a per-event fence into surface's <code>Channel</code> (one consumer).</td>
+        </tr>
+        <tr>
+          <td class="nm">@kolu/solid-time<span class="one">now-ticker + formatTimeAgo + isStale</span></td>
+          <td class="cat">reactive</td>
+          <td><span class="vpill shape">easy-not-simple</span></td>
+          <td class="yn"><span class="n">✗</span>/<span class="n">✗</span></td>
+          <td class="reuse">8</td>
+          <td><b>Two clean, one domain-soaked.</b> <code>createClock()</code> + <code>formatTimeAgo()</code> are agnostic; <code>isStale(lastActivityAt,…)</code> is steeped in the activity-window domain (null = "show all"; zero = "never-observed → exempt"). Don't package <code>isStale</code> — <b>fix the off-by-one</b> (<code>&gt;</code> vs <code>&gt;=</code>, masked by call-ordering) in place.</td>
+        </tr>
+        <tr>
+          <td class="nm">@kolu/geometry<span class="one">2D rect / bbox / fit / transform vocabulary</span></td>
+          <td class="cat">layout</td>
+          <td><span class="vpill struct">moves the braid</span></td>
+          <td class="yn"><span class="n">✗</span>/<span class="n">✗</span></td>
+          <td class="reuse">8</td>
+          <td>Math is agnostic, but every site binds to <code>TileLayout = CanvasLayout</code> (a server-persisted domain type) → a <code>Rect</code> package re-adapts at every boundary (<em>moves</em> the braid). And "3 inverses of one transform" is false: viewport (pan+zoom) and minimap (bbox-origin+fit) are mathematically different. At most a canvas-local <code>rect.ts boundsOf()</code> (2 sites). No package.</td>
+        </tr>
+        <tr>
+          <td class="nm">@kolu/equality<span class="one">arrayEqual + nullableEqual combinators</span></td>
+          <td class="cat">structural</td>
+          <td><span class="vpill struct">no volatility</span></td>
+          <td class="yn"><span class="y">✓</span>/<span class="n">✗</span></td>
+          <td class="reuse">9</td>
+          <td>Agnostic but <b>no volatility</b> — <code>===</code>, <code>.length</code>, a for-loop are bedrock JS with zero churn. "Two literal copies of arrayEqual" is false (one def + one structurally-different loop). At most add <code>nullableEqual</code> to the existing <code>@kolu/nonempty</code>. The real encapsulated thing (snapshot-delta <code>isEqual</code>) already lives in <code>surface</code>.</td>
+        </tr>
+        <tr>
+          <td class="nm">@kolu/lineref<span class="one">path:line[-end] reference parse/format</span></td>
+          <td class="cat">text</td>
+          <td><span class="vpill notyet">clean · not yet</span></td>
+          <td class="yn"><span class="y">✓</span>/<span class="n">✗</span></td>
+          <td class="reuse">3</td>
+          <td>The parse/format half is genuinely agnostic (<code>ui/lineRef.ts</code> has zero imports) and the git-resolver is correctly left in-client. <b>No structural objection</b> — you own the call sites, so extract whenever it earns a home. Today only a <em>type</em> is shared across 3 sites, so a module beats a package; promote to one the day a second free-text surface (a log/chat pane) wants the grammar.</td>
+        </tr>
+        <tr>
+          <td class="nm">createRovingCursor<span class="one">keyboard selection over a reactive list/grid</span></td>
+          <td class="cat">reactive</td>
+          <td><span class="vpill struct">config-bag</span></td>
+          <td class="yn"><span class="y">✓</span>/<span class="n">✗</span></td>
+          <td class="reuse">2</td>
+          <td>The two cursors diverge on <em>every</em> axis (palette: positional-index, reset-to-0, 1D-wrap; grid: stable-id, preserve-on-reorder, 2D-no-wrap). Unifying = config-bag with more surface than the two call sites have code. Only honestly-shared sliver: <code>scrollIntoViewOnChange(key)</code>.</td>
+        </tr>
+        <tr>
+          <td class="nm">@kolu/static-serve<span class="one">path-safe file HTTP server</span></td>
+          <td class="cat">server-infra</td>
+          <td><span class="vpill notyet">clean · not yet</span></td>
+          <td class="yn"><span class="y">✓</span>/<span class="n">✗</span></td>
+          <td class="reuse">2</td>
+          <td>Signatures are clean. The only blocker is the kolu-URL constants + the test-enforced <code>BINARY_PREVIEWABLE_EXTENSIONS</code> invariant coupling it to <code>kolu-git</code> — <b>both also yours to move</b>, so this is "whenever you want the seam," not "can't." No structural objection; just no payoff at 1 caller yet.</td>
+        </tr>
+        <tr>
+          <td class="nm">@kolu/canvas-leak-ledger<span class="one">WebGL/canvas context-lifecycle observer</span></td>
+          <td class="cat">media</td>
+          <td><span class="vpill struct">leaks domain</span></td>
+          <td class="yn"><span class="n">✗</span>/<span class="n">✗</span></td>
+          <td class="reuse">3</td>
+          <td>Undersells the leak — <code>loseContext-called</code> event + <code>defaultPrevented</code> field + hardcoded <code>webgl2</code> are all xterm-WebglAddon internals, not GPU-generic. Stripping them guts the module's reason to exist. One producer, diagnostics-only (#591 frames it as temporary). Keep in <code>debug/</code>.</td>
+        </tr>
+        <tr>
+          <td class="nm">@kolu/solid-command-palette<span class="one">nested filter/value/body palette engine</span></td>
+          <td class="cat">reactive</td>
+          <td><span class="vpill struct">leaks domain</span></td>
+          <td class="yn"><span class="n">✗</span>/<span class="n">✗</span></td>
+          <td class="reuse">4</td>
+          <td>One mount in the whole repo. The engine carries 5 kolu couplings (SectionId, tips singleton, <code>Keybind</code> type, <code>ModalDialog</code>, a <code>PaletteBodyGroup</code> hole carved solely for <code>WorkspaceGrid</code>). The opaque data model is genuine craft; the engine isn't domain-clean. Do the SectionId un-braid only.</td>
+        </tr>
+        <tr>
+          <td class="nm">createSharedRoot<span class="one">lazy app-scoped reactive singleton</span></td>
+          <td class="cat">reactive</td>
+          <td><span class="vpill done">already covered</span></td>
+          <td class="yn"><span class="y">✓</span>/<span class="y">✓</span></td>
+          <td class="reuse">7</td>
+          <td>Already extracted, correct, 6 consumers — the only finding is it lives one folder too shallow. A file-move, not a discovery. (Community <code>createSingleton</code> is close but adds refcount auto-dispose = wrong behavior here.)</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ============ MISSED ============ -->
+<section id="missed">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-num">06</span><h2>What the synthesis missed</h2></div>
+    <p class="sec-sub">A completeness critic re-swept for cross-cutting electricity no single reader would own. It overrode the backlog twice — both in the file-watcher / optimistic-state neighborhood, which is exactly where the biggest braids live.</p>
+
+    <div class="missed">
+      <h3>★ optimisticOverlay — the candidate the backlog under-ranked to invisibility</h3>
+      <p>An <b>id-keyed optimistic-write-with-echo reconciliation primitive</b>. Parameterized only on an opaque id, a value type, an equality predicate, and a <code>saved(id)</code> reader — nothing terminal/canvas-shaped is intrinsic. <code>dropEvicted</code> garbage-collects a pending entry once the saved value catches up (or its key dies); a fine-grained <code>createStore</code> keeps per-key reactivity.</p>
+      <p>This is the mechanical core of the <b>single biggest remaining complecting theme</b> (§03) — the "optimistic local vs. server echo" need that recurs for any rename / reorder / comment-position. It's the natural neighbor of <code>surface</code>'s <code>Cell</code>/<code>Collection</code> reconcilers, which own server-reconcile but <em>not</em> optimistic-overlay-until-echo. Rate plausible-to-strong.</p>
+      <p class="ev mono"><b>ev</b> usePendingLayouts.ts:25-111 · consumers TerminalCanvas.tsx:136-156, useCanvasArrange.ts:54-63, useSessionRestore.ts:119. &nbsp; <b>note</b> strip the <code>window.__koluPendingApplyHistory</code> e2e ring buffer before extracting.</p>
+    </div>
+
+    <div class="missed" style="border-color: var(--amber);">
+      <h3 style="color:var(--amber)">installOnceFanOut — the watcher count is three+, not "twice"</h3>
+      <p>The <em>fan-out</em> half of <code>@kolu/fs-watch</code> — lazy-install-once-on-first-registrant, broadcast to N listeners inside a per-listener try/catch fence, snapshot-before-iterate — is independently re-expressed at least <b>three</b> times: <code>io/refcounted-dir-watcher</code>, <code>git/working-tree-watcher</code> (the family the backlog didn't enumerate), and <code>providers.ts</code>'s activations Map. It's the in-process broadcast cousin of <code>surface</code>'s <code>Channel</code> fan-out — and reinforces that the file-watcher zoo is the clearest "we wrote this 3+ times" smell in the codebase.</p>
+      <p class="ev mono"><b>ev</b> io/refcounted-dir-watcher.ts:76-110 · git/working-tree-watcher.ts:94-120 · providers.ts:320-347, 416-437.</p>
+    </div>
+
+    <p style="margin-top:22px" class="ev mono">The critic also pruned the backlog: <b>canvas-leak-ledger</b>, <b>command-palette</b>, <b>persistedPref's migration half</b>, and <b>createSharedRoot</b>'s "promotion" were flagged as padding or YAGNI — already reflected in the verdicts above.</p>
+  </div>
+</section>
+
+<!-- ============ WHAT TO DO ============ -->
+<section id="do">
+  <div class="wrap">
+    <div class="sec-head"><span class="sec-num">07</span><h2>What to actually do</h2></div>
+    <p class="sec-sub"><b>The "ship now" tier has landed in <a href="https://github.com/juspay/kolu/pull/1089">#1089</a></b> (first tier below). What remains, ordered by confidence-per-effort: two real decompositions, a few in-place fixes, then the don't-build / your-call backlog — the last two split on whether the objection is structural (stands) or merely temporal (your call).</p>
+
+    <div class="tiers">
+      <div class="tier ship">
+        <div class="tier-h"><span class="tag">✓ shipped · #1089</span><h3>Landed — the genuine receptacle, two leaf packages, the relocations</h3></div>
+        <div class="tier-b">
+          <ul>
+            <li><b>persistedPref</b> ✓ — validate-on-read receptacle over <code>makePersisted</code>, applied to all 5 prefs; <b>closed the <code>zoom</code> <code>NaN</code> and <code>maximize</code> "false"-truthy bugs</b>. Review tightened <code>parse</code> to single-mode (always throw on invalid) so <code>onInvalid</code> can't be silently bypassed.</li>
+            <li><b>@kolu/log</b> + <b>@kolu/html-escape</b> ✓ — zero-dep leaf packages. <code>io</code> + <code>transcript-core</code> stopped re-typing <code>Logger</code> (<code>kolu-shared</code> re-exports), and <code>transcript-html</code> dropped its <code>kolu-common</code> dependency entirely.</li>
+            <li><b>Relocations</b> ✓ — <code>walkShadowRoots</code> → neutral <code>dom/</code>; <code>isMac</code> made injectable in the keybind-core. <em><code>capturePointerGesture</code> turned out to already be an exported, reused module — a no-op, flagged honestly rather than invented work.</em></li>
+            <li class="ev mono" style="color:var(--ink-mute); border:none;">In-PR follow-ups: single-pass <code>escapeHtml</code> (police), the boolean serialize/parse contract documented (lowy cross-validate), and a <code>default.nix</code> src-fileset fix CI caught — the new package dirs weren't in the curated allowlist, which <code>just check</code> can't see.</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="tier decomp">
+        <div class="tier-h"><span class="tag">next ▸ decompose</span><h3>Real need — reshape into the right seam, not a grab-bag</h3></div>
+        <div class="tier-b">
+          <ul>
+            <li><b>fs-watch → two layers</b> — <code>refcountedWatcher</code> (L0, hides the watch backend) + <code>gatedReader</code> (L1, DB-decoupled). The clearest server-side "wrote it thrice" smell; folds in <code>installOnceFanOut</code>.</li>
+            <li><b>optimisticOverlay</b> — the missed primitive. Extract the <code>dropEvicted</code> reconciler next to <code>surface</code>'s Cell/Collection. It dissolves the costliest client braid and serves every future rename/reorder/comment-position.</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="tier fix">
+        <div class="tier-h"><span class="tag">fix in place</span><h3>A bug or a braid wearing an architecture costume</h3></div>
+        <div class="tier-b">
+          <ul>
+            <li><b>Add <code>handleCreate(…, {activate:false})</code></b> — the single cheapest high-value change in the report. It collapses the 3-step session-restore protocol to one step and un-welds creation from activation.</li>
+            <li><b>Collapse the <code>isStale</code> off-by-one</b> (<code>&gt;</code> vs <code>&gt;=</code>) — a one-file Hickey fix, not an extraction.</li>
+            <li><b>Break up the god-procedures</b> — <code>Terminal.tsx</code> onMount, <code>CodeTab.tsx</code>, <code>index.ts</code> boot. Pure organization; each block is already independently extractable.</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="tier struct">
+        <div class="tier-h"><span class="tag">don't build — at any count</span><h3>Wrong shape regardless of how many of your apps consume it</h3></div>
+        <div class="tier-b">
+          <ul>
+            <li><b>geometry · canvas-leak-ledger · command-palette extraction</b> — the interface can't shed the domain: a <code>Rect</code> package re-adapts a <code>CanvasLayout</code> at every boundary; the leak-ledger's vocabulary <em>is</em> xterm-addon internals; the palette engine bakes in five kolu couplings. Extracting <b>moves the braid</b>, it doesn't dissolve it — and owning the call sites doesn't change a structural fact.</li>
+            <li><b>createRovingCursor</b> — would <b>complect</b> two genuinely different selection policies (index/reset vs id/preserve, 1D vs 2D) behind a config-bag carrying more surface than the two call sites have code. Two ~15-line local cursors are simpler than one knob-laden primitive, at 2 consumers or 200.</li>
+            <li><b>@kolu/equality</b> — <b>nothing to hide</b>: <code>===</code> / <code>.length</code> / a for-loop have zero churn, so there's no volatility to encapsulate. At most fold <code>nullableEqual</code> into the existing <code>@kolu/nonempty</code>.</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="tier no">
+        <div class="tier-h"><span class="tag">your call — clean, not yet</span><h3>No structural objection — extract whenever, it's cheap because you own everything</h3></div>
+        <div class="tier-b">
+          <ul>
+            <li><b>@kolu/lineref</b> — agnostic, zero-import parse/format; today only a <em>type</em> is shared, so a module beats a package. Promote when a second free-text surface wants the grammar.</li>
+            <li><b>@kolu/static-serve</b> — clean signatures; the only blocker is the kolu-URL / kolu-git invariant coupling, also yours to move. No payoff at one caller, but no reason you <em>can't</em> the day a second file route appears.</li>
+            <li class="ev mono" style="color:var(--ink-mute); border:none;">Both are "extract on the rule-of-three if you like" — but since reversal is a single atomic commit here, even that heuristic is optional. Don't extract for its own sake; do it when a real second consumer makes the seam pull its weight.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="pull" style="margin-top:34px">
+      The "prefer external libraries" rule is already paying off: <b>Corvu and @solid-primitives quietly own most of the browser-API volatility</b> a less disciplined codebase would have hand-rolled into a dozen bespoke spots. With the validated-storage receptacle and the two leaf-type packages now <b>shipped in #1089</b>, the remaining electricity is just <b>two real decompositions (fs-watch, optimisticOverlay) and a flag named <code>activate</code></b>.
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <h2>Methodology</h2>
+    <div class="mono-meta">
+      41 agents · 2.55M tokens · 839 tool calls · ~15 min wall-clock<br/>
+      15 subsystem readers (Hickey + Lowy, evidence-gated by <code>file:line</code>)<br/>
+      8 cross-cutting sweeps (browser-DOM · popover · persistence · reactive · geometry · color · text-anchoring · snapshot-delta)<br/>
+      1 synthesizer → dedup + rank → 16 candidates<br/>
+      16 adversarial verifiers (each told to <em>refute</em> by opening real call sites) + 1 completeness critic<br/>
+      <br/>
+      Grounded against Juval Lowy, <em>Righting Software</em> (the "electricity" receptacle metaphor) and Rich Hickey, <em>Simple Made Easy</em> (complecting vs. one-fold simplicity).<br/>
+      Reference: informit.com/articles/article.aspx?p=2995357 · Parnas 1972, "On the Criteria To Be Used in Decomposing Systems into Modules."
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>

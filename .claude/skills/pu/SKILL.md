@@ -1,7 +1,7 @@
 ---
 name: pu
 description: >-
-  Provision and drive an ephemeral `pu` box — a throwaway Incus container used as
+  Provision and drive a `pu` box — an Incus container used as
   a clean Linux host for CI, builds, and evidence capture. Use when you need to
   run something on a fresh remote box instead of the user's machine: `nix run` a
   build, run CI against a real host, capture screenshots/video off-machine, or
@@ -11,17 +11,18 @@ description: >-
   "pu create/connect/destroy".
 ---
 
-# pu — ephemeral Incus boxes
+# pu — on-demand Incus boxes
 
-`pu` hands out throwaway Linux containers. Each box is a clean NixOS host with Nix
+`pu` hands out Linux containers. Each box is a clean NixOS host with Nix
 + flakes, reachable over SSH through `pu`'s own proxy. Use one whenever work should
 run **off the user's machine** — a CI run, a `nix run` build, evidence capture —
-so nothing local is at risk and the environment is reproducible.
+so nothing local is at risk and the environment is reproducible. A box can be short-lived
+(spin up, use, `destroy`) or kept around long-term — the lifetime is yours to choose.
 
 ## Lifecycle
 
 ```sh
-pu create "$host"          # create; writes ~/.pu-state/$host/ssh_config (included by ~/.ssh/config)
+pu create "$host"          # create; writes ~/.pu-state/$host/ssh_config
 pu list                    # NAME + LOCATION (the physical host it landed on)
 pu connect "$host"         # interactive ssh
 pu connect "$host" -- CMD  # run CMD on the box and return
@@ -29,6 +30,11 @@ pu destroy "$host"         # tear down — always do this when finished
 ```
 
 Name is positional. Pick a descriptive, collision-free name (e.g. `app-pr-42-evidence`).
+
+`pu connect` is the reliable way in — it reads `~/.pu-state/$host/ssh_config` itself, so it
+needs no setup. Bare `ssh "$host"` works **only** if you've added `Include
+~/.pu-state/*/ssh_config` to `~/.ssh/config` (optional, often not set up); otherwise use
+`pu connect`, or pass the config explicitly: `ssh -F ~/.pu-state/$host/ssh_config "$host"`.
 
 ## Run commands on the box
 

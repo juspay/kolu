@@ -123,6 +123,40 @@ describe("formatKeybind (non-mac)", () => {
   });
 });
 
+describe("platform injection (isMac param overrides the detected platform)", () => {
+  // The module mock pins the *detected* platform to non-mac; these pass
+  // `isMac` explicitly to prove the keybind-core is a pure function of
+  // platform, not a reader of the `userAgent` singleton.
+  it("formatKeybind renders macOS glyphs when isMac=true", () => {
+    expect(formatKeybind({ key: "k", mod: true }, true)).toBe("⌘K");
+    expect(formatKeybind({ key: "]", mod: true, shift: true }, true)).toBe(
+      "⌘⇧]",
+    );
+    expect(formatKeybind({ key: "Tab", ctrl: true }, true)).toBe("⌃Tab");
+  });
+
+  it("formatKeybind still renders Ctrl when isMac=false", () => {
+    expect(formatKeybind({ key: "k", mod: true }, false)).toBe("Ctrl+K");
+  });
+
+  it("matchesKeybind reads metaKey for mod when isMac=true", () => {
+    const kb: Keybind = { key: "t", mod: true };
+    expect(
+      matchesKeybind(makeEvent({ key: "t", metaKey: true }), kb, true),
+    ).toBe(true);
+    // Physical Ctrl no longer satisfies a `mod` chord on mac.
+    expect(
+      matchesKeybind(makeEvent({ key: "t", ctrlKey: true }), kb, true),
+    ).toBe(false);
+  });
+
+  it("keybindAsEvent targets metaKey for mod when isMac=true", () => {
+    const ev = keybindAsEvent({ key: "k", mod: true }, true);
+    expect(ev.metaKey).toBe(true);
+    expect(ev.ctrlKey).toBe(false);
+  });
+});
+
 describe("matchesAnyShortcut", () => {
   it("matches Alt+Tab", () => {
     expect(

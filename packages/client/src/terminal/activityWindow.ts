@@ -13,8 +13,7 @@
  *  first under the bundler's resolution order. */
 export const HOUR_MS = 60 * 60 * 1000;
 
-import { makePersisted } from "@solid-primitives/storage";
-import { createSignal } from "solid-js";
+import { persistedPref } from "../persistedPref";
 
 export type ActivityWindow = "all" | "4h" | "12h" | "24h" | "48h";
 
@@ -86,15 +85,15 @@ export const DEFAULT_ACTIVITY_WINDOW: ActivityWindow = "24h";
  *  store consumed by every surface that filters by staleness (dock,
  *  minimap, tile fade, badge gate). Localstorage-backed via makePersisted
  *  so the same setter from any surface updates every reader. */
-export const [activityWindow, setActivityWindow] = makePersisted(
-  createSignal<ActivityWindow>(DEFAULT_ACTIVITY_WINDOW),
-  {
+export const [activityWindow, setActivityWindow] =
+  persistedPref<ActivityWindow>({
     name: "kolu-activity-window",
-    serialize: (v) => v,
-    deserialize: (raw): ActivityWindow =>
-      isActivityWindow(raw) ? raw : DEFAULT_ACTIVITY_WINDOW,
-  },
-);
+    fallback: DEFAULT_ACTIVITY_WINDOW,
+    parse: (raw) => {
+      if (isActivityWindow(raw)) return raw;
+      throw new Error(`unrecognized activity window: ${raw}`);
+    },
+  });
 
 /** Reactive threshold (ms) for the currently-selected activity window.
  *  `null` when the user picked `"all"` — staleness is disabled. */
