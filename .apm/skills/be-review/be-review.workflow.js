@@ -276,7 +276,7 @@ async function policeTrack(wt) {
     const files = impl?.filesChanged ?? []
     let sha = null
     if (commit && files.length) {
-      sha = (await commitFix(wt, f.id, `fix(police): ${f.title}`, `${impl.summary}\n\ncode-police ${f.pass} finding ${f.id} [${f.severity}]. Applied by the /be parallel gauntlet; not pushed or merged.`, files) || '').trim()
+      sha = (await commitFix(wt, f.id, `fix(police): ${f.title}`, `${impl.summary}\n\ncode-police ${f.pass} finding ${f.id} [${f.severity}]. Applied by the /be parallel gauntlet; not pushed or merged.`, files))?.sha?.trim() || null
     }
     applied.push({ id: f.id, title: f.title, severity: f.severity, files, commit: sha })
     log(`police: applied ${f.id}${sha ? ` (${sha.slice(0, 9)})` : ' (uncommitted)'}`)
@@ -301,7 +301,16 @@ ${message}
 
 3. Run: \`git -C ${wt} add -- ${fileArgs} && git -C ${wt} commit -F ${msgPath}\`. Stage ONLY those files; do NOT use \`git add -A\`/\`git add .\`.
 4. Return the new commit SHA from \`git -C ${wt} rev-parse HEAD\`. Do NOT push.`
-  return agent(prompt, { label: `police-commit:${id}`, phase: 'Tracks' })
+  return agent(prompt, {
+    label: `police-commit:${id}`,
+    phase: 'Tracks',
+    schema: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['sha'],
+      properties: { sha: { type: 'string', description: 'the new HEAD commit SHA, hex only' } },
+    },
+  })
 }
 
 // One thunk per live track. codex and lens are existing repoPath-parameterized
