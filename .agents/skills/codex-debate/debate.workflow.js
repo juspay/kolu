@@ -50,6 +50,10 @@ const CODEX_VERDICT_SCHEMA = {
     summary: { type: 'string' },
     findings: { type: 'array', items: FINDING },
     responseToRebuttal: { type: 'string' },
+    // Set by scripts/codex-review.sh ONLY when codex itself failed to produce a
+    // verdict (broken/unavailable reviewer). It is the machine-detectable fatal
+    // signal the loop aborts on — infrastructure failure, not a debate outcome.
+    reviewerError: { type: 'boolean' },
   },
   required: ['approved', 'summary', 'findings', 'responseToRebuttal'],
 }
@@ -198,7 +202,11 @@ ${message}
 }
 
 const transcript = []
-const status = 'consensus' // the ONLY way this loop ends
+// 'consensus' is the only NORMAL terminus. 'reviewer-error' is the one abnormal
+// terminus: codex itself failed to produce a verdict (broken/unavailable). That
+// is infrastructure failure, not a debate outcome, so it ends the loop too —
+// distinct from the deliberate "no deadlock exit" for substantive disagreement.
+let status = 'consensus'
 let finalVerdict = null
 let lastClaude = null
 
@@ -218,10 +226,22 @@ for (let round = 1; ; round++) {
   finalVerdict = verdict
   const entry = { round, codex: verdict, claude: null }
   transcript.push(entry) // record this round (mutated in place as it progresses)
+  // Reviewer error — terminal failure path. The runner could not get a verdict
+  // out of codex (broken/unavailable CLI), so codex-review.sh synthesized an
+  // error verdict carrying reviewerError:true. There are no findings to route to
+  // Claude, and retrying a broken reviewer just spins forever, so abort the
+  // debate and surface the failure. This is deliberately separate from the
+  // "no deadlock exit" rule, which only governs substantive disagreement.
+  if (verdict.reviewerError) {
+    status = 'reviewer-error'
+    log(`Round ${round}: reviewer error — aborting debate. ${verdict.summary}`)
+    break
+  }
+
   const blocking = blockingOpen(verdict)
   log(`Round ${round}: codex approved=${verdict.approved}, blocking/major open=${blocking.length}`)
 
-  // Consensus — the only exit: codex is satisfied and nothing blocking/major
+  // Consensus — the normal exit: codex is satisfied and nothing blocking/major
   // remains open.
   if (verdict.approved && blocking.length === 0) {
     break

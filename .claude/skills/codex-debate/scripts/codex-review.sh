@@ -126,13 +126,18 @@ fi
 
 if [ ! -s "$out" ]; then
   # codex produced no verdict — synthesize a schema-valid error verdict so the
-  # debate loop can surface the failure instead of hanging.
+  # debate loop can surface the failure instead of hanging. The reviewerError
+  # flag is the machine-detectable signal the workflow uses to abort with a
+  # terminal failure: a broken/unavailable codex is INFRASTRUCTURE failure, not
+  # substantive disagreement, so it must NOT be routed to Claude (there are no
+  # findings to act on) and must NOT spin the loop forever.
   tail_log="$(tail -c 2000 "$log" 2>/dev/null || true)"
   jq -n --arg log "$tail_log" '{
     approved: false,
     summary: ("codex produced no verdict this round. Tail of log: " + $log),
     findings: [],
-    responseToRebuttal: ""
+    responseToRebuttal: "",
+    reviewerError: true
   }' >"$out"
 fi
 

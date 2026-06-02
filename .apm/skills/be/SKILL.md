@@ -55,6 +55,6 @@ Run **in order** — each surfaces different defects, each posts its findings to
 
 ## Done
 
-Report the PR URL, the outcome of each review (codex consensus/deadlock, lens-debate consensus, findings actioned), and CI status. Never merge — the human reviews the per-step commits and merges when satisfied.
+Report the PR URL, the outcome of each review (codex consensus or reviewer-error, lens-debate consensus, findings actioned), and CI status. Never merge — the human reviews the per-step commits and merges when satisfied.
 
 ARGUMENTS: $ARGUMENTS
