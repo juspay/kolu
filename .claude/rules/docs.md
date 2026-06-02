@@ -9,4 +9,4 @@ paths:
 
 - Prefer flat, ancestry-free slugs (`pty-daemon-tui.html`) over dotted names (`remote-terminals.pty-daemon.tui.html`).
 - New design/research docs are `.html` in the repo's house style (light "paper" palette), so they render and annotate inside kolu's own Code tab.
-- The taxonomy (what lives in `docs/` vs the `hk` issue zettelkasten vs the blog) and the rationale for all of the above live in `docs/plans/second-brain.html`.
+- The taxonomy (what lives in `docs/` vs GitHub Issues vs the blog) and the rationale live in `docs/plans/second-brain.html`.

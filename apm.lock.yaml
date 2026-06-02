@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-06-02T01:51:57.471954+00:00'
+generated_at: '2026-06-02T15:30:15.297715+00:00'
 apm_version: 0.16.1
 dependencies:
 - repo_url: anthropics/skills
@@ -149,7 +149,7 @@ local_deployed_file_hashes:
   .claude/rules/apm-workflow.md: sha256:16f4fed3d8fe9b1e334444b8885443c2ac26963270d3df0f3505075cc3bd604d
   .claude/rules/architecture.md: sha256:0f47ba876432c25a2cd54e3ed7995e8bbbb8b383fe3b790b0b3e252949c18032
   .claude/rules/conventions.md: sha256:c9f6ab7de674fb0da8b3d29f0e188db0cb67f96df774e270848b18323a12760b
-  .claude/rules/docs.md: sha256:0197d7a155e01b78b6c74c8596ca8285b9c038c6cd9c269d8dfdb3e9b4edff88
+  .claude/rules/docs.md: sha256:ebd15fad995e898b0f268d9b4a8b649a1b5c2ca93091a595de7b2f47a5a46c4c
   .claude/rules/e2e-testing.md: sha256:ecac44a197b0e2f73f2a85fc1b79e21b6ef1670275de0a9debdd54de1848f0af
   .claude/rules/nix.md: sha256:1ac0f3738deafba04c3af189c863990809999021f4e9d0e6b38969ec1460acf3
   .claude/rules/solidjs.md: sha256:a5cfe688d4399be719565de823ccacec874b9d2faa01d29897a7b40de1f49367
