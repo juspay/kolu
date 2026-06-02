@@ -78,6 +78,17 @@ let updateServiceWorker: ((reloadPage?: boolean) => Promise<void>) | undefined;
  *  poke it on demand. `undefined` until registration resolves. */
 let registration: ServiceWorkerRegistration | undefined;
 
+/** Dev-only: unregister any stale production service worker. A worker left over
+ *  from a prod build would intercept dev-server requests and serve cached assets
+ *  indefinitely, so we tear it down rather than register one. Guarded on
+ *  `serviceWorkerSupported` so it stays inert on plain HTTP/LAN. */
+export function unregisterStaleServiceWorkers(): void {
+  if (!serviceWorkerSupported) return;
+  void navigator.serviceWorker.getRegistrations().then((registrations) => {
+    for (const r of registrations) r.unregister();
+  });
+}
+
 /** Register the service worker and wire update detection. Call once at
  *  startup. No-op in dev: with `devOptions` disabled, `virtual:pwa-register`
  *  resolves to a stub whose `registerSW` does nothing. */
