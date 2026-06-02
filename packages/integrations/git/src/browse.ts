@@ -32,7 +32,7 @@ async function gitLsFiles(
     return ok(paths);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
-    log?.error({ err: e, repoPath }, "git ls-files failed");
+    log?.error({ err: msg, repoPath }, "git ls-files failed");
     return err({ code: "GIT_FAILED", message: `${failMsg}: ${msg}` });
   }
 }
