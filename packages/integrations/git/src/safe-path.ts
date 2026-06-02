@@ -72,6 +72,10 @@ export async function assertRealpathUnder(
   try {
     [realRoot, realAbs] = await Promise.all([realpath(root), realpath(abs)]);
   } catch {
+    // realpath failed (ENOENT / EACCES / ELOOP): there is no resolvable
+    // on-disk file to leak, and the caller's own read/stat faces the
+    // identical kernel checks, so it reproduces the same errno. Fail open
+    // rather than mask a 404/permission error as a path escape (see JSDoc).
     return ok(undefined);
   }
   const rel = path.relative(realRoot, realAbs);
