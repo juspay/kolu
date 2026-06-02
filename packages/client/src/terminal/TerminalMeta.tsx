@@ -54,10 +54,12 @@ const TerminalMeta: Component<{
           <div class="flex items-center gap-1.5 min-h-7 text-sm font-medium min-w-0">
             {/* Leading agent-state pip — the same shape-distinct StatePip
              *  the dock row leads with (spinning ring = working, dot =
-             *  awaiting), reused verbatim so the title bar and the dock
-             *  speak one agent-state vocabulary. Gated on an agent being
-             *  present: plain shells get no pip (and no leading gap),
-             *  matching the dock's quiet rows. */}
+             *  awaiting), reused verbatim so a working/awaiting agent
+             *  reads identically in the title and the dock. Gated on a
+             *  live agent: when none is attached the title shows no pip
+             *  (exactly as its agent-kind indicator vanishes when the
+             *  session ends), leaving the dock's idle/parked triage
+             *  states — which fold in recency/staleness — dock-only. */}
             <Show when={info().meta.agent}>
               {(agent) => (
                 <StatePip bucket={agentBucket(agent())} unread={props.unread} />
