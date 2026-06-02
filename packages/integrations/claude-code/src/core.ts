@@ -20,6 +20,7 @@
  * barrel simultaneously.
  */
 
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -744,6 +745,120 @@ export function nextWorkflowStaleDeadline(
     if (earliest === null || deadline < earliest) earliest = deadline;
   }
   return earliest;
+}
+
+// --- Phantom transient de-escalation (#1017) ---
+//
+// A trailing transient transcript state — `thinking` (the newest entry is a
+// `user` line) or a dangling `tool_use` (an assistant tool call with no
+// following `tool_result`) — keeps `deriveState` reporting a *working* state
+// indefinitely. That is correct while a turn is genuinely in flight, but wrong
+// once the session is abandoned (most reliably: claude killed mid-tool, then
+// resumed idle by session-restore) — the dock then spins a "running" pill
+// forever. A genuine in-flight turn and an abandoned one are
+// transcript-indistinguishable from a single snapshot, so two out-of-band
+// signals settle it: the transcript has gone quiet past a window, AND claude's
+// process subtree is idle. Sibling of the `running_background` decay (#1109),
+// which handles the `end_turn`-promotion half on its own workflow-journal
+// signal; the two states are disjoint, so the paths never overlap.
+
+/** How long the transcript may sit unwritten before a trailing transient state
+ *  (`thinking` / dangling `tool_use`) becomes eligible to decay to `waiting`.
+ *  A live turn writes the transcript as it streams tool calls and replies, so a
+ *  multi-minute gap with an idle subtree means the turn was abandoned. Mirrors
+ *  `WORKFLOW_JOURNAL_STALE_MS` (2 min) — the same "quiet long enough to be sure"
+ *  threshold as the sibling decay. A false positive self-heals: the next
+ *  transcript write fires the watcher and re-derives the true state. */
+export const TRANSIENT_STALE_MS = 2 * 60 * 1000;
+
+/** One process-table row: a pid and its parent pid. */
+export interface ProcEntry {
+  pid: number;
+  ppid: number;
+}
+
+/** Snapshot every live process's pid→ppid in a single `ps` call. The invocation
+ *  (`ps -A -o pid=,ppid=`) is portable across Linux procps and macOS/BSD ps.
+ *  Returns null when ps is unavailable or errors — callers treat null as "can't
+ *  tell" and must NOT de-escalate, so a probe failure never clears a genuinely
+ *  working pill. Synchronous: it runs only on the (rare) stale-transient
+ *  recheck, never the hot transcript-event path, so the brief event-loop block
+ *  is acceptable and keeps the watcher's control flow non-async. */
+export function snapshotProcessTree(): ProcEntry[] | null {
+  let out: string;
+  try {
+    out = execFileSync("ps", ["-A", "-o", "pid=,ppid="], {
+      encoding: "utf8",
+      timeout: 2_000,
+      maxBuffer: 16 * 1024 * 1024,
+    });
+  } catch {
+    return null;
+  }
+  const procs: ProcEntry[] = [];
+  for (const line of out.split("\n")) {
+    const m = /^\s*(\d+)\s+(\d+)\s*$/.exec(line);
+    if (m) procs.push({ pid: Number(m[1]), ppid: Number(m[2]) });
+  }
+  return procs;
+}
+
+/** True when no process in `procs` is a descendant of `pid`. A descendant set
+ *  is non-empty iff `pid` has at least one direct child, so only direct
+ *  parentage need be tested. The #1017 discriminator: a genuinely-working
+ *  claude keeps at least one descendant (the Bash child it spawned, or a
+ *  sub-agent claude); an abandoned / killed-then-resumed-idle claude has none
+ *  (and a dead pid trivially has none). Pure — `procs` is injected. */
+export function hasNoDescendants(pid: number, procs: ProcEntry[]): boolean {
+  return !procs.some((p) => p.ppid === pid);
+}
+
+/** Whether claude's process subtree shows no live work — detected as the
+ *  absence of any descendant process (see `hasNoDescendants`). Returns false
+ *  ("assume working") when the process table can't be sampled, so a probe
+ *  failure never clears a genuinely-working pill.
+ *
+ *  CPU is deliberately not consulted: `ps` reports a lifetime/decaying CPU
+ *  average, not an instantaneous one, so it is not a reliable "busy right now"
+ *  signal portably, while the descendant test is the clean discriminator the
+ *  issue verified across live sessions. The only case it misses — claude itself
+ *  CPU-bound in-process with no child and a quiet transcript — is vanishingly
+ *  rare (claude's tools spawn children or do IO) and self-heals on the next
+ *  transcript write. */
+export function isClaudeSubtreeIdle(pid: number): boolean {
+  const procs = snapshotProcessTree();
+  if (procs === null) return false;
+  return hasNoDescendants(pid, procs);
+}
+
+/** Decide the state to publish for a trailing transient, and when (if ever) to
+ *  re-probe. Pure policy: the caller supplies how long the transcript has been
+ *  quiet and a subtree-idle probe, invoked only once the quiet window has
+ *  elapsed so the real `ps` spawn stays off the common path.
+ *
+ *   - not a decayable transient (`thinking`/`tool_use`) → unchanged, no recheck.
+ *   - not yet stale → unchanged; arm a recheck at the moment it would go stale
+ *     (a quiet transcript fires no fs event, so the watcher needs a timer).
+ *   - stale + subtree idle → decay to `waiting` (the phantom is settled).
+ *   - stale + subtree busy → genuine long-running work; keep it and re-probe
+ *     after another window (the work may yet end silently with no further write).
+ */
+export function decayTransientState(
+  state: ClaudeCodeInfo["state"],
+  quietMs: number,
+  probeSubtreeIdle: () => boolean,
+  staleMs: number = TRANSIENT_STALE_MS,
+): { state: ClaudeCodeInfo["state"]; recheckInMs: number | null } {
+  if (state !== "thinking" && state !== "tool_use") {
+    return { state, recheckInMs: null };
+  }
+  if (quietMs < staleMs) {
+    return { state, recheckInMs: staleMs - quietMs };
+  }
+  if (probeSubtreeIdle()) {
+    return { state: "waiting", recheckInMs: null };
+  }
+  return { state, recheckInMs: staleMs };
 }
 
 /** Sum the three input-side token counters that together represent what
