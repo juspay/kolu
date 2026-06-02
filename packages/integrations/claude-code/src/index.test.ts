@@ -1124,6 +1124,42 @@ describe("deriveWorkflowProgress", () => {
     ).toEqual({ name: "workflow", status: "running", agents: 4 });
   });
 
+  it("derives the real workflow name from the persisted script during a live run (#1123)", () => {
+    // A live run has no completion snapshot, but the launch-time script
+    // `workflows/scripts/<name>-<runId>.js` carries the user-visible name — the
+    // tile badge/inspector must show it, not a hard-coded "workflow".
+    const live = path.join(
+      tmpDir,
+      encodeProjectPath(cwd),
+      sessionId,
+      "subagents",
+      "workflows",
+      "wf_named",
+    );
+    fs.mkdirSync(live, { recursive: true });
+    fs.writeFileSync(
+      path.join(live, "journal.jsonl"),
+      JSON.stringify({ type: "started", agentId: "a0" }),
+    );
+    const scriptsDir = path.join(
+      tmpDir,
+      encodeProjectPath(cwd),
+      sessionId,
+      "workflows",
+      "scripts",
+    );
+    fs.mkdirSync(scriptsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(scriptsDir, "deep-research-wf_named.js"),
+      "// script body\n",
+    );
+    expect(
+      deriveWorkflowProgressFn(session(), [
+        { taskId: "t1", runId: "wf_named" },
+      ]),
+    ).toEqual({ name: "deep-research", status: "running", agents: 1 });
+  });
+
   it("returns null for a task with no run ID (plain background task)", () => {
     expect(
       deriveWorkflowProgressFn(session(), [{ taskId: "t1", runId: null }]),

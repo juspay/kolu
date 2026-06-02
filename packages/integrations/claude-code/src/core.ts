@@ -635,6 +635,30 @@ export function liveWorkflowRunDir(
   return path.join(liveWorkflowsRootFor(session), runId);
 }
 
+/** The real workflow name of a live run, resolved from its persisted script
+ *  `<session>/workflows/scripts/<name>-<runId>.js` (the verified runtime layout
+ *  carries `meta.name` there, and the `<name>-<runId>.js` filename mirrors it).
+ *  During a live run only the completion snapshot carries the name as JSON, so
+ *  the script filename — written at launch — is the one on-disk source of the
+ *  user-visible workflow identity before completion. Returns null when no script
+ *  matching this `runId` exists (then callers keep a neutral fallback). */
+function liveWorkflowName(session: SessionFile, runId: string): string | null {
+  const scriptsDir = path.join(workflowsDirFor(session), "scripts");
+  let names: string[];
+  try {
+    names = fs.readdirSync(scriptsDir);
+  } catch {
+    return null;
+  }
+  const suffix = `-${runId}.js`;
+  for (const name of names) {
+    if (name.endsWith(suffix) && name.length > suffix.length) {
+      return name.slice(0, -suffix.length);
+    }
+  }
+  return null;
+}
+
 /** Number of sub-agents spawned so far in a live run — one `started` event per
  *  sub-agent in `journal.jsonl`. Null when the journal can't be read. */
 function liveAgentCount(runDir: string): number | null {
@@ -709,10 +733,13 @@ function observeWorkflowRun(
   const anchorMs = newestFileMtimeMs(runDir);
   const agents = liveAgentCount(runDir);
   if (agents !== null) {
-    // `name` is not on disk during a live run (only the completion snapshot
-    // carries it), so surface a neutral label until the snapshot lands.
+    // The completion snapshot carries the name as JSON only at the end; during
+    // the run the persisted script filename is the on-disk source of the
+    // user-visible workflow identity. Fall back to a neutral label only when no
+    // script for this runId is found.
+    const name = liveWorkflowName(session, runId) ?? "workflow";
     return {
-      workflow: { name: "workflow", status: "running", agents },
+      workflow: { name, status: "running", agents },
       anchorMs,
       terminal: false,
     };
