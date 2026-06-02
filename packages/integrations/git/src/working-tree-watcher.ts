@@ -16,24 +16,32 @@
  *   - VS Code switched here in 1.62 for the same reasons.
  *
  * On Linux without watchman both libraries pay one inotify slot per
- * directory — that's a kernel constraint, not a library choice. With
- * `.git`, `node_modules`, and common build outputs ignored, a typical repo
- * uses ~500–2000 slots out of the kernel's default budget.
+ * directory — that's a kernel constraint, not a library choice. With git's
+ * ignored paths (`node_modules`, gitignored build outputs) pruned, a typical
+ * repo uses ~500–2000 slots out of the kernel's default budget.
  *
  * Container/WSL2 caveat: parcel-watcher silently falls back to ~1s polling
  * when neither inotify nor FSEvents nor watchman is available (e.g.
  * dev-containers on bind-mounted filesystems). Latency degrades but
  * correctness is preserved.
  *
- * Subscribers can pass a `filePath` to receive only events for that exact
- * file (the `BrowseFileView` case — one selected file, not the whole tree)
- * or omit it to receive every event (the `subscribeRepoChange` case). The
- * filter happens at the listener layer, so a single shared watcher serves
- * both consumers. The one exception: a previewed file that lives under an
- * ignored build-output dir (Atlas commits and previews `docs/atlas/dist/`)
- * re-roots parcel at the file's own directory (`watchRootFor`) — otherwise
- * the repo-root ignore globs would prune the very file the user opened and
- * its live-reload would silently never fire.
+ * The ignore set is derived from git, not a hardcoded list: `listIgnoredPaths`
+ * runs the exact complement of the browse tree's `git ls-files --cached
+ * --others --exclude-standard`, so *anything the Code-tab tree shows is
+ * watched* and anything git ignores is skipped. That single source of truth is
+ * what lets Atlas's **committed** `docs/atlas/dist/*.html` live-reload while a
+ * normal repo's **gitignored** `dist/` stays unwatched — the two used to
+ * disagree (tree gitignore-aware, watcher hardcoded), which silently broke
+ * live-reload for committed build outputs. `.git` is added explicitly (git
+ * never lists its own dir; the git-dir watchers cover it). The set is a
+ * snapshot at install time — a `.gitignore` edit mid-watch isn't reflected
+ * until the next (re)subscribe.
+ *
+ * Subscribers can pass a `filePath` to receive only events for that exact file
+ * (the `BrowseFileView` case — one selected file, not the whole tree) or omit
+ * it to receive every event (the `subscribeRepoChange` case). The filter
+ * happens at the listener layer, so a single shared watcher per repo serves
+ * both consumers — no separate single-file watcher.
  */
 
 import path from "node:path";
@@ -42,77 +50,33 @@ import {
   subscribe as parcelSubscribe,
 } from "@parcel/watcher";
 import type { Logger } from "kolu-shared";
+import { listIgnoredPaths } from "./browse.ts";
 import { WATCHER_DEBOUNCE_MS } from "./git-dir.ts";
-import { assertRealpathUnder, resolveUnder } from "./safe-path.ts";
 
-/** Directory basenames the watch skips: VCS internals, dependency trees, and
- *  build outputs. Single source of truth — the parcel ignore globs below AND
- *  `watchRootFor` (which re-roots a single-file watch out of an ignored
- *  ancestor) both derive from this list, so "what the repo-wide watch skips"
- *  and "which previewed files the repo root would hide" can't drift apart. */
-const IGNORED_DIR_BASENAMES = [
-  ".git",
-  "node_modules",
-  ".kolu-dev",
-  ".kolu-state",
-  "dist",
-  "build",
-  "target",
-  ".next",
-  ".turbo",
-  ".cache",
-  ".parcel-cache",
-];
+/** `.git` is always ignored: git never lists its own dir, and the git-dir
+ *  watchers (HEAD/reflog/index) cover the parts we care about — watching it
+ *  here would just fire on every git operation. */
+const ALWAYS_IGNORE_RELS = [".git"];
 
-/** Globs are matched against paths relative to the watched root by
- *  parcel-watcher's picomatch integration. The leading `**\/` wildcards catch
- *  nested instances (e.g. `packages/foo/node_modules`).
- *
- *  Not gitignore-aware. We accept some over-firing on user-generated build
- *  outputs that aren't in this list — the upstream debounce + the streaming
- *  endpoint's snapshot equality check absorb noise events. */
-const IGNORE_GLOBS = [
-  ...IGNORED_DIR_BASENAMES.flatMap((d) => [`**/${d}`, `**/${d}/**`]),
-  "**/.DS_Store",
-];
+/** Degraded fallback when git can't enumerate ignores (not a repo, git error).
+ *  Keeps `node_modules` — the one unbounded recursive subtree whose watch
+ *  actually threatens the inotify budget — out of the watch, so a git hiccup
+ *  can't unleash a watch storm. The healthy path derives the full set from
+ *  git via `listIgnoredPaths`. */
+const FALLBACK_IGNORE_RELS = ["node_modules"];
 
-/** Pick the parcel watch root for a subscription.
- *
- *  The repo-wide watch (no `filePath`) roots at `repoRoot` and lets the ignore
- *  globs prune build outputs — correct, since the tree/status views don't care
- *  about `dist/`. But a single-file preview watch for a file that LIVES under
- *  an ignored dir (Atlas commits and previews `docs/atlas/dist/*.html`) would
- *  get zero events: parcel never reports an ignored path. So when the
- *  previewed file sits under an ignored ancestor, root parcel at the file's own
- *  directory instead. The ignore globs are matched relative to the watch root,
- *  so the file — now directly under the root — is no longer swallowed by
- *  `**\/dist/**`, while any `node_modules`/`.git` *within* that directory stay
- *  ignored. Files outside ignored dirs keep `repoRoot` and so keep sharing the
- *  one repo-wide watcher (no extra OS handles for the common case).
- *
- *  `rel`/`abs` must already have passed `resolveUnder` — re-rooting at a file's
- *  own directory means the ignore globs no longer protect against escaping the
- *  repo, so the lexical boundary check has to happen *before* we get here.
- *  `rel` is the normalized repo-relative path (no `..`, never absolute).
- *
- *  Lexical containment is necessary but NOT sufficient for the re-rooted path:
- *  `resolveUnder` does not resolve symlinks, so a *symlinked* ignored ancestor
- *  (`docs/atlas/dist -> /tmp/evil`) yields a `rel` that still lives under the
- *  repo lexically, yet `path.dirname(abs)` points parcel at a directory the OS
- *  backend will canonicalize outside the repo. Callers that re-root MUST also
- *  realpath-check the returned root against the repo (`assertRealpathUnder`)
- *  before installing parcel — see `watchWorkingTree`. */
-function watchRootFor(
+/** Absolute paths parcel must not emit events for. parcel treats a non-glob
+ *  path entry as "ignore this file/dir and all its children", so absolute
+ *  directory paths prune whole subtrees. */
+async function computeIgnore(
   repoRoot: string,
-  rel: string | undefined,
-  abs: string | undefined,
-): string {
-  if (rel === undefined || abs === undefined) return repoRoot;
-  const dirSegments = rel.split(path.sep).slice(0, -1);
-  if (dirSegments.some((seg) => IGNORED_DIR_BASENAMES.includes(seg))) {
-    return path.dirname(abs);
-  }
-  return repoRoot;
+  log?: Logger,
+): Promise<string[]> {
+  const ignored = await listIgnoredPaths(repoRoot, log);
+  const rels = ignored.ok
+    ? [...ALWAYS_IGNORE_RELS, ...ignored.value]
+    : [...ALWAYS_IGNORE_RELS, ...FALLBACK_IGNORE_RELS];
+  return rels.map((rel) => path.resolve(repoRoot, rel));
 }
 
 interface Listener {
@@ -129,15 +93,9 @@ interface SharedWorkingTreeWatcher {
 const sharedWorkingTreeWatchers = new Map<string, SharedWorkingTreeWatcher>();
 
 function installSharedWorkingTreeWatcher(
-  watchRoot: string,
+  repoRoot: string,
   onLast: () => void,
   log?: Logger,
-  /** When the watch root was re-rooted away from `repoRoot`, an async
-   *  symlink-aware authority check that must resolve `ok` before parcel is
-   *  installed. Resolving falsy means the re-rooted directory canonicalizes
-   *  outside the repo (a symlinked ignored ancestor) — install nothing and
-   *  retire the entry. Omitted for the repo-root watch, which never escapes. */
-  guard?: () => Promise<boolean>,
 ): SharedWorkingTreeWatcher {
   const listeners = new Set<Listener>();
   const pending = new Set<Listener>();
@@ -158,7 +116,7 @@ function installSharedWorkingTreeWatcher(
           listener.onChange();
         } catch (e) {
           log?.error(
-            { err: e instanceof Error ? e.message : String(e), watchRoot },
+            { err: e instanceof Error ? e.message : String(e), repoRoot },
             "git: working-tree listener threw",
           );
         }
@@ -166,106 +124,79 @@ function installSharedWorkingTreeWatcher(
     }, WATCHER_DEBOUNCE_MS);
   };
 
-  // Async install. Filesystem mutations between this call and parcel's
-  // resolve are invisible to parcel — the streaming endpoint already
-  // yielded its initial snapshot before this subscribe ran, so any change
-  // landing in that window leaves the client with a stale view that no
-  // future event will correct on its own. Fire a synthetic tick once
-  // parcel is ready so consumers re-read state and reconcile.
-  const startParcel = (): void => {
-    parcelSubscribe(
-      watchRoot,
-      (err, events) => {
-        if (cancelled) return;
-        if (err) {
-          log?.error(
-            { err: err.message, watchRoot },
-            "git: working-tree watcher callback error",
-          );
-          return;
-        }
+  // Async install: derive the ignore set from git, then subscribe. Filesystem
+  // mutations between this call and parcel's resolve are invisible to parcel —
+  // the streaming endpoint already yielded its initial snapshot before this
+  // ran, so any change landing in that window leaves the client with a stale
+  // view that no future event would correct on its own. Fire a synthetic tick
+  // once parcel is ready so consumers re-read state and reconcile.
+  void (async () => {
+    const ignore = await computeIgnore(repoRoot, log);
+    if (cancelled) return;
+    try {
+      const sub = await parcelSubscribe(
+        repoRoot,
+        (err, events) => {
+          if (cancelled) return;
+          if (err) {
+            log?.error(
+              { err: err.message, repoRoot },
+              "git: working-tree watcher callback error",
+            );
+            return;
+          }
 
-        // Bucket events into the listeners they match. A single batch can
-        // hit several listeners (different filePaths) or none (all-ignored
-        // paths slipped through somehow).
-        for (const event of events) {
-          for (const listener of listeners) {
-            if (
-              listener.matchAbs === null ||
-              listener.matchAbs === event.path
-            ) {
-              pending.add(listener);
+          // Bucket events into the listeners they match. A single batch can
+          // hit several listeners (different filePaths) or none (all-ignored
+          // paths slipped through somehow).
+          for (const event of events) {
+            for (const listener of listeners) {
+              if (
+                listener.matchAbs === null ||
+                listener.matchAbs === event.path
+              ) {
+                pending.add(listener);
+              }
             }
           }
-        }
 
-        if (pending.size === 0) return;
+          if (pending.size === 0) return;
 
-        // Trailing-edge debounce — a burst of events fires the listeners
-        // exactly once, after the burst settles. Reset on every new batch.
-        scheduleFire();
-      },
-      { ignore: IGNORE_GLOBS },
-    )
-      .then((sub) => {
-        if (cancelled) {
-          void sub.unsubscribe().catch((e: Error) => {
-            log?.error(
-              { err: e.message, watchRoot },
-              "git: working-tree late-unsubscribe failed",
-            );
-          });
-          return;
-        }
-        subscription = sub;
-        log?.info({ watchRoot }, "git: working-tree watcher installed");
-
-        // Reconcile any mutations that landed in the install window —
-        // parcel didn't see them, but the listener's own re-read will. Add
-        // every current listener to `pending` (the filter doesn't matter
-        // here; reconciliation is a "re-derive your state" signal, not a
-        // path-specific event) and schedule one debounced fire.
-        if (listeners.size > 0) {
-          for (const listener of listeners) pending.add(listener);
+          // Trailing-edge debounce — a burst of events fires the listeners
+          // exactly once, after the burst settles. Reset on every new batch.
           scheduleFire();
-        }
-      })
-      .catch((e: Error) => {
-        log?.error(
-          { err: e.message, watchRoot },
-          "git: working-tree watcher install failed",
-        );
-      });
-  };
+        },
+        { ignore },
+      );
 
-  if (guard) {
-    // Re-rooted watch: prove the watch root canonicalizes inside the repo
-    // before handing it to parcel (a symlinked ignored ancestor would point
-    // the OS backend outside repo authority — lexical containment can't
-    // catch that). On failure, retire the entry so a later subscriber forces
-    // a fresh, re-guarded install instead of binding to a dead watcher.
-    void guard()
-      .then((allowed) => {
-        if (cancelled) return;
-        if (!allowed) {
-          cancelled = true;
-          onLast();
-          return;
-        }
-        startParcel();
-      })
-      .catch((e: Error) => {
-        log?.error(
-          { err: e.message, watchRoot },
-          "git: working-tree watch-root guard failed",
-        );
-        if (cancelled) return;
-        cancelled = true;
-        onLast();
-      });
-  } else {
-    startParcel();
-  }
+      if (cancelled) {
+        void sub.unsubscribe().catch((e: Error) => {
+          log?.error(
+            { err: e.message, repoRoot },
+            "git: working-tree late-unsubscribe failed",
+          );
+        });
+        return;
+      }
+      subscription = sub;
+      log?.info({ repoRoot }, "git: working-tree watcher installed");
+
+      // Reconcile any mutations that landed in the install window — parcel
+      // didn't see them, but the listener's own re-read will. Add every
+      // current listener to `pending` (the filter doesn't matter here;
+      // reconciliation is a "re-derive your state" signal, not a path-specific
+      // event) and schedule one debounced fire.
+      if (listeners.size > 0) {
+        for (const listener of listeners) pending.add(listener);
+        scheduleFire();
+      }
+    } catch (e) {
+      log?.error(
+        { err: e instanceof Error ? e.message : String(e), repoRoot },
+        "git: working-tree watcher install failed",
+      );
+    }
+  })();
 
   return {
     subscribe(matchAbs, onChange) {
@@ -280,14 +211,14 @@ function installSharedWorkingTreeWatcher(
           if (subscription) {
             void subscription.unsubscribe().catch((e: Error) => {
               log?.error(
-                { err: e.message, watchRoot },
+                { err: e.message, repoRoot },
                 "git: working-tree unsubscribe failed",
               );
             });
             subscription = null;
           }
           onLast();
-          log?.info({ watchRoot }, "git: working-tree watcher retired");
+          log?.info({ repoRoot }, "git: working-tree watcher retired");
         }
       };
     },
@@ -302,12 +233,14 @@ export interface WatchWorkingTreeOptions {
 
 /**
  * Subscribe to working-tree changes for `repoRoot`. Returns a cleanup
- * function. Callers sharing a watch root collapse to one shared
+ * function. N callers on the same `repoRoot` collapse to one shared
  * `@parcel/watcher` subscription; each listener installs its own optional
- * filePath filter without installing a separate OS handle. A single-file
- * watch whose file lives under an ignored build-output dir re-roots at that
- * file's directory (see `watchRootFor`) so it isn't pruned by the ignore
- * globs — otherwise it shares `repoRoot` with the repo-wide watch.
+ * filePath filter without installing a separate OS handle.
+ *
+ * The watch is always rooted at `repoRoot`; the optional `filePath` only
+ * narrows which events a listener receives (it's resolved to an absolute path
+ * and compared against parcel's event paths), so it can't steer the watch root
+ * or escape the repo.
  */
 export function watchWorkingTree(
   repoRoot: string,
@@ -315,44 +248,23 @@ export function watchWorkingTree(
   log?: Logger,
   options?: WatchWorkingTreeOptions,
 ): () => void {
-  // Validate the caller-supplied filePath *before* it can steer the watch
-  // root. `watchWorkingTree` is exported, so we can't trust the raw string:
-  // a crafted `dist/../../../etc/passwd` would otherwise re-root parcel
-  // outside the repo (re-rooting bypasses the ignore globs that are this
-  // module's only other escape guard). On escape, install nothing and hand
-  // back a no-op unsubscribe.
-  let resolved: { abs: string; rel: string } | undefined;
-  if (options?.filePath !== undefined) {
-    const guard = resolveUnder(repoRoot, options.filePath, log);
-    if (!guard.ok) return () => {};
-    resolved = guard.value;
-  }
-  const watchRoot = watchRootFor(repoRoot, resolved?.rel, resolved?.abs);
-  const matchAbs = resolved?.abs ?? null;
-  // A re-rooted watch (root moved off `repoRoot` into an ignored ancestor)
-  // escaped the ignore globs *and* `resolveUnder`'s lexical check, so a
-  // symlinked ignored ancestor could canonicalize the watch root outside the
-  // repo. Guard that re-rooted install with the symlink-aware authority check
-  // before parcel touches it. The repo-root watch can't escape, so it skips
-  // the (async, filesystem-touching) guard and stays synchronous.
-  const guard =
-    watchRoot === repoRoot
-      ? undefined
-      : async () => (await assertRealpathUnder(repoRoot, watchRoot, log)).ok;
-  let entry = sharedWorkingTreeWatchers.get(watchRoot);
+  const matchAbs =
+    options?.filePath === undefined
+      ? null
+      : path.resolve(repoRoot, options.filePath);
+  let entry = sharedWorkingTreeWatchers.get(repoRoot);
   if (!entry) {
     entry = installSharedWorkingTreeWatcher(
-      watchRoot,
-      () => sharedWorkingTreeWatchers.delete(watchRoot),
+      repoRoot,
+      () => sharedWorkingTreeWatchers.delete(repoRoot),
       log,
-      guard,
     );
-    sharedWorkingTreeWatchers.set(watchRoot, entry);
+    sharedWorkingTreeWatchers.set(repoRoot, entry);
   }
   return entry.subscribe(matchAbs, onChange);
 }
 
-/** Test-only inspector — number of distinct watch roots with active shared
+/** Test-only inspector — number of distinct repoRoots with active shared
  *  working-tree watchers. Mirrors `_sharedHeadWatcherCount`. */
 export function _sharedWorkingTreeWatcherCount(): number {
   return sharedWorkingTreeWatchers.size;
