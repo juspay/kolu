@@ -569,206 +569,215 @@ const WorkflowJournalSchema = z
     }),
   );
 
-/** Directory mtime, or null when the dir can't be stat-ed — the weakest
- *  liveness anchor (see `workflowStaleAnchorMs`). */
-function dirMtimeMs(wfDir: string): number | null {
-  try {
-    return fs.statSync(wfDir).mtimeMs;
-  } catch {
-    return null;
-  }
-}
-
-/** One observation of a workflow run's on-disk journal — the single owner of the
- *  `workflows/<runId>.json` join + stat + read. Every consumer projects from this
- *  discriminated result and keeps its OWN policy: the liveness gate keeps on
- *  `unparseable` (transient mid-write), `deriveWorkflowProgress` layers
- *  `WorkflowJournalSchema` on `ok`. Deliberately a *status-only* parse, NOT
- *  `WorkflowJournalSchema`: the gate must tolerate a journal missing
- *  `workflowName` — a `{status:"completed"}` snapshot is a positive terminal read
- *  that must DROP the run, yet it would fail the strict schema and be mis-kept,
- *  re-opening the phantom-spinner bug. */
-type WorkflowJournalRead =
-  | { kind: "ok"; json: unknown; status: unknown; mtimeMs: number }
-  | { kind: "unparseable"; mtimeMs: number }
-  | { kind: "unreadable" };
-
-function readWorkflowJournal(
-  wfDir: string,
-  runId: string,
-): WorkflowJournalRead {
-  let mtimeMs: number;
-  let raw: string;
-  try {
-    const journalPath = path.join(wfDir, `${runId}.json`);
-    mtimeMs = fs.statSync(journalPath).mtimeMs;
-    raw = fs.readFileSync(journalPath, "utf8");
-  } catch {
-    return { kind: "unreadable" };
-  }
-  try {
-    const json: unknown = JSON.parse(raw);
-    return {
-      kind: "ok",
-      json,
-      status: (json as { status?: unknown }).status,
-      mtimeMs,
-    };
-  } catch {
-    return { kind: "unparseable", mtimeMs };
-  }
-}
-
-/** Read fan-out progress for outstanding background workflows from their
- *  on-disk journals (`workflows/<runId>.json`). Only `Workflow` launches have
- *  a `runId`/journal; plain background `Task`/`Agent` launches are skipped.
- *  Returns the first journal still `running` (falling back to the first
- *  readable one), or null when no outstanding task is a workflow with a
- *  readable journal. */
-export function deriveWorkflowProgress(
-  session: SessionFile,
-  outstanding: BackgroundTask[],
-): ClaudeWorkflow | null {
-  const wfDir = workflowsDirFor(session);
-  let fallback: ClaudeWorkflow | null = null;
-  for (const task of outstanding) {
-    if (!task.runId) continue;
-    const read = readWorkflowJournal(wfDir, task.runId);
-    if (read.kind !== "ok") continue; // unreadable / unparseable → skip
-    const parsed = WorkflowJournalSchema.safeParse(read.json);
-    if (!parsed.success) continue;
-    const info = parsed.data;
-    if (info.status === "running") return info;
-    fallback ??= info;
-  }
-  return fallback;
-}
-
 /** The journal-side matcher for `TERMINAL_STATUSES` — a Set for O(1) membership
- *  on the workflow journal's `status` field, derived from the same source as
+ *  on the workflow snapshot's `status` field, derived from the same source as
  *  `TERMINAL_STATUS_RE` so the two formats can't drift. "running" (the journal's
  *  default) is the only non-terminal status. */
 const TERMINAL_JOURNAL_STATUSES = new Set<string>(TERMINAL_STATUSES);
 
-/** How long a still-`running` workflow journal may sit unwritten before its run
- *  is treated as orphaned. A live workflow rewrites its journal on every phase
- *  / sub-agent transition, so a multi-minute gap reliably means the launching
- *  agent died (e.g. a Claude restart) and its completion notification can never
- *  arrive. A false positive self-heals — the next journal write fires the
- *  workflows-dir watcher and re-derives. #1017 suggested 60–120 s; 2 min is the
- *  safe upper end. */
+/** How long a `Workflow` run may go without any on-disk write before it is
+ *  treated as orphaned. A genuinely-running workflow streams its sub-agent
+ *  transcripts (`agent-*.jsonl`) continuously, so a multi-minute gap reliably
+ *  means the launching agent died (e.g. a Claude restart) and its completion
+ *  notification can never arrive (#1109 phantom guard). A false positive
+ *  self-heals — the next write re-derives. 2 min is the safe upper end. */
 export const WORKFLOW_JOURNAL_STALE_MS = 2 * 60 * 1000;
 
-/** Liveness anchor (an mtime) for a `Workflow` run's staleness clock: the most
- *  recent on-disk write kolu can attribute to the run.
+/** Newest file mtime (epoch ms) directly inside `dir`, or null when `dir` can't
+ *  be read / is empty. Unlike the directory's own mtime (which on Linux only
+ *  bumps on create/delete inside it, not on appends to existing files), this
+ *  tracks the sub-agent transcripts (`agent-*.jsonl`) as they stream while a
+ *  workflow's agents work — so it stays fresh throughout a live run. */
+function newestFileMtimeMs(dir: string): number | null {
+  let names: string[];
+  try {
+    names = fs.readdirSync(dir);
+  } catch {
+    return null;
+  }
+  let newest: number | null = null;
+  for (const name of names) {
+    try {
+      const m = fs.statSync(path.join(dir, name)).mtimeMs;
+      if (newest === null || m > newest) newest = m;
+    } catch {
+      // entry vanished between readdir and stat — skip
+    }
+  }
+  return newest;
+}
+
+/** The live event-log directory for a `Workflow` run under the current runtime
+ *  layout: `<session>/subagents/workflows/<runId>/`. Holds `journal.jsonl`
+ *  (per-sub-agent `started`/`result` events) plus one streaming `agent-*.jsonl`
+ *  per sub-agent. This is where progress lives DURING a run; the
+ *  `<session>/workflows/<runId>.json` snapshot is only written at completion
+ *  (#1123 — the runtime layout churned and the snapshot path went write-on-end). */
+export function liveWorkflowRunDir(
+  session: SessionFile,
+  runId: string,
+): string {
+  return path.join(
+    PROJECTS_DIR,
+    encodeProjectPath(session.cwd),
+    session.sessionId,
+    "subagents",
+    "workflows",
+    runId,
+  );
+}
+
+/** Number of sub-agents spawned so far in a live run — one `started` event per
+ *  sub-agent in `journal.jsonl`. Null when the journal can't be read. */
+function liveAgentCount(runDir: string): number | null {
+  let raw: string;
+  try {
+    raw = fs.readFileSync(path.join(runDir, "journal.jsonl"), "utf8");
+  } catch {
+    return null;
+  }
+  let started = 0;
+  for (const line of raw.split("\n")) {
+    if (!line.trim()) continue;
+    try {
+      if ((JSON.parse(line) as { type?: string }).type === "started") started++;
+    } catch {
+      // skip a malformed line (transient mid-append)
+    }
+  }
+  return started;
+}
+
+/** One observation of a `Workflow` run across BOTH on-disk layouts, so every
+ *  consumer projects from a single source of truth (#1123):
+ *   - the completed snapshot `<session>/workflows/<runId>.json` — authoritative
+ *     end-state (name, terminal status, agentCount), written only at completion;
+ *   - the live run dir `<session>/subagents/workflows/<runId>/` — progress during
+ *     the run (agentCount from `journal.jsonl`, liveness from the newest
+ *     streaming file mtime).
  *
- *  Preference order, each a strictly weaker observation than the last:
- *   1. the run's own journal (`workflows/<runId>.json`) — the live signal, bumped
- *      on every phase / sub-agent transition;
- *   2. the `workflows/` directory itself — created when the run launches and
- *      bumped whenever a journal is created/renamed inside it, so it still ages
- *      out a run whose journal path *churned* to a name kolu no longer reads;
- *   3. `null` — neither is stat-able, so there is no observable anchor at all.
- *
- *  Crucially this never returns `now`: the anchor is a real, monotonic on-disk
- *  timestamp that does not reset between calls, so a bounded grace measured from
- *  it actually expires. A journal that is never written (the phantom case — a
- *  launch marker carrying a `Run ID` whose journal kolu cannot read) ages out
- *  `WORKFLOW_JOURNAL_STALE_MS` after the directory's launch write, instead of
- *  promoting forever. The directory fallback is what keeps a churned-path but
- *  genuinely-live workflow promoting (its dir mtime advances as journals appear),
- *  while still guaranteeing termination for a truly unobservable run. */
-function workflowStaleAnchorMs(wfDir: string, runId: string): number | null {
-  const read = readWorkflowJournal(wfDir, runId);
-  // A present journal (parseable or not) anchors on its own mtime; an
-  // unreadable one falls back to the directory's launch/last-write mtime.
-  return read.kind === "unreadable" ? dirMtimeMs(wfDir) : read.mtimeMs;
+ *  `anchorMs` is the most recent on-disk write attributable to the run — the
+ *  staleness clock. For a live run it tracks the sub-agent transcripts as they
+ *  stream, so a genuinely-running workflow never ages out; once the orchestrator
+ *  dies (no more writes) it goes stale and the gate demotes (the #1109 phantom
+ *  guard). `terminal` is true only on a positively-read terminal snapshot. */
+interface WorkflowObservation {
+  workflow: ClaudeWorkflow | null;
+  anchorMs: number | null;
+  terminal: boolean;
+}
+
+function observeWorkflowRun(
+  session: SessionFile,
+  runId: string,
+): WorkflowObservation {
+  // 1) Completed snapshot — authoritative end-state when present.
+  const snapPath = path.join(workflowsDirFor(session), `${runId}.json`);
+  try {
+    const mtimeMs = fs.statSync(snapPath).mtimeMs;
+    const raw = fs.readFileSync(snapPath, "utf8");
+    let json: unknown;
+    try {
+      json = JSON.parse(raw);
+    } catch {
+      // Snapshot mid-write: keep it alive on its mtime, no parsed workflow yet.
+      return { workflow: null, anchorMs: mtimeMs, terminal: false };
+    }
+    const status = (json as { status?: unknown }).status;
+    const terminal =
+      typeof status === "string" && TERMINAL_JOURNAL_STATUSES.has(status);
+    const parsed = WorkflowJournalSchema.safeParse(json);
+    return {
+      workflow: parsed.success ? parsed.data : null,
+      anchorMs: mtimeMs,
+      terminal,
+    };
+  } catch {
+    // no snapshot yet — fall through to the live layout
+  }
+
+  // 2) Live run dir — progress while the workflow is running.
+  const runDir = liveWorkflowRunDir(session, runId);
+  const anchorMs = newestFileMtimeMs(runDir);
+  const agents = liveAgentCount(runDir);
+  if (agents !== null) {
+    // `name` is not on disk during a live run (only the completion snapshot
+    // carries it), so surface a neutral label until the snapshot lands.
+    return {
+      workflow: { name: "workflow", status: "running", agents },
+      anchorMs,
+      terminal: false,
+    };
+  }
+
+  // 3) Unobservable — neither layout readable. `anchorMs` (a bare run-dir mtime,
+  // if any) still lets the staleness gate age it out rather than spin forever.
+  return { workflow: null, anchorMs, terminal: false };
+}
+
+/** Read fan-out progress for outstanding background workflows. Only `Workflow`
+ *  launches have a `runId`; plain background `Task`/`Agent` launches are skipped.
+ *  Returns the first run still `running` (falling back to the first observable
+ *  one), or null when no outstanding task is an observable workflow. */
+export function deriveWorkflowProgress(
+  session: SessionFile,
+  outstanding: BackgroundTask[],
+): ClaudeWorkflow | null {
+  let fallback: ClaudeWorkflow | null = null;
+  for (const task of outstanding) {
+    if (!task.runId) continue;
+    const { workflow } = observeWorkflowRun(session, task.runId);
+    if (!workflow) continue;
+    if (workflow.status === "running") return workflow;
+    fallback ??= workflow;
+  }
+  return fallback;
 }
 
 /** Filter `outstanding` to the tasks that may drive the `running_background`
  *  promotion, dropping a `Workflow` run once kolu can no longer observe it as
- *  live: its on-disk journal is *positively* read as terminal, or its liveness
- *  anchor (`workflowStaleAnchorMs`) has aged past `WORKFLOW_JOURNAL_STALE_MS`
- *  (the orphaned-by-restart signature). Non-`Workflow` tasks (runId null) pass
- *  through unchanged — `deriveState`'s own narrowing already declines to promote
- *  on them.
+ *  live: its snapshot is *positively* read as terminal, or its liveness anchor
+ *  has aged past `WORKFLOW_JOURNAL_STALE_MS` (the orphaned-by-restart signature).
+ *  Non-`Workflow` tasks (runId null) pass through unchanged — `deriveState`'s own
+ *  narrowing already declines to promote on them.
  *
- *  Bounded fail-open: a missing or unreadable journal is *kept* only while the
- *  workflows-directory mtime is still within the stale window, then dropped. The
- *  Claude Code Workflow runtime's on-disk layout has churned across versions —
- *  the snapshot kolu reads (`workflows/<runId>.json`, the path
- *  `deriveWorkflowProgress` consumes) was present, then absent (see
- *  `dynamic-workflow-viewer.html`), and is present again today, carrying
- *  `{workflowName,status,agentCount}` and rewritten live (#1015). A churned
- *  journal path must not *instantly* drop a live run, so the directory mtime
- *  grants it a grace window (and keeps advancing while that dir sees writes). But
- *  an unobservable run must not promote *forever* either — that was the phantom
- *  `running_background` bug — so once even the directory anchor goes stale (or is
- *  itself unreadable), the gate demotes. It still never drops a run on a single
- *  transient unparseable read.
- *
- *  The IO (a `stat` + read per workflow task) only runs when the tail carries an
- *  outstanding task, so the common path stays off disk. `now` is injectable for
- *  tests. */
+ *  The anchor is the newest write across the run's live dir
+ *  (`subagents/workflows/<runId>/`) or its completion snapshot — see
+ *  `observeWorkflowRun`. A streaming workflow keeps that anchor fresh and stays
+ *  promoted; an orphaned/dead one stops writing and ages out. `now` is injectable
+ *  for tests; the IO only runs when the tail carries an outstanding task. */
 export function liveOutstandingTasks(
   session: SessionFile,
   outstanding: BackgroundTask[],
   now: number = Date.now(),
 ): BackgroundTask[] {
-  const wfDir = workflowsDirFor(session);
   return outstanding.filter((task) => {
     if (!task.runId) return true; // not a workflow — deriveState's narrowing decides
-    const read = readWorkflowJournal(wfDir, task.runId);
-    if (read.kind === "unreadable") {
-      // No readable journal: keep only while the directory anchor is still
-      // fresh; a missing/stale anchor (or none) demotes so the spinner can't
-      // promote indefinitely on an unobservable run.
-      const dir = dirMtimeMs(wfDir);
-      return dir !== null && now - dir <= WORKFLOW_JOURNAL_STALE_MS;
-    }
-    // Journal present: age it out against its own mtime (the live signal).
-    if (now - read.mtimeMs > WORKFLOW_JOURNAL_STALE_MS) {
-      return false; // orphaned — fresh enough to read, but no longer being written
-    }
-    if (read.kind === "unparseable") return true; // transient mid-write → keep
-    return !(
-      typeof read.status === "string" &&
-      TERMINAL_JOURNAL_STATUSES.has(read.status)
-    );
+    const obs = observeWorkflowRun(session, task.runId);
+    if (obs.terminal) return false; // positively finished → drop
+    if (obs.anchorMs === null) return false; // unobservable → demote (phantom guard)
+    return now - obs.anchorMs <= WORKFLOW_JOURNAL_STALE_MS; // live iff recently written
   });
 }
 
 /** Earliest wall-clock time at which one of `tasks`' workflow runs would cross
- *  the stale threshold, or null if none has an observable liveness anchor to age
- *  out.
+ *  the stale threshold, or null if none has an observable liveness anchor.
  *
- *  `liveOutstandingTasks` only re-evaluates staleness when it is *called*, and
- *  the watcher only calls it on fs events (transcript / workflows-dir writes,
- *  initial attach). A run going stale is the absence of writes, so it emits no
- *  event — without a timer scheduled at this deadline, a session published as
- *  `running_background` whose agent then dies silently would keep its spinner
- *  forever (the phantom bug). The watcher arms a one-shot timer here; when it
- *  fires, the next `liveOutstandingTasks` sees the anchor as stale and demotes.
- *
- *  Uses the same `workflowStaleAnchorMs` as the gate so the two never disagree:
- *  every run the gate could still be keeping (including one with a missing/
- *  unreadable journal that survives on the directory anchor) gets a deadline, so
- *  there is always a timer to clear it. Returns the minimum deadline across runs
- *  so the watcher re-checks as soon as the soonest one could age out (the rest
- *  are re-armed on that pass). A run with no observable anchor at all contributes
- *  no deadline — but the gate has already demoted it, so no timer is needed. */
+ *  A quiet run emits no fs event, so the watcher arms a one-shot timer here; when
+ *  it fires, the next `liveOutstandingTasks` sees the anchor as stale and demotes
+ *  (or, for a still-streaming run, sees it fresh and re-arms). Uses the same
+ *  `observeWorkflowRun` anchor as the gate so the two never disagree. */
 export function nextWorkflowStaleDeadline(
   session: SessionFile,
   tasks: BackgroundTask[],
   now: number = Date.now(),
 ): number | null {
-  const wfDir = workflowsDirFor(session);
   let earliest: number | null = null;
   for (const task of tasks) {
     if (!task.runId) continue;
-    const anchor = workflowStaleAnchorMs(wfDir, task.runId);
-    if (anchor === null) continue; // no observable anchor → gate already demoted it
-    const deadline = Math.max(anchor + WORKFLOW_JOURNAL_STALE_MS, now);
+    const { anchorMs } = observeWorkflowRun(session, task.runId);
+    if (anchorMs === null) continue; // no observable anchor → gate already demoted it
+    const deadline = Math.max(anchorMs + WORKFLOW_JOURNAL_STALE_MS, now);
     if (earliest === null || deadline < earliest) earliest = deadline;
   }
   return earliest;
