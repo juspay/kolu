@@ -115,6 +115,10 @@ Report in chat (do **not** push or merge — the per-round commits sit on the
 local branch for the human to review):
 
 - The outcome (`status`) and round count.
+- **The reviewer's reasoning effort: codex runs at `xhigh`** (scoped to the
+  debate via `-c model_reasoning_effort=xhigh` in `codex-review.sh`, regardless
+  of the user's global codex default). State this so the depth of the review is
+  on the record.
 - `git log --oneline <base>..HEAD` (the per-round debate commits) and
   `git diff --stat <base>` so the user sees what the debate changed.
 - A compact per-round table from `transcript` — each round's codex verdict
@@ -129,9 +133,10 @@ local branch for the human to review):
 - **Post the debate summary to the PR (default).** When a PR exists and
   `--no-comment` was NOT passed, post a `## Codex ⇄ Claude debate` comment via
   `gh pr comment`. Include: the outcome badge (consensus/deadlock/max-rounds) and
-  round count; a per-round table (codex approved? open blocking/major findings;
-  Claude's dispositions; the round's commit SHA); and, on deadlock, both
-  positions. Use a single-quoted heredoc so backticks/`$` survive. This is an
+  round count; a note that **codex reviewed at `xhigh` reasoning effort**; a
+  per-round table (codex approved? open blocking/major findings; Claude's
+  dispositions; the round's commit SHA); and, on deadlock, both positions. Use a
+  single-quoted heredoc so backticks/`$` survive. This is an
   outward-facing write — it's on by default because the whole point is to leave
   the review trail on the PR; `--no-comment` suppresses it.
 

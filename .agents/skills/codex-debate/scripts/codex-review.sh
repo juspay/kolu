@@ -112,11 +112,15 @@ Return a verdict matching the provided JSON schema:
 EOF
 )"
 
+# model_reasoning_effort=xhigh is scoped to the debate here (via -c) rather than
+# relying on the user's global ~/.codex/config.toml — review is the one place we
+# always want codex thinking at full depth, regardless of their default.
 if ! codex exec \
       --sandbox read-only \
+      -c model_reasoning_effort="xhigh" \
       --output-schema "$schema" \
       -o "$out" \
-      "$prompt" </dev/null >"$log" 2>&1; then
+      "$prompt"</dev/null >"$log" 2>&1; then
   echo "codex exec exited non-zero (see $log)" >&2
 fi
 
