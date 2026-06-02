@@ -1,11 +1,17 @@
+// The model every lens/agent runs on. SKILL.md flags this as load-bearing
+// (lenses run on Opus, overriding their `model: sonnet` frontmatter) and model
+// migrations are a recurring change — keep it to one socket. `meta` is evaluated
+// before inputs, so this lives module-level; the `model` input below defaults to it.
+const MODEL = 'opus'
+
 export const meta = {
   name: 'lens-debate',
   description:
     'lowy + hickey review a diff independently in parallel, then debate every finding to consensus; apply the agreed fixes',
   phases: [
-    { title: 'Review', detail: 'lowy and hickey (and optionally code-police) review the diff independently, in parallel', model: 'opus' },
-    { title: 'Debate', detail: 'lowy and hickey cross-examine every finding until they agree per-finding', model: 'opus' },
-    { title: 'Apply', detail: 'implement each agreed fix as its own commit', model: 'opus' },
+    { title: 'Review', detail: 'lowy and hickey (and optionally code-police) review the diff independently, in parallel', model: MODEL },
+    { title: 'Debate', detail: 'lowy and hickey cross-examine every finding until they agree per-finding', model: MODEL },
+    { title: 'Apply', detail: 'implement each agreed fix as its own commit', model: MODEL },
   ],
 }
 
@@ -29,6 +35,9 @@ const withPolice = a.withPolice === true
 // Optional author note on deliberate design decisions, so the lenses don't flag
 // intentional choices (e.g. a deliberate fail-open). Threaded into every prompt.
 const rationale = (a.rationale || '').trim()
+// Model every lens/agent runs on; defaults to MODEL (see top of file). Overridable
+// via args to mirror the file's input pattern and to make a model bump a one-liner.
+const model = a.model || MODEL
 // Per-worktree scratch for commit-message files; gitignored so it never shows up
 // in the diff the lenses review, and parallel debates in different worktrees
 // never collide. Only the commit-message files land here.
@@ -189,7 +198,7 @@ phase('Review')
 
 const reviews = await parallel(
   REVIEWERS.map((r) => () =>
-    agent(reviewBrief(r.lens, r.framework), { label: `review:${r.lens}`, phase: 'Review', model: 'opus', schema: FINDINGS_SCHEMA }),
+    agent(reviewBrief(r.lens, r.framework), { label: `review:${r.lens}`, phase: 'Review', model, schema: FINDINGS_SCHEMA }),
   ),
 )
 
@@ -231,7 +240,7 @@ for (let r = 1; r <= maxRounds && activeIds.length > 0; r++) {
   const lowyRes = await agent(debateBrief('lowy', 'hickey', activeFindings, hickeyPrev, settledList, r), {
     label: `lowy:round${r}`,
     phase: 'Debate',
-    model: 'opus',
+    model,
     schema: POSITION_SCHEMA,
   })
   const lowyPos = posMap(lowyRes)
@@ -239,7 +248,7 @@ for (let r = 1; r <= maxRounds && activeIds.length > 0; r++) {
   const hickeyRes = await agent(debateBrief('hickey', 'lowy', activeFindings, lowyPos, settledList, r), {
     label: `hickey:round${r}`,
     phase: 'Debate',
-    model: 'opus',
+    model,
     schema: POSITION_SCHEMA,
   })
   const hickeyPos = posMap(hickeyRes)
@@ -286,7 +295,7 @@ phase('Apply')
 const fixes = settledOut.filter((s) => s.agreed && s.disposition === 'fix')
 const applied = []
 for (const fix of fixes) {
-  const impl = await agent(implementBrief(fix), { label: `apply:${fix.id}`, phase: 'Apply', model: 'opus', schema: IMPL_SCHEMA })
+  const impl = await agent(implementBrief(fix), { label: `apply:${fix.id}`, phase: 'Apply', model, schema: IMPL_SCHEMA })
   const files = impl?.filesChanged ?? []
   let sha = null
   if (commit && files.length > 0) {
