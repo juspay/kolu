@@ -319,11 +319,10 @@ const ColumnView: Component<{
          *  title lead with, here labelling the whole column: the Working
          *  header carries the spinning ring, Awaiting/Idle a quiet dot.
          *  `unread` is a per-terminal notion, so a column header never
-         *  escalates to the attention variant. The No-agent column omits
-         *  the pip (its variant would be empty anyway). */}
-        <Show when={props.column.key !== "none"}>
-          <StatePip bucket={props.column.key} unread={false} />
-        </Show>
+         *  escalates to the attention variant. Rendered unconditionally,
+         *  like the dock and mobile rows — StatePip draws an empty cell
+         *  for the No-agent ('none') bucket. */}
+        <StatePip bucket={props.column.key} unread={false} />
         <div
           class={`font-mono text-[0.65rem] font-semibold uppercase tracking-[0.2em] ${props.column.textClass}`}
         >
