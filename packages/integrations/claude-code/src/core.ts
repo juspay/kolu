@@ -429,11 +429,19 @@ const BG_LAUNCH_RES = [
 /** Workflow run ID in the same confirmation ("Run ID: <id>") — only the
  *  `Workflow` tool emits one; it locates the on-disk journal. */
 const BG_RUN_ID_RE = /Run ID: ([\w-]+)/;
-/** Completion notification fields inside a `queue-operation` enqueue. A task
- *  can finish `completed`/`failed`/`stopped`, or be `killed` (cancelled). */
+/** The lifecycle statuses that mean a run has finished — `completed`/`failed`/
+ *  `stopped`, or `killed` (cancelled). Single source of truth: the same domain
+ *  fact ("which statuses mean done") is read from two distinct on-disk formats,
+ *  so each derives its own matcher from this one ordered list — the transcript
+ *  notification's `<status>` XML (`TERMINAL_STATUS_RE`) and the workflow
+ *  journal's `status` JSON field (`TERMINAL_JOURNAL_STATUSES`). They can't drift. */
+const TERMINAL_STATUSES = ["completed", "failed", "stopped", "killed"] as const;
+
+/** Completion notification fields inside a `queue-operation` enqueue. */
 const TASK_ID_TAG_RE = /<task-id>([^<]+)<\/task-id>/;
-const TERMINAL_STATUS_RE =
-  /<status>(?:completed|failed|stopped|killed)<\/status>/;
+const TERMINAL_STATUS_RE = new RegExp(
+  `<status>(?:${TERMINAL_STATUSES.join("|")})</status>`,
+);
 
 /** Scan the transcript tail for background tasks launched but not yet
  *  reporting a terminal status.
@@ -608,15 +616,11 @@ export function deriveWorkflowProgress(
   return fallback;
 }
 
-/** Journal statuses meaning a workflow run has finished — not busy-waiting.
- *  Mirrors the transcript notification's terminal set (`TERMINAL_STATUS_RE`);
- *  "running" (the journal's default) is the only non-terminal status. */
-const TERMINAL_JOURNAL_STATUSES = new Set([
-  "completed",
-  "failed",
-  "stopped",
-  "killed",
-]);
+/** The journal-side matcher for `TERMINAL_STATUSES` — a Set for O(1) membership
+ *  on the workflow journal's `status` field, derived from the same source as
+ *  `TERMINAL_STATUS_RE` so the two formats can't drift. "running" (the journal's
+ *  default) is the only non-terminal status. */
+const TERMINAL_JOURNAL_STATUSES = new Set<string>(TERMINAL_STATUSES);
 
 /** How long a still-`running` workflow journal may sit unwritten before its run
  *  is treated as orphaned. A live workflow rewrites its journal on every phase
