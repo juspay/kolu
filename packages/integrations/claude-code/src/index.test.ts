@@ -256,6 +256,43 @@ describe("deriveState", () => {
     expect(deriveState([marker, prompt])).toMatchObject({ state: "thinking" });
   });
 
+  it("skips a trailing compact summary (manual /compact leaves it at the tail)", () => {
+    // `/compact` appends a synthetic `user` entry flagged `isCompactSummary`.
+    // After a *manual* compact the agent does not auto-respond, so this entry
+    // sits at the tail; reading it as a user prompt would pin `thinking`
+    // forever. State must come from the genuine prior turn instead.
+    const endTurn = JSON.stringify({
+      type: "assistant",
+      message: { stop_reason: "end_turn", model: "claude-opus-4-8" },
+    });
+    const compactSummary = JSON.stringify({
+      type: "user",
+      isCompactSummary: true,
+      message: { role: "user", content: "This session is being continued…" },
+    });
+    expect(deriveState([endTurn, compactSummary])).toMatchObject({
+      state: "waiting",
+      model: "claude-opus-4-8",
+    });
+  });
+
+  it("does not skip a real prompt that follows a compact summary (auto-continue)", () => {
+    // Once the agent (or the user) sends a genuine prompt after the summary,
+    // that newer `user` entry must still read as `thinking`.
+    const compactSummary = JSON.stringify({
+      type: "user",
+      isCompactSummary: true,
+      message: { role: "user", content: "summary…" },
+    });
+    const prompt = JSON.stringify({
+      type: "user",
+      message: { content: "continue" },
+    });
+    expect(deriveState([compactSummary, prompt])).toMatchObject({
+      state: "thinking",
+    });
+  });
+
   it("uses last relevant message (walks backwards)", () => {
     const user = JSON.stringify({ type: "user" });
     const assistant = JSON.stringify({

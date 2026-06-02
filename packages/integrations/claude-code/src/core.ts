@@ -349,6 +349,7 @@ export function deriveState(
       const entry: {
         type?: string;
         timestamp?: string;
+        isCompactSummary?: boolean;
         message?: {
           stop_reason?: string | null;
           model?: string | null;
@@ -359,6 +360,16 @@ export function deriveState(
           content?: unknown;
         };
       } = JSON.parse(raw);
+
+      // A compact summary is a synthetic transcript artifact (`isCompactSummary:
+      // true`), not a real user turn — it exists only to seed the post-compact
+      // context. After a *manual* `/compact` the agent does not auto-respond, so
+      // this `user`-typed entry sits at the tail indefinitely; reading it as a
+      // trailing user prompt would pin the session in `thinking` forever (the
+      // stuck-pill-after-`/compact` bug). Skip it so the state derives from the
+      // genuine prior turn (an idle `end_turn` → `waiting`). Auto-compact is
+      // unaffected: the agent's real response lands a newer entry within seconds.
+      if (entry.isCompactSummary === true) continue;
 
       if (contextTokens === null) {
         const tokens = sumUsageTokens(entry.message?.usage);
