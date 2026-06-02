@@ -43,11 +43,19 @@ const model = a.model || MODEL
 // never collide. Only the commit-message files land here.
 const workDir = `${repoPath}/.lens-debate`
 
+// Löwy's "electricity" probe — a sharper version of the SAME volatility lens, NOT
+// a second voting voice (a separate lens would double-count lowy and reintroduce
+// the up-front framing bias this skill avoids). It forces the abstract "where's
+// the boundary?" down to the concrete "what plugs into what?", which is exactly
+// the abstraction-without-grounding failure mode a lens debate is otherwise prone
+// to. Earned its keep on a live run (#1111). Baked into the lowy reviewer's output.
+const ELECTRICITY_PROBE = `As a REQUIRED part of your output, apply Löwy's electricity test (Righting Software / The Method) to ground the boundary question in "what plugs into what": name the **receptacle** (the stable interface every consumer plugs into), name the **volatile implementations** that receptacle encapsulates (the interchangeable generators behind it), say whether this is "electricity" (a domain-agnostic utility) or an application concern, and call out where a consumer is forced to "expose the wires" — reach past the receptacle and depend on a specific implementation. If the diff has no such boundary, say so explicitly; do not invent one.`
+
 // The two structural lenses that debate to consensus. code-police, when enabled,
 // is appended as a finding SOURCE only — it is not a debater.
 const DEBATERS = ['lowy', 'hickey']
 const REVIEWERS = [
-  { lens: 'lowy', framework: 'volatility-based decomposition — do boundaries encapsulate axes of change? (Lowy / Parnas)' },
+  { lens: 'lowy', framework: 'volatility-based decomposition — do boundaries encapsulate axes of change? (Lowy / Parnas)', probe: ELECTRICITY_PROBE },
   { lens: 'hickey', framework: 'structural simplicity — independent concerns complected, or one thing fragmented? (Simple Made Easy)' },
 ]
 if (withPolice) REVIEWERS.push({ lens: 'code-police', framework: 'code quality, correctness, and common-mistake review' })
@@ -127,11 +135,12 @@ const IMPL_SCHEMA = {
 // ---------------------------------------------------------------------------
 // Prompts
 // ---------------------------------------------------------------------------
-function reviewBrief(lens, framework) {
+function reviewBrief(lens, framework, probe) {
+  const probeBlock = probe ? `\n${probe}\n` : ''
   return `You are the **${lens}** reviewer. First Read \`.claude/skills/${lens}/SKILL.md\` for your framework, then ${DIFF}
 
 Review the change through the **${framework}** lens, INDEPENDENTLY — you are NOT seeing any other reviewer's findings. That independence is the whole point: being handed someone else's curated finding biases the verdict.
-${rationaleBlock}
+${rationaleBlock}${probeBlock}
 Emit your own findings (≤4, high-confidence). Each: a title, a file:line location, the problem in your lens's terms, a concrete suggestion, and a disposition — \`fix\` (worth changing in THIS PR) or \`drop\` (observation only). Do not invent issues to look thorough: an empty list, or all-drop, is a fine verdict for a clean diff.`
 }
 
@@ -203,7 +212,7 @@ phase('Review')
 
 const reviews = await parallel(
   REVIEWERS.map((r) => () =>
-    agent(reviewBrief(r.lens, r.framework), { label: `review:${r.lens}`, phase: 'Review', model, schema: FINDINGS_SCHEMA }),
+    agent(reviewBrief(r.lens, r.framework, r.probe), { label: `review:${r.lens}`, phase: 'Review', model, schema: FINDINGS_SCHEMA }),
   ),
 )
 

@@ -34,6 +34,17 @@ The structure was found by trial in #1109, and two parts of it are load-bearing:
 - **Both lenses run on Opus** (overriding their `model: sonnet` frontmatter), as
   `/be` already requires for structural review.
 
+- **The lowy lens runs Löwy's electricity probe.** Beyond the generic "where's
+  the boundary?", the lowy reviewer must name the *receptacle* (the stable
+  interface consumers plug into), the *volatile implementations* behind it,
+  whether the thing is "electricity" (a domain-agnostic utility) or an app
+  concern, and where a consumer is forced to "expose the wires." This is **not a
+  second lens** — a separate voice would double-count lowy and reintroduce the
+  framing bias above. It's the same volatility vote with a sharper probe that
+  reliably pulls structural review out of abstraction and into "what plugs into
+  what" (the abstraction-without-grounding failure mode a lens debate is prone
+  to). It earned its keep on a live run (#1111).
+
 ## Why deadlock is not possible
 
 `/codex-debate` *can* deadlock, and detects it: there the asymmetry is reviewer
