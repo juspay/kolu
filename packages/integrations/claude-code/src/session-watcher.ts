@@ -21,6 +21,7 @@ import {
   fetchSessionSummary,
   findTranscriptPath,
   liveOutstandingTasks,
+  nextWorkflowStaleDeadline,
   outstandingBackgroundTasks,
   PROJECTS_DIR,
   type SessionFile,
@@ -140,6 +141,12 @@ export function createSessionWatcher(
   // Trailing-edge debounce timer for transcript fs.watch events.
   // Null when idle. Cleared on destroy.
   let transcriptDebounceTimer: NodeJS.Timeout | null = null;
+  // One-shot timer armed at the next workflow-journal stale deadline while
+  // `running_background` is published. A journal going stale produces no
+  // fs.watch event (it's the *absence* of writes), so without this the phantom
+  // spinner would never self-clear if the agent dies on a still-fresh journal.
+  // Re-armed on every check, cleared on destroy.
+  let staleDeadlineTimer: NodeJS.Timeout | null = null;
   // Watcher over the per-session `workflows/` dir (dynamic-workflow journals).
   // Journals update while the agent is busy-waiting and the transcript is
   // otherwise quiet, so this keeps the fan-out count live. Null until set up.
@@ -174,6 +181,27 @@ export function createSessionWatcher(
       transcriptDebounceTimer = null;
       onTranscriptMaybeChanged();
     }, TRANSCRIPT_DEBOUNCE_MS);
+  }
+
+  /** Arm (or clear) the one-shot timer that re-runs the derivation when a
+   *  workflow journal crosses its stale threshold. Called on every check: while
+   *  `running_background`, point it at the soonest live-journal deadline so the
+   *  spinner self-clears even if the agent dies and no further fs event fires;
+   *  otherwise leave it disarmed. A fresh `setTimeout` per check replaces any
+   *  prior one, so the deadline always tracks the latest journal mtime. */
+  function scheduleStaleRecheck(deadline: number | null) {
+    if (staleDeadlineTimer) {
+      clearTimeout(staleDeadlineTimer);
+      staleDeadlineTimer = null;
+    }
+    if (destroyed || deadline === null) return;
+    // +1ms so the timer fires strictly past the threshold the recheck tests
+    // with `>` (a fire exactly at the deadline would still read as fresh).
+    const delay = Math.max(0, deadline - Date.now()) + 1;
+    staleDeadlineTimer = setTimeout(() => {
+      staleDeadlineTimer = null;
+      onTranscriptMaybeChanged();
+    }, delay);
   }
 
   function attachTranscriptWatcher(tp: string) {
@@ -244,6 +272,16 @@ export function createSessionWatcher(
       );
       return;
     }
+
+    // Arm a wall-clock recheck only while busy-waiting on a workflow: a stale
+    // journal emits no fs event, so this timer is the sole path that re-derives
+    // and clears the spinner if the agent dies on a still-fresh journal.
+    // Disarm otherwise (any other state already re-renders correctly).
+    scheduleStaleRecheck(
+      derived.state === "running_background"
+        ? nextWorkflowStaleDeadline(session, outstanding)
+        : null,
+    );
 
     scanTasksIncremental(transcriptWatching.path);
 
@@ -390,6 +428,10 @@ export function createSessionWatcher(
       if (transcriptDebounceTimer) {
         clearTimeout(transcriptDebounceTimer);
         transcriptDebounceTimer = null;
+      }
+      if (staleDeadlineTimer) {
+        clearTimeout(staleDeadlineTimer);
+        staleDeadlineTimer = null;
       }
       teardownTranscriptWatching();
       workflowsDirWatcher?.();

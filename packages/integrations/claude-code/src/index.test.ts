@@ -595,6 +595,7 @@ describe("outstandingBackgroundTasks", () => {
 describe("liveOutstandingTasks", () => {
   let tmpDir: string;
   let live: typeof import("./index.ts").liveOutstandingTasks;
+  let nextDeadline: typeof import("./index.ts").nextWorkflowStaleDeadline;
   let staleMs: number;
   const sessionId = "live-test-session";
   const cwd = "/home/user/live-project";
@@ -606,6 +607,7 @@ describe("liveOutstandingTasks", () => {
     vi.resetModules();
     const mod = await import("./index.ts");
     live = mod.liveOutstandingTasks;
+    nextDeadline = mod.nextWorkflowStaleDeadline;
     staleMs = mod.WORKFLOW_JOURNAL_STALE_MS;
   });
 
@@ -677,6 +679,34 @@ describe("liveOutstandingTasks", () => {
       wf("wf_now"),
     ]);
     expect(live(session, [wf("wf_now")], mtimeMs + staleMs + 1)).toEqual([]);
+  });
+
+  describe("nextWorkflowStaleDeadline", () => {
+    it("returns the journal mtime plus the stale window for a live workflow", () => {
+      writeJournal("wf_d1", "running");
+      const { mtimeMs } = fs.statSync(path.join(wfDir(), "wf_d1.json"));
+      expect(nextDeadline(session, [wf("wf_d1")])).toBe(mtimeMs + staleMs);
+    });
+
+    it("clamps an already-stale journal's deadline to `now` (fire immediately)", () => {
+      writeJournal("wf_d2", "running", staleMs + 60_000);
+      const now = Date.now();
+      expect(nextDeadline(session, [wf("wf_d2")], now)).toBe(now);
+    });
+
+    it("returns the earliest deadline across multiple workflows", () => {
+      writeJournal("wf_old", "running", 90_000); // ages out sooner
+      writeJournal("wf_new", "running");
+      const oldMtime = fs.statSync(path.join(wfDir(), "wf_old.json")).mtimeMs;
+      expect(nextDeadline(session, [wf("wf_old"), wf("wf_new")])).toBe(
+        oldMtime + staleMs,
+      );
+    });
+
+    it("returns null when no task has a readable journal (nothing to age out)", () => {
+      expect(nextDeadline(session, [wf("wf_absent")])).toBeNull();
+      expect(nextDeadline(session, [{ taskId: "b1", runId: null }])).toBeNull();
+    });
   });
 });
 

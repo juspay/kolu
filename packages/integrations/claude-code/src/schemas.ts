@@ -41,11 +41,14 @@ export const ClaudeCodeInfoSchema = z.object({
    *    until the user resolves them — the `tool_use` block isn't on disk
    *    while the prompt is pending, so this case never fires under the
    *    current SDK. Fix tracked in #905 (PreToolUse hook side-channel).
-   *  - `running_background`: the agent ended its turn (`end_turn`) while a
-   *    background task it launched (a dynamic `Workflow`, a backgrounded
-   *    `Bash` command, or a background `Task`/`Agent`) is still running.
+   *  - `running_background`: the agent ended its turn (`end_turn`) while an
+   *    outstanding dynamic `Workflow` run it launched — one with an observable
+   *    run journal (`<session>/workflows/<runId>.json`) — is still live.
    *    Without this the end-of-turn would read as `waiting` (needs-user); the
-   *    agent is actually busy-waiting on the background task.
+   *    agent is actually busy-waiting on that workflow. A backgrounded `Bash`
+   *    command or `Task`/`Agent` (no run journal) does NOT promote here: its
+   *    launch marker outlives the process, so a lost completion notification
+   *    would spin the pill forever (the phantom-`running_background` bug).
    *    Claude-Code-specific — see `deriveState`. */
   state: z.enum([
     "thinking",

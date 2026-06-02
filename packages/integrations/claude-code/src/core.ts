@@ -630,6 +630,43 @@ export function liveOutstandingTasks(
   });
 }
 
+/** Earliest wall-clock time at which one of `tasks`' workflow journals would
+ *  cross the stale threshold, or null if none has a readable journal to age out.
+ *
+ *  `liveOutstandingTasks` only re-evaluates staleness when it is *called*, and
+ *  the watcher only calls it on fs events (transcript / workflows-dir writes,
+ *  initial attach). A journal going stale is the absence of writes, so it emits
+ *  no event — without a timer scheduled at this deadline, a session published as
+ *  `running_background` on a still-fresh journal whose agent then dies silently
+ *  would keep its spinner forever (the phantom bug). The watcher arms a one-shot
+ *  timer here; when it fires, the next `liveOutstandingTasks` sees the journal as
+ *  stale and demotes the state.
+ *
+ *  Returns the minimum deadline across all readable journals so the watcher
+ *  re-checks as soon as the soonest one could age out (the rest are re-armed on
+ *  that pass). A missing/unreadable journal contributes no deadline — it never
+ *  promoted via this gate, so there is nothing to age out. */
+export function nextWorkflowStaleDeadline(
+  session: SessionFile,
+  tasks: BackgroundTask[],
+  now: number = Date.now(),
+): number | null {
+  const wfDir = workflowsDirFor(session);
+  let earliest: number | null = null;
+  for (const task of tasks) {
+    if (!task.runId) continue;
+    let mtimeMs: number;
+    try {
+      mtimeMs = fs.statSync(path.join(wfDir, `${task.runId}.json`)).mtimeMs;
+    } catch {
+      continue; // no observable journal → nothing to age out
+    }
+    const deadline = Math.max(mtimeMs + WORKFLOW_JOURNAL_STALE_MS, now);
+    if (earliest === null || deadline < earliest) earliest = deadline;
+  }
+  return earliest;
+}
+
 /** Sum the three input-side token counters that together represent what
  *  the model had to read for the turn. Returns null when the usage object
  *  is absent OR when none of the three input-side fields are present —

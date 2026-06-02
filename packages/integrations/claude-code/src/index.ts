@@ -28,6 +28,7 @@ export {
   fetchSessionSummary,
   findTranscriptPath,
   liveOutstandingTasks,
+  nextWorkflowStaleDeadline,
   outstandingBackgroundTasks,
   PROJECTS_DIR,
   readSessionFile,
