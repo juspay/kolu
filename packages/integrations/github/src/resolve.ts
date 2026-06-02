@@ -150,8 +150,18 @@ export function subscribeGitHubPr(
   }
 
   async function fetchAndEmit(repoRoot: string): Promise<void> {
-    const pr = await resolveGitHubPr(repoRoot, log);
-    emit(pr);
+    // Both call sites float this with `void`, so its rejection has no catch
+    // upstream. `resolveGitHubPr` already swallows its own failures, but
+    // `emit` → `onChange` runs the caller's callback (a metadata write that
+    // can throw). Contain it here, at the single point both paths funnel
+    // through, so a throwing consumer degrades this terminal's PR metadata
+    // instead of escaping as an unhandled rejection.
+    try {
+      const pr = await resolveGitHubPr(repoRoot, log);
+      emit(pr);
+    } catch (err) {
+      log?.error({ err }, "github pr watcher: emit failed");
+    }
   }
 
   function setGit(repoRoot: string | null, branch: string | null): void {

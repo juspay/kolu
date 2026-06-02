@@ -406,7 +406,20 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
   };
   plog.debug("started");
 
+  // `reconcile` must never throw. It is called bare from four channel
+  // `onEvent` callbacks — and a throw inside `onEvent` breaks out of
+  // `buildConsume`'s `for await` loop (see surface/server.ts), silently
+  // freezing that subscription for the terminal's life — and synchronously
+  // on the foreground snapshot fire. One try/catch here is the single place
+  // that invariant lives, so the bare call sites stay honest.
   function reconcile() {
+    try {
+      reconcileInner();
+    } catch (err) {
+      plog.error({ err }, "reconcile failed");
+    }
+  }
+  function reconcileInner() {
     const state = snapshotTerminalState(
       currentForeground,
       record.pid,
@@ -422,13 +435,9 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
         const slog = log.child({ provider: provider.kind });
         provider.externalChanges.install(
           () => {
-            for (const fn of [...activation.reconcilers]) {
-              try {
-                fn();
-              } catch (err) {
-                slog.error({ err }, "reconcile threw on external change");
-              }
-            }
+            // Every reconciler is a `reconcile` (above) and cannot throw, so
+            // the fan-out needs no per-callback guard.
+            for (const fn of [...activation.reconcilers]) fn();
           },
           (err) => slog.error({ err }, "external-change listener threw"),
           slog,
@@ -467,11 +476,7 @@ function startAgentProvider<Session, Info extends AgentInfoShape>(
   }
   function reconcileFromCommandRun(idx: number) {
     if (stopped) return;
-    try {
-      reconcile();
-    } catch (err) {
-      plog.error({ err }, "command-run reconcile failed");
-    }
+    reconcile();
     if (current !== null) return;
     const nextIdx = idx + 1;
     const next = COMMAND_RUN_RECONCILE_DELAYS_MS[nextIdx];

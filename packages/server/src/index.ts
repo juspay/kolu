@@ -150,7 +150,16 @@ process.on("uncaughtException", (err) => {
   process.exit(1);
 });
 process.on("unhandledRejection", (reason) => {
-  log.fatal({ reason }, "unhandled rejection");
+  // Deliberately fatal — same as an uncaught exception. A floating promise
+  // is as corrupting as a sync throw, and a context-free global handler is
+  // the wrong place to make a recover-or-die call (per-task error boundaries
+  // own that; see the provider DAG). If this fires, a background task is
+  // missing its boundary — fix the source, don't soften the net. The
+  // supervisor (systemd `Restart=on-failure` / launchd) restarts clean.
+  log.fatal(
+    { reason },
+    "unhandled rejection — a background task is missing its error boundary",
+  );
   process.exit(1);
 });
 
