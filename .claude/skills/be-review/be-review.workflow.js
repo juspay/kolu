@@ -207,10 +207,11 @@ if (setup?.cleanTree === false) {
 // a dropped reviewer is a STRUCTURED signal the caller (/be §4 falls back per
 // track) — not just a log line that silently shrinks the set while status='done'.
 const tracks = {}
-const liveTracks = TRACKS.filter((t) => (setup?.worktrees || []).find((w) => w.track === t && w.ok))
+const wts = setup?.worktrees ?? []
+const liveTracks = TRACKS.filter((t) => wts.find((w) => w.track === t && w.ok))
 const failedTracks = TRACKS.filter((t) => !liveTracks.includes(t))
 for (const t of failedTracks) {
-  const note = (setup?.worktrees || []).find((w) => w.track === t)?.note || 'worktree creation failed'
+  const note = wts.find((w) => w.track === t)?.note || 'worktree creation failed'
   tracks[t] = { track: t, status: 'track-error', error: `setup: ${note}` }
 }
 if (failedTracks.length) log(`Setup: worktree creation FAILED for ${failedTracks.join(', ')} — recorded as track-error so the caller falls back for those.`)
@@ -278,7 +279,7 @@ async function policeTrack(wt) {
     applied.push({ id: f.id, title: f.title, severity: f.severity, problem: f.problem, files, commit: sha })
     log(`police: applied ${f.id}${sha ? ` (${sha.slice(0, 9)})` : ' (uncommitted)'}`)
   }
-  return { status: findings.length ? 'consensus' : 'clean', findings: findings.length, applied }
+  return { status: findings.length ? 'consensus' : 'clean', findings: findings.length, passes: passes.map((p) => p.key), applied }
 }
 
 // Mechanical committer shared by the police track: stages EXACTLY the listed
@@ -303,6 +304,7 @@ ${message}
   return agent(prompt, {
     label: `police-commit:${id}`,
     phase: 'Tracks',
+    model,
     schema: {
       type: 'object',
       additionalProperties: false,
@@ -393,7 +395,7 @@ function policeComment(t) {
     .join('\n')
   return `## 👮 Code-police
 
-**${t.findings || 0} finding(s)** across the rules / fact-check / elegance passes${t.status === 'clean' ? ' — clean diff' : ''}.
+**${t.findings || 0} finding(s)** across the ${(t.passes || []).join(' / ') || 'code-police'} passes${t.status === 'clean' ? ' — clean diff' : ''}.
 
 | severity | finding | files | commit |
 |---|---|---|---|
@@ -490,13 +492,20 @@ phase('Report')
 
 const comments = {}
 if (postComments) {
-  const ledger = consolidationSection(consolidation, consolidateOrder)
+  // Data-drive Report over the SAME track set as every other phase: a per-track
+  // comment builder keyed by track name, iterated in the canonical
+  // `consolidateOrder`/`liveTracks` order. Adding/removing a reviewer costs Report
+  // nothing — no hardcoded track literal to keep in sync.
+  const builder = { codex: codexComment, lens: lensComment, police: policeComment }
+  // The consolidation ledger is a WORKFLOW-level artifact, not a track artifact, so
+  // it posts as its own comment — surviving any track subset instead of being
+  // string-stapled onto whichever track happens to be present.
   const bodies = [
-    ['codex', `${codexComment(tracks.codex)}\n\n${ledger}`],
-    ['lens', lensComment(tracks.lens)],
-    ['police', policeComment(tracks.police)],
-  ].filter(([t]) => tracks[t])
-  // Post sequentially so the comments land in a stable order (codex, lens, police).
+    ['consolidation', consolidationSection(consolidation, consolidateOrder)],
+    ...liveTracks.filter((t) => builder[t]).map((t) => [t, builder[t](tracks[t])]),
+  ]
+  // Post sequentially so the comments land in a stable order (consolidation, then
+  // the tracks in canonical order).
   for (const [slug, body] of bodies) {
     const url = await postComment(slug, body)
     comments[slug] = (url || '').trim()
