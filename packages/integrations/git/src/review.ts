@@ -23,7 +23,7 @@ import { promisify } from "node:util";
 import type { Logger } from "kolu-shared";
 import { simpleGit } from "simple-git";
 import { err, type GitResult, ok } from "./errors.ts";
-import { resolveUnder } from "./safe-path.ts";
+import { resolveExistingUnder, resolveUnder } from "./safe-path.ts";
 import {
   type GitBaseRef,
   type GitChangedFile,
@@ -223,12 +223,19 @@ export async function getDiff(
   log?: Logger,
   oldPath?: string,
 ): Promise<GitResult<GitDiffOutput>> {
-  const pathResult = resolveUnder(repoPath, filePath, log);
+  // `filePath` feeds the local-untracked `git diff --no-index /dev/null <abs>`
+  // fallback below, which reads `abs` straight off disk — so it needs the
+  // symlink-resolving guard, not just the lexical one. A repo-local
+  // `leak -> /etc/passwd` would otherwise be diffed (and its content
+  // surfaced) verbatim.
+  const pathResult = await resolveExistingUnder(repoPath, filePath, log);
   if (!pathResult.ok) return pathResult;
   const { abs, rel } = pathResult.value;
 
   // Validate oldPath the same way filePath is validated — it comes from
-  // the client and must not escape the repo root.
+  // the client and must not escape the repo root. Lexical-only is enough
+  // here: oldRel is only ever passed to git as a pathspec (never read off
+  // disk), and a rename's old name typically no longer exists to realpath.
   let oldRel = rel;
   if (oldPath) {
     const oldPathResult = resolveUnder(repoPath, oldPath, log);

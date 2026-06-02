@@ -177,4 +177,25 @@ describe("serveResolvedFile", () => {
     );
     expect(res.status).toBe(400);
   });
+
+  it("403s for a symlink that escapes the repo root (and never leaks content)", async () => {
+    // Lexically `leak.html` is a clean in-root segment; only resolving the
+    // symlink reveals it points outside. serveResolvedFile's fs-authority
+    // stage must reject it before reading.
+    const outside = fs.mkdtempSync(
+      path.join(os.tmpdir(), "kolu-iframe-route-outside-"),
+    );
+    try {
+      const secret = path.join(outside, "secret.html");
+      fs.writeFileSync(secret, "<!doctype html><h1>SECRET</h1>");
+      fs.symlinkSync(secret, path.join(tmpRoot, "leak.html"));
+      const res = await serveResolvedFile(
+        resolvePreviewPath(tmpRoot, "leak.html"),
+      );
+      expect(res.status).toBe(403);
+      expect(res.body.toString()).not.toContain("SECRET");
+    } finally {
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
+  });
 });
