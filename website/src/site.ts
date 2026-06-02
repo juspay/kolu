@@ -10,6 +10,6 @@
  */
 
 export const SITE_DESCRIPTION =
-  "Your terminals are the workspace. Real xterm.js tiles on an infinite 2D canvas — claude, codex, opencode, anything you run in a shell.";
+  "kolu is a terminal app built for scale: real xterm.js tiles on an infinite canvas, with a dock that never loses one — especially when you're running five agents at once.";
 
-export const SITE_TAGLINE = "your terminals are the workspace";
+export const SITE_TAGLINE = "the best way to run terminals";
