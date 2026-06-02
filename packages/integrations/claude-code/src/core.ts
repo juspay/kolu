@@ -418,6 +418,11 @@ export function deriveState(
         };
       } = JSON.parse(raw);
 
+      if (contextTokens === null) {
+        const tokens = sumUsageTokens(entry.message?.usage);
+        if (tokens !== null) contextTokens = tokens;
+      }
+
       // Walk past transcript-only `user` entries the human never typed — the
       // `/compact` summary and slash-command bookkeeping/output (the
       // `<command-name>` + `<local-command-stdout>` pair a `/compact` appends
@@ -426,16 +431,10 @@ export function deriveState(
       // the agent is idle; reading them as a fresh prompt would pin the pill in
       // `thinking` forever (the stuck-pill bug). Skipping derives state from the
       // genuine prior turn (`end_turn` → `waiting`); a turn that resumes work
-      // lands a newer assistant entry, seen first. These artifacts carry no
-      // `usage`, so skipping before the contextTokens read drops no accounting
-      // snapshot. (An `isMeta` injection is left alone — it is usually a live
-      // model prompt; see `isNonPromptUserEntry`.)
+      // lands a newer assistant entry, seen first. (An `isMeta` injection is
+      // left alone — it is usually a live model prompt; see
+      // `isNonPromptUserEntry`.)
       if (isNonPromptUserEntry(entry)) continue;
-
-      if (contextTokens === null) {
-        const tokens = sumUsageTokens(entry.message?.usage);
-        if (tokens !== null) contextTokens = tokens;
-      }
 
       if (stateAndModel === null) {
         const model = entry.message?.model ?? null;
