@@ -1226,8 +1226,16 @@ describe("watchOrWaitForDir — deep, lazily-created targets", () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  // fs.watch delivers asynchronously; give the event loop a beat to flush.
-  const settle = () => new Promise((r) => setTimeout(r, 120));
+  // fs.watch delivers asynchronously, and platform latency varies widely —
+  // Linux inotify is near-instant, but macOS FSEvents coalesces with hundreds
+  // of ms of latency. So poll until the callback fires (up to a generous cap)
+  // rather than asserting after a fixed sleep (which flaked on darwin CI).
+  const waitForFire = async (get: () => number, capMs = 4000) => {
+    const start = Date.now();
+    while (get() === 0 && Date.now() - start < capMs) {
+      await new Promise((r) => setTimeout(r, 25));
+    }
+  };
 
   it("fires when neither intermediate dir exists at setup (fresh session)", async () => {
     const root = fs.mkdtempSync(path.join(tmpDir, "fresh-"));
@@ -1237,19 +1245,18 @@ describe("watchOrWaitForDir — deep, lazily-created targets", () => {
     const cleanup = watchOrWaitForDir(target, () => changes++, undefined, true);
     try {
       // Materialize both missing components together (mirrors the runtime
-      // creating `subagents/workflows/` on the first Workflow launch).
+      // creating `subagents/workflows/` on the first Workflow launch), then a
+      // nested per-run append (which the recursive watch must also catch).
       fs.mkdirSync(target, { recursive: true });
-      await settle();
-      // A nested per-run append should now re-derive (recursive watch).
       const runDir = path.join(target, "wf_1");
       fs.mkdirSync(runDir, { recursive: true });
       fs.writeFileSync(path.join(runDir, "journal.jsonl"), "{}\n");
-      await settle();
+      await waitForFire(() => changes);
       expect(changes).toBeGreaterThan(0);
     } finally {
       cleanup();
     }
-  });
+  }, 10_000);
 
   it("fires for a target one level deep created later", async () => {
     const root = fs.mkdtempSync(path.join(tmpDir, "one-"));
@@ -1258,12 +1265,11 @@ describe("watchOrWaitForDir — deep, lazily-created targets", () => {
     const cleanup = watchOrWaitForDir(target, () => changes++, undefined);
     try {
       fs.mkdirSync(target);
-      await settle();
       fs.writeFileSync(path.join(target, "wf_1.json"), "{}");
-      await settle();
+      await waitForFire(() => changes);
       expect(changes).toBeGreaterThan(0);
     } finally {
       cleanup();
     }
-  });
+  }, 10_000);
 });
