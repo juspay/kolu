@@ -630,7 +630,6 @@ const App: Component = () => {
                       tileIds={store.terminalIds()}
                       watermark={appTitle()}
                       getLayout={(id) => store.getMetadata(id)?.canvasLayout}
-                      placeNew={arrange.placeNew}
                       onLayoutChange={arrange.applyTileGeometry}
                       onAutoArrange={arrange.handleCanvasAutoArrange}
                       onSelect={store.setActiveSilently}
