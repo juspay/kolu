@@ -43,6 +43,7 @@ import {
 } from "@parcel/watcher";
 import type { Logger } from "kolu-shared";
 import { WATCHER_DEBOUNCE_MS } from "./git-dir.ts";
+import { resolveUnder } from "./safe-path.ts";
 
 /** Directory basenames the watch skips: VCS internals, dependency trees, and
  *  build outputs. Single source of truth — the parcel ignore globs below AND
@@ -87,12 +88,21 @@ const IGNORE_GLOBS = [
  *  so the file — now directly under the root — is no longer swallowed by
  *  `**\/dist/**`, while any `node_modules`/`.git` *within* that directory stay
  *  ignored. Files outside ignored dirs keep `repoRoot` and so keep sharing the
- *  one repo-wide watcher (no extra OS handles for the common case). */
-function watchRootFor(repoRoot: string, filePath: string | undefined): string {
-  if (filePath === undefined) return repoRoot;
-  const dirSegments = filePath.split("/").slice(0, -1);
+ *  one repo-wide watcher (no extra OS handles for the common case).
+ *
+ *  `rel`/`abs` must already have passed `resolveUnder` — re-rooting at a file's
+ *  own directory means the ignore globs no longer protect against escaping the
+ *  repo, so the lexical boundary check has to happen *before* we get here.
+ *  `rel` is the normalized repo-relative path (no `..`, never absolute). */
+function watchRootFor(
+  repoRoot: string,
+  rel: string | undefined,
+  abs: string | undefined,
+): string {
+  if (rel === undefined || abs === undefined) return repoRoot;
+  const dirSegments = rel.split(path.sep).slice(0, -1);
   if (dirSegments.some((seg) => IGNORED_DIR_BASENAMES.includes(seg))) {
-    return path.dirname(path.resolve(repoRoot, filePath));
+    return path.dirname(abs);
   }
   return repoRoot;
 }
@@ -257,11 +267,20 @@ export function watchWorkingTree(
   log?: Logger,
   options?: WatchWorkingTreeOptions,
 ): () => void {
-  const watchRoot = watchRootFor(repoRoot, options?.filePath);
-  const matchAbs =
-    options?.filePath === undefined
-      ? null
-      : path.resolve(repoRoot, options.filePath);
+  // Validate the caller-supplied filePath *before* it can steer the watch
+  // root. `watchWorkingTree` is exported, so we can't trust the raw string:
+  // a crafted `dist/../../../etc/passwd` would otherwise re-root parcel
+  // outside the repo (re-rooting bypasses the ignore globs that are this
+  // module's only other escape guard). On escape, install nothing and hand
+  // back a no-op unsubscribe.
+  let resolved: { abs: string; rel: string } | undefined;
+  if (options?.filePath !== undefined) {
+    const guard = resolveUnder(repoRoot, options.filePath, log);
+    if (!guard.ok) return () => {};
+    resolved = guard.value;
+  }
+  const watchRoot = watchRootFor(repoRoot, resolved?.rel, resolved?.abs);
+  const matchAbs = resolved?.abs ?? null;
   let entry = sharedWorkingTreeWatchers.get(watchRoot);
   if (!entry) {
     entry = installSharedWorkingTreeWatcher(
