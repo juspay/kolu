@@ -66,8 +66,10 @@ branch HEAD ┼─ wt-lens    ─ lowy⇄hickey debate  ─→ commits ─┼─
 - **`--no-commit`**: leave each track's fixes uncommitted for inspection
   (debugging a single track). Consolidation cherry-picks per-track *commits*, so
   with this flag the orchestrator **skips Consolidate + Cleanup and preserves the
-  worktrees** (status `no-commit`) rather than silently discarding the uncommitted
-  edits. Default is to commit, which is what actually ships fixes.
+  worktrees** (status `no-commit`) — leaving every track's worktree in place under
+  `.be-review/wt-<track>/` (the branch is untouched) rather than silently discarding
+  the uncommitted edits; inspect and tear them down yourself. Default is to commit,
+  which is what actually ships fixes.
 
 ## Steps
 
@@ -107,7 +109,7 @@ consensus), **Consolidate** (cherry-pick each track's commits onto the branch,
 reconciling overlap), **Cleanup** (tear down the worktrees). It returns:
 
 ```
-{ status,                  // 'done' | 'setup-failed' | 'no-commit'
+{ status,                  // 'done' | 'no-commit' | 'setup-failed'
   branchHead, finalHead, base, order,
   tracks,                  // per-track result; ALWAYS one entry per requested track —
                            //   a track whose worktree setup failed is status:'track-error'

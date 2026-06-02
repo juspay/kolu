@@ -332,10 +332,10 @@ for (const t of liveTracks) log(`Track ${t}: ${tracks[t].status || 'unknown'}`)
 
 // `--no-commit` short-circuit. With commit=false the tracks deliberately leave
 // their fixes UNCOMMITTED in their own worktrees. Consolidation replays commits
-// (rev-list ${branchHead}..HEAD) and cleanup tears the worktrees down — so running
-// them now would discard every reviewer's edits. Instead, stop here and hand the
-// live worktrees to the user to inspect; nothing is consolidated and nothing is
-// cleaned up. (This is the documented single-track-debugging mode.)
+// (rev-list ${branchHead}..HEAD) and cleanup's `worktree remove --force` tears the
+// worktrees down — so running them now would silently discard every reviewer's edits.
+// Instead, stop here and hand the live worktrees to the user to inspect; nothing is
+// consolidated and nothing is cleaned up. (This is the documented single-track-debugging mode.)
 if (!commit) {
   log(`--no-commit: skipping Consolidate + Cleanup. Per-track fixes are UNCOMMITTED in their worktrees; inspect them there (\`git -C ${workRoot}/wt-<track> diff\`).`)
   return {
