@@ -18,7 +18,7 @@
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { encodePreviewPath } from "kolu-common/preview";
-import { resolveUnder } from "kolu-git";
+import { assertRealpathUnder, resolveUnder } from "kolu-git";
 
 /** Base URL for the iframe-preview file route. Used by both
  *  `buildIframePreviewUrl` (server emits URLs in this shape) and the Hono
@@ -83,9 +83,13 @@ export type PathResolution =
   | { ok: true; abs: string; mime: string }
   | { ok: false; status: 400 | 403 | 404; reason: string };
 
-/** Parse the URL tail, run both guard stages, return the absolute file path
- *  or the HTTP status to respond with. Pure function — no I/O — so the
- *  Hono route stays a thin adapter and the guard is unit-testable. */
+/** Parse the URL tail, run both *lexical* guard stages, return the absolute
+ *  file path or the HTTP status to respond with. Pure function — no I/O — so
+ *  the Hono route stays a thin adapter and the guard is unit-testable.
+ *
+ *  Symlink resolution can't happen here (it touches the filesystem); it lives
+ *  in `serveResolvedFile`, the I/O half, which rejects a repo-local symlink
+ *  escaping the root with the same 403 the lexical stage uses. */
 export function resolvePreviewPath(
   repoRoot: string,
   rawTail: string,
@@ -115,7 +119,8 @@ export function resolvePreviewPath(
   }
   const relPath = segments.join("/");
 
-  // Stage 2: canonical resolve + relative-prefix check (kolu-git's guard).
+  // Stage 2: canonical resolve + relative-prefix check (kolu-git's lexical
+  // guard). Stage 3 (symlink resolution) runs in `serveResolvedFile`.
   const resolved = resolveUnder(repoRoot, relPath);
   if (!resolved.ok) return { ok: false, status: 403, reason: "escapes root" };
 
@@ -140,12 +145,24 @@ export interface ServeResult {
  *  fixtures, and the I/O failure modes are testable without crafting URLs. */
 export async function serveResolvedFile(
   res: PathResolution,
+  root: string,
 ): Promise<ServeResult> {
   if (!res.ok) {
     return {
       status: res.status,
       headers: { "Content-Type": "text/plain; charset=utf-8" },
       body: res.reason,
+    };
+  }
+  // Stage 3: fs-authority check. `resolvePreviewPath` is lexical only, so a
+  // repo-local `leak.html -> /etc/passwd` slips through it; resolve symlinks
+  // and reject anything whose real path escapes the root before we read it.
+  const authority = await assertRealpathUnder(root, res.abs);
+  if (!authority.ok) {
+    return {
+      status: 403,
+      headers: { "Content-Type": "text/plain; charset=utf-8" },
+      body: "escapes root",
     };
   }
   try {
