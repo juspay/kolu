@@ -1,5 +1,5 @@
 /dist/*
-!/dist/garden
+!/dist/atlas
 .astro/
 node_modules/
 .env

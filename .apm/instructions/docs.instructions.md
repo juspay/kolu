@@ -9,4 +9,4 @@ applyTo: "docs/**"
 
 - Prefer flat, ancestry-free slugs (`pty-daemon-tui.html`) over dotted names (`remote-terminals.pty-daemon.tui.html`).
 - New design/research docs are `.html` in the repo's house style (light "paper" palette), so they render and annotate inside kolu's own Code tab.
-- The taxonomy (what lives in `docs/` vs GitHub Issues vs the blog) and the rationale live in the Atlas design in the garden (`website/src/content/garden/second-brain.md`, rendered at `/garden/second-brain`).
+- The taxonomy (what lives in `docs/` vs GitHub Issues vs the blog) and the rationale live in the Atlas design in the Atlas (`website/src/content/atlas/second-brain.md`, rendered at `/atlas/second-brain`).

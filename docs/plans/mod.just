@@ -1,4 +1,4 @@
-# docs/plans — kolu's knowledge garden (Atlas).
+# docs/plans — kolu's plans (legacy; migrating into the website Atlas).
 #
 # Imported from the root justfile as `mod plans`. Holds the gate that keeps
 # the hand-curated Map of Content (index.html) honest. The CI node

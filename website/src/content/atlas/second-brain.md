@@ -1,6 +1,6 @@
 ---
 title: The kolu Atlas
-description: kolu's second brain as an in-repo, markdown-authored knowledge garden — rendered by Astro, dogfooded in the Code tab.
+description: kolu's second brain as an in-repo, markdown-authored knowledge base — rendered by Astro, dogfooded in the Code tab.
 kind: design
 maturity: budding
 status: proposed
@@ -8,8 +8,8 @@ updated: 2026-06-02
 ---
 
 > **This doc dogfoods itself.** It's the Atlas design, authored as markdown and
-> living *in* the Astro garden it describes (`website/src/content/garden/`),
-> rendered by Astro at `/garden/second-brain`, reviewable in kolu's Code tab.
+> living *in* the Astro Atlas it describes (`website/src/content/atlas/`),
+> rendered by Astro at `/atlas/second-brain`, reviewable in kolu's Code tab.
 
 You already have a second brain — name the roles, don't build a new system.
 kolu has two overlapping stores (**GitHub Issues** and in-repo **docs**), a
@@ -23,32 +23,32 @@ Route by a single question, stated once and identically everywhere:
 > *Is this a **substantial, structured artifact** — or a **lightweight,
 > transient node**?*
 
-| Substantial → a **garden note** | Lightweight → a **GitHub Issue** |
+| Substantial → a **Atlas note** | Lightweight → a **GitHub Issue** |
 | --- | --- |
 | Plans, designs, research, reviews, retros, history | Bugs, tasks, roadmap items, quick questions |
 
 **Living-vs-frozen is *not* the divider** — a plan tree like `remote-terminals`
 lives and evolves for months. Maturity is a per-note **tag**
 (`seedling` → `budding` → `evergreen`), never a routing axis and never a
-location. The boundary blurs by design: a concept can have both a garden note
+location. The boundary blurs by design: a concept can have both a Atlas note
 and a tracking issue. When an issue thread becomes the source of truth,
-**extract** its summary into a garden note.
+**extract** its summary into a Atlas note.
 
-## The map — public & garden
+## The map — public & Atlas
 
 | Surface | Where | Role |
 | --- | --- | --- |
 | **Public** | the blog (kolu.dev) + per-release changelog | outward-facing; one post per release |
-| **Garden** | `website/src/content/garden/` → rendered at `/garden` | the working brain; markdown notes |
+| **Atlas** | `website/src/content/atlas/` → rendered at `/atlas` | the working brain; markdown notes |
 
-History isn't a third place — it's the garden over time (a settled note is just
+History isn't a third place — it's the Atlas over time (a settled note is just
 `evergreen`; git is the history; the changelog is a release artifact).
 
-## Where the garden lives: an Astro collection under `website/`
+## Where the Atlas lives: an Astro collection under `website/`
 
-The garden is an **Astro content collection** at
-`website/src/content/garden/*.md`, rendered by the existing site and published
-at **`kolu.dev/garden`**. This is the big call, and it earns its keep:
+The Atlas is an **Astro content collection** at
+`website/src/content/atlas/*.md`, rendered by the existing site and published
+at **`kolu.dev/atlas`**. This is the big call, and it earns its keep:
 
 - **Author markdown, get rendered HTML.** One content model with the blog; the
   agents that edit it write plain `.md` + frontmatter.
@@ -61,10 +61,10 @@ at **`kolu.dev/garden`**. This is the big call, and it earns its keep:
   while it still lives in-repo and stays readable by agents from disk.
 
 > **Spiked 2026-06-02.** This collection + a generated index + a render route
-> are live; this very note renders at `/garden/second-brain` and the build is
+> are live; this very note renders at `/atlas/second-brain` and the build is
 > green. The rendered `.html` is committed (marked generated via
 > `.gitattributes`) so it's previewable in the Code tab without a dev server —
-> an `.apm` rule rebuilds it whenever a garden note changes.
+> an `.apm` rule rebuilds it whenever a Atlas note changes.
 
 ## Format — markdown for prose, HTML/SVG for visual artifacts
 
@@ -113,7 +113,7 @@ Three tiers, each in a different home so the always-loaded layer stays lean:
 | Tier | What · where |
 | --- | --- |
 | ① Ephemeral | the raw transcript (`exportSessionAsHtml.ts`) |
-| ② Curated learning | a GitHub Issue, or a `<slug>` garden note when rich |
+| ② Curated learning | a GitHub Issue, or a `<slug>` Atlas note when rich |
 | ③ Durable rule | `.apm/` sources — **graduate must-hold rules to a justci recipe/hook** (memory → rule → code) |
 
 **Start manual, then automate.** Ship a manual `/atlas retro` the maintainer
@@ -148,10 +148,10 @@ auto-capture on every `/be` (until manual proves out) · a decay ritual.
 
 - **Shipped:** the original plans + MOC + house style + the `docs/**` agent rule
   (#1095); the `docs-moc` gate + `plans::check` module (#1098).
-- **Now:** the Astro garden collection + generated index + render route, with
+- **Now:** the Astro Atlas collection + generated index + render route, with
   committed generated HTML and an auto-rebuild `.apm` rule. This note is the
   first migrated artifact. `release-workflow` was removed.
-- **Next:** migrate the remaining `docs/plans/*.html` to garden markdown
+- **Next:** migrate the remaining `docs/plans/*.html` to Atlas markdown
   on-touch; retire the hand-MOC + `docs-moc` gate as that completes; add the
   conventional-commit lint; ship the first release; then the `/atlas` skill.
 

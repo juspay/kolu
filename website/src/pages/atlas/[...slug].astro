@@ -6,7 +6,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, "");
 const href = (p: string) => `${base}${p}` || "/";
 
 export async function getStaticPaths() {
-  const notes = await getCollection("garden");
+  const notes = await getCollection("atlas");
   return notes.map((note) => ({ params: { slug: note.id }, props: { note } }));
 }
 
@@ -24,10 +24,10 @@ const fmtDate = (date: Date) =>
   <article class="mx-auto max-w-[44rem] px-6 pt-20 pb-24">
     <header class="mb-12">
       <a
-        href={href("/garden")}
+        href={href("/atlas")}
         class="mono text-[0.72rem] text-ink-muted hover:text-amber transition-colors tracking-widest"
       >
-        ← the garden
+        ← the Atlas
       </a>
 
       <h1 class="display mt-8 text-[2.8rem] md:text-[3.6rem] text-ink">{d.title}</h1>
@@ -50,10 +50,10 @@ const fmtDate = (date: Date) =>
 
     <footer class="mt-20 pt-8 border-t border-rule flex items-center justify-between">
       <a
-        href={href("/garden")}
+        href={href("/atlas")}
         class="mono text-[0.72rem] text-ink-dim hover:text-amber transition-colors tracking-widest"
       >
-        ← the garden
+        ← the Atlas
       </a>
       <a
         href="https://github.com/juspay/kolu"

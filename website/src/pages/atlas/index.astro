@@ -8,7 +8,7 @@ const href = (p: string) => `${base}${p}` || "/";
 // Generated index: derived from the collection's frontmatter. Drafts are
 // hidden from the public build but stay reachable in `astro dev`. A note can
 // never be "unfiled" — so this replaces the hand-curated MOC and the CI gate.
-const notes = (await getCollection("garden"))
+const notes = (await getCollection("atlas"))
   .filter((n) => import.meta.env.DEV || !n.data.draft)
   .sort((a, b) => a.data.title.localeCompare(b.data.title));
 
@@ -22,14 +22,14 @@ const maturityColor: Record<string, string> = {
 ---
 
 <BaseLayout
-  title="Garden"
-  description="kolu's in-repo knowledge garden — plans, designs, reviews, and learnings, authored in markdown."
+  title="Atlas"
+  description="kolu's in-repo Atlas — plans, designs, reviews, and learnings, authored in markdown."
   defaultTheme="light"
 >
   <section class="mx-auto max-w-3xl px-6 pt-20 md:pt-28 pb-8">
     <p class="eyebrow mb-4">the atlas</p>
     <h1 class="display text-[3.2rem] md:text-[4.2rem] text-ink">
-      The <span class="text-amber">garden</span>.
+      The <span class="text-amber">Atlas</span>.
     </h1>
     <p class="mt-6 text-ink-dim max-w-xl leading-relaxed">
       kolu's in-repo knowledge base — authored in markdown, rendered here. This
@@ -50,7 +50,7 @@ const maturityColor: Record<string, string> = {
               {byKind(k).map((n) => (
                 <li class="border-b border-rule">
                   <a
-                    href={href(`/garden/${n.id}`)}
+                    href={href(`/atlas/${n.id}`)}
                     class="group block py-6 -mx-6 px-6 hover:bg-void-raised/60 transition-colors"
                   >
                     <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
@@ -84,7 +84,7 @@ const maturityColor: Record<string, string> = {
     }
     {
       notes.length === 0 && (
-        <p class="mono text-ink-muted text-sm py-12 text-center">// the garden is empty</p>
+        <p class="mono text-ink-muted text-sm py-12 text-center">// the Atlas is empty</p>
       )
     }
   </section>
