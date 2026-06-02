@@ -278,7 +278,7 @@ async function policeTrack(wt) {
     applied.push({ id: f.id, title: f.title, severity: f.severity, problem: f.problem, files, commit: sha })
     log(`police: applied ${f.id}${sha ? ` (${sha.slice(0, 9)})` : ' (uncommitted)'}`)
   }
-  return { status: findings.length ? 'consensus' : 'clean', findings: findings.length, applied }
+  return { status: findings.length ? 'consensus' : 'clean', findings: findings.length, passes: passes.map((p) => p.key), applied }
 }
 
 // Mechanical committer shared by the police track: stages EXACTLY the listed
@@ -394,7 +394,7 @@ function policeComment(t) {
     .join('\n')
   return `## 👮 Code-police
 
-**${t.findings || 0} finding(s)** across the rules / fact-check / elegance passes${t.status === 'clean' ? ' — clean diff' : ''}.
+**${t.findings || 0} finding(s)** across the ${(t.passes || []).join(' / ') || 'code-police'} passes${t.status === 'clean' ? ' — clean diff' : ''}.
 
 | severity | finding | files | commit |
 |---|---|---|---|
