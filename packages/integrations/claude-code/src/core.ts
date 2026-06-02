@@ -607,6 +607,21 @@ function newestFileMtimeMs(dir: string): number | null {
   return newest;
 }
 
+/** The live workflow root under the current runtime layout:
+ *  `<session>/subagents/workflows/`. Created lazily on the first `Workflow`
+ *  launch; holds one `<runId>/` sub-dir per live run (see `liveWorkflowRunDir`).
+ *  The session-watcher watches this tree so live-run writes (`journal.jsonl` /
+ *  streaming `agent-*.jsonl` appends) re-derive progress (#1123). */
+export function liveWorkflowsRootFor(session: SessionFile): string {
+  return path.join(
+    PROJECTS_DIR,
+    encodeProjectPath(session.cwd),
+    session.sessionId,
+    "subagents",
+    "workflows",
+  );
+}
+
 /** The live event-log directory for a `Workflow` run under the current runtime
  *  layout: `<session>/subagents/workflows/<runId>/`. Holds `journal.jsonl`
  *  (per-sub-agent `started`/`result` events) plus one streaming `agent-*.jsonl`
@@ -617,14 +632,7 @@ export function liveWorkflowRunDir(
   session: SessionFile,
   runId: string,
 ): string {
-  return path.join(
-    PROJECTS_DIR,
-    encodeProjectPath(session.cwd),
-    session.sessionId,
-    "subagents",
-    "workflows",
-    runId,
-  );
+  return path.join(liveWorkflowsRootFor(session), runId);
 }
 
 /** Number of sub-agents spawned so far in a live run — one `started` event per
@@ -1067,9 +1075,10 @@ export function tryWatchDir(
   dir: string,
   onChange: () => void,
   log?: Logger,
+  recursive = false,
 ): (() => void) | null {
   try {
-    const w = fs.watch(dir, () => onChange());
+    const w = fs.watch(dir, { recursive }, () => onChange());
     log?.info({ dir }, "claude-code: dir watcher installed");
     return () => {
       w.close();
@@ -1091,13 +1100,18 @@ export function tryWatchDir(
  * Used for both SESSIONS_DIR (absent on fresh systems until first claude
  * run) and the per-session project dir under PROJECTS_DIR (created lazily
  * when claude writes its first transcript).
+ *
+ * `recursive` watches the whole subtree (Node `fs.watch` recursive mode) — used
+ * for the live workflow root, where progress writes land in nested per-run dirs
+ * (`<runId>/journal.jsonl`, `agent-*.jsonl`) a non-recursive watch can't see.
  */
 export function watchOrWaitForDir(
   dir: string,
   onChange: () => void,
   log?: Logger,
+  recursive = false,
 ): () => void {
-  const direct = tryWatchDir(dir, onChange, log);
+  const direct = tryWatchDir(dir, onChange, log, recursive);
   if (direct) return direct;
 
   let child: (() => void) | null = null;
@@ -1106,7 +1120,7 @@ export function watchOrWaitForDir(
   try {
     parentWatcher = fs.watch(parent, () => {
       if (child) return;
-      const attached = tryWatchDir(dir, onChange, log);
+      const attached = tryWatchDir(dir, onChange, log, recursive);
       if (!attached) return;
       child = attached;
       parentWatcher?.close();

@@ -23,6 +23,7 @@ import {
   findTranscriptPath,
   isClaudeSubtreeIdle,
   liveOutstandingTasks,
+  liveWorkflowsRootFor,
   nextWorkflowStaleDeadline,
   outstandingBackgroundTasks,
   PROJECTS_DIR,
@@ -149,10 +150,15 @@ export function createSessionWatcher(
   // spinner would never self-clear if the agent dies on a still-fresh journal.
   // Re-armed on every check, cleared on destroy.
   let staleDeadlineTimer: NodeJS.Timeout | null = null;
-  // Watcher over the per-session `workflows/` dir (dynamic-workflow journals).
-  // Journals update while the agent is busy-waiting and the transcript is
+  // Watcher over the per-session `workflows/` dir (completion snapshots).
+  // Snapshots land while the agent is busy-waiting and the transcript is
   // otherwise quiet, so this keeps the fan-out count live. Null until set up.
   let workflowsDirWatcher: (() => void) | null = null;
+  // Watcher over the live workflow root `subagents/workflows/` (#1123). Live
+  // progress (sub-agent count climbing, streaming `agent-*.jsonl` appends) lands
+  // in nested per-run dirs the snapshot watcher can't see, so this is recursive.
+  // Null until set up.
+  let liveWorkflowsWatcher: (() => void) | null = null;
 
   let destroyed = false;
 
@@ -466,16 +472,28 @@ export function createSessionWatcher(
     }
   }
 
-  /** Watch the per-session `workflows/` dir so journal updates (fan-out
-   *  count climbing, status flipping to completed) re-derive state even when
-   *  the transcript itself is quiet. Routed through the same debounced check
-   *  as transcript events. `watchOrWaitForDir` handles the dir not existing
-   *  yet (created lazily on the first `Workflow` launch). */
+  /** Watch both on-disk workflow layouts so progress re-derives even when the
+   *  transcript itself is quiet (#1123). Both route through the same debounced
+   *  check as transcript events; `watchOrWaitForDir` handles either dir not
+   *  existing yet (created lazily on the first `Workflow` launch):
+   *
+   *   - the `workflows/` snapshot dir — the completion snapshot
+   *     (`<runId>.json`, status flipping to terminal) lands here non-recursively;
+   *   - the `subagents/workflows/` live root — RECURSIVE, because live progress
+   *     (fan-out count climbing, streaming `agent-*.jsonl` appends) lands in
+   *     nested per-run dirs a non-recursive watch can't observe. Without this the
+   *     new live source drives no refresh between transcript events. */
   function setupWorkflowsWatching() {
     workflowsDirWatcher = watchOrWaitForDir(
       workflowsDirFor(session),
       () => scheduleTranscriptCheck(),
       plog,
+    );
+    liveWorkflowsWatcher = watchOrWaitForDir(
+      liveWorkflowsRootFor(session),
+      () => scheduleTranscriptCheck(),
+      plog,
+      true, // recursive — observe nested per-run journal/agent file appends
     );
   }
 
@@ -499,6 +517,8 @@ export function createSessionWatcher(
       teardownTranscriptWatching();
       workflowsDirWatcher?.();
       workflowsDirWatcher = null;
+      liveWorkflowsWatcher?.();
+      liveWorkflowsWatcher = null;
     },
   };
 }

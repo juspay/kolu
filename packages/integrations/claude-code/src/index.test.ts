@@ -724,13 +724,17 @@ describe("liveOutstandingTasks", () => {
     expect(live(session, [wf("wf_livestale")])).toEqual([]);
   });
 
-  it("drops a journal-less workflow once the workflows dir itself goes stale (phantom guard)", () => {
+  it("demotes an unobservable workflow immediately, at any `now` (phantom guard)", () => {
     // The phantom `running_background` bug: a launch marker carrying a `Run ID`
-    // whose journal kolu can never read must NOT promote forever. Once even the
-    // directory anchor ages past the stale window, the gate demotes it.
+    // whose progress kolu can never read must NOT promote forever. With neither
+    // a completion snapshot (`workflows/<runId>.json`) nor a live run dir
+    // (`subagents/workflows/<runId>/`), there is no observable anchor, so the
+    // gate demotes on the spot — independent of the injected clock. The empty
+    // `workflows/` dir (a bare launch marker) carries no anchor of its own.
     fs.mkdirSync(wfDir(), { recursive: true });
-    const dirMtime = fs.statSync(wfDir()).mtimeMs;
-    expect(live(session, [wf("wf_phantom")], dirMtime + staleMs + 1)).toEqual(
+    expect(live(session, [wf("wf_phantom")], 0)).toEqual([]);
+    expect(live(session, [wf("wf_phantom")], Date.now())).toEqual([]);
+    expect(live(session, [wf("wf_phantom")], Number.MAX_SAFE_INTEGER)).toEqual(
       [],
     );
   });
