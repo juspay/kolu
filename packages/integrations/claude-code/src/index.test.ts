@@ -11,7 +11,6 @@ import {
   INTERRUPT_TOOL_RESULT_PREFIX,
   outstandingBackgroundTasks,
   tailJsonlLines,
-  watchOrWaitForDir,
 } from "./core.ts";
 
 // --- Shared fixtures for dynamic-workflow background-task entries ---
@@ -1210,66 +1209,4 @@ describe("deriveWorkflowProgress", () => {
       ]),
     ).toMatchObject({ name: "b", status: "running" });
   });
-});
-
-// #1123: the live workflow root sits two lazily-created levels below the
-// session dir (`<session>/subagents/workflows/`). A single-level parent
-// fallback can't attach when `subagents/` is also absent at setup time — the
-// regression these tests pin.
-describe("watchOrWaitForDir — deep, lazily-created targets", () => {
-  let tmpDir: string;
-
-  beforeAll(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "claude-watch-test-"));
-  });
-  afterAll(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
-  });
-
-  // fs.watch delivers asynchronously, and platform latency varies widely —
-  // Linux inotify is near-instant, but macOS FSEvents coalesces with hundreds
-  // of ms of latency. So poll until the callback fires (up to a generous cap)
-  // rather than asserting after a fixed sleep (which flaked on darwin CI).
-  const waitForFire = async (get: () => number, capMs = 4000) => {
-    const start = Date.now();
-    while (get() === 0 && Date.now() - start < capMs) {
-      await new Promise((r) => setTimeout(r, 25));
-    }
-  };
-
-  it("fires when neither intermediate dir exists at setup (fresh session)", async () => {
-    const root = fs.mkdtempSync(path.join(tmpDir, "fresh-"));
-    // Target two levels deep; only `root` exists right now.
-    const target = path.join(root, "subagents", "workflows");
-    let changes = 0;
-    const cleanup = watchOrWaitForDir(target, () => changes++, undefined, true);
-    try {
-      // Materialize both missing components together (mirrors the runtime
-      // creating `subagents/workflows/` on the first Workflow launch), then a
-      // nested per-run append (which the recursive watch must also catch).
-      fs.mkdirSync(target, { recursive: true });
-      const runDir = path.join(target, "wf_1");
-      fs.mkdirSync(runDir, { recursive: true });
-      fs.writeFileSync(path.join(runDir, "journal.jsonl"), "{}\n");
-      await waitForFire(() => changes);
-      expect(changes).toBeGreaterThan(0);
-    } finally {
-      cleanup();
-    }
-  }, 10_000);
-
-  it("fires for a target one level deep created later", async () => {
-    const root = fs.mkdtempSync(path.join(tmpDir, "one-"));
-    const target = path.join(root, "workflows");
-    let changes = 0;
-    const cleanup = watchOrWaitForDir(target, () => changes++, undefined);
-    try {
-      fs.mkdirSync(target);
-      fs.writeFileSync(path.join(target, "wf_1.json"), "{}");
-      await waitForFire(() => changes);
-      expect(changes).toBeGreaterThan(0);
-    } finally {
-      cleanup();
-    }
-  }, 10_000);
 });

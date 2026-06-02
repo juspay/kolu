@@ -23,7 +23,6 @@ import {
   findTranscriptPath,
   isClaudeSubtreeIdle,
   liveOutstandingTasks,
-  liveWorkflowsRootFor,
   nextWorkflowStaleDeadline,
   observeWorkflowRun,
   outstandingBackgroundTasks,
@@ -156,11 +155,6 @@ export function createSessionWatcher(
   // Snapshots land while the agent is busy-waiting and the transcript is
   // otherwise quiet, so this keeps the fan-out count live. Null until set up.
   let workflowsDirWatcher: (() => void) | null = null;
-  // Watcher over the live workflow root `subagents/workflows/` (#1123). Live
-  // progress (sub-agent count climbing, streaming `agent-*.jsonl` appends) lands
-  // in nested per-run dirs the snapshot watcher can't see, so this is recursive.
-  // Null until set up.
-  let liveWorkflowsWatcher: (() => void) | null = null;
 
   let destroyed = false;
 
@@ -497,28 +491,18 @@ export function createSessionWatcher(
     }
   }
 
-  /** Watch both on-disk workflow layouts so progress re-derives even when the
-   *  transcript itself is quiet (#1123). Both route through the same debounced
-   *  check as transcript events; `watchOrWaitForDir` handles either dir not
-   *  existing yet (created lazily on the first `Workflow` launch):
-   *
-   *   - the `workflows/` snapshot dir — the completion snapshot
-   *     (`<runId>.json`, status flipping to terminal) lands here non-recursively;
-   *   - the `subagents/workflows/` live root — RECURSIVE, because live progress
-   *     (fan-out count climbing, streaming `agent-*.jsonl` appends) lands in
-   *     nested per-run dirs a non-recursive watch can't observe. Without this the
-   *     new live source drives no refresh between transcript events. */
+  /** Watch the per-session `workflows/` snapshot dir so a workflow's completion
+   *  snapshot (`<runId>.json`) re-derives progress even when the transcript is
+   *  quiet. Live progress under `subagents/workflows/<runId>/` is NOT watched
+   *  (a recursive watch there proved unreliable on macOS, #1123); the reused
+   *  stale-recheck timer (`nextWorkflowStaleDeadline`, anchored on the live run
+   *  dir's newest file) drives live re-derivation instead, so the fan-out count
+   *  refreshes each window rather than on every append. */
   function setupWorkflowsWatching() {
     workflowsDirWatcher = watchOrWaitForDir(
       workflowsDirFor(session),
       () => scheduleTranscriptCheck(),
       plog,
-    );
-    liveWorkflowsWatcher = watchOrWaitForDir(
-      liveWorkflowsRootFor(session),
-      () => scheduleTranscriptCheck(),
-      plog,
-      true, // recursive — observe nested per-run journal/agent file appends
     );
   }
 
@@ -542,8 +526,6 @@ export function createSessionWatcher(
       teardownTranscriptWatching();
       workflowsDirWatcher?.();
       workflowsDirWatcher = null;
-      liveWorkflowsWatcher?.();
-      liveWorkflowsWatcher = null;
     },
   };
 }
