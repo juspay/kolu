@@ -142,4 +142,4 @@ biome: install
 # (`plans::check`), co-located with what it guards; this node keeps it in the
 # CI DAG and posts the ci::docs-moc status. Run locally as `just plans::check`.
 docs-moc:
-    just plans::check
+    {{ nix_shell }} just plans::check
