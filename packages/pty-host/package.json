@@ -23,7 +23,7 @@
     "kolu-common": "workspace:*",
     "kolu-pty": "workspace:*",
     "kolu-shared": "workspace:*",
-    "node-pty": "github:juspay/node-pty#fix/darwin-pty-fd-leak",
+    "node-pty": "github:juspay/node-pty#feat/foreground-pid-dist",
     "zod": "^4.3.6"
   },
   "devDependencies": {
