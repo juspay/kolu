@@ -103,6 +103,12 @@ export class KoluWorld extends World {
     number,
     { id: string; left: number; top: number }
   >;
+  /** Snapshot of every visible canvas tile's canvas-space position
+   *  (`style.left`/`top`, keyed by terminal id) captured by `When I
+   *  record all canvas tile positions`. Read back by the
+   *  no-auto-arrange-on-create regression to prove a new terminal never
+   *  moves an existing one. */
+  recordedTilePositions?: Record<string, { left: number; top: number }>;
   _scrollFifo?: string;
   createdTerminalIds: string[] = [];
   shuffleHistory: string[] = [];

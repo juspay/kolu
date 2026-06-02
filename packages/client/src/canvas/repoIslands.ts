@@ -1,13 +1,12 @@
 /** Repo-island layout — pack tiles bucketed by `bucket` into square-ish
  *  clusters and pack the clusters across the canvas.
  *
- *  Two entry points:
- *  - `arrangeRepoIslands(tiles)` — palette command; lays out all tiles.
- *  - `repackBucket(bucket, existing, newTileId)` — per-create policy;
- *    re-lays out one bucket to include the new tile.
- *
- *  Both go through `packCluster`/`packGrid` so the per-create path
- *  produces the same square-ish shape as a full arrange.
+ *  One entry point: `arrangeRepoIslands(tiles)`, run ONLY when the user
+ *  invokes "Arrange canvas by repo" (palette command / minimap button).
+ *  Creating a terminal deliberately does NOT arrange — a new tile opens
+ *  at the canvas's default cascade and existing tiles never move. This
+ *  module reshuffles the whole canvas, so it fires only on explicit
+ *  request, never as a side effect of opening a terminal.
  *
  *  Why `bucket: string` instead of `group: string`: the function only
  *  needs an opaque bucketing key. Today the caller projects from
@@ -21,8 +20,7 @@
 
 import type { TerminalId } from "kolu-common/surface";
 import type { TileLayout } from "./TileLayout";
-import { DEFAULT_TILE_H, DEFAULT_TILE_W } from "./tilePlacement";
-import { GRID_SIZE, snapToGrid } from "./viewport/transforms";
+import { GRID_SIZE } from "./viewport/transforms";
 
 /** Tile input for the layout. `bucket` is the clustering key the caller
  *  projected (today: `terminalKey(meta).group`). `layout` is the tile's
@@ -71,46 +69,6 @@ export function arrangeRepoIslands(
     }
   });
 
-  return result;
-}
-
-/** Repack the bucket's island to include `newTileId` in a square-ish
- *  grid, anchored at the bucket's current bounding-box top-left.
- *  Returns `undefined` when no matching island exists.
- *
- *  Existing tiles keep their slots while the column count is stable;
- *  when n+1 forces a new column count (e.g. 4→5 grows from 2×2 to 3×2)
- *  they shift — that's the trade for "always square-ish". */
-export function repackBucket(
-  bucket: string,
-  existing: RepoIslandTile[],
-  newTileId: TerminalId,
-): Map<TerminalId, TileLayout> | undefined {
-  const bucketTiles = existing.filter((t) => t.bucket === bucket);
-  if (bucketTiles.length === 0) return undefined;
-
-  const ordered = [...bucketTiles].sort((a, b) =>
-    a.layout.y !== b.layout.y
-      ? a.layout.y - b.layout.y
-      : a.layout.x - b.layout.x,
-  );
-  const newTile: RepoIslandTile = {
-    id: newTileId,
-    bucket,
-    layout: { x: 0, y: 0, w: DEFAULT_TILE_W, h: DEFAULT_TILE_H },
-  };
-  const { layouts } = packCluster([...ordered, newTile]);
-  const anchorX = snapToGrid(Math.min(...bucketTiles.map((t) => t.layout.x)));
-  const anchorY = snapToGrid(Math.min(...bucketTiles.map((t) => t.layout.y)));
-
-  const result = new Map<TerminalId, TileLayout>();
-  for (const [id, layout] of layouts) {
-    result.set(id, {
-      ...layout,
-      x: anchorX + layout.x,
-      y: anchorY + layout.y,
-    });
-  }
   return result;
 }
 
