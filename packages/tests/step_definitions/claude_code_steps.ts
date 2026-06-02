@@ -218,7 +218,6 @@ function buildTranscript(state: MockState): string {
         type: "user",
         uuid: "u2",
         isCompactSummary: true,
-        isVisibleInTranscriptOnly: true,
         timestamp: new Date().toISOString(),
         message: {
           role: "user",
