@@ -55,18 +55,18 @@
 
 <h2 id="list">The electricities</h2>
 <table>
-<thead><tr><th>Electricity</th><th>Owns (volatility)</th><th>Progress</th></tr></thead>
+<thead><tr><th>Electricity</th><th>Owns (volatility)</th><th>PR</th><th>Progress</th></tr></thead>
 <tbody>
-<tr><td><b>@kolu/surface</b></td><td>Live client↔server state — <code>Cell</code>/<code>Collection</code>/<code>Stream</code>/<code>Event</code> over oRPC, reconnect, fine-grained reconcile.</td><td><span class="tag done">done</span> graduated → <a href="https://github.com/srid/drishti">drishti</a></td></tr>
-<tr><td><b>@kolu/surface-nix-host</b></td><td><code>HostSession</code> — <code>nix copy</code> a closure to a host, realise, run <code>--stdio</code> over ssh.</td><td><span class="tag done">done</span> used by drishti</td></tr>
-<tr><td><b>@kolu/artifact-sdk</b></td><td>Anchoring — core speaks only <code>Range</code>/<code>Document</code>/<code>ShadowRoot</code>.</td><td><span class="tag done">done</span></td></tr>
-<tr><td><b>@kolu/transcript-core</b> + <b>transcript-html</b></td><td>Transcript model + rendering.</td><td><span class="tag done">done</span></td></tr>
-<tr><td><b>@kolu/solid-pierre</b></td><td>SolidJS adapters for Pierre tree/diff.</td><td><span class="tag done">done</span></td></tr>
-<tr><td><b>persistedPref</b></td><td>Validated localStorage (validate-on-read; closed the zoom-<code>NaN</code> + maximize bugs).</td><td><span class="tag ship">shipped #1089</span></td></tr>
-<tr><td><b>@kolu/log</b> · <b>@kolu/html-escape</b></td><td>Zero-dep leaf types every package can import without dragging the domain tree.</td><td><span class="tag ship">shipped #1089</span></td></tr>
-<tr><td><b>dom/</b> + injectable <code>isMac</code></td><td><code>walkShadowRoots</code> relocated to a neutral wall; keybind core no longer reads the UA singleton.</td><td><span class="tag ship">shipped #1089</span></td></tr>
-<tr><td><b>createSharedRoot</b></td><td>Lazy app-scoped reactive singleton (7 consumers). 100% agnostic SolidJS.</td><td><span class="tag done">extracted</span> <span class="tag maybe">publish?</span></td></tr>
-<tr><td><b>@kolu/solid-xterm</b> <span class="muted">(createSolidXterm)</span></td><td>xterm.js lifecycle — 8-addon orchestration, WebGL single-owner + context-loss recovery, FitAddon resize, owner-correct async dispose across <code>await</code>.</td><td><span class="tag todo">to build</span> the one open extraction</td></tr>
+<tr><td><b>@kolu/surface</b></td><td>Live client↔server state — <code>Cell</code>/<code>Collection</code>/<code>Stream</code>/<code>Event</code> over oRPC, reconnect, fine-grained reconcile.</td><td><a href="https://github.com/juspay/kolu/pull/805">#805</a></td><td><span class="tag done">done</span> graduated → <a href="https://github.com/srid/drishti">drishti</a></td></tr>
+<tr><td><b>@kolu/surface-nix-host</b></td><td><code>HostSession</code> — <code>nix copy</code> a closure to a host, realise, run <code>--stdio</code> over ssh.</td><td><a href="https://github.com/juspay/kolu/pull/984">#984</a></td><td><span class="tag done">done</span> used by drishti</td></tr>
+<tr><td><b>@kolu/artifact-sdk</b></td><td>Anchoring — core speaks only <code>Range</code>/<code>Document</code>/<code>ShadowRoot</code>.</td><td><a href="https://github.com/juspay/kolu/pull/922">#922</a></td><td><span class="tag done">done</span></td></tr>
+<tr><td><b>@kolu/transcript-core</b> + <b>transcript-html</b></td><td>Transcript model + rendering.</td><td><a href="https://github.com/juspay/kolu/pull/744">#744</a></td><td><span class="tag done">done</span></td></tr>
+<tr><td><b>@kolu/solid-pierre</b></td><td>SolidJS adapters for Pierre tree/diff.</td><td><a href="https://github.com/juspay/kolu/pull/823">#823</a></td><td><span class="tag done">done</span></td></tr>
+<tr><td><b>persistedPref</b></td><td>Validated localStorage (validate-on-read; closed the zoom-<code>NaN</code> + maximize bugs).</td><td><a href="https://github.com/juspay/kolu/pull/1089">#1089</a></td><td><span class="tag done">done</span></td></tr>
+<tr><td><b>@kolu/log</b> · <b>@kolu/html-escape</b></td><td>Zero-dep leaf types every package can import without dragging the domain tree.</td><td><a href="https://github.com/juspay/kolu/pull/1089">#1089</a></td><td><span class="tag done">done</span></td></tr>
+<tr><td><b>dom/</b> + injectable <code>isMac</code></td><td><code>walkShadowRoots</code> relocated to a neutral wall; keybind core no longer reads the UA singleton.</td><td><a href="https://github.com/juspay/kolu/pull/1089">#1089</a></td><td><span class="tag done">done</span></td></tr>
+<tr><td><b>createSharedRoot</b></td><td>Lazy app-scoped reactive singleton (7 consumers). 100% agnostic SolidJS.</td><td><a href="https://github.com/juspay/kolu/pull/974">#974</a></td><td><span class="tag done">done</span> <span class="tag maybe">publish?</span></td></tr>
+<tr><td><b>@kolu/solid-xterm</b> <span class="muted">(createSolidXterm)</span></td><td>xterm.js lifecycle — 8-addon orchestration, WebGL single-owner + context-loss recovery, FitAddon resize, owner-correct async dispose across <code>await</code>.</td><td><a href="https://github.com/juspay/kolu/pull/1116">#1116</a> <span class="muted">(plan)</span></td><td><span class="tag todo">to build</span></td></tr>
 </tbody>
 </table>
 <p class="muted">Plus external electricity correctly leaned on instead of hand-rolled: <strong>Corvu</strong> (dialog/drawer/focus-trap/scroll-lock), <strong>@solid-primitives/*</strong> (resize-observer, media). Origin: a 41-agent Hickey/Lowy audit (16 candidates) → its "ship now" tier landed in <a href="https://github.com/juspay/kolu/pull/1089">#1089</a>; a framework-scale re-test + adversarial skeptic surfaced the missed <code>solid-xterm</code>.</p>
