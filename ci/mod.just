@@ -138,25 +138,8 @@ biome: install
     {{ nix_shell }} biome lint .
 
 
-# Verify the hand-curated Map of Content (docs/plans/index.html) stays honest:
-# every docs/plans/*.html must be linked from it, and every link must resolve.
-# The MOC has no generator (by design) — this gate is what forces a new plan to
-# be registered. See .apm/instructions/docs.instructions.md. Pure bash+grep, so
-# no install/nix dep and platform-neutral.
+# MOC integrity gate. The check lives in the docs/plans module
+# (`plans::check`), co-located with what it guards; this node keeps it in the
+# CI DAG and posts the ci::docs-moc status. Run locally as `just plans::check`.
 docs-moc:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    fail=0
-    for f in docs/plans/*.html; do
-      b=$(basename "$f")
-      [ "$b" = index.html ] && continue
-      grep -qF "$b" docs/plans/index.html || { echo "✗ unlisted: $b not linked in docs/plans/index.html"; fail=1; }
-    done
-    while read -r t; do
-      [ -f "docs/plans/$t" ] || { echo "✗ dead link: index.html → $t"; fail=1; }
-    done < <(grep -oE 'href="\./[^"]+\.html"' docs/plans/index.html | sed -E 's#href="\./##; s#"$##' | sort -u)
-    if [ "$fail" -ne 0 ]; then
-      echo "docs/plans Map of Content out of sync — fix index.html (see .apm/instructions/docs.instructions.md)."
-      exit 1
-    fi
-    echo "✓ docs/plans Map of Content in sync"
+    just plans::check

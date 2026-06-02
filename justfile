@@ -15,6 +15,7 @@ cucumber_parallel := env('CUCUMBER_PARALLEL', '4')
 mod ai 'agents/ai.just'
 mod ci 'ci/mod.just'
 mod website 'website/mod.just'
+mod plans 'docs/plans/mod.just'
 
 # List available recipes
 default:
