@@ -9,7 +9,7 @@ import { readFile as fsReadFile, stat as fsStat } from "node:fs/promises";
 import { promisify } from "node:util";
 import type { Logger } from "kolu-shared";
 import { err, type GitResult, ok } from "./errors.ts";
-import { resolveUnder } from "./safe-path.ts";
+import { resolveExistingUnder } from "./safe-path.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -51,7 +51,7 @@ export async function readFile(
   filePath: string,
   log?: Logger,
 ): Promise<GitResult<{ content: string; truncated: boolean }>> {
-  const resolved = resolveUnder(repoPath, filePath, log);
+  const resolved = await resolveExistingUnder(repoPath, filePath, log);
   if (!resolved.ok)
     return resolved as GitResult<{ content: string; truncated: boolean }>;
 
@@ -79,7 +79,7 @@ export async function statFileMtimeMs(
   filePath: string,
   log?: Logger,
 ): Promise<GitResult<number>> {
-  const resolved = resolveUnder(repoPath, filePath, log);
+  const resolved = await resolveExistingUnder(repoPath, filePath, log);
   if (!resolved.ok) return resolved as GitResult<number>;
   try {
     const s = await fsStat(resolved.value.abs);

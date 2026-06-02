@@ -142,7 +142,7 @@
 <section id="summary">
   <h2>Summary</h2>
   <div class="callout">
-    <p><strong>Verdict:</strong> I found six correctness issues worth fixing. The high-severity terminal lifecycle leak is fixed by <a href="https://github.com/juspay/kolu/pull/1105">PR #1105</a>, and the OpenCode silent-parse issue by <a href="https://github.com/juspay/kolu/pull/1108">PR #1108</a>. The remaining open set is one high-severity path-authority bug and three medium-severity issues.</p>
+    <p><strong>Verdict:</strong> I found six correctness issues worth fixing. The high-severity terminal lifecycle leak is fixed by <a href="https://github.com/juspay/kolu/pull/1105">PR #1105</a>, the OpenCode silent-parse issue by <a href="https://github.com/juspay/kolu/pull/1108">PR #1108</a>, and the high-severity path-authority symlink escape by <a href="https://github.com/juspay/kolu/pull/1128">PR #1128</a>. The remaining open set is three medium-severity issues.</p>
   </div>
 
   <table>
@@ -159,7 +159,7 @@
         <td><span class="severity high">High</span></td>
         <td>Repo-root guard is lexical only; symlinks can escape the repo for reads, previews, and local diffs.</td>
         <td><code>kolu-git</code>, iframe preview</td>
-        <td><span class="status open">Open</span></td>
+        <td><span class="status fixed">Fixed</span> <a href="https://github.com/juspay/kolu/pull/1128">#1128</a></td>
       </tr>
       <tr>
         <td><span class="severity high">High</span></td>
@@ -216,6 +216,8 @@
     <p><span class="risk">Risk:</span> the Code tab, binary preview route, and local diff fallback can read or render files outside the repository root. That is both a correctness bug and a security boundary failure for any untrusted workspace.</p>
     <p><span class="fix">Fix:</span> split lexical path normalization from filesystem authority checks. For any operation that reads, stats, or diffs an existing file, compare <code>fs.realpath</code> of the root and target before use. Reject targets whose real path is outside the real repo root. Keep the current lexical helper only for paths that may not exist yet.</p>
     <p><span class="fix">Tests:</span> add symlink-to-outside fixtures for <code>readFile</code>, preview serving, and local untracked diff. The expected result should be a rejected path, not the external file content.</p>
+    <p class="label">Status - fixed</p>
+    <p><span class="fix">Implemented</span> in <a href="https://github.com/juspay/kolu/pull/1128">PR #1128, "Resolve symlinks in repo-root path guard (close symlink escape)"</a>. The fix takes the finding's recommended split: a new <code>assertRealpathUnder</code> in <a href="../../packages/integrations/git/src/safe-path.ts">safe-path.ts</a> resolves symlinks on <em>both</em> the root and the target via <code>fs.realpath</code> and rejects any target whose real path escapes the real root (realpath'ing the root too keeps a symlinked checkout or macOS <code>/tmp -&gt; /private/tmp</code> valid). Any <code>realpath</code> failure passes through, so a missing file stays a 404/<code>ENOENT</code> instead of masquerading as an escape. <code>resolveExistingUnder</code> composes it with the lexical <code>resolveUnder</code> for the common read/stat/diff-an-existing-file case; <code>resolveUnder</code> stays the lexical-only helper for not-yet-existing paths and git pathspecs. Wired into <code>browse.ts</code> (<code>readFile</code>/<code>statFileMtimeMs</code>), <code>review.ts</code> (the local untracked <code>--no-index</code> fallback's <code>filePath</code>), and the preview route's I/O half <code>serveResolvedFile</code> (which now 403s a symlink escape while <code>resolvePreviewPath</code> stays a pure, fixture-free unit). Covered by symlink-escape unit tests in <a href="../../packages/integrations/git/src/safe-path.test.ts">safe-path.test.ts</a>, <a href="../../packages/integrations/git/src/browse.test.ts">browse.test.ts</a>, <a href="../../packages/integrations/git/src/review.test.ts">review.test.ts</a>, and <a href="../../packages/server/src/iframePreviewRoute.test.ts">iframePreviewRoute.test.ts</a> - escape rejected, inside-symlink followed, non-existent passes through, intermediate dir-symlink escape rejected, symlinked root stays valid.</p>
   </article>
 
   <article class="finding high" id="terminal-exit-subscriptions">
@@ -295,7 +297,7 @@
 <section id="triage">
   <h2>Triage order</h2>
   <ol>
-    <li><strong>Fix path authority first.</strong> It is the only issue that crosses from correctness into a direct workspace boundary violation.</li>
+    <li><strong>Path authority is fixed.</strong> <a href="https://github.com/juspay/kolu/pull/1128">PR #1128</a> split lexical normalization from <code>fs.realpath</code> authority and closed the symlink escape across reads, previews, and local diffs. It was the only issue that crossed from correctness into a direct workspace boundary violation.</li>
     <li><strong>Terminal subscription lifecycle is fixed.</strong> <a href="https://github.com/juspay/kolu/pull/1105">PR #1105</a> landed the list-keyed cleanup and regression coverage.</li>
     <li><strong>Fix channel abort cleanup before daemon work expands.</strong> It is a small primitive with a large downstream blast radius.</li>
     <li><strong>Fix sub-terminal restore and kill-confirmation behavior together with tests.</strong> Both are terminal lifecycle fidelity issues and should be covered by restore/CRUD scenarios.</li>
