@@ -6,16 +6,14 @@
  *  between the two call sites. */
 
 import { type Component, Show } from "solid-js";
+import { isCleanRef } from "./commitRef";
 
 const REPO_URL = "https://github.com/juspay/kolu";
 
 const Commit: Component<{ sha: string | undefined; class?: string }> = (
   props,
 ) => {
-  const linkable = () => {
-    const c = props.sha;
-    return !!c && c !== "dev" && !c.includes("-dirty");
-  };
+  const linkable = () => isCleanRef(props.sha);
   return (
     <Show
       when={linkable()}

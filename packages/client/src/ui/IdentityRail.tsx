@@ -13,18 +13,22 @@
  *  and land with B's read-site `staleKey !== currentBuildId()` derivation, with
  *  no re-layout.
  *
- *  Currently the rail renders `srv`-only: the `pty` column and `≡ in-process`
+ *  The rail renders `srv` and `client`: the `pty` column and `≡ in-process`
  *  tag are commented out below (a no-op duplicate of `srv` while the pty-host
  *  is in-process) and a follow-up PR uncomments them once the pty-host lands as
- *  a separate, divergeable process. */
+ *  a separate, divergeable process.
+ *
+ *  The `client` column is the commit this browser's JS was built from
+ *  (`__KOLU_COMMIT__`, baked in at build time). Surfacing it next to `srv`
+ *  makes a stale client — an old bundle served from browser cache against a
+ *  freshly deployed server — visible at a glance: when both refs are clean and
+ *  disagree the column flags `≠ srv` (a mismatch; the two hashes prove
+ *  difference, not which is newer). */
 
-import type { Component } from "solid-js";
-// NOTE (remote-terminals A2): `Show` is only needed by the pty column +
-// `≡ in-process` tag, both commented out below until the pty-host lands as a
-// separate process. Re-import when uncommenting.
-// import { Show } from "solid-js";
+import { type Component, Show } from "solid-js";
 import { serverInfo, type WsStatus } from "../rpc/rpc";
 import Commit from "./Commit";
+import { clientIsStale } from "./commitRef";
 import Tip from "./Tip";
 
 /** WebSocket transport status → the `srv` liveness dot. */
@@ -75,6 +79,10 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
   //   );
   // };
 
+  // A genuinely outdated client — old bundle from browser cache against a
+  // freshly deployed server. Derivation lives in `commitRef` (unit-tested).
+  const stale = () => clientIsStale(serverInfo()?.commit, __KOLU_COMMIT__);
+
   return (
     <div class="inline-flex items-stretch rounded-lg border border-edge bg-surface-2/60 p-0.5 font-mono text-xs">
       <span class="inline-flex items-center gap-1.5 px-2 py-0.5">
@@ -86,6 +94,20 @@ const IdentityRail: Component<{ status: WsStatus }> = (props) => {
           />
         </Tip>
         <Commit sha={serverInfo()?.commit} />
+      </span>
+      <span class="mx-0.5 h-4 w-px self-center bg-edge-bright/70" />
+      <span class="inline-flex items-center gap-1.5 px-2 py-0.5">
+        <span class="text-[9px] uppercase tracking-wide text-fg-3">client</span>
+        <Tip label="This browser's JS build (baked in at build time)">
+          <Commit sha={__KOLU_COMMIT__} />
+        </Tip>
+        <Show when={stale()}>
+          <Tip label="This client build doesn't match the server — reload to pick up the server's version.">
+            <span class="self-center rounded-full border border-warning/40 px-1.5 text-[9px] leading-4 text-warning">
+              ≠ srv
+            </span>
+          </Tip>
+        </Show>
       </span>
       {/* pty column + `≡ in-process` tag — hidden until the pty-host is a
           separate process (remote-terminals Phase B). Uncomment with the
