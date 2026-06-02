@@ -43,3 +43,21 @@ preview:
     out=$(nix build {{ root }}#website --print-out-paths --no-link)
     echo "Serving $out on http://127.0.0.1:4321"
     cd {{ here }} && {{ nix_shell }} pnpm exec astro preview --port 4321
+
+# Build the site, then flatten ONLY the garden output: <slug>/index.html ->
+# <slug>.html. Astro's build.format is global (directory|file|preserve), so to
+# leave the blog's URLs untouched we post-process just the garden subtree. The
+# flattened, self-contained files are what get committed + previewed in the
+# Code tab. Garden slugs are flat, so this is a single level.
+build-garden: install
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd {{ here }}
+    {{ nix_shell }} pnpm build
+    cd dist/garden
+    for d in */; do
+      [ -f "${d}index.html" ] || continue
+      mv "${d}index.html" "${d%/}.html"
+      rm -rf "$d"
+    done
+    echo "garden flattened to <slug>.html"

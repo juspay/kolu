@@ -19,6 +19,9 @@ interface Props {
   pubDate?: Date;
   /** Article author — emitted as `article:author`. */
   author?: string;
+  /** Default colour theme when the visitor has no stored preference. The
+   *  garden passes "light"; the toggle still wins once used. */
+  defaultTheme?: "light" | "dark";
 }
 
 const {
@@ -28,6 +31,7 @@ const {
   ogType = "website",
   pubDate,
   author,
+  defaultTheme,
 } = Astro.props;
 
 const fullTitle =
@@ -41,7 +45,7 @@ const ogImageUrl = new URL(
 ---
 
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme={defaultTheme}>
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
@@ -85,11 +89,11 @@ const ogImageUrl = new URL(
     <meta name="color-scheme" content="dark light" />
 
     {/* FOUC-safe theme bootstrap — runs before any CSS/body paint. */}
-    <script is:inline>
+    <script is:inline define:vars={{ defaultTheme: defaultTheme ?? null }}>
       (() => {
         const stored = localStorage.getItem("theme");
         const prefersDark = matchMedia("(prefers-color-scheme: dark)").matches;
-        const theme = stored ?? (prefersDark ? "dark" : "light");
+        const theme = stored ?? defaultTheme ?? (prefersDark ? "dark" : "light");
         document.documentElement.dataset.theme = theme;
       })();
     </script>
