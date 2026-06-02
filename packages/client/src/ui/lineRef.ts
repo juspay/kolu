@@ -53,7 +53,15 @@ const LINE_REF_RE = new RegExp(
   `((?:\\.\\.?\\/|\\/)?(?:${PATH_CHARS}+\\/)+${PATH_CHARS}+|${PATH_CHARS}+\\.[A-Za-z]\\w*)` +
     // Optional `:line[:col|-end]`. When absent the bare path links to
     // the file with no line selected.
-    `(?::(\\d+)(?::\\d+|-(\\d+))?)?`,
+    `(?::(\\d+)(?::\\d+|-(\\d+))?)?` +
+    // The reference must not END in a literal `.`. `.` is a path char
+    // (extensions, dotfiles), so a greedy slash-path used to swallow the
+    // sentence period in prose like `…a single docs/plans/electricity.html.`
+    // and the link resolved to a nonexistent `…html.`. Only the dot is
+    // excluded from the tail — `+`/`@`/`-` are kept so `foo.c++` and
+    // `bin/g++` still link in full. A `:line` suffix ends in a digit, so
+    // this only ever trims a bare path's trailing dot.
+    `(?<!\\.)`,
   "g",
 );
 
