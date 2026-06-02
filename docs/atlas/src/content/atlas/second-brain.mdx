@@ -88,27 +88,51 @@ interactive bits.
 
 ## Extending markdown with components
 
-Because this note is `.mdx`, a component is one import away. The Atlas ships a
-small kit in `docs/atlas/src/components/`, tuned to what `docs/plans` actually
-uses:
+Because this note is `.mdx`, every component below is a **live import** from
+`docs/atlas/src/components/` — rendered here, not screenshotted. Props are
+typechecked at build. The kit is tuned to what `docs/plans` actually uses.
 
-- **GitHub refs** — <PrLink pr={1095} />, <Issue n={951} />, <Commit sha="7ec2566a" />.
-- **`<Cite>`** — a linked `file:line`: <Cite file="docs/atlas/astro.config.mjs" lines="14-19" />.
-- **`<Kbd>`** — a key chord, e.g. <Kbd keys="Ctrl+B" /> (reaches the terminal, not kolu).
-- **`<Callout>`** — typed boxes (used throughout this note).
-- **`<Terminal>`** — a transcript; **`<AtlasMockup>`** — a one-off visual prototype.
+**Inline chips** — small typed references for the prose:
+
+| Component | Live | Usage |
+| --- | --- | --- |
+| **`<PrLink>`** — GitHub PR, repo baked in | <PrLink pr={1095} /> | `<PrLink pr={1095} />` |
+| **`<Issue>`** — GitHub issue | <Issue n={951} /> | `<Issue n={951} />` |
+| **`<Commit>`** — short sha → commit | <Commit sha="7ec2566a" /> | `<Commit sha="7ec2566a" />` |
+| **`<Cite>`** — a linked `file:line` (replaces `docs/plans`' 110× `cite`) | <Cite file="docs/atlas/astro.config.mjs" lines="14-19" /> | `<Cite file="…" lines="14-19" />` |
+| **`<Kbd>`** — a keyboard chord | <Kbd keys="Ctrl+B" /> | `<Kbd keys="Ctrl+B" />` |
+
+**`<Callout>`** — a typed box with markdown inside; replaces the old
+`panel`/`card` divs. `kind`: `note · accent · good · warn · danger`. Usage:
+`<Callout kind="warn" title="…">body</Callout>`.
+
+<Callout kind="accent" title="Example callout">
+Markdown **works** in here — including chips like <PrLink pr={1093} />.
+</Callout>
+
+**`<Terminal>`** — a faux transcript. Usage:
+`<Terminal title="…" lines={["$ cmd", "output"]} />`; in `lines`, `$ ` is a
+prompt + command, `# ` a comment, anything else is output.
 
 <Terminal title="kolu — just atlas::build" lines={[
   "$ just atlas::build",
   "✓ Completed in 1.59s.",
-  "  ├─ /index.html",
-  "  └─ /second-brain.html",
+  "# self-contained dist/ previews in the Code tab",
 ]} />
+
+**`<AtlasMockup>`** — a one-off, self-contained HTML + inline-SVG prototype, for
+when a note needs something markdown can't draw:
 
 <AtlasMockup />
 
-Props are typechecked at build; the raw `.md` preview can't render any of this —
-the Astro layer can.
+**`<Toc>`** — a table of contents built from the note's headings. The page route
+renders it (the **Contents** box at the top of this note), so notes never import
+it.
+
+**`<Roadmap>` + `<Milestone>`** — a status-marked roadmap (done ✓ · now ▸ ·
+next ○) with rich children. Usage:
+`<Milestone status="done" label="Shipped">…</Milestone>`; see [Roadmap](#roadmap)
+below for the live one.
 
 ## Navigation — generated, not hand-curated
 

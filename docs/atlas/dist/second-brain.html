@@ -108,22 +108,67 @@ committed (generated via <code>.gitattributes</code>), and an <code>.apm</code> 
 Regime split: markdown for agent-ingested prose, components for visual or
 interactive bits.</p></div> </aside>
 <h2 id="extending-markdown-with-components">Extending markdown with components</h2>
-<p>Because this note is <code>.mdx</code>, a component is one import away. The Atlas ships a
-small kit in <code>docs/atlas/src/components/</code>, tuned to what <code>docs/plans</code> actually
-uses:</p>
-<ul>
-<li><strong>GitHub refs</strong> — <a href="https://github.com/juspay/kolu/pull/1095" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"> <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>
-#1095 </a>, <a href="https://github.com/juspay/kolu/issues/951" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#0b6478;background:#e1f0f3;border:1px solid #bcdfe6;border-radius:6px;padding:.05em .45em;text-decoration:none"> <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 9.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z"></path><path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Z"></path></svg>
-#951 </a>, <a href="https://github.com/juspay/kolu/commit/7ec2566a" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#475569;background:#eef1f5;border:1px solid #d6dde6;border-radius:6px;padding:.05em .45em;text-decoration:none"> <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M11.93 8.5a4.002 4.002 0 0 1-7.86 0H.75a.75.75 0 0 1 0-1.5h3.32a4.002 4.002 0 0 1 7.86 0h3.32a.75.75 0 0 1 0 1.5ZM10.5 8a2.5 2.5 0 1 0-5 0 2.5 2.5 0 0 0 5 0Z"></path></svg> 7ec2566 </a>.</li>
-<li><strong><code>&lt;Cite&gt;</code></strong> — a linked <code>file:line</code>: <a href="https://github.com/juspay/kolu/blob/master/docs/atlas/astro.config.mjs#L14-L19" rel="noopener" class="cite" data-astro-cid-lwmcem6b>docs/atlas/astro.config.mjs:14-19</a>.</li>
-<li><strong><code>&lt;Kbd&gt;</code></strong> — a key chord, e.g. <span class="kbd-chord" data-astro-cid-k3xgipvd> <kbd class="kbd" data-astro-cid-k3xgipvd>Ctrl</kbd> <span class="kbd-plus" data-astro-cid-k3xgipvd>+</span><kbd class="kbd" data-astro-cid-k3xgipvd>B</kbd>  </span> (reaches the terminal, not kolu).</li>
-<li><strong><code>&lt;Callout&gt;</code></strong> — typed boxes (used throughout this note).</li>
-<li><strong><code>&lt;Terminal&gt;</code></strong> — a transcript; <strong><code>&lt;AtlasMockup&gt;</code></strong> — a one-off visual prototype.</li>
-</ul>
-<div class="term" data-astro-cid-eqg5l7fp> <div class="term-bar" data-astro-cid-eqg5l7fp> <span class="term-dot" style="background:#ff5f56" data-astro-cid-eqg5l7fp></span> <span class="term-dot" style="background:#ffbd2e" data-astro-cid-eqg5l7fp></span> <span class="term-dot" style="background:#27c93f" data-astro-cid-eqg5l7fp></span> <span class="term-title" data-astro-cid-eqg5l7fp>kolu — just atlas::build</span> </div> <div class="term-body" data-astro-cid-eqg5l7fp> <div class="term-line" data-astro-cid-eqg5l7fp><span class="term-prompt" data-astro-cid-eqg5l7fp>$</span> <span class="term-cmd" data-astro-cid-eqg5l7fp>just atlas::build</span></div><div class="term-line term-out" data-astro-cid-eqg5l7fp>✓ Completed in 1.59s.</div><div class="term-line term-out" data-astro-cid-eqg5l7fp>  ├─ /index.html</div><div class="term-line term-out" data-astro-cid-eqg5l7fp>  └─ /second-brain.html</div> </div> </div>
+<p>Because this note is <code>.mdx</code>, every component below is a <strong>live import</strong> from
+<code>docs/atlas/src/components/</code> — rendered here, not screenshotted. Props are
+typechecked at build. The kit is tuned to what <code>docs/plans</code> actually uses.</p>
+<p><strong>Inline chips</strong> — small typed references for the prose:</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Component</th><th>Live</th><th>Usage</th></tr></thead><tbody><tr><td><strong><code>&lt;PrLink&gt;</code></strong> — GitHub PR, repo baked in</td><td><a href="https://github.com/juspay/kolu/pull/1095" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"> <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>
+#1095 </a></td><td><code>&lt;PrLink pr={1095} /&gt;</code></td></tr><tr><td><strong><code>&lt;Issue&gt;</code></strong> — GitHub issue</td><td><a href="https://github.com/juspay/kolu/issues/951" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#0b6478;background:#e1f0f3;border:1px solid #bcdfe6;border-radius:6px;padding:.05em .45em;text-decoration:none"> <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 9.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z"></path><path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Z"></path></svg>
+#951 </a></td><td><code>&lt;Issue n={951} /&gt;</code></td></tr><tr><td><strong><code>&lt;Commit&gt;</code></strong> — short sha → commit</td><td><a href="https://github.com/juspay/kolu/commit/7ec2566a" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#475569;background:#eef1f5;border:1px solid #d6dde6;border-radius:6px;padding:.05em .45em;text-decoration:none"> <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M11.93 8.5a4.002 4.002 0 0 1-7.86 0H.75a.75.75 0 0 1 0-1.5h3.32a4.002 4.002 0 0 1 7.86 0h3.32a.75.75 0 0 1 0 1.5ZM10.5 8a2.5 2.5 0 1 0-5 0 2.5 2.5 0 0 0 5 0Z"></path></svg> 7ec2566 </a></td><td><code>&lt;Commit sha=&quot;7ec2566a&quot; /&gt;</code></td></tr><tr><td><strong><code>&lt;Cite&gt;</code></strong> — a linked <code>file:line</code> (replaces <code>docs/plans</code>’ 110× <code>cite</code>)</td><td><a href="https://github.com/juspay/kolu/blob/master/docs/atlas/astro.config.mjs#L14-L19" rel="noopener" class="cite" data-astro-cid-lwmcem6b>docs/atlas/astro.config.mjs:14-19</a></td><td><code>&lt;Cite file=&quot;…&quot; lines=&quot;14-19&quot; /&gt;</code></td></tr><tr><td><strong><code>&lt;Kbd&gt;</code></strong> — a keyboard chord</td><td><span class="kbd-chord" data-astro-cid-k3xgipvd> <kbd class="kbd" data-astro-cid-k3xgipvd>Ctrl</kbd> <span class="kbd-plus" data-astro-cid-k3xgipvd>+</span><kbd class="kbd" data-astro-cid-k3xgipvd>B</kbd>  </span></td><td><code>&lt;Kbd keys=&quot;Ctrl+B&quot; /&gt;</code></td></tr></tbody></table>
+<p><strong><code>&lt;Callout&gt;</code></strong> — a typed box with markdown inside; replaces the old
+<code>panel</code>/<code>card</code> divs. <code>kind</code>: <code>note · accent · good · warn · danger</code>. Usage:
+<code>&lt;Callout kind=&quot;warn&quot; title=&quot;…&quot;&gt;body&lt;/Callout&gt;</code>.</p>
+<aside class="callout callout-accent" data-astro-cid-mrmim4ef> <p class="callout-title" data-astro-cid-mrmim4ef>Example callout</p> <div class="callout-body" data-astro-cid-mrmim4ef><p>Markdown <strong>works</strong> in here — including chips like <a href="https://github.com/juspay/kolu/pull/1093" rel="noopener" style="display:inline-flex;align-items:center;gap:.3em;vertical-align:baseline;font:600 .85em/1.2 ui-monospace,monospace;color:#5a3ff0;background:#efebff;border:1px solid #d4cbff;border-radius:6px;padding:.05em .45em;text-decoration:none"> <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="flex:none"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path></svg>
+#1093 </a>.</p></div> </aside>
+<p><strong><code>&lt;Terminal&gt;</code></strong> — a faux transcript. Usage:
+<code>&lt;Terminal title=&quot;…&quot; lines={[&quot;$ cmd&quot;, &quot;output&quot;]} /&gt;</code>; in <code>lines</code>, <code>$ </code> is a
+prompt + command, <code># </code> a comment, anything else is output.</p>
+<div class="term" data-astro-cid-eqg5l7fp> <div class="term-bar" data-astro-cid-eqg5l7fp> <span class="term-dot" style="background:#ff5f56" data-astro-cid-eqg5l7fp></span> <span class="term-dot" style="background:#ffbd2e" data-astro-cid-eqg5l7fp></span> <span class="term-dot" style="background:#27c93f" data-astro-cid-eqg5l7fp></span> <span class="term-title" data-astro-cid-eqg5l7fp>kolu — just atlas::build</span> </div> <div class="term-body" data-astro-cid-eqg5l7fp> <div class="term-line" data-astro-cid-eqg5l7fp><span class="term-prompt" data-astro-cid-eqg5l7fp>$</span> <span class="term-cmd" data-astro-cid-eqg5l7fp>just atlas::build</span></div><div class="term-line term-out" data-astro-cid-eqg5l7fp>✓ Completed in 1.59s.</div><div class="term-line term-comment" data-astro-cid-eqg5l7fp># self-contained dist/ previews in the Code tab</div> </div> </div>
+<p><strong><code>&lt;AtlasMockup&gt;</code></strong> — a one-off, self-contained HTML + inline-SVG prototype, for
+when a note needs something markdown can’t draw:</p>
 <div style="font-family:ui-sans-serif,system-ui;max-width:34rem;margin:1.4rem 0;border:1px solid #e6e2d6;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,.06)"> <div style="display:flex;align-items:center;gap:.5rem;padding:.55rem .85rem;background:#f4f1e8;border-bottom:1px solid #e6e2d6"> <span style="width:11px;height:11px;border-radius:50%;background:#ff5f56;display:inline-block"></span> <span style="width:11px;height:11px;border-radius:50%;background:#ffbd2e;display:inline-block"></span> <span style="width:11px;height:11px;border-radius:50%;background:#27c93f;display:inline-block"></span> <span style="margin-left:.5rem;font:600 .72rem/1 ui-monospace,monospace;color:#5b6470">atlas / second-brain.html</span> </div> <div style="padding:1.05rem 1.1rem;background:#fff"> <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.75rem"> <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#1b7a3a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21V11"></path><path d="M12 11c0-3.3 2.4-5.8 5.8-5.8 0 3.3-2.4 5.8-5.8 5.8Z"></path><path d="M12 14C12 10.7 9.6 8.2 6.2 8.2 6.2 11.5 8.6 14 12 14Z"></path></svg> <strong style="color:#1a1c20;font-size:.95rem">A note grows up</strong> </div> <div style="display:flex;align-items:center;gap:.4rem;font:.72rem/1 ui-monospace,monospace"> <span style="background:#f8efd9;color:#8a5200;border:1px solid #e8d3a3;border-radius:6px;padding:.28rem .55rem">seedling</span> <span style="color:#cdb47e">→</span> <span style="background:#dcf0f4;color:#0b6478;border:1px solid #0b6478;border-radius:6px;padding:.28rem .55rem;box-shadow:0 0 0 2px #bfe3ea">budding</span> <span style="color:#9fc0c8">→</span> <span style="background:#e3f4e9;color:#1b7a3a;border:1px solid #bce3c8;border-radius:6px;padding:.28rem .55rem">evergreen</span> </div> </div> </div>
-<p>Props are typechecked at build; the raw <code>.md</code> preview can’t render any of this —
-the Astro layer can.</p>
+<p><strong><code>&lt;Toc&gt;</code></strong> — a table of contents built from the note’s headings. The page route
+renders it (the <strong>Contents</strong> box at the top of this note), so notes never import
+it.</p>
+<p><strong><code>&lt;Roadmap&gt;</code> + <code>&lt;Milestone&gt;</code></strong> — a status-marked roadmap (done ✓ · now ▸ ·
+next ○) with rich children. Usage:
+<code>&lt;Milestone status=&quot;done&quot; label=&quot;Shipped&quot;&gt;…&lt;/Milestone&gt;</code>; see <a href="#roadmap">Roadmap</a>
+below for the live one.</p>
 <h2 id="navigation--generated-not-hand-curated">Navigation — generated, not hand-curated</h2>
 <ul>
 <li><strong>Index built from frontmatter</strong> → a note can never be unfiled (retires the hand MOC + its <code>docs-moc</code> link-gate, kept only while legacy <code>docs/plans/*.html</code> exist).</li>
