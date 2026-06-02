@@ -102,6 +102,11 @@ const POSITION_SCHEMA = {
           id: { type: 'string' },
           disposition: { type: 'string', enum: ['fix', 'drop'] },
           plan: { type: 'string', description: 'if fix: the exact change, implementable' },
+          agreesWithPlan: {
+            type: 'boolean',
+            description:
+              "when disposition===fix, true only if you endorse the other lens's plan as-is; if false, your `plan` field is the amendment that must still converge",
+          },
           reasoning: { type: 'string', description: 'argue from the code (cite file:line); concede explicitly when the other lens is right' },
         },
       },
@@ -139,7 +144,7 @@ function debateBrief(lens, opp, activeFindings, oppPos, settledList, roundNum) {
     ? `\nALREADY SETTLED (you both agreed — do NOT relitigate, shown for context only):\n${settledList.map((s) => `- ${s.id}: ${s.disposition}`).join('\n')}\n`
     : ''
   const oppBlock = oppPos
-    ? `**${opp}'s positions to rebut or concede, point by point:**\n${JSON.stringify(oppPos, null, 2)}`
+    ? `**${opp}'s positions to rebut or concede, point by point:**\n${JSON.stringify(oppPos, null, 2)}\n\nFor each finding you also call \`fix\`, set \`agreesWithPlan\`: true only if you endorse ${opp}'s \`plan\` as-is. If false, your \`plan\` field is the amended plan that must still converge — the finding stays open another round until the plans agree, just like the disposition.`
     : `Round 1 — give your initial disposition on every contested finding below, including ${opp}'s and any from other reviewers.`
   return `You are **${lens}**, cross-examining **${opp}** to reach agreement. First Read \`.claude/skills/${lens}/SKILL.md\` for your framework, then ${DIFF} Ground every call in the source.
 ${rationaleBlock}
@@ -259,10 +264,14 @@ for (let r = 1; r <= maxRounds && activeIds.length > 0; r++) {
   for (const id of [...activeIds]) {
     const l = lowyPos[id]
     const h = hickeyPos[id]
-    const agreed = !!(l && h && l.disposition === h.disposition)
+    // For a `fix`, agreement requires the second poster (hickey, who has seen
+    // lowy's positions) to endorse lowy's plan as-is — otherwise the finding
+    // stays active so the plan converges the same way the disposition does.
+    const agreed = !!(l && h && l.disposition === h.disposition && (l.disposition !== 'fix' || h.agreesWithPlan === true))
     per.push({ id, lowy: l?.disposition ?? '?', hickey: h?.disposition ?? '?', agreed })
     if (agreed) {
-      settled[id] = { disposition: l.disposition, plan: l.disposition === 'fix' ? l.plan || h.plan : undefined, lowy: l, hickey: h }
+      // Endorsement guarantees l.plan is the converged text; no arbitrary fallback.
+      settled[id] = { disposition: l.disposition, plan: l.disposition === 'fix' ? l.plan : undefined, lowy: l, hickey: h }
       activeIds = activeIds.filter((x) => x !== id)
     }
   }
