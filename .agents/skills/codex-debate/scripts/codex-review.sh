@@ -112,23 +112,32 @@ Return a verdict matching the provided JSON schema:
 EOF
 )"
 
+# model_reasoning_effort=xhigh is scoped to the debate here (via -c) rather than
+# relying on the user's global ~/.codex/config.toml — review is the one place we
+# always want codex thinking at full depth, regardless of their default.
 if ! codex exec \
       --sandbox read-only \
+      -c model_reasoning_effort="xhigh" \
       --output-schema "$schema" \
       -o "$out" \
-      "$prompt" </dev/null >"$log" 2>&1; then
+      "$prompt"</dev/null >"$log" 2>&1; then
   echo "codex exec exited non-zero (see $log)" >&2
 fi
 
 if [ ! -s "$out" ]; then
   # codex produced no verdict — synthesize a schema-valid error verdict so the
-  # debate loop can surface the failure instead of hanging.
+  # debate loop can surface the failure instead of hanging. The reviewerError
+  # flag is the machine-detectable signal the workflow uses to abort with a
+  # terminal failure: a broken/unavailable codex is INFRASTRUCTURE failure, not
+  # substantive disagreement, so it must NOT be routed to Claude (there are no
+  # findings to act on) and must NOT spin the loop forever.
   tail_log="$(tail -c 2000 "$log" 2>/dev/null || true)"
   jq -n --arg log "$tail_log" '{
     approved: false,
     summary: ("codex produced no verdict this round. Tail of log: " + $log),
     findings: [],
-    responseToRebuttal: ""
+    responseToRebuttal: "",
+    reviewerError: true
   }' >"$out"
 fi
 

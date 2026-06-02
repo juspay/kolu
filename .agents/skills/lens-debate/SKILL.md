@@ -47,10 +47,13 @@ The structure was found by trial in #1109, and two parts of it are load-bearing:
 
 ## Why deadlock is not possible
 
-`/codex-debate` *can* deadlock, and detects it: there the asymmetry is reviewer
-vs **author** — Claude wrote the code, has authorship stake, and can dig in and
-dispute a finding indefinitely. So that skill bails when the blocking set stops
-moving.
+Neither this skill nor `/codex-debate` has a deadlock exit — both run until
+consensus, as many rounds as it takes. But the *reason* convergence is safe to
+rely on is even stronger here. In `/codex-debate` the asymmetry is reviewer vs
+**author**: Claude wrote the code and carries an authorship stake, so in
+principle it could dig in and dispute a finding round after round (the loop
+trusts good-faith concession to break the tie, and aborts only on reviewer
+*infrastructure* failure).
 
 Here both sides are **disinterested third-party lenses** applied to someone
 else's diff. Neither authored the code; neither has anything to defend. Their

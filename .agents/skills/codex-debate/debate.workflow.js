@@ -1,6 +1,6 @@
 export const meta = {
   name: 'codex-debate',
-  description: 'Run a codex<->claude review debate on the current diff until consensus, deadlock, or max rounds',
+  description: 'Run a codex<->claude review debate on the current diff until they reach consensus (no round cap, no deadlock exit)',
   phases: [
     { title: 'Debate', detail: 'codex reviews -> claude responds, round after round' },
   ],
@@ -12,7 +12,6 @@ export const meta = {
 const a = args || {}
 const repoPath = a.repoPath || '.'
 const base = a.base || 'origin/master'
-const maxRounds = a.maxRounds || 5
 // Where the generated skill lives, so the codex runner can find codex-review.sh.
 const skillDir = a.skillDir || '.claude/skills/codex-debate'
 // Per-worktree scratch dir for rebuttal/verdict files. Derived from repoPath
@@ -51,6 +50,10 @@ const CODEX_VERDICT_SCHEMA = {
     summary: { type: 'string' },
     findings: { type: 'array', items: FINDING },
     responseToRebuttal: { type: 'string' },
+    // Set by scripts/codex-review.sh ONLY when codex itself failed to produce a
+    // verdict (broken/unavailable reviewer). It is the machine-detectable fatal
+    // signal the loop aborts on — infrastructure failure, not a debate outcome.
+    reviewerError: { type: 'boolean' },
   },
   required: ['approved', 'summary', 'findings', 'responseToRebuttal'],
 }
@@ -80,31 +83,17 @@ const CLAUDE_RESPONSE_SCHEMA = {
 }
 
 // ---------------------------------------------------------------------------
-// Consensus / deadlock helpers
+// Consensus helper
 // ---------------------------------------------------------------------------
 // A finding still "counts against" consensus only if it is open AND
-// blocking/major. Minor issues and nits never block agreement.
+// blocking/major. Minor issues and nits never block agreement. Consensus is the
+// ONLY terminal state — there is no round cap and no deadlock exit, so the loop
+// runs until codex approves with nothing blocking/major open. The debate is
+// pointless if it bails to "deadlock"; the two sides must argue it out until
+// one concedes.
 function blockingOpen(verdict) {
   return (verdict.findings || []).filter(
     (f) => f.status !== 'resolved' && (f.severity === 'blocking' || f.severity === 'major'),
-  )
-}
-
-// Signature of the blocking set, used to detect a stalled debate (codex keeps
-// raising the same issues while claude keeps disputing them).
-function blockingSignature(verdict) {
-  return blockingOpen(verdict)
-    .map((f) => `${f.location || ''}|${(f.issue || '').slice(0, 80)}`)
-    .sort()
-    .join('\n')
-}
-
-function claudeDisputedEverything(resp) {
-  return (
-    resp &&
-    Array.isArray(resp.actions) &&
-    resp.actions.length > 0 &&
-    resp.actions.every((act) => act.disposition === 'disputed')
   )
 }
 
@@ -213,44 +202,48 @@ ${message}
 }
 
 const transcript = []
-let status = 'max-rounds'
+// 'consensus' is the only NORMAL terminus. 'reviewer-error' is the one abnormal
+// terminus: codex itself failed to produce a verdict (broken/unavailable). That
+// is infrastructure failure, not a debate outcome, so it ends the loop too —
+// distinct from the deliberate "no deadlock exit" for substantive disagreement.
+let status = 'consensus'
 let finalVerdict = null
 let lastClaude = null
-let prevSignature = null
 
 // ---------------------------------------------------------------------------
-// The loop
+// The loop — runs until consensus. No round cap, no deadlock exit.
 // ---------------------------------------------------------------------------
+// The debate continues, round after round, until codex approves with nothing
+// blocking/major open. There is deliberately no upper bound and no early
+// "deadlock" surrender: a debate that quits without agreement defeats the
+// purpose, so the two sides keep arguing until one concedes. (The harness's own
+// per-workflow agent backstop is the only hard ceiling; interrupt via
+// /workflows or TaskStop if you ever need to stop one by hand.)
 phase('Debate')
 
-for (let round = 1; round <= maxRounds; round++) {
+for (let round = 1; ; round++) {
   const verdict = await codexReviews(round, lastClaude ? JSON.stringify(lastClaude) : null)
   finalVerdict = verdict
   const entry = { round, codex: verdict, claude: null }
   transcript.push(entry) // record this round (mutated in place as it progresses)
+  // Reviewer error — terminal failure path. The runner could not get a verdict
+  // out of codex (broken/unavailable CLI), so codex-review.sh synthesized an
+  // error verdict carrying reviewerError:true. There are no findings to route to
+  // Claude, and retrying a broken reviewer just spins forever, so abort the
+  // debate and surface the failure. This is deliberately separate from the
+  // "no deadlock exit" rule, which only governs substantive disagreement.
+  if (verdict.reviewerError) {
+    status = 'reviewer-error'
+    log(`Round ${round}: reviewer error — aborting debate. ${verdict.summary}`)
+    break
+  }
+
   const blocking = blockingOpen(verdict)
   log(`Round ${round}: codex approved=${verdict.approved}, blocking/major open=${blocking.length}`)
 
-  // Consensus: codex is satisfied and nothing blocking/major remains open.
+  // Consensus — the normal exit: codex is satisfied and nothing blocking/major
+  // remains open.
   if (verdict.approved && blocking.length === 0) {
-    status = 'consensus'
-    break
-  }
-
-  // Deadlock: the blocking set is identical to last round AND claude disputed
-  // everything last round (so nothing changed and nothing will). Stop and let
-  // the human adjudicate rather than burn rounds.
-  const signature = blockingSignature(verdict)
-  if (prevSignature !== null && signature === prevSignature && claudeDisputedEverything(lastClaude)) {
-    status = 'deadlock'
-    break
-  }
-  prevSignature = signature
-
-  // Last round budget spent — record codex's final verdict, don't ask claude
-  // to edit with no re-review to follow.
-  if (round === maxRounds) {
-    status = 'max-rounds'
     break
   }
 
