@@ -50,7 +50,7 @@
   Adding, renaming, or removing a file under docs/plans/? Add or refresh its
   one-line entry below, in the right section, in the SAME commit. Prefer flat
   ancestry-free slugs (pty-daemon-tui.html) over dotted names
-  (remote-terminals.pty-daemon.tui.html). Rationale: the Atlas design in the Atlas (website/src/content/atlas/second-brain.md).
+  (remote-terminals.pty-daemon.tui.html). Rationale: the Atlas design (docs/atlas/src/content/atlas/second-brain.mdx).
   Also enforced as an agent rule: .apm/instructions/docs.instructions.md
 -->
 <main>
@@ -58,7 +58,7 @@
 <p class="crumb">docs / plans</p>
 
 <h1>docs/plans — Maps of Content</h1>
-<p class="sub">The hand-curated index for kolu's in-repo knowledge base. A note's <em>name</em> is a stable handle; its <em>structure</em> lives here, in links and annotations — not in the filename. <span class="muted">See the Atlas design in the Atlas (<code>/atlas/second-brain</code>) for why.</span></p>
+<p class="sub">The hand-curated index for kolu's in-repo knowledge base. A note's <em>name</em> is a stable handle; its <em>structure</em> lives here, in links and annotations — not in the filename. <span class="muted">See the Atlas design (<code>docs/atlas/dist/second-brain.html</code>) for why.</span></p>
 
 <div class="panel accent">
 <p style="margin-top:0"><strong>How the brain is split</strong> — by one rule: <em>substantial, structured artifacts</em> live in the Atlas (this page maps it); <em>lightweight, transient nodes</em> live in GitHub Issues; the public stream is the blog. Maturity (seedling→evergreen) is a per-note <em>tag</em>, never a location.</p>
@@ -71,7 +71,7 @@
 </div>
 
 <h2>Process &amp; meta</h2>
-<p class="muted">The <strong>Atlas</strong> design has moved into the Astro Atlas — authored as markdown at <code>website/src/content/atlas/second-brain.md</code> and rendered at <code>/atlas/second-brain</code>. New Atlas notes are authored there, not here; <code>release-workflow</code> was removed. This <code>docs/plans</code> index covers the not-yet-migrated plans below.</p>
+<p class="muted">The <strong>Atlas</strong> now lives as a self-contained Astro project at <code>docs/atlas/</code> — authored as MDX at <code>docs/atlas/src/content/atlas/second-brain.mdx</code> and rendered to <code>docs/atlas/dist/second-brain.html</code> (decoupled from the public website, not published). New Atlas notes are authored there, not here; <code>release-workflow</code> was removed. This <code>docs/plans</code> index covers the not-yet-migrated plans below.</p>
 
 <h2>Plans &amp; specs <span class="muted" style="font-size:.8rem; font-weight:400">— forward-looking design &amp; phases</span></h2>
 <a class="entry" href="./remote-terminals.html">

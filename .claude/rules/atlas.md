@@ -1,13 +1,13 @@
 ---
 paths:
-  - "{website/src/content/atlas/**,website/src/pages/atlas/**,website/src/content.config.ts}"
+  - "docs/atlas/**"
 ---
 
 ## The Atlas — keep the rendered HTML in sync
 
-Atlas notes are authored as markdown in `website/src/content/atlas/` and rendered by Astro to `website/dist/atlas/`. The rendered `.html` is **committed** (marked generated in `.gitattributes`) so it can be reviewed directly in kolu's Code tab without running a dev server.
+The Atlas is a **self-contained Astro project** at `docs/atlas/` — decoupled from the public website and **not published anywhere**. Notes are authored as markdown/MDX in `docs/atlas/src/content/atlas/` and rendered by Astro to `docs/atlas/dist/`. The rendered `.html` is **committed** (marked generated in `.gitattributes`) so it can be reviewed directly in kolu's Code tab without running a dev server.
 
-- After you **add, edit, rename, or remove** a Atlas note (or change the Atlas's Astro setup), **regenerate and commit the output in the same commit**: run `just website::build-atlas`, then stage `website/dist/atlas/`.
-- Pages build with inlined styles, so each `website/dist/atlas/<slug>.html` is self-contained and previews correctly in the Code tab.
-- **Author markdown only** — never hand-edit the generated HTML under `website/dist/`.
-- The generated index lives at `website/dist/atlas/index.html`; a note can't be unfiled, so no hand-curated map or CI link-gate is needed for the Atlas.
+- After you **add, edit, rename, or remove** an Atlas note (or change the Atlas's Astro setup), **regenerate and commit the output in the same commit**: run `just atlas::build`, then stage `docs/atlas/dist/`.
+- Pages build with `format: "file"` + inlined styles, so each `docs/atlas/dist/<slug>.html` is self-contained and cross-links with relative hrefs — it previews correctly in the Code tab.
+- **Author markdown/MDX only** — never hand-edit the generated HTML under `docs/atlas/dist/`. For anything markdown can't express, add or reuse an Astro component under `docs/atlas/src/components/` (e.g. `<PrLink>`) and use it from the `.mdx`.
+- The generated index lives at `docs/atlas/dist/index.html`; a note can't be unfiled, so no hand-curated map or CI link-gate is needed for the Atlas.

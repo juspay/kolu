@@ -1,0 +1,61 @@
+---
+import { getCollection } from "astro:content";
+import AtlasLayout from "../layouts/AtlasLayout.astro";
+
+// Generated index: derived from each note's frontmatter. Drafts are hidden from
+// the built index but stay reachable in `astro dev`. A note can never be
+// "unfiled" — so this replaces a hand-curated MOC and its CI gate. Links are
+// relative (`./<slug>.html`) so the committed pages navigate in the Code tab.
+const notes = (await getCollection("atlas"))
+  .filter((n) => import.meta.env.DEV || !n.data.draft)
+  .sort((a, b) => a.data.title.localeCompare(b.data.title));
+
+const KINDS = ["plan", "design", "review", "retro", "research", "decision"] as const;
+const byKind = (k: string) => notes.filter((n) => n.data.kind === k);
+---
+
+<AtlasLayout
+  title="Atlas"
+  description="kolu's in-repo Atlas — plans, designs, reviews, and learnings, authored in markdown/MDX."
+>
+  <div class="wrap">
+    <p class="eyebrow">the kolu atlas</p>
+    <h1 class="atlas-title">The <span class="accent">Atlas</span>.</h1>
+    <p class="lede">
+      kolu's in-repo knowledge base — authored in markdown/MDX, rendered to
+      self-contained HTML you can read right here in the Code tab. This index is
+      generated from each note's frontmatter, so there is no hand-curated map to
+      drift and nothing falls through unfiled.
+    </p>
+
+    {
+      KINDS.map((k) =>
+        byKind(k).length > 0 ? (
+          <section class="kind-group">
+            <h2 class="kind-head">{k}</h2>
+            <ul class="note-list">
+              {byKind(k).map((n) => (
+                <li class="note-item">
+                  <a class="note-link" href={`./${n.id}.html`}>
+                    <div class="note-row">
+                      <h3 class="note-name">{n.data.title}</h3>
+                      <span class={`badge m-${n.data.maturity}`}>{n.data.maturity}</span>
+                      {n.data.status && <span class="badge badge-muted">{n.data.status}</span>}
+                      {n.data.draft && <span class="badge badge-draft">draft</span>}
+                    </div>
+                    <p class="note-desc">{n.data.description}</p>
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null,
+      )
+    }
+    {
+      notes.length === 0 && (
+        <p class="mono" style="color:var(--ink-muted);padding:3rem 0;text-align:center">// the Atlas is empty</p>
+      )
+    }
+  </div>
+</AtlasLayout>

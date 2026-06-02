@@ -1,5 +1,4 @@
-/dist/*
-!/dist/atlas
+dist/
 .astro/
 node_modules/
 .env
