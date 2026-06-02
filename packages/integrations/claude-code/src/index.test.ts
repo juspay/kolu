@@ -1088,6 +1088,17 @@ describe("deriveWorkflowProgress", () => {
 
   const session = () => ({ pid: 1, sessionId, cwd });
 
+  /** Path to the live run dir `<session>/subagents/workflows/<runId>/`. */
+  const liveRunDir = (runId: string) =>
+    path.join(
+      tmpDir,
+      encodeProjectPath(cwd),
+      sessionId,
+      "subagents",
+      "workflows",
+      runId,
+    );
+
   it("reads name, status, and agent count from the run journal", () => {
     writeJournal("wf_run", {
       workflowName: "deep-research",
@@ -1102,14 +1113,7 @@ describe("deriveWorkflowProgress", () => {
   it("reads the agent count from the LIVE run dir when no snapshot exists yet (#1123)", () => {
     // During a run there is no `workflows/<runId>.json`; progress lives in
     // `subagents/workflows/<runId>/journal.jsonl` (one `started` per sub-agent).
-    const live = path.join(
-      tmpDir,
-      encodeProjectPath(cwd),
-      sessionId,
-      "subagents",
-      "workflows",
-      "wf_runlive",
-    );
+    const live = liveRunDir("wf_runlive");
     fs.mkdirSync(live, { recursive: true });
     fs.writeFileSync(
       path.join(live, "journal.jsonl"),
@@ -1125,14 +1129,7 @@ describe("deriveWorkflowProgress", () => {
   });
 
   it("counts DISTINCT started agentIds (a replayed `started` doesn't inflate the badge)", () => {
-    const live = path.join(
-      tmpDir,
-      encodeProjectPath(cwd),
-      sessionId,
-      "subagents",
-      "workflows",
-      "wf_dupes",
-    );
+    const live = liveRunDir("wf_dupes");
     fs.mkdirSync(live, { recursive: true });
     fs.writeFileSync(
       path.join(live, "journal.jsonl"),
@@ -1156,14 +1153,7 @@ describe("deriveWorkflowProgress", () => {
     // A live run has no completion snapshot, but the launch-time script
     // `workflows/scripts/<name>-<runId>.js` carries the user-visible name — the
     // tile badge/inspector must show it, not a hard-coded "workflow".
-    const live = path.join(
-      tmpDir,
-      encodeProjectPath(cwd),
-      sessionId,
-      "subagents",
-      "workflows",
-      "wf_named",
-    );
+    const live = liveRunDir("wf_named");
     fs.mkdirSync(live, { recursive: true });
     fs.writeFileSync(
       path.join(live, "journal.jsonl"),
