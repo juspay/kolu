@@ -27,6 +27,7 @@ import path from "node:path";
 import { getSessionInfo } from "@anthropic-ai/claude-agent-sdk";
 import { classifyByAwaiting } from "anyagent";
 import { type Logger, readTailLines } from "kolu-shared";
+import { parseIsoTimestamp } from "kolu-transcript-core";
 import { match } from "ts-pattern";
 import { z } from "zod";
 import type {
@@ -393,8 +394,7 @@ export function deriveState(
         // newest `user`/`assistant` — so the orphaned-prompt age check reads the
         // same entry, not a parallel walk (null if absent/unparseable).
         if (stateAndModel !== null) {
-          const ts = entry.timestamp ? Date.parse(entry.timestamp) : Number.NaN;
-          timestampMs = Number.isNaN(ts) ? null : ts;
+          timestampMs = parseIsoTimestamp(entry.timestamp);
         }
       }
 
