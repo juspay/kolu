@@ -157,15 +157,14 @@ Feature: File-ref autolinking in terminal
     And the file preview iframe should be visible
     And the file preview iframe should contain "electricity"
 
-  # `@skip`: known regression noted in c89a85f3 — the second xterm `path:line`
-  # click after a manual collapse fails to re-open the panel under the bundled
-  # build (passes in dev). Suspected production-Solid reactive elision or
-  # xterm link-decoration cache invalidation after the layout reflow.
-  # `equals: false` on `pendingOpen` and imperative dispatch from
-  # `openInCodeTab` both fail to clear it; deeper diagnosis is tracked
-  # separately. Run with `CUCUMBER_TAGS='@skip' just test-quick
-  # features/file-ref-link.feature` to exercise this scenario locally.
-  @skip
+  # Guards the c89a85f3 regression: a second click on the same `path:line`
+  # after manually collapsing the panel must re-open it. The bug was
+  # production-only — the deferred `on(pendingOpen)` effect that drove panel
+  # visibility lost its second fire under the minified Solid build when the
+  # same request flowed through twice, so the panel stayed `aria-hidden`.
+  # `openInCodeTab` now reveals the panel imperatively, sidestepping the
+  # elided-effect path. This scenario is the canary, so it must run against
+  # the bundled build (`just test-quick`), not just dev.
   Scenario: Re-clicking the same file-ref after closing the panel re-selects the line
     When I run "git init /tmp/kolu-file-ref-861-reclick && cd /tmp/kolu-file-ref-861-reclick"
     And I run "git commit --allow-empty -m init"
