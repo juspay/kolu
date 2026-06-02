@@ -115,14 +115,38 @@ EOF
 # model_reasoning_effort=xhigh is scoped to the debate here (via -c) rather than
 # relying on the user's global ~/.codex/config.toml — review is the one place we
 # always want codex thinking at full depth, regardless of their default.
-if ! codex exec \
-      --sandbox read-only \
-      -c model_reasoning_effort="xhigh" \
-      --output-schema "$schema" \
-      -o "$out" \
-      "$prompt"</dev/null >"$log" 2>&1; then
-  echo "codex exec exited non-zero (see $log)" >&2
-fi
+#
+# RETRY/BACKOFF. codex's CLI fails transiently often enough to matter (API
+# hiccups, a spurious internal error) and writes no verdict — which would
+# otherwise degrade the whole track to reviewer-error on a single bad roll.
+# Retry the invocation with linear backoff, accepting the first attempt that
+# writes a non-empty verdict to "$out". Tunable via env: CODEX_REVIEW_RETRIES
+# (total attempts, default 3), CODEX_REVIEW_BACKOFF (base seconds, default 5 —
+# attempt n waits n*base). Only after every attempt fails empty do we synthesize
+# the reviewerError verdict below.
+attempts="${CODEX_REVIEW_RETRIES:-3}"
+backoff="${CODEX_REVIEW_BACKOFF:-5}"
+n=1
+while :; do
+  rm -f "$out"
+  if ! codex exec \
+        --sandbox read-only \
+        -c model_reasoning_effort="xhigh" \
+        --output-schema "$schema" \
+        -o "$out" \
+        "$prompt"</dev/null >"$log" 2>&1; then
+    echo "codex exec exited non-zero (attempt $n/$attempts; see $log)" >&2
+  fi
+  # Success the moment codex writes a verdict: the kernel sandbox + --output-schema
+  # make a non-empty "$out" a real, schema-valid verdict, not a partial.
+  [ -s "$out" ] && break
+  # Out of attempts — fall through to the synthesized reviewerError verdict.
+  [ "$n" -ge "$attempts" ] && break
+  wait_s=$(( backoff * n ))
+  echo "codex produced no verdict (attempt $n/$attempts); retrying in ${wait_s}s..." >&2
+  n=$(( n + 1 ))
+  sleep "$wait_s"
+done
 
 if [ ! -s "$out" ]; then
   # codex produced no verdict — synthesize a schema-valid error verdict so the
@@ -132,9 +156,9 @@ if [ ! -s "$out" ]; then
   # substantive disagreement, so it must NOT be routed to Claude (there are no
   # findings to act on) and must NOT spin the loop forever.
   tail_log="$(tail -c 2000 "$log" 2>/dev/null || true)"
-  jq -n --arg log "$tail_log" '{
+  jq -n --arg log "$tail_log" --arg attempts "$attempts" '{
     approved: false,
-    summary: ("codex produced no verdict this round. Tail of log: " + $log),
+    summary: ("codex produced no verdict this round after " + $attempts + " attempt(s). Tail of log: " + $log),
     findings: [],
     responseToRebuttal: "",
     reviewerError: true

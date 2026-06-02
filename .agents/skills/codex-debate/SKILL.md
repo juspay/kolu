@@ -113,7 +113,12 @@ collide** and the scratch never shows up in the diff codex reviews. It returns:
   produce a verdict (broken/unavailable CLI), so the workflow synthesized an
   error verdict and aborted rather than spin forever on a dead reviewer. This is
   **infrastructure failure, not a debate outcome** — `finalVerdict.summary`
-  carries the failure detail. Do **not** treat it as consensus (see step 3).
+  carries the failure detail (including how many attempts were made). Do **not**
+  treat it as consensus (see step 3). **Transient failures are retried first:**
+  `codex-review.sh` retries the `codex exec` invocation with linear backoff
+  (default 3 attempts; tune via `CODEX_REVIEW_RETRIES` / `CODEX_REVIEW_BACKOFF`)
+  and only synthesizes the reviewer-error verdict once every attempt comes back
+  empty — so a single codex hiccup no longer sinks the round.
 
 ### 3. Present the result
 
